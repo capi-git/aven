@@ -41,6 +41,8 @@ export type BrowserEditEvent = {
   active: boolean;
   selection?: BrowserEditSelection;
   screenshot?: BrowserEditScreenshot;
+  /** User-authored annotation, emitted only after committing the selected element. */
+  comment?: string;
   error?: string;
 };
 

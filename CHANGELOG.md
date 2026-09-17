@@ -1,5 +1,15 @@
 # Aven changelog
 
+## [0.1.73] - 2026-09-17
+
+### Browser annotations
+
+- Select an element and write a comment beside it, with a blue outline and a compact in-app annotation card above the live browser.
+- Add the comment and a clean element screenshot to the chat draft together; nothing is sent until you submit the draft.
+- Change the selected element or exit with Escape, the close button, or Done in the browser toolbar.
+- Keep annotation input outside website scripts and reject cancelled, stale, duplicate, or oversized annotation events.
+- Retain Chromium element data across asynchronous capture and comment callbacks, preventing expired selections from crashing the app.
+
 ## [0.1.72] - 2026-09-17
 
 ### Workspace navigation and browser fixes

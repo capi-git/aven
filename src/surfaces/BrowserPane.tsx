@@ -416,7 +416,10 @@ function BrowserPaneSession({
           event.token !== editToken.current
         )
           return;
-        if (event.selection && editingActive.current) {
+        if (event.selection) {
+          // Only a committed selection can add a draft. Duplicate completion
+          // events must not cancel the first attachment while it is saving.
+          if (event.active || !editingActive.current) return;
           const request = ++editRequest.current;
           editingActive.current = false;
           setEditing(false);
@@ -435,7 +438,7 @@ function BrowserPaneSession({
                 !editVisible.current
               )
                 return;
-              callbacks.current.onAddToChat?.("", [attachment]);
+              callbacks.current.onAddToChat?.(event.comment ?? "", [attachment]);
             },
             (reason) => {
               if (!disposed && request === editRequest.current)
@@ -1807,7 +1810,7 @@ function BrowserPaneSession({
         <div className="browser-edit-hint" role="status">
           <Pencil size={13} />
           <span>
-            Select an element to attach a screenshot. Press Esc to exit.
+            Select an element, then add a comment. Press Esc to exit.
           </span>
         </div>
       )}

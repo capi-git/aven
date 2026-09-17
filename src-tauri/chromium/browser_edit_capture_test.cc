@@ -23,11 +23,16 @@ int main() {
   auto zoomed = ElementCaptureClip({70.5, 20.25, 120.5, 40.75}, {0, 0, 400, 250}, 5, 100, 2);
   CHECK(zoomed && zoomed->clip.x == 75.5 && zoomed->clip.y == 120.25 &&
          zoomed->clip.width == 120.5 && zoomed->scale == 1);
+  CHECK(zoomed->target.x == 70.5 / 400 && zoomed->target.y == 20.25 / 250 &&
+        zoomed->target.width == 120.5 / 400 && zoomed->target.height == 40.75 / 250);
   auto occluded = ElementCaptureClip({0, 0, 800, 500}, {0, 0, 800, 500}, 0, 0, 1, .25, .125);
   CHECK(occluded && occluded->clip.x == 200 && occluded->clip.width == 500);
+  CHECK(occluded->target.x == .25 && occluded->target.width == .625);
   auto panned = ElementCaptureClip({100, 30, 500, 250}, {120, 40, 300, 150}, 50, 60, 2);
   CHECK(panned && panned->clip.x == 170 && panned->clip.y == 100 &&
          panned->clip.width == 300 && panned->clip.height == 150);
+  CHECK(panned->target.x == 0 && panned->target.y == 0 &&
+        panned->target.width == 1 && panned->target.height == 1);
   auto large = ElementCaptureClip({0, 0, 4000, 3000}, {0, 0, 4000, 3000}, 0, 0, 2);
   CHECK(large && large->scale < 1 &&
          8000 * large->scale <= 4096 &&

@@ -29,6 +29,7 @@ Aven does not include model access or sell tokens. Provider subscriptions, API c
 ## What you can do
 
 - **Keep work together:** conversations, split panes, an embedded browser, a file editor, Git changes, and terminals.
+- **Comment on a page:** click Edit page, select an element, and add a comment beside it. **Add to chat** puts your comment and an element screenshot in the draft for review before sending. **Change element** picks another target; Escape or Done exits.
 - **Organize projects:** switch between local workspace profiles, arrange tabs and folders, and choose each workspace's appearance.
 - **Guide agents:** review approvals, queue follow-ups, inspect changes, and coordinate a lead with workers through [orchestration](docs/ORCHESTRATION.md).
 - **Save context:** use Notes for Markdown notes and Inbox for GitHub issues, pull requests, and Linear tasks from connected projects.

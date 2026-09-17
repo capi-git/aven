@@ -652,6 +652,111 @@ describe("native preview lifecycle", () => {
     expect(mocks.navigate).not.toHaveBeenCalled();
   });
 
+  it("keeps selection active without attaching until the inline comment is committed", async () => {
+    let finish!: (value: object) => void;
+    mocks.editAttachment.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const add = vi.fn();
+    const id = await openPane({ onAddToChat: add });
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Edit page"]')!
+        .click(),
+    );
+    const token = mocks.edit.mock.calls.at(-1)![2];
+    const callback = mocks.listenEditing.mock.calls.at(-1)![0];
+    await act(async () => callback({ id, token, active: true }));
+    expect(add).not.toHaveBeenCalled();
+    expect(mocks.editAttachment).not.toHaveBeenCalled();
+    expect(container.textContent).toContain(
+      "Select an element, then add a comment. Press Esc to exit.",
+    );
+    const committed = {
+      id,
+      token,
+      active: false,
+      comment: "Make this heading smaller and blue.",
+      selection: {
+        url: "http://localhost:3000/",
+        title: "Example page",
+        selector: "#heading",
+        tag: "h1",
+        text: "Page text is context, not the user's comment.",
+      },
+      screenshot: {
+        dataUrl: "data:image/png;base64,iVBORw0KGgo=",
+        width: 120,
+        height: 32,
+      },
+    };
+    await act(async () => callback({ ...committed, active: true }));
+    expect(mocks.editAttachment).not.toHaveBeenCalled();
+    expect(
+      container.querySelector('[aria-label="Exit edit mode"]'),
+    ).not.toBeNull();
+    await act(async () => {
+      callback(committed);
+      callback(committed);
+    });
+    expect(mocks.editAttachment).toHaveBeenCalledOnce();
+    expect(add).not.toHaveBeenCalled();
+    const attachment = {
+      id: "capture",
+      kind: "image",
+      name: "Selected element.png",
+    };
+    await act(async () => finish(attachment));
+    await act(async () => callback(committed));
+    expect(add).toHaveBeenCalledExactlyOnceWith(committed.comment, [
+      attachment,
+    ]);
+    expect(JSON.stringify(add.mock.calls)).not.toContain("#heading");
+    expect(JSON.stringify(add.mock.calls)).not.toContain(
+      committed.selection.text,
+    );
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("does not attach a late commented selection after cancelling the annotation", async () => {
+    const add = vi.fn();
+    const id = await openPane({ onAddToChat: add });
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Edit page"]')!
+        .click(),
+    );
+    const token = mocks.edit.mock.calls.at(-1)![2];
+    const callback = mocks.listenEditing.mock.calls.at(-1)![0];
+    await act(async () => callback({ id, token, active: true }));
+    await act(async () => callback({ id, token, active: false }));
+    await act(async () =>
+      callback({
+        id,
+        token,
+        active: false,
+        comment: "Cancelled comment",
+        selection: {
+          url: "http://localhost:3000/",
+          title: "Example",
+          selector: "h1",
+          tag: "h1",
+          text: "Heading",
+        },
+        screenshot: {
+          dataUrl: "data:image/png;base64,iVBORw0KGgo=",
+          width: 120,
+          height: 32,
+        },
+      }),
+    );
+    expect(add).not.toHaveBeenCalled();
+    expect(mocks.editAttachment).not.toHaveBeenCalled();
+  });
+
   it("shows capture failures without falling back to raw element JSON", async () => {
     const add = vi.fn();
     const id = await openPane({ onAddToChat: add });
@@ -666,6 +771,7 @@ describe("native preview lifecycle", () => {
         id,
         token,
         active: false,
+        comment: "Make this smaller",
         selection: {
           url: "http://localhost:3000/",
           title: "Page",
@@ -1034,6 +1140,7 @@ describe("native preview lifecycle", () => {
         id,
         token: firstToken,
         active: false,
+        comment: "This belongs to the previous annotation",
         selection,
         error: "Old failure",
       });

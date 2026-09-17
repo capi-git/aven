@@ -11,7 +11,7 @@ constexpr uint32_t kEditCaptureMaxEdge = 4096;
 constexpr uint64_t kEditCaptureMaxPixels = 8 * 1024 * 1024;
 constexpr size_t kEditCaptureMaxBase64 = 8 * 1024 * 1024;
 
-struct BrowserEditCapture { BrowserRect clip; double scale; };
+struct BrowserEditCapture { BrowserRect clip; double scale; BrowserRect target; };
 
 // DOM bounds and scroll offsets are CSS pixels. CDP's document clip uses the
 // same space; multiplying coordinates by page zoom or Retina density crops
@@ -46,7 +46,12 @@ inline std::optional<BrowserEditCapture> ElementCaptureClip(
   const double scale = std::min({1.0, kEditCaptureMaxEdge / pixels_w,
       kEditCaptureMaxEdge / pixels_h,
       std::sqrt(double(kEditCaptureMaxPixels) / (pixels_w * pixels_h))});
-  return BrowserEditCapture{clip, scale};
+  // Normalized CSS viewport coordinates map into the native view without
+  // applying page zoom or Retina density twice.
+  const BrowserRect target{(x - viewport.x) / viewport.width,
+      (y - viewport.y) / viewport.height,
+      clip.width / viewport.width, clip.height / viewport.height};
+  return BrowserEditCapture{clip, scale, target};
 }
 
 // Read actual PNG dimensions rather than predicting Chromium's pixel rounding.

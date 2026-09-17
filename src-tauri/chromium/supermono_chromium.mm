@@ -18,6 +18,8 @@
 #include "browser_actions_menu.h"
 #include "browser_drop_indicator.h"
 #include "browser_edit_capture.h"
+#include "browser_edit_annotation.h"
+#include "browser_edit_data.h"
 #include "agent_dom_request.h"
 #include "agent_dom_source.h"
 #include "browser_edit_source.h"
@@ -291,6 +293,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     if (browser_ && browser->IsSame(browser_)) {
       registration_=nullptr; browser_=nullptr; context_id_=0;
       [drop_indicator_ clear]; drop_indicator_=nil;
+      [edit_annotation_ clear]; [edit_annotation_ removeFromSuperview]; edit_annotation_=nil;
       [clip_view_ removeFromSuperview]; clip_view_=nil;
       auto pending=std::move(pending_); pending_.clear();
       for (auto& item:pending) item.second(false,Error("Browser closed"));
@@ -349,7 +352,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   }
   void OnAddressChange(CefRefPtr<CefBrowser> browser,CefRefPtr<CefFrame> frame,const CefString& url) override {
     if (Main(browser) && frame->IsMain()) {
-      if (editing_ || edit_selection_pending_) EditMode(false);
+      if (EditActive()) EditMode(false);
       context_id_=0; error_.clear(); State();
     }
   }
@@ -360,7 +363,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       // at 100%; all user zoom changes below belong only to this live target.
       if (browser->GetHost()->GetZoomLevel()!=0) browser->GetHost()->SetZoomLevel(0);
       Zoom(zoom_.factor());
-      if (editing_ || edit_selection_pending_) EditMode(false);
+      if (EditActive()) EditMode(false);
       ++favicon_generation_; favicon_url_.clear(); favicon_.clear(); State();
     }
   }
@@ -387,10 +390,10 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     if (Main(browser) && frame->IsMain() && code!=ERR_ABORTED) { error_=error_text.ToString().substr(0,500); State(); }
   }
   void OnRenderProcessTerminated(CefRefPtr<CefBrowser> browser,TerminationStatus status,int code,const CefString& text) override {
-    if (Main(browser)) { context_id_=0; error_="The page process stopped. Reload this tab to continue."; State(); }
+    if (Main(browser)) { if (EditActive()) EditMode(false); context_id_=0; error_="The page process stopped. Reload this tab to continue."; State(); }
   }
   bool OnPreKeyEvent(CefRefPtr<CefBrowser> browser,const CefKeyEvent& event,CefEventHandle os_event,bool *shortcut) override {
-    if (Main(browser) && (editing_ || edit_selection_pending_) && event.windows_key_code==27 &&
+    if (Main(browser) && EditActive() && event.windows_key_code==27 &&
         (event.type==KEYEVENT_RAWKEYDOWN || event.type==KEYEVENT_KEYDOWN)) {
       EditMode(false); return true;
     }
@@ -534,7 +537,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   }
   void Notice(const std::string& notice) { notice_=notice; State(); }
   void Zoom(double factor,Completion done={}) {
-    if (edit_selection_pending_) EditMode(false);
+    if (EditActive()) EditMode(false);
     if (!zoom_.Request(factor)) { if (done) done(false,Error("Invalid zoom")); return; }
     if (done) zoom_waiters_.push_back(std::move(done));
     State();
@@ -591,6 +594,13 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     const NSRect clip_frame=auto_resize_ ? Frame(parent_,x_+left,y_,exposed,h_)
                                         : WorkspaceFrame(parent_,x_+left,y_,exposed,h_,viewport_height_);
     const auto aligned=supermono::AlignedBrowserHostFrames(parent_,full_frame,clip_frame);
+    // A comment refers to the captured element, not a new layout of the page.
+    // Keep the live browser attached; retire the annotation if its viewport changes.
+    if (edit_annotation_.active && (!visible_ || exposed<=0 ||
+        edit_annotation_.superview!=clip_view_ || clip_view_.superview!=parent_ ||
+        !NSEqualRects(edit_annotation_.frame,aligned.browser) ||
+        !NSEqualSizes(clip_view_.bounds.size,aligned.clip.size)))
+      EditMode(false);
     clip_view_.frame=aligned.clip;
     clip_view_.autoresizingMask=auto_resize_ ? NSViewWidthSizable|NSViewHeightSizable : NSViewNotSizable;
     view.frame=aligned.browser;
@@ -602,6 +612,8 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     browser_->GetHost()->NotifyMoveOrResizeStarted();
   }
   void Close() {
+    ++edit_generation_; editing_=false; edit_selection_pending_=false;
+    [edit_annotation_ clear];
     closing_=true; visible_=false; Layout();
     [actions_menu_ cancel];
     if (devtools_client_) devtools_client_->Close();
@@ -669,6 +681,10 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   void Command(const std::string& request,Dict cmd) {
     if (!browser_ || closing_) { Result(id_,request,false,Error("Browser is still opening or has closed")); return; }
     const auto action=Text(cmd,"action"); auto host=browser_->GetHost();
+    if (edit_annotation_.active && (action=="navigate" || action=="back" ||
+        action=="forward" || action=="reload" || action=="dom" ||
+        action=="scroll" || action=="press" || action=="devtools"))
+      EditMode(false);
     if (action=="navigate") { const auto url=Text(cmd,"url"); if (!AllowedUrl(url)) { Result(id_,request,false,Error("Unsupported browser address")); return; } browser_->GetMainFrame()->LoadURL(url); }
     else if (action=="back") browser_->GoBack();
     else if (action=="forward") browser_->GoForward();
@@ -749,11 +765,13 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       });
     });
   }
-  void EditEvent(Dict selection=nullptr,const std::string& error="",Dict screenshot=nullptr) {
-    auto event=Object(); event->SetString("type","edit"); event->SetBool("active",editing_);
+  bool EditActive() const { return editing_ || edit_selection_pending_ || edit_annotation_.active; }
+  void EditEvent(Dict selection=nullptr,const std::string& error="",Dict screenshot=nullptr,const std::string& comment="") {
+    auto event=Object(); event->SetString("type","edit"); event->SetBool("active",EditActive());
     event->SetString("token",edit_token_);
     if (selection) event->SetDictionary("selection",selection);
     if (screenshot) event->SetDictionary("screenshot",screenshot);
+    if (selection && !comment.empty()) event->SetString("comment",comment);
     if (!error.empty()) event->SetString("error",error.substr(0,500));
     Emit(id_,event);
   }
@@ -777,6 +795,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     if (!active && !token.empty() && token!=edit_token_) { Result(id_,request,true,Object()); return; }
     if (!token.empty()) edit_token_=token;
     const auto generation=++edit_generation_;
+    [edit_annotation_ clear];
     editing_=active;
     edit_selection_pending_=false;
     CefRefPtr<Page> self=this;
@@ -803,8 +822,8 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       if (!ok || generation!=self->edit_generation_) { finish(false,result); return; }
       self->Dev("Overlay.enable",Object(),[self,generation,finish](bool ok,Dict result) {
         if (!ok || generation!=self->edit_generation_) { finish(false,result); return; }
-        auto color=Object(); color->SetInt("r",51); color->SetInt("g",204); color->SetInt("b",200); color->SetDouble("a",.22);
-        auto border=Object(); border->SetInt("r",51); border->SetInt("g",204); border->SetInt("b",200); border->SetDouble("a",.9);
+        auto color=Object(); color->SetInt("r",108); color->SetInt("g",184); color->SetInt("b",239); color->SetDouble("a",.12);
+        auto border=Object(); border->SetInt("r",108); border->SetInt("g",184); border->SetInt("b",239); border->SetDouble("a",.9);
         auto highlight=Object(); highlight->SetBool("showInfo",false); highlight->SetDictionary("contentColor",color); highlight->SetDictionary("borderColor",border);
         auto params=Object(); params->SetString("mode","searchForNode"); params->SetDictionary("highlightConfig",highlight);
         self->Dev("Overlay.setInspectMode",params,finish);
@@ -812,7 +831,12 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     });
   }
   void CaptureEditElement(Dict selection,Dict capture,uint64_t generation,Completion finish) {
-    auto rect=capture ? capture->GetDictionary("rect") : nullptr;
+    // Runtime.callFunctionOn owns these child dictionaries. Retaining their
+    // wrapper does not retain the data after the DevTools result is released.
+    selection=supermono::OwnBrowserEditData(selection);
+    capture=supermono::OwnBrowserEditData(capture);
+    if (!selection || !capture) { finish(false,Error("The selected element expired. Select it again.")); return; }
+    auto rect=capture->GetDictionary("rect");
     auto viewport=capture ? capture->GetDictionary("viewport") : nullptr;
     const auto box=[](Dict value) {
       return supermono::BrowserRect{Number(value,"x"),Number(value,"y"),Number(value,"width"),Number(value,"height")};
@@ -834,14 +858,16 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     clip->SetDouble("width",crop->clip.width); clip->SetDouble("height",crop->clip.height); clip->SetDouble("scale",crop->scale);
     auto params=Object(); params->SetString("format","png"); params->SetBool("fromSurface",true);
     params->SetBool("captureBeyondViewport",false); params->SetDictionary("clip",clip);
+    auto target=Object(); target->SetDouble("x",crop->target.x); target->SetDouble("y",crop->target.y);
+    target->SetDouble("width",crop->target.width); target->SetDouble("height",crop->target.height);
     // Wait for the picker highlight to be removed before capturing its pixels.
-    Dev("Overlay.hideHighlight",Object(),[self,selection,params,current,finish](bool ok,Dict result) {
+    Dev("Overlay.hideHighlight",Object(),[self,selection,target,params,current,finish](bool ok,Dict result) {
       if (!current()) { finish(false,Error("The page moved while capturing. Select the element again.")); return; }
       if (!ok) { finish(false,Error("Could not clear the selection highlight. Try selecting the element again.")); return; }
       if (self->screenshot_running_ || self->zoom_.pending()) {
         finish(false,Error("The browser is finishing another image or zoom change. Select the element again.")); return;
       }
-      self->CaptureScreenshot(params,[selection,current,finish](bool ok,Dict result) {
+      self->CaptureScreenshot(params,[selection,target,current,finish](bool ok,Dict result) {
         if (!current()) { finish(false,Error("The page moved while capturing. Select the element again.")); return; }
         const auto data=Text(result,"data");
         if (!ok || data.empty() || data.size()>supermono::kEditCaptureMaxBase64) {
@@ -856,9 +882,38 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
         auto screenshot=Object(); screenshot->SetString("dataUrl","data:image/png;base64,"+data);
         screenshot->SetInt("width",width); screenshot->SetInt("height",height);
         auto captured=Object(); captured->SetDictionary("selection",selection); captured->SetDictionary("screenshot",screenshot);
+        captured->SetDictionary("target",target);
         finish(true,captured);
       });
     });
+  }
+  void AnnotateEditElement(Dict captured,uint64_t generation) {
+    if (generation!=edit_generation_ || closing_ || !visible_ || !browser_) return;
+    // Own the captured values until the user explicitly adds the annotation.
+    // The comment is collected in our native view, never from page JavaScript.
+    const auto selection=supermono::OwnBrowserEditData(captured ? captured->GetDictionary("selection") : nullptr);
+    const auto screenshot=supermono::OwnBrowserEditData(captured ? captured->GetDictionary("screenshot") : nullptr);
+    const auto target=supermono::OwnBrowserEditData(captured ? captured->GetDictionary("target") : nullptr);
+    if (!selection || !screenshot || !target) {
+      EditEvent(nullptr,"The selected element expired. Select it again."); return;
+    }
+    const NSRect anchor=NSMakeRect(Number(target,"x"),Number(target,"y"),
+      Number(target,"width"),Number(target,"height"));
+    NSView *view=(__bridge NSView*)browser_->GetHost()->GetWindowHandle();
+    if (!edit_annotation_) edit_annotation_=[[SMBrowserEditAnnotation alloc] initWithFrame:view.frame];
+    CefRefPtr<Page> self=this;
+    const BOOL shown=[edit_annotation_ showAboveBrowser:view target:anchor
+      onSubmit:^(NSString *comment) {
+        if (generation!=self->edit_generation_ || self->closing_ || !self->visible_) return;
+        ++self->edit_generation_;
+        self->editing_=false; self->edit_selection_pending_=false;
+        self->EditEvent(selection->Copy(false),"",screenshot->Copy(false),Str(comment));
+      } onCancel:^{
+        if (generation==self->edit_generation_ && !self->closing_) self->EditMode(false);
+      } onReselect:^{
+        if (generation==self->edit_generation_ && !self->closing_ && self->visible_) self->EditMode(true);
+      }];
+    self->EditEvent(nullptr,shown ? "" : "There is not enough room for a comment. Enlarge the browser and select again.");
   }
   void SelectEditElement(int node) {
     editing_=false;
@@ -868,10 +923,9 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     const auto finish=[self,generation](bool ok,Dict result) {
       if (generation!=self->edit_generation_ || self->closing_) return;
       self->edit_selection_pending_=false;
+      if (ok) { self->AnnotateEditElement(result,generation); return; }
       const auto error=Text(result,"error");
-      self->EditEvent(ok ? result->GetDictionary("selection") : nullptr,
-        ok ? "" : error.empty() ? "Could not select this element. Try an element in the main page." : error,
-        ok ? result->GetDictionary("screenshot") : nullptr);
+      self->EditEvent(nullptr,error.empty() ? "Could not select this element. Try an element in the main page." : error);
     };
     HideEditHighlight([self,generation,node,finish](bool ok,Dict result) {
       if (generation!=self->edit_generation_) return;
@@ -988,6 +1042,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   __strong NSView *parent_=nil;
   __strong NSView *clip_view_=nil;
   __strong SMBrowserDropIndicator *drop_indicator_=nil;
+  __strong SMBrowserEditAnnotation *edit_annotation_=nil;
   double x_=0,y_=0,w_=1,h_=1,clip_left_=0,clip_right_=0,viewport_height_=0;
   bool visible_=false, auto_resize_=false;
 
@@ -1149,6 +1204,7 @@ extern "C" int sm_chromium_reparent(const char *id,void *parent,double x,double 
   @autoreleasepool { if (!MainThread()) return 0; auto page=FindPage(id); if (!page) return 0;
     if (!parent || !Geometry(x,y,w,h) || !std::isfinite(inset)) return Fail("Invalid browser parent or bounds");
     [page->drop_indicator_ clear];
+    if (page->EditActive()) page->EditMode(false);
     page->parent_=(__bridge NSView*)parent; page->x_=x; page->y_=y; page->w_=w; page->h_=h; page->clip_left_=page->clip_right_=page->viewport_height_=0; page->auto_resize_=inset>=0; page->Layout(); return 1; }
 }
 extern "C" int sm_chromium_command(const char *id,const char *request_id,const char *json) {

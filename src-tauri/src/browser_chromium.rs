@@ -495,6 +495,19 @@ fn edit_event_payload(id: &str, event: &Value) -> Option<Value> {
         payload["selection"] = safe;
         payload["screenshot"] = edit_screenshot_payload(event.get("screenshot")?)?;
     }
+    if let Some(comment) = event.get("comment") {
+        let comment = comment.as_str()?;
+        // The annotation is a user-authored commit, never page-supplied text or
+        // an intermediate picker event. Keep it bound to the validated image.
+        if active
+            || payload.get("selection").is_none()
+            || comment.trim().is_empty()
+            || comment.chars().count() > 4000
+        {
+            return None;
+        }
+        payload["comment"] = Value::String(comment.to_owned());
+    }
     Some(payload)
 }
 
@@ -2068,6 +2081,37 @@ mod tests {
     }
     fn edit_test_screenshot() -> Value {
         serde_json::json!({"dataUrl":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jP/0AAAAASUVORK5CYII=","width":1,"height":1})
+    }
+    #[test]
+    fn edit_comment_is_bounded_and_only_accepted_with_a_committed_capture() {
+        let mut event = serde_json::json!({"token":"commented-selection","active":false,
+        "comment":"Make this heading blue.","screenshot":edit_test_screenshot(),"selection":{
+            "url":"http://localhost/","title":"Example","selector":"h1","tag":"h1","text":"Page heading"
+        }});
+        let payload = super::edit_event_payload("owned", &event).unwrap();
+        assert_eq!(payload["comment"], "Make this heading blue.");
+        assert_eq!(payload["screenshot"], edit_test_screenshot());
+        event["comment"] = serde_json::json!("😀".repeat(4000));
+        assert!(super::edit_event_payload("owned", &event).is_some());
+        for comment in [
+            serde_json::json!("x".repeat(4001)),
+            serde_json::json!(42),
+            serde_json::json!(null),
+            serde_json::json!({"text":"not a string"}),
+            serde_json::json!("   "),
+        ] {
+            event["comment"] = comment;
+            assert!(super::edit_event_payload("owned", &event).is_none());
+        }
+        event["comment"] = serde_json::json!("Make this heading blue.");
+        event["active"] = serde_json::json!(true);
+        assert!(super::edit_event_payload("owned", &event).is_none());
+        event["active"] = serde_json::json!(false);
+        let mut no_selection = event.clone();
+        no_selection.as_object_mut().unwrap().remove("selection");
+        assert!(super::edit_event_payload("owned", &no_selection).is_none());
+        event.as_object_mut().unwrap().remove("screenshot");
+        assert!(super::edit_event_payload("owned", &event).is_none());
     }
     #[test]
     fn edit_screenshot_rejects_mismatched_or_unbounded_images() {
