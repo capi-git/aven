@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "usage-panel",
+  "description": "Read-only usage panel event subscriptions. Actions are validated by its owner bridge.",
+  "webviews": ["usage-panel-*"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

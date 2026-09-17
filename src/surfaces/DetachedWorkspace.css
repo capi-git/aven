@@ -1,0 +1,105 @@
+.detached-workspace {
+  height: 100dvh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--personal-main-surface, var(--color-background-base));
+  color: var(--color-content);
+  overflow: hidden;
+  font-size: 12px;
+}
+.detached-workspace-toolbar {
+  height: 40px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--color-content) 10%, transparent);
+  user-select: none;
+}
+.detached-workspace-toolbar > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.detached-workspace-toolbar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.detached-workspace-toolbar button,
+.detached-workspace-empty button,
+.detached-workspace-error button {
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+}
+.detached-workspace-toolbar button:hover,
+.detached-workspace-toolbar button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--color-content) 10%, transparent);
+}
+.detached-workspace-tabs {
+  height: 32px;
+  display: flex;
+  align-items: stretch;
+  overflow: auto;
+  background: var(--personal-main-surface, var(--color-background-base));
+}
+.detached-workspace-tab {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 240px;
+  flex-shrink: 0;
+  border-bottom: 2px solid transparent;
+}
+.detached-workspace-tab[data-active="true"] {
+  border-bottom-color: var(--color-accent);
+}
+.detached-workspace-tab > button:first-child {
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.detached-workspace-tab > button:not(:first-child) {
+  padding: 4px;
+}
+.detached-workspace-error {
+  padding: 8px 12px;
+  color: var(--color-content);
+  background: color-mix(
+    in srgb,
+    #e09020 16%,
+    var(--personal-main-surface, var(--color-background-base))
+  );
+  display: flex;
+  justify-content: space-between;
+}
+.detached-workspace-empty {
+  margin: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+}
+@media (max-width: 650px) {
+  .detached-workspace-toolbar > span {
+    display: none;
+  }
+  .detached-workspace-toolbar-actions {
+    gap: 0;
+  }
+  .detached-workspace-toolbar-actions button {
+    padding: 5px;
+    font-size: 11px;
+  }
+}

@@ -1,0 +1,18 @@
+Aven
+Copyright (c) 2026 Jack Hagan, for Aven modifications.
+
+Aven is derived from MonoCode, an MIT-licensed project by Nick and contributors.
+Original project: https://github.com/hardbeat920/monocode
+Original copyright: Copyright (c) 2026 Nick
+The original MIT copyright and permission notice are retained in LICENSE.
+Aven is independently maintained; its releases are published at
+https://github.com/capi-git/aven/releases.
+
+Aven is not affiliated with, endorsed by, or sponsored by the makers of the
+agent harnesses it can drive. Provider names and marks, including Claude, Codex,
+Cursor, Grok, OpenCode, Pi, omp, and fx, belong to their respective owners and
+are used to identify those products.
+
+Packaged builds include third-party software, including Chromium Embedded
+Framework. Third-party components retain their own licenses and notices;
+this project's MIT license does not replace those terms.

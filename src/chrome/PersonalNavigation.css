@@ -1,0 +1,537 @@
+/* Super-style project navigation. Opaque surfaces and motion only on interaction. */
+.personal-shell .personal-sidebar.personal-navigation {
+  padding: 0 5px 5px;
+  max-width: min(320px, max(190px, calc(100vw - 540px)));
+  touch-action: pan-y;
+}
+.personal-shell .personal-navigation .personal-sidebar-windowbar {
+  margin-left: -5px;
+  padding-right: 0;
+  min-height: 38px;
+}
+.personal-shell .personal-navigation .personal-sidebar-pin {
+  margin-left: auto;
+  color: var(--personal-accent);
+}
+.personal-shell .personal-navigation .personal-profile-header {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 7px;
+  height: 30px;
+  padding: 0 8px;
+  color: var(--color-content);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+.personal-shell .personal-profile-picker {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex: 1;
+  height: 26px;
+  border-radius: 5px;
+  text-align: left;
+}
+.personal-shell .personal-profile-picker > span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.personal-shell .personal-profile-picker > svg:last-child {
+  color: var(--personal-muted);
+  opacity: 0;
+}
+.personal-shell .personal-profile-picker:hover > svg:last-child,
+.personal-shell .personal-profile-picker:focus-visible > svg:last-child,
+.personal-shell
+  .personal-profile-picker[aria-expanded="true"]
+  > svg:last-child {
+  opacity: 1;
+}
+.personal-shell .personal-library-nav {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+  margin: 4px 6px 7px;
+}
+.personal-shell .personal-library-nav > button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--personal-muted);
+  font-size: 11px;
+  text-align: left;
+}
+.personal-shell .personal-library-nav > button:hover,
+.personal-shell .personal-library-nav > button:focus-visible {
+  color: var(--color-content);
+  background: var(--personal-hover);
+}
+.personal-shell .personal-library-nav > button[aria-current="page"] {
+  color: var(--color-content);
+  background: var(--personal-selected);
+}
+.personal-shell .personal-library-nav > button > svg { flex-shrink: 0; }
+.personal-shell .personal-navigation .personal-projects-heading {
+  display: flex;
+  align-items: center;
+  height: 31px;
+  min-height: 31px;
+  padding: 0 5px 0 8px;
+  font-size: 10px;
+  color: var(--personal-muted);
+}
+.personal-shell .personal-new-session {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  margin: 5px 6px 4px;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: var(--color-content);
+  font-size: 11px;
+  text-align: left;
+}
+.personal-shell .personal-new-session:hover,
+.personal-shell .personal-new-session:focus-visible {
+  background: var(--personal-hover);
+}
+.personal-shell .personal-new-session:disabled {
+  opacity: 0.5;
+}
+.personal-shell .personal-projects-heading > .personal-sessions-heading {
+  width: auto;
+  opacity: 1;
+  text-align: left;
+}
+.personal-shell .personal-projects-heading > span {
+  flex: 1;
+}
+.personal-shell .personal-projects-heading > button {
+  width: 20px;
+  height: 22px;
+  opacity: 0;
+}
+.personal-shell .personal-projects-heading:hover > button,
+.personal-shell .personal-projects-heading:focus-within > button,
+.personal-shell .personal-projects-heading > button[aria-expanded="true"] {
+  opacity: 1;
+}
+.personal-shell .personal-navigation .personal-project-group {
+  margin: 0 2px 3px;
+}
+.personal-shell .personal-navigation .personal-project-row {
+  display: flex;
+  align-items: center;
+  min-height: 29px;
+  gap: 1px;
+  padding: 0 3px;
+}
+.personal-shell .personal-navigation .personal-project-open {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  height: 27px;
+  padding: 0 3px;
+  border-radius: 4px;
+  text-align: left;
+  font-size: 11px;
+  color: var(--color-content);
+}
+.personal-shell .personal-project-open > span:first-of-type {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.personal-shell .personal-navigation .personal-project-symbol {
+  flex-shrink: 0;
+  color: var(--personal-muted);
+}
+.personal-shell .personal-navigation .personal-project-row-action {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 23px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  color: var(--personal-muted);
+}
+.personal-shell
+  .personal-navigation
+  .personal-project-row-action:not(.personal-project-disclosure) {
+  color: var(--personal-accent);
+}
+.personal-shell .personal-navigation .personal-project-more {
+  width: 16px;
+  opacity: 0;
+  pointer-events: none;
+}
+.personal-shell .personal-project-row:hover .personal-project-more,
+.personal-shell .personal-project-row:focus-within .personal-project-more {
+  opacity: 1;
+  pointer-events: auto;
+}
+.personal-shell .personal-navigation .personal-project-open:hover,
+.personal-shell .personal-navigation .personal-project-row-action:hover,
+.personal-shell .personal-navigation .personal-workspace-tool:hover {
+  background: var(--personal-hover);
+  color: var(--color-content);
+}
+.personal-shell .personal-navigation .personal-task-list {
+  gap: 1px;
+  padding: 0 1px 3px;
+}
+.personal-shell .personal-navigation .personal-project-tasks {
+  margin: 0 0 1px;
+}
+.personal-shell .personal-project-tasks .personal-sidebar-section-label {
+  display: none;
+}
+.personal-shell .personal-navigation .personal-task-card {
+  min-height: 27px;
+  padding: 4px 7px 4px 12px;
+  border-radius: 4px;
+}
+.personal-shell .personal-navigation .personal-task-card[aria-current="true"] {
+  border-color: color-mix(in srgb, var(--personal-accent) 30%, transparent);
+  background: color-mix(in srgb, var(--personal-accent) 8%, transparent);
+  box-shadow: none;
+}
+.personal-shell
+  .personal-navigation
+  .personal-task-card[aria-current="true"]
+  .personal-task-title {
+  color: var(--personal-accent);
+}
+.personal-shell .personal-navigation .personal-task-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  font-weight: 450;
+}
+.personal-shell .personal-navigation .personal-task-status {
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+.personal-shell .personal-navigation .personal-other-task {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 5px;
+  text-align: left;
+  border: 1px solid transparent;
+  color: var(--color-content);
+}
+.personal-shell .personal-navigation .personal-other-task:hover {
+  background: var(--personal-hover);
+}
+.personal-shell
+  .personal-navigation
+  .personal-other-task
+  > .personal-task-title {
+  flex: 1;
+}
+.personal-shell
+  .personal-navigation
+  .personal-other-task
+  > .personal-task-status {
+  flex-shrink: 0;
+  color: var(--personal-muted);
+}
+.personal-shell .personal-navigation .personal-task-working-dot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--personal-accent);
+}
+.personal-shell .personal-navigation .personal-task-indent {
+  width: 5px;
+  flex-shrink: 0;
+}
+.personal-shell .personal-navigation .personal-task-archive {
+  right: 5px;
+  bottom: 3px;
+}
+.personal-shell
+  .personal-navigation
+  .personal-task-row[data-has-archive="true"]:hover
+  .personal-task-status,
+.personal-shell
+  .personal-navigation
+  .personal-task-row[data-has-archive="true"]:focus-within
+  .personal-task-status {
+  opacity: 0;
+}
+.personal-shell .personal-navigation .personal-task-filter {
+  height: 27px;
+  padding: 0 7px 3px;
+}
+.personal-shell .personal-navigation .personal-task-filter input {
+  font-size: 10.5px;
+}
+.personal-shell .personal-navigation .personal-tasks-empty {
+  padding: 7px 12px;
+  color: var(--personal-muted);
+  font-size: 10px;
+}
+.personal-shell .personal-navigation .personal-view-project-tasks {
+  padding: 5px 12px;
+  color: var(--personal-muted);
+  font-size: 10px;
+  text-align: left;
+}
+.personal-shell .personal-navigation .personal-view-project-tasks:hover {
+  color: var(--color-content);
+}
+.personal-shell .personal-navigation .personal-sidebar-footer {
+  margin-top: auto;
+  flex-shrink: 0;
+  padding: 5px 5px 0;
+}
+.personal-shell .personal-navigation .personal-workspace-switcher {
+  display: flex;
+  align-items: center;
+  min-height: 25px;
+  gap: 3px;
+}
+.personal-shell .personal-navigation .personal-workspace-tool {
+  display: grid;
+  place-items: center;
+  width: 23px;
+  height: 23px;
+  padding: 0;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--personal-muted);
+}
+.personal-shell
+  .personal-navigation
+  .personal-workspace-tool[aria-pressed="true"] {
+  color: var(--color-content);
+  background: var(--personal-selected);
+}
+.personal-shell .personal-navigation .personal-profile-switches {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  margin-left: 5px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+/* Super keeps a fixed profile order and gives exactly one workspace its icon.
+   Hover previews that icon without switching; equal width swaps keep + still. */
+.personal-shell
+  .personal-navigation
+  .personal-profile-switches
+  > .personal-profile-switch {
+  --profile-cell-width: 8px;
+  --profile-icon-opacity: 0;
+  --profile-dot-opacity: 1;
+  --profile-cell-background: transparent;
+  --profile-cell-color: var(--personal-muted);
+  position: relative;
+  min-width: 0;
+  width: var(--profile-cell-width);
+  background: var(--profile-cell-background);
+  color: var(--profile-cell-color);
+  transition: width 120ms ease;
+}
+.personal-shell
+  .personal-navigation
+  .personal-profile-switches
+  > .personal-profile-switch
+  > svg,
+.personal-shell
+  .personal-navigation
+  .personal-profile-switches
+  > .personal-profile-switch::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.personal-shell
+  .personal-navigation
+  .personal-profile-switches
+  > .personal-profile-switch
+  > svg {
+  opacity: var(--profile-icon-opacity);
+}
+.personal-shell
+  .personal-navigation
+  .personal-profile-switches
+  > .personal-profile-switch::after {
+  content: "";
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: var(--profile-dot-opacity);
+}
+/* Hover and keyboard previews keep the selected workspace as the fallback. */
+.personal-shell .personal-navigation .personal-profile-switches > .personal-profile-switch:hover,
+.personal-shell .personal-navigation .personal-profile-switches:not(:has(> .personal-profile-switch:hover)) > .personal-profile-switch:focus-visible,
+.personal-shell .personal-navigation .personal-profile-switches:not(:has(> .personal-profile-switch:hover, > .personal-profile-switch:focus-visible)) > .personal-profile-switch[aria-pressed="true"] {
+  --profile-cell-width: 23px;
+  --profile-icon-opacity: 1;
+  --profile-dot-opacity: 0;
+  --profile-cell-background: var(--personal-selected);
+  --profile-cell-color: var(--color-content);
+}
+.personal-shell
+  .personal-navigation
+  .personal-profile-switches
+  > .personal-profile-switch:focus-visible {
+  outline-offset: -1px;
+}
+.personal-shell
+  .personal-navigation
+  .personal-profile-switches::-webkit-scrollbar {
+  display: none;
+}
+.personal-shell .personal-navigation .personal-sidebar-section-label {
+  margin: 7px 0 3px;
+  padding: 0 8px;
+  font-size: 10px;
+  color: var(--personal-muted);
+  font-weight: 500;
+}
+.personal-profile-viewport {
+  position: relative;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+.personal-profile-viewport[data-carousel-enabled="false"] { overflow-x: hidden; }
+.personal-profile-viewport::-webkit-scrollbar { display: none; }
+.personal-profile-track { position: relative; display: flex; width: 100%; height: 100%; }
+.personal-profile-page {
+  flex: 0 0 100%;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  pointer-events: none;
+}
+.personal-profile-content { position: absolute; top: 0; bottom: 0; width: 100%; }
+.personal-profile-content .personal-projects-scroll {
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  overscroll-behavior-x: auto;
+}
+.personal-profile-viewport[data-profile-dragging] { scroll-snap-type: none; user-select: none; }
+@media (prefers-reduced-motion: reduce) {
+  .personal-shell .personal-navigation .personal-profile-switches > .personal-profile-switch { transition: none; }
+}
+
+/* Light navigation stays on the frame, with quiet selected rows. */
+html.theme-light .personal-shell .personal-navigation {
+  padding-inline: 6px;
+}
+html.theme-light
+  .personal-shell
+  .personal-navigation
+  .personal-sidebar-windowbar {
+  min-height: 40px;
+  margin-left: -6px;
+}
+html.theme-light .personal-shell .personal-navigation .personal-profile-header {
+  height: 34px;
+  padding-inline: 8px;
+  font-size: 12px;
+  font-weight: 550;
+}
+html.theme-light .personal-shell .personal-navigation .personal-sidebar-pin {
+  color: var(--personal-muted);
+}
+html.theme-light .personal-shell .personal-navigation .personal-new-session {
+  margin: 5px 2px 7px;
+  min-height: 31px;
+  font-size: 11px;
+}
+html.theme-light
+  .personal-shell
+  .personal-navigation
+  .personal-projects-heading,
+html.theme-light
+  .personal-shell
+  .personal-navigation
+  .personal-sidebar-section-label {
+  font-size: 11px;
+  font-weight: 400;
+}
+html.theme-light .personal-shell .personal-navigation .personal-project-group {
+  margin: 0 0 7px;
+}
+html.theme-light .personal-shell .personal-navigation .personal-project-row {
+  min-height: 32px;
+  padding-inline: 2px;
+}
+html.theme-light .personal-shell .personal-navigation .personal-project-open {
+  height: 30px;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 500;
+}
+html.theme-light
+  .personal-shell
+  .personal-navigation
+  .personal-project-row-action {
+  color: var(--personal-muted);
+}
+html.theme-light .personal-shell .personal-navigation .personal-task-card {
+  min-height: 30px;
+  padding: 5px 8px 5px 18px;
+  border-radius: 4px;
+}
+html.theme-light
+  .personal-shell
+  .personal-navigation
+  .personal-task-card[aria-current="true"] {
+  border-color: color-mix(in srgb, var(--color-content) 9%, transparent);
+  background: color-mix(in srgb, var(--color-content) 3.5%, transparent);
+}
+html.theme-light
+  .personal-shell
+  .personal-navigation
+  .personal-task-card[aria-current="true"]
+  .personal-task-title {
+  color: var(--color-content);
+}
+html.theme-light .personal-shell .personal-navigation .personal-task-title {
+  font-size: 11px;
+  font-weight: 450;
+}
+html.theme-light .personal-shell .personal-navigation .personal-task-status {
+  font-size: 10px;
+}
+html.theme-light .personal-shell .personal-navigation .personal-sidebar-footer {
+  padding-bottom: 7px;
+}

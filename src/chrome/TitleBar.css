@@ -1,0 +1,311 @@
+/* Sessions and browsers share the same compact sortable strip. */
+.personal-shell .personal-tab-strip {
+  gap: 0;
+  padding-inline: 2px;
+}
+.personal-shell .personal-title-tab-slot,
+.personal-shell .personal-title-browser-tab {
+  flex: 0 1 160px;
+  width: 160px;
+  min-width: 96px;
+  max-width: 160px;
+}
+.personal-shell .personal-title-tab-button {
+  align-self: stretch;
+  height: 100%;
+  gap: 9px;
+  border-radius: 0;
+  background: transparent;
+  border-bottom: 1px solid transparent;
+  color: color-mix(in srgb, var(--color-content) 49%, transparent);
+}
+.personal-shell .personal-title-tab-button:hover {
+  background: color-mix(in srgb, var(--color-content) 3%, transparent);
+  color: color-mix(in srgb, var(--color-content) 83%, transparent);
+}
+.personal-shell
+  .personal-title-tab[data-visible="true"][data-active="false"]
+  .personal-title-tab-button {
+  border-bottom-color: color-mix(
+    in srgb,
+    var(--personal-tab-accent, #327cd5) 35%,
+    transparent
+  );
+  color: color-mix(in srgb, var(--color-content) 70%, transparent);
+}
+.personal-shell .personal-title-tab-visible {
+  width: 4px;
+  height: 4px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: color-mix(
+    in srgb,
+    var(--personal-tab-accent, #327cd5) 65%,
+    transparent
+  );
+}
+.personal-shell
+  .personal-title-tab[data-active="true"]
+  .personal-title-tab-button {
+  border-bottom-color: var(--personal-tab-accent, #327cd5);
+  color: color-mix(in srgb, var(--color-content) 87%, transparent);
+}
+.personal-shell .personal-title-tab-number {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--color-content) 44%, transparent);
+}
+.personal-shell .personal-title-tab-label {
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 16px;
+}
+.personal-shell .personal-title-tab-identity {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.personal-shell .personal-title-tab-meta {
+  display: none;
+}
+.personal-shell
+  .personal-title-tab[data-has-models="true"]
+  .personal-title-tab-meta {
+  display: block;
+  font-size: 9px;
+  line-height: 10px;
+}
+.personal-shell
+  .personal-title-tab[data-has-models="true"]:has(.personal-title-tab-meta)
+  .personal-title-tab-label {
+  line-height: 12px;
+}
+.personal-shell .personal-title-tab:focus-within .personal-title-tab-close {
+  opacity: 1;
+}
+.personal-shell .personal-title-tab-button:focus-visible,
+.personal-shell .personal-title-tab-close:focus-visible,
+.personal-shell .personal-title-browser-menu:focus-visible,
+.personal-shell .personal-title-browser-new:focus-visible {
+  outline: 1px solid var(--personal-tab-accent, #327cd5);
+  outline-offset: -2px;
+}
+.personal-shell .personal-title-browser-button {
+  padding-right: 46px;
+}
+.personal-shell .personal-title-browser-close {
+  right: 22px;
+}
+.personal-shell
+  .personal-title-browser-tab[data-has-menu="false"]
+  .personal-title-browser-button {
+  padding-right: 26px;
+}
+.personal-shell
+  .personal-title-browser-tab[data-has-menu="false"]
+  .personal-title-browser-close {
+  right: 2px;
+}
+.personal-shell .personal-title-browser-new {
+  width: 34px;
+  margin-left: 5px;
+}
+.personal-shell .personal-title-browser-new::before {
+  content: "";
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 0;
+  width: 1px;
+  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+}
+.personal-shell .personal-title-browser-plus {
+  left: 22px;
+  top: calc(50% - 9px);
+}
+.personal-shell .personal-titlebar .personal-titlebar-tool {
+  width: 24px;
+  height: 24px;
+}
+
+.personal-shell .personal-titlebar[data-pane-local="true"] {
+  height: 32px;
+  min-height: 32px;
+  border-bottom: 0;
+}
+.personal-shell
+  .personal-titlebar[data-pane-local="true"]
+  .personal-title-tab-number {
+  display: none;
+}
+.personal-shell
+  .personal-titlebar[data-pane-local="true"][data-pane-focused="false"]
+  .personal-title-tab[data-active="true"]
+  .personal-title-tab-button {
+  border-bottom-color: color-mix(
+    in srgb,
+    var(--personal-tab-accent, #327cd5) 30%,
+    transparent
+  );
+}
+.personal-shell .personal-title-session-new,
+.personal-shell
+  .personal-titlebar[data-pane-local="true"]
+  .personal-title-browser-new {
+  width: 28px;
+  min-width: 28px;
+  margin-left: 0;
+}
+.personal-shell
+  .personal-titlebar[data-pane-local="true"]
+  .personal-title-browser-new::before {
+  display: none;
+}
+.personal-shell
+  .personal-titlebar[data-pane-local="true"]
+  .personal-title-browser-plus {
+  left: 18px;
+}
+.personal-shell .personal-title-session-new:focus-visible {
+  outline: 1px solid var(--personal-tab-accent, #327cd5);
+  outline-offset: -2px;
+}
+
+/* The light reference keeps a soft tab bar with visible provider identities.
+   Preserve the stage's 32px header geometry and its native browser bounds. */
+html.theme-light .personal-shell .personal-title-tab-slot,
+html.theme-light .personal-shell .personal-title-browser-tab {
+  flex-basis: 200px;
+  width: 200px;
+  min-width: 112px;
+  max-width: 220px;
+}
+
+html.theme-light .personal-shell .personal-title-tab-button {
+  gap: 8px;
+  padding-inline-start: 12px;
+  border-bottom-width: 2px;
+  color: color-mix(in srgb, var(--color-content) 69%, transparent);
+}
+
+html.theme-light .personal-shell .personal-title-tab-label {
+  font-size: 12px;
+  line-height: 16px;
+}
+
+html.theme-light
+  .personal-shell
+  .personal-title-tab-identity[data-busy="false"] {
+  display: inline-flex;
+}
+
+html.theme-light .personal-shell .personal-title-tab-identity > span > span {
+  width: 16px;
+  height: 16px;
+  opacity: 1;
+}
+
+html.theme-light .personal-shell .personal-title-tab-identity svg {
+  width: 16px;
+  height: 16px;
+}
+
+html.theme-light
+  .personal-shell
+  .personal-title-tab[data-has-models="true"]
+  .personal-title-tab-meta {
+  color: color-mix(in srgb, var(--color-content) 58%, transparent);
+}
+
+html.theme-light
+  .personal-shell
+  .personal-title-tab[data-active="true"]
+  .personal-title-tab-button {
+  background: color-mix(in srgb, var(--personal-main-surface) 75%, transparent);
+  border-bottom-color: var(--personal-tab-accent, var(--personal-accent));
+  color: color-mix(in srgb, var(--color-content) 92%, transparent);
+}
+
+html.theme-light .personal-shell .personal-title-tab-button:hover {
+  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  color: var(--color-content);
+}
+
+/* Provider identities remain readable in every workspace theme. */
+.personal-shell .personal-title-tab-identity {
+  display: inline-flex;
+}
+.personal-shell .personal-title-tab-slot {
+  flex-basis: 192px;
+  width: 192px;
+  max-width: 220px;
+  min-width: 118px;
+}
+.personal-shell .personal-title-tab-button {
+  gap: 7px;
+  padding-inline-start: 9px;
+}
+.personal-shell .personal-title-tab-label {
+  font-size: 12px;
+  font-weight: 450;
+}
+.personal-shell .personal-title-tab-number {
+  display: none;
+}
+.personal-shell
+  .personal-title-tab[data-has-models="true"]
+  .personal-title-tab-meta {
+  font-size: 10px;
+  line-height: 11px;
+  opacity: 0.72;
+}
+html.theme-light
+  .personal-shell
+  .personal-title-tab-identity
+  > .provider-marks
+  > .provider-mark {
+  width: 22px;
+  height: 22px;
+}
+
+.personal-tab-group-handle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  max-width: 132px;
+  margin: 5px 2px 5px 5px;
+  padding: 2px 5px;
+  border: 1px solid color-mix(in srgb, var(--color-content) 12%, transparent);
+  border-radius: 6px;
+  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+  font-size: 10px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.personal-tab-group-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.personal-tab-group-handle:hover,
+.personal-tab-group-handle:focus-visible {
+  color: var(--color-content);
+  border-color: var(--color-accent);
+}
+.personal-tab-group-handle[data-dragging="true"] {
+  cursor: grabbing;
+  opacity: 0.5;
+}
+
+.personal-tab-group-handle .provider-mark {
+  width: 18px;
+  height: 18px;
+  padding: 1px;
+}
+.personal-tab-group-handle .provider-mark-art {
+  width: 14px;
+  height: 14px;
+}

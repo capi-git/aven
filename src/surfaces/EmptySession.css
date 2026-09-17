@@ -1,0 +1,96 @@
+/* Welcome screens inherit the workspace surface and any user-selected image. */
+.aven-opening {
+  position: relative;
+  isolation: isolate;
+  container: aven-opening / inline-size;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: none;
+  color: var(--color-content);
+}
+
+.aven-opening-heading {
+  width: 100%;
+  max-width: 680px;
+  margin-inline: auto;
+  text-align: center;
+}
+
+.aven-opening-heading h1 {
+  margin: 0;
+  font-size: clamp(21px, 4.2cqi, 32px);
+  font-weight: 560;
+  line-height: 1.2;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+
+.aven-opening-heading p {
+  margin: 12px 0 0;
+  color: color-mix(in srgb, var(--color-content) 68%, transparent);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.empty-session {
+  display: flex;
+  height: 100%;
+}
+
+.personal-empty-session {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  align-self: flex-start;
+  width: 100%;
+  min-width: 0;
+  min-height: 100%;
+  max-width: 824px;
+  margin-inline: auto;
+  padding: 48px 24px;
+  pointer-events: none;
+}
+
+.personal-empty-session-heading {
+  margin-bottom: 28px;
+}
+
+.personal-empty-session-heading,
+.empty-session-composer {
+  pointer-events: auto;
+}
+
+.empty-session-composer {
+  width: 100%;
+  min-width: 0;
+}
+
+/* Light mode keeps the existing readable composer treatment, without the old
+   second inset around the new centered welcome. */
+html.theme-light .empty-session .personal-composer {
+  width: 100%;
+}
+
+.empty-session[data-composer-docked="true"] .personal-empty-session {
+  padding-block: 24px;
+}
+
+.empty-session[data-composer-docked="true"] .personal-empty-session-heading {
+  margin-bottom: 0;
+}
+
+@container aven-opening (max-width: 480px) {
+  .personal-empty-session {
+    padding: 28px 16px;
+  }
+
+  .personal-empty-session-heading {
+    margin-bottom: 22px;
+  }
+}

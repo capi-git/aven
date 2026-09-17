@@ -1,0 +1,121 @@
+.workspace-dialog-shade {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #0006;
+  color: var(--color-content);
+}
+.workspace-action-dialog {
+  width: min(460px, calc(100vw - 40px));
+  max-height: calc(100vh - 60px);
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--color-content) 14%, transparent);
+  border-radius: 12px;
+  background: var(--color-background-base);
+  box-shadow: 0 16px 50px #0005;
+  padding: 18px;
+  font-size: 12px;
+}
+.workspace-action-dialog header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.workspace-action-dialog h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.workspace-action-dialog form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.workspace-action-dialog label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+}
+.workspace-action-dialog input,
+.workspace-action-dialog textarea,
+.workspace-action-dialog select,
+.workspace-folder-button {
+  border: 1px solid color-mix(in srgb, var(--color-content) 12%, transparent);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+  color: var(--color-content);
+  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  text-align: left;
+}
+.workspace-action-dialog p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--color-content) 55%, transparent);
+}
+.workspace-action-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+.workspace-action-dialog footer button {
+  padding: 7px 12px;
+  border-radius: 6px;
+}
+.workspace-action-dialog button:disabled {
+  opacity: 0.4;
+}
+.workspace-primary-button {
+  background: color-mix(in srgb, var(--color-content) 12%, transparent);
+  color: var(--color-content);
+}
+.workspace-action-dialog .workspace-action-error {
+  color: #df8e8e;
+}
+.workspace-saved-scripts {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.workspace-saved-scripts li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.workspace-saved-scripts small {
+  display: block;
+  color: color-mix(in srgb, var(--color-content) 45%, transparent);
+}
+.workspace-script-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.workspace-script-suggestions button {
+  font-size: 11px;
+  padding: 4px 8px;
+  background: color-mix(in srgb, var(--color-content) 7%, transparent);
+  border-radius: 5px;
+}
+.workspace-pr-context {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  overflow-wrap: anywhere;
+  font-size: 10px;
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+}
+.workspace-action-dialog :is(button, input, select, textarea):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}

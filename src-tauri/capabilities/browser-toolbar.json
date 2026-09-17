@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "browser-toolbar",
+  "description": "Let the trusted workspace focus its browser toolbar after a Picture in Picture return.",
+  "local": true,
+  "webviews": ["main", "window-*"],
+  "permissions": [
+    "core:window:allow-unminimize",
+    "core:window:allow-show",
+    "core:window:allow-set-focus",
+    "core:webview:allow-set-webview-focus"
+  ]
+}

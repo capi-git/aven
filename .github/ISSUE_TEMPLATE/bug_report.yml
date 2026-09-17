@@ -1,0 +1,84 @@
+name: Bug report
+description: Report a problem in Aven
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Aven's initial release targets macOS on Apple Silicon. Please remove credentials, personal conversations, and private project details from screenshots and logs. For vulnerabilities, use the private security report link instead.
+
+  - type: input
+    id: version
+    attributes:
+      label: Aven version
+      placeholder: "0.1.71"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-source
+    attributes:
+      label: Installation
+      options:
+        - GitHub release download
+        - Built from source
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: Operating system and hardware
+      description: Include the macOS version and Apple chip. For a source build on another platform, describe that environment.
+      placeholder: "macOS version, M-series chip"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider CLI
+      options:
+        - Not related to a provider
+        - Claude Code
+        - Codex
+        - Cursor
+        - Grok Build
+        - OpenCode
+        - Pi
+        - omp
+        - fx
+        - Multiple / not sure
+    validations:
+      required: true
+
+  - type: input
+    id: provider-version
+    attributes:
+      label: Provider CLI version
+      description: If the problem involves an agent, include its installed CLI version.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Screenshots or relevant logs
+      description: Optional. Redact personal data and secrets before attaching anything.

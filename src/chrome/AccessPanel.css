@@ -1,0 +1,135 @@
+html.access-panel-window,
+html.access-panel-window body,
+html.access-panel-window #root {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  overflow: hidden;
+  background: var(--access-window-bg, #0b121a) !important;
+  background-image: none !important;
+}
+
+.access-panel {
+  --access-bg: var(--personal-main-surface, #0b121a);
+  --access-text: var(--color-content, #ededed);
+  --access-accent: var(--personal-accent, #6cabdd);
+  --access-muted: color-mix(in srgb, var(--access-text) 65%, var(--access-bg));
+  width: 100%;
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  box-sizing: border-box;
+  border-radius: 12px;
+  background: var(--access-bg);
+  color: var(--access-text);
+  padding: 10px;
+  font:
+    13px/1.4 -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  color-scheme: dark;
+}
+
+.access-panel[data-theme="light"] {
+  color-scheme: light;
+}
+.access-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px 4px 6px;
+}
+.access-panel h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.access-panel-close {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--access-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.access-panel-close:hover {
+  color: var(--access-text);
+  background: color-mix(in srgb, var(--access-text) 8%, transparent);
+}
+.access-panel-note {
+  margin: 0 6px 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--access-muted);
+}
+.access-panel-options {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.access-panel-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 9px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--access-text);
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+.access-panel-option:hover {
+  background: color-mix(in srgb, var(--access-text) 7%, transparent);
+}
+.access-panel-option[aria-checked="true"] {
+  background: color-mix(in srgb, var(--access-accent) 13%, transparent);
+}
+.access-panel-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--access-muted);
+}
+.access-panel-option[aria-checked="true"] .access-panel-icon {
+  color: var(--access-accent);
+}
+.access-panel-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.access-panel-copy strong {
+  font-size: 13px;
+  font-weight: 550;
+}
+.access-panel-copy > span {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--access-muted);
+}
+.access-panel-check {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--access-accent);
+  visibility: hidden;
+}
+.access-panel-option[aria-checked="true"] .access-panel-check {
+  visibility: visible;
+}
+.access-panel button:focus-visible {
+  outline: 2px solid var(--access-accent);
+  outline-offset: -2px;
+}
+.access-panel-error {
+  margin: 8px 6px 0;
+  color: #e79a84;
+  font-size: 11px;
+}

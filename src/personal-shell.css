@@ -1,0 +1,643 @@
+/* Nearly black chrome. Motion runs only while a panel is toggled. */
+.personal-shell {
+  --personal-window-opacity: 1;
+  --personal-frame: var(
+    --theme-background-color,
+    hsl(var(--theme-hue, 218) var(--theme-saturation, 8%) 4%)
+  );
+  --personal-main-surface: var(
+    --theme-background-color,
+    hsl(var(--theme-hue, 218) var(--theme-saturation, 8%) 5%)
+  );
+  --personal-sidebar-surface: var(--personal-frame);
+  --personal-accent: var(
+    --theme-accent-color,
+    hsl(var(--theme-hue, 218) 38% 66%)
+  );
+  --personal-highlight: var(--theme-highlight-color, var(--personal-accent));
+  --personal-muted: color-mix(in srgb, var(--color-content) 64%, transparent);
+  --personal-line: color-mix(in srgb, var(--color-content) 9%, transparent);
+  --personal-hover: color-mix(in srgb, var(--color-content) 5%, transparent);
+  --personal-selected: color-mix(
+    in srgb,
+    var(--personal-highlight) 11%,
+    transparent
+  );
+  --personal-panel-duration: 120ms;
+  --color-accent: var(--personal-accent);
+  --color-background-base: var(--personal-main-surface);
+  position: relative;
+  min-width: 0;
+  background: color-mix(
+    in srgb,
+    var(--personal-frame) calc(var(--personal-window-opacity) * 100%),
+    transparent
+  );
+  border-radius: 12px;
+  isolation: isolate;
+}
+
+html.theme-light .personal-shell {
+  --personal-frame: var(
+    --theme-background-color,
+    hsl(var(--theme-hue, 224) var(--theme-saturation, 20%) 94%)
+  );
+  --personal-main-surface: var(
+    --theme-light-surface-color,
+    color-mix(in srgb, var(--personal-frame) 32%, #ffffff)
+  );
+  --personal-accent: var(--theme-accent-color, #64718d);
+  --personal-muted: color-mix(in srgb, var(--color-content) 62%, transparent);
+  --personal-line: color-mix(in srgb, var(--color-content) 8%, transparent);
+  --personal-hover: color-mix(in srgb, var(--color-content) 4%, transparent);
+  --personal-selected: color-mix(in srgb, var(--color-content) 5%, transparent);
+  background: var(--personal-frame);
+}
+
+/* One translucent window layer avoids multiplying alpha across nested panels.
+   Floating panels stay solid unless workspace matching is explicitly enabled. */
+html.has-native-glass:not(.theme-light) .personal-shell {
+  --personal-window-opacity: var(--sidebar-opacity, 1);
+}
+
+html.match-workspace-panels .personal-shell {
+  --personal-sidebar-surface: var(--personal-main-surface);
+  --personal-docked-panel-surface: var(--personal-main-surface);
+}
+
+html.has-native-glass.glass-body.match-workspace-panels:not(.theme-light)
+  .personal-shell {
+  --personal-sidebar-surface: transparent;
+  --personal-docked-panel-surface: transparent;
+}
+
+html.has-native-glass:not(.theme-light)
+  .personal-shell
+  .personal-sidebar-slot:not([data-floating="true"])
+  > .personal-sidebar.sidebar-glass,
+html.has-native-glass:not(.theme-light)
+  .personal-shell
+  .personal-inspector-slot:not([data-floating="true"])
+  .workspace-inspector {
+  background: var(--personal-docked-panel-surface, transparent);
+}
+
+html.has-native-glass.glass-body:not(.theme-light)
+  .personal-shell
+  .personal-main.body-glass {
+  background: transparent;
+}
+
+.personal-shell .personal-main.body-glass {
+  margin: 0 6px;
+  min-width: 0;
+  border: 1px solid var(--personal-line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--personal-main-surface);
+}
+
+/* Commit reserved width once. Tweening it relayouts every native browser on
+   every frame; the panel itself can still fade and slide independently. */
+.personal-shell .personal-sidebar-slot,
+.personal-shell .personal-inspector-slot {
+  display: flex;
+  flex-shrink: 0;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.personal-shell .personal-sidebar-slot {
+  max-width: min(
+    var(--nav-width, 216px),
+    320px,
+    max(190px, calc(100vw - 540px))
+  );
+}
+
+.personal-shell .personal-sidebar-slot > .personal-sidebar {
+  width: var(--nav-width, 216px);
+  flex-shrink: 0;
+  background: transparent;
+  opacity: 1;
+  transform: translateX(0);
+  transition:
+    opacity var(--personal-panel-duration) ease,
+    transform var(--personal-panel-duration) ease;
+}
+
+.personal-shell .personal-sidebar-slot > .personal-sidebar.sidebar-glass {
+  background: var(--personal-sidebar-surface);
+}
+
+.personal-shell .personal-inspector-slot {
+  max-width: min(
+    var(--inspector-width, 280px),
+    380px,
+    max(260px, calc(100vw - 520px))
+  );
+}
+
+.personal-shell .personal-inspector-dock {
+  position: relative;
+  width: var(--inspector-width, 280px);
+  min-width: 260px;
+  max-width: min(380px, max(260px, calc(100vw - 520px)));
+  height: 100%;
+  min-height: 0;
+  flex-shrink: 0;
+  padding: 0 6px 0 0;
+  background: transparent;
+  opacity: 1;
+  transform: translateX(0);
+  transition:
+    opacity var(--personal-panel-duration) ease,
+    transform var(--personal-panel-duration) ease;
+}
+
+.personal-shell .personal-sidebar-slot[data-open="false"],
+.personal-shell .personal-inspector-slot[data-open="false"] {
+  max-width: 0;
+  pointer-events: none;
+}
+
+.personal-shell .personal-sidebar-slot[data-open="false"] > .personal-sidebar {
+  opacity: 0;
+  transform: translateX(-7px);
+}
+
+.personal-shell
+  .personal-inspector-slot[data-open="false"]
+  > .personal-inspector-dock {
+  opacity: 0;
+  transform: translateX(7px);
+}
+
+.personal-shell .personal-sidebar-slot[data-open="true"][data-resizing="true"] {
+  max-width: min(320px, max(190px, calc(100vw - 540px)));
+}
+
+.personal-shell
+  .personal-inspector-slot[data-open="true"][data-resizing="true"] {
+  max-width: min(380px, max(260px, calc(100vw - 520px)));
+}
+
+.personal-shell .personal-sidebar-slot[data-resizing="true"],
+.personal-shell
+  .personal-sidebar-slot[data-resizing="true"]
+  > .personal-sidebar,
+.personal-shell .personal-inspector-slot[data-resizing="true"],
+.personal-shell
+  .personal-inspector-slot[data-resizing="true"]
+  > .personal-inspector-dock {
+  transition: none;
+}
+
+.personal-shell .personal-titlebar {
+  min-height: 32px;
+  height: 32px;
+  background: transparent;
+  border-color: var(--personal-line);
+}
+
+.personal-shell .personal-browser-dock {
+  position: relative;
+  flex-shrink: 0;
+  min-width: min(280px, 50%);
+  max-width: calc(100% - 240px);
+  min-height: 0;
+  height: 100%;
+  padding-left: 5px;
+  border-left: 1px solid var(--personal-line);
+}
+
+.personal-shell .personal-browser-dock[data-expanded="true"] {
+  width: 100% !important;
+  max-width: 100%;
+  min-width: 0;
+  padding-left: 0;
+  border-left: 0;
+}
+.personal-shell .personal-browser-dock[hidden] {
+  display: none;
+}
+
+.personal-shell
+  .personal-browser-dock[data-expanded="true"]
+  > .personal-browser-divider {
+  display: none;
+}
+
+.personal-shell .personal-browser-divider,
+.personal-shell .personal-inspector-divider {
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 20;
+  width: 5px;
+  cursor: col-resize;
+  touch-action: none;
+  border-radius: 3px;
+}
+
+.personal-shell .personal-browser-divider:hover,
+.personal-shell .personal-inspector-divider:hover {
+  background: color-mix(in srgb, var(--personal-accent) 22%, transparent);
+}
+
+.personal-shell .personal-browser-divider:focus-visible,
+.personal-shell .personal-inspector-divider:focus-visible,
+.personal-shell .personal-sidebar button:focus-visible,
+.personal-shell .personal-sidebar input:focus-visible {
+  outline: 2px solid var(--personal-accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .personal-shell .personal-sidebar-slot,
+  .personal-shell .personal-inspector-slot,
+  .personal-shell .personal-sidebar,
+  .personal-shell .personal-inspector-dock,
+  .personal-shell .personal-sidebar *,
+  .personal-shell .personal-titlebar * {
+    transition: none !important;
+    transform: none;
+  }
+}
+
+/* Top/bottom status strips belong to the window frame, outside the workspace. */
+.personal-workspace-column {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.personal-workspace-body {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Only pinning reserves width; a hover reveal never resizes the workspace. */
+.personal-shell .personal-sidebar-slot[data-floating="true"],
+.personal-shell .personal-inspector-slot[data-floating="true"] {
+  position: static;
+  max-width: 0;
+  overflow: visible;
+}
+.personal-shell .personal-sidebar-slot[data-floating="true"] {
+  width: var(--nav-width, 216px);
+}
+.personal-shell .personal-inspector-slot[data-floating="true"] {
+  width: var(--inspector-width, 280px);
+}
+.personal-shell
+  .personal-sidebar-slot[data-floating="true"][data-resizing="true"],
+.personal-shell
+  .personal-inspector-slot[data-floating="true"][data-resizing="true"] {
+  max-width: 0;
+}
+.personal-shell
+  .personal-sidebar-slot[data-floating="true"]
+  > .personal-sidebar,
+.personal-shell
+  .personal-inspector-slot[data-floating="true"]
+  > .personal-inspector-dock {
+  position: absolute;
+  z-index: 45;
+  background: var(--personal-sidebar-surface);
+  border: 1px solid var(--personal-line);
+  border-radius: 12px;
+  box-shadow: 0 10px 32px #0005;
+}
+.personal-shell
+  .personal-sidebar-slot[data-floating="true"]
+  > .personal-sidebar {
+  inset: 5px auto 5px 5px;
+  height: calc(100% - 10px);
+}
+.personal-shell
+  .personal-inspector-slot[data-floating="true"]
+  > .personal-inspector-dock {
+  inset: 0 5px 0 auto;
+  padding: 0;
+}
+.personal-shell
+  .personal-sidebar-slot[data-floating="true"][data-open="false"]
+  > .personal-sidebar {
+  transform: translateX(-18px);
+}
+.personal-shell
+  .personal-inspector-slot[data-floating="true"][data-open="false"]
+  > .personal-inspector-dock {
+  transform: translateX(18px);
+}
+.personal-panel-edge {
+  position: absolute;
+  z-index: 44;
+  top: 38px;
+  bottom: 30px;
+  width: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+}
+.personal-panel-edge-left {
+  left: 0;
+}
+.personal-panel-edge-right {
+  right: 0;
+}
+.personal-panel-edge:hover,
+.personal-panel-edge:focus-visible {
+  background: color-mix(in srgb, var(--personal-accent) 30%, transparent);
+}
+.personal-panel-edge:focus-visible {
+  outline: 1px solid var(--personal-accent);
+  outline-offset: -1px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .personal-shell
+    .personal-sidebar-slot[data-floating="true"]
+    > .personal-sidebar,
+  .personal-shell
+    .personal-inspector-slot[data-floating="true"]
+    > .personal-inspector-dock {
+    transform: none !important;
+  }
+}
+.personal-shell .workspace-status-bar {
+  border-bottom: 0;
+  padding-left: 15px;
+  padding-right: 12px;
+}
+html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar {
+  padding-left: 88px;
+}
+.personal-shell .workspace-footer {
+  padding-left: 15px;
+  padding-right: 12px;
+  border-top: 0;
+}
+.personal-profile-home {
+  position: relative;
+  display: grid;
+  flex: 1;
+  place-items: center;
+  padding: 32px;
+}
+.personal-home-sidebar-toggle {
+  position: absolute;
+  top: 8px;
+  left: 9px;
+  width: 26px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  color: var(--personal-muted);
+}
+.personal-profile-home > div {
+  width: min(100%, 380px);
+}
+.personal-home-eyebrow {
+  color: var(--personal-muted);
+  font-size: 11px;
+}
+.personal-profile-home h1 {
+  font-size: 22px;
+  letter-spacing: -0.5px;
+  font-weight: 500;
+  margin: 11px 0 8px;
+}
+.personal-profile-home p {
+  font-size: 12px;
+  color: var(--personal-muted);
+}
+.personal-home-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  margin-top: 20px;
+  padding: 0 12px;
+  border: 1px solid var(--personal-line);
+  border-radius: 6px;
+  background: var(--personal-hover);
+  font-size: 11px;
+}
+.personal-home-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.personal-home-primary {
+  color: var(--personal-accent);
+}
+.personal-home-add:disabled {
+  opacity: 0.5;
+}
+.personal-home-project {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 14px;
+  padding: 5px 0;
+  font-size: 11px;
+  color: var(--personal-muted);
+}
+.personal-project-menu {
+  display: flex;
+  flex-direction: column;
+  padding: 5px;
+}
+.personal-project-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px;
+  border-radius: 5px;
+  text-align: left;
+  font-size: 11px;
+  color: var(--color-content);
+}
+.personal-project-menu button:hover,
+.personal-project-menu button:focus-visible {
+  background: color-mix(in srgb, var(--color-content) 7%, transparent);
+  outline: none;
+}
+
+.session-pip-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  height: 100%;
+  text-align: center;
+  color: var(--color-content);
+  font-size: 12px;
+}
+.session-pip-placeholder p {
+  opacity: 0.55;
+}
+.session-pip-placeholder > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.session-pip-placeholder button {
+  padding: 7px 11px;
+  border: 1px solid color-mix(in srgb, var(--color-content) 14%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  cursor: pointer;
+}
+.session-pip-placeholder button:hover {
+  background: color-mix(in srgb, var(--color-content) 10%, transparent);
+}
+
+/* The light shell follows the pale frame / white workspace reference.
+   These are static surfaces; no extra backdrop filters or animation layers. */
+html.theme-light .personal-shell .personal-main.body-glass {
+  margin: 0 8px;
+  border-color: color-mix(
+    in srgb,
+    var(--personal-main-surface) 70%,
+    transparent
+  );
+  border-radius: 16px;
+  box-shadow: 0 4px 18px rgba(42, 51, 75, 0.06);
+}
+html.theme-light .personal-shell .workspace-stage-surface {
+  border-radius: 14px;
+}
+html.theme-light .personal-shell .workspace-stage-surface[data-focused="true"] {
+  border-color: transparent;
+}
+html.theme-light .personal-shell .workspace-stage-header {
+  border-radius: 13px 13px 0 0;
+}
+html.theme-light .personal-shell .workspace-status-bar {
+  height: 40px;
+  min-height: 40px;
+  flex-basis: 40px;
+  padding-left: 20px;
+  padding-right: calc(var(--workspace-inspector-width, 0px) + 16px);
+  font-size: 11px;
+}
+html.theme-light.is-mac
+  .personal-shell[data-sidebar-pinned="false"]
+  .workspace-status-bar {
+  padding-left: 88px;
+}
+html.theme-light .personal-shell .workspace-status-pill,
+html.theme-light .personal-shell .workspace-status-access > div > button {
+  color: color-mix(in srgb, var(--color-content) 75%, transparent);
+}
+html.theme-light .personal-shell .workspace-footer {
+  height: 38px;
+  max-height: 38px;
+  padding-left: 20px;
+  font-size: 11px;
+}
+html.theme-light .personal-shell .personal-inspector-dock {
+  padding: 0 8px 0 0;
+}
+html.theme-light .personal-shell .workspace-inspector {
+  background: var(--personal-docked-panel-surface, transparent);
+}
+html.theme-light .personal-shell .workspace-inspector-header {
+  min-height: 32px;
+  padding: 2px 8px;
+  gap: 4px;
+  border-bottom: 0;
+}
+html.theme-light .personal-shell .workspace-inspector-tab {
+  min-height: 23px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  padding: 2px 10px;
+  font-size: 11px;
+}
+html.theme-light
+  .personal-shell
+  .workspace-inspector-tab[aria-selected="true"] {
+  border-color: color-mix(in srgb, var(--color-content) 8%, transparent);
+  background: color-mix(in srgb, var(--color-content) 3%, transparent);
+}
+html.theme-light .personal-shell .workspace-inspector-close {
+  width: 23px;
+  height: 23px;
+}
+html.theme-light .personal-shell .workspace-inspector-placeholder {
+  padding: 18px 14px;
+  font-size: 11px;
+}
+@media (max-width: 1050px) {
+  html.theme-light .personal-shell .workspace-status-bar {
+    padding-right: 12px;
+  }
+}
+
+/* Keep Git filenames readable on pale custom frames; the foreground mix also
+   adapts when a light-mode profile has a dark custom background. */
+html.theme-light .personal-shell [role="treeitem"] > .text-amber-400 {
+  color: color-mix(in srgb, var(--color-content) 45%, var(--color-amber-400));
+}
+html.theme-light .personal-shell [role="treeitem"] > .text-emerald-400 {
+  color: color-mix(in srgb, var(--color-content) 45%, var(--color-emerald-400));
+}
+html.theme-light .personal-shell [role="treeitem"] > .text-red-400 {
+  color: color-mix(in srgb, var(--color-content) 45%, var(--color-red-400));
+}
+
+/* One continuous title bar above the workspace and both sidebars. The native
+   traffic lights keep their reserved space; pane headers retain their 32px bounds. */
+.personal-shell .personal-workspace-column {
+  padding-top: 40px;
+}
+.personal-shell .workspace-status-bar,
+html.theme-light .personal-shell .workspace-status-bar,
+html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar,
+html.theme-light.is-mac
+  .personal-shell[data-sidebar-pinned="false"]
+  .workspace-status-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 48;
+  height: 40px;
+  min-height: 40px;
+  padding: 5px 12px;
+  gap: 8px;
+  font-size: 11px;
+}
+html.is-mac .personal-shell .workspace-status-bar,
+html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar {
+  padding-left: 88px;
+}
+.personal-shell .workspace-status-pill,
+.personal-shell .workspace-status-access > div > button {
+  height: 26px;
+  min-height: 26px;
+  border-radius: 7px;
+  font-size: 11px;
+}
+.personal-shell .personal-navigation .personal-sidebar-windowbar {
+  height: 40px;
+  min-height: 40px;
+  visibility: hidden;
+  pointer-events: none;
+}
+.personal-shell .workspace-status-context {
+  display: flex;
+}

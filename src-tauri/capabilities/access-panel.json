@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "access-panel",
+  "description": "Access popup event subscriptions. Selections are validated and returned only to its originating workspace.",
+  "webviews": ["access-panel-*"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

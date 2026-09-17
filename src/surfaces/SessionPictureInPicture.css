@@ -1,0 +1,77 @@
+.session-pip.personal-shell {
+  height: 100%;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--personal-main-surface, var(--color-background-base));
+  color: var(--color-content);
+}
+.session-pip-toolbar {
+  flex: 0 0 38px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--personal-line);
+  user-select: none;
+}
+.session-pip-toolbar button {
+  flex: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 7px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--personal-muted);
+  cursor: pointer;
+}
+.session-pip-toolbar button:hover,
+.session-pip-toolbar button[aria-pressed="true"] {
+  background: var(--personal-hover);
+  color: var(--color-content);
+}
+.session-pip-toolbar button[aria-pressed="true"] {
+  border-color: var(--personal-line);
+}
+.session-pip-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  color: var(--personal-muted);
+  font-size: 11px;
+  pointer-events: none;
+}
+.session-pip-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.session-pip-body > * {
+  flex: 1;
+  min-width: 0;
+}
+.session-pip-loading {
+  display: grid;
+  place-items: center;
+  color: var(--personal-muted);
+  font-size: 12px;
+}
+.session-pip-error {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 12px;
+  font-size: 12px;
+  color: var(--color-content);
+  background: var(--personal-hover);
+}
+.session-pip-error button {
+  cursor: pointer;
+}

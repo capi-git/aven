@@ -1,0 +1,87 @@
+.provider-marks {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  isolation: isolate;
+}
+.provider-mark {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 2px;
+  border-radius: 50%;
+  background: color-mix(
+    in srgb,
+    var(--personal-main-surface, var(--color-background-base)) 94%,
+    transparent
+  );
+  border: 1px solid color-mix(in srgb, var(--color-content) 9%, transparent);
+}
+.provider-mark + .provider-mark {
+  margin-left: -5px;
+}
+.provider-mark[data-provider="claude"] {
+  background: #f8e6dc;
+}
+.provider-mark-art {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.provider-marks[data-dimmed="true"] {
+  opacity: 0.78;
+}
+.provider-mark[data-working="true"] {
+  border-color: color-mix(
+    in srgb,
+    var(--personal-accent, var(--color-accent)) 60%,
+    transparent
+  );
+}
+.provider-mark[data-working="true"] .provider-mark-art {
+  animation: provider-working 2.8s ease-in-out infinite;
+}
+.provider-mark[data-provider="claude"][data-working="true"] .provider-mark-art {
+  animation-name: provider-working-claude;
+}
+.provider-marks-extra {
+  padding-left: 3px;
+  font-size: 9px;
+  color: var(--personal-muted, var(--color-content));
+}
+@keyframes provider-working {
+  0%,
+  100% {
+    transform: rotate(0deg) scale(1);
+    opacity: 1;
+  }
+  45% {
+    transform: rotate(-16deg) scale(0.82);
+    opacity: 0.68;
+  }
+  70% {
+    transform: rotate(12deg) scale(1.04);
+    opacity: 1;
+  }
+}
+@keyframes provider-working-claude {
+  0%,
+  100% {
+    transform: rotate(0deg) scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: rotate(90deg) scale(0.82);
+    opacity: 0.7;
+  }
+}
+.provider-marks[data-paused="true"] .provider-mark-art {
+  animation-play-state: paused;
+}
+@media (prefers-reduced-motion: reduce) {
+  .provider-mark[data-working="true"] .provider-mark-art {
+    animation: none;
+  }
+}

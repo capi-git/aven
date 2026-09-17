@@ -1,0 +1,271 @@
+/* Borderless glass: the workspace shows through; text and controls stay solid. */
+.personal-shell .personal-composer {
+  --composer-surface: color-mix(
+    in srgb,
+    var(--personal-main-surface) 88%,
+    #080808
+  );
+  --composer-control: color-mix(in srgb, var(--color-content) 7%, transparent);
+  --composer-glass-opacity: 72%;
+  width: 100%;
+  max-width: 760px;
+  min-width: 0;
+  margin-inline: auto;
+  padding: 0;
+}
+.personal-shell .personal-composer [data-composer-box] {
+  --composer-wash: color-mix(in srgb, var(--personal-accent) 7%, transparent);
+  --composer-glass:
+    radial-gradient(ellipse at 8% 0%, var(--composer-wash), transparent 68%),
+    color-mix(
+      in srgb,
+      var(--composer-surface) var(--composer-glass-opacity),
+      transparent
+    );
+  border: 1px solid transparent;
+  border-radius: 18px;
+  background: var(--composer-glass);
+  box-shadow: 0 8px 24px #00000010;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.personal-shell .personal-composer [data-composer-box]:focus-within {
+  --composer-wash: color-mix(in srgb, var(--personal-accent) 10%, transparent);
+  border-color: transparent;
+}
+.personal-shell .personal-composer [data-composer-box][data-file-drag="true"] {
+  --composer-wash: color-mix(in srgb, var(--personal-accent) 16%, transparent);
+  outline: 2px dashed var(--color-accent);
+  outline-offset: -3px;
+}
+/* The editable text and highlighted references must keep identical metrics. */
+.personal-shell .personal-composer .composer-field,
+.personal-shell .personal-composer .composer-highlight {
+  padding: 16px;
+  min-height: 64px;
+  font-size: 13px;
+  line-height: 20px;
+  caret-color: var(--personal-accent);
+}
+.personal-shell .personal-composer .composer-field::placeholder {
+  color: color-mix(in srgb, var(--color-content) 58%, var(--composer-surface));
+}
+/* A thumbnail should not reserve a second, full-size empty writing area. */
+.personal-shell
+  .personal-composer
+  [data-attachments-only="true"]
+  .composer-field,
+.personal-shell
+  .personal-composer
+  [data-attachments-only="true"]
+  .composer-highlight {
+  padding: 8px 16px;
+  min-height: 36px;
+  max-height: 36px;
+}
+.personal-shell .personal-composer-project {
+  padding: 10px 16px 0;
+  opacity: 0.8;
+}
+.personal-shell .personal-composer-project:empty {
+  display: none;
+}
+.personal-shell .personal-composer-controls {
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding: 0 12px 10px;
+}
+.personal-shell .personal-composer-options {
+  gap: 6px;
+  width: 100%;
+  min-width: max-content;
+}
+.personal-shell .personal-composer-capsule {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  padding: 1px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--composer-control);
+  box-shadow: none;
+}
+.personal-shell .personal-composer-settings:empty {
+  display: none;
+}
+.personal-shell .personal-composer-capsule > div {
+  min-width: 0;
+  max-width: 100%;
+}
+.personal-shell .personal-composer-capsule > button,
+.personal-shell .personal-composer-capsule > div > button {
+  height: 24px;
+  padding-inline: 7px;
+  gap: 4px;
+  border-radius: 999px;
+  background: transparent;
+  color: color-mix(in srgb, var(--color-content) 90%, var(--composer-surface));
+}
+.personal-shell .personal-composer-capsule > button > span,
+.personal-shell .personal-composer-capsule > div > button > span {
+  font-size: 11px;
+}
+.personal-shell .personal-composer-settings > :not(:first-child) {
+  border-left: 0;
+}
+.personal-shell .personal-composer-settings > button[aria-pressed="false"] {
+  color: color-mix(in srgb, var(--color-content) 58%, var(--composer-surface));
+}
+.personal-shell .personal-composer-capsule > button:hover,
+.personal-shell .personal-composer-capsule > div > button:hover,
+.personal-shell .personal-composer-capsule > button[aria-pressed="true"],
+.personal-shell
+  .personal-composer-capsule
+  > div
+  > button[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--personal-accent) 12%, transparent);
+  color: var(--color-content);
+}
+.personal-shell .personal-composer-model,
+.personal-shell .personal-composer-access {
+  background: transparent;
+}
+.personal-shell .personal-composer-access {
+  margin-right: auto;
+}
+.personal-shell .personal-composer-access [data-mode="full-access"] {
+  color: #e99a69;
+}
+.personal-shell .personal-composer-add {
+  order: 0;
+}
+.personal-shell .personal-composer-add > button {
+  width: 26px;
+  height: 28px;
+  border-radius: 50%;
+  background: transparent;
+  color: color-mix(in srgb, var(--color-content) 72%, var(--composer-surface));
+}
+.personal-shell .personal-composer-add > button:hover,
+.personal-shell .personal-composer-add > button[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--personal-accent) 12%, transparent);
+  color: var(--color-content);
+}
+.personal-shell .personal-composer-context {
+  order: 1;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding-inline: 4px;
+}
+.personal-shell .personal-composer-context:empty {
+  display: none;
+}
+.personal-shell
+  .personal-composer-context
+  svg:not(.text-amber-400):not(.text-red-400) {
+  color: var(--personal-accent);
+}
+.personal-shell .personal-composer-actions {
+  order: 3;
+  gap: 6px;
+}
+.personal-shell .personal-composer-actions > button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: color-mix(
+    in srgb,
+    var(--color-content) 8%,
+    var(--composer-surface)
+  );
+  color: var(--color-content);
+}
+.personal-shell .personal-composer-actions > button:hover:not(:disabled) {
+  background: color-mix(
+    in srgb,
+    var(--color-content) 15%,
+    var(--composer-surface)
+  );
+}
+.personal-shell .personal-composer-actions > .composer-send {
+  border-color: transparent;
+  background: color-mix(
+    in srgb,
+    var(--color-content) 92%,
+    var(--personal-highlight)
+  );
+  color: var(--composer-surface);
+  box-shadow: none;
+}
+.personal-shell
+  .personal-composer-actions
+  > .composer-send:hover:not(:disabled) {
+  background: color-mix(
+    in srgb,
+    var(--color-content) 88%,
+    var(--composer-surface)
+  );
+}
+.personal-shell .personal-composer-actions > .composer-send:disabled {
+  border-color: transparent;
+  background: var(--composer-control);
+  color: color-mix(in srgb, var(--color-content) 38%, var(--composer-surface));
+  box-shadow: none;
+}
+.personal-shell .personal-composer-controls button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+/* Keep actions aligned; the existing toolbar scrolls in narrow split panes. */
+
+.personal-shell .personal-composer [data-session-review-shell] {
+  margin: 0 14px 14px;
+  padding: 0;
+}
+
+.personal-shell .personal-composer [data-session-review] {
+  border: 1px solid transparent;
+  border-radius: 12px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--personal-main-surface) 88%, transparent);
+}
+
+/* Light workspaces keep the same borderless treatment and readable contrast. */
+html.theme-light .personal-shell .personal-composer {
+  --composer-surface: var(--personal-main-surface);
+  --composer-glass-opacity: 82%;
+  width: calc(100% - 48px);
+  max-width: 920px;
+}
+html.theme-light .personal-shell .personal-composer [data-composer-box] {
+  background: var(--composer-glass);
+  box-shadow: 0 6px 20px #00000008;
+}
+html.theme-light
+  .personal-shell
+  .personal-composer-access
+  [data-mode="full-access"] {
+  color: #a54d1f;
+}
+html.theme-light .personal-shell .personal-composer [data-session-review] {
+  background: var(--composer-control);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .personal-shell .personal-composer,
+  html.theme-light .personal-shell .personal-composer {
+    --composer-glass-opacity: 100%;
+  }
+}
+@container personal-composer-dock (min-width: 800px) {
+  html.theme-light .personal-shell .personal-composer {
+    width: 72%;
+  }
+}
+@container personal-empty-session (min-width: 800px) {
+  html.theme-light .personal-shell .personal-composer {
+    width: 72%;
+  }
+}

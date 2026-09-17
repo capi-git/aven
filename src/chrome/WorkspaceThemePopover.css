@@ -1,0 +1,281 @@
+.workspace-theme-popover {
+  padding: 12px;
+  color: var(--color-content);
+  background: var(--color-background-base);
+  border: 1px solid color-mix(in srgb, var(--color-content) 10%, transparent);
+  border-radius: 12px;
+  box-shadow: 0 12px 36px #00000038;
+  overflow-y: auto;
+}
+/* Editing window glass must not also composite a blurred, animated popup.
+   Keep this control surface opaque and on an untransformed layer in WebKit. */
+.workspace-theme-popover.popover-open {
+  animation: none;
+  transform: none;
+  backface-visibility: visible;
+}
+.workspace-theme-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 11px;
+  font-size: 12px;
+}
+.workspace-theme-heading > span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 550;
+}
+.workspace-theme-caption {
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+  font-size: 10px;
+}
+.workspace-theme-close {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  margin: -4px -4px -4px 0;
+  border-radius: 5px;
+  color: color-mix(in srgb, var(--color-content) 60%, transparent);
+}
+.workspace-theme-close:hover {
+  color: var(--color-content);
+  background: color-mix(in srgb, var(--color-content) 9%, transparent);
+}
+.workspace-theme-schemes {
+  display: flex;
+  gap: 2px;
+  border: 1px solid color-mix(in srgb, var(--color-content) 10%, transparent);
+  padding: 2px;
+  border-radius: 6px;
+}
+.workspace-theme-schemes > button {
+  flex: 1;
+  height: 24px;
+  border-radius: 4px;
+  font-size: 10px;
+  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+}
+.workspace-theme-schemes > button[aria-pressed="true"] {
+  color: var(--color-content);
+  background: color-mix(in srgb, var(--color-content) 10%, transparent);
+}
+.workspace-theme-presets {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 4px;
+  margin: 7px 0 10px;
+}
+.workspace-theme-presets > button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 0;
+  min-width: 0;
+  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+  font-size: 7px;
+}
+.workspace-theme-presets > button[aria-pressed="true"] {
+  color: var(--color-content);
+}
+.workspace-theme-swatch {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid #ffffff24;
+  border-radius: 50%;
+  background: var(--swatch-color);
+  color: white;
+}
+.workspace-theme-slider {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1px;
+  margin: 6px 0;
+  font-size: 10px;
+}
+.workspace-theme-slider > output {
+  color: color-mix(in srgb, var(--color-content) 55%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+.workspace-theme-slider > input {
+  grid-column: 1 / -1;
+  width: 100%;
+  /* The native thumb is taller than a 12px range. Give track clicks and
+     drags a full hit target while keeping the surrounding labels compact. */
+  height: 24px;
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+.workspace-theme-glass {
+  min-width: 0;
+  margin: 12px 0 0;
+  padding: 2px 0 0;
+  border: 0;
+  border-top: 1px solid
+    color-mix(in srgb, var(--color-content) 10%, transparent);
+}
+.workspace-theme-glass:disabled {
+  color: color-mix(in srgb, var(--color-content) 45%, transparent);
+}
+.workspace-theme-glass-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  font-size: 10px;
+}
+.workspace-theme-glass-toggle > input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+.workspace-theme-hint {
+  margin: 8px 0 10px;
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+  font-size: 10px;
+  line-height: 1.4;
+}
+.workspace-theme-reset {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 0 0;
+  color: color-mix(in srgb, var(--color-content) 55%, transparent);
+  font-size: 10px;
+}
+.workspace-theme-reset:hover {
+  color: var(--color-content);
+}
+.workspace-theme-popover button:focus-visible,
+.workspace-theme-popover input:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.workspace-theme-targets {
+  display: flex;
+  gap: 3px;
+  margin: 11px 0 8px;
+}
+.workspace-theme-targets button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  padding: 6px 2px;
+  border-radius: 5px;
+  color: color-mix(in srgb, var(--color-content) 58%, transparent);
+  font-size: 10px;
+}
+.workspace-theme-targets button[aria-pressed="true"] {
+  color: var(--color-content);
+  background: color-mix(in srgb, var(--color-content) 9%, transparent);
+}
+.workspace-theme-targets button > span {
+  width: 7px;
+  height: 7px;
+  border: 1px solid color-mix(in srgb, var(--color-content) 24%, transparent);
+  border-radius: 50%;
+}
+.workspace-color-spectrum {
+  position: relative;
+  height: 110px;
+  border-radius: 6px;
+  touch-action: none;
+  cursor: crosshair;
+  overflow: hidden;
+  outline-offset: 2px;
+  border: 1px solid color-mix(in srgb, var(--color-content) 10%, transparent);
+  background:
+    linear-gradient(to bottom, #fff, #ffffff00 50%, #00000000 50%, #000),
+    linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+}
+.workspace-color-spectrum:focus-visible {
+  outline: 2px solid var(--color-accent);
+}
+.workspace-color-thumb {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid white;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px #0009;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.workspace-color-entry {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 7px;
+  margin-top: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-content) 12%, transparent);
+  border-radius: 6px;
+}
+.workspace-color-entry input[type="color"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 21px;
+  height: 21px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.workspace-color-entry input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.workspace-color-entry input[type="color"]::-webkit-color-swatch {
+  border: 1px solid color-mix(in srgb, var(--color-content) 20%, transparent);
+  border-radius: 4px;
+}
+.workspace-color-entry input[type="text"] {
+  width: 0;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--color-content);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  outline-offset: 2px;
+}
+.workspace-color-entry input[aria-invalid="true"] {
+  color: #eb9b9b;
+}
+.workspace-color-entry-label {
+  color: color-mix(in srgb, var(--color-content) 40%, transparent);
+  font-size: 9px;
+}
+.workspace-color-error {
+  color: #eb9b9b;
+  font-size: 10px;
+  margin-top: 5px;
+}
+.workspace-theme-preset-heading {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+  font-size: 10px;
+  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+}
+.workspace-theme-preset-heading span:last-child {
+  color: color-mix(in srgb, var(--color-content) 35%, transparent);
+  font-size: 9px;
+}
+.workspace-theme-saved {
+  display: block;
+  margin-top: 7px;
+  color: color-mix(in srgb, var(--color-content) 35%, transparent);
+  font-size: 9px;
+}
