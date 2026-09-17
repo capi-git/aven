@@ -1,5 +1,17 @@
 # Aven changelog
 
+## [0.1.72] - 2026-09-17
+
+### Workspace navigation and browser fixes
+
+- Preserve the outgoing sidebar's rows and scroll position when changing workspaces from the header or footer.
+- Select the destination when a mouse drag ends exactly on a workspace, and restore carousel alignment after hiding and reopening it.
+- Avoid duplicate workspace preference writes and redundant appearance updates when workspaces share the same theme.
+- Tell agents to use Aven's embedded browser for ordinary links and local previews, while respecting explicit external-browser requests and existing sign-in/test flows.
+- Report unavailable embedded-browser access instead of silently opening an external browser.
+
+The motion investigation and its limits are documented in [PERFORMANCE.md](docs/PERFORMANCE.md). Automated behavior checks are separate from physical trackpad and displayed-frame-rate testing.
+
 ## [0.1.71] - 2026-09-16
 
 ### First public release

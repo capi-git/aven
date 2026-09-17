@@ -66,6 +66,27 @@ afterEach(() => {
 });
 
 describe("workspace project organization", () => {
+  it("acknowledges the selected workspace without another storage write or render", () => {
+    render(personalPath);
+    const persist = vi.spyOn(localStorage, "setItem");
+    let target = "";
+    act(() => {
+      target = latest.selectProfile("work");
+      // Project restoration acknowledges the same selection in the same event.
+      latest.selectProfile("work");
+    });
+    expect(target).toBe(otherWorkPath);
+    expect(latest.activeProfileId).toBe("work");
+    expect(persist.mock.calls.filter(([key]) => key === WORKSPACE_PROFILES_KEY)).toHaveLength(1);
+    const selected = latest;
+    persist.mockClear();
+    act(() => { target = latest.selectProfile("work"); });
+    expect(target).toBe(otherWorkPath);
+    expect(latest).toBe(selected);
+    expect(persist).not.toHaveBeenCalled();
+    persist.mockRestore();
+  });
+
   it("keeps unassigned folders in Personal without machine-specific assumptions", () => {
     const state = defaultWorkspaceProfiles();
     expect(projectsForWorkspace(state, projects).map((project) => project.path))

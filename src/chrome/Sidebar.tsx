@@ -345,14 +345,19 @@ function SidebarComponent({
   const profileContentRef = useRef<HTMLDivElement | null>(null);
   const profileSnapshots = useRef(new Map<string, HTMLElement>());
   const carouselEnabled = open && !!onSelectProfile && !settingsOpen && !profileMenuAnchor;
+  const selectProfile = (id: string) => {
+    // Capture before React moves the live body to its destination, including
+    // footer/header navigation. Every transition should retain the outgoing
+    // page's visible rows and scroll position until it leaves the viewport.
+    if (id !== activeProfileId && profileContentRef.current)
+      profileSnapshots.current.set(activeProfileId, captureProfileSidebar(profileContentRef.current));
+    onSelectProfile?.(id);
+  };
   useProfileCarousel({
     viewport: profileViewportRef,
     enabled: carouselEnabled,
     profiles, activeProfileId,
-    onSelectProfile: (id) => {
-      if (profileContentRef.current) profileSnapshots.current.set(activeProfileId, captureProfileSidebar(profileContentRef.current));
-      onSelectProfile?.(id);
-    },
+    onSelectProfile: selectProfile,
   });
   const [taskSearchOpen, setTaskSearchOpen] = useState(false);
   const resize = useDragResize({
@@ -1359,7 +1364,7 @@ function SidebarComponent({
           profiles={profiles}
           activeProfileId={activeProfileId}
           anchor={profileMenuAnchor}
-          onSelect={(id) => onSelectProfile?.(id)}
+          onSelect={selectProfile}
           onDismiss={() => setProfileMenuAnchor(null)}
         />
       ) : null}
@@ -1750,7 +1755,7 @@ function SidebarComponent({
           <PersonalWorkspaceSwitcher
             profiles={profiles}
             activeProfileId={activeProfileId}
-            onSelectProfile={onSelectProfile}
+            onSelectProfile={onSelectProfile ? selectProfile : undefined}
             onCreateProfile={onCreateProfile}
             onAddProject={onAddProject ?? onOpenProject}
             onOpenSettings={onOpenSettings}

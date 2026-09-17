@@ -588,6 +588,24 @@ describe("workspace glass migration", () => {
 });
 
 describe("workspace theme activation", () => {
+  it("switches between matching themes without repainting the root or repeating native work", () => {
+    saveWorkspaceTheme("personal", { hue: 210, opacity: 0.5, blur: 12, matchPanels: true });
+    copyWorkspaceTheme("personal", ["work"]);
+    render("personal");
+    const setStyle = vi.spyOn(document.documentElement.style, "setProperty");
+    const removeStyle = vi.spyOn(document.documentElement.style, "removeProperty");
+    vi.mocked(invoke).mockClear();
+    render("work");
+    expect(activeSettings.profileId).toBe("work");
+    expect(activeSettings.theme).toEqual(loadWorkspaceTheme("work"));
+    expect(setStyle).not.toHaveBeenCalled();
+    expect(removeStyle).not.toHaveBeenCalled();
+    expect(invoke).not.toHaveBeenCalled();
+    act(() => saveWorkspaceColor("work", "dark", "accent", "#123456"));
+    expect(document.documentElement.style.getPropertyValue("--theme-accent-color")).toBe("#123456");
+    expect(loadWorkspaceTheme("personal").colors?.dark?.accent).not.toBe("#123456");
+  });
+
   it("activates custom colors without leaking them to another workspace or mode", async () => {
     saveWorkspaceColor("personal", "dark", "background", "#000000");
     saveWorkspaceColor("personal", "light", "background", "#ffffff");

@@ -285,7 +285,10 @@ export function useWorkspaceProfiles(
       if (!current.profiles.some((profile) => profile.id === id))
         return currentProject;
       const target = workspaceProjectTarget(current, availableProjects, id);
-      commit({ ...current, activeProfileId: id });
+      // Project restoration can acknowledge the same profile in this event.
+      // Resolve its target, but avoid a second render and synchronous write.
+      if (current.activeProfileId !== id)
+        commit({ ...current, activeProfileId: id });
       return target;
     },
     [availableProjects, currentProject, commit],

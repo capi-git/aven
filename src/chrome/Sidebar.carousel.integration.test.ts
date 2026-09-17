@@ -333,6 +333,38 @@ it("retains the single real sidebar body and scroller across consecutive native 
   expect(originalControl.autofocus).toBe(true);
 });
 
+it.each(["footer", "heading"] as const)(
+  "preserves the outgoing sidebar markup and scroll position when switching from the %s",
+  async (control) => {
+    const originalBody = body();
+    const scroller = body().querySelector<HTMLElement>(".personal-projects-scroll")!;
+    scroller.scrollTop = 117;
+    // This marker represents live markup that the data-only fallback cannot recreate.
+    scroller.dataset.capturedProjectState = "expanded";
+    let target: HTMLButtonElement;
+    if (control === "heading") {
+      await act(async () => {
+        container.querySelector<HTMLButtonElement>('[aria-label="Switch workspace, Personal"]')!.click();
+      });
+      target = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')]
+        .find((button) => button.textContent?.includes("Work"))!;
+    } else {
+      target = [...container.querySelectorAll<HTMLButtonElement>('[aria-label="Workspace switcher"] button')]
+        .find((button) => button.textContent === "Work")!;
+    }
+    await act(async () => target.click());
+    expect(selectProfile).toHaveBeenCalledExactlyOnceWith("work");
+    await render(activeData("work"));
+    const outgoing = container.querySelector<HTMLElement>('[data-profile-preview="personal"]')!;
+    expect(outgoing.querySelector(".personal-profile-snapshot")).not.toBeNull();
+    const savedScroller = outgoing.querySelector<HTMLElement>(".personal-projects-scroll")!;
+    expect(savedScroller.dataset.capturedProjectState).toBe("expanded");
+    expect(savedScroller.scrollTop).toBe(117);
+    expect(body()).toBe(originalBody);
+    expectOneActiveBody();
+  },
+);
+
 it("keeps page identity associated with each workspace through ordering and membership changes", async () => {
   const originalBody = body();
   const [personalPage, workPage] = pages();

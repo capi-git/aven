@@ -92,9 +92,12 @@ export function useProfileCarousel(options: Options) {
     };
     const observer = new ResizeObserver(() => {
       const nextWidth = viewport.clientWidth;
-      if (nextWidth === width || nextWidth <= 0) return;
+      if (nextWidth === width) return;
       width = nextWidth;
       clearTimeout(timer);
+      // A hidden scroller can lose its offset. Remember the zero-width state
+      // so showing it at its previous width still restores the selected page.
+      if (nextWidth <= 0) return;
       align(requested ?? latest.current.activeProfileId, false);
     });
     observer.observe(viewport);
@@ -140,11 +143,17 @@ export function useProfileCarousel(options: Options) {
       delete viewport.dataset.profileDragging;
       if (viewport.hasPointerCapture(event.pointerId))
         viewport.releasePointerCapture(event.pointerId);
-      if (dragged)
+      if (dragged) {
+        const left = nearest() * viewport.clientWidth;
+        // No scrollend fires when the final drag position is already snapped.
+        // The previous scroll notification may have settled while held down.
+        const alreadyAligned = Math.abs(viewport.scrollLeft - left) < 0.5;
         viewport.scrollTo({
-          left: nearest() * viewport.clientWidth,
+          left,
           behavior: reducedMotion() ? "instant" : "smooth",
         });
+        if (alreadyAligned) commit();
+      }
     };
     const cancelDrag = () => {
       const id = pointer?.id;

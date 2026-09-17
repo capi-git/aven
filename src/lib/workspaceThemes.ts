@@ -609,6 +609,10 @@ export function useActivateWorkspaceTheme(profileId: string) {
       activeThemeProfileId = profileId;
       window.dispatchEvent(new Event(ACTIVE_THEME_CHANGED));
     }
+  }, [profileId]);
+  // Matching workspace themes still change the active settings destination,
+  // but need no repeated document-wide appearance work during navigation.
+  useLayoutEffect(() => {
     applyThemeTint(theme.hue, theme.saturation);
     applyThemeColors(theme.colors);
     applySidebarOpacity(theme.opacity);
@@ -627,7 +631,6 @@ export function useActivateWorkspaceTheme(profileId: string) {
       applyThemePreference(theme.preference);
     }
   }, [
-    profileId,
     theme.hue,
     theme.saturation,
     theme.preference,

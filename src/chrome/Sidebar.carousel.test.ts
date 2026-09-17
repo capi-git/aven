@@ -310,6 +310,17 @@ it("ignores zero-width hidden measurements and restores alignment on resize", as
   expect(select).not.toHaveBeenCalled();
 });
 
+it("restores the selected page when a hidden carousel returns to the same width", async () => {
+  await render({ activeProfileId: "work" });
+  scrollTo.mockClear();
+  await resize(0);
+  await nativeScroll(0, true);
+  await resize(280);
+  expect(scrollTo).toHaveBeenLastCalledWith({ left: 280, behavior: "instant" });
+  expect(viewport.scrollLeft).toBe(280);
+  expect(select).not.toHaveBeenCalled();
+});
+
 it("realigns by profile identity when workspace order changes", async () => {
   await render({ activeProfileId: "work" });
   scrollTo.mockClear();
@@ -403,6 +414,19 @@ it("allows a blank-space mouse drag and snaps to the nearest native page on rele
   expect(scrollTo).toHaveBeenLastCalledWith({ left: 280, behavior: "smooth" });
   await nativeScroll(280, true);
   expect(select).toHaveBeenCalledExactlyOnceWith("work");
+});
+
+it("commits a drag released on a page after its final scroll notification has already settled", async () => {
+  await pointer("pointerdown", 300);
+  await pointer("pointermove", 20);
+  await nativeScroll(280, true);
+  await tick(200);
+  expect(select).not.toHaveBeenCalled();
+  await pointer("pointerup", 20);
+  // A scrollTo at this same offset does not produce another scrollend event.
+  expect(select).toHaveBeenCalledExactlyOnceWith("work");
+  await tick(200);
+  expect(select).toHaveBeenCalledTimes(1);
 });
 
 it("does not turn an ordinary button interaction into a carousel drag", async () => {
