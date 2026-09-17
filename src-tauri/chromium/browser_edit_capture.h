@@ -18,7 +18,8 @@ struct BrowserEditCapture { BrowserRect clip; double scale; BrowserRect target; 
 // the wrong element. Device density affects only the bounded output scale.
 inline std::optional<BrowserEditCapture> ElementCaptureClip(
     BrowserRect rect, BrowserRect viewport, double scroll_x, double scroll_y,
-    double device_scale, double hidden_left = 0, double hidden_right = 0) {
+    double device_scale, double hidden_left = 0, double hidden_right = 0,
+    double raster_width = 0, double raster_height = 0) {
   const auto valid_rect = [](BrowserRect r) {
     return std::isfinite(r.x) && std::isfinite(r.y) &&
            std::isfinite(r.width) && std::isfinite(r.height) &&
@@ -31,11 +32,18 @@ inline std::optional<BrowserEditCapture> ElementCaptureClip(
       !std::isfinite(hidden_left) || !std::isfinite(hidden_right) ||
       hidden_left < 0 || hidden_right < 0 || hidden_left + hidden_right >= 1)
     return std::nullopt;
-  const double x = std::max(rect.x, viewport.x + viewport.width * hidden_left);
+  if (raster_width == 0) raster_width = viewport.width;
+  if (raster_height == 0) raster_height = viewport.height;
+  if (!valid_rect({viewport.x, viewport.y, raster_width, raster_height}) ||
+      raster_width > 262144 || raster_height > 262144) return std::nullopt;
+  // Sidebar clips are fractions of the full native view, including scrollbar
+  // gutters. Intersect that range with the visible DOM viewport separately.
+  const double x = std::max(rect.x, viewport.x + raster_width * hidden_left);
   const double y = std::max(rect.y, viewport.y);
-  const double right = std::min(rect.x + rect.width,
-      viewport.x + viewport.width * (1 - hidden_right));
-  const double bottom = std::min(rect.y + rect.height, viewport.y + viewport.height);
+  const double right = std::min({rect.x + rect.width, viewport.x + viewport.width,
+      viewport.x + raster_width * (1 - hidden_right)});
+  const double bottom = std::min({rect.y + rect.height, viewport.y + viewport.height,
+      viewport.y + raster_height});
   const BrowserRect clip{x + scroll_x, y + scroll_y, right - x, bottom - y};
   // Chromium requires at least one CSS pixel for its screenshot output size.
   if (!valid_rect(clip) || clip.width < 1 || clip.height < 1 ||
@@ -46,11 +54,11 @@ inline std::optional<BrowserEditCapture> ElementCaptureClip(
   const double scale = std::min({1.0, kEditCaptureMaxEdge / pixels_w,
       kEditCaptureMaxEdge / pixels_h,
       std::sqrt(double(kEditCaptureMaxPixels) / (pixels_w * pixels_h))});
-  // Normalized CSS viewport coordinates map into the native view without
-  // applying page zoom or Retina density twice.
-  const BrowserRect target{(x - viewport.x) / viewport.width,
-      (y - viewport.y) / viewport.height,
-      clip.width / viewport.width, clip.height / viewport.height};
+  // Normalize against the full raster view rather than visualViewport's
+  // scrollbar-free content area. Do not apply zoom or Retina density twice.
+  const BrowserRect target{(x - viewport.x) / raster_width,
+      (y - viewport.y) / raster_height,
+      clip.width / raster_width, clip.height / raster_height};
   return BrowserEditCapture{clip, scale, target};
 }
 

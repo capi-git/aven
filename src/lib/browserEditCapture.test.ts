@@ -10,6 +10,7 @@ const select = new Function(`return (${script})`)() as (
   capture?: {
     rect: { x: number; y: number; width: number; height: number };
     viewport: { x: number; y: number; width: number; height: number };
+    rasterViewport: { width: number; height: number };
     scrollX: number;
     scrollY: number;
     deviceScale: number;
@@ -50,6 +51,10 @@ describe("selected element screenshot geometry", () => {
     expect(result.capture?.scrollX).toBe(window.scrollX);
     expect(result.capture?.scrollY).toBe(window.scrollY);
     expect(result.capture?.deviceScale).toBe(window.devicePixelRatio);
+    expect(result.capture?.rasterViewport).toEqual({
+      width: window.innerWidth,
+      height: window.innerHeight,
+    });
     expect(document.body.innerHTML).toBe(before);
     expect(select.call(element)).not.toHaveProperty("capture");
   });
@@ -83,7 +88,50 @@ describe("selected element screenshot geometry", () => {
       width: 240.5,
       height: 60.25,
     });
+    expect(result.capture?.rasterViewport).toEqual({
+      width: window.innerWidth / 2,
+      height: window.innerHeight / 2,
+    });
   });
+
+  it("keeps native raster dimensions separate from scrollbar-free visual content", () => {
+    document.body.innerHTML = '<h1 id="heading">Heading</h1>';
+    const element = document.getElementById("heading")!;
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(2047);
+    vi.spyOn(window, "innerHeight", "get").mockReturnValue(1200);
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: {
+        offsetLeft: 120,
+        offsetTop: 40,
+        width: 1016,
+        height: 592.5,
+        scale: 2,
+      },
+    });
+    const capture = select.call(element, true).capture!;
+    expect(capture.viewport).toEqual({
+      x: 120,
+      y: 40,
+      width: 1016,
+      height: 592.5,
+    });
+    expect(capture.rasterViewport).toEqual({ width: 1023.5, height: 600 });
+  });
+
+  it.each([0, -1, Infinity, NaN])(
+    "rejects invalid visual viewport scale %s",
+    (scale) => {
+      document.body.innerHTML = "<h1>Heading</h1>";
+      Object.defineProperty(window, "visualViewport", {
+        configurable: true,
+        value: { offsetLeft: 0, offsetTop: 0, width: 800, height: 600, scale },
+      });
+      expect(() => select.call(document.querySelector("h1")!, true)).toThrow(
+        "viewport changed",
+      );
+    },
+  );
 
   it("rejects a detached node instead of falling back to a page screenshot", () => {
     expect(() => select.call(document.createElement("button"), true)).toThrow(

@@ -91,6 +91,21 @@ npm run tauri -- dev
 
 A development window is useful for interface work. Check final browser, helper, signing, and restart behavior in the packaged Chromium app before distributing a release. `npm run dev` by itself serves the frontend and does not supply the native desktop APIs.
 
+### Browser element comments
+
+Element selection captures the current native browser view with CDP `fromSurface: false`, then crops the PNG locally with ImageIO. Do not substitute a clipped surface capture: [Chromium's screenshot implementation](https://chromium.googlesource.com/chromium/src/+/152.0.7977.83/content/browser/devtools/protocol/page_handler.cc) temporarily resizes the visible widget and changes emulation for that path, causing a flash. An unclipped surface capture also changes geometry while per-tab zoom emulation is active.
+
+The comment card appears after capture so it is excluded from the image. Navigation, cancellation, and changes to the native viewport invalidate a pending selection. Crop coordinates use the actual raster dimensions, including Retina density and scrollbar space, while the final attachment remains bounded.
+
+After building the wrapper, run the focused native checks with the same CMake installation:
+
+```bash
+cmake --build "$CEF_BUILD_DIR" --target supermono_chromium_browser_edit_image_test supermono_chromium_browser_edit_capture_test supermono_chromium_browser_edit_annotation_test supermono_chromium_request_lifetime_test
+ctest --test-dir "$CEF_BUILD_DIR" -R 'browser_edit_|agent_dom_request_lifetime' --output-on-failure
+```
+
+In the packaged app, also verify picking and changing an element, correct screenshot crops at different zoom levels, Escape/Done cancellation, and adding the comment/image to the draft without sending it.
+
 ## Signing and runtime behavior
 
 The packager adds the complete CEF framework, helper applications, CEF licenses and credits, and Aven's project and dependency notices. It signs nested native code before the host app, then runs strict signature verification. Some internal helper and executable identifiers retain compatibility names; the app is presented as Aven.

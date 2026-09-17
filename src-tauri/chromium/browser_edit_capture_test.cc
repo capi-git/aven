@@ -33,6 +33,33 @@ int main() {
          panned->clip.width == 300 && panned->clip.height == 150);
   CHECK(panned->target.x == 0 && panned->target.y == 0 &&
         panned->target.width == 1 && panned->target.height == 1);
+  // A native screenshot includes classic scrollbar gutters. Dividing by the
+  // narrower visual viewport would move the crop right/down in that bitmap.
+  auto scrollbar = ElementCaptureClip({1200, 900, 500, 100}, {0, 0, 2032, 1185},
+      0, 0, 2, 0, 0, 2047, 1200);
+  CHECK(scrollbar && scrollbar->target.x == 1200.0 / 2047 &&
+        scrollbar->target.y == .75 && scrollbar->target.width == 500.0 / 2047);
+  CHECK(std::abs(scrollbar->target.x * 4094 - 2400) < 1e-6);
+  auto gutter = ElementCaptureClip({2000, 1170, 100, 100}, {0, 0, 2032, 1185},
+      0, 0, 1, 0, 0, 2047, 1200);
+  CHECK(gutter && gutter->clip.width == 32 && gutter->clip.height == 15);
+  CHECK(gutter->target.x + gutter->target.width < 1 &&
+        gutter->target.y + gutter->target.height < 1);
+  // Pan offsets remain CSS coordinates; pinch scale is accounted for in the
+  // raster extent, so neither density nor zoom is multiplied into the target.
+  auto scrollbar_panned = ElementCaptureClip({220, 100, 400, 80},
+      {120, 40, 1016, 592.5}, 50, 60, 2, 0, 0, 1023.5, 600);
+  CHECK(scrollbar_panned && scrollbar_panned->clip.x == 270 &&
+        scrollbar_panned->target.x == 100.0 / 1023.5 && scrollbar_panned->target.y == .1);
+  auto scrollbar_clipped = ElementCaptureClip({0, 0, 2047, 1200},
+      {0, 0, 2032, 1185}, 0, 0, 1, .25, .125, 2047, 1200);
+  CHECK(scrollbar_clipped && scrollbar_clipped->clip.x == 2047 * .25 &&
+        scrollbar_clipped->target.x == .25 && scrollbar_clipped->target.width == .625);
+  for (const auto bad : {-1.0, 262145.0, std::numeric_limits<double>::infinity(),
+                         std::numeric_limits<double>::quiet_NaN()}) {
+    CHECK(!ElementCaptureClip({0,0,100,50}, {0,0,800,500}, 0,0,1,0,0,bad,500));
+    CHECK(!ElementCaptureClip({0,0,100,50}, {0,0,800,500}, 0,0,1,0,0,800,bad));
+  }
   auto large = ElementCaptureClip({0, 0, 4000, 3000}, {0, 0, 4000, 3000}, 0, 0, 2);
   CHECK(large && large->scale < 1 &&
          8000 * large->scale <= 4096 &&

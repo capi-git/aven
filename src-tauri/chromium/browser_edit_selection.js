@@ -82,6 +82,9 @@
   if (!view || view !== view.top) throw new Error("Select an element in the main page.");
   const rect = this.getBoundingClientRect();
   const viewport = view.visualViewport;
+  const viewportScale = viewport?.scale ?? 1;
+  if (!Number.isFinite(viewportScale) || viewportScale <= 0)
+    throw new Error("The page viewport changed. Select the element again.");
   return {
     selection,
     capture: {
@@ -91,6 +94,13 @@
         y: viewport?.offsetTop ?? 0,
         width: viewport?.width ?? view.innerWidth,
         height: viewport?.height ?? view.innerHeight,
+      },
+      // The visual viewport excludes classic scrollbars, but a native view
+      // screenshot includes them. Both rectangles share the visual origin;
+      // convert the complete view to the same CSS units before normalizing.
+      rasterViewport: {
+        width: view.innerWidth / viewportScale,
+        height: view.innerHeight / viewportScale,
       },
       scrollX: view.scrollX,
       scrollY: view.scrollY,

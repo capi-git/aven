@@ -18,6 +18,7 @@
 #include "browser_actions_menu.h"
 #include "browser_drop_indicator.h"
 #include "browser_edit_capture.h"
+#include "browser_edit_image.h"
 #include "browser_edit_annotation.h"
 #include "browser_edit_data.h"
 #include "agent_dom_request.h"
@@ -843,21 +844,28 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     };
     const auto crop=supermono::ElementCaptureClip(box(rect),box(viewport),
       Number(capture,"scrollX"),Number(capture,"scrollY"),Number(capture,"deviceScale"),
-      auto_resize_ || w_<=0 ? 0 : clip_left_/w_,auto_resize_ || w_<=0 ? 0 : clip_right_/w_);
+      auto_resize_ || w_<=0 ? 0 : clip_left_/w_,auto_resize_ || w_<=0 ? 0 : clip_right_/w_,
+      Number(capture->GetDictionary("rasterViewport"),"width"),Number(capture->GetDictionary("rasterViewport"),"height"));
     if (!crop) { finish(false,Error("This element has no visible area to capture. Select a larger visible element.")); return; }
     CefRefPtr<Page> self=this;
     NSView *parent=parent_;
     const auto parent_size=parent_.bounds.size;
+    NSView *view=(__bridge NSView*)browser_->GetHost()->GetWindowHandle();
+    const NSRect view_frame=view.frame,clip_frame=clip_view_.frame;
+    NSWindow *window=view.window;
     const double width=w_,height=h_,left=clip_left_,right=clip_right_;
-    const auto current=[self,generation,parent,parent_size,width,height,left,right]() {
+    const auto current=[self,generation,parent,parent_size,view,view_frame,clip_frame,window,width,height,left,right]() {
       return generation==self->edit_generation_ && !self->closing_ && self->visible_ &&
         self->parent_==parent && NSEqualSizes(self->parent_.bounds.size,parent_size) &&
-        self->w_==width && self->h_==height && self->clip_left_==left && self->clip_right_==right;
+        self->w_==width && self->h_==height && self->clip_left_==left && self->clip_right_==right &&
+        view.window==window && NSEqualRects(view.frame,view_frame) && NSEqualRects(self->clip_view_.frame,clip_frame);
     };
-    auto clip=Object(); clip->SetDouble("x",crop->clip.x); clip->SetDouble("y",crop->clip.y);
-    clip->SetDouble("width",crop->clip.width); clip->SetDouble("height",crop->clip.height); clip->SetDouble("scale",crop->scale);
-    auto params=Object(); params->SetString("format","png"); params->SetBool("fromSurface",true);
-    params->SetBool("captureBeyondViewport",false); params->SetDictionary("clip",clip);
+    // Surface captures with a clip resize Chromium's live widget to that clip
+    // and restore it afterward. Even an unclipped surface capture re-emulates
+    // our per-tab zoom. Snapshot the existing view instead, then crop its pixels
+    // locally so selecting an element never changes the visible page geometry.
+    auto params=Object(); params->SetString("format","png"); params->SetBool("fromSurface",false);
+    params->SetBool("captureBeyondViewport",false);
     auto target=Object(); target->SetDouble("x",crop->target.x); target->SetDouble("y",crop->target.y);
     target->SetDouble("width",crop->target.width); target->SetDouble("height",crop->target.height);
     // Wait for the picker highlight to be removed before capturing its pixels.
@@ -870,16 +878,21 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       self->CaptureScreenshot(params,[selection,target,current,finish](bool ok,Dict result) {
         if (!current()) { finish(false,Error("The page moved while capturing. Select the element again.")); return; }
         const auto data=Text(result,"data");
-        if (!ok || data.empty() || data.size()>supermono::kEditCaptureMaxBase64) {
+        if (!ok || data.empty() || data.size()>12*1024*1024) {
+          finish(false,Error("Could not capture the visible page. Try making the browser pane smaller and select the element again.")); return;
+        }
+        NSData *viewport_png=[[NSData alloc] initWithBase64EncodedString:Ns(data) options:0];
+        uint32_t width=0,height=0;
+        NSData *png=supermono::CropBrowserEditImage(viewport_png,
+          {Number(target,"x"),Number(target,"y"),Number(target,"width"),Number(target,"height")},width,height);
+        if (!png) {
+          finish(false,Error("Could not crop the element image. Try making the browser pane smaller and select the element again.")); return;
+        }
+        const auto encoded=Str([png base64EncodedStringWithOptions:0]);
+        if (encoded.size()>supermono::kEditCaptureMaxBase64) {
           finish(false,Error("Could not capture this element within the image limit. Select a smaller area.")); return;
         }
-        auto png=CefBase64Decode(data);
-        unsigned char header[24]{}; uint32_t width=0,height=0;
-        if (!png || png->GetData(header,sizeof(header),0)!=sizeof(header) ||
-            !supermono::EditCapturePngDimensions(header,sizeof(header),width,height)) {
-          finish(false,Error("The element image was invalid or too large. Select a smaller area.")); return;
-        }
-        auto screenshot=Object(); screenshot->SetString("dataUrl","data:image/png;base64,"+data);
+        auto screenshot=Object(); screenshot->SetString("dataUrl","data:image/png;base64,"+encoded);
         screenshot->SetInt("width",width); screenshot->SetInt("height",height);
         auto captured=Object(); captured->SetDictionary("selection",selection); captured->SetDictionary("screenshot",screenshot);
         captured->SetDictionary("target",target);
@@ -996,6 +1009,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   }
   void CaptureScreenshot(Dict params,Completion callback) {
     screenshot_running_=true;
+    const bool restores_geometry=params->GetType("fromSurface")!=VTYPE_BOOL || params->GetBool("fromSurface");
     CefRefPtr<Page> self=this;
     auto delivered=std::make_shared<bool>(false);
     const auto notify=[delivered,callback](bool ok,Dict result) {
@@ -1003,16 +1017,16 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       *delivered=true;
       callback(ok,result);
     };
-    Dev("Page.captureScreenshot",params,[self,notify](bool ok,Dict result) {
-      self->ScreenshotFinished();
+    Dev("Page.captureScreenshot",params,[self,notify,restores_geometry](bool ok,Dict result) {
+      self->ScreenshotFinished(restores_geometry);
       notify(ok,result);
     },notify);
   }
-  void ScreenshotFinished() {
+  void ScreenshotFinished(bool restores_geometry) {
     screenshot_running_=false;
     // Screenshot completion restores old widget bounds even after cancellation.
     // Reconcile the current host geometry and any zoom requested meanwhile.
-    Layout();
+    if (restores_geometry) Layout();
     ApplyZoom();
   }
   void Press(const std::string& request,const std::string& key) {
