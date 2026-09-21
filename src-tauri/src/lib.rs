@@ -43,6 +43,8 @@ mod search;
 mod session_pip;
 mod session_store;
 mod skills;
+mod startup_cli;
+pub use startup_cli::run_startup_cli;
 mod usage_panel;
 mod window;
 mod window_transfer;

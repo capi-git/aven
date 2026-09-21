@@ -1,6 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+    if let Some(code) = monocode_lib::run_startup_cli() {
+        std::process::exit(code);
+    }
     if std::env::args().nth(1).as_deref() == Some("control") {
         std::process::exit(monocode_lib::control_cli::run(
             std::env::args().skip(2).collect(),

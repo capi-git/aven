@@ -78,6 +78,12 @@ Optional environment settings:
 
 ## Development and focused checks
 
+The packaged executable accepts `--help` / `-h` and `--version` / `-V` without
+opening a desktop window. Use `control --help` for orchestration commands or
+`--supermono-browser --help` for scoped browser commands. Unsupported arguments
+exit with a usage error rather than starting another copy of Aven. Launch with
+no arguments to open the desktop app normally.
+
 Build the wrapper first and keep `CEF_BUILD_DIR` exported for Rust to find it:
 
 ```bash
