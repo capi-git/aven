@@ -88,6 +88,11 @@ import {
 } from "../lib/harness/availability";
 import { refreshHarnessCatalogs } from "../lib/harness/registry";
 import {
+  loadProviderToolAutoUpdates,
+  saveProviderToolAutoUpdates,
+  subscribeProviderToolAutoUpdates,
+} from "../lib/providerToolUpdates";
+import {
   defaultSessionChoice,
   getModelSnapshot,
   getPickerVisibilitySnapshot,
@@ -185,9 +190,9 @@ import {
 } from "../lib/workspaceThemes";
 import {
   installPendingUpdate,
-  readAppVersion,
   runUpdateFlow,
-  type UpdaterSnapshot,
+  getUpdaterSnapshot,
+  subscribeUpdater,
 } from "../lib/updater";
 
 type Props = {
@@ -763,48 +768,39 @@ function UpdateRow({
 }: {
   onOpenWhatsNew: (version: string) => void;
 }) {
-  const [snapshot, setSnapshot] = useState<UpdaterSnapshot>({
-    phase: "idle",
-    currentVersion: "…",
-  });
-
-  useEffect(() => {
-    let cancelled = false;
-    void readAppVersion().then((currentVersion) => {
-      if (cancelled) return;
-      setSnapshot((current) => ({ ...current, currentVersion }));
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const busy =
-    snapshot.phase === "checking" || snapshot.phase === "downloading";
-  const hasUpdate = snapshot.phase === "available";
-
+  const snapshot = useSyncExternalStore(
+    subscribeUpdater,
+    getUpdaterSnapshot,
+    getUpdaterSnapshot,
+  );
+  const busy = ["checking", "downloading", "installing"].includes(
+    snapshot.phase,
+  );
+  const hasUpdate = snapshot.phase === "ready";
   const onClick = async () => {
     if (busy) return;
-    if (hasUpdate) {
-      await installPendingUpdate(setSnapshot);
-      return;
-    }
-    await runUpdateFlow(true, setSnapshot);
+    if (hasUpdate) await installPendingUpdate();
+    else await runUpdateFlow(true);
   };
 
   const status = IS_PERSONAL_BUILD
     ? PERSONAL_UPDATE_DESCRIPTION
-    : snapshot.phase === "available"
-      ? `Version ${snapshot.availableVersion} is available.`
-      : snapshot.phase === "downloading"
-        ? `Downloading${snapshot.progress != null ? ` ${snapshot.progress}%` : "…"}`
-        : snapshot.phase === "checking"
-          ? "Checking for updates…"
-          : snapshot.phase === "current"
-            ? "You're on the latest version."
-            : snapshot.phase === "error"
-              ? (snapshot.error ?? "Update check failed.")
-              : "Aven updates itself from the release feed.";
+    : snapshot.phase === "ready"
+      ? (snapshot.error ??
+        `Version ${snapshot.availableVersion} is downloaded and ready. Restart when your tasks are finished.`)
+      : snapshot.phase === "installing"
+        ? "Saving your workspace and restarting…"
+        : snapshot.phase === "available"
+          ? `Version ${snapshot.availableVersion} is available.`
+          : snapshot.phase === "downloading"
+            ? `Downloading${snapshot.progress != null ? ` ${snapshot.progress}%` : "…"}`
+            : snapshot.phase === "checking"
+              ? "Checking for updates…"
+              : snapshot.phase === "current"
+                ? "You're on the latest version."
+                : snapshot.phase === "error"
+                  ? (snapshot.error ?? "Update check failed.")
+                  : "Updates download automatically. You choose when to restart.";
 
   return (
     <Row
@@ -836,7 +832,7 @@ function UpdateRow({
           {IS_PERSONAL_BUILD
             ? "Update information"
             : hasUpdate
-              ? "Download"
+              ? "Restart to update"
               : "Check for updates"}
         </SecondaryButton>
       </div>
@@ -1473,6 +1469,11 @@ function KeybindingsPage() {
 }
 
 function ProvidersPage() {
+  const autoUpdateTools = useSyncExternalStore(
+    subscribeProviderToolAutoUpdates,
+    loadProviderToolAutoUpdates,
+    loadProviderToolAutoUpdates,
+  );
   useSyncExternalStore(subscribeModels, getModelSnapshot, getModelSnapshot);
   useSyncExternalStore(
     subscribeHarnessAvailability,
@@ -1525,6 +1526,16 @@ function ProvidersPage() {
         sessions intact. Expand Models to hide individual choices. Keep at least
         one installed provider visible.
       </p>
+      <Row
+        label="Keep provider tools up to date"
+        description="Check supported Codex and Claude installations daily so newly released models appear automatically. Model lists also refresh while Aven is open. Your selected models stay the same."
+      >
+        <Toggle
+          label="Keep provider tools up to date"
+          on={autoUpdateTools}
+          onChange={saveProviderToolAutoUpdates}
+        />
+      </Row>
       {HARNESSES.map((harness) => (
         <ProviderRow
           key={harness}

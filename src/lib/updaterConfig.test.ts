@@ -12,9 +12,9 @@ vi.mock("@tauri-apps/api/app", () => ({ getVersion }));
 vi.mock("@tauri-apps/plugin-updater", () => ({ check }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ ask, message }));
 vi.mock("@tauri-apps/plugin-process", () => ({ relaunch }));
+vi.mock("./appLifecycle", () => ({ prepareUpdateRestart: vi.fn() }));
 vi.mock("./sounds", () => ({ announceUpdateAvailable: vi.fn() }));
-// Preserve coverage for the original release updater as well as the personal guard.
-vi.mock("./personalBuild", () => ({ IS_PERSONAL_BUILD: false }));
+// Missing release configuration must never pretend the build is current.
 
 import { runUpdateFlow } from "./updater";
 
@@ -47,9 +47,7 @@ describe("updater", () => {
       currentVersion: "0.1.23",
     });
     expect(message).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "https://github.com/capi-git/aven/releases",
-      ),
+      expect.stringContaining("https://github.com/capi-git/aven/releases"),
       { title: "Aven" },
     );
   });

@@ -1,6 +1,7 @@
 import { discardEditorDrafts } from "./lib/workspaceTransfers";
 import { useFixedDeadline } from "./hooks/useFixedDeadline";
 import { useAccountUsageProviders } from "./hooks/useAccountUsageProviders";
+import { useAutomaticModelCatalogs } from "./hooks/useAutomaticModelCatalogs";
 import {
   installAgentBrowserHost,
   prepareAgentBrowserPrompt,
@@ -6855,6 +6856,7 @@ export default function App({
   );
   // Installed accounts stay visible across projects, tabs, and workspaces.
   const usageProviders = useAccountUsageProviders(sessions);
+  useAutomaticModelCatalogs(sessions);
 
   const onToggleSidebar = useCallback(() => {
     sidebarHover.dismiss();

@@ -1,8 +1,8 @@
-/** Manual releases stay independent of any other application's updater. */
-export const IS_PERSONAL_BUILD = true;
+/** Updates are signed by Aven and never come from another application's feed. */
+export const IS_PERSONAL_BUILD = false;
 
 export const PERSONAL_UPDATE_DESCRIPTION =
-  "Download Aven updates from GitHub Releases.";
+  "Aven checks for updates and downloads them in the background. Restart when you're ready.";
 
 export const PERSONAL_UPDATE_MESSAGE =
-  "Aven updates are available at https://github.com/capi-git/aven/releases\n\nDownload the latest Aven build and replace Aven in Applications. Automatic installation is not enabled.";
+  "Automatic updates aren't configured for this build.\n\nDownload Aven releases at https://github.com/capi-git/aven/releases";

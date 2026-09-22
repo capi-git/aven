@@ -12,9 +12,11 @@ impl WindowTransferState {
 
 #[tauri::command]
 pub fn stage_window_transfer(
+    app: tauri::AppHandle,
     state: State<'_, WindowTransferState>,
     payload: String,
 ) -> Result<(), String> {
+    let _work = crate::window::begin_runtime_work(&app)?;
     if payload.trim().is_empty() {
         return Err("empty window transfer payload".into());
     }

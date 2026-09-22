@@ -14,9 +14,11 @@ Aven brings agent conversations, your project, and a browser into one window. Us
 
 Get the build for Apple Silicon Macs running macOS 13 or later from [Aven Releases](https://github.com/capi-git/aven/releases). Download the macOS ZIP, extract it, and move **Aven.app** to Applications.
 
-The first public release is marked as a prerelease while early testing continues. It is ad-hoc signed, not Apple-notarized, so macOS may require you to approve opening it in **System Settings → Privacy & Security**. Only approve a copy you downloaded from this repository's releases. Intel Mac, Windows, and Linux release builds are not currently provided or verified.
+The app is ad-hoc signed, not Apple-notarized, so macOS may require you to approve opening it in **System Settings → Privacy & Security**. Only approve a copy you downloaded from this repository's releases. Intel Mac, Windows, and Linux release builds are not currently provided or verified.
 
-Updates are manual: download a newer Aven release and replace the app after quitting it. Aven does not automatically download or install updates.
+Aven 0.1.80 and later checks for updates from this repository and downloads signed updates in the background. Choose **Restart to update** when your work is ready; Aven does not interrupt running agents. Older versions need one manual replacement to enable this updater.
+
+Model lists refresh automatically from your installed providers. New models appear as the provider makes them available to your account, without an Aven release. Native Codex and Claude installations can also keep themselves current through their official updaters; control this in **Settings → Providers → Keep provider tools up to date**. Package-manager installations stay managed by their package manager.
 
 ## Get started
 

@@ -253,6 +253,16 @@ fn registry() -> &'static Mutex<PreviewRegistry> {
     REGISTRY.get_or_init(|| Mutex::new(PreviewRegistry::default()))
 }
 
+pub(crate) async fn ensure_update_idle(_app: &AppHandle) -> Result<(), String> {
+    let entries = registry()
+        .lock()
+        .map_err(|_| "Browser activity could not be checked")?;
+    if !entries.roots.is_empty() || !entries.popups.is_empty() {
+        return Err(crate::window::UPDATE_BROWSER_BUSY.into());
+    }
+    Ok(())
+}
+
 impl PreviewContext {
     fn notice(&self, message: impl Into<String>) {
         if let Ok(mut state) = self.state.lock() {
@@ -649,6 +659,11 @@ pub async fn browser_set_floating(
     id: String,
     floating: bool,
 ) -> Result<Option<String>, String> {
+    let _work = if floating {
+        Some(crate::window::begin_runtime_work(caller.app_handle())?)
+    } else {
+        None
+    };
     let context = floating::context_for(&caller, &id)?;
     floating::set_floating(context.clone(), floating).await?;
     if !floating {
@@ -984,6 +999,7 @@ pub async fn browser_create(
     url: String,
     bounds: BrowserBounds,
 ) -> Result<(), String> {
+    let _work = crate::window::begin_runtime_work(caller.app_handle())?;
     let view_label = label(&caller, &id)?;
     let url = parse_url(&caller, &url)?;
     let rect = bounds.rect()?;

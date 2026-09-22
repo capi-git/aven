@@ -36,7 +36,7 @@ function installButtonClick() {
   function Capture() {
     const tree = SidebarUpdate({
       snapshot: {
-        phase: "available",
+        phase: "ready",
         currentVersion: "0.1.37",
         availableVersion: "0.1.38",
       },
@@ -58,12 +58,19 @@ describe("isSidebarUpdateActionable", () => {
       "current",
       "available",
       "downloading",
+      "ready",
+      "installing",
       "error",
     ];
     const actionable = phases.filter((phase) =>
       isSidebarUpdateActionable({ phase, currentVersion: "0.1.37" }),
     );
-    expect(actionable).toEqual(["available", "downloading"]);
+    expect(actionable).toEqual([
+      "available",
+      "downloading",
+      "ready",
+      "installing",
+    ]);
   });
 });
 
@@ -72,7 +79,7 @@ describe("SidebarUpdate", () => {
     const markup = renderToStaticMarkup(
       createElement(SidebarUpdate, {
         snapshot: {
-          phase: "available",
+          phase: "ready",
           currentVersion: "0.1.37",
           availableVersion: "0.1.38",
         },
@@ -80,7 +87,7 @@ describe("SidebarUpdate", () => {
       }),
     );
 
-    expect(markup).toContain("Update to 0.1.38");
+    expect(markup).toContain("Restart for 0.1.38");
     expect(markup).toContain("v0.1.37");
     expect(markup).not.toContain('disabled=""');
   });

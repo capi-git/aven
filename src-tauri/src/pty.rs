@@ -51,6 +51,17 @@ pub struct PtyHost {
 }
 
 impl PtyHost {
+    pub(crate) fn ensure_update_idle(&self) -> Result<(), String> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| "Terminal activity could not be checked")?;
+        if !sessions.is_empty() {
+            return Err("Close active terminals before restarting to update. The update will stay downloaded and ready.".into());
+        }
+        Ok(())
+    }
+
     pub fn new() -> Self {
         Self {
             sessions: Mutex::new(HashMap::new()),
@@ -125,6 +136,7 @@ pub fn pty_spawn(
     rows: u16,
     reuse_existing: Option<bool>,
 ) -> Result<(), String> {
+    let _work = crate::window::begin_runtime_work(&app)?;
     if reuse_existing == Some(true) && host.get(&id).is_some() {
         return pty_resize(host, id, cols, rows);
     }
@@ -152,7 +164,13 @@ pub fn pty_spawn(
 }
 
 #[tauri::command]
-pub fn pty_write(host: State<PtyHost>, id: String, data: String) -> Result<(), String> {
+pub fn pty_write(
+    app: AppHandle,
+    host: State<PtyHost>,
+    id: String,
+    data: String,
+) -> Result<(), String> {
+    let _work = crate::window::begin_runtime_work(&app)?;
     let live = host
         .get(&id)
         .ok_or_else(|| "Terminal is not running".to_string())?;
@@ -810,6 +828,7 @@ mod tests {
     #[test]
     fn remove_if_pid_ignores_a_replaced_session() {
         let host = PtyHost::new();
+        assert!(host.ensure_update_idle().is_ok());
         host.insert(
             "term".into(),
             Arc::new(LivePty {
@@ -818,9 +837,11 @@ mod tests {
                 pid: 42,
             }),
         );
+        assert!(host.ensure_update_idle().is_err());
         assert!(host.remove_if_pid("term", 7).is_none());
         assert!(host.get("term").is_some());
         assert!(host.remove_if_pid("term", 42).is_some());
         assert!(host.get("term").is_none());
+        assert!(host.ensure_update_idle().is_ok());
     }
 }

@@ -1,8 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { modelsFor, resetHarnessModelOverlays, setHarnessModels } from "../models";
+import {
+  modelsFor,
+  resetHarnessModelOverlays,
+  setHarnessModels,
+} from "../models";
 import type { HarnessId } from "../session";
 import {
   HARNESS_IDLE_PARK_MS,
+  HARNESS_CATALOG_TTL_MS,
+  HARNESS_CATALOG_RETRY_MS,
   canCompactHarnessContext,
   compactHarnessContext,
   isLiveHarness,
@@ -241,6 +247,116 @@ describe("harness registry", () => {
     registerHarness(stub("pi", { refreshCatalog: pi }));
     await refreshHarnessCatalogs([]);
     expect(pi).not.toHaveBeenCalled();
+  });
+
+  it("discovers models released while the app stays open after the catalog TTL", async () => {
+    vi.useFakeTimers();
+    const claude = vi.fn(async () => {
+      setHarnessModels("claude", [
+        {
+          id: `claude:release-${claude.mock.calls.length}`,
+          harness: "claude",
+          name: "Live release",
+        },
+      ]);
+    });
+    registerHarness(stub("claude", { refreshCatalog: claude }));
+    await refreshHarnessCatalogs(["claude"]);
+    await vi.advanceTimersByTimeAsync(HARNESS_CATALOG_TTL_MS - 1);
+    await refreshHarnessCatalogs(["claude"]);
+    expect(claude).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1);
+    await refreshHarnessCatalogs(["claude"]);
+    expect(claude).toHaveBeenCalledTimes(2);
+    expect(modelsFor("claude")[0].id).toBe("claude:release-2");
+  });
+
+  it("shares one in-flight request between startup, focus and manual refresh", async () => {
+    let finish!: () => void;
+    const claude = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = () => {
+            setHarnessModels("claude", [
+              {
+                id: "claude:new",
+                harness: "claude",
+                name: "New",
+              },
+            ]);
+            resolve();
+          };
+        }),
+    );
+    registerHarness(stub("claude", { refreshCatalog: claude }));
+    const startup = refreshHarnessCatalogs(["claude"]);
+    const focus = refreshHarnessCatalogs(["claude"]);
+    const manual = refreshHarnessCatalogs(["claude"], { force: true });
+    await Promise.resolve();
+    expect(claude).toHaveBeenCalledOnce();
+    finish();
+    await Promise.all([startup, focus, manual]);
+    expect(modelsFor("claude")[0].id).toBe("claude:new");
+  });
+
+  it("keeps a loaded catalog after failure and retries without repeated probes on every focus", async () => {
+    vi.useFakeTimers();
+    const previous = [
+      {
+        id: "claude:previous",
+        harness: "claude" as const,
+        name: "Previous",
+      },
+    ];
+    const claude = vi.fn(async () => {
+      if (claude.mock.calls.length === 1) setHarnessModels("claude", previous);
+      else if (claude.mock.calls.length === 2) throw new Error("Offline");
+      else
+        setHarnessModels("claude", [
+          {
+            id: "claude:next",
+            harness: "claude",
+            name: "Next",
+          },
+        ]);
+    });
+    registerHarness(stub("claude", { refreshCatalog: claude }));
+    await refreshHarnessCatalogs(["claude"]);
+    await vi.advanceTimersByTimeAsync(HARNESS_CATALOG_TTL_MS);
+    await refreshHarnessCatalogs(["claude"]);
+    expect(modelsFor("claude")).toBe(previous);
+    await refreshHarnessCatalogs(["claude"]);
+    await vi.advanceTimersByTimeAsync(HARNESS_CATALOG_RETRY_MS - 1);
+    await refreshHarnessCatalogs(["claude"]);
+    expect(claude).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    await refreshHarnessCatalogs(["claude"]);
+    expect(claude).toHaveBeenCalledTimes(3);
+    expect(modelsFor("claude")[0].id).toBe("claude:next");
+  });
+
+  it("retries a swallowed discovery failure and lets manual refresh bypass its backoff", async () => {
+    const claude = vi.fn(async () => undefined);
+    registerHarness(stub("claude", { refreshCatalog: claude }));
+    await refreshHarnessCatalogs(["claude"]);
+    await refreshHarnessCatalogs(["claude"]);
+    expect(claude).toHaveBeenCalledOnce();
+    await expect(
+      refreshHarnessCatalogs(["claude"], { force: true }),
+    ).rejects.toThrow("did not return a model list");
+    expect(claude).toHaveBeenCalledTimes(2);
+  });
+
+  it("surfaces a shared failure to the manual caller while background callers settle quietly", async () => {
+    const claude = vi.fn(async () => {
+      throw new Error("Provider unavailable");
+    });
+    registerHarness(stub("claude", { refreshCatalog: claude }));
+    const background = refreshHarnessCatalogs(["claude"]);
+    const manual = refreshHarnessCatalogs(["claude"], { force: true });
+    await expect(manual).rejects.toThrow("Provider unavailable");
+    await expect(background).resolves.toBeUndefined();
+    expect(claude).toHaveBeenCalledOnce();
   });
 
   it("explicitly refreshes only the requested loaded catalog and keeps automatic suppression", async () => {

@@ -1,5 +1,13 @@
 # Aven changelog
 
+## [0.1.80] - 2026-09-22
+
+### Stay current automatically
+
+- Discover new provider models at startup, periodically, and when returning to Aven. Existing task selections and model lists survive refresh failures.
+- Keep supported native Codex and Claude tools current through their official updaters, with a device setting to turn this off.
+- Download signed updates from Aven's own GitHub releases in the background. Restart explicitly after saving and closing browser pages, terminals, and other windows; running or queued tasks block installation.
+
 ## [0.1.79] - 2026-09-22
 
 ### Open chat links safely

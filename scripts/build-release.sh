@@ -101,5 +101,14 @@ cp LICENSE NOTICE THIRD_PARTY_NOTICES.txt "$task_stage/"
 for task_artifact in "$task_archive" LICENSE NOTICE THIRD_PARTY_NOTICES.txt SHA256SUMS; do
   mv -f "$task_stage/$task_artifact" "$task_release_dir/$task_artifact"
 done
+if [[ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" || -n "${TAURI_SIGNING_PRIVATE_KEY_PATH:-}" ]]; then
+  python3 scripts/package-update.py --app "$task_app" --out "$task_release_dir"
+  (
+    cd "$task_release_dir"
+    shasum -a 256 "Aven-$task_version-macos-arm64.app.tar.gz" \
+      "Aven-$task_version-macos-arm64.app.tar.gz.sig" latest.json >> SHA256SUMS
+    shasum -a 256 -c SHA256SUMS
+  )
+fi
 printf 'Built Aven %s: %s\n' "$task_version" "$task_release_dir/$task_archive"
 printf '%s\n' 'Ad-hoc signed; not notarized. Complete native interaction checks before sharing. Nothing was installed or published.'

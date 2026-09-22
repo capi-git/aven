@@ -494,6 +494,7 @@ pub async fn session_pip_open(
     title: String,
     state: Value,
 ) -> Result<String, String> {
+    let _work = crate::window::begin_runtime_work(caller.app_handle())?;
     let owner = trusted_owner(&caller)?;
     validate_snapshot(&id, &state)?;
     let draft = sanitize_draft(state.get("draft"))?;

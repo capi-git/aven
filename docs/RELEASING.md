@@ -1,6 +1,6 @@
 # Releasing Aven
 
-Aven's first public release is a manually distributed, ad-hoc-signed build for Apple Silicon Macs running macOS 13 or later. It is not Apple-notarized and there is no automatic updater. Windows, Linux, and Intel Mac release builds are not currently provided or verified.
+Aven releases target Apple Silicon Macs running macOS 13 or later. The app is ad-hoc signed and is not Apple-notarized. From 0.1.80 onward, Aven checks this repository's release feed and downloads cryptographically signed updates automatically; users choose when to restart. Windows, Linux, and Intel Mac release builds are not currently provided or verified.
 
 ## Prepare a candidate
 
@@ -10,6 +10,10 @@ Aven's first public release is a manually distributed, ad-hoc-signed build for A
 4. Run `./scripts/build-release.sh`. It runs frontend checks and native library tests, uses locked dependencies for the Rust build, generates third-party notices, and packages and verifies the complete signed app.
 
 The script creates `target/releases/v<version>/` with the macOS app ZIP, the project license and notices, the aggregate dependency notices, and `SHA256SUMS`. It does not install or publish anything. Generated dependency notices may change when dependencies change; review and include the matching notice file in the source release.
+
+To produce update artifacts, set `TAURI_SIGNING_PRIVATE_KEY_PATH` to the private Aven updater key outside the checkout (or supply `TAURI_SIGNING_PRIVATE_KEY` securely). `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` is optional. The script signs the **final Chromium app**, producing `.app.tar.gz`, its `.sig`, and `latest.json`. Keep `bundle.createUpdaterArtifacts` false: Tauri's intermediate bundle is missing the final Chromium packaging. Never sign that intermediate bundle for delivery.
+
+The public verification key is committed in `src-tauri/tauri.conf.json`. Keep the matching private key securely backed up; never commit or log it. Losing it prevents existing installations from verifying new updates. Key rotation requires a planned transition release. Updater signatures verify the update's publisher; they do not provide Apple notarization.
 
 Run the checksum verification from the artifact directory:
 
@@ -35,7 +39,7 @@ Check the download on a second Mac or clean macOS account when possible. In rele
 
 The **Build macOS release candidate** workflow is started manually with `workflow_dispatch`. It uses `macos-15`, currently documented by GitHub as an arm64 runner, and asserts the architecture before building. It downloads the pinned CEF archive over HTTPS, verifies the fixed SHA-256, and runs the same release script. See [GitHub's runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
 
-A successful run uploads **Aven-macos-arm64-candidate** as a workflow artifact. The workflow has read-only repository permissions, requires no release credentials, and does not create a tag, publish a release, upload to an external storage service, or install updates. Download the artifact and complete native checks before publishing. Workflow artifacts expire; they are not the public distribution channel.
+A normal run uploads **Aven-macos-arm64-candidate** as a workflow artifact and does not publish. For a reviewed source revision, select the **Publish** workflow input. The build then signs the complete archive using the repository's `TAURI_SIGNING_PRIVATE_KEY` secret (and optional password secret); a separate job creates a versioned stable GitHub release. Only that publishing job receives repository write permission. The version must not already exist. Workflow artifacts expire; GitHub Releases is the public distribution channel.
 
 The separate frontend CI runs on pull requests and main-branch pushes with Node.js 22. It does not replace the macOS candidate build or native interaction checks.
 
@@ -44,13 +48,15 @@ The separate frontend CI runs on pull requests and main-branch pushes with Node.
 After reviewing the exact candidate:
 
 1. Create a version tag and a release in [capi-git/aven](https://github.com/capi-git/aven/releases) for the source revision that produced it.
-2. Attach the versioned macOS ZIP, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.txt`, and `SHA256SUMS` from that candidate's release directory.
-3. Include the tested environment, changes, known limitations, and the ad-hoc/not-notarized status in the release notes. State that updates are manual.
+2. Attach the versioned macOS ZIP, signed `.app.tar.gz`, `.sig`, `latest.json`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.txt`, and `SHA256SUMS` from that candidate's release directory. Mark it as the latest stable release so the configured `/releases/latest/download/latest.json` endpoint resolves.
+3. Include the tested environment, changes, known limitations, and the ad-hoc/not-notarized status in the release notes. Explain background download and user-controlled restart.
 4. Download the uploaded ZIP, compare its checksum with the reviewed candidate, and confirm its contents before directing users to it.
 
 Do not publish packaging logs or receipts containing developer-local paths. Keep the project's MIT attribution and all bundled third-party notices. The ZIP is the distributable app; GitHub's automatically generated source archive is for building from source.
 
-For users, updating means quitting Aven, downloading the newer app ZIP, and replacing the old app. A downloaded ad-hoc-signed app may require an explicit opening approval in macOS **Privacy & Security**. Never instruct users to disable Gatekeeper or other system protections globally.
+Users on versions before 0.1.80 need one manual replacement. Later versions download updates in the background and show **Restart to update**. Restart preparation blocks active/queued tasks, extra app windows, terminal work, and open browser pages; users save and close those first. Drafts and workspace state must persist successfully before installation. A downloaded ad-hoc-signed app may require an explicit opening approval in macOS **Privacy & Security**. Never instruct users to disable Gatekeeper or other system protections globally.
+
+Verify the published archive against its signature with the configured public key and perform an actual older-to-newer update before claiming end-to-end upgrade coverage. Keep failed-signature and busy-work refusal checks separate from actual installation evidence. Automatic model discovery does not require publishing an Aven release; it uses each installed provider's model list and preserves the existing list on failures.
 
 ## Future Developer ID and notarization
 
@@ -58,4 +64,4 @@ A Developer ID release needs a stable Apple Developer signing identity and a sep
 
 The Chromium packager accepts `--identity "Developer ID Application: …"` to sign the complete nested app consistently. Use it only after building the host and before archiving. Then submit the final signed app archive to Apple's notarization service, wait for acceptance, staple and validate the ticket, and recreate the final ZIP and its checksum after stapling. Verify the downloaded release on another Mac.
 
-The current build script always produces the documented ad-hoc candidate. Adding notarized releases requires a reviewed build change; supplying a certificate to the current workflow alone does not enable that process. Automatic updates would additionally require an Aven-owned signed update feed and end-to-end upgrade verification. Neither is enabled by the initial release.
+The current build script always produces the documented ad-hoc candidate. Adding notarized releases requires a reviewed build change; supplying a certificate to the current workflow alone does not enable that process. The Aven-owned updater feed and its signing key are independent of an Apple Developer certificate.

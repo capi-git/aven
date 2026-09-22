@@ -130,6 +130,25 @@ pub struct ControlHost {
     inner: Arc<Mutex<Inner>>,
 }
 
+impl ControlHost {
+    pub(crate) fn ensure_update_idle(&self) -> Result<(), String> {
+        let inner = self
+            .inner
+            .lock()
+            .map_err(|_| "Agent activity could not be checked")?;
+        inner.ensure_update_idle()
+    }
+}
+
+impl Inner {
+    fn ensure_update_idle(&self) -> Result<(), String> {
+        if !self.active.is_empty() || !self.pending.is_empty() {
+            return Err("Finish or stop running agents and queued tasks before restarting to update. The update will stay downloaded and ready.".into());
+        }
+        Ok(())
+    }
+}
+
 fn paths_overlap(a: &str, b: &str) -> bool {
     Path::new(a).starts_with(b) || Path::new(b).starts_with(a)
 }
@@ -189,7 +208,15 @@ pub fn init(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-fn serve(stream: TcpStream, app: &AppHandle, inner: &Arc<Mutex<Inner>>) {
+fn serve(mut stream: TcpStream, app: &AppHandle, inner: &Arc<Mutex<Inner>>) {
+    let _work = match crate::window::begin_runtime_work(app) {
+        Ok(work) => work,
+        Err(error) => {
+            let _ = stream.set_write_timeout(Some(Duration::from_secs(3)));
+            let _ = writeln!(stream, "{}", json!({"ok": false, "error": error}));
+            return;
+        }
+    };
     serve_request(stream, inner, |window, event| {
         app.emit_to(window, "monocode-control-request", event)
             .map_err(|e| e.to_string())
@@ -275,6 +302,7 @@ pub fn control_enable(
     session_id: String,
     cwd: String,
 ) -> Result<String, String> {
+    let _work = crate::window::begin_runtime_work(window.app_handle())?;
     let cwd = std::fs::canonicalize(crate::fs::expand_home(&cwd)).map_err(|e| e.to_string())?;
     if !cwd.is_dir() {
         return Err("Choose a project folder first".into());
@@ -338,6 +366,7 @@ pub fn control_attach_worker(
     lead_id: String,
     session_id: String,
 ) -> Result<(), String> {
+    let _work = crate::window::begin_runtime_work(window.app_handle())?;
     let mut inner = host
         .inner
         .lock()
@@ -370,6 +399,7 @@ pub fn control_authorize_turn(
     session_id: String,
     cwd: String,
 ) -> Result<(), String> {
+    let _work = crate::window::begin_runtime_work(window.app_handle())?;
     let cwd = std::fs::canonicalize(crate::fs::expand_home(&cwd))
         .map_err(|e| e.to_string())?
         .to_string_lossy()
@@ -563,6 +593,43 @@ pub fn control_scopes(cwd: String, files: Vec<String>) -> Result<Vec<String>, St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn update_rejects_active_turns_and_pending_control_but_allows_idle_grants() {
+        let mut inner = Inner::default();
+        inner.grants.insert(
+            "lead".into(),
+            Grant {
+                window: "main".into(),
+                session: "lead".into(),
+                cwd: "/project".into(),
+                token: "test".into(),
+            },
+        );
+        assert!(inner.ensure_update_idle().is_ok());
+        inner.active.insert(
+            "lead".into(),
+            ActiveTurn {
+                window: "main".into(),
+                cwd: "/project".into(),
+            },
+        );
+        assert!(inner.ensure_update_idle().is_err());
+        inner.finish_turn("main", "lead");
+        assert!(inner.ensure_update_idle().is_ok());
+        let (reply, _) = mpsc::channel();
+        inner.pending.insert(
+            "request".into(),
+            Pending {
+                window: "main".into(),
+                session: "lead".into(),
+                reply,
+            },
+        );
+        assert!(inner.ensure_update_idle().is_err());
+        inner.pending.clear();
+        assert!(inner.ensure_update_idle().is_ok());
+    }
     #[test]
     fn closing_a_window_releases_ordinary_turns_and_owned_orchestration() {
         let mut inner = Inner::default();

@@ -7,6 +7,7 @@ import { newTab } from "./layout";
 import {
   closeBusyWindow,
   persistQuitState,
+  prepareUpdateRestart,
   setQuitWorkspace,
 } from "./appLifecycle";
 import { updateComposerDraft } from "./composerDrafts";
@@ -242,4 +243,100 @@ it("keeps unload snapshots scoped to their arguments without waiting for return 
     releaseFlusher();
     releaseWorkspace();
   }
+});
+
+describe("preparing a safe update restart", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(invoke).mockResolvedValue(undefined);
+  });
+  function idleWorkspace() {
+    const session = newSession("cursor", "/project");
+    const tab = newTab(session.id);
+    const flush = vi.fn();
+    const release = setQuitWorkspace(
+      () => [session],
+      () => [tab],
+      () => tab.id,
+      () => session.cwd,
+      () => [],
+      flush,
+    );
+    return { session, release, flush };
+  }
+  it("refuses a still-running task without stopping it or acquiring a guard", async () => {
+    const { session, release } = idleWorkspace();
+    session.busy = true;
+    try {
+      await expect(prepareUpdateRestart()).rejects.toThrow("still working");
+      expect(invoke).not.toHaveBeenCalled();
+      expect(killAllChildren).not.toHaveBeenCalled();
+      expect(session.busy).toBe(true);
+    } finally {
+      release();
+    }
+  });
+  it("saves the latest draft before native final restart validation", async () => {
+    const { session, release } = idleWorkspace();
+    updateComposerDraft(session.id, { text: "Keep my update draft" });
+    try {
+      await prepareUpdateRestart();
+      const calls = vi.mocked(invoke).mock.calls;
+      const saved = calls.findIndex(
+        ([command]) => command === "workspace_set_snapshot",
+      );
+      const guarded = calls.findIndex(
+        ([command]) => command === "prepare_update_restart",
+      );
+      const browserClose = calls.findIndex(
+        ([command]) => command === "finish_update_restart_preparation",
+      );
+      expect(guarded).toBeLessThan(saved);
+      expect(saved).toBeLessThan(browserClose);
+      expect(calls[saved]?.[1]).toMatchObject({
+        snapshot: {
+          sessions: [
+            expect.objectContaining({
+              draft: expect.objectContaining({ text: "Keep my update draft" }),
+            }),
+          ],
+        },
+      });
+      expect(killAllChildren).not.toHaveBeenCalled();
+    } finally {
+      release();
+    }
+  });
+  it("aborts on persistence failure instead of losing unsaved work", async () => {
+    const { release } = idleWorkspace();
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "workspace_set_snapshot") throw new Error("disk full");
+      return undefined;
+    });
+    try {
+      await expect(prepareUpdateRestart()).rejects.toThrow("disk full");
+      expect(invoke).toHaveBeenCalledWith("cancel_update_restart");
+      expect(invoke).not.toHaveBeenCalledWith(
+        "finish_update_restart_preparation",
+      );
+    } finally {
+      release();
+    }
+  });
+  it("releases the guard when native final restart validation rejects", async () => {
+    const { release } = idleWorkspace();
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "finish_update_restart_preparation")
+        throw new Error("Browser tabs are still open");
+      return undefined;
+    });
+    try {
+      await expect(prepareUpdateRestart()).rejects.toThrow(
+        "Browser tabs are still open",
+      );
+      expect(invoke).toHaveBeenCalledWith("cancel_update_restart");
+    } finally {
+      release();
+    }
+  });
 });

@@ -38,8 +38,8 @@ def main():
     updater = config.get("plugins", {}).get("updater", {})
     record("Developer ID configured", isinstance(signing, str) and signing.startswith("Developer ID Application:"),
            "Use a stable Developer ID Application identity for distributed builds.")
-    record("Updater artifacts enabled", bundle.get("createUpdaterArtifacts") is True,
-           "Package and notarize the complete Chromium app before signing the final update archive.")
+    record("Final Chromium updater packager configured", (ROOT / "scripts/package-update.py").is_file(),
+           "Sign the complete Chromium app archive after packaging; do not ship Tauri's intermediate host bundle.")
     record("Updater public key configured", bool(str(updater.get("pubkey", "")).strip()),
            "Only the updater public key belongs in app configuration; keep private keys outside the repository.")
     endpoints = updater.get("endpoints", [])

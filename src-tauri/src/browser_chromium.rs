@@ -220,6 +220,24 @@ static NEXT: AtomicU64 = AtomicU64::new(1);
 fn registry() -> &'static Mutex<Registry> {
     REGISTRY.get_or_init(|| Mutex::new(Registry::default()))
 }
+
+pub(crate) async fn ensure_update_idle(app: &AppHandle) -> Result<(), String> {
+    {
+        let entries = registry()
+            .lock()
+            .map_err(|_| "Browser activity could not be checked")?;
+        if !entries.roots.is_empty() || !entries.creating.is_empty() || !entries.closing.is_empty()
+        {
+            return Err(crate::window::UPDATE_BROWSER_BUSY.into());
+        }
+    }
+    if INITIALIZED.load(Ordering::Acquire)
+        && on_main(app, || Ok(unsafe { sm_chromium_live_browser_count() })).await? != 0
+    {
+        return Err(crate::window::UPDATE_BROWSER_BUSY.into());
+    }
+    Ok(())
+}
 fn string(value: &str) -> Result<CString, String> {
     CString::new(value).map_err(|_| "Browser input contains a null character".into())
 }
@@ -889,6 +907,7 @@ pub async fn browser_create(
     url: String,
     bounds: BrowserBounds,
 ) -> Result<(), String> {
+    let _work = crate::window::begin_runtime_work(caller.app_handle())?;
     let root = label(&caller, &id)?;
     let url = parse_url(&caller, &url)?;
     bounds.validate()?;
@@ -1662,6 +1681,11 @@ pub async fn browser_set_floating(
     id: String,
     floating: bool,
 ) -> Result<Option<String>, String> {
+    let _work = if floating {
+        Some(crate::window::begin_runtime_work(caller.app_handle())?)
+    } else {
+        None
+    };
     let context = preview(&caller, &id)?.0;
     set_floating(context.clone(), floating).await?;
     let label = context.placement.lock().await.window.clone();

@@ -100,6 +100,47 @@ export function setQuitWorkspace(
   };
 }
 
+/** Save an idle workspace before installing an explicitly requested update. */
+export async function prepareUpdateRestart(): Promise<void> {
+  const workspace = liveWorkspace;
+  if (!workspace)
+    throw new Error("Wait for Aven to finish opening before restarting.");
+  workspace.flush();
+  if (hasInFlightSessions(workspace.sessions())) {
+    throw new Error(
+      "Your tasks are still working or waiting for input. Finish them before restarting to update.",
+    );
+  }
+  await invoke("prepare_update_restart");
+  try {
+    await flushWorkspaceDrafts();
+    workspace.flush();
+    if (
+      liveWorkspace !== workspace ||
+      hasInFlightSessions(workspace.sessions())
+    ) {
+      throw new Error(
+        "Your workspace changed. Finish any running tasks and try restarting again.",
+      );
+    }
+    await persistQuitState(
+      workspace.sessions(),
+      workspace.tabs(),
+      workspace.activeTabId(),
+      workspace.projectCwd(),
+      "update",
+      workspace.projectTerminals(),
+    );
+    if (hasInFlightSessions(workspace.sessions())) {
+      throw new Error("A task started. Finish it before restarting to update.");
+    }
+    await invoke("finish_update_restart_preparation");
+  } catch (error) {
+    await invoke("cancel_update_restart").catch(() => undefined);
+    throw error;
+  }
+}
+
 export async function handleQuitRequested(): Promise<void> {
   if (liveWorkspace) {
     liveWorkspace.flush();
@@ -301,10 +342,10 @@ export async function persistQuitState(
   tabs: WorkspaceTab[],
   activeTabId: string,
   projectCwd: string,
-  mode: "quit" | "unload" = "quit",
+  mode: "quit" | "unload" | "update" = "quit",
   projectTerminals: ProjectTerminalDock[] = [],
 ): Promise<void> {
-  if (mode === "quit") {
+  if (mode !== "unload") {
     const workspace = liveWorkspace;
     await flushWorkspaceDrafts();
     // Returning detached windows can replace the owner's immutable arrays.
@@ -326,7 +367,10 @@ export async function persistQuitState(
       const payload = interrupted.has(session.id)
         ? markTurnInterrupted(session)
         : session;
-      await upsertSession(payload).catch(() => null);
+      await upsertSession(payload).catch((error) => {
+        if (mode === "update") throw error;
+        return null;
+      });
     }),
   );
   await saveWorkspaceSnapshot(
@@ -337,11 +381,15 @@ export async function persistQuitState(
       projectCwd,
       projectTerminals,
     ),
-  ).catch(() => undefined);
+  ).catch((error) => {
+    if (mode === "update") throw error;
+  });
   // Vite/webview reload must not wipe a restored snapshot: those chats are idle
   // in this process until Continue runs.
-  if (mode === "quit" || refs.length > 0) {
-    await replaceInFlightSessions(refs).catch(() => undefined);
+  if (mode !== "unload" || refs.length > 0) {
+    await replaceInFlightSessions(refs).catch((error) => {
+      if (mode === "update") throw error;
+    });
   }
 }
 

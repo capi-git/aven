@@ -581,6 +581,86 @@ describe("approvals", () => {
 });
 
 describe("parseCodexModelList", () => {
+  it("discovers GPT-6 Sol and Luna with each model's provider-reported effort options", () => {
+    const models = parseCodexModelList([
+      {
+        model: "gpt-6-sol",
+        displayName: "gpt-6-sol",
+        defaultReasoningEffort: "high",
+        supportedReasoningEfforts: [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+          "ultra",
+        ],
+      },
+      {
+        model: "gpt-6-luna",
+        displayName: "gpt-6-luna",
+        defaultReasoningEffort: "medium",
+        supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+      },
+    ]);
+    expect(
+      models.map(({ id, name, nativeId }) => ({ id, name, nativeId })),
+    ).toEqual([
+      { id: "codex:gpt-6-sol", name: "GPT-6-Sol", nativeId: "gpt-6-sol" },
+      { id: "codex:gpt-6-luna", name: "GPT-6-Luna", nativeId: "gpt-6-luna" },
+    ]);
+    const solEffort = models[0].settings?.find(
+      (setting) => setting.id === "reasoningEffort",
+    );
+    const lunaEffort = models[1].settings?.find(
+      (setting) => setting.id === "reasoningEffort",
+    );
+    expect(solEffort?.value).toBe("high");
+    expect(solEffort?.options.map((option) => option.value)).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra",
+    ]);
+    expect(lunaEffort?.value).toBe("medium");
+    expect(lunaEffort?.options.map((option) => option.value)).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+  });
+
+  it("accepts a future model and new effort without a compiled-in allowlist", () => {
+    const models = parseCodexModelList([
+      {
+        model: "future-provider-model",
+        displayName: "Future provider model",
+        defaultReasoningEffort: "adaptive",
+        supportedReasoningEfforts: [
+          { reasoningEffort: "adaptive", label: "Adaptive" },
+        ],
+      },
+    ]);
+    expect(models).toMatchObject([
+      {
+        id: "codex:future-provider-model",
+        nativeId: "future-provider-model",
+        name: "Future provider model",
+        settings: [
+          {
+            id: "reasoningEffort",
+            value: "adaptive",
+            options: [{ value: "adaptive", label: "Adaptive" }],
+          },
+        ],
+      },
+    ]);
+  });
+
   it("builds models with reasoning and service tier settings", () => {
     const models = parseCodexModelList([
       {

@@ -10,9 +10,12 @@ vi.mock("../lib/platform", async (importOriginal) => ({
   HAS_NATIVE_GLASS: true,
   IS_MAC: true,
 }));
+const idleUpdate = vi.hoisted(() => ({ phase: "idle", currentVersion: "0.1.41" }));
 vi.mock("../lib/updater", () => ({
   readAppVersion: vi.fn().mockResolvedValue("0.1.41"),
-  probeForUpdate: vi.fn().mockResolvedValue(null),
+  getUpdaterSnapshot: () => idleUpdate,
+  subscribeUpdater: () => () => {},
+  startAutomaticUpdates: () => () => {},
 }));
 
 let root: Root;

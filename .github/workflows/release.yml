@@ -1,8 +1,13 @@
 name: Build macOS release candidate
 
-# Deliberately manual and build-only. Publishing remains a separate review step.
+# A reviewed source revision can be published as an Aven-signed update.
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish this reviewed version to Aven's update channel
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -44,6 +49,16 @@ jobs:
           printf 'CEF_ROOT=%s\n' "$RUNNER_TEMP/$task_cef_name" >> "$GITHUB_ENV"
       - name: Test, build, and package candidate
         run: ./scripts/build-release.sh
+      - name: Sign final Chromium update archive
+        if: inputs.publish
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          task_version="$(node -p "require('./package.json').version")"
+          python3 scripts/package-update.py --app target/release/bundle/macos/Aven.app --out "target/releases/v$task_version"
+          cd "target/releases/v$task_version"
+          shasum -a 256 "Aven-$task_version-macos-arm64.app.tar.gz" "Aven-$task_version-macos-arm64.app.tar.gz.sig" latest.json >> SHA256SUMS
       - name: Upload candidate for manual review
         uses: actions/upload-artifact@v4
         with:
@@ -52,3 +67,31 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+
+  publish:
+    if: inputs.publish
+    needs: macos-arm64
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Aven-macos-arm64-candidate
+          path: release
+      - name: Publish signed Aven release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          task_version="$(node -p "require('./package.json').version")"
+          test -s release/latest.json
+          cd release && sha256sum -c SHA256SUMS && cd ..
+          # Never attach a new binary to a tag that points at different source.
+          if git ls-remote --exit-code --tags origin "refs/tags/v$task_version" > /dev/null 2>&1; then
+            echo "Version tag already exists; choose a new release version." >&2
+            exit 1
+          fi
+          gh release create "v$task_version" release/* --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --title "Aven $task_version" --latest \
+            --notes "Aven $task_version for Apple Silicon Macs. Updates are signed by Aven. The app remains ad-hoc signed and is not Apple-notarized. See CHANGELOG.md for changes."

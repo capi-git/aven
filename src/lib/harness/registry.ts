@@ -68,6 +68,15 @@ export type HarnessAdapter = {
 
 const adapters = new Map<HarnessId, HarnessAdapter>();
 
+/** Provider catalogs can change while Aven stays open for days. */
+export const HARNESS_CATALOG_TTL_MS = 30 * 60_000;
+export const HARNESS_CATALOG_RETRY_MS = 5 * 60_000;
+type CatalogRefresh = {
+  nextCheckAt: number;
+  inflight?: Promise<void>;
+};
+const catalogRefreshes = new Map<HarnessId, CatalogRefresh>();
+
 /**
  * After a turn settles, keep the child warm for follow-ups, then park it.
  * Resume state stays, so the next prompt respawns instead of starting over.
@@ -99,6 +108,7 @@ export function resetHarnessIdlePark(): void {
 }
 
 export function registerHarness(adapter: HarnessAdapter): void {
+  if (adapters.get(adapter.id) !== adapter) catalogRefreshes.delete(adapter.id);
   adapters.set(adapter.id, adapter);
 }
 
@@ -276,20 +286,50 @@ export async function refreshHarnessCatalogs(
       .filter((adapter) => wanted.has(adapter.id))
       .map(async (adapter) => {
         if (!adapter.refreshCatalog) return;
-        if (!options.force && hasLiveCatalog(adapter.id)) return;
-        const previous = modelsFor(adapter.id);
+        let refresh = catalogRefreshes.get(adapter.id);
+        if (!refresh) {
+          refresh = {
+            // Catalogs published by a direct loader also get a bounded lifetime.
+            nextCheckAt: hasLiveCatalog(adapter.id)
+              ? Date.now() + HARNESS_CATALOG_TTL_MS
+              : 0,
+          };
+          catalogRefreshes.set(adapter.id, refresh);
+        }
+        if (
+          !refresh.inflight &&
+          !options.force &&
+          Date.now() < refresh.nextCheckAt
+        )
+          return;
         try {
-          await adapter.refreshCatalog();
-          // Discovery loaders keep the previous catalog on failure. Explicit
-          // requests must not report success when no replacement was published.
-          if (
-            options.force &&
-            (!hasLiveCatalog(adapter.id) || modelsFor(adapter.id) === previous)
-          ) {
-            throw new Error(
-              "The provider did not return a model list. Your existing choices are unchanged.",
-            );
+          if (!refresh.inflight) {
+            const state = refresh;
+            const previous = modelsFor(adapter.id);
+            // Defer the invocation so concurrent callers always see the promise,
+            // including providers whose loader throws synchronously.
+            state.inflight = Promise.resolve()
+              .then(() => adapter.refreshCatalog!())
+              .then(() => {
+                if (
+                  !hasLiveCatalog(adapter.id) ||
+                  modelsFor(adapter.id) === previous
+                ) {
+                  throw new Error(
+                    "The provider did not return a model list. Your existing choices are unchanged.",
+                  );
+                }
+                state.nextCheckAt = Date.now() + HARNESS_CATALOG_TTL_MS;
+              })
+              .catch((error: unknown) => {
+                state.nextCheckAt = Date.now() + HARNESS_CATALOG_RETRY_MS;
+                throw error;
+              })
+              .finally(() => {
+                state.inflight = undefined;
+              });
           }
+          await refresh.inflight;
         } catch (error: unknown) {
           if (options.force) throw error;
           console.debug(`[monocode] ${adapter.id} catalog`, error);

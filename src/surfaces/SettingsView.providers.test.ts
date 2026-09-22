@@ -6,6 +6,7 @@ import { SettingsView } from "./SettingsView";
 import { ModelPicker } from "../chrome/ModelPicker";
 import { BuildTargetButton } from "../chrome/SecondOpinionButton";
 import { refreshHarnessCatalogs } from "../lib/harness/registry";
+import { loadProviderToolAutoUpdates } from "../lib/providerToolUpdates";
 import {
   defaultSessionChoice,
   loadHiddenPickerModels,
@@ -117,6 +118,16 @@ describe("provider and model controls", () => {
   async function click(label: string) {
     await act(async () => control(label).click());
   }
+
+  it("lets the user turn automatic provider tool updates off without changing their model", async () => {
+    await act(async () => root.render(createElement(Settings)));
+    const toggle = control("Keep provider tools up to date");
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    await click("Keep provider tools up to date");
+    expect(loadProviderToolAutoUpdates()).toBe(false);
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(defaultSessionChoice()).toEqual({ harness: "claude", model: opus });
+  });
 
   it("refreshes a loaded provider explicitly, shows pending state, and exposes new models without changing preferences", async () => {
     savePickerModelVisible(sonnet, false);

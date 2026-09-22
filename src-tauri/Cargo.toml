@@ -31,6 +31,9 @@ rusqlite = { version = "0.40.2", features = ["bundled"], default-features = fals
 ureq = { version = "2.12.1", default-features = false, features = ["tls", "gzip"] }
 tauri-plugin-process = "2"
 
+[dev-dependencies]
+minisign-verify = "0.2.5"
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 

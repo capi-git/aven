@@ -1,9 +1,11 @@
 import { ArrowDownCircle, Loader } from "./icons";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import {
   installPendingUpdate,
-  probeForUpdate,
-  readAppVersion,
+  runUpdateFlow,
+  subscribeUpdater,
+  getUpdaterSnapshot,
+  startAutomaticUpdates,
   type UpdaterSnapshot,
 } from "../lib/updater";
 import type { InstalledUpdate } from "../lib/updateNotice";
@@ -11,10 +13,15 @@ import { UpdateRailCard } from "./UpdateRailCard";
 
 // The sidebar row only earns its space when there is something to act on: an
 // update waiting to be installed, or one already downloading. Every other phase
-// — including a probe that failed — stays silent, because manual "Check for
-// updates" already lives in Settings and the app menu.
+// — including a failed availability probe — stays silent. A failed download
+// stays visible so the user can retry it.
 export function isSidebarUpdateActionable(snapshot: UpdaterSnapshot): boolean {
-  return snapshot.phase === "available" || snapshot.phase === "downloading";
+  return (
+    ["available", "downloading", "ready", "installing"].includes(
+      snapshot.phase,
+    ) ||
+    (snapshot.phase === "error" && !!snapshot.availableVersion)
+  );
 }
 
 export function SidebarUpdateFooter({
@@ -26,45 +33,12 @@ export function SidebarUpdateFooter({
   onOpenWhatsNew?: (version: string) => void;
   onDismissUpdate?: () => void;
 }) {
-  const [snapshot, setSnapshot] = useState<UpdaterSnapshot>({
-    phase: "idle",
-    currentVersion: "…",
-  });
-
-  // The automatic probe runs on mount whether or not it ends up rendering
-  // anything, so a newly published version still surfaces on its own. The
-  // snapshot lives here rather than in SidebarUpdate so the footer can drop its
-  // padding entirely when neither child has anything to show.
-  useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      const currentVersion = await readAppVersion();
-      if (cancelled) return;
-      setSnapshot({ phase: "checking", currentVersion });
-
-      try {
-        const update = await probeForUpdate();
-        if (cancelled) return;
-        if (update) {
-          setSnapshot({
-            phase: "available",
-            currentVersion,
-            availableVersion: update.version,
-          });
-          return;
-        }
-        setSnapshot({ phase: "current", currentVersion });
-      } catch {
-        if (cancelled) return;
-        setSnapshot({ phase: "idle", currentVersion });
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const snapshot = useSyncExternalStore(
+    subscribeUpdater,
+    getUpdaterSnapshot,
+    getUpdaterSnapshot,
+  );
+  useEffect(() => startAutomaticUpdates(), []);
 
   const card =
     update && onOpenWhatsNew && onDismissUpdate ? (
@@ -84,9 +58,7 @@ export function SidebarUpdateFooter({
   return (
     <div className="flex flex-col gap-1.5 p-2 pb-0">
       {card}
-      {actionable ? (
-        <SidebarUpdate snapshot={snapshot} onSnapshot={setSnapshot} />
-      ) : null}
+      {actionable ? <SidebarUpdate snapshot={snapshot} /> : null}
     </div>
   );
 }
@@ -96,9 +68,10 @@ export function SidebarUpdate({
   onSnapshot,
 }: {
   snapshot: UpdaterSnapshot;
-  onSnapshot: (next: UpdaterSnapshot) => void;
+  onSnapshot?: (next: UpdaterSnapshot) => void;
 }) {
-  const busy = snapshot.phase === "downloading";
+  const busy =
+    snapshot.phase === "downloading" || snapshot.phase === "installing";
   // `busy` only flips after installPendingUpdate awaits readAppVersion, so a
   // second click can still land. The ref closes that window immediately.
   const installing = useRef(false);
@@ -107,19 +80,33 @@ export function SidebarUpdate({
     if (busy || installing.current) return;
     installing.current = true;
     try {
-      await installPendingUpdate(onSnapshot);
+      if (snapshot.phase === "ready") await installPendingUpdate(onSnapshot);
+      else await runUpdateFlow(false, onSnapshot);
     } finally {
       installing.current = false;
     }
-  }, [busy, onSnapshot]);
+  }, [busy, onSnapshot, snapshot.phase]);
 
-  const label = busy
-    ? `Downloading${snapshot.progress != null ? ` ${snapshot.progress}%` : "…"}`
-    : `Update to ${snapshot.availableVersion}`;
+  const label =
+    snapshot.phase === "downloading"
+      ? `Downloading${snapshot.progress != null ? ` ${snapshot.progress}%` : "…"}`
+      : snapshot.phase === "installing"
+        ? "Restarting to update…"
+        : snapshot.phase === "ready"
+          ? `Restart for ${snapshot.availableVersion}`
+          : snapshot.phase === "error"
+            ? "Retry update download"
+            : `Download ${snapshot.availableVersion}`;
 
   return (
     <button
       type="button"
+      title={
+        snapshot.error ??
+        (snapshot.phase === "ready"
+          ? "Update downloaded. Restart when your tasks are finished."
+          : undefined)
+      }
       onClick={onClick}
       disabled={busy}
       className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors ${

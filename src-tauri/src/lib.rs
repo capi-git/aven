@@ -37,6 +37,7 @@ mod personal_project;
 mod pip_group;
 mod project_logo;
 mod projectless;
+mod provider_updates;
 mod pty;
 mod rate_limits;
 mod search;
@@ -204,6 +205,7 @@ pub fn run() {
         )
         .manage(harness::HarnessHost::new())
         .manage(pty::PtyHost::new())
+        .manage(window::UpdateRestartState::default())
         .manage(window_transfer::WindowTransferState::new())
         .manage(session_pip::SessionPipState::default())
         .manage(workspace_window::WorkspaceWindowState::default())
@@ -428,6 +430,11 @@ pub fn run() {
             window::hide_window,
             window::destroy_window,
             window::confirm_quit,
+            window::prepare_update_restart,
+            window::finish_update_restart_preparation,
+            window::cancel_update_restart,
+            window::relaunch_after_update,
+            provider_updates::provider_refresh_cli,
             window::set_window_glass_enabled,
             window_transfer::stage_window_transfer,
             window_transfer::take_window_transfer,
@@ -449,6 +456,7 @@ pub fn run() {
             ..
         } = event
         {
+            window::update_window_event(handle, label, event);
             usage_panel::window_event(handle, label, event);
             access_panel::window_event(handle, label, event);
         }

@@ -395,6 +395,7 @@ pub fn harness_spawn(
     args: Vec<String>,
     cwd: String,
 ) -> Result<u32, String> {
+    let _work = crate::window::begin_runtime_work(&app)?;
     // Caller authorization remains required even when browser setup is optional.
     crate::browser::label(&caller, "agent-check")?;
     let gate = host.session_gate(&session_id);
@@ -530,10 +531,12 @@ fn configure_browser_environment(
 
 #[tauri::command]
 pub fn harness_write(
+    app: AppHandle,
     host: State<HarnessHost>,
     session_id: String,
     line: String,
 ) -> Result<(), String> {
+    let _work = crate::window::begin_runtime_work(&app)?;
     let live = host
         .get(&session_id)
         .ok_or_else(|| "Harness process is not running".to_string())?;
@@ -560,13 +563,16 @@ pub fn harness_kill_all(host: State<'_, HarnessHost>) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn harness_http(
+    app: AppHandle,
     url: String,
     method: String,
     headers: Option<HashMap<String, String>>,
     body: Option<String>,
     timeout_ms: Option<u64>,
 ) -> Result<HarnessHttpResponse, String> {
+    let work = crate::window::begin_runtime_work(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
+        let _work = work;
         assert_loopback(&url)?;
         let timeout = Duration::from_millis(timeout_ms.unwrap_or(30_000).max(1));
         let agent = harness_http_agent().timeout(timeout).build();
@@ -601,6 +607,7 @@ pub fn harness_sse_open(
     url: String,
     headers: Option<HashMap<String, String>>,
 ) -> Result<(), String> {
+    let _work = crate::window::begin_runtime_work(&app)?;
     assert_loopback(&url)?;
     host.stop_sse(&session_id);
     let stop = Arc::new(AtomicBool::new(false));
@@ -778,14 +785,17 @@ fn is_resolved_harness_binary(command: &str) -> bool {
 /// One-shot capture of stdout (used for `cursor-agent --list-models`).
 #[tauri::command]
 pub async fn harness_exec(
+    app: AppHandle,
     command: String,
     args: Vec<String>,
     cwd: Option<String>,
 ) -> Result<String, String> {
+    let work = crate::window::begin_runtime_work(&app)?;
     if !exec_args_allowed(&args) {
         return Err("harness_exec: unsupported arguments".into());
     }
     tauri::async_runtime::spawn_blocking(move || {
+        let _work = work;
         if !is_resolved_harness_binary(&command) {
             return Err("harness_exec: not a resolved harness CLI".to_string());
         }

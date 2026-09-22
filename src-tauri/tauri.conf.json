@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Aven",
-  "version": "0.1.79",
+  "version": "0.1.80",
   "identifier": "com.capi.monocode.personal",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -61,8 +61,10 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "",
-      "endpoints": []
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDUyNkVBQTIyRDNGRkRFOEMKUldTTTN2L1RJcXB1VWc0U3RCck1Sa0hkWm9Vd1FvMnk0MGszNmR1UjlQVU5pNTlyYlBKOXQ3M1EK",
+      "endpoints": [
+        "https://github.com/capi-git/aven/releases/latest/download/latest.json"
+      ]
     }
   }
 }
