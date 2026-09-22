@@ -1,5 +1,14 @@
 # Aven changelog
 
+## [0.1.76] - 2026-09-22
+
+### Clear agent status
+
+- Keep the current agent state visible above the message box while you scroll: working, waiting for you, finished, stopped, or failed.
+- Show elapsed time, a short description of the current work, and a clearly labeled Stop button while the agent runs.
+- Keep the original task running when a follow-up instruction cannot be delivered, and explain that failure without marking the task finished.
+- Report failed or interrupted Codex turns accurately instead of treating them as successfully finished.
+
 ## [0.1.73] - 2026-09-17
 
 ### Browser annotations

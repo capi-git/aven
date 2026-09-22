@@ -315,6 +315,7 @@ import {
   wrapHandoffPrompt,
 } from "./lib/handoff";
 import { requestOutgoingHandoff } from "./lib/handoffTurn";
+import { appendSteerFailure } from "./lib/sessionSteerFailure";
 import { isEditTool } from "./lib/harness/preview";
 import {
   beginSessionTurn,
@@ -5196,9 +5197,6 @@ export default function App({
           }),
         );
         const steeredGeneration = turnGen.current.get(sessionId);
-        const steeredActivityId =
-          activityTurnIds.current.get(sessionId) ??
-          sessionTurnActivityId(current);
         void (async () => {
           try {
             const prepared = await prepareAttachments(attachments);
@@ -5227,25 +5225,18 @@ export default function App({
             });
           } catch (error: unknown) {
             if (turnGen.current.get(sessionId) !== steeredGeneration) return;
-            const message =
-              error instanceof Error
-                ? error.message
-                : `${current.harness} could not steer the active turn`;
-            failedActivityTurns.current.set(sessionId, steeredActivityId);
-            announceActivity(
-              sessionsRef.current.find((session) => session.id === sessionId) ??
-                current,
-              {
-                id: `${steeredActivityId}:failed`,
-                outcome: "failed",
-                summary: message,
-              },
-            );
-            enqueueHarnessEvent(sessionId, {
-              type: "session.error",
-              message,
-            });
+            // Only the follow-up failed. The original turn still owns its
+            // streams, completion, and activity outcome.
             flushHarnessEvents();
+            setSessions((prev) =>
+              turnGen.current.get(sessionId) !== steeredGeneration
+                ? prev
+                : prev.map((session) =>
+                    session.id === sessionId
+                      ? appendSteerFailure(session, error)
+                      : session,
+                  ),
+            );
           }
         })();
         return;

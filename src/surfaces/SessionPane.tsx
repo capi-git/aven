@@ -32,6 +32,7 @@ import {
   type ComposerTurnOptions,
 } from "../lib/session";
 import { AgentTranscript } from "./AgentTranscript";
+import { SessionRunStatus } from "./SessionRunStatus";
 import { EmptySession } from "./EmptySession";
 import { MOD } from "../lib/platform";
 import {
@@ -586,6 +587,7 @@ export const SessionPane = memo(function SessionPane({
       </div>
       {dockComposer ? (
         <div className="personal-session-composer-dock mx-auto w-full max-w-4xl shrink-0">
+          <SessionRunStatus session={session} visible={visible} onStop={onStop} />
           {composer}
         </div>
       ) : null}

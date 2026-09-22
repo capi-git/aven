@@ -18,6 +18,7 @@ vi.mock("./child", () => ({
 
 const {
   bindCodexSession,
+  cancelCodexTurn,
   compactCodexContext,
   sendCodexTurn,
   steerCodexTurn,
@@ -60,7 +61,8 @@ async function startTurn(
     resume?: boolean;
     attachments?: Attachment[];
     text?: string;
-    beforeTurnStartReply?: () => void;
+    beforeTurnStartReply?: () => void | Promise<void>;
+    terminalBeforeReply?: boolean;
     controlsAgents?: boolean;
   } = {},
 ) {
@@ -92,11 +94,12 @@ async function startTurn(
     () => parse().some((m) => m.method === "turn/start"),
     "turn/start",
   );
-  options.beforeTurnStartReply?.();
+  await options.beforeTurnStartReply?.();
   reply(parse().find((m) => m.method === "turn/start")!.id as number, {
     turn: { id: "turn_1", status: "inProgress" },
   });
-  notify("turn/started", { turn: { id: "turn_1", status: "inProgress" } });
+  if (!options.terminalBeforeReply)
+    notify("turn/started", { turn: { id: "turn_1", status: "inProgress" } });
   return { events, turn };
 }
 
@@ -480,6 +483,110 @@ describe("codex live turn sequence", () => {
     });
     await turn;
     expect(settled).toBe(true);
+  });
+
+  it.each([
+    {
+      method: "turn/completed",
+      terminal: { status: "failed" },
+      message: "Codex turn failed",
+    },
+    {
+      method: "turn/completed",
+      terminal: { status: "failed", error: { message: "Quota exceeded" } },
+      message: "Quota exceeded",
+    },
+    {
+      method: "turn/completed",
+      terminal: { status: "interrupted" },
+      message: "Codex turn was interrupted",
+    },
+    {
+      method: "turn/completed",
+      terminal: { status: "cancelled" },
+      message: "Codex turn was cancelled",
+    },
+    {
+      method: "turn/aborted",
+      terminal: {},
+      message: "Codex turn was interrupted",
+    },
+  ])(
+    "rejects remote $method as $message instead of completing successfully",
+    async ({ method, terminal, message }) => {
+      const { events, turn } = await startTurn("codex-live");
+      const rejected = expect(turn).rejects.toThrow(message);
+      notify(method, { turn: { id: "turn_1", ...terminal } });
+      await rejected;
+      expect(events.filter((event) => event.type === "session.error")).toEqual([
+        { type: "session.error", message },
+      ]);
+      expect(events).toContainEqual({ type: "message.completed" });
+      expect(events).toContainEqual({ type: "reasoning.completed" });
+    },
+  );
+
+  it("retains an early terminal failure until turn/start responds and permits a fresh turn", async () => {
+    const { events, turn } = await startTurn("codex-live", {
+      terminalBeforeReply: true,
+      beforeTurnStartReply: async () => {
+        notify("turn/completed", {
+          turn: { id: "turn_1", status: "failed" },
+        });
+        // A complete event loop before the request reply exercises early
+        // promise rejection handling, not only same-microtask ordering.
+        await new Promise((resolve) => setTimeout(resolve, 15));
+      },
+    });
+    await expect(turn).rejects.toThrow("Codex turn failed");
+    expect(events.filter((event) => event.type === "session.error")).toEqual([
+      { type: "session.error", message: "Codex turn failed" },
+    ]);
+    await expect(
+      steerCodexTurn({
+        sessionId: "codex-live",
+        cwd: "/repo",
+        model: "codex:gpt-5.4",
+        text: "More instructions",
+      }),
+    ).rejects.toThrow("No active turn to steer");
+
+    sent.length = 0;
+    const nextEvents: HarnessEvent[] = [];
+    const next = sendCodexTurn({
+      sessionId: "codex-live",
+      cwd: "/repo",
+      model: "codex:gpt-5.4",
+      runtimeMode: "supervised",
+      text: "Try a fresh task",
+      onEvent: (event) => nextEvents.push(event),
+    });
+    await waitFor(
+      () => parse().some((message) => message.method === "turn/start"),
+      "fresh turn",
+    );
+    const request = parse().find((message) => message.method === "turn/start")!;
+    reply(request.id as number, { turn: { id: "turn_2", status: "inProgress" } });
+    notify("turn/completed", { turn: { id: "turn_2", status: "completed" } });
+    await expect(next).resolves.toBeUndefined();
+    expect(nextEvents.some((event) => event.type === "session.error")).toBe(false);
+  });
+
+  it("keeps a locally requested Stop separate from a remote abort failure", async () => {
+    const { events, turn } = await startTurn("codex-live");
+    const cancelled = cancelCodexTurn("codex-live");
+    await waitFor(
+      () => parse().some((message) => message.method === "turn/interrupt"),
+      "local interrupt",
+    );
+    notify("turn/aborted", { turn: { id: "turn_1" } });
+    const interrupt = parse().find(
+      (message) => message.method === "turn/interrupt",
+    )!;
+    reply(interrupt.id as number, {});
+    await cancelled;
+    await expect(turn).resolves.toBeUndefined();
+    expect(events.some((event) => event.type === "session.error")).toBe(false);
   });
 
   it("keeps plan turns read-only without surfacing approval prompts", async () => {

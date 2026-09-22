@@ -37,6 +37,9 @@ type PendingApproval = {
   resolve: (decision: ApprovalDecision) => void;
 };
 
+/** Terminal notifications report their error before rejecting the active turn. */
+class CodexTerminalError extends Error {}
+
 type Live = {
   rpc: JsonRpcClient;
   threadId: string;
@@ -53,8 +56,8 @@ type Live = {
   /** Resolves when the current turn completes (or is cancelled). */
   turnDone: (() => void) | null;
   turnFailed: ((error: Error) => void) | null;
-  /** turn/completed arrived before runTurn registered turnDone. */
-  turnEndPending: boolean;
+  /** A terminal notification arrived before runTurn registered its callbacks. */
+  turnEndPending: { error?: Error } | null;
   emittedAssistant: string;
   assistantItems: Map<string, string>;
   /** Stable before the asynchronous turn/start response or notification arrives. */
@@ -391,7 +394,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       turns: Promise.resolve(),
       turnDone: null,
       turnFailed: null,
-      turnEndPending: false,
+      turnEndPending: null,
       emittedAssistant: "",
       assistantItems: new Map(),
       assistantTurnKey: crypto.randomUUID(),
@@ -458,6 +461,9 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
     live.turnDone = resolve;
     live.turnFailed = reject;
   });
+  // A terminal notification can reject before the turn/start RPC replies.
+  // Keep that rejection observed until the request has finished below.
+  void turnPromise.catch(() => undefined);
   settlePendingTurn(live);
 
   try {
@@ -466,17 +472,19 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
       params,
     );
     const turnId = response.turn?.id;
-    if (turnId) {
+    if (turnId && live.turnDone) {
       live.activeTurnId = live.activeTurnId ?? turnId;
     }
     settlePendingTurn(live);
     await turnPromise;
   } catch (error) {
     if (live.cancelled) return;
-    live.onEvent({
-      type: "session.error",
-      message: error instanceof Error ? error.message : String(error),
-    });
+    if (!(error instanceof CodexTerminalError)) {
+      live.onEvent({
+        type: "session.error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
     throw error;
   } finally {
     live.turnDone = null;
@@ -493,6 +501,7 @@ async function runCompaction(live: Live): Promise<void> {
     live.turnDone = resolve;
     live.turnFailed = reject;
   });
+  void turnPromise.catch(() => undefined);
   settlePendingTurn(live);
 
   try {
@@ -542,7 +551,23 @@ function handleNotification(live: Live, method: string, params: unknown): void {
     live.activeTurnId = mapped.activeTurnId;
   }
   if (mapped.turnCompleted) {
-    finishActiveTurn(live);
+    const { status, error } = mapped.turnCompleted;
+    const terminalError =
+      status === "completed"
+        ? undefined
+        : new CodexTerminalError(
+            error?.trim() ||
+              (status === "failed"
+                ? "Codex turn failed"
+                : `Codex turn was ${status}`),
+          );
+    if (
+      terminalError &&
+      !mapped.events.some((event) => event.type === "session.error")
+    ) {
+      live.onEvent({ type: "session.error", message: terminalError.message });
+    }
+    finishActiveTurn(live, [], terminalError);
   }
 }
 
@@ -574,8 +599,12 @@ function publishCodexText(
   live.onEvent({ type: "reasoning.delta", text: emit });
 }
 
-function finishActiveTurn(live: Live, extraEvents: HarnessEvent[] = []): void {
-  live.turnEndPending = false;
+function finishActiveTurn(
+  live: Live,
+  extraEvents: HarnessEvent[] = [],
+  error?: Error,
+): void {
+  live.turnEndPending = null;
   live.activeTurnId = null;
   live.emittedAssistant = "";
   live.assistantItems.clear();
@@ -587,18 +616,22 @@ function finishActiveTurn(live: Live, extraEvents: HarnessEvent[] = []): void {
   const failed = live.turnFailed;
   live.turnDone = null;
   live.turnFailed = null;
-  if (done) {
+  if (error && failed) {
+    failed(error);
+    return;
+  }
+  if (!error && done) {
     done();
     return;
   }
-  if (!failed) {
-    live.turnEndPending = true;
+  if (!done && !failed) {
+    live.turnEndPending = { error };
   }
 }
 
 function settlePendingTurn(live: Live): void {
   if (!live.turnEndPending || !live.turnDone) return;
-  finishActiveTurn(live);
+  finishActiveTurn(live, [], live.turnEndPending.error);
 }
 
 async function handleServerRequest(
