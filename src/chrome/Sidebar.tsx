@@ -146,6 +146,8 @@ export type SidebarProps = {
   gitCwd?: string;
   open: boolean;
   floating?: boolean;
+  /** Window navigation that moves and compacts with this panel. */
+  navigation?: ReactNode;
   hoverHandlers?: HoverRevealHandlers;
   sessions: SessionSummary[];
   busySessionIds: Set<string>;
@@ -248,6 +250,7 @@ function SidebarComponent({
   cwd,
   open,
   floating = false,
+  navigation,
   hoverHandlers,
   sessions,
   busySessionIds,
@@ -1293,6 +1296,7 @@ function SidebarComponent({
       aria-label={`${activeProfile.name} workspace sidebar`}
       data-native-browser-occluded={floating && open ? "true" : undefined}
       data-native-browser-edge={floating && open ? "left" : undefined}
+      data-navigation-header={navigation ? "true" : undefined}
       className="personal-navigation personal-sidebar sidebar-glass relative flex h-full min-h-0 shrink-0 flex-col"
     >
       <div
@@ -1300,29 +1304,33 @@ function SidebarComponent({
         data-tauri-drag-region="deep"
       >
         {IS_MAC ? <div className="w-[78px] shrink-0" /> : null}
-        <DevModeSlot />
-        <TabVisitNav
-          canGoBack={canGoBack}
-          canGoForward={canGoForward}
-          onGoBack={onGoBack}
-          onGoForward={onGoForward}
-        />
-        <button
-          type="button"
-          className="personal-sidebar-pin personal-workspace-tool"
-          aria-label={
-            floating ? "Pin workspace sidebar" : "Hide workspace sidebar"
-          }
-          title={
-            floating
-              ? "Pin workspace sidebar"
-              : `Hide workspace sidebar (${MOD}B)`
-          }
-          aria-pressed={!floating}
-          onClick={onToggleProjectRail}
-        >
-          <PanelLeft className="size-3.5" />
-        </button>
+        {navigation ? null : <DevModeSlot />}
+        {navigation ?? (
+          <>
+            <TabVisitNav
+              canGoBack={canGoBack}
+              canGoForward={canGoForward}
+              onGoBack={onGoBack}
+              onGoForward={onGoForward}
+            />
+            <button
+              type="button"
+              className="personal-sidebar-pin personal-workspace-tool"
+              aria-label={
+                floating ? "Pin workspace sidebar" : "Hide workspace sidebar"
+              }
+              title={
+                floating
+                  ? "Pin workspace sidebar"
+                  : `Hide workspace sidebar (${MOD}B)`
+              }
+              aria-pressed={!floating}
+              onClick={onToggleProjectRail}
+            >
+              <PanelLeft className="size-3.5" />
+            </button>
+          </>
+        )}
       </div>
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">{activeProfile.name} workspace</div>
       <div className="personal-profile-header">
@@ -1815,11 +1823,16 @@ function SidebarComponent({
         aria-valuenow={resize.width}
         aria-valuemin={MIN_WIDTH}
         aria-valuemax={MAX_WIDTH}
-        className={`absolute inset-y-0 -right-px z-10 w-1.5 cursor-col-resize touch-none ${
-          resize.dragging ? "bg-content/15" : "hover:bg-content/10"
-        }`}
+        tabIndex={open ? 0 : -1}
+        className="personal-panel-resizer personal-sidebar-divider"
+        data-resizing={resize.dragging || undefined}
         onPointerDown={resize.onPointerDown}
         onDoubleClick={resize.onDoubleClick}
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+          event.preventDefault();
+          resize.setWidth(resize.width + (event.key === "ArrowRight" ? 20 : -20));
+        }}
       />
     </aside>
   );

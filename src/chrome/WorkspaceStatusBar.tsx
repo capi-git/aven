@@ -30,6 +30,7 @@ import {
   ChevronDown,
   ExternalLink,
   ListBullet,
+  MoreHorizontal,
   ChevronLeft,
   ChevronRight,
   Globe,
@@ -83,6 +84,8 @@ export type WorkspaceStatusBarProps = {
   openActions?: readonly WorkspaceStatusAction[];
   onToggleSidebar?: () => void;
   sidebarOpen?: boolean;
+  /** The visible sidebar owns the navigation controls in its window bar. */
+  navigationInSidebar?: boolean;
   onSearch?: () => void;
   onNewBrowser?: () => void;
   onGoBack?: () => void;
@@ -184,8 +187,12 @@ function menuKeys(event: KeyboardEvent<HTMLDivElement>) {
       ? 0
       : event.key === "End"
         ? buttons.length - 1
-        : (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) %
-          buttons.length;
+        : index < 0
+          ? event.key === "ArrowDown"
+            ? 0
+            : buttons.length - 1
+          : (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) %
+            buttons.length;
   buttons[next]?.focus();
 }
 
@@ -204,6 +211,210 @@ function dragStatusBar(event: MouseEvent<HTMLDivElement>) {
   void action.catch((error) => console.warn("Window gesture failed", error));
 }
 
+export type WorkspaceNavigationProps = Pick<
+  WorkspaceStatusBarProps,
+  | "onToggleSidebar"
+  | "sidebarOpen"
+  | "onSearch"
+  | "onNewBrowser"
+  | "onGoBack"
+  | "onGoForward"
+  | "canGoBack"
+  | "canGoForward"
+  | "onHome"
+  | "homeOpen"
+> & { compact?: boolean };
+
+/** Stays in the sidebar's layout; small widths move actions into a menu. */
+export function WorkspaceNavigation({
+  onToggleSidebar,
+  sidebarOpen,
+  onSearch,
+  onNewBrowser,
+  onGoBack,
+  onGoForward,
+  canGoBack,
+  canGoForward,
+  onHome,
+  homeOpen,
+  compact = false,
+}: WorkspaceNavigationProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const moreAnchor = useRef<HTMLButtonElement>(null);
+  const overflowActions = [
+    {
+      id: "search",
+      label: "Search workspace",
+      icon: Search,
+      onSelect: onSearch,
+    },
+    {
+      id: "browser",
+      label: "New browser tab",
+      icon: Globe,
+      onSelect: onNewBrowser,
+    },
+    { id: "home", label: "Workspace Home", icon: Home, onSelect: onHome },
+    {
+      id: "back",
+      label: "Back",
+      icon: ChevronLeft,
+      onSelect: onGoBack,
+      disabled: !canGoBack,
+    },
+    {
+      id: "forward",
+      label: "Forward",
+      icon: ChevronRight,
+      onSelect: onGoForward,
+      disabled: !canGoForward,
+    },
+  ].filter((action) => !!action.onSelect);
+  const closeMenu = (restore: boolean) => {
+    setMenuOpen(false);
+    if (restore) moreAnchor.current?.focus({ preventScroll: true });
+  };
+
+  return (
+    <div
+      className="workspace-navigation"
+      data-compact={compact || undefined}
+      data-tauri-drag-region="false"
+    >
+      <div
+        className="workspace-status-nav-group"
+        role="group"
+        aria-label="Workspace navigation"
+      >
+        <div className="workspace-status-navigation">
+          {onToggleSidebar ? (
+            <button
+              type="button"
+              aria-label="Toggle workspace sidebar"
+              title="Toggle workspace sidebar"
+              aria-pressed={!!sidebarOpen}
+              onClick={onToggleSidebar}
+            >
+              <PanelLeft size={15} />
+            </button>
+          ) : null}
+          {onSearch ? (
+            <button
+              type="button"
+              className="workspace-navigation-secondary"
+              aria-label="Search workspace"
+              title="Search workspace"
+              onClick={onSearch}
+            >
+              <Search size={15} />
+            </button>
+          ) : null}
+          {onNewBrowser ? (
+            <button
+              type="button"
+              className="workspace-navigation-secondary"
+              aria-label="New browser tab"
+              title="New browser tab"
+              onClick={onNewBrowser}
+            >
+              <Globe size={15} />
+            </button>
+          ) : null}
+        </div>
+        <div className="workspace-status-history">
+          {onHome ? (
+            <button
+              type="button"
+              aria-label="Workspace Home"
+              title="Workspace Home"
+              aria-pressed={!!homeOpen}
+              onClick={onHome}
+            >
+              <Home size={14} />
+            </button>
+          ) : null}
+          {onGoBack ? (
+            <button
+              type="button"
+              aria-label="Back"
+              title="Back (⌘[)"
+              disabled={!canGoBack}
+              onClick={onGoBack}
+            >
+              <ChevronLeft size={14} />
+            </button>
+          ) : null}
+          {onGoForward ? (
+            <button
+              type="button"
+              aria-label="Forward"
+              title="Forward (⌘])"
+              disabled={!canGoForward}
+              onClick={onGoForward}
+            >
+              <ChevronRight size={14} />
+            </button>
+          ) : null}
+        </div>
+        {compact && overflowActions.length > 0 ? (
+          <button
+            ref={moreAnchor}
+            type="button"
+            className="workspace-navigation-more"
+            aria-label="More navigation"
+            title="More navigation"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((open) => !open)}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                event.preventDefault();
+                setMenuOpen(true);
+              }
+            }}
+          >
+            <MoreHorizontal size={15} />
+          </button>
+        ) : null}
+      </div>
+      {menuOpen ? (
+        <Popover
+          anchor={moreAnchor}
+          side="bottom"
+          align="start"
+          width={208}
+          role="menu"
+          aria-label="More navigation"
+          className="workspace-navigation-menu"
+          tabIndex={-1}
+          autoFocus
+          onDismiss={(reason) => closeMenu(reason === "escape")}
+          onKeyDown={(event) => {
+            menuKeys(event);
+            if (event.key === "Tab") closeMenu(true);
+          }}
+        >
+          {overflowActions.map((action) => (
+            <button
+              key={action.id}
+              type="button"
+              role="menuitem"
+              disabled={action.disabled}
+              onClick={() => {
+                closeMenu(true);
+                action.onSelect?.();
+              }}
+            >
+              <action.icon size={15} aria-hidden />
+              <span>{action.label}</span>
+            </button>
+          ))}
+        </Popover>
+      ) : null}
+    </div>
+  );
+}
+
 export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
   sessions,
   session,
@@ -215,6 +426,7 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
   openActions = NO_ACTIONS,
   onToggleSidebar,
   sidebarOpen,
+  navigationInSidebar = false,
   onSearch,
   onNewBrowser,
   onGoBack,
@@ -519,80 +731,20 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
       data-tauri-drag-region="false"
       onMouseDown={dragStatusBar}
     >
-      <div
-        className="workspace-status-nav-group"
-        role="group"
-        aria-label="Workspace navigation"
-      >
-        <div className="workspace-status-navigation">
-          {onToggleSidebar ? (
-            <button
-              type="button"
-              aria-label="Toggle workspace sidebar"
-              title="Toggle workspace sidebar"
-              aria-pressed={!!sidebarOpen}
-              onClick={onToggleSidebar}
-            >
-              <PanelLeft size={15} />
-            </button>
-          ) : null}
-          {onSearch ? (
-            <button
-              type="button"
-              aria-label="Search workspace"
-              title="Search workspace"
-              onClick={onSearch}
-            >
-              <Search size={15} />
-            </button>
-          ) : null}
-          {onNewBrowser ? (
-            <button
-              type="button"
-              aria-label="New browser tab"
-              title="New browser tab"
-              onClick={onNewBrowser}
-            >
-              <Globe size={15} />
-            </button>
-          ) : null}
-        </div>
-        <div className="workspace-status-history">
-          {onHome ? (
-            <button
-              type="button"
-              aria-label="Workspace Home"
-              title="Workspace Home"
-              aria-pressed={!!homeOpen}
-              onClick={onHome}
-            >
-              <Home size={14} />
-            </button>
-          ) : null}
-          {onGoBack ? (
-            <button
-              type="button"
-              aria-label="Back"
-              title="Back (⌘[)"
-              disabled={!canGoBack}
-              onClick={onGoBack}
-            >
-              <ChevronLeft size={14} />
-            </button>
-          ) : null}
-          {onGoForward ? (
-            <button
-              type="button"
-              aria-label="Forward"
-              title="Forward (⌘])"
-              disabled={!canGoForward}
-              onClick={onGoForward}
-            >
-              <ChevronRight size={14} />
-            </button>
-          ) : null}
-        </div>
-      </div>
+      {!navigationInSidebar ? (
+        <WorkspaceNavigation
+          onToggleSidebar={onToggleSidebar}
+          sidebarOpen={sidebarOpen}
+          onSearch={onSearch}
+          onNewBrowser={onNewBrowser}
+          onGoBack={onGoBack}
+          onGoForward={onGoForward}
+          canGoBack={canGoBack}
+          canGoForward={canGoForward}
+          onHome={onHome}
+          homeOpen={homeOpen}
+        />
+      ) : null}
       <button
         ref={queueAnchor}
         type="button"

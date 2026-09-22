@@ -15,9 +15,11 @@ describe("pane resize lifecycle", () => {
   function Pane({
     enabled = true,
     direction = "right",
+    initial = 280,
   }: {
     enabled?: boolean;
     direction?: "left" | "right";
+    initial?: number;
   }) {
     renders();
     const resize = useDragResize({
@@ -26,12 +28,16 @@ describe("pane resize lifecycle", () => {
       min: 260,
       max: () => 380,
       defaultWidth: 280,
-      initial: 280,
+      initial,
       onCommit,
     });
     return createElement(
       "aside",
-      { ref: resize.setPaneRef },
+      {
+        ref: resize.setPaneRef,
+        "data-resizing": resize.dragging,
+        "data-committed-width": resize.width,
+      },
       createElement("div", {
         role: "separator",
         tabIndex: 0,
@@ -110,6 +116,75 @@ describe("pane resize lifecycle", () => {
       expect(document.documentElement.classList.contains("is-resizing")).toBe(
         false,
       );
+    },
+  );
+
+  it.each(["left", "right"] as const)(
+    "starts a %s drag at the visible width before lifting a CSS clamp",
+    async (direction) => {
+      await act(async () =>
+        root.render(createElement(Pane, { direction, initial: 380 })),
+      );
+      const pane = container.querySelector("aside")!;
+      // Reproduce a narrower viewport with a stored 380px pane. The drag class
+      // removes the restrictive max-width, so the used width must be read first.
+      vi.spyOn(pane, "offsetWidth", "get").mockImplementation(() =>
+        pane.dataset.resizing === "true" ? parseFloat(pane.style.width) : 260,
+      );
+      vi.spyOn(pane, "getBoundingClientRect").mockImplementation(() =>
+        DOMRect.fromRect({ width: pane.offsetWidth }),
+      );
+      start();
+      expect(width()).toBe("260px");
+      expect(pane.dataset.resizing).toBe("true");
+      expect(pane.dataset.committedWidth).toBe("260");
+      expect(onCommit).not.toHaveBeenCalled();
+      renders.mockClear();
+
+      const target = direction === "left" ? 380 : 420;
+      act(() => window.dispatchEvent(pointer("pointermove", target)));
+      flushFrame();
+      expect(width()).toBe("280px");
+      expect(renders).not.toHaveBeenCalled();
+      act(() => window.dispatchEvent(pointer("pointerup", target)));
+      expect(onCommit).toHaveBeenCalledExactlyOnceWith(280);
+    },
+  );
+
+  it.each([
+    ["left", 0.8],
+    ["right", 0.8],
+    ["left", 1.25],
+    ["right", 1.25],
+  ] as const)(
+    "keeps a %s drag attached to the pointer at %sx interface scale",
+    async (direction, scale) => {
+      await act(async () => root.render(createElement(Pane, { direction })));
+      const pane = container.querySelector("aside")!;
+      const usedWidth = vi.spyOn(pane, "offsetWidth", "get").mockReturnValue(280);
+      const bounds = vi
+        .spyOn(pane, "getBoundingClientRect")
+        .mockReturnValue(DOMRect.fromRect({ width: 280 * scale }));
+      start();
+      usedWidth.mockClear();
+      bounds.mockClear();
+      renders.mockClear();
+      const sign = direction === "left" ? -1 : 1;
+      act(() =>
+        window.dispatchEvent(pointer("pointermove", 400 + sign * 50 * scale)),
+      );
+      flushFrame();
+      expect(width()).toBe("330px");
+      expect(renders).not.toHaveBeenCalled();
+      expect(usedWidth).not.toHaveBeenCalled();
+      expect(bounds).not.toHaveBeenCalled();
+
+      // A release can include an additional unpainted move; normalize it too.
+      act(() =>
+        window.dispatchEvent(pointer("pointerup", 400 + sign * 65 * scale)),
+      );
+      expect(width()).toBe("345px");
+      expect(onCommit).toHaveBeenCalledExactlyOnceWith(345);
     },
   );
 

@@ -150,6 +150,7 @@ import { MenuBar } from "./chrome/MenuBar";
 import { FilePicker } from "./chrome/FilePicker";
 import {
   WorkspaceStatusBar,
+  WorkspaceNavigation as WorkspaceNavigationControls,
   type WorkspaceStatusAction,
 } from "./chrome/WorkspaceStatusBar";
 import { WorkspaceFooter } from "./chrome/WorkspaceFooter";
@@ -7990,6 +7991,21 @@ export default function App({
             }
             onNewProjectTask={onNewProjectTask}
             open={sidebarHover.visible}
+            navigation={sidebarHover.visible ? (
+              <WorkspaceNavigationControls
+                compact
+                onToggleSidebar={onToggleSidebar}
+                sidebarOpen={sidebarOpen}
+                onSearch={onOpenSearch}
+                onNewBrowser={onGlobalNewBrowser}
+                onGoBack={onRailBack}
+                onGoForward={onRailForward}
+                canGoBack={tabVisitNav.canBack}
+                canGoForward={tabVisitNav.canForward}
+                onHome={onOpenHome}
+                homeOpen={homeViewOpen || profileHome}
+              />
+            ) : undefined}
             floating={!sidebarOpen}
             hoverHandlers={sidebarHover.panelHandlers}
             tab={sidebarTab}
@@ -8099,6 +8115,7 @@ export default function App({
             }
           >
             <WorkspaceStatusBar
+              navigationInSidebar={sidebarHover.visible}
               sessions={profileSessions}
               session={profileHome ? undefined : active}
               accessMode={

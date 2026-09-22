@@ -17,7 +17,7 @@ export function PersonalInspectorDock({
   const resize = useDragResize({
     enabled: props.active,
     min: 260,
-    max: () => 380,
+    max: () => Math.max(260, Math.min(380, window.innerWidth - 520)),
     direction: "left",
     defaultWidth: 280,
     initial: width,
@@ -48,7 +48,8 @@ export function PersonalInspectorDock({
           aria-valuemax={380}
           aria-valuenow={resize.width}
           tabIndex={props.active ? 0 : -1}
-          className="personal-inspector-divider"
+          className="personal-panel-resizer personal-inspector-divider"
+          data-resizing={resize.dragging || undefined}
           onPointerDown={resize.onPointerDown}
           onDoubleClick={resize.onDoubleClick}
           onKeyDown={(event) => {
