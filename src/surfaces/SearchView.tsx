@@ -1,3 +1,4 @@
+import "./UtilityViews.css";
 import { Folder, LoaderCircle, MessageSquare, Search } from "../chrome/icons";
 import {
   useEffect,
@@ -15,6 +16,7 @@ import { ProjectLogoIcon } from "../chrome/ProjectLogoIcon";
 import { OverlayNav } from "../chrome/TitleBar";
 import { WindowControls } from "../chrome/WindowControls";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
+import { hasWorkspaceOverlay } from "../lib/workspaceKeyboard";
 import {
   conversationRowsFrom,
   flattenGrouped,
@@ -48,6 +50,7 @@ const SCOPES: { id: SearchScope; label: string }[] = [
   { id: "files", label: "Files" },
   { id: "projects", label: "Projects" },
 ];
+const EMPTY_HITS: AppSearchHit[] = [];
 
 type Props = {
   open: boolean;
@@ -85,22 +88,41 @@ export function SearchView({
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<SearchScope>("all");
   const [active, setActive] = useState(0);
-  const [files, setFiles] = useState(() => peekProjectFiles(cwd) ?? []);
-  const [contentHits, setContentHits] = useState<AppSearchHit[]>([]);
-  const [remoteHits, setRemoteHits] = useState<AppSearchHit[]>([]);
+  const [fileResult, setFileResult] = useState(() => ({
+    cwd,
+    files: peekProjectFiles(cwd) ?? [],
+  }));
+  const [contentResult, setContentResult] = useState<{
+    key: string;
+    hits: AppSearchHit[];
+  } | null>(null);
+  const [remoteResult, setRemoteResult] = useState<{
+    key: string;
+    hits: AppSearchHit[];
+  } | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [errorResult, setErrorResult] = useState<{
+    key: string;
+    message: string;
+  } | null>(null);
 
   const trimmed = query.trim();
+  const files = fileResult.cwd === cwd ? fileResult.files : [];
+  const contentKey = `${cwd}\0${trimmed}`;
+  const contentHits =
+    contentResult?.key === contentKey ? contentResult.hits : EMPTY_HITS;
+  const remoteHits =
+    remoteResult?.key === trimmed ? remoteResult.hits : EMPTY_HITS;
+  const error = errorResult?.key === contentKey ? errorResult.message : null;
 
   useEffect(() => {
     if (!open) return;
     setQuery("");
     setScope("all");
     setActive(0);
-    setContentHits([]);
-    setRemoteHits([]);
-    setError(null);
+    setContentResult(null);
+    setRemoteResult(null);
+    setErrorResult(null);
   }, [open]);
 
   useEffect(() => {
@@ -114,7 +136,9 @@ export function SearchView({
   useEffect(() => {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing)
+        return;
+      if (hasWorkspaceOverlay()) return;
       event.preventDefault();
       event.stopPropagation();
       onCloseRef.current();
@@ -126,14 +150,14 @@ export function SearchView({
   useEffect(() => {
     if (!open) return;
     if (!looksLikeProject(cwd)) {
-      setFiles([]);
+      setFileResult({ cwd, files: [] });
       return;
     }
     const cached = peekProjectFiles(cwd);
-    if (cached) setFiles(cached);
+    setFileResult({ cwd, files: cached ?? [] });
     let cancelled = false;
     void loadProjectFiles(cwd).then((next) => {
-      if (!cancelled) setFiles(next);
+      if (!cancelled) setFileResult({ cwd, files: next });
     });
     return () => {
       cancelled = true;
@@ -181,10 +205,10 @@ export function SearchView({
 
   useEffect(() => {
     if (!open || !trimmed) {
-      setRemoteHits([]);
-      setContentHits([]);
+      setRemoteResult(null);
+      setContentResult(null);
       setLoading(false);
-      setError(null);
+      setErrorResult(null);
       return;
     }
 
@@ -199,14 +223,18 @@ export function SearchView({
         jobs.push(
           searchSessions({ query: trimmed })
             .then((result) => {
-              if (!cancelled) setRemoteHits(hitsFromSessionSearch(result.hits));
+              if (!cancelled)
+                setRemoteResult({
+                  key: trimmed,
+                  hits: hitsFromSessionSearch(result.hits),
+                });
             })
             .catch(() => {
-              if (!cancelled) setRemoteHits([]);
+              if (!cancelled) setRemoteResult({ key: trimmed, hits: [] });
             }),
         );
       } else {
-        setRemoteHits([]);
+        setRemoteResult(null);
       }
 
       if (wantFiles && looksLikeProject(cwd)) {
@@ -215,19 +243,25 @@ export function SearchView({
           searchProject({ cwd, query: trimmed })
             .then((result) => {
               if (!cancelled) {
-                setContentHits(hitsFromContentMatches(result.matches));
-                setError(null);
+                setContentResult({
+                  key: contentKey,
+                  hits: hitsFromContentMatches(result.matches),
+                });
+                setErrorResult(null);
               }
             })
             .catch((err: unknown) => {
               if (!cancelled) {
-                setContentHits([]);
-                setError(err instanceof Error ? err.message : String(err));
+                setContentResult({ key: contentKey, hits: [] });
+                setErrorResult({
+                  key: contentKey,
+                  message: err instanceof Error ? err.message : String(err),
+                });
               }
             }),
         );
       } else {
-        setContentHits([]);
+        setContentResult(null);
       }
 
       void Promise.all(jobs).then(() => {
@@ -239,7 +273,7 @@ export function SearchView({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [cwd, open, scope, trimmed]);
+  }, [contentKey, cwd, open, scope, trimmed]);
 
   const hits = useMemo(() => {
     if (!trimmed) return [];

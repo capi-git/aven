@@ -120,6 +120,23 @@ describe("Sidebar folder session dragging", () => {
       ),
     ].map((element) => element.dataset.sessionCard);
   }
+  it("claims Escape when clearing a multi-selected session", async () => {
+    await render();
+    await act(async () =>
+      card("a").dispatchEvent(
+        new MouseEvent("click", { bubbles: true, shiftKey: true }),
+      ),
+    );
+    expect(card("a").getAttribute("aria-pressed")).toBe("true");
+    const escape = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => window.dispatchEvent(escape));
+    expect(escape.defaultPrevented).toBe(true);
+    expect(card("a").getAttribute("aria-pressed")).toBe("false");
+  });
   async function pointer(target: EventTarget, type: string, y: number) {
     await act(async () =>
       target.dispatchEvent(

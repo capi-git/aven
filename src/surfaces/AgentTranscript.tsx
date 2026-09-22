@@ -1047,7 +1047,7 @@ function UserMessageBlock({
       >
         {block.attachments?.length ? (
           <div
-            className={`flex flex-wrap gap-1.5 ${text || card || note ? "mb-2" : ""}`}
+            className={`personal-message-attachments flex flex-wrap gap-1.5 ${text || card || note ? "mb-2" : ""}`}
           >
             {block.attachments.map((file) => (
               <AttachmentChip key={file.id} attachment={file} />
@@ -1263,7 +1263,7 @@ const ActivityPhases = memo(function ActivityPhases({
   const phases = useMemo(() => buildActivityPhases(blocks), [blocks]);
 
   return (
-    <div className="flex min-w-0 flex-col gap-1 px-4">
+    <div className="personal-activity-phases flex min-w-0 flex-col gap-1 px-4">
       {phases.map((phase, index) => (
         <ActivityPhaseGroup
           key={phase.id}
@@ -1393,7 +1393,7 @@ function ActivityPhaseGroup({
   // the single row under it says nothing twice.
   if (!phase.headline && phase.steps.length === 1) {
     return (
-      <div className="flex min-w-0 items-start gap-1.5">
+      <div className="personal-activity-line flex min-w-0 items-start gap-1.5">
         <ActivityPhaseIcon kind={phase.kind} className="mt-[7px]" />
         <div className="min-w-0 flex-1">
           <ActivityRow
@@ -1424,7 +1424,7 @@ function ActivityPhaseGroup({
   // A line the agent wrote with nothing under it is just that line.
   if (inert) {
     return (
-      <div className="flex min-w-0 items-center gap-1.5 py-1">
+      <div className="personal-activity-line flex min-w-0 items-center gap-1.5 py-1">
         <ActivityPhaseIcon kind={phase.kind} />
         {label}
       </div>
@@ -1432,7 +1432,7 @@ function ActivityPhaseGroup({
   }
 
   return (
-    <div className="flex min-w-0 flex-col">
+    <div className="personal-activity-phase flex min-w-0 flex-col">
       <button
         type="button"
         aria-expanded={open}
@@ -1923,7 +1923,7 @@ function ToolCall({
     isSearchTool(block.tool?.kind, label, preview);
   const expandable = !compact && !!detail && detail !== label;
 
-  const frame = embedded ? "py-0.5" : "px-4 py-1";
+  const frame = `personal-tool-call ${embedded ? "py-0.5" : "px-4 py-1"}`;
 
   if (editTool) {
     return (
@@ -2143,7 +2143,7 @@ function ApprovalControls({
   const approval = block.approval;
   if (!approval || approval.decided) return null;
   return (
-    <div className="mt-1.5 flex gap-2">
+    <div className="personal-tool-approval mt-1.5 flex gap-2">
       <button
         type="button"
         className="rounded-md bg-content px-2.5 py-0.5 text-[11px] hover:bg-content/80     text-background-base"

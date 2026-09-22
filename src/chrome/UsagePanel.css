@@ -20,7 +20,7 @@ html.usage-panel-window .usage-panel {
   --usage-bg: #101416;
   --usage-text: #ededed;
   --usage-muted: color-mix(in srgb, var(--usage-text) 65%, var(--usage-bg));
-  --usage-line: color-mix(in srgb, var(--usage-text) 12%, var(--usage-bg));
+  --usage-line: color-mix(in srgb, var(--usage-text) 8%, var(--usage-bg));
   --usage-track: color-mix(in srgb, var(--usage-text) 17%, var(--usage-bg));
   --usage-warning: #e8b86f;
   --personal-main-surface: var(--usage-bg);
@@ -95,7 +95,7 @@ html.usage-panel-window .usage-panel {
   place-items: center;
   padding: 0;
   border: 0;
-  border-radius: 7px;
+  border-radius: 9px;
   color: var(--usage-muted);
   background: transparent;
   cursor: pointer;

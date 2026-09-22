@@ -2,12 +2,12 @@
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  gap: 12px;
+  gap: 10px;
   height: 30px;
   max-height: 32px;
   min-width: 0;
   padding: 0 12px;
-  color: color-mix(in srgb, var(--color-content) 68%, transparent);
+  color: color-mix(in srgb, var(--color-content) 72%, transparent);
   font-size: 11px;
   background: transparent;
 }
@@ -16,7 +16,7 @@
   display: flex;
   align-items: center;
   flex: 1;
-  gap: 14px;
+  gap: 10px;
   min-width: 0;
 }
 
@@ -28,8 +28,8 @@
   min-width: 0;
   max-width: 36ch;
   height: 24px;
-  padding: 0 4px;
-  border-radius: 5px;
+  padding: 0 6px;
+  border-radius: 8px;
 }
 
 .workspace-footer-branch span {
@@ -38,16 +38,28 @@
   white-space: nowrap;
 }
 
-.workspace-footer-stats {
+.workspace-footer-changes {
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  gap: 8px;
+  gap: 6px;
   height: 24px;
-  padding: 0 3px;
-  border-radius: 5px;
+  padding: 0 7px;
+  border-radius: 8px;
   font-variant-numeric: tabular-nums;
-  font-size: 10px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.workspace-footer-changes[aria-pressed="true"] {
+  color: var(--color-content);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
+.workspace-footer-diff-counts {
+  display: flex;
+  gap: 5px;
+  margin-left: 2px;
 }
 
 .workspace-footer-additions {
@@ -61,32 +73,33 @@
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  height: 24px;
+  height: 26px;
   margin-left: auto;
-  border: 1px solid color-mix(in srgb, var(--color-content) 17%, transparent);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  border: 0;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--color-accent) 9%, transparent);
+  color: var(--color-content);
 }
 
 .workspace-footer-pr-action {
   display: flex;
   align-items: center;
-  gap: 4px;
-  height: 22px;
-  padding: 0 7px;
-  border-radius: 11px 0 0 11px;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 9px 0 0 9px;
   white-space: nowrap;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .workspace-footer-pr-menu {
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 26px;
   border-left: 1px solid
     color-mix(in srgb, var(--color-content) 10%, transparent);
-  border-radius: 0 11px 11px 0;
+  border-radius: 0 9px 9px 0;
 }
 
 .workspace-footer-pr-menu[aria-expanded="true"] svg {
@@ -97,25 +110,25 @@
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  gap: 5px;
+  gap: 3px;
 }
 
 .workspace-footer-icon {
   display: grid;
   place-items: center;
-  width: 23px;
-  height: 23px;
-  border-radius: 5px;
+  width: 26px;
+  height: 26px;
+  border-radius: 9px;
 }
 
 .workspace-footer-icon[aria-pressed="true"] {
   color: var(--color-content);
-  background: color-mix(in srgb, var(--color-content) 7%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
 }
 
 .workspace-footer button:enabled:hover {
   color: var(--color-content);
-  background: color-mix(in srgb, var(--color-content) 7%, transparent);
+  background: color-mix(in srgb, var(--color-content) 6%, transparent);
 }
 
 .workspace-footer button:disabled {

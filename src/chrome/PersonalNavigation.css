@@ -1,4 +1,4 @@
-/* Super-style project navigation. Opaque surfaces and motion only on interaction. */
+/* Aven navigation: quiet surfaces, clear hierarchy, and unchanged carousel geometry. */
 .personal-shell .personal-sidebar.personal-navigation {
   padding: 0 5px 5px;
   max-width: min(320px, max(190px, calc(100vw - 540px)));
@@ -18,10 +18,10 @@
   align-items: center;
   flex-shrink: 0;
   gap: 7px;
-  height: 30px;
+  height: 36px;
   padding: 0 8px;
   color: var(--color-content);
-  font-size: 11.5px;
+  font-size: 13px;
   font-weight: 500;
 }
 .personal-shell .personal-profile-picker {
@@ -30,8 +30,9 @@
   gap: 7px;
   min-width: 0;
   flex: 1;
-  height: 26px;
-  border-radius: 5px;
+  height: 30px;
+  padding-inline: 6px;
+  border-radius: 9px;
   text-align: left;
 }
 .personal-shell .personal-profile-picker > span {
@@ -68,9 +69,9 @@
   min-height: 30px;
   padding: 0 8px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 9px;
   color: var(--personal-muted);
-  font-size: 11px;
+  font-size: 12px;
   text-align: left;
 }
 .personal-shell .personal-library-nav > button:hover,
@@ -82,14 +83,16 @@
   color: var(--color-content);
   background: var(--personal-selected);
 }
-.personal-shell .personal-library-nav > button > svg { flex-shrink: 0; }
+.personal-shell .personal-library-nav > button > svg {
+  flex-shrink: 0;
+}
 .personal-shell .personal-navigation .personal-projects-heading {
   display: flex;
   align-items: center;
   height: 31px;
   min-height: 31px;
   padding: 0 5px 0 8px;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--personal-muted);
 }
 .personal-shell .personal-new-session {
@@ -100,9 +103,9 @@
   min-height: 30px;
   margin: 5px 6px 4px;
   padding: 0 8px;
-  border-radius: 6px;
+  border-radius: 9px;
   color: var(--color-content);
-  font-size: 11px;
+  font-size: 12px;
   text-align: left;
 }
 .personal-shell .personal-new-session:hover,
@@ -131,12 +134,12 @@
   opacity: 1;
 }
 .personal-shell .personal-navigation .personal-project-group {
-  margin: 0 2px 3px;
+  margin: 2px 2px 8px;
 }
 .personal-shell .personal-navigation .personal-project-row {
   display: flex;
   align-items: center;
-  min-height: 29px;
+  min-height: 32px;
   gap: 1px;
   padding: 0 3px;
 }
@@ -146,11 +149,11 @@
   flex: 1;
   align-items: center;
   gap: 6px;
-  height: 27px;
-  padding: 0 3px;
-  border-radius: 4px;
+  height: 30px;
+  padding: 0 5px;
+  border-radius: 8px;
   text-align: left;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--color-content);
 }
 .personal-shell .personal-project-open > span:first-of-type {
@@ -166,10 +169,10 @@
 .personal-shell .personal-navigation .personal-project-row-action {
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 23px;
+  width: 24px;
+  height: 26px;
   flex-shrink: 0;
-  border-radius: 4px;
+  border-radius: 8px;
   color: var(--personal-muted);
 }
 .personal-shell
@@ -178,7 +181,7 @@
   color: var(--personal-accent);
 }
 .personal-shell .personal-navigation .personal-project-more {
-  width: 16px;
+  width: 22px;
   opacity: 0;
   pointer-events: none;
 }
@@ -194,8 +197,8 @@
   color: var(--color-content);
 }
 .personal-shell .personal-navigation .personal-task-list {
-  gap: 1px;
-  padding: 0 1px 3px;
+  gap: 2px;
+  padding: 2px 1px 4px;
 }
 .personal-shell .personal-navigation .personal-project-tasks {
   margin: 0 0 1px;
@@ -204,13 +207,13 @@
   display: none;
 }
 .personal-shell .personal-navigation .personal-task-card {
-  min-height: 27px;
-  padding: 4px 7px 4px 12px;
-  border-radius: 4px;
+  min-height: 30px;
+  padding: 5px 8px 5px 14px;
+  border-radius: 8px;
 }
 .personal-shell .personal-navigation .personal-task-card[aria-current="true"] {
-  border-color: color-mix(in srgb, var(--personal-accent) 30%, transparent);
-  background: color-mix(in srgb, var(--personal-accent) 8%, transparent);
+  border-color: transparent;
+  background: color-mix(in srgb, var(--personal-accent) 11%, transparent);
   box-shadow: none;
 }
 .personal-shell
@@ -224,11 +227,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 10.5px;
+  font-size: 11.5px;
   font-weight: 450;
 }
 .personal-shell .personal-navigation .personal-task-status {
-  font-size: 9px;
+  font-size: 10px;
   font-variant-numeric: tabular-nums;
 }
 .personal-shell .personal-navigation .personal-other-task {
@@ -283,21 +286,21 @@
   opacity: 0;
 }
 .personal-shell .personal-navigation .personal-task-filter {
-  height: 27px;
-  padding: 0 7px 3px;
+  height: 32px;
+  padding: 0 7px 4px;
 }
 .personal-shell .personal-navigation .personal-task-filter input {
-  font-size: 10.5px;
+  font-size: 11.5px;
 }
 .personal-shell .personal-navigation .personal-tasks-empty {
   padding: 7px 12px;
   color: var(--personal-muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 .personal-shell .personal-navigation .personal-view-project-tasks {
   padding: 5px 12px;
   color: var(--personal-muted);
-  font-size: 10px;
+  font-size: 11px;
   text-align: left;
 }
 .personal-shell .personal-navigation .personal-view-project-tasks:hover {
@@ -311,18 +314,18 @@
 .personal-shell .personal-navigation .personal-workspace-switcher {
   display: flex;
   align-items: center;
-  min-height: 25px;
+  min-height: 30px;
   gap: 3px;
 }
 .personal-shell .personal-navigation .personal-workspace-tool {
   display: grid;
   place-items: center;
-  width: 23px;
-  height: 23px;
+  width: 26px;
+  height: 26px;
   padding: 0;
   flex-shrink: 0;
-  border: 1px solid transparent;
-  border-radius: 5px;
+  border: 0;
+  border-radius: 9px;
   background: transparent;
   color: var(--personal-muted);
 }
@@ -341,8 +344,7 @@
   overflow-x: auto;
   scrollbar-width: none;
 }
-/* Super keeps a fixed profile order and gives exactly one workspace its icon.
-   Hover previews that icon without switching; equal width swaps keep + still. */
+/* Keep the established workspace order and equal-width hover preview so the add control stays still. */
 .personal-shell
   .personal-navigation
   .personal-profile-switches
@@ -393,9 +395,23 @@
   opacity: var(--profile-dot-opacity);
 }
 /* Hover and keyboard previews keep the selected workspace as the fallback. */
-.personal-shell .personal-navigation .personal-profile-switches > .personal-profile-switch:hover,
-.personal-shell .personal-navigation .personal-profile-switches:not(:has(> .personal-profile-switch:hover)) > .personal-profile-switch:focus-visible,
-.personal-shell .personal-navigation .personal-profile-switches:not(:has(> .personal-profile-switch:hover, > .personal-profile-switch:focus-visible)) > .personal-profile-switch[aria-pressed="true"] {
+.personal-shell
+  .personal-navigation
+  .personal-profile-switches
+  > .personal-profile-switch:hover,
+.personal-shell
+  .personal-navigation
+  .personal-profile-switches:not(:has(> .personal-profile-switch:hover))
+  > .personal-profile-switch:focus-visible,
+.personal-shell
+  .personal-navigation
+  .personal-profile-switches:not(
+    :has(
+      > .personal-profile-switch:hover,
+      > .personal-profile-switch:focus-visible
+    )
+  )
+  > .personal-profile-switch[aria-pressed="true"] {
   --profile-cell-width: 23px;
   --profile-icon-opacity: 1;
   --profile-dot-opacity: 0;
@@ -416,7 +432,7 @@
 .personal-shell .personal-navigation .personal-sidebar-section-label {
   margin: 7px 0 3px;
   padding: 0 8px;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--personal-muted);
   font-weight: 500;
 }
@@ -428,9 +444,18 @@
   scroll-snap-type: x mandatory;
   scrollbar-width: none;
 }
-.personal-profile-viewport[data-carousel-enabled="false"] { overflow-x: hidden; }
-.personal-profile-viewport::-webkit-scrollbar { display: none; }
-.personal-profile-track { position: relative; display: flex; width: 100%; height: 100%; }
+.personal-profile-viewport[data-carousel-enabled="false"] {
+  overflow-x: hidden;
+}
+.personal-profile-viewport::-webkit-scrollbar {
+  display: none;
+}
+.personal-profile-track {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
 .personal-profile-page {
   flex: 0 0 100%;
   min-width: 0;
@@ -440,98 +465,81 @@
   scroll-snap-stop: always;
   pointer-events: none;
 }
-.personal-profile-content { position: absolute; top: 0; bottom: 0; width: 100%; }
+.personal-profile-content {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 100%;
+}
 .personal-profile-content .personal-projects-scroll {
   overflow-x: hidden;
   overscroll-behavior-y: contain;
   overscroll-behavior-x: auto;
 }
-.personal-profile-viewport[data-profile-dragging] { scroll-snap-type: none; user-select: none; }
+.personal-profile-viewport[data-profile-dragging] {
+  scroll-snap-type: none;
+  user-select: none;
+}
 @media (prefers-reduced-motion: reduce) {
-  .personal-shell .personal-navigation .personal-profile-switches > .personal-profile-switch { transition: none; }
+  .personal-shell
+    .personal-navigation
+    .personal-profile-switches
+    > .personal-profile-switch {
+    transition: none;
+  }
 }
 
-/* Light navigation stays on the frame, with quiet selected rows. */
-html.theme-light .personal-shell .personal-navigation {
-  padding-inline: 6px;
+.personal-shell .personal-profile-picker:hover,
+.personal-shell .personal-profile-picker[aria-expanded="true"] {
+  background: var(--personal-hover);
 }
-html.theme-light
-  .personal-shell
-  .personal-navigation
-  .personal-sidebar-windowbar {
-  min-height: 40px;
-  margin-left: -6px;
+.personal-shell .personal-library-nav > button {
+  background: color-mix(in srgb, var(--color-content) 3%, transparent);
+  color: color-mix(in srgb, var(--color-content) 72%, transparent);
 }
-html.theme-light .personal-shell .personal-navigation .personal-profile-header {
-  height: 34px;
-  padding-inline: 8px;
-  font-size: 12px;
-  font-weight: 550;
+.personal-shell .personal-library-nav > button[aria-current="page"] {
+  background: color-mix(in srgb, var(--personal-accent) 12%, transparent);
+  color: var(--color-content);
 }
-html.theme-light .personal-shell .personal-navigation .personal-sidebar-pin {
-  color: var(--personal-muted);
-}
-html.theme-light .personal-shell .personal-navigation .personal-new-session {
-  margin: 5px 2px 7px;
-  min-height: 31px;
-  font-size: 11px;
-}
-html.theme-light
-  .personal-shell
-  .personal-navigation
-  .personal-projects-heading,
-html.theme-light
-  .personal-shell
-  .personal-navigation
-  .personal-sidebar-section-label {
-  font-size: 11px;
-  font-weight: 400;
-}
-html.theme-light .personal-shell .personal-navigation .personal-project-group {
-  margin: 0 0 7px;
-}
-html.theme-light .personal-shell .personal-navigation .personal-project-row {
+.personal-shell .personal-new-session {
   min-height: 32px;
-  padding-inline: 2px;
-}
-html.theme-light .personal-shell .personal-navigation .personal-project-open {
-  height: 30px;
-  gap: 8px;
-  font-size: 12px;
+  background: color-mix(in srgb, var(--personal-accent) 9%, transparent);
   font-weight: 500;
 }
-html.theme-light
-  .personal-shell
-  .personal-navigation
-  .personal-project-row-action {
-  color: var(--personal-muted);
+.personal-shell .personal-new-session > svg {
+  color: var(--personal-accent);
 }
-html.theme-light .personal-shell .personal-navigation .personal-task-card {
-  min-height: 30px;
-  padding: 5px 8px 5px 18px;
-  border-radius: 4px;
+.personal-shell .personal-new-session:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--personal-accent) 15%, transparent);
 }
-html.theme-light
-  .personal-shell
-  .personal-navigation
-  .personal-task-card[aria-current="true"] {
-  border-color: color-mix(in srgb, var(--color-content) 9%, transparent);
-  background: color-mix(in srgb, var(--color-content) 3.5%, transparent);
+.personal-shell .personal-navigation .personal-project-open {
+  font-weight: 500;
 }
-html.theme-light
-  .personal-shell
+.personal-shell
   .personal-navigation
   .personal-task-card[aria-current="true"]
   .personal-task-title {
   color: var(--color-content);
 }
-html.theme-light .personal-shell .personal-navigation .personal-task-title {
-  font-size: 11px;
-  font-weight: 450;
+.personal-shell
+  .personal-navigation
+  .personal-task-card[data-session-selected="true"] {
+  background: color-mix(in srgb, var(--personal-accent) 17%, transparent);
+  box-shadow: inset 2px 0 var(--personal-accent);
 }
-html.theme-light .personal-shell .personal-navigation .personal-task-status {
-  font-size: 10px;
+.personal-shell
+  .personal-navigation
+  .personal-task-card[data-needs-approval="true"] {
+  border-color: color-mix(in srgb, var(--personal-accent) 60%, transparent);
+  border-style: dashed;
+  background: color-mix(in srgb, var(--personal-accent) 9%, transparent);
 }
-html.theme-light .personal-shell .personal-navigation .personal-sidebar-footer {
-  padding-bottom: 7px;
+.personal-shell .personal-navigation .personal-sidebar-footer {
+  padding-top: 8px;
+  padding-bottom: 4px;
+}
+.personal-shell .personal-navigation button:focus-visible,
+.personal-shell .personal-profile-viewport:focus-visible {
+  outline: 2px solid var(--personal-accent);
+  outline-offset: -2px;
 }

@@ -1,3 +1,4 @@
+import "./UtilityViews.css";
 import { retainEditorDraft } from "../lib/workspaceTransfers";
 import { readEditorDraft, recordEditorDraft } from "../lib/workspaceTransfers";
 import { acceptCompletion, completionStatus } from "@codemirror/autocomplete";
@@ -439,7 +440,7 @@ export function FileEditor({
           onStageGit={showDiff ? stageGit : undefined}
         />
       )}
-      <footer className="flex h-6 shrink-0 items-center border-t border-content/10 px-2.5 font-mono text-[10.5px] text-content/40">
+      <footer className="file-editor-status flex h-6 shrink-0 items-center border-t border-content/10 px-2.5 font-mono text-[10.5px] text-content/40">
         <span className="min-w-0 flex-1 truncate" title={path}>
           {relativePath}
         </span>
@@ -806,22 +807,7 @@ function CodeMirrorEditor({
     if (!navigation) return;
     const view = viewRef.current;
     if (!view) return;
-
-    let cancelled = false;
-    const run = () => {
-      if (cancelled) return;
-      if (view.state.doc.lines < navigation.line) {
-        requestAnimationFrame(run);
-        return;
-      }
-      if (cancelled) return;
-      revealNavigation(view, navigation);
-    };
-    requestAnimationFrame(() => requestAnimationFrame(run));
-
-    return () => {
-      cancelled = true;
-    };
+    return scheduleEditorNavigation(view, navigation);
   }, [navigation]);
 
   useEffect(() => {
@@ -951,6 +937,23 @@ function revealNavigation(view: EditorView, target: EditorNavigation) {
     effects: EditorView.scrollIntoView(anchor, { y: "center" }),
   });
   view.focus();
+}
+
+/** The loaded editor is ready here; revealNavigation clamps stale search lines. */
+export function scheduleEditorNavigation(
+  view: EditorView,
+  target: EditorNavigation,
+): () => void {
+  let cancelled = false;
+  let frame = requestAnimationFrame(() => {
+    frame = requestAnimationFrame(() => {
+      if (!cancelled) revealNavigation(view, target);
+    });
+  });
+  return () => {
+    cancelled = true;
+    cancelAnimationFrame(frame);
+  };
 }
 
 const diskReload = Annotation.define<boolean>();

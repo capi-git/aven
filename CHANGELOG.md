@@ -1,5 +1,14 @@
 # Aven changelog
 
+## [0.1.82] - 2026-09-22
+
+### A consistent workspace
+
+- Refresh tabs, sidebars, chat, the composer, browser controls, and file panels with quieter surfaces, clearer text, and consistent spacing in light and dark themes.
+- Keep working, waiting, and queued states visible in narrow panes, and make attachments more compact without changing message, approval, or queue behavior.
+- Bring the same styling to Home, Notes, Search, Inbox, activity, usage, access controls, and dialogs while retaining existing features and workspace preferences.
+- Keep keyboard focus inside dialogs, restore it on close, and let nested dialogs and menus dismiss in the right order.
+
 ## [0.1.81] - 2026-09-22
 
 ### A calmer settings workspace

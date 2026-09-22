@@ -15,8 +15,8 @@
   align-items: center;
   flex-shrink: 0;
   gap: 8px;
-  min-height: 44px;
-  padding: 4px 10px;
+  min-height: 40px;
+  padding: 5px 8px;
   border-bottom: 1px solid
     color-mix(in srgb, var(--color-content) 8%, transparent);
 }
@@ -31,24 +31,24 @@
 .workspace-inspector-tab {
   min-height: 28px;
   padding: 3px 10px;
-  border-radius: 7px;
-  font-size: 11px;
+  border-radius: 9px;
+  font-size: 12px;
   font-weight: 500;
-  color: color-mix(in srgb, var(--color-content) 56%, transparent);
+  color: color-mix(in srgb, var(--color-content) 66%, transparent);
 }
 
 .workspace-inspector-tab[aria-selected="true"] {
   color: var(--color-content);
-  background: color-mix(in srgb, var(--color-content) 7%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 13%, transparent);
 }
 
 .workspace-inspector-close {
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
-  color: color-mix(in srgb, var(--color-content) 45%, transparent);
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  color: color-mix(in srgb, var(--color-content) 65%, transparent);
 }
 
 .workspace-inspector-tab:hover,
@@ -77,5 +77,5 @@
   padding: 20px 16px;
   font-size: 12px;
   line-height: 1.6;
-  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+  color: color-mix(in srgb, var(--color-content) 66%, transparent);
 }

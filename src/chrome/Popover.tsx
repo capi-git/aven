@@ -9,6 +9,7 @@ import {
   type Ref,
 } from "react";
 import { createPortal } from "react-dom";
+import "./Overlays.css";
 import { LAYER } from "../lib/layers";
 import {
   placePopover,
@@ -55,9 +56,8 @@ type Props = Omit<ComponentPropsWithoutRef<"div">, "style"> & {
 };
 
 const FRAME =
-  "isolate overflow-hidden rounded-xl border border-content/10 shadow-xl";
-const BACKDROP =
-  "popover-backdrop pointer-events-none absolute inset-0 z-0";
+  "aven-popover-frame isolate overflow-hidden rounded-xl border border-content/10 shadow-xl";
+const BACKDROP = "popover-backdrop pointer-events-none absolute inset-0 z-0";
 
 /** Which corner the open animation grows from, so it reads as anchored. */
 function origin(side: PopoverSide, align: PopoverAlign): string {

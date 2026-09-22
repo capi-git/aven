@@ -1,3 +1,4 @@
+import "./UtilityViews.css";
 import { LoaderCircle, Plus, Search, File, Trash2 } from "../chrome/icons";
 import {
   Fragment,
@@ -120,7 +121,20 @@ export function NotesView({
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      // A dialog or anchored menu gets the first Escape even if focus remains
+      // on the control that opened it.
+      const childOverlayOpen = Array.from(
+        document.querySelectorAll(
+          '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [data-popover-side]',
+        ),
+      ).some(
+        (element) =>
+          element.getClientRects().length > 0 &&
+          getComputedStyle(element).visibility !== "hidden" &&
+          !element.closest('[hidden], [inert], [aria-hidden="true"]'),
+      );
+      if (childOverlayOpen) return;
       event.preventDefault();
       event.stopPropagation();
       onCloseRef.current();
@@ -408,7 +422,7 @@ function NoteCard({
       title={hint}
       aria-current={active ? "true" : undefined}
       onClick={onSelect}
-      className={`flex w-full flex-col rounded-md border px-2.5 py-2 text-left ${
+      className={`utility-list-card flex w-full flex-col rounded-md border px-2.5 py-2 text-left ${
         active
           ? "border-transparent bg-content/10 text-content"
           : "border-transparent text-content/80 hover:bg-content/5 hover:text-content"
@@ -553,13 +567,24 @@ function NoteEditor({
     }
   }, []);
 
+  const queueSave = useCallback(() => {
+    saveQueue.current = saveQueue.current.then(persist, persist);
+    return saveQueue.current;
+  }, [persist]);
+
   const scheduleSave = useCallback(() => {
     if (saveTimer.current != null) window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
       saveTimer.current = null;
-      saveQueue.current = saveQueue.current.then(persist, persist);
+      void queueSave();
     }, 400);
-  }, [persist]);
+  }, [queueSave]);
+
+  const flushSave = useCallback(() => {
+    if (saveTimer.current != null) window.clearTimeout(saveTimer.current);
+    saveTimer.current = null;
+    return queueSave();
+  }, [queueSave]);
 
   const insertionRange = useCallback(() => {
     const field = sourceFieldRef.current;
@@ -609,10 +634,9 @@ function NoteEditor({
 
   useEffect(() => {
     return () => {
-      if (saveTimer.current != null) window.clearTimeout(saveTimer.current);
-      void persist();
+      void flushSave();
     };
-  }, [persist]);
+  }, [flushSave]);
 
   const onTitleKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Enter") return;
@@ -632,7 +656,7 @@ function NoteEditor({
       ref={lockOverscroll}
       className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none"
     >
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-8 py-8">
+      <div className="note-detail-content mx-auto flex w-full max-w-5xl flex-col gap-5 px-8 py-8">
         <header className="flex flex-col gap-3">
           <div className="flex min-w-0 items-center gap-2 text-[12px] text-content/50">
             <File className="size-3.5 shrink-0" strokeWidth={1.75} />
@@ -659,7 +683,7 @@ function NoteEditor({
             onBlur={() => {
               const next = title.trim() || noteTitle(body);
               if (next !== title) setTitle(next);
-              void persist();
+              void flushSave();
             }}
             onKeyDown={onTitleKeyDown}
             aria-label="Note title"
@@ -684,7 +708,7 @@ function NoteEditor({
                 skipSave.current = true;
                 if (saveTimer.current != null)
                   window.clearTimeout(saveTimer.current);
-                void onDelete(note.id);
+                void saveQueue.current.then(() => onDelete(note.id));
               }}
               className="inline-flex items-center gap-1.5 rounded-md px-3 h-7 text-[12px] text-content/70 hover:bg-content/10 hover:text-red-400"
             >

@@ -1,3 +1,4 @@
+import "./UtilityViews.css";
 import { openInAppUrl } from "../lib/inAppLinks";
 import {
   CheckCheck,
@@ -365,7 +366,10 @@ export function InboxView({
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      // The project picker owns Escape while its list is open. Its listener is
+      // registered after this view's capture listener, so check the DOM first.
+      if (document.querySelector("[data-inbox-project-menu]")) return;
       event.preventDefault();
       event.stopPropagation();
       if (filterMenu) {
@@ -833,6 +837,7 @@ function InboxCard({
       type="button"
       title={item.title}
       aria-current={active ? "true" : undefined}
+      data-utility-card
       aria-label={`${status.label} ${kindLabel.toLowerCase()} ${inboxItemRef(
         item,
       )}: ${item.title}${unseen ? ", new" : ""}`}
@@ -1512,6 +1517,7 @@ function InboxProjectPicker({
         <div
           ref={menu}
           role="listbox"
+          data-inbox-project-menu
           className="absolute left-0 top-full z-30 mt-1 max-h-64 min-w-full max-w-64 overflow-y-auto rounded-lg border border-content/10 bg-content/10 p-1 shadow-xl backdrop-blur-xl outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
         >
           {projects.map((project) => {

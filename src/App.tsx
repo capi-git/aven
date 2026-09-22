@@ -1,5 +1,7 @@
 import { discardEditorDrafts } from "./lib/workspaceTransfers";
 import { useFixedDeadline } from "./hooks/useFixedDeadline";
+import { useReturnFocus } from "./hooks/useReturnFocus";
+import { indentFocusedEditor } from "./surfaces/editorShortcuts";
 import { useAccountUsageProviders } from "./hooks/useAccountUsageProviders";
 import { useAutomaticModelCatalogs } from "./hooks/useAutomaticModelCatalogs";
 import {
@@ -148,6 +150,10 @@ import { WhatsNewDialog } from "./chrome/WhatsNewDialog";
 import { TitleBar, type Tab as TitleTab } from "./chrome/TitleBar";
 import { MenuBar } from "./chrome/MenuBar";
 import { FilePicker } from "./chrome/FilePicker";
+import {
+  hasWorkspaceOverlay,
+  workspaceShortcutDisposition,
+} from "./lib/workspaceKeyboard";
 import {
   WorkspaceStatusBar,
   type WorkspaceStatusAction,
@@ -1349,6 +1355,8 @@ export default function App({
     useState<EditorNavigationTarget | null>(null);
   const editorNavigationToken = useRef(0);
   const [filePickerOpen, setFilePickerOpen] = useState(false);
+  const { captureReturnFocus, restoreReturnFocus, clearReturnFocus } =
+    useReturnFocus();
   const [dirtyFiles, setDirtyFiles] = useState<Set<string>>(
     () => new Set(windowTransfer?.dirtyFileIds ?? []),
   );
@@ -1420,6 +1428,8 @@ export default function App({
   const sessionNavigationIdsRef = useRef<readonly string[]>([]);
   const filePickerOpenRef = useRef(filePickerOpen);
   filePickerOpenRef.current = filePickerOpen;
+  const workspaceVisibleRef = useRef(workspaceVisible);
+  workspaceVisibleRef.current = workspaceVisible;
   const whatsNewVersionRef = useRef(whatsNewVersion);
   whatsNewVersionRef.current = whatsNewVersion;
 
@@ -2026,25 +2036,22 @@ export default function App({
   }, []);
 
   const scheduleTranscriptDrain = useFixedDeadline(() => {
-      const dirty = [...pendingPersist.current.values()];
-      pendingPersist.current.clear();
-      void Promise.all(
-        dirty.map(async (session) => {
-          if (removingSessionIds.current.has(session.id)) return;
-          const fingerprint = persistFingerprint(session);
-          if (lastPersisted.current.get(session.id) === fingerprint) return;
-          const summary = await upsertSession(session).catch(() => null);
-          if (!summary) return;
-          lastPersisted.current.set(session.id, fingerprint);
-          if (summary.cwd === sidebarCwdRef.current) {
-            setHistory((current) =>
-              mergeProjectHistorySummary(current, summary),
-            );
-          }
-        }),
-      );
+    const dirty = [...pendingPersist.current.values()];
+    pendingPersist.current.clear();
+    void Promise.all(
+      dirty.map(async (session) => {
+        if (removingSessionIds.current.has(session.id)) return;
+        const fingerprint = persistFingerprint(session);
+        if (lastPersisted.current.get(session.id) === fingerprint) return;
+        const summary = await upsertSession(session).catch(() => null);
+        if (!summary) return;
+        lastPersisted.current.set(session.id, fingerprint);
+        if (summary.cwd === sidebarCwdRef.current) {
+          setHistory((current) => mergeProjectHistorySummary(current, summary));
+        }
+      }),
+    );
   }, 650);
-
 
   useEffect(() => {
     const liveIds = new Set(sessions.map((session) => session.id));
@@ -3939,6 +3946,7 @@ export default function App({
 
   const onSelectHistorySession = useCallback(
     async (sessionId: string) => {
+      clearReturnFocus();
       if (await activityWindowBridgeRef.current.showSession?.(sessionId))
         return;
       leaveExpandedPreview();
@@ -3980,6 +3988,7 @@ export default function App({
       ensureOpenSession,
       focusOpenSession,
       replaceBlankPaneWithSession,
+      clearReturnFocus,
     ],
   );
 
@@ -4181,7 +4190,9 @@ export default function App({
             await setSessionArchived(sessionId, true);
           },
           commit: (removal) => {
-            discardEditorDrafts(filesInWorkspaceTabs(removal.closedTabs).filter(isFilesystemTab));
+            discardEditorDrafts(
+              filesInWorkspaceTabs(removal.closedTabs).filter(isFilesystemTab),
+            );
             const latest = sessionsRef.current.find(
               (session) => session.id === sessionId,
             );
@@ -4502,6 +4513,7 @@ export default function App({
 
   const onSelectProject = useCallback(
     (path: string, restoreWorkspace = false) => {
+      clearReturnFocus();
       setHomeViewOpen(false);
       setSettingsOpen(false);
       setSearchViewOpen(false);
@@ -4556,7 +4568,7 @@ export default function App({
       setActiveTabId(tab.id);
       setComposerFocused(true);
     },
-    [activateTab, appendTab],
+    [activateTab, appendTab, clearReturnFocus],
   );
 
   const onSelectProfile = useCallback(
@@ -4570,7 +4582,11 @@ export default function App({
       setSearchViewOpen(false);
       setInboxViewOpen(false);
       setNotesViewOpen(false);
-      restoreProfileWorkspace(id, profilesRef.current.selectProfile, onSelectProject);
+      restoreProfileWorkspace(
+        id,
+        profilesRef.current.selectProfile,
+        onSelectProject,
+      );
     },
     [onSelectProject],
   );
@@ -4822,6 +4838,7 @@ export default function App({
 
   const onOpenFile = useCallback<OpenFileFn>(
     (path, navigation) => {
+      clearReturnFocus();
       leaveExpandedPreview();
       const requestedCwd = projectCwdRef.current;
       const requestedTab = activeTabIdRef.current;
@@ -4877,7 +4894,7 @@ export default function App({
         message(String(error), { title: "Could not open file", kind: "error" }),
       );
     },
-    [profileHome, appendTab],
+    [profileHome, appendTab, clearReturnFocus],
   );
 
   useEffect(
@@ -6266,6 +6283,7 @@ export default function App({
 
   useEffect(() => {
     const onEscape = (event: KeyboardEvent) => {
+      if (!workspaceVisibleRef.current || hasWorkspaceOverlay()) return;
       const target = event.target instanceof Element ? event.target : null;
       const inTerminal = Boolean(target?.closest(".monocode-terminal"));
       const activeTabId = activeTabIdRef.current;
@@ -6888,70 +6906,93 @@ export default function App({
     setSearchFocusToken((token) => token + 1);
   }, []);
 
+  const captureUtilityFocus = useCallback(() => {
+    if (
+      !settingsOpenRef.current &&
+      !searchViewOpenRef.current &&
+      !inboxViewOpenRef.current &&
+      !notesViewOpenRef.current
+    )
+      clearReturnFocus();
+    captureReturnFocus();
+  }, [captureReturnFocus, clearReturnFocus]);
+
   const onOpenSearch = useCallback(() => {
+    captureUtilityFocus();
     setFilePickerOpen(false);
     setSettingsOpen(false);
     setInboxViewOpen(false);
     setNotesViewOpen(false);
     setSearchViewOpen(true);
     setSearchViewFocusToken((token) => token + 1);
-  }, []);
+  }, [captureUtilityFocus]);
 
   const onLeaveSearch = useCallback(() => {
     setSearchViewOpen(false);
-  }, []);
+    restoreReturnFocus();
+  }, [restoreReturnFocus]);
 
   const onOpenInbox = useCallback(() => {
+    captureUtilityFocus();
     setFilePickerOpen(false);
     setSettingsOpen(false);
     setSearchViewOpen(false);
     setNotesViewOpen(false);
     setInboxViewOpen(true);
-  }, []);
+  }, [captureUtilityFocus]);
 
   const onLeaveInbox = useCallback(() => {
     setInboxViewOpen(false);
-  }, []);
+    restoreReturnFocus();
+  }, [restoreReturnFocus]);
 
   const onOpenNotes = useCallback(() => {
     if (!loadNotesEnabled()) return;
+    captureUtilityFocus();
     setFilePickerOpen(false);
     setSettingsOpen(false);
     setSearchViewOpen(false);
     setInboxViewOpen(false);
     setNotesViewOpen(true);
-  }, []);
+  }, [captureUtilityFocus]);
 
   const onLeaveNotes = useCallback(() => {
     setNotesViewOpen(false);
-  }, []);
+    restoreReturnFocus();
+  }, [restoreReturnFocus]);
 
-  const openSettings = useCallback((section?: SettingsSectionId) => {
-    setFilePickerOpen(false);
-    setSearchViewOpen(false);
-    setInboxViewOpen(false);
-    setNotesViewOpen(false);
-    if (section) {
-      setSettingsSection(section);
-      saveSettingsSection(section);
-    }
-    setSettingsOpen(true);
-  }, []);
+  const openSettings = useCallback(
+    (section?: SettingsSectionId) => {
+      captureUtilityFocus();
+      setFilePickerOpen(false);
+      setSearchViewOpen(false);
+      setInboxViewOpen(false);
+      setNotesViewOpen(false);
+      if (section) {
+        setSettingsSection(section);
+        saveSettingsSection(section);
+      }
+      setSettingsOpen(true);
+    },
+    [captureUtilityFocus],
+  );
 
   const onOpenSettings = useCallback(() => openSettings(), [openSettings]);
 
   const onOpenHome = useCallback(() => {
+    clearReturnFocus();
     setSettingsOpen(false);
     setSearchViewOpen(false);
     setInboxViewOpen(false);
     setNotesViewOpen(false);
     setFilePickerOpen(false);
     setHomeViewOpen(true);
-  }, []);
+  }, [clearReturnFocus]);
 
   const onCloseSettings = useCallback(() => {
     setSettingsOpen(false);
-  }, []);
+    restoreReturnFocus();
+  }, [restoreReturnFocus]);
 
   const onSelectSettingsSection = useCallback((section: SettingsSectionId) => {
     setSettingsSection(section);
@@ -7116,13 +7157,34 @@ export default function App({
   const notificationRouteClaims = useRef(new Map<string, number>());
   const notificationRouteTimers = useRef(new Set<number>());
   const debounce = useRef({ name: "", at: 0 });
-  const run = useCallback((name: string, fn: () => void) => {
-    const now = performance.now();
-    if (name === debounce.current.name && now - debounce.current.at < 80)
-      return;
-    debounce.current = { name, at: now };
-    fn();
-  }, []);
+  const run = useCallback(
+    (name: string, fn: () => void) => {
+      const disposition = workspaceShortcutDisposition(name, {
+        overlay: hasWorkspaceOverlay(),
+        utility:
+          settingsOpenRef.current ||
+          searchViewOpenRef.current ||
+          inboxViewOpenRef.current ||
+          notesViewOpenRef.current,
+        workspace: workspaceVisibleRef.current,
+      });
+      if (disposition === "block") return;
+      if (disposition === "dismiss-utility") {
+        setSettingsOpen(false);
+        setSearchViewOpen(false);
+        setInboxViewOpen(false);
+        setNotesViewOpen(false);
+        restoreReturnFocus();
+        return;
+      }
+      const now = performance.now();
+      if (name === debounce.current.name && now - debounce.current.at < 80)
+        return;
+      debounce.current = { name, at: now };
+      fn();
+    },
+    [restoreReturnFocus],
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -7198,6 +7260,17 @@ export default function App({
           (cmd === "split-right" || cmd === "split-down") &&
           target?.closest(".cm-editor")
         ) {
+          return;
+        }
+        if (
+          (cmd === "back" || cmd === "forward") &&
+          target?.closest(".cm-editor")
+        ) {
+          e.preventDefault();
+          e.stopPropagation();
+          run(cmd, () => {
+            indentFocusedEditor(cmd === "back" ? "less" : "more");
+          });
           return;
         }
         const inPicker =
@@ -7308,9 +7381,15 @@ export default function App({
       listen("close_tab", () => run("close", actions.current.onClosePane)),
       listen("next_tab", () => run("next", actions.current.onNext)),
       listen("prev_tab", () => run("prev", actions.current.onPrev)),
-      listen("back_tab", () => run("back", actions.current.onVisitBack)),
+      listen("back_tab", () =>
+        run("back", () => {
+          if (!indentFocusedEditor("less")) actions.current.onVisitBack();
+        }),
+      ),
       listen("forward_tab", () =>
-        run("forward", actions.current.onVisitForward),
+        run("forward", () => {
+          if (!indentFocusedEditor("more")) actions.current.onVisitForward();
+        }),
       ),
       listen("split_right", () =>
         run("split-right", () => actions.current.onSplit("right")),
@@ -7831,7 +7910,11 @@ export default function App({
     const labels = loadTabGroupLabels();
     const tasksFor = (cwd: string) =>
       historyWithLiveSessions(
-        history, sessions, cwd, undefined, orchestrationRuns,
+        history,
+        sessions,
+        cwd,
+        undefined,
+        orchestrationRuns,
       )
         .filter((session) => !session.archived && !session.orchestrationLeadId)
         .slice(0, SESSION_LIST_PAGE)
@@ -7843,23 +7926,32 @@ export default function App({
     return Object.fromEntries(
       profiles.profiles.map((profile) => {
         const standalone = projectlessCwdForProfile(profile.id);
-        return [profile.id, {
-          id: profile.id,
-          name: profile.name,
-          projects: projectRailItems(
-            profiles.projectsByProfile[profile.id] ?? [], "~",
-          ).map((project) => ({
+        return [
+          profile.id,
+          {
+            id: profile.id,
+            name: profile.name,
+            projects: projectRailItems(
+              profiles.projectsByProfile[profile.id] ?? [],
+              "~",
+            ).map((project) => ({
               path: project.path,
               name: projectDisplayName(project.path, labels),
               tasks: tasksFor(project.path),
             })),
-          standaloneTasks: standalone ? tasksFor(standalone) : [],
-        }];
+            standaloneTasks: standalone ? tasksFor(standalone) : [],
+          },
+        ];
       }),
     );
   }, [
-    sidebarHover.visible, profiles.profiles, profiles.projectsByProfile,
-    history, sessions, orchestrationRuns, busySessionIds,
+    sidebarHover.visible,
+    profiles.profiles,
+    profiles.projectsByProfile,
+    history,
+    sessions,
+    orchestrationRuns,
+    busySessionIds,
   ]);
   const openActions: WorkspaceStatusAction[] = [
     {

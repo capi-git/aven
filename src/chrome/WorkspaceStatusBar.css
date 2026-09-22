@@ -8,7 +8,7 @@
   flex: 0 0 32px;
   min-width: 0;
   padding: 4px 10px;
-  color: color-mix(in srgb, var(--color-content) 53%, transparent);
+  color: color-mix(in srgb, var(--color-content) 68%, transparent);
   font-size: 10px;
   line-height: 1;
   cursor: grab;
@@ -63,8 +63,8 @@
   min-height: 22px;
   padding: 0 6px;
   border: 0;
-  border-radius: 7px;
-  color: color-mix(in srgb, var(--color-content) 67%, transparent);
+  border-radius: 9px;
+  color: color-mix(in srgb, var(--color-content) 75%, transparent);
   background: transparent;
   font: inherit;
   font-size: 10px;
@@ -106,20 +106,20 @@
   outline-offset: 1px;
 }
 .workspace-status-popover {
-  padding: 5px;
-  font-size: 11px;
+  padding: 6px;
+  font-size: 12px;
   color: var(--color-content);
   overflow-y: auto;
 }
 .workspace-status-popover-heading {
   margin: 0;
-  padding: 7px 8px;
-  font-weight: 500;
+  padding: 8px 10px;
+  font-weight: 550;
 }
 .workspace-status-empty {
   margin: 0;
   padding: 7px 8px;
-  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+  color: color-mix(in srgb, var(--color-content) 65%, transparent);
   line-height: 1.5;
 }
 .workspace-status-menu-item {
@@ -128,9 +128,9 @@
   align-items: flex-start;
   gap: 4px;
   width: 100%;
-  padding: 8px;
+  padding: 9px 10px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 9px;
   color: inherit;
   background: transparent;
   text-align: left;
@@ -144,7 +144,7 @@
 }
 .workspace-status-menu-item small {
   line-height: 1.4;
-  color: color-mix(in srgb, var(--color-content) 52%, transparent);
+  color: color-mix(in srgb, var(--color-content) 65%, transparent);
 }
 .workspace-status-menu-item:hover:not(:disabled),
 .workspace-status-menu-item:focus-visible {
@@ -155,8 +155,12 @@
   cursor: default;
 }
 .workspace-status-usage {
-  padding: 10px 12px;
+  padding: 0;
   line-height: 1.5;
+}
+.workspace-status-usage > .usage-panel {
+  border: 0;
+  border-radius: 0;
 }
 .workspace-status-usage .workspace-status-popover-heading {
   padding: 0 0 5px;
@@ -166,7 +170,7 @@
   overflow-wrap: anywhere;
 }
 .workspace-status-usage small {
-  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+  color: color-mix(in srgb, var(--color-content) 65%, transparent);
 }
 .workspace-status-provider {
   margin-top: 10px;
@@ -182,10 +186,10 @@
 }
 .workspace-status-usage-refresh {
   margin-top: 10px;
-  padding: 5px 7px;
-  border-radius: 5px;
-  border: 1px solid color-mix(in srgb, var(--color-content) 12%, transparent);
-  background: none;
+  padding: 7px 9px;
+  border-radius: 9px;
+  border: 0;
+  background: color-mix(in srgb, var(--color-content) 6%, transparent);
   color: inherit;
   cursor: pointer;
 }
@@ -225,7 +229,7 @@
   height: 30px;
   padding: 3px 6px;
   gap: 8px;
-  border-radius: 7px;
+  border-radius: 9px;
   max-width: min(44vw, 540px);
 }
 .workspace-status-task:hover,
@@ -239,7 +243,7 @@
   padding: 2px 3px;
   border: 0;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  background: color-mix(in srgb, var(--color-content) 3%, transparent);
   cursor: default;
 }
 .workspace-status-nav-group {
@@ -259,7 +263,8 @@
 .workspace-status-nav-group .workspace-status-history {
   position: relative;
 }
-.workspace-status-navigation:has(button) + .workspace-status-history:has(button)::before {
+.workspace-status-navigation:has(button)
+  + .workspace-status-history:has(button)::before {
   content: "";
   position: absolute;
   left: -5px;
@@ -284,7 +289,7 @@
   height: 26px;
   padding: 0;
   border: 0;
-  border-radius: 7px;
+  border-radius: 9px;
   background: transparent;
   color: var(--personal-muted, var(--color-content));
   cursor: pointer;
@@ -325,7 +330,8 @@
   .workspace-status-nav-group button {
     width: 24px;
   }
-  .workspace-status-navigation:has(button) + .workspace-status-history:has(button)::before {
+  .workspace-status-navigation:has(button)
+    + .workspace-status-history:has(button)::before {
     left: -4px;
   }
   .workspace-status-context {
@@ -355,4 +361,28 @@
   white-space: nowrap;
   color: var(--color-content);
   font-size: 10px;
+}
+
+/* The shell owns title-bar height and traffic-light clearance. */
+.personal-shell .workspace-status-bar .workspace-status-pill,
+.personal-shell .workspace-status-bar .workspace-status-access > div > button,
+.personal-shell .workspace-status-bar .workspace-status-navigation button,
+.personal-shell .workspace-status-bar .workspace-status-history button,
+.personal-shell .workspace-status-bar .workspace-status-layout button {
+  border-radius: 9px;
+}
+.workspace-status-pill[aria-expanded="true"],
+.workspace-status-access > div > button[aria-expanded="true"],
+.workspace-status-navigation button[aria-pressed="true"],
+.workspace-status-history button[aria-pressed="true"],
+.workspace-status-layout button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--color-accent) 11%, transparent);
+  color: var(--color-content);
+}
+.workspace-status-usage-refresh:hover:enabled {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+.workspace-status-popover button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
 }

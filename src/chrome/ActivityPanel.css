@@ -8,10 +8,10 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 12px 6px;
+  padding: 14px 16px 8px;
 }
 .activity-header strong {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 .activity-header > span {
@@ -22,7 +22,7 @@
 .activity-actions {
   display: flex;
   gap: 10px;
-  padding: 0 12px 9px;
+  padding: 0 16px 11px;
   border-bottom: 1px solid
     color-mix(in srgb, var(--color-content) 8%, transparent);
 }
@@ -71,7 +71,7 @@
 .activity-row {
   display: flex;
   align-items: center;
-  border-radius: 7px;
+  border-radius: 10px;
 }
 .activity-row:hover {
   background: color-mix(in srgb, var(--color-content) 5%, transparent);
@@ -82,7 +82,7 @@
   gap: 8px;
   min-width: 0;
   width: 100%;
-  padding: 8px 6px;
+  padding: 10px 8px;
   border: 0;
   background: none;
   color: inherit;
@@ -129,7 +129,7 @@
 .activity-time {
   flex-shrink: 0;
   padding-top: 2px;
-  font-size: 9px;
+  font-size: 10px;
   opacity: 0.65;
 }
 .activity-read {
@@ -155,7 +155,7 @@
 }
 .activity-empty {
   margin: 0;
-  padding: 20px 14px;
+  padding: 24px 16px;
   color: color-mix(in srgb, var(--color-content) 75%, transparent);
 }
 .activity-error {
@@ -164,7 +164,7 @@
   font-size: 11px;
 }
 .activity-footer {
-  padding: 8px 12px;
+  padding: 10px 16px;
   border-top: 1px solid color-mix(in srgb, var(--color-content) 7%, transparent);
   font-size: 10px;
   color: color-mix(in srgb, var(--color-content) 65%, transparent);

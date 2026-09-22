@@ -150,7 +150,7 @@ describe("WorkspaceFooter", () => {
     expect(
       container.querySelector(".workspace-footer-branch")?.textContent,
     ).toBe("—");
-    expect(container.querySelector(".workspace-footer-stats")).toBeNull();
+    expect(container.querySelector(".workspace-footer-diff-counts")).toBeNull();
     await render({ detached: true });
     expect(
       container.querySelector(".workspace-footer-branch")?.textContent,
@@ -186,9 +186,12 @@ describe("WorkspaceFooter", () => {
     };
     const branchButton = await click(".workspace-footer-branch");
     expect(branchPicker).toHaveBeenCalledWith(branchButton);
-    await click(".workspace-footer-stats");
     await click('[aria-label="Open changes"]');
-    expect(changes).toHaveBeenCalledTimes(2);
+    expect(changes).toHaveBeenCalledOnce();
+    expect(container.querySelectorAll('[aria-label="Open changes"]')).toHaveLength(1);
+    expect(
+      container.querySelector('[aria-label="Open changes"]')?.getAttribute("aria-description"),
+    ).toBe("64872 added lines, 14719 deleted lines");
     await click('[aria-label="Hide terminal"]');
     expect(terminal).toHaveBeenCalledOnce();
     await click(".workspace-footer-pr-action");

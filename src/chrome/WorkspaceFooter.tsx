@@ -6,6 +6,7 @@ import {
   ExternalLink,
   Folder,
   GitBranch,
+  GitCompare,
   GitPullRequest,
   Terminal,
 } from "./icons";
@@ -96,21 +97,25 @@ export const WorkspaceFooter = memo(function WorkspaceFooter({
             <span>{branchName}</span>
           </button>
         )}
-        {stats ? (
+        {!projectless ? (
           <button
             type="button"
-            className="workspace-footer-stats"
+            className="workspace-footer-changes"
             disabled={!changesEnabled}
-            title={changesEnabled ? "Open changes" : "Changed lines"}
-            aria-label={`${stats.additions} added lines, ${stats.deletions} deleted lines${changesEnabled ? ". Open changes" : ""}`}
+            title={changesEnabled ? "Open changes" : "Changes unavailable"}
+            aria-label="Open changes"
+            aria-description={stats ? `${stats.additions} added lines, ${stats.deletions} deleted lines` : undefined}
+            aria-pressed={changesOpen}
             onClick={onOpenChanges}
           >
-            <span className="workspace-footer-additions">
-              +{stats.additions}
-            </span>
-            <span className="workspace-footer-deletions">
-              -{stats.deletions}
-            </span>
+            <GitCompare className="size-3.5 shrink-0" strokeWidth={1.75} aria-hidden />
+            <span>Changes</span>
+            {stats ? (
+              <span className="workspace-footer-diff-counts" aria-hidden>
+                <span className="workspace-footer-additions">+{stats.additions}</span>
+                <span className="workspace-footer-deletions">-{stats.deletions}</span>
+              </span>
+            ) : null}
           </button>
         ) : null}
       </div>
@@ -153,21 +158,6 @@ export const WorkspaceFooter = memo(function WorkspaceFooter({
       ) : null}
 
       <div className="workspace-footer-tools">
-        {!projectless ? (
-          <button
-            type="button"
-            className="workspace-footer-icon"
-            disabled={!changesEnabled}
-            title={
-              changesEnabled ? "Open changes" : "Open a project to view changes"
-            }
-            aria-label="Open changes"
-            aria-pressed={changesOpen}
-            onClick={onOpenChanges}
-          >
-            <GitBranch className="size-3.5" strokeWidth={1.75} aria-hidden />
-          </button>
-        ) : null}
         <button
           type="button"
           className="workspace-footer-icon"
