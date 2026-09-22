@@ -171,6 +171,17 @@ html.has-native-glass.glass-body:not(.theme-light)
   background: var(--personal-navigation-surface);
 }
 
+/* Keep the full divider hit target above the adjacent workspace, including
+   the half that extends beyond the panel's transformed stacking context. */
+.personal-shell
+  .personal-sidebar-slot:not([data-floating="true"])
+  > .personal-sidebar,
+.personal-shell
+  .personal-inspector-slot:not([data-floating="true"])
+  > .personal-inspector-dock {
+  z-index: 49;
+}
+
 /* The centered resize hit target straddles the visible panel boundary. */
 .personal-shell .personal-sidebar-slot[data-open="true"],
 .personal-shell .personal-inspector-slot[data-open="true"] {
