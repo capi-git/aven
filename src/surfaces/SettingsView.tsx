@@ -1570,6 +1570,26 @@ function ProviderRow({
   const shownIds = new Set(shownModels.map((model) => model.id));
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState(false);
+  const [refreshState, setRefreshState] = useState<
+    "idle" | "pending" | "success" | "failed"
+  >("idle");
+  const [refreshError, setRefreshError] = useState("");
+  const refreshPending = useRef(false);
+  const refreshModels = async () => {
+    if (refreshPending.current) return;
+    refreshPending.current = true;
+    setRefreshState("pending");
+    setRefreshError("");
+    try {
+      await refreshHarnessCatalogs([harness], { force: true });
+      setRefreshState("success");
+    } catch (error) {
+      setRefreshError(error instanceof Error ? error.message : String(error));
+      setRefreshState("failed");
+    } finally {
+      refreshPending.current = false;
+    }
+  };
   const filtered = expanded
     ? models.filter((model) =>
         `${model.name} ${model.nativeId ?? model.id}`
@@ -1622,24 +1642,53 @@ function ProviderRow({
           />
         </div>
       </div>
-      {inPicker && current ? (
+      {available || (inPicker && current) ? (
         <div className="mt-2 flex flex-wrap items-center gap-2 pl-7">
-          <Select
-            label={`${HARNESS_TITLE[harness]} default model`}
-            value={current.id}
-            onChange={(next) => onModelChange(harness, next)}
-            options={shownModels.map((item) => ({
-              value: item.id,
-              label: item.name,
-            }))}
-          />
-          <SecondaryButton
-            onClick={() => onDefault(harness, current.id)}
-            disabled={isDefault || !available}
-          >
-            {isDefault ? "Default provider" : "Use by default"}
-          </SecondaryButton>
+          {inPicker && current ? (
+            <>
+              <Select
+                label={`${HARNESS_TITLE[harness]} default model`}
+                value={current.id}
+                onChange={(next) => onModelChange(harness, next)}
+                options={shownModels.map((item) => ({
+                  value: item.id,
+                  label: item.name,
+                }))}
+              />
+              <SecondaryButton
+                onClick={() => onDefault(harness, current.id)}
+                disabled={isDefault || !available}
+              >
+                {isDefault ? "Default provider" : "Use by default"}
+              </SecondaryButton>
+            </>
+          ) : null}
+          {available ? (
+            <SecondaryButton
+              label={`Refresh ${HARNESS_TITLE[harness]} models`}
+              onClick={() => void refreshModels()}
+              disabled={refreshState === "pending"}
+            >
+              <RefreshCw
+                className={`size-3 ${refreshState === "pending" ? "animate-spin" : ""}`}
+                aria-hidden="true"
+              />
+              {refreshState === "pending" ? "Refreshing…" : "Refresh models"}
+            </SecondaryButton>
+          ) : null}
         </div>
+      ) : null}
+      {refreshState !== "idle" ? (
+        <p
+          role={refreshState === "failed" ? "alert" : "status"}
+          className={`mt-2 pl-7 text-[12px] ${refreshState === "failed" ? "text-red-400" : "text-content/55"}`}
+        >
+          {refreshState === "pending"
+            ? "Checking for available models…"
+            : refreshState === "success"
+              ? "Models refreshed."
+              : `Couldn’t refresh models. ${refreshError}`}
+        </p>
       ) : null}
       {models.length > 0 ? (
         <details
@@ -2123,11 +2172,13 @@ function Select({
 
 function SecondaryButton({
   onClick,
+  label,
   disabled = false,
   danger = false,
   children,
 }: {
   onClick: () => void;
+  label?: string;
   disabled?: boolean;
   danger?: boolean;
   children: ReactNode;
@@ -2135,6 +2186,7 @@ function SecondaryButton({
   return (
     <button
       type="button"
+      aria-label={label}
       onClick={onClick}
       disabled={disabled}
       className={`flex shrink-0 items-center gap-1.5 rounded-md border border-content/10 px-2.5 py-1 text-[12px] ${

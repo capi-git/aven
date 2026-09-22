@@ -1,5 +1,13 @@
 # Aven changelog
 
+## [0.1.78] - 2026-09-22
+
+### Claude Opus 5.5
+
+- Add Claude Opus 5.5 with a 1M context window, Medium reasoning by default, and optional Fast mode. The fallback catalog requires Claude Code 2.1.280 or later.
+- Recognize the provider's live Opus 5.5 model entry while preserving saved model choices.
+- Add Refresh models in provider settings so newly available models can be discovered without restarting Aven.
+
 ## [0.1.77] - 2026-09-22
 
 ### Keep agent previews in Aven

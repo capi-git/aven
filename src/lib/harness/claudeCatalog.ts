@@ -1,5 +1,7 @@
 import { homeDir } from "../fs";
 import {
+  CLAUDE_OPUS_5_5_MODEL,
+  hasLiveCatalog,
   setHarnessModels,
   type AgentModel,
   type ModelSetting,
@@ -24,6 +26,7 @@ import {
   MINIMUM_CLAUDE_OPUS_4_7_VERSION,
   MINIMUM_CLAUDE_OPUS_4_8_VERSION,
   MINIMUM_CLAUDE_OPUS_5_VERSION,
+  MINIMUM_CLAUDE_OPUS_5_5_VERSION,
   parseClaudeVersion,
   parseControlResponse,
   parseJsonLine,
@@ -122,6 +125,7 @@ export const CLAUDE_MODEL_CATALOG: AgentModel[] = [
     nativeId: "claude-fable-5",
     settings: [EFFORT_WITH_XHIGH, contextWindow("1m")],
   },
+  CLAUDE_OPUS_5_5_MODEL,
   {
     id: "claude:opus-5",
     harness: "claude",
@@ -230,6 +234,9 @@ async function discoverClaudeModels(): Promise<AgentModel[]> {
     return [];
   });
   if (listed.length > 0) return listed;
+  if (hasLiveCatalog("claude")) {
+    throw new Error("Could not refresh Claude models; keeping the previous catalog.");
+  }
   return discoverViaVersion();
 }
 
@@ -357,11 +364,16 @@ function modelFromListRow(raw: unknown): AgentModel | null {
 
   const displayName = stringField(rec, "displayName") ?? "";
   const description = stringField(rec, "description") ?? "";
-  const name = pickerName(displayName, description, nativeId);
-  const settings = settingsFromListRow(rec, fromValue.context1m || fromResolved.context1m);
+  const resolvedId = fromResolved.id || nativeId;
+  const isOpus55 = resolvedId === CLAUDE_OPUS_5_5_MODEL.nativeId;
+  const name = isOpus55 ? "Opus 5.5" : pickerName(displayName, description, nativeId);
+  const settings = settingsFromListRow(
+    rec,
+    fromValue.context1m || fromResolved.context1m,
+    isOpus55,
+  );
 
   const id = claudeCatalogId(nativeId);
-  const resolvedId = fromResolved.id || nativeId;
   const pickerPreferenceId =
     CLAUDE_MODEL_CATALOG.find((model) => model.nativeId === resolvedId)?.id ??
     claudeCatalogId(resolvedId);
@@ -378,7 +390,11 @@ function modelFromListRow(raw: unknown): AgentModel | null {
     id,
     harness: "claude",
     name,
-    nativeId,
+    // Keep the provider's 1M alias without offering a smaller context mode.
+    nativeId: isOpus55 && fromValue.id === "opus" && fromValue.context1m
+      ? value.trim()
+      : nativeId,
+    ...(isOpus55 ? { contextWindow: 1_000_000 } : {}),
     ...(pickerPreferenceId !== id ? { pickerPreferenceId } : {}),
     ...(pickerAliases.length > 0 ? { pickerAliases } : {}),
     ...(settings.length > 0 ? { settings } : {}),
@@ -388,16 +404,25 @@ function modelFromListRow(raw: unknown): AgentModel | null {
 function settingsFromListRow(
   rec: Record<string, unknown>,
   context1m: boolean,
+  isOpus55: boolean,
 ): ModelSetting[] {
   const settings: ModelSetting[] = [];
   const levels = advertisedEffortLevels(rec);
-  if (rec.supportsEffort === true || levels.length > 0) {
-    settings.push(effortSetting(levels));
-  } else if (rec.supportsAdaptiveThinking === true) {
+  if (
+    rec.supportsEffort === true || levels.length > 0 ||
+    (isOpus55 && rec.supportsEffort !== false)
+  ) {
+    settings.push(effortSetting(
+      isOpus55 && levels.length === 0
+        ? ["low", "medium", "high", "xhigh", "max"]
+        : levels,
+      isOpus55 ? "medium" : "high",
+    ));
+  } else if (rec.supportsAdaptiveThinking === true && !isOpus55) {
     settings.push(THINKING);
   }
   if (rec.supportsFastMode === true) settings.push(FAST_MODE);
-  if (context1m) settings.push(contextWindow("1m"));
+  if (context1m && !isOpus55) settings.push(contextWindow("1m"));
   return settings;
 }
 
@@ -407,7 +432,7 @@ function advertisedEffortLevels(rec: Record<string, unknown>): string[] {
   return raw.filter((level): level is string => typeof level === "string" && level.trim() !== "");
 }
 
-function effortSetting(levels: string[]): ModelSetting {
+function effortSetting(levels: string[], preferredDefault: string): ModelSetting {
   const known = levels.filter((level) => EFFORT_LABELS[level]);
   const options = (known.length > 0 ? known : ["low", "medium", "high", "max"]).map(
     (value) => ({ value, label: EFFORT_LABELS[value] ?? value }),
@@ -416,8 +441,8 @@ function effortSetting(levels: string[]): ModelSetting {
     options.push({ value: "ultracode", label: "Ultracode" });
   }
   options.push({ value: "ultrathink", label: "Ultrathink" });
-  const defaultValue = options.some((option) => option.value === "high")
-    ? "high"
+  const defaultValue = options.some((option) => option.value === preferredDefault)
+    ? preferredDefault
     : (options[0]?.value ?? "high");
   return {
     id: "effort",
@@ -462,6 +487,11 @@ export function modelsForClaudeVersion(
 ): AgentModel[] {
   return CLAUDE_MODEL_CATALOG.filter((model) => {
     const slug = model.nativeId ?? "";
+    if (slug === "claude-opus-5-5") {
+      return version
+        ? compareSemver(version, MINIMUM_CLAUDE_OPUS_5_5_VERSION) >= 0
+        : false;
+    }
     if (slug === "claude-opus-5") {
       return version
         ? compareSemver(version, MINIMUM_CLAUDE_OPUS_5_VERSION) >= 0

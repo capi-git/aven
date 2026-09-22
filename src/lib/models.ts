@@ -29,6 +29,43 @@ export type AgentModel = {
   contextWindow?: number;
 };
 
+/** Native 1M context and always-on adaptive thinking; no context/thinking toggle. */
+export const CLAUDE_OPUS_5_5_MODEL: AgentModel = {
+  id: "claude:opus-5.5",
+  harness: "claude",
+  name: "Claude Opus 5.5",
+  nativeId: "claude-opus-5-5",
+  pickerAliases: ["claude:opus-5-5"],
+  contextWindow: 1_000_000,
+  settings: [
+    {
+      id: "effort",
+      label: "Reasoning",
+      kind: "select",
+      value: "medium",
+      options: [
+        { value: "low", label: "Low" },
+        { value: "medium", label: "Medium" },
+        { value: "high", label: "High" },
+        { value: "xhigh", label: "Extra High" },
+        { value: "max", label: "Max" },
+        { value: "ultracode", label: "Ultracode" },
+        { value: "ultrathink", label: "Ultrathink" },
+      ],
+    },
+    {
+      id: "fast",
+      label: "Fast",
+      kind: "toggle",
+      value: "false",
+      options: [
+        { value: "true", label: "On" },
+        { value: "false", label: "Off" },
+      ],
+    },
+  ],
+};
+
 export const MODELS: AgentModel[] = [
   {
     id: "claude:sonnet-5",
@@ -36,6 +73,7 @@ export const MODELS: AgentModel[] = [
     name: "Claude Sonnet 5",
     nativeId: "claude-sonnet-5",
   },
+  CLAUDE_OPUS_5_5_MODEL,
   {
     id: "claude:opus-5",
     harness: "claude",
@@ -306,7 +344,9 @@ export function findModel(id: string): AgentModel | undefined {
 export function resolveModel(harness: HarnessId, id?: string): AgentModel {
   const available = modelsFor(harness);
   if (id) {
-    const exact = findModel(id);
+    const exact = findModel(id) ?? available.find(
+      (model) => pickerIdentities(model).includes(id),
+    );
     if (exact && exact.harness === harness) return exact;
     const slug = nativeIdFrom(id);
     const byNative = available.find(
@@ -337,6 +377,9 @@ export function modelContextWindow(id: string): number | undefined {
 export function nativeModelId(model: AgentModel | string): string {
   if (typeof model !== "string") {
     return model.nativeId ?? nativeIdFrom(model.id);
+  }
+  if (model === "claude:opus-5.5" || model === "claude:opus-5-5") {
+    return "claude-opus-5-5";
   }
   return findModel(model)?.nativeId ?? nativeIdFrom(model);
 }

@@ -49,14 +49,19 @@ const waitFor = async (pred: () => boolean, label: string) => {
 
 async function startTurn(
   sessionId: string,
-  options: { runtimeMode?: RuntimeMode; intent?: TurnIntent } = {},
+  options: {
+    runtimeMode?: RuntimeMode;
+    intent?: TurnIntent;
+    model?: string;
+    modelSettings?: Record<string, string>;
+  } = {},
 ) {
   const events: HarnessEvent[] = [];
   const turn = sendClaudeTurn({
     sessionId,
     cwd: "/repo",
-    model: "claude:claude-sonnet-5",
-    modelSettings: {},
+    model: options.model ?? "claude:claude-sonnet-5",
+    modelSettings: options.modelSettings ?? {},
     runtimeMode: options.runtimeMode ?? "supervised",
     intent: options.intent,
     text: "explore the codebase",
@@ -91,6 +96,23 @@ beforeEach(() => {
 afterEach(async () => {
   await stopClaudeSession("s1");
   __claudeTestReset();
+});
+
+describe("Opus 5.5 launch", () => {
+  it("sends the exact model and selected effort without optional context suffixes", async () => {
+    const { turn } = await startTurn("s1", {
+      model: "claude:opus-5.5",
+      modelSettings: { effort: "medium", context: "1m", fast: "false" },
+    });
+    const args = spawned.at(-1)!;
+    expect(args[args.indexOf("--model") + 1]).toBe("claude-opus-5-5");
+    expect(args[args.indexOf("--effort") + 1]).toBe("medium");
+    const settings = JSON.parse(args[args.indexOf("--settings") + 1]);
+    expect(settings.fastMode).not.toBe(true);
+    expect(settings.alwaysThinkingEnabled).toBeUndefined();
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+  });
 });
 
 describe("claude access changes", () => {

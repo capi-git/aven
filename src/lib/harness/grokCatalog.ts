@@ -1,5 +1,5 @@
 import { homeDir } from "../fs";
-import { setHarnessModels } from "../models";
+import { hasLiveCatalog, setHarnessModels } from "../models";
 import { AcpClient } from "./acp";
 import {
   execChild,
@@ -55,6 +55,9 @@ async function discoverGrokModels() {
     return [];
   });
   if (fromCli.length > 0) return fromCli;
+  // Initial discovery can use built-ins, but a failed refresh must preserve
+  // previously discovered models and let the explicit refresh report failure.
+  if (hasLiveCatalog("grok")) return [];
   return fallbackGrokModels();
 }
 

@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { HarnessId } from "./session";
 import {
+  CLAUDE_OPUS_5_5_MODEL,
   coerceModelPickerTab,
+  defaultModelSettings,
   defaultModelId,
   findModel,
   findPickerModel,
@@ -122,6 +124,23 @@ describe("model settings memory", () => {
     expect(mergeModelSettings(opus, { effort: "xhigh", fast: "true" })).toEqual(
       { effort: "xhigh", fast: "true" },
     );
+  });
+
+  it("starts Opus 5.5 at medium without changing saved effort or fast choices", () => {
+    expect(defaultModelSettings(CLAUDE_OPUS_5_5_MODEL)).toEqual({
+      effort: "medium", fast: "false",
+    });
+    expect(preferredModelSettings(CLAUDE_OPUS_5_5_MODEL)).toEqual({
+      effort: "medium", fast: "false",
+    });
+    saveLastModelSettings({ effort: "xhigh", fast: "true", context: "200k", thinking: "false" });
+    expect(preferredModelSettings(CLAUDE_OPUS_5_5_MODEL)).toEqual({
+      effort: "xhigh", fast: "true",
+    });
+    expect(loadLastModelSettings()).toEqual({
+      effort: "xhigh", fast: "true", context: "200k", thinking: "false",
+    });
+    expect(preferredModelSettings(opus)).toEqual({ effort: "xhigh", fast: "true" });
   });
 
   it("drops values the new model does not support", () => {
@@ -417,6 +436,35 @@ describe("picker preferences across catalog aliases", () => {
   afterEach(() => {
     resetHarnessModelOverlays();
     mockLocalStorage();
+  });
+
+  it("retains Opus 5.5 preferences across live aliases and exact fallback IDs", () => {
+    const exactId = CLAUDE_OPUS_5_5_MODEL.id;
+    const live = {
+      ...CLAUDE_OPUS_5_5_MODEL,
+      id: "claude:opus",
+      nativeId: "opus[1m]",
+      pickerPreferenceId: exactId,
+      pickerAliases: ["claude:opus-5-5", exactId],
+    };
+    expect(nativeModelId(exactId)).toBe("claude-opus-5-5");
+    saveDefaultModel("claude", "claude:opus-5");
+    setHarnessModels("claude", [live, liveHaiku]);
+    expect(loadDefaultModels().claude).toBe("claude:opus-5");
+    saveFavoriteModels([live.id]);
+    saveDefaultModel("claude", live.id);
+    expect(loadFavoriteModels()).toEqual([exactId]);
+    expect(loadDefaultModels().claude).toBe(exactId);
+    expect(preferredModelId("claude")).toBe(live.id);
+    expect(nativeModelId(live)).toBe("opus[1m]");
+    expect(nativeModelId(exactId)).toBe("claude-opus-5-5");
+    expect(nativeModelId("claude:opus-5-5")).toBe("claude-opus-5-5");
+    expect(resolveModel("claude", exactId)).toBe(live);
+    expect(resolveModel("claude", "claude:opus-5-5")).toBe(live);
+    resetHarnessModelOverlays();
+    expect(preferredModelId("claude")).toBe(exactId);
+    expect(nativeModelId(preferredModelId("claude"))).toBe("claude-opus-5-5");
+    expect(findPickerModel(loadFavoriteModels()[0])).toBe(CLAUDE_OPUS_5_5_MODEL);
   });
 
   it("honors an existing fallback hide when a live alias catalog replaces it", () => {

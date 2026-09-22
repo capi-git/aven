@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsView } from "./SettingsView";
 import { ModelPicker } from "../chrome/ModelPicker";
 import { BuildTargetButton } from "../chrome/SecondOpinionButton";
+import { refreshHarnessCatalogs } from "../lib/harness/registry";
 import {
   defaultSessionChoice,
   loadHiddenPickerModels,
@@ -65,6 +66,7 @@ describe("provider and model controls", () => {
   let root: Root;
 
   beforeEach(() => {
+    vi.mocked(refreshHarnessCatalogs).mockReset().mockResolvedValue(undefined);
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const storage = new Map<string, string>();
     vi.stubGlobal("localStorage", {
@@ -115,6 +117,75 @@ describe("provider and model controls", () => {
   async function click(label: string) {
     await act(async () => control(label).click());
   }
+
+  it("refreshes a loaded provider explicitly, shows pending state, and exposes new models without changing preferences", async () => {
+    savePickerModelVisible(sonnet, false);
+    await act(async () => root.render(createElement(Settings)));
+    await expandModels();
+    let finish!: () => void;
+    vi.mocked(refreshHarnessCatalogs)
+      .mockClear()
+      .mockImplementationOnce(async () => {
+        await new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+        setHarnessModels("claude", [
+          { id: opus, harness: "claude", name: "Opus 5" },
+          { id: sonnet, harness: "claude", name: "Sonnet 5" },
+          { id: "claude:future", harness: "claude", name: "New Claude model" },
+        ]);
+      });
+    await click("Refresh Claude Code models");
+    expect(control("Refresh Claude Code models").disabled).toBe(true);
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      "Checking",
+    );
+    await click("Refresh Claude Code models");
+    expect(refreshHarnessCatalogs).toHaveBeenCalledExactlyOnceWith(["claude"], {
+      force: true,
+    });
+    await act(async () => {
+      finish();
+    });
+    expect(control("Refresh Claude Code models").disabled).toBe(false);
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "Models refreshed.",
+    );
+    expect(control("Show New Claude model in Claude Code")).not.toBeNull();
+    expect(loadHiddenPickerModels()).toEqual([sonnet]);
+    expect(defaultSessionChoice().model).toBe(opus);
+  });
+
+  it("shows refresh failures and allows a successful retry", async () => {
+    await act(async () => root.render(createElement(Settings)));
+    vi.mocked(refreshHarnessCatalogs).mockRejectedValueOnce(
+      new Error("Provider unavailable"),
+    );
+    await click("Refresh Claude Code models");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Provider unavailable",
+    );
+    expect(control("Refresh Claude Code models").disabled).toBe(false);
+    expect(defaultSessionChoice().model).toBe(opus);
+    await click("Refresh Claude Code models");
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "Models refreshed.",
+    );
+  });
+
+  it("can refresh an installed hidden provider without enabling it and omits unavailable providers", async () => {
+    await act(async () => root.render(createElement(Settings)));
+    await click("Show Claude Code in the model picker");
+    await click("Refresh Claude Code models");
+    expect(loadHiddenPickerProviders()).toContain("claude");
+    expect(refreshHarnessCatalogs).toHaveBeenCalledWith(["claude"], {
+      force: true,
+    });
+    expect(
+      container.querySelector('[aria-label="Refresh Pi models"]'),
+    ).toBeNull();
+  });
 
   it("persists switches, updates the default to another installed provider, and keeps its last provider usable", async () => {
     await act(async () => root.render(createElement(Settings)));

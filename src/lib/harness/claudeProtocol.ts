@@ -21,7 +21,8 @@ import { streamTextDelta } from "./streamText";
 import type { ApprovalDecision, HarnessEvent } from "./types";
 import { AVEN_BROWSER_HOST_POLICY } from "./browserHostPolicy";
 
-/** Claude Code versions that first ship Opus 5 / Fable 5 / Opus 4.8 / 4.7. */
+/** Claude Code versions that first ship each supported model generation. */
+export const MINIMUM_CLAUDE_OPUS_5_5_VERSION = "2.1.280";
 export const MINIMUM_CLAUDE_OPUS_5_VERSION = "2.1.219";
 export const MINIMUM_CLAUDE_FABLE_5_VERSION = "2.1.169";
 export const MINIMUM_CLAUDE_OPUS_4_8_VERSION = "2.1.154";
@@ -161,6 +162,8 @@ export function resolveClaudeApiModelId(
   model: string,
   context?: string | null,
 ): string {
+  // Opus 5.5 always has 1M context, including when old context preferences survive.
+  if (model === "claude-opus-5-5" || model.endsWith("[1m]")) return model;
   if (context === "1m") return `${model}[1m]`;
   return model;
 }

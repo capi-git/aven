@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetHarnessModelOverlays, setHarnessModels } from "../models";
+import { modelsFor, resetHarnessModelOverlays, setHarnessModels } from "../models";
 import type { HarnessId } from "../session";
 import {
   HARNESS_IDLE_PARK_MS,
@@ -241,6 +241,94 @@ describe("harness registry", () => {
     registerHarness(stub("pi", { refreshCatalog: pi }));
     await refreshHarnessCatalogs([]);
     expect(pi).not.toHaveBeenCalled();
+  });
+
+  it("explicitly refreshes only the requested loaded catalog and keeps automatic suppression", async () => {
+    const previous = [
+      { id: "claude:previous", harness: "claude" as const, name: "Previous" },
+    ];
+    const next = [
+      { id: "claude:new", harness: "claude" as const, name: "New" },
+    ];
+    setHarnessModels("claude", previous);
+    const claude = vi.fn(async () => setHarnessModels("claude", next));
+    const pi = vi.fn(async () => undefined);
+    registerHarness(stub("claude", { refreshCatalog: claude }));
+    registerHarness(stub("pi", { refreshCatalog: pi }));
+
+    await refreshHarnessCatalogs(["claude"]);
+    expect(claude).not.toHaveBeenCalled();
+    await refreshHarnessCatalogs(["claude"], { force: true });
+    expect(modelsFor("claude")).toBe(next);
+    await refreshHarnessCatalogs(["claude"]);
+    expect(claude).toHaveBeenCalledOnce();
+    expect(pi).not.toHaveBeenCalled();
+  });
+
+  it("reports explicit refresh failure and retains the existing catalog", async () => {
+    const previous = [
+      { id: "claude:previous", harness: "claude" as const, name: "Previous" },
+    ];
+    setHarnessModels("claude", previous);
+    registerHarness(
+      stub("claude", {
+        refreshCatalog: async () => {
+          throw new Error("Provider unavailable");
+        },
+      }),
+    );
+    await expect(
+      refreshHarnessCatalogs(["claude"], { force: true }),
+    ).rejects.toThrow("Provider unavailable");
+    expect(modelsFor("claude")).toBe(previous);
+  });
+
+  it("reports loaders that swallow failure without publishing a catalog", async () => {
+    const previous = [
+      { id: "claude:previous", harness: "claude" as const, name: "Previous" },
+    ];
+    setHarnessModels("claude", previous);
+    registerHarness(stub("claude", { refreshCatalog: async () => undefined }));
+    await expect(
+      refreshHarnessCatalogs(["claude"], { force: true }),
+    ).rejects.toThrow("did not return a model list");
+    expect(modelsFor("claude")).toBe(previous);
+  });
+
+  it("does not mistake a different provider's publication for refresh success", async () => {
+    registerHarness(
+      stub("claude", {
+        refreshCatalog: async () => {
+          setHarnessModels("pi", [
+            { id: "pi:other", harness: "pi", name: "Other" },
+          ]);
+        },
+      }),
+    );
+    await expect(
+      refreshHarnessCatalogs(["claude"], { force: true }),
+    ).rejects.toThrow("did not return a model list");
+  });
+
+  it("accepts a freshly published identical list and rejects unsupported explicit refresh", async () => {
+    const model = {
+      id: "claude:current",
+      harness: "claude" as const,
+      name: "Current",
+    };
+    setHarnessModels("claude", [model]);
+    registerHarness(
+      stub("claude", {
+        refreshCatalog: async () => setHarnessModels("claude", [model]),
+      }),
+    );
+    await expect(
+      refreshHarnessCatalogs(["claude"], { force: true }),
+    ).resolves.toBeUndefined();
+    registerHarness(stub("claude"));
+    await expect(
+      refreshHarnessCatalogs(["claude"], { force: true }),
+    ).rejects.toThrow("does not support model refresh");
   });
 
   it("parks a live child a few minutes after the turn settles", async () => {

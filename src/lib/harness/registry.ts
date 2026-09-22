@@ -2,7 +2,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { forgetAgentBrowser } from "../agentBrowser";
 import type { HarnessId } from "../session";
 import type { PrContent } from "../gitText";
-import { hasLiveCatalog } from "../models";
+import { hasLiveCatalog, modelsFor } from "../models";
 import type { UserQuestionReply } from "../userQuestion";
 import type { NativeCommandProvider } from "./nativeCommands";
 import type {
@@ -260,17 +260,40 @@ export function bindHarnessSession(
  */
 export async function refreshHarnessCatalogs(
   ids: Iterable<HarnessId>,
+  options: { force?: boolean } = {},
 ): Promise<void> {
   const wanted = new Set(ids);
   if (wanted.size === 0) return;
+  if (options.force) {
+    for (const id of wanted) {
+      if (!adapters.get(id)?.refreshCatalog) {
+        throw new Error("This provider does not support model refresh.");
+      }
+    }
+  }
   await Promise.all(
     [...adapters.values()]
       .filter((adapter) => wanted.has(adapter.id))
       .map(async (adapter) => {
-        if (!adapter.refreshCatalog || hasLiveCatalog(adapter.id)) return;
-        await adapter.refreshCatalog().catch((error: unknown) => {
+        if (!adapter.refreshCatalog) return;
+        if (!options.force && hasLiveCatalog(adapter.id)) return;
+        const previous = modelsFor(adapter.id);
+        try {
+          await adapter.refreshCatalog();
+          // Discovery loaders keep the previous catalog on failure. Explicit
+          // requests must not report success when no replacement was published.
+          if (
+            options.force &&
+            (!hasLiveCatalog(adapter.id) || modelsFor(adapter.id) === previous)
+          ) {
+            throw new Error(
+              "The provider did not return a model list. Your existing choices are unchanged.",
+            );
+          }
+        } catch (error: unknown) {
+          if (options.force) throw error;
           console.debug(`[monocode] ${adapter.id} catalog`, error);
-        });
+        }
       }),
   );
 }

@@ -67,6 +67,13 @@ describe("normalizeClaudeCliEffort", () => {
   it("maps max to high on sonnet 4.6", () => {
     expect(normalizeClaudeCliEffort("max", "claude-sonnet-4-6")).toBe("high");
   });
+
+  it.each(["low", "medium", "high", "xhigh", "max"])(
+    "preserves Opus 5.5 effort %s",
+    (effort) => {
+      expect(normalizeClaudeCliEffort(effort, "claude-opus-5-5")).toBe(effort);
+    },
+  );
 });
 
 describe("applyClaudePromptEffortPrefix", () => {
@@ -79,6 +86,18 @@ describe("applyClaudePromptEffortPrefix", () => {
 });
 
 describe("resolveClaudeApiModelId", () => {
+  it("keeps a provider-supplied 1M alias without duplicating its suffix", () => {
+    expect(resolveClaudeApiModelId("opus[1m]", "1m")).toBe("opus[1m]");
+  });
+  it.each([undefined, "200k", "1m"])(
+    "keeps Opus 5.5's exact native model ID with inherited context %s",
+    (context) => {
+      expect(resolveClaudeApiModelId("claude-opus-5-5", context)).toBe(
+        "claude-opus-5-5",
+      );
+    },
+  );
+
   it("appends [1m] for the 1M context window", () => {
     expect(resolveClaudeApiModelId("claude-opus-5", "1m")).toBe(
       "claude-opus-5[1m]",
@@ -354,6 +373,34 @@ describe("turnStatusFromResult", () => {
 });
 
 describe("modelsForClaudeVersion", () => {
+  it.each([undefined, null, "2.1.267", "2.1.279"])(
+    "does not offer Opus 5.5 on unsupported CLI version %s",
+    (version) => {
+      expect(modelsForClaudeVersion(version).map((model) => model.nativeId))
+        .not.toContain("claude-opus-5-5");
+    },
+  );
+
+  it.each(["2.1.280", "2.2.0"])(
+    "offers Opus 5.5 with medium effort, native 1M, and fast off on %s",
+    (version) => {
+      const models = modelsForClaudeVersion(version);
+      const model = models.find((entry) => entry.nativeId === "claude-opus-5-5");
+      expect(model).toMatchObject({
+        id: "claude:opus-5.5",
+        name: "Claude Opus 5.5",
+        contextWindow: 1_000_000,
+      });
+      expect(model?.settings?.map((setting) => setting.id)).toEqual(["effort", "fast"]);
+      expect(model?.settings?.find((setting) => setting.id === "effort")).toMatchObject({
+        value: "medium",
+      });
+      expect(model?.settings?.find((setting) => setting.id === "fast")?.value).toBe("false");
+      expect(models.find((entry) => entry.nativeId === "claude-opus-5")
+        ?.settings?.find((setting) => setting.id === "effort")?.value).toBe("high");
+    },
+  );
+
   it("hides Opus 5 until 2.1.219", () => {
     const old = modelsForClaudeVersion("2.1.100").map(
       (model) => model.nativeId,
@@ -372,6 +419,93 @@ describe("modelsForClaudeVersion", () => {
 });
 
 describe("list_models catalog", () => {
+  it("shows the model version and fixed 1M context from Claude Code 2.1.280's live row", () => {
+    const [model] = modelsFromClaudeListModels([{
+      value: "opus[1m]",
+      resolvedModel: "claude-opus-5-5[1m]",
+      displayName: "Opus (1M context)",
+      description: "Opus 5.5 with 1M context · Best for everyday, complex tasks",
+      supportsEffort: true,
+      supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+      supportsAdaptiveThinking: true,
+      supportsFastMode: true,
+      supportsAutoMode: true,
+    }]);
+    expect(model).toMatchObject({
+      id: "claude:opus",
+      nativeId: "opus[1m]",
+      name: "Opus 5.5",
+      pickerPreferenceId: "claude:opus-5.5",
+      contextWindow: 1_000_000,
+    });
+    expect(model.settings?.map((setting) => setting.id)).toEqual(["effort", "fast"]);
+    expect(model.settings?.[0].value).toBe("medium");
+    expect(resolveClaudeApiModelId(model.nativeId!, "1m")).toBe("opus[1m]");
+  });
+
+  it("recognizes an Opus 5.5 alias without rewriting the live launch alias", () => {
+    const [model] = modelsFromClaudeListModels([{
+      value: "opus",
+      resolvedModel: "claude-opus-5-5",
+      displayName: "Opus",
+      description: "Opus 5.5 · For coding and knowledge work",
+      supportsEffort: true,
+      supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+      supportsAdaptiveThinking: true,
+      supportsFastMode: true,
+    }]);
+    expect(model).toMatchObject({
+      id: "claude:opus",
+      nativeId: "opus",
+      name: "Opus 5.5",
+      pickerPreferenceId: "claude:opus-5.5",
+      pickerAliases: ["claude:opus-5-5", "claude:opus-5.5"],
+      contextWindow: 1_000_000,
+    });
+    const fallback = modelsForClaudeVersion("2.1.280")
+      .find((entry) => entry.nativeId === "claude-opus-5-5");
+    expect(model.settings).toEqual(fallback?.settings);
+  });
+
+  it("supplies verified Opus 5.5 effort defaults without an optional capability payload", () => {
+    const [model] = modelsFromClaudeListModels([{
+      value: "claude-opus-5-5[1m]",
+      displayName: "Opus 5.5",
+      supportsAdaptiveThinking: true,
+    }]);
+    expect(model).toMatchObject({
+      nativeId: "claude-opus-5-5",
+      pickerPreferenceId: "claude:opus-5.5",
+      contextWindow: 1_000_000,
+    });
+    expect(model.settings?.map((setting) => setting.id)).toEqual(["effort"]);
+    expect(model.settings?.[0]).toMatchObject({ value: "medium" });
+    expect(model.settings?.[0].options.map((option) => option.value)).toEqual([
+      "low", "medium", "high", "xhigh", "max", "ultracode", "ultrathink",
+    ]);
+  });
+
+  it("preserves provider capability restrictions for Opus 5.5", () => {
+    const [model] = modelsFromClaudeListModels([{
+      value: "opus",
+      resolvedModel: "claude-opus-5-5",
+      supportedEffortLevels: ["low", "medium"],
+      supportsFastMode: false,
+    }]);
+    expect(model.settings?.map((setting) => setting.id)).toEqual(["effort"]);
+    expect(model.settings?.[0]).toMatchObject({ value: "medium" });
+    expect(model.settings?.[0].options.map((option) => option.value)).toEqual([
+      "low", "medium", "ultrathink",
+    ]);
+    const [noEffort] = modelsFromClaudeListModels([{
+      value: "claude-opus-5-5",
+      supportsEffort: false,
+      supportsAdaptiveThinking: true,
+      supportsFastMode: false,
+    }]);
+    expect(noEffort.settings).toBeUndefined();
+  });
+
   const listed = {
     type: "control_response",
     response: {
