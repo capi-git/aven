@@ -1,3 +1,5 @@
+import { isTauri } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { normalizeBrowserUrl } from "./browser";
 import { resolveWorkspacePath } from "./paths";
 import type { EditorNavigation, OpenFileFn } from "./search";
@@ -88,8 +90,20 @@ export function installInAppLinks(
   report: (error: unknown) => void,
 ) {
   host = next;
+  let disposed = false;
+  const active = () => !disposed && host === next;
+  const reportActive = (error: unknown) => {
+    if (active()) report(error);
+  };
+  const openUrl = (url: string) => {
+    if (active()) void openInAppUrl(url).catch(reportActive);
+  };
   const click = (event: MouseEvent) => {
-    if (event.defaultPrevented || (event.button !== 0 && event.button !== 1))
+    if (
+      !active() ||
+      event.defaultPrevented ||
+      (event.button !== 0 && event.button !== 1)
+    )
       return;
     const anchor = event
       .composedPath()
@@ -99,14 +113,35 @@ export function installInAppLinks(
     const href = anchor?.getAttribute("href");
     if (!href || !/^https?:\/\//i.test(href)) return;
     event.preventDefault();
-    void openInAppUrl(href).catch(report);
+    openUrl(href);
   };
   // React handles local file links first; document runs before the native opener's window listener.
   document.addEventListener("click", click);
   document.addEventListener("auxclick", click);
+  // WebKit's native Open Link menu bypasses DOM clicks. The native shell
+  // navigation guard cancels that navigation and targets this app webview.
+  const listener = isTauri()
+    ? (async () =>
+        getCurrentWebview().listen<{ url: string }>(
+          "aven:open-link",
+          ({ payload }) => {
+            if (!active()) return;
+            if (typeof payload?.url !== "string") {
+              reportActive(new Error("The link does not contain a web address."));
+              return;
+            }
+            openUrl(payload.url);
+          },
+        ))()
+    : Promise.resolve(() => {});
+  void listener.catch(reportActive);
   return () => {
+    if (disposed) return;
+    disposed = true;
     document.removeEventListener("click", click);
     document.removeEventListener("auxclick", click);
     if (host === next) host = undefined;
+    // Registration can finish after StrictMode or a changed host tears down.
+    void listener.then((unlisten) => unlisten(), () => {});
   };
 }

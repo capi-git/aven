@@ -1,5 +1,12 @@
 # Aven changelog
 
+## [0.1.79] - 2026-09-22
+
+### Open chat links safely
+
+- Keep macOS right-click → Open Link from navigating away from Aven's interface and interrupting running tasks.
+- Route web links opened through native navigation into the originating workspace's in-app browser.
+
 ## [0.1.78] - 2026-09-22
 
 ### Claude Opus 5.5

@@ -42,6 +42,7 @@ mod rate_limits;
 mod search;
 mod session_pip;
 mod session_store;
+mod shell_navigation;
 mod skills;
 mod startup_cli;
 pub use startup_cli::run_startup_cli;
@@ -191,6 +192,7 @@ pub fn run() {
     #[cfg(windows)]
     windows::initialize().expect("Failed to initialize Windows process safety");
     let app = tauri::Builder::default()
+        .plugin(shell_navigation::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
