@@ -84,7 +84,21 @@ export function useDragResize({
     const handle = event.currentTarget;
     const pointerId = event.pointerId;
     const startX = event.clientX;
-    const startW = widthRef.current;
+    const pane = paneRef.current;
+    // The saved width can exceed the used width after a viewport/CSS clamp.
+    // Measure before data-resizing relaxes that clamp, and keep pointer deltas
+    // in the same logical CSS pixels as width (including interface zoom).
+    const usedWidth = pane?.offsetWidth ?? 0;
+    const hasUsedWidth = Number.isFinite(usedWidth) && usedWidth > 0;
+    const startW = hasUsedWidth ? usedWidth : widthRef.current;
+    const renderedWidth = hasUsedWidth
+      ? pane!.getBoundingClientRect().width
+      : 0;
+    const measuredScale = renderedWidth / startW;
+    const scale =
+      Number.isFinite(measuredScale) && measuredScale > 0 ? measuredScale : 1;
+    apply(startW);
+    setWidth(startW);
     handle.focus({ preventScroll: true });
     handle.setPointerCapture(pointerId);
     setDragging(true);
@@ -108,7 +122,8 @@ export function useDragResize({
     };
     const readPointer = (ev: PointerEvent) => {
       pendingWidth = clamp(
-        startW + (ev.clientX - startX) * (direction === "left" ? -1 : 1),
+        startW +
+          ((ev.clientX - startX) / scale) * (direction === "left" ? -1 : 1),
       );
     };
 

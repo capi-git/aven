@@ -163,7 +163,12 @@ export function ModalPanel({
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing) return;
+      if (
+        event.defaultPrevented ||
+        event.isComposing ||
+        (event.key !== "Escape" && event.key !== "Tab")
+      )
+        return;
       const panel = panelRef.current;
       if (!panel || topModal() !== panel) return;
       const popovers = [...popoversRef.current].filter(isVisible);

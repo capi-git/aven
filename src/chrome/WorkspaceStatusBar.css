@@ -386,3 +386,89 @@
   outline: 2px solid var(--color-accent);
   outline-offset: -2px;
 }
+
+/* A sidebar owns its navigation width, including the space left by traffic
+   lights. Collapse actions into an in-app menu instead of clipping the capsule. */
+.workspace-navigation {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+.workspace-navigation:not(:has(button)) {
+  display: none;
+}
+.workspace-navigation[data-compact="true"] {
+  container: workspace-navigation / inline-size;
+  flex: 1 1 0;
+  width: 100%;
+  min-width: 0;
+}
+.workspace-navigation[data-compact="true"] .workspace-status-nav-group {
+  max-width: 100%;
+  gap: 4px;
+  padding-inline: 2px;
+}
+.workspace-navigation-more {
+  display: none;
+  place-items: center;
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--personal-muted, var(--color-content));
+  cursor: pointer;
+}
+.workspace-navigation-more:hover,
+.workspace-navigation-more[aria-expanded="true"] {
+  background: var(--personal-hover);
+  color: var(--color-content);
+}
+.workspace-navigation button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+.workspace-navigation-menu {
+  padding: 5px;
+}
+.workspace-navigation-menu button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-content);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.workspace-navigation-menu button:hover:enabled,
+.workspace-navigation-menu button:focus-visible {
+  outline: 0;
+  background: var(
+    --personal-hover,
+    color-mix(in srgb, var(--color-accent) 12%, transparent)
+  );
+}
+.workspace-navigation-menu button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+@container workspace-navigation (max-width: 183px) {
+  .workspace-status-nav-group .workspace-status-history {
+    display: none;
+  }
+  .workspace-navigation-more {
+    display: grid;
+  }
+}
+@container workspace-navigation (max-width: 125px) {
+  .workspace-status-navigation .workspace-navigation-secondary {
+    display: none;
+  }
+}

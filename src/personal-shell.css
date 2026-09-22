@@ -10,6 +10,21 @@
     hsl(var(--theme-hue, 218) var(--theme-saturation, 8%) 5%)
   );
   --personal-sidebar-surface: var(--personal-frame);
+  --personal-navigation-surface: color-mix(
+    in srgb,
+    var(--personal-frame) 93%,
+    var(--color-content)
+  );
+  --personal-sidebar-glass-surface: color-mix(
+    in srgb,
+    var(--color-content) 7%,
+    transparent
+  );
+  --personal-sidebar-edge: color-mix(
+    in srgb,
+    var(--color-content) 12%,
+    transparent
+  );
   --personal-accent: var(
     --theme-accent-color,
     hsl(var(--theme-hue, 218) 38% 66%)
@@ -68,7 +83,7 @@ html.theme-light .personal-shell {
   background: var(--personal-frame);
 }
 
-/* One translucent window layer avoids multiplying alpha across nested panels.
+/* The window owns the base translucency; navigation adds a light foreground tint.
    Floating panels stay solid unless workspace matching is explicitly enabled. */
 html.has-native-glass:not(.theme-light) .personal-shell {
   --personal-window-opacity: var(--sidebar-opacity, 1);
@@ -76,19 +91,29 @@ html.has-native-glass:not(.theme-light) .personal-shell {
 
 html.match-workspace-panels .personal-shell {
   --personal-sidebar-surface: var(--personal-main-surface);
+  --personal-navigation-surface: var(--personal-main-surface);
+  --personal-sidebar-glass-surface: transparent;
   --personal-docked-panel-surface: var(--personal-main-surface);
 }
 
 html.has-native-glass.glass-body.match-workspace-panels:not(.theme-light)
   .personal-shell {
   --personal-sidebar-surface: transparent;
+  --personal-navigation-surface: transparent;
   --personal-docked-panel-surface: transparent;
 }
 
 html.has-native-glass:not(.theme-light)
   .personal-shell
   .personal-sidebar-slot:not([data-floating="true"])
-  > .personal-sidebar.sidebar-glass,
+  > .personal-sidebar.sidebar-glass {
+  /* Tint the existing glass layer instead of stacking another opaque surface. */
+  background: var(
+    --personal-docked-panel-surface,
+    var(--personal-sidebar-glass-surface)
+  );
+}
+
 html.has-native-glass:not(.theme-light)
   .personal-shell
   .personal-inspector-slot:not([data-floating="true"])
@@ -143,7 +168,24 @@ html.has-native-glass.glass-body:not(.theme-light)
 }
 
 .personal-shell .personal-sidebar-slot > .personal-sidebar.sidebar-glass {
-  background: var(--personal-sidebar-surface);
+  background: var(--personal-navigation-surface);
+}
+
+/* Keep the full divider hit target above the adjacent workspace, including
+   the half that extends beyond the panel's transformed stacking context. */
+.personal-shell
+  .personal-sidebar-slot:not([data-floating="true"])
+  > .personal-sidebar,
+.personal-shell
+  .personal-inspector-slot:not([data-floating="true"])
+  > .personal-inspector-dock {
+  z-index: 49;
+}
+
+/* The centered resize hit target straddles the visible panel boundary. */
+.personal-shell .personal-sidebar-slot[data-open="true"],
+.personal-shell .personal-inspector-slot[data-open="true"] {
+  overflow: visible;
 }
 
 .personal-shell .personal-inspector-slot {
@@ -333,6 +375,8 @@ html.has-native-glass.glass-body:not(.theme-light)
   > .personal-sidebar {
   inset: 5px auto 5px 5px;
   height: calc(100% - 10px);
+  background: var(--personal-navigation-surface);
+  z-index: 50;
 }
 .personal-shell
   .personal-inspector-slot[data-floating="true"]
@@ -587,9 +631,9 @@ html.theme-light .personal-shell [role="treeitem"] > .text-red-400 {
   color: color-mix(in srgb, var(--color-content) 45%, var(--color-red-400));
 }
 
-/* One continuous title bar above the workspace and both sidebars. The native
-   traffic lights keep their reserved space; pane headers retain their 32px bounds. */
+/* Each header belongs to its panel, so navigation and task status follow resizing. */
 .personal-shell .personal-workspace-column {
+  position: relative;
   padding-top: 40px;
 }
 .personal-shell .workspace-status-bar,
@@ -609,7 +653,6 @@ html.theme-light.is-mac
   gap: 8px;
   font-size: 11px;
 }
-html.is-mac .personal-shell .workspace-status-bar,
 html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar {
   padding-left: 88px;
 }
@@ -628,4 +671,54 @@ html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar {
 }
 .personal-shell .workspace-status-context {
   display: flex;
+}
+
+.personal-shell
+  .personal-sidebar[data-navigation-header="true"]
+  .personal-sidebar-windowbar {
+  visibility: visible;
+  pointer-events: auto;
+  gap: 4px;
+  min-width: 0;
+  padding-right: 6px;
+}
+
+/* The divider and its hit target share one center at every panel width. */
+.personal-shell .personal-panel-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 49;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+  background: transparent;
+}
+.personal-shell .personal-sidebar-divider {
+  right: -4px;
+}
+.personal-shell .personal-panel-resizer.personal-inspector-divider {
+  left: -4px;
+}
+.personal-shell .personal-panel-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 1px;
+  background: var(--personal-sidebar-edge);
+  pointer-events: none;
+}
+.personal-shell .personal-panel-resizer:hover::after,
+.personal-shell .personal-panel-resizer:focus-visible::after,
+.personal-shell .personal-panel-resizer[data-resizing="true"]::after {
+  left: 3px;
+  width: 3px;
+  background: var(--personal-accent);
+}
+.personal-shell .personal-panel-resizer:hover,
+.personal-shell .personal-panel-resizer:focus-visible {
+  background: transparent;
+  outline: none;
 }

@@ -7,6 +7,7 @@ import { getActivitySnapshot, recordActivity } from "../lib/activity";
 import type { ProviderRateLimits } from "../lib/rateLimits";
 import {
   WorkspaceStatusBar,
+  WorkspaceNavigation,
   reportedCostLabel,
   workspaceQueueSummary,
   type WorkspaceStatusBarProps,
@@ -453,6 +454,113 @@ describe("workspace status data and actions", () => {
     expect(back).toHaveBeenCalledOnce();
     expect(forward).toHaveBeenCalledOnce();
     expect(nativeWindow.startDragging).not.toHaveBeenCalled();
+  });
+
+  it("leaves navigation to the visible sidebar and brings it back when hidden", async () => {
+    const toggle = vi.fn();
+    await render({ onToggleSidebar: toggle, navigationInSidebar: true });
+    expect(
+      container.querySelector('[aria-label="Workspace navigation"]'),
+    ).toBeNull();
+    expect(container.querySelector('[aria-label^="Activity:"]')).not.toBeNull();
+    await render({ navigationInSidebar: false });
+    await click("Toggle workspace sidebar");
+    expect(toggle).toHaveBeenCalledOnce();
+  });
+
+  it("keeps every compact navigation action available without enabling missing history", async () => {
+    const home = vi.fn();
+    const back = vi.fn();
+    const forward = vi.fn();
+    const search = vi.fn();
+    const browser = vi.fn();
+    await act(async () =>
+      root.render(
+        createElement(WorkspaceNavigation, {
+          compact: true,
+          sidebarOpen: true,
+          onToggleSidebar: vi.fn(),
+          onSearch: search,
+          onNewBrowser: browser,
+          onHome: home,
+          onGoBack: back,
+          onGoForward: forward,
+          canGoBack: false,
+          canGoForward: true,
+        }),
+      ),
+    );
+    await click("More navigation");
+    const menu = container.querySelector<HTMLElement>(
+      '[role="menu"][aria-label="More navigation"]',
+    )!;
+    const items = [
+      ...menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+    ];
+    expect(items.map((item) => item.textContent)).toEqual([
+      "Search workspace",
+      "New browser tab",
+      "Workspace Home",
+      "Back",
+      "Forward",
+    ]);
+    expect(items[3].disabled).toBe(true);
+    expect(items[4].disabled).toBe(false);
+    await act(async () => items[3].click());
+    expect(back).not.toHaveBeenCalled();
+    expect(container.querySelector('[role="menu"]')).not.toBeNull();
+    await act(async () => items[4].click());
+    expect(forward).toHaveBeenCalledOnce();
+    expect(container.querySelector('[role="menu"]')).toBeNull();
+    expect(document.activeElement).toBe(button("More navigation"));
+    for (const [label, callback] of [
+      ["Search workspace", search],
+      ["New browser tab", browser],
+      ["Workspace Home", home],
+    ] as const) {
+      await click("More navigation");
+      const item = [
+        ...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+      ].find((node) => node.textContent === label)!;
+      await act(async () => item.click());
+      expect(callback).toHaveBeenCalledOnce();
+    }
+    expect(nativeWindow.startDragging).not.toHaveBeenCalled();
+  });
+
+  it("navigates overflow actions by keyboard and skips unavailable history", async () => {
+    await act(async () =>
+      root.render(
+        createElement(WorkspaceNavigation, {
+          compact: true,
+          onSearch: vi.fn(),
+          onHome: vi.fn(),
+          onGoBack: vi.fn(),
+          onGoForward: vi.fn(),
+          canGoBack: false,
+          canGoForward: true,
+        }),
+      ),
+    );
+    await click("More navigation");
+    const menu = container.querySelector<HTMLElement>('[role="menu"]')!;
+    const key = async (value: string) =>
+      act(async () => {
+        menu.dispatchEvent(
+          new KeyboardEvent("keydown", { key: value, bubbles: true }),
+        );
+      });
+    menu.focus();
+    await key("ArrowUp");
+    expect(document.activeElement?.textContent).toBe("Forward");
+    await key("ArrowUp");
+    expect(document.activeElement?.textContent).toBe("Workspace Home");
+    await key("Home");
+    expect(document.activeElement?.textContent).toBe("Search workspace");
+    await key("End");
+    expect(document.activeElement?.textContent).toBe("Forward");
+    await key("Tab");
+    expect(container.querySelector('[role="menu"]')).toBeNull();
   });
 
   it("omits unknown metrics and displays only reported cost and context", async () => {

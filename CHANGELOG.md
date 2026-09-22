@@ -1,5 +1,20 @@
 # Aven changelog
 
+## [0.1.84] - 2026-09-22
+
+### Sidebar controls that stay in place
+
+- Keep navigation controls inside the workspace sidebar as it resizes, with an in-app overflow menu at narrow widths.
+- Align both resize handles with their visible dividers and start dragging from each panel's actual displayed width, including interface zoom.
+- Restore navigation to the top bar when the sidebar is hidden and preserve the left sidebar's hover behavior.
+
+## [0.1.83] - 2026-09-22
+
+### Clearer sidebar separation
+
+- Give the workspace sidebar a theme-aware surface tint and a subtle inner edge so it stays distinct from the main area, including Graphite and transparent macOS windows.
+- Preserve matched-sidebar backgrounds, floating-panel behavior, and existing panel dimensions.
+
 ## [0.1.82] - 2026-09-22
 
 ### A consistent workspace
