@@ -130,7 +130,7 @@ describe("sidebar workspace navigation", () => {
     expect(menu()).toBeNull();
     await act(async () => root.render(createElement(Sidebar, { ...props, settingsOpen: true, onSelectSettingsSection: section, onCloseSettings: noop, onOpenInbox: noop, onOpenNotes: noop })));
     expect(container.querySelector('nav[aria-label="Library"]')).toBeNull();
-    const appearance = [...container.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent?.trim() === "Appearance")!;
+    const appearance = container.querySelector<HTMLButtonElement>('button[aria-label="Appearance"]')!;
     await click(appearance);
     expect(section).toHaveBeenCalledExactlyOnceWith("appearance");
   });

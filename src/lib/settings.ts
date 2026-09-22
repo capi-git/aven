@@ -13,29 +13,27 @@ export const SETTINGS_SECTIONS: {
   {
     id: "general",
     label: "General",
-    description: "App-wide behavior and the build you are running.",
+    description: "Task behavior, workspace tools, and app preferences.",
   },
   {
     id: "appearance",
     label: "Appearance",
-    description: "Theme, translucency, and the tint applied to the chrome.",
+    description: "Colors, transparency, and display preferences.",
   },
   {
     id: "keybindings",
     label: "Keybindings",
-    description:
-      "Every shortcut the workspace handles, from the app menu and the key handler.",
+    description: "Find keyboard shortcuts and where they work.",
   },
   {
     id: "providers",
     label: "Providers",
-    description:
-      "Agent CLIs Aven can drive, and the model new sessions start with.",
+    description: "Choose your agents, models, and defaults for new tasks.",
   },
   {
     id: "archive",
     label: "Archive",
-    description: "Projects and conversations you have archived.",
+    description: "Find and restore archived projects and conversations.",
   },
 ];
 
@@ -405,6 +403,22 @@ export const KEYBINDINGS: KeybindingRow[] = [
   { command: "Editor: Replace", keys: `${MOD}${ALT}F`, when: "editorFocus" },
 ];
 
+/** Display copy only: the shortcut definitions retain their original contexts. */
+export function formatKeybindingContext(when: string): string {
+  switch (when) {
+    case "sessionFocus && !overlay":
+      return "In a conversation, with other views closed";
+    case "!overlay && (!textFocus || emptyComposer)":
+      return "In the workspace, outside text fields or in an empty composer";
+    case "!editorFocus":
+      return "Outside the editor";
+    case "editorFocus":
+      return "In the editor";
+    default:
+      return when;
+  }
+}
+
 export function filterKeybindings(
   rows: KeybindingRow[],
   query: string,
@@ -415,6 +429,7 @@ export function filterKeybindings(
     (row) =>
       row.command.toLowerCase().includes(needle) ||
       row.keys.toLowerCase().includes(needle) ||
-      row.when.toLowerCase().includes(needle),
+      row.when.toLowerCase().includes(needle) ||
+      formatKeybindingContext(row.when).toLowerCase().includes(needle),
   );
 }

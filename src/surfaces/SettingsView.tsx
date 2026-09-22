@@ -6,6 +6,8 @@ import {
   RefreshCw,
   RotateCcw,
   Search,
+  X,
+  ChevronRight,
 } from "../chrome/icons";
 import {
   useCallback,
@@ -14,8 +16,21 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  type ReactNode,
 } from "react";
+import { SettingsNav } from "../chrome/SettingsRail";
+import { searchSettings } from "../lib/settingsSearch";
+import {
+  PageHeader,
+  Heading,
+  Row,
+  Segmented,
+  Slider,
+  Toggle,
+  Select,
+  SecondaryButton,
+  SettingsGroup,
+} from "./SettingsControls";
+import "./SettingsView.css";
 import { HarnessIcon } from "../chrome/HarnessIcon";
 import { OverlayNav } from "../chrome/TitleBar";
 import {
@@ -142,6 +157,7 @@ import {
 import { loadTabGroupLabels, resolveTabGroupLabel } from "../lib/tabGroups";
 import {
   filterKeybindings,
+  formatKeybindingContext,
   KEYBINDINGS,
   loadClaudeHooks,
   loadComposerRunner,
@@ -163,7 +179,7 @@ import {
   type FollowUpBehavior,
   type SettingsSectionId,
 } from "../lib/settings";
-import { loadSoundsEnabled, playCue, saveSoundsEnabled } from "../lib/sounds";
+import { loadSoundsEnabled, saveSoundsEnabled } from "../lib/sounds";
 import {
   cachedNotificationPermission,
   loadNotificationsEnabled,
@@ -197,6 +213,8 @@ import {
 
 type Props = {
   section: SettingsSectionId;
+  onSelectSection?: (section: SettingsSectionId) => void;
+  workspaceName?: string;
   cwd: string;
   sessions: SessionSummary[];
   besideRail?: boolean;
@@ -211,7 +229,9 @@ type Props = {
 };
 
 export function SettingsView({
-  section,
+  section: requestedSection,
+  onSelectSection,
+  workspaceName = "Current workspace",
   cwd,
   sessions,
   besideRail = false,
@@ -225,85 +245,261 @@ export function SettingsView({
   onOpenWhatsNew,
 }: Props) {
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const setScrollRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      scrollRef.current = node;
+      lockOverscroll(node);
+    },
+    [lockOverscroll],
+  );
+  const [localSection, setLocalSection] = useState(requestedSection);
+  const section = onSelectSection ? requestedSection : localSection;
+  const [query, setQuery] = useState("");
+  const [pendingAnchor, setPendingAnchor] = useState<string | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+  const searchDestination = useRef<SettingsSectionId | null>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const appearance = useAppearanceSettings();
+  const results = useMemo(() => searchSettings(query), [query]);
+  const searching = query.trim().length > 0;
+  useEffect(() => {
+    setLocalSection(requestedSection);
+    setQuery("");
+    if (searchDestination.current !== requestedSection) setPendingAnchor(null);
+    searchDestination.current = null;
+  }, [requestedSection]);
+
+  useEffect(() => {
+    if (!searching) return;
+    const dismiss = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node &&
+        !searchContainerRef.current?.contains(event.target)
+      ) {
+        setQuery("");
+      }
+    };
+    document.addEventListener("pointerdown", dismiss);
+    return () => document.removeEventListener("pointerdown", dismiss);
+  }, [searching]);
+  const selectSection = (next: SettingsSectionId) => {
+    searchDestination.current = null;
+    setQuery("");
+    setPendingAnchor(null);
+    if (onSelectSection) onSelectSection(next);
+    else setLocalSection(next);
+  };
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [section]);
+
+  useEffect(() => {
+    if (!pendingAnchor || searching) return;
+    const target = document.getElementById(pendingAnchor);
+    if (!target) return;
+    target.scrollIntoView?.({ block: "center" });
+    target.focus({ preventScroll: true });
+    target.dataset.searchMatch = "true";
+    const timer = window.setTimeout(
+      () => delete target.dataset.searchMatch,
+      2400,
+    );
+    return () => {
+      window.clearTimeout(timer);
+      delete target.dataset.searchMatch;
+    };
+  }, [pendingAnchor, section, searching]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.defaultPrevented || event.key !== "Escape") return;
+      // Portaled menus and dialogs own their dismissal before Settings does.
+      if (
+        document.querySelector(
+          '[role="dialog"], [role="alertdialog"], [role="menu"]',
+        )
+      )
+        return;
       event.preventDefault();
-      event.stopPropagation();
-      onCloseRef.current();
+      if (searching) {
+        setQuery("");
+        searchRef.current?.focus();
+      } else onCloseRef.current();
     };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, []);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [searching]);
 
   return (
     <div
       role="region"
       aria-label="Settings"
       data-app-settings
-      className="flex min-h-0 min-w-0 flex-1 flex-col text-content"
+      className="settings-view"
     >
-      <div
-        className="flex h-10 shrink-0 select-none items-center border-b border-content/10"
-        data-tauri-drag-region="deep"
-      >
+      <div className="settings-toolbar" data-tauri-drag-region="deep">
         {IS_MAC && !besideRail ? <div className="w-[78px] shrink-0" /> : null}
         <OverlayNav onBack={onClose} onToggleSidebar={onToggleSidebar} />
-        <div className="flex min-w-0 flex-1 items-center gap-2 px-3 text-[13px]">
-          <span className="shrink-0 text-content/45">Settings</span>
-          <span aria-hidden className="shrink-0 text-content/25">
-            /
-          </span>
-          <span className="min-w-0 truncate text-content">
-            {settingsSectionLabel(section)}
-          </span>
+        <div className="settings-breadcrumb">
+          <span>Settings</span>
+          <ChevronRight aria-hidden className="size-3" />
+          <span>{settingsSectionLabel(section)}</span>
         </div>
-        {section === "appearance" ? (
-          <button
-            type="button"
-            data-tauri-drag-region="false"
-            onClick={appearance.restoreDefaults}
-            className="mr-2 flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-content/50 hover:bg-content/10 hover:text-content"
-          >
-            <RotateCcw className="size-3.5" strokeWidth={1.75} />
-            Restore defaults
-          </button>
-        ) : null}
+        <button
+          type="button"
+          className="settings-close"
+          aria-label="Close settings"
+          onClick={onClose}
+          data-tauri-drag-region="false"
+        >
+          <X className="size-4" aria-hidden />
+        </button>
         {IS_MAC ? null : <WindowControls />}
       </div>
-
-      <div
-        ref={lockOverscroll}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-none"
-      >
-        <div className="mx-auto w-full max-w-5xl px-8 py-8">
-          <PageHeader
-            title={settingsSectionLabel(section)}
-            description={settingsSectionDescription(section)}
-          />
-          {section === "general" ? (
-            <GeneralPage onOpenWhatsNew={onOpenWhatsNew} />
-          ) : null}
-          {section === "appearance" ? (
-            <AppearancePage appearance={appearance} />
-          ) : null}
-          {section === "keybindings" ? <KeybindingsPage /> : null}
-          {section === "providers" ? <ProvidersPage /> : null}
-          {section === "archive" ? (
-            <ArchivePage
-              cwd={cwd}
-              sessions={sessions}
-              onOpenSession={onOpenSession}
-              onArchiveSession={onArchiveSession}
-              onDeleteSession={onDeleteSession}
-              onRestoreProject={onRestoreProject}
-              onDeleteProject={onDeleteProject}
+      <div className="settings-layout" data-embedded-nav={!besideRail}>
+        {!besideRail ? (
+          <aside
+            className="settings-navigation"
+            aria-label="Settings categories"
+          >
+            <div className="settings-navigation-title">Settings</div>
+            <SettingsNav
+              embedded
+              section={section}
+              onSelect={selectSection}
+              onClose={onClose}
             />
-          ) : null}
+            <p className="settings-navigation-note">
+              Make Aven feel like yours.
+            </p>
+          </aside>
+        ) : null}
+        <div ref={setScrollRef} className="settings-scroll">
+          <div className="settings-content">
+            <div className="settings-page-top">
+              <PageHeader
+                title={settingsSectionLabel(section)}
+                description={settingsSectionDescription(section)}
+              />
+              <div
+                ref={searchContainerRef}
+                className="settings-search"
+                onKeyDown={(event) => {
+                  if (event.key === "Escape" && query) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setQuery("");
+                    searchRef.current?.focus();
+                  } else if (
+                    event.key === "ArrowDown" &&
+                    event.target === searchRef.current &&
+                    searching
+                  ) {
+                    event.preventDefault();
+                    resultsRef.current
+                      ?.querySelector<HTMLButtonElement>("button")
+                      ?.focus();
+                  }
+                }}
+              >
+                <label className="settings-search-field">
+                  <Search className="size-4" aria-hidden />
+                  <input
+                    ref={searchRef}
+                    value={query}
+                    onChange={(event) => {
+                      setPendingAnchor(null);
+                      searchDestination.current = null;
+                      setQuery(event.target.value);
+                    }}
+                    type="search"
+                    aria-label="Search settings"
+                    placeholder="Search settings…"
+                    autoComplete="off"
+                    spellCheck={false}
+                    aria-controls={
+                      searching ? "settings-search-results" : undefined
+                    }
+                  />
+                </label>
+                {searching ? (
+                  <div
+                    id="settings-search-results"
+                    ref={resultsRef}
+                    className="settings-search-results"
+                    role="region"
+                    aria-label="Settings search results"
+                  >
+                    <p className="settings-search-count" role="status">
+                      {results.length
+                        ? `${results.length} ${results.length === 1 ? "setting" : "settings"} found`
+                        : "No matching settings"}
+                    </p>
+                    {results.map((result) => (
+                      <button
+                        type="button"
+                        key={result.id}
+                        onClick={() => {
+                          selectSection(result.section);
+                          searchDestination.current = result.section;
+                          setPendingAnchor(result.id);
+                        }}
+                      >
+                        <span>
+                          <strong>{result.label}</strong>
+                          <small>{result.description}</small>
+                        </span>
+                        <span className="settings-result-category">
+                          {settingsSectionLabel(result.section)}
+                          <ChevronRight className="size-3" aria-hidden />
+                        </span>
+                      </button>
+                    ))}
+                    {!results.length ? (
+                      <p className="settings-search-empty">
+                        Try “theme”, “models”, “notifications”, or “updates”.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            <div className="settings-scope-line">
+              <span className="settings-scope-dot" aria-hidden />
+              <span>
+                {section === "appearance" ? workspaceName : "On this device"}
+              </span>
+              <span className="settings-scope-hint">
+                {section === "appearance"
+                  ? "Workspace colors · device display preferences"
+                  : "Your preferences are saved automatically"}
+              </span>
+            </div>
+            {section === "general" ? (
+              <GeneralPage onOpenWhatsNew={onOpenWhatsNew} />
+            ) : null}
+            {section === "appearance" ? (
+              <AppearancePage appearance={appearance} />
+            ) : null}
+            {section === "keybindings" ? <KeybindingsPage /> : null}
+            {section === "providers" ? <ProvidersPage /> : null}
+            {section === "archive" ? (
+              <ArchivePage
+                cwd={cwd}
+                sessions={sessions}
+                onOpenSession={onOpenSession}
+                onArchiveSession={onArchiveSession}
+                onDeleteSession={onDeleteSession}
+                onRestoreProject={onRestoreProject}
+                onDeleteProject={onDeleteProject}
+              />
+            ) : null}
+          </div>
         </div>
       </div>
     </div>
@@ -339,9 +535,12 @@ function GeneralPage({
   const [notificationsEnabled, setNotificationsEnabled] = useState(
     loadNotificationsEnabled,
   );
-  const [notificationPreferences, setNotificationPreferences] = useState(loadNotificationPreferences);
+  const [notificationPreferences, setNotificationPreferences] = useState(
+    loadNotificationPreferences,
+  );
   useEffect(() => {
-    const refresh = () => setNotificationPreferences(loadNotificationPreferences());
+    const refresh = () =>
+      setNotificationPreferences(loadNotificationPreferences());
     window.addEventListener(NOTIFICATION_PREFERENCES_EVENT, refresh);
     window.addEventListener("storage", refresh);
     return () => {
@@ -349,7 +548,10 @@ function GeneralPage({
       window.removeEventListener("storage", refresh);
     };
   }, []);
-  const onNotificationPreference = (key: keyof NotificationPreferences, value: boolean) => {
+  const onNotificationPreference = (
+    key: keyof NotificationPreferences,
+    value: boolean,
+  ) => {
     saveNotificationPreferences({ [key]: value });
     setNotificationPreferences(loadNotificationPreferences());
   };
@@ -438,164 +640,215 @@ function GeneralPage({
 
   return (
     <>
-      <Row
-        label="Default task access"
-        description="New tasks remember this choice. Full access runs commands and edits without routine approval prompts. Existing tasks keep their own access setting."
+      <SettingsGroup
+        title="Tasks"
+        description="Task defaults and behavior."
+        scope="Device"
       >
-        <AccessPicker value={defaultAccess} onChange={onDefaultAccess} />
-      </Row>
-      <Row
-        label="Transcript layout"
-        description="Full width keeps user prompts as a spanning card. Chat aligns them to the right with a max width, like a messaging app."
-      >
-        <Segmented
-          label="Transcript layout"
-          value={transcriptLayout}
-          options={[
-            { value: "full", label: "Full width" },
-            { value: "chat", label: "Chat" },
-          ]}
-          onChange={onTranscriptLayout}
-        />
-      </Row>
-      <Row
-        label="Diff view"
-        description="Editor keeps working-tree changes in the file. Unified stacks every changed file in one review, with sticky headers and collapsed unchanged lines."
-      >
-        <Segmented
-          label="Diff view"
-          value={diffViewer}
-          options={[
-            { value: "editor", label: "Editor" },
-            { value: "unified", label: "Unified" },
-          ]}
-          onChange={onDiffViewer}
-        />
-      </Row>
-      <Row
-        label="Follow-up behavior"
-        description="Queue follow-ups until the active turn finishes, or steer the active turn immediately."
-      >
-        <Segmented
+        <Row
+          label="Default task access"
+          description="Applies to new tasks. Existing tasks keep their own access setting."
+        >
+          <AccessPicker value={defaultAccess} onChange={onDefaultAccess} />
+        </Row>
+        <Row
           label="Follow-up behavior"
-          value={followUpBehavior}
-          options={[
-            { value: "queue", label: "Queue" },
-            { value: "steer", label: "Steer" },
-          ]}
-          onChange={onFollowUpBehavior}
-        />
-      </Row>
-      <Row
-        label="Anchor prompts to top"
-        description="When you send, the new prompt sits at the top of the transcript and the reply grows into the space below. Turn this off to keep the classic layout, with the latest message resting on the composer."
-      >
-        <Toggle
-          label="Anchor prompts to top"
-          on={transcriptAnchor}
-          onChange={onTranscriptAnchor}
-        />
-      </Row>
-      <Row
-        label="Composer mascot"
-        description="When a turn is running, the project mascot runs along the composer, bonks the scroll-to-latest button the first time, then jumps it, and sometimes grabs a coin."
-      >
-        <Toggle
-          label="Composer mascot"
-          on={composerRunner}
-          onChange={onComposerRunner}
-        />
-      </Row>
-      <Row
-        label="Empty session games"
-        description="Pac-man and snake idle on the empty-session grid. Hover the band to take control of whichever is on screen. Turn this off to keep the pane still."
-      >
-        <Toggle
-          label="Empty session games"
-          on={gridArcadeEnabled}
-          onChange={onGridArcadeEnabled}
-        />
-      </Row>
-      <Row
-        label="Notes"
-        description="A global markdown notebook on the project rail. Save a finished turn from the transcript, then mention it later with @note or add it to chat. Turn this off to hide Notes from the UI."
-      >
-        <Toggle label="Notes" on={notesEnabled} onChange={onNotesEnabled} />
-      </Row>
-      <Row
-        label="Working agents"
-        description="When two or more chats are in flight, a card on the project rail lists them so you can jump across projects. Finished turns stay until you open that session. Turn this off to hide the card."
-      >
-        <Toggle
-          label="Working agents"
-          on={liveAgentsEnabled}
-          onChange={onLiveAgentsEnabled}
-        />
-      </Row>
-      <Row
-        label="Sounds"
-        description="Short cues when a turn finishes, a new inbox item appears on the project rail, or an update is available. Switches and Copy on a finished turn also play."
-      >
-        <Toggle label="Sounds" on={soundsEnabled} onChange={onSoundsEnabled} />
-      </Row>
-      <Row
-        label="Notifications"
-        description="Send macOS notifications when a task needs attention while you are elsewhere. Activity keeps a local history even when these are off."
-      >
-        {notificationsEnabled && notificationPermission === "denied" ? (
-          <NotificationsBlocked />
-        ) : null}
-        {notificationsEnabled && notificationPermission === "unsupported" ? (
-          <span className="text-[12px] text-content/45">
-            Not available on this platform
-          </span>
-        ) : null}
-        <Toggle
-          label="Notifications"
-          on={notificationsEnabled}
-          onChange={onNotificationsEnabled}
-        />
-      </Row>
-      <Row
-        label="Activity alerts"
-        description="Choose which outcomes can interrupt you. Every outcome still appears in Activity."
-      >
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          {([
-            ["needsInput", "Needs input"],
-            ["failures", "Failures"],
-            ["finished", "Finished / stopped"],
-            ["sound", "Sound"],
-          ] as const).map(([key, label]) => (
-            <label key={key} className="flex items-center gap-2 text-[11px] text-content/65">
-              {label}
-              <Toggle label={`Activity: ${label}`} on={notificationPreferences[key]} onChange={(value) => onNotificationPreference(key, value)} />
-            </label>
-          ))}
-        </div>
-      </Row>
-      <Row
-        label="Quiet mode"
-        description="Keep recording Activity without task banners or task sounds. Your other sound settings stay unchanged."
-      >
-        <Toggle label="Quiet mode" on={notificationPreferences.quiet} onChange={(value) => onNotificationPreference("quiet", value)} />
-      </Row>
-      <Row
-        label="Claude Code hooks"
-        description="Run the hooks configured in your settings.json files — PreToolUse command rewrites, blocks, notifications, and the rest — just as the Claude Code CLI would. Turn this off if a hook is misbehaving and you need the session back. Takes effect on the next turn."
-      >
-        <Toggle
+          description="Queue follow-ups until the active turn finishes, or steer the active turn immediately."
+        >
+          <Segmented
+            label="Follow-up behavior"
+            value={followUpBehavior}
+            options={[
+              { value: "queue", label: "Queue" },
+              { value: "steer", label: "Steer" },
+            ]}
+            onChange={onFollowUpBehavior}
+          />
+        </Row>
+        <Row
           label="Claude Code hooks"
-          on={claudeHooks}
-          onChange={onClaudeHooks}
-        />
-      </Row>
-
-      <Heading title="Linear" />
-      <LinearSettings />
-
-      <Heading title="About" />
-      <UpdateRow onOpenWhatsNew={onOpenWhatsNew} />
+          description="Run your configured Claude Code hooks. Changes apply on the next turn."
+        >
+          <Toggle
+            label="Claude Code hooks"
+            on={claudeHooks}
+            onChange={onClaudeHooks}
+          />
+        </Row>
+      </SettingsGroup>
+      <SettingsGroup
+        title="Conversation &amp; review"
+        description="Read and review in the way that works for you."
+        scope="Device"
+      >
+        <Row
+          label="Transcript layout"
+          description="Choose full-width prompts or a familiar chat layout."
+        >
+          <Segmented
+            label="Transcript layout"
+            value={transcriptLayout}
+            options={[
+              { value: "full", label: "Full width" },
+              { value: "chat", label: "Chat" },
+            ]}
+            onChange={onTranscriptLayout}
+          />
+        </Row>
+        <Row
+          label="Anchor prompts to top"
+          description="Keep your latest prompt at the top while the response grows below it."
+        >
+          <Toggle
+            label="Anchor prompts to top"
+            on={transcriptAnchor}
+            onChange={onTranscriptAnchor}
+          />
+        </Row>
+        <Row
+          label="Diff view"
+          description="Review changes in the editor or together in one unified view."
+        >
+          <Segmented
+            label="Diff view"
+            value={diffViewer}
+            options={[
+              { value: "editor", label: "Editor" },
+              { value: "unified", label: "Unified" },
+            ]}
+            onChange={onDiffViewer}
+          />
+        </Row>
+      </SettingsGroup>
+      <SettingsGroup
+        title="Workspace"
+        description="Choose what appears around your work."
+        scope="Device"
+      >
+        <Row
+          label="Notes"
+          description="Keep reusable notes in the sidebar. Add them to a conversation with @note."
+        >
+          <Toggle label="Notes" on={notesEnabled} onChange={onNotesEnabled} />
+        </Row>
+        <Row
+          label="Working agents"
+          description="Show running agents together in the sidebar when multiple tasks are active."
+        >
+          <Toggle
+            label="Working agents"
+            on={liveAgentsEnabled}
+            onChange={onLiveAgentsEnabled}
+          />
+        </Row>
+        <Row
+          label="Composer mascot"
+          description="Show a small animated mascot while an agent is working."
+        >
+          <Toggle
+            label="Composer mascot"
+            on={composerRunner}
+            onChange={onComposerRunner}
+          />
+        </Row>
+        <Row
+          label="Empty session games"
+          description="Show interactive games in empty sessions. Turn off for a quieter workspace."
+        >
+          <Toggle
+            label="Empty session games"
+            on={gridArcadeEnabled}
+            onChange={onGridArcadeEnabled}
+          />
+        </Row>
+      </SettingsGroup>
+      <SettingsGroup
+        title="Notifications &amp; sound"
+        description="Decide what needs your attention."
+        scope="Device"
+      >
+        <Row
+          label="Notifications"
+          description="Send macOS notifications when a task needs attention while you are elsewhere. Activity keeps a local history even when these are off."
+        >
+          {notificationsEnabled && notificationPermission === "denied" ? (
+            <NotificationsBlocked />
+          ) : null}
+          {notificationsEnabled && notificationPermission === "unsupported" ? (
+            <span className="text-[12px] text-content/45">
+              Not available on this platform
+            </span>
+          ) : null}
+          <Toggle
+            label="Notifications"
+            on={notificationsEnabled}
+            onChange={onNotificationsEnabled}
+          />
+        </Row>
+        <Row
+          label="Activity alerts"
+          description="Choose which outcomes can interrupt you. Every outcome still appears in Activity."
+        >
+          <div className="settings-alert-options">
+            {(
+              [
+                ["needsInput", "Needs input"],
+                ["failures", "Failures"],
+                ["finished", "Finished / stopped"],
+                ["sound", "Sound"],
+              ] as const
+            ).map(([key, label]) => (
+              <label
+                key={key}
+                className="flex items-center gap-2 text-[11px] text-content/65"
+              >
+                {label}
+                <Toggle
+                  label={`Activity: ${label}`}
+                  on={notificationPreferences[key]}
+                  onChange={(value) => onNotificationPreference(key, value)}
+                />
+              </label>
+            ))}
+          </div>
+        </Row>
+        <Row
+          label="Quiet mode"
+          description="Keep recording Activity without task banners or task sounds. Your other sound settings stay unchanged."
+        >
+          <Toggle
+            label="Quiet mode"
+            on={notificationPreferences.quiet}
+            onChange={(value) => onNotificationPreference("quiet", value)}
+          />
+        </Row>
+        <Row
+          label="Sounds"
+          description="Play short cues for task completion, inbox items, updates, and interactions."
+        >
+          <Toggle
+            label="Sounds"
+            on={soundsEnabled}
+            onChange={onSoundsEnabled}
+          />
+        </Row>
+      </SettingsGroup>
+      <SettingsGroup
+        title="Integrations"
+        description="Connect the services you use alongside Aven."
+        scope="Device"
+      >
+        <div id="setting-linear-api-key" tabIndex={-1}>
+          <LinearSettings />
+        </div>
+      </SettingsGroup>
+      <SettingsGroup
+        title="About Aven"
+        description="Your installed version and software updates."
+        scope="Device"
+      >
+        <UpdateRow onOpenWhatsNew={onOpenWhatsNew} />
+      </SettingsGroup>
     </>
   );
 }
@@ -804,6 +1057,7 @@ function UpdateRow({
 
   return (
     <Row
+      id="setting-version"
       label={
         <span className="flex items-baseline gap-2">
           Version
@@ -1086,205 +1340,252 @@ function WorkspaceColorField({
 function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
   const percent = Math.round(appearance.opacity * 100);
   const glassDisabled = appearance.colorScheme === "light";
-
   return (
     <>
-      <Row
-        label="Workspace palette"
-        description="Choose a starting palette for this workspace. Dark and light colors are saved separately."
+      <SettingsGroup
+        title="Theme &amp; color"
+        description="Set the mood for this workspace."
+        scope="Workspace"
       >
-        <div
-          className="grid grid-cols-4 gap-1.5"
-          role="group"
-          aria-label="Workspace palette"
-        >
-          {WORKSPACE_THEME_PRESETS.map((palette) => {
-            const colors =
-              palette.colors[
-                palette.name === "Black" ? "dark" : appearance.colorScheme
-              ];
-            return (
-              <button
-                key={palette.name}
-                type="button"
-                aria-pressed={
-                  (palette.name !== "Black" ||
-                    appearance.colorScheme === "dark") &&
-                  appearance.colors.background === colors.background &&
-                  appearance.colors.accent === colors.accent &&
-                  appearance.colors.highlight === colors.highlight
-                }
-                onClick={() => appearance.onPreset(palette)}
-                className="flex items-center gap-1.5 rounded-lg border border-content/10 px-2 py-1.5 text-xs text-content/70 hover:bg-content/5 aria-pressed:border-content/40 aria-pressed:text-content"
-              >
-                <span
-                  className="size-3 shrink-0 rounded-full border border-content/20"
-                  style={{
-                    background: `linear-gradient(135deg, ${colors.background} 55%, ${colors.accent} 55% 80%, ${colors.highlight} 80%)`,
-                  }}
-                />
-                {palette.name}
-              </button>
-            );
-          })}
-        </div>
-      </Row>
-      <Row
-        label="Same appearance across workspaces"
-        description="Copy this workspace’s colors, transparency, blur, and sidebar styling to the others. You can still customize each one later."
-      >
-        <ApplyWorkspaceThemeButton profileId={appearance.profileId} />
-      </Row>
-      <Row
-        label="Theme"
-        description="System follows the OS appearance. Switch between Dark and Light to customize each palette."
-      >
-        <Segmented
+        <Row
           label="Theme"
-          value={appearance.themePreference}
-          options={[
-            { value: "system", label: "System" },
-            { value: "dark", label: "Dark" },
-            { value: "light", label: "Light" },
-          ]}
-          onChange={appearance.onThemePreference}
-        />
-      </Row>
-      <Row
-        label={
-          appearance.colorScheme === "dark" ? "Dark colors" : "Light colors"
-        }
-        description="Background sets the surfaces, accent colors the controls, and highlight marks selections."
-      >
-        <div className="flex flex-wrap justify-end gap-3">
-          {(
-            [
-              ["background", "Background"],
-              ["accent", "Accent"],
-              ["highlight", "Highlight"],
-            ] as const
-          ).map(([target, label]) => (
-            <WorkspaceColorField
-              key={target}
-              label={label}
-              value={appearance.colors[target]}
-              onChange={(color) => appearance.onColor(target, color)}
-            />
-          ))}
+          description="Follow your system, or choose a light or dark appearance."
+        >
+          <Segmented
+            label="Theme"
+            value={appearance.themePreference}
+            options={[
+              { value: "system", label: "System" },
+              { value: "dark", label: "Dark" },
+              { value: "light", label: "Light" },
+            ]}
+            onChange={appearance.onThemePreference}
+          />
+        </Row>
+        <div
+          id="setting-workspace-palette"
+          className="settings-palette-section"
+          tabIndex={-1}
+        >
+          <div className="settings-field-heading">
+            <span>Workspace palette</span>
+            <span>Dark and light palettes are saved separately</span>
+          </div>
+          <div
+            className="settings-palette-grid"
+            role="group"
+            aria-label="Workspace palette"
+          >
+            {WORKSPACE_THEME_PRESETS.map((palette) => {
+              const colors =
+                palette.colors[
+                  palette.name === "Black" ? "dark" : appearance.colorScheme
+                ];
+              const selected =
+                (palette.name !== "Black" ||
+                  appearance.colorScheme === "dark") &&
+                appearance.colors.background === colors.background &&
+                appearance.colors.accent === colors.accent &&
+                appearance.colors.highlight === colors.highlight;
+              return (
+                <button
+                  key={palette.name}
+                  type="button"
+                  className="settings-palette"
+                  aria-label={palette.name}
+                  aria-pressed={selected}
+                  onClick={() => appearance.onPreset(palette)}
+                >
+                  <span className="settings-palette-colors" aria-hidden>
+                    <span style={{ background: colors.background }} />
+                    <span style={{ background: colors.accent }} />
+                    <span style={{ background: colors.highlight }} />
+                  </span>
+                  <span className="settings-palette-name">
+                    {palette.name}
+                    {selected ? <Check className="size-3" aria-hidden /> : null}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </Row>
-      <Row
-        label="Match sidebars to workspace"
-        description="Use the workspace background and transparency for both sidebars, including floating sidebars. Turn off to keep their separate surfaces."
+        <Row
+          id="setting-workspace-colors"
+          label={
+            appearance.colorScheme === "dark" ? "Dark colors" : "Light colors"
+          }
+          description="Background sets the surfaces, accent colors the controls, and highlight marks selections."
+        >
+          <div className="flex flex-wrap justify-end gap-3">
+            {(
+              [
+                ["background", "Background"],
+                ["accent", "Accent"],
+                ["highlight", "Highlight"],
+              ] as const
+            ).map(([target, label]) => (
+              <WorkspaceColorField
+                key={target}
+                label={label}
+                value={appearance.colors[target]}
+                onChange={(color) => appearance.onColor(target, color)}
+              />
+            ))}
+          </div>
+        </Row>
+      </SettingsGroup>
+      <SettingsGroup
+        title="Window &amp; sidebars"
+        description="Balance focus, transparency, and a consistent workspace."
+        scope="Workspace"
       >
-        <Toggle
+        <Row
           label="Match sidebars to workspace"
-          on={appearance.matchPanels}
-          onChange={appearance.onMatchPanels}
-        />
-      </Row>
-      {HAS_NATIVE_GLASS && (
-        <Row
-          label="Background opacity"
-          description={
-            glassDisabled
-              ? "Light mode always uses an opaque window. Your dark-mode value is preserved."
-              : "Background opacity for this workspace. Lower values show more of the desktop; text remains solid."
-          }
-        >
-          <Slider
-            label="Background opacity"
-            value={percent}
-            display={`${percent}%`}
-            min={Math.round(SIDEBAR_OPACITY_MIN * 100)}
-            max={Math.round(SIDEBAR_OPACITY_MAX * 100)}
-            onChange={appearance.onOpacity}
-            disabled={glassDisabled}
-          />
-        </Row>
-      )}
-      {HAS_NATIVE_GLASS && (
-        <Row
-          label="Blur radius"
-          description={
-            glassDisabled
-              ? "Background blur is unavailable while light mode uses an opaque window."
-              : appearance.opacity >= 1
-                ? "Lower background opacity to see desktop blur. At 100% opacity, the window covers it."
-                : "Desktop blur for this workspace. Zero turns blur off; higher values cost more to composite."
-          }
-        >
-          <Slider
-            label="Blur radius"
-            value={appearance.blur}
-            display={appearance.blur === 0 ? "Off" : String(appearance.blur)}
-            min={SIDEBAR_BLUR_MIN}
-            max={SIDEBAR_BLUR_MAX}
-            onChange={appearance.onBlur}
-            disabled={glassDisabled}
-          />
-        </Row>
-      )}
-      <Row
-        label="Hue"
-        description="Base tint. Changing it replaces custom colors for the current appearance."
-      >
-        <Slider
-          label="Hue"
-          value={appearance.themeHue}
-          display={`${appearance.themeHue}°`}
-          min={THEME_HUE_MIN}
-          max={THEME_HUE_MAX}
-          onChange={(value) =>
-            appearance.onTint(value, appearance.themeSaturation)
-          }
-        />
-      </Row>
-      <Row
-        label="Saturation"
-        description="Tint strength. Changing it replaces custom colors for the current appearance; zero keeps it neutral."
-      >
-        <Slider
-          label="Saturation"
-          value={appearance.themeSaturation}
-          display={`${appearance.themeSaturation}%`}
-          min={THEME_SATURATION_MIN}
-          max={THEME_SATURATION_MAX}
-          onChange={(value) => appearance.onTint(appearance.themeHue, value)}
-        />
-      </Row>
-      {HAS_NATIVE_GLASS && (
-        <Row
-          label="Include workspace"
-          description={
-            glassDisabled
-              ? "Main pane glass is unavailable while light mode uses an opaque window."
-              : "Also show the desktop behind sessions and editors in this workspace."
-          }
+          description="Use the same background and transparency across the workspace and sidebars."
         >
           <Toggle
-            label="Include workspace"
-            on={appearance.bodyGlass}
-            onChange={appearance.onBodyGlass}
-            disabled={glassDisabled}
+            label="Match sidebars to workspace"
+            on={appearance.matchPanels}
+            onChange={appearance.onMatchPanels}
           />
         </Row>
-      )}
-      <ChatBackgroundCard appearance={appearance} />
-      <Row
-        label="Interface scale"
-        description="Zoom the whole interface. You can also use Ctrl+=, Ctrl+-, and Ctrl+0 (Cmd on macOS)."
+        {HAS_NATIVE_GLASS && (
+          <Row
+            label="Background opacity"
+            description={
+              glassDisabled
+                ? "Light mode always uses an opaque window. Your dark-mode value is preserved."
+                : "Background opacity for this workspace. Lower values show more of the desktop; text remains solid."
+            }
+          >
+            <Slider
+              label="Background opacity"
+              value={percent}
+              display={`${percent}%`}
+              min={Math.round(SIDEBAR_OPACITY_MIN * 100)}
+              max={Math.round(SIDEBAR_OPACITY_MAX * 100)}
+              onChange={appearance.onOpacity}
+              disabled={glassDisabled}
+            />
+          </Row>
+        )}
+        {HAS_NATIVE_GLASS && (
+          <Row
+            label="Blur radius"
+            description={
+              glassDisabled
+                ? "Background blur is unavailable while light mode uses an opaque window."
+                : appearance.opacity >= 1
+                  ? "Lower background opacity to see desktop blur. At 100% opacity, the window covers it."
+                  : "Desktop blur for this workspace. Zero turns blur off; higher values cost more to composite."
+            }
+          >
+            <Slider
+              label="Blur radius"
+              value={appearance.blur}
+              display={appearance.blur === 0 ? "Off" : String(appearance.blur)}
+              min={SIDEBAR_BLUR_MIN}
+              max={SIDEBAR_BLUR_MAX}
+              onChange={appearance.onBlur}
+              disabled={glassDisabled}
+            />
+          </Row>
+        )}
+        {HAS_NATIVE_GLASS && (
+          <Row
+            label="Include workspace"
+            description={
+              glassDisabled
+                ? "Main pane glass is unavailable while light mode uses an opaque window."
+                : "Also show the desktop behind sessions and editors in this workspace."
+            }
+          >
+            <Toggle
+              label="Include workspace"
+              on={appearance.bodyGlass}
+              onChange={appearance.onBodyGlass}
+              disabled={glassDisabled}
+            />
+          </Row>
+        )}
+      </SettingsGroup>
+      <SettingsGroup
+        title="Fine-tune colors"
+        description="Adjust the base tint. This replaces custom colors in the current palette."
+        scope="Workspace"
       >
-        <Slider
+        <Row
+          label="Hue"
+          description="Base tint. Changing it replaces custom colors for the current appearance."
+        >
+          <Slider
+            label="Hue"
+            value={appearance.themeHue}
+            display={`${appearance.themeHue}°`}
+            min={THEME_HUE_MIN}
+            max={THEME_HUE_MAX}
+            onChange={(value) =>
+              appearance.onTint(value, appearance.themeSaturation)
+            }
+          />
+        </Row>
+        <Row
+          label="Saturation"
+          description="Tint strength. Changing it replaces custom colors for the current appearance; zero keeps it neutral."
+        >
+          <Slider
+            label="Saturation"
+            value={appearance.themeSaturation}
+            display={`${appearance.themeSaturation}%`}
+            min={THEME_SATURATION_MIN}
+            max={THEME_SATURATION_MAX}
+            onChange={(value) => appearance.onTint(appearance.themeHue, value)}
+          />
+        </Row>
+      </SettingsGroup>
+      <SettingsGroup
+        title="Chat &amp; display"
+        description="Personal touches and comfortable reading."
+        scope="Device"
+      >
+        <ChatBackgroundCard appearance={appearance} />
+        <Row
           label="Interface scale"
-          value={Math.round(appearance.uiScale * 100)}
-          display={`${Math.round(appearance.uiScale * 100)}%`}
-          min={Math.round(UI_SCALE_MIN * 100)}
-          max={Math.round(UI_SCALE_MAX * 100)}
-          step={10}
-          onChange={appearance.onUiScale}
-        />
-      </Row>
+          description="Resize the whole interface. Use Cmd +/− and Cmd 0 on Mac, or Ctrl on Windows and Linux."
+        >
+          <Slider
+            label="Interface scale"
+            value={Math.round(appearance.uiScale * 100)}
+            display={`${Math.round(appearance.uiScale * 100)}%`}
+            min={Math.round(UI_SCALE_MIN * 100)}
+            max={Math.round(UI_SCALE_MAX * 100)}
+            step={10}
+            onChange={appearance.onUiScale}
+          />
+        </Row>
+      </SettingsGroup>
+      <SettingsGroup
+        title="Reuse this appearance"
+        description="A one-time copy; each workspace can still be customized later."
+      >
+        <Row
+          label="Same appearance across workspaces"
+          description="Copy these colors, transparency, blur, and sidebar styles to your other workspaces."
+        >
+          <ApplyWorkspaceThemeButton profileId={appearance.profileId} />
+        </Row>
+      </SettingsGroup>
+      <div className="settings-reset">
+        <p>
+          Reset this workspace’s theme and this device’s chat background and
+          interface scale.
+        </p>
+        <SecondaryButton onClick={appearance.restoreDefaults}>
+          <RotateCcw className="size-3.5" aria-hidden />
+          Restore defaults
+        </SecondaryButton>
+      </div>
     </>
   );
 }
@@ -1300,13 +1601,17 @@ function ChatBackgroundCard({
   const busy = appearance.chatBackgroundBusy;
 
   return (
-    <div className="border-b border-content/5 py-4 last:border-b-0">
-      <div className="flex items-start gap-6">
+    <div
+      id="setting-chat-background"
+      className="settings-background-card"
+      tabIndex={-1}
+    >
+      <div className="settings-background-heading">
         <div className="min-w-0 flex-1">
           <div className="text-[13px] font-medium text-content">
             Chat background
           </div>
-          <p className="mt-1 text-[12px] leading-relaxed text-content/45">
+          <p className="mt-1 text-[12px] leading-relaxed text-content/65">
             An image behind your chat panes. It stays on this device.
           </p>
         </div>
@@ -1332,7 +1637,7 @@ function ChatBackgroundCard({
         ) : null}
       </div>
 
-      <div className="mt-3 overflow-hidden rounded-xl border border-content/10">
+      <div className="settings-background-preview">
         {hasImage ? (
           <div className="relative h-36">
             <img
@@ -1351,14 +1656,17 @@ function ChatBackgroundCard({
             type="button"
             onClick={() => void appearance.onChooseChatBackground()}
             disabled={busy}
-            className="flex h-36 w-full flex-col items-center justify-center gap-2 text-content/40 hover:bg-content/5 hover:text-content/70 disabled:cursor-default disabled:opacity-40"
+            className="settings-background-empty"
           >
             {busy ? (
               <Loader className="size-5 animate-spin" aria-hidden />
             ) : (
               <ImagePlus className="size-5" aria-hidden />
             )}
-            <span className="text-[12px]">Choose an image</span>
+            <span>
+              <strong>Choose an image</strong>
+              <small>Personalize your chat background</small>
+            </span>
           </button>
         )}
         {hasImage ? (
@@ -1411,60 +1719,60 @@ function ChatBackgroundCard({
 function KeybindingsPage() {
   const [query, setQuery] = useState("");
   const rows = useMemo(() => filterKeybindings(KEYBINDINGS, query), [query]);
-
   return (
-    <>
-      <div className="flex items-center justify-end gap-3 pb-3">
-        <span className="shrink-0 text-[12px] text-content/40 tabular-nums">
-          {rows.length} {rows.length === 1 ? "binding" : "bindings"}
+    <section
+      id="setting-keybindings"
+      className="settings-shortcuts"
+      tabIndex={-1}
+      aria-label="Keyboard shortcuts"
+    >
+      <div className="settings-shortcuts-toolbar">
+        <span className="settings-section-note" role="status">
+          {rows.length} {rows.length === 1 ? "shortcut" : "shortcuts"}
         </span>
-        <label className="flex h-7 w-52 shrink-0 items-center gap-2 rounded-md border border-content/10 px-2 text-content/45 focus-within:border-content/20">
-          <Search className="size-3.5 shrink-0" strokeWidth={1.75} />
+        <label className="settings-search-field">
+          <Search className="size-4" aria-hidden />
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Filter"
+            placeholder="Find a command or key…"
             aria-label="Filter keybindings"
             spellCheck={false}
             autoComplete="off"
-            className="min-w-0 flex-1 bg-transparent text-[12px] text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
           />
         </label>
       </div>
-
-      <div className="overflow-hidden rounded-lg border border-content/10">
-        <div className="flex items-center border-b border-content/10 bg-content/5 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-content/40">
-          <span className="min-w-0 flex-1">Command</span>
-          <span className="w-40 shrink-0">Keybinding</span>
-          <span className="w-28 shrink-0">When</span>
-        </div>
-        {rows.length === 0 ? (
-          <p className="px-3 py-3 text-[12px] text-content/45">
-            No matching bindings
+      <div className="settings-shortcuts-table">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Command</th>
+              <th scope="col">Shortcut</th>
+              <th scope="col">Available in</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={`${row.command}-${row.keys}`}>
+                <td>{row.command}</td>
+                <td>
+                  <kbd>{row.keys}</kbd>
+                </td>
+                <td>{formatKeybindingContext(row.when)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!rows.length ? (
+          <p className="settings-empty" role="status">
+            No matching shortcuts. Try a command name or a key.
           </p>
-        ) : (
-          rows.map((row) => (
-            <div
-              key={`${row.command}-${row.keys}`}
-              className="flex items-center border-b border-content/5 px-3 py-2 text-[12px] last:border-b-0"
-            >
-              <span className="min-w-0 flex-1 truncate">{row.command}</span>
-              <span className="w-40 shrink-0 font-mono text-[12px] text-content/80">
-                {row.keys}
-              </span>
-              <span className="w-28 shrink-0 font-mono text-[11px] text-content/40">
-                {row.when}
-              </span>
-            </div>
-          ))
-        )}
+        ) : null}
       </div>
-
-      <p className="pt-3 text-[12px] text-content/40">
-        Bindings come from the app menu and the workspace key handler; they
-        aren’t customizable yet.
+      <p className="settings-section-note">
+        These shortcuts are built into Aven and can’t be customized yet.
       </p>
-    </>
+    </section>
   );
 }
 
@@ -1518,39 +1826,67 @@ function ProvidersPage() {
     savePickerProviderVisible(harness, visible);
   };
 
+  const primaryProviders = HARNESSES.filter(
+    (id) =>
+      !hasProbedHarnessAvailability() ||
+      isHarnessAvailable(id) ||
+      choice.harness === id,
+  );
+  const otherProviders = HARNESSES.filter(
+    (id) => !primaryProviders.includes(id),
+  );
+  const renderProvider = (harness: HarnessId) => (
+    <ProviderRow
+      key={harness}
+      harness={harness}
+      selectedModel={preferredModelId(harness)}
+      isDefault={choice.harness === harness}
+      canDisable={
+        enabled.length > 1 && !(usable.length === 1 && usable[0] === harness)
+      }
+      onDefault={onDefault}
+      onModelChange={onModelChange}
+      onProviderVisible={onProviderVisible}
+    />
+  );
+
   return (
     <>
-      <p className="pb-2 text-[12px] leading-relaxed text-content/45">
-        Choose the providers and models shown in new sessions, favorites,
-        handoff, and second opinion. Hiding a choice keeps your existing
-        sessions intact. Expand Models to hide individual choices. Keep at least
-        one installed provider visible.
-      </p>
-      <Row
-        label="Keep provider tools up to date"
-        description="Check supported Codex and Claude installations daily so newly released models appear automatically. Model lists also refresh while Aven is open. Your selected models stay the same."
+      <SettingsGroup
+        title="Model discovery"
+        description="Stay current without changing the models selected for your tasks."
+        scope="Device"
       >
-        <Toggle
+        <Row
           label="Keep provider tools up to date"
-          on={autoUpdateTools}
-          onChange={saveProviderToolAutoUpdates}
-        />
-      </Row>
-      {HARNESSES.map((harness) => (
-        <ProviderRow
-          key={harness}
-          harness={harness}
-          selectedModel={preferredModelId(harness)}
-          isDefault={choice.harness === harness}
-          canDisable={
-            enabled.length > 1 &&
-            !(usable.length === 1 && usable[0] === harness)
-          }
-          onDefault={onDefault}
-          onModelChange={onModelChange}
-          onProviderVisible={onProviderVisible}
-        />
-      ))}
+          description="Check supported Codex and Claude installations daily so newly released models appear automatically. Model lists also refresh while Aven is open. Your selected models stay the same."
+        >
+          <Toggle
+            label="Keep provider tools up to date"
+            on={autoUpdateTools}
+            onChange={saveProviderToolAutoUpdates}
+          />
+        </Row>
+      </SettingsGroup>
+      <div id="setting-providers" className="settings-providers" tabIndex={-1}>
+        <Heading title="Providers & models" />
+        <p className="settings-section-note">
+          Choose what appears in the model picker. Hiding a provider keeps its
+          existing tasks intact.
+        </p>
+        {primaryProviders.map(renderProvider)}
+        {otherProviders.length > 0 ? (
+          <details className="settings-other-providers">
+            <summary>
+              Other providers <span>{otherProviders.length}</span>
+            </summary>
+            <p className="settings-section-note">
+              Additional tools you can install and connect.
+            </p>
+            {otherProviders.map(renderProvider)}
+          </details>
+        ) : null}
+      </div>
     </>
   );
 }
@@ -1616,11 +1952,12 @@ function ProviderRow({
 
   return (
     <section
-      className="border-b border-content/5 py-3 last:border-b-0"
+      className="settings-provider-card"
+      data-available={available}
       aria-label={`${HARNESS_TITLE[harness]} choices`}
     >
-      <div className="flex items-center gap-3">
-        <HarnessIcon harness={harness} className="size-4 shrink-0" />
+      <div className="settings-provider-heading">
+        <HarnessIcon harness={harness} className="size-6 shrink-0" />
         <div className="min-w-0 flex-1">
           <span className="text-[13px] font-medium">
             {HARNESS_TITLE[harness]}
@@ -1630,7 +1967,7 @@ function ProviderRow({
               Default
             </span>
           ) : null}
-          <p className="mt-0.5 text-[11px] text-content/45">
+          <p className="mt-1 text-[12px] leading-relaxed text-content/65">
             {available
               ? `${shownModels.length} of ${models.length} models shown`
               : harnessUnavailableHint(harness)}
@@ -1654,7 +1991,7 @@ function ProviderRow({
         </div>
       </div>
       {available || (inPicker && current) ? (
-        <div className="mt-2 flex flex-wrap items-center gap-2 pl-7">
+        <div className="settings-provider-actions">
           {inPicker && current ? (
             <>
               <Select
@@ -1829,7 +2166,9 @@ function ArchivePage({
 
   return (
     <>
-      <Heading title="Archived projects" first />
+      <div id="setting-archived-projects" tabIndex={-1}>
+        <Heading title="Archived projects" first />
+      </div>
       {archivedProjects.length === 0 ? (
         <p className="py-3 text-[12px] text-content/45">
           Archive a project from the rail to keep its chats without listing it
@@ -1876,13 +2215,15 @@ function ArchivePage({
         />
       </Row>
 
-      <Heading
-        title={
-          looksLikeProject(cwd)
-            ? `Archived in ${projectName(cwd)}`
-            : "Archived conversations"
-        }
-      />
+      <div id="setting-archived-conversations" tabIndex={-1}>
+        <Heading
+          title={
+            looksLikeProject(cwd)
+              ? `Archived in ${projectName(cwd)}`
+              : "Archived conversations"
+          }
+        />
+      </div>
 
       {!looksLikeProject(cwd) ? (
         <p className="py-3 text-[12px] text-content/45">
@@ -1956,149 +2297,6 @@ function formatDate(value: number): string {
   }
 }
 
-function PageHeader({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
-  return (
-    <header className="pb-4">
-      <h1 className="text-[20px] font-semibold leading-tight text-content">
-        {title}
-      </h1>
-      {description ? (
-        <p className="mt-1.5 max-w-xl text-[13px] leading-relaxed text-content/45">
-          {description}
-        </p>
-      ) : null}
-    </header>
-  );
-}
-
-function Heading({ title, first = false }: { title: string; first?: boolean }) {
-  return (
-    <h2
-      className={`pb-1 text-[15px] font-semibold text-content ${
-        first ? "" : "pt-8"
-      }`}
-    >
-      {title}
-    </h2>
-  );
-}
-
-function Row({
-  label,
-  description,
-  children,
-}: {
-  label: ReactNode;
-  description?: string;
-  children?: ReactNode;
-}) {
-  return (
-    <div className="flex items-start gap-6 border-b border-content/5 py-4 last:border-b-0">
-      <div className="min-w-0 flex-1">
-        <div className="text-[13px] font-medium text-content">{label}</div>
-        {description ? (
-          <p className="mt-1 text-[12px] leading-relaxed text-content/45">
-            {description}
-          </p>
-        ) : null}
-      </div>
-      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function Segmented<T extends string>({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: T;
-  options: { value: T; label: string }[];
-  onChange: (value: T) => void;
-}) {
-  return (
-    <div
-      role="radiogroup"
-      aria-label={label}
-      className="inline-grid shrink-0 gap-0.5 rounded-md border border-content/10 p-0.5 text-[12px]"
-      style={{
-        gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))`,
-      }}
-    >
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          role="radio"
-          aria-checked={value === option.value}
-          onClick={() => onChange(option.value)}
-          className={`min-w-0 whitespace-nowrap rounded-[5px] px-2.5 py-1 ${
-            value === option.value
-              ? "bg-content/10 text-content"
-              : "text-content/50 hover:text-content"
-          }`}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function Slider({
-  label,
-  value,
-  display,
-  min,
-  max,
-  step = 1,
-  onChange,
-  disabled = false,
-}: {
-  label: string;
-  value: number;
-  display: string;
-  min: number;
-  max: number;
-  step?: number;
-  onChange: (value: number) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <div
-      className={`flex w-56 items-center gap-3 ${disabled ? "opacity-40" : ""}`}
-    >
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        aria-valuemin={min}
-        aria-valuemax={max}
-        aria-valuenow={value}
-        aria-label={label}
-        disabled={disabled}
-        className="sidebar-opacity-slider min-w-0 flex-1 disabled:cursor-not-allowed"
-        onChange={(event) => onChange(Number(event.target.value))}
-      />
-      <span className="w-10 shrink-0 text-right text-[12px] text-content tabular-nums">
-        {display}
-      </span>
-    </div>
-  );
-}
-
 /** macOS keeps the decision after the first prompt; only System Settings can flip it. */
 function NotificationsBlocked() {
   return (
@@ -2116,97 +2314,5 @@ function NotificationsBlocked() {
         </button>
       ) : null}
     </span>
-  );
-}
-
-function Toggle({
-  label,
-  on,
-  onChange,
-  disabled = false,
-}: {
-  label: string;
-  on: boolean;
-  onChange: (on: boolean) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-label={label}
-      aria-checked={on}
-      disabled={disabled}
-      onClick={() => {
-        onChange(!on);
-        playCue("switch");
-      }}
-      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-        on ? "bg-accent" : "bg-content/20"
-      }`}
-    >
-      <span
-        className={`absolute top-0.5 size-4 rounded-full bg-white transition-[left] ${
-          on ? "left-4.5" : "left-0.5"
-        }`}
-      />
-    </button>
-  );
-}
-
-function Select({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: { value: string; label: string }[];
-  onChange: (value: string) => void;
-}) {
-  return (
-    <select
-      aria-label={label}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      className="max-w-52 rounded-md border border-content/10 bg-content/5 px-2 py-1 text-[12px] text-content outline-none hover:border-content/20 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
-    >
-      {options.map((option) => (
-        <option key={option.value} value={option.value}>
-          {option.label}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-function SecondaryButton({
-  onClick,
-  label,
-  disabled = false,
-  danger = false,
-  children,
-}: {
-  onClick: () => void;
-  label?: string;
-  disabled?: boolean;
-  danger?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      onClick={onClick}
-      disabled={disabled}
-      className={`flex shrink-0 items-center gap-1.5 rounded-md border border-content/10 px-2.5 py-1 text-[12px] ${
-        danger
-          ? "text-red-400 hover:border-red-400/40 hover:bg-red-400/10"
-          : "text-content/70 hover:bg-content/10 hover:text-content"
-      } disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent`}
-    >
-      {children}
-    </button>
   );
 }

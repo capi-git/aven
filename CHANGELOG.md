@@ -1,5 +1,15 @@
 # Aven changelog
 
+## [0.1.81] - 2026-09-22
+
+### A calmer settings workspace
+
+- Keep settings categories available with the sidebar closed, with compact navigation in narrow windows.
+- Search across settings and jump directly to a highlighted control, with consistent keyboard and dismissal behavior.
+- Organize preferences into focused groups with clearer device and workspace scope, larger theme swatches, and consistent controls in light and dark appearances.
+- Keep connected providers prominent and tuck additional providers into an expandable section.
+- Present keyboard shortcuts in a readable, searchable table with plain-language availability labels.
+
 ## [0.1.80] - 2026-09-22
 
 ### Stay current automatically

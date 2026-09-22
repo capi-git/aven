@@ -3,6 +3,8 @@ import {
   COMPOSER_RUNNER_DEFAULT,
   DIFF_VIEWER_DEFAULT,
   FOLLOW_UP_BEHAVIOR_DEFAULT,
+  filterKeybindings,
+  formatKeybindingContext,
   GRID_ARCADE_ENABLED_DEFAULT,
   KEYBINDINGS,
   LIVE_AGENTS_ENABLED_DEFAULT,
@@ -160,6 +162,27 @@ describe("grid arcade enabled setting", () => {
 });
 
 describe("workspace navigation keybindings", () => {
+  it("labels every built-in shortcut context and searches both visible and raw contexts", () => {
+    const contexts = [...new Set(KEYBINDINGS.map((row) => row.when))];
+    expect(contexts.map(formatKeybindingContext)).toEqual([
+      "Always",
+      "In a conversation, with other views closed",
+      "In the workspace, outside text fields or in an empty composer",
+      "Outside the editor",
+      "In the editor",
+    ]);
+    expect(
+      filterKeybindings(KEYBINDINGS, "emptyComposer").map((row) => row.when),
+    ).toEqual(Array(4).fill("!overlay && (!textFocus || emptyComposer)"));
+    expect(
+      filterKeybindings(KEYBINDINGS, "conversation").map((row) => row.command),
+    ).toEqual(["Session: Archive"]);
+    expect(
+      filterKeybindings(KEYBINDINGS, "empty composer").map((row) => row.when),
+    ).toEqual(Array(4).fill("!overlay && (!textFocus || emptyComposer)"));
+    expect(formatKeybindingContext("Custom context")).toBe("Custom context");
+  });
+
   it("documents session and project cycling in the shortcut list", () => {
     const rows = KEYBINDINGS.filter((row) =>
       /^(Session|Project): (Previous|Next)$/.test(row.command),
