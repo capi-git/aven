@@ -617,13 +617,15 @@ pub(crate) fn install_dock_menu(app: &AppHandle) {
     }
 }
 
-/// `tauri dev` launches a raw binary. The Dock then skips Icon Services and
-/// paints Tauri's embedded bitmap directly. Wrap that binary in a real
-/// `.app` so the Dock uses the declared bundle icon.
+/// Development runs use an isolated bundle identity. Chromium needs the
+/// development runner to package its framework first; the non-Chromium
+/// fallback can wrap a raw `tauri dev` binary in a bundle here.
 #[cfg(debug_assertions)]
 pub(crate) fn ensure_dev_bundle() {
     if let Err(err) = relaunch_from_dev_bundle() {
-        eprintln!("monocode: macos dev bundle: {err}");
+        eprintln!("Aven Dev: {err}");
+        // Do not continue under a production or legacy macOS bundle identity.
+        std::process::exit(1);
     }
 }
 
@@ -653,115 +655,263 @@ pub(crate) fn prefer_bundle_dock_icon() {
 }
 
 #[cfg(debug_assertions)]
+fn dev_bundle_root(exe: &std::path::Path) -> Option<std::path::PathBuf> {
+    let macos = exe.parent()?;
+    let contents = macos.parent()?;
+    let app = contents.parent()?;
+    (macos.file_name()? == "MacOS"
+        && contents.file_name()? == "Contents"
+        && app.extension()? == "app")
+        .then(|| app.to_path_buf())
+}
+
+#[cfg(debug_assertions)]
 fn current_exe_is_bundled() -> bool {
     std::env::current_exe()
         .ok()
-        .and_then(|exe| exe.parent().map(|p| p.join("..").join("Info.plist")))
-        .is_some_and(|plist| plist.exists())
+        .and_then(|exe| dev_bundle_root(&exe))
+        .is_some()
+}
+
+#[cfg(debug_assertions)]
+fn validate_dev_bundle_info(info: &serde_json::Value) -> Result<(), String> {
+    for (key, expected) in [
+        ("CFBundleIdentifier", crate::DEV_BUNDLE_ID),
+        ("CFBundleName", crate::DEV_PRODUCT_NAME),
+        ("CFBundleDisplayName", crate::DEV_PRODUCT_NAME),
+        ("CFBundleExecutable", "monocode"),
+        ("CFBundleShortVersionString", env!("CARGO_PKG_VERSION")),
+    ] {
+        if info.get(key).and_then(serde_json::Value::as_str) != Some(expected) {
+            return Err(format!(
+                "Development bundle {key} must be {expected}. Rebuild it with Aven's native development runner; no installed app was changed."
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(debug_assertions)]
+fn validate_dev_bundle(app: &std::path::Path) -> Result<(), String> {
+    let output = std::process::Command::new("/usr/bin/plutil")
+        .args(["-convert", "json", "-o", "-"])
+        .arg(app.join("Contents/Info.plist"))
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err("Could not read the development app's Info.plist".into());
+    }
+    let info = serde_json::from_slice(&output.stdout).map_err(|error| error.to_string())?;
+    validate_dev_bundle_info(&info)?;
+    #[cfg(feature = "chromium")]
+    {
+        let frameworks = app.join("Contents/Frameworks");
+        for relative in [
+            "Chromium Embedded Framework.framework/Chromium Embedded Framework",
+            "Supermono Helper.app/Contents/MacOS/Supermono Helper",
+        ] {
+            if !frameworks.join(relative).is_file() {
+                return Err("The development app is missing Chromium. Run Aven's native development runner to package its framework and helpers before launch.".into());
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(debug_assertions)]
 fn relaunch_from_dev_bundle() -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    if let Some(app) = dev_bundle_root(&exe) {
+        // The runner packages and signs CEF before launch. Rewriting the plist
+        // or icon here would invalidate that signature and discard its metadata.
+        return validate_dev_bundle(&app);
+    }
+    #[cfg(feature = "chromium")]
+    {
+        let _ = exe;
+        Err("Chromium development requires a packaged Aven Dev.app. Use Aven's native development runner so its framework and helpers are present; raw tauri dev cannot package CEF.".into())
+    }
+    #[cfg(not(feature = "chromium"))]
+    relaunch_raw_dev_binary(&exe)
+}
+
+#[cfg(all(debug_assertions, not(feature = "chromium")))]
+fn relaunch_raw_dev_binary(exe: &std::path::Path) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
     use std::os::unix::process::CommandExt;
     use std::process::Command;
 
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    if current_exe_is_bundled() {
-        let app = exe
-            .parent()
-            .and_then(|p| p.parent())
-            .and_then(|p| p.parent())
-            .ok_or("missing bundle root")?
-            .to_path_buf();
-        write_dev_bundle_icons(&app)?;
-        return Ok(());
-    }
-
     let app = exe
         .parent()
         .ok_or("missing exe parent")?
-        .join("Aven.app");
+        .join(format!("{}.app", crate::DEV_PRODUCT_NAME));
     let macos_dir = app.join("Contents/MacOS");
-    std::fs::create_dir_all(&macos_dir).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&macos_dir).map_err(|error| error.to_string())?;
     write_dev_bundle_icons(&app)?;
 
     let bundled = macos_dir.join("monocode");
     let _ = std::fs::remove_file(&bundled);
-    // A copy, not a hard link: re-signing below rewrites the file, and the
-    // linked original is the executable running this code.
-    std::fs::copy(&exe, &bundled).map_err(|e| e.to_string())?;
+    // A copy, not a hard link: re-signing rewrites the running binary otherwise.
+    std::fs::copy(exe, &bundled).map_err(|error| error.to_string())?;
     let mut perms = std::fs::metadata(&bundled)
-        .map_err(|e| e.to_string())?
+        .map_err(|error| error.to_string())?
         .permissions();
     perms.set_mode(0o755);
-    std::fs::set_permissions(&bundled, perms).map_err(|e| e.to_string())?;
+    std::fs::set_permissions(&bundled, perms).map_err(|error| error.to_string())?;
 
-    // The linker's ad-hoc signature carries a `monocode-<hash>` identifier.
-    // UNUserNotificationCenter refuses authorization, without prompting,
-    // unless the signing identifier matches CFBundleIdentifier.
     let signed = Command::new("/usr/bin/codesign")
-        .args(["--force", "--sign", "-", "--identifier", DEV_BUNDLE_ID])
+        .args([
+            "--force",
+            "--sign",
+            "-",
+            "--identifier",
+            crate::DEV_BUNDLE_ID,
+        ])
         .arg(&app)
         .status()
         .map(|status| status.success())
         .unwrap_or(false);
     if !signed {
-        eprintln!("monocode: macos dev bundle: codesign failed; notifications stay off");
+        return Err("Could not sign the isolated Aven Dev bundle".into());
     }
-
     let err = Command::new(&bundled)
         .args(std::env::args_os().skip(1))
         .exec();
     Err(err.to_string())
 }
 
-#[cfg(debug_assertions)]
+#[cfg(all(debug_assertions, not(feature = "chromium")))]
 fn write_dev_bundle_icons(app: &std::path::Path) -> Result<(), String> {
     let resources = app.join("Contents/Resources");
-    std::fs::create_dir_all(&resources).map_err(|e| e.to_string())?;
-    std::fs::write(app.join("Contents/Info.plist"), DEV_BUNDLE_PLIST).map_err(|e| e.to_string())?;
-    std::fs::write(resources.join("AppIcon.icns"), DEV_ICNS).map_err(|e| e.to_string())?;
-    let _ = std::process::Command::new("/usr/bin/touch")
-        .arg(app)
-        .status();
+    std::fs::create_dir_all(&resources).map_err(|error| error.to_string())?;
+    std::fs::write(app.join("Contents/Info.plist"), dev_bundle_plist())
+        .map_err(|error| error.to_string())?;
+    std::fs::write(
+        resources.join("AppIcon.icns"),
+        include_bytes!("../icons/icon.icns"),
+    )
+    .map_err(|error| error.to_string())?;
     Ok(())
 }
 
-/// Must match `CFBundleIdentifier` in `DEV_BUNDLE_PLIST` and tauri.conf.json.
-#[cfg(debug_assertions)]
-const DEV_BUNDLE_ID: &str = "com.monocode.desktop";
-#[cfg(debug_assertions)]
-const DEV_ICNS: &[u8] = include_bytes!("../icons/icon.icns");
-#[cfg(debug_assertions)]
-const DEV_BUNDLE_PLIST: &[u8] = br#"<?xml version="1.0" encoding="UTF-8"?>
+#[cfg(all(debug_assertions, any(test, not(feature = "chromium"))))]
+fn dev_bundle_plist() -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleDevelopmentRegion</key>
-	<string>en</string>
-	<key>CFBundleDisplayName</key>
-	<string>Aven</string>
-	<key>CFBundleExecutable</key>
-	<string>monocode</string>
-	<key>CFBundleIconFile</key>
-	<string>AppIcon</string>
-	<key>CFBundleIdentifier</key>
-	<string>com.monocode.desktop</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
-	<key>CFBundleName</key>
-	<string>Aven</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleShortVersionString</key>
-	<string>0.1.75</string>
-	<key>CFBundleVersion</key>
-	<string>0.1.75.5</string>
-	<key>LSMinimumSystemVersion</key>
-	<string>13.0</string>
-	<key>NSHighResolutionCapable</key>
-	<true/>
+    <key>CFBundleDevelopmentRegion</key><string>en</string>
+    <key>CFBundleDisplayName</key><string>{name}</string>
+    <key>CFBundleExecutable</key><string>monocode</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>CFBundleIdentifier</key><string>{identifier}</string>
+    <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+    <key>CFBundleName</key><string>{name}</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>{version}</string>
+    <key>CFBundleVersion</key><string>{version}</string>
+    <key>LSMinimumSystemVersion</key><string>13.0</string>
+    <key>NSHighResolutionCapable</key><true/>
 </dict>
 </plist>
-"#;
+"#,
+        name = crate::DEV_PRODUCT_NAME,
+        identifier = crate::DEV_BUNDLE_ID,
+        version = env!("CARGO_PKG_VERSION")
+    )
+}
+
+#[cfg(all(test, debug_assertions))]
+mod development_bundle_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn info() -> serde_json::Value {
+        json!({
+            "CFBundleIdentifier": crate::DEV_BUNDLE_ID,
+            "CFBundleName": crate::DEV_PRODUCT_NAME,
+            "CFBundleDisplayName": crate::DEV_PRODUCT_NAME,
+            "CFBundleExecutable": "monocode",
+            "CFBundleShortVersionString": env!("CARGO_PKG_VERSION"),
+        })
+    }
+
+    #[test]
+    fn development_bundle_accepts_only_its_own_identity_and_current_version() {
+        assert!(validate_dev_bundle_info(&info()).is_ok());
+        for (key, wrong) in [
+            ("CFBundleIdentifier", "com.capi.monocode.personal"),
+            ("CFBundleIdentifier", "com.monocode.desktop"),
+            ("CFBundleName", "Aven"),
+            ("CFBundleDisplayName", "CoveCode"),
+            ("CFBundleExecutable", "another-app"),
+            ("CFBundleShortVersionString", "0.0.0"),
+        ] {
+            let mut candidate = info();
+            candidate[key] = json!(wrong);
+            assert!(validate_dev_bundle_info(&candidate).is_err(), "{key}");
+        }
+    }
+
+    #[test]
+    fn only_recognizes_standard_application_bundle_layouts() {
+        use std::path::Path;
+        let bundle = "/repo/target/debug/Aven Dev.app";
+        assert_eq!(
+            dev_bundle_root(Path::new(&format!("{bundle}/Contents/MacOS/monocode"))),
+            Some(Path::new(bundle).to_path_buf()),
+        );
+        assert!(dev_bundle_root(Path::new("/repo/target/debug/monocode")).is_none());
+        assert!(dev_bundle_root(Path::new("/repo/app/Contents/MacOS/monocode")).is_none());
+    }
+
+    #[test]
+    fn fallback_plist_uses_current_cargo_version_and_isolated_identity() {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        let mut child = Command::new("/usr/bin/plutil")
+            .args(["-convert", "json", "-o", "-", "--", "-"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("plutil");
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(dev_bundle_plist().as_bytes())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success());
+        let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert!(validate_dev_bundle_info(&parsed).is_ok());
+        assert_eq!(parsed["CFBundleVersion"], env!("CARGO_PKG_VERSION"));
+    }
+
+    #[test]
+    fn validating_a_packaged_development_bundle_preserves_its_bytes() {
+        let directory =
+            std::env::temp_dir().join(format!("aven-dev-bundle-test-{}", uuid::Uuid::new_v4()));
+        let app = directory.join("Aven Dev.app");
+        let contents = app.join("Contents");
+        std::fs::create_dir_all(&contents).unwrap();
+        let plist = contents.join("Info.plist");
+        let original = dev_bundle_plist();
+        std::fs::write(&plist, &original).unwrap();
+        #[cfg(feature = "chromium")]
+        for relative in [
+            "Chromium Embedded Framework.framework/Chromium Embedded Framework",
+            "Supermono Helper.app/Contents/MacOS/Supermono Helper",
+        ] {
+            let file = contents.join("Frameworks").join(relative);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, b"test runtime placeholder").unwrap();
+        }
+        let validation = validate_dev_bundle(&app);
+        let unchanged = std::fs::read(&plist).unwrap() == original.as_bytes();
+        std::fs::remove_dir_all(&directory).unwrap();
+        assert!(validation.is_ok(), "{validation:?}");
+        assert!(unchanged, "startup must not invalidate packaged signatures");
+    }
+}

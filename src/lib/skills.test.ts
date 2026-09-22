@@ -13,12 +13,14 @@ vi.mock("./harness/registry", () => ({
 import { describe, expect, it, vi } from "vitest";
 import {
   BUILTIN_CREATE_SKILL,
+  BUILTIN_COMPUTER_USE_SKILL,
   applySkillsToTurn,
   blankSkillMarkdown,
   injectSkillPrompt,
   isValidSkillName,
   isNativeCommandPrompt,
   mergeCatalog,
+  readSkillBody,
   rankSkills,
   replaceSlashToken,
   skillNamesInText,
@@ -235,6 +237,10 @@ describe("injectSkillPrompt", () => {
     });
     expect(out).toContain("## /review-pr");
     expect(out).toContain("Be strict.");
+    expect(out).toContain("Skill file: /tmp/.agents/skills/review-pr/SKILL.md");
+    expect(out).toContain(
+      "Resolve relative resources from this file's directory.",
+    );
     expect(out.endsWith("/review-pr look at auth")).toBe(true);
   });
 
@@ -244,6 +250,13 @@ describe("injectSkillPrompt", () => {
 });
 
 describe("mergeCatalog", () => {
+  it("includes usable built-in desktop instructions without requiring an external skill package", async () => {
+    expect(mergeCatalog([])).toContainEqual(BUILTIN_COMPUTER_USE_SKILL);
+    const body = await readSkillBody(BUILTIN_COMPUTER_USE_SKILL);
+    expect(body).toContain("permissions status --json");
+    expect(body).toContain("peekaboo");
+    expect(body).not.toContain("orca skills get");
+  });
   it("lets .agents win, then MonoCode create-skill, then provider skills", () => {
     const catalog = mergeCatalog([
       {

@@ -17,7 +17,9 @@ import {
 
 const nativeWindow = vi.hoisted(() => ({
   setTitle: vi.fn().mockResolvedValue(undefined),
+  getName: vi.fn().mockResolvedValue("Aven"),
 }));
+vi.mock("@tauri-apps/api/app", () => ({ getName: nativeWindow.getName }));
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => nativeWindow,
 }));
@@ -236,6 +238,7 @@ describe("browser tab integration", () => {
 
   beforeEach(() => {
     nativeWindow.setTitle.mockClear();
+    nativeWindow.getName.mockReset().mockResolvedValue("Aven");
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     container = document.createElement("div");
     document.body.append(container);
@@ -354,6 +357,35 @@ describe("browser tab integration", () => {
     expect(nativeWindow.setTitle).toHaveBeenCalledOnce();
     await render({ paneFocused: false, cwd: "/projects/other" });
     expect(nativeWindow.setTitle).toHaveBeenCalledOnce();
+  });
+
+  it("preserves Aven Dev identity when project and file titles change", async () => {
+    let resolveName!: (name: string) => void;
+    nativeWindow.getName.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveName = resolve;
+        }),
+    );
+    document.title = "Aven Dev";
+    await render({
+      cwd: "/projects/demo",
+      tabs: [tab({ id: "a", project: "demo" })],
+    });
+    expect(nativeWindow.setTitle).not.toHaveBeenCalled();
+    expect(document.title).toBe("Aven Dev");
+
+    await act(async () => resolveName("Aven Dev"));
+    expect(document.title).toBe("demo — Aven Dev");
+    await render({
+      tabs: [
+        tab({ id: "a", project: "demo", files: ["/projects/demo/App.tsx"] }),
+      ],
+    });
+    expect(nativeWindow.setTitle).toHaveBeenLastCalledWith(
+      "App.tsx — demo — Aven Dev",
+    );
+    expect(nativeWindow.getName).toHaveBeenCalledOnce();
   });
 
   it("updates custom project labels in tab metadata and the native title without changing tab identity", async () => {

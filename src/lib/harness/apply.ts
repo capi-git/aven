@@ -304,6 +304,7 @@ export function appendUser(
   attachments: Attachment[] = [],
   extra?: UserTurnExtra,
 ): Session {
+  session = settlePendingApprovals(session);
   return appendBlock(
     { ...session, busy: true },
     {
@@ -342,12 +343,42 @@ export function appendSteerUser(
 }
 
 export function stopStreaming(session: Session): Session {
+  const settled = settlePendingApprovals(session);
   return {
-    ...session,
+    ...settled,
     busy: false,
     pendingQuestion: undefined,
-    blocks: stampTurnDuration(session.blocks.map(stopBlockProgress)),
+    blocks: stampTurnDuration(settled.blocks.map(stopBlockProgress)),
   };
+}
+
+/** Approval ids only belong to the turn that produced them. */
+function settlePendingApprovals(session: Session): Session {
+  let changed = false;
+  const blocks = session.blocks.flatMap((block) => {
+    if (!block.approval || block.approval.decided) return [block];
+    changed = true;
+    if (block.role === "approval") return [];
+    const status = block.tool?.status?.toLowerCase() ?? "";
+    const toolFinished =
+      status === "completed" ||
+      status === "success" ||
+      status === "failed" ||
+      status === "error" ||
+      status === "cancelled" ||
+      status === "canceled";
+    return [
+      {
+        ...block,
+        streaming: false,
+        ...(block.tool && !toolFinished
+          ? { tool: { ...block.tool, status: "cancelled" } }
+          : {}),
+        approval: { ...block.approval, decided: "cancelled" as const },
+      },
+    ];
+  });
+  return changed ? { ...session, blocks } : session;
 }
 
 /**

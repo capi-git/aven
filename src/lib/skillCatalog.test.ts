@@ -36,6 +36,7 @@ vi.mock("./fs", () => ({
 
 import {
   BUILTIN_CREATE_SKILL,
+  BUILTIN_COMPUTER_USE_SKILL,
   invalidateSkills,
   loadSkills,
   peekSkills,
@@ -85,6 +86,21 @@ beforeEach(() => {
 });
 
 describe("provider-aware skill catalog", () => {
+  it.each(["claude", "codex", "cursor", "grok", "opencode", "fx"] as const)(
+    "offers and injects Aven computer-use instructions for %s",
+    async (harness) => {
+      const context = { harness, cwd: "/repo" };
+      const catalog = await loadSkills(context);
+      expect(catalog).toContainEqual(BUILTIN_COMPUTER_USE_SKILL);
+      const prompt = await applySkillsToTurn(
+        "/aven-computer-use inspect the app",
+        context,
+      );
+      expect(prompt).toContain("# Desktop control from Aven");
+      expect(prompt).toContain("permissions status --json");
+      expect(prompt.endsWith("/aven-computer-use inspect the app")).toBe(true);
+    },
+  );
   it("uses Pi discovery without adding MonoCode's built-in row", async () => {
     const catalog = await loadSkills({ harness: "pi", cwd: "/repo/" });
 

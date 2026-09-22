@@ -694,9 +694,8 @@ fn browser_cli_request(input: &str) -> Result<Value, String> {
     })?;
     let token = std::env::var("SUPERMONO_BROWSER_TOKEN")
         .map_err(|_| "This agent has no browser access grant".to_string())?;
-    let mut stream = UnixStream::connect(path).map_err(|_| {
-        "Aven's browser connection is unavailable; keep the app open".to_string()
-    })?;
+    let mut stream = UnixStream::connect(path)
+        .map_err(|_| "Aven's browser connection is unavailable; keep the app open".to_string())?;
     stream
         .set_read_timeout(Some(Duration::from_secs(25)))
         .map_err(|error| error.to_string())?;

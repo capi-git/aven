@@ -335,7 +335,7 @@ import {
   prepareSessionCheckpoint,
 } from "./lib/checkpoint";
 import { notifyDirsChanged } from "./lib/fileTree";
-import { nudgeWatchedFiles } from "./lib/fileWatch";
+import { invalidateWatchedFiles, nudgeWatchedFiles } from "./lib/fileWatch";
 import { type EditorNavigationTarget, type OpenFileFn } from "./lib/search";
 import {
   mergeModelSettings,
@@ -9243,15 +9243,24 @@ function nudgeOpenEditors(event: HarnessEvent, cwd: string) {
   }
 
   if (!isEditTool(event.kind, event.title, event.preview)) return;
-  const raw = event.preview?.path;
-  const resolved = raw ? (resolveWorkspacePath(raw, cwd) ?? raw) : undefined;
-  if (resolved) {
-    nudgeWatchedFiles([resolved]);
-  } else if (completed) {
-    nudgeWatchedFiles();
+  const resolved = [
+    ...(event.paths ?? []),
+    ...(event.preview?.path ? [event.preview.path] : []),
+  ]
+    .map((path) => resolveWorkspacePath(path, cwd) ?? path)
+    .filter((path, index, paths) => paths.indexOf(path) === index);
+  if (completed) {
+    // A successful edit is authoritative. Reload it even if a startup race or
+    // coarse filesystem timestamp makes the mtime appear unchanged.
+    invalidateWatchedFiles(resolved.length > 0 ? resolved : undefined);
+  } else if (resolved.length > 0) {
+    nudgeWatchedFiles(resolved);
   }
   if (completed) {
-    window.setTimeout(() => nudgeWatchedFiles(), 150);
+    window.setTimeout(
+      () => nudgeWatchedFiles(resolved.length > 0 ? resolved : undefined),
+      150,
+    );
     notifyGitChanged();
     nudgeWorkspace(cwd);
   }

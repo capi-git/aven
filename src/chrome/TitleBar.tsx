@@ -50,6 +50,7 @@ import {
 import { FileTypeIcon } from "./FileTypeIcon";
 import { ProviderMarks } from "./ProviderMarks";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getName } from "@tauri-apps/api/app";
 import { WindowControls } from "./WindowControls";
 import { IS_MAC, MOD, SHIFT } from "../lib/platform";
 import type { RecentProject } from "../lib/recents";
@@ -985,6 +986,18 @@ function TitleBarComponent({
     () => tabs.find((t) => t.id === activeId),
     [activeId, tabs],
   );
+  const [productName, setProductName] = useState<string | null>(null);
+  useEffect(() => {
+    let disposed = false;
+    void getName()
+      .catch(() => "Aven")
+      .then((name) => {
+        if (!disposed) setProductName(name === "Aven Dev" ? name : "Aven");
+      });
+    return () => {
+      disposed = true;
+    };
+  }, []);
   const systemTitle = useMemo(() => {
     const activeName = activeTab
       ? activeTab.files[0]
@@ -993,23 +1006,24 @@ function TitleBarComponent({
       : "";
     const project = cwd ? projectDisplayName(cwd, projectLabels) : "";
     if (activeName && project && activeName !== project) {
-      return `${activeName} — ${project} — Aven`;
+      return `${activeName} — ${project} — ${productName}`;
     }
     if (project) {
-      return `${project} — Aven`;
+      return `${project} — ${productName}`;
     }
-    return "Aven";
-  }, [activeTab, cwd, projectLabels]);
+    return productName ?? "Aven";
+  }, [activeTab, cwd, projectLabels, productName]);
 
   useEffect(() => {
-    if (paneLocal && !paneFocused) return;
+    // Keep the native startup title until we know which app owns this window.
+    if (!productName || (paneLocal && !paneFocused)) return;
     document.title = systemTitle;
     try {
       void getCurrentWindow()
         .setTitle(systemTitle)
         .catch(() => {});
     } catch {}
-  }, [systemTitle, paneLocal, paneFocused]);
+  }, [systemTitle, paneLocal, paneFocused, productName]);
 
   const contextTab = tabMenu ? sessionTabs.get(tabMenu.tabId) : undefined;
   const contextBrowser = tabMenu ? browsers.get(tabMenu.tabId) : undefined;

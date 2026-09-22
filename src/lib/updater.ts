@@ -1,4 +1,4 @@
-import { getVersion } from "@tauri-apps/api/app";
+import { getIdentifier, getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { message } from "@tauri-apps/plugin-dialog";
 import {
@@ -24,6 +24,8 @@ export type UpdaterPhase =
 export type UpdaterSnapshot = {
   phase: UpdaterPhase;
   currentVersion: string;
+  /** The isolated preview is updated from its source checkout. */
+  developmentBuild?: boolean;
   availableVersion?: string;
   progress?: number;
   error?: string;
@@ -31,6 +33,8 @@ export type UpdaterSnapshot = {
 
 export const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 export const UPDATE_FOCUS_THROTTLE_MS = 15 * 60 * 1000;
+const DEVELOPMENT_UPDATE_MESSAGE =
+  "Aven Dev runs from your source checkout. Rebuild and restart the development preview to use your latest changes.";
 let snapshot: UpdaterSnapshot = { phase: "idle", currentVersion: "…" };
 const listeners = new Set<() => void>();
 let pendingUpdate: Update | null = null;
@@ -39,6 +43,7 @@ let pendingInstalled = false;
 let checking: Promise<UpdaterSnapshot> | null = null;
 let installing: Promise<UpdaterSnapshot> | null = null;
 let lastAutomaticCheck = -Infinity;
+let developmentBuild = false;
 
 export function getUpdaterSnapshot(): UpdaterSnapshot {
   return snapshot;
@@ -65,9 +70,25 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+async function isDevelopmentApp(): Promise<boolean> {
+  try {
+    return (await getIdentifier()) === "com.capi.aven.dev";
+  } catch {
+    // Preserve the normal updater error path when native metadata is unavailable.
+    // Native debug builds also omit the updater plugin as an independent guard.
+    return false;
+  }
+}
+
 /** Download verifies the signed archive in the native plugin; never installs. */
 async function checkAndDownload(): Promise<UpdaterSnapshot> {
-  const currentVersion = await readAppVersion();
+  const [currentVersion, isDevelopment] = await Promise.all([
+    readAppVersion(),
+    isDevelopmentApp(),
+  ]);
+  developmentBuild = isDevelopment;
+  if (developmentBuild)
+    return publish({ phase: "idle", currentVersion, developmentBuild: true });
   if (IS_PERSONAL_BUILD) return publish({ phase: "idle", currentVersion });
   if (pendingUpdate && downloaded) return snapshot;
   publish({ phase: "checking", currentVersion });
@@ -171,11 +192,13 @@ export async function runUpdateFlow(
     ) {
       await message(
         result.phase === "idle"
-          ? PERSONAL_UPDATE_MESSAGE
+          ? developmentBuild
+            ? DEVELOPMENT_UPDATE_MESSAGE
+            : PERSONAL_UPDATE_MESSAGE
           : result.phase === "current"
             ? "You're on the latest version."
             : `Couldn't prepare the update.\n\n${result.error}`,
-        { title: "Aven" },
+        { title: developmentBuild ? "Aven Dev" : "Aven" },
       );
     }
     return result;

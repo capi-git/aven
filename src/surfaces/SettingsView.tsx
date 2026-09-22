@@ -210,6 +210,7 @@ import {
   getUpdaterSnapshot,
   subscribeUpdater,
 } from "../lib/updater";
+import { SkillsSettings } from "./SkillsSettings";
 
 type Props = {
   section: SettingsSectionId;
@@ -477,7 +478,9 @@ export function SettingsView({
               <span className="settings-scope-hint">
                 {section === "appearance"
                   ? "Workspace colors · device display preferences"
-                  : "Your preferences are saved automatically"}
+                  : section === "skills"
+                    ? "Project instructions · device tools"
+                    : "Your preferences are saved automatically"}
               </span>
             </div>
             {section === "general" ? (
@@ -488,6 +491,7 @@ export function SettingsView({
             ) : null}
             {section === "keybindings" ? <KeybindingsPage /> : null}
             {section === "providers" ? <ProvidersPage /> : null}
+            {section === "skills" ? <SkillsSettings cwd={cwd} /> : null}
             {section === "archive" ? (
               <ArchivePage
                 cwd={cwd}
@@ -1036,24 +1040,26 @@ function UpdateRow({
     else await runUpdateFlow(true);
   };
 
-  const status = IS_PERSONAL_BUILD
-    ? PERSONAL_UPDATE_DESCRIPTION
-    : snapshot.phase === "ready"
-      ? (snapshot.error ??
-        `Version ${snapshot.availableVersion} is downloaded and ready. Restart when your tasks are finished.`)
-      : snapshot.phase === "installing"
-        ? "Saving your workspace and restarting…"
-        : snapshot.phase === "available"
-          ? `Version ${snapshot.availableVersion} is available.`
-          : snapshot.phase === "downloading"
-            ? `Downloading${snapshot.progress != null ? ` ${snapshot.progress}%` : "…"}`
-            : snapshot.phase === "checking"
-              ? "Checking for updates…"
-              : snapshot.phase === "current"
-                ? "You're on the latest version."
-                : snapshot.phase === "error"
-                  ? (snapshot.error ?? "Update check failed.")
-                  : "Updates download automatically. You choose when to restart.";
+  const status = snapshot.developmentBuild
+    ? "Aven Dev runs from your source checkout. Rebuild and restart this preview to use your latest changes."
+    : IS_PERSONAL_BUILD
+      ? PERSONAL_UPDATE_DESCRIPTION
+      : snapshot.phase === "ready"
+        ? (snapshot.error ??
+          `Version ${snapshot.availableVersion} is downloaded and ready. Restart when your tasks are finished.`)
+        : snapshot.phase === "installing"
+          ? "Saving your workspace and restarting…"
+          : snapshot.phase === "available"
+            ? `Version ${snapshot.availableVersion} is available.`
+            : snapshot.phase === "downloading"
+              ? `Downloading${snapshot.progress != null ? ` ${snapshot.progress}%` : "…"}`
+              : snapshot.phase === "checking"
+                ? "Checking for updates…"
+                : snapshot.phase === "current"
+                  ? "You're on the latest version."
+                  : snapshot.phase === "error"
+                    ? (snapshot.error ?? "Update check failed.")
+                    : "Updates download automatically. You choose when to restart.";
 
   return (
     <Row
@@ -1083,11 +1089,13 @@ function UpdateRow({
           ) : (
             <RefreshCw className="size-3.5" strokeWidth={1.75} aria-hidden />
           )}
-          {IS_PERSONAL_BUILD
-            ? "Update information"
-            : hasUpdate
-              ? "Restart to update"
-              : "Check for updates"}
+          {snapshot.developmentBuild
+            ? "Development info"
+            : IS_PERSONAL_BUILD
+              ? "Update information"
+              : hasUpdate
+                ? "Restart to update"
+                : "Check for updates"}
         </SecondaryButton>
       </div>
     </Row>

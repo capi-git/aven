@@ -47,6 +47,8 @@ Agents can edit files and run commands according to the access mode you select. 
 
 Aven uses React, TypeScript, Rust, and Tauri. The macOS release also embeds Chromium. See the [Chromium build guide](docs/CHROMIUM.md) for prerequisites and build commands, and [release instructions](docs/RELEASING.md) for packaging.
 
+To work on Aven inside Aven, open this repository and run `npm run dev:app` in its terminal. The complete **Aven Dev** preview uses separate chats, settings and browser data while your installed app stays open. See [Develop Aven inside Aven](docs/DEVELOPMENT.md) for setup and checks. **Settings → Skills & Tools** lists reusable skills and reports readiness for built-in browser tools and optional desktop computer use.
+
 Bug reports and focused pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before making a larger change. Report vulnerabilities using the private process in [SECURITY.md](SECURITY.md).
 
 ## License and origins

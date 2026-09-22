@@ -80,6 +80,110 @@ describe("turn duration", () => {
   });
 });
 
+describe("approval lifetime", () => {
+  function waitingForApproval() {
+    let session = appendUser(newSession("codex", "/tmp"), "check it");
+    session = applyHarnessEvent(session, {
+      type: "tool.started",
+      callId: "shell-1",
+      title: "Run npm test",
+      kind: "execute",
+      status: "pending",
+    });
+    return applyHarnessEvent(session, {
+      type: "approval.requested",
+      requestId: 7,
+      callId: "shell-1",
+      title: "Run npm test",
+      kind: "execute",
+    });
+  }
+
+  it("cancels an unresolved request when its turn stops", () => {
+    const session = stopStreaming(waitingForApproval());
+    const tool = session.blocks.find(
+      (block) => block.tool?.callId === "shell-1",
+    );
+
+    expect(session.busy).toBe(false);
+    expect(tool).toMatchObject({
+      streaming: false,
+      tool: { status: "cancelled" },
+      approval: { requestId: 7, decided: "cancelled" },
+    });
+  });
+
+  it("cancels a stale request before a later turn is appended", () => {
+    const stale = { ...waitingForApproval(), busy: false };
+    const session = appendUser(stale, "continue");
+    const tool = session.blocks.find(
+      (block) => block.tool?.callId === "shell-1",
+    );
+
+    expect(tool?.approval).toEqual({ requestId: 7, decided: "cancelled" });
+    expect(session.blocks.at(-1)).toMatchObject({
+      role: "user",
+      text: "continue",
+    });
+  });
+
+  it("keeps a live request available during an in-flight steer", () => {
+    const session = appendSteerUser(waitingForApproval(), "also inspect the UI");
+
+    expect(session.busy).toBe(true);
+    expect(session.blocks.find((block) => block.tool?.callId === "shell-1"))
+      .toMatchObject({ approval: { requestId: 7 }, tool: { status: "pending" } });
+    expect(session.blocks.find((block) => block.approval)?.approval?.decided)
+      .toBeUndefined();
+  });
+
+  it("keeps completed tools and prior decisions intact while settling a failed turn", () => {
+    let session = applyHarnessEvent(waitingForApproval(), {
+      type: "tool.updated",
+      callId: "shell-1",
+      status: "completed",
+    });
+    session = applyHarnessEvent(session, {
+      type: "approval.requested",
+      requestId: 8,
+      title: "Another action",
+    });
+    session = applyHarnessEvent(session, {
+      type: "approval.resolved",
+      requestId: 8,
+      decision: "deny",
+    });
+    session = applyHarnessEvent(session, {
+      type: "session.error",
+      message: "Provider disconnected",
+    });
+
+    expect(session.blocks.find((block) => block.tool?.callId === "shell-1"))
+      .toMatchObject({
+        approval: { requestId: 7, decided: "cancelled" },
+        tool: { status: "completed" },
+      });
+    expect(session.blocks.find((block) => block.approval?.requestId === 8)
+      ?.approval?.decided).toBe("deny");
+    expect(session.blocks.at(-1)?.text).toBe("Provider disconnected");
+  });
+
+  it("removes an unresolved legacy standalone prompt when the turn stops", () => {
+    const session = stopStreaming({
+      ...newSession("codex", "/tmp"),
+      blocks: [{
+        id: "standalone-approval",
+        role: "approval",
+        text: "Permission needed",
+        approval: { requestId: 9 },
+      }],
+    });
+
+    expect(session.blocks.some((block) => block.approval?.requestId === 9))
+      .toBe(false);
+  });
+});
+
 describe("streamed markdown", () => {
   it("keeps heading breaks, tables, and doubled letters", () => {
     const chunks = [

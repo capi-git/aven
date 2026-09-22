@@ -1,5 +1,14 @@
 # Aven changelog
 
+## [0.1.85] - 2026-09-22
+
+### Build Aven in Aven
+
+- Add an isolated **Aven Dev** preview with its own chats, settings and Chromium profile, a prerequisite check, and a documented development workflow. Keep the installed host running while working on its source.
+- Add **Skills & Tools** settings to find and inspect reusable instructions, review built-in browser support, and check optional Peekaboo desktop-control availability and macOS permissions. Include a portable Aven computer-use skill.
+- Incorporate reviewed MonoCode fixes for stale approvals, editor file refresh, native Window menu registration, question keyboard navigation and additional syntax highlighting, preserving Aven's durable drafts and provider model support.
+- Consolidate pending reliability fixes for search, editor navigation, keyboard focus and nested dialog dismissal with the latest sidebar layout.
+
 ## [0.1.84] - 2026-09-22
 
 ### Sidebar controls that stay in place

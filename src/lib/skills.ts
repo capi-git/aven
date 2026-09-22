@@ -19,6 +19,11 @@ import {
   CREATE_SKILL_DESCRIPTION,
   CREATE_SKILL_NAME,
 } from "./createSkill";
+import {
+  COMPUTER_USE_SKILL_BODY,
+  COMPUTER_USE_SKILL_DESCRIPTION,
+  COMPUTER_USE_SKILL_NAME,
+} from "./computerUseSkill";
 
 export type SkillScope = "project" | "user" | "builtin";
 export type SkillSource =
@@ -69,6 +74,15 @@ export const BUILTIN_CREATE_SKILL: BuiltinSkill = {
   name: CREATE_SKILL_NAME,
   description: CREATE_SKILL_DESCRIPTION,
   invocation: CREATE_SKILL_NAME,
+  scope: "builtin",
+  source: "monocode",
+};
+
+export const BUILTIN_COMPUTER_USE_SKILL: BuiltinSkill = {
+  kind: "builtin",
+  name: COMPUTER_USE_SKILL_NAME,
+  description: COMPUTER_USE_SKILL_DESCRIPTION,
+  invocation: COMPUTER_USE_SKILL_NAME,
   scope: "builtin",
   source: "monocode",
 };
@@ -288,6 +302,7 @@ export function mergeCatalog(discovered: DiscoveredSkill[]): Skill[] {
     if (skill.source === "agents") add(asSkill(skill));
   }
   add(BUILTIN_CREATE_SKILL);
+  add(BUILTIN_COMPUTER_USE_SKILL);
   for (const skill of discovered) {
     if (skill.source !== "agents") add(asSkill(skill));
   }
@@ -468,11 +483,15 @@ export function injectSkillPrompt(
     seen.add(skill.name);
     const body = bodies[skill.name]?.trim();
     if (!body) continue;
-    blocks.push(`## /${skill.name}\n\n${body}`);
+    const origin =
+      skill.kind === "file"
+        ? `Skill file: ${skill.path}\nResolve relative resources from this file's directory.\n\n`
+        : "";
+    blocks.push(`## /${skill.name}\n\n${origin}${body}`);
   }
   if (blocks.length === 0) return text;
   return [
-    "The user invoked skill(s) with /name. Follow every instruction in each skill body.",
+    "The user invoked skill(s) with /name. Use each skill as task guidance, subject to the user's request and the host's higher-priority instructions.",
     "",
     blocks.join("\n\n"),
     "",
@@ -520,7 +539,11 @@ export function warmNativeSkills(
 export async function readSkillBody(
   skill: FileSkill | BuiltinSkill,
 ): Promise<string> {
-  if (skill.kind === "builtin") return CREATE_SKILL_BODY;
+  if (skill.kind === "builtin") {
+    return skill.name === COMPUTER_USE_SKILL_NAME
+      ? COMPUTER_USE_SKILL_BODY
+      : CREATE_SKILL_BODY;
+  }
   try {
     return await readTextFile(skill.path);
   } catch {

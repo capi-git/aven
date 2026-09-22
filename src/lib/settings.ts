@@ -3,7 +3,7 @@ import { ALT, IS_MAC, MOD, SHIFT } from "./platform";
 const SECTION_KEY = "monocode.settingsSection";
 
 export type SettingsSectionId =
-  "general" | "appearance" | "keybindings" | "providers" | "archive";
+  "general" | "appearance" | "keybindings" | "providers" | "skills" | "archive";
 
 export const SETTINGS_SECTIONS: {
   id: SettingsSectionId;
@@ -29,6 +29,12 @@ export const SETTINGS_SECTIONS: {
     id: "providers",
     label: "Providers",
     description: "Choose your agents, models, and defaults for new tasks.",
+  },
+  {
+    id: "skills",
+    label: "Skills & Tools",
+    description:
+      "Reusable instructions, browser tools, and optional desktop control.",
   },
   {
     id: "archive",

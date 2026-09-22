@@ -1,6 +1,7 @@
 use tauri::Manager;
 
 mod access_panel;
+mod agent_tools;
 #[cfg_attr(
     all(feature = "chromium", target_os = "macos"),
     path = "browser_chromium.rs"
@@ -188,14 +189,44 @@ fn open_new_window(app: tauri::AppHandle) -> Result<(), String> {
     window::open_new_window(&app)
 }
 
+#[cfg(debug_assertions)]
+pub(crate) const DEV_PRODUCT_NAME: &str = "Aven Dev";
+#[cfg(debug_assertions)]
+pub(crate) const DEV_BUNDLE_ID: &str = "com.capi.aven.dev";
+
+/// Enforce isolation in the binary, including when `tauri dev` is invoked
+/// without the development runner's configuration overlay.
+#[cfg(debug_assertions)]
+fn configure_development(config: &mut tauri::Config) {
+    config.identifier = DEV_BUNDLE_ID.into();
+    config.product_name = Some(DEV_PRODUCT_NAME.into());
+    config.version = Some(env!("CARGO_PKG_VERSION").into());
+    config.build.dev_url = Some("http://127.0.0.1:1420".parse().expect("fixed dev URL"));
+    for window in &mut config.app.windows {
+        window.title = DEV_PRODUCT_NAME.into();
+    }
+    config.plugins.0.remove("updater");
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(windows)]
     windows::initialize().expect("Failed to initialize Windows process safety");
-    let app = tauri::Builder::default()
+    let context = tauri::generate_context!();
+    #[cfg(debug_assertions)]
+    let context = {
+        let mut context = context;
+        configure_development(context.config_mut());
+        context.package_info_mut().name = DEV_PRODUCT_NAME.into();
+        context
+    };
+    let builder = tauri::Builder::default();
+    // A development binary must never download or install a production update.
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    let app = builder
         .plugin(shell_navigation::init())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(
@@ -212,7 +243,11 @@ pub fn run() {
         .manage(usage_panel::UsagePanelState::default())
         .manage(access_panel::AccessPanelState::default())
         .setup(|app| {
-            harness::reap_orphaned_harness_processes();
+            // The development app owns only the children it starts. Leave any
+            // process-wide recovery of production leftovers to the release app.
+            if !cfg!(debug_assertions) {
+                harness::reap_orphaned_harness_processes();
+            }
             session_store::init(app.handle())?;
             control::init(app.handle())?;
             checkpoint::init(app.handle())?;
@@ -363,6 +398,8 @@ pub fn run() {
             fs::read_text_file,
             fs::write_text_file,
             skills::list_skills,
+            agent_tools::agent_tool_status,
+            agent_tools::open_computer_use_settings,
             search::search_project,
             cursor_store::cursor_tool_calls,
             harness::harness_resolve_cursor,
@@ -446,7 +483,7 @@ pub fn run() {
             project_logo::remove_project_logo,
             project_logo::forget_logo_file,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building Aven");
 
     app.run(|handle, event| {
@@ -535,4 +572,46 @@ fn reap_harness_children(handle: &tauri::AppHandle) {
 #[cfg(all(debug_assertions, target_os = "macos"))]
 pub fn ensure_macos_dev_bundle() {
     macos::ensure_dev_bundle();
+}
+
+#[cfg(all(test, debug_assertions))]
+mod development_identity_tests {
+    use super::*;
+
+    #[test]
+    fn raw_debug_builds_override_production_storage_and_update_identity() {
+        let mut config: tauri::Config =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(config.identifier, "com.capi.monocode.personal");
+        assert!(config.plugins.0.contains_key("updater"));
+
+        configure_development(&mut config);
+
+        assert_eq!(config.identifier, "com.capi.aven.dev");
+        assert_eq!(config.product_name.as_deref(), Some("Aven Dev"));
+        assert_eq!(config.version.as_deref(), Some(env!("CARGO_PKG_VERSION")));
+        assert_eq!(
+            config.build.dev_url.as_ref().map(tauri::Url::as_str),
+            Some("http://127.0.0.1:1420/")
+        );
+        assert!(config
+            .app
+            .windows
+            .iter()
+            .all(|window| window.title == "Aven Dev"));
+        assert!(!config.plugins.0.contains_key("updater"));
+    }
+
+    #[test]
+    fn development_overlay_cannot_restore_a_release_identity() {
+        let mut config: tauri::Config =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        config.identifier = "com.monocode.desktop".into();
+        config.product_name = Some("CoveCode".into());
+
+        configure_development(&mut config);
+
+        assert_eq!(config.identifier, DEV_BUNDLE_ID);
+        assert_eq!(config.product_name.as_deref(), Some(DEV_PRODUCT_NAME));
+    }
 }

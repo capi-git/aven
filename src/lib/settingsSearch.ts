@@ -41,6 +41,30 @@ function setting(
 // Index actual controls and stable page/card anchors, never hidden child controls.
 const SETTINGS_SEARCH_ENTRIES: readonly SearchEntry[] = [
   setting(
+    "skills",
+    "Installed skills",
+    "Find reusable instructions from this project and your personal skills.",
+    "slash commands agents skill markdown create inspect",
+  ),
+  setting(
+    "skills",
+    "In-app browser",
+    "Browser tools are built into Aven and scoped to each task.",
+    "tools chromium web localhost automation",
+  ),
+  setting(
+    "skills",
+    "Desktop control",
+    "Check Peekaboo and macOS permissions for native computer use.",
+    "tools computer use accessibility screen recording permissions",
+  ),
+  setting(
+    "skills",
+    "Provider tools",
+    "Providers retain their own MCP servers, plugins, and command configuration.",
+    "mcp integration configuration native commands",
+  ),
+  setting(
     "general",
     "Default task access",
     "Choose the approval policy for new tasks.",

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { leaf, leafIds, type WorkspaceTab } from "./layout";
@@ -55,6 +55,7 @@ describe("detached workspace transactions", () => {
     sessions: Session[],
     returned: (state: DetachedWorkspaceState) => void | Promise<void>;
   const recents: [] = [];
+  const onError = vi.fn();
   const pageCleanups: Array<() => void> = [];
   const retainedIds = [
     "native-live-group",
@@ -66,6 +67,7 @@ describe("detached workspace transactions", () => {
       sessions,
       sessionProps: { recents, onSubmit: () => {} },
       onReturned: (state) => returned(state),
+      onError,
     });
     return null;
   }
@@ -79,6 +81,7 @@ describe("detached workspace transactions", () => {
       .mockImplementationOnce(() => new Promise((resolve) => { late = resolve; }));
     await render();
     await expect(api.open(state("a"))).rejects.toThrow("listener setup failed");
+    expect(onError).toHaveBeenCalledExactlyOnceWith("listener setup failed");
     expect(nativeWorkspaceWindow.open).not.toHaveBeenCalled();
     expect(cleanup).toHaveBeenCalledTimes(1);
     const releaseLate = vi.fn();late(releaseLate);await Promise.resolve();
@@ -90,11 +93,12 @@ describe("detached workspace transactions", () => {
     listeners = new Map();
     sessions = [session("a"), session("b")];
     returned = vi.fn();
+    onError.mockClear();
     vi.spyOn(nativeWorkspaceWindow, "listen").mockImplementation(
       async (name, fn) => {
         listeners.set(name, fn);
         return () => {
-          listeners.delete(name);
+          if (listeners.get(name) === fn) listeners.delete(name);
         };
       },
     );
@@ -121,6 +125,51 @@ describe("detached workspace transactions", () => {
     vi.clearAllTimers();
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+  it("keeps the active event bridge ready without reporting StrictMode cleanup", async () => {
+    await act(async () =>
+      root.render(createElement(StrictMode, null, createElement(Harness))),
+    );
+
+    expect(nativeWorkspaceWindow.listen).toHaveBeenCalledTimes(10);
+    expect(nativeWorkspaceWindow.list).toHaveBeenCalledOnce();
+    expect(listeners.size).toBe(5);
+    expect(onError).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await expect(api.open(state("a"))).resolves.toBe("window-a");
+    });
+    expect(api.windows).toEqual([{ id: "window-a", label: "a" }]);
+    await act(async () => {
+      listeners.get("workspace-window-returned")!({
+        id: "window-a",
+        state: state("a"),
+        pinned: false,
+        returnToken: "returned-a",
+      });
+    });
+    expect(returned).toHaveBeenCalledOnce();
+    expect(nativeWorkspaceWindow.ack).toHaveBeenCalledWith(
+      "returned-a",
+      state("a"),
+    );
+    expect(api.windows).toEqual([]);
+    expect(onError).not.toHaveBeenCalled();
+  });
+  it("ignores a superseded listener failure while the replacement owner remains usable", async () => {
+    vi.mocked(nativeWorkspaceWindow.listen).mockRejectedValueOnce(
+      new Error("stale listener setup failed"),
+    );
+    await act(async () =>
+      root.render(createElement(StrictMode, null, createElement(Harness))),
+    );
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(listeners.size).toBe(5);
+    await act(async () => {
+      await expect(api.open(state("b"))).resolves.toBe("window-b");
+    });
+    expect(api.windows).toEqual([{ id: "window-b", label: "b" }]);
   });
   it("keeps both split arrangements, mixed browser identities, and drafts when combining windows", () => {
     const a = state("a"),

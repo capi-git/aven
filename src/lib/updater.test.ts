@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   download: vi.fn(),
   install: vi.fn(),
   getVersion: vi.fn(),
+  getIdentifier: vi.fn(),
   message: vi.fn(),
   invoke: vi.fn(),
   prepare: vi.fn(),
@@ -13,7 +14,10 @@ const mocks = vi.hoisted(() => ({
   lockInput: vi.fn(),
   releaseInput: vi.fn(),
 }));
-vi.mock("@tauri-apps/api/app", () => ({ getVersion: mocks.getVersion }));
+vi.mock("@tauri-apps/api/app", () => ({
+  getVersion: mocks.getVersion,
+  getIdentifier: mocks.getIdentifier,
+}));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ message: mocks.message }));
 vi.mock("@tauri-apps/plugin-updater", () => ({ check: mocks.check }));
@@ -26,6 +30,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   vi.resetModules();
   mocks.getVersion.mockResolvedValue("0.1.79");
+  mocks.getIdentifier.mockResolvedValue("com.capi.monocode.personal");
   mocks.message.mockResolvedValue(undefined);
   mocks.invoke.mockResolvedValue(undefined);
   mocks.download.mockResolvedValue(undefined);
@@ -48,6 +53,75 @@ async function ready() {
   await updater.runUpdateFlow(false);
   return updater;
 }
+
+describe("isolated development updates", () => {
+  it("waits for native identity before touching the updater plugin", async () => {
+    let identify!: (identifier: string) => void;
+    mocks.getIdentifier
+      .mockResolvedValue("com.capi.aven.dev")
+      .mockImplementationOnce(
+        () =>
+          new Promise<string>((resolve) => {
+            identify = resolve;
+          }),
+      );
+    mocks.getVersion.mockResolvedValue("0.1.85");
+    const updater = await import("./updater");
+    const checking = updater.runUpdateFlow(false);
+    await vi.waitFor(() => expect(mocks.getIdentifier).toHaveBeenCalledOnce());
+    expect(mocks.check).not.toHaveBeenCalled();
+
+    identify("com.capi.aven.dev");
+
+    await expect(checking).resolves.toEqual({
+      phase: "idle",
+      currentVersion: "0.1.85",
+      developmentBuild: true,
+    });
+    await expect(updater.probeForUpdate()).resolves.toBeNull();
+    await updater.installPendingUpdate();
+    expect(mocks.check).not.toHaveBeenCalled();
+    expect(mocks.download).not.toHaveBeenCalled();
+    expect(mocks.install).not.toHaveBeenCalled();
+    expect(mocks.invoke).not.toHaveBeenCalled();
+    expect(mocks.message).not.toHaveBeenCalled();
+  });
+
+  it("explains source-based updates on a manual development check", async () => {
+    mocks.getIdentifier.mockResolvedValue("com.capi.aven.dev");
+    const updater = await import("./updater");
+
+    await expect(updater.runUpdateFlow(true)).resolves.toMatchObject({
+      phase: "idle",
+    });
+
+    expect(mocks.message).toHaveBeenCalledWith(
+      expect.stringContaining("Rebuild and restart the development preview"),
+      { title: "Aven Dev" },
+    );
+    expect(mocks.check).not.toHaveBeenCalled();
+  });
+
+  it("keeps startup and periodic development checks quiet", async () => {
+    vi.useFakeTimers();
+    mocks.getIdentifier.mockResolvedValue("com.capi.aven.dev");
+    const updater = await import("./updater");
+    const stop = updater.startAutomaticUpdates(window);
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(updater.UPDATE_CHECK_INTERVAL_MS);
+    window.dispatchEvent(new Event("focus"));
+    await vi.advanceTimersByTimeAsync(0);
+    stop();
+
+    expect(updater.getUpdaterSnapshot()).toEqual({
+      phase: "idle",
+      currentVersion: "0.1.79",
+      developmentBuild: true,
+    });
+    expect(mocks.check).not.toHaveBeenCalled();
+    expect(mocks.message).not.toHaveBeenCalled();
+  });
+});
 
 describe("automatic signed update staging", () => {
   it("downloads an available update without installing or restarting", async () => {

@@ -1,14 +1,17 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getVersion, check, message, ask, relaunch } = vi.hoisted(() => ({
-  getVersion: vi.fn(),
-  check: vi.fn(),
-  message: vi.fn(),
-  ask: vi.fn(),
-  relaunch: vi.fn(),
-}));
+const { getVersion, getIdentifier, check, message, ask, relaunch } = vi.hoisted(
+  () => ({
+    getVersion: vi.fn(),
+    getIdentifier: vi.fn(),
+    check: vi.fn(),
+    message: vi.fn(),
+    ask: vi.fn(),
+    relaunch: vi.fn(),
+  }),
+);
 
-vi.mock("@tauri-apps/api/app", () => ({ getVersion }));
+vi.mock("@tauri-apps/api/app", () => ({ getVersion, getIdentifier }));
 vi.mock("@tauri-apps/plugin-updater", () => ({ check }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ ask, message }));
 vi.mock("@tauri-apps/plugin-process", () => ({ relaunch }));
@@ -19,6 +22,9 @@ vi.mock("./sounds", () => ({ announceUpdateAvailable: vi.fn() }));
 import { runUpdateFlow } from "./updater";
 
 describe("updater", () => {
+  beforeEach(() => {
+    getIdentifier.mockResolvedValue("com.capi.monocode.personal");
+  });
   afterEach(() => {
     vi.resetAllMocks();
   });

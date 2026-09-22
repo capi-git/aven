@@ -460,9 +460,12 @@ export function useDetachedWorkspaces(options: Options) {
       if (disposed) throw new Error("The workspace owner was disposed.");
       for (const entry of await nativeWorkspaceWindow.list()) accept(entry);
     });
-    // Report without converting a failed setup into successful readiness.
-    // open/return callers must not act without their event bridge.
-    void ready.current.catch(report);
+    // Report live failures without converting them into successful readiness.
+    // A disposed setup can finish after StrictMode installs its replacement;
+    // its cancellation is not a failure of the current workspace owner.
+    void ready.current.catch((reason) => {
+      if (!disposed) report(reason);
+    });
     cleanups.push(
       registerWorkspaceDraftFlusher(async () => {
         await ready.current;
@@ -472,6 +475,7 @@ export function useDetachedWorkspaces(options: Options) {
     return () => {
       disposed = true;
       clearTimeout(streamTimer.current);
+      streamTimer.current = undefined;
       for (const request of pending.current.values()) {
         clearTimeout(request.timer);
         request.reject(new Error("The workspace owner was disposed before return completed."));

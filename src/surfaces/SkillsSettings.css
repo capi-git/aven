@@ -1,0 +1,278 @@
+.skills-settings {
+  min-width: 0;
+  container: skills-settings / inline-size;
+}
+.skills-settings .settings-group-surface {
+  padding: 0;
+}
+.skills-tool {
+  padding: 19px 21px;
+  scroll-margin-block: 30px;
+}
+.skills-tool + .skills-tool {
+  border-top: 1px solid color-mix(in srgb, var(--color-content) 7%, transparent);
+}
+.skills-tool-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 9px 16px;
+}
+.skills-tool h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+}
+.skills-tool p {
+  font-size: 12px;
+  line-height: 1.65;
+  margin: 9px 0 0;
+  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+}
+.skills-tool code {
+  font-size: 11px;
+  color: var(--color-content);
+}
+.skills-status {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 10px;
+  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+  background: color-mix(in srgb, var(--color-content) 6%, transparent);
+}
+.skills-status[data-state="ready"] {
+  background: color-mix(in srgb, var(--color-accent) 13%, transparent);
+  color: var(--color-accent);
+}
+.skills-status[data-state="permissionsRequired"],
+.skills-status[data-state="unverified"] {
+  color: var(--color-content);
+}
+.skills-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 13px;
+}
+.skills-settings .settings-button,
+.skills-inspector .settings-button,
+.skills-new-form .settings-button {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+}
+.skills-permissions {
+  display: grid;
+  gap: 7px;
+  list-style: none;
+  margin: 13px 0;
+  padding: 0;
+  font-size: 11px;
+}
+.skills-permissions li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+}
+.skills-permissions strong {
+  font-weight: 500;
+  color: var(--color-content);
+}
+.skills-note {
+  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.skills-error {
+  color: var(--color-content);
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--color-content) 6%, transparent);
+  border-radius: 8px;
+}
+.skills-setup {
+  margin-top: 16px;
+  font-size: 12px;
+}
+.skills-setup summary {
+  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+  cursor: pointer;
+  padding: 4px 0;
+  width: fit-content;
+}
+.skills-setup > div {
+  margin-top: 8px;
+}
+.skills-command {
+  display: block;
+  padding: 10px 12px;
+  margin-top: 8px;
+  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+  border-radius: 7px;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.skills-text-button {
+  padding: 0;
+  margin-top: 12px;
+  color: var(--color-accent);
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.skills-path {
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.skills-catalog-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 16px 18px 8px;
+}
+.skills-search {
+  flex: 1;
+  min-width: 150px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+  padding: 7px 10px;
+  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+}
+.skills-search input {
+  width: 100%;
+  min-width: 0;
+  outline: none;
+  background: none;
+  color: var(--color-content);
+  font-size: 12px;
+}
+.skills-context {
+  padding: 0 18px;
+  margin: 5px 0 12px;
+  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.skills-context span {
+  user-select: text;
+}
+.skills-list {
+  max-height: 420px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 8px 8px;
+}
+.skills-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  padding: 12px 10px;
+  text-align: left;
+  border-radius: 8px;
+}
+.skills-item:hover {
+  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+}
+.skills-item-copy {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.skills-item-copy strong {
+  color: var(--color-content);
+  font-size: 12px;
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.skills-item-copy > span {
+  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.skills-item-source {
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+  font-size: 10px;
+}
+.skills-empty {
+  padding: 22px 10px;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+}
+.skills-catalog-footer {
+  margin: 0;
+  padding: 12px 18px 17px;
+  border-top: 1px solid color-mix(in srgb, var(--color-content) 6%, transparent);
+}
+.skills-inspector {
+  max-height: min(760px, 80vh);
+}
+.skills-instructions {
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 54vh;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--color-content);
+  user-select: text;
+}
+.skills-new-form {
+  display: grid;
+  gap: 15px;
+}
+.skills-new-form label {
+  display: grid;
+  gap: 7px;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+}
+.skills-new-form input,
+.skills-new-form select {
+  color: var(--color-content);
+  background: var(--color-background-base);
+  border: 1px solid color-mix(in srgb, var(--color-content) 12%, transparent);
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+.skills-settings :is(button, summary, input, [tabindex]):focus-visible,
+.skills-inspector :is(button, pre):focus-visible,
+.skills-new-form :is(input, select, button):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+.skills-search:focus-within {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+@container skills-settings (max-width: 640px) {
+  .skills-tool {
+    padding: 16px;
+  }
+  .skills-item {
+    flex-direction: column;
+    gap: 6px;
+  }
+  .skills-item-source {
+    font-size: 10px;
+  }
+  .skills-list {
+    max-height: 360px;
+  }
+}

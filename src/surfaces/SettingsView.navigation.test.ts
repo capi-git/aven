@@ -33,6 +33,7 @@ vi.mock("@tauri-apps/api/webview", () => ({
 const idleUpdate = vi.hoisted(() => ({
   phase: "current",
   currentVersion: "0.1.80",
+  developmentBuild: false,
 }));
 vi.mock("../lib/updater", () => ({
   getUpdaterSnapshot: () => idleUpdate,
@@ -174,6 +175,21 @@ function result(label: string) {
 }
 
 describe("settings navigation", () => {
+  it("describes source rebuilds rather than automatic releases in Aven Dev", async () => {
+    idleUpdate.developmentBuild = true;
+    try {
+      await mount();
+      const version = container.querySelector("#setting-version")!;
+      expect(version.textContent).toContain("Rebuild and restart this preview");
+      expect(version.textContent).toContain("Development info");
+      expect(version.textContent).not.toContain(
+        "Updates download automatically",
+      );
+      expect(version.textContent).not.toContain("Check for updates");
+    } finally {
+      idleUpdate.developmentBuild = false;
+    }
+  });
   it("opens a searched category and places keyboard focus at the requested setting", async () => {
     await mount();
     await search("match sidebars");

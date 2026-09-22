@@ -92,10 +92,10 @@ export CEF_BUILD_DIR="$PWD/target/chromium"
 ./scripts/build-chromium.sh
 npm run check:web
 cargo test --locked -p monocode --lib
-npm run tauri -- dev
+npm run dev:app
 ```
 
-A development window is useful for interface work. Check final browser, helper, signing, and restart behavior in the packaged Chromium app before distributing a release. `npm run dev` by itself serves the frontend and does not supply the native desktop APIs.
+The runner opens a complete **Aven Dev** bundle with separate application data and a packaged Chromium runtime. See [DEVELOPMENT.md](DEVELOPMENT.md) for developing Aven inside your installed Aven. Check final browser, helper, signing, and restart behavior in the packaged release before distributing it. `npm run dev` by itself serves the frontend and does not supply the native desktop APIs.
 
 ### Agent preview routing
 

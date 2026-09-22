@@ -31,6 +31,19 @@ pub fn list_skills(cwd: String) -> Result<Vec<DiscoveredSkill>, String> {
 pub(crate) fn list_skills_from(project: &Path, home: Option<&Path>) -> Vec<DiscoveredSkill> {
     let mut by_name: HashMap<String, DiscoveredSkill> = HashMap::new();
     let mut seen_roots: HashSet<PathBuf> = HashSet::new();
+    // A projectless workspace can use the home directory as its cwd. Its
+    // .agents and provider folders remain personal, even through a symlink.
+    let project_scope = if home.is_some_and(|home| {
+        project == home
+            || matches!(
+                (std::fs::canonicalize(project), std::fs::canonicalize(home)),
+                (Ok(project), Ok(home)) if project == home
+            )
+    }) {
+        "user"
+    } else {
+        "project"
+    };
 
     let mut add_root = |root: PathBuf, scope: &str, source: &str| {
         if by_name.len() >= MAX_SKILLS {
@@ -49,7 +62,7 @@ pub(crate) fn list_skills_from(project: &Path, home: Option<&Path>) -> Vec<Disco
     };
 
     // Highest priority first so later roots cannot replace a name.
-    add_root(project.join(".agents/skills"), "project", "agents");
+    add_root(project.join(".agents/skills"), project_scope, "agents");
     if let Some(home) = home {
         add_root(home.join(".agents/skills"), "user", "agents");
     }
@@ -64,7 +77,7 @@ pub(crate) fn list_skills_from(project: &Path, home: Option<&Path>) -> Vec<Disco
         (".fx/skills", "fx"),
         (".grok/skills", "grok"),
     ] {
-        add_root(project.join(dir), "project", source);
+        add_root(project.join(dir), project_scope, source);
         if let Some(home) = home {
             add_root(home.join(dir), "user", source);
         }
@@ -520,6 +533,51 @@ mod tests {
         let (name, desc) = parse_frontmatter("# no yaml\n", "create-skill");
         assert_eq!(name, "create-skill");
         assert_eq!(desc, "");
+    }
+
+    #[test]
+    fn home_workspace_skills_are_personal_without_duplicates() {
+        let home = tmp("personal-cwd");
+        for (folder, name) in [(".agents/skills", "shared"), (".codex/skills", "provider")] {
+            write_skill(&home.0.join(folder), name, "# Instructions");
+        }
+        let skills = list_skills_from(&home.0, Some(&home.0));
+        assert_eq!(skills.len(), 2);
+        assert!(skills.iter().all(|skill| skill.scope == "user"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_to_home_is_personal_but_a_nested_project_stays_project_scoped() {
+        let home = tmp("personal-real-home");
+        let links = tmp("personal-home-link");
+        let alias = links.0.join("home");
+        std::os::unix::fs::symlink(&home.0, &alias).unwrap();
+        write_skill(&home.0.join(".agents/skills"), "shared", "# Personal");
+        let skills = list_skills_from(&alias, Some(&home.0));
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].scope, "user");
+
+        let project = home.0.join("projects/example");
+        write_skill(&project.join(".agents/skills"), "local", "# Project");
+        let skills = list_skills_from(&project, Some(&home.0));
+        assert_eq!(skills.len(), 2);
+        assert_eq!(
+            skills
+                .iter()
+                .find(|skill| skill.name == "shared")
+                .unwrap()
+                .scope,
+            "user"
+        );
+        assert_eq!(
+            skills
+                .iter()
+                .find(|skill| skill.name == "local")
+                .unwrap()
+                .scope,
+            "project"
+        );
     }
 
     #[test]
