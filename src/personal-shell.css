@@ -10,6 +10,21 @@
     hsl(var(--theme-hue, 218) var(--theme-saturation, 8%) 5%)
   );
   --personal-sidebar-surface: var(--personal-frame);
+  --personal-navigation-surface: color-mix(
+    in srgb,
+    var(--personal-frame) 93%,
+    var(--color-content)
+  );
+  --personal-sidebar-glass-surface: color-mix(
+    in srgb,
+    var(--color-content) 7%,
+    transparent
+  );
+  --personal-sidebar-edge: color-mix(
+    in srgb,
+    var(--color-content) 12%,
+    transparent
+  );
   --personal-accent: var(
     --theme-accent-color,
     hsl(var(--theme-hue, 218) 38% 66%)
@@ -68,7 +83,7 @@ html.theme-light .personal-shell {
   background: var(--personal-frame);
 }
 
-/* One translucent window layer avoids multiplying alpha across nested panels.
+/* The window owns the base translucency; navigation adds a light foreground tint.
    Floating panels stay solid unless workspace matching is explicitly enabled. */
 html.has-native-glass:not(.theme-light) .personal-shell {
   --personal-window-opacity: var(--sidebar-opacity, 1);
@@ -76,19 +91,29 @@ html.has-native-glass:not(.theme-light) .personal-shell {
 
 html.match-workspace-panels .personal-shell {
   --personal-sidebar-surface: var(--personal-main-surface);
+  --personal-navigation-surface: var(--personal-main-surface);
+  --personal-sidebar-glass-surface: transparent;
   --personal-docked-panel-surface: var(--personal-main-surface);
 }
 
 html.has-native-glass.glass-body.match-workspace-panels:not(.theme-light)
   .personal-shell {
   --personal-sidebar-surface: transparent;
+  --personal-navigation-surface: transparent;
   --personal-docked-panel-surface: transparent;
 }
 
 html.has-native-glass:not(.theme-light)
   .personal-shell
   .personal-sidebar-slot:not([data-floating="true"])
-  > .personal-sidebar.sidebar-glass,
+  > .personal-sidebar.sidebar-glass {
+  /* Tint the existing glass layer instead of stacking another opaque surface. */
+  background: var(
+    --personal-docked-panel-surface,
+    var(--personal-sidebar-glass-surface)
+  );
+}
+
 html.has-native-glass:not(.theme-light)
   .personal-shell
   .personal-inspector-slot:not([data-floating="true"])
@@ -143,7 +168,9 @@ html.has-native-glass.glass-body:not(.theme-light)
 }
 
 .personal-shell .personal-sidebar-slot > .personal-sidebar.sidebar-glass {
-  background: var(--personal-sidebar-surface);
+  background: var(--personal-navigation-surface);
+  /* Paint inside the panel so its width and the native browser bounds stay put. */
+  box-shadow: inset -1px 0 var(--personal-sidebar-edge);
 }
 
 .personal-shell .personal-inspector-slot {
@@ -333,6 +360,7 @@ html.has-native-glass.glass-body:not(.theme-light)
   > .personal-sidebar {
   inset: 5px auto 5px 5px;
   height: calc(100% - 10px);
+  background: var(--personal-navigation-surface);
 }
 .personal-shell
   .personal-inspector-slot[data-floating="true"]

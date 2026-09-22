@@ -1,5 +1,12 @@
 # Aven changelog
 
+## [0.1.83] - 2026-09-22
+
+### Clearer sidebar separation
+
+- Give the workspace sidebar a theme-aware surface tint and a subtle inner edge so it stays distinct from the main area, including Graphite and transparent macOS windows.
+- Preserve matched-sidebar backgrounds, floating-panel behavior, and existing panel dimensions.
+
 ## [0.1.82] - 2026-09-22
 
 ### A consistent workspace
