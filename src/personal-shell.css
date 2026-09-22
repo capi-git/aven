@@ -23,6 +23,20 @@
     var(--personal-highlight) 11%,
     transparent
   );
+  --aven-muted: var(--personal-muted);
+  --aven-line: var(--personal-line);
+  --aven-hover: var(--personal-hover);
+  --aven-selected: var(--personal-selected);
+  --aven-raised: color-mix(
+    in srgb,
+    var(--personal-main-surface) 96%,
+    var(--color-content)
+  );
+  --aven-popup: color-mix(
+    in srgb,
+    var(--personal-main-surface) 94%,
+    var(--color-content)
+  );
   --personal-panel-duration: 120ms;
   --color-accent: var(--personal-accent);
   --color-background-base: var(--personal-main-surface);
@@ -89,10 +103,11 @@ html.has-native-glass.glass-body:not(.theme-light)
 }
 
 .personal-shell .personal-main.body-glass {
-  margin: 0 6px;
+  margin: 0 8px;
   min-width: 0;
-  border: 1px solid var(--personal-line);
-  border-radius: 12px;
+  border: 1px solid transparent;
+  border-radius: 16px;
+  box-shadow: 0 3px 20px #0000000d;
   overflow: hidden;
   background: var(--personal-main-surface);
 }
@@ -553,33 +568,6 @@ html.theme-light .personal-shell .personal-inspector-dock {
 }
 html.theme-light .personal-shell .workspace-inspector {
   background: var(--personal-docked-panel-surface, transparent);
-}
-html.theme-light .personal-shell .workspace-inspector-header {
-  min-height: 32px;
-  padding: 2px 8px;
-  gap: 4px;
-  border-bottom: 0;
-}
-html.theme-light .personal-shell .workspace-inspector-tab {
-  min-height: 23px;
-  border: 1px solid transparent;
-  border-radius: 12px;
-  padding: 2px 10px;
-  font-size: 11px;
-}
-html.theme-light
-  .personal-shell
-  .workspace-inspector-tab[aria-selected="true"] {
-  border-color: color-mix(in srgb, var(--color-content) 8%, transparent);
-  background: color-mix(in srgb, var(--color-content) 3%, transparent);
-}
-html.theme-light .personal-shell .workspace-inspector-close {
-  width: 23px;
-  height: 23px;
-}
-html.theme-light .personal-shell .workspace-inspector-placeholder {
-  padding: 18px 14px;
-  font-size: 11px;
 }
 @media (max-width: 1050px) {
   html.theme-light .personal-shell .workspace-status-bar {

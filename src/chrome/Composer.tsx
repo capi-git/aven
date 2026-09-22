@@ -1274,7 +1274,7 @@ export function Composer({
           )}
 
           {attachments.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5 px-3 pt-2">
+            <div className="personal-composer-attachments flex flex-wrap gap-1.5 px-3 pt-2">
               {attachments.map((file) => (
                 <AttachmentChip
                   key={file.id}

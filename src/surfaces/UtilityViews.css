@@ -1,0 +1,80 @@
+/* Utility views share the same controls and selection language as the workspace.
+   Keep pane and native titlebar geometry unchanged. */
+:is([data-app-notes], [data-app-search], [data-app-inbox]) {
+  container-type: inline-size;
+}
+:is([data-app-notes], [data-app-search], [data-app-inbox])
+  > [data-tauri-drag-region] {
+  border-color: var(--aven-line);
+}
+:is([data-app-notes], [data-app-inbox]) input[placeholder^="Filter"],
+[data-app-search] input[aria-label="Search"] {
+  min-height: 28px;
+  border-radius: 9px;
+  background: var(--aven-hover);
+}
+[data-app-search] input[aria-label="Search"] {
+  padding: 4px 10px;
+}
+:is([data-app-notes], [data-app-search], [data-app-inbox]) input::placeholder {
+  color: var(--aven-muted);
+}
+.utility-list-card,
+[data-app-inbox] [data-utility-card] {
+  border-color: transparent;
+  border-radius: 10px;
+  padding: 11px 12px;
+}
+.utility-list-card[aria-current="true"],
+[data-app-inbox] [data-utility-card][aria-current="true"],
+[data-app-search] [role="option"][aria-selected="true"] {
+  background: var(--aven-selected);
+}
+.utility-list-card > span:last-child:not(:first-child) {
+  color: var(--aven-muted);
+}
+[data-app-search] [role="option"] {
+  min-height: 36px;
+  border-radius: 9px;
+  padding-inline: 10px;
+}
+[data-app-search] button[aria-pressed] {
+  border-radius: 8px;
+  padding-inline: 10px;
+  color: var(--aven-muted);
+}
+[data-app-search] button[aria-pressed="true"] {
+  color: var(--color-content);
+  background: var(--aven-selected);
+}
+.note-detail-content {
+  max-width: 880px;
+  padding: 28px 32px;
+}
+.note-detail-content input[aria-label="Note title"] {
+  font-size: 26px;
+  letter-spacing: -0.025em;
+}
+.note-detail-content header button {
+  height: 30px;
+  border-radius: 9px;
+}
+.file-editor-status {
+  border-color: var(--aven-line);
+  color: var(--aven-muted);
+  font-size: 11px;
+  gap: 12px;
+}
+:is([data-app-notes], [data-app-search], [data-app-inbox])
+  button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+@container (max-width: 680px) {
+  .note-detail-content {
+    padding: 20px 18px;
+  }
+  .note-detail-content input[aria-label="Note title"] {
+    font-size: 22px;
+  }
+}

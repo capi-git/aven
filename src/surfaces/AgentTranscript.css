@@ -1,195 +1,265 @@
-/* A single reading lane shares the composer's center. Keep the scroll and
-   folded-work lifecycle in MonoCode; these rules only shape the visible rows. */
+/* One reading lane in either appearance. Keep transcript scrolling, anchoring,
+   code overflow, and live phase geometry owned by the existing components. */
 .personal-shell .agent-transcript {
+  container: personal-transcript / inline-size;
   font-family: var(--font-sans);
-  font-size: 13px;
-  line-height: 22px;
+  font-size: 14px;
+  line-height: 23px;
 }
-
 .personal-shell .personal-transcript-content {
-  max-width: 760px;
+  max-width: 800px;
   min-height: 100%;
   justify-content: flex-end;
-  gap: 20px;
-  padding-block: 28px 8px;
+  gap: 22px;
+  padding-block: 30px 10px;
 }
-
 .personal-shell .personal-transcript-response .agent-markdown {
-  font-size: 13px;
-  line-height: 22px;
+  font-size: 14px;
+  line-height: 23px;
+  letter-spacing: -0.006em;
 }
-
-/* The hardening plugin wraps each top-level block in a direction div with
-   display: contents. Put spacing on the paragraph, not that boxless wrapper;
-   list and blockquote paragraphs remain outside these direct-child paths. */
+/* The hardening plugin uses display:contents direction wrappers. Paragraph
+   spacing belongs to the visible block, not the wrapper or nested lists. */
 .personal-shell .personal-transcript-response .agent-markdown > p + p,
 .personal-shell
   .personal-transcript-response
   .agent-markdown
   > div[dir]:not(:first-child)
   > p {
-  margin-block-start: 16px;
+  margin-block-start: 15px;
 }
-
 .personal-shell .personal-transcript-response .agent-markdown p,
 .personal-shell .personal-transcript-response .agent-markdown li {
-  color: color-mix(in srgb, var(--color-content) 94%, transparent);
+  color: color-mix(in srgb, var(--color-content) 92%, transparent);
 }
-
+.personal-shell
+  .personal-transcript-response
+  .agent-markdown
+  :is(h1, h2, h3, h4) {
+  letter-spacing: -0.025em;
+  font-weight: 600;
+  color: var(--color-content);
+}
+.personal-shell .personal-transcript-response .agent-markdown blockquote {
+  border-left-color: color-mix(
+    in srgb,
+    var(--personal-accent) 45%,
+    transparent
+  );
+  color: color-mix(in srgb, var(--color-content) 75%, transparent);
+}
 .personal-shell .personal-transcript-notice {
-  padding-block: 10px;
-  font-size: 11px;
-  line-height: 18px;
-  color: color-mix(in srgb, var(--color-content) 55%, transparent);
+  margin-inline: 16px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-content) 3%, transparent);
+  font-size: 12px;
+  line-height: 19px;
+  color: color-mix(in srgb, var(--color-content) 66%, transparent);
 }
-
 .personal-shell .personal-transcript-notice > pre {
   font-family: inherit;
   overflow-wrap: anywhere;
 }
-
 .personal-shell .personal-user-message {
-  padding: 8px 16px 22px;
+  padding: 8px 16px 18px;
 }
-
 .personal-shell .personal-user-message[data-message-layout="chat"] {
-  padding-left: 56px;
+  padding-left: 64px;
 }
-
 .personal-shell .personal-user-bubble {
-  border: 1px solid color-mix(in srgb, var(--color-content) 16%, transparent);
-  border-radius: 14px;
-  padding: 10px 14px;
-  background: color-mix(in srgb, var(--personal-main-surface) 88%, transparent);
-  box-shadow: none;
+  border: 1px solid transparent;
+  border-radius: 15px;
+  padding: 11px 15px;
+  background: color-mix(
+    in srgb,
+    var(--personal-accent) 7%,
+    color-mix(in srgb, var(--personal-main-surface) 88%, transparent)
+  );
+  box-shadow: inset 0 1px 0
+    color-mix(in srgb, var(--color-content) 3%, transparent);
 }
-
 .personal-shell
   .personal-user-message[data-message-layout="chat"]
   .personal-user-bubble {
-  max-width: min(560px, 100%);
+  max-width: min(580px, 100%);
+  border-bottom-right-radius: 6px;
 }
-
 .personal-shell .personal-user-bubble > pre {
-  font-size: 13px;
-  line-height: 22px;
+  font-size: 14px;
+  line-height: 23px;
+  letter-spacing: -0.006em;
 }
-
-/* The work summary remains the same accessible disclosure. Short separators
-   and smaller type let completed work recede without hiding its control. */
+.personal-shell .personal-message-attachments {
+  gap: 8px;
+  align-items: center;
+}
+.personal-shell .personal-message-attachments img {
+  border-radius: 8px;
+}
+/* Completed work stays discoverable without competing with the answer. */
 .personal-shell .personal-work-fold {
-  gap: 10px;
-  padding-block: 12px;
+  gap: 8px;
+  padding-block: 10px;
+  color: color-mix(in srgb, var(--color-content) 64%, transparent);
 }
-
 .personal-shell .personal-work-fold::before,
 .personal-shell .personal-work-fold::after {
   content: "";
   flex: 1 1 24px;
   height: 1px;
-  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+  background: color-mix(in srgb, var(--color-content) 6%, transparent);
 }
-
 .personal-shell .personal-work-fold::before {
   order: 0;
 }
-
 .personal-shell .personal-work-fold > :last-child {
   order: 1;
   flex: 0 1 auto;
   font-size: 11px;
   line-height: 18px;
 }
-
+.personal-shell .personal-work-fold > :last-child:not(.shimmer-text) {
+  color: color-mix(in srgb, var(--color-content) 62%, transparent);
+}
 .personal-shell .personal-work-fold > .personal-work-mark {
   order: 2;
-  color: color-mix(in srgb, var(--color-content) 48%, transparent);
+  color: color-mix(in srgb, var(--color-content) 60%, transparent);
 }
-
 .personal-shell .personal-work-fold::after {
   order: 3;
 }
-
-.personal-shell .personal-work-fold:focus-visible {
-  outline: 1px solid var(--personal-accent);
-  outline-offset: -4px;
-  border-radius: 8px;
+.personal-shell .personal-work-fold:hover > :last-child:not(.shimmer-text) {
+  color: var(--color-content);
 }
-
+.personal-shell .personal-work-fold:focus-visible {
+  outline: 2px solid var(--personal-accent);
+  outline-offset: -4px;
+  border-radius: 9px;
+}
+/* Tool groups use a quiet surface; the original disclosure and live scroller
+   remain unchanged, including always-open pending approvals. */
+.personal-shell .personal-activity-phases {
+  gap: 7px;
+}
+.personal-shell .personal-activity-phase {
+  padding: 6px 10px;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--color-content) 3%, transparent);
+}
+.personal-shell .personal-activity-phase > button {
+  min-height: 30px;
+  gap: 8px;
+}
+.personal-shell .personal-activity-phase > button > :last-child,
+.personal-shell .personal-activity-line > span:last-child {
+  font-size: 12px;
+  line-height: 20px;
+}
+.personal-shell
+  .personal-activity-phase
+  > button
+  > :last-child:not(.shimmer-text),
+.personal-shell .personal-activity-line > span:last-child:not(.shimmer-text) {
+  color: color-mix(in srgb, var(--color-content) 70%, transparent);
+}
+.personal-shell
+  .personal-activity-phase
+  > button:hover
+  > :last-child:not(.shimmer-text) {
+  color: var(--color-content);
+}
+.personal-shell .personal-activity-line {
+  padding: 2px 10px;
+}
+.personal-shell .personal-tool-call > pre {
+  margin-block: 6px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  color: color-mix(in srgb, var(--color-content) 75%, transparent);
+  font-size: 12px;
+  line-height: 20px;
+}
+.personal-shell .personal-tool-approval {
+  gap: 7px;
+  padding-block: 4px;
+}
+.personal-shell .personal-tool-approval > button {
+  min-height: 29px;
+  padding: 5px 11px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.personal-shell .personal-activity-phase button:focus-visible,
+.personal-shell .personal-activity-line button:focus-visible,
+.personal-shell .personal-tool-call button:focus-visible {
+  outline: 2px solid var(--personal-accent);
+  outline-offset: 2px;
+}
 .personal-shell .personal-turn-receipt {
-  padding-top: 12px;
-  padding-bottom: 14px;
+  padding-top: 11px;
+  padding-bottom: 13px;
   gap: 8px;
   font-size: 11px;
   line-height: 18px;
+  color: color-mix(in srgb, var(--color-content) 58%, transparent);
 }
-
 .personal-shell .personal-turn-receipt::after {
   content: "";
   flex: 1;
   height: 1px;
-  background: color-mix(in srgb, var(--color-content) 7%, transparent);
+  background: color-mix(in srgb, var(--color-content) 6%, transparent);
 }
-
-.personal-shell .personal-session-composer-dock {
-  max-width: 792px;
-  padding: 4px 16px 16px;
-}
-
-@container (max-width: 480px) {
-  .personal-shell .personal-user-message[data-message-layout="chat"] {
-    padding-left: 28px;
-  }
-
-  .personal-shell .personal-transcript-content {
-    padding-top: 16px;
-  }
-}
-
-/* Query only the reading surface, not its wallpaper-bearing ancestors. This
-   leaves the shared background coordinates and split geometry unchanged. */
-html.theme-light .personal-shell .agent-transcript {
-  container: personal-transcript / inline-size;
-  font-size: 14px;
-  line-height: 22px;
-}
-
-html.theme-light .personal-shell .personal-transcript-content {
-  width: calc(100% - 48px);
-  max-width: 920px;
-  gap: 24px;
-  padding-block: 24px 12px;
-}
-
-html.theme-light .personal-shell .personal-transcript-response {
-  padding-inline: 0;
-}
-
-html.theme-light .personal-shell .personal-transcript-response .agent-markdown {
-  font-size: 14px;
-  line-height: 22px;
-}
-
-html.theme-light .personal-shell .personal-transcript-notice {
-  font-size: 12px;
-  line-height: 20px;
-}
-
-html.theme-light .personal-shell .personal-user-bubble {
-  border-radius: 14px;
-  border-color: color-mix(in srgb, var(--color-content) 10%, transparent);
+.personal-shell
+  .agent-transcript
+  .agent-markdown
+  [data-streamdown="code-block"],
+.personal-shell
+  .agent-transcript
+  .agent-markdown
+  [data-streamdown="table-wrapper"] {
+  border-color: color-mix(in srgb, var(--color-content) 7%, transparent);
+  border-radius: 11px;
   background: color-mix(
     in srgb,
-    var(--personal-main-surface) 96%,
+    var(--personal-main-surface) 95%,
     var(--color-content)
   );
+  box-shadow: none;
 }
-
-html.theme-light .personal-shell .personal-user-bubble > pre {
-  font-size: 14px;
-  line-height: 22px;
+.personal-shell
+  .agent-transcript
+  .agent-markdown
+  [data-streamdown="code-block-header"] {
+  min-height: 32px;
+  background: color-mix(in srgb, var(--color-content) 3%, transparent);
+  color: color-mix(in srgb, var(--color-content) 68%, transparent);
 }
-
+.personal-shell
+  .agent-transcript
+  .agent-markdown
+  [data-streamdown="code-block-body"] {
+  padding-block: 12px;
+  padding-right: 14px;
+  border-top-color: color-mix(in srgb, var(--color-content) 5%, transparent);
+  font-size: 13px;
+  line-height: 21px;
+}
+.personal-shell .personal-session-composer-dock {
+  container: personal-composer-dock / inline-size;
+  max-width: 832px;
+  padding: 4px 16px 16px;
+}
+html.theme-light .personal-shell .personal-user-bubble {
+  background: color-mix(
+    in srgb,
+    var(--personal-accent) 6%,
+    var(--personal-main-surface)
+  );
+  box-shadow: inset 0 1px 0 #ffffff99;
+}
 html.theme-light
   .personal-shell
   .agent-transcript
@@ -200,46 +270,27 @@ html.theme-light
   .agent-transcript
   .agent-markdown
   [data-streamdown="table-wrapper"] {
-  border-color: color-mix(in srgb, var(--color-content) 10%, transparent);
-  border-radius: 12px;
   background: color-mix(
     in srgb,
-    var(--personal-main-surface) 94%,
+    var(--personal-main-surface) 97%,
     var(--color-content)
   );
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--color-content) 6%, transparent);
 }
-
-html.theme-light
-  .personal-shell
-  .agent-transcript
-  .agent-markdown
-  [data-streamdown="code-block-header"] {
-  min-height: 30px;
-  background: color-mix(in srgb, var(--personal-main-surface) 46%, transparent);
-  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+@container personal-transcript (max-width: 480px) {
+  .personal-shell .personal-user-message[data-message-layout="chat"] {
+    padding-left: 30px;
+  }
+  .personal-shell .personal-transcript-content {
+    gap: 18px;
+    padding-top: 18px;
+  }
 }
-
-html.theme-light
-  .personal-shell
-  .agent-transcript
-  .agent-markdown
-  [data-streamdown="code-block-body"] {
-  padding-block: 12px;
-  padding-right: 14px;
-  border-top-color: color-mix(in srgb, var(--color-content) 5%, transparent);
-  font-size: 13px;
-  line-height: 20px;
-}
-
-html.theme-light .personal-shell .personal-session-composer-dock {
-  container: personal-composer-dock / inline-size;
-  max-width: none;
-  padding: 4px 0 18px;
-}
-
-@container personal-transcript (min-width: 800px) {
-  html.theme-light .personal-shell .personal-transcript-content {
-    width: 72%;
+@media (prefers-reduced-transparency: reduce) {
+  .personal-shell .personal-user-bubble {
+    background: color-mix(
+      in srgb,
+      var(--personal-accent) 7%,
+      var(--personal-main-surface)
+    );
   }
 }

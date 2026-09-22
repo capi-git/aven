@@ -1,3 +1,4 @@
+import "./UtilityViews.css";
 import { LoaderCircle, Plus, Search, File, Trash2 } from "../chrome/icons";
 import {
   Fragment,
@@ -408,7 +409,7 @@ function NoteCard({
       title={hint}
       aria-current={active ? "true" : undefined}
       onClick={onSelect}
-      className={`flex w-full flex-col rounded-md border px-2.5 py-2 text-left ${
+      className={`utility-list-card flex w-full flex-col rounded-md border px-2.5 py-2 text-left ${
         active
           ? "border-transparent bg-content/10 text-content"
           : "border-transparent text-content/80 hover:bg-content/5 hover:text-content"
@@ -632,7 +633,7 @@ function NoteEditor({
       ref={lockOverscroll}
       className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none"
     >
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-8 py-8">
+      <div className="note-detail-content mx-auto flex w-full max-w-5xl flex-col gap-5 px-8 py-8">
         <header className="flex flex-col gap-3">
           <div className="flex min-w-0 items-center gap-2 text-[12px] text-content/50">
             <File className="size-3.5 shrink-0" strokeWidth={1.75} />

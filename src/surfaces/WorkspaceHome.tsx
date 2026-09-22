@@ -53,6 +53,7 @@ export function WorkspaceHome({
     >
       <div className="workspace-home-content">
         <header className="aven-opening-heading">
+          <div className="workspace-home-eyebrow">{profile} workspace</div>
           <h1>Make room for your next idea.</h1>
           <p>Start a task or return to a project.</p>
         </header>

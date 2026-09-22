@@ -8,7 +8,7 @@
 .workspace-home-content {
   flex: 0 0 auto;
   width: 100%;
-  max-width: 800px;
+  max-width: 880px;
   margin: auto;
   padding-block: clamp(20px, 5vh, 48px);
 }
@@ -32,7 +32,7 @@ html.has-chat-background .workspace-home::before {
 
 .workspace-home-actions {
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
   flex-wrap: wrap;
   gap: 8px;
   margin: 28px 0 40px;
@@ -58,7 +58,7 @@ html.has-chat-background .workspace-home::before {
 .workspace-home-columns {
   display: grid;
   grid-template-columns: minmax(0, 1.5fr) minmax(160px, 1fr);
-  gap: 32px;
+  gap: 20px;
 }
 
 .workspace-home h2 {
@@ -74,10 +74,10 @@ html.has-chat-background .workspace-home::before {
   align-items: center;
   gap: 10px;
   text-align: left;
-  min-height: 44px;
-  padding: 9px 8px;
-  border-radius: 8px;
-  font-size: 12px;
+  min-height: 52px;
+  padding: 10px;
+  border-radius: 10px;
+  font-size: 13px;
 }
 
 .workspace-home-row > span {
@@ -180,4 +180,33 @@ html.has-chat-background .workspace-home::before {
     gap: 6px;
     margin-bottom: 28px;
   }
+}
+
+.workspace-home .aven-opening-heading {
+  max-width: none;
+  text-align: left;
+}
+.workspace-home .aven-opening-heading h1 {
+  max-width: 620px;
+  font-size: clamp(24px, 4.2cqi, 36px);
+}
+.workspace-home-eyebrow {
+  margin-bottom: 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-accent);
+}
+.workspace-home-columns > div {
+  min-width: 0;
+  padding: 18px;
+  border-radius: 16px;
+  background: var(--aven-hover);
+}
+.workspace-home-columns h2 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-content);
+}
+.workspace-home-row small {
+  font-size: 11px;
 }

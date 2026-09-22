@@ -145,12 +145,12 @@ export function SurfaceTabs({
   }, [activeFileId, sortable.draggingId]);
 
   return (
-    <div className="flex h-9 min-w-0 shrink-0 border-b border-content/10 bg-content/2">
+    <div className="aven-surface-tabs flex h-9 min-w-0 shrink-0 border-b border-content/10 bg-content/2">
       <div
         ref={lockOverscroll}
         role="tablist"
         aria-label={label}
-        className="scrollbar-none flex min-w-0 flex-1 overflow-x-auto overscroll-none"
+        className="aven-surface-tab-strip scrollbar-none flex min-w-0 flex-1 overflow-x-auto overscroll-none"
       >
       {onPaneDragStart ? (
         <div
@@ -197,7 +197,8 @@ export function SurfaceTabs({
               sortable.setItemRef(file.id, el);
               if (el && file.id === activeFileId) activeTabRef.current = el;
             }}
-            className={`group relative flex w-52 min-w-28 shrink touch-none items-stretch border-r border-content/10 ${
+            data-active={active}
+            className={`aven-surface-tab-slot group relative flex w-52 min-w-28 shrink touch-none items-stretch border-r border-content/10 ${
               active ? "bg-content/8" : "hover:bg-content/5"
             } ${dragging ? "opacity-40" : ""} ${
               canDrag ? "cursor-grab active:cursor-grabbing" : ""
@@ -228,7 +229,7 @@ export function SurfaceTabs({
                 if (sortable.consumeClick()) return;
                 onSelectFile(file.id);
               }}
-              className={`flex min-w-0 flex-1 items-center gap-1.5 px-3 pr-8 text-left text-[12px] ${
+              className={`aven-surface-tab-button flex min-w-0 flex-1 items-center gap-1.5 px-3 pr-8 text-left text-[12px] ${
                 canDrag ? "cursor-grab active:cursor-grabbing" : ""
               } ${
                 active ? "text-content" : "text-content/55 hover:text-content"
@@ -275,7 +276,7 @@ export function SurfaceTabs({
                 event.stopPropagation();
                 onCloseFile(file.id);
               }}
-              className={`absolute right-1.5 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-content/50 hover:bg-content/10 hover:text-content ${
+              className={`aven-surface-tab-close absolute right-1.5 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-content/50 hover:bg-content/10 hover:text-content ${
                 active ? "opacity-100" : "opacity-0 group-hover:opacity-100"
               }`}
             >

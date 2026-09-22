@@ -1,3 +1,4 @@
+import "./UtilityViews.css";
 import { retainEditorDraft } from "../lib/workspaceTransfers";
 import { readEditorDraft, recordEditorDraft } from "../lib/workspaceTransfers";
 import { acceptCompletion, completionStatus } from "@codemirror/autocomplete";
@@ -439,7 +440,7 @@ export function FileEditor({
           onStageGit={showDiff ? stageGit : undefined}
         />
       )}
-      <footer className="flex h-6 shrink-0 items-center border-t border-content/10 px-2.5 font-mono text-[10.5px] text-content/40">
+      <footer className="file-editor-status flex h-6 shrink-0 items-center border-t border-content/10 px-2.5 font-mono text-[10.5px] text-content/40">
         <span className="min-w-0 flex-1 truncate" title={path}>
           {relativePath}
         </span>

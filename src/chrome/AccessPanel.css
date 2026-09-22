@@ -20,7 +20,7 @@ html.access-panel-window #root {
   overflow-y: auto;
   overscroll-behavior: contain;
   box-sizing: border-box;
-  border-radius: 12px;
+  border-radius: 14px;
   background: var(--access-bg);
   color: var(--access-text);
   padding: 10px;
@@ -44,7 +44,7 @@ html.access-panel-window #root {
 }
 .access-panel h2 {
   margin: 0;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
 }
 .access-panel-close {
@@ -53,7 +53,7 @@ html.access-panel-window #root {
   width: 28px;
   height: 28px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 9px;
   color: var(--access-muted);
   background: transparent;
   cursor: pointer;
@@ -79,7 +79,7 @@ html.access-panel-window #root {
   gap: 10px;
   padding: 10px 9px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 10px;
   color: var(--access-text);
   text-align: left;
   background: transparent;

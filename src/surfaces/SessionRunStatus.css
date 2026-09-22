@@ -1,66 +1,88 @@
+/* A stable status strip outside the scroller; only its small spinner moves. */
 .session-run-status {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 9px;
   min-height: 42px;
-  margin: 0 16px 5px;
+  margin: 0 4px 8px;
   padding: 7px 10px;
-  border-radius: 12px;
+  border-radius: 11px;
   color: var(--color-content);
-  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  background: color-mix(in srgb, var(--color-content) 3%, transparent);
   font-family: var(--font-sans);
   font-size: 12px;
-  line-height: 16px;
-  container-type: inline-size;
+  line-height: 17px;
+  container: session-run / inline-size;
 }
-
 .session-run-status[data-run-state="working"] {
-  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 7%, transparent);
 }
-
+.session-run-status[data-run-state="waiting"] {
+  background: color-mix(in srgb, var(--color-skill) 7%, transparent);
+}
+.session-run-status[data-run-state="failed"] {
+  background: color-mix(in srgb, #e58686 7%, transparent);
+}
 .session-run-mark {
   display: grid;
-  flex: 0 0 24px;
-  height: 24px;
+  flex: 0 0 26px;
+  height: 26px;
   place-items: center;
-  border-radius: 50%;
+  border-radius: 8px;
   color: color-mix(in srgb, var(--color-content) 72%, transparent);
-  background: color-mix(in srgb, var(--color-content) 7%, transparent);
+  background: color-mix(in srgb, var(--color-content) 6%, transparent);
 }
-
 .session-run-status[data-run-state="working"] .session-run-mark {
   color: var(--color-accent);
-  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
 }
-
-.session-run-status[data-run-state="waiting"] .session-run-mark,
-.session-run-status[data-run-state="failed"] .session-run-mark {
+.session-run-status[data-run-state="waiting"] .session-run-mark {
   color: var(--color-skill);
-  background: color-mix(in srgb, var(--color-skill) 10%, transparent);
+  background: color-mix(in srgb, var(--color-skill) 12%, transparent);
 }
-
+.session-run-status[data-run-state="failed"] .session-run-mark {
+  color: #e58686;
+  background: color-mix(in srgb, #e58686 12%, transparent);
+}
+html.theme-light
+  .session-run-status[data-run-state="failed"]
+  .session-run-mark {
+  color: #b43d48;
+}
 .session-run-copy {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  flex: 1;
+  flex: 1 1 120px;
   min-width: 0;
 }
-
-.session-run-copy strong { flex-shrink: 0; font-weight: 600; }
+.session-run-copy strong {
+  flex-shrink: 0;
+  font-weight: 550;
+}
 .session-run-detail {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+  color: color-mix(in srgb, var(--color-content) 66%, transparent);
 }
-.session-run-clock, .session-run-queued {
+.session-run-clock,
+.session-run-queued {
   flex-shrink: 0;
   color: color-mix(in srgb, var(--color-content) 65%, transparent);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
-.session-run-clock { min-width: 30px; text-align: right; }
+.session-run-clock {
+  min-width: 30px;
+  text-align: right;
+}
+.session-run-queued {
+  border-radius: 6px;
+  padding: 2px 6px;
+  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+}
 .session-run-stop {
   display: inline-flex;
   align-items: center;
@@ -68,24 +90,54 @@
   gap: 5px;
   flex-shrink: 0;
   min-height: 28px;
-  padding: 3px 8px;
+  padding: 4px 8px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--color-content) 7%, transparent);
   color: var(--color-content);
   font: inherit;
+  font-size: 11px;
   cursor: pointer;
 }
-.session-run-stop:hover { background: color-mix(in srgb, var(--color-content) 13%, transparent); }
-.session-run-stop:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
-.session-run-mark > span { display: flex; }
-.session-run-spinner { animation: session-run-spin 1.2s linear infinite; }
-@keyframes session-run-spin { to { transform: rotate(360deg); } }
-@container (max-width: 430px) {
-  .session-run-copy { flex-direction: column; gap: 0; }
-  .session-run-detail { max-width: 100%; font-size: 11px; }
-  .session-run-queued { display: none; }
+.session-run-stop:hover {
+  background: color-mix(in srgb, var(--color-content) 12%, transparent);
+}
+.session-run-stop:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.session-run-mark > span {
+  display: flex;
+}
+.session-run-spinner {
+  animation: session-run-spin 1.2s linear infinite;
+}
+@keyframes session-run-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@container session-run (max-width: 520px) {
+  .session-run-copy {
+    flex-direction: column;
+    gap: 0;
+  }
+  .session-run-detail {
+    max-width: 100%;
+    font-size: 11px;
+  }
+}
+@container session-run (max-width: 350px) {
+  .session-run-queued {
+    padding-inline: 3px;
+    font-size: 10px;
+  }
+  .session-run-stop {
+    padding-inline: 6px;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .session-run-spinner { animation: none; }
+  .session-run-spinner {
+    animation: none;
+  }
 }

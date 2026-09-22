@@ -1,3 +1,4 @@
+import "./UtilityViews.css";
 import { Folder, LoaderCircle, MessageSquare, Search } from "../chrome/icons";
 import {
   useEffect,

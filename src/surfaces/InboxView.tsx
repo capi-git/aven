@@ -1,3 +1,4 @@
+import "./UtilityViews.css";
 import { openInAppUrl } from "../lib/inAppLinks";
 import {
   CheckCheck,
@@ -833,6 +834,7 @@ function InboxCard({
       type="button"
       title={item.title}
       aria-current={active ? "true" : undefined}
+      data-utility-card
       aria-label={`${status.label} ${kindLabel.toLowerCase()} ${inboxItemRef(
         item,
       )}: ${item.title}${unseen ? ", new" : ""}`}

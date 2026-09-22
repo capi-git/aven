@@ -2363,6 +2363,7 @@ function SessionCard({
         <div
           data-session-card={session.id}
           data-orchestration-card="true"
+          data-needs-approval={needsApproval || undefined}
           data-session-selected={isSelected ? "true" : undefined}
           aria-current={isActive ? "true" : undefined}
           className={`personal-task-card relative border rounded-md text-left ${dragging ? "opacity-40" : ""} ${
@@ -2459,6 +2460,7 @@ function SessionCard({
         aria-pressed={isSelected}
         data-session-card={session.id}
         data-session-selected={isSelected ? "true" : undefined}
+        data-needs-approval={needsApproval || undefined}
         data-tauri-drag-region="false"
         onPointerDown={onPointerDown}
         onPointerEnter={() => onPrefetch?.(session.id)}

@@ -37,6 +37,21 @@
   --color-skill: #e8c547;
   --color-mention: #38bdf8;
   --color-markdown-heading: #f9a8c9;
+  --aven-muted: color-mix(in srgb, var(--color-content) 66%, transparent);
+  --aven-line: color-mix(in srgb, var(--color-content) 8%, transparent);
+  --aven-hover: color-mix(in srgb, var(--color-content) 6%, transparent);
+  --aven-selected: color-mix(in srgb, var(--color-accent) 13%, transparent);
+  --aven-raised: color-mix(
+    in srgb,
+    var(--color-background-base) 96%,
+    var(--color-content)
+  );
+  --aven-popup: color-mix(
+    in srgb,
+    var(--color-background-base) 94%,
+    var(--color-content)
+  );
+  --aven-shadow: 0 14px 42px #0003;
 }
 
 html {
