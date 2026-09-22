@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AVEN_BROWSER_HOST_POLICY } from "./browserHostPolicy";
 
 const sent: string[] = [];
 const spawned: string[][] = [];
@@ -105,6 +106,9 @@ describe("claude access changes", () => {
       sent.length = 0;
       const { turn } = await startTurn("s1", { runtimeMode });
       const args = spawned.at(-1)!;
+      expect(args[args.indexOf("--append-system-prompt") + 1]).toBe(
+        AVEN_BROWSER_HOST_POLICY,
+      );
       expect(args[args.indexOf("--permission-mode") + 1]).toBe(permissionMode);
       expect(args.includes("--allow-dangerously-skip-permissions")).toBe(
         runtimeMode === "full-access",

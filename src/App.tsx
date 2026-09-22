@@ -9,6 +9,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { orchestrator, type ControlOutcome } from "./lib/orchestration";
 import { submitManagedTurn } from "./lib/managedSubmission";
+import { steerManagedTurn } from "./lib/managedSteering";
 import {
   orchestrationMoveError,
   orchestrationOwnsTurn,
@@ -6508,14 +6509,20 @@ export default function App({
         );
         sessionsRef.current = next;
         setSessions(next);
-        await steerHarnessTurn({
-          harness: session.harness,
-          sessionId: id,
-          cwd: sessionWorkCwd(session),
-          model: session.model,
-          modelSettings: session.modelSettings,
-          text,
-        });
+        const generation = turnGen.current.get(id);
+        await steerManagedTurn(
+          {
+            harness: session.harness,
+            sessionId: id,
+            cwd: sessionWorkCwd(session),
+            model: session.model,
+            modelSettings: session.modelSettings,
+            text,
+          },
+          () =>
+            turnGen.current.get(id) === generation &&
+            sessionsRef.current.some((entry) => entry.id === id && entry.busy),
+        );
       },
       respondApproval: (id, requestId, decision) => {
         const session = sessionsRef.current.find((entry) => entry.id === id);

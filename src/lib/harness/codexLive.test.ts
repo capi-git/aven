@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AVEN_BROWSER_HOST_POLICY } from "./browserHostPolicy";
 
 const sent: string[] = [];
 let onLine: ((line: string) => void) | undefined;
+let configReadResponse: unknown = { config: {} };
+let configReadError = false;
 
 vi.mock("./child", () => ({
   resolveCodexBinary: async () => ({ path: "/fake/codex" }),
@@ -13,6 +16,15 @@ vi.mock("./child", () => ({
   },
   writeChild: async (_id: string, line: string) => {
     sent.push(line);
+    const message = JSON.parse(line) as { id?: number; method?: string };
+    if (message.method === "config/read") {
+      queueMicrotask(() => onLine?.(JSON.stringify({
+        id: message.id,
+        ...(configReadError
+          ? { error: { code: -32601, message: "Method not found" } }
+          : { result: configReadResponse }),
+      })));
+    }
   },
 }));
 
@@ -107,12 +119,41 @@ describe("codex live turn sequence", () => {
   beforeEach(() => {
     sent.length = 0;
     onLine = undefined;
+    configReadResponse = { config: {} };
+    configReadError = false;
   });
 
   afterEach(async () => {
     vi.useRealTimers();
     await stopCodexSession("codex-live");
     __codexTestReset();
+  });
+
+  it.each([false, true])("preserves configured developer instructions when opening the interactive thread (resume=%s)", async (resume) => {
+    configReadResponse = { config: { developer_instructions: "Keep my custom workflow." } };
+    if (resume) bindCodexSession("codex-live", "thr_1", "/repo");
+    const { turn } = await startTurn("codex-live", { resume });
+    expect(parse().find((m) => m.method === "config/read")?.params).toEqual({
+      cwd: "/repo",
+      includeLayers: false,
+    });
+    expect(parse().find((m) => m.method === (resume ? "thread/resume" : "thread/start"))?.params).toMatchObject({
+      developerInstructions: `Keep my custom workflow.\n\n${AVEN_BROWSER_HOST_POLICY}`,
+      approvalPolicy: "untrusted",
+      sandbox: "read-only",
+      model: "gpt-5.4",
+    });
+    expect(parse().some((m) => String(m.method).startsWith("config/") && m.method !== "config/read")).toBe(false);
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+  });
+
+  it("continues without overriding provider instructions when config/read is unavailable", async () => {
+    configReadError = true;
+    const { turn } = await startTurn("codex-live");
+    expect(parse().find((m) => m.method === "thread/start")?.params).not.toHaveProperty("developerInstructions");
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
   });
 
   it("passes the control lead network grant through actual thread and turn dispatch", async () => {
@@ -124,6 +165,7 @@ describe("codex live turn sequence", () => {
       parse().find((m) => m.method === "thread/start")?.params,
     ).toMatchObject({
       sandboxPolicy: { type: "readOnly", networkAccess: true },
+      developerInstructions: AVEN_BROWSER_HOST_POLICY,
     });
     expect(
       parse().find((m) => m.method === "turn/start")?.params,
@@ -290,10 +332,12 @@ describe("codex live turn sequence", () => {
   }
 
   it("continues a writer-conflicted imported thread on a preserved-history fork and delivers its attachment once", async () => {
+    configReadResponse = { config: { developer_instructions: "Keep my custom workflow." } };
     const { result, events, fork } = await conflictAttempt();
     expect(fork.params).toMatchObject({ threadId: "thr_original", cwd: "/repo",
       model: "gpt-5.4", serviceTier: "fast", approvalPolicy: "untrusted",
-      sandbox: "read-only", excludeTurns: true, deferGoalContinuation: true });
+      sandbox: "read-only", excludeTurns: true, deferGoalContinuation: true,
+      developerInstructions: `Keep my custom workflow.\n\n${AVEN_BROWSER_HOST_POLICY}` });
     reply(fork.id as number, { thread: { id: "thr_fork" } });
     await waitFor(() => parse().some((m) => m.method === "turn/start"), "fork turn");
     const starts = parse().filter((m) => m.method === "turn/start");
@@ -343,6 +387,7 @@ describe("codex live turn sequence", () => {
       threadId: "thr_1",
       approvalPolicy: "never",
       sandbox: "danger-full-access",
+      developerInstructions: AVEN_BROWSER_HOST_POLICY,
     });
     expect(
       parse().find((m) => m.method === "turn/start")?.params,

@@ -267,4 +267,27 @@ describe("agent browser session connection", () => {
     ).toBe("Hi");
     expect(mocks.invoke).not.toHaveBeenCalled();
   });
+  it("keeps routing guidance when the native browser host has not mounted", async () => {
+    const api = await import("./agentBrowser");
+    const text = await api.prepareAgentBrowserPrompt("Open the preview", {
+      sessionId: "s",
+      cwd: "/p",
+    });
+    expect(text).toContain("unavailable for this turn");
+    expect(text).toContain("Do not claim browser actions succeeded or silently switch to Brave or another external browser");
+    expect(text).toContain("Use an external browser only if the user explicitly requests it");
+    expect(text).toMatch(/Open the preview$/);
+    expect(mocks.invoke).not.toHaveBeenCalled();
+  });
+  it("leaves non-native text unchanged when no browser host exists", async () => {
+    mocks.tauri = false;
+    const api = await import("./agentBrowser");
+    await expect(
+      api.prepareAgentBrowserPrompt("Open the preview", {
+        sessionId: "s",
+        cwd: "/p",
+      }),
+    ).resolves.toBe("Open the preview");
+    expect(mocks.invoke).not.toHaveBeenCalled();
+  });
 });

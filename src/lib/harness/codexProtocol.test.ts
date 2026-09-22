@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { AVEN_BROWSER_HOST_POLICY } from "./browserHostPolicy";
 import {
   buildThreadStartParams,
+  codexBrowserHostInstructionsFromConfig,
   buildTurnStartParams,
   buildTurnSteerParams,
   codexAttachmentInputs,
@@ -159,7 +161,61 @@ describe("runtimeModeToCodexConfig", () => {
   });
 });
 
+describe("codexBrowserHostInstructionsFromConfig", () => {
+  it.each([undefined, null, ""])(
+    "adds routing when effective developer instructions are empty: %s",
+    (developer_instructions) => {
+      expect(codexBrowserHostInstructionsFromConfig({
+        config: { developer_instructions },
+      })).toBe(AVEN_BROWSER_HOST_POLICY);
+    },
+  );
+
+  it("preserves configured instructions verbatim and does not duplicate host routing", () => {
+    const custom = "Use my engineering conventions.\nPreserve existing approval rules.\n";
+    const merged = codexBrowserHostInstructionsFromConfig({
+      config: { developer_instructions: custom },
+    });
+    expect(merged).toBe(`${custom}\n\n${AVEN_BROWSER_HOST_POLICY}`);
+    expect(codexBrowserHostInstructionsFromConfig({
+      config: { developer_instructions: merged },
+    })).toBe(merged);
+  });
+
+  it.each([
+    undefined,
+    {},
+    { config: null },
+    { config: [] },
+    { config: { developer_instructions: 42 } },
+    { config: { profile: "work", developer_instructions: "global text" } },
+  ])("leaves unknown or profile-specific provider instructions untouched: %j", (response) => {
+    expect(codexBrowserHostInstructionsFromConfig(response)).toBeUndefined();
+  });
+});
+
 describe("buildThreadStartParams / buildTurnStartParams", () => {
+  it("adds host browser routing only when an interactive caller opts in", () => {
+    const input = {
+      cwd: "/tmp/proj",
+      runtimeMode: "supervised" as const,
+      model: "gpt-5.4",
+      serviceTier: "fast",
+    };
+    const helper = buildThreadStartParams(input);
+    const interactive = buildThreadStartParams({
+      ...input,
+      browserHostInstructions: AVEN_BROWSER_HOST_POLICY,
+    });
+    expect(helper).not.toHaveProperty("developerInstructions");
+    expect(interactive).toEqual({
+      ...helper,
+      developerInstructions: AVEN_BROWSER_HOST_POLICY,
+    });
+    expect(interactive).not.toHaveProperty("baseInstructions");
+    expect(interactive).not.toHaveProperty("config");
+  });
+
   it("includes model and omits default service tier", () => {
     const thread = buildThreadStartParams({
       cwd: "/tmp/proj",

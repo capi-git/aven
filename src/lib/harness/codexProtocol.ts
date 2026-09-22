@@ -14,6 +14,7 @@ import {
 } from "./preview";
 import { streamTextDelta } from "./streamText";
 import type { HarnessEvent } from "./types";
+import { AVEN_BROWSER_HOST_POLICY } from "./browserHostPolicy";
 
 /** Codex approval / sandbox settings for thread/start and turn/start. */
 export type CodexThreadConfig = {
@@ -85,6 +86,8 @@ export function buildThreadStartParams(input: {
   controlsAgents?: boolean;
   model?: string;
   serviceTier?: string;
+  /** Merged host/config instructions; isolated text helpers leave this unset. */
+  browserHostInstructions?: string;
 }): Record<string, unknown> {
   const config = runtimeModeToCodexConfig(
     input.runtimeMode,
@@ -96,11 +99,30 @@ export function buildThreadStartParams(input: {
     sandbox: config.sandbox,
     sandboxPolicy: config.sandboxPolicy,
     approvalsReviewer: config.approvalsReviewer,
+    ...(input.browserHostInstructions
+      ? { developerInstructions: input.browserHostInstructions }
+      : {}),
     ...(input.model ? { model: input.model } : {}),
     ...(input.serviceTier && input.serviceTier !== "default"
       ? { serviceTier: input.serviceTier }
       : {}),
   };
+}
+
+/** Preserve configured developer text before appending interactive host routing. */
+export function codexBrowserHostInstructionsFromConfig(
+  response: unknown,
+): string | undefined {
+  const config = asRecord(asRecord(response)?.config);
+  if (!config) return undefined;
+  // config/read resolves project layers, but does not promise a flattened
+  // profile. Preserve any selected profile rather than replacing unknown text.
+  if (config.profile != null && config.profile !== "") return undefined;
+  const existing = config.developer_instructions;
+  if (existing != null && typeof existing !== "string") return undefined;
+  if (!existing) return AVEN_BROWSER_HOST_POLICY;
+  if (existing.includes(AVEN_BROWSER_HOST_POLICY)) return existing;
+  return `${existing}\n\n${AVEN_BROWSER_HOST_POLICY}`;
 }
 
 export type CodexAttachmentInput =

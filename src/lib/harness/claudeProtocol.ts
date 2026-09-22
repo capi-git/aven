@@ -19,6 +19,7 @@ import {
 } from "./preview";
 import { streamTextDelta } from "./streamText";
 import type { ApprovalDecision, HarnessEvent } from "./types";
+import { AVEN_BROWSER_HOST_POLICY } from "./browserHostPolicy";
 
 /** Claude Code versions that first ship Opus 5 / Fable 5 / Opus 4.8 / 4.7. */
 export const MINIMUM_CLAUDE_OPUS_5_VERSION = "2.1.219";
@@ -239,6 +240,10 @@ export function buildClaudeSpawnArgs(input: {
   ];
   if (!input.isolated) {
     args.push("--permission-prompt-tool", "stdio");
+    // Add host routing without replacing Claude's default system prompt.
+    // Resumed sessions may reuse a system-prompt snapshot, so per-turn scoped
+    // browser guidance must still be supplied by the app.
+    args.push("--append-system-prompt", AVEN_BROWSER_HOST_POLICY);
   }
   if (input.includePartialMessages !== false) {
     args.push("--include-partial-messages");

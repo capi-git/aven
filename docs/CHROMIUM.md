@@ -97,6 +97,12 @@ npm run tauri -- dev
 
 A development window is useful for interface work. Check final browser, helper, signing, and restart behavior in the packaged Chromium app before distributing a release. `npm run dev` by itself serves the frontend and does not supply the native desktop APIs.
 
+### Agent preview routing
+
+Interactive Codex and Claude sessions receive Aven's browser preference at startup, and each ordinary turn receives instructions for its scoped browser connection. Codex starts, resumes, and forks preserve configured developer instructions when adding the host policy; if those settings cannot be read safely, Aven retains the provider settings and relies on per-turn guidance. Claude may retain its original system prompt when resuming a saved conversation, so the per-turn instructions remain necessary. Orchestrated workers and mid-turn guidance use the same browser preparation path. Internal title and summary helpers do not receive browser host instructions.
+
+For an ordinary project preview, start the development server without browser auto-open, then open its URL through the supplied `--supermono-browser` CLI and verify the page with a fresh snapshot. Agents should pass the same routing when delegating browser work. An unavailable connection is reported instead of silently switching to an external browser. Explicit external-browser requests, configured browser tests, and provider sign-in flows retain their normal behavior; Aven does not change the system default browser or global provider configuration.
+
 ### Browser element comments
 
 Element selection captures the current native browser view with CDP `fromSurface: false`, then crops the PNG locally with ImageIO. Do not substitute a clipped surface capture: [Chromium's screenshot implementation](https://chromium.googlesource.com/chromium/src/+/152.0.7977.83/content/browser/devtools/protocol/page_handler.cc) temporarily resizes the visible widget and changes emulation for that path, causing a flash. An unclipped surface capture also changes geometry while per-tab zoom emulation is active.

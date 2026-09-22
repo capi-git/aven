@@ -1,5 +1,14 @@
 # Aven changelog
 
+## [0.1.77] - 2026-09-22
+
+### Keep agent previews in Aven
+
+- Add Aven's browser routing to interactive Codex and Claude startup instructions, including Codex resumes and forks, while retaining the scoped browser connection on each turn.
+- Refresh browser guidance when orchestration sends mid-turn instructions to a worker.
+- Keep the in-app browser preference explicit even when its host is unavailable, and tell agents to disable development-server browser auto-open for ordinary previews.
+- Preserve explicitly requested external-browser testing and provider sign-in flows.
+
 ## [0.1.76] - 2026-09-22
 
 ### Clear agent status

@@ -193,7 +193,8 @@ export async function prepareAgentBrowserPrompt(
   text: string,
   context: AgentBrowserContext,
 ): Promise<string> {
-  if (!isTauri() || !host) return text;
+  if (!isTauri()) return text;
+  if (!host) return browserUnavailablePrompt(text);
   const previous = contexts.get(context.sessionId);
   const stored = previous?.cwd === context.cwd ? previous : context;
   contexts.set(context.sessionId, stored);
@@ -203,6 +204,10 @@ export async function prepareAgentBrowserPrompt(
     return `${agentBrowserInstructions(binding.executablePath)}\n\n${text}`;
   } catch {
     // A browser connection failure must not disable ordinary agent work.
-    return `<supermono-browser>In-app browser controls are unavailable for this turn. Do not claim browser actions succeeded or silently switch to Brave or another external browser. Continue other requested work and report this limitation if browser access is needed. Use an external browser only if the user explicitly requests it.</supermono-browser>\n\n${text}`;
+    return browserUnavailablePrompt(text);
   }
+}
+
+function browserUnavailablePrompt(text: string): string {
+  return `<supermono-browser>In-app browser controls are unavailable for this turn. Do not claim browser actions succeeded or silently switch to Brave or another external browser. Continue other requested work and report this limitation if browser access is needed. Use an external browser only if the user explicitly requests it.</supermono-browser>\n\n${text}`;
 }

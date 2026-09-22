@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { AVEN_BROWSER_HOST_POLICY } from "./browserHostPolicy";
 import {
   modelsForClaudeVersion,
   modelsFromClaudeListModels,
@@ -89,6 +90,20 @@ describe("resolveClaudeApiModelId", () => {
 });
 
 describe("buildClaudeSpawnArgs", () => {
+  it.each([undefined, "existing-session"])(
+    "adds browser routing without replacing the provider prompt or resume behavior: %s",
+    (resume) => {
+      const args = buildClaudeSpawnArgs({ resume });
+      expect(args[args.indexOf("--append-system-prompt") + 1]).toBe(
+        AVEN_BROWSER_HOST_POLICY,
+      );
+      expect(args).not.toContain("--system-prompt");
+      expect(args.some((arg) => arg.includes("system-prompt-snapshot"))).toBe(false);
+      expect(args).not.toContain("--append-subagent-system-prompt");
+      if (resume) expect(args[args.indexOf("--resume") + 1]).toBe(resume);
+    },
+  );
+
   it("speaks stream-json with stdio permissions like the Agent SDK", () => {
     const args = buildClaudeSpawnArgs({
       model: "claude-sonnet-5",
@@ -137,6 +152,8 @@ describe("buildClaudeSpawnArgs", () => {
     const settings = args[args.indexOf("--settings") + 1];
     expect(JSON.parse(settings)).toMatchObject({ disableAllHooks: true });
     expect(args).not.toContain("--permission-prompt-tool");
+    expect(args).not.toContain("--append-system-prompt");
+    expect(args).not.toContain(AVEN_BROWSER_HOST_POLICY);
   });
 
   it("adds bypass flag for full-access", () => {

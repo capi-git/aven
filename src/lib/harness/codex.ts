@@ -13,6 +13,7 @@ import {
   buildTurnStartParams,
   buildTurnSteerParams,
   codexAttachmentInputs,
+  codexBrowserHostInstructionsFromConfig,
   isRecoverableThreadResumeError,
   isThreadWriterConflict,
   mapApprovalRequest,
@@ -300,6 +301,22 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     });
     await rpc.notify("initialized", undefined);
 
+    let browserHostInstructions: string | undefined;
+    try {
+      // Only read effective configuration. Never replace unknown user developer
+      // instructions, persist changes, or log potentially sensitive config.
+      browserHostInstructions = codexBrowserHostInstructionsFromConfig(
+        await rpc.request(
+          "config/read",
+          { cwd: input.cwd, includeLayers: false },
+          3000,
+        ),
+      );
+    } catch {
+      // Older providers can lack this API. Per-turn browser guidance remains,
+      // while leaving developerInstructions unset preserves provider config.
+    }
+
     const model = nativeModelId(input.model);
     const serviceTier = input.modelSettings?.serviceTier;
     const effort = input.modelSettings?.reasoningEffort;
@@ -316,6 +333,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
             threadId: resume.threadId,
             ...buildThreadStartParams({
               cwd: input.cwd,
+              browserHostInstructions,
               runtimeMode: input.runtimeMode,
               controlsAgents: input.controlsAgents,
               model,
@@ -335,6 +353,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
               threadId: resume.threadId,
               ...buildThreadStartParams({
                 cwd: input.cwd,
+                browserHostInstructions,
                 runtimeMode: input.runtimeMode,
                 controlsAgents: input.controlsAgents,
                 model,
@@ -365,6 +384,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
         "thread/start",
         buildThreadStartParams({
           cwd: input.cwd,
+          browserHostInstructions,
           runtimeMode: input.runtimeMode,
           controlsAgents: input.controlsAgents,
           model,
