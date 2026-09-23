@@ -15,6 +15,7 @@ export type UsagePanelSnapshot = {
   };
 };
 
+/** One popup palette for toolbar panels, including their separate native webviews. */
 export function usagePanelTheme(): UsagePanelSnapshot["theme"] {
   const mode = document.documentElement.classList.contains("theme-light")
     ? "light"
@@ -27,6 +28,7 @@ export function usagePanelTheme(): UsagePanelSnapshot["theme"] {
     mode,
     accent: accent || (mode === "dark" ? "#5ed9d0" : "#157d82"),
     background:
+      style.getPropertyValue("--aven-popup").trim() ||
       style.getPropertyValue("--personal-main-surface").trim() ||
       (mode === "dark" ? "#101416" : "#edf5f7"),
     text:

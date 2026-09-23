@@ -45,6 +45,8 @@ type Props = Omit<ComponentPropsWithoutRef<"div">, "style"> & {
   layer?: number;
   /** Drops the opaque frame and keeps only placement and the content animation. */
   bare?: boolean;
+  /** Content supplies the shared themed panel frame; retain only placement/shadow. */
+  panel?: boolean;
   style?: CSSProperties;
   autoFocus?: boolean;
   /** Handles outside clicks, Escape, and focus leaving this webview/window. */
@@ -137,6 +139,7 @@ export function Popover({
   maxHeight,
   layer = LAYER.popover,
   bare = false,
+  panel = false,
   className,
   style,
   autoFocus = false,
@@ -246,7 +249,7 @@ export function Popover({
 
   // Keep the opaque frame stable. Only the content animates, so the page
   // underneath cannot bleed through while a popover opens.
-  const frameInset = bare ? 0 : 2;
+  const frameInset = bare || panel ? 0 : 2;
   const contentMaxHeight = position
     ? Math.max(0, position.maxHeight - frameInset)
     : maxHeight != null
@@ -258,9 +261,11 @@ export function Popover({
       ref={frame}
       data-popover-side={position?.side ?? side}
       style={{ ...placed, zIndex: layer }}
-      className={bare ? undefined : FRAME}
+      className={
+        bare ? undefined : `${FRAME}${panel ? " aven-popover-panel" : ""}`
+      }
     >
-      {bare ? null : <div aria-hidden="true" className={BACKDROP} />}
+      {bare || panel ? null : <div aria-hidden="true" className={BACKDROP} />}
       <div
         {...rest}
         ref={(el) => {
@@ -274,7 +279,7 @@ export function Popover({
           transformOrigin: origin(position?.side ?? side, align),
           ...style,
         }}
-        className={`${position ? "popover-open " : ""}relative z-[1] outline-none ${className ?? ""}`}
+        className={`${position ? "popover-open " : ""}${panel ? "aven-popover-panel-content " : ""}relative z-[1] outline-none ${className ?? ""}`}
       >
         {children}
       </div>

@@ -188,7 +188,8 @@ pub async fn usage_panel_open(
             .visible(false)
             .focused(false)
             .shadow(true)
-            .background_color(Color(20, 26, 28, 255))
+            .transparent(true)
+            .background_color(Color(0, 0, 0, 0))
             .parent(&owner)
             .map_err(|error| error.to_string())?
             .build()
@@ -201,7 +202,8 @@ pub async fn usage_panel_open(
             .focused(false)
             .auto_resize()
             .disable_drag_drop_handler()
-            .background_color(Color(20, 26, 28, 255))
+            .transparent(true)
+            .background_color(Color(0, 0, 0, 0))
             .on_navigation(move |url| allowed_url(url, &expected))
             .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny);
         window
@@ -265,7 +267,12 @@ pub async fn usage_panel_ready(caller: Webview) -> Result<(), String> {
         Ok(())
     })?;
     let window = caller.window();
-    let result = window.show().and_then(|()| window.set_focus());
+    // Making the utility window key does not guarantee its unfocused child
+    // webview becomes first responder. Escape must work before any click.
+    let result = window
+        .show()
+        .and_then(|()| window.set_focus())
+        .and_then(|()| caller.set_focus());
     if result.is_err() {
         dismiss(app, caller.label(), true);
     }

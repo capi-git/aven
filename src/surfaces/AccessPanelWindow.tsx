@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from "react";
+import { ToolbarPanel, ToolbarPanelHeader } from "../chrome/ToolbarPanel";
 import { AccessPanelContent } from "../chrome/AccessPanel";
 import {
   nativeAccessPanel,
@@ -69,12 +70,14 @@ export function AccessPanelWindow() {
   }, [ready]);
   if (!snapshot)
     return error ? (
-      <div role="alert" className="access-panel">
-        <p>{error}</p>
-        <button type="button" onClick={() => act("close")}>
-          Close
-        </button>
-      </div>
+      <ToolbarPanel role="alert" className="access-panel">
+        <ToolbarPanelHeader
+          title="Access"
+          onClose={() => act("close")}
+          closeLabel="Close access options"
+        />
+        <p className="access-panel-error">{error}</p>
+      </ToolbarPanel>
     ) : null;
   return (
     <AccessPanelContent

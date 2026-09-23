@@ -70,7 +70,7 @@ it("paints the native panel backdrop from the owner palette before showing, and 
     expect(
       host
         .querySelector<HTMLElement>(".usage-panel")!
-        .style.getPropertyValue("--usage-bg"),
+        .style.getPropertyValue("--toolbar-panel-bg"),
     ).toBe("#faf4e6");
   } finally {
     await act(async () => root.unmount());

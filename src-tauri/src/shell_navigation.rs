@@ -175,6 +175,7 @@ mod tests {
         }
         for url in [
             "tauri://localhost/index.html?usagePanel=1",
+            "tauri://localhost/index.html?workspaceMenuPanel=1",
             "tauri://localhost/?pipSession=1",
             "tauri://localhost/index.html?workspaceWindow=1",
             "tauri://localhost/another.html",
@@ -351,6 +352,7 @@ mod tests {
             "pip-session-1",
             "usage-panel",
             "access-panel",
+            "workspace-menu-panel",
             "window-not-a-number",
         ] {
             assert!(!crate::window::is_workspace_label(label), "{label}");

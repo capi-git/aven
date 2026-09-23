@@ -159,7 +159,11 @@ fn update_caller(caller: &Webview) -> Result<&str, String> {
 fn check_update_windows(owner: &str, labels: &[String]) -> Result<(), String> {
     let content: Vec<_> = labels
         .iter()
-        .filter(|label| !label.starts_with("access-panel-") && !label.starts_with("usage-panel-"))
+        .filter(|label| {
+            !label.starts_with("access-panel-")
+                && !label.starts_with("usage-panel-")
+                && !label.starts_with("workspace-menu-panel-")
+        })
         .collect();
     if content.len() != 1 || content[0] != owner {
         return Err("Return Picture in Picture and detached tabs, then close other Aven windows before restarting to update. The update will stay downloaded and ready.".into());
@@ -554,7 +558,12 @@ mod tests {
         assert!(check_update_windows("main", &labels(&["main"])).is_ok());
         assert!(check_update_windows(
             "main",
-            &labels(&["main", "usage-panel-a", "access-panel-b"])
+            &labels(&[
+                "main",
+                "usage-panel-a",
+                "access-panel-b",
+                "workspace-menu-panel-c"
+            ])
         )
         .is_ok());
         for extra in [

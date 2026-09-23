@@ -15,6 +15,11 @@ import {
 } from "../lib/session";
 import { HarnessIcon } from "./HarnessIcon";
 import { isProjectlessCwd } from "../lib/projectlessWorkspace";
+import {
+  ToolbarPanel,
+  ToolbarPanelHeader,
+  type ToolbarPanelTheme,
+} from "./ToolbarPanel";
 import "./ActivityPanel.css";
 
 export type ActivityPanelProps = {
@@ -22,6 +27,8 @@ export type ActivityPanelProps = {
   /** Return true only after restoring/revealing the destination successfully. */
   onOpen: (entry: ActivityEntry) => boolean | Promise<boolean>;
   onOpenSession: (sessionId: string) => boolean | Promise<boolean>;
+  theme?: ToolbarPanelTheme;
+  onClose?: () => void;
 };
 export function activitySections(entries: readonly ActivityEntry[]) {
   const needsYou: ActivityEntry[] = [];
@@ -70,6 +77,8 @@ export function ActivityPanel({
   sessions,
   onOpen,
   onOpenSession,
+  theme,
+  onClose,
 }: ActivityPanelProps) {
   const entries = useActivity();
   const { needsYou, finished } = useMemo(
@@ -117,7 +126,7 @@ export function ActivityPanel({
         </h3>
         {rows.map((entry) => (
           <div
-            className="activity-row"
+            className="toolbar-panel-row activity-row"
             key={entry.id}
             data-unread={entry.readAt === null || undefined}
           >
@@ -163,11 +172,21 @@ export function ActivityPanel({
       </section>
     ) : null;
   return (
-    <div className="activity-panel" aria-label="Activity">
-      <header className="activity-header">
-        <strong>Activity</strong>
-        <span>{unread ? `${unread} unread` : "All caught up"}</span>
-      </header>
+    <ToolbarPanel
+      className="activity-panel"
+      aria-label="Activity"
+      theme={theme}
+    >
+      <ToolbarPanelHeader
+        title="Activity"
+        onClose={onClose}
+        closeLabel="Close activity"
+        actions={
+          <span className="activity-unread toolbar-panel-secondary">
+            {unread ? `${unread} unread` : "All caught up"}
+          </span>
+        }
+      />
       <div className="activity-actions">
         <button disabled={!unread} onClick={markAllActivityRead}>
           Mark all read
@@ -192,7 +211,7 @@ export function ActivityPanel({
               Running<span>{running.length}</span>
             </h3>
             {running.map((session) => (
-              <div className="activity-row" key={session.id}>
+              <div className="toolbar-panel-row activity-row" key={session.id}>
                 <button
                   className="activity-destination"
                   disabled={opening !== null}
@@ -236,6 +255,6 @@ export function ActivityPanel({
       <footer className="activity-footer">
         Recent activity stays here even when notifications are off.
       </footer>
-    </div>
+    </ToolbarPanel>
   );
 }

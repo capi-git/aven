@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ActivityPanel } from "./ActivityPanel";
+import { ActivityPanel, type ActivityPanelProps } from "./ActivityPanel";
 import {
   getActivitySnapshot,
   recordActivity,
@@ -29,13 +29,17 @@ function record(id: string, outcome: ActivityOutcome, read = false) {
     read,
   );
 }
-async function mount(sessions: ReturnType<typeof newSession>[] = []) {
+async function mount(
+  sessions: ReturnType<typeof newSession>[] = [],
+  options: Pick<ActivityPanelProps, "theme" | "onClose"> = {},
+) {
   await act(async () =>
     root.render(
       createElement(ActivityPanel, {
         sessions,
         onOpen: open,
         onOpenSession: openSession,
+        ...options,
       }),
     ),
   );
@@ -69,6 +73,44 @@ afterEach(async () => {
 });
 
 describe("Activity panel", () => {
+  it("updates the shared workspace palette and closes without changing activity", async () => {
+    record("Saved result", "completed");
+    const close = vi.fn();
+    await mount([], {
+      theme: {
+        mode: "dark",
+        accent: "#7ab6df",
+        background: "#253542",
+        text: "#f0f4f7",
+      },
+      onClose: close,
+    });
+    const panel = host.querySelector<HTMLElement>(".activity-panel")!;
+    expect(panel.classList.contains("toolbar-panel")).toBe(true);
+    expect(panel.style.getPropertyValue("--toolbar-panel-bg")).toBe("#253542");
+    expect(panel.style.getPropertyValue("--toolbar-panel-text")).toBe(
+      "#f0f4f7",
+    );
+    await mount([], {
+      theme: {
+        mode: "light",
+        accent: "#446a89",
+        background: "#f2f6f9",
+        text: "#1c2832",
+      },
+      onClose: close,
+    });
+    expect(panel.dataset.theme).toBe("light");
+    expect(panel.style.getPropertyValue("--toolbar-panel-bg")).toBe("#f2f6f9");
+    expect(panel.style.getPropertyValue("--toolbar-panel-accent")).toBe(
+      "#446a89",
+    );
+    await act(async () => button("Close activity").click());
+    expect(close).toHaveBeenCalledOnce();
+    expect(getActivitySnapshot()[0].readAt).toBeNull();
+    expect(open).not.toHaveBeenCalled();
+    expect(openSession).not.toHaveBeenCalled();
+  });
   it("separates actual running tasks, actionable failures and finished outcomes", async () => {
     record("finished", "completed");
     record("failed", "failed");

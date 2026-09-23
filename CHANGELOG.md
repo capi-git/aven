@@ -1,5 +1,13 @@
 # Aven changelog
 
+## [0.1.87] - 2026-09-23
+
+### Toolbar panels that belong together
+
+- Give Activity, Usage, Access, and Open workspace the same panel frame, spacing, typography, close controls, and theme colors.
+- Follow the chosen workspace palette in light and dark appearances, including native popups above the built-in browser.
+- Replace the macOS Open menu with an Aven panel and remove opaque square corners behind native panels. Preserve action availability, keyboard navigation, provider usage, and access behavior.
+
 ## [0.1.86] - 2026-09-23
 
 ### One continuous workspace

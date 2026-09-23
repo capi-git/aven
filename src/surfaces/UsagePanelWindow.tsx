@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from "react";
+import { ToolbarPanel, ToolbarPanelHeader } from "../chrome/ToolbarPanel";
 import { UsagePanelContent } from "../chrome/UsagePanel";
 import { nativeUsagePanel, type UsagePanelSnapshot } from "../lib/usagePanel";
 
@@ -59,7 +60,19 @@ export function UsagePanelWindow() {
       .ready()
       .catch(() => setError("Could not show usage panel."));
   }, [ready]);
-  if (!snapshot) return error ? <div role="alert">{error}</div> : null;
+  if (!snapshot)
+    return error ? (
+      <ToolbarPanel role="alert" className="usage-panel">
+        <ToolbarPanelHeader
+          title="Usage"
+          onClose={() => {
+            void nativeUsagePanel.action("close").catch(() => {});
+          }}
+          closeLabel="Close usage"
+        />
+        <p className="usage-panel-body">{error}</p>
+      </ToolbarPanel>
+    ) : null;
   return (
     <UsagePanelContent
       snapshot={snapshot}

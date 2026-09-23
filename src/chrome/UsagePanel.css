@@ -6,7 +6,7 @@ html.usage-panel-window #root {
   min-height: 0;
   margin: 0;
   overflow: hidden;
-  background: var(--usage-window-bg, #101416) !important;
+  background: transparent !important;
   background-image: none !important;
 }
 
@@ -17,103 +17,25 @@ html.usage-panel-window .usage-panel {
 }
 
 .usage-panel {
-  --usage-bg: #101416;
-  --usage-text: #ededed;
-  --usage-muted: color-mix(in srgb, var(--usage-text) 70%, var(--usage-bg));
-  --usage-line: color-mix(in srgb, var(--usage-text) 10%, var(--usage-bg));
-  --usage-track: color-mix(in srgb, var(--usage-text) 12%, var(--usage-bg));
-  --usage-warning: #e8b86f;
-  --personal-main-surface: var(--usage-bg);
-  --color-background-base: var(--usage-bg);
-  --color-content: var(--usage-text);
   width: 360px;
   max-width: 100%;
   max-height: 560px;
   display: flex;
   flex-direction: column;
-  box-sizing: border-box;
-  overflow: hidden;
-  border: 1px solid var(--usage-line);
-  border-radius: 12px;
-  background: var(--usage-bg);
-  color: var(--usage-text);
-  font:
-    13px/1.4 -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  color-scheme: dark;
 }
 
-.usage-panel[data-theme="light"] {
-  --usage-bg: #edf5f7;
-  --usage-text: #1c1c1c;
-  --usage-warning: #94601b;
-  color-scheme: light;
-}
-
-.usage-panel-header {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 10px 10px 16px;
-}
-
-.usage-panel h2,
 .usage-panel h3,
 .usage-panel p {
   margin: 0;
-}
-
-.usage-panel h2 {
-  color: var(--usage-text);
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: -0.1px;
 }
 
 .usage-panel h3 {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--usage-text);
+  color: var(--toolbar-panel-text);
   font-size: 13px;
   font-weight: 600;
-}
-
-.usage-panel-actions {
-  display: flex;
-  gap: 2px;
-}
-
-.usage-panel-actions button {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 7px;
-  color: var(--usage-muted);
-  background: transparent;
-  cursor: pointer;
-}
-
-.usage-panel-actions button:hover:not(:disabled) {
-  color: var(--usage-text);
-  background: var(--usage-track);
-}
-
-.usage-panel-actions button:focus-visible {
-  outline: 2px solid var(--usage-accent, var(--color-accent));
-  outline-offset: -2px;
-}
-
-.usage-panel-actions button:disabled {
-  opacity: 0.45;
-  cursor: default;
 }
 
 .usage-panel-body {
@@ -141,19 +63,19 @@ html.usage-panel-window .usage-panel {
 }
 
 .usage-panel-label {
-  color: var(--usage-text);
+  color: var(--toolbar-panel-text);
   font-size: 12px;
 }
 
 .usage-panel-remaining {
-  color: var(--usage-muted);
+  color: var(--toolbar-panel-muted);
   font-size: 12px;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 
 .usage-panel-remaining strong {
-  color: var(--usage-text);
+  color: var(--toolbar-panel-text);
   font-size: 13px;
   font-weight: 600;
 }
@@ -163,33 +85,33 @@ html.usage-panel-window .usage-panel {
   height: 6px;
   overflow: hidden;
   border-radius: 3px;
-  background: var(--usage-track);
+  background: var(--toolbar-panel-track);
 }
 
 .usage-panel-fill {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: var(--usage-accent, var(--color-accent));
+  background: var(--toolbar-panel-accent);
 }
 
 .usage-panel-track[data-low] .usage-panel-fill {
-  background: var(--usage-warning);
+  background: var(--toolbar-panel-warning);
 }
 
 .usage-panel-track[data-unknown] {
   background: repeating-linear-gradient(
     110deg,
-    var(--usage-track) 0px 5px,
+    var(--toolbar-panel-track) 0px 5px,
     transparent 5px 9px
   );
-  box-shadow: inset 0 0 0 1px var(--usage-track);
+  box-shadow: inset 0 0 0 1px var(--toolbar-panel-track);
 }
 
 .usage-panel-detail {
   margin-top: 5px;
-  color: var(--usage-muted);
-  font-size: 11px;
+  color: var(--toolbar-panel-muted);
+  font-size: 12px;
   line-height: 1.5;
   font-variant-numeric: tabular-nums;
 }
@@ -197,7 +119,7 @@ html.usage-panel-window .usage-panel {
 .usage-panel-section {
   margin-top: 16px;
   padding-top: 14px;
-  border-top: 1px solid var(--usage-line);
+  border-top: 1px solid var(--toolbar-panel-line);
 }
 
 .usage-panel-provider-heading {
@@ -211,19 +133,20 @@ html.usage-panel-window .usage-panel {
 }
 
 .usage-panel-provider-heading .provider-mark {
+  border-color: var(--toolbar-panel-line);
   width: 20px;
   height: 20px;
 }
 
 .usage-panel-provider-status {
   min-width: 0;
-  color: var(--usage-muted);
-  font-size: 11px;
+  color: var(--toolbar-panel-muted);
+  font-size: 12px;
   text-align: right;
 }
 
 .usage-panel-provider-status[data-warning] {
-  color: var(--usage-warning);
+  color: var(--toolbar-panel-warning);
 }
 
 .usage-panel-window + .usage-panel-window {
@@ -237,14 +160,14 @@ html.usage-panel-window .usage-panel {
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
-  color: var(--usage-warning);
-  font-size: 11px;
+  color: var(--toolbar-panel-warning);
+  font-size: 12px;
   line-height: 1.5;
 }
 
 .usage-panel .usage-panel-empty {
   margin-top: 16px;
-  color: var(--usage-muted);
+  color: var(--toolbar-panel-muted);
   font-size: 12px;
 }
 
@@ -255,13 +178,17 @@ html.usage-panel-window .usage-panel {
   justify-content: space-between;
   gap: 4px 12px;
   padding: 10px 16px 12px;
-  border-top: 1px solid var(--usage-line);
-  color: var(--usage-muted);
-  font-size: 11px;
+  border-top: 1px solid var(--toolbar-panel-line);
+  color: var(--toolbar-panel-muted);
+  font-size: 12px;
   line-height: 1.5;
 }
 
 .usage-panel-footer strong {
-  color: var(--usage-text);
+  color: var(--toolbar-panel-text);
   font-weight: 500;
+}
+
+.usage-panel .provider-mark:not([data-provider="claude"]) {
+  background: color-mix(in srgb, var(--toolbar-panel-bg) 94%, transparent);
 }

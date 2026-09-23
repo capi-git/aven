@@ -47,6 +47,24 @@ vi.mock("../lib/usagePanel", () => ({
     }),
   },
 }));
+const openPanel = vi.hoisted(() => ({
+  open: vi.fn(),
+  update: vi.fn(),
+  close: vi.fn(),
+  callbacks: new Map<string, (value: unknown) => void>(),
+}));
+vi.mock("../lib/workspaceMenuPanel", () => ({
+  nativeWorkspaceMenuPanel: {
+    ...openPanel,
+    listen: vi.fn(async (name: string, callback: (value: unknown) => void) => {
+      openPanel.callbacks.set(name, callback);
+      return () => {
+        if (openPanel.callbacks.get(name) === callback)
+          openPanel.callbacks.delete(name);
+      };
+    }),
+  },
+}));
 const api = vi.hoisted(() => ({ claude: vi.fn(), codex: vi.fn() }));
 const nativeWindow = vi.hoisted(() => ({
   startDragging: vi.fn().mockResolvedValue(undefined),
@@ -96,6 +114,10 @@ beforeEach(() => {
   nativePanel.update.mockResolvedValue(undefined);
   nativePanel.close.mockResolvedValue(undefined);
   nativePanel.callbacks.clear();
+  openPanel.open.mockResolvedValue("workspace-menu-panel-test");
+  openPanel.update.mockResolvedValue(undefined);
+  openPanel.close.mockResolvedValue(undefined);
+  openPanel.callbacks.clear();
   const storage = new Map<string, string>();
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => storage.get(key) ?? null,
@@ -319,7 +341,9 @@ describe("workspace status data and actions", () => {
     expect(children.indexOf(navigation)).toBeLessThan(children.indexOf(slot));
     expect(slot.nextElementSibling).toBe(trigger);
     expect(
-      trigger.nextElementSibling?.classList.contains("workspace-status-controls"),
+      trigger.nextElementSibling?.classList.contains(
+        "workspace-status-controls",
+      ),
     ).toBe(true);
     expect(trigger.querySelector(".workspace-status-context")).toBeNull();
     expect(trigger.querySelector(".workspace-status-unread")?.textContent).toBe(
@@ -354,9 +378,9 @@ describe("workspace status data and actions", () => {
   it("keeps Activity mounted when a tab slot appears and restores the model label when it leaves", async () => {
     await render({ session: task() });
     const trigger = button("Activity: Queue is clear");
-    expect(trigger.querySelector(".workspace-status-context")?.textContent).toBe(
-      "model",
-    );
+    expect(
+      trigger.querySelector(".workspace-status-context")?.textContent,
+    ).toBe("model");
     expect(
       container.querySelector<HTMLElement>(".workspace-status-bar")?.dataset
         .hasWorkspaceTabs,
@@ -365,7 +389,9 @@ describe("workspace status data and actions", () => {
     const activity = container.querySelector(
       '[role="dialog"][aria-label="Activity"]',
     );
-    await render({ workspaceTabs: createElement("div", null, "Workspace tabs") });
+    await render({
+      workspaceTabs: createElement("div", null, "Workspace tabs"),
+    });
     expect(button("Activity: Queue is clear")).toBe(trigger);
     expect(trigger.querySelector(".workspace-status-context")).toBeNull();
     expect(
@@ -374,9 +400,9 @@ describe("workspace status data and actions", () => {
 
     await render({ workspaceTabs: null });
     expect(container.querySelector(".workspace-status-tabs")).toBeNull();
-    expect(trigger.querySelector(".workspace-status-context")?.textContent).toBe(
-      "model",
-    );
+    expect(
+      trigger.querySelector(".workspace-status-context")?.textContent,
+    ).toBe("model");
     expect(trigger.querySelectorAll(".provider-mark")).toHaveLength(1);
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
     await click("Activity: Queue is clear");
@@ -1033,18 +1059,58 @@ describe("native workspace toolbar menus", () => {
   });
   it("routes native external choices without an HTML menu", async () => {
     nativeMenu.supported.mockReturnValue(true);
-    nativeMenu.show.mockResolvedValue("editor");
+
     const selected = vi.fn();
     await render({
       openActions: [{ id: "editor", label: "Open editor", onSelect: selected }],
     });
     await click("Open workspace externally");
+    expect(openPanel.open).toHaveBeenCalledWith(
+      expect.any(HTMLElement),
+      expect.objectContaining({
+        title: "Open workspace",
+        items: [expect.objectContaining({ id: "editor", disabled: false })],
+        theme: expect.objectContaining({ mode: "dark" }),
+      }),
+    );
+    expect(selected).not.toHaveBeenCalled();
+    await act(async () =>
+      openPanel.callbacks.get("workspace-menu-panel-action")?.({
+        label: "workspace-menu-panel-test",
+        action: "editor",
+      }),
+    );
     expect(selected).toHaveBeenCalledOnce();
     expect(container.querySelector('[aria-label="Open workspace"]')).toBeNull();
   });
+  it("ignores stale, unknown and disabled native choices", async () => {
+    nativeMenu.supported.mockReturnValue(true);
+    const selected = vi.fn();
+    await render({
+      openActions: [
+        { id: "editor", label: "Open editor", onSelect: selected },
+        { id: "blocked", label: "Blocked", onSelect: selected, disabled: true },
+      ],
+    });
+    await click("Open workspace externally");
+    const receive = openPanel.callbacks.get("workspace-menu-panel-action")!;
+    await act(async () => {
+      receive({ label: "old-panel", action: "editor" });
+      receive({ label: "workspace-menu-panel-test", action: "blocked" });
+      receive({ label: "workspace-menu-panel-test", action: "unknown" });
+    });
+    expect(selected).not.toHaveBeenCalled();
+    expect(
+      button("Open workspace externally").getAttribute("aria-expanded"),
+    ).toBe("true");
+    await act(async () =>
+      receive({ label: "workspace-menu-panel-test", action: "editor" }),
+    );
+    expect(selected).toHaveBeenCalledOnce();
+  });
   it("reports native menu failures without mounting a flashing HTML fallback", async () => {
     nativeMenu.supported.mockReturnValue(true);
-    nativeMenu.show.mockRejectedValue(new Error("Native menu unavailable"));
+    openPanel.open.mockRejectedValue(new Error("Native menu unavailable"));
     const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
     await render({
       openActions: [{ id: "editor", label: "Open editor", onSelect: vi.fn() }],

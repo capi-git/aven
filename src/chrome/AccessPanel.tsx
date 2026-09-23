@@ -1,11 +1,5 @@
-import {
-  useEffect,
-  useId,
-  useRef,
-  type CSSProperties,
-  type KeyboardEvent,
-} from "react";
-import { Check, Lock, LockOpen, Pencil, Sparkles, X } from "./icons";
+import { useEffect, useId, useRef, type KeyboardEvent } from "react";
+import { Check, Lock, LockOpen, Pencil, Sparkles } from "./icons";
 import {
   RUNTIME_MODE_HINT,
   RUNTIME_MODE_LABEL,
@@ -13,6 +7,7 @@ import {
   type RuntimeMode,
 } from "../lib/session";
 import type { AccessPanelSnapshot } from "../lib/accessPanel";
+import { ToolbarPanel, ToolbarPanelHeader } from "./ToolbarPanel";
 import "./AccessPanel.css";
 
 export const ACCESS_ICONS: Record<RuntimeMode, typeof Lock> = {
@@ -59,31 +54,19 @@ export function AccessPanelContent({
     options[next]?.focus();
   };
   return (
-    <section
+    <ToolbarPanel
       role="dialog"
       aria-labelledby={title}
       className="access-panel"
       data-access-picker
-      data-theme={snapshot.theme.mode}
-      style={
-        {
-          "--access-bg": snapshot.theme.background,
-          "--access-text": snapshot.theme.text,
-          "--access-accent": snapshot.theme.accent,
-        } as CSSProperties
-      }
+      theme={snapshot.theme}
     >
-      <header className="access-panel-header">
-        <h2 id={title}>Access</h2>
-        <button
-          type="button"
-          className="access-panel-close"
-          aria-label="Close access options"
-          onClick={onClose}
-        >
-          <X size={16} />
-        </button>
-      </header>
+      <ToolbarPanelHeader
+        title="Access"
+        titleId={title}
+        onClose={onClose}
+        closeLabel="Close access options"
+      />
       <p className="access-panel-note">
         {snapshot.busy
           ? "Changes apply to the next turn and new tasks."
@@ -106,7 +89,7 @@ export function AccessPanelContent({
               aria-checked={mode === snapshot.value}
               tabIndex={mode === snapshot.value ? 0 : -1}
               onClick={() => onSelect(mode)}
-              className="access-panel-option"
+              className="toolbar-panel-row access-panel-option"
             >
               <Icon className="access-panel-icon" size={16} />
               <span className="access-panel-copy">
@@ -127,6 +110,6 @@ export function AccessPanelContent({
           {error}
         </p>
       ) : null}
-    </section>
+    </ToolbarPanel>
   );
 }

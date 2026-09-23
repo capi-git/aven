@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState } from "react";
 import { formatTokens } from "../lib/contextUsage";
 import {
   formatResetCountdown,
@@ -7,7 +7,8 @@ import {
 } from "../lib/rateLimits";
 import type { UsagePanelSnapshot } from "../lib/usagePanel";
 import { ProviderMarks } from "./ProviderMarks";
-import { RefreshCw, X } from "./icons";
+import { RefreshCw } from "./icons";
+import { ToolbarPanel, ToolbarPanelHeader } from "./ToolbarPanel";
 import "./UsagePanel.css";
 
 export type UsagePanelContentProps = {
@@ -212,16 +213,9 @@ export function UsagePanelContent({
       ? snapshot.costUsd
       : null;
   return (
-    <div
+    <ToolbarPanel
       className="usage-panel"
-      data-theme={snapshot.theme.mode}
-      style={
-        {
-          "--usage-accent": snapshot.theme.accent,
-          "--usage-bg": snapshot.theme.background,
-          "--usage-text": snapshot.theme.text,
-        } as CSSProperties
-      }
+      theme={snapshot.theme}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();
@@ -229,11 +223,14 @@ export function UsagePanelContent({
         }
       }}
     >
-      <header className="usage-panel-header">
-        <h2>Usage</h2>
-        <div className="usage-panel-actions">
+      <ToolbarPanelHeader
+        title="Usage"
+        onClose={onClose}
+        closeLabel="Close usage"
+        actions={
           <button
             type="button"
+            className="toolbar-panel-icon-button"
             onClick={onRefresh}
             disabled={refreshing}
             aria-label="Refresh provider usage"
@@ -241,16 +238,8 @@ export function UsagePanelContent({
           >
             <RefreshCw size={16} />
           </button>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close usage"
-            title="Close (Esc)"
-          >
-            <X size={16} />
-          </button>
-        </div>
-      </header>
+        }
+      />
       <div className="usage-panel-body">
         <section
           className="usage-panel-context"
@@ -299,6 +288,6 @@ export function UsagePanelContent({
           </span>
         )}
       </footer>
-    </div>
+    </ToolbarPanel>
   );
 }

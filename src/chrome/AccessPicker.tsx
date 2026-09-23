@@ -184,7 +184,9 @@ export function AccessPicker({
         <Popover
           anchor={root}
           side={side}
-          width={340}
+          align="end"
+          panel
+          width={360}
           onDismiss={(reason) => dismiss(reason === "escape")}
         >
           <AccessPanelContent

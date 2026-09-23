@@ -41,7 +41,17 @@ function BootGate({ children }: { children: React.ReactNode }) {
   return children;
 }
 
-if (new URLSearchParams(window.location.search).has("accessPanel")) {
+if (new URLSearchParams(window.location.search).has("workspaceMenuPanel")) {
+  // Controlled menu only: never restore an App, workspace, or harness here.
+  void import("./surfaces/WorkspaceMenuPanelWindow")
+    .then(({ WorkspaceMenuPanelWindow }) => {
+      ReactDOM.createRoot(
+        document.getElementById("root") as HTMLElement,
+        rootOptions,
+      ).render(<WorkspaceMenuPanelWindow />);
+    })
+    .catch(showStartupFailure);
+} else if (new URLSearchParams(window.location.search).has("accessPanel")) {
   // Access is a controlled popup. The workspace owns harnesses and defaults.
   void import("./surfaces/AccessPanelWindow")
     .then(({ AccessPanelWindow }) => {

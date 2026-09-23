@@ -17,10 +17,9 @@ import { DevModeSlot } from "./TitleBar";
 import { IS_MAC } from "../lib/platform";
 import { settingsSectionLabel, type SettingsSectionId } from "../lib/settings";
 import { Popover } from "./Popover";
-import {
-  supportsWorkspaceNativeMenu,
-  showWorkspaceNativeMenu,
-} from "../lib/workspaceNativeMenu";
+import { supportsWorkspaceNativeMenu } from "../lib/workspaceNativeMenu";
+import { useWorkspaceMenuPanel } from "../hooks/useWorkspaceMenuPanel";
+import { WorkspaceMenuPanelContent } from "./WorkspaceMenuPanel";
 import {
   nativeUsagePanel,
   useUsagePanelTheme,
@@ -581,7 +580,7 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
     [],
   );
 
-  const panelTheme = useUsagePanelTheme(menu === "usage");
+  const panelTheme = useUsagePanelTheme(menu !== null);
   const panelSnapshot = useMemo<UsagePanelSnapshot>(
     () => ({
       context: validContext ?? null,
@@ -685,41 +684,38 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
     void nativeUsagePanel.update(panelSnapshot).catch(() => {});
   }, [panelSnapshot, menu, nativeMenus]);
 
-  useEffect(() => {
-    if (!nativeMenus || menu !== "open") return;
-    let cancelled = false;
-    const anchor = openAnchor.current;
-    if (!anchor) return;
-    setNativeMenuError(null);
-    void showWorkspaceNativeMenu(
-      anchor,
-      openActions.map((action) => ({
-        id: action.id,
-        label: action.description
-          ? `${action.label} — ${action.description}`
-          : action.label,
-        disabled: !!action.disabled || !action.onSelect,
-      })),
-    )
-      .then((choice) => {
-        if (cancelled || !alive.current) return;
-        setMenu(null);
-        anchor.focus({ preventScroll: true });
-        const action = openActions.find((item) => item.id === choice);
-        if (action?.onSelect && !action.disabled) action.onSelect();
-      })
-      .catch((error) => {
-        if (cancelled || !alive.current) return;
-        console.warn("Workspace menu failed", error);
-        setNativeMenuError("Could not open menu. Try again.");
-        setMenu(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-    // Preserve the action snapshot for the lifetime of a native menu.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [menu, nativeMenus]);
+  const openSnapshot = useMemo(
+    () => ({
+      title: "Open workspace",
+      items: openActions.map(
+        ({ id, label, description, disabled, onSelect }) => ({
+          id,
+          label,
+          description,
+          disabled: !!disabled || !onSelect,
+        }),
+      ),
+      theme: panelTheme,
+    }),
+    [openActions, panelTheme],
+  );
+  const selectOpenAction = (id: string) => {
+    const action = openActions.find((item) => item.id === id);
+    if (!action?.onSelect || action.disabled) return;
+    setMenu(null);
+    action.onSelect();
+  };
+  useWorkspaceMenuPanel({
+    open: nativeMenus && menu === "open",
+    anchor: openAnchor,
+    snapshot: openSnapshot,
+    onSelect: selectOpenAction,
+    onClose: () => setMenu(null),
+    onError: () => {
+      setNativeMenuError("Could not open menu. Try again.");
+      setMenu(null);
+    },
+  });
 
   const toggleUsage = (
     event: MouseEvent<HTMLButtonElement>,
@@ -740,9 +736,10 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
   const canOpenMenu = openActions.some(
     (action) => !!action.onSelect && !action.disabled,
   );
-  const QueueIcon = showingSettings || hasWorkspaceTabs || summary.rows.length
-    ? ListBullet
-    : Check;
+  const QueueIcon =
+    showingSettings || hasWorkspaceTabs || summary.rows.length
+      ? ListBullet
+      : Check;
 
   return (
     <div
@@ -888,7 +885,10 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
           disabled={!canOpenMenu}
           aria-haspopup="menu"
           aria-expanded={menu === "open"}
-          onClick={() => setMenu(menu === "open" ? null : "open")}
+          onClick={() => {
+            setNativeMenuError(null);
+            setMenu(menu === "open" ? null : "open");
+          }}
         >
           <ExternalLink size={12} aria-hidden />
           <span className="sr-only">Open</span>
@@ -941,15 +941,19 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
         <Popover
           anchor={queueAnchor}
           side="bottom"
-          width={390}
+          width={360}
+          align="end"
+          panel
           autoFocus
           tabIndex={-1}
           role="dialog"
           aria-label="Activity"
-          className="workspace-status-popover"
+          className="workspace-status-panel"
           onDismiss={(reason) => dismiss(queueAnchor, reason === "escape")}
         >
           <ActivityPanel
+            theme={panelTheme}
+            onClose={() => dismiss(queueAnchor, true)}
             sessions={sessions}
             onOpen={async (entry) => {
               const opened = await onSelectSession(entry.sessionId);
@@ -970,33 +974,16 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
           anchor={openAnchor}
           side="bottom"
           align="end"
-          width={250}
-          autoFocus
-          tabIndex={-1}
-          role="menu"
-          aria-label="Open workspace"
-          onKeyDown={menuKeys}
-          className="workspace-status-popover"
+          width={360}
+          panel
+          className="workspace-status-panel"
           onDismiss={(reason) => dismiss(openAnchor, reason === "escape")}
         >
-          {openActions.map((action) => (
-            <button
-              key={action.id}
-              type="button"
-              role="menuitem"
-              className="workspace-status-menu-item"
-              title={action.description}
-              disabled={action.disabled || !action.onSelect}
-              onClick={() => {
-                if (action.disabled || !action.onSelect) return;
-                setMenu(null);
-                action.onSelect();
-              }}
-            >
-              <span>{action.label}</span>
-              {action.description ? <small>{action.description}</small> : null}
-            </button>
-          ))}
+          <WorkspaceMenuPanelContent
+            snapshot={openSnapshot}
+            onSelect={selectOpenAction}
+            onClose={() => dismiss(openAnchor, true)}
+          />
         </Popover>
       ) : null}
 
@@ -1011,7 +998,8 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
           tabIndex={-1}
           role="dialog"
           aria-label="Task and provider usage"
-          className="workspace-status-popover workspace-status-usage"
+          panel
+          className="workspace-status-panel"
           onDismiss={(reason) => dismiss(usageAnchor, reason === "escape")}
         >
           <UsagePanelContent

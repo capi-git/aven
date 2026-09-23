@@ -1,0 +1,157 @@
+.toolbar-panel {
+  --toolbar-panel-bg: var(
+    --aven-popup,
+    var(--personal-main-surface, var(--color-background-base, Canvas))
+  );
+  --toolbar-panel-text: var(--color-content, CanvasText);
+  --toolbar-panel-accent: var(
+    --personal-accent,
+    var(--color-accent, Highlight)
+  );
+  --toolbar-panel-muted: color-mix(
+    in srgb,
+    var(--toolbar-panel-text) 70%,
+    var(--toolbar-panel-bg)
+  );
+  --toolbar-panel-line: color-mix(
+    in srgb,
+    var(--toolbar-panel-text) 12%,
+    transparent
+  );
+  --toolbar-panel-hover: color-mix(
+    in srgb,
+    var(--toolbar-panel-accent) 10%,
+    transparent
+  );
+  --toolbar-panel-selected: color-mix(
+    in srgb,
+    var(--toolbar-panel-accent) 16%,
+    transparent
+  );
+  --toolbar-panel-track: color-mix(
+    in srgb,
+    var(--toolbar-panel-text) 12%,
+    var(--toolbar-panel-bg)
+  );
+  --toolbar-panel-warning: color-mix(
+    in srgb,
+    var(--color-warning, #d99c45) 80%,
+    var(--toolbar-panel-text)
+  );
+  --toolbar-panel-error: color-mix(
+    in srgb,
+    var(--color-danger, #d96c58) 80%,
+    var(--toolbar-panel-text)
+  );
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--toolbar-panel-line);
+  border-radius: 12px;
+  background: var(--toolbar-panel-bg);
+  color: var(--toolbar-panel-text);
+  font: 13px/1.4
+    var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+  -webkit-font-smoothing: antialiased;
+}
+
+.toolbar-panel[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+.toolbar-panel[data-theme="light"] {
+  color-scheme: light;
+}
+
+.toolbar-panel-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  box-sizing: border-box;
+  padding: 10px 10px 10px 16px;
+}
+
+.toolbar-panel-header h2 {
+  min-width: 0;
+  margin: 0;
+  color: var(--toolbar-panel-text);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+}
+
+.toolbar-panel-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+
+.toolbar-panel-icon-button {
+  display: grid;
+  flex: 0 0 28px;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--toolbar-panel-muted);
+  cursor: pointer;
+}
+
+.toolbar-panel-icon-button:hover:not(:disabled) {
+  background: var(--toolbar-panel-hover);
+  color: var(--toolbar-panel-text);
+}
+
+.toolbar-panel-icon-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.toolbar-panel-row {
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--toolbar-panel-text);
+  font: inherit;
+}
+
+.toolbar-panel-row:hover:not(:disabled) {
+  background: var(--toolbar-panel-hover);
+}
+
+.toolbar-panel-row[aria-checked="true"],
+.toolbar-panel-row[aria-selected="true"] {
+  background: var(--toolbar-panel-selected);
+}
+
+.toolbar-panel-secondary {
+  color: var(--toolbar-panel-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.toolbar-panel button:focus-visible,
+.toolbar-panel a:focus-visible {
+  outline: 2px solid var(--toolbar-panel-accent);
+  outline-offset: -2px;
+}
+
+@media (prefers-contrast: more) {
+  .toolbar-panel {
+    --toolbar-panel-line: color-mix(
+      in srgb,
+      var(--toolbar-panel-text) 35%,
+      transparent
+    );
+    --toolbar-panel-muted: var(--toolbar-panel-text);
+  }
+}

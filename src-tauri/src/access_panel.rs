@@ -74,7 +74,7 @@ fn validate_snapshot(snapshot: &Value) -> Result<(), String> {
         || !["accent", "background", "text"].into_iter().all(|key| {
             snapshot["theme"][key]
                 .as_str()
-                .is_some_and(|color| !color.is_empty() && color.len() <= 128)
+                .is_some_and(|color| !color.is_empty() && color.len() <= 1024)
         })
     {
         return Err("Invalid access display data".into());
@@ -171,7 +171,7 @@ fn clamped_placement(
     let top = work_top + margin;
     let available_width = (work_width - 2.0 * margin).max(scale);
     let available_height = (work_height - 2.0 * margin).max(scale);
-    let width = (340.0 * scale).min(available_width);
+    let width = (360.0 * scale).min(available_width);
     let height = (350.0 * scale).min(available_height);
     let x = (right - width).clamp(left, left + available_width - width);
     let y = (bottom + 6.0 * scale).clamp(top, top + available_height - height);
@@ -234,7 +234,8 @@ pub async fn access_panel_open(
             .visible(false)
             .focused(false)
             .shadow(true)
-            .background_color(Color(20, 26, 28, 255))
+            .transparent(true)
+            .background_color(Color(0, 0, 0, 0))
             .parent(&owner)
             .map_err(|error| error.to_string())?
             .build()
@@ -247,7 +248,8 @@ pub async fn access_panel_open(
             .focused(false)
             .auto_resize()
             .disable_drag_drop_handler()
-            .background_color(Color(20, 26, 28, 255))
+            .transparent(true)
+            .background_color(Color(0, 0, 0, 0))
             .on_navigation(move |url| allowed_url(url, &expected))
             .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny);
         window
@@ -311,7 +313,11 @@ pub async fn access_panel_ready(caller: Webview) -> Result<(), String> {
         Ok(())
     })?;
     let window = caller.window();
-    let result = window.show().and_then(|()| window.set_focus());
+    // Focus the renderer too so Escape and menu keys work before any click.
+    let result = window
+        .show()
+        .and_then(|()| window.set_focus())
+        .and_then(|()| caller.set_focus());
     if result.is_err() {
         dismiss(app, caller.label(), true);
     }
@@ -463,11 +469,17 @@ mod tests {
             json!({"value": "full-access", "busy": false}),
             json!({"value": "full-access", "busy": "false", "theme": snapshot["theme"]}),
             json!({"value": "unknown", "busy": false, "theme": snapshot["theme"]}),
-            json!({"value": "auto", "busy": false, "theme": {"mode": "dark", "accent": "x".repeat(129), "background": "#000", "text": "#fff"}}),
+            json!({"value": "auto", "busy": false, "theme": {"mode": "dark", "accent": "x".repeat(1025), "background": "#000", "text": "#fff"}}),
             json!({"value": "auto", "busy": false, "theme": snapshot["theme"], "extra": "x".repeat(8_192)}),
         ] {
             assert!(validate_snapshot(&invalid).is_err());
         }
+        let mut nested_colors = snapshot.clone();
+        nested_colors["theme"]["background"] = json!(format!(
+            "color-mix(in srgb, {} 92%, transparent)",
+            "color-mix(in srgb, #0b121a 90%, #6cabdd)".repeat(4)
+        ));
+        assert!(validate_snapshot(&nested_colors).is_ok());
     }
     #[test]
     fn only_known_permission_choices_or_close_are_actions() {
@@ -484,12 +496,12 @@ mod tests {
     #[test]
     fn keeps_popup_inside_retina_and_negative_origin_displays() {
         let (position, size) = clamped_placement(2_000.0, 80.0, 2.0, 0.0, 0.0, 2_880.0, 1_800.0);
-        assert_eq!(position, PhysicalPosition::new(1_320, 92));
-        assert_eq!(size, LogicalSize::new(340.0, 350.0));
+        assert_eq!(position, PhysicalPosition::new(1_280, 92));
+        assert_eq!(size, LogicalSize::new(360.0, 350.0));
         let (position, size) =
             clamped_placement(-1_900.0, 1_075.0, 1.0, -1_920.0, 0.0, 1_920.0, 1_080.0);
         assert_eq!(position, PhysicalPosition::new(-1_912, 722));
-        assert_eq!(size, LogicalSize::new(340.0, 350.0));
+        assert_eq!(size, LogicalSize::new(360.0, 350.0));
     }
     #[test]
     fn shrinks_popup_to_a_small_work_area() {

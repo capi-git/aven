@@ -53,6 +53,7 @@ mod window;
 mod window_transfer;
 #[cfg(windows)]
 mod windows;
+mod workspace_menu_panel;
 mod workspace_window;
 
 // Phase 1 seam: spawn / kill harness children per Aven thread.
@@ -242,6 +243,7 @@ pub fn run() {
         .manage(workspace_window::WorkspaceWindowState::default())
         .manage(usage_panel::UsagePanelState::default())
         .manage(access_panel::AccessPanelState::default())
+        .manage(workspace_menu_panel::WorkspaceMenuPanelState::default())
         .setup(|app| {
             // The development app owns only the children it starts. Leave any
             // process-wide recovery of production leftovers to the release app.
@@ -278,6 +280,12 @@ pub fn run() {
             access_panel::access_panel_ready,
             access_panel::access_panel_action,
             access_panel::access_panel_close,
+            workspace_menu_panel::workspace_menu_panel_open,
+            workspace_menu_panel::workspace_menu_panel_update,
+            workspace_menu_panel::workspace_menu_panel_get_state,
+            workspace_menu_panel::workspace_menu_panel_ready,
+            workspace_menu_panel::workspace_menu_panel_action,
+            workspace_menu_panel::workspace_menu_panel_close,
             usage_panel::usage_panel_open,
             usage_panel::usage_panel_update,
             usage_panel::usage_panel_get_state,
@@ -497,6 +505,7 @@ pub fn run() {
             window::update_window_event(handle, label, event);
             usage_panel::window_event(handle, label, event);
             access_panel::window_event(handle, label, event);
+            workspace_menu_panel::window_event(handle, label, event);
         }
         match event {
             #[cfg(target_os = "macos")]

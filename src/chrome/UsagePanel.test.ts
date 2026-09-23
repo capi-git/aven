@@ -292,8 +292,10 @@ describe("usage panel", () => {
       }),
     );
     const panel = container.querySelector<HTMLElement>(".usage-panel")!;
-    expect(panel.style.getPropertyValue("--usage-bg")).toBe("#575757");
-    expect(panel.style.getPropertyValue("--usage-text")).toBe("#ffffff");
+    expect(panel.style.getPropertyValue("--toolbar-panel-bg")).toBe("#575757");
+    expect(panel.style.getPropertyValue("--toolbar-panel-text")).toBe(
+      "#ffffff",
+    );
     await render(
       snapshot({
         theme: {
@@ -304,8 +306,12 @@ describe("usage panel", () => {
         },
       }),
     );
-    expect(panel.style.getPropertyValue("--usage-bg")).toBe("#faf4e6");
-    expect(panel.style.getPropertyValue("--usage-text")).toBe("#000000");
-    expect(panel.style.getPropertyValue("--usage-accent")).toBe("#8f6b25");
+    expect(panel.style.getPropertyValue("--toolbar-panel-bg")).toBe("#faf4e6");
+    expect(panel.style.getPropertyValue("--toolbar-panel-text")).toBe(
+      "#000000",
+    );
+    expect(panel.style.getPropertyValue("--toolbar-panel-accent")).toBe(
+      "#8f6b25",
+    );
   });
 });

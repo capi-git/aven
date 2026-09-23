@@ -43,6 +43,10 @@ async function mutate(action: () => void) {
 }
 
 describe("usage panel workspace palette", () => {
+  it("uses the same raised popup surface for all toolbar panels", () => {
+    shell.style.setProperty("--aven-popup", "#24312e");
+    expect(usagePanelTheme().background).toBe("#24312e");
+  });
   it("captures the main surface and readable foreground, not just the accent", () => {
     expect(usagePanelTheme()).toEqual({
       mode: "dark",
