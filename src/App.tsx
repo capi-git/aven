@@ -1356,7 +1356,7 @@ export default function App({
   const sidebarHover = useHoverRevealPanel({
     pinned: sidebarOpen,
     enterDelay: 45,
-    leaveDelay: 100,
+    leaveDelay: 0,
   });
   const inspectorVisible = workspaceVisible && inspector.open;
   useLayoutEffect(() => {

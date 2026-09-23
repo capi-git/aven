@@ -162,24 +162,65 @@ describe("temporary hover panels", () => {
     expect(latest.visible).toBe(false);
   });
 
-  it("retains keyboard focus after pointer leave and closes after focus moves away", async () => {
+  it("starts a zero-delay close after pointer leave without waiting for a timer", async () => {
+    await render({ enterDelay: 45, leaveDelay: 0 });
+    enter("[data-edge]");
+    await advance(45);
+    await act(async () => {
+      leave("[data-edge]");
+      enter("[data-panel]");
+    });
+    expect(latest.visible).toBe(true);
+    await act(async () => leave("[data-panel]"));
+    expect(latest.visible).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("cancels a queued zero-delay close when the pointer re-enters", async () => {
+    await render({ leaveDelay: 0 });
+    await reveal();
+    await act(async () => {
+      leave("[data-edge]");
+      enter("[data-panel]");
+      leave("[data-panel]");
+      enter("[data-panel]");
+    });
+    expect(latest.visible).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("does not extend a pending close for repeated focus observations", async () => {
     await render();
     await reveal();
     leave("[data-edge]");
-    enter("[data-panel]");
-    act(() =>
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Tab", bubbles: true }),
-      ),
-    );
-    await act(async () => element("input").focus());
-    leave("[data-panel]");
-    await advance(500);
-    expect(latest.revealed).toBe(true);
+    await advance(100);
     await act(async () => element("[data-outside]").focus());
-    await advance(180);
+    await advance(80);
     expect(latest.visible).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
   });
+
+  it.each([0, 180])(
+    "retains keyboard focus after pointer leave with a %i ms close delay",
+    async (leaveDelay) => {
+      await render({ leaveDelay });
+      await reveal();
+      leave("[data-edge]");
+      enter("[data-panel]");
+      act(() =>
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Tab", bubbles: true }),
+        ),
+      );
+      await act(async () => element("input").focus());
+      leave("[data-panel]");
+      await advance(500);
+      expect(latest.revealed).toBe(true);
+      await act(async () => element("[data-outside]").focus());
+      await advance(180);
+      expect(latest.visible).toBe(false);
+    },
+  );
 
   it.each(["button", "input", "autofocus"])(
     "closes a hover peek after leaving a pointer-focused %s without an outside click",
@@ -239,29 +280,32 @@ describe("temporary hover panels", () => {
     expect(latest.visible).toBe(false);
   });
 
-  it("keeps portalled menus usable and gives their Escape handling priority", async () => {
-    await render();
-    await reveal();
-    const menu = document.createElement("div");
-    menu.setAttribute("role", "menu");
-    menu.dataset.testPortal = "true";
-    document.body.appendChild(menu);
-    await mutation(menu, true);
-    leave("[data-edge]");
-    await advance(500);
-    expect(latest.revealed).toBe(true);
-    expect(vi.getTimerCount()).toBe(0);
-    act(() =>
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-      ),
-    );
-    expect(latest.visible).toBe(true);
-    menu.remove();
-    await mutation(menu, false);
-    await advance(180);
-    expect(latest.visible).toBe(false);
-  });
+  it.each([0, 180])(
+    "keeps portalled menus usable with a %i ms close delay",
+    async (leaveDelay) => {
+      await render({ leaveDelay });
+      await reveal();
+      const menu = document.createElement("div");
+      menu.setAttribute("role", "menu");
+      menu.dataset.testPortal = "true";
+      document.body.appendChild(menu);
+      await mutation(menu, true);
+      leave("[data-edge]");
+      await advance(500);
+      expect(latest.revealed).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
+      act(() =>
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+        ),
+      );
+      expect(latest.visible).toBe(true);
+      menu.remove();
+      await mutation(menu, false);
+      await advance(180);
+      expect(latest.visible).toBe(false);
+    },
+  );
 
   it("closes after a real React portal menu when React omits the panel pointer-leave event", async () => {
     const syntheticLeave = vi.fn();

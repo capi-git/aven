@@ -1,5 +1,12 @@
 # Aven changelog
 
+## [0.1.92] - 2026-09-23
+
+### Responsive sidebar dismissal
+
+- Start the left sidebar's closing animation as soon as the pointer leaves, removing the extra hover-exit pause.
+- Keep a pending close from being postponed by repeated focus and popup observations. Preserve edge-to-panel movement, open menus, keyboard focus, and the existing slide animation.
+
 ## [0.1.91] - 2026-09-23
 
 ### Prevent a Bluetooth privacy crash

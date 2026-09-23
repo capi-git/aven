@@ -52,6 +52,8 @@ export function useHoverRevealPanel({
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
+  const leaveRequest = useRef(0);
+  const leavePending = useRef(false);
   const edge = useRef<HTMLElement | null>(null);
   const panel = useRef<HTMLElement | null>(null);
   const pointer = useRef({ edge: false, panel: false });
@@ -64,6 +66,8 @@ export function useHoverRevealPanel({
   const cancelLeave = useCallback(() => {
     if (leaveTimer.current !== undefined) clearTimeout(leaveTimer.current);
     leaveTimer.current = undefined;
+    leavePending.current = false;
+    leaveRequest.current += 1;
   }, []);
   const containsFocus = useCallback(() => {
     const active = document.activeElement;
@@ -102,7 +106,6 @@ export function useHoverRevealPanel({
     setTemporary(true);
   }, [cancelEnter, cancelLeave]);
   const scheduleClose = useCallback(() => {
-    cancelLeave();
     if (
       !shown.current ||
       options.current.pinned ||
@@ -110,9 +113,17 @@ export function useHoverRevealPanel({
       pointer.current.panel ||
       containsFocus() ||
       interactionOpen()
-    )
+    ) {
+      cancelLeave();
       return;
-    leaveTimer.current = setTimeout(() => {
+    }
+    // Repeated focus/portal observations must not push back a pending close.
+    if (leavePending.current) return;
+    leavePending.current = true;
+    const request = ++leaveRequest.current;
+    const close = () => {
+      if (request !== leaveRequest.current) return;
+      leavePending.current = false;
       leaveTimer.current = undefined;
       if (
         !pointer.current.edge &&
@@ -121,7 +132,12 @@ export function useHoverRevealPanel({
         !interactionOpen()
       )
         dismiss();
-    }, delay(options.current.leaveDelay));
+    };
+    const wait = delay(options.current.leaveDelay);
+    // Let enter/leave events finish crossing the edge into the panel, then
+    // begin closing before the next paint instead of waiting on a browser timer.
+    if (wait === 0) queueMicrotask(close);
+    else leaveTimer.current = setTimeout(close, wait);
   }, [cancelLeave, containsFocus, dismiss]);
 
   const edgeHandlers = useMemo<HoverRevealPanelHandlers>(
