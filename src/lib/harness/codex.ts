@@ -59,8 +59,13 @@ type Live = {
   /** Resolves when the current turn completes (or is cancelled). */
   turnDone: (() => void) | null;
   turnFailed: ((error: Error) => void) | null;
-  /** A terminal notification arrived before runTurn registered its callbacks. */
-  turnEndPending: { error?: Error } | null;
+  /** Only a dispatched request may own a lead turn terminal notification. */
+  turnMode: "prompt" | "compaction" | null;
+  turnStartPending: boolean;
+  turnReady: Promise<void> | null;
+  resolveTurnReady: (() => void) | null;
+  earlyTerminals: Map<string, { method: string; params: unknown }>;
+  finishedTurnIds: Set<string>;
   emittedAssistant: string;
   assistantItems: Map<string, string>;
   /** Stable before the asynchronous turn/start response or notification arrives. */
@@ -100,12 +105,13 @@ export async function sendCodexTurn(input: SendTurnInput): Promise<void> {
   }
   if (cancelledThreads.delete(input.sessionId)) return;
 
-  live.onEvent = input.onEvent;
-  live.runtimeMode = input.runtimeMode;
-  live.planning = input.intent === "plan";
   live.turns = live.turns
     .catch(() => undefined)
     .then(async () => {
+      if (live.retired) throw new Error("Codex session stopped before this turn could start");
+      live.onEvent = input.onEvent;
+      live.runtimeMode = input.runtimeMode;
+      live.planning = input.intent === "plan";
       live.cancelled = false;
       live.muteUpdates = false;
       try {
@@ -130,10 +136,12 @@ export async function compactCodexContext(
   }
   if (cancelledThreads.delete(input.sessionId)) return;
 
-  live.onEvent = input.onEvent;
   live.turns = live.turns
     .catch(() => undefined)
     .then(async () => {
+      if (live.retired) throw new Error("Codex session stopped before compaction could start");
+      live.onEvent = input.onEvent;
+      live.runtimeMode = input.runtimeMode;
       live.cancelled = false;
       live.muteUpdates = false;
       try {
@@ -149,6 +157,8 @@ export async function compactCodexContext(
 export async function steerCodexTurn(input: SteerTurnInput): Promise<void> {
   const live = liveByThread.get(input.sessionId);
   if (!live) throw new Error("No active Codex session");
+  await live.turnReady;
+  if (liveByThread.get(input.sessionId) !== live || live.retired) throw new Error("No active Codex session");
   const turnId = live.activeTurnId;
   if (!turnId) throw new Error("No active turn to steer");
 
@@ -192,6 +202,10 @@ export async function cancelCodexTurn(sessionId: string): Promise<void> {
     pending.resolve("deny");
   }
   live.approvals.clear();
+  // A prompt may not have its authoritative turn ID yet. Wait for that RPC
+  // response before interrupting so Stop cannot leave an unseen turn running.
+  await live.turnReady;
+  if (liveByThread.get(sessionId) !== live || live.retired) return;
   const turnId = live.activeTurnId;
   if (turnId) {
     await live.rpc
@@ -266,8 +280,6 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
   await stoppingByThread.get(input.sessionId);
   const existing = liveByThread.get(input.sessionId);
   if (existing && !existing.retired && existing.cwd === input.cwd) {
-    existing.onEvent = input.onEvent;
-    existing.runtimeMode = input.runtimeMode;
     return existing;
   }
   if (existing) {
@@ -448,7 +460,12 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       turns: Promise.resolve(),
       turnDone: null,
       turnFailed: null,
-      turnEndPending: null,
+      turnMode: null,
+      turnStartPending: false,
+      turnReady: null,
+      resolveTurnReady: null,
+      earlyTerminals: new Map(),
+      finishedTurnIds: new Set(),
       emittedAssistant: "",
       assistantItems: new Map(),
       assistantTurnKey: crypto.randomUUID(),
@@ -513,6 +530,11 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
   live.assistantItems.clear();
   live.assistantTurnKey = crypto.randomUUID();
   live.emittedReasoning = "";
+  live.turnMode = "prompt";
+  live.turnStartPending = true;
+  live.turnReady = new Promise((resolve) => { live.resolveTurnReady = resolve; });
+  live.activeTurnId = null;
+  live.earlyTerminals.clear();
 
   const turnPromise = new Promise<void>((resolve, reject) => {
     live.turnDone = resolve;
@@ -521,18 +543,19 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
   // A terminal notification can reject before the turn/start RPC replies.
   // Keep that rejection observed until the request has finished below.
   void turnPromise.catch(() => undefined);
-  settlePendingTurn(live);
-
   try {
     const response = await live.rpc.request<{ turn?: { id?: string } }>(
       "turn/start",
       params,
     );
     const turnId = response.turn?.id;
-    if (turnId && live.turnDone) {
-      live.activeTurnId = live.activeTurnId ?? turnId;
+    if (live.turnDone) {
+      if (!turnId) throw new Error("Codex did not return a turn id");
+      live.activeTurnId = turnId;
+      live.turnStartPending = false;
+      markTurnReady(live);
+      consumeEarlyTerminal(live);
     }
-    settlePendingTurn(live);
     await turnPromise;
   } catch (error) {
     if (live.cancelled) return;
@@ -544,8 +567,7 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
     }
     throw error;
   } finally {
-    live.turnDone = null;
-    live.turnFailed = null;
+    resetActiveTurn(live);
   }
 }
 
@@ -554,22 +576,25 @@ async function runCompaction(live: Live): Promise<void> {
   live.assistantItems.clear();
   live.assistantTurnKey = crypto.randomUUID();
   live.emittedReasoning = "";
+  live.turnMode = "compaction";
+  live.turnStartPending = true;
+  live.turnReady = new Promise((resolve) => { live.resolveTurnReady = resolve; });
+  live.activeTurnId = null;
+  live.earlyTerminals.clear();
   const turnPromise = new Promise<void>((resolve, reject) => {
     live.turnDone = resolve;
     live.turnFailed = reject;
   });
   void turnPromise.catch(() => undefined);
-  settlePendingTurn(live);
-
   try {
     await live.rpc.request("thread/compact/start", {
       threadId: live.threadId,
     });
-    settlePendingTurn(live);
+    live.turnStartPending = false;
+    consumeEarlyTerminal(live);
     await turnPromise;
   } finally {
-    live.turnDone = null;
-    live.turnFailed = null;
+    resetActiveTurn(live);
   }
 }
 
@@ -589,6 +614,35 @@ function handleNotification(live: Live, method: string, params: unknown): void {
       if (status) publishAgentUpdate(live, { ...child, status });
     }
     return;
+  }
+  const startsTurn = method === "turn/started";
+  const endsTurn = method === "turn/completed" || method === "turn/aborted";
+  if (startsTurn || endsTurn) {
+    const turn = asRecord(record?.turn);
+    const turnId = typeof turn?.id === "string" ? turn.id : undefined;
+    if (!live.turnDone || !live.turnMode || !turnId || live.finishedTurnIds.has(turnId)) return;
+    if (startsTurn) {
+      // thread/compact/start returns no turn ID. Its explicit start event is
+      // therefore the authority; ordinary prompts use the RPC response ID.
+      if (live.turnMode === "compaction" && !live.activeTurnId) {
+        live.activeTurnId = turnId;
+        markTurnReady(live);
+      }
+      if (live.activeTurnId !== turnId) return;
+    } else if (live.activeTurnId !== turnId) {
+      if (live.turnStartPending || (live.turnMode === "compaction" && !live.activeTurnId)) {
+        // A very fast turn can finish before its start RPC returns. Keep it
+        // only for this request, and apply it only after matching its ID.
+        // Retain compact terminal metadata for this request rather than the
+        // whole transcript. Do not let unrelated early IDs crowd out the
+        // matching terminal before the RPC tells us which ID is ours.
+        live.earlyTerminals.set(turnId, {
+          method,
+          params: { threadId, turn: { id: turnId, status: turn?.status, error: turn?.error } },
+        });
+      }
+      return;
+    }
   }
   const mapped = mapCodexNotification(method, params);
   const snapshot = method === "item/completed";
@@ -622,7 +676,8 @@ function handleNotification(live: Live, method: string, params: unknown): void {
   }
   if (live.muteUpdates) return;
   if (mapped.activeTurnId !== undefined) {
-    live.activeTurnId = mapped.activeTurnId;
+    // Preserve the terminal ID until finishActiveTurn records it as retired.
+    if (!mapped.turnCompleted) live.activeTurnId = mapped.activeTurnId;
   }
   if (mapped.turnCompleted) {
     const { status, error } = mapped.turnCompleted;
@@ -643,6 +698,7 @@ function handleNotification(live: Live, method: string, params: unknown): void {
     }
     finishActiveTurn(live, [], terminalError);
   }
+  if (startsTurn) consumeEarlyTerminal(live);
 }
 
 function publishAgentUpdate(live: Live, event: AgentUpdate): void {
@@ -725,18 +781,15 @@ function finishActiveTurn(
   extraEvents: HarnessEvent[] = [],
   error?: Error,
 ): void {
-  live.turnEndPending = null;
-  live.activeTurnId = null;
+  const done = live.turnDone;
+  const failed = live.turnFailed;
+  resetActiveTurn(live);
   live.emittedAssistant = "";
   live.assistantItems.clear();
   live.emittedReasoning = "";
   for (const event of extraEvents) {
     live.onEvent(event);
   }
-  const done = live.turnDone;
-  const failed = live.turnFailed;
-  live.turnDone = null;
-  live.turnFailed = null;
   if (error && failed) {
     failed(error);
     return;
@@ -745,14 +798,36 @@ function finishActiveTurn(
     done();
     return;
   }
-  if (!done && !failed) {
-    live.turnEndPending = { error };
-  }
 }
 
-function settlePendingTurn(live: Live): void {
-  if (!live.turnEndPending || !live.turnDone) return;
-  finishActiveTurn(live, [], live.turnEndPending.error);
+function resetActiveTurn(live: Live): void {
+  markTurnReady(live);
+  live.turnReady = null;
+  if (live.activeTurnId) {
+    live.finishedTurnIds.add(live.activeTurnId);
+    if (live.finishedTurnIds.size > 64) {
+      live.finishedTurnIds.delete(live.finishedTurnIds.values().next().value!);
+    }
+  }
+  live.activeTurnId = null;
+  live.turnMode = null;
+  live.turnStartPending = false;
+  live.earlyTerminals.clear();
+  live.turnDone = null;
+  live.turnFailed = null;
+}
+
+function markTurnReady(live: Live): void {
+  live.resolveTurnReady?.();
+  live.resolveTurnReady = null;
+}
+
+function consumeEarlyTerminal(live: Live): void {
+  if (!live.activeTurnId) return;
+  const terminal = live.earlyTerminals.get(live.activeTurnId);
+  live.earlyTerminals.clear();
+  if (!terminal) return;
+  handleNotification(live, terminal.method, terminal.params);
 }
 
 async function handleServerRequest(

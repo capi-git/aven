@@ -18,6 +18,10 @@
 - Correct Codex and Claude lifecycle tracking, preserve background updates between turns, and include active workers in the workspace activity indicators.
 - Keep provider processes alive while agents remain active, and make Stop reach detached workers. Show an unavailable status when a disconnect or failed shutdown leaves their state unconfirmed.
 
+### Reliable Codex turn completion
+
+- Match completion events to the current Codex turn. Ignore old or unrelated completion events instead of marking a new request finished while its provider is still working.
+
 ## [0.1.91] - 2026-09-23
 
 ### Prevent a Bluetooth privacy crash

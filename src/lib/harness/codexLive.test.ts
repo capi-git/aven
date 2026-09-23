@@ -688,6 +688,100 @@ describe("codex live turn sequence", () => {
     expect(settled).toBe(true);
   });
 
+  it("does not inherit a duplicate idle terminal or let an older turn finish a new request", async () => {
+    const { turn } = await startTurn("codex-live");
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+    // Previously this idle duplicate populated turnEndPending and immediately
+    // resolved the next turn's promise as soon as its start RPC returned.
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    sent.length = 0;
+    const events: HarnessEvent[] = [];
+    let settled = false;
+    const next = sendCodexTurn({ sessionId: "codex-live", cwd: "/repo",
+      model: "codex:gpt-5.4", runtimeMode: "supervised", text: "Redesign the page",
+      onEvent: (event) => events.push(event) });
+    void next.then(() => { settled = true; });
+    await waitFor(() => parse().some((message) => message.method === "turn/start"), "next turn/start");
+    // Even a previously unseen stale ID must not become the new turn's ID
+    // when its start/terminal frames arrive before the authoritative response.
+    notify("turn/started", { turn: { id: "old_unseen", status: "inProgress" } });
+    notify("turn/completed", { turn: { id: "old_unseen", status: "completed" } });
+    const request = parse().find((message) => message.method === "turn/start")!;
+    reply(request.id as number, { turn: { id: "turn_2", status: "inProgress" } });
+    notify("item/completed", { threadId: "thr_1", turnId: "turn_2", item: {
+      id: "progress", type: "agentMessage", phase: "commentary", text: "I'll redesign the page now.",
+    } });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(settled).toBe(false);
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    notify("turn/completed", { turn: { id: "old_unseen", status: "completed" } });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(settled).toBe(false);
+    notify("item/started", { threadId: "thr_1", turnId: "turn_2", item: {
+      id: "edit", type: "commandExecution", command: "apply_patch", status: "inProgress",
+    } });
+    expect(events.some((event) => event.type === "tool.started")).toBe(true);
+    notify("turn/completed", { turn: { id: "turn_2", status: "completed" } });
+    await next;
+    expect(settled).toBe(true);
+  });
+
+  it("matches a fast terminal to the start RPC response instead of an earlier mismatched terminal", async () => {
+    const { events, turn } = await startTurn("codex-live", {
+      terminalBeforeReply: true,
+      beforeTurnStartReply: async () => {
+        for (let index = 0; index < 20; index++) {
+          notify("turn/completed", { turn: { id: `replayed_${index}`, status: "completed" } });
+        }
+        notify("turn/started", { turn: { id: "unrelated_old", status: "inProgress" } });
+        notify("turn/completed", { turn: { id: "unrelated_old", status: "failed", error: { message: "Old failure" } } });
+        notify("item/completed", { item: { id: "answer", type: "agentMessage", phase: "final_answer", text: "Done" } });
+        notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      },
+    });
+    await expect(turn).resolves.toBeUndefined();
+    expect(events.some((event) => event.type === "session.error")).toBe(false);
+  });
+
+  it("interrupts the returned turn ID when Stop is pressed before turn/start responds", async () => {
+    let cancelled!: Promise<void>;
+    const { turn } = await startTurn("codex-live", {
+      beforeTurnStartReply: async () => {
+        notify("turn/started", { turn: { id: "old_unseen", status: "inProgress" } });
+        cancelled = cancelCodexTurn("codex-live");
+        await Promise.resolve();
+        expect(parse().some((message) => message.method === "turn/interrupt")).toBe(false);
+      },
+    });
+    await waitFor(() => parse().some((message) => message.method === "turn/interrupt"), "pending-turn interrupt");
+    const interrupt = parse().find((message) => message.method === "turn/interrupt")!;
+    expect(interrupt.params).toEqual({ threadId: "thr_1", turnId: "turn_1" });
+    reply(interrupt.id as number, {});
+    await cancelled;
+    await turn;
+  });
+
+  it("keeps queued turn callbacks separate until that turn owns the provider", async () => {
+    const { events, turn } = await startTurn("codex-live");
+    const nextEvents: HarnessEvent[] = [];
+    const next = sendCodexTurn({ sessionId: "codex-live", cwd: "/repo",
+      model: "codex:gpt-5.4", runtimeMode: "supervised", text: "Next request",
+      onEvent: (event) => nextEvents.push(event) });
+    await Promise.resolve();
+    notify("item/agentMessage/delta", { itemId: "first", delta: "First turn output" });
+    expect(events).toContainEqual(expect.objectContaining({ type: "message.delta", text: "First turn output" }));
+    expect(nextEvents).toEqual([]);
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+    await waitFor(() => parse().filter((message) => message.method === "turn/start").length === 2, "queued turn/start");
+    const request = parse().filter((message) => message.method === "turn/start").at(-1)!;
+    reply(request.id as number, { turn: { id: "turn_2", status: "inProgress" } });
+    notify("turn/completed", { turn: { id: "turn_2", status: "completed" } });
+    await next;
+  });
+
   it.each([
     {
       method: "turn/completed",
@@ -870,6 +964,28 @@ describe("codex live turn sequence", () => {
     notify("turn/completed", {
       turn: { id: "compact_1", status: "completed" },
     });
+    await compact;
+    expect(settled).toBe(true);
+  });
+
+  it("matches an early compaction terminal to its start event before the empty RPC response", async () => {
+    const { turn } = await startTurn("codex-live");
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+    sent.length = 0;
+    let settled = false;
+    const compact = compactCodexContext({ sessionId: "codex-live", cwd: "/repo",
+      model: "codex:gpt-5.4", runtimeMode: "supervised", onEvent: () => {} });
+    void compact.then(() => { settled = true; });
+    await waitFor(() => parse().some((message) => message.method === "thread/compact/start"), "early compaction");
+    notify("turn/started", { turn: { id: "turn_1", status: "inProgress" } });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    notify("turn/completed", { turn: { id: "old_unseen", status: "completed" } });
+    notify("turn/started", { turn: { id: "compact_early", status: "inProgress" } });
+    notify("turn/completed", { turn: { id: "compact_early", status: "completed" } });
+    expect(settled).toBe(false);
+    const request = parse().find((message) => message.method === "thread/compact/start")!;
+    reply(request.id as number, {});
     await compact;
     expect(settled).toBe(true);
   });
