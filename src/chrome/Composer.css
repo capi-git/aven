@@ -1,9 +1,17 @@
 /* A quiet writing surface. Opacity comes from the surface, never the text;
    the native browser and scrolling transcript do not need a blur layer. */
 .personal-shell .personal-composer {
-  --composer-surface: var(--aven-field-bg, var(--personal-main-surface));
+  /* Lift the writing surface away from the workspace, including custom greys.
+     Field backgrounds are intentionally too quiet for this primary control. */
+  --composer-surface: color-mix(
+    in srgb,
+    var(--personal-main-surface) 88%,
+    var(--color-content)
+  );
   --composer-control: var(--aven-control-bg, var(--aven-hover));
-  --composer-glass-opacity: 86%;
+  --composer-glass-opacity: 94%;
+  --composer-edge: var(--aven-control-border, var(--aven-line));
+  --composer-shadow: 0 8px 24px #00000018;
   width: 100%;
   max-width: 800px;
   min-width: 0;
@@ -16,17 +24,20 @@
     var(--composer-surface) var(--composer-glass-opacity),
     transparent
   );
-  border: 1px solid var(--aven-control-border, var(--aven-line));
+  border: 1px solid var(--composer-edge);
   border-radius: 14px;
   background: var(--composer-glass);
   box-shadow:
-    0 2px 8px #0000000c,
-    inset 0 1px 0 color-mix(in srgb, var(--color-content) 4%, transparent);
+    var(--composer-shadow),
+    inset 0 1px 0 color-mix(in srgb, var(--color-content) 5%, transparent);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
 .personal-shell .personal-composer [data-composer-box]:focus-within {
-  border-color: color-mix(in srgb, var(--personal-accent) 38%, transparent);
+  border-color: color-mix(in srgb, var(--personal-accent) 55%, transparent);
+  box-shadow:
+    var(--composer-shadow),
+    0 0 0 2px color-mix(in srgb, var(--personal-accent) 12%, transparent);
 }
 .personal-shell .personal-composer [data-composer-box][data-file-drag="true"] {
   outline: 2px dashed var(--personal-accent);
@@ -43,7 +54,14 @@
   caret-color: var(--personal-accent);
 }
 .personal-shell .personal-composer .composer-field::placeholder {
-  color: color-mix(in srgb, var(--color-content) 52%, var(--composer-surface));
+  --composer-placeholder: color-mix(
+    in srgb,
+    var(--color-content) 72%,
+    var(--composer-surface)
+  );
+  color: var(--composer-placeholder);
+  -webkit-text-fill-color: var(--composer-placeholder);
+  opacity: 1;
 }
 /* Dropping a file adds one thumbnail row, not another empty writing area. */
 .personal-shell
@@ -255,12 +273,8 @@
   background: var(--composer-control);
 }
 html.theme-light .personal-shell .personal-composer {
-  --composer-glass-opacity: 94%;
-}
-html.theme-light .personal-shell .personal-composer [data-composer-box] {
-  box-shadow:
-    0 2px 8px #17304208,
-    inset 0 1px 0 #ffffffb3;
+  --composer-surface: var(--aven-field-bg, var(--personal-main-surface));
+  --composer-shadow: 0 8px 24px #1730420d;
 }
 html.theme-light
   .personal-shell

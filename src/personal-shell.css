@@ -847,15 +847,7 @@ html .personal-shell[data-unified-toolbar] .workspace-stage-header,
   box-shadow: none;
 }
 .personal-shell[data-unified-toolbar] .personal-composer [data-composer-box] {
-  border-color: transparent;
   border-radius: 18px;
-  box-shadow: 0 12px 36px #00000020;
-}
-.personal-shell[data-unified-toolbar]
-  .personal-composer
-  [data-composer-box]:focus-within {
-  border-color: transparent;
-  box-shadow: 0 12px 36px #00000020;
 }
 @media (prefers-contrast: more) {
   .personal-shell[data-unified-toolbar] .personal-composer [data-composer-box] {
