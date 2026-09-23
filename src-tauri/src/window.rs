@@ -449,14 +449,14 @@ pub fn confirm_quit(app: AppHandle) {
         tauri::async_runtime::spawn(async move {
             let _work = work;
             if let Err(error) = crate::browser::close_window_pages(&app, None).await {
-                eprintln!("[supermono] Browser close before quit: {error}");
+                eprintln!("[aven] Browser close before quit: {error}");
                 // Keep windows alive for a retry; do not destroy a Chromium
                 // parent while a renderer is still finishing its close.
                 QUIT_IN_PROGRESS.store(false, Ordering::SeqCst);
                 return;
             }
             if let Err(error) = crate::browser::prepare_shutdown(&app).await {
-                eprintln!("[supermono] Browser shutdown: {error}");
+                eprintln!("[aven] Browser shutdown: {error}");
                 QUIT_IN_PROGRESS.store(false, Ordering::SeqCst);
                 return;
             }

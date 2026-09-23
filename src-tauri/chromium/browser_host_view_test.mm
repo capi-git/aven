@@ -13,6 +13,7 @@ static int destroyed_probes = 0;
 @end
 
 @implementation SMBrowserHostProbe
+- (BOOL)acceptsFirstResponder { return YES; }
 - (void)viewWillMoveToSuperview:(NSView*)newSuperview {
   if (!newSuperview) ++_detachments;
   [super viewWillMoveToSuperview:newSuperview];
@@ -139,12 +140,107 @@ static void CheckBackingAlignment() {
   std::puts("Browser backing-pixel alignment checks passed");
 }
 
+static bool Contains(CGPathRef path, double x, double y) {
+  return CGPathContainsPoint(path, nullptr, CGPointMake(x, y), false);
+}
+
+static void CheckBottomCornerClipping() {
+  for (const bool flipped : {false, true}) {
+    CGPathRef path = supermono::CreateBrowserBottomCornerPath(
+        NSMakeRect(0, 0, 600, 400), 8, flipped);
+    const double bottom = flipped ? 399.5 : .5;
+    const double top = flipped ? .5 : 399.5;
+    CHECK(!Contains(path, .5, bottom) && !Contains(path, 599.5, bottom));
+    CHECK(Contains(path, .5, top) && Contains(path, 599.5, top));
+    CHECK(Contains(path, 8, bottom) && Contains(path, 592, bottom));
+    CHECK(Contains(path, 300, 200));
+    CGPathRelease(path);
+
+    // Sidebars crop the full page. The newly exposed edge must stay square,
+    // and the page's viewport/origin must remain exactly where it was.
+    path = supermono::CreateBrowserBottomCornerPath(
+        NSMakeRect(-40, 0, 600, 400), 8, flipped);
+    CHECK(Contains(path, .5, bottom));
+    CHECK(Contains(path, 539.5, bottom));
+    CHECK(!Contains(path, 559.5, bottom));
+    CGPathRelease(path);
+  }
+  CGPathRef square = supermono::CreateBrowserBottomCornerPath(
+      NSMakeRect(0, 0, 100, 40), 0, false);
+  CHECK(Contains(square, .5, .5));
+  CGPathRelease(square);
+  CGPathRef clamped = supermono::CreateBrowserBottomCornerPath(
+      NSMakeRect(0, 0, 100, 40), 200, false);
+  CHECK(Contains(clamped, 50, .5));
+  CHECK(!Contains(clamped, .5, .5));
+  CGPathRelease(clamped);
+
+  SMBrowserPixelHost* clip = [[SMBrowserPixelHost alloc]
+      initWithFrame:NSMakeRect(0, 0, 540, 400)];
+  NSView* browser = [[NSView alloc] initWithFrame:NSMakeRect(-40, 0, 600, 400)];
+  [clip addSubview:browser];
+  const NSRect original = browser.frame;
+  supermono::ApplyBrowserBottomCornerMask(clip, browser.frame, 8);
+  CAShapeLayer* mask = (CAShapeLayer*)clip.layer.mask;
+  CHECK(mask && NSEqualRects(mask.frame, clip.bounds));
+  CHECK(CGRectEqualToRect(CGPathGetPathBoundingBox(mask.path), NSRectToCGRect(original)));
+  CHECK(Contains(mask.path, .5, .5));
+  CHECK(NSEqualRects(browser.frame, original) && browser.superview == clip);
+  clip.frame = NSMakeRect(0, 0, 400, 300);
+  browser.frame = NSMakeRect(-40, 0, 450, 300);
+  supermono::ApplyBrowserBottomCornerMask(clip, browser.frame, 6.4);
+  CHECK(clip.layer.mask == mask && NSEqualRects(mask.frame, clip.bounds));
+  CHECK(!Contains(mask.path, 409.5, .5));
+  CHECK(Contains(mask.path, 409.5, 299.5));
+  supermono::ApplyBrowserBottomCornerMask(clip, browser.frame, 0);
+  CHECK(clip.layer.mask == nil);
+  CHECK(browser.superview == clip);
+  std::puts("Browser bottom-corner clipping checks passed");
+}
+
+static void CheckHiddenBrowserFocus() {
+  NSWindow* window = [[NSWindow alloc]
+      initWithContentRect:NSMakeRect(0, 0, 640, 480)
+                styleMask:NSWindowStyleMaskTitled
+                  backing:NSBackingStoreBuffered defer:NO];
+  NSView* parent = window.contentView;
+  NSView* clip = [[NSView alloc] initWithFrame:parent.bounds];
+  SMBrowserHostProbe* browser = [[SMBrowserHostProbe alloc] initWithFrame:clip.bounds];
+  SMBrowserHostProbe* input = [[SMBrowserHostProbe alloc] initWithFrame:browser.bounds];
+  SMBrowserHostProbe* workspace = [[SMBrowserHostProbe alloc] initWithFrame:parent.bounds];
+  SMBrowserHostProbe* other = [[SMBrowserHostProbe alloc] initWithFrame:parent.bounds];
+  [parent addSubview:workspace];
+  [parent addSubview:clip];
+  [clip addSubview:browser];
+  [browser addSubview:input];
+  [parent addSubview:other];
+  CHECK([window makeFirstResponder:input]);
+  CHECK(supermono::ReturnHiddenBrowserFocus(clip, workspace));
+  CHECK(window.firstResponder == workspace);
+  CHECK(!supermono::ReturnHiddenBrowserFocus(clip, workspace));
+  CHECK([window makeFirstResponder:other]);
+  CHECK(!supermono::ReturnHiddenBrowserFocus(clip, workspace));
+  CHECK(window.firstResponder == other);
+  CHECK([window makeFirstResponder:input]);
+  workspace.hidden = YES;
+  CHECK(!supermono::ReturnHiddenBrowserFocus(clip, workspace));
+  CHECK(window.firstResponder == input);
+  workspace.hidden = NO;
+  CHECK(!supermono::ReturnHiddenBrowserFocus(clip, nil));
+  CHECK(window.firstResponder == input);
+  CHECK(!window.visible);
+  std::puts("Hidden browser responder checks passed");
+}
+
 int main() {
   @autoreleasepool {
     [NSApplication sharedApplication];
     [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited];
     CheckBackingAlignment();
     CheckCanonicalBackingTies();
+    CheckBottomCornerClipping();
+    CheckHiddenBrowserFocus();
+    destroyed_probes = 0;
     NSWindow* owner = [[NSWindow alloc]
         initWithContentRect:NSMakeRect(0, 0, 640, 480)
                   styleMask:NSWindowStyleMaskTitled

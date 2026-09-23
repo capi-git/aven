@@ -3,6 +3,8 @@ import { Plus, RefreshCw, Search } from "../chrome/icons";
 import { ModalPanel } from "../chrome/Modal";
 import { listSkills, readTextFile } from "../lib/fs";
 import { openInAppFile, openInAppUrl } from "../lib/inAppLinks";
+import { parentPath } from "../lib/paths";
+import { AgentMarkdown } from "./AgentMarkdown";
 import { looksLikeProject } from "../lib/recents";
 import { settingSearchAnchor } from "../lib/settingsSearch";
 import {
@@ -23,6 +25,8 @@ import { SettingsGroup } from "./SettingsControls";
 import "./SkillsSettings.css";
 
 type InspectableSkill = FileSkill | BuiltinSkill;
+const skillSourceLabel = (skill: InspectableSkill) =>
+  skill.source === "monocode" ? "Aven" : skill.source;
 const DESKTOP_STATE = {
   ready: "Permissions granted",
   permissionsRequired: "Permissions needed",
@@ -106,7 +110,7 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
   const skills = catalog?.cwd === cwd ? catalog.skills : [];
   const needle = query.trim().toLowerCase();
   const filtered = skills.filter((skill) =>
-    `${skill.name} ${skill.description} ${skill.source}`
+    `${skill.name} ${skill.description} ${skill.source} ${skillSourceLabel(skill)}`
       .toLowerCase()
       .includes(needle),
   );
@@ -172,6 +176,12 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
             Access is supplied when a task runs. No separate browser extension
             or MCP setup is needed.
           </p>
+          <p className="skills-note">
+            Websites and localhost previews stay in Aven. Markdown, code and
+            supported documents open in the editor beside the requesting task.
+            An external browser is used only when you ask for one or a sign-in
+            flow requires it.
+          </p>
         </div>
         <div
           className="skills-tool"
@@ -193,8 +203,9 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
           </div>
           <p>
             Use Peekaboo to inspect and interact with native Mac windows,
-            including Aven. Invoke <code>/aven-computer-use</code> in a task for
-            the instructions.
+            including Aven. Tasks receive the guidance automatically. Just ask
+            the agent to inspect or test an app; no slash command is needed. Use{" "}
+            <code>/aven-computer-use</code> for the complete instructions.
           </p>
           {desktop?.version ? (
             <p className="skills-note">
@@ -387,7 +398,7 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
               <span className="skills-item-source">
                 {skill.kind === "builtin"
                   ? "Built into Aven"
-                  : `${skill.scope === "user" ? "Personal" : "Project"} · ${skill.source}`}
+                  : `${skill.scope === "user" ? "Personal" : "Project"} · ${skillSourceLabel(skill)}`}
               </span>
             </button>
           ))}
@@ -488,13 +499,25 @@ function SkillInspector({
       ) : body === null ? (
         <p role="status">Loading instructions…</p>
       ) : (
-        <pre
+        <section
           className="skills-instructions"
           tabIndex={0}
           aria-label="Skill instructions"
         >
-          {body}
-        </pre>
+          <AgentMarkdown
+            text={body
+              .replace(
+                /^\uFEFF?---[ \t]*\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/,
+                "",
+              )
+              .trimStart()}
+            cwd={skill.kind === "file" ? parentPath(skill.path) : undefined}
+            onOpenFile={(path, navigation) => {
+              openInAppFile(path, navigation);
+              onClose();
+            }}
+          />
+        </section>
       )}
       {skill.kind === "file" ? (
         <div className="skills-actions">

@@ -251,7 +251,7 @@ async function ensureLive(input: SendTurnInput): Promise<Live> {
       emit({ type: "session.ended", code });
     },
     (line) => {
-      console.debug("[monocode] fx stderr", line);
+      console.debug("[aven] fx stderr", line);
       if (/Fx needs access|AI Gateway|not start/i.test(line)) {
         emit({ type: "session.error", message: line.trim() });
       }
@@ -462,7 +462,7 @@ async function prompt(live: Live, input: SendTurnInput): Promise<void> {
 }
 
 function ignoreUnsupportedControl(method: string, error: unknown): void {
-  console.debug(`[monocode] fx ${method} failed`, error);
+  console.debug(`[aven] fx ${method} failed`, error);
   const detail = error instanceof Error ? error.message : String(error);
   if (/timed out|not running|exited|closed|pipe/i.test(detail)) throw error;
 }

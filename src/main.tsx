@@ -9,9 +9,10 @@ import { showRenderFailure } from "./lib/renderFailure";
 import { preventFileDropNavigation } from "./lib/attachments";
 import "./index.css";
 import "./personal-shell.css";
+import "./macos-theme.css";
 
 // Shell webviews use DOM drops so WebKit resolves file promises and targets.
-// Keep an unhandled file drop from navigating away from CoveCode.
+// Keep an unhandled file drop from navigating away from Aven.
 window.addEventListener("dragover", preventFileDropNavigation);
 window.addEventListener("drop", preventFileDropNavigation);
 import.meta.hot?.dispose(() => {

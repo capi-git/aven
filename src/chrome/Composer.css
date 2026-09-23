@@ -1,12 +1,8 @@
 /* A quiet writing surface. Opacity comes from the surface, never the text;
    the native browser and scrolling transcript do not need a blur layer. */
 .personal-shell .personal-composer {
-  --composer-surface: color-mix(
-    in srgb,
-    var(--personal-main-surface) 94%,
-    var(--color-content)
-  );
-  --composer-control: color-mix(in srgb, var(--color-content) 6%, transparent);
+  --composer-surface: var(--aven-field-bg, var(--personal-main-surface));
+  --composer-control: var(--aven-control-bg, var(--aven-hover));
   --composer-glass-opacity: 86%;
   width: 100%;
   max-width: 800px;
@@ -15,43 +11,35 @@
   padding: 0;
 }
 .personal-shell .personal-composer [data-composer-box] {
-  --composer-wash: color-mix(in srgb, var(--personal-accent) 5%, transparent);
-  --composer-glass:
-    linear-gradient(135deg, var(--composer-wash), transparent 70%),
-    color-mix(
-      in srgb,
-      var(--composer-surface) var(--composer-glass-opacity),
-      transparent
-    );
-  border: 1px solid transparent;
-  border-radius: 16px;
+  --composer-glass: color-mix(
+    in srgb,
+    var(--composer-surface) var(--composer-glass-opacity),
+    transparent
+  );
+  border: 1px solid var(--aven-control-border, var(--aven-line));
+  border-radius: 14px;
   background: var(--composer-glass);
   box-shadow:
-    0 8px 26px #00000012,
+    0 2px 8px #0000000c,
     inset 0 1px 0 color-mix(in srgb, var(--color-content) 4%, transparent);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
 .personal-shell .personal-composer [data-composer-box]:focus-within {
-  --composer-wash: color-mix(in srgb, var(--personal-accent) 8%, transparent);
-  border-color: transparent;
-  box-shadow:
-    0 8px 26px #00000016,
-    inset 0 1px 0 color-mix(in srgb, var(--personal-accent) 22%, transparent);
+  border-color: color-mix(in srgb, var(--personal-accent) 38%, transparent);
 }
 .personal-shell .personal-composer [data-composer-box][data-file-drag="true"] {
-  --composer-wash: color-mix(in srgb, var(--personal-accent) 15%, transparent);
   outline: 2px dashed var(--personal-accent);
   outline-offset: -4px;
 }
 /* Reference highlighting overlays the textarea: metrics must be identical. */
 .personal-shell .personal-composer .composer-field,
 .personal-shell .personal-composer .composer-highlight {
-  padding: 17px 18px 13px;
-  min-height: 68px;
+  padding: 14px 16px 12px;
+  min-height: 64px;
   font-size: 14px;
   line-height: 22px;
-  letter-spacing: -0.005em;
+  letter-spacing: normal;
   caret-color: var(--personal-accent);
 }
 .personal-shell .personal-composer .composer-field::placeholder {
@@ -77,7 +65,7 @@
 }
 .personal-shell .personal-composer-attachments > div {
   max-width: 100%;
-  border-radius: 9px;
+  border-radius: 7px;
   background: var(--composer-control);
 }
 .personal-shell .personal-composer-attachments img {
@@ -111,7 +99,7 @@
   max-width: 100%;
   padding: 1px;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--composer-control);
   box-shadow: none;
 }
@@ -124,7 +112,7 @@
   height: 27px;
   padding-inline: 8px;
   gap: 5px;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   color: color-mix(in srgb, var(--color-content) 86%, var(--composer-surface));
 }
@@ -164,7 +152,7 @@
 .personal-shell .personal-composer-add > button {
   width: 28px;
   height: 30px;
-  border-radius: 9px;
+  border-radius: 7px;
   background: transparent;
   color: color-mix(in srgb, var(--color-content) 68%, var(--composer-surface));
 }
@@ -192,13 +180,10 @@
 .personal-shell .personal-composer-actions > button {
   width: 32px;
   height: 32px;
-  border: 1px solid transparent;
-  border-radius: 11px;
-  background: color-mix(
-    in srgb,
-    var(--color-content) 9%,
-    var(--composer-surface)
-  );
+  border: 1px solid var(--aven-control-border, var(--aven-line));
+  border-radius: 8px;
+  background: var(--composer-control);
+  box-shadow: var(--aven-control-shadow, none);
   color: var(--color-content);
 }
 .personal-shell .personal-composer-actions > button:hover:not(:disabled) {
@@ -212,8 +197,7 @@
   border-color: transparent;
   background: var(--personal-accent);
   color: var(--personal-main-surface);
-  box-shadow: 0 2px 8px
-    color-mix(in srgb, var(--personal-accent) 12%, transparent);
+  box-shadow: var(--aven-control-shadow, none);
 }
 .personal-shell
   .personal-composer-actions
@@ -231,7 +215,7 @@
 }
 .personal-shell .personal-composer button:focus-visible,
 .personal-shell .personal-composer [data-message-queue] textarea:focus-visible {
-  outline: 2px solid var(--personal-accent);
+  outline: 2px solid var(--aven-focus-ring, var(--personal-accent));
   outline-offset: -2px;
 }
 /* Keep the toolbar's existing horizontal scrolling in narrow split panes. */
@@ -242,7 +226,7 @@
 .personal-shell .personal-composer [data-message-queue-card] {
   padding: 5px 10px 7px;
   border: 0;
-  border-radius: 12px 12px 0 0;
+  border-radius: 10px 10px 0 0;
   background: color-mix(
     in srgb,
     var(--personal-accent) 7%,
@@ -265,22 +249,17 @@
   padding: 0;
 }
 .personal-shell .personal-composer [data-session-review] {
-  border: 1px solid transparent;
-  border-radius: 11px;
+  border: 1px solid var(--aven-line);
+  border-radius: 8px;
   padding: 9px 11px;
   background: var(--composer-control);
 }
 html.theme-light .personal-shell .personal-composer {
-  --composer-surface: color-mix(
-    in srgb,
-    var(--personal-main-surface) 98%,
-    var(--color-content)
-  );
   --composer-glass-opacity: 94%;
 }
 html.theme-light .personal-shell .personal-composer [data-composer-box] {
   box-shadow:
-    0 5px 20px #1730420b,
+    0 2px 8px #17304208,
     inset 0 1px 0 #ffffffb3;
 }
 html.theme-light

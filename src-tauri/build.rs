@@ -18,6 +18,7 @@ fn main() {
         println!("cargo:rustc-link-lib=c++");
         println!("cargo:rustc-link-lib=framework=Cocoa");
         println!("cargo:rustc-link-lib=framework=CoreGraphics");
+        println!("cargo:rustc-link-lib=framework=QuartzCore");
         println!("cargo:rustc-link-lib=framework=ImageIO");
         println!("cargo:rustc-link-lib=framework=IOSurface");
         println!("cargo:rustc-link-arg=-Wl,-ObjC");

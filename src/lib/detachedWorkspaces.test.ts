@@ -8,6 +8,7 @@ import { captureWorkspaceReturnPlacement } from "./workspaceArrangement";
 import {
   mergeDetachedWorkspaces,
   nativeWorkspaceWindow,
+  openDetachedFileForSession,
   useDetachedWorkspaces,
   type DetachedWorkspaceState,
   type DetachedWorkspaceSnapshot,
@@ -72,19 +73,89 @@ describe("detached workspace transactions", () => {
     return null;
   }
   const render = () => act(async () => root.render(createElement(Harness)));
+  it("routes file requests to the detached task owner and leaves parent-owned tasks alone", async () => {
+    const entry = { id: "window-a", state: state("a"), pinned: false };
+    vi.mocked(nativeWorkspaceWindow.list).mockResolvedValue([entry]);
+    const focus = vi
+      .spyOn(nativeWorkspaceWindow, "focus")
+      .mockResolvedValue(undefined);
+    await render();
+    await expect(
+      api.openFileForSession("a", "/project/readme.md", {
+        line: 12,
+        column: 3,
+      }),
+    ).resolves.toBe(true);
+    expect(focus).toHaveBeenCalledExactlyOnceWith(
+      "window-a",
+      "a",
+      undefined,
+      undefined,
+      {
+        path: "/project/readme.md",
+        line: 12,
+        column: 3,
+      },
+    );
+    await expect(
+      api.openFileForSession("b", "/project/readme.md"),
+    ).resolves.toBe(false);
+    expect(focus).toHaveBeenCalledOnce();
+    focus.mockRejectedValue(new Error("Workspace window closed"));
+    await expect(
+      api.openFileForSession("a", "/project/readme.md"),
+    ).rejects.toThrow("Workspace window closed");
+  });
+  it("opens beside the requesting task and reuses its existing editor with drafts preserved", () => {
+    const a = state("a"),
+      b = state("b");
+    const original = mergeDetachedWorkspaces(a, b);
+    original.editorDrafts = {
+      "/project/readme.md": { content: "unsaved", savedContent: "saved" },
+    } as DetachedWorkspaceState["editorDrafts"];
+    const opened = openDetachedFileForSession(
+      original,
+      "a",
+      "/project/readme.md",
+    );
+    expect(opened.view.focusedId).toBe("tab-a");
+    expect(opened.tabs[1]).toBe(original.tabs[1]);
+    expect(opened.tabs[0].editorPanes[0].files[0].path).toBe(
+      "/project/readme.md",
+    );
+    expect(opened.editorDrafts).toBe(original.editorDrafts);
+    const reopened = openDetachedFileForSession(
+      opened,
+      "a",
+      "/project/readme.md",
+    );
+    expect(reopened.tabs[0].editorPanes[0].files).toEqual(
+      opened.tabs[0].editorPanes[0].files,
+    );
+    expect(
+      openDetachedFileForSession(original, "unknown", "/project/readme.md"),
+    ).toBe(original);
+  });
   it("rolls back partial listener failure and refuses an unobserved native open", async () => {
     const cleanup = vi.fn();
     let late!: (fn: () => void) => void;
     vi.mocked(nativeWorkspaceWindow.listen)
       .mockResolvedValueOnce(cleanup)
       .mockRejectedValueOnce(new Error("listener setup failed"))
-      .mockImplementationOnce(() => new Promise((resolve) => { late = resolve; }));
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            late = resolve;
+          }),
+      );
     await render();
     await expect(api.open(state("a"))).rejects.toThrow("listener setup failed");
     expect(onError).toHaveBeenCalledExactlyOnceWith("listener setup failed");
     expect(nativeWorkspaceWindow.open).not.toHaveBeenCalled();
     expect(cleanup).toHaveBeenCalledTimes(1);
-    const releaseLate = vi.fn();late(releaseLate);await Promise.resolve();
+    const releaseLate = vi.fn();
+    late(releaseLate);
+    await Promise.resolve();
     expect(releaseLate).toHaveBeenCalledTimes(1);
   });
   beforeEach(() => {

@@ -2,13 +2,13 @@
   display: flex;
   flex: 1;
   flex-direction: column;
-  padding: 24px;
+  padding: 28px;
 }
 
 .workspace-home-content {
   flex: 0 0 auto;
   width: 100%;
-  max-width: 880px;
+  max-width: 840px;
   margin: auto;
   padding-block: clamp(20px, 5vh, 48px);
 }
@@ -35,36 +35,43 @@ html.has-chat-background .workspace-home::before {
   justify-content: flex-start;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 28px 0 40px;
+  margin: 24px 0 32px;
 }
 
 .workspace-home-actions button {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  border: 0;
-  border-radius: 10px;
-  min-height: 36px;
-  padding: 8px 13px;
-  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+  border: 1px solid var(--aven-control-border, var(--aven-line));
+  border-radius: 7px;
+  min-height: 32px;
+  padding: 6px 12px;
+  background: var(--aven-control-bg, var(--aven-hover));
+  box-shadow: var(--aven-control-shadow, none);
+  color: var(--color-content);
   font-size: 12px;
 }
 
 .workspace-home-actions .workspace-home-new {
-  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--color-accent) 18%,
+    var(--aven-control-bg)
+  );
+  border-color: color-mix(in srgb, var(--color-accent) 30%, transparent);
   color: var(--color-content);
 }
 
 .workspace-home-columns {
   display: grid;
   grid-template-columns: minmax(0, 1.5fr) minmax(160px, 1fr);
-  gap: 20px;
+  gap: 16px;
 }
 
 .workspace-home h2 {
-  color: var(--personal-muted);
-  font-size: 12px;
-  font-weight: 500;
+  color: var(--aven-muted);
+  font-size: 13px;
+  font-weight: 600;
   margin-bottom: 12px;
 }
 
@@ -74,9 +81,9 @@ html.has-chat-background .workspace-home::before {
   align-items: center;
   gap: 10px;
   text-align: left;
-  min-height: 52px;
-  padding: 10px;
-  border-radius: 10px;
+  min-height: 48px;
+  padding: 9px 10px;
+  border-radius: 7px;
   font-size: 13px;
 }
 
@@ -103,16 +110,16 @@ html.has-chat-background .workspace-home::before {
   text-overflow: ellipsis;
   white-space: nowrap;
   margin-top: 3px;
-  font-size: 10px;
-  color: var(--personal-muted);
+  font-size: 11px;
+  color: var(--aven-muted);
 }
 
 .workspace-home button:hover:not(:disabled) {
-  background: var(--personal-selected);
+  background: var(--aven-selected);
 }
 
 .workspace-home button:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
   outline-offset: 2px;
 }
 
@@ -135,7 +142,7 @@ html.has-chat-background .workspace-home::before {
 }
 
 .workspace-home-empty {
-  color: var(--personal-muted);
+  color: var(--aven-muted);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -160,9 +167,11 @@ html.has-chat-background .workspace-home::before {
 }
 
 .workspace-home-window button {
-  padding: 6px 8px;
-  border-radius: 7px;
-  background: var(--personal-hover);
+  padding: 6px 10px;
+  border: 1px solid var(--aven-control-border, var(--aven-line));
+  border-radius: 6px;
+  background: var(--aven-control-bg, var(--aven-hover));
+  box-shadow: var(--aven-control-shadow, none);
   font-size: 12px;
 }
 
@@ -188,25 +197,22 @@ html.has-chat-background .workspace-home::before {
 }
 .workspace-home .aven-opening-heading h1 {
   max-width: 620px;
-  font-size: clamp(24px, 4.2cqi, 36px);
+  font-size: clamp(24px, 3.8cqi, 30px);
+  letter-spacing: -0.025em;
 }
 .workspace-home-eyebrow {
-  margin-bottom: 14px;
+  margin-bottom: 10px;
   font-size: 12px;
   font-weight: 600;
-  color: var(--color-accent);
+  color: var(--aven-muted);
 }
 .workspace-home-columns > div {
   min-width: 0;
-  padding: 18px;
-  border-radius: 16px;
-  background: var(--aven-hover);
+  padding: 14px;
+  border: 1px solid var(--aven-line);
+  border-radius: 10px;
+  background: var(--aven-grouped-surface, var(--aven-hover));
 }
 .workspace-home-columns h2 {
-  font-size: 13px;
-  font-weight: 600;
   color: var(--color-content);
-}
-.workspace-home-row small {
-  font-size: 11px;
 }

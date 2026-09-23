@@ -1,12 +1,12 @@
 // @vitest-environment happy-dom
-import { act, createElement, useCallback, useRef } from "react";
+import { act, createElement, useCallback, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useProfileCarousel } from "../hooks/useProfileCarousel";
 import type { WorkspaceProfile } from "../lib/workspaceProfiles";
 
 // Test the native scrolling contract. happy-dom does not perform wheel scrolling
-// or CSS snap animation, so scroll positions/events model completed native moves;
+// or CSS snap animation, so scroll positions/events model native movement;
 // these tests deliberately do not claim to measure physical trackpad smoothness.
 type Props = {
   enabled: boolean;
@@ -48,7 +48,11 @@ function Harness(current: Props) {
   useProfileCarousel({ viewport: ref, ...current });
   return createElement(
     "div",
-    { ref: mount, "data-carousel": true },
+    {
+      ref: mount,
+      "data-carousel": true,
+      "data-active-profile": current.activeProfileId,
+    },
     ...current.profiles.map((profile) =>
       createElement(
         "section",
@@ -164,6 +168,33 @@ it("selects the settled native page on scrollend", async () => {
   expect(select).toHaveBeenCalledTimes(1);
 });
 
+it("activates a fully arrived native page before delayed momentum scrollend", async () => {
+  await render({ enabled: false });
+  Object.defineProperty(viewport, "onscrollend", {
+    configurable: true,
+    value: null,
+  });
+  await render({ enabled: true });
+  scrollTo.mockClear();
+  await nativeScroll(280);
+  expect(select).toHaveBeenCalledExactlyOnceWith("work");
+  await nativeScroll(0);
+  expect(select.mock.calls).toEqual([["work"], ["personal"]]);
+  await render({ activeProfileId: "work" });
+  await render({ activeProfileId: "personal" });
+  expect(scrollTo).not.toHaveBeenCalled();
+  await tick(500);
+  await nativeScroll(0, true);
+  expect(select.mock.calls).toEqual([["work"], ["personal"]]);
+});
+
+it("activates the snapped page immediately without native scrollend support", async () => {
+  await nativeScroll(280);
+  expect(select).toHaveBeenCalledExactlyOnceWith("work");
+  await tick(500);
+  expect(select).toHaveBeenCalledTimes(1);
+});
+
 it("accepts an immediate reverse swipe without a click or momentum timeout", async () => {
   await nativeScroll(280, true);
   await render({ activeProfileId: "work" });
@@ -184,26 +215,80 @@ it("does not restart native motion when React acknowledges a scroll selection", 
   expect(select).toHaveBeenCalledExactlyOnceWith("work");
 });
 
-it("waits for the 120ms fallback after the last native scroll sample", async () => {
+it("adopts the dominant page immediately without waiting for a snap or quiet interval", async () => {
   await nativeScroll(190);
-  await tick(100);
-  await nativeScroll(280);
-  await tick(119);
-  expect(select).not.toHaveBeenCalled();
-  await tick(1);
   expect(select).toHaveBeenCalledExactlyOnceWith("work");
+  await tick(100);
+  expect(select).toHaveBeenCalledTimes(1);
+  await nativeScroll(280);
+  expect(select).toHaveBeenCalledExactlyOnceWith("work");
+  await tick(120);
   await nativeScroll(280, true);
   expect(select).toHaveBeenCalledTimes(1);
 });
 
-it("uses the nearest page only after scrolling settles", async () => {
+it("commits the destination DOM within the native threshold event", async () => {
+  function StatefulHarness() {
+    const [activeProfileId, setActiveProfileId] = useState("personal");
+    return createElement(Harness, {
+      ...props,
+      activeProfileId,
+      onSelectProfile: (id: string) => {
+        select(id);
+        setActiveProfileId(id);
+      },
+    });
+  }
+  await act(async () => root!.render(createElement(StatefulHarness)));
+  scrollTo.mockClear();
+  // act would flush a deferred React update after this event and conceal the
+  // lag. Exercise the synchronous event boundary before yielding to React.
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", false);
+  try {
+    viewport.scrollLeft = width * 0.61;
+    viewport.dispatchEvent(new Event("scroll"));
+    expect(viewport.dataset.activeProfile).toBe("work");
+    expect(select).toHaveBeenCalledExactlyOnceWith("work");
+    expect(scrollTo).not.toHaveBeenCalled();
+  } finally {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    await act(async () => {});
+  }
+});
+
+it("keeps the current workspace while a gesture pauses inside the halfway dead band", async () => {
   await nativeScroll(120);
   await tick(120);
   expect(select).not.toHaveBeenCalled();
   await nativeScroll(160);
   expect(select).not.toHaveBeenCalled();
+  await tick(500);
+  expect(select).not.toHaveBeenCalled();
+  await nativeScroll(280);
   await tick(120);
   expect(select).toHaveBeenCalledExactlyOnceWith("work");
+});
+
+it("adopts a dominant page without a timer on engines with native scrollend", async () => {
+  await render({ enabled: false });
+  Object.defineProperty(viewport, "onscrollend", {
+    configurable: true,
+    value: null,
+  });
+  await render({ enabled: true });
+  const timers = vi.getTimerCount();
+  await nativeScroll(120);
+  expect(vi.getTimerCount()).toBe(timers);
+  await tick(500);
+  expect(select).not.toHaveBeenCalled();
+  await nativeScroll(200);
+  expect(select).toHaveBeenCalledExactlyOnceWith("work");
+  expect(vi.getTimerCount()).toBe(timers);
+  await nativeScroll(280, true);
+  expect(select).toHaveBeenCalledExactlyOnceWith("work");
+  await render({ activeProfileId: "work" });
+  await nativeScroll(0, true);
+  expect(select.mock.calls).toEqual([["work"], ["personal"]]);
 });
 
 it("clamps native rubber-band positions instead of wrapping to the other end", async () => {
@@ -256,7 +341,7 @@ it("scrolls smoothly when another workspace is selected by a control", async () 
 });
 
 it("does not commit stale scroll intent after an external workspace selection", async () => {
-  await nativeScroll(180);
+  await nativeScroll(120);
   await render({ activeProfileId: "work" });
   await tick(121);
   expect(viewport.scrollLeft).toBe(280);
@@ -330,7 +415,7 @@ it("realigns by profile identity when workspace order changes", async () => {
 });
 
 it("cancels pending selection and listeners while the sidebar is disabled", async () => {
-  await nativeScroll(250);
+  await nativeScroll(140);
   await render({ enabled: false });
   await tick(200);
   await nativeScroll(280, true);
@@ -346,7 +431,7 @@ it("cancels pending selection and listeners while the sidebar is disabled", asyn
 });
 
 it("disposes pending native scroll work on unmount", async () => {
-  await nativeScroll(250);
+  await nativeScroll(140);
   const detached = viewport;
   await act(async () => root!.unmount());
   root = undefined;
@@ -410,10 +495,112 @@ it("allows a blank-space mouse drag and snaps to the nearest native page on rele
   await act(async () => viewport.dispatchEvent(new Event("scrollend")));
   expect(select).not.toHaveBeenCalled();
   await pointer("pointerup", 80);
+  expect(select).toHaveBeenCalledExactlyOnceWith("work");
   expect(viewport.releasePointerCapture).toHaveBeenCalledWith(7);
   expect(scrollTo).toHaveBeenLastCalledWith({ left: 280, behavior: "smooth" });
   await nativeScroll(280, true);
   expect(select).toHaveBeenCalledExactlyOnceWith("work");
+});
+
+it.each([false, true])(
+  "uses 60/40 hysteresis through immediate reversals (native scrollend: %s)",
+  async (nativeScrollEnd) => {
+    if (nativeScrollEnd) {
+      await render({ enabled: false });
+      Object.defineProperty(viewport, "onscrollend", {
+        configurable: true,
+        value: null,
+      });
+      await render({ enabled: true });
+    }
+    scrollTo.mockClear();
+    await nativeScroll(width * 0.59);
+    expect(select).not.toHaveBeenCalled();
+    await nativeScroll(width * 0.61);
+    expect(select.mock.calls).toEqual([["work"]]);
+    await render({ activeProfileId: "work" });
+    await nativeScroll(width * 0.55);
+    await nativeScroll(width * 0.41);
+    expect(select.mock.calls).toEqual([["work"]]);
+    await nativeScroll(width * 0.39);
+    expect(select.mock.calls).toEqual([["work"], ["personal"]]);
+    await render({ activeProfileId: "personal" });
+    await nativeScroll(width * 0.61);
+    expect(select.mock.calls).toEqual([["work"], ["personal"], ["work"]]);
+    expect(scrollTo).not.toHaveBeenCalled();
+    await render({ activeProfileId: "work" });
+    await nativeScroll(width, true);
+    expect(select).toHaveBeenCalledTimes(3);
+  },
+);
+
+it("uses the latest dominant-page request while React acknowledgments are delayed", async () => {
+  await nativeScroll(width * 0.61);
+  await nativeScroll(width * 0.55);
+  expect(select.mock.calls).toEqual([["work"]]);
+  await nativeScroll(width * 0.39);
+  expect(select.mock.calls).toEqual([["work"], ["personal"]]);
+  await render({ activeProfileId: "work" });
+  expect(viewport.scrollLeft).toBe(width * 0.39);
+  await render({ activeProfileId: "personal" });
+  expect(viewport.scrollLeft).toBe(width * 0.39);
+  expect(scrollTo).not.toHaveBeenCalled();
+  await nativeScroll(width * 0.61);
+  expect(select.mock.calls).toEqual([["work"], ["personal"], ["work"]]);
+});
+
+it("reconciles a canceled early adoption to the final nearest page", async () => {
+  await nativeScroll(width * 0.61);
+  await render({ activeProfileId: "work" });
+  await nativeScroll(width * 0.45);
+  expect(select.mock.calls).toEqual([["work"]]);
+  await act(async () => viewport.dispatchEvent(new Event("scrollend")));
+  expect(select.mock.calls).toEqual([["work"], ["personal"]]);
+  await render({ activeProfileId: "personal" });
+  await nativeScroll(0, true);
+  expect(select).toHaveBeenCalledTimes(2);
+  expect(scrollTo).not.toHaveBeenCalled();
+});
+
+it("keeps explicit navigation to a distant workspace through intermediate dominant pages", async () => {
+  await render({
+    profiles: [
+      ...props.profiles,
+      { id: "study", name: "Study", icon: "folder" },
+    ],
+  });
+  scrollTo.mockClear();
+  // Model an actual smooth scroll: scrollTo requests movement, later native
+  // samples arrive independently instead of jumping straight to its target.
+  scrollTo.mockImplementation(() => {});
+  await render({ activeProfileId: "study" });
+  expect(scrollTo).toHaveBeenCalledExactlyOnceWith({
+    left: width * 2,
+    behavior: "smooth",
+  });
+  for (const offset of [0.61, 1, 1.61, 2]) await nativeScroll(width * offset);
+  await nativeScroll(width * 2, true);
+  expect(select).not.toHaveBeenCalled();
+  await nativeScroll(width * 1.39);
+  expect(select).toHaveBeenCalledExactlyOnceWith("work");
+});
+
+it("waits while a mouse drag is held, then adopts its page before the release snap", async () => {
+  await pointer("pointerdown", 240);
+  await pointer("pointermove", 44);
+  await nativeScroll(width * 0.7);
+  expect(select).not.toHaveBeenCalled();
+  scrollTo.mockImplementation(() => {});
+  await pointer("pointerup", 44);
+  expect(viewport.scrollLeft).toBe(width * 0.7);
+  expect(select).toHaveBeenCalledExactlyOnceWith("work");
+  expect(scrollTo).toHaveBeenCalledExactlyOnceWith({
+    left: width,
+    behavior: "smooth",
+  });
+  await render({ activeProfileId: "work" });
+  await nativeScroll(width, true);
+  expect(select).toHaveBeenCalledTimes(1);
 });
 
 it("commits a drag released on a page after its final scroll notification has already settled", async () => {

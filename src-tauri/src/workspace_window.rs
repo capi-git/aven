@@ -33,6 +33,68 @@ pub struct DropPoint {
     pub screen_x: f64,
     pub screen_y: f64,
 }
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkspaceFileRequest {
+    path: String,
+    line: Option<u32>,
+    column: Option<u32>,
+}
+
+fn validate_file_request(file: &WorkspaceFileRequest) -> Result<(), String> {
+    if !std::path::Path::new(&file.path).is_absolute() || file.path.chars().any(char::is_control) {
+        return Err("File path must be an absolute local path".into());
+    }
+    if file.line == Some(0)
+        || file.column == Some(0)
+        || (file.column.is_some() && file.line.is_none())
+    {
+        return Err("File navigation requires a positive line and column".into());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod file_request_tests {
+    use super::*;
+
+    #[test]
+    fn detached_file_requests_require_local_absolute_paths_and_valid_navigation() {
+        let path = std::env::temp_dir()
+            .join("Aven test.md")
+            .to_string_lossy()
+            .into_owned();
+        for line in [None, Some(12)] {
+            assert!(validate_file_request(&WorkspaceFileRequest {
+                path: path.clone(),
+                line,
+                column: line.map(|_| 2),
+            })
+            .is_ok());
+        }
+        for invalid in [
+            "notes.md",
+            "https://example.com/readme.md",
+            "file:///tmp/readme.md",
+            "/tmp/a\0.md",
+        ] {
+            assert!(validate_file_request(&WorkspaceFileRequest {
+                path: invalid.into(),
+                line: None,
+                column: None,
+            })
+            .is_err());
+        }
+        for (line, column) in [(Some(0), None), (Some(1), Some(0)), (None, Some(2))] {
+            assert!(validate_file_request(&WorkspaceFileRequest {
+                path: path.clone(),
+                line,
+                column,
+            })
+            .is_err());
+        }
+    }
+}
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceWindowSnapshot {
@@ -579,18 +641,31 @@ async fn await_ack(
     token: &str,
     receive: mpsc::Receiver<Result<Value, String>>,
 ) -> Result<Value, String> {
-    let result =
-        tauri::async_runtime::spawn_blocking(move || receive.recv_timeout(Duration::from_secs(20)))
-            .await
-            .map_err(|e| e.to_string())?;
+    await_ack_with_timeout(
+        app,
+        token,
+        receive,
+        Duration::from_secs(20),
+        "Workspace did not acknowledge the transfer; your window was kept open",
+    )
+    .await
+}
+async fn await_ack_with_timeout(
+    app: &AppHandle,
+    token: &str,
+    receive: mpsc::Receiver<Result<Value, String>>,
+    timeout: Duration,
+    timeout_message: &'static str,
+) -> Result<Value, String> {
+    let result = tauri::async_runtime::spawn_blocking(move || receive.recv_timeout(timeout))
+        .await
+        .map_err(|e| e.to_string());
     let _ = app
         .state::<WorkspaceWindowState>()
         .acknowledgements
         .lock()
         .map(|mut a| a.remove(token));
-    result.map_err(|_| {
-        "Workspace did not acknowledge the transfer; your window was kept open".to_string()
-    })?
+    result?.map_err(|_| timeout_message.to_string())?
 }
 #[tauri::command]
 pub async fn workspace_window_ack(
@@ -770,14 +845,24 @@ pub fn workspace_window_visibility(
     )
 }
 #[tauri::command]
-pub fn workspace_window_focus(
+pub async fn workspace_window_focus(
     caller: Webview,
     id: String,
     session_id: Option<String>,
     url: Option<String>,
     browser: Option<Value>,
+    file: Option<WorkspaceFileRequest>,
 ) -> Result<(), String> {
     let (_, entry) = authorized(&caller, Some(&id))?;
+    if let Some(file) = &file {
+        if session_id.is_none() || url.is_some() || browser.is_some() {
+            return Err("A file request must target exactly one task".into());
+        }
+        if entry.returning || entry.transitioning {
+            return Err("This task is moving between windows. Try again in a moment.".into());
+        }
+        validate_file_request(file)?;
+    }
     if let Some(session) = &session_id {
         if !entry.state["sessions"].as_array().is_some_and(|list| {
             list.iter()
@@ -800,13 +885,43 @@ pub fn workspace_window_focus(
             return Err("Invalid browser request".into());
         }
     }
-    emit(
-        caller.app_handle(),
-        &id,
-        "workspace-window-focus",
-        json!({"sessionId":session_id,"url":url,"browser":browser}),
-    )?;
-    workspace_window_show(caller, id)
+    let app = caller.app_handle().clone();
+    let request_token = file.as_ref().map(|_| uuid::Uuid::new_v4().to_string());
+    let expires_at = request_token.as_ref().map(|_| {
+        (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            + Duration::from_secs(10))
+        .as_millis() as u64
+    });
+    let receive = request_token
+        .as_ref()
+        .map(|token| reserve_ack(&app, token, &id))
+        .transpose()?;
+    let result = async {
+        emit(
+            &app,
+            &id,
+            "workspace-window-focus",
+            json!({"sessionId":session_id,"url":url,"browser":browser,"file":file,"requestToken":request_token,"expiresAt":expires_at}),
+        )?;
+        workspace_window_show(caller, id)?;
+        if let (Some(token), Some(receive)) = (&request_token, receive) {
+            await_ack_with_timeout(&app, token, receive, Duration::from_secs(10),
+                "The task window did not respond. Try opening the file again.").await.map_err(|error| {
+                format!("Could not open the file in its task window: {error}")
+            })?;
+        }
+        Ok(())
+    }.await;
+    if let Some(token) = request_token {
+        let _ = app
+            .state::<WorkspaceWindowState>()
+            .acknowledgements
+            .lock()
+            .map(|mut pending| pending.remove(&token));
+    }
+    result
 }
 pub fn window_destroyed(app: &AppHandle, label: &str) {
     let children = entries(app, |all| {

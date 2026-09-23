@@ -10,11 +10,11 @@
   width: min(460px, calc(100vw - 40px));
   max-height: calc(100vh - 60px);
   overflow: auto;
-  border: 1px solid color-mix(in srgb, var(--color-content) 14%, transparent);
-  border-radius: 12px;
-  background: var(--color-background-base);
-  box-shadow: 0 16px 50px #0005;
-  padding: 18px;
+  border: 1px solid var(--aven-control-border);
+  border-radius: 14px;
+  background: var(--aven-popup);
+  box-shadow: var(--aven-shadow);
+  padding: 20px;
   font-size: 12px;
 }
 .workspace-action-dialog header {
@@ -26,7 +26,7 @@
 }
 .workspace-action-dialog h2 {
   margin: 0;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
 }
 .workspace-action-dialog form {
@@ -45,12 +45,12 @@
 .workspace-action-dialog textarea,
 .workspace-action-dialog select,
 .workspace-folder-button {
-  border: 1px solid color-mix(in srgb, var(--color-content) 12%, transparent);
-  border-radius: 6px;
+  border: 1px solid var(--aven-control-border);
+  border-radius: 7px;
   padding: 8px 10px;
   font: inherit;
   color: var(--color-content);
-  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  background: var(--aven-field-bg);
   text-align: left;
 }
 .workspace-action-dialog p {
@@ -67,13 +67,15 @@
 }
 .workspace-action-dialog footer button {
   padding: 7px 12px;
-  border-radius: 6px;
+  border-radius: 7px;
+  background: var(--aven-control-bg);
+  box-shadow: var(--aven-control-shadow);
 }
 .workspace-action-dialog button:disabled {
   opacity: 0.4;
 }
-.workspace-primary-button {
-  background: color-mix(in srgb, var(--color-content) 12%, transparent);
+.workspace-action-dialog footer .workspace-primary-button {
+  background: var(--aven-selected);
   color: var(--color-content);
 }
 .workspace-action-dialog .workspace-action-error {

@@ -1,0 +1,139 @@
+/* Shared desktop materials. Resolve on the shell as well as :root so a
+   workspace's custom palette remains the source of every control color. */
+:root,
+.personal-shell {
+  --aven-control-bg: color-mix(
+    in srgb,
+    var(--color-background-base) 90%,
+    var(--color-content)
+  );
+  --aven-control-border: color-mix(
+    in srgb,
+    var(--color-content) 12%,
+    transparent
+  );
+  --aven-control-shadow: 0 1px 2px #0002, inset 0 1px 0 #ffffff08;
+  --aven-toolbar-surface: color-mix(
+    in srgb,
+    var(--color-background-base) 95%,
+    var(--color-content)
+  );
+  --aven-grouped-surface: color-mix(
+    in srgb,
+    var(--color-background-base) 96%,
+    var(--color-content)
+  );
+  --aven-field-bg: color-mix(in srgb, var(--color-background-base) 92%, black);
+  --aven-focus-ring: color-mix(
+    in srgb,
+    var(--color-accent) 85%,
+    var(--color-content)
+  );
+  --aven-shadow: 0 16px 48px #0004, 0 2px 8px #0002;
+}
+
+html.theme-light,
+html.theme-light .personal-shell {
+  --aven-control-bg: var(--color-background-base);
+  --aven-control-border: color-mix(
+    in srgb,
+    var(--color-content) 14%,
+    transparent
+  );
+  --aven-control-shadow: 0 1px 2px #00000012, inset 0 1px 0 #ffffff70;
+  --aven-toolbar-surface: color-mix(
+    in srgb,
+    var(--color-background-base) 97%,
+    var(--color-content)
+  );
+  --aven-grouped-surface: color-mix(
+    in srgb,
+    var(--color-background-base) 96%,
+    var(--color-content)
+  );
+  --aven-field-bg: var(--color-background-base);
+  --aven-shadow: 0 16px 48px #0000001a, 0 2px 8px #00000012;
+}
+
+html,
+body,
+#root {
+  font-family: var(--font-sans);
+}
+
+/* Keep the root's 16px rem unit: native pane offsets and Tailwind spacing
+   depend on it. Only inherited desktop copy uses the compact text size. */
+body,
+#root {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Selection, cursor feedback and keyboard focus stay intact. Avoid global
+   button rules that alter editor or browser tools. */
+button,
+input,
+select,
+textarea {
+  accent-color: var(--color-accent);
+}
+
+@media (prefers-contrast: more) {
+  :root,
+  .personal-shell,
+  html.theme-light,
+  html.theme-light .personal-shell {
+    --aven-line: color-mix(in srgb, var(--color-content) 35%, transparent);
+    --aven-control-border: color-mix(
+      in srgb,
+      var(--color-content) 45%,
+      transparent
+    );
+    --aven-muted: color-mix(in srgb, var(--color-content) 85%, transparent);
+    --personal-line: var(--aven-line);
+    --personal-sidebar-edge: var(--aven-line);
+    --personal-muted: var(--aven-muted);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  html.has-native-glass:not(.theme-light),
+  html.has-native-glass:not(.theme-light) body,
+  html.has-native-glass:not(.theme-light) #root {
+    background: var(--color-background-base);
+  }
+
+  html.has-native-glass:not(.theme-light) .personal-shell,
+  html.has-native-glass.glass-body.match-workspace-panels:not(.theme-light)
+    .personal-shell {
+    --personal-window-opacity: 1;
+    --personal-sidebar-surface: var(--personal-main-surface);
+    --personal-navigation-surface: color-mix(
+      in srgb,
+      var(--personal-frame) 94%,
+      var(--color-content)
+    );
+    --personal-sidebar-glass-surface: var(--personal-navigation-surface);
+    --personal-docked-panel-surface: var(--personal-navigation-surface);
+    --sidebar-opacity: 1;
+    background: var(--personal-frame);
+  }
+
+  html.has-native-glass.glass-body.match-workspace-panels:not(.theme-light)
+    .personal-shell {
+    --personal-navigation-surface: var(--personal-main-surface);
+  }
+
+  html.has-native-glass.glass-body:not(.theme-light)
+    .personal-shell
+    .personal-main.body-glass {
+    background: var(--personal-main-surface);
+  }
+
+  .popover-backdrop,
+  .modal-panel,
+  .personal-composer {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}

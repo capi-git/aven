@@ -276,7 +276,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       emit({ type: "session.ended", code });
     },
     (line) => {
-      console.debug("[monocode] grok stderr", line);
+      console.debug("[aven] grok stderr", line);
       if (/not authenticated|Authentication required|XAI_API_KEY/i.test(line)) {
         emit({
           type: "session.error",
@@ -323,7 +323,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
           AUTH_TIMEOUT_MS,
         )
         .catch((error: unknown) => {
-          console.debug("[monocode] grok authenticate", error);
+          console.debug("[aven] grok authenticate", error);
         });
     }
 
@@ -477,7 +477,7 @@ async function prompt(live: Live, input: SendTurnInput): Promise<void> {
 }
 
 function ignoreUnsupportedControl(method: string, error: unknown): void {
-  console.debug(`[monocode] grok ${method} failed`, error);
+  console.debug(`[aven] grok ${method} failed`, error);
   const detail = error instanceof Error ? error.message : String(error);
   if (/timed out|not running|exited|closed|pipe/i.test(detail)) throw error;
 }
@@ -534,7 +534,7 @@ async function handleRequest(
     if (plan) live.onEvent({ type: "plan", text: plan });
     await live.acp
       // End the provider-owned plan turn without approving implementation.
-      // MonoCode's separate Build turn is the only approval boundary.
+      // Aven's separate Build turn is the only approval boundary.
       .respond(id, { outcome: "abandoned" })
       .catch(() => undefined);
     return;

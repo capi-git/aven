@@ -123,6 +123,21 @@ export function FileEditor({
   const markdown = isMarkdownPath(path);
   const svg = isSvgPath(path);
   const [mode, setMode] = useMarkdownMode(path);
+  const revealedNavigation = useRef<{ path: string; token: number } | null>(
+    null,
+  );
+  useEffect(() => {
+    if ((!markdown && !svg) || !navigation) return;
+    if (
+      revealedNavigation.current?.path === path &&
+      revealedNavigation.current.token === navigation.token
+    )
+      return;
+    revealedNavigation.current = { path, token: navigation.token };
+    // Explicit source locations should be visible, while a user's later switch
+    // back to Preview remains in effect until a new navigation request arrives.
+    setMode("source");
+  }, [markdown, svg, path, navigation?.token, setMode]);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const saveGeneration = useRef(0);
   const loadGeneration = useRef(0);

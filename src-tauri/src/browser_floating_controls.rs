@@ -125,7 +125,7 @@ pub fn set_page_layout(view: &Webview, floating: bool) -> Result<(), String> {
             let window: *mut AnyObject = msg_send![wk, window];
             let scale: f64 = msg_send![window, backingScaleFactor];
             let zoom: f64 = msg_send![wk, pageZoom];
-            eprintln!("[supermono-browser-geometry] floating={floating} frame=({},{},{},{}) scale={scale} zoom={zoom}", frame.origin.x, frame.origin.y, frame.size.width, frame.size.height);
+            eprintln!("[aven-browser-geometry] floating={floating} frame=({},{},{},{}) scale={scale} zoom={zoom}", frame.origin.x, frame.origin.y, frame.size.width, frame.size.height);
         }
     }).map_err(|e| e.to_string())
 }

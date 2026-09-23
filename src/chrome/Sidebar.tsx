@@ -6,8 +6,6 @@ import {
   CircleAlert,
   Folder,
   GitBranch,
-  Inbox,
-  StickyNote,
   ListFilter,
   Pin,
   PanelLeft,
@@ -17,6 +15,8 @@ import {
 import {
   memo,
   useEffect,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -93,6 +93,7 @@ import type { InstalledUpdate } from "../lib/updateNotice";
 import { TAB_GROUP_COLORS } from "../lib/tabGroups";
 import { useDragResize } from "../hooks/useDragResize";
 import { useProfileCarousel } from "../hooks/useProfileCarousel";
+import { useSidebarPageState } from "../hooks/useSidebarPageState";
 import { ProfileCarouselPreview, captureProfileSidebar, type WorkspaceProfilePreviewData } from "./ProfileCarouselPreview";
 import { useSortable } from "../hooks/useSortable";
 import { normalizeHex } from "../lib/colorUtils";
@@ -107,8 +108,8 @@ import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 import { HarnessIcon } from "./HarnessIcon";
 import {
   PersonalWorkspaceSwitcher,
-  WorkspaceProfileIcon,
 } from "./PersonalWorkspaceSwitcher";
+import { ProfileSidebarHeader } from "./ProfileSidebarHeader";
 import { PersonalProjectRow } from "./PersonalProjectRow";
 import { OrchestrationSidebarAgents } from "./OrchestrationSidebarAgents";
 import {
@@ -326,7 +327,22 @@ function SidebarComponent({
   const [documentVisible, setDocumentVisible] = useState(
     () => !document.hidden,
   );
-  const [tasksExpanded, setTasksExpanded] = useState(true);
+  const [sessionFilters, setSessionFilters] = useState(
+    loadSessionSidebarFilters,
+  );
+  const sessionFiltersKey = `${sessionFilters.showArchived}\0${sessionFilters.time}\0${sessionFilters.hiddenHarnesses.join(",")}\0${sessionFilters.status.working}\0${sessionFilters.status.needsApproval}\0${sessionFilters.status.done}`;
+  const {
+    tasksExpanded, setTasksExpanded,
+    taskSearchOpen, setTaskSearchOpen: updateTaskSearchOpen,
+    searchQuery, setSearchQuery,
+    sessionListLimit, setSessionListLimit,
+    sessionsScrollRef, setScroller, captureScroll,
+  } = useSidebarPageState({
+    profileId: activeProfileId,
+    cwd,
+    filtersKey: sessionFiltersKey,
+    profileIds: profiles.map((profile) => profile.id),
+  });
   const [, refreshProjects] = useState(0);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(
     () => new Set([cwd]),
@@ -349,6 +365,7 @@ function SidebarComponent({
   const profileSnapshots = useRef(new Map<string, HTMLElement>());
   const carouselEnabled = open && !!onSelectProfile && !settingsOpen && !profileMenuAnchor;
   const selectProfile = (id: string) => {
+    captureScroll();
     // Capture before React moves the live body to its destination, including
     // footer/header navigation. Every transition should retain the outgoing
     // page's visible rows and scroll position until it leaves the viewport.
@@ -362,7 +379,6 @@ function SidebarComponent({
     profiles, activeProfileId,
     onSelectProfile: selectProfile,
   });
-  const [taskSearchOpen, setTaskSearchOpen] = useState(false);
   const resize = useDragResize({
     enabled: open,
     min: MIN_WIDTH,
@@ -382,7 +398,6 @@ function SidebarComponent({
     },
   });
   const [now, setNow] = useState(() => Date.now());
-  const sessionsScrollRef = useRef<HTMLDivElement>(null);
   const [sessionMenu, setSessionMenu] = useState<{
     x: number;
     y: number;
@@ -401,22 +416,50 @@ function SidebarComponent({
     null,
   );
   const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
-  const [sessionFolders, setSessionFolders] = useState<SessionFolder[]>(() =>
-    loadSessionFolders(cwd),
-  );
+  const [savedSessionFolders, setSavedSessionFolders] = useState(() => ({
+    cwd, folders: loadSessionFolders(cwd),
+  }));
+  // Resolve the destination folders before rendering its rows and restoring
+  // scroll. An outgoing folder tree must not temporarily shorten this page.
+  const sessionFolders = useMemo(() =>
+    savedSessionFolders.cwd === cwd
+      ? savedSessionFolders.folders
+      : loadSessionFolders(cwd), [cwd, savedSessionFolders]);
+  // Adopt this already-resolved destination before React commits its children.
+  // Doing this in a layout effect repeated the whole sidebar commit mid-swipe.
+  if (savedSessionFolders.cwd !== cwd)
+    setSavedSessionFolders({ cwd, folders: sessionFolders });
+  const setSessionFolders = (
+    action: SessionFolder[] | ((folders: SessionFolder[]) => SessionFolder[]),
+  ) => {
+    setSavedSessionFolders((saved) => {
+      const previous = saved.cwd === cwd ? saved.folders : loadSessionFolders(cwd);
+      const folders = typeof action === "function" ? action(previous) : action;
+      return saved.cwd === cwd && folders === saved.folders ? saved : { cwd, folders };
+    });
+  };
   const [sessionDrop, setSessionDrop] = useState<SessionListDropTarget | null>(
     null,
-  );
-  const [sessionFilters, setSessionFilters] = useState(
-    loadSessionSidebarFilters,
   );
   const [filterMenu, setFilterMenu] = useState<{ x: number; y: number } | null>(
     null,
   );
-  const [searchQuery, setSearchQuery] = useState("");
-  const [sessionListLimit, setSessionListLimit] = useState(SESSION_LIST_PAGE);
   const loadMoreRef = useRef<HTMLLIElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const requestedSearchFocus = useRef<string | null>(null);
+  const searchPageKey = JSON.stringify([activeProfileId, cwd]);
+  const setTaskSearchOpen = (action: boolean | ((shown: boolean) => boolean)) => {
+    const next = typeof action === "function" ? action(taskSearchOpen) : action;
+    requestedSearchFocus.current = next ? searchPageKey : null;
+    updateTaskSearchOpen(next);
+  };
+  useLayoutEffect(() => {
+    if (
+      requestedSearchFocus.current === searchPageKey &&
+      taskSearchOpen && open && !settingsOpen
+    ) searchInputRef.current?.focus({ preventScroll: true });
+    requestedSearchFocus.current = null;
+  }, [searchPageKey, taskSearchOpen, open, settingsOpen]);
   const pendingFolderSessionIds = useRef(new Set<string>());
   const busyIdsRef = useRef(busySessionIds);
   const focusedSessionIdRef = useRef(activeSessionId);
@@ -506,7 +549,6 @@ function SidebarComponent({
     );
   }, [cwd, sessionNavigationKey]);
   const hasMoreSessions = shownUngroupedCount < ungroupedVisible.length;
-  const sessionListKey = `${cwd}\0${sessionFilters.showArchived}\0${sessionFilters.time}\0${sessionFilters.hiddenHarnesses.join(",")}\0${sessionFilters.status.working}\0${sessionFilters.status.needsApproval}\0${sessionFilters.status.done}\0${searchQuery}`;
   const sessionHarnesses = harnessesInSessions(sessions);
   const narrowedByUser = searchNarrowed || filtersActive;
   const visibleFolderIds = sessionListEntries.flatMap((entry) =>
@@ -528,12 +570,6 @@ function SidebarComponent({
   // Keep the workspace in place while a search, inbox or blank task is open.
   // Settings use this same column instead of mounting a second project rail.
   const sidebarVisible = open;
-
-  useEffect(() => {
-    setSessionListLimit(SESSION_LIST_PAGE);
-    const scroller = sessionsScrollRef.current;
-    if (scroller) scroller.scrollTop = 0;
-  }, [sessionListKey]);
 
   useEffect(() => {
     if (
@@ -567,16 +603,14 @@ function SidebarComponent({
     activeProfileId,
   ]);
 
-  useEffect(() => {
-    setSessionFolders(loadSessionFolders(cwd));
-    setRenamingFolderId(null);
-    setFolderMenu(null);
-    setSessionDrop(null);
-    setTasksExpanded(true);
-    if (looksLikeProject(cwd))
-      setExpandedProjects((current) => new Set([...current, cwd]));
-    setSearchQuery("");
-    setTaskSearchOpen(false);
+  useLayoutEffect(() => {
+    if (renamingFolderId !== null) setRenamingFolderId(null);
+    if (folderMenu !== null) setFolderMenu(null);
+    if (sessionDrop !== null) setSessionDrop(null);
+    if (looksLikeProject(cwd) && !expandedProjects.has(cwd))
+      setExpandedProjects((current) =>
+        current.has(cwd) ? current : new Set([...current, cwd]),
+      );
     pendingFolderSessionIds.current.clear();
   }, [cwd]);
 
@@ -1029,7 +1063,6 @@ function SidebarComponent({
   const sessionSearchInput = (
     <input
       ref={searchInputRef}
-      autoFocus
       type="text"
       value={searchQuery}
       placeholder="Filter tasks..."
@@ -1288,6 +1321,23 @@ function SidebarComponent({
     </div>
   );
 
+  const profileHeader = (
+    <ProfileSidebarHeader
+      profile={activeProfile}
+      menuOpen={!!profileMenuAnchor}
+      onMenuChange={setProfileMenuAnchor}
+      showSearch={!!onSearch}
+      searchActive={searchActive}
+      onSearch={onSearch}
+      showNotes={!settingsOpen && notesEnabled && !!onOpenNotes}
+      notesActive={notesActive}
+      onOpenNotes={onOpenNotes}
+      showInbox={!settingsOpen && !!onOpenInbox}
+      inboxActive={inboxActive}
+      onOpenInbox={onOpenInbox}
+    />
+  );
+
   const sidebarContent = (
     <aside
       ref={(element) => {
@@ -1304,7 +1354,7 @@ function SidebarComponent({
         className="personal-sidebar-windowbar flex h-10 shrink-0 select-none items-center pr-1.5"
         data-tauri-drag-region="deep"
       >
-        {IS_MAC ? <div className="w-[78px] shrink-0" /> : null}
+        {IS_MAC ? <div className="w-[96px] shrink-0" /> : null}
         {navigation ? null : <DevModeSlot />}
         {navigation ?? (
           <>
@@ -1334,40 +1384,6 @@ function SidebarComponent({
         )}
       </div>
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">{activeProfile.name} workspace</div>
-      <div className="personal-profile-header">
-        <button
-          className="personal-profile-picker"
-          type="button"
-          aria-label={`Switch workspace, ${activeProfile.name}`}
-          aria-haspopup="menu"
-          aria-expanded={!!profileMenuAnchor}
-          onClick={(event) =>
-            setProfileMenuAnchor(profileMenuAnchor ? null : event.currentTarget)
-          }
-          onKeyDown={(event) => {
-            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-              event.preventDefault();
-              setProfileMenuAnchor(event.currentTarget);
-            }
-          }}
-        >
-          <WorkspaceProfileIcon profile={activeProfile} />
-          <span>{activeProfile.name}</span>
-          <ChevronDown className="size-3" />
-        </button>
-        {onSearch ? (
-          <button
-            type="button"
-            className="personal-workspace-tool"
-            aria-label={`Search (${MOD}K)`}
-            title={`Search (${MOD}K)`}
-            aria-pressed={searchActive}
-            onClick={onSearch}
-          >
-            <Search className="size-3.5" />
-          </button>
-        ) : null}
-      </div>
       {profileMenuAnchor && open ? (
         <WorkspaceProfileMenu
           profiles={profiles}
@@ -1377,34 +1393,9 @@ function SidebarComponent({
           onDismiss={() => setProfileMenuAnchor(null)}
         />
       ) : null}
-      {!settingsOpen && (onOpenInbox || (notesEnabled && onOpenNotes)) ? (
-        <nav className="personal-library-nav" aria-label="Library">
-          {notesEnabled && onOpenNotes ? (
-            <button
-              type="button"
-              onClick={onOpenNotes}
-              aria-current={notesActive ? "page" : undefined}
-              title="Saved notes and reusable context"
-            >
-              <StickyNote className="size-3.5" aria-hidden />
-              <span>Notes</span>
-            </button>
-          ) : null}
-          {onOpenInbox ? (
-            <button
-              type="button"
-              onClick={onOpenInbox}
-              aria-current={inboxActive ? "page" : undefined}
-              title="GitHub issues, pull requests, and Linear tasks"
-            >
-              <Inbox className="size-3.5" aria-hidden />
-              <span>Inbox</span>
-            </button>
-          ) : null}
-        </nav>
-      ) : null}
       {settingsOpen && onSelectSettingsSection && onCloseSettings ? (
         <div className="personal-settings-navigation flex min-h-0 flex-1 flex-col">
+          {profileHeader}
           <p className="personal-sidebar-section-label">Settings</p>
           <SettingsNav
             section={settingsSection}
@@ -1417,7 +1408,7 @@ function SidebarComponent({
         <div className="personal-profile-track">
           {profiles.map((profile) => (
             <div key={profile.id} className="personal-profile-page" inert aria-hidden="true">
-              {profile.id !== activeProfile.id ? <ProfileCarouselPreview profile={profile} preview={profilePreviews?.[profile.id]} snapshot={profileSnapshots.current.get(profile.id)} /> : null}
+              {profile.id !== activeProfile.id ? <ProfileCarouselPreview profile={profile} preview={profilePreviews?.[profile.id]} snapshot={profileSnapshots.current.get(profile.id)} showSearch={!!onSearch} showNotes={notesEnabled && !!onOpenNotes} showInbox={!!onOpenInbox} showNewSession={!!onNewStandalone} /> : null}
             </div>
           ))}
         <div
@@ -1425,6 +1416,7 @@ function SidebarComponent({
           className="personal-profile-content flex min-h-0 min-w-0 flex-col"
           style={{ left: `${Math.max(0, profiles.findIndex((profile) => profile.id === activeProfile.id)) * 100}%` }}
         >
+          {profileHeader}
           {onNewStandalone ? (
             <button
               type="button"
@@ -1441,9 +1433,7 @@ function SidebarComponent({
             </button>
           ) : null}
           <div
-            ref={(element) => {
-              sessionsScrollRef.current = element;
-            }}
+            ref={setScroller}
             className="personal-projects-scroll min-h-0 flex-1 overflow-y-auto"
           >
             {onOpenStandalone ? (

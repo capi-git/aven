@@ -4,7 +4,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { DetachedWorkspace } from "./DetachedWorkspace";
 import { nativeWorkspaceWindow } from "../lib/detachedWorkspaces";
-import { leaf } from "../lib/layout";
+import { leaf, newTab } from "../lib/layout";
+import { resolveWorkspaceView } from "../lib/workspaceViews";
+import { installInAppLinks } from "../lib/inAppLinks";
 
 vi.mock("./BrowserPane", () => ({
   BrowserPane: ({ id, visible }: { id: string; visible: boolean }) =>
@@ -14,9 +16,19 @@ vi.mock("./BrowserPane", () => ({
     }),
 }));
 vi.mock("./SessionPane", () => ({ SessionPane: () => null }));
-vi.mock("./FilePane", () => ({ FilePane: () => null }));
+vi.mock("./FilePane", () => ({
+  FilePane: ({ pane, editorNavigation }: any) =>
+    createElement("div", {
+      "data-test-file": pane.files.find(
+        (file: any) => file.id === pane.activeFileId,
+      )?.path,
+      "data-navigation": JSON.stringify(editorNavigation),
+    }),
+}));
 vi.mock("../chrome/TitleBar", () => ({ TitleBar: () => null }));
-vi.mock("../lib/inAppLinks", () => ({ installInAppLinks: () => () => {} }));
+vi.mock("../lib/inAppLinks", () => ({
+  installInAppLinks: vi.fn(() => () => {}),
+}));
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
     onFocusChanged: async () => () => {},
@@ -112,6 +124,109 @@ it("keeps the startup cover until parent theme and selected browser content comm
   expect(nativeWorkspaceWindow.ready).toHaveBeenCalledWith("transfer");
   await act(async () => vi.advanceTimersByTime(430));
   expect(splash.isConnected).toBe(false);
+});
+
+it("opens an agent file in its detached task and forwards editor navigation without a duplicate tab", async () => {
+  const initial = await nativeWorkspaceWindow.getState();
+  initial.state.tabs = [newTab("task")];
+  initial.state.sessions = [
+    {
+      session: {
+        id: "task",
+        title: "Task",
+        cwd: "/project",
+        harness: "codex",
+        model: "gpt-5",
+        modelSettings: {},
+        runtimeMode: "bypass",
+        blocks: [],
+      },
+      recents: [],
+    },
+  ];
+  initial.state.view = resolveWorkspaceView(
+    initial.state.view,
+    ["selected", "background", initial.state.tabs[0].id],
+    "selected",
+  );
+  await act(async () => root.render(createElement(DetachedWorkspace)));
+  const request = {
+    requestToken: "open-file",
+    sessionId: "task",
+    file: { path: "/project/README.md", line: 12, column: 4 },
+  };
+  await act(async () => listeners.get("workspace-window-focus")!(request));
+  const file = host.querySelector<HTMLElement>(
+    '[data-test-file="/project/README.md"]',
+  );
+  expect(file).not.toBeNull();
+  expect(JSON.parse(file!.dataset.navigation!)).toMatchObject({
+    path: "/project/README.md",
+    line: 12,
+    column: 4,
+    token: 1,
+  });
+  await act(async () => listeners.get("workspace-window-focus")!(request));
+  await act(async () => vi.advanceTimersByTime(150));
+  const checkpoint = vi.mocked(nativeWorkspaceWindow.checkpoint).mock
+    .lastCall![0];
+  expect(checkpoint.view.focusedId).toBe(initial.state.tabs[0].id);
+  expect(checkpoint.tabs).toHaveLength(1);
+  expect(
+    checkpoint.tabs[0].editorPanes.flatMap((pane) => pane.files),
+  ).toHaveLength(1);
+  expect(checkpoint.browsers).toEqual(initial.state.browsers);
+  expect(nativeWorkspaceWindow.ack).toHaveBeenCalledWith("open-file");
+  await act(async () =>
+    listeners.get("workspace-window-focus")!({
+      ...request,
+      requestToken: "expired-file",
+      expiresAt: Date.now() - 1,
+      file: { path: "/project/expired.md" },
+    }),
+  );
+  expect(nativeWorkspaceWindow.ack).toHaveBeenCalledWith(
+    "expired-file",
+    undefined,
+    expect.stringContaining("request expired"),
+  );
+  expect(
+    host.querySelector('[data-test-file="/project/expired.md"]'),
+  ).toBeNull();
+  const links = vi.mocked(installInAppLinks).mock.lastCall![0];
+  await act(async () =>
+    links.openFile("/project/README.md", { line: 24, column: 2 }),
+  );
+  expect(JSON.parse(file!.dataset.navigation!)).toMatchObject({
+    line: 24,
+    column: 2,
+  });
+  await act(async () =>
+    listeners.get("workspace-window-focus")!({
+      ...request,
+      sessionId: "missing",
+      requestToken: "missing-file",
+    }),
+  );
+  expect(nativeWorkspaceWindow.ack).toHaveBeenCalledWith(
+    "missing-file",
+    undefined,
+    expect.stringContaining("no longer in this window"),
+  );
+  await act(async () =>
+    listeners.get("workspace-window-freeze")!({ token: "freeze" }),
+  );
+  await act(async () =>
+    listeners.get("workspace-window-focus")!({
+      ...request,
+      requestToken: "frozen-file",
+    }),
+  );
+  expect(nativeWorkspaceWindow.ack).toHaveBeenCalledWith(
+    "frozen-file",
+    undefined,
+    expect.stringContaining("window is moving"),
+  );
 });
 
 it("uncovers a workspace startup error when the initial state request fails", async () => {

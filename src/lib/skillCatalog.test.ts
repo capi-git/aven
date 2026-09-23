@@ -98,6 +98,9 @@ describe("provider-aware skill catalog", () => {
       );
       expect(prompt).toContain("# Desktop control from Aven");
       expect(prompt).toContain("permissions status --json");
+      expect(prompt).toContain('"action":"openfile"');
+      expect(prompt).toContain("see --window-id <returned-window-id>");
+      expect(prompt).toContain("--snapshot <returned-snapshot-id>");
       expect(prompt.endsWith("/aven-computer-use inspect the app")).toBe(true);
     },
   );

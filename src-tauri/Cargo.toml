@@ -1,4 +1,5 @@
 [package]
+# Legacy build identifier; this crate is Aven. See docs/BRANDING.md.
 name = "monocode"
 version.workspace = true
 edition.workspace = true

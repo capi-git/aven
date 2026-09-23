@@ -36,12 +36,18 @@ const projects = [
 let root: Root | undefined;
 let container: HTMLDivElement;
 let latest: ReturnType<typeof useWorkspaceProfiles>;
-function Probe({ currentProject }: { currentProject: string }) {
-  latest = useWorkspaceProfiles(projects, currentProject);
+function Probe({
+  currentProject,
+  recents = projects,
+}: {
+  currentProject: string;
+  recents?: typeof projects;
+}) {
+  latest = useWorkspaceProfiles(recents, currentProject);
   return null;
 }
-function render(currentProject: string) {
-  act(() => root!.render(createElement(Probe, { currentProject })));
+function render(currentProject: string, recents = projects) {
+  act(() => root!.render(createElement(Probe, { currentProject, recents })));
 }
 
 beforeEach(() => {
@@ -66,6 +72,49 @@ afterEach(() => {
 });
 
 describe("workspace project organization", () => {
+  it("keeps carousel projects stable while selecting and remembering workspace destinations", () => {
+    render(personalPath);
+    const previews = latest.projectsByProfile;
+    const personalProjects = latest.profileProjects;
+    expect(personalProjects).toBe(previews.personal);
+
+    act(() => latest.selectProfile("work"));
+    expect(latest.projectsByProfile).toBe(previews);
+    expect(latest.profileProjects).toBe(previews.work);
+    render(workPath);
+    expect(loadWorkspaceProfiles().lastProjectByProfile.work).toBe(workPath);
+    expect(latest.projectsByProfile).toBe(previews);
+
+    act(() => latest.selectProfile("personal"));
+    expect(latest.projectsByProfile).toBe(previews);
+    expect(latest.profileProjects).toBe(personalProjects);
+  });
+
+  it("refreshes carousel membership after moves and preserves changed recent project ordering", () => {
+    render(personalPath);
+    const beforeMove = latest.projectsByProfile;
+    act(() => latest.moveProject(workPath, "personal"));
+    expect(latest.projectsByProfile).not.toBe(beforeMove);
+    expect(latest.profileProjects.map((project) => project.path)).toEqual([
+      personalPath,
+      workPath,
+    ]);
+    expect(
+      latest.projectsByProfile.work.map((project) => project.path),
+    ).toEqual([otherWorkPath]);
+
+    const updatedRecents = [
+      { path: workPath, openedAt: 40 },
+      ...projects.filter((project) => project.path !== workPath),
+    ];
+    render(personalPath, updatedRecents);
+    expect(latest.profileProjects.map((project) => project.path)).toEqual([
+      workPath,
+      personalPath,
+    ]);
+    expect(latest.profileProjects[0]).toBe(updatedRecents[0]);
+  });
+
   it("acknowledges the selected workspace without another storage write or render", () => {
     render(personalPath);
     const persist = vi.spyOn(localStorage, "setItem");
@@ -77,10 +126,14 @@ describe("workspace project organization", () => {
     });
     expect(target).toBe(otherWorkPath);
     expect(latest.activeProfileId).toBe("work");
-    expect(persist.mock.calls.filter(([key]) => key === WORKSPACE_PROFILES_KEY)).toHaveLength(1);
+    expect(
+      persist.mock.calls.filter(([key]) => key === WORKSPACE_PROFILES_KEY),
+    ).toHaveLength(1);
     const selected = latest;
     persist.mockClear();
-    act(() => { target = latest.selectProfile("work"); });
+    act(() => {
+      target = latest.selectProfile("work");
+    });
     expect(target).toBe(otherWorkPath);
     expect(latest).toBe(selected);
     expect(persist).not.toHaveBeenCalled();
@@ -89,10 +142,13 @@ describe("workspace project organization", () => {
 
   it("keeps unassigned folders in Personal without machine-specific assumptions", () => {
     const state = defaultWorkspaceProfiles();
-    expect(projectsForWorkspace(state, projects).map((project) => project.path))
-      .toEqual(projects.map((project) => project.path));
+    expect(
+      projectsForWorkspace(state, projects).map((project) => project.path),
+    ).toEqual(projects.map((project) => project.path));
     expect(projectsForWorkspace(state, projects, "work")).toEqual([]);
-    expect(projectWorkspaceProfile(state, "/Users/another/Work/Example")).toBe("personal");
+    expect(projectWorkspaceProfile(state, "/Users/another/Work/Example")).toBe(
+      "personal",
+    );
   });
 
   it("persists an explicit move without touching recents or credentials", () => {

@@ -7,6 +7,18 @@ import type { EditorNavigation, OpenFileFn } from "./search";
 // A fragment survives Markdown URL hardening without becoming a WebView URL.
 export const LOCAL_FILE_LINK = "#covecode-file=";
 
+/** Preserve literal %, #, and ? in a file name through Markdown URL hardening. */
+export function fileLinkHref(
+  path: string,
+  navigation?: EditorNavigation,
+): string {
+  const encodedPath = encodeURI(path).replace(/[?#]/g, encodeURIComponent);
+  const location = navigation
+    ? `:${navigation.line}${navigation.column ? `:${navigation.column}` : ""}`
+    : "";
+  return LOCAL_FILE_LINK + encodeURIComponent(encodedPath + location);
+}
+
 export function resolveFileLink(
   href: string,
   cwd?: string,
@@ -49,7 +61,12 @@ export function resolveFileLink(
     return;
   }
   // Never reinterpret an encoded URL scheme as a local path.
-  if (/^[a-z][a-z0-9+.-]*:/i.test(value) && !/^[A-Za-z]:[\\/]/.test(value))
+  if (
+    /[\u0000-\u001f\u007f]/.test(value) ||
+    value.startsWith("//") ||
+    value.startsWith("\\\\") ||
+    (/^[a-z][a-z0-9+.-]*:/i.test(value) && !/^[A-Za-z]:[\\/]/.test(value))
+  )
     return;
   const path = resolveWorkspacePath(value, cwd);
   if (!path) return;
@@ -81,7 +98,9 @@ export async function openInAppUrl(value: string): Promise<void> {
 }
 
 export function openInAppFile(path: string, navigation?: EditorNavigation) {
-  host?.openFile(path, navigation);
+  if (!host)
+    throw new Error("The workspace is still opening. Try the file again.");
+  host.openFile(path, navigation);
 }
 
 /** One event-driven router per trusted app window, never installed in web pages. */
@@ -127,7 +146,22 @@ export function installInAppLinks(
           ({ payload }) => {
             if (!active()) return;
             if (typeof payload?.url !== "string") {
-              reportActive(new Error("The link does not contain a web address."));
+              reportActive(
+                new Error("The link does not contain a web address."),
+              );
+              return;
+            }
+            if (payload.url.startsWith(LOCAL_FILE_LINK)) {
+              try {
+                const file = resolveFileLink(payload.url);
+                if (!file)
+                  throw new Error(
+                    "The link does not contain a valid local file path.",
+                  );
+                next.openFile(file.path, file.navigation);
+              } catch (error) {
+                reportActive(error);
+              }
               return;
             }
             openUrl(payload.url);
@@ -142,6 +176,9 @@ export function installInAppLinks(
     document.removeEventListener("auxclick", click);
     if (host === next) host = undefined;
     // Registration can finish after StrictMode or a changed host tears down.
-    void listener.then((unlisten) => unlisten(), () => {});
+    void listener.then(
+      (unlisten) => unlisten(),
+      () => {},
+    );
   };
 }

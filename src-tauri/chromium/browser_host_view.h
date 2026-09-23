@@ -1,5 +1,7 @@
 #pragma once
 #import <Cocoa/Cocoa.h>
+#import <QuartzCore/QuartzCore.h>
+#include <algorithm>
 #include <cmath>
 
 namespace supermono {
@@ -8,6 +10,69 @@ struct BrowserHostFrames {
   NSRect clip;
   NSRect browser;
 };
+
+// Round only the document's bottom corners; its top edge meets the HTML
+// toolbar. The path follows the full page within the clipping host, so a hover
+// sidebar crops an existing curve rather than creating a new rounded edge.
+inline CGPathRef CreateBrowserBottomCornerPath(NSRect frame, double radius,
+                                               bool flipped) {
+  CGMutablePathRef path = CGPathCreateMutable();
+  const double r = std::isfinite(radius)
+      ? std::clamp(radius, 0.0, std::max(0.0, std::min(frame.size.width, frame.size.height) / 2))
+      : 0;
+  const double left = NSMinX(frame), right = NSMaxX(frame);
+  const double bottom = NSMinY(frame), top = NSMaxY(frame);
+  if (r <= 0) {
+    CGPathAddRect(path, nullptr, NSRectToCGRect(frame));
+    return path;
+  }
+  CGPathMoveToPoint(path, nullptr, left, top);
+  CGPathAddLineToPoint(path, nullptr, right, top);
+  CGPathAddLineToPoint(path, nullptr, right, bottom + r);
+  CGPathAddArcToPoint(path, nullptr, right, bottom, right - r, bottom, r);
+  CGPathAddLineToPoint(path, nullptr, left + r, bottom);
+  CGPathAddArcToPoint(path, nullptr, left, bottom, left, bottom + r, r);
+  CGPathCloseSubpath(path);
+  if (!flipped) return path;
+  const CGAffineTransform reflect = CGAffineTransformMake(1, 0, 0, -1, 0, bottom + top);
+  CGPathRef reflected = CGPathCreateCopyByTransformingPath(path, &reflect);
+  CGPathRelease(path);
+  return reflected;
+}
+
+inline void ApplyBrowserBottomCornerMask(NSView* clip, NSRect browser_frame,
+                                         double radius) {
+  clip.wantsLayer = YES;
+  clip.clipsToBounds = YES;
+  [CATransaction begin];
+  [CATransaction setDisableActions:YES];
+  if (radius <= 0) {
+    clip.layer.mask = nil;
+  } else {
+    CAShapeLayer* mask = [clip.layer.mask isKindOfClass:CAShapeLayer.class]
+        ? (CAShapeLayer*)clip.layer.mask : [CAShapeLayer layer];
+    mask.frame = clip.bounds;
+    mask.contentsScale = std::max(1.0, clip.window.backingScaleFactor);
+    mask.fillColor = NSColor.blackColor.CGColor;
+    CGPathRef path = CreateBrowserBottomCornerPath(browser_frame, radius, clip.flipped);
+    mask.path = path;
+    CGPathRelease(path);
+    clip.layer.mask = mask;
+  }
+  [CATransaction commit];
+}
+
+// Hiding a native child must not leave keyboard events in that invisible page.
+// A different browser, toolbar, or window retains its existing first responder.
+inline bool ReturnHiddenBrowserFocus(NSView* clip, NSView* workspace) {
+  NSWindow* window = clip.window;
+  NSResponder* responder = window.firstResponder;
+  if (!window || !workspace || workspace.window != window ||
+      workspace.hiddenOrHasHiddenAncestor ||
+      ![responder isKindOfClass:NSView.class] ||
+      ![(NSView*)responder isDescendantOf:clip]) return false;
+  return [window makeFirstResponder:workspace];
+}
 
 inline NSRect AlignBrowserBackingRect(NSView* parent, NSRect frame) {
   const NSRect backing = [parent convertRectToBacking:frame];

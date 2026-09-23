@@ -10,6 +10,7 @@ import {
   refreshAgentBrowserScopes,
 } from "./lib/agentBrowser";
 import { invoke } from "@tauri-apps/api/core";
+import { openAgentFileInTabs } from "./lib/agentFiles";
 import { orchestrator, type ControlOutcome } from "./lib/orchestration";
 import { submitManagedTurn } from "./lib/managedSubmission";
 import { steerManagedTurn } from "./lib/managedSteering";
@@ -156,7 +157,6 @@ import {
 } from "./lib/workspaceKeyboard";
 import {
   WorkspaceStatusBar,
-  WorkspaceNavigation as WorkspaceNavigationControls,
   type WorkspaceStatusAction,
 } from "./chrome/WorkspaceStatusBar";
 import { WorkspaceFooter } from "./chrome/WorkspaceFooter";
@@ -336,7 +336,11 @@ import {
 } from "./lib/checkpoint";
 import { notifyDirsChanged } from "./lib/fileTree";
 import { invalidateWatchedFiles, nudgeWatchedFiles } from "./lib/fileWatch";
-import { type EditorNavigationTarget, type OpenFileFn } from "./lib/search";
+import {
+  type EditorNavigation,
+  type EditorNavigationTarget,
+  type OpenFileFn,
+} from "./lib/search";
 import {
   mergeModelSettings,
   preferredModelSettings,
@@ -825,12 +829,32 @@ export default function App({
   const detachedBrowserBridge = useRef<
     (sessionId: string, url: string) => Promise<string | null>
   >(async () => null);
+  const agentFileBridge = useRef<
+    (
+      sessionId: string,
+      cwd: string,
+      path: string,
+      navigation?: EditorNavigation,
+    ) => Promise<void>
+  >(async () => {
+    throw new Error("The file editor is still opening. Try again.");
+  });
+  const detachedFileBridge = useRef<
+    (
+      sessionId: string,
+      path: string,
+      navigation?: EditorNavigation,
+    ) => Promise<boolean>
+  >(async () => false);
   const detachedShowSurface = useRef<(surfaceId: string) => Promise<boolean>>(
     async () => false,
   );
   useEffect(
     () =>
       installAgentBrowserHost({
+        openFile({ sessionId, cwd }, path, navigation) {
+          return agentFileBridge.current(sessionId, cwd, path, navigation);
+        },
         surfaces({ sessionId, cwd }) {
           const session = sessionsRef.current.find(
             (item) => item.id === sessionId,
@@ -1325,6 +1349,10 @@ export default function App({
     !searchViewOpen &&
     !inboxViewOpen &&
     !notesViewOpen;
+  const [workspaceToolbarHost, setWorkspaceToolbarHost] =
+    useState<HTMLDivElement | null>(null);
+  const unifiedWorkspaceTabs =
+    workspaceVisible && visibleSurfaceIds.length === 1;
   const sidebarHover = useHoverRevealPanel({
     pinned: sidebarOpen,
     enterDelay: 45,
@@ -4547,8 +4575,12 @@ export default function App({
         lastTabByProjectRef.current[normalized],
       );
       if (match) {
-        setProjectCwd(normalized);
-        setRecents(rememberProject(normalized));
+        // Attached tabs update cwd and recents inside activateTab. Detached
+        // tabs only reveal their own window, so retain this window's update.
+        if (detachedIdsRef.current.has(match.id)) {
+          setProjectCwd(normalized);
+          setRecents(rememberProject(normalized));
+        }
         activateTab(match.id, true);
         return;
       }
@@ -4897,6 +4929,52 @@ export default function App({
     },
     [profileHome, appendTab, clearReturnFocus],
   );
+
+  agentFileBridge.current = async (sessionId, cwd, path, navigation) => {
+    const ownsSession = () =>
+      sessionsRef.current.some(
+        (session) =>
+          session.id === sessionId &&
+          sameProjectPath(sessionWorkCwd(session), cwd),
+      );
+    if (!ownsSession())
+      throw new Error("The requesting task is no longer available.");
+    if (await detachedFileBridge.current(sessionId, path, navigation)) return;
+    if (!ownsSession()) throw new Error("The requesting task was closed.");
+    const session = sessionsRef.current.find((item) => item.id === sessionId)!;
+    const opened = openAgentFileInTabs(
+      tabsRef.current,
+      sessionId,
+      cwd,
+      path,
+      detachedIdsRef.current,
+    );
+    flushSync(() => {
+      tabsRef.current = opened.tabs;
+      setTabs(opened.tabs);
+      if (navigation) {
+        editorNavigationToken.current += 1;
+        setEditorNavigation({
+          path,
+          ...navigation,
+          token: editorNavigationToken.current,
+        });
+      }
+    });
+    rememberOpenedFile(cwd, path);
+    // Background tasks may prepare their own editor without changing profiles.
+    if (sameProjectPath(projectCwdRef.current, session.cwd)) {
+      clearReturnFocus();
+      leaveExpandedPreview();
+      setHomeViewOpen(false);
+      setSettingsOpen(false);
+      setSearchViewOpen(false);
+      setInboxViewOpen(false);
+      setNotesViewOpen(false);
+      setComposerFocused(false);
+      viewRef.current.focus(session.cwd, opened.tabId);
+    }
+  };
 
   useEffect(
     () =>
@@ -7742,6 +7820,7 @@ export default function App({
     },
   });
   detachedBrowserBridge.current = detached.openForSession;
+  detachedFileBridge.current = detached.openFileForSession;
   detachedShowSurface.current = async (surfaceId) => {
     const window = detached.snapshots.find(
       (entry) =>
@@ -8047,848 +8126,858 @@ export default function App({
         <div
           className="personal-shell flex h-full text-content"
           data-sidebar-pinned={sidebarOpen}
+          data-unified-toolbar
         >
-          {!sidebarOpen ? (
-            <button
-              type="button"
-              className="personal-panel-edge personal-panel-edge-left"
-              aria-label="Show workspace sidebar"
-              {...sidebarHover.edgeHandlers}
-              onClick={onToggleSidebar}
-            />
-          ) : null}
-          <Sidebar
-            cwd={profileHome ? "~" : sidebarCwd}
-            gitCwd={profileHome ? "~" : gitCwd}
-            profiles={profiles.profiles}
-            profilePreviews={profilePreviews}
-            activeProfileId={profiles.activeProfileId}
-            onSelectProfile={onSelectProfile}
-            onCreateProfile={(name) =>
-              onSelectProfile(profiles.createProfile(name))
+          <WorkspaceStatusBar
+            settingsView={
+              settingsOpen
+                ? { section: settingsSection, onClose: onCloseSettings }
+                : undefined
             }
-            onMoveProject={(path, id) => {
-              const next = profiles.moveProject(path, id);
-              if (looksLikeProject(next)) onSelectProject(next);
-            }}
-            onAddProject={(anchor) =>
-              anchor ? setAddProjectAnchor(anchor) : void pickProject()
+            workspaceTabs={
+              unifiedWorkspaceTabs ? (
+                <div
+                  ref={setWorkspaceToolbarHost}
+                  className="personal-workspace-toolbar-host"
+                />
+              ) : undefined
             }
-            projectSessions={profileSessionSummaries}
-            onExpandProject={refreshProfileHistory}
-            loadedProjectPaths={loadedProjects}
-            projectHistoryErrors={profileHistoryErrors}
-            onSelectProjectSession={(_path, id) =>
-              void onSelectHistorySession(id)
-            }
-            onNewProjectTask={onNewProjectTask}
-            open={sidebarHover.visible}
-            navigation={sidebarHover.visible ? (
-              <WorkspaceNavigationControls
-                compact
-                onToggleSidebar={onToggleSidebar}
-                sidebarOpen={sidebarOpen}
-                onSearch={onOpenSearch}
-                onNewBrowser={onGlobalNewBrowser}
-                onGoBack={onRailBack}
-                onGoForward={onRailForward}
-                canGoBack={tabVisitNav.canBack}
-                canGoForward={tabVisitNav.canForward}
-                onHome={onOpenHome}
-                homeOpen={homeViewOpen || profileHome}
-              />
-            ) : undefined}
-            floating={!sidebarOpen}
-            hoverHandlers={sidebarHover.panelHandlers}
-            tab={sidebarTab}
-            onTabChange={(tab) => {
-              setSidebarTab(tab);
-              setSearchViewOpen(false);
-              setInboxViewOpen(false);
-              setNotesViewOpen(false);
-            }}
-            filesSearchOpen={filesSearchOpen}
-            onFilesSearchOpenChange={setFilesSearchOpen}
-            onOpenFilesSearch={onFindInProject}
-            searchFocusToken={searchFocusToken}
-            sessions={
+            sessions={profileSessions}
+            session={profileHome ? undefined : active}
+            accessMode={
               profileHome
-                ? []
-                : standaloneActive
-                  ? standaloneSessions
-                  : sidebarHistory
+                ? defaultAccess
+                : (active?.runtimeMode ?? defaultAccess)
             }
-            busySessionIds={busySessionIds}
-            approvalSessionIds={approvalSessionIds}
-            activeSessionId={profileHome ? undefined : active?.id}
-            status={historyFailed ? "error" : "idle"}
-            pending={historyPending}
-            onSelectSession={onSelectHistorySession}
-            onSessionNavigationOrder={onSessionNavigationOrder}
-            onPlaceSessionOnPane={onPlaceSessionOnPane}
-            onRenameSession={onRenameHistorySession}
-            onArchiveSession={onArchiveHistorySession}
-            onArchiveSessions={onArchiveHistorySessions}
-            onPinSession={onPinHistorySession}
-            onPinSessions={onPinHistorySessions}
-            onDeleteSession={onDeleteHistorySession}
-            onDeleteSessions={onDeleteHistorySessions}
-            onOpenFile={onOpenFile}
-            onOpenTerminal={onOpenTerminal}
-            onFileMoved={onFileMoved}
-            onFileDeleted={onFileDeleted}
-            canGoBack={tabVisitNav.canBack}
-            canGoForward={tabVisitNav.canForward}
+            onAccessModeChange={(mode) => {
+              setDefaultAccess(mode);
+              saveDefaultRuntimeMode(mode);
+              if (!profileHome && active) onRuntimeModeChange(active.id, mode);
+            }}
+            onSelectSession={onOpenApprovalSession}
+            usageProviders={profileHome ? [] : usageProviders}
+            openActions={openActions}
+            onToggleSidebar={onToggleSidebar}
+            sidebarOpen={sidebarOpen}
+            onSearch={onOpenSearch}
+            onNewBrowser={onGlobalNewBrowser}
             onGoBack={onRailBack}
             onGoForward={onRailForward}
-            onOpenDiff={onOpenWorkingTreeDiff}
-            onOpenAllChanges={onOpenAllChanges}
-            onOpenCommit={onOpenCommit}
-            onShowSourceControl={onToggleChanges}
-            selectedDiffPath={
-              activeTab ? selectedChangePath(activeTab, gitCwd) : undefined
-            }
-            selectedDiffKind={
-              activeTab ? selectedChangeKind(activeTab) : undefined
-            }
-            selectedCommitSha={
-              activeTab ? selectedCommitSha(activeTab) : undefined
-            }
-            textHarness={pickTextHarness(active?.harness)}
-            recents={profiles.profileProjects}
-            busyProjectPaths={sessions.flatMap((session) =>
-              session.busy && session.cwd ? [session.cwd] : [],
-            )}
-            liveAgents={liveAgents}
-            onSelectAgent={onSelectLiveAgent}
-            onSelectProject={onSelectProject}
-            onOpenProject={pickProject}
-            onRemoveProject={onRemoveProject}
-            onNew={onNew}
-            onNewStandalone={() => void onNewStandalone()}
-            startingStandalone={startingStandalone}
-            standaloneActive={standaloneActive}
-            standaloneSessions={standaloneSessions}
-            onOpenStandalone={
-              standaloneCwd ? () => onSelectProject(standaloneCwd) : undefined
-            }
-            openSessions={profileHome ? [] : openProjectSessions}
-            onNewTerminal={onNewTerminal}
-            onSearch={onOpenSearch}
-            onOpenInbox={onOpenInbox}
-            onOpenNotes={notesEnabled ? onOpenNotes : undefined}
-            onGoToFile={onGoToFile}
-            searchActive={searchViewOpen}
-            inboxActive={inboxViewOpen}
-            notesActive={notesViewOpen}
-            notesEnabled={notesEnabled}
-            projectRailOpen={projectRailOpen}
-            onToggleProjectRail={onToggleProjectRail}
-            unseenFinishedIds={unseenFinishedIds}
-            settingsOpen={settingsOpen}
-            settingsSection={settingsSection}
+            canGoBack={tabVisitNav.canBack}
+            canGoForward={tabVisitNav.canForward}
+            onHome={onOpenHome}
+            homeOpen={homeViewOpen || profileHome}
+            onToggleInspector={onToggleInspector}
+            inspectorOpen={inspector.open}
             onOpenSettings={onOpenSettings}
-            onSelectSettingsSection={onSelectSettingsSection}
-            onCloseSettings={onCloseSettings}
-            updateNotice={updateNotice}
-            onOpenWhatsNew={onOpenWhatsNew}
-            onDismissUpdate={() => setUpdateNotice(null)}
           />
-
-          <div
-            className="personal-workspace-column"
-            style={
-              {
-                "--workspace-inspector-width":
-                  inspector.open && workspaceVisible
-                    ? `${inspector.width}px`
-                    : "0px",
-              } as CSSProperties
-            }
-          >
-            <WorkspaceStatusBar
-              navigationInSidebar={sidebarHover.visible}
-              sessions={profileSessions}
-              session={profileHome ? undefined : active}
-              accessMode={
-                profileHome
-                  ? defaultAccess
-                  : (active?.runtimeMode ?? defaultAccess)
+          <div className="personal-shell-body">
+            {!sidebarOpen ? (
+              <button
+                type="button"
+                className="personal-panel-edge personal-panel-edge-left"
+                aria-label="Show workspace sidebar"
+                {...sidebarHover.edgeHandlers}
+                onClick={onToggleSidebar}
+              />
+            ) : null}
+            <Sidebar
+              cwd={profileHome ? "~" : sidebarCwd}
+              gitCwd={profileHome ? "~" : gitCwd}
+              profiles={profiles.profiles}
+              profilePreviews={profilePreviews}
+              activeProfileId={profiles.activeProfileId}
+              onSelectProfile={onSelectProfile}
+              onCreateProfile={(name) =>
+                onSelectProfile(profiles.createProfile(name))
               }
-              onAccessModeChange={(mode) => {
-                setDefaultAccess(mode);
-                saveDefaultRuntimeMode(mode);
-                if (!profileHome && active)
-                  onRuntimeModeChange(active.id, mode);
+              onMoveProject={(path, id) => {
+                const next = profiles.moveProject(path, id);
+                if (looksLikeProject(next)) onSelectProject(next);
               }}
-              onSelectSession={onOpenApprovalSession}
-              usageProviders={profileHome ? [] : usageProviders}
-              openActions={openActions}
-              onToggleSidebar={onToggleSidebar}
-              sidebarOpen={sidebarOpen}
-              onSearch={onOpenSearch}
-              onNewBrowser={onGlobalNewBrowser}
-              onGoBack={onRailBack}
-              onGoForward={onRailForward}
+              onAddProject={(anchor) =>
+                anchor ? setAddProjectAnchor(anchor) : void pickProject()
+              }
+              projectSessions={profileSessionSummaries}
+              onExpandProject={refreshProfileHistory}
+              loadedProjectPaths={loadedProjects}
+              projectHistoryErrors={profileHistoryErrors}
+              onSelectProjectSession={(_path, id) =>
+                void onSelectHistorySession(id)
+              }
+              onNewProjectTask={onNewProjectTask}
+              open={sidebarHover.visible}
+              floating={!sidebarOpen}
+              hoverHandlers={sidebarHover.panelHandlers}
+              tab={sidebarTab}
+              onTabChange={(tab) => {
+                setSidebarTab(tab);
+                setSearchViewOpen(false);
+                setInboxViewOpen(false);
+                setNotesViewOpen(false);
+              }}
+              filesSearchOpen={filesSearchOpen}
+              onFilesSearchOpenChange={setFilesSearchOpen}
+              onOpenFilesSearch={onFindInProject}
+              searchFocusToken={searchFocusToken}
+              sessions={
+                profileHome
+                  ? []
+                  : standaloneActive
+                    ? standaloneSessions
+                    : sidebarHistory
+              }
+              busySessionIds={busySessionIds}
+              approvalSessionIds={approvalSessionIds}
+              activeSessionId={profileHome ? undefined : active?.id}
+              status={historyFailed ? "error" : "idle"}
+              pending={historyPending}
+              onSelectSession={onSelectHistorySession}
+              onSessionNavigationOrder={onSessionNavigationOrder}
+              onPlaceSessionOnPane={onPlaceSessionOnPane}
+              onRenameSession={onRenameHistorySession}
+              onArchiveSession={onArchiveHistorySession}
+              onArchiveSessions={onArchiveHistorySessions}
+              onPinSession={onPinHistorySession}
+              onPinSessions={onPinHistorySessions}
+              onDeleteSession={onDeleteHistorySession}
+              onDeleteSessions={onDeleteHistorySessions}
+              onOpenFile={onOpenFile}
+              onOpenTerminal={onOpenTerminal}
+              onFileMoved={onFileMoved}
+              onFileDeleted={onFileDeleted}
               canGoBack={tabVisitNav.canBack}
               canGoForward={tabVisitNav.canForward}
-              onHome={onOpenHome}
-              homeOpen={homeViewOpen || profileHome}
-              onToggleInspector={onToggleInspector}
-              inspectorOpen={inspector.open}
+              onGoBack={onRailBack}
+              onGoForward={onRailForward}
+              onOpenDiff={onOpenWorkingTreeDiff}
+              onOpenAllChanges={onOpenAllChanges}
+              onOpenCommit={onOpenCommit}
+              onShowSourceControl={onToggleChanges}
+              selectedDiffPath={
+                activeTab ? selectedChangePath(activeTab, gitCwd) : undefined
+              }
+              selectedDiffKind={
+                activeTab ? selectedChangeKind(activeTab) : undefined
+              }
+              selectedCommitSha={
+                activeTab ? selectedCommitSha(activeTab) : undefined
+              }
+              textHarness={pickTextHarness(active?.harness)}
+              recents={profiles.profileProjects}
+              busyProjectPaths={sessions.flatMap((session) =>
+                session.busy && session.cwd ? [session.cwd] : [],
+              )}
+              liveAgents={liveAgents}
+              onSelectAgent={onSelectLiveAgent}
+              onSelectProject={onSelectProject}
+              onOpenProject={pickProject}
+              onRemoveProject={onRemoveProject}
+              onNew={onNew}
+              onNewStandalone={() => void onNewStandalone()}
+              startingStandalone={startingStandalone}
+              standaloneActive={standaloneActive}
+              standaloneSessions={standaloneSessions}
+              onOpenStandalone={
+                standaloneCwd ? () => onSelectProject(standaloneCwd) : undefined
+              }
+              openSessions={profileHome ? [] : openProjectSessions}
+              onNewTerminal={onNewTerminal}
+              onSearch={onOpenSearch}
+              onOpenInbox={onOpenInbox}
+              onOpenNotes={notesEnabled ? onOpenNotes : undefined}
+              onGoToFile={onGoToFile}
+              searchActive={searchViewOpen}
+              inboxActive={inboxViewOpen}
+              notesActive={notesViewOpen}
+              notesEnabled={notesEnabled}
+              projectRailOpen={projectRailOpen}
+              onToggleProjectRail={onToggleProjectRail}
+              unseenFinishedIds={unseenFinishedIds}
+              settingsOpen={settingsOpen}
+              settingsSection={settingsSection}
               onOpenSettings={onOpenSettings}
+              onSelectSettingsSection={onSelectSettingsSection}
+              onCloseSettings={onCloseSettings}
+              updateNotice={updateNotice}
+              onOpenWhatsNew={onOpenWhatsNew}
+              onDismissUpdate={() => setUpdateNotice(null)}
             />
-            <div className="personal-workspace-body">
-              <div className="personal-main body-glass flex min-h-0 min-w-0 flex-1 flex-col">
-                {(profileHome || homeViewOpen || view.order.length === 0) &&
-                !settingsOpen &&
-                !searchViewOpen &&
-                !inboxViewOpen &&
-                !notesViewOpen ? (
-                  <WorkspaceHome
-                    profile={profiles.activeProfile.name}
-                    projects={profiles.profileProjects.map((project) => ({
-                      path: project.path,
-                      name: basename(project.path),
-                    }))}
-                    sessions={[
-                      ...new Map(
-                        [
-                          ...history.filter((entry) => !entry.archived),
-                          ...sessions.map((entry) => ({
-                            ...summaryFromSession(entry),
-                            busy: entry.busy,
-                          })),
-                        ].map((entry) => [entry.id, entry]),
-                      ).values(),
-                    ]
-                      .filter((session) => !session.orchestrationLeadId)
-                      .sort((a, b) => b.updatedAt - a.updatedAt)
-                      .filter(
-                        (session) =>
-                          projectlessProfileForCwd(session.cwd) ===
-                            profiles.activeProfileId ||
-                          profiles.profileProjects.some((project) =>
-                            sameProjectPath(project.path, session.cwd),
-                          ),
-                      )
-                      .map((session) => ({
-                        id: session.id,
-                        cwd: session.cwd,
-                        title: sessionDisplayTitle(
-                          session.title,
-                          session.harness,
-                        ),
-                        project: isProjectlessCwd(session.cwd)
-                          ? "No project"
-                          : basename(session.cwd),
-                        harness: session.harness,
-                        busy: sessions.find((live) => live.id === session.id)
-                          ?.busy,
+
+            <div
+              className="personal-workspace-column"
+              data-settings-open={settingsOpen}
+              style={
+                {
+                  "--workspace-inspector-width":
+                    inspector.open && workspaceVisible
+                      ? `${inspector.width}px`
+                      : "0px",
+                } as CSSProperties
+              }
+            >
+              <div className="personal-workspace-body">
+                <div className="personal-main body-glass flex min-h-0 min-w-0 flex-1 flex-col">
+                  {(profileHome || homeViewOpen || view.order.length === 0) &&
+                  !settingsOpen &&
+                  !searchViewOpen &&
+                  !inboxViewOpen &&
+                  !notesViewOpen ? (
+                    <WorkspaceHome
+                      profile={profiles.activeProfile.name}
+                      projects={profiles.profileProjects.map((project) => ({
+                        path: project.path,
+                        name: basename(project.path),
                       }))}
-                    windows={detached.windows}
-                    onShowWindow={(id) => {
-                      void detached
-                        .show(id)
-                        .catch((error) =>
-                          message(String(error), { kind: "error" }),
-                        );
-                    }}
-                    onReturnWindow={(id) => {
-                      void detached
-                        .returnWindow(id)
-                        .catch((error) =>
-                          message(String(error), { kind: "error" }),
-                        );
-                    }}
-                    starting={startingStandalone}
-                    onNew={() => void onNewStandalone()}
-                    onBrowser={() => void onNewStandalone(true)}
-                    onProject={onSelectProject}
-                    onSession={(id) => {
-                      setHomeViewOpen(false);
-                      void onSelectHistorySession(id);
-                    }}
-                    onAddProject={pickProject}
-                    onSearch={onOpenSearch}
-                  />
-                ) : null}
-                <div
-                  className={
-                    !workspaceVisible
-                      ? "hidden"
-                      : "flex min-h-0 min-w-0 flex-1 flex-col"
-                  }
-                  aria-hidden={!workspaceVisible}
-                  inert={!workspaceVisible || undefined}
-                >
-                  {!IS_MAC ? (
-                    <MenuBar
-                      onNew={onNew}
-                      onNewTerminal={onNewTerminal}
-                      onToggleTerminal={onToggleProjectTerminal}
-                      onGoToFile={onGoToFile}
-                      onToggleSidebar={onToggleSidebar}
-                      onShowSourceControl={onToggleChanges}
-                      onCloseCurrentTab={
-                        browserExpanded
-                          ? () => onCloseBrowserTab(view.focusedId)
-                          : activeTabId
-                            ? () => onCloseTab(activeTabId)
-                            : undefined
-                      }
-                      onCloseOtherTabs={onCloseOtherTabs}
-                      onPickProject={pickProject}
-                      onFindInProject={onFindInProject}
+                      sessions={[
+                        ...new Map(
+                          [
+                            ...history.filter((entry) => !entry.archived),
+                            ...sessions.map((entry) => ({
+                              ...summaryFromSession(entry),
+                              busy: entry.busy,
+                            })),
+                          ].map((entry) => [entry.id, entry]),
+                        ).values(),
+                      ]
+                        .filter((session) => !session.orchestrationLeadId)
+                        .sort((a, b) => b.updatedAt - a.updatedAt)
+                        .filter(
+                          (session) =>
+                            projectlessProfileForCwd(session.cwd) ===
+                              profiles.activeProfileId ||
+                            profiles.profileProjects.some((project) =>
+                              sameProjectPath(project.path, session.cwd),
+                            ),
+                        )
+                        .map((session) => ({
+                          id: session.id,
+                          cwd: session.cwd,
+                          title: sessionDisplayTitle(
+                            session.title,
+                            session.harness,
+                          ),
+                          project: isProjectlessCwd(session.cwd)
+                            ? "No project"
+                            : basename(session.cwd),
+                          harness: session.harness,
+                          busy: sessions.find((live) => live.id === session.id)
+                            ?.busy,
+                        }))}
+                      windows={detached.windows}
+                      onShowWindow={(id) => {
+                        void detached
+                          .show(id)
+                          .catch((error) =>
+                            message(String(error), { kind: "error" }),
+                          );
+                      }}
+                      onReturnWindow={(id) => {
+                        void detached
+                          .returnWindow(id)
+                          .catch((error) =>
+                            message(String(error), { kind: "error" }),
+                          );
+                      }}
+                      starting={startingStandalone}
+                      onNew={() => void onNewStandalone()}
+                      onBrowser={() => void onNewStandalone(true)}
+                      onProject={onSelectProject}
+                      onSession={(id) => {
+                        setHomeViewOpen(false);
+                        void onSelectHistorySession(id);
+                      }}
+                      onAddProject={pickProject}
                       onSearch={onOpenSearch}
-                      onOpenInbox={onOpenInbox}
-                      onOpenNotes={notesEnabled ? onOpenNotes : undefined}
-                      onZoomIn={() => {
-                        const next = saveUiScale(zoomInUiScale(loadUiScale()));
-                        void applyUiScale(next);
-                      }}
-                      onZoomOut={() => {
-                        const next = saveUiScale(zoomOutUiScale(loadUiScale()));
-                        void applyUiScale(next);
-                      }}
-                      onZoomReset={() => {
-                        saveUiScale(UI_SCALE_DEFAULT);
-                        void applyUiScale(UI_SCALE_DEFAULT);
-                      }}
                     />
                   ) : null}
+                  <div
+                    className="personal-workspace-content flex min-h-0 min-w-0 flex-1 flex-col"
+                    hidden={!workspaceVisible}
+                    aria-hidden={!workspaceVisible}
+                    inert={!workspaceVisible || undefined}
+                  >
+                    {!IS_MAC ? (
+                      <MenuBar
+                        onNew={onNew}
+                        onNewTerminal={onNewTerminal}
+                        onToggleTerminal={onToggleProjectTerminal}
+                        onGoToFile={onGoToFile}
+                        onToggleSidebar={onToggleSidebar}
+                        onShowSourceControl={onToggleChanges}
+                        onCloseCurrentTab={
+                          browserExpanded
+                            ? () => onCloseBrowserTab(view.focusedId)
+                            : activeTabId
+                              ? () => onCloseTab(activeTabId)
+                              : undefined
+                        }
+                        onCloseOtherTabs={onCloseOtherTabs}
+                        onPickProject={pickProject}
+                        onFindInProject={onFindInProject}
+                        onSearch={onOpenSearch}
+                        onOpenInbox={onOpenInbox}
+                        onOpenNotes={notesEnabled ? onOpenNotes : undefined}
+                        onZoomIn={() => {
+                          const next = saveUiScale(
+                            zoomInUiScale(loadUiScale()),
+                          );
+                          void applyUiScale(next);
+                        }}
+                        onZoomOut={() => {
+                          const next = saveUiScale(
+                            zoomOutUiScale(loadUiScale()),
+                          );
+                          void applyUiScale(next);
+                        }}
+                        onZoomReset={() => {
+                          saveUiScale(UI_SCALE_DEFAULT);
+                          void applyUiScale(UI_SCALE_DEFAULT);
+                        }}
+                      />
+                    ) : null}
 
-                  <main className="relative min-h-0 min-w-0 flex-1">
-                    <div
-                      ref={dockGridRef}
-                      className="absolute inset-0 grid h-full min-h-0 min-w-0"
-                    >
-                      {projectTerminals.map((dock) => {
-                        const show =
-                          dock.open &&
-                          sameProjectPath(dock.projectPath, projectCwd);
-                        return (
-                          <div
-                            key={dock.projectPath}
-                            className={
-                              show
-                                ? "h-full min-h-0 min-w-0 w-full overflow-hidden"
-                                : "hidden"
-                            }
-                            style={show ? { gridArea: "dock" } : undefined}
-                            aria-hidden={!show}
-                          >
-                            <ProjectTerminalDock
-                              dock={dock}
-                              presented={show && workspaceVisible}
-                              focused={show && projectTerminalFocused}
-                              onFocus={focusProjectTerminal}
-                              onHide={onHideProjectTerminal}
-                              onSideChange={onProjectTerminalSide}
-                              onSizePaint={paintDockSize}
-                              onSizeCommit={commitDockSize}
-                              onAddTerminal={() =>
-                                onOpenTerminal(active?.cwd ?? projectCwd)
-                              }
-                              onSelectTerminal={onSelectProjectTerminal}
-                              onCloseTerminal={onCloseProjectTerminal}
-                              onReorderTerminals={onReorderProjectTerminals}
-                              onTerminalMetaChange={onTerminalMetaChange}
-                            />
-                          </div>
-                        );
-                      })}
+                    <main className="relative min-h-0 min-w-0 flex-1">
                       <div
-                        className="relative min-h-0 min-w-0"
-                        style={{ gridArea: "main" }}
+                        ref={dockGridRef}
+                        className="absolute inset-0 grid h-full min-h-0 min-w-0"
                       >
-                        <WorkspaceStage
-                          headers={visibleSurfaceIds.map((owner) => {
-                            const members = view.groups[owner] ?? [owner];
-                            return {
-                              id: owner,
-                              key: workspaceHeaderKeys[owner],
-                              content: (
-                                <TitleBar
-                                  tabs={titleTabs.filter((tab) =>
-                                    members.includes(tab.id),
-                                  )}
-                                  totalSessionTabs={titleTabs.length}
-                                  paneLocal
-                                  paneFocused={owner === view.focusedId}
-                                  activeId={owner}
-                                  cwd={sidebarCwd}
-                                  projectRailOpen={projectRailOpen}
-                                  sidebarOpen={sidebarOpen}
-                                  inspectorOpen={
-                                    inspector.open && workspaceVisible
-                                  }
-                                  onToggleInspector={onToggleInspector}
-                                  browserTabs={browserSurfaces
-                                    .filter((tab) =>
-                                      members.includes(tab.surfaceId),
-                                    )
-                                    .map((tab) => ({
-                                      id: tab.surfaceId,
-                                      favicon: tab.favicon,
-                                      title:
-                                        tab.title ||
-                                        (tab.url
-                                          ? tab.url
-                                              .replace(/^https?:\/\//, "")
-                                              .split("/")[0]
-                                          : "New browser tab"),
-                                    }))}
-                                  browserOpen={browserState.open}
-                                  browserActive={browserFocused}
-                                  visibleIds={visibleSurfaceIds}
-                                  surfaceOrder={members}
-                                  onReorderSurfaces={(ids, movedId) => {
-                                    changeLayout((view) =>
-                                      reorderWorkspaceGroup(view, owner, ids),
-                                    );
-                                    onReorderTabs(
-                                      ids.filter((id) =>
-                                        tabs.some((tab) => tab.id === id),
-                                      ),
-                                      movedId &&
-                                        tabs.some((tab) => tab.id === movedId)
-                                        ? movedId
-                                        : undefined,
-                                    );
-                                  }}
-                                  onSplitTab={(id, edge, targetId) =>
-                                    changeLayout((view) =>
-                                      splitWorkspaceView(
-                                        view,
-                                        id,
-                                        edge,
-                                        targetId,
-                                      ),
-                                    )
-                                  }
-                                  onUnsplit={() =>
-                                    changeLayout((view) =>
-                                      collapseWorkspaceView(view, owner),
-                                    )
-                                  }
-                                  combineTargets={
-                                    view.layout
-                                      ? (
-                                          [
-                                            ["left", "left pane"],
-                                            ["right", "right pane"],
-                                            ["up", "pane above"],
-                                            ["down", "pane below"],
-                                          ] as const
-                                        )
-                                          .map(([direction, label]) => ({
-                                            id: neighborLeafId(
-                                              view.layout!,
-                                              owner,
-                                              direction,
-                                            ),
-                                            label: String(label),
-                                          }))
-                                          .filter(
-                                            (
-                                              target,
-                                              index,
-                                              all,
-                                            ): target is {
-                                              id: string;
-                                              label: string;
-                                            } =>
-                                              !!target.id &&
-                                              all.findIndex(
-                                                (entry) =>
-                                                  entry.id === target.id,
-                                              ) === index,
-                                          )
-                                      : []
-                                  }
-                                  onCombineWith={(targetId) =>
-                                    changeLayout((view) =>
-                                      combineWorkspaceGroups(
-                                        view,
-                                        owner,
-                                        targetId,
-                                      ),
-                                    )
-                                  }
-                                  onPictureInPicture={onPictureInPicture}
-                                  onGroupPictureInPicture={() => {
-                                    void onGroupPictureInPicture(members);
-                                  }}
-                                  pictureInPictureIds={members}
-                                  windowTargets={detached.windows.filter(
-                                    (target) =>
-                                      detached.states.get(target.id)?.cwd ===
-                                      projectCwd,
-                                  )}
-                                  onMoveTabToWindow={moveTabToWindow}
-                                  onMoveGroupToWindow={moveGroupToWindow}
-                                  groupId={owner}
-                                  groupLabel={`${members.length} tabs`}
-                                  onGroupDragMove={onGroupDragMove}
-                                  onGroupDragEnd={onGroupDragEnd}
-                                  onReopenClosedTab={() => {
-                                    void onReopenClosedTab();
-                                  }}
-                                  canReopenClosedTab={recovery.closed.some(
-                                    (entry) => entry.cwd === projectCwd,
-                                  )}
-                                  onUndoLayout={onUndoLayout}
-                                  canUndoLayout={recovery.layouts.some(
-                                    (entry) => entry.cwd === projectCwd,
-                                  )}
-                                  onSurfaceDragMove={onSurfaceDragMove}
-                                  onSurfaceDragEnd={onSurfaceDragEnd}
-                                  onNewBrowser={() => {
-                                    workspaceViews.change((view) =>
-                                      selectWorkspaceView(view, owner),
-                                    );
-                                    onNewBrowserTab();
-                                  }}
-                                  onNewView={
-                                    members.length > 1 ||
-                                    visibleSurfaceIds.length > 1
-                                      ? (id) =>
-                                          changeLayout((view) =>
-                                            splitWorkspaceView(
-                                              view,
-                                              id,
-                                              "right",
-                                              owner,
-                                            ),
-                                          )
-                                      : undefined
-                                  }
-                                  onSelectBrowser={onSelectBrowserTab}
-                                  onCloseBrowser={onCloseBrowserTab}
-                                  onToggleSidebar={onToggleSidebar}
-                                  onSelect={(id) => {
-                                    workspaceViews.change((view) =>
-                                      selectWorkspaceView(view, id),
-                                    );
-                                    activateTab(id);
-                                  }}
-                                  onNew={() => {
-                                    workspaceViews.change((view) =>
-                                      selectWorkspaceView(view, owner),
-                                    );
-                                    onNew();
-                                  }}
-                                  onShowTerminal={undefined}
-                                  projectTerminalActive={
-                                    !!currentProjectDock &&
-                                    currentProjectDock.pane.files.length > 0
-                                  }
-                                  onOpenSettings={onOpenSettings}
-                                  onOpenInbox={onOpenInbox}
-                                  onOpenNotes={
-                                    notesEnabled ? onOpenNotes : undefined
-                                  }
-                                  onClose={onCloseTitleTab}
-                                  onCloseMany={onCloseTabs}
-                                  onReorder={onReorderTabs}
-                                  onGoToFile={onGoToFile}
-                                  recents={recents}
-                                  onSelectProject={onSelectProject}
-                                />
-                              ),
-                            };
-                          })}
-                          layout={view.layout}
-                          focusedId={view.focusedId}
-                          visible={workspaceVisible}
-                          onFocus={(id) => {
-                            if (id === view.focusedId) return;
-                            if (
-                              browserSurfaces.some(
-                                (tab) => tab.surfaceId === id,
-                              )
-                            )
-                              onSelectBrowserTab(id);
-                            else {
-                              workspaceViews.change((view) =>
-                                selectWorkspaceView(view, id),
-                              );
-                              activateTab(id);
+                        {projectTerminals.map((dock) => {
+                          const show =
+                            dock.open &&
+                            sameProjectPath(dock.projectPath, projectCwd);
+                          return (
+                            <div
+                              key={dock.projectPath}
+                              className={
+                                show
+                                  ? "h-full min-h-0 min-w-0 w-full overflow-hidden"
+                                  : "hidden"
+                              }
+                              style={show ? { gridArea: "dock" } : undefined}
+                              aria-hidden={!show}
+                            >
+                              <ProjectTerminalDock
+                                dock={dock}
+                                presented={show && workspaceVisible}
+                                focused={show && projectTerminalFocused}
+                                onFocus={focusProjectTerminal}
+                                onHide={onHideProjectTerminal}
+                                onSideChange={onProjectTerminalSide}
+                                onSizePaint={paintDockSize}
+                                onSizeCommit={commitDockSize}
+                                onAddTerminal={() =>
+                                  onOpenTerminal(active?.cwd ?? projectCwd)
+                                }
+                                onSelectTerminal={onSelectProjectTerminal}
+                                onCloseTerminal={onCloseProjectTerminal}
+                                onReorderTerminals={onReorderProjectTerminals}
+                                onTerminalMetaChange={onTerminalMetaChange}
+                              />
+                            </div>
+                          );
+                        })}
+                        <div
+                          className="relative min-h-0 min-w-0"
+                          style={{ gridArea: "main" }}
+                        >
+                          <WorkspaceStage
+                            toolbarHost={
+                              unifiedWorkspaceTabs ? workspaceToolbarHost : null
                             }
-                          }}
-                          onLayoutChange={(layout) =>
-                            changeLayout((view) => ({ ...view, layout }))
-                          }
-                          dragging={surfaceDragging}
-                          dragKind={dragKind}
-                          dragLabel={
-                            dragKind === "group" ? "Move group" : "Move tab"
-                          }
-                          dragTarget={surfaceDrop}
-                          surfaces={[
-                            ...tabs
-                              .filter((tab) => !detachedIds.has(tab.id))
-                              .map((tab) => ({
-                                id: tab.id,
+                            headers={visibleSurfaceIds.map((owner) => {
+                              const members = view.groups[owner] ?? [owner];
+                              return {
+                                id: owner,
+                                key: workspaceHeaderKeys[owner],
                                 content: (
-                                  <PaneTree
-                                    {...sessionPaneProps}
-                                    floatingSessionIds={sessionPip.ids}
-                                    onShowFloatingSession={sessionPip.show}
-                                    onReturnFloatingSession={
-                                      sessionPip.returnSession
+                                  <TitleBar
+                                    tabs={titleTabs.filter((tab) =>
+                                      members.includes(tab.id),
+                                    )}
+                                    totalSessionTabs={titleTabs.length}
+                                    paneLocal
+                                    windowToolbar={unifiedWorkspaceTabs}
+                                    paneFocused={owner === view.focusedId}
+                                    activeId={owner}
+                                    cwd={sidebarCwd}
+                                    projectRailOpen={projectRailOpen}
+                                    sidebarOpen={sidebarOpen}
+                                    inspectorOpen={
+                                      inspector.open && workspaceVisible
                                     }
-                                    visible={
-                                      visibleSurfaceIds.includes(tab.id) &&
-                                      workspaceVisible
+                                    onToggleInspector={onToggleInspector}
+                                    browserTabs={browserSurfaces
+                                      .filter((tab) =>
+                                        members.includes(tab.surfaceId),
+                                      )
+                                      .map((tab) => ({
+                                        id: tab.surfaceId,
+                                        favicon: tab.favicon,
+                                        title:
+                                          tab.title ||
+                                          (tab.url
+                                            ? tab.url
+                                                .replace(/^https?:\/\//, "")
+                                                .split("/")[0]
+                                            : "New browser tab"),
+                                      }))}
+                                    browserOpen={browserState.open}
+                                    browserActive={browserFocused}
+                                    visibleIds={visibleSurfaceIds}
+                                    surfaceOrder={members}
+                                    onReorderSurfaces={(ids, movedId) => {
+                                      changeLayout((view) =>
+                                        reorderWorkspaceGroup(view, owner, ids),
+                                      );
+                                      onReorderTabs(
+                                        ids.filter((id) =>
+                                          tabs.some((tab) => tab.id === id),
+                                        ),
+                                        movedId &&
+                                          tabs.some((tab) => tab.id === movedId)
+                                          ? movedId
+                                          : undefined,
+                                      );
+                                    }}
+                                    onSplitTab={(id, edge, targetId) =>
+                                      changeLayout((view) =>
+                                        splitWorkspaceView(
+                                          view,
+                                          id,
+                                          edge,
+                                          targetId,
+                                        ),
+                                      )
                                     }
-                                    layout={tab.layout}
-                                    sessions={sessions}
-                                    editorPanes={[
-                                      ...tab.editorPanes,
-                                      ...(tab.terminalPanes ?? []),
-                                    ]}
-                                    dirtyFileIds={dirtyFiles}
-                                    fileErrorCounts={fileErrorCounts}
-                                    focusedId={
-                                      tab.id === view.focusedId &&
-                                      workspaceVisible &&
-                                      !tab.diffFocused &&
-                                      !projectTerminalFocused
-                                        ? tab.focusedId
-                                        : ""
+                                    onUnsplit={() =>
+                                      changeLayout((view) =>
+                                        collapseWorkspaceView(view, owner),
+                                      )
                                     }
-                                    addToChatSessionId={
-                                      tab.id === activeTabId
-                                        ? active?.id
+                                    combineTargets={
+                                      view.layout
+                                        ? (
+                                            [
+                                              ["left", "left pane"],
+                                              ["right", "right pane"],
+                                              ["up", "pane above"],
+                                              ["down", "pane below"],
+                                            ] as const
+                                          )
+                                            .map(([direction, label]) => ({
+                                              id: neighborLeafId(
+                                                view.layout!,
+                                                owner,
+                                                direction,
+                                              ),
+                                              label: String(label),
+                                            }))
+                                            .filter(
+                                              (
+                                                target,
+                                                index,
+                                                all,
+                                              ): target is {
+                                                id: string;
+                                                label: string;
+                                              } =>
+                                                !!target.id &&
+                                                all.findIndex(
+                                                  (entry) =>
+                                                    entry.id === target.id,
+                                                ) === index,
+                                            )
+                                        : []
+                                    }
+                                    onCombineWith={(targetId) =>
+                                      changeLayout((view) =>
+                                        combineWorkspaceGroups(
+                                          view,
+                                          owner,
+                                          targetId,
+                                        ),
+                                      )
+                                    }
+                                    onPictureInPicture={onPictureInPicture}
+                                    onGroupPictureInPicture={() => {
+                                      void onGroupPictureInPicture(members);
+                                    }}
+                                    pictureInPictureIds={members}
+                                    windowTargets={detached.windows.filter(
+                                      (target) =>
+                                        detached.states.get(target.id)?.cwd ===
+                                        projectCwd,
+                                    )}
+                                    onMoveTabToWindow={moveTabToWindow}
+                                    onMoveGroupToWindow={moveGroupToWindow}
+                                    groupId={owner}
+                                    groupLabel={`${members.length} tabs`}
+                                    onGroupDragMove={onGroupDragMove}
+                                    onGroupDragEnd={onGroupDragEnd}
+                                    onReopenClosedTab={() => {
+                                      void onReopenClosedTab();
+                                    }}
+                                    canReopenClosedTab={recovery.closed.some(
+                                      (entry) => entry.cwd === projectCwd,
+                                    )}
+                                    onUndoLayout={onUndoLayout}
+                                    canUndoLayout={recovery.layouts.some(
+                                      (entry) => entry.cwd === projectCwd,
+                                    )}
+                                    onSurfaceDragMove={onSurfaceDragMove}
+                                    onSurfaceDragEnd={onSurfaceDragEnd}
+                                    onNewBrowser={() => {
+                                      workspaceViews.change((view) =>
+                                        selectWorkspaceView(view, owner),
+                                      );
+                                      onNewBrowserTab();
+                                    }}
+                                    onNewView={
+                                      members.length > 1 ||
+                                      visibleSurfaceIds.length > 1
+                                        ? (id) =>
+                                            changeLayout((view) =>
+                                              splitWorkspaceView(
+                                                view,
+                                                id,
+                                                "right",
+                                                owner,
+                                              ),
+                                            )
                                         : undefined
                                     }
-                                    composerFocused={
-                                      composerFocused &&
-                                      tab.id === view.focusedId &&
-                                      workspaceVisible &&
-                                      !projectTerminalFocused
+                                    onSelectBrowser={onSelectBrowserTab}
+                                    onCloseBrowser={onCloseBrowserTab}
+                                    onToggleSidebar={onToggleSidebar}
+                                    onSelect={(id) => {
+                                      workspaceViews.change((view) =>
+                                        selectWorkspaceView(view, id),
+                                      );
+                                      activateTab(id);
+                                    }}
+                                    onNew={() => {
+                                      workspaceViews.change((view) =>
+                                        selectWorkspaceView(view, owner),
+                                      );
+                                      onNew();
+                                    }}
+                                    onShowTerminal={undefined}
+                                    projectTerminalActive={
+                                      !!currentProjectDock &&
+                                      currentProjectDock.pane.files.length > 0
                                     }
-                                    onSelectFile={onSelectFileSurface}
-                                    onCloseFile={onCloseFile}
-                                    onReorderFiles={onReorderFiles}
-                                    onFileDirtyChange={onFileDirtyChange}
-                                    onFileErrorCountChange={
-                                      onFileErrorCountChange
+                                    onOpenSettings={onOpenSettings}
+                                    onOpenInbox={onOpenInbox}
+                                    onOpenNotes={
+                                      notesEnabled ? onOpenNotes : undefined
                                     }
-                                    onRatio={(splitId, index, ratio) =>
-                                      onRatio(tab.id, splitId, index, ratio)
-                                    }
-                                    editorNavigation={editorNavigation}
-                                    onUpdatePlan={onUpdatePlan}
-                                    onMovePane={onMovePane}
-                                    onTerminalMetaChange={onTerminalMetaChange}
+                                    onClose={onCloseTitleTab}
+                                    onCloseMany={onCloseTabs}
+                                    onReorder={onReorderTabs}
+                                    onGoToFile={onGoToFile}
+                                    recents={recents}
+                                    onSelectProject={onSelectProject}
                                   />
                                 ),
-                              })),
-                            ...Object.entries(browserWorkspaces).flatMap(
-                              ([project, state]) => {
-                                const current =
-                                  normalizeBrowserWorkspace(state);
-                                return current.open
-                                  ? current.tabs
-                                      .filter(
-                                        (tab) =>
-                                          !detachedIds.has(
-                                            browserIdForTab(project, tab.id),
-                                          ),
-                                      )
-                                      .map((tab) => {
-                                        const id = browserIdForTab(
-                                          project,
-                                          tab.id,
-                                        );
-                                        return {
-                                          id,
-                                          content: (
-                                            <WorkspaceBrowserSurface
-                                              id={id}
-                                              project={project}
-                                              tabId={tab.id}
-                                              url={tab.url}
-                                              attachedNativeId={
-                                                detached.nativeBrowserIds[id]
-                                              }
-                                              agentRequested={agentBrowserSurfaces.has(
-                                                id,
-                                              )}
-                                              visible={
-                                                project === projectCwd &&
-                                                workspaceVisible &&
-                                                visibleSurfaceIds.includes(id)
-                                              }
-                                              expanded={
-                                                visibleSurfaceIds.length === 1
-                                              }
-                                              pictureInPictureRequest={
-                                                browserPipRequests[id]
-                                              }
-                                              actions={browserSurfaceActions}
-                                            />
-                                          ),
-                                        };
-                                      })
-                                  : [];
-                              },
-                            ),
-                          ]}
-                        />
-                      </div>
-                    </div>
-                  </main>
-                </div>
-                {searchViewOpen ? (
-                  <SearchView
-                    open
-                    cwd={sidebarCwd}
-                    recents={recents}
-                    history={projectHistory}
-                    sessions={sessions.filter((session) => !session.inboxAsk)}
-                    focusToken={searchViewFocusToken}
-                    besideRail={sidebarOpen}
-                    onClose={onLeaveSearch}
-                    onToggleSidebar={onToggleSidebar}
-                    onOpenFile={onOpenFile}
-                    onOpenSession={onSelectHistorySession}
-                    onOpenProject={onSelectProject}
-                  />
-                ) : null}
-                <div className="hidden" aria-hidden>
-                  {sessions
-                    .filter((session) => session.inboxAsk)
-                    .map((session) => {
-                      const visible =
-                        inboxViewOpen &&
-                        inboxAskPortal?.sessionId === session.id;
-                      return (
-                        <SessionSurface
-                          key={session.id}
-                          host={visible ? inboxAskPortal.host : undefined}
-                        >
-                          <SessionPane
-                            {...sessionPaneProps}
-                            session={session}
-                            visible={visible}
-                            focused={visible}
-                            inSplit={false}
-                            composerFocused={composerFocused}
+                              };
+                            })}
+                            layout={view.layout}
+                            focusedId={view.focusedId}
+                            visible={workspaceVisible}
+                            onFocus={(id) => {
+                              if (id === view.focusedId) return;
+                              if (
+                                browserSurfaces.some(
+                                  (tab) => tab.surfaceId === id,
+                                )
+                              )
+                                onSelectBrowserTab(id);
+                              else {
+                                workspaceViews.change((view) =>
+                                  selectWorkspaceView(view, id),
+                                );
+                                activateTab(id);
+                              }
+                            }}
+                            onLayoutChange={(layout) =>
+                              changeLayout((view) => ({ ...view, layout }))
+                            }
+                            dragging={surfaceDragging}
+                            dragKind={dragKind}
+                            dragLabel={
+                              dragKind === "group" ? "Move group" : "Move tab"
+                            }
+                            dragTarget={surfaceDrop}
+                            surfaces={[
+                              ...tabs
+                                .filter((tab) => !detachedIds.has(tab.id))
+                                .map((tab) => ({
+                                  id: tab.id,
+                                  content: (
+                                    <PaneTree
+                                      {...sessionPaneProps}
+                                      floatingSessionIds={sessionPip.ids}
+                                      onShowFloatingSession={sessionPip.show}
+                                      onReturnFloatingSession={
+                                        sessionPip.returnSession
+                                      }
+                                      visible={
+                                        visibleSurfaceIds.includes(tab.id) &&
+                                        workspaceVisible
+                                      }
+                                      layout={tab.layout}
+                                      sessions={sessions}
+                                      editorPanes={[
+                                        ...tab.editorPanes,
+                                        ...(tab.terminalPanes ?? []),
+                                      ]}
+                                      dirtyFileIds={dirtyFiles}
+                                      fileErrorCounts={fileErrorCounts}
+                                      focusedId={
+                                        tab.id === view.focusedId &&
+                                        workspaceVisible &&
+                                        !tab.diffFocused &&
+                                        !projectTerminalFocused
+                                          ? tab.focusedId
+                                          : ""
+                                      }
+                                      addToChatSessionId={
+                                        tab.id === activeTabId
+                                          ? active?.id
+                                          : undefined
+                                      }
+                                      composerFocused={
+                                        composerFocused &&
+                                        tab.id === view.focusedId &&
+                                        workspaceVisible &&
+                                        !projectTerminalFocused
+                                      }
+                                      onSelectFile={onSelectFileSurface}
+                                      onCloseFile={onCloseFile}
+                                      onReorderFiles={onReorderFiles}
+                                      onFileDirtyChange={onFileDirtyChange}
+                                      onFileErrorCountChange={
+                                        onFileErrorCountChange
+                                      }
+                                      onRatio={(splitId, index, ratio) =>
+                                        onRatio(tab.id, splitId, index, ratio)
+                                      }
+                                      editorNavigation={editorNavigation}
+                                      onUpdatePlan={onUpdatePlan}
+                                      onMovePane={onMovePane}
+                                      onTerminalMetaChange={
+                                        onTerminalMetaChange
+                                      }
+                                    />
+                                  ),
+                                })),
+                              ...Object.entries(browserWorkspaces).flatMap(
+                                ([project, state]) => {
+                                  const current =
+                                    normalizeBrowserWorkspace(state);
+                                  return current.open
+                                    ? current.tabs
+                                        .filter(
+                                          (tab) =>
+                                            !detachedIds.has(
+                                              browserIdForTab(project, tab.id),
+                                            ),
+                                        )
+                                        .map((tab) => {
+                                          const id = browserIdForTab(
+                                            project,
+                                            tab.id,
+                                          );
+                                          return {
+                                            id,
+                                            content: (
+                                              <WorkspaceBrowserSurface
+                                                id={id}
+                                                project={project}
+                                                tabId={tab.id}
+                                                url={tab.url}
+                                                attachedNativeId={
+                                                  detached.nativeBrowserIds[id]
+                                                }
+                                                agentRequested={agentBrowserSurfaces.has(
+                                                  id,
+                                                )}
+                                                visible={
+                                                  project === projectCwd &&
+                                                  workspaceVisible &&
+                                                  visibleSurfaceIds.includes(id)
+                                                }
+                                                expanded={
+                                                  visibleSurfaceIds.length === 1
+                                                }
+                                                pictureInPictureRequest={
+                                                  browserPipRequests[id]
+                                                }
+                                                actions={browserSurfaceActions}
+                                              />
+                                            ),
+                                          };
+                                        })
+                                    : [];
+                                },
+                              ),
+                            ]}
                           />
-                        </SessionSurface>
-                      );
-                    })}
+                        </div>
+                      </div>
+                    </main>
+                  </div>
+                  {searchViewOpen ? (
+                    <SearchView
+                      open
+                      cwd={sidebarCwd}
+                      recents={recents}
+                      history={projectHistory}
+                      sessions={sessions.filter((session) => !session.inboxAsk)}
+                      focusToken={searchViewFocusToken}
+                      besideRail={sidebarOpen}
+                      onClose={onLeaveSearch}
+                      onToggleSidebar={onToggleSidebar}
+                      onOpenFile={onOpenFile}
+                      onOpenSession={onSelectHistorySession}
+                      onOpenProject={onSelectProject}
+                    />
+                  ) : null}
+                  <div className="hidden" aria-hidden>
+                    {sessions
+                      .filter((session) => session.inboxAsk)
+                      .map((session) => {
+                        const visible =
+                          inboxViewOpen &&
+                          inboxAskPortal?.sessionId === session.id;
+                        return (
+                          <SessionSurface
+                            key={session.id}
+                            host={visible ? inboxAskPortal.host : undefined}
+                          >
+                            <SessionPane
+                              {...sessionPaneProps}
+                              session={session}
+                              visible={visible}
+                              focused={visible}
+                              inSplit={false}
+                              composerFocused={composerFocused}
+                            />
+                          </SessionSurface>
+                        );
+                      })}
+                  </div>
+                  {inboxViewOpen ? (
+                    <InboxView
+                      cwd={sidebarCwd}
+                      recents={recents}
+                      besideRail={sidebarOpen}
+                      onClose={onLeaveInbox}
+                      onToggleSidebar={onToggleSidebar}
+                      onStart={onStartInboxItem}
+                      onAsk={onAskInboxItem}
+                      onAskRestart={onRestartInboxAsk}
+                      onAskMount={setInboxAskPortal}
+                    />
+                  ) : null}
+                  {notesViewOpen ? (
+                    <NotesView
+                      besideRail={sidebarOpen}
+                      cwd={projectCwd}
+                      onClose={onLeaveNotes}
+                      onToggleSidebar={onToggleSidebar}
+                    />
+                  ) : null}
+                  {settingsOpen ? (
+                    <SettingsView
+                      showToolbar={false}
+                      section={settingsSection}
+                      onSelectSection={onSelectSettingsSection}
+                      workspaceName={profiles.activeProfile.name}
+                      cwd={sidebarCwd}
+                      sessions={sidebarHistory}
+                      besideRail={sidebarOpen}
+                      onToggleSidebar={onToggleSidebar}
+                      onClose={onCloseSettings}
+                      onOpenSession={onOpenArchivedSession}
+                      onArchiveSession={onArchiveHistorySession}
+                      onDeleteSession={onDeleteHistorySession}
+                      onRestoreProject={onRestoreProject}
+                      onDeleteProject={(path) =>
+                        onRemoveProject(path, { purgeData: true })
+                      }
+                      onOpenWhatsNew={onOpenWhatsNew}
+                    />
+                  ) : null}
                 </div>
-                {inboxViewOpen ? (
-                  <InboxView
-                    cwd={sidebarCwd}
-                    recents={recents}
-                    besideRail={sidebarOpen}
-                    onClose={onLeaveInbox}
-                    onToggleSidebar={onToggleSidebar}
-                    onStart={onStartInboxItem}
-                    onAsk={onAskInboxItem}
-                    onAskRestart={onRestartInboxAsk}
-                    onAskMount={setInboxAskPortal}
-                  />
-                ) : null}
-                {notesViewOpen ? (
-                  <NotesView
-                    besideRail={sidebarOpen}
-                    cwd={projectCwd}
-                    onClose={onLeaveNotes}
-                    onToggleSidebar={onToggleSidebar}
-                  />
-                ) : null}
-                {settingsOpen ? (
-                  <SettingsView
-                    section={settingsSection}
-                    onSelectSection={onSelectSettingsSection}
-                    workspaceName={profiles.activeProfile.name}
-                    cwd={sidebarCwd}
-                    sessions={sidebarHistory}
-                    besideRail={sidebarOpen}
-                    onToggleSidebar={onToggleSidebar}
-                    onClose={onCloseSettings}
-                    onOpenSession={onOpenArchivedSession}
-                    onArchiveSession={onArchiveHistorySession}
-                    onDeleteSession={onDeleteHistorySession}
-                    onRestoreProject={onRestoreProject}
-                    onDeleteProject={(path) =>
-                      onRemoveProject(path, { purgeData: true })
-                    }
-                    onOpenWhatsNew={onOpenWhatsNew}
-                  />
-                ) : null}
-              </div>
 
-              <PersonalInspectorDock
-                active={inspectorVisible}
-                width={inspector.width}
-                onWidthChange={onInspectorWidth}
-                cwd={sidebarCwd}
-                gitCwd={gitCwd}
-                tab={inspector.tab}
-                onTabChange={onInspectorTab}
-                onClose={onCloseInspector}
-                onOpenFile={onOpenFile}
-                onOpenTerminal={onOpenTerminal}
-                onFileMoved={onFileMoved}
-                onFileDeleted={onFileDeleted}
-                onOpenDiff={onOpenWorkingTreeDiff}
-                onOpenAllChanges={onOpenAllChanges}
-                onOpenCommit={onOpenCommit}
-                selectedDiffPath={
-                  activeTab ? selectedChangePath(activeTab, gitCwd) : undefined
+                <PersonalInspectorDock
+                  active={inspectorVisible}
+                  width={inspector.width}
+                  onWidthChange={onInspectorWidth}
+                  cwd={sidebarCwd}
+                  gitCwd={gitCwd}
+                  tab={inspector.tab}
+                  onTabChange={onInspectorTab}
+                  onClose={onCloseInspector}
+                  onOpenFile={onOpenFile}
+                  onOpenTerminal={onOpenTerminal}
+                  onFileMoved={onFileMoved}
+                  onFileDeleted={onFileDeleted}
+                  onOpenDiff={onOpenWorkingTreeDiff}
+                  onOpenAllChanges={onOpenAllChanges}
+                  onOpenCommit={onOpenCommit}
+                  selectedDiffPath={
+                    activeTab
+                      ? selectedChangePath(activeTab, gitCwd)
+                      : undefined
+                  }
+                  selectedDiffKind={
+                    activeTab ? selectedChangeKind(activeTab) : undefined
+                  }
+                  selectedCommitSha={
+                    activeTab ? selectedCommitSha(activeTab) : undefined
+                  }
+                  textHarness={pickTextHarness(active?.harness)}
+                  filesSearchOpen={filesSearchOpen}
+                  onFilesSearchOpenChange={setFilesSearchOpen}
+                  onOpenFilesSearch={onFindInProject}
+                  searchFocusToken={searchFocusToken}
+                />
+              </div>
+              <WorkspaceFooter
+                active={
+                  !settingsOpen &&
+                  !searchViewOpen &&
+                  !inboxViewOpen &&
+                  !notesViewOpen
                 }
-                selectedDiffKind={
-                  activeTab ? selectedChangeKind(activeTab) : undefined
+                cwd={profileHome ? "~" : gitCwd}
+                branch={profileHome ? null : projectBranches?.current}
+                detached={projectBranches?.detached}
+                onOpenBranchPicker={setBranchAnchor}
+                branchDisabledReason={
+                  !projectBranches
+                    ? "This project is not a Git repository"
+                    : undefined
                 }
-                selectedCommitSha={
-                  activeTab ? selectedCommitSha(activeTab) : undefined
+                onOpenChanges={onToggleChanges}
+                changesOpen={inspectorVisible && inspector.tab === "changes"}
+                onToggleTerminal={() => {
+                  if (!profileHome) onToggleProjectTerminal();
+                }}
+                terminalOpen={!profileHome && dockVisible}
+                onCreatePR={() => openWorkspaceAction("pr")}
+                createPRDisabledReason={
+                  !projectBranches
+                    ? "This project is not a Git repository"
+                    : undefined
                 }
-                textHarness={pickTextHarness(active?.harness)}
-                filesSearchOpen={filesSearchOpen}
-                onFilesSearchOpenChange={setFilesSearchOpen}
-                onOpenFilesSearch={onFindInProject}
-                searchFocusToken={searchFocusToken}
+                onOpenPRMenu={setPrAnchor}
+                prMenuOpen={!!prAnchor}
               />
             </div>
-            <WorkspaceFooter
-              active={
-                !settingsOpen &&
-                !searchViewOpen &&
-                !inboxViewOpen &&
-                !notesViewOpen
-              }
-              cwd={profileHome ? "~" : gitCwd}
-              branch={profileHome ? null : projectBranches?.current}
-              detached={projectBranches?.detached}
-              onOpenBranchPicker={setBranchAnchor}
-              branchDisabledReason={
-                !projectBranches
-                  ? "This project is not a Git repository"
-                  : undefined
-              }
-              onOpenChanges={onToggleChanges}
-              changesOpen={inspectorVisible && inspector.tab === "changes"}
-              onToggleTerminal={() => {
-                if (!profileHome) onToggleProjectTerminal();
-              }}
-              terminalOpen={!profileHome && dockVisible}
-              onCreatePR={() => openWorkspaceAction("pr")}
-              createPRDisabledReason={
-                !projectBranches
-                  ? "This project is not a Git repository"
-                  : undefined
-              }
-              onOpenPRMenu={setPrAnchor}
-              prMenuOpen={!!prAnchor}
-            />
           </div>
           {addProjectAnchor ? (
             <Popover

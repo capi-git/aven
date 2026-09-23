@@ -403,6 +403,71 @@ function BrowserPaneSession({
     onPictureInPictureChange,
     onPictureInPictureResult,
   };
+  const toolbarFocusGeneration = useRef(0);
+  const toolbarFocusTarget = useRef<HTMLInputElement | null>(null);
+  const browserPageHasNativeFocus = useRef(false);
+  const toolbarPresentation = useRef({ visible, floating });
+  toolbarPresentation.current = { visible, floating };
+  const focusShellForToolbar = useCallback((input: HTMLInputElement | null) => {
+    if (
+      !input ||
+      !isTauri() ||
+      !toolbarPresentation.current.visible ||
+      toolbarPresentation.current.floating
+    )
+      return;
+    const generation = ++toolbarFocusGeneration.current;
+    toolbarFocusTarget.current = input;
+    // Chromium and the app's WKWebView are sibling native views. A DOM focus
+    // or pointer click alone can leave keyboard input with Chromium. Let the
+    // pointer's default caret/selection behavior finish before restoring it.
+    void getCurrentWebview()
+      .setFocus()
+      .then(() => {
+        if (
+          generation !== toolbarFocusGeneration.current ||
+          !toolbarPresentation.current.visible ||
+          toolbarPresentation.current.floating ||
+          !input.isConnected
+        )
+          return;
+        browserPageHasNativeFocus.current = false;
+        if (document.activeElement !== input) return;
+        const { selectionStart, selectionEnd, selectionDirection } = input;
+        input.focus({ preventScroll: true });
+        if (selectionStart != null && selectionEnd != null)
+          input.setSelectionRange(
+            selectionStart,
+            selectionEnd,
+            selectionDirection ?? undefined,
+          );
+      })
+      .catch((reason) => {
+        if (generation === toolbarFocusGeneration.current)
+          setNotice(`Could not focus browser toolbar: ${errorMessage(reason)}`);
+      });
+  }, []);
+  useLayoutEffect(() => {
+    const cancel = () => {
+      ++toolbarFocusGeneration.current;
+      toolbarFocusTarget.current = null;
+    };
+    const pointer = (event: PointerEvent) => {
+      if (event.target !== toolbarFocusTarget.current) cancel();
+    };
+    const blur = (event: FocusEvent) => {
+      if (event.target === toolbarFocusTarget.current) cancel();
+    };
+    document.addEventListener("pointerdown", pointer, true);
+    document.addEventListener("focusout", blur, true);
+    window.addEventListener("blur", cancel);
+    return () => {
+      cancel();
+      document.removeEventListener("pointerdown", pointer, true);
+      document.removeEventListener("focusout", blur, true);
+      window.removeEventListener("blur", cancel);
+    };
+  }, [visible, floating]);
   useEffect(() => {
     setEditing(false);
     if (!readyId || !onAddToChat) return;
@@ -438,7 +503,9 @@ function BrowserPaneSession({
                 !editVisible.current
               )
                 return;
-              callbacks.current.onAddToChat?.(event.comment ?? "", [attachment]);
+              callbacks.current.onAddToChat?.(event.comment ?? "", [
+                attachment,
+              ]);
             },
             (reason) => {
               if (!disposed && request === editRequest.current)
@@ -578,7 +645,8 @@ function BrowserPaneSession({
     focusNewAddress.current = false;
     addressInput.current?.focus({ preventScroll: true });
     addressInput.current?.select();
-  }, [visible]);
+    focusShellForToolbar(addressInput.current);
+  }, [visible, focusShellForToolbar]);
 
   useEffect(() => {
     setToolsMenu(null);
@@ -629,7 +697,7 @@ function BrowserPaneSession({
     let created = false;
     let terminated = false;
     let unregisterAgentPage: (() => void) | undefined;
-    let nativeFocused = false;
+    browserPageHasNativeFocus.current = false;
     let nativeTitle = "";
     let nativeFavicon = "";
     let nativeFloating = false;
@@ -672,12 +740,16 @@ function BrowserPaneSession({
       }
       if (
         state.focused &&
-        !nativeFocused &&
+        !browserPageHasNativeFocus.current &&
         presentation.current.visible &&
         !state.floating
       )
         callbacks.current.onFocus?.();
-      nativeFocused = !!state.focused;
+      if (state.focused && !browserPageHasNativeFocus.current) {
+        ++toolbarFocusGeneration.current;
+        toolbarFocusTarget.current = null;
+      }
+      browserPageHasNativeFocus.current = !!state.focused;
       const nextFloating = !!state.floating;
       setFloating(nextFloating);
       setNativeMenus(state.nativeMenus === true);
@@ -1314,11 +1386,14 @@ function BrowserPaneSession({
     setFindOpen(true);
     findInput.current?.focus();
     findInput.current?.select();
+    focusShellForToolbar(findInput.current);
   };
   useLayoutEffect(() => {
     if (findOpen && visible && !floating) {
       findInput.current?.focus({ preventScroll: true });
       findInput.current?.select();
+      // Native toolbar shortcuts already own the window-to-shell handoff.
+      if (!pendingToolbar) focusShellForToolbar(findInput.current);
     }
   }, [findOpen]);
   useLayoutEffect(() => {
@@ -1395,6 +1470,7 @@ function BrowserPaneSession({
       // cannot transfer macOS first responder between them.
       await getCurrentWebview().setFocus();
       if (disposed) return;
+      browserPageHasNativeFocus.current = false;
       const input =
         command.action === "find" ? findInput.current : addressInput.current;
       input?.focus({ preventScroll: true });
@@ -1626,6 +1702,7 @@ function BrowserPaneSession({
             event.stopPropagation();
             addressInput.current?.focus();
             addressInput.current?.select();
+            focusShellForToolbar(addressInput.current);
           }
         }
       }}
@@ -1677,6 +1754,17 @@ function BrowserPaneSession({
           value={address}
           onChange={(event) => setAddress(event.target.value)}
           onFocus={(event) => event.currentTarget.select()}
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            if (browserPageHasNativeFocus.current) {
+              // WK can retain the address as its DOM activeElement while CEF
+              // owns native focus, so another click won't fire onFocus again.
+              event.preventDefault();
+              event.currentTarget.focus({ preventScroll: true });
+              event.currentTarget.select();
+            }
+            focusShellForToolbar(event.currentTarget);
+          }}
           spellCheck={false}
           autoCapitalize="none"
           autoCorrect="off"
@@ -1809,9 +1897,7 @@ function BrowserPaneSession({
       {editing && (
         <div className="browser-edit-hint" role="status">
           <Pencil size={13} />
-          <span>
-            Select an element, then add a comment. Press Esc to exit.
-          </span>
+          <span>Select an element, then add a comment. Press Esc to exit.</span>
         </div>
       )}
       {toolsMenu ? (
@@ -1878,6 +1964,9 @@ function BrowserPaneSession({
           <Search size={13} aria-hidden="true" />
           <input
             ref={findInput}
+            onPointerDown={(event) => {
+              if (event.button === 0) focusShellForToolbar(event.currentTarget);
+            }}
             aria-label="Find text in page"
             placeholder="Find in page"
             value={findText}
@@ -2089,7 +2178,14 @@ function BrowserPaneSession({
               Search the web, open a website, or preview a local development
               server beside your conversation.
             </p>
-            <button type="button" onClick={() => addressInput.current?.focus()}>
+            <button
+              type="button"
+              onClick={() => {
+                addressInput.current?.focus({ preventScroll: true });
+                addressInput.current?.select();
+                focusShellForToolbar(addressInput.current);
+              }}
+            >
               Enter an address
             </button>
           </div>

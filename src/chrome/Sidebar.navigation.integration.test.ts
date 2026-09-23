@@ -109,7 +109,11 @@ describe("sidebar workspace navigation", () => {
     const notes = vi.fn(), inbox = vi.fn();
     const current = { ...props, onOpenNotes: notes, onOpenInbox: inbox, notesActive: true };
     await act(async () => root.render(createElement(Sidebar, current)));
-    const library = container.querySelector('nav[aria-label="Library"]')!;
+    const libraries = [...container.querySelectorAll('nav[aria-label="Library"]')].filter(
+      (node) => !node.closest('[inert],[aria-hidden="true"]'),
+    );
+    expect(libraries).toHaveLength(1);
+    const library = libraries[0];
     const actions = [...library.querySelectorAll<HTMLButtonElement>("button")];
     expect(actions.map((item) => item.textContent)).toEqual(["Notes", "Inbox"]);
     expect(actions[0].getAttribute("aria-current")).toBe("page");

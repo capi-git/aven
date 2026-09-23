@@ -1,13 +1,14 @@
 .settings-view {
   container: settings-shell / inline-size;
-  --settings-muted: color-mix(in srgb, var(--color-content) 65%, transparent);
-  --settings-line: color-mix(in srgb, var(--color-content) 8%, transparent);
+  --settings-muted: var(--aven-muted);
+  --settings-line: var(--aven-line);
   display: flex;
   flex: 1;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
   color: var(--color-content);
+  font-family: var(--font-sans);
 }
 .settings-toolbar {
   display: flex;
@@ -15,6 +16,7 @@
   height: 42px;
   flex-shrink: 0;
   border-bottom: 1px solid var(--settings-line);
+  background: var(--aven-toolbar-surface);
   user-select: none;
 }
 .settings-breadcrumb {
@@ -38,12 +40,12 @@
   height: 30px;
   display: grid;
   place-items: center;
-  border-radius: 8px;
+  border-radius: 6px;
   margin-inline: 6px;
   color: var(--settings-muted);
 }
 .settings-close:hover {
-  background: color-mix(in srgb, var(--color-content) 6%, transparent);
+  background: var(--aven-hover);
   color: var(--color-content);
 }
 .settings-layout {
@@ -52,20 +54,21 @@
   min-height: 0;
   width: min(100%, 1240px);
   margin-inline: auto;
-  padding-inline: 24px;
+  padding-inline: 20px;
 }
 .settings-navigation {
   width: 206px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  padding: 38px 22px 24px 0;
+  padding: 28px 16px 24px 0;
+  border-right: 1px solid var(--settings-line);
 }
 .settings-navigation-title {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--settings-muted);
-  padding: 0 10px 14px;
+  padding: 0 10px 10px;
 }
 .settings-navigation-note {
   padding: 20px 12px;
@@ -80,14 +83,13 @@
   flex: 1;
   overflow: auto;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
   container: settings / inline-size;
 }
 .settings-content {
   width: 100%;
   max-width: 960px;
   margin-inline: auto;
-  padding: 34px 24px 64px;
+  padding: 28px 24px 56px;
 }
 .settings-page-top {
   display: flex;
@@ -110,10 +112,11 @@
   display: flex;
   gap: 9px;
   align-items: center;
-  height: 36px;
-  padding: 0 11px;
-  background: color-mix(in srgb, var(--color-content) 5%, transparent);
-  border-radius: 9px;
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--aven-control-border);
+  background: var(--aven-field-bg);
+  border-radius: 6px;
   color: var(--settings-muted);
 }
 .settings-search-field input {
@@ -129,7 +132,7 @@
   color: var(--settings-muted);
 }
 .settings-search-field:focus-within {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 65%, transparent);
+  box-shadow: 0 0 0 3px var(--aven-focus-ring);
 }
 .settings-search-results {
   position: absolute;
@@ -138,16 +141,11 @@
   width: min(460px, calc(100vw - 64px));
   max-height: 360px;
   overflow-y: auto;
-  border-radius: 12px;
-  padding: 6px;
-  background: color-mix(
-    in srgb,
-    var(--color-background-base) 96%,
-    var(--color-content)
-  );
-  box-shadow:
-    0 14px 44px #0004,
-    0 0 0 1px var(--settings-line);
+  border: 1px solid var(--aven-control-border);
+  border-radius: 10px;
+  padding: 5px;
+  background: var(--aven-popup);
+  box-shadow: var(--aven-shadow);
 }
 .settings-search-count {
   font-size: 11px;
@@ -159,13 +157,13 @@
   width: 100%;
   align-items: center;
   gap: 16px;
-  padding: 10px;
-  border-radius: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
   text-align: left;
 }
 .settings-search-results button:hover,
 .settings-search-results button:focus-visible {
-  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  background: var(--aven-selected);
 }
 .settings-search-results button > span:first-child {
   flex: 1;
@@ -187,7 +185,7 @@
   display: flex;
   gap: 4px;
   align-items: center;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--settings-muted);
 }
 .settings-search-empty {
@@ -200,7 +198,7 @@
   display: flex;
   gap: 7px;
   align-items: center;
-  margin-bottom: 30px;
+  margin-bottom: 24px;
   font-size: 11px;
   color: var(--settings-muted);
 }
@@ -242,7 +240,7 @@
   color: var(--settings-muted);
 }
 .settings-palette-section {
-  padding: 18px 0;
+  padding: 14px 0;
   border-bottom: 1px solid var(--settings-line);
   scroll-margin: 18px;
 }
@@ -257,17 +255,18 @@
   flex-direction: column;
   gap: 7px;
   padding: 6px;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--color-content) 3%, transparent);
+  border: 1px solid var(--settings-line);
+  border-radius: 7px;
+  background: var(--aven-field-bg);
   text-align: left;
 }
 .settings-palette:hover {
-  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+  background: var(--aven-hover);
 }
 .settings-palette[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
-  box-shadow: 0 0 0 1.5px
-    color-mix(in srgb, var(--color-accent) 80%, transparent);
+  background: var(--aven-selected);
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent);
 }
 .settings-palette-colors {
   display: flex;
@@ -310,7 +309,7 @@
   line-height: 1.6;
 }
 .settings-background-card {
-  padding: 18px 0;
+  padding: 14px 0;
   border-bottom: 1px solid var(--settings-line);
 }
 .settings-background-heading {
@@ -321,22 +320,23 @@
   gap: 12px;
 }
 .settings-background-preview {
-  margin-top: 14px;
+  margin-top: 12px;
   overflow: hidden;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--color-content) 3%, transparent);
+  border: 1px solid var(--settings-line);
+  border-radius: 7px;
+  background: var(--aven-field-bg);
 }
 .settings-background-empty {
   display: flex;
   gap: 12px;
   align-items: center;
   width: 100%;
-  padding: 18px;
+  padding: 14px;
   text-align: left;
   color: var(--settings-muted);
 }
 .settings-background-empty:hover {
-  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  background: var(--aven-hover);
   color: var(--color-content);
 }
 .settings-background-empty strong {
@@ -361,9 +361,10 @@
 }
 .settings-provider-card {
   margin-block: 12px;
-  padding: 20px;
-  background: color-mix(in srgb, var(--color-content) 3.5%, transparent);
-  border-radius: 13px;
+  padding: 16px;
+  border: 1px solid var(--settings-line);
+  background: var(--aven-grouped-surface);
+  border-radius: 10px;
 }
 .settings-provider-heading {
   display: flex;
@@ -378,19 +379,19 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-top: 16px;
+  margin-top: 12px;
   padding-left: 36px;
 }
 .settings-provider-card details {
   padding-left: 36px;
-  margin-top: 14px;
+  margin-top: 12px;
 }
 .settings-provider-card summary {
   min-height: 24px;
   line-height: 24px;
 }
 .settings-provider-card[data-available="false"] {
-  background: color-mix(in srgb, var(--color-content) 2%, transparent);
+  background: color-mix(in srgb, var(--aven-grouped-surface) 70%, transparent);
 }
 .settings-shortcuts-toolbar {
   display: flex;
@@ -409,8 +410,9 @@
 }
 .settings-shortcuts-table {
   overflow: hidden;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--color-content) 3%, transparent);
+  border: 1px solid var(--settings-line);
+  border-radius: 10px;
+  background: var(--aven-grouped-surface);
   margin-bottom: 16px;
 }
 .settings-shortcuts table {
@@ -421,7 +423,7 @@
 }
 .settings-shortcuts th,
 .settings-shortcuts td {
-  padding: 13px 16px;
+  padding: 10px 14px;
   font-size: 12px;
   overflow-wrap: anywhere;
 }
@@ -429,7 +431,7 @@
   font-size: 11px;
   font-weight: 550;
   color: var(--settings-muted);
-  background: color-mix(in srgb, var(--color-content) 3%, transparent);
+  background: var(--aven-toolbar-surface);
 }
 .settings-shortcuts th:first-child {
   width: 49%;
@@ -447,9 +449,11 @@
 .settings-shortcuts kbd {
   font-family: var(--font-mono);
   font-size: 11px;
-  background: color-mix(in srgb, var(--color-content) 5%, transparent);
-  padding: 3px 6px;
-  border-radius: 5px;
+  background: var(--aven-control-bg);
+  border: 1px solid var(--aven-control-border);
+  box-shadow: var(--aven-control-shadow);
+  padding: 2px 5px;
+  border-radius: 4px;
   white-space: normal;
 }
 .settings-empty {
@@ -458,7 +462,7 @@
   color: var(--settings-muted);
 }
 .settings-view [data-search-match="true"] {
-  outline: 2px solid color-mix(in srgb, var(--color-accent) 75%, transparent);
+  outline: 3px solid var(--aven-focus-ring);
   outline-offset: 3px;
   border-radius: 8px;
 }
@@ -467,8 +471,8 @@
 }
 .settings-view button:focus-visible,
 .settings-view summary:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 3px;
+  outline: 3px solid var(--aven-focus-ring);
+  outline-offset: 2px;
 }
 @container settings (max-width: 760px) {
   .settings-page-top {
@@ -527,6 +531,7 @@
     width: 100%;
     padding: 12px 8px 0;
     flex-shrink: 0;
+    border-right: 0;
   }
   .settings-navigation .settings-nav__sections {
     flex-direction: row;
@@ -554,7 +559,7 @@
 }
 .settings-other-providers > summary {
   cursor: pointer;
-  padding: 14px 0;
+  padding: 10px 0;
   color: var(--settings-muted);
   font-size: 13px;
 }

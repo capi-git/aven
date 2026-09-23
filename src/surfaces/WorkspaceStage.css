@@ -16,6 +16,30 @@
   display: none;
 }
 
+/* Visited surfaces remain measured while inactive. The hidden/inert attributes
+   still exclude them from focus, accessibility, and native page presentation. */
+.workspace-stage[hidden][data-retained="true"] {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+.workspace-stage-surface[hidden][data-retained="true"] {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+@layer base {
+  /* Tailwind hides [hidden] with !important in this layer. Keep only visited
+     layouts measurable; all other hidden elements retain the default rule. */
+  .workspace-stage[hidden][data-retained="true"] {
+    display: block !important;
+  }
+  .workspace-stage-surface[hidden][data-retained="true"] {
+    display: flex !important;
+  }
+}
+
 .workspace-stage-surface {
   --workspace-background-width: 100cqw;
   --workspace-background-height: 100cqh;
@@ -28,10 +52,10 @@
   overflow: hidden;
   box-sizing: border-box;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 9px;
 }
 .workspace-stage-surface[data-focused="true"] {
-  border-color: color-mix(in srgb, var(--color-accent) 24%, transparent);
+  border-color: var(--aven-line);
 }
 .workspace-stage-surface[data-has-header="true"] {
   --workspace-background-header-offset: 32px;
@@ -44,7 +68,7 @@
   min-height: 32px;
   min-width: 0;
   overflow: hidden;
-  border-radius: 7px 7px 0 0;
+  border-radius: 8px 8px 0 0;
 }
 .workspace-stage-header[data-drop-target="true"]::after {
   content: "";
@@ -112,7 +136,9 @@
   pointer-events: none;
   border: 2px solid var(--color-accent);
   border-radius: 8px;
-  box-shadow: 0 0 0 1px #101416, inset 0 0 0 1px #fff9;
+  box-shadow:
+    0 0 0 1px #101416,
+    inset 0 0 0 1px #fff9;
   background: color-mix(in srgb, var(--color-accent) 15%, transparent);
 }
 

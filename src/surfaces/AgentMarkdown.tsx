@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
   type ComponentProps,
+  type MouseEvent,
   type ReactNode,
 } from "react";
 import { harden } from "rehype-harden";
@@ -27,6 +28,7 @@ import { createLazyMermaidPlugin } from "./mermaidPlugin";
 import { resolveWorkspacePath } from "../lib/paths";
 import {
   LOCAL_FILE_LINK,
+  fileLinkHref,
   openInAppFile,
   resolveFileLink,
 } from "../lib/inAppLinks";
@@ -99,15 +101,7 @@ function localFileLinks({ cwd }: { cwd?: string }) {
       ) {
         const file = resolveFileLink(node.properties.href, cwd);
         if (file) {
-          const path = encodeURI(file.path).replace(
-            /[?#]/g,
-            encodeURIComponent,
-          );
-          const location = file.navigation
-            ? `:${file.navigation.line}${file.navigation.column ? `:${file.navigation.column}` : ""}`
-            : "";
-          node.properties.href =
-            LOCAL_FILE_LINK + encodeURIComponent(path + location);
+          node.properties.href = fileLinkHref(file.path, file.navigation);
         }
       }
       if (node.type === "root" || node.type === "element")
@@ -215,6 +209,7 @@ function MarkdownLink({
   className,
   node: _node,
   onClick,
+  onAuxClick,
   dir,
   ...props
 }: MarkdownLinkProps) {
@@ -227,24 +222,34 @@ function MarkdownLink({
     return <InboxMedia src={href} alt={label} cwd={cwd} />;
   }
 
+  const open = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (event.defaultPrevented) return;
+    if (file) {
+      event.preventDefault();
+      (onOpenFile ?? openInAppFile)(file.path, file.navigation);
+      return;
+    }
+    if (href?.startsWith("#") && !href.startsWith(LOCAL_FILE_LINK)) return;
+    if (!href || !/^https?:\/\//i.test(href)) event.preventDefault();
+  };
+
   return (
     <a
-      href={href}
+      // Internal editor fragments must never be supplied by remote Inbox
+      // content: the native Open Link menu bypasses the click guard below.
+      href={
+        allowRemoteMedia && href?.startsWith(LOCAL_FILE_LINK) ? undefined : href
+      }
       className={`chat-reference ${className ?? ""}`}
       {...props}
       dir={dir ?? "auto"}
       onClick={(event) => {
         onClick?.(event);
-        if (event.defaultPrevented) return;
-        if (file) {
-          event.preventDefault();
-          (onOpenFile ?? openInAppFile)(file.path, file.navigation);
-          return;
-        }
-        if (href?.startsWith("#") && !href.startsWith(LOCAL_FILE_LINK)) return;
-        if (!href || !/^https?:\/\//i.test(href)) {
-          event.preventDefault();
-        }
+        open(event);
+      }}
+      onAuxClick={(event) => {
+        onAuxClick?.(event);
+        if (event.button === 1) open(event);
       }}
     >
       {children}
@@ -266,9 +271,12 @@ function MarkdownCode({
     const text = textContent(children);
     const fileName = inlineFileName(text);
     const { cwd, onOpenFile } = useContext(FileOpenContext);
-    const filePath = fileName ? resolveWorkspacePath(text, cwd) : undefined;
-    const open =
-      filePath && onOpenFile ? () => onOpenFile(filePath) : undefined;
+    const allowRemoteMedia = useContext(RemoteMediaContext);
+    const file =
+      fileName && !allowRemoteMedia ? resolveFileLink(text, cwd) : undefined;
+    const open = file
+      ? () => (onOpenFile ?? openInAppFile)(file.path, file.navigation)
+      : undefined;
     return (
       <code
         {...props}
@@ -717,16 +725,17 @@ function parseCodeFence(
 
 function MarkdownCodePath({ path }: { path: string }) {
   const { cwd, onOpenFile } = useContext(FileOpenContext);
-  const filePath = resolveWorkspacePath(path, cwd);
-  if (!filePath || !onOpenFile) {
+  const allowRemoteMedia = useContext(RemoteMediaContext);
+  const file = !allowRemoteMedia ? resolveFileLink(path, cwd) : undefined;
+  if (!file) {
     return <span className="markdown-code-path">{path}</span>;
   }
   return (
     <button
       type="button"
       className="markdown-code-path markdown-code-path-link chat-reference"
-      title={filePath}
-      onClick={() => onOpenFile(filePath)}
+      title={file.path}
+      onClick={() => (onOpenFile ?? openInAppFile)(file.path, file.navigation)}
     >
       {path}
     </button>

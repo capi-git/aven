@@ -7,6 +7,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   layoutLeaves,
   layoutSashes,
@@ -28,6 +29,8 @@ export type WorkspaceStageProps = {
   visible: boolean;
   surfaces: Array<{ id: string; content: ReactNode }>;
   headers?: Array<{ id: string; key?: string; content: ReactNode }>;
+  /** The unified window toolbar can own a single unsplit workspace header. */
+  toolbarHost?: HTMLElement | null;
   onFocus: (id: string) => void;
   onLayoutChange: (layout: LayoutNode) => void;
   dragTarget: WorkspaceSurfaceDropTarget | null;
@@ -35,6 +38,11 @@ export type WorkspaceStageProps = {
   dragLabel?: string;
   dragKind?: "tab" | "group";
 };
+
+// Portaled headers live outside their stage's DOM subtree. Register only the
+// committed header nodes belonging to each exact stage, never query the window
+// globally by tab id (different retained workspaces can share those ids).
+const toolbarHeaders = new WeakMap<HTMLElement, Map<string, HTMLElement>>();
 
 /** Client coordinates keep drop targets independent of native browser stacking. */
 export function workspaceSurfaceDropAt(
@@ -53,6 +61,13 @@ export function workspaceSurfaceDropAt(
       ),
     ].map((header) => [header.dataset.workspaceHeader, header]),
   );
+  for (const [id, header] of toolbarHeaders.get(container) ?? []) {
+    if (
+      header.isConnected &&
+      !header.closest('[hidden], [inert], [aria-hidden="true"]')
+    )
+      headers.set(id, header);
+  }
   for (const surface of container.querySelectorAll<HTMLElement>(
     "[data-workspace-surface]",
   )) {
@@ -232,6 +247,7 @@ export function WorkspaceStage({
   visible,
   surfaces,
   headers = [],
+  toolbarHost,
   onFocus,
   onLayoutChange,
   dragTarget,
@@ -271,6 +287,24 @@ export function WorkspaceStage({
   const headerNodes = useRef(new Map<string, HTMLDivElement>());
   const sashNodes = useRef(new Map<string, HTMLDivElement>());
   useLayoutEffect(() => {
+    const container = stage.current;
+    if (!container) return;
+    const external = new Map<string, HTMLElement>();
+    if (visible && toolbarHost)
+      for (const [id, node] of headerNodes.current) {
+        if (
+          node.dataset.workspaceHeaderHosted === "toolbar" &&
+          toolbarHost.contains(node)
+        )
+          external.set(id, node);
+      }
+    if (external.size) toolbarHeaders.set(container, external);
+    else toolbarHeaders.delete(container);
+    return () => {
+      toolbarHeaders.delete(container);
+    };
+  });
+  useLayoutEffect(() => {
     if (
       !dragging ||
       dragTarget?.edge !== "tab" ||
@@ -296,28 +330,59 @@ export function WorkspaceStage({
   const stopResize = useRef<((commit: boolean) => void) | null>(null);
   const leaves = layout ? layoutLeaves(layout) : [];
   const positions = new Map(leaves.map((leaf) => [leaf.id, leaf.rect]));
+  const toolbarHeaderId =
+    visible &&
+    toolbarHost &&
+    headers.length === 1 &&
+    leaves.length === 1 &&
+    positions.has(headers[0].id)
+      ? headers[0].id
+      : null;
   const headerContents = new Map(
     headers.map(({ id, content }) => [id, content]),
   );
+  // Hidden tabs already keep their React/native owners. Keep the last visited
+  // layout too, so returning to a workspace does not rebuild every text/editor
+  // measurement from a display:none subtree. Only committed visits are warm;
+  // this cache never owns children, callbacks, or closed surfaces.
+  const retainedGeometry = useRef(
+    new Map<string, { rect: LayoutRect; hasHeader: boolean }>(),
+  );
+  useLayoutEffect(() => {
+    const liveIds = new Set(surfaces.map(({ id }) => id));
+    for (const id of retainedGeometry.current.keys()) {
+      if (!liveIds.has(id)) retainedGeometry.current.delete(id);
+    }
+    if (!visible) return;
+    for (const [id, rect] of positions) {
+      if (liveIds.has(id))
+        retainedGeometry.current.set(id, {
+          rect,
+          hasHeader: headerContents.has(id) && toolbarHeaderId !== id,
+        });
+    }
+  });
   const headerIds = leaves
     .filter(({ id }) => headerContents.has(id))
     .map(({ id }) => id)
     .join("\0");
   const sashes = layout ? layoutSashes(layout) : [];
 
+  function paintSurface(id: string, rect: LayoutRect) {
+    const element = surfaceNodes.current.get(id);
+    if (!element) return;
+    applyGeometry(element, surfaceStyle(rect));
+    for (const [name, value] of Object.entries(surfaceBackgroundStyle(rect)))
+      if (element.style.getPropertyValue(name) !== value)
+        element.style.setProperty(name, value);
+  }
+
   function paint(tree: LayoutNode) {
     for (const leaf of layoutLeaves(tree)) {
-      const element = surfaceNodes.current.get(leaf.id);
-      if (element) {
-        applyGeometry(element, surfaceStyle(leaf.rect));
-        for (const [name, value] of Object.entries(
-          surfaceBackgroundStyle(leaf.rect),
-        ))
-          if (element.style.getPropertyValue(name) !== value)
-            element.style.setProperty(name, value);
-      }
+      paintSurface(leaf.id, leaf.rect);
       const header = headerNodes.current.get(leaf.id);
-      if (header) applyGeometry(header, headerStyle(leaf.rect));
+      if (header && header.dataset.workspaceHeaderHosted !== "toolbar")
+        applyGeometry(header, headerStyle(leaf.rect));
     }
     for (const sash of layoutSashes(tree)) {
       const element = sashNodes.current.get(sashKey(sash));
@@ -334,8 +399,13 @@ export function WorkspaceStage({
 
   useLayoutEffect(() => {
     stopResize.current?.(false);
-    if (layout) paint(layout);
-  }, [layout, visible, headerIds]);
+    // A cancelled drag may have painted draft sizes directly on panes that
+    // just left the current layout. Restore their committed measurements too.
+    for (const [id, { rect }] of retainedGeometry.current) {
+      if (!visible || !positions.has(id)) paintSurface(id, rect);
+    }
+    if (visible && layout) paint(layout);
+  }, [layout, visible, headerIds, toolbarHost, toolbarHeaderId]);
   useEffect(() => () => stopResize.current?.(false), []);
 
   function startResize(
@@ -474,13 +544,19 @@ export function WorkspaceStage({
       ref={stage}
       className="workspace-stage"
       data-workspace-stage
+      data-retained={visible || retainedGeometry.current.size > 0}
       hidden={!visible}
       aria-hidden={!visible || undefined}
       inert={!visible || undefined}
     >
       {surfaces.map(({ id, content }) => {
-        const rect = positions.get(id);
-        const shown = visible && !!rect;
+        const currentRect = positions.get(id);
+        const shown = visible && !!currentRect;
+        const retained = retainedGeometry.current.get(id);
+        const rect = shown ? currentRect : (retained?.rect ?? currentRect);
+        const hasHeader = shown
+          ? headerContents.has(id) && toolbarHeaderId !== id
+          : (retained?.hasHeader ?? headerContents.has(id));
         return (
           <div
             key={id}
@@ -491,7 +567,8 @@ export function WorkspaceStage({
             className="workspace-stage-surface"
             data-workspace-surface={id}
             data-focused={shown && focusedId === id}
-            data-has-header={headerContents.has(id)}
+            data-retained={shown || !!retained}
+            data-has-header={hasHeader}
             hidden={!shown}
             aria-hidden={!shown || undefined}
             inert={!shown || undefined}
@@ -543,7 +620,8 @@ export function WorkspaceStage({
       {headers.map(({ id, key, content }) => {
         const rect = positions.get(id);
         if (!rect) return null;
-        return (
+        const external = toolbarHeaderId === id && !!toolbarHost;
+        const header = (
           <div
             key={`header:${key ?? id}`}
             ref={(element) => {
@@ -552,10 +630,11 @@ export function WorkspaceStage({
             }}
             className="workspace-stage-header"
             data-workspace-header={id}
+            data-workspace-header-hosted={external ? "toolbar" : undefined}
             data-drop-target={
               dragging && dragTarget?.id === id ? "true" : undefined
             }
-            style={headerStyle(rect)}
+            style={external ? undefined : headerStyle(rect)}
             onPointerDownCapture={() => {
               if (visible && focusedId !== id) current.current.onFocus(id);
             }}
@@ -583,6 +662,9 @@ export function WorkspaceStage({
             ) : null}
           </div>
         );
+        return external
+          ? createPortal(header, toolbarHost!, `header:${key ?? id}`)
+          : header;
       })}
       {sashes.map((sash) => (
         <div

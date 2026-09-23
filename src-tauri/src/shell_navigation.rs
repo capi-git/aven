@@ -12,6 +12,7 @@ use tauri::{
 };
 
 const OPEN_LINK_EVENT: &str = "aven:open-link";
+const LOCAL_FILE_FRAGMENT: &str = "covecode-file=";
 
 #[derive(Clone, Serialize)]
 struct OpenLink<'a> {
@@ -22,6 +23,7 @@ struct OpenLink<'a> {
 enum Navigation {
     Allow,
     OpenInBrowser,
+    OpenInEditor,
     Deny,
 }
 
@@ -48,8 +50,17 @@ fn navigation(url: &Url, entry: Option<&Url>) -> Navigation {
     if same_origin(url, entry) {
         return if entry_path(url.path()) == entry_path(entry.path()) && url.query() == entry.query()
         {
-            // Same-document fragment links and a legitimate app reload are safe.
-            Navigation::Allow
+            if url
+                .fragment()
+                .is_some_and(|fragment| fragment.starts_with(LOCAL_FILE_FRAGMENT))
+            {
+                // A native Open Link skips React's click handler. Keep the shell
+                // mounted and ask its existing file router to resolve this link.
+                Navigation::OpenInEditor
+            } else {
+                // Other same-document fragments and legitimate reloads are safe.
+                Navigation::Allow
+            }
         } else {
             // A different app entrypoint/query can also unload the main UI.
             Navigation::Deny
@@ -120,6 +131,17 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
                     );
                     false
                 }
+                Navigation::OpenInEditor => {
+                    // Only a known fragment from this exact trusted app entry
+                    // reaches this branch; remote browser views never emit it.
+                    let fragment = format!("#{}", url.fragment().unwrap_or_default());
+                    let _ = webview.app_handle().emit_to(
+                        EventTarget::webview(webview.label()),
+                        OPEN_LINK_EVENT,
+                        OpenLink { url: &fragment },
+                    );
+                    false
+                }
                 Navigation::Deny => false,
             }
         })
@@ -144,7 +166,6 @@ mod tests {
             "tauri://localhost/",
             "tauri://localhost/index.html",
             "tauri://localhost/#message-42",
-            "tauri://localhost/index.html#covecode-file=%2Ftmp%2Fnotes.md",
         ] {
             assert_eq!(
                 decision("tauri://localhost", url),
@@ -166,6 +187,52 @@ mod tests {
                 "{url}"
             );
         }
+    }
+
+    #[test]
+    fn local_file_context_menu_uses_editor_only_from_the_exact_shell_entry() {
+        for (entry, url) in [
+            (
+                "tauri://localhost",
+                "tauri://localhost/index.html#covecode-file=%2Ftmp%2Fnotes.md",
+            ),
+            (
+                "http://localhost:1420/",
+                "http://localhost:1420/#covecode-file=%2Fp%2FREADME.md%3A12%3A2",
+            ),
+            (
+                "http://localhost:1420/?mode=test",
+                "http://localhost:1420/index.html?mode=test#covecode-file=%2Fp%2Fnotes.md",
+            ),
+        ] {
+            assert_eq!(decision(entry, url), Navigation::OpenInEditor, "{url}");
+        }
+        for url in [
+            "tauri://localhost/other.html#covecode-file=%2Ftmp%2Fnotes.md",
+            "tauri://localhost/?usagePanel=1#covecode-file=%2Ftmp%2Fnotes.md",
+            "tauri://elsewhere/#covecode-file=%2Ftmp%2Fnotes.md",
+            "file:///tmp/index.html#covecode-file=%2Ftmp%2Fnotes.md",
+        ] {
+            assert_eq!(
+                decision("tauri://localhost", url),
+                Navigation::Deny,
+                "{url}"
+            );
+        }
+        assert_eq!(
+            decision(
+                "tauri://localhost",
+                "https://example.com/#covecode-file=%2Ftmp%2Fnotes.md"
+            ),
+            Navigation::OpenInBrowser
+        );
+        assert_eq!(
+            decision(
+                "tauri://localhost",
+                "tauri://localhost/#not-covecode-file=hello"
+            ),
+            Navigation::Allow
+        );
     }
 
     #[test]

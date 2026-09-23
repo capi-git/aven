@@ -26,7 +26,8 @@ vi.mock("../lib/agentTools", () => ({
   openComputerUseSettings: mocks.permissions,
   installPersonalComputerUseSkill: mocks.install,
 }));
-vi.mock("../lib/inAppLinks", () => ({
+vi.mock("../lib/inAppLinks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/inAppLinks")>()),
   openInAppFile: mocks.openFile,
   openInAppUrl: mocks.openUrl,
 }));
@@ -104,6 +105,16 @@ describe("Skills & Tools settings", () => {
     await click("View instructions");
     const dialog = document.querySelector('[role="dialog"]')!;
     expect(dialog.textContent).toContain("Desktop control from Aven");
+    expect(dialog.querySelector("h1")?.textContent).toBe(
+      "Desktop control from Aven",
+    );
+    expect(
+      [...dialog.querySelectorAll("h2")].some(
+        (heading) => heading.textContent === "Observe, act, verify",
+      ),
+    ).toBe(true);
+    expect(dialog.querySelector("ol li")).not.toBeNull();
+    expect(dialog.textContent).not.toContain("name: aven-computer-use");
     expect(dialog.textContent).toContain("permissions status --json");
     expect(dialog.textContent).toContain(
       "Do not close, replace, or restart the Aven instance",
@@ -118,9 +129,41 @@ describe("Skills & Tools settings", () => {
     expect(
       document.querySelector('[aria-label="Skill instructions"]')?.textContent,
     ).toContain("Read scripts/check.sh");
+    expect(
+      document.querySelector('[aria-label="Skill instructions"] h1')
+        ?.textContent,
+    ).toBe("Review");
     await click("Open in editor");
     expect(mocks.openFile).toHaveBeenCalledWith(file.path);
     expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("labels and finds legacy app skills as Aven while preserving their file path", async () => {
+    const legacySkill = { ...file, source: "monocode" as const };
+    mocks.listSkills.mockResolvedValue([
+      legacySkill,
+      { ...file, name: "other-provider-skill" },
+    ]);
+    await render();
+    expect(button("/review-changes").textContent).toContain("Project · Aven");
+    expect(button("/review-changes").textContent).not.toContain("monocode");
+    expect(container.textContent).toContain("/other-provider-skill");
+
+    const input = container.querySelector<HTMLInputElement>(
+      '[aria-label="Find a skill"]',
+    )!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, "Aven");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(container.textContent).not.toContain("/other-provider-skill");
+    await click("/review-changes");
+    await click("Open in editor");
+    expect(mocks.openFile).toHaveBeenCalledWith(legacySkill.path);
+    expect(legacySkill.source).toBe("monocode");
   });
 
   it("reports unreadable instructions instead of silently showing an empty file", async () => {

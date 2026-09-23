@@ -1,6 +1,7 @@
-import { useLayoutEffect, useRef } from "react";
+import { memo, useLayoutEffect, useRef } from "react";
 import type { WorkspaceProfile } from "../lib/workspaceProfiles";
 import { ChevronDown, Folder, Plus } from "./icons";
+import { ProfileSidebarHeader } from "./ProfileSidebarHeader";
 
 export type WorkspaceProfilePreviewTask = {
   id: string;
@@ -31,11 +32,16 @@ const snapshotScroll = new WeakMap<
 /** Capture only sidebar markup, never a second React/session/browser tree. */
 export function captureProfileSidebar(content: HTMLElement): HTMLElement {
   const snapshot = content.cloneNode(true) as HTMLElement;
-  const originals = [content, ...content.querySelectorAll<HTMLElement>("*")];
-  const copies = [snapshot, ...snapshot.querySelectorAll<HTMLElement>("*")];
-  // Read all positions before writing. A detached clone cannot retain scroll
-  // offsets until it is installed in its page, so save those for the host.
-  const offsets = originals.flatMap((node, index) => {
+  // Only the task list scrolls. Reading geometry on every icon, label and row
+  // forces unnecessary layout queries right as the native swipe settles.
+  const scrollers = content.querySelectorAll<HTMLElement>(
+    ".personal-projects-scroll",
+  );
+  const copies = snapshot.querySelectorAll<HTMLElement>(
+    ".personal-projects-scroll",
+  );
+  // A detached clone cannot retain scroll offsets until it is installed.
+  const offsets = Array.from(scrollers).flatMap((node, index) => {
     const top = node.scrollTop,
       left = node.scrollLeft;
     return top || left ? [{ node: copies[index], top, left }] : [];
@@ -65,15 +71,15 @@ export function captureProfileSidebar(content: HTMLElement): HTMLElement {
   snapshot.style.height = "100%";
   snapshot.setAttribute("inert", "");
   snapshot.setAttribute("aria-hidden", "true");
-  for (const copy of copies) {
+  const focusable =
+    "button,input,select,textarea,a,[tabindex],[contenteditable]";
+  for (const copy of [
+    snapshot,
+    ...snapshot.querySelectorAll(`[id],[autofocus],${focusable}`),
+  ]) {
     copy.removeAttribute("id");
     copy.removeAttribute("autofocus");
-    if (
-      copy.matches(
-        "button,input,select,textarea,a,[tabindex],[contenteditable]",
-      )
-    )
-      copy.setAttribute("tabindex", "-1");
+    if (copy.matches(focusable)) copy.setAttribute("tabindex", "-1");
   }
   snapshotScroll.set(snapshot, offsets);
   return snapshot;
@@ -130,14 +136,22 @@ function PreviewTasks({
 }
 
 /** Cached markup on revisits, or a data-only preview before the first visit. */
-export function ProfileCarouselPreview({
+export const ProfileCarouselPreview = memo(function ProfileCarouselPreview({
   profile,
   preview,
   snapshot,
+  showSearch,
+  showNotes,
+  showInbox,
+  showNewSession = true,
 }: {
   profile: WorkspaceProfile;
   preview?: WorkspaceProfilePreviewData;
   snapshot?: HTMLElement;
+  showSearch?: boolean;
+  showNotes?: boolean;
+  showInbox?: boolean;
+  showNewSession?: boolean;
 }) {
   if (snapshot)
     return <SnapshotPreview snapshot={snapshot} profileId={profile.id} />;
@@ -148,10 +162,19 @@ export function ProfileCarouselPreview({
       inert
       aria-hidden="true"
     >
-      <div className="personal-new-session">
-        <Plus className="size-3.5" />
-        <span>New session</span>
-      </div>
+      <ProfileSidebarHeader
+        profile={profile}
+        preview
+        showSearch={showSearch}
+        showNotes={showNotes}
+        showInbox={showInbox}
+      />
+      {showNewSession ? (
+        <div className="personal-new-session">
+          <Plus className="size-3.5" />
+          <span>New session</span>
+        </div>
+      ) : null}
       <div className="personal-projects-scroll min-h-0 flex-1 overflow-hidden">
         {!!preview?.standaloneTasks.length && (
           <section className="personal-standalone-group">
@@ -191,4 +214,4 @@ export function ProfileCarouselPreview({
       </div>
     </div>
   );
-}
+});

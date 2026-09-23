@@ -1,5 +1,17 @@
 # Aven changelog
 
+## [0.1.86] - 2026-09-23
+
+### One continuous workspace
+
+- Bring navigation, task and browser tabs, and workspace controls into one toolbar. Keep split-pane headers, tab reordering, window dragging, and existing settings and tools available.
+- Remove nested workspace outlines and mismatched browser corners, and soften the composer while preserving each workspace's appearance.
+- Keep visited workspaces measured in memory and adopt the destination during a swipe, reducing avoidable layout work when switching between Work and Personal.
+- Keep agent-opened websites in Aven's scoped browser, open local documents in the editor, and render Markdown skill instructions and document previews as formatted text.
+- Improve native browser focus, annotation menus, floating controls, and rounded-corner clipping without moving focus away from active inputs.
+- Refine Settings, provider usage, task status, and reusable tool instructions. Retain compatibility identifiers and upstream license attribution while using Aven branding in the interface.
+- Improve startup recovery, file navigation, and tab movement with regression coverage.
+
 ## [0.1.85] - 2026-09-22
 
 ### Build Aven in Aven

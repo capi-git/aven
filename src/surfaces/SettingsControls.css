@@ -1,23 +1,23 @@
 .settings-page-header {
-  margin-bottom: 26px;
+  margin-bottom: 20px;
 }
 .settings-page-header h1 {
   margin: 0;
-  font-size: 26px;
-  font-weight: 650;
-  line-height: 1.2;
-  letter-spacing: -0.035em;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.025em;
 }
 .settings-page-header p {
   max-width: 54ch;
-  margin: 8px 0 0;
-  color: color-mix(in srgb, var(--color-content) 66%, transparent);
-  font-size: 13px;
-  line-height: 1.6;
+  margin: 6px 0 0;
+  color: var(--aven-muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 .settings-heading {
-  margin: 26px 0 10px;
-  font-size: 14px;
+  margin: 22px 0 8px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1.4;
 }
@@ -26,7 +26,7 @@
 }
 .settings-group {
   min-width: 0;
-  margin-bottom: 26px;
+  margin-bottom: 22px;
   scroll-margin-top: 24px;
 }
 .settings-group:last-child {
@@ -37,30 +37,30 @@
   align-items: start;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 10px;
-  padding: 0 2px;
+  margin-bottom: 8px;
+  padding: 0 12px;
 }
 .settings-group-intro {
   min-width: 0;
 }
 .settings-group-header h2 {
   margin: 0;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1.4;
 }
 .settings-group-header p {
-  margin: 4px 0 0;
-  color: color-mix(in srgb, var(--color-content) 62%, transparent);
-  font-size: 12px;
+  margin: 3px 0 0;
+  color: var(--aven-muted);
+  font-size: 11px;
   line-height: 1.5;
 }
 .settings-group-scope {
   flex: 0 1 auto;
-  padding: 3px 8px;
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--color-accent) 9%, transparent);
-  color: color-mix(in srgb, var(--color-accent) 75%, var(--color-content));
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--aven-hover);
+  color: var(--aven-muted);
   font-size: 10px;
   font-weight: 550;
   line-height: 1.5;
@@ -68,38 +68,40 @@
 }
 .settings-group-surface {
   min-width: 0;
-  padding: 0 18px;
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--color-content) 3.5%, transparent);
+  padding: 0 14px;
+  border: 1px solid var(--aven-line);
+  border-radius: 10px;
+  background: var(--aven-grouped-surface, var(--aven-raised));
+  box-shadow: 0 1px 2px #00000005;
 }
 .settings-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 44%);
-  align-items: start;
-  gap: 24px;
+  align-items: center;
+  gap: 20px;
   min-width: 0;
-  padding: 17px 0;
+  padding: 12px 0;
   scroll-margin-top: 24px;
 }
 .settings-row + .settings-row {
-  border-top: 1px solid color-mix(in srgb, var(--color-content) 6%, transparent);
+  border-top: 1px solid var(--aven-line);
 }
 .settings-row-copy {
   min-width: 0;
-  padding-top: 3px;
+  padding-top: 0;
 }
 .settings-row-label {
   color: var(--color-content);
   font-size: 13px;
-  font-weight: 550;
+  font-weight: 500;
   line-height: 1.5;
 }
 .settings-row-description {
-  margin: 4px 0 0;
+  margin: 3px 0 0;
   max-width: 55ch;
-  color: color-mix(in srgb, var(--color-content) 65%, transparent);
-  font-size: 12px;
-  line-height: 1.6;
+  color: var(--aven-muted);
+  font-size: 11px;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 .settings-row-control {
@@ -123,20 +125,21 @@
   align-items: stretch;
   min-width: 0;
   max-width: 100%;
-  gap: 3px;
-  padding: 3px;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+  gap: 1px;
+  padding: 2px;
+  border: 1px solid var(--aven-line);
+  border-radius: 7px;
+  background: var(--aven-field-bg, var(--aven-hover));
   font-size: 12px;
 }
 .settings-segmented button {
   min-width: 0;
-  min-height: 30px;
-  padding: 5px 11px;
-  border: 0;
-  border-radius: 6px;
+  min-height: 24px;
+  padding: 3px 10px;
+  border: 1px solid transparent;
+  border-radius: 5px;
   background: transparent;
-  color: color-mix(in srgb, var(--color-content) 68%, transparent);
+  color: var(--aven-muted);
   line-height: 1.4;
   overflow-wrap: anywhere;
   transition:
@@ -145,25 +148,23 @@
 }
 .settings-segmented button:hover {
   color: var(--color-content);
-  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  background: var(--aven-hover);
 }
 .settings-segmented button[aria-checked="true"] {
-  background: color-mix(
-    in srgb,
-    var(--color-accent) 16%,
-    var(--color-background-base)
-  );
+  background: var(--aven-control-bg, var(--aven-raised));
+  border-color: var(--aven-control-border, var(--aven-line));
+  font-weight: 550;
   color: var(--color-content);
-  box-shadow: 0 1px 3px #00000010;
+  box-shadow: var(--aven-control-shadow, 0 1px 3px #0000001a);
 }
 .settings-slider {
   display: flex;
   align-items: center;
-  gap: 14px;
-  width: 256px;
+  gap: 10px;
+  width: 236px;
   max-width: 100%;
   min-width: 0;
-  min-height: 34px;
+  min-height: 28px;
 }
 .settings-slider input {
   appearance: none;
@@ -177,7 +178,7 @@
   cursor: pointer;
 }
 .settings-slider input::-webkit-slider-runnable-track {
-  height: 5px;
+  height: 4px;
   border-radius: 99px;
   background: linear-gradient(
     to right,
@@ -187,7 +188,7 @@
   );
 }
 .settings-slider input::-moz-range-track {
-  height: 5px;
+  height: 4px;
   border-radius: 99px;
   background: linear-gradient(
     to right,
@@ -197,27 +198,28 @@
   );
 }
 .settings-slider input::-webkit-slider-thumb {
-  margin-top: -5px;
+  margin-top: -6px;
   appearance: none;
   -webkit-appearance: none;
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
-  background: var(--color-content);
-  box-shadow: 0 1px 4px #00000020;
+  border: 1px solid #00000020;
+  background: #fff;
+  box-shadow: 0 1px 3px #00000030;
 }
 .settings-slider input::-moz-range-thumb {
-  width: 15px;
-  height: 15px;
-  border: 0;
+  width: 16px;
+  height: 16px;
+  border: 1px solid #00000020;
   border-radius: 50%;
-  background: var(--color-content);
-  box-shadow: 0 1px 4px #00000020;
+  background: #fff;
+  box-shadow: 0 1px 3px #00000030;
 }
 .settings-slider output {
-  flex: 0 0 44px;
-  color: color-mix(in srgb, var(--color-content) 78%, transparent);
-  font-size: 12px;
+  flex: 0 0 38px;
+  color: var(--aven-muted);
+  font-size: 11px;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -232,28 +234,30 @@
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  width: 38px;
-  height: 32px;
+  width: 36px;
+  height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   cursor: pointer;
 }
 .settings-toggle-track {
   display: block;
   position: relative;
-  width: 34px;
-  height: 20px;
+  width: 32px;
+  height: 18px;
   border-radius: 99px;
-  background: color-mix(in srgb, var(--color-content) 23%, transparent);
+  background: color-mix(in srgb, var(--color-content) 22%, transparent);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--color-content) 6%, transparent);
   transition: background-color 120ms ease;
 }
 .settings-toggle-track > span {
   display: block;
   position: absolute;
-  top: 3px;
-  left: 3px;
+  top: 2px;
+  left: 2px;
   width: 14px;
   height: 14px;
   border-radius: 50%;
@@ -271,45 +275,44 @@
 .settings-button {
   min-width: 0;
   max-width: 100%;
-  min-height: 32px;
-  border: 0;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--color-content) 7%, transparent);
-  color: color-mix(in srgb, var(--color-content) 84%, transparent);
+  min-height: 28px;
+  border: 1px solid var(--aven-control-border, var(--aven-line));
+  border-radius: 6px;
+  background: var(--aven-control-bg, var(--aven-raised));
+  box-shadow: var(--aven-control-shadow, 0 1px 2px #00000014);
+  color: var(--color-content);
   font-size: 12px;
   line-height: 1.4;
 }
 .settings-select {
   width: auto;
   max-width: min(100%, 240px);
-  padding: 7px 28px 7px 10px;
+  padding: 4px 24px 4px 9px;
 }
 .settings-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 7px 11px;
+  padding: 4px 10px;
   text-align: center;
 }
 .settings-select:hover,
 .settings-button:not(:disabled):hover {
-  background: color-mix(in srgb, var(--color-content) 11%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--color-content) 5%,
+    var(--aven-control-bg, var(--aven-raised))
+  );
   color: var(--color-content);
 }
 .settings-button-danger {
-  color: #ee777c;
+  color: color-mix(in srgb, #dc3545 75%, var(--color-content));
   background: color-mix(in srgb, #ef4444 7%, transparent);
 }
-.theme-light .settings-button-danger {
-  color: #b42332;
-}
 .settings-button-danger:not(:disabled):hover {
-  color: #f78c91;
+  color: color-mix(in srgb, #dc3545 65%, var(--color-content));
   background: color-mix(in srgb, #ef4444 13%, transparent);
-}
-.theme-light .settings-button-danger:not(:disabled):hover {
-  color: #a31323;
 }
 .settings-button:disabled,
 .settings-toggle:disabled {
@@ -321,12 +324,12 @@
 .settings-select:focus-visible,
 .settings-button:focus-visible,
 .settings-slider input:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 3px;
+  outline: 3px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: 2px;
 }
 @container settings (max-width: 640px) {
   .settings-page-header h1 {
-    font-size: 23px;
+    font-size: 20px;
   }
   .settings-group-surface {
     padding: 0 14px;
@@ -334,7 +337,7 @@
   .settings-row {
     grid-template-columns: minmax(0, 1fr);
     gap: 10px;
-    padding: 15px 0;
+    padding: 12px 0;
   }
   .settings-row-control {
     justify-content: flex-start;
@@ -344,7 +347,7 @@
     max-width: none;
   }
   .settings-row:has(> .settings-row-control > .settings-toggle:only-child) {
-    grid-template-columns: minmax(0, 1fr) 38px;
+    grid-template-columns: minmax(0, 1fr) 36px;
     gap: 16px;
   }
   .settings-row:has(> .settings-row-control > .settings-toggle:only-child)

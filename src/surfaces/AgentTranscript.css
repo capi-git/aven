@@ -16,7 +16,7 @@
 .personal-shell .personal-transcript-response .agent-markdown {
   font-size: 14px;
   line-height: 23px;
-  letter-spacing: -0.006em;
+  letter-spacing: normal;
 }
 /* The hardening plugin uses display:contents direction wrappers. Paragraph
    spacing belongs to the visible block, not the wrapper or nested lists. */
@@ -36,7 +36,7 @@
   .personal-transcript-response
   .agent-markdown
   :is(h1, h2, h3, h4) {
-  letter-spacing: -0.025em;
+  letter-spacing: -0.015em;
   font-weight: 600;
   color: var(--color-content);
 }
@@ -51,8 +51,8 @@
 .personal-shell .personal-transcript-notice {
   margin-inline: 16px;
   padding: 10px 12px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--color-content) 3%, transparent);
+  border-radius: 8px;
+  background: var(--aven-grouped-surface, var(--aven-hover));
   font-size: 12px;
   line-height: 19px;
   color: color-mix(in srgb, var(--color-content) 66%, transparent);
@@ -68,27 +68,26 @@
   padding-left: 64px;
 }
 .personal-shell .personal-user-bubble {
-  border: 1px solid transparent;
-  border-radius: 15px;
+  border: 1px solid var(--aven-line);
+  border-radius: 12px;
   padding: 11px 15px;
   background: color-mix(
     in srgb,
-    var(--personal-accent) 7%,
+    var(--personal-accent) 5%,
     color-mix(in srgb, var(--personal-main-surface) 88%, transparent)
   );
-  box-shadow: inset 0 1px 0
-    color-mix(in srgb, var(--color-content) 3%, transparent);
+  box-shadow: none;
 }
 .personal-shell
   .personal-user-message[data-message-layout="chat"]
   .personal-user-bubble {
   max-width: min(580px, 100%);
-  border-bottom-right-radius: 6px;
+  border-bottom-right-radius: 5px;
 }
 .personal-shell .personal-user-bubble > pre {
   font-size: 14px;
   line-height: 23px;
-  letter-spacing: -0.006em;
+  letter-spacing: normal;
 }
 .personal-shell .personal-message-attachments {
   gap: 8px;
@@ -133,9 +132,9 @@
   color: var(--color-content);
 }
 .personal-shell .personal-work-fold:focus-visible {
-  outline: 2px solid var(--personal-accent);
+  outline: 2px solid var(--aven-focus-ring, var(--personal-accent));
   outline-offset: -4px;
-  border-radius: 9px;
+  border-radius: 7px;
 }
 /* Tool groups use a quiet surface; the original disclosure and live scroller
    remain unchanged, including always-open pending approvals. */
@@ -144,8 +143,8 @@
 }
 .personal-shell .personal-activity-phase {
   padding: 6px 10px;
-  border-radius: 11px;
-  background: color-mix(in srgb, var(--color-content) 3%, transparent);
+  border-radius: 8px;
+  background: var(--aven-grouped-surface, var(--aven-hover));
 }
 .personal-shell .personal-activity-phase > button {
   min-height: 30px;
@@ -175,8 +174,8 @@
 .personal-shell .personal-tool-call > pre {
   margin-block: 6px;
   padding: 9px 11px;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  border-radius: 7px;
+  background: var(--aven-field-bg, var(--aven-hover));
   color: color-mix(in srgb, var(--color-content) 75%, transparent);
   font-size: 12px;
   line-height: 20px;
@@ -188,14 +187,14 @@
 .personal-shell .personal-tool-approval > button {
   min-height: 29px;
   padding: 5px 11px;
-  border-radius: 8px;
+  border-radius: 6px;
   font-size: 12px;
   font-weight: 500;
 }
 .personal-shell .personal-activity-phase button:focus-visible,
 .personal-shell .personal-activity-line button:focus-visible,
 .personal-shell .personal-tool-call button:focus-visible {
-  outline: 2px solid var(--personal-accent);
+  outline: 2px solid var(--aven-focus-ring, var(--personal-accent));
   outline-offset: 2px;
 }
 .personal-shell .personal-turn-receipt {
@@ -220,13 +219,9 @@
   .agent-transcript
   .agent-markdown
   [data-streamdown="table-wrapper"] {
-  border-color: color-mix(in srgb, var(--color-content) 7%, transparent);
-  border-radius: 11px;
-  background: color-mix(
-    in srgb,
-    var(--personal-main-surface) 95%,
-    var(--color-content)
-  );
+  border-color: var(--aven-line);
+  border-radius: 8px;
+  background: var(--aven-field-bg, var(--personal-main-surface));
   box-shadow: none;
 }
 .personal-shell
@@ -234,7 +229,7 @@
   .agent-markdown
   [data-streamdown="code-block-header"] {
   min-height: 32px;
-  background: color-mix(in srgb, var(--color-content) 3%, transparent);
+  background: var(--aven-toolbar-surface, var(--aven-hover));
   color: color-mix(in srgb, var(--color-content) 68%, transparent);
 }
 .personal-shell
@@ -257,23 +252,6 @@ html.theme-light .personal-shell .personal-user-bubble {
     in srgb,
     var(--personal-accent) 6%,
     var(--personal-main-surface)
-  );
-  box-shadow: inset 0 1px 0 #ffffff99;
-}
-html.theme-light
-  .personal-shell
-  .agent-transcript
-  .agent-markdown
-  [data-streamdown="code-block"],
-html.theme-light
-  .personal-shell
-  .agent-transcript
-  .agent-markdown
-  [data-streamdown="table-wrapper"] {
-  background: color-mix(
-    in srgb,
-    var(--personal-main-surface) 97%,
-    var(--color-content)
   );
 }
 @container personal-transcript (max-width: 480px) {

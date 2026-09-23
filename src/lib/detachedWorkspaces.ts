@@ -4,9 +4,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { WorkspaceTab } from "./layout";
 import type { WorkspaceReturnPlacement } from "./workspaceArrangement";
-import { leafIds } from "./layout";
+import { leafIds, newFileTab, openEditorTab } from "./layout";
 import { browserIdForTab } from "./personalWorkspace";
-import { resolveWorkspaceView, type WorkspaceView } from "./workspaceViews";
+import {
+  resolveWorkspaceView,
+  selectWorkspaceView,
+  type WorkspaceView,
+} from "./workspaceViews";
 import {
   getRegisteredAgentBrowserPage,
   registerAgentBrowserPage,
@@ -36,7 +40,14 @@ import {
 } from "./sessionPictureInPicture";
 import { allModels, getModelSnapshot } from "./models";
 import { registerWorkspaceDraftFlusher } from "./workspaceDraftFlush";
-import type { Session } from "./session";
+import { sessionWorkCwd, type Session } from "./session";
+import type { EditorNavigation } from "./search";
+
+export type DetachedFileRequest = {
+  path: string;
+  line?: number;
+  column?: number;
+};
 
 export type DetachedBrowser = {
   project?: string;
@@ -123,7 +134,15 @@ export const nativeWorkspaceWindow = {
     sessionId?: string,
     url?: string,
     browser?: DetachedBrowser,
-  ) => invoke<void>("workspace_window_focus", { id, sessionId, url, browser }),
+    file?: DetachedFileRequest,
+  ) =>
+    invoke<void>("workspace_window_focus", {
+      id,
+      sessionId,
+      url,
+      browser,
+      file,
+    }),
   newSession: () => invoke<void>("workspace_window_new_session"),
   recover: () => invoke<void>("workspace_window_recover"),
   listen: <T>(name: string, receive: (value: T) => void) =>
@@ -144,6 +163,26 @@ export function detachedTerminalIds(state: DetachedWorkspaceState): string[] {
 }
 export function detachedSurfaceIds(state: DetachedWorkspaceState): string[] {
   return [...state.tabs.map((t) => t.id), ...state.browsers.map((b) => b.id)];
+}
+/** Route an agent's file to its own task, regardless of which tab is visible. */
+export function openDetachedFileForSession(
+  state: DetachedWorkspaceState,
+  sessionId: string,
+  path: string,
+): DetachedWorkspaceState {
+  const session = state.sessions.find(
+    (entry) => entry.session.id === sessionId,
+  )?.session;
+  const tab = state.tabs.find((entry) =>
+    leafIds(entry.layout).includes(sessionId),
+  );
+  if (!session || !tab) return state;
+  const next = openEditorTab(tab, newFileTab(path, sessionWorkCwd(session)));
+  return {
+    ...state,
+    tabs: state.tabs.map((entry) => (entry.id === tab.id ? next : entry)),
+    view: selectWorkspaceView(state.view, tab.id),
+  };
 }
 /** Keep both split trees when appending a group to another window. */
 export function mergeDetachedWorkspaces(
@@ -478,7 +517,11 @@ export function useDetachedWorkspaces(options: Options) {
       streamTimer.current = undefined;
       for (const request of pending.current.values()) {
         clearTimeout(request.timer);
-        request.reject(new Error("The workspace owner was disposed before return completed."));
+        request.reject(
+          new Error(
+            "The workspace owner was disposed before return completed.",
+          ),
+        );
       }
       pending.current.clear();
       cleanups.forEach((fn) => fn());
@@ -635,7 +678,31 @@ export function useDetachedWorkspaces(options: Options) {
     },
     [],
   );
+  const openFileForSession = useCallback(
+    async (
+      id: string,
+      path: string,
+      navigation?: EditorNavigation,
+    ): Promise<boolean> => {
+      await ready.current;
+      const entry = [...entries.current.values()].find((entry) =>
+        detachedSessionIds(entry.state).includes(id),
+      );
+      if (!entry) return false;
+      if (busyTargets.current.has(entry.id) || pending.current.has(entry.id))
+        throw new Error(
+          "This task is moving between windows. Try opening the file again in a moment.",
+        );
+      await nativeWorkspaceWindow.focus(entry.id, id, undefined, undefined, {
+        path,
+        ...navigation,
+      });
+      return true;
+    },
+    [],
+  );
   return {
+    openFileForSession,
     openBrowserForSession,
     states: new Map(snapshots.map((s) => [s.id, s.state])),
     activeVisibleSessionIds: new Set(Object.values(visibility).flat()),

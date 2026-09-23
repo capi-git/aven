@@ -606,6 +606,9 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     clip_view_.autoresizingMask=auto_resize_ ? NSViewWidthSizable|NSViewHeightSizable : NSViewNotSizable;
     view.frame=aligned.browser;
     view.autoresizingMask=auto_resize_ ? NSViewWidthSizable|NSViewHeightSizable : NSViewNotSizable;
+    supermono::ApplyBrowserBottomCornerMask(clip_view_,aligned.browser,auto_resize_ ? 0 : bottom_corner_radius_);
+    if (!visible_ || exposed<=0)
+      supermono::ReturnHiddenBrowserFocus(clip_view_,WorkspaceWebView(parent_));
     clip_view_.hidden=!visible_ || exposed<=0;
     view.hidden=!visible_;
     if (clip_view_.hidden) [drop_indicator_ clear];
@@ -1057,7 +1060,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   __strong NSView *clip_view_=nil;
   __strong SMBrowserDropIndicator *drop_indicator_=nil;
   __strong SMBrowserEditAnnotation *edit_annotation_=nil;
-  double x_=0,y_=0,w_=1,h_=1,clip_left_=0,clip_right_=0,viewport_height_=0;
+  double x_=0,y_=0,w_=1,h_=1,clip_left_=0,clip_right_=0,viewport_height_=0,bottom_corner_radius_=0;
   bool visible_=false, auto_resize_=false;
 
  private:
@@ -1209,17 +1212,17 @@ extern "C" int sm_chromium_create(const char *id,void *parent,const char *url,co
     last_error.clear(); return 1;
   } catch (const std::exception& e) { return Fail(e.what()); } catch (...) { return Fail("Chromium tab creation failed"); } }
 }
-extern "C" int sm_chromium_layout(const char *id,double x,double y,double w,double h,int visible,double clip_left,double clip_right,double viewport_height) {
+extern "C" int sm_chromium_layout(const char *id,double x,double y,double w,double h,int visible,double clip_left,double clip_right,double viewport_height,double bottom_corner_radius) {
   @autoreleasepool { if (!MainThread()) return 0; auto page=FindPage(id); if (!page) return 0;
-    if (!Geometry(x,y,w,h) || !std::isfinite(clip_left) || !std::isfinite(clip_right) || clip_left<0 || clip_right<0 || clip_left+clip_right>w || !std::isfinite(viewport_height) || viewport_height<0 || viewport_height>262144) return Fail("Invalid browser bounds");
-    page->x_=x; page->y_=y; page->w_=w; page->h_=h; page->clip_left_=clip_left; page->clip_right_=clip_right; page->viewport_height_=viewport_height; page->visible_=visible; page->Layout(); return 1; }
+    if (!Geometry(x,y,w,h) || !std::isfinite(clip_left) || !std::isfinite(clip_right) || clip_left<0 || clip_right<0 || clip_left+clip_right>w || !std::isfinite(viewport_height) || viewport_height<0 || viewport_height>262144 || !std::isfinite(bottom_corner_radius) || bottom_corner_radius<0 || bottom_corner_radius>262144) return Fail("Invalid browser bounds");
+    page->x_=x; page->y_=y; page->w_=w; page->h_=h; page->clip_left_=clip_left; page->clip_right_=clip_right; page->viewport_height_=viewport_height; page->bottom_corner_radius_=bottom_corner_radius; page->visible_=visible; page->Layout(); return 1; }
 }
 extern "C" int sm_chromium_reparent(const char *id,void *parent,double x,double y,double w,double h,double inset) {
   @autoreleasepool { if (!MainThread()) return 0; auto page=FindPage(id); if (!page) return 0;
     if (!parent || !Geometry(x,y,w,h) || !std::isfinite(inset)) return Fail("Invalid browser parent or bounds");
     [page->drop_indicator_ clear];
     if (page->EditActive()) page->EditMode(false);
-    page->parent_=(__bridge NSView*)parent; page->x_=x; page->y_=y; page->w_=w; page->h_=h; page->clip_left_=page->clip_right_=page->viewport_height_=0; page->auto_resize_=inset>=0; page->Layout(); return 1; }
+    page->parent_=(__bridge NSView*)parent; page->x_=x; page->y_=y; page->w_=w; page->h_=h; page->clip_left_=page->clip_right_=page->viewport_height_=page->bottom_corner_radius_=0; page->auto_resize_=inset>=0; page->Layout(); return 1; }
 }
 extern "C" int sm_chromium_command(const char *id,const char *request_id,const char *json) {
   @autoreleasepool { try {

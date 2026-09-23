@@ -77,15 +77,58 @@
         inset: 0;
         z-index: 2147483647;
         display: flex;
+        flex-direction: column;
+        gap: 20px;
         align-items: center;
         justify-content: center;
         pointer-events: none;
         background: var(--theme-background-color, var(--boot-background));
+        color: #e7edf4;
+        font: 14px/1.5 -apple-system, BlinkMacSystemFont, sans-serif;
         transition: opacity 0.16s ease;
+      }
+
+      html.theme-light #boot-splash {
+        color: #1d2835;
       }
 
       #boot-splash.boot-splash-out {
         opacity: 0;
+      }
+
+      #boot-splash [hidden] {
+        display: none !important;
+      }
+
+      #boot-status {
+        box-sizing: border-box;
+        width: min(440px, 100%);
+        padding: 0 24px;
+        text-align: center;
+      }
+
+      #boot-status h1 {
+        margin: 0;
+        color: inherit;
+        font: inherit;
+        font-size: 18px;
+        font-weight: 600;
+      }
+
+      #boot-status p {
+        margin: 10px 0 18px;
+        opacity: 0.75;
+      }
+
+      #boot-retry {
+        padding: 8px 16px;
+        border: 1px solid currentColor;
+        border-radius: 8px;
+        color: inherit;
+        background: transparent;
+        font: inherit;
+        cursor: pointer;
+        outline-offset: 4px;
       }
 
       #boot-splash img {
@@ -97,10 +140,81 @@
     </style>
   </head>
   <body>
-    <div id="boot-splash" aria-hidden="true">
+    <div id="boot-splash">
       <img src="/aven-mark.png" alt="" />
+      <section id="boot-status" role="status" aria-live="polite">
+        <h1 id="boot-title">Opening Aven…</h1>
+        <p id="boot-message" hidden></p>
+        <button id="boot-retry" type="button" hidden>Retry loading</button>
+      </section>
     </div>
     <div id="root"></div>
+    <!-- This must run without any fetched modules: it also handles a failed entry bundle. -->
+    <script id="aven-boot-recovery">
+      (function () {
+        var splash = document.getElementById("boot-splash");
+        var logo = splash.querySelector("img");
+        var title = document.getElementById("boot-title");
+        var message = document.getElementById("boot-message");
+        var retry = document.getElementById("boot-retry");
+        var active = true;
+
+        function finished() {
+          return !splash.isConnected || splash.dataset.dismissed === "1";
+        }
+
+        function cleanup() {
+          if (!active) return;
+          active = false;
+          window.clearTimeout(timeout);
+          window.removeEventListener("error", resourceError, true);
+          logo.removeEventListener("error", hideLogo);
+          retry.removeEventListener("click", reload);
+          observer.disconnect();
+        }
+
+        function showRecovery(failed) {
+          if (!active) return;
+          if (finished()) return cleanup();
+          window.clearTimeout(timeout);
+          title.textContent = failed
+            ? "Aven couldn’t load its interface"
+            : "Aven is taking longer to open";
+          message.textContent = failed
+            ? "A required app file didn’t load. Try loading the interface again."
+            : "The workspace is still loading. You can keep waiting or try again.";
+          message.hidden = false;
+          retry.hidden = false;
+          splash.style.pointerEvents = "auto";
+        }
+
+        function resourceError(event) {
+          var target = event.target;
+          if (target && target.tagName === "SCRIPT" && target.type === "module") {
+            showRecovery(true);
+          }
+        }
+
+        function hideLogo() {
+          logo.hidden = true;
+        }
+
+        function reload() {
+          window.location.reload();
+        }
+
+        var timeout = window.setTimeout(function () { showRecovery(false); }, 15000);
+        var observer = new MutationObserver(function () {
+          if (finished()) cleanup();
+        });
+        observer.observe(document.body, { childList: true });
+        observer.observe(splash, { attributes: true, attributeFilter: ["data-dismissed"] });
+        window.addEventListener("error", resourceError, true);
+        logo.addEventListener("error", hideLogo);
+        retry.addEventListener("click", reload);
+        if (logo.complete && logo.naturalWidth === 0) hideLogo();
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

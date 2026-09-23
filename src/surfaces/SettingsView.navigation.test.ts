@@ -55,8 +55,12 @@ let externalSelectSection: (section: SettingsSectionId) => void;
 
 function ControlledSettings({
   initial = "general",
+  showToolbar,
+  besideRail = false,
 }: {
   initial?: SettingsSectionId;
+  showToolbar?: boolean;
+  besideRail?: boolean;
 }) {
   const [section, setSection] = useState(initial);
   externalSelectSection = setSection;
@@ -70,7 +74,8 @@ function ControlledSettings({
     },
     cwd: "/fixture/project",
     sessions: [],
-    besideRail: false,
+    besideRail,
+    showToolbar,
     onClose,
     onOpenSession: noop,
     onArchiveSession: noop,
@@ -175,6 +180,54 @@ function result(label: string) {
 }
 
 describe("settings navigation", () => {
+  it("retains its own toolbar and close action when no host supplies one", async () => {
+    await mount("appearance");
+    const toolbar = container.querySelector(".settings-toolbar")!;
+    expect(toolbar).not.toBeNull();
+    expect(
+      toolbar.querySelector(".settings-breadcrumb")?.textContent,
+    ).toContain("Appearance");
+    await click(
+      toolbar.querySelector<HTMLButtonElement>(
+        'button[aria-label="Close settings"]',
+      )!,
+    );
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it.each([false, true])(
+    "omits the hosted toolbar while preserving settings navigation and Escape with besideRail=%s",
+    async (besideRail) => {
+      await act(async () =>
+        root.render(
+          createElement(ControlledSettings, {
+            initial: "general",
+            showToolbar: false,
+            besideRail,
+          }),
+        ),
+      );
+      expect(container.querySelector(".settings-toolbar")).toBeNull();
+      expect(
+        container.querySelector('button[aria-label="Close settings"]'),
+      ).toBeNull();
+      expect(
+        container.querySelector('[role="region"][aria-label="Settings"]'),
+      ).not.toBeNull();
+      expect(container.querySelector("h1")?.textContent).toBe("General");
+
+      if (besideRail) {
+        await act(async () => externalSelectSection("appearance"));
+      } else {
+        await section("Appearance");
+        expect(onSection).toHaveBeenLastCalledWith("appearance");
+      }
+      expect(container.querySelector("h1")?.textContent).toBe("Appearance");
+      await key(searchInput(), "Escape");
+      expect(onClose).toHaveBeenCalledOnce();
+    },
+  );
+
   it("describes source rebuilds rather than automatic releases in Aven Dev", async () => {
     idleUpdate.developmentBuild = true;
     try {

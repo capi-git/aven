@@ -55,6 +55,8 @@ import {
   detachedSessionIds,
   detachedTerminalIds,
   detachedSurfaceIds,
+  openDetachedFileForSession,
+  type DetachedFileRequest,
   type DetachedWorkspaceState,
   type DetachedWorkspaceSnapshot,
 } from "../lib/detachedWorkspaces";
@@ -78,6 +80,7 @@ import {
   subscribeEditorDrafts,
 } from "../lib/workspaceTransfers";
 import "./DetachedWorkspace.css";
+import type { EditorNavigation, EditorNavigationTarget } from "../lib/search";
 
 /** A renderer, never an App: every agent action returns to the one owner. */
 export function DetachedWorkspace() {
@@ -87,9 +90,14 @@ export function DetachedWorkspace() {
   const current = useRef(envelope);
   current.current = envelope;
   const [error, setError] = useState<string | null>(null);
+  const [editorNavigation, setEditorNavigation] =
+    useState<EditorNavigationTarget | null>(null);
+  const editorNavigationToken = useRef(0);
   // Incoming state applies its parent theme before this content commit.
   useBootSplashReady(!!envelope || !!error);
   const [frozen, setFrozen] = useState(false);
+  const frozenRef = useRef(frozen);
+  frozenRef.current = frozen;
   const visibilityKey = useRef("");
   const [focused, setFocused] = useState(false);
   // WK document visibility is useful for notification read state, but native
@@ -234,7 +242,11 @@ export function DetachedWorkspace() {
     [leave, checkpoint, collect, change, report],
   );
   const openFile = useCallback(
-    (path: string, options: Partial<FilePaneTab> = {}) => {
+    (
+      path: string,
+      options: Partial<FilePaneTab> = {},
+      navigation?: EditorNavigation,
+    ) => {
       change((state) => {
         const active =
           state.tabs.find((t) => t.id === state.view.focusedId) ??
@@ -312,6 +324,14 @@ export function DetachedWorkspace() {
           ),
         };
       });
+      if (navigation) {
+        editorNavigationToken.current += 1;
+        setEditorNavigation({
+          path,
+          ...navigation,
+          token: editorNavigationToken.current,
+        });
+      }
     },
     [change],
   );
@@ -465,7 +485,10 @@ export function DetachedWorkspace() {
   useEffect(
     () =>
       installInAppLinks(
-        { openUrl, openFile: (path) => openFile(path) },
+        {
+          openUrl,
+          openFile: (path, navigation) => openFile(path, {}, navigation),
+        },
         report,
       ),
     [openUrl, openFile, report],
@@ -533,6 +556,9 @@ export function DetachedWorkspace() {
         sessionId?: string;
         url?: string;
         browser?: import("../lib/detachedWorkspaces").DetachedBrowser;
+        file?: DetachedFileRequest;
+        requestToken?: string;
+        expiresAt?: number;
       }>("workspace-window-focus", (value) => {
         if (value.url) openUrlRef.current(value.url);
         if (value.browser)
@@ -559,7 +585,62 @@ export function DetachedWorkspace() {
               ),
             };
           });
-        if (value.sessionId && !value.url && !value.browser)
+        if (value.file && value.sessionId) {
+          const file = value.file;
+          void (async () => {
+            try {
+              if (value.expiresAt != null && Date.now() >= value.expiresAt)
+                throw new Error(
+                  "This file request expired. Try opening the file again.",
+                );
+              if (disposed || frozenRef.current || leaving.current)
+                throw new Error(
+                  "This task window is moving. Try opening the file again in a moment.",
+                );
+              const before = current.current?.state;
+              if (!before) throw new Error("The task window is not ready.");
+              const next = openDetachedFileForSession(
+                before,
+                value.sessionId!,
+                file.path,
+              );
+              if (next === before)
+                throw new Error("The task is no longer in this window.");
+              flushSync(() => {
+                change(() => next);
+                if (file.line) {
+                  editorNavigationToken.current += 1;
+                  setEditorNavigation({
+                    path: file.path,
+                    line: file.line,
+                    column: file.column,
+                    token: editorNavigationToken.current,
+                  });
+                }
+              });
+              await checkpoint();
+              if (value.expiresAt != null && Date.now() >= value.expiresAt)
+                throw new Error(
+                  "This file request expired while the task window was responding.",
+                );
+              if (disposed || frozenRef.current || leaving.current)
+                throw new Error(
+                  "The task window changed while opening the file. Try again.",
+                );
+              // No state payload: a file acknowledgement must not hide Chromium
+              // using the workspace transfer acknowledgement's state side effect.
+              if (value.requestToken)
+                await nativeWorkspaceWindow.ack(value.requestToken);
+            } catch (reason) {
+              if (value.requestToken)
+                await nativeWorkspaceWindow
+                  .ack(value.requestToken, undefined, String(reason))
+                  .catch(report);
+              else report(reason);
+            }
+          })();
+        }
+        if (value.sessionId && !value.url && !value.browser && !value.file)
           change((state) => {
             const tab = state.tabs.find((t) =>
               leafIds(t.layout).includes(value.sessionId!),
@@ -917,7 +998,8 @@ export function DetachedWorkspace() {
                 onFocus: () =>
                   updateTab(tab.id, (t) => ({ ...t, focusedId: id })),
                 onClose: () => closeLeaf(tab.id, id),
-                onOpenFile: (path: string) => openFile(path),
+                onOpenFile: (path: string, navigation?: EditorNavigation) =>
+                  openFile(path, {}, navigation),
                 onOpenUrl: openUrl,
                 onOpenDiff: (path?: string) =>
                   openFile(path ?? session.session.cwd, {
@@ -945,6 +1027,7 @@ export function DetachedWorkspace() {
               focused: tab.focusedId === id,
               dirtyFileIds: new Set(state.dirtyFileIds ?? []),
               fileErrorCounts: new Map(),
+              editorNavigation,
               sessions: state.sessions.map((s) => s.session),
               onFocus: () =>
                 updateTab(tab.id, (t) => ({ ...t, focusedId: id })),
@@ -971,7 +1054,8 @@ export function DetachedWorkspace() {
                     : (s.dirtyFileIds ?? []).filter((id) => id !== fileId),
                 })),
               onErrorCountChange: () => {},
-              onOpenFile: (path: string) => openFile(path),
+              onOpenFile: (path: string, navigation?: EditorNavigation) =>
+                openFile(path, {}, navigation),
               onUpdatePlan: (sessionId, blockId, text) =>
                 action(sessionId, "onUpdatePlan", [sessionId, blockId, text]),
               onBuildPlan: (sessionId, blockId, target) =>

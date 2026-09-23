@@ -55,7 +55,7 @@ add_test(NAME browser_edit_capture_geometry COMMAND supermono_chromium_browser_e
 # Real AppKit hierarchy/lifetime checks; hidden windows and no CEF initialization.
 add_executable(supermono_chromium_browser_host_view_test EXCLUDE_FROM_ALL browser_host_view_test.mm)
 target_compile_options(supermono_chromium_browser_host_view_test PRIVATE -fobjc-arc)
-target_link_libraries(supermono_chromium_browser_host_view_test PRIVATE "-framework Cocoa")
+target_link_libraries(supermono_chromium_browser_host_view_test PRIVATE "-framework Cocoa" "-framework QuartzCore")
 add_test(NAME browser_host_view_reparent COMMAND supermono_chromium_browser_host_view_test)
 
 # Per-tab command ordering, coalescing, navigation reapply and failure recovery.

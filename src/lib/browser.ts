@@ -14,6 +14,8 @@ export type BrowserBounds = {
   /** Covered edge strips; the native page keeps its full viewport dimensions. */
   clipLeft?: number;
   clipRight?: number;
+  /** Bottom content curve, in CSS pixels; native views sit above CSS clipping. */
+  bottomCornerRadius?: number;
 };
 
 export type BrowserAction =
@@ -255,6 +257,17 @@ export function browserBounds(element: HTMLElement): BrowserBounds | null {
   const rect = element.getBoundingClientRect();
   if (rect.width < 1 || rect.height < 1 || rect.x < 0 || rect.y < 0)
     return null;
+  const style =
+    typeof getComputedStyle === "function"
+      ? getComputedStyle(element)
+      : undefined;
+  const radius = Math.min(
+    parseFloat(style?.borderBottomLeftRadius ?? "0"),
+    parseFloat(style?.borderBottomRightRadius ?? "0"),
+  );
+  const bottomCornerRadius = Number.isFinite(radius)
+    ? Math.max(0, Math.min(radius, rect.width / 2, rect.height / 2))
+    : 0;
   return {
     x: rect.x,
     y: rect.y,
@@ -262,6 +275,7 @@ export function browserBounds(element: HTMLElement): BrowserBounds | null {
     height: rect.height,
     scale: window.devicePixelRatio || 1,
     viewportHeight: window.innerHeight,
+    ...(bottomCornerRadius > 0 ? { bottomCornerRadius } : {}),
   };
 }
 

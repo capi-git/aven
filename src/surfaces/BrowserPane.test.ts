@@ -2209,6 +2209,164 @@ describe("native preview lifecycle", () => {
     expect(mocks.stopToolbar).toHaveBeenCalledOnce();
   });
 
+  it("selects a stale DOM address when the pointer returns from native Chromium", async () => {
+    const onFocus = vi.fn();
+    await openPane({ onFocus });
+    const input = container.querySelector<HTMLInputElement>(
+      '[aria-label="Preview address"]',
+    )!;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+    // Native CEF focus does not necessarily change WK's document.activeElement.
+    await receive({ focused: true });
+    expect(document.activeElement).toBe(input);
+    const pointer = new PointerEvent("pointerdown", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+    });
+    await act(async () => input.dispatchEvent(pointer));
+    expect(pointer.defaultPrevented).toBe(true);
+    expect(mocks.shellFocus).toHaveBeenCalledOnce();
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe(input.value.length);
+    const secondPointer = new PointerEvent("pointerdown", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+    });
+    await act(async () => {
+      input.dispatchEvent(secondPointer);
+      input.setSelectionRange(3, 3);
+    });
+    expect(secondPointer.defaultPrevented).toBe(false);
+    expect([input.selectionStart, input.selectionEnd]).toEqual([3, 3]);
+    // CEF reports OnGotFocus; no intervening native blur event is required.
+    await receive({ focused: true });
+    expect(onFocus).toHaveBeenCalledTimes(2);
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect(mocks.close).not.toHaveBeenCalled();
+  });
+
+  it.each(["address", "find"] as const)(
+    "preserves the pointer's %s selection after native focus returns",
+    async (field) => {
+      const id = await openPane();
+      if (field === "find")
+        await act(async () =>
+          mocks.listenToolbar.mock.calls.at(-1)![0]({ id, action: "find" }),
+        );
+      const input = container.querySelector<HTMLInputElement>(
+        field === "address"
+          ? '[aria-label="Preview address"]'
+          : '[aria-label="Find text in page"]',
+      )!;
+      let finish!: () => void;
+      mocks.shellFocus.mockClear();
+      mocks.ownerShow.mockClear();
+      mocks.shellFocus.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      await act(async () => {
+        input.dispatchEvent(
+          new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+        );
+        input.focus();
+        input.value = "sample text";
+        input.setSelectionRange(2, 7, "backward");
+      });
+      await act(async () => finish());
+      expect(mocks.shellFocus).toHaveBeenCalledOnce();
+      expect(document.activeElement).toBe(input);
+      expect([
+        input.selectionStart,
+        input.selectionEnd,
+        input.selectionDirection,
+      ]).toEqual([2, 7, "backward"]);
+      expect(mocks.ownerShow).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    "another control",
+    "native page",
+    "hidden pane",
+    "floating pane",
+    "window blur",
+    "unmount",
+  ] as const)(
+    "does not restore a pending address focus after moving to %s",
+    async (destination) => {
+      await openPane();
+      const input = container.querySelector<HTMLInputElement>(
+        '[aria-label="Preview address"]',
+      )!;
+      let finish!: () => void;
+      mocks.shellFocus.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      input.focus();
+      await act(async () =>
+        input.dispatchEvent(
+          new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+        ),
+      );
+      const restoreFocus = vi.spyOn(input, "focus");
+      if (destination === "another control") {
+        const button = container.querySelector<HTMLButtonElement>(
+          '[aria-label="More browser actions"]',
+        )!;
+        await act(async () => {
+          button.dispatchEvent(
+            new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+          );
+          button.focus();
+        });
+      } else if (destination === "native page")
+        await receive({ focused: true });
+      else if (destination === "hidden pane")
+        await openPane({ visible: false });
+      else if (destination === "floating pane")
+        await receive({ floating: true });
+      else if (destination === "window blur")
+        window.dispatchEvent(new Event("blur"));
+      else await act(async () => root.render(null));
+      await act(async () => finish());
+      expect(restoreFocus).not.toHaveBeenCalled();
+      restoreFocus.mockRestore();
+    },
+  );
+
+  it("leaves context clicks alone and reports pointer focus failures without recreating the page", async () => {
+    await openPane();
+    const input = container.querySelector<HTMLInputElement>(
+      '[aria-label="Preview address"]',
+    )!;
+    await act(async () =>
+      input.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, button: 2 }),
+      ),
+    );
+    expect(mocks.shellFocus).not.toHaveBeenCalled();
+    mocks.shellFocus.mockRejectedValueOnce(new Error("Focus unavailable"));
+    await act(async () =>
+      input.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+      ),
+    );
+    expect(container.querySelector(".browser-notice")?.textContent).toContain(
+      "Could not focus browser toolbar: Focus unavailable",
+    );
+    expect(mocks.create).toHaveBeenCalledOnce();
+    expect(mocks.close).not.toHaveBeenCalled();
+  });
+
   it.each(["find", "address"] as const)(
     "waits for the grouped PiP return before focusing %s without recreating the page",
     async (action) => {

@@ -4,12 +4,12 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 9px;
-  min-height: 42px;
+  min-height: 38px;
   margin: 0 4px 8px;
-  padding: 7px 10px;
-  border-radius: 11px;
+  padding: 6px 10px;
+  border-radius: 8px;
   color: var(--color-content);
-  background: color-mix(in srgb, var(--color-content) 3%, transparent);
+  background: var(--aven-grouped-surface, var(--aven-hover));
   font-family: var(--font-sans);
   font-size: 12px;
   line-height: 17px;
@@ -29,7 +29,7 @@
   flex: 0 0 26px;
   height: 26px;
   place-items: center;
-  border-radius: 8px;
+  border-radius: 6px;
   color: color-mix(in srgb, var(--color-content) 72%, transparent);
   background: color-mix(in srgb, var(--color-content) 6%, transparent);
 }
@@ -59,18 +59,18 @@ html.theme-light
 }
 .session-run-copy strong {
   flex-shrink: 0;
-  font-weight: 550;
+  font-weight: 600;
 }
 .session-run-detail {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: color-mix(in srgb, var(--color-content) 66%, transparent);
+  color: var(--aven-muted);
 }
 .session-run-clock,
 .session-run-queued {
   flex-shrink: 0;
-  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+  color: var(--aven-muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
@@ -79,7 +79,7 @@ html.theme-light
   text-align: right;
 }
 .session-run-queued {
-  border-radius: 6px;
+  border-radius: 5px;
   padding: 2px 6px;
   background: color-mix(in srgb, var(--color-content) 5%, transparent);
 }
@@ -91,9 +91,10 @@ html.theme-light
   flex-shrink: 0;
   min-height: 28px;
   padding: 4px 8px;
-  border: 0;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--color-content) 7%, transparent);
+  border: 1px solid var(--aven-control-border, var(--aven-line));
+  border-radius: 6px;
+  background: var(--aven-control-bg, var(--aven-hover));
+  box-shadow: var(--aven-control-shadow, none);
   color: var(--color-content);
   font: inherit;
   font-size: 11px;
@@ -103,7 +104,7 @@ html.theme-light
   background: color-mix(in srgb, var(--color-content) 12%, transparent);
 }
 .session-run-stop:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
   outline-offset: 2px;
 }
 .session-run-mark > span {

@@ -18,6 +18,8 @@ import {
 const nativeWindow = vi.hoisted(() => ({
   setTitle: vi.fn().mockResolvedValue(undefined),
   getName: vi.fn().mockResolvedValue("Aven"),
+  startDragging: vi.fn().mockResolvedValue(undefined),
+  toggleMaximize: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("@tauri-apps/api/app", () => ({ getName: nativeWindow.getName }));
 vi.mock("@tauri-apps/api/window", () => ({
@@ -41,7 +43,7 @@ function tab(overrides: Partial<Tab> = {}): Tab {
 }
 
 describe("tabCopy", () => {
-  it("layers conversation and file when split across panes", () => {
+  it("keeps the task name when focus moves between its conversation and file panes", () => {
     const focusedSession = tabCopy(
       tab({
         multiPane: true,
@@ -63,11 +65,7 @@ describe("tabCopy", () => {
         files: ["opencodeAdapter.ts"],
       }),
     );
-    expect(focusedFile).toEqual({
-      headline: "opencodeAdapter.ts",
-      meta: "Add custom project logos",
-      tooltip: "agent-terminal · Add custom project logos · opencodeAdapter.ts",
-    });
+    expect(focusedFile).toEqual(focusedSession);
   });
 
   it("layers two conversations in split panes", () => {
@@ -147,6 +145,24 @@ describe("tabCopy", () => {
     );
     expect(copy.headline).toBe("browser.ts");
     expect(copy.meta).toBe("working-model");
+  });
+
+  it.each([
+    { files: ["App.tsx"], terminal: false },
+    { files: ["Changes"], terminal: false },
+    { files: ["npm run dev"], terminal: true },
+  ])("keeps $files as the name when there is no task", (details) => {
+    const copy = tabCopy(
+      tab({
+        ...details,
+        title: "",
+        sessionCount: 0,
+        fileFocused: true,
+      }),
+    );
+    expect(copy.headline).toBe(details.files[0]);
+    expect(copy.meta).toBe("");
+    expect(copy.tooltip).toBe(`agent-terminal · ${details.files[0]}`);
   });
 });
 
@@ -239,6 +255,8 @@ describe("browser tab integration", () => {
   beforeEach(() => {
     nativeWindow.setTitle.mockClear();
     nativeWindow.getName.mockReset().mockResolvedValue("Aven");
+    nativeWindow.startDragging.mockReset().mockResolvedValue(undefined);
+    nativeWindow.toggleMaximize.mockReset().mockResolvedValue(undefined);
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     container = document.createElement("div");
     document.body.append(container);
@@ -280,6 +298,17 @@ describe("browser tab integration", () => {
     await act(async () => button.click());
   }
 
+  async function mouseDown(target: Element, button = 0, detail = 1) {
+    const event = new MouseEvent("mousedown", {
+      button,
+      detail,
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => target.dispatchEvent(event));
+    return event;
+  }
+
   it("updates both untitled labels and titled model metadata when the live model catalog arrives", async () => {
     const models = [{ harness: "codex" as const, model: "codex:qa-model" }];
     await render({
@@ -315,6 +344,48 @@ describe("browser tab integration", () => {
     expect(props.onClose).toHaveBeenCalledExactlyOnceWith("a");
   });
 
+  it("keeps a task's visible name and close action stable while its active file changes", async () => {
+    const task = tab({
+      id: "a",
+      title: "Refine sidebar",
+      multiPane: true,
+      harnesses: ["codex"],
+      busyHarnesses: ["codex"],
+      models: [{ harness: "codex", model: "working-model" }],
+      files: ["SKILL.md", "README.md"],
+      dirty: true,
+    });
+    await render({ paneLocal: true, tabs: [task] });
+    const current = () => container.querySelector('[role="tab"]')!;
+    const headline = () =>
+      current().querySelector(".personal-title-tab-label")?.textContent;
+    expect(headline()).toBe("Refine sidebar");
+
+    await render({ tabs: [{ ...task, fileFocused: true }] });
+    expect(headline()).toBe("Refine sidebar");
+    await render({
+      tabs: [{ ...task, fileFocused: true, files: ["README.md", "SKILL.md"] }],
+    });
+    expect(headline()).toBe("Refine sidebar");
+    expect(current().getAttribute("aria-label")).toBe(
+      "agent-terminal · Refine sidebar · working-model · README.md, SKILL.md · Unsaved changes",
+    );
+    expect(current().getAttribute("title")).toBe(
+      current().getAttribute("aria-label"),
+    );
+    expect(
+      current().querySelector('[aria-label="Unsaved changes"]'),
+    ).not.toBeNull();
+    expect(
+      current().querySelector('.provider-mark[data-provider="codex"]'),
+    ).not.toBeNull();
+    await click('[role="tab"]');
+    expect(props.onSelect).toHaveBeenCalledExactlyOnceWith("a");
+    await click('[aria-label="Close Refine sidebar"]');
+    expect(props.onClose).toHaveBeenCalledExactlyOnceWith("a");
+    expect(props.onSelect).toHaveBeenCalledOnce();
+  });
+
   it("renders a compact pane-local strip with both new actions and no repeated global controls", async () => {
     await render({
       paneLocal: true,
@@ -344,6 +415,67 @@ describe("browser tab integration", () => {
     ).toBe("true");
     await click('[aria-label="New session"]');
     await click('[aria-label="New browser"]');
+    expect(props.onNew).toHaveBeenCalledOnce();
+    expect(props.onNewBrowser).toHaveBeenCalledOnce();
+  });
+
+  it("drags the hosted header's blank areas and maximizes on a double click only", async () => {
+    await render({ paneLocal: true, windowToolbar: true });
+    const header = container.querySelector("header")!;
+    const strip = container.querySelector('[role="tablist"]')!;
+    expect(header.getAttribute("data-tauri-drag-region")).toBe("false");
+    expect((await mouseDown(header)).defaultPrevented).toBe(true);
+    expect((await mouseDown(strip)).defaultPrevented).toBe(true);
+    expect((await mouseDown(strip.parentElement!)).defaultPrevented).toBe(true);
+    expect(nativeWindow.startDragging).toHaveBeenCalledTimes(3);
+    expect(nativeWindow.toggleMaximize).not.toHaveBeenCalled();
+    expect((await mouseDown(strip, 0, 2)).defaultPrevented).toBe(true);
+    expect(nativeWindow.toggleMaximize).toHaveBeenCalledOnce();
+    expect((await mouseDown(strip, 2)).defaultPrevented).toBe(false);
+    expect((await mouseDown(header, 1)).defaultPrevented).toBe(false);
+    expect(nativeWindow.startDragging).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([
+    { paneLocal: true, windowToolbar: false },
+    { paneLocal: false, windowToolbar: true },
+  ])("keeps explicit window gestures limited to hosted pane-local bars: %o", async (mode) => {
+    await render(mode);
+    const strip = container.querySelector('[role="tablist"]')!;
+    expect((await mouseDown(strip)).defaultPrevented).toBe(false);
+    expect((await mouseDown(strip, 0, 2)).defaultPrevented).toBe(false);
+    expect(nativeWindow.startDragging).not.toHaveBeenCalled();
+    expect(nativeWindow.toggleMaximize).not.toHaveBeenCalled();
+  });
+
+  it("keeps hosted tabs, group handles and other controls outside window gestures", async () => {
+    await render({
+      paneLocal: true,
+      windowToolbar: true,
+      browserTabs: [{ id: "web-a", title: "Preview" }],
+      onNewBrowser: vi.fn(),
+      groupId: "team",
+      groupLabel: "Team",
+      onMoveGroupToWindow: vi.fn(),
+    });
+    const header = container.querySelector("header")!;
+    const controls = document.createElement("div");
+    controls.innerHTML = '<input /><textarea></textarea><select></select><a href="#">Link</a><span contenteditable="true">Editable</span><div data-no-drag><span>No drag</span></div>';
+    header.append(controls);
+    const targets = [
+      ...header.querySelectorAll('[data-surface-tab-id], [role="tab"], button, button svg, .personal-title-tab-label'),
+      ...controls.querySelectorAll("*"),
+    ];
+    for (const target of targets) {
+      expect((await mouseDown(target)).defaultPrevented).toBe(false);
+      expect((await mouseDown(target, 0, 2)).defaultPrevented).toBe(false);
+    }
+    expect(nativeWindow.startDragging).not.toHaveBeenCalled();
+    expect(nativeWindow.toggleMaximize).not.toHaveBeenCalled();
+    await click('[data-surface-tab-id="b"] [role="tab"]');
+    await click('[aria-label="New session"]');
+    await click('[aria-label="New browser"]');
+    expect(props.onSelect).toHaveBeenCalledExactlyOnceWith("b");
     expect(props.onNew).toHaveBeenCalledOnce();
     expect(props.onNewBrowser).toHaveBeenCalledOnce();
   });
@@ -834,8 +966,10 @@ describe("browser tab integration", () => {
     expect(props.onUnsplit).toHaveBeenCalledOnce();
   });
 
-  it("reorders an inactive browser among sessions without first selecting it or consuming the split target", async () => {
+  it.each([false, true])("reorders an inactive browser without selecting it or consuming the split target (hosted=%s)", async (windowToolbar) => {
     await render({
+      paneLocal: windowToolbar,
+      windowToolbar,
       browserTabs: [{ id: "web-a", title: "Preview" }],
       surfaceOrder: ["a", "web-a", "b"],
       onReorderSurfaces: vi.fn(),
@@ -865,6 +999,7 @@ describe("browser tab integration", () => {
         ),
       );
     await pointer(browser, "pointerdown", 150);
+    await mouseDown(browser);
     expect(props.onSelectBrowser).not.toHaveBeenCalled();
     expect(props.onSelect).not.toHaveBeenCalled();
     await pointer(window, "pointermove", 10);
@@ -876,6 +1011,7 @@ describe("browser tab integration", () => {
     );
     expect(props.onSelectBrowser).not.toHaveBeenCalled();
     expect(props.onReorder).not.toHaveBeenCalled();
+    expect(nativeWindow.startDragging).not.toHaveBeenCalled();
   });
   it("selects the tab after an ordinary captured click lands on its wrapper", async () => {
     await render({ browserTabs: [{ id: "web-a", title: "Preview" }] });
@@ -994,8 +1130,10 @@ describe("browser tab integration", () => {
     expect(props.onClose).not.toHaveBeenCalled();
   });
 
-  it("moves the group owner from its labeled handle without emitting a single-tab drag", async () => {
+  it.each([false, true])("moves the group owner from its handle without a single-tab drag (hosted=%s)", async (windowToolbar) => {
     await render({
+      paneLocal: windowToolbar,
+      windowToolbar,
       groupId: "group-owner",
       groupLabel: "Research",
       onGroupDragMove: vi.fn(),
@@ -1022,6 +1160,7 @@ describe("browser tab integration", () => {
         ),
       );
     await pointer(handle, "pointerdown", 20);
+    await mouseDown(handle);
     await pointer(window, "pointermove", 200);
     await pointer(window, "pointerup", 900);
     expect(props.onGroupDragEnd).toHaveBeenCalledExactlyOnceWith(
@@ -1033,6 +1172,7 @@ describe("browser tab integration", () => {
     );
     expect(props.onSurfaceDragEnd).not.toHaveBeenCalled();
     expect(props.onReorder).not.toHaveBeenCalled();
+    expect(nativeWindow.startDragging).not.toHaveBeenCalled();
   });
 
   it("keeps reopen and layout undo discoverable on an empty tab strip", async () => {

@@ -367,8 +367,12 @@ fn apply_blur(window: &Window, radius: u8) {
     remember_applied_blur(window.label(), native_radius, status);
     if blur_diagnostics_enabled() {
         eprintln!(
-            "[supermono-glass] window={} requested={} applied={} status={} opaque={} main_thread={}",
-            window.label(), radius, native_radius, status, ns_window.isOpaque(),
+            "[aven-glass] window={} requested={} applied={} status={} opaque={} main_thread={}",
+            window.label(),
+            radius,
+            native_radius,
+            status,
+            ns_window.isOpaque(),
             MainThreadMarker::new().is_some()
         );
     }
@@ -383,7 +387,7 @@ fn blur_diagnostics_enabled() -> bool {
 fn diagnose_blur(window: &Window, requested: u8, applied: u8, outcome: &str) {
     if blur_diagnostics_enabled() {
         eprintln!(
-            "[supermono-glass] window={} requested={requested} applied={applied} outcome={outcome}",
+            "[aven-glass] window={} requested={requested} applied={applied} outcome={outcome}",
             window.label()
         );
     }

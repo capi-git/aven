@@ -123,7 +123,7 @@ export function saveWorkspaceProfiles(state: WorkspaceProfilesState) {
 }
 
 export function projectWorkspaceProfile(
-  state: WorkspaceProfilesState,
+  state: Pick<WorkspaceProfilesState, "profiles" | "projectProfiles">,
   path: string,
 ): string {
   const standaloneProfile = projectlessProfileForCwd(path);
@@ -262,23 +262,25 @@ export function useWorkspaceProfiles(
       return recents;
     return [...recents, { path: currentProject, openedAt: 0 }];
   }, [recents, currentProject]);
-  const profileProjects = useMemo(
-    () => projectsForWorkspace(state, availableProjects),
-    [state, availableProjects],
-  );
   // Read-only destinations for the native sidebar carousel. This uses the
   // same local project assignments as the selected workspace, without opening
-  // projects or creating another workspace/session tree.
-  const projectsByProfile = useMemo(
-    () =>
-      Object.fromEntries(
-        state.profiles.map((profile) => [
-          profile.id,
-          projectsForWorkspace(state, availableProjects, profile.id),
-        ]),
-      ),
-    [state, availableProjects],
-  );
+  // projects or creating another workspace/session tree. Selection and remembered
+  // destinations do not change membership; keep these arrays stable so a swipe
+  // does not rebuild every workspace's task preview.
+  const { profiles, projectProfiles } = state;
+  const projectsByProfile = useMemo(() => {
+    const grouped: Record<string, RecentProject[]> = Object.fromEntries(
+      profiles.map((profile) => [profile.id, []]),
+    );
+    const membership = { profiles, projectProfiles };
+    for (const project of availableProjects) {
+      if (!looksLikeProject(project.path) || isProjectlessCwd(project.path))
+        continue;
+      grouped[projectWorkspaceProfile(membership, project.path)].push(project);
+    }
+    return grouped;
+  }, [profiles, projectProfiles, availableProjects]);
+  const profileProjects = projectsByProfile[state.activeProfileId];
   const selectProfile = useCallback(
     (id: string) => {
       const current = stateRef.current;

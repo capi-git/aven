@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentMarkdown, MarkdownPreview } from "./AgentMarkdown";
 import {
   installInAppLinks,
+  fileLinkHref,
+  openInAppFile,
   openInAppUrl,
   resolveFileLink,
 } from "../lib/inAppLinks";
@@ -76,6 +78,16 @@ describe("in-app links", () => {
     ],
     ["[Data](./report.json)", "/project/report.json", undefined],
     ["[Section](docs/guide.md#setup)", "/project/docs/guide.md", undefined],
+    [
+      "[Notes](/project/100%25%20ready%23today.md)",
+      "/project/100% ready#today.md",
+      undefined,
+    ],
+    [
+      "[Notes](file://localhost/project/Notes.md#L4-L8)",
+      "/project/Notes.md",
+      { line: 4 },
+    ],
   ])(
     "opens rendered file reference %s in the local viewer",
     async (text, path, navigation) => {
@@ -90,7 +102,16 @@ describe("in-app links", () => {
       );
       const link = element.querySelector("a")!;
       expect(link).not.toBeNull();
-      link.click();
+      for (const options of [{}, { metaKey: true }, { button: 1 }]) {
+        const event = new MouseEvent(options.button ? "auxclick" : "click", {
+          bubbles: true,
+          cancelable: true,
+          ...options,
+        });
+        link.dispatchEvent(event);
+        expect(event.defaultPrevented).toBe(true);
+      }
+      expect(openFile).toHaveBeenCalledTimes(3);
       expect(openFile).toHaveBeenCalledWith(path, navigation);
       expect(openUrl).not.toHaveBeenCalled();
     },
@@ -107,6 +128,60 @@ describe("in-app links", () => {
     element.querySelector("a")!.click();
     expect(openFile).toHaveBeenCalledWith("/project/docs/next.md", undefined);
   });
+  it("opens inline Markdown references through the app host and preserves their line", async () => {
+    await act(async () =>
+      root.render(
+        createElement(MarkdownPreview, {
+          text: "Continue with `./README.md:12:3`.",
+          cwd: "/project/docs",
+        }),
+      ),
+    );
+    const reference = element.querySelector('code[role="link"]')!;
+    expect(reference).not.toBeNull();
+    reference.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(openFile).toHaveBeenCalledExactlyOnceWith(
+      "/project/docs/README.md",
+      {
+        line: 12,
+        column: 3,
+      },
+    );
+  });
+  it("opens fenced file labels through the app host", async () => {
+    await act(async () =>
+      root.render(
+        createElement(MarkdownPreview, {
+          text: "```docs/README.md\n# Setup\n```",
+          cwd: "/project",
+        }),
+      ),
+    );
+    const reference = element.querySelector<HTMLButtonElement>(
+      "button.markdown-code-path",
+    )!;
+    expect(reference).not.toBeNull();
+    reference.click();
+    expect(openFile).toHaveBeenCalledExactlyOnceWith(
+      "/project/docs/README.md",
+      undefined,
+    );
+  });
+  it("does not enable inline or fenced local references in remote inbox content", async () => {
+    await act(async () =>
+      root.render(
+        createElement(AgentMarkdown, {
+          text: "`/Users/test/private.md`\n\n```/Users/test/private.md\n# Notes\n```",
+          allowRemoteMedia: true,
+          onOpenFile: openFile,
+        }),
+      ),
+    );
+    expect(
+      element.querySelector('code[role="link"], button.markdown-code-path'),
+    ).toBeNull();
+    expect(openFile).not.toHaveBeenCalled();
+  });
   it("does not turn remote inbox links into local file access", async () => {
     await act(async () =>
       root.render(
@@ -120,6 +195,22 @@ describe("in-app links", () => {
     element.querySelector("a")?.click();
     expect(openFile).not.toHaveBeenCalled();
   });
+  it("does not expose internal editor fragments to native link actions in remote content", async () => {
+    await act(async () =>
+      root.render(
+        createElement(AgentMarkdown, {
+          text: `[File](${fileLinkHref("/Users/test/private.md")})`,
+          allowRemoteMedia: true,
+          onOpenFile: openFile,
+        }),
+      ),
+    );
+    expect(element.querySelector("a")?.getAttribute("href") ?? "").not.toMatch(
+      /^#covecode-file=/,
+    );
+    element.querySelector("a")?.click();
+    expect(openFile).not.toHaveBeenCalled();
+  });
   it("preserves same-document anchors", async () => {
     await act(async () =>
       root.render(
@@ -128,7 +219,14 @@ describe("in-app links", () => {
     );
     const event = new MouseEvent("click", { bubbles: true, cancelable: true });
     let preventedByApp = true;
-    window.addEventListener("click", (click) => { preventedByApp = click.defaultPrevented; click.preventDefault(); }, { once: true });
+    window.addEventListener(
+      "click",
+      (click) => {
+        preventedByApp = click.defaultPrevented;
+        click.preventDefault();
+      },
+      { once: true },
+    );
     element.querySelector("a")!.dispatchEvent(event);
     expect(preventedByApp).toBe(false);
     expect(openUrl).not.toHaveBeenCalled();
@@ -149,9 +247,18 @@ describe("in-app links", () => {
   it("removes event listeners when a window unmounts", () => {
     stop();
     element.innerHTML = '<a href="https://example.com">Link</a>';
-    window.addEventListener("click", (event) => event.preventDefault(), { once: true });
+    window.addEventListener("click", (event) => event.preventDefault(), {
+      once: true,
+    });
     element.querySelector("a")!.click();
     expect(openUrl).not.toHaveBeenCalled();
+  });
+  it("reports an unavailable file host instead of silently losing an open request", () => {
+    stop();
+    expect(() => openInAppFile("/project/README.md")).toThrow(
+      "The workspace is still opening",
+    );
+    expect(openFile).not.toHaveBeenCalled();
   });
 });
 
@@ -203,6 +310,49 @@ describe("native shell link routing", () => {
     );
     expect(openFile).not.toHaveBeenCalled();
     expect(report).not.toHaveBeenCalled();
+  });
+
+  it("routes a native local-file fragment to the editor with its location", async () => {
+    stop = install();
+    await emit(
+      fileLinkHref("/project/My Notes #1.md", { line: 12, column: 3 }),
+    );
+    expect(openFile).toHaveBeenCalledExactlyOnceWith(
+      "/project/My Notes #1.md",
+      {
+        line: 12,
+        column: 3,
+      },
+    );
+    expect(openUrl).not.toHaveBeenCalled();
+    expect(report).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "#covecode-file=%",
+    "#covecode-file=README.md",
+    "#covecode-file=https%3A%2F%2Fexample.com%2Freadme.md",
+    "#covecode-file=%2F%2Fremote%2Freadme.md",
+  ])(
+    "rejects malformed native file fragments without a web fallback: %s",
+    async (href) => {
+      stop = install();
+      await emit(href);
+      expect(openFile).not.toHaveBeenCalled();
+      expect(openUrl).not.toHaveBeenCalled();
+      expect(report).toHaveBeenCalledExactlyOnceWith(expect.any(Error));
+    },
+  );
+
+  it("reports a native editor-open failure", async () => {
+    const error = new Error("Editor unavailable");
+    openFile.mockImplementationOnce(() => {
+      throw error;
+    });
+    stop = install();
+    await emit(fileLinkHref("/project/README.md"));
+    expect(report).toHaveBeenCalledExactlyOnceWith(error);
+    expect(openUrl).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -301,6 +451,25 @@ it.each([
   "file://remote/share.md",
   "#heading",
   "//remote/readme.md",
+  "%2F%2Fremote/readme.md",
+  "\\\\remote\\readme.md",
+  "/project/notes%00.md",
+  "/project/notes%0A.md",
 ])("does not treat %s as a workspace file", (href) => {
   expect(resolveFileLink(href, "/project")).toBeUndefined();
 });
+
+it.each([
+  "/project/My Notes.md",
+  "/project/100% ready #1?.md",
+  "/project/literal%20text.md",
+])(
+  "preserves literal path characters and navigation in internal file links: %s",
+  (path) => {
+    const navigation = { line: 12, column: 3 };
+    expect(resolveFileLink(fileLinkHref(path, navigation))).toEqual({
+      path,
+      navigation,
+    });
+  },
+);

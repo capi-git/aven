@@ -34,6 +34,7 @@ describe("workspace stage", () => {
   let props: WorkspaceStageProps;
   let frames: Map<number, FrameRequestCallback>;
   let nextFrame: number;
+  let externalNodes: HTMLElement[];
   const mounted = vi.fn();
   const unmounted = vi.fn();
   const rendered = vi.fn();
@@ -62,6 +63,7 @@ describe("workspace stage", () => {
     );
     frames = new Map();
     nextFrame = 1;
+    externalNodes = [];
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
       const id = nextFrame++;
       frames.set(id, callback);
@@ -89,6 +91,7 @@ describe("workspace stage", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    for (const element of externalNodes) element.remove();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.useRealTimers();
@@ -98,6 +101,12 @@ describe("workspace stage", () => {
     props = { ...props, ...patch };
     await act(async () => root.render(createElement(WorkspaceStage, props)));
   }
+  const externalContainer = () => {
+    const element = document.createElement("div");
+    document.body.append(element);
+    externalNodes.push(element);
+    return element;
+  };
   const stage = () =>
     container.querySelector<HTMLElement>("[data-workspace-stage]")!;
   const surface = (id: string) =>
@@ -169,6 +178,341 @@ describe("workspace stage", () => {
     expect(mounted.mock.calls).toEqual([["chat"], ["browser"]]);
     expect(unmounted).not.toHaveBeenCalled();
     expect(rendered).toHaveBeenCalledTimes(2);
+  });
+
+  it("portals one unsplit header without duplicate chrome or local header padding", async () => {
+    const toolbar = externalContainer();
+    const content = createElement("input", { defaultValue: "Header state" });
+    await render({
+      toolbarHost: toolbar,
+      headers: [{ id: "chat", key: "chat,browser", content }],
+    });
+    const external = toolbar.querySelector<HTMLElement>(
+      "[data-workspace-header]",
+    )!;
+    const headerInput = external.querySelector("input")!;
+    headerInput.value = "Preserved header value";
+    const chat = input("chat");
+    expect(external.dataset.workspaceHeaderHosted).toBe("toolbar");
+    expect(header("chat")).toBeNull();
+    expect(surface("chat").dataset.hasHeader).toBe("false");
+    expect(external.style.top).toBe("");
+    expect(external.style.height).toBe("");
+    expect(document.querySelectorAll("[data-workspace-header]")).toHaveLength(
+      1,
+    );
+    await render({
+      layout: leaf("browser"),
+      focusedId: "browser",
+      headers: [{ id: "browser", key: "chat,browser", content }],
+    });
+    expect(toolbar.querySelector("[data-workspace-header]")).toBe(external);
+    expect(external.dataset.workspaceHeader).toBe("browser");
+    expect(external.querySelector("input")).toBe(headerInput);
+    expect(headerInput.value).toBe("Preserved header value");
+    expect(surface("browser").dataset.hasHeader).toBe("false");
+    expect(input("chat")).toBe(chat);
+    expect(unmounted).not.toHaveBeenCalled();
+  });
+
+  it("clears the toolbar while hidden and falls back to local headers for split layouts", async () => {
+    const toolbar = externalContainer();
+    await render({
+      toolbarHost: toolbar,
+      headers: [{ id: "chat", content: "Chat tabs" }],
+    });
+    const chat = input("chat");
+    chat.value = "Draft stays mounted";
+    await render({ visible: false });
+    expect(toolbar.querySelector("[data-workspace-header]")).toBeNull();
+    expect(stage().hidden).toBe(true);
+    expect(surface("chat").dataset.hasHeader).toBe("false");
+    await render({ visible: true, layout: columns() });
+    expect(toolbar.querySelector("[data-workspace-header]")).toBeNull();
+    expect(header("chat")?.style.height).toBe("32px");
+    expect(surface("chat").dataset.hasHeader).toBe("true");
+    await render({
+      headers: [
+        { id: "chat", content: "Chat tabs" },
+        { id: "browser", content: "Browser tabs" },
+      ],
+    });
+    expect(header("browser")?.style.height).toBe("32px");
+    expect(surface("browser").dataset.hasHeader).toBe("true");
+    await render({
+      layout: leaf("chat"),
+      headers: [{ id: "chat", content: "Chat tabs" }],
+    });
+    expect(toolbar.querySelectorAll("[data-workspace-header]")).toHaveLength(1);
+    expect(surface("chat").dataset.hasHeader).toBe("false");
+    expect(input("chat")).toBe(chat);
+    expect(chat.value).toBe("Draft stays mounted");
+    expect(unmounted).not.toHaveBeenCalled();
+  });
+
+  it("uses the external header for same-group splits and insertion feedback", async () => {
+    const toolbar = externalContainer();
+    await render({
+      toolbarHost: toolbar,
+      headers: [
+        {
+          id: "chat",
+          content: createElement(
+            "div",
+            null,
+            createElement("button", { "data-surface-tab-id": "chat" }, "Chat"),
+            createElement(
+              "button",
+              { "data-surface-tab-id": "browser" },
+              "Browser",
+            ),
+          ),
+        },
+      ],
+    });
+    const external = toolbar.querySelector<HTMLElement>(
+      "[data-workspace-header]",
+    )!;
+    vi.spyOn(external, "getBoundingClientRect").mockReturnValue(
+      rectangle(100, 5, 500, 40),
+    );
+    const tabs = external.querySelectorAll<HTMLElement>(
+      "[data-surface-tab-id]",
+    );
+    for (const [index, tab] of [...tabs].entries())
+      vi.spyOn(tab, "getBoundingClientRect").mockReturnValue(
+        rectangle(100 + index * 100, 5, 100, 40),
+      );
+    vi.spyOn(body("chat"), "getBoundingClientRect").mockReturnValue(
+      rectangle(100, 50, 500, 600),
+    );
+    expect(workspaceSurfaceDropAt(stage(), 150, 20, "chat")).toBeNull();
+    expect(workspaceSurfaceDropAt(stage(), 102, 300, "chat")).toEqual({
+      id: "chat",
+      edge: "left",
+    });
+    expect(workspaceSurfaceDropAt(stage(), 350, 300, "chat")).toBeNull();
+    expect(workspaceSurfaceDropAt(stage(), 250, 20, "another")).toEqual({
+      id: "chat",
+      edge: "tab",
+      index: 2,
+    });
+    await render({
+      dragging: true,
+      dragTarget: { id: "chat", edge: "tab", index: 1 },
+    });
+    expect(toolbar.querySelector("[data-workspace-header]")).toBe(external);
+    expect(external.dataset.dropTarget).toBe("true");
+    expect(
+      external.querySelector<HTMLElement>("[data-drop-insertion]")?.style.left,
+    ).toBe("100px");
+    expect(external.style.height).toBe("");
+    toolbar.hidden = true;
+    expect(workspaceSurfaceDropAt(stage(), 102, 300, "chat")).toBeNull();
+    toolbar.hidden = false;
+    const oldStage = stage();
+    await act(async () => root.render(null));
+    expect(toolbar.querySelector("[data-workspace-header]")).toBeNull();
+    // A stale connected header cannot re-register itself after owner cleanup.
+    toolbar.append(external);
+    expect(workspaceSurfaceDropAt(oldStage, 102, 300, "chat")).toBeNull();
+  });
+
+  it("scopes external header membership to its stage and clears it when the host changes", async () => {
+    const toolbar = externalContainer();
+    const nextToolbar = externalContainer();
+    const otherContainer = externalContainer();
+    const otherRoot = createRoot(otherContainer);
+    const grouped = createElement(
+      "div",
+      null,
+      createElement("button", { "data-surface-tab-id": "chat" }, "Chat"),
+      createElement("button", { "data-surface-tab-id": "browser" }, "Browser"),
+    );
+    try {
+      await render({
+        toolbarHost: toolbar,
+        headers: [{ id: "chat", content: grouped }],
+      });
+      await act(async () =>
+        otherRoot.render(
+          createElement(WorkspaceStage, {
+            ...props,
+            surfaces: [{ id: "chat", content: "Other stage" }],
+            headers: [
+              {
+                id: "chat",
+                content: createElement(
+                  "button",
+                  { "data-surface-tab-id": "chat" },
+                  "Other chat",
+                ),
+              },
+            ],
+          }),
+        ),
+      );
+      const otherStage = otherContainer.querySelector<HTMLElement>(
+        "[data-workspace-stage]",
+      )!;
+      vi.spyOn(body("chat"), "getBoundingClientRect").mockReturnValue(
+        rectangle(100, 50, 500, 600),
+      );
+      vi.spyOn(
+        otherStage.querySelector<HTMLElement>("[data-workspace-body]")!,
+        "getBoundingClientRect",
+      ).mockReturnValue(rectangle(100, 50, 500, 600));
+      expect(workspaceSurfaceDropAt(stage(), 102, 300, "chat")).toEqual({
+        id: "chat",
+        edge: "left",
+      });
+      expect(workspaceSurfaceDropAt(otherStage, 102, 300, "chat")).toBeNull();
+      const oldHeader = toolbar.querySelector<HTMLElement>(
+        "[data-workspace-header]",
+      )!;
+      await render({ toolbarHost: nextToolbar });
+      expect(
+        nextToolbar.querySelectorAll("[data-workspace-header]"),
+      ).toHaveLength(1);
+      expect(toolbar.querySelectorAll("[data-workspace-header]")).toHaveLength(
+        1,
+      ); // Other stage only.
+      expect(oldHeader.isConnected).toBe(false);
+      await render({ toolbarHost: null });
+      expect(nextToolbar.querySelector("[data-workspace-header]")).toBeNull();
+      expect(header("chat")?.dataset.workspaceHeaderHosted).toBeUndefined();
+      expect(surface("chat").dataset.hasHeader).toBe("true");
+    } finally {
+      await act(async () => otherRoot.unmount());
+    }
+  });
+
+  it("keeps visited workspace geometry, drafts and scroll positions warm across profile and home switches", async () => {
+    const workHeaders = ["chat", "browser"].map((id) => ({
+      id,
+      content: createElement("span", null, `${id} tabs`),
+    }));
+    const chatContent = createElement(
+      "div",
+      { "data-scroll": true, style: { overflow: "auto", height: "100%" } },
+      createElement(StatefulSurface, { id: "chat" }),
+    );
+    const surfaces = [
+      { id: "chat", content: chatContent },
+      ...["browser", "personal", "unvisited"].map((id) => ({
+        id,
+        content: createElement(StatefulSurface, { id }),
+      })),
+    ];
+    await render({
+      layout: columns([0.4, 0.6]),
+      headers: workHeaders,
+      surfaces,
+    });
+    const chat = surface("chat");
+    const browser = surface("browser");
+    const draft = input("chat");
+    const scroller = chat.querySelector<HTMLElement>("[data-scroll]")!;
+    draft.value = "Keep this unfinished message";
+    scroller.scrollTop = 387;
+    scroller.scrollLeft = 23;
+    const chatGeometry = chat.style.cssText;
+    const browserGeometry = browser.style.cssText;
+
+    await render({
+      layout: leaf("personal"),
+      focusedId: "personal",
+      headers: [{ id: "personal", content: "Personal tabs" }],
+    });
+    expect(chat.hidden).toBe(true);
+    expect(chat.getAttribute("aria-hidden")).toBe("true");
+    expect(chat.hasAttribute("inert")).toBe(true);
+    expect(chat.dataset.retained).toBe("true");
+    expect(chat.dataset.hasHeader).toBe("true");
+    expect(chat.style.cssText).toBe(chatGeometry);
+    expect(browser.style.cssText).toBe(browserGeometry);
+    expect(surface("personal").hidden).toBe(false);
+    expect(surface("personal").style.width).toBe("100%");
+    expect(surface("unvisited").dataset.retained).toBe("false");
+    expect(surface("unvisited").style.width).toBe("");
+
+    // Profile home/settings can hide the entire stage while changing its view.
+    await render({ visible: false, layout: null, headers: [] });
+    expect(stage().hidden).toBe(true);
+    expect(stage().dataset.retained).toBe("true");
+    expect(stage().hasAttribute("inert")).toBe(true);
+    expect(chat.style.cssText).toBe(chatGeometry);
+    expect(chat.dataset.hasHeader).toBe("true");
+    expect(surface("personal").style.width).toBe("100%");
+
+    await render({
+      visible: true,
+      layout: columns([0.4, 0.6]),
+      focusedId: "chat",
+      headers: workHeaders,
+    });
+    expect(surface("chat")).toBe(chat);
+    expect(surface("browser")).toBe(browser);
+    expect(input("chat")).toBe(draft);
+    expect(draft.value).toBe("Keep this unfinished message");
+    expect(chat.querySelector("[data-scroll]")).toBe(scroller);
+    expect(scroller.scrollTop).toBe(387);
+    expect(scroller.scrollLeft).toBe(23);
+    expect(chat.hidden).toBe(false);
+    expect(chat.hasAttribute("inert")).toBe(false);
+    expect(mounted).toHaveBeenCalledTimes(4);
+    expect(unmounted).not.toHaveBeenCalled();
+  });
+
+  it("discards warm geometry when a surface closes and keeps a reopened inactive surface cold", async () => {
+    await render({
+      headers: [{ id: "chat", content: "Chat tabs" }],
+    });
+    const original = input("chat");
+    original.value = "A closed draft";
+    const chatSurface = props.surfaces[0];
+    const browserSurface = props.surfaces[1];
+    await render({
+      layout: leaf("browser"),
+      focusedId: "browser",
+      headers: [],
+      surfaces: [browserSurface],
+    });
+    expect(unmounted).toHaveBeenCalledExactlyOnceWith("chat");
+    await render({ surfaces: [chatSurface, browserSurface] });
+    expect(input("chat")).not.toBe(original);
+    expect(input("chat").value).toBe("Unsaved chat");
+    expect(surface("chat").hidden).toBe(true);
+    expect(surface("chat").dataset.retained).toBe("false");
+    expect(surface("chat").dataset.hasHeader).toBe("false");
+    expect(surface("chat").style.width).toBe("");
+  });
+
+  it("does not warm an unvisited layout while the whole workspace is hidden", async () => {
+    await render({ visible: false, layout: leaf("browser") });
+    expect(stage().dataset.retained).toBe("false");
+    expect(surface("browser").dataset.retained).toBe("false");
+    await render({ visible: false, layout: leaf("chat") });
+    expect(stage().dataset.retained).toBe("false");
+    expect(surface("browser").dataset.retained).toBe("false");
+    expect(surface("browser").style.width).toBe("");
+    await render({ visible: true, layout: leaf("chat") });
+    await render({ visible: false, layout: leaf("browser") });
+    expect(surface("chat").dataset.retained).toBe("true");
+    expect(surface("chat").style.width).toBe("100%");
+    expect(surface("browser").dataset.retained).toBe("false");
+  });
+
+  it("keeps the last visited split measurements when a hidden workspace has a different layout", async () => {
+    await render({ layout: columns([0.4, 0.6]) });
+    const chatGeometry = surface("chat").style.cssText;
+    const browserGeometry = surface("browser").style.cssText;
+    await render({ visible: false, layout: leaf("chat") });
+    expect(surface("chat").style.cssText).toBe(chatGeometry);
+    expect(surface("browser").style.cssText).toBe(browserGeometry);
+    await render({ visible: true });
+    expect(surface("chat").style.width).toBe("100%");
+    expect(surface("browser").style.cssText).toBe(browserGeometry);
   });
 
   it("paints resize frames without rendering content and commits once on release", async () => {
@@ -504,6 +848,46 @@ describe("workspace stage", () => {
       false,
     );
     expect(document.body.style.cursor).toBe("");
+  });
+
+  it("restores inactive panes after cancelling a painted resize during a workspace switch", async () => {
+    await render({
+      layout: columns(),
+      surfaces: [
+        ...props.surfaces,
+        {
+          id: "personal",
+          content: createElement(StatefulSurface, { id: "personal" }),
+        },
+      ],
+    });
+    bindStageBounds();
+    const chat = input("chat");
+    chat.value = "Unfinished work";
+    const chatGeometry = surface("chat").style.cssText;
+    const browserGeometry = surface("browser").style.cssText;
+    act(() => sash().dispatchEvent(pointer("pointerdown", 600)));
+    act(() => window.dispatchEvent(pointer("pointermove", 750)));
+    flushFrame();
+    expect(surface("chat").style.width).toBe("calc(65% - 4px)");
+    expect(surface("browser").style.left).toBe("calc(65% + 4px)");
+    act(() => window.dispatchEvent(pointer("pointermove", 800)));
+
+    await render({ layout: leaf("personal"), focusedId: "personal" });
+    expect(surface("chat").hidden).toBe(true);
+    expect(surface("chat").style.cssText).toBe(chatGeometry);
+    expect(surface("browser").style.cssText).toBe(browserGeometry);
+    expect(surface("personal").style.width).toBe("100%");
+    expect(input("chat")).toBe(chat);
+    expect(chat.value).toBe("Unfinished work");
+    expect(unmounted).not.toHaveBeenCalled();
+    expect(props.onLayoutChange).not.toHaveBeenCalled();
+    expect(stage().hasAttribute("data-resizing")).toBe(false);
+    expect(document.body.style.cursor).toBe("");
+    expect(frames.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+    act(() => window.dispatchEvent(pointer("pointerup", 800)));
+    expect(props.onLayoutChange).not.toHaveBeenCalled();
   });
 
   it("supports keyboard resize and balances only the adjacent pair on double-click", async () => {

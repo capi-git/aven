@@ -1,4 +1,5 @@
-/* Nearly black chrome. Motion runs only while a panel is toggled. */
+/* A quiet window frame, a distinct navigation material and a content surface.
+   Motion runs only while a panel is toggled; native browser bounds stay fixed. */
 .personal-shell {
   --personal-window-opacity: 1;
   --personal-frame: var(
@@ -12,12 +13,12 @@
   --personal-sidebar-surface: var(--personal-frame);
   --personal-navigation-surface: color-mix(
     in srgb,
-    var(--personal-frame) 93%,
+    var(--personal-frame) 94%,
     var(--color-content)
   );
   --personal-sidebar-glass-surface: color-mix(
     in srgb,
-    var(--color-content) 7%,
+    var(--color-content) 6%,
     transparent
   );
   --personal-sidebar-edge: color-mix(
@@ -52,7 +53,7 @@
     var(--personal-main-surface) 94%,
     var(--color-content)
   );
-  --personal-panel-duration: 120ms;
+  --personal-panel-duration: 150ms;
   --color-accent: var(--personal-accent);
   --color-background-base: var(--personal-main-surface);
   position: relative;
@@ -64,6 +65,12 @@
   );
   border-radius: 12px;
   isolation: isolate;
+}
+
+/* The titled macOS window owns the outer curve. A second CSS curve scales
+   with interface zoom and leaves a mismatched contour inside the native edge. */
+html.is-mac .personal-shell {
+  border-radius: 0;
 }
 
 html.theme-light .personal-shell {
@@ -128,13 +135,31 @@ html.has-native-glass.glass-body:not(.theme-light)
 }
 
 .personal-shell .personal-main.body-glass {
+  position: relative;
   margin: 0 8px;
   min-width: 0;
   border: 1px solid transparent;
-  border-radius: 16px;
-  box-shadow: 0 3px 20px #0000000d;
+  border-radius: 10px;
+  box-shadow: none;
   overflow: hidden;
   background: var(--personal-main-surface);
+}
+
+/* Keep the visited workspace measurable beneath Home/Settings. Removing its
+   layout here also cools every retained editor and transcript inside it. */
+.personal-workspace-content[hidden] {
+  position: absolute;
+  inset: 0;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+@layer base {
+  /* Match Tailwind's important hidden rule in its own cascade layer. */
+  .personal-workspace-content[hidden] {
+    display: flex !important;
+  }
 }
 
 /* Commit reserved width once. Tweening it relayouts every native browser on
@@ -368,7 +393,7 @@ html.has-native-glass.glass-body:not(.theme-light)
   background: var(--personal-sidebar-surface);
   border: 1px solid var(--personal-line);
   border-radius: 12px;
-  box-shadow: 0 10px 32px #0005;
+  box-shadow: var(--aven-shadow);
 }
 .personal-shell
   .personal-sidebar-slot[data-floating="true"]
@@ -469,7 +494,7 @@ html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar {
 .personal-profile-home h1 {
   font-size: 22px;
   letter-spacing: -0.5px;
-  font-weight: 500;
+  font-weight: 600;
   margin: 11px 0 8px;
 }
 .personal-profile-home p {
@@ -483,10 +508,11 @@ html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar {
   height: 30px;
   margin-top: 20px;
   padding: 0 12px;
-  border: 1px solid var(--personal-line);
-  border-radius: 6px;
-  background: var(--personal-hover);
-  font-size: 11px;
+  border: 1px solid var(--aven-control-border);
+  border-radius: 7px;
+  background: var(--aven-control-bg);
+  box-shadow: var(--aven-control-shadow);
+  font-size: 12px;
 }
 .personal-home-actions {
   display: flex;
@@ -572,17 +598,17 @@ html.theme-light .personal-shell .personal-main.body-glass {
     var(--personal-main-surface) 70%,
     transparent
   );
-  border-radius: 16px;
-  box-shadow: 0 4px 18px rgba(42, 51, 75, 0.06);
+  border-radius: 10px;
+  box-shadow: none;
 }
 html.theme-light .personal-shell .workspace-stage-surface {
-  border-radius: 14px;
+  border-radius: 9px;
 }
 html.theme-light .personal-shell .workspace-stage-surface[data-focused="true"] {
   border-color: transparent;
 }
 html.theme-light .personal-shell .workspace-stage-header {
-  border-radius: 13px 13px 0 0;
+  border-radius: 8px 8px 0 0;
 }
 html.theme-light .personal-shell .workspace-status-bar {
   height: 40px;
@@ -632,15 +658,29 @@ html.theme-light .personal-shell [role="treeitem"] > .text-red-400 {
 }
 
 /* Each header belongs to its panel, so navigation and task status follow resizing. */
+.personal-shell
+  .personal-workspace-column[data-settings-open="true"]
+  .personal-main.body-glass {
+  margin-inline: 0;
+  border: 0;
+  border-radius: 0;
+}
+.personal-shell .workspace-status-bar[data-settings="true"] {
+  border-bottom: 1px solid var(--aven-line);
+}
 .personal-shell .personal-workspace-column {
   position: relative;
   padding-top: 40px;
 }
-.personal-shell .workspace-status-bar,
-html.theme-light .personal-shell .workspace-status-bar,
-html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar,
+.personal-shell:not([data-unified-toolbar]) .workspace-status-bar,
+html.theme-light
+  .personal-shell:not([data-unified-toolbar])
+  .workspace-status-bar,
+html.is-mac
+  .personal-shell:not([data-unified-toolbar])[data-sidebar-pinned="false"]
+  .workspace-status-bar,
 html.theme-light.is-mac
-  .personal-shell[data-sidebar-pinned="false"]
+  .personal-shell:not([data-unified-toolbar])[data-sidebar-pinned="false"]
   .workspace-status-bar {
   position: absolute;
   top: 0;
@@ -653,7 +693,10 @@ html.theme-light.is-mac
   gap: 8px;
   font-size: 11px;
 }
-html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar {
+html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar,
+html.theme-light.is-mac
+  .personal-shell[data-sidebar-pinned="false"]
+  .workspace-status-bar {
   padding-left: 88px;
 }
 .personal-shell .workspace-status-pill,
@@ -721,4 +764,101 @@ html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar {
 .personal-shell .personal-panel-resizer:focus-visible {
   background: transparent;
   outline: none;
+}
+
+/* Design A: a single window toolbar over a continuous workspace. The native
+   window supplies the outer curve; only controls and floating panels are round. */
+.personal-shell[data-unified-toolbar] {
+  flex-direction: column;
+}
+.personal-shell-body {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.personal-shell[data-unified-toolbar] .personal-panel-edge {
+  top: 0;
+}
+.personal-shell[data-unified-toolbar] .personal-workspace-column {
+  padding-top: 0;
+}
+html .personal-shell[data-unified-toolbar] > .workspace-status-bar {
+  position: relative;
+  inset: auto;
+  flex: 0 0 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 4px 12px;
+  border-bottom: 0;
+  background: var(--aven-toolbar-surface, var(--personal-frame));
+}
+html.is-mac .personal-shell[data-unified-toolbar] > .workspace-status-bar {
+  padding-left: 88px;
+}
+.personal-shell[data-unified-toolbar] .personal-sidebar-windowbar {
+  display: none;
+}
+html .personal-shell[data-unified-toolbar] .personal-main.body-glass {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+html .personal-shell[data-unified-toolbar] .workspace-stage-surface {
+  /* Keep the transparent 1px inset used by wallpaper/native pane geometry. */
+  border-color: transparent;
+  border-radius: 0;
+}
+html .personal-shell[data-unified-toolbar] .workspace-stage-header,
+.personal-shell[data-unified-toolbar] .browser-native-host {
+  border-radius: 0;
+}
+.personal-workspace-toolbar-host {
+  display: flex;
+  flex: 1;
+  align-self: stretch;
+  min-width: 0;
+  height: 32px;
+}
+.personal-shell[data-unified-toolbar]
+  .workspace-stage-header[data-workspace-header-hosted="toolbar"] {
+  position: relative;
+  inset: auto;
+  flex: 1;
+  width: 100%;
+  height: 32px;
+  min-height: 32px;
+}
+.personal-shell[data-unified-toolbar] .personal-titlebar {
+  background: transparent;
+}
+.personal-shell[data-unified-toolbar] .personal-tab-strip {
+  gap: 4px;
+  padding-inline: 4px;
+}
+.personal-shell[data-unified-toolbar] .personal-title-tab-button {
+  border-radius: 8px;
+}
+.personal-shell[data-unified-toolbar]
+  .personal-title-tab[data-active="true"]
+  .personal-title-tab-button {
+  background: color-mix(in srgb, var(--color-content) 10%, transparent);
+  box-shadow: none;
+}
+.personal-shell[data-unified-toolbar] .personal-composer [data-composer-box] {
+  border-color: transparent;
+  border-radius: 18px;
+  box-shadow: 0 12px 36px #00000020;
+}
+.personal-shell[data-unified-toolbar]
+  .personal-composer
+  [data-composer-box]:focus-within {
+  border-color: transparent;
+  box-shadow: 0 12px 36px #00000020;
+}
+@media (prefers-contrast: more) {
+  .personal-shell[data-unified-toolbar] .personal-composer [data-composer-box] {
+    border-color: var(--personal-muted);
+  }
 }

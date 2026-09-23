@@ -6,12 +6,14 @@
 :is([data-app-notes], [data-app-search], [data-app-inbox])
   > [data-tauri-drag-region] {
   border-color: var(--aven-line);
+  background: var(--aven-toolbar-surface, transparent);
 }
 :is([data-app-notes], [data-app-inbox]) input[placeholder^="Filter"],
 [data-app-search] input[aria-label="Search"] {
   min-height: 28px;
-  border-radius: 9px;
-  background: var(--aven-hover);
+  border: 1px solid var(--aven-control-border, var(--aven-line));
+  border-radius: 6px;
+  background: var(--aven-field-bg, var(--aven-hover));
 }
 [data-app-search] input[aria-label="Search"] {
   padding: 4px 10px;
@@ -22,8 +24,8 @@
 .utility-list-card,
 [data-app-inbox] [data-utility-card] {
   border-color: transparent;
-  border-radius: 10px;
-  padding: 11px 12px;
+  border-radius: 7px;
+  padding: 10px 12px;
 }
 .utility-list-card[aria-current="true"],
 [data-app-inbox] [data-utility-card][aria-current="true"],
@@ -35,39 +37,41 @@
 }
 [data-app-search] [role="option"] {
   min-height: 36px;
-  border-radius: 9px;
+  border-radius: 6px;
   padding-inline: 10px;
 }
 [data-app-search] button[aria-pressed] {
-  border-radius: 8px;
+  border-radius: 6px;
   padding-inline: 10px;
   color: var(--aven-muted);
 }
 [data-app-search] button[aria-pressed="true"] {
   color: var(--color-content);
-  background: var(--aven-selected);
+  background: var(--aven-control-bg, var(--aven-selected));
+  box-shadow: var(--aven-control-shadow, none);
 }
 .note-detail-content {
   max-width: 880px;
   padding: 28px 32px;
 }
 .note-detail-content input[aria-label="Note title"] {
-  font-size: 26px;
-  letter-spacing: -0.025em;
+  font-size: 24px;
+  letter-spacing: -0.02em;
 }
 .note-detail-content header button {
   height: 30px;
-  border-radius: 9px;
+  border-radius: 6px;
 }
 .file-editor-status {
   border-color: var(--aven-line);
+  background: var(--aven-toolbar-surface, transparent);
   color: var(--aven-muted);
   font-size: 11px;
   gap: 12px;
 }
 :is([data-app-notes], [data-app-search], [data-app-inbox])
-  button:focus-visible {
-  outline: 2px solid var(--color-accent);
+  :is(button, input, textarea):focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
   outline-offset: -2px;
 }
 @container (max-width: 680px) {

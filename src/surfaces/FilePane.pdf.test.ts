@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import { FilePane } from "./FilePane";
@@ -87,6 +87,62 @@ it("opens a restored PDF directly in its viewer and leaves Markdown, SVG, and im
     expect(mocks.image).toHaveBeenLastCalledWith({
       path: "/work/photo.png",
       cwd: "/work",
+    });
+  } finally {
+    await act(async () => root.unmount());
+    vi.unstubAllGlobals();
+  }
+});
+
+it("pauses a retained PDF when its workspace hides without remounting the file pane", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  const noop = () => {};
+  const props: ComponentProps<typeof FilePane> = {
+    pane: {
+      id: "pdf-pane",
+      activeFileId: "pdf-file",
+      files: [{ id: "pdf-file", path: "/work/guide.pdf", cwd: "/work" }],
+    },
+    focused: false,
+    dirtyFileIds: new Set(),
+    fileErrorCounts: new Map(),
+    sessions: [],
+    onFocus: noop,
+    onSelectFile: noop,
+    onCloseFile: noop,
+    onReorderFiles: noop,
+    onDirtyChange: noop,
+    onErrorCountChange: noop,
+    onOpenFile: noop,
+    onUpdatePlan: noop,
+    onBuildPlan: noop,
+  };
+  try {
+    await act(async () =>
+      root.render(createElement(FilePane, { ...props, presented: true })),
+    );
+    const element = container.firstElementChild;
+    expect(mocks.pdf).toHaveBeenLastCalledWith({
+      path: "/work/guide.pdf",
+      active: true,
+    });
+    await act(async () =>
+      root.render(createElement(FilePane, { ...props, presented: false })),
+    );
+    expect(container.firstElementChild).toBe(element);
+    expect(mocks.pdf).toHaveBeenLastCalledWith({
+      path: "/work/guide.pdf",
+      active: false,
+    });
+    await act(async () =>
+      root.render(createElement(FilePane, { ...props, presented: true })),
+    );
+    expect(container.firstElementChild).toBe(element);
+    expect(mocks.pdf).toHaveBeenLastCalledWith({
+      path: "/work/guide.pdf",
+      active: true,
     });
   } finally {
     await act(async () => root.unmount());

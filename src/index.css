@@ -22,7 +22,7 @@
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
     "Courier New", monospace;
   --font-sans:
-    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+    -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, Oxygen,
     Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
 }
 
@@ -87,8 +87,7 @@ body,
   user-select: none;
 }
 
-/* Linux/Windows: explicit sans + thin scrollbars. macOS keeps native overlay
-   scrollbars and default text rendering. */
+/* Linux/Windows: explicit sans and text rendering. */
 html:not(.is-mac),
 html:not(.is-mac) body,
 html:not(.is-mac) #root {
@@ -98,26 +97,16 @@ html:not(.is-mac) #root {
   text-rendering: optimizeLegibility;
 }
 
-html:not(.is-mac) ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* Hide scrollbar chrome throughout Aven without changing overflow, wheel,
+   trackpad, touch or keyboard scrolling on the individual surfaces. */
+* {
+  scrollbar-width: none;
 }
 
-html:not(.is-mac) ::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-html:not(.is-mac) ::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--color-content) 16%, transparent);
-  border-radius: 9999px;
-}
-
-html:not(.is-mac) ::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--color-content) 32%, transparent);
-}
-
-html:not(.is-mac) ::-webkit-scrollbar-corner {
-  background: transparent;
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 html.has-native-glass:not(.theme-light),
@@ -892,7 +881,8 @@ button.chat-reference:hover,
   height: 100%;
 }
 
-.monocode-terminal--alt-screen .xterm .xterm-scrollable-element > .scrollbar {
+/* xterm draws its own scrollbar rather than using the browser's chrome. */
+.monocode-terminal .xterm .xterm-scrollable-element > .scrollbar {
   display: none !important;
 }
 

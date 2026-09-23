@@ -9,13 +9,14 @@
   min-width: 0;
   padding: 4px 10px;
   color: color-mix(in srgb, var(--color-content) 68%, transparent);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1;
   cursor: grab;
   user-select: none;
   -webkit-user-select: none;
   border-bottom: 1px solid
     color-mix(in srgb, var(--color-content) 7%, transparent);
+  background: var(--aven-toolbar-surface, transparent);
 }
 .workspace-status-queue {
   display: inline-flex;
@@ -63,14 +64,17 @@
   min-height: 22px;
   padding: 0 6px;
   border: 0;
-  border-radius: 9px;
+  border-radius: 6px;
   color: color-mix(in srgb, var(--color-content) 75%, transparent);
   background: transparent;
   font: inherit;
-  font-size: 10px;
+  font-size: 11px;
   white-space: nowrap;
   cursor: pointer;
   flex-shrink: 0;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
 }
 .workspace-status-access > div > button {
   max-width: 162px;
@@ -78,11 +82,9 @@
   padding-inline: 5px;
   gap: 4px;
 }
-.workspace-status-access [data-mode="full-access"] > svg {
-  color: #b8a657;
-}
+.workspace-status-access [data-mode="full-access"] > svg,
 .workspace-status-access [data-mode="auto"] > svg {
-  color: var(--color-accent);
+  color: inherit;
 }
 .workspace-status-open {
   padding-inline: 6px 4px;
@@ -102,7 +104,7 @@
   font-variant-numeric: tabular-nums;
 }
 .workspace-status-bar button:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
   outline-offset: 1px;
 }
 .workspace-status-popover {
@@ -114,7 +116,7 @@
 .workspace-status-popover-heading {
   margin: 0;
   padding: 8px 10px;
-  font-weight: 550;
+  font-weight: 600;
 }
 .workspace-status-empty {
   margin: 0;
@@ -130,7 +132,7 @@
   width: 100%;
   padding: 9px 10px;
   border: 0;
-  border-radius: 9px;
+  border-radius: 6px;
   color: inherit;
   background: transparent;
   text-align: left;
@@ -187,9 +189,13 @@
 .workspace-status-usage-refresh {
   margin-top: 10px;
   padding: 7px 9px;
-  border-radius: 9px;
+  border-radius: 6px;
   border: 0;
-  background: color-mix(in srgb, var(--color-content) 6%, transparent);
+  background: var(
+    --aven-control-bg,
+    color-mix(in srgb, var(--color-content) 6%, transparent)
+  );
+  box-shadow: var(--aven-control-shadow, 0 1px 2px rgb(0 0 0 / 10%));
   color: inherit;
   cursor: pointer;
 }
@@ -218,7 +224,7 @@
   max-width: min(44vw, 540px);
   color: var(--color-content);
   font-size: 12px;
-  font-weight: 550;
+  font-weight: 600;
 }
 .workspace-status-context > span:last-child {
   overflow: hidden;
@@ -229,7 +235,7 @@
   height: 30px;
   padding: 3px 6px;
   gap: 8px;
-  border-radius: 9px;
+  border-radius: 6px;
   max-width: min(44vw, 540px);
 }
 .workspace-status-task:hover,
@@ -237,13 +243,82 @@
   background: color-mix(in srgb, var(--color-content) 7%, transparent);
   color: var(--color-content);
 }
+
+.workspace-status-development {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+.workspace-status-tabs {
+  display: flex;
+  align-items: stretch;
+  align-self: stretch;
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  cursor: default;
+}
+.workspace-status-tabs > * {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Settings lives in the same window bar as every other workspace surface. */
+.workspace-status-settings {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+  pointer-events: none;
+}
+.workspace-status-settings .workspace-status-settings-back {
+  width: 26px;
+  flex: 0 0 26px;
+  padding: 0;
+  pointer-events: auto;
+}
+.workspace-status-settings-path {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+}
+.workspace-status-settings-path > span,
+.workspace-status-settings-path > svg {
+  flex-shrink: 0;
+  color: var(--aven-muted);
+}
+.workspace-status-settings-path > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-content);
+  font-weight: 600;
+}
+.workspace-status-bar[data-settings="true"] .workspace-status-task,
+.workspace-status-bar[data-has-workspace-tabs="true"] .workspace-status-task {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 26px;
+  max-width: none;
+  padding-inline: 6px;
+  margin-left: auto;
+}
+.workspace-status-bar[data-settings="true"] .workspace-status-controls,
+.workspace-status-bar[data-has-workspace-tabs="true"] .workspace-status-controls {
+  margin-left: 0;
+}
 .workspace-status-nav-group,
 .workspace-status-controls {
   height: 30px;
   padding: 2px 3px;
   border: 0;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--color-content) 3%, transparent);
+  background: transparent;
   cursor: default;
 }
 .workspace-status-nav-group {
@@ -289,7 +364,7 @@
   height: 26px;
   padding: 0;
   border: 0;
-  border-radius: 9px;
+  border-radius: 6px;
   background: transparent;
   color: var(--personal-muted, var(--color-content));
   cursor: pointer;
@@ -320,7 +395,7 @@
   left: 0;
   width: 1px;
   height: 14px;
-  background: color-mix(in srgb, var(--color-content) 14%, transparent);
+  background: color-mix(in srgb, var(--color-content) 10%, transparent);
 }
 @media (max-width: 760px) {
   .workspace-status-nav-group {
@@ -369,21 +444,29 @@
 .personal-shell .workspace-status-bar .workspace-status-navigation button,
 .personal-shell .workspace-status-bar .workspace-status-history button,
 .personal-shell .workspace-status-bar .workspace-status-layout button {
-  border-radius: 9px;
+  border-radius: 6px;
 }
 .workspace-status-pill[aria-expanded="true"],
 .workspace-status-access > div > button[aria-expanded="true"],
 .workspace-status-navigation button[aria-pressed="true"],
 .workspace-status-history button[aria-pressed="true"],
 .workspace-status-layout button[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--color-accent) 11%, transparent);
+  background: var(
+    --aven-control-bg,
+    color-mix(in srgb, var(--color-content) 8%, transparent)
+  );
+  box-shadow: var(--aven-control-shadow, 0 1px 2px rgb(0 0 0 / 10%));
   color: var(--color-content);
 }
 .workspace-status-usage-refresh:hover:enabled {
-  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--color-content) 10%,
+    var(--aven-control-bg, var(--color-background-base))
+  );
 }
 .workspace-status-popover button:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
   outline-offset: -2px;
 }
 
@@ -415,7 +498,7 @@
   height: 26px;
   padding: 0;
   border: 0;
-  border-radius: 9px;
+  border-radius: 6px;
   background: transparent;
   color: var(--personal-muted, var(--color-content));
   cursor: pointer;
@@ -426,7 +509,7 @@
   color: var(--color-content);
 }
 .workspace-navigation button:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
   outline-offset: -2px;
 }
 .workspace-navigation-menu {
@@ -440,7 +523,7 @@
   min-height: 32px;
   padding: 6px 9px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   color: var(--color-content);
   font-size: 12px;
@@ -470,5 +553,12 @@
 @container workspace-navigation (max-width: 125px) {
   .workspace-status-navigation .workspace-navigation-secondary {
     display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-status-pill,
+  .workspace-status-access > div > button {
+    transition: none;
   }
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { chatReferenceParts } from "./chatReferences";
+import { resolveFileLink } from "./inAppLinks";
 
 const references = (text: string) =>
   chatReferenceParts(text, "/project").filter((part) => part.href);
@@ -79,6 +80,9 @@ describe("chat references", () => {
       { path: "/project/docs/My Plan.md" },
       { path: "/project/src/App.tsx", navigation: { line: 12 } },
     ]);
+    for (const part of parts.filter((part) => part.file)) {
+      expect(resolveFileLink(part.href!)).toEqual(part.file);
+    }
   });
 
   it.each([

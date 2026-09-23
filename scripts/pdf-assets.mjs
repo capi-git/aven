@@ -16,7 +16,7 @@ export function pdfAssets() {
     }
   }
   return {
-    name: "covecode-pdf-assets",
+    name: "aven-pdf-assets",
     configureServer(server) {
       server.middlewares.use((request, response, next) => {
         const path = new URL(request.url ?? "/", "http://localhost").pathname.slice(1);

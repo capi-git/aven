@@ -1,4 +1,4 @@
-import { LOCAL_FILE_LINK, resolveFileLink } from "./inAppLinks";
+import { fileLinkHref, resolveFileLink } from "./inAppLinks";
 import { normalizeBrowserUrl } from "./browser";
 
 export type ChatReferencePart = {
@@ -86,7 +86,7 @@ export function chatReferenceParts(
       text: match[0],
       start,
       end,
-      href: `${LOCAL_FILE_LINK}${encodeURIComponent(file.path)}`,
+      href: fileLinkHref(file.path, file.navigation),
       file,
     });
   }

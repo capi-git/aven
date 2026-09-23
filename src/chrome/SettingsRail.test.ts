@@ -58,7 +58,11 @@ describe("settings navigation", () => {
           .querySelector('[aria-current="page"]')
           ?.getAttribute("aria-label"),
       ).toBe("Appearance");
-      expect(navigation.textContent).toContain("Colors & layout");
+      expect(
+        navigation
+          .querySelector('[aria-current="page"]')
+          ?.getAttribute("aria-description"),
+      ).toBe("Colors & layout");
 
       for (const [index, button] of buttons.entries()) {
         await act(async () => button.click());

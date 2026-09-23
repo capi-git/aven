@@ -6,11 +6,11 @@
   padding: 0;
 }
 .skills-tool {
-  padding: 19px 21px;
+  padding: 16px;
   scroll-margin-block: 30px;
 }
 .skills-tool + .skills-tool {
-  border-top: 1px solid color-mix(in srgb, var(--color-content) 7%, transparent);
+  border-top: 1px solid var(--aven-line);
 }
 .skills-tool-heading {
   display: flex;
@@ -26,9 +26,9 @@
 }
 .skills-tool p {
   font-size: 12px;
-  line-height: 1.65;
-  margin: 9px 0 0;
-  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+  line-height: 1.5;
+  margin: 6px 0 0;
+  color: var(--aven-muted);
 }
 .skills-tool code {
   font-size: 11px;
@@ -36,15 +36,17 @@
 }
 .skills-status {
   flex-shrink: 0;
-  padding: 4px 8px;
-  border-radius: 6px;
-  font-size: 10px;
-  color: color-mix(in srgb, var(--color-content) 65%, transparent);
-  background: color-mix(in srgb, var(--color-content) 6%, transparent);
+  padding: 2px 6px;
+  border: 1px solid var(--aven-line);
+  border-radius: 5px;
+  font-size: 11px;
+  color: var(--aven-muted);
+  background: var(--aven-control-bg);
 }
 .skills-status[data-state="ready"] {
-  background: color-mix(in srgb, var(--color-accent) 13%, transparent);
-  color: var(--color-accent);
+  background: var(--aven-selected);
+  border-color: color-mix(in srgb, var(--color-accent) 25%, transparent);
+  color: var(--color-content);
 }
 .skills-status[data-state="permissionsRequired"],
 .skills-status[data-state="unverified"] {
@@ -54,7 +56,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
-  margin-top: 13px;
+  margin-top: 12px;
 }
 .skills-settings .settings-button,
 .skills-inspector .settings-button,
@@ -63,28 +65,35 @@
   gap: 6px;
   align-items: center;
   justify-content: center;
-  min-height: 30px;
+  min-height: 28px;
 }
 .skills-permissions {
   display: grid;
-  gap: 7px;
+  gap: 0;
   list-style: none;
-  margin: 13px 0;
-  padding: 0;
+  margin: 12px 0;
+  padding: 4px 10px;
+  border: 1px solid var(--aven-line);
+  border-radius: 7px;
+  background: var(--aven-field-bg);
   font-size: 11px;
 }
 .skills-permissions li {
   display: flex;
   justify-content: space-between;
   gap: 16px;
-  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+  padding-block: 6px;
+  color: var(--aven-muted);
+}
+.skills-permissions li + li {
+  border-top: 1px solid var(--aven-line);
 }
 .skills-permissions strong {
   font-weight: 500;
   color: var(--color-content);
 }
 .skills-note {
-  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+  color: var(--aven-muted);
   font-size: 11px;
   line-height: 1.6;
 }
@@ -93,15 +102,18 @@
   font-size: 12px;
   line-height: 1.6;
   padding: 10px 12px;
-  background: color-mix(in srgb, var(--color-content) 6%, transparent);
-  border-radius: 8px;
+  background: var(--aven-hover);
+  border: 1px solid var(--aven-line);
+  border-radius: 7px;
 }
 .skills-setup {
-  margin-top: 16px;
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--aven-line);
   font-size: 12px;
 }
 .skills-setup summary {
-  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+  color: var(--aven-muted);
   cursor: pointer;
   padding: 4px 0;
   width: fit-content;
@@ -113,7 +125,8 @@
   display: block;
   padding: 10px 12px;
   margin-top: 8px;
-  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+  background: var(--aven-field-bg);
+  border: 1px solid var(--aven-line);
   border-radius: 7px;
   overflow-wrap: anywhere;
   user-select: text;
@@ -134,18 +147,20 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 16px 18px 8px;
+  padding: 14px 16px 8px;
 }
 .skills-search {
   flex: 1;
   min-width: 150px;
+  min-height: 30px;
   display: flex;
   align-items: center;
   gap: 8px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--color-content) 5%, transparent);
-  padding: 7px 10px;
-  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+  border: 1px solid var(--aven-control-border);
+  border-radius: 6px;
+  background: var(--aven-field-bg);
+  padding: 4px 9px;
+  color: var(--aven-muted);
 }
 .skills-search input {
   width: 100%;
@@ -156,10 +171,10 @@
   font-size: 12px;
 }
 .skills-context {
-  padding: 0 18px;
+  padding: 0 16px;
   margin: 5px 0 12px;
-  color: color-mix(in srgb, var(--color-content) 65%, transparent);
-  font-size: 10px;
+  color: var(--aven-muted);
+  font-size: 11px;
   overflow-wrap: anywhere;
 }
 .skills-context span {
@@ -169,7 +184,7 @@
   max-height: 420px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 0 8px 8px;
+  padding: 0 6px 6px;
 }
 .skills-item {
   display: flex;
@@ -177,16 +192,16 @@
   justify-content: space-between;
   gap: 14px;
   width: 100%;
-  padding: 12px 10px;
+  padding: 10px;
   text-align: left;
-  border-radius: 8px;
+  border-radius: 6px;
 }
 .skills-item:hover {
-  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  background: var(--aven-hover);
 }
 .skills-item-copy {
   display: grid;
-  gap: 5px;
+  gap: 3px;
   min-width: 0;
 }
 .skills-item-copy strong {
@@ -196,70 +211,76 @@
   overflow-wrap: anywhere;
 }
 .skills-item-copy > span {
-  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+  color: var(--aven-muted);
   font-size: 11px;
-  line-height: 1.6;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 .skills-item-source {
   flex-shrink: 0;
-  color: color-mix(in srgb, var(--color-content) 65%, transparent);
-  font-size: 10px;
+  color: var(--aven-muted);
+  font-size: 11px;
 }
 .skills-empty {
   padding: 22px 10px;
   font-size: 12px;
-  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+  color: var(--aven-muted);
 }
 .skills-catalog-footer {
   margin: 0;
-  padding: 12px 18px 17px;
-  border-top: 1px solid color-mix(in srgb, var(--color-content) 6%, transparent);
+  padding: 12px 16px;
+  border-top: 1px solid var(--aven-line);
 }
 .skills-inspector {
+  width: min(760px, calc(100vw - 24px));
   max-height: min(760px, 80vh);
 }
 .skills-instructions {
   margin: 0;
-  padding: 14px;
-  overflow: auto;
-  white-space: pre-wrap;
+  padding: 20px;
   overflow-wrap: anywhere;
-  max-height: 54vh;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--color-content) 4%, transparent);
-  font-size: 12px;
-  line-height: 1.65;
   color: var(--color-content);
   user-select: text;
 }
+.skills-instructions .agent-markdown {
+  font-size: 14px;
+  line-height: 1.7;
+}
+.skills-instructions .agent-markdown > :first-child {
+  margin-top: 0;
+}
+.skills-inspector > div > .skills-actions {
+  margin: 0;
+  padding: 0 20px 20px;
+}
 .skills-new-form {
   display: grid;
-  gap: 15px;
+  gap: 14px;
 }
 .skills-new-form label {
   display: grid;
   gap: 7px;
   font-size: 12px;
-  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+  color: var(--aven-muted);
 }
 .skills-new-form input,
 .skills-new-form select {
   color: var(--color-content);
-  background: var(--color-background-base);
-  border: 1px solid color-mix(in srgb, var(--color-content) 12%, transparent);
-  padding: 8px 10px;
-  border-radius: 8px;
+  background: var(--aven-field-bg);
+  border: 1px solid var(--aven-control-border);
+  min-height: 30px;
+  padding: 5px 9px;
+  border-radius: 6px;
 }
-.skills-settings :is(button, summary, input, [tabindex]):focus-visible,
-.skills-inspector :is(button, pre):focus-visible,
+.skills-settings :is(button, summary, [tabindex]):focus-visible,
+.skills-inspector :is(button, a, [tabindex]):focus-visible,
 .skills-new-form :is(input, select, button):focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 3px;
+  outline: 3px solid var(--aven-focus-ring);
+  outline-offset: 2px;
 }
 .skills-search:focus-within {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
+  outline: 3px solid var(--aven-focus-ring);
+  outline-offset: 0;
 }
 @container skills-settings (max-width: 640px) {
   .skills-tool {
@@ -270,7 +291,7 @@
     gap: 6px;
   }
   .skills-item-source {
-    font-size: 10px;
+    font-size: 11px;
   }
   .skills-list {
     max-height: 360px;

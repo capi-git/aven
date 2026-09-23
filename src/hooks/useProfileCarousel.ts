@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, type RefObject } from "react";
+import { flushSync } from "react-dom";
 import type { WorkspaceProfile } from "../lib/workspaceProfiles";
 
 type Options = {
@@ -12,8 +13,8 @@ type Options = {
 const DRAG_EXCLUDED =
   "button,a,input,textarea,select,[contenteditable],[draggable=true],[role=slider],[role=separator]";
 
-/** The browser owns wheel movement, momentum and snapping. This hook only
- * commits the workspace after scrolling, and aligns explicit navigation. */
+/** The browser owns wheel movement, momentum and snapping. Adopt the dominant
+ * page during a swipe, rather than waiting for its slow final snap. */
 export function useProfileCarousel(options: Options) {
   const latest = useRef(options);
   latest.current = options;
@@ -23,8 +24,10 @@ export function useProfileCarousel(options: Options) {
   useLayoutEffect(() => {
     const viewport = latest.current.viewport.current;
     if (!viewport || !options.enabled) return;
+    const nativeScrollEnd = Reflect.has(viewport, "onscrollend");
     let timer: ReturnType<typeof setTimeout> | undefined;
     let requested: string | undefined;
+    let alignmentTarget: string | undefined;
     const pendingSelections = new Set<string>();
     let rendered = latest.current.activeProfileId;
     let width = viewport.clientWidth;
@@ -49,27 +52,74 @@ export function useProfileCarousel(options: Options) {
       return Math.round(left / viewport.clientWidth);
     };
     const align = (id: string, animated: boolean) => {
+      const left = indexOf(id) * viewport.clientWidth;
+      const smooth = animated && !reducedMotion();
+      // Explicit navigation can animate across intermediate workspace pages.
+      // Keep its destination until arrival or the browser ends an interruption.
+      alignmentTarget =
+        smooth && Math.abs(viewport.scrollLeft - left) > 1 ? id : undefined;
       viewport.scrollTo({
-        left: indexOf(id) * viewport.clientWidth,
-        behavior: animated && !reducedMotion() ? "smooth" : "instant",
+        left,
+        behavior: smooth ? "smooth" : "instant",
       });
     };
-    const commit = () => {
+    const atSnapPoint = () => {
+      const width = viewport.clientWidth;
+      const left = viewport.scrollLeft;
+      return (
+        width > 0 &&
+        left >= 0 &&
+        left <= (latest.current.profiles.length - 1) * width &&
+        Math.abs(left - nearest() * width) <= 1
+      );
+    };
+    const commit = (dominant = false) => {
       clearTimeout(timer);
       if (pointer?.dragging || viewport.clientWidth <= 0) return;
       const current = latest.current;
       const target = current.profiles[nearest()];
-      if (!target || target.id === (requested ?? current.activeProfileId))
+      const selected = requested ?? current.activeProfileId;
+      if (!target || target.id === selected) return;
+      // Cross 60% to adopt the next page; reversing must cross 40%. The small
+      // dead band prevents workspace/theme churn while hovering at halfway.
+      // Use the requested identity while React is still acknowledging a swipe.
+      if (
+        dominant &&
+        Math.abs(
+          viewport.scrollLeft / viewport.clientWidth - indexOf(selected),
+        ) < 0.6
+      )
         return;
       requested = target.id;
       pendingSelections.add(target.id);
-      current.onSelectProfile?.(target.id);
+      // Make the dominant workspace interactive before the next native scroll
+      // frame. Flush only the identity handoff, never individual frames.
+      flushSync(() => {
+        current.onSelectProfile?.(target.id);
+      });
+    };
+    const onScrollEnd = () => {
+      alignmentTarget = undefined;
+      commit();
     };
     const onScroll = () => {
       clearTimeout(timer);
-      // Older WebKit lacks scrollend. This timer selects only; it never
-      // intercepts, delays, or locks out a native gesture.
-      timer = setTimeout(commit, 120);
+      if (
+        atSnapPoint() &&
+        (!alignmentTarget ||
+          latest.current.profiles[nearest()]?.id === alignmentTarget)
+      ) {
+        alignmentTarget = undefined;
+        commit();
+        return;
+      }
+      if (!alignmentTarget) commit(true);
+      if (nativeScrollEnd) return;
+      // Older WebKit lacks scrollend. Only a snapped page can finish an
+      // interrupted explicit navigation; a pause between pages is not arrival.
+      timer = setTimeout(() => {
+        if (atSnapPoint()) onScrollEnd();
+      }, 120);
     };
     sync.current = () => {
       const id = latest.current.activeProfileId;
@@ -145,14 +195,13 @@ export function useProfileCarousel(options: Options) {
         viewport.releasePointerCapture(event.pointerId);
       if (dragged) {
         const left = nearest() * viewport.clientWidth;
-        // No scrollend fires when the final drag position is already snapped.
-        // The previous scroll notification may have settled while held down.
-        const alreadyAligned = Math.abs(viewport.scrollLeft - left) < 0.5;
+        // The destination is decided on release. Activate it before the native
+        // snap's easing tail, including when no final scroll event is emitted.
+        commit();
         viewport.scrollTo({
           left,
           behavior: reducedMotion() ? "instant" : "smooth",
         });
-        if (alreadyAligned) commit();
       }
     };
     const cancelDrag = () => {
@@ -164,7 +213,7 @@ export function useProfileCarousel(options: Options) {
     };
     window.addEventListener("blur", cancelDrag);
     viewport.addEventListener("scroll", onScroll, { passive: true });
-    viewport.addEventListener("scrollend", commit);
+    viewport.addEventListener("scrollend", onScrollEnd);
     viewport.addEventListener("pointerdown", down);
     viewport.addEventListener("pointermove", move);
     viewport.addEventListener("pointerup", up);
@@ -177,7 +226,7 @@ export function useProfileCarousel(options: Options) {
       observer.disconnect();
       window.removeEventListener("blur", cancelDrag);
       viewport.removeEventListener("scroll", onScroll);
-      viewport.removeEventListener("scrollend", commit);
+      viewport.removeEventListener("scrollend", onScrollEnd);
       viewport.removeEventListener("pointerdown", down);
       viewport.removeEventListener("pointermove", move);
       viewport.removeEventListener("pointerup", up);

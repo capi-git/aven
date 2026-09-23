@@ -39,7 +39,7 @@ export function refreshCodexCatalog(): Promise<void> {
       if (models.length > 0) setHarnessModels("codex", models);
     })
     .catch((error: unknown) => {
-      console.debug("[monocode] codex catalog", error);
+      console.debug("[aven] codex catalog", error);
     })
     .finally(() => {
       inflight = null;

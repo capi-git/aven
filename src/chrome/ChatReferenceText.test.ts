@@ -78,3 +78,30 @@ it("opens explicit document targets with line navigation without changing visibl
   });
   expect(openUrl).not.toHaveBeenCalled();
 });
+
+it("keeps modified and middle document clicks inside the editor", async () => {
+  await act(async () =>
+    root.render(
+      createElement(ChatReferenceText, {
+        text: "[Notes](<docs/My Notes.md:4>)",
+        cwd: "/project",
+        interactive: true,
+      }),
+    ),
+  );
+  const reference = host.querySelector("a")!;
+  for (const options of [{ metaKey: true }, { button: 1 }]) {
+    const event = new MouseEvent(options.button ? "auxclick" : "click", {
+      ...options,
+      bubbles: true,
+      cancelable: true,
+    });
+    reference.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+  }
+  expect(openFile).toHaveBeenCalledTimes(2);
+  expect(openFile).toHaveBeenLastCalledWith("/project/docs/My Notes.md", {
+    line: 4,
+  });
+  expect(openUrl).not.toHaveBeenCalled();
+});

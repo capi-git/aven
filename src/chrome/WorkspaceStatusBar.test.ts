@@ -13,6 +13,11 @@ import {
   type WorkspaceStatusBarProps,
 } from "./WorkspaceStatusBar";
 
+vi.mock("../lib/platform", async (original) => ({
+  ...(await original<typeof import("../lib/platform")>()),
+  IS_MAC: true,
+}));
+
 const nativeMenu = vi.hoisted(() => ({
   supported: vi.fn(() => false),
   show: vi.fn(),
@@ -278,6 +283,170 @@ describe("workspace status data and actions", () => {
     }
     expect(nativeWindow.startDragging).not.toHaveBeenCalled();
   });
+
+  it("hosts workspace tabs between navigation and compact Activity without losing unread status", async () => {
+    recordActivity({
+      id: "tab-slot-result",
+      sessionId: "task-1",
+      title: "First task",
+      outcome: "completed",
+      summary: "Ready for review",
+      cwd: "/project",
+      harness: "codex",
+      model: "model",
+    });
+    const selectTab = vi.fn();
+    await render({
+      session: task(),
+      onToggleSidebar: vi.fn(),
+      workspaceTabs: createElement(
+        "div",
+        { role: "tablist", "aria-label": "Workspace tabs" },
+        createElement(
+          "button",
+          { type: "button", role: "tab", onClick: selectTab },
+          "Current task",
+        ),
+      ),
+    });
+    const bar = container.querySelector<HTMLElement>(".workspace-status-bar")!;
+    const slot = bar.querySelector(".workspace-status-tabs")!;
+    const trigger = button("Activity: Queue is clear · 1 unread");
+    const navigation = bar.querySelector(".workspace-navigation")!;
+    const children = [...bar.children];
+    expect(bar.dataset.hasWorkspaceTabs).toBe("true");
+    expect(slot.querySelector('[role="tablist"]')).not.toBeNull();
+    expect(children.indexOf(navigation)).toBeLessThan(children.indexOf(slot));
+    expect(slot.nextElementSibling).toBe(trigger);
+    expect(
+      trigger.nextElementSibling?.classList.contains("workspace-status-controls"),
+    ).toBe(true);
+    expect(trigger.querySelector(".workspace-status-context")).toBeNull();
+    expect(trigger.querySelector(".workspace-status-unread")?.textContent).toBe(
+      "1",
+    );
+    expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(
+      bar.querySelector(
+        '.workspace-status-development [title="Development build"]',
+      ),
+    ).not.toBeNull();
+
+    await act(async () => {
+      const tab = button("Current task");
+      tab.dispatchEvent(
+        new MouseEvent("mousedown", { button: 0, bubbles: true }),
+      );
+      tab.click();
+      trigger.dispatchEvent(
+        new MouseEvent("mousedown", { button: 0, bubbles: true }),
+      );
+      trigger.click();
+    });
+    expect(selectTab).toHaveBeenCalledOnce();
+    expect(nativeWindow.startDragging).not.toHaveBeenCalled();
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      container.querySelector('[role="dialog"][aria-label="Activity"]'),
+    ).not.toBeNull();
+  });
+
+  it("keeps Activity mounted when a tab slot appears and restores the model label when it leaves", async () => {
+    await render({ session: task() });
+    const trigger = button("Activity: Queue is clear");
+    expect(trigger.querySelector(".workspace-status-context")?.textContent).toBe(
+      "model",
+    );
+    expect(
+      container.querySelector<HTMLElement>(".workspace-status-bar")?.dataset
+        .hasWorkspaceTabs,
+    ).toBe("false");
+    await click("Activity: Queue is clear");
+    const activity = container.querySelector(
+      '[role="dialog"][aria-label="Activity"]',
+    );
+    await render({ workspaceTabs: createElement("div", null, "Workspace tabs") });
+    expect(button("Activity: Queue is clear")).toBe(trigger);
+    expect(trigger.querySelector(".workspace-status-context")).toBeNull();
+    expect(
+      container.querySelector('[role="dialog"][aria-label="Activity"]'),
+    ).toBe(activity);
+
+    await render({ workspaceTabs: null });
+    expect(container.querySelector(".workspace-status-tabs")).toBeNull();
+    expect(trigger.querySelector(".workspace-status-context")?.textContent).toBe(
+      "model",
+    );
+    expect(trigger.querySelectorAll(".provider-mark")).toHaveLength(1);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    await click("Activity: Queue is clear");
+    expect(
+      container.querySelector('[role="dialog"][aria-label="Activity"]'),
+    ).toBeNull();
+  });
+
+  it("replaces the task label with the current settings section and keeps exit controls out of window dragging", async () => {
+    const closeSettings = vi.fn();
+    await render({
+      session: task({ model: "current-task-model" }),
+      settingsView: { section: "appearance", onClose: closeSettings },
+    });
+    const settingsTitle = () =>
+      container.querySelector(".workspace-status-settings")!;
+    expect(settingsTitle().textContent).toContain("Settings");
+    expect(settingsTitle().textContent).toContain("Appearance");
+    expect(container.textContent).not.toContain("current-task-model");
+    expect(
+      container.querySelectorAll('button[aria-label="Close settings"]'),
+    ).toHaveLength(1);
+
+    await render({
+      settingsView: { section: "providers", onClose: closeSettings },
+    });
+    expect(settingsTitle().textContent).toContain("Providers");
+    expect(settingsTitle().textContent).not.toContain("Appearance");
+    for (const label of ["Back to workspace", "Close settings"]) {
+      const control = button(label);
+      for (const target of [control, control.querySelector("svg")!]) {
+        await act(async () =>
+          target.dispatchEvent(
+            new MouseEvent("mousedown", { button: 0, bubbles: true }),
+          ),
+        );
+      }
+      await click(label);
+    }
+    expect(closeSettings).toHaveBeenCalledTimes(2);
+    expect(nativeWindow.startDragging).not.toHaveBeenCalled();
+    expect(nativeWindow.toggleMaximize).not.toHaveBeenCalled();
+  });
+
+  it("keeps Activity available in settings and dismisses it when entering or leaving settings", async () => {
+    const activity = () =>
+      container.querySelector('[role="dialog"][aria-label="Activity"]');
+    await render({ session: task() });
+    await click("Activity: Queue is clear");
+    expect(activity()).not.toBeNull();
+
+    await render({
+      settingsView: { section: "appearance", onClose: vi.fn() },
+    });
+    expect(activity()).toBeNull();
+    expect(
+      button("Activity: Queue is clear").getAttribute("aria-expanded"),
+    ).toBe("false");
+    await click("Activity: Queue is clear");
+    expect(activity()).not.toBeNull();
+
+    await render({ settingsView: undefined });
+    expect(activity()).toBeNull();
+    expect(
+      container.querySelector(".workspace-status-context")?.textContent,
+    ).toContain("model");
+    await click("Activity: Queue is clear");
+    expect(activity()).not.toBeNull();
+  });
+
   it("drags the blank strip and toggles maximize on its double click only", async () => {
     await render();
     const strip = container.querySelector(".workspace-status-bar")!;
@@ -758,6 +927,31 @@ describe("on-demand provider usage", () => {
     ).toBe("true");
     await click("Refresh provider usage");
     expect(api.codex).toHaveBeenCalledTimes(2);
+  });
+
+  it("preserves an open usage panel and its fetched snapshot while toolbar tabs change", async () => {
+    await render({ usageProviders: ["codex"] });
+    const trigger = button("Context and provider usage");
+    await click("Context and provider usage");
+    const panel = container.querySelector(
+      '[aria-label="Task and provider usage"]',
+    );
+    expect(api.codex).toHaveBeenCalledOnce();
+    expect(panel?.textContent).toContain("5-hour77% left");
+
+    for (const workspaceTabs of [
+      createElement("div", null, "Tabs"),
+      undefined,
+    ]) {
+      await render({ workspaceTabs });
+      expect(button("Context and provider usage")).toBe(trigger);
+      expect(trigger.getAttribute("aria-expanded")).toBe("true");
+      expect(
+        container.querySelector('[aria-label="Task and provider usage"]'),
+      ).toBe(panel);
+      expect(panel?.textContent).toContain("5-hour77% left");
+      expect(api.codex).toHaveBeenCalledOnce();
+    }
   });
 
   it("does not start a provider process when the document is hidden", async () => {

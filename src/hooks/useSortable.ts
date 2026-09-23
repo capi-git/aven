@@ -1,12 +1,17 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { setGrabbing, suppressTextSelection } from "../lib/drag";
 import { moveItem } from "../lib/reorder";
+import {
+  SortableMotion,
+  type SortableMotionPositions,
+} from "../lib/sortableMotion";
 
 const THRESHOLD = 5;
 const DROP_ON_INSET = 0.25;
@@ -24,6 +29,8 @@ export type SortableDropTarget = {
 
 export type SortableOptions = {
   axis?: "x" | "y";
+  /** Move direct [data-sortable-motion] children, preserving outer hit boxes. */
+  animate?: boolean;
   /** Called once the pointer crosses the drag threshold. */
   onActivate?: (id: string) => void;
   onDragMove?: (
@@ -80,6 +87,8 @@ export function useSortable(
 ) {
   const options = optionsOf(axisOrOptions);
   const axis = options.axis ?? "x";
+  const animateRef = useRef(options.animate === true);
+  animateRef.current = options.animate === true;
   const idsRef = useRef(ids);
   idsRef.current = ids;
   const onReorderRef = useRef(onReorder);
@@ -102,7 +111,22 @@ export function useSortable(
   const drag = useRef<DragState | null>(null);
   const suppressClickUntil = useRef(0);
   const cleanupDrag = useRef<(() => void) | null>(null);
-  useEffect(() => () => cleanupDrag.current?.(), []);
+  const motion = useRef(new SortableMotion());
+  const settling = useRef<SortableMotionPositions | null>(null);
+  useLayoutEffect(() => {
+    if (!settling.current) return;
+    const positions = settling.current;
+    settling.current = null;
+    motion.current.settle(positions, nodes.current);
+  });
+  useEffect(
+    () => () => {
+      cleanupDrag.current?.();
+      settling.current = null;
+      motion.current.cancel();
+    },
+    [],
+  );
 
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [toIndex, setToIndex] = useState<number | null>(null);
@@ -217,6 +241,16 @@ export function useSortable(
       const from = idsRef.current.indexOf(id);
       if (from < 0) return;
       cleanupDrag.current?.();
+      settling.current = null;
+      motion.current.cancel();
+      const animate = animateRef.current;
+      if (animate)
+        motion.current.begin(
+          nodes.current,
+          id,
+          { x: event.clientX, y: event.clientY },
+          axis,
+        );
       // A new press is intentional, even immediately after a previous drag.
       suppressClickUntil.current = 0;
 
@@ -245,6 +279,13 @@ export function useSortable(
         current.inStrip = inStrip(current.x, current.y);
         current.toIndex = indexAt(id, current.x, current.y);
         current.dropTarget = dropTargetAt(id, current.x, current.y);
+        if (animate)
+          motion.current.move(
+            idsRef.current,
+            current,
+            current.dropTarget ? from : current.toIndex,
+            current.inStrip,
+          );
         setToIndex(current.inStrip ? current.toIndex : null);
         setDropTarget(current.dropTarget);
         onDragMoveRef.current?.(id, current.x, current.y, {
@@ -383,6 +424,10 @@ export function useSortable(
         if (scrollFrame !== null) cancelAnimationFrame(scrollFrame);
         scrollFrame = null;
         const current = drag.current;
+        if (animate) {
+          settling.current = current?.active ? motion.current.capture() : null;
+          motion.current.reset();
+        }
         drag.current = null;
         restoreSelection();
         setGrabbing(false);
@@ -394,7 +439,10 @@ export function useSortable(
         } catch {
           /* already released */
         }
-        if (!current?.active) return;
+        if (!current?.active) {
+          if (animate) motion.current.finishReset();
+          return;
+        }
         suppressClickUntil.current = performance.now() + 400;
         const consumed = onDragEndRef.current?.(
           current.id,
@@ -403,6 +451,14 @@ export function useSortable(
           !commit,
           { screenX: current.screenX, screenY: current.screenY },
         );
+        if (
+          consumed ||
+          !current.inStrip ||
+          (commit && current.dropTarget?.allowed)
+        ) {
+          settling.current = null;
+          if (animate) motion.current.finishReset();
+        }
         if (!commit || consumed) return;
         if (current.dropTarget) {
           // A refused target still swallows the drop: the tab stays put rather

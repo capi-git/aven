@@ -1,4 +1,4 @@
-/* Aven navigation: quiet surfaces, clear hierarchy, and unchanged carousel geometry. */
+/* Native-style navigation materials; carousel and sidebar geometry stay unchanged. */
 .personal-shell .personal-sidebar.personal-navigation {
   padding: 0 5px 5px;
   max-width: min(320px, max(190px, calc(100vw - 540px)));
@@ -11,7 +11,7 @@
 }
 .personal-shell .personal-navigation .personal-sidebar-pin {
   margin-left: auto;
-  color: var(--personal-accent);
+  color: var(--personal-muted);
 }
 .personal-shell .personal-navigation .personal-profile-header {
   display: flex;
@@ -22,7 +22,7 @@
   padding: 0 8px;
   color: var(--color-content);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
 }
 .personal-shell .personal-profile-picker {
   display: flex;
@@ -32,7 +32,7 @@
   flex: 1;
   height: 30px;
   padding-inline: 6px;
-  border-radius: 9px;
+  border-radius: 6px;
   text-align: left;
 }
 .personal-shell .personal-profile-picker > span {
@@ -59,7 +59,7 @@
   gap: 4px;
   margin: 4px 6px 7px;
 }
-.personal-shell .personal-library-nav > button {
+.personal-shell .personal-library-nav > :is(button, span) {
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -69,8 +69,10 @@
   min-height: 30px;
   padding: 0 8px;
   border: 0;
-  border-radius: 9px;
-  color: var(--personal-muted);
+  border-radius: 6px;
+  background: transparent;
+  color: color-mix(in srgb, var(--color-content) 72%, transparent);
+  font-weight: 500;
   font-size: 12px;
   text-align: left;
 }
@@ -83,7 +85,7 @@
   color: var(--color-content);
   background: var(--personal-selected);
 }
-.personal-shell .personal-library-nav > button > svg {
+.personal-shell .personal-library-nav > :is(button, span) > svg {
   flex-shrink: 0;
 }
 .personal-shell .personal-navigation .personal-projects-heading {
@@ -93,19 +95,26 @@
   min-height: 31px;
   padding: 0 5px 0 8px;
   font-size: 11px;
-  color: var(--personal-muted);
+  color: color-mix(in srgb, var(--color-content) 56%, transparent);
+  font-weight: 600;
 }
 .personal-shell .personal-new-session {
   display: flex;
   flex-shrink: 0;
   align-items: center;
   gap: 8px;
-  min-height: 30px;
+  min-height: 32px;
   margin: 5px 6px 4px;
   padding: 0 8px;
-  border-radius: 9px;
+  border-radius: 6px;
+  background: var(
+    --aven-control-bg,
+    color-mix(in srgb, var(--color-content) 6%, transparent)
+  );
+  box-shadow: var(--aven-control-shadow, 0 1px 2px rgb(0 0 0 / 10%));
   color: var(--color-content);
   font-size: 12px;
+  font-weight: 500;
   text-align: left;
 }
 .personal-shell .personal-new-session:hover,
@@ -151,9 +160,10 @@
   gap: 6px;
   height: 30px;
   padding: 0 5px;
-  border-radius: 8px;
+  border-radius: 6px;
   text-align: left;
   font-size: 12px;
+  font-weight: 500;
   color: var(--color-content);
 }
 .personal-shell .personal-project-open > span:first-of-type {
@@ -172,13 +182,13 @@
   width: 24px;
   height: 26px;
   flex-shrink: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   color: var(--personal-muted);
 }
 .personal-shell
   .personal-navigation
   .personal-project-row-action:not(.personal-project-disclosure) {
-  color: var(--personal-accent);
+  color: var(--personal-muted);
 }
 .personal-shell .personal-navigation .personal-project-more {
   width: 22px;
@@ -209,18 +219,18 @@
 .personal-shell .personal-navigation .personal-task-card {
   min-height: 30px;
   padding: 5px 8px 5px 14px;
-  border-radius: 8px;
+  border-radius: 6px;
 }
 .personal-shell .personal-navigation .personal-task-card[aria-current="true"] {
   border-color: transparent;
-  background: color-mix(in srgb, var(--personal-accent) 11%, transparent);
+  background: var(--personal-selected);
   box-shadow: none;
 }
 .personal-shell
   .personal-navigation
   .personal-task-card[aria-current="true"]
   .personal-task-title {
-  color: var(--personal-accent);
+  color: var(--color-content);
 }
 .personal-shell .personal-navigation .personal-task-title {
   min-width: 0;
@@ -228,7 +238,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 11.5px;
-  font-weight: 450;
+  font-weight: 400;
 }
 .personal-shell .personal-navigation .personal-task-status {
   font-size: 10px;
@@ -325,7 +335,7 @@
   padding: 0;
   flex-shrink: 0;
   border: 0;
-  border-radius: 9px;
+  border-radius: 6px;
   background: transparent;
   color: var(--personal-muted);
 }
@@ -433,8 +443,8 @@
   margin: 7px 0 3px;
   padding: 0 8px;
   font-size: 11px;
-  color: var(--personal-muted);
-  font-weight: 500;
+  color: color-mix(in srgb, var(--color-content) 56%, transparent);
+  font-weight: 600;
 }
 .personal-profile-viewport {
   position: relative;
@@ -493,39 +503,21 @@
 .personal-shell .personal-profile-picker[aria-expanded="true"] {
   background: var(--personal-hover);
 }
-.personal-shell .personal-library-nav > button {
-  background: color-mix(in srgb, var(--color-content) 3%, transparent);
-  color: color-mix(in srgb, var(--color-content) 72%, transparent);
-}
-.personal-shell .personal-library-nav > button[aria-current="page"] {
-  background: color-mix(in srgb, var(--personal-accent) 12%, transparent);
-  color: var(--color-content);
-}
-.personal-shell .personal-new-session {
-  min-height: 32px;
-  background: color-mix(in srgb, var(--personal-accent) 9%, transparent);
-  font-weight: 500;
-}
 .personal-shell .personal-new-session > svg {
-  color: var(--personal-accent);
+  color: var(--personal-muted);
 }
 .personal-shell .personal-new-session:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--personal-accent) 15%, transparent);
-}
-.personal-shell .personal-navigation .personal-project-open {
-  font-weight: 500;
-}
-.personal-shell
-  .personal-navigation
-  .personal-task-card[aria-current="true"]
-  .personal-task-title {
-  color: var(--color-content);
+  background: color-mix(
+    in srgb,
+    var(--color-content) 10%,
+    var(--aven-control-bg, var(--personal-frame))
+  );
 }
 .personal-shell
   .personal-navigation
   .personal-task-card[data-session-selected="true"] {
-  background: color-mix(in srgb, var(--personal-accent) 17%, transparent);
-  box-shadow: inset 2px 0 var(--personal-accent);
+  background: color-mix(in srgb, var(--personal-accent) 21%, transparent);
+  box-shadow: none;
 }
 .personal-shell
   .personal-navigation
@@ -537,9 +529,11 @@
 .personal-shell .personal-navigation .personal-sidebar-footer {
   padding-top: 8px;
   padding-bottom: 4px;
+  box-shadow: inset 0 1px
+    color-mix(in srgb, var(--color-content) 6%, transparent);
 }
 .personal-shell .personal-navigation button:focus-visible,
 .personal-shell .personal-profile-viewport:focus-visible {
-  outline: 2px solid var(--personal-accent);
+  outline: 2px solid var(--aven-focus-ring, var(--personal-accent));
   outline-offset: -2px;
 }

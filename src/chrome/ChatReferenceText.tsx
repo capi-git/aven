@@ -30,6 +30,15 @@ export const ChatReferenceText = memo(function ChatReferenceText({
                   }
                 : undefined
             }
+            onAuxClick={
+              part.file
+                ? (event) => {
+                    if (event.button !== 1) return;
+                    event.preventDefault();
+                    openInAppFile(part.file!.path, part.file!.navigation);
+                  }
+                : undefined
+            }
           >
             {part.text}
           </a>

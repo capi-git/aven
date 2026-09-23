@@ -158,7 +158,7 @@ function FilePaneComponent({
                   session={sessions.find(
                     (entry) => entry.id === file.agent.sessionId,
                   )}
-                  visible={file.id === pane.activeFileId}
+                  visible={presented && file.id === pane.activeFileId}
                   onOpenFile={onOpenFile}
                 />
               ) : isPlanTab(file) ? (
@@ -196,7 +196,7 @@ function FilePaneComponent({
                 >
                   <PdfViewer
                     path={file.path}
-                    active={file.id === pane.activeFileId}
+                    active={presented && file.id === pane.activeFileId}
                   />
                 </Suspense>
               ) : (
@@ -232,6 +232,7 @@ export const FilePane = memo(FilePaneComponent, (previous, next) => {
   if (
     previous.pane !== next.pane ||
     previous.focused !== next.focused ||
+    previous.presented !== next.presented ||
     previous.dirtyFileIds !== next.dirtyFileIds ||
     previous.fileErrorCounts !== next.fileErrorCounts ||
     previous.onFocus !== next.onFocus ||

@@ -22,6 +22,7 @@
   flex-shrink: 0;
   border-bottom: 1px solid
     color-mix(in srgb, var(--color-content) 8%, transparent);
+  background: var(--aven-toolbar-surface, transparent);
 }
 .browser-navigation {
   display: flex;
@@ -35,15 +36,25 @@
   height: 28px;
   flex: 0 0 28px;
   color: color-mix(in srgb, var(--color-content) 65%, transparent);
-  border-radius: 9px;
+  border-radius: 6px;
   background: transparent;
   border: 0;
   cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
 }
 .browser-icon-button:hover:not(:disabled),
 .browser-icon-button[aria-pressed="true"] {
   color: var(--color-content);
   background: color-mix(in srgb, var(--color-content) 7%, transparent);
+}
+.browser-icon-button[aria-pressed="true"] {
+  background: var(
+    --aven-control-bg,
+    color-mix(in srgb, var(--color-content) 9%, transparent)
+  );
+  box-shadow: var(--aven-control-shadow, 0 1px 2px rgb(0 0 0 / 10%));
 }
 .browser-icon-button:disabled {
   opacity: 0.28;
@@ -54,12 +65,16 @@
   flex: 0 0 auto;
   gap: 4px;
   padding: 0 8px;
-  border: 1px solid color-mix(in srgb, var(--color-accent) 48%, transparent);
-  background: color-mix(
-    in srgb,
-    var(--color-accent) 18%,
-    var(--color-background-base)
+  border: 1px solid
+    var(
+      --aven-control-border,
+      color-mix(in srgb, var(--color-content) 10%, transparent)
+    );
+  background: var(
+    --aven-control-bg,
+    color-mix(in srgb, var(--color-content) 9%, transparent)
   );
+  box-shadow: var(--aven-control-shadow, 0 1px 2px rgb(0 0 0 / 10%));
   color: var(--color-content);
   font: inherit;
   font-size: 11px;
@@ -69,12 +84,12 @@
 .browser-edit-done:hover:not(:disabled) {
   background: color-mix(
     in srgb,
-    var(--color-accent) 28%,
-    var(--color-background-base)
+    var(--color-content) 10%,
+    var(--aven-control-bg, var(--color-background-base))
   );
 }
 .browser-edit-done:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
   outline-offset: 2px;
 }
 .browser-address {
@@ -83,9 +98,16 @@
   min-width: 0;
   height: 30px;
   padding: 0 11px;
-  border: 1px solid transparent;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+  border: 1px solid
+    var(
+      --aven-control-border,
+      color-mix(in srgb, var(--color-content) 8%, transparent)
+    );
+  border-radius: 7px;
+  background: var(
+    --aven-field-bg,
+    color-mix(in srgb, var(--color-content) 5%, transparent)
+  );
   color: var(--color-content);
   font: inherit;
   font-size: 12px;
@@ -95,7 +117,7 @@
   color: color-mix(in srgb, var(--color-content) 38%, transparent);
 }
 .browser-address:focus {
-  outline: 2px solid color-mix(in srgb, var(--color-accent) 70%, transparent);
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
   outline-offset: 0;
 }
 .browser-edit-hint {
@@ -106,10 +128,13 @@
   gap: 7px;
   padding: 6px 10px;
   color: var(--color-content);
-  background: var(--personal-frame, var(--color-surface));
+  background: var(
+    --aven-toolbar-surface,
+    var(--personal-frame, var(--color-surface))
+  );
   font-size: 11px;
   border-bottom: 1px solid
-    color-mix(in srgb, var(--color-accent) 30%, transparent);
+    color-mix(in srgb, var(--color-content) 8%, transparent);
 }
 .browser-edit-hint span {
   flex: 1;
@@ -162,6 +187,7 @@
   color: color-mix(in srgb, var(--color-content) 75%, transparent);
   font-size: 11px;
   line-height: 16px;
+  background: var(--aven-grouped-surface, transparent);
 }
 .browser-notice > span {
   flex: 1;
@@ -188,6 +214,9 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  /* Match the 9px workspace curve inside its 1px border. Native Chromium
+     receives this measured radius because CSS cannot clip its sibling view. */
+  border-radius: 0 0 8px 8px;
 }
 .browser-page-snapshot {
   position: absolute;
@@ -229,10 +258,14 @@
 }
 .browser-empty button,
 .browser-empty a {
-  color: color-mix(in srgb, var(--color-content) 75%, transparent);
-  background: color-mix(in srgb, var(--color-content) 5%, transparent);
-  border: 1px solid transparent;
-  border-radius: 9px;
+  color: var(--color-content);
+  background: var(
+    --aven-control-bg,
+    color-mix(in srgb, var(--color-content) 5%, transparent)
+  );
+  border: 1px solid var(--aven-control-border, transparent);
+  border-radius: 6px;
+  box-shadow: var(--aven-control-shadow, 0 1px 2px rgb(0 0 0 / 10%));
   padding: 8px 12px;
   font: inherit;
   font-size: 11px;
@@ -245,7 +278,7 @@
 }
 .browser-pane button:focus-visible,
 .browser-empty a:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
   outline-offset: 2px;
 }
 
@@ -305,7 +338,7 @@
   cursor: default;
 }
 .browser-zoom-controls button:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
   outline-offset: 1px;
 }
 .browser-find-bar {
@@ -316,6 +349,7 @@
   border-bottom: 1px solid
     color-mix(in srgb, var(--color-content) 8%, transparent);
   color: color-mix(in srgb, var(--color-content) 65%, transparent);
+  background: var(--aven-toolbar-surface, transparent);
 }
 .browser-find-bar input {
   flex: 1 1 auto;
@@ -341,6 +375,7 @@
   padding: 4px 10px 8px;
   border-bottom: 1px solid
     color-mix(in srgb, var(--color-content) 8%, transparent);
+  background: var(--aven-grouped-surface, transparent);
 }
 .browser-downloads-heading {
   justify-content: space-between;
@@ -387,7 +422,11 @@
 }
 .browser-downloads li button {
   border: 0;
-  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+  background: var(
+    --aven-control-bg,
+    color-mix(in srgb, var(--color-content) 5%, transparent)
+  );
+  box-shadow: var(--aven-control-shadow, 0 1px 2px rgb(0 0 0 / 10%));
   color: var(--color-content);
   border-radius: 5px;
   padding: 5px 7px;
@@ -412,6 +451,9 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .browser-icon-button {
+    transition: none;
+  }
   .browser-load-indicator.is-indeterminate {
     width: 100%;
     animation: none;

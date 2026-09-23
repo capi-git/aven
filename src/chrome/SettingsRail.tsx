@@ -4,7 +4,7 @@ import {
   Bot,
   Keyboard,
   Palette,
-  SlidersHorizontal,
+  Settings,
   Wrench,
   type IconComponent,
 } from "./icons";
@@ -13,7 +13,7 @@ import { SETTINGS_SECTIONS, type SettingsSectionId } from "../lib/settings";
 import "./SettingsRail.css";
 
 const SECTION_ICONS: Record<SettingsSectionId, IconComponent> = {
-  general: SlidersHorizontal,
+  general: Settings,
   appearance: Palette,
   keybindings: Keyboard,
   providers: Bot,
@@ -21,7 +21,7 @@ const SECTION_ICONS: Record<SettingsSectionId, IconComponent> = {
   archive: Archive,
 };
 
-const SECTION_SUBTITLES: Record<SettingsSectionId, string> = {
+const SECTION_DESCRIPTIONS: Record<SettingsSectionId, string> = {
   general: "Tasks & preferences",
   appearance: "Colors & layout",
   keybindings: "Keyboard shortcuts",
@@ -56,8 +56,9 @@ export function SettingsNav({
         {SETTINGS_SECTIONS.map((item) => (
           <NavRow
             key={item.id}
+            sectionId={item.id}
             label={item.label}
-            subtitle={SECTION_SUBTITLES[item.id]}
+            description={SECTION_DESCRIPTIONS[item.id]}
             icon={SECTION_ICONS[item.id]}
             active={item.id === section}
             onClick={() => onSelect(item.id)}
@@ -73,13 +74,15 @@ export function SettingsNav({
 
 function NavRow({
   label,
-  subtitle,
+  description,
+  sectionId,
   icon: Icon,
   active = false,
   onClick,
 }: {
   label: string;
-  subtitle?: string;
+  description?: string;
+  sectionId?: SettingsSectionId;
   icon: IconComponent;
   active?: boolean;
   onClick: () => void;
@@ -89,18 +92,16 @@ function NavRow({
       type="button"
       onClick={onClick}
       aria-label={label}
+      aria-description={description}
       aria-current={active ? "page" : undefined}
+      title={description}
+      data-settings-section={sectionId}
       className="settings-nav__item"
     >
-      <Icon
-        className="settings-nav__icon"
-        strokeWidth={1.75}
-        aria-hidden="true"
-      />
-      <span className="settings-nav__copy">
-        <span className="settings-nav__label">{label}</span>
-        {subtitle && <span className="settings-nav__subtitle">{subtitle}</span>}
+      <span className="settings-nav__icon-tile" aria-hidden="true">
+        <Icon className="settings-nav__icon" strokeWidth={1.75} />
       </span>
+      <span className="settings-nav__label">{label}</span>
     </button>
   );
 }

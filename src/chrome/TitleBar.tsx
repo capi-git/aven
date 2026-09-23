@@ -89,6 +89,8 @@ export type Tab = {
 
 export type TitleBarProps = {
   paneLocal?: boolean;
+  /** This pane-local strip is hosted in the window's unified toolbar. */
+  windowToolbar?: boolean;
   paneFocused?: boolean;
   onNewView?: (id: string) => void;
   onPictureInPicture?: (id: string) => void;
@@ -202,11 +204,9 @@ export function tabCopy(
   const metaParts: string[] = [];
 
   if (tab.multiPane) {
-    if (tab.fileFocused && file) {
-      headline = file;
-      if (conversation) metaParts.push(conversation);
-      else if (sessions) metaParts.push(sessions);
-    } else if (conversation) {
+    // A file has its own inner tab. Keep its parent named for the task even
+    // while the editor or terminal owns focus, so the two levels stay distinct.
+    if (conversation) {
       headline = conversation;
       if (file) metaParts.push(file);
       else if (sessions) metaParts.push(sessions);
@@ -317,7 +317,6 @@ function TitleTabItem({
   onContextMenu: (id: string, event: MenuPoint) => void;
   itemRef?: (el: HTMLDivElement | null) => void;
 }) {
-  const dragging = canDrag && sortable.draggingId === tab.id;
   const { headline, meta, tooltip } = tabCopy(tab, projectless);
   const fileIcon = tab.files[0];
   const showStart =
@@ -339,7 +338,7 @@ function TitleTabItem({
         sortable.setItemRef(tab.id, el);
         itemRef?.(el);
       }}
-      className={`personal-title-tab group @container relative flex h-full cursor-default touch-none items-center self-stretch min-w-0 w-full ${dragging ? "opacity-40" : ""}`}
+      className="personal-title-tab group @container relative flex h-full cursor-default touch-none items-center self-stretch min-w-0 w-full"
       data-active={active}
       data-visible={visible}
       data-has-models={Boolean(tab.models?.length)}
@@ -382,94 +381,96 @@ function TitleTabItem({
       {showEnd ? (
         <div className="pointer-events-none absolute inset-y-1.5 right-0 z-20 w-0.5 rounded-full bg-accent" />
       ) : null}
-      <button
-        type="button"
-        title={tooltip}
-        aria-label={tooltip}
-        role="tab"
-        aria-selected={active}
-        aria-description={visible && !active ? "Visible in split" : undefined}
-        data-tauri-drag-region="false"
-        className={`personal-title-tab-button relative flex h-7.5 min-w-0 flex-1 cursor-default items-center gap-1.5 self-center rounded-md px-2.5 text-left ${
-          closable ? "pr-7" : "pr-2.5"
-        } ${
-          active
-            ? "bg-content/10 text-content"
-            : "text-content/50 hover:bg-content/5 hover:text-content"
-        }`}
-      >
-        <span className="personal-title-tab-number" aria-hidden>
-          {index + 1}
-        </span>
-        <span
-          className="personal-title-tab-identity"
-          data-busy={tab.busyHarnesses.length > 0}
-        >
-          {tab.harnesses.length > 0 ? (
-            <ProviderMarks
-              harnesses={tab.harnesses}
-              busyHarnesses={tab.busyHarnesses}
-              dimmed={!active}
-            />
-          ) : tab.terminal || !fileIcon ? (
-            <Terminal
-              className={`size-3.5 shrink-0 ${
-                active ? "text-content" : "text-content/55"
-              }`}
-              strokeWidth={1.75}
-            />
-          ) : (
-            <span className={!active ? "opacity-55" : undefined}>
-              <FileTypeIcon name={fileIcon} isDir={false} size={14} />
-            </span>
-          )}
-        </span>
-        <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
-          <span className="flex min-w-0 items-center gap-1">
-            <span
-              className={`personal-title-tab-label min-w-0 truncate leading-none ${
-                meta
-                  ? "text-[13px] @min-[11rem]:text-[10px] @min-[11rem]:font-medium"
-                  : "text-[13px]"
-              }`}
-            >
-              {headline}
-            </span>
-            {visible && !active ? (
-              <span className="personal-title-tab-visible" aria-hidden />
-            ) : null}
-            {tab.dirty ? (
-              <span
-                className="size-1.5 shrink-0 rounded-full bg-content/70"
-                title="Unsaved changes"
-                aria-label="Unsaved changes"
-              />
-            ) : null}
-          </span>
-          {meta ? (
-            <span className="personal-title-tab-meta hidden min-w-0 truncate text-[10px] leading-none text-content/45 @min-[11rem]:block">
-              {meta}
-            </span>
-          ) : null}
-        </span>
-      </button>
-      {closable ? (
+      <div className="aven-tab-motion" data-sortable-motion>
         <button
           type="button"
-          title="Close Tab"
-          aria-label={`Close ${headline}`}
-          data-no-drag
+          title={tooltip}
+          aria-label={tooltip}
+          role="tab"
+          aria-selected={active}
+          aria-description={visible && !active ? "Visible in split" : undefined}
           data-tauri-drag-region="false"
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            onClose(tab.id);
-          }}
-          className="personal-title-tab-close absolute right-1 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-content/50 opacity-0 hover:bg-content/10 hover:text-content group-hover:opacity-100"
+          className={`personal-title-tab-button relative flex h-7.5 min-w-0 flex-1 cursor-default items-center gap-1.5 self-center rounded-md px-2.5 text-left ${
+            closable ? "pr-7" : "pr-2.5"
+          } ${
+            active
+              ? "bg-content/10 text-content"
+              : "text-content/50 hover:bg-content/5 hover:text-content"
+          }`}
         >
-          <X className="size-3" strokeWidth={1.75} />
+          <span className="personal-title-tab-number" aria-hidden>
+            {index + 1}
+          </span>
+          <span
+            className="personal-title-tab-identity"
+            data-busy={tab.busyHarnesses.length > 0}
+          >
+            {tab.harnesses.length > 0 ? (
+              <ProviderMarks
+                harnesses={tab.harnesses}
+                busyHarnesses={tab.busyHarnesses}
+                dimmed={!active}
+              />
+            ) : tab.terminal || !fileIcon ? (
+              <Terminal
+                className={`size-3.5 shrink-0 ${
+                  active ? "text-content" : "text-content/55"
+                }`}
+                strokeWidth={1.75}
+              />
+            ) : (
+              <span className={!active ? "opacity-55" : undefined}>
+                <FileTypeIcon name={fileIcon} isDir={false} size={14} />
+              </span>
+            )}
+          </span>
+          <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
+            <span className="flex min-w-0 items-center gap-1">
+              <span
+                className={`personal-title-tab-label min-w-0 truncate leading-none ${
+                  meta
+                    ? "text-[13px] @min-[11rem]:text-[10px] @min-[11rem]:font-medium"
+                    : "text-[13px]"
+                }`}
+              >
+                {headline}
+              </span>
+              {visible && !active ? (
+                <span className="personal-title-tab-visible" aria-hidden />
+              ) : null}
+              {tab.dirty ? (
+                <span
+                  className="size-1.5 shrink-0 rounded-full bg-content/70"
+                  title="Unsaved changes"
+                  aria-label="Unsaved changes"
+                />
+              ) : null}
+            </span>
+            {meta ? (
+              <span className="personal-title-tab-meta hidden min-w-0 truncate text-[10px] leading-none text-content/45 @min-[11rem]:block">
+                {meta}
+              </span>
+            ) : null}
+          </span>
         </button>
-      ) : null}
+        {closable ? (
+          <button
+            type="button"
+            title="Close Tab"
+            aria-label={`Close ${headline}`}
+            data-no-drag
+            data-tauri-drag-region="false"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose(tab.id);
+            }}
+            className="personal-title-tab-close absolute right-1 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-content/50 opacity-0 hover:bg-content/10 hover:text-content group-hover:opacity-100"
+          >
+            <X className="size-3" strokeWidth={1.75} />
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -522,7 +523,7 @@ function BrowserTitleTabItem({
         sortable.setItemRef(id, element);
         itemRef?.(element);
       }}
-      className={`personal-title-tab personal-title-browser-tab group relative flex h-full min-w-0 touch-none items-center ${sortable.draggingId === id ? "opacity-40" : ""}`}
+      className="personal-title-tab personal-title-browser-tab group relative flex h-full min-w-0 touch-none items-center"
       data-active={active}
       data-visible={visible}
       data-surface-id={id}
@@ -561,57 +562,59 @@ function BrowserTitleTabItem({
       {dropAfter ? (
         <div className="pointer-events-none absolute inset-y-1.5 right-0 z-20 w-0.5 rounded-full bg-accent" />
       ) : null}
-      <button
-        type="button"
-        role="tab"
-        aria-selected={active}
-        aria-description={visible && !active ? "Visible in split" : undefined}
-        aria-label={label === "Browser" ? "Browser" : `Browser: ${label}`}
-        title={label}
-        className="personal-title-tab-button personal-title-browser-button flex min-w-0 flex-1 items-center px-2.5"
-      >
-        <BrowserTabIcon favicon={favicon} />
-        <span className="personal-title-tab-label min-w-0 truncate">
-          {label}
-        </span>
-        {visible && !active ? (
-          <span className="personal-title-tab-visible" aria-hidden />
+      <div className="aven-tab-motion" data-sortable-motion>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={active}
+          aria-description={visible && !active ? "Visible in split" : undefined}
+          aria-label={label === "Browser" ? "Browser" : `Browser: ${label}`}
+          title={label}
+          className="personal-title-tab-button personal-title-browser-button flex min-w-0 flex-1 items-center px-2.5"
+        >
+          <BrowserTabIcon favicon={favicon} />
+          <span className="personal-title-tab-label min-w-0 truncate">
+            {label}
+          </span>
+          {visible && !active ? (
+            <span className="personal-title-tab-visible" aria-hidden />
+          ) : null}
+        </button>
+        {onClose ? (
+          <button
+            type="button"
+            title="Close browser"
+            aria-label={legacy ? "Close browser" : `Close browser: ${label}`}
+            data-no-drag
+            onPointerDown={(event) => event.stopPropagation()}
+            className="personal-title-tab-close personal-title-browser-close absolute top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-content/50 opacity-0 hover:bg-content/10 hover:text-content group-hover:opacity-100"
+            onClick={(event) => {
+              event.stopPropagation();
+              onClose();
+            }}
+          >
+            <X className="size-3" strokeWidth={1.75} />
+          </button>
         ) : null}
-      </button>
-      {onClose ? (
-        <button
-          type="button"
-          title="Close browser"
-          aria-label={legacy ? "Close browser" : `Close browser: ${label}`}
-          data-no-drag
-          onPointerDown={(event) => event.stopPropagation()}
-          className="personal-title-tab-close personal-title-browser-close absolute top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-content/50 opacity-0 hover:bg-content/10 hover:text-content group-hover:opacity-100"
-          onClick={(event) => {
-            event.stopPropagation();
-            onClose();
-          }}
-        >
-          <X className="size-3" strokeWidth={1.75} />
-        </button>
-      ) : null}
-      {onMenu ? (
-        <button
-          type="button"
-          title="Browser layout"
-          aria-label={legacy ? "Browser layout" : `Browser layout: ${label}`}
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          data-no-drag
-          onPointerDown={(event) => event.stopPropagation()}
-          className="personal-title-browser-menu absolute right-0.5 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-content/40 hover:bg-content/10 hover:text-content"
-          onClick={(event) => {
-            event.stopPropagation();
-            onMenu(event.currentTarget);
-          }}
-        >
-          <ChevronDown className="size-3" strokeWidth={1.75} />
-        </button>
-      ) : null}
+        {onMenu ? (
+          <button
+            type="button"
+            title="Browser layout"
+            aria-label={legacy ? "Browser layout" : `Browser layout: ${label}`}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            data-no-drag
+            onPointerDown={(event) => event.stopPropagation()}
+            className="personal-title-browser-menu absolute right-0.5 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-content/40 hover:bg-content/10 hover:text-content"
+            onClick={(event) => {
+              event.stopPropagation();
+              onMenu(event.currentTarget);
+            }}
+          >
+            <ChevronDown className="size-3" strokeWidth={1.75} />
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -782,8 +785,31 @@ export function OverlayNav({
   );
 }
 
+function dragWindowToolbar(event: ReactMouseEvent<HTMLElement>) {
+  if (event.button !== 0 || event.defaultPrevented) return;
+  const target = event.target;
+  if (!(target instanceof Element) || !event.currentTarget.contains(target))
+    return;
+  const control = target.closest(
+    'button, input, textarea, select, a, [role="button"], [role="tab"], [role="menuitem"], [role="combobox"], [contenteditable]:not([contenteditable="false"]), [data-surface-tab-id], [data-no-drag], [data-tauri-drag-region="false"]',
+  );
+  // The header itself stays outside Tauri's deep drag region so native and
+  // React handling cannot both start a gesture. Its interactive descendants
+  // keep their own tab sorting, selection, menus and pointer behavior.
+  if (control && control !== event.currentTarget) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const currentWindow = getCurrentWindow();
+  const action =
+    event.detail === 2
+      ? currentWindow.toggleMaximize()
+      : currentWindow.startDragging();
+  void action.catch((error) => console.warn("Window gesture failed", error));
+}
+
 function TitleBarComponent({
   paneLocal = false,
+  windowToolbar = false,
   paneFocused = true,
   onNewView,
   onPictureInPicture,
@@ -898,7 +924,11 @@ function TitleBarComponent({
           movedId && sessionTabs.has(movedId) ? movedId : undefined,
         );
     },
-    { onDragMove: onSurfaceDragMove, onDragEnd: onSurfaceDragEnd },
+    {
+      animate: true,
+      onDragMove: onSurfaceDragMove,
+      onDragEnd: onSurfaceDragEnd,
+    },
   );
   const groupSortable = useSortable(groupId ? [groupId] : [], () => {}, {
     onDragMove: onGroupDragMove,
@@ -1370,6 +1400,7 @@ function TitleBarComponent({
       data-pane-local={paneLocal || undefined}
       data-pane-focused={paneFocused}
       data-tauri-drag-region={paneLocal ? "false" : "deep"}
+      onMouseDown={paneLocal && windowToolbar ? dragWindowToolbar : undefined}
       onContextMenu={(event) => {
         if (!onReopenClosedTab && !onUndoLayout) return;
         event.preventDefault();
@@ -1436,7 +1467,9 @@ function TitleBarComponent({
                 busyHarnesses={tabs.flatMap((tab) => tab.busyHarnesses)}
               />
             ) : null}
-            <span className="personal-tab-group-label">{groupLabel ?? "Group"}</span>
+            <span className="personal-tab-group-label">
+              {groupLabel ?? "Group"}
+            </span>
           </button>
         ) : null}
         <div

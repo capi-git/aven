@@ -55,7 +55,7 @@ mod window_transfer;
 mod windows;
 mod workspace_window;
 
-// Phase 1 seam: spawn / kill harness children per MonoCode thread.
+// Phase 1 seam: spawn / kill harness children per Aven thread.
 // Adapters own the protocol; this host only supervises processes.
 
 /// Project directory for new sessions — prefer cwd, else home.
@@ -287,6 +287,7 @@ pub fn run() {
             browser_agent::browser_agent_bind,
             browser_agent::browser_agent_revoke,
             browser_agent::browser_agent_open_result,
+            browser_agent::browser_agent_open_file_result,
             browser::browser_create,
             browser::browser_navigate,
             browser::browser_action,

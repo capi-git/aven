@@ -219,6 +219,8 @@ type Props = {
   cwd: string;
   sessions: SessionSummary[];
   besideRail?: boolean;
+  /** False when the workspace window bar provides Settings navigation. */
+  showToolbar?: boolean;
   onToggleSidebar?: () => void;
   onClose: () => void;
   onOpenSession: (sessionId: string) => void;
@@ -236,6 +238,7 @@ export function SettingsView({
   cwd,
   sessions,
   besideRail = false,
+  showToolbar = true,
   onToggleSidebar,
   onClose,
   onOpenSession,
@@ -343,25 +346,27 @@ export function SettingsView({
       data-app-settings
       className="settings-view"
     >
-      <div className="settings-toolbar" data-tauri-drag-region="deep">
-        {IS_MAC && !besideRail ? <div className="w-[78px] shrink-0" /> : null}
-        <OverlayNav onBack={onClose} onToggleSidebar={onToggleSidebar} />
-        <div className="settings-breadcrumb">
-          <span>Settings</span>
-          <ChevronRight aria-hidden className="size-3" />
-          <span>{settingsSectionLabel(section)}</span>
+      {showToolbar ? (
+        <div className="settings-toolbar" data-tauri-drag-region="deep">
+          {IS_MAC && !besideRail ? <div className="w-[78px] shrink-0" /> : null}
+          <OverlayNav onBack={onClose} onToggleSidebar={onToggleSidebar} />
+          <div className="settings-breadcrumb">
+            <span>Settings</span>
+            <ChevronRight aria-hidden className="size-3" />
+            <span>{settingsSectionLabel(section)}</span>
+          </div>
+          <button
+            type="button"
+            className="settings-close"
+            aria-label="Close settings"
+            onClick={onClose}
+            data-tauri-drag-region="false"
+          >
+            <X className="size-4" aria-hidden />
+          </button>
+          {IS_MAC ? null : <WindowControls />}
         </div>
-        <button
-          type="button"
-          className="settings-close"
-          aria-label="Close settings"
-          onClick={onClose}
-          data-tauri-drag-region="false"
-        >
-          <X className="size-4" aria-hidden />
-        </button>
-        {IS_MAC ? null : <WindowControls />}
-      </div>
+      ) : null}
       <div className="settings-layout" data-embedded-nav={!besideRail}>
         {!besideRail ? (
           <aside

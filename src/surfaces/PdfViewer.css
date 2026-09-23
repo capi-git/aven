@@ -11,7 +11,8 @@
   align-items: center;
   gap: 3px;
   padding: 5px 8px;
-  border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+  border-bottom: 1px solid var(--aven-line);
+  background: var(--aven-toolbar-surface);
   font-size: 11px;
 }
 .pdf-viewer-toolbar button,
@@ -23,7 +24,7 @@
   min-width: 27px;
   min-height: 27px;
   padding: 3px 5px;
-  border-radius: 5px;
+  border-radius: 7px;
   cursor: pointer;
 }
 .pdf-viewer-toolbar button:hover,

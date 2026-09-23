@@ -40,3 +40,5 @@ Run `npm run check:web` and the relevant native tests. Verify the changed flow i
 ## Agent instructions and tools
 
 Repository instructions live in [AGENTS.md](../AGENTS.md). Keep changes scoped, preserve other tasks' work, and use the supplied in-app browser connection for ordinary previews. Skills are reusable instructions, not permission grants. Inspect installed skills and optional desktop tool readiness in **Settings → Skills & Tools**. Desktop control still requires macOS permissions and an installed supported tool; browser inspection can use Aven's built-in scoped browser without that desktop tool.
+
+See [AGENT-TOOLS.md](AGENT-TOOLS.md) for automatic browser routing, opening Markdown in the editor, and native desktop control. The guidance is supplied to tasks automatically; the computer-use slash command is optional.

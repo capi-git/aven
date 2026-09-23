@@ -100,7 +100,7 @@ export type HarnessSessionInput = {
   runtimeMode: RuntimeMode;
   intent?: TurnIntent;
   /**
-   * This session drives MonoCode's control CLI, which reaches the app over
+   * This session drives Aven's control CLI, which reaches the app over
    * loopback. Sandboxes deny network by default, so a lead that cannot open
    * that socket cannot supervise its agents at all.
    */

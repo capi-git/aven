@@ -117,7 +117,7 @@ const ASSIGNMENT_BLOCK =
 
 /** Prompt the worker receives, including the envelope the transcript hides. */
 export function workerTurnPrompt(prompt: string, files: string[]): string {
-  return `${prompt}\n\n<monocode_assignment>\nYou are a worker managed by a Aven lead. Work in this shared checkout. Your assigned write scope is: ${files.join(", ")}. Read other files as needed, but do not edit outside your scope. If another file or shared operation is needed, report the blocker and stop so the lead can assign a new task. Do not spawn agents, create worktrees, switch branches, stage/commit changes, install dependencies or run broad formatters/generators unless this task owns '.' and explicitly requires that operation. Do not undo another agent's changes. Other workers may be editing concurrently; report focused checks, changed files, remaining issues and a concise final result.\n</monocode_assignment>`;
+  return `${prompt}\n\n<monocode_assignment>\nYou are a worker managed by an Aven lead. Work in this shared checkout. Your assigned write scope is: ${files.join(", ")}. Read other files as needed, but do not edit outside your scope. If another file or shared operation is needed, report the blocker and stop so the lead can assign a new task. Do not spawn agents, create worktrees, switch branches, stage/commit changes, install dependencies or run broad formatters/generators unless this task owns '.' and explicitly requires that operation. Do not undo another agent's changes. Other workers may be editing concurrently; report focused checks, changed files, remaining issues and a concise final result.\n</monocode_assignment>`;
 }
 
 /** Task text a person should see: the assignment envelope stays in the send. */

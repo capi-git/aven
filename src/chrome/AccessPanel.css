@@ -14,16 +14,18 @@ html.access-panel-window #root {
   --access-bg: var(--personal-main-surface, #0b121a);
   --access-text: var(--color-content, #ededed);
   --access-accent: var(--personal-accent, #6cabdd);
-  --access-muted: color-mix(in srgb, var(--access-text) 65%, var(--access-bg));
+  --access-muted: color-mix(in srgb, var(--access-text) 70%, var(--access-bg));
+  --access-line: color-mix(in srgb, var(--access-text) 10%, var(--access-bg));
   width: 100%;
   max-height: 100%;
   overflow-y: auto;
   overscroll-behavior: contain;
   box-sizing: border-box;
-  border-radius: 14px;
+  border: 1px solid var(--access-line);
+  border-radius: 12px;
   background: var(--access-bg);
   color: var(--access-text);
-  padding: 10px;
+  padding: 8px;
   font:
     13px/1.4 -apple-system,
     BlinkMacSystemFont,
@@ -40,11 +42,11 @@ html.access-panel-window #root {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 2px 4px 6px;
+  padding: 2px 2px 6px 8px;
 }
 .access-panel h2 {
   margin: 0;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
 }
 .access-panel-close {
@@ -53,7 +55,7 @@ html.access-panel-window #root {
   width: 28px;
   height: 28px;
   border: 0;
-  border-radius: 9px;
+  border-radius: 7px;
   color: var(--access-muted);
   background: transparent;
   cursor: pointer;
@@ -63,7 +65,7 @@ html.access-panel-window #root {
   background: color-mix(in srgb, var(--access-text) 8%, transparent);
 }
 .access-panel-note {
-  margin: 0 6px 10px;
+  margin: 0 8px 10px;
   font-size: 11px;
   line-height: 1.5;
   color: var(--access-muted);
@@ -71,15 +73,15 @@ html.access-panel-window #root {
 .access-panel-options {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
 }
 .access-panel-option {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 10px 9px;
+  padding: 10px;
   border: 0;
-  border-radius: 10px;
+  border-radius: 7px;
   color: var(--access-text);
   text-align: left;
   background: transparent;
@@ -108,10 +110,10 @@ html.access-panel-window #root {
 }
 .access-panel-copy strong {
   font-size: 13px;
-  font-weight: 550;
+  font-weight: 500;
 }
 .access-panel-copy > span {
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.45;
   color: var(--access-muted);
 }

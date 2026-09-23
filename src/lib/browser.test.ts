@@ -37,6 +37,38 @@ it.each([688, 900])(
   },
 );
 
+it.each([
+  ["8px", "8px", 8],
+  ["24px", "24px", 10],
+  ["0px", "0px", undefined],
+  ["invalid", "8px", undefined],
+])(
+  "carries the measured bottom content radius %s/%s without altering viewport bounds",
+  (left, right, radius) => {
+    vi.stubGlobal("window", { innerHeight: 688, devicePixelRatio: 1.6 });
+    vi.stubGlobal("getComputedStyle", () => ({
+      borderBottomLeftRadius: left,
+      borderBottomRightRadius: right,
+    }));
+    try {
+      const element = {
+        getBoundingClientRect: () => ({ x: 50, y: 100, width: 20, height: 60 }),
+      } as HTMLElement;
+      expect(browserBounds(element)).toEqual({
+        x: 50,
+        y: 100,
+        width: 20,
+        height: 60,
+        scale: 1.6,
+        viewportHeight: 688,
+        ...(radius === undefined ? {} : { bottomCornerRadius: radius }),
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  },
+);
+
 describe("browser omnibox", () => {
   it.each([
     ["google", "https://www.google.com/search?q=google"],

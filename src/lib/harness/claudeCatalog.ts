@@ -220,7 +220,7 @@ export function refreshClaudeCatalog(): Promise<void> {
       if (models.length > 0) setHarnessModels("claude", models);
     })
     .catch((error: unknown) => {
-      console.debug("[monocode] claude catalog", error);
+      console.debug("[aven] claude catalog", error);
     })
     .finally(() => {
       inflight = null;
@@ -230,7 +230,7 @@ export function refreshClaudeCatalog(): Promise<void> {
 
 async function discoverClaudeModels(): Promise<AgentModel[]> {
   const listed = await discoverViaListModels().catch((error: unknown) => {
-    console.debug("[monocode] claude list_models catalog failed", error);
+    console.debug("[aven] claude list_models catalog failed", error);
     return [];
   });
   if (listed.length > 0) return listed;

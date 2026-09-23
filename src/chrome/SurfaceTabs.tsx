@@ -1,6 +1,6 @@
 import { GitCompare, GripVertical, Terminal, X } from "./icons";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import { useLayoutEffect, useRef } from "react";
+import { useCallback, useLayoutEffect, useRef } from "react";
 import { basename } from "../lib/fs";
 import {
   isAgentTab,
@@ -133,7 +133,14 @@ export function SurfaceTabs({
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const activeTabRef = useRef<HTMLDivElement | null>(null);
   const fileIds = files.map((file) => file.id);
-  const sortable = useSortable(fileIds, onReorder);
+  const sortable = useSortable(fileIds, onReorder, { animate: true });
+  const setTabStripRef = useCallback(
+    (element: HTMLDivElement | null) => {
+      sortable.setContainerRef(element);
+      lockOverscroll(element);
+    },
+    [sortable.setContainerRef, lockOverscroll],
+  );
   const canDrag = files.length > 1;
 
   useLayoutEffect(() => {
@@ -147,154 +154,164 @@ export function SurfaceTabs({
   return (
     <div className="aven-surface-tabs flex h-9 min-w-0 shrink-0 border-b border-content/10 bg-content/2">
       <div
-        ref={lockOverscroll}
+        ref={setTabStripRef}
+        data-sortable-scroll-container
         role="tablist"
         aria-label={label}
         className="aven-surface-tab-strip scrollbar-none flex min-w-0 flex-1 overflow-x-auto overscroll-none"
       >
-      {onPaneDragStart ? (
-        <div
-          role="button"
-          title="Drag to reorder pane"
-          aria-label="Drag to reorder pane"
-          tabIndex={-1}
-          className="grid h-full w-5 shrink-0 cursor-grab place-items-center text-content/35 hover:bg-content/5 hover:text-content/70 active:cursor-grabbing touch-none"
-          onPointerDown={(event) => {
-            if (event.button !== 0) return;
-            event.preventDefault();
-            event.stopPropagation();
-            onPaneDragStart(event);
-          }}
-        >
-          <GripVertical className="size-3.5" strokeWidth={1.75} />
-        </div>
-      ) : null}
-      {files.map((file, index) => {
-        const active = file.id === activeFileId;
-        const dirty = dirtyFileIds.has(file.id);
-        const errors = fileErrorCounts.get(file.id) ?? 0;
-        const changes = isChangesTab(file);
-        const commit = isCommitTab(file);
-        const review = isReviewTab(file) && !changes;
-        const terminal = isTerminalTab(file);
-        const agent = isAgentTab(file) ? file.agent : null;
-        const { label, iconName, tooltip } = surfaceTabPresentation(file);
-        const dragging = sortable.draggingId === file.id;
-        const showStart =
-          sortable.draggingId &&
-          sortable.toIndex === index &&
-          sortable.fromIndex !== null &&
-          sortable.toIndex < sortable.fromIndex;
-        const showEnd =
-          sortable.draggingId &&
-          sortable.toIndex === index &&
-          sortable.fromIndex !== null &&
-          sortable.toIndex > sortable.fromIndex;
-        return (
+        {onPaneDragStart ? (
           <div
-            key={file.id}
-            ref={(el) => {
-              sortable.setItemRef(file.id, el);
-              if (el && file.id === activeFileId) activeTabRef.current = el;
-            }}
-            data-active={active}
-            className={`aven-surface-tab-slot group relative flex w-52 min-w-28 shrink touch-none items-stretch border-r border-content/10 ${
-              active ? "bg-content/8" : "hover:bg-content/5"
-            } ${dragging ? "opacity-40" : ""} ${
-              canDrag ? "cursor-grab active:cursor-grabbing" : ""
-            }`}
+            role="button"
+            title="Drag to reorder pane"
+            aria-label="Drag to reorder pane"
+            tabIndex={-1}
+            className="grid h-full w-5 shrink-0 cursor-grab place-items-center text-content/35 hover:bg-content/5 hover:text-content/70 active:cursor-grabbing touch-none"
             onPointerDown={(event) => {
               if (event.button !== 0) return;
-              if (
-                (event.target as HTMLElement | null)?.closest("[data-no-drag]")
-              ) {
-                return;
-              }
-              onSelectFile(file.id);
-              sortable.onItemPointerDown(file.id, event);
+              event.preventDefault();
+              event.stopPropagation();
+              onPaneDragStart(event);
             }}
           >
-            {showStart ? (
-              <div className="pointer-events-none absolute inset-y-0 left-0 z-20 w-0.5 bg-accent" />
-            ) : null}
-            {showEnd ? (
-              <div className="pointer-events-none absolute inset-y-0 right-0 z-20 w-0.5 bg-accent" />
-            ) : null}
-            <button
-              type="button"
-              role="tab"
-              aria-selected={active}
-              title={appendProblems(tooltip, errors)}
-              onClick={() => {
-                if (sortable.consumeClick()) return;
-                onSelectFile(file.id);
-              }}
-              className={`aven-surface-tab-button flex min-w-0 flex-1 items-center gap-1.5 px-3 pr-8 text-left text-[12px] ${
-                canDrag ? "cursor-grab active:cursor-grabbing" : ""
-              } ${
-                active ? "text-content" : "text-content/55 hover:text-content"
-              }`}
-            >
-              {terminal ? (
-                <Terminal className="size-3.5 shrink-0" strokeWidth={1.75} />
-              ) : agent ? (
-                <HarnessIcon
-                  harness={agent.harness}
-                  className="size-3.5 shrink-0"
-                />
-              ) : changes || commit ? (
-                <GitCompare className="size-3.5 shrink-0" strokeWidth={1.75} />
-              ) : (
-                <FileTypeIcon name={iconName} isDir={false} size={15} />
-              )}
-              <span
-                className={`min-w-0 flex-1 truncate ${review ? "italic" : ""} ${
-                  errors
-                    ? active
-                      ? "text-red-400"
-                      : "text-red-400/75 group-hover:text-red-400"
-                    : ""
-                }`}
-              >
-                {label}
-              </span>
-              {dirty ? (
-                <span
-                  className="size-1.5 shrink-0 rounded-full bg-content/75"
-                  title="Unsaved changes"
-                  aria-label="Unsaved changes"
-                />
-              ) : null}
-            </button>
-            <button
-              type="button"
-              title={`Close ${label}`}
-              aria-label={`Close ${label}`}
-              data-no-drag
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.stopPropagation();
-                onCloseFile(file.id);
-              }}
-              className={`aven-surface-tab-close absolute right-1.5 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-content/50 hover:bg-content/10 hover:text-content ${
-                active ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-              }`}
-            >
-              <X className="size-3" strokeWidth={1.75} />
-            </button>
+            <GripVertical className="size-3.5" strokeWidth={1.75} />
           </div>
-        );
-      })}
-      {onPaneDragStart ? (
-        <div
-          className="min-w-4 flex-1 cursor-grab active:cursor-grabbing"
-          onPointerDown={(event) => {
-            if (event.button !== 0) return;
-            event.preventDefault();
-            onPaneDragStart(event);
-          }}
-        />
-      ) : null}
+        ) : null}
+        {files.map((file, index) => {
+          const active = file.id === activeFileId;
+          const dirty = dirtyFileIds.has(file.id);
+          const errors = fileErrorCounts.get(file.id) ?? 0;
+          const changes = isChangesTab(file);
+          const commit = isCommitTab(file);
+          const review = isReviewTab(file) && !changes;
+          const terminal = isTerminalTab(file);
+          const agent = isAgentTab(file) ? file.agent : null;
+          const { label, iconName, tooltip } = surfaceTabPresentation(file);
+          const showStart =
+            sortable.draggingId &&
+            sortable.toIndex === index &&
+            sortable.fromIndex !== null &&
+            sortable.toIndex < sortable.fromIndex;
+          const showEnd =
+            sortable.draggingId &&
+            sortable.toIndex === index &&
+            sortable.fromIndex !== null &&
+            sortable.toIndex > sortable.fromIndex;
+          return (
+            <div
+              key={file.id}
+              ref={(el) => {
+                sortable.setItemRef(file.id, el);
+                if (el && file.id === activeFileId) activeTabRef.current = el;
+              }}
+              data-active={active}
+              className={`aven-surface-tab-slot group relative flex w-52 min-w-28 shrink touch-none items-stretch border-r border-content/10 ${
+                active ? "bg-content/8" : "hover:bg-content/5"
+              } ${canDrag ? "cursor-grab active:cursor-grabbing" : ""}`}
+              onPointerDown={(event) => {
+                if (event.button !== 0) return;
+                if (
+                  (event.target as HTMLElement | null)?.closest(
+                    "[data-no-drag]",
+                  )
+                ) {
+                  return;
+                }
+                onSelectFile(file.id);
+                sortable.onItemPointerDown(file.id, event);
+              }}
+            >
+              {showStart ? (
+                <div className="pointer-events-none absolute inset-y-0 left-0 z-20 w-0.5 bg-accent" />
+              ) : null}
+              {showEnd ? (
+                <div className="pointer-events-none absolute inset-y-0 right-0 z-20 w-0.5 bg-accent" />
+              ) : null}
+              <div className="aven-tab-motion" data-sortable-motion>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  title={appendProblems(tooltip, errors)}
+                  onClick={() => {
+                    if (sortable.consumeClick()) return;
+                    onSelectFile(file.id);
+                  }}
+                  className={`aven-surface-tab-button flex min-w-0 flex-1 items-center gap-1.5 px-3 pr-8 text-left text-[12px] ${
+                    canDrag ? "cursor-grab active:cursor-grabbing" : ""
+                  } ${
+                    active
+                      ? "text-content"
+                      : "text-content/55 hover:text-content"
+                  }`}
+                >
+                  {terminal ? (
+                    <Terminal
+                      className="size-3.5 shrink-0"
+                      strokeWidth={1.75}
+                    />
+                  ) : agent ? (
+                    <HarnessIcon
+                      harness={agent.harness}
+                      className="size-3.5 shrink-0"
+                    />
+                  ) : changes || commit ? (
+                    <GitCompare
+                      className="size-3.5 shrink-0"
+                      strokeWidth={1.75}
+                    />
+                  ) : (
+                    <FileTypeIcon name={iconName} isDir={false} size={15} />
+                  )}
+                  <span
+                    className={`min-w-0 flex-1 truncate ${review ? "italic" : ""} ${
+                      errors
+                        ? active
+                          ? "text-red-400"
+                          : "text-red-400/75 group-hover:text-red-400"
+                        : ""
+                    }`}
+                  >
+                    {label}
+                  </span>
+                  {dirty ? (
+                    <span
+                      className="size-1.5 shrink-0 rounded-full bg-content/75"
+                      title="Unsaved changes"
+                      aria-label="Unsaved changes"
+                    />
+                  ) : null}
+                </button>
+                <button
+                  type="button"
+                  title={`Close ${label}`}
+                  aria-label={`Close ${label}`}
+                  data-no-drag
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onCloseFile(file.id);
+                  }}
+                  className={`aven-surface-tab-close absolute right-1.5 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-content/50 hover:bg-content/10 hover:text-content ${
+                    active ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                  }`}
+                >
+                  <X className="size-3" strokeWidth={1.75} />
+                </button>
+              </div>
+            </div>
+          );
+        })}
+        {onPaneDragStart ? (
+          <div
+            className="min-w-4 flex-1 cursor-grab active:cursor-grabbing"
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              event.preventDefault();
+              onPaneDragStart(event);
+            }}
+          />
+        ) : null}
       </div>
       {trailing}
     </div>
