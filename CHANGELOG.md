@@ -7,6 +7,11 @@
 - Start the left sidebar's closing animation as soon as the pointer leaves, removing the extra hover-exit pause.
 - Keep a pending close from being postponed by repeated focus and popup observations. Preserve edge-to-panel movement, open menus, keyboard focus, and the existing slide animation.
 
+### Claude sign-in recovery
+
+- Recognize Claude's structured API errors and failed results, so an expired sign-in shows a failed attempt instead of “Finished.”
+- Show sign-in instructions with a shortcut to Aven's terminal. Retire failed Claude processes so retrying after login reads fresh credentials while preserving the conversation.
+
 ## [0.1.91] - 2026-09-23
 
 ### Prevent a Bluetooth privacy crash

@@ -22,6 +22,7 @@ export type SessionRunStatus = {
   startedAt?: number;
   durationMs?: number;
   canStop: boolean;
+  recovery?: "claude-login";
 };
 
 function validTime(value: number | undefined): value is number {
@@ -182,6 +183,15 @@ export function sessionRunStatus(
   }
   const outcome = latestOutcome(session, turn?.block, entries);
   if (outcome) {
+    // Offer provider recovery only after an explicit failed runtime outcome.
+    // Assistant prose and errors from older turns are not authentication state.
+    const needsClaudeLogin =
+      outcome.outcome === "failed" &&
+      (turn?.block.turnModel?.harness ?? session.harness) === "claude" &&
+      session.blocks.slice((turn?.index ?? -1) + 1).some((block) =>
+        block.role === "system" &&
+        /^(?:Failed to authenticate\b|Claude Code authentication failed\b|OAuth session expired\b|Not logged in\b.*\/login)/i.test(block.text.trim()),
+      );
     const terminal = {
       completed: {
         kind: "finished",
@@ -202,6 +212,11 @@ export function sessionRunStatus(
     const state = terminal[outcome.outcome as keyof typeof terminal];
     return {
       ...state,
+      ...(needsClaudeLogin ? {
+        label: "Sign in required",
+        detail: "Reconnect Claude Code, then retry your message",
+        recovery: "claude-login" as const,
+      } : {}),
       ...(startedAt !== undefined ? { startedAt } : {}),
       ...(validTime(turn?.block.durationMs)
         ? { durationMs: turn.block.durationMs }

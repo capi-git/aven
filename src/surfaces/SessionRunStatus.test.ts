@@ -13,8 +13,9 @@ let root: Root;
 let host: HTMLDivElement;
 let session: Session;
 const stop = vi.fn();
+const openTerminal = vi.fn();
 async function render(visible = true) {
-  await act(async () => root.render(createElement(SessionRunStatus, { session, visible, onStop: stop })));
+  await act(async () => root.render(createElement(SessionRunStatus, { session, visible, onStop: stop, onOpenTerminal: openTerminal })));
 }
 const state = () => host.querySelector("[data-run-state]")?.getAttribute("data-run-state");
 const outcome = (value: "completed" | "failed" | "stopped"): ActivityEntry => ({
@@ -30,6 +31,7 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   ledger.entries = [];
   stop.mockReset();
+  openTerminal.mockReset();
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -97,6 +99,23 @@ describe("persistent agent run status", () => {
     await act(async () => vi.advanceTimersByTime(3000));
     await render();
     expect(host.querySelector('[role="timer"]')?.textContent).toBe("12s");
+  });
+
+  it("explains sign-in recovery and opens this session's terminal only on request", async () => {
+    session = { ...session, harness: "claude", busy: false, blocks: [...session.blocks,
+      { id: "error", role: "system", text: "Failed to authenticate: OAuth session expired and could not be refreshed" },
+    ] };
+    ledger.entries = [outcome("failed")];
+    await render();
+    expect(state()).toBe("failed");
+    expect(host.textContent).toContain("Sign in required");
+    expect(host.textContent).toContain("claude auth login");
+    expect(host.textContent).not.toContain("Finished");
+    expect(openTerminal).not.toHaveBeenCalled();
+    expect(stop).not.toHaveBeenCalled();
+    const button = [...host.querySelectorAll<HTMLButtonElement>("button")].find(el => el.textContent === "Open terminal")!;
+    await act(async () => button.click());
+    expect(openTerminal).toHaveBeenCalledExactlyOnceWith("session");
   });
 
   it("keeps status changes accessible without announcing the clock every second", async () => {

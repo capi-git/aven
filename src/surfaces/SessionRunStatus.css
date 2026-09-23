@@ -78,6 +78,19 @@ html.theme-light
   min-width: 30px;
   text-align: right;
 }
+.session-run-recovery {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-basis: 100%;
+  color: var(--aven-muted);
+}
+.session-run-recovery code {
+  color: var(--color-content);
+  user-select: text;
+}
 .session-run-queued {
   border-radius: 5px;
   padding: 2px 6px;

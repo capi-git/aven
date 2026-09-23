@@ -9,6 +9,7 @@ type Props = {
   session: Session;
   visible: boolean;
   onStop: (sessionId: string) => void;
+  onOpenTerminal?: (sessionId: string) => void;
 };
 
 /** Outside the transcript scroller, so long responses cannot hide the state. */
@@ -17,7 +18,7 @@ export const SessionRunStatus = memo(function SessionRunStatus(props: Props) {
   return props.visible ? <VisibleRunStatus {...props} /> : null;
 });
 
-function VisibleRunStatus({ session, onStop }: Props) {
+function VisibleRunStatus({ session, onStop, onOpenTerminal }: Props) {
   const entries = useActivity();
   const status = sessionRunStatus(session, entries);
   if (!status) return null;
@@ -59,6 +60,16 @@ function VisibleRunStatus({ session, onStop }: Props) {
           <Square className="size-2.5" aria-hidden="true" />
           Stop
         </button>
+      ) : null}
+      {status.recovery === "claude-login" ? (
+        <div className="session-run-recovery">
+          <span>Run <code>claude auth login</code> in Aven’s terminal, then retry.</span>
+          {onOpenTerminal ? (
+            <button type="button" className="session-run-stop" onClick={() => onOpenTerminal(session.id)}>
+              Open terminal
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

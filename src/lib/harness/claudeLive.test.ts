@@ -3,6 +3,8 @@ import { AVEN_BROWSER_HOST_POLICY } from "./browserHostPolicy";
 
 const sent: string[] = [];
 const spawned: string[][] = [];
+const killed: string[] = [];
+let killWait: Promise<void> | undefined;
 let onLine: ((line: string) => void) | undefined;
 
 vi.mock("./child", () => ({
@@ -10,7 +12,10 @@ vi.mock("./child", () => ({
   spawnChild: async (_id: string, _path: string, args: string[]) => {
     spawned.push(args);
   },
-  killChild: async () => undefined,
+  killChild: async (id: string) => {
+    killed.push(id);
+    await killWait;
+  },
   unwatchChild: () => undefined,
   watchChild: (_id: string, line: (l: string) => void) => {
     onLine = line;
@@ -89,6 +94,8 @@ async function startTurn(
 beforeEach(() => {
   sent.length = 0;
   spawned.length = 0;
+  killed.length = 0;
+  killWait = undefined;
   onLine = undefined;
   __claudeTestReset();
 });
@@ -183,6 +190,120 @@ describe("claude access changes", () => {
 });
 
 describe("claude provider errors", () => {
+  const expiredSession =
+    "Failed to authenticate: OAuth session expired and could not be refreshed";
+
+  it.each([false, true])(
+    "reports an OAuth failure once with a success result and is_error=%s",
+    async (isError) => {
+      const { events, turn } = await startTurn("s1");
+      emit({
+        type: "assistant",
+        session_id: "sess_1",
+        error: "authentication_failed",
+        message: { content: [{ type: "text", text: expiredSession }] },
+      });
+      emit({
+        type: "result",
+        subtype: "success",
+        is_error: isError,
+        result: expiredSession,
+        session_id: "sess_1",
+      });
+      await turn;
+      expect(events.filter((event) => event.type === "session.error")).toEqual([
+        { type: "session.error", message: expiredSession },
+      ]);
+      expect(events.some((event) => event.type === "message.delta")).toBe(false);
+      expect(killed).toEqual(["s1"]);
+    },
+  );
+
+  it("reports an error result even if the assistant envelope was omitted", async () => {
+    const { events, turn } = await startTurn("s1");
+    emit({
+      type: "result",
+      subtype: "success",
+      is_error: true,
+      result: expiredSession,
+      session_id: "sess_1",
+    });
+    await turn;
+    expect(events.filter((event) => event.type === "session.error")).toEqual([
+      { type: "session.error", message: expiredSession },
+    ]);
+    expect(killed).toEqual(["s1"]);
+  });
+
+  it("restarts after a provider failure without losing the resumed conversation", async () => {
+    const first = await startTurn("s1");
+    emit({
+      type: "assistant",
+      error: "authentication_failed",
+      message: { content: [{ type: "text", text: expiredSession }] },
+    });
+    emit({ type: "result", subtype: "success", is_error: true });
+    await first.turn;
+    sent.length = 0;
+
+    const retry = await startTurn("s1");
+    expect(spawned).toHaveLength(2);
+    const retryArgs = spawned.at(-1)!;
+    expect(retryArgs[retryArgs.indexOf("--resume") + 1]).toBe("sess_1");
+    expect(retryArgs).not.toContain("--session-id");
+    emit({
+      type: "assistant",
+      message: { content: [{ type: "text", text: "Hello!" }] },
+    });
+    emit({ type: "result", subtype: "success", is_error: false });
+    await retry.turn;
+    expect(retry.events.some((event) => event.type === "session.error")).toBe(false);
+    expect(killed).toEqual(["s1"]);
+  });
+
+  it("does not turn discussion of authentication errors into a failed turn", async () => {
+    const { events, turn } = await startTurn("s1");
+    emit({
+      type: "assistant",
+      message: { content: [{ type: "text", text: expiredSession }] },
+    });
+    emit({ type: "result", subtype: "success", is_error: false });
+    await turn;
+    expect(events.some((event) => event.type === "session.error")).toBe(false);
+    expect(events.filter((event) => event.type === "message.delta")).toEqual([
+      { type: "message.delta", text: expiredSession },
+    ]);
+  });
+
+  it("waits for failed-process disposal before starting an immediate retry", async () => {
+    const first = await startTurn("s1");
+    let releaseKill = () => {};
+    killWait = new Promise<void>((resolve) => {
+      releaseKill = resolve;
+    });
+    emit({
+      type: "assistant",
+      error: "authentication_failed",
+      message: { content: [{ type: "text", text: expiredSession }] },
+    });
+    emit({ type: "result", subtype: "success", is_error: true });
+    await waitFor(() => killed.length === 1, "failed process disposal");
+    sent.length = 0;
+    const retryReady = startTurn("s1");
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(spawned).toHaveLength(1);
+    } finally {
+      releaseKill();
+    }
+    await first.turn;
+    const retry = await retryReady;
+    expect(spawned).toHaveLength(2);
+    emit({ type: "result", subtype: "success", is_error: false });
+    await retry.turn;
+    expect(retry.events.some((event) => event.type === "session.error")).toBe(false);
+  });
+
   it.each(["success", "error_during_execution"])(
     "preserves a synthetic API error after planning commentary and a %s result",
     async (subtype) => {
@@ -215,22 +336,26 @@ describe("claude provider errors", () => {
     },
   );
 
-  it("keeps subagent API errors out of the parent turn", async () => {
-    const { events, turn } = await startTurn("s1");
-    emit({
-      type: "assistant",
-      parent_tool_use_id: "toolu_agent",
-      isApiErrorMessage: true,
-      error: "rate_limit",
-      apiErrorStatus: 429,
-      message: { content: [{ type: "text", text: "Subagent limit reached" }] },
-    });
-    emit({ type: "result", subtype: "success", session_id: "sess_1" });
-    await turn;
+  it.each([false, true])(
+    "keeps subagent API errors out of the parent turn (legacy marker=%s)",
+    async (legacyMarker) => {
+      const { events, turn } = await startTurn("s1");
+      emit({
+        type: "assistant",
+        parent_tool_use_id: "toolu_agent",
+        ...(legacyMarker ? { isApiErrorMessage: true } : {}),
+        error: "rate_limit",
+        apiErrorStatus: 429,
+        message: { content: [{ type: "text", text: "Subagent limit reached" }] },
+      });
+      emit({ type: "result", subtype: "success", session_id: "sess_1" });
+      await turn;
 
-    expect(events.some((event) => event.type === "session.error")).toBe(false);
-    expect(events.some((event) => event.type === "message.delta")).toBe(false);
-  });
+      expect(events.some((event) => event.type === "session.error")).toBe(false);
+      expect(events.some((event) => event.type === "message.delta")).toBe(false);
+      expect(killed).toEqual([]);
+    },
+  );
 });
 
 describe("claude subagents", () => {

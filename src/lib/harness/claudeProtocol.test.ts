@@ -7,6 +7,7 @@ import {
 import {
   applyClaudePromptEffortPrefix,
   askUserQuestionAllowInput,
+  assistantErrorFromMessage,
   buildClaudeSpawnArgs,
   buildClaudeUserMessage,
   contextFromResult,
@@ -357,6 +358,46 @@ describe("stream mapping", () => {
 });
 
 describe("turnStatusFromResult", () => {
+  const authError =
+    "Failed to authenticate: OAuth session expired and could not be refreshed";
+
+  it("honors is_error even when the CLI result subtype is success", () => {
+    expect(
+      turnStatusFromResult({
+        type: "result",
+        subtype: "success",
+        is_error: true,
+        result: authError,
+      }),
+    ).toEqual({ status: "failed", error: authError });
+  });
+
+  it("does not interpret ordinary successful result text as a provider error", () => {
+    expect(
+      turnStatusFromResult({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: authError,
+      }),
+    ).toEqual({ status: "completed" });
+  });
+
+  it("prefers explicit errors and falls back when the provider omits details", () => {
+    expect(
+      turnStatusFromResult({
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        errors: ["[ede_diagnostic] internal detail", "", authError],
+        result: "Fallback",
+      }),
+    ).toEqual({ status: "failed", error: authError });
+    expect(
+      turnStatusFromResult({ type: "result", subtype: "success", is_error: true }),
+    ).toEqual({ status: "failed", error: "Claude turn failed." });
+  });
+
   it("treats aborted terminals as interrupted", () => {
     expect(
       turnStatusFromResult({
@@ -369,6 +410,59 @@ describe("turnStatusFromResult", () => {
     expect(
       turnStatusFromResult({ type: "result", subtype: "success" }).status,
     ).toBe("completed");
+  });
+});
+
+describe("assistantErrorFromMessage", () => {
+  const text =
+    "Failed to authenticate: OAuth session expired and could not be refreshed";
+  const message = { content: [{ type: "text", text }] };
+
+  it("reads the public assistant error field without an internal CLI marker", () => {
+    expect(
+      assistantErrorFromMessage({
+        type: "assistant",
+        error: "authentication_failed",
+        message,
+      }),
+    ).toBe(text);
+  });
+
+  it("still accepts the legacy internal API error marker", () => {
+    expect(
+      assistantErrorFromMessage({
+        type: "assistant",
+        isApiErrorMessage: true,
+        message,
+      }),
+    ).toBe(text);
+  });
+
+  it("provides an actionable fallback when an auth failure has no text", () => {
+    expect(
+      assistantErrorFromMessage({
+        type: "assistant",
+        error: "authentication_failed",
+      }),
+    ).toBe(
+      "Claude Code authentication failed. Run claude auth login in Aven’s terminal, then retry.",
+    );
+  });
+
+  it("leaves ordinary assistant prose and user messages alone", () => {
+    expect(
+      assistantErrorFromMessage({ type: "assistant", message }),
+    ).toBeUndefined();
+    expect(
+      assistantErrorFromMessage({ type: "assistant", error: "", message }),
+    ).toBeUndefined();
+    expect(
+      assistantErrorFromMessage({
+        type: "user",
+        error: "authentication_failed",
+        message,
+      }),
+    ).toBeUndefined();
   });
 });
 

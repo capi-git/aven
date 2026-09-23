@@ -12,6 +12,7 @@ import {
 import {
   asRecord,
   askUserQuestionAllowInput,
+  assistantErrorFromMessage,
   assistantTextBlocks,
   assistantToolUses,
   contextFromResult,
@@ -150,6 +151,7 @@ const INIT_TIMEOUT_MS = 8_000;
 
 const liveByThread = new Map<string, Live>();
 const resumeByThread = new Map<string, Resume>();
+const stoppingByThread = new Map<string, Promise<void>>();
 const cancelledThreads = new Set<string>();
 
 let resolveClaudeBinaryImpl: () => Promise<{ path: string }> =
@@ -289,6 +291,8 @@ export async function cancelClaudeTurn(sessionId: string): Promise<void> {
 }
 
 export async function stopClaudeSession(sessionId: string): Promise<void> {
+  const pendingStop = stoppingByThread.get(sessionId);
+  if (pendingStop) return pendingStop;
   cancelledThreads.delete(sessionId);
   const live = liveByThread.get(sessionId);
   liveByThread.delete(sessionId);
@@ -307,7 +311,15 @@ export async function stopClaudeSession(sessionId: string): Promise<void> {
     live.initDone = null;
   }
   unwatchChild(sessionId);
-  await killChild(sessionId).catch(() => undefined);
+  const stopping = killChild(sessionId).catch(() => undefined);
+  stoppingByThread.set(sessionId, stopping);
+  try {
+    await stopping;
+  } finally {
+    if (stoppingByThread.get(sessionId) === stopping) {
+      stoppingByThread.delete(sessionId);
+    }
+  }
 }
 
 export async function forgetClaudeSession(sessionId: string): Promise<void> {
@@ -326,11 +338,15 @@ export function bindClaudeSession(
 }
 
 async function ensureLive(input: HarnessSessionInput): Promise<Live> {
+  // A retry may arrive after the failed turn completed but before its native
+  // process finished stopping. Never race that session-scoped kill with spawn.
+  await stoppingByThread.get(input.sessionId);
   const settingsKey = settingsKeyFor(input);
   const planning = input.intent === "plan";
   const existing = liveByThread.get(input.sessionId);
   if (
     existing &&
+    !existing.apiErrorReported &&
     existing.cwd === input.cwd &&
     existing.settingsKey === settingsKey &&
     existing.planning === planning
@@ -492,6 +508,12 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
   } finally {
     live.turnDone = null;
     live.turnFailed = null;
+    // A failed request may leave the long-lived CLI holding expired
+    // credentials. Retire it after the turn settles; retain its resume ID so
+    // retrying after sign-in continues this conversation in a fresh process.
+    if (live.apiErrorReported && liveByThread.get(input.sessionId) === live) {
+      await stopClaudeSession(input.sessionId);
+    }
   }
 }
 
@@ -674,14 +696,13 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
 
   // Claude can report API failures as synthetic assistant messages, even when
   // the final result does not carry the readable provider error.
-  if (rec.isApiErrorMessage === true) {
+  const providerError = assistantErrorFromMessage(rec);
+  if (providerError) {
     if (!live.cancelled) {
       live.apiErrorReported = true;
       live.onEvent({
         type: "session.error",
-        message:
-          assistantTextBlocks(rec).join("\n").trim() ||
-          "Claude API request failed.",
+        message: providerError,
       });
     }
     return;
@@ -766,6 +787,7 @@ function handleResult(live: Live, rec: Record<string, unknown>): void {
     !live.cancelled &&
     !live.apiErrorReported
   ) {
+    live.apiErrorReported = true;
     live.onEvent({ type: "session.error", message: result.error });
   }
   live.turnResultSeen = true;
@@ -1276,5 +1298,6 @@ function launchOptions(
 export function __claudeTestReset(): void {
   liveByThread.clear();
   resumeByThread.clear();
+  stoppingByThread.clear();
   cancelledThreads.clear();
 }

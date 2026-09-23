@@ -229,6 +229,34 @@ describe("sessionRunStatus", () => {
     expect(value?.kind).toBe("failed");
   });
 
+  it.each([
+    "Failed to authenticate: OAuth session expired and could not be refreshed",
+    "Claude Code authentication failed. Run claude auth login in Aven’s terminal, then retry.",
+    "Not logged in · Please run /login",
+  ])("offers Claude login recovery for a failed provider error: %s", (text) => {
+    const value = sessionRunStatus(session({
+      harness: "claude",
+      blocks: [user(), { id: "error", role: "system", text }],
+    }), [activity({ id: "session:turn:runtime-uuid:failed", outcome: "failed" })]);
+    expect(value).toMatchObject({ kind: "failed", label: "Sign in required", recovery: "claude-login", canStop: false });
+  });
+
+  it("does not infer Claude login state from assistant prose, old errors, or other providers", () => {
+    const error: Block = { id: "error", role: "system", text: "Failed to authenticate: OAuth session expired and could not be refreshed" };
+    const failed = [activity({ id: "session:turn:runtime-uuid:failed", outcome: "failed" })];
+    for (const candidate of [
+      session({ harness: "claude", blocks: [user(), { ...error, role: "assistant" }] }),
+      session({ harness: "claude", blocks: [user("old", 100), error, user()] }),
+      session({ harness: "codex", blocks: [user(), error] }),
+    ]) {
+      expect(sessionRunStatus(candidate, failed)).toMatchObject({ label: "Failed" });
+      expect(sessionRunStatus(candidate, failed)?.recovery).toBeUndefined();
+    }
+    const candidate = session({ harness: "claude", blocks: [user(), error] });
+    expect(sessionRunStatus(candidate, [activity()])?.recovery).toBeUndefined();
+    expect(sessionRunStatus({ ...candidate, busy: true }, failed)?.kind).toBe("working");
+  });
+
   it("ignores completion from before the current turn began", () => {
     expect(
       sessionRunStatus(session(), [activity({ createdAt: 999 })])?.kind,

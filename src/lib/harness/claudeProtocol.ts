@@ -469,7 +469,11 @@ export function turnStatusFromResult(rec: Record<string, unknown>): {
   error?: string;
 } {
   const subtype = stringField(rec, "subtype") ?? "";
-  if (subtype === "success") return { status: "completed" };
+  // `success` means the CLI completed its run, not that the API request
+  // succeeded. SDKResultSuccess can still carry `is_error: true`.
+  if (subtype === "success" && rec.is_error !== true) {
+    return { status: "completed" };
+  }
   const errors = Array.isArray(rec.errors)
     ? rec.errors.filter((item): item is string => typeof item === "string")
     : [];
@@ -483,8 +487,28 @@ export function turnStatusFromResult(rec: Record<string, unknown>): {
     return { status: "interrupted" };
   }
   if (joined.includes("cancel")) return { status: "cancelled" };
-  const error = errors.find((item) => !item.startsWith("[ede_diagnostic]"));
+  const error =
+    errors.find((item) => item.trim() && !item.startsWith("[ede_diagnostic]")) ??
+    (rec.is_error === true ? stringField(rec, "result") : undefined);
   return { status: "failed", error: error ?? "Claude turn failed." };
+}
+
+/** Read provider failures from the protocol envelope, never assistant prose. */
+export function assistantErrorFromMessage(
+  rec: Record<string, unknown>,
+): string | undefined {
+  if (rec.type !== "assistant") return undefined;
+  // The public SDK carries `error`; some CLI versions also emit the internal
+  // isApiErrorMessage marker. Neither marker is guaranteed to accompany the
+  // other, including when OAuth refresh fails before the first model request.
+  const code = stringField(rec, "error");
+  if (!code && rec.isApiErrorMessage !== true) return undefined;
+  const text = assistantTextBlocks(rec).join("\n").trim();
+  if (text) return text;
+  if (code === "authentication_failed" || code === "oauth_org_not_allowed") {
+    return "Claude Code authentication failed. Run claude auth login in Aven’s terminal, then retry.";
+  }
+  return "Claude API request failed.";
 }
 
 export function streamDeltaFromEvent(
