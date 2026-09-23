@@ -41,6 +41,8 @@ type PendingApproval = {
 /** Terminal notifications report their error before rejecting the active turn. */
 class CodexTerminalError extends Error {}
 
+type AgentUpdate = Extract<HarnessEvent, { type: "agent.updated" }>;
+
 type Live = {
   rpc: JsonRpcClient;
   threadId: string;
@@ -64,6 +66,8 @@ type Live = {
   /** Stable before the asynchronous turn/start response or notification arrives. */
   assistantTurnKey: string;
   emittedReasoning: string;
+  agents: Map<string, AgentUpdate>;
+  retired: boolean;
 };
 
 type Resume = {
@@ -72,6 +76,7 @@ type Resume = {
 };
 
 const liveByThread = new Map<string, Live>();
+const stoppingByThread = new Map<string, Promise<void>>();
 const resumeByThread = new Map<string, Resume>();
 const cancelledThreads = new Set<string>();
 
@@ -203,10 +208,13 @@ export async function cancelCodexTurn(sessionId: string): Promise<void> {
 }
 
 export async function stopCodexSession(sessionId: string): Promise<void> {
+  const pendingStop = stoppingByThread.get(sessionId);
+  if (pendingStop) return pendingStop;
   cancelledThreads.delete(sessionId);
   const live = liveByThread.get(sessionId);
   liveByThread.delete(sessionId);
   if (live) {
+    live.retired = true;
     live.muteUpdates = true;
     live.turnDone?.();
     live.turnDone = null;
@@ -214,7 +222,27 @@ export async function stopCodexSession(sessionId: string): Promise<void> {
     live.rpc.close();
   }
   unwatchChild(sessionId);
-  await killChild(sessionId).catch(() => undefined);
+  const stopping = killChild(sessionId).then(
+    () => {
+      live?.agents.clear();
+      live?.onEvent({ type: "agents.cleared" });
+    },
+    (error: unknown) => {
+      if (live) {
+        markAgentStatusesUnknown(live);
+        // Preserve a non-reusable record so another send retries shutdown
+        // instead of spawning over a process that may still be running.
+        liveByThread.set(sessionId, live);
+      }
+      throw error;
+    },
+  );
+  stoppingByThread.set(sessionId, stopping);
+  try {
+    await stopping;
+  } finally {
+    if (stoppingByThread.get(sessionId) === stopping) stoppingByThread.delete(sessionId);
+  }
 }
 
 export async function forgetCodexSession(sessionId: string): Promise<void> {
@@ -233,14 +261,17 @@ export function bindCodexSession(
 }
 
 async function ensureLive(input: HarnessSessionInput): Promise<Live> {
+  // Native stop addresses the session ID. Never let it race a replacement
+  // process spawned under the same ID.
+  await stoppingByThread.get(input.sessionId);
   const existing = liveByThread.get(input.sessionId);
-  if (existing && existing.cwd === input.cwd) {
+  if (existing && !existing.retired && existing.cwd === input.cwd) {
     existing.onEvent = input.onEvent;
     existing.runtimeMode = input.runtimeMode;
     return existing;
   }
   if (existing) {
-    resumeByThread.delete(input.sessionId);
+    if (existing.cwd !== input.cwd) resumeByThread.delete(input.sessionId);
     await stopCodexSession(input.sessionId);
   }
 
@@ -258,12 +289,13 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     {
       onNotification: (method, params) => {
         const live = liveRef.current;
-        if (!live || live.muteUpdates) return;
+        if (!live || liveByThread.get(input.sessionId) !== live ||
+          (live.muteUpdates && !live.cancelled)) return;
         handleNotification(live, method, params);
       },
       onRequest: (id, method, params) => {
         const live = liveRef.current;
-        if (!live) return;
+        if (!live || liveByThread.get(input.sessionId) !== live) return;
         void handleServerRequest(live, id, method, params);
       },
     },
@@ -275,9 +307,11 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     (line) => rpc.pushLine(line),
     (code) => {
       rpc.close(new Error("Codex app-server exited"));
-      liveByThread.delete(input.sessionId);
-      input.onEvent({ type: "session.ended", code });
       const live = liveRef.current;
+      if (live && liveByThread.get(input.sessionId) !== live) return;
+      liveByThread.delete(input.sessionId);
+      if (live) markAgentStatusesUnknown(live);
+      (live?.onEvent ?? input.onEvent)({ type: "session.ended", code });
       live?.turnFailed?.(new Error("Codex app-server exited"));
       if (live) {
         live.turnDone = null;
@@ -419,6 +453,8 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       assistantItems: new Map(),
       assistantTurnKey: crypto.randomUUID(),
       emittedReasoning: "",
+      agents: new Map(),
+      retired: false,
     };
     liveRef.current = live;
     liveByThread.set(input.sessionId, live);
@@ -430,6 +466,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       type: "session.providerBound",
       providerSessionId: threadId,
     });
+    live.onEvent({ type: "agents.cleared" });
     live.onEvent({ type: "session.started" });
     if (didFork) {
       live.onEvent({
@@ -541,9 +578,20 @@ function handleNotification(live: Live, method: string, params: unknown): void {
   // mean the turn is over — more tools and messages can still arrive. Only
   // turn/completed (and turn/aborted) settle sendCodexTurn, which is what the
   // UI uses for busy / stop / "Working for".
+  const record = asRecord(params);
+  const threadId = typeof record?.threadId === "string" ? record.threadId : undefined;
+  if (threadId && threadId !== live.threadId) {
+    // Child notifications must never settle the lead's turn or append the
+    // child's transcript to the lead. Only known child lifecycle is relevant.
+    const child = live.agents.get(threadId);
+    if (child) {
+      const status = childThreadStatus(method, record, child.status);
+      if (status) publishAgentUpdate(live, { ...child, status });
+    }
+    return;
+  }
   const mapped = mapCodexNotification(method, params);
   const snapshot = method === "item/completed";
-  const record = asRecord(params);
   const item = asRecord(record?.item);
   const itemId =
     typeof record?.itemId === "string"
@@ -553,6 +601,11 @@ function handleNotification(live: Live, method: string, params: unknown): void {
         : undefined;
   const itemKey = itemId ? `${live.assistantTurnKey}:${itemId}` : undefined;
   for (const event of mapped.events) {
+    if (event.type === "agent.updated") {
+      publishAgentUpdate(live, event);
+      continue;
+    }
+    if (live.muteUpdates) continue;
     if (event.type === "message.delta") {
       publishCodexText(live, "assistant", event.text, snapshot, itemKey);
       continue;
@@ -567,6 +620,7 @@ function handleNotification(live: Live, method: string, params: unknown): void {
         : event,
     );
   }
+  if (live.muteUpdates) return;
   if (mapped.activeTurnId !== undefined) {
     live.activeTurnId = mapped.activeTurnId;
   }
@@ -589,6 +643,53 @@ function handleNotification(live: Live, method: string, params: unknown): void {
     }
     finishActiveTurn(live, [], terminalError);
   }
+}
+
+function publishAgentUpdate(live: Live, event: AgentUpdate): void {
+  const previous = live.agents.get(event.agentId);
+  const next = event.title === "Subagent" && previous
+    ? { ...event, title: previous.title } : event;
+  live.agents.set(event.agentId, next);
+  live.onEvent(next);
+}
+
+function markAgentStatusesUnknown(live: Live): void {
+  for (const agent of live.agents.values()) {
+    if (agent.status !== "running" && agent.status !== "waiting") continue;
+    publishAgentUpdate(live, {
+      ...agent,
+      status: "unknown",
+      detail: "The provider disconnected before confirming the agent finished.",
+    });
+  }
+}
+
+function childThreadStatus(
+  method: string,
+  record: Record<string, unknown> | null,
+  previous: AgentUpdate["status"],
+): AgentUpdate["status"] | undefined {
+  if (method === "turn/started") return "running";
+  const terminal = previous === "completed" || previous === "failed" || previous === "stopped";
+  if (method === "thread/closed" || method === "thread/deleted") return terminal ? undefined : "stopped";
+  if (method === "turn/completed" || method === "turn/aborted") {
+    const status = asRecord(record?.turn)?.status;
+    if (status === "failed") return "failed";
+    if (status === "interrupted" || status === "cancelled" || method === "turn/aborted") return "stopped";
+    if (status === "completed") return "completed";
+  }
+  if (method === "thread/status/changed") {
+    const status = asRecord(record?.status);
+    if (status?.type === "active") {
+      const flags = Array.isArray(status.activeFlags) ? status.activeFlags : [];
+      return flags.includes("waitingOnApproval") || flags.includes("waitingOnUserInput")
+        ? "waiting" : "running";
+    }
+    if (status?.type === "idle") return terminal ? undefined : "completed";
+    if (status?.type === "systemError") return "failed";
+    if (status?.type === "notLoaded") return terminal ? undefined : "unknown";
+  }
+  return undefined;
 }
 
 function publishCodexText(
@@ -789,6 +890,7 @@ function autoApproval(
 /** Exported for tests. */
 export function __codexTestReset(): void {
   liveByThread.clear();
+  stoppingByThread.clear();
   resumeByThread.clear();
   cancelledThreads.clear();
 }

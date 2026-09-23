@@ -17,9 +17,10 @@ import {
   registerHarness,
   resetHarnessIdlePark,
   sendHarnessTurn,
+  stopHarnessSession,
   type HarnessAdapter,
 } from "./registry";
-import type { SendTurnInput, SteerTurnInput } from "./types";
+import type { HarnessEvent, SendTurnInput, SteerTurnInput } from "./types";
 import { registerBuiltinHarnesses } from "./register";
 
 const control = vi.hoisted(() => ({
@@ -467,5 +468,81 @@ describe("harness registry", () => {
     expect(stopSession).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
     expect(stopSession).toHaveBeenCalledWith("s1");
+  });
+
+  it.each(["running", "waiting", "unknown"] as const)("does not idle-park while a background agent is %s", async (status) => {
+    vi.useFakeTimers();
+    let emit!: (event: HarnessEvent) => void;
+    const stopSession = vi.fn(async () => undefined);
+    registerHarness(stub("codex", { stopSession, sendTurn: async (input) => {
+      emit = input.onEvent;
+      emit({ type: "agent.updated", agentId: "child", title: "Review", status });
+    } }));
+    await sendHarnessTurn({ harness: "codex", sessionId: "background", cwd: "/tmp",
+      model: "codex:test", text: "Review", runtimeMode: "supervised", onEvent: () => {} });
+    await vi.advanceTimersByTimeAsync(HARNESS_IDLE_PARK_MS * 3);
+    expect(stopSession).not.toHaveBeenCalled();
+    emit({ type: "agent.updated", agentId: "child", title: "Review", status: "completed" });
+    await vi.advanceTimersByTimeAsync(HARNESS_IDLE_PARK_MS - 1);
+    expect(stopSession).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(stopSession).toHaveBeenCalledWith("background");
+  });
+
+  it("cancels pending idle parking when a child starts after the lead turn finishes", async () => {
+    vi.useFakeTimers();
+    let emit!: (event: HarnessEvent) => void;
+    const stopSession = vi.fn(async () => undefined);
+    registerHarness(stub("codex", { stopSession, sendTurn: async (input) => { emit = input.onEvent; } }));
+    await sendHarnessTurn({ harness: "codex", sessionId: "late-child", cwd: "/tmp",
+      model: "codex:test", text: "Review", runtimeMode: "supervised", onEvent: () => {} });
+    await vi.advanceTimersByTimeAsync(HARNESS_IDLE_PARK_MS - 1);
+    emit({ type: "agent.updated", agentId: "child", title: "Review", status: "running" });
+    await vi.advanceTimersByTimeAsync(HARNESS_IDLE_PARK_MS);
+    expect(stopSession).not.toHaveBeenCalled();
+    emit({ type: "session.ended", code: 1 });
+    await vi.advanceTimersByTimeAsync(HARNESS_IDLE_PARK_MS);
+    expect(stopSession).not.toHaveBeenCalled();
+  });
+
+  it("does not park a follow-up lead turn when a background agent finishes", async () => {
+    vi.useFakeTimers();
+    let emit!: (event: HarnessEvent) => void;
+    let finishFollowup!: () => void;
+    const stopSession = vi.fn(async () => undefined);
+    let calls = 0;
+    registerHarness(stub("codex", { stopSession, sendTurn: async (input) => {
+      emit = input.onEvent;
+      if (++calls === 1) emit({ type: "agent.updated", agentId: "child", title: "Review", status: "running" });
+      else await new Promise<void>((resolve) => { finishFollowup = resolve; });
+    } }));
+    const input = { harness: "codex" as const, sessionId: "followup", cwd: "/tmp",
+      model: "codex:test", text: "Review", runtimeMode: "supervised" as const, onEvent: () => {} };
+    await sendHarnessTurn(input);
+    const followup = sendHarnessTurn(input);
+    emit({ type: "agent.updated", agentId: "child", title: "Review", status: "completed" });
+    await vi.advanceTimersByTimeAsync(HARNESS_IDLE_PARK_MS * 2);
+    expect(stopSession).not.toHaveBeenCalled();
+    finishFollowup();
+    await followup;
+    await vi.advanceTimersByTimeAsync(HARNESS_IDLE_PARK_MS);
+    expect(stopSession).toHaveBeenCalledOnce();
+  });
+
+  it("ignores late lifecycle callbacks from a stopped runtime after a replacement starts", async () => {
+    vi.useFakeTimers();
+    const emitters: Array<(event: HarnessEvent) => void> = [];
+    const onEvent = vi.fn();
+    const stopSession = vi.fn(async () => undefined);
+    registerHarness(stub("codex", { stopSession, sendTurn: async (input) => { emitters.push(input.onEvent); } }));
+    const input = { harness: "codex" as const, sessionId: "replacement", cwd: "/tmp",
+      model: "codex:test", text: "Review", runtimeMode: "supervised" as const, onEvent };
+    await sendHarnessTurn(input);
+    await stopHarnessSession("codex", input.sessionId);
+    await sendHarnessTurn(input);
+    emitters[0]({ type: "agent.updated", agentId: "old", title: "Old", status: "running" });
+    expect(onEvent).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(HARNESS_IDLE_PARK_MS);
+    expect(stopSession).toHaveBeenCalledTimes(2);
   });
 });

@@ -17,6 +17,7 @@ import {
 import { joinStreamText } from "./streamText";
 import { taskListText } from "../taskList";
 import { isReviewablePlan } from "../plan";
+import { isActiveSessionAgent } from "../sessionAgents";
 import type { HarnessEvent } from "./types";
 
 export function applyHarnessEvent(
@@ -24,6 +25,26 @@ export function applyHarnessEvent(
   event: HarnessEvent,
 ): Session {
   switch (event.type) {
+    case "agent.updated": {
+      const { type: _type, agentId, ...agent } = event;
+      const previous = session.liveAgents ?? [];
+      const existing = previous.findIndex(entry => entry.id === agentId);
+      const prior = previous[existing];
+      const next = {
+        ...prior,
+        ...(prior && prior.status !== agent.status ? { detail: undefined } : {}),
+        ...agent,
+        id: agentId,
+      };
+      return {
+        ...session,
+        liveAgents: existing < 0
+          ? [...previous, next]
+          : previous.map((entry, index) => index === existing ? next : entry),
+      };
+    }
+    case "agents.cleared":
+      return { ...session, liveAgents: undefined };
     case "message.delta":
       return patchStreaming(session, "assistant", event.text, true, event.key);
     case "message.completed":
@@ -306,7 +327,13 @@ export function appendUser(
 ): Session {
   session = settlePendingApprovals(session);
   return appendBlock(
-    { ...session, busy: true },
+    {
+      ...session,
+      busy: true,
+      ...(session.liveAgents ? {
+        liveAgents: session.liveAgents.filter(agent => isActiveSessionAgent(agent) || agent.status === "unknown"),
+      } : {}),
+    },
     {
       id: crypto.randomUUID(),
       role: "user",

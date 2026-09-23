@@ -578,10 +578,14 @@ describe("orchestration composer and card", () => {
       );
     }
     await act(async () => root.render(createElement(LeadPane)));
-    // Agents live on the sidebar card now; nothing narrows the lead's pane.
+    // Detailed worker panes stay on the sidebar. Compact status is available
+    // above the composer without narrowing the lead's transcript.
     expect(container.querySelector("[data-orchestration-agents]")).toBeNull();
     expect(container.textContent).toContain("I am coordinating the work.");
-    expect(container.textContent).not.toContain("UI worker");
+    const agentStatus = container.querySelector<HTMLDetailsElement>(".session-run-agents")!;
+    expect(agentStatus.open).toBe(false);
+    expect(agentStatus.textContent).toContain("UI worker");
+    expect(container.querySelector(".session-run-copy")?.textContent).toContain("Agents still working");
     expect(open).not.toHaveBeenCalled();
     const composer = container.querySelector("textarea")!;
     await input(composer, "Ask the UI worker to check keyboard navigation.");

@@ -1,11 +1,13 @@
 import { composeToolTitle } from "./harness/preview";
 import { isInFlightSession } from "./inFlight";
 import { displayPath } from "./paths";
+import { activeSessionAgents, uncertainSessionAgents } from "./sessionAgents";
 import {
   sessionDisplayTitle,
   type Block,
   type HarnessId,
   type Session,
+  type SessionAgent,
 } from "./session";
 
 export type LiveAgent = {
@@ -18,20 +20,93 @@ export type LiveAgent = {
   durationMs?: number;
   needsApproval: boolean;
   done: boolean;
+  statusUnknown?: boolean;
 };
+
+/** Managed turns can finish before their provider-native children do. */
+export function backgroundWorkerIdsForStop(
+  sessions: readonly Session[],
+  leadId: string,
+  handledWorkerIds: ReadonlySet<string> = new Set(),
+): string[] {
+  return sessions
+    .filter(
+      (session) =>
+        session.orchestrationLeadId === leadId &&
+        !handledWorkerIds.has(session.id) &&
+        (activeSessionAgents(session).length > 0 ||
+          uncertainSessionAgents(session).length > 0),
+    )
+    .map((session) => session.id);
+}
+
+/** Keep the context stable while worker transcripts stream unrelated deltas. */
+export function workerAgentsByLead(
+  sessions: readonly Session[],
+  previous: ReadonlyMap<string, readonly SessionAgent[]> = new Map(),
+): ReadonlyMap<string, readonly SessionAgent[]> {
+  const next = new Map<string, SessionAgent[]>();
+  for (const session of sessions) {
+    if (!session.orchestrationLeadId || !session.liveAgents?.length) continue;
+    const rows = next.get(session.orchestrationLeadId) ?? [];
+    rows.push(
+      ...session.liveAgents.map((agent) => ({
+        ...agent,
+        id: `${session.id}:${agent.id}`,
+        title: `${sessionDisplayTitle(session.title, session.harness)} · ${agent.title}`,
+      })),
+    );
+    next.set(session.orchestrationLeadId, rows);
+  }
+  if (
+    next.size === previous.size &&
+    [...next].every(([leadId, agents]) => {
+      const old = previous.get(leadId);
+      return (
+        old?.length === agents.length &&
+        agents.every((agent, index) => {
+          const prior = old[index];
+          return (
+            prior.id === agent.id &&
+            prior.title === agent.title &&
+            prior.status === agent.status &&
+            prior.callId === agent.callId &&
+            prior.detail === agent.detail
+          );
+        })
+      );
+    })
+  )
+    return previous;
+  return next;
+}
 
 export function liveAgentsFromSessions(
   sessions: Session[],
   unseenFinishedIds: ReadonlySet<string> = new Set(),
 ): LiveAgent[] {
+  const workers = new Map<string, Session[]>();
+  for (const session of sessions) {
+    if (!session.orchestrationLeadId) continue;
+    const rows = workers.get(session.orchestrationLeadId) ?? [];
+    rows.push(session);
+    workers.set(session.orchestrationLeadId, rows);
+  }
   return sessions
     .filter(
       (session) =>
         !session.inboxAsk &&
         !session.orchestrationLeadId &&
-        (isInFlightSession(session) || unseenFinishedIds.has(session.id)),
+        (hasLiveWork(session, workers.get(session.id)) ||
+          unseenFinishedIds.has(session.id)),
     )
-    .map((session) => toLiveAgent(session, unseenFinishedIds.has(session.id)))
+    .map((session) =>
+      toLiveAgent(
+        session,
+        unseenFinishedIds.has(session.id),
+        workers.get(session.id),
+      ),
+    )
     .sort(compareLiveAgents);
 }
 
@@ -46,12 +121,57 @@ export function formatLiveElapsed(startedAt: number, now: number): string {
   return minRest ? `${hours}h ${minRest}m` : `${hours}h`;
 }
 
-function toLiveAgent(session: Session, unseenFinished: boolean): LiveAgent {
+/** Lifecycle callbacks outlive lead turns, but never a stopped/replaced runtime. */
+export function isCurrentSessionAgentSource(
+  session: Session | undefined,
+  harness: HarnessId,
+  callbackEpoch: number,
+  currentEpoch: number,
+): boolean {
+  return Boolean(
+    session &&
+    callbackEpoch === currentEpoch &&
+    (session.harness === harness || session.pendingSwitch?.from === harness),
+  );
+}
+
+function hasLiveWork(session: Session, workers: Session[] = []): boolean {
+  return (
+    isInFlightSession(session) ||
+    uncertainSessionAgents(session).length > 0 ||
+    workers.some(
+      (worker) =>
+        isInFlightSession(worker) ||
+        uncertainSessionAgents(worker).length > 0,
+    )
+  );
+}
+
+function toLiveAgent(
+  session: Session,
+  unseenFinished: boolean,
+  workers: Session[] = [],
+): LiveAgent {
   const pending = session.blocks.find(
     (block) => block.approval && !block.approval.decided,
   );
   const pendingQuestion = session.pendingQuestion;
-  const done = unseenFinished && !isInFlightSession(session);
+  const done = unseenFinished && !hasLiveWork(session, workers);
+  const agents = activeSessionAgents(session);
+  const activeWorkers = workers.filter(isInFlightSession);
+  const backgroundCount = agents.length + activeWorkers.length;
+  const uncertainCount =
+    uncertainSessionAgents(session).length +
+    workers.filter((worker) => uncertainSessionAgents(worker).length > 0)
+      .length;
+  const waitingCount = agents.filter(
+    (agent) => agent.status === "waiting",
+  ).length;
+  const backgroundActivity = backgroundCount
+    ? `${backgroundCount} background agent${backgroundCount === 1 ? "" : "s"} ${waitingCount === backgroundCount ? "waiting" : "working"}`
+    : uncertainCount
+      ? `Agent status unavailable`
+      : undefined;
   const activityBlock = pending ?? lastActivityBlock(session.blocks);
   return {
     id: session.id,
@@ -64,11 +184,23 @@ function toLiveAgent(session: Session, unseenFinished: boolean): LiveAgent {
         ? pendingQuestion.title ||
           pendingQuestion.questions[0]?.prompt ||
           "Question"
-        : activityLabel(activityBlock, session.cwd),
+        : (backgroundActivity ?? activityLabel(activityBlock, session.cwd)),
     startedAt: turnStartedAt(session.blocks),
     durationMs: done ? turnDurationMs(session.blocks) : undefined,
-    needsApproval: Boolean(pending) || Boolean(pendingQuestion),
+    needsApproval:
+      Boolean(pending) ||
+      Boolean(pendingQuestion) ||
+      activeWorkers.some(
+        (worker) =>
+          Boolean(worker.pendingQuestion) ||
+          worker.blocks.some(
+            (block) => block.approval && !block.approval.decided,
+          ),
+      ),
     done,
+    ...(uncertainCount && !backgroundCount && !session.busy
+      ? { statusUnknown: true }
+      : {}),
   };
 }
 

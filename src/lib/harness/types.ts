@@ -1,6 +1,7 @@
 import type {
   Attachment,
   RuntimeMode,
+  SessionAgent,
   TaskListItem,
   ToolPreview,
   TurnIntent,
@@ -8,6 +9,8 @@ import type {
 import type { UserQuestion } from "../userQuestion";
 
 export type HarnessEvent =
+  | ({ type: "agent.updated"; agentId: string } & Omit<SessionAgent, "id">)
+  | { type: "agents.cleared" }
   | { type: "session.started" }
   | { type: "session.ended"; code?: number | null }
   | { type: "session.error"; message: string }

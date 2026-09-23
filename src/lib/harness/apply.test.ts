@@ -19,6 +19,26 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("live child agents", () => {
+  it("keeps child lifecycle separate from lead completion and merges by stable identity", () => {
+    let session = appendUser(newSession("codex", "/repo"), "Delegate checks");
+    session = applyHarnessEvent(session, { type: "agent.updated", agentId: "one", title: "Review", status: "running" });
+    session = applyHarnessEvent(session, { type: "agent.updated", agentId: "two", title: "Review", status: "running" });
+    session = stopStreaming(session);
+    expect(session.busy).toBe(false);
+    expect(session.liveAgents).toHaveLength(2);
+    session = applyHarnessEvent(session, { type: "agent.updated", agentId: "one", title: "Review", status: "completed" });
+    expect(session.liveAgents?.map(agent => agent.status)).toEqual(["completed", "running"]);
+    session = applyHarnessEvent(session, { type: "agent.updated", agentId: "two", title: "Review", status: "unknown", detail: "Connection lost" });
+    session = applyHarnessEvent(session, { type: "agent.updated", agentId: "two", title: "Review", status: "running" });
+    expect(session.liveAgents?.find(agent => agent.id === "two")?.detail).toBeUndefined();
+    session = appendUser(session, "Continue");
+    expect(session.liveAgents?.map(agent => agent.id)).toEqual(["two"]);
+    session = applyHarnessEvent(session, { type: "agents.cleared" });
+    expect(session.liveAgents).toBeUndefined();
+  });
+});
+
 describe("turn duration", () => {
   it("captures the launched model once and preserves it through picker changes and steering", () => {
     let session = appendUser(

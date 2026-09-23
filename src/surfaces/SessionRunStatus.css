@@ -91,6 +91,57 @@ html.theme-light
   color: var(--color-content);
   user-select: text;
 }
+.session-run-agents {
+  flex-basis: 100%;
+  min-width: 0;
+  border-top: 1px solid var(--aven-line);
+  padding-top: 5px;
+}
+.session-run-agents summary {
+  cursor: pointer;
+  padding: 3px 0;
+  font-weight: 600;
+}
+.session-run-agents summary > span {
+  margin-left: 8px;
+  color: var(--aven-muted);
+  font-weight: 400;
+}
+.session-run-agents summary:focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.session-run-agent-list {
+  list-style: none;
+  margin: 5px 0 0;
+  padding: 0;
+  max-height: 180px;
+  overflow: auto;
+}
+.session-run-agent-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 2px;
+}
+.session-run-agent-list li > span:first-child {
+  display: flex;
+  flex-shrink: 0;
+}
+.session-run-agent-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.session-run-agent-copy strong { font-weight: 500; }
+.session-run-agent-copy > span,
+.session-run-agent-label { color: var(--aven-muted); font-size: 11px; }
+.session-run-agent-label { flex-shrink: 0; }
+.session-run-agent-list [data-agent-state="running"] > span:first-child { color: var(--color-accent); }
+.session-run-agent-list [data-agent-state="failed"] > span:first-child { color: #e58686; }
 .session-run-queued {
   border-radius: 5px;
   padding: 2px 6px;

@@ -428,7 +428,16 @@ import {
   type SessionSummary,
 } from "./lib/sessionStore";
 import { syncDockBadge } from "./lib/dockBadge";
-import { liveAgentsFromSessions } from "./lib/liveAgents";
+import {
+  backgroundWorkerIdsForStop,
+  isCurrentSessionAgentSource,
+  liveAgentsFromSessions,
+  workerAgentsByLead,
+} from "./lib/liveAgents";
+import {
+  activeSessionAgents,
+  uncertainSessionAgents,
+} from "./lib/sessionAgents";
 import { hiddenApprovalNotices } from "./lib/approvalToast";
 import {
   useActivity,
@@ -524,6 +533,7 @@ import {
   canAutoContinue,
   inFlightRefs,
   inFlightSnapshotKey,
+  isInFlightSession,
   shouldWriteInFlightSnapshot,
 } from "./lib/inFlight";
 import { collectWorkspaceSnapshot } from "./lib/workspaceSnapshot";
@@ -1472,6 +1482,10 @@ export default function App({
     canForward: false,
   });
   const turnGen = useRef(new Map<string, number>());
+  // Child agents may report progress after their lead turn has settled or a
+  // follow-up has started. Invalidate only when that provider runtime is stopped.
+  const agentRuntimeEpoch = useRef(new Map<string, number>());
+  const stoppedAgentRuntimes = useRef(new Set<string>());
   const activityTurnIds = useRef(new Map<string, string>());
   const failedActivityTurns = useRef(new Map<string, string>());
   const lastPersisted = useRef(new Map<string, string>());
@@ -1529,18 +1543,41 @@ export default function App({
   const stopSessionForRemoval = useCallback(
     async (sessionId: string): Promise<Session | undefined> => {
       await orchestrator.stopForSession(sessionId);
+      flushHarnessEvents();
       const open = sessionsRef.current.find(
         (session) => session.id === sessionId,
       );
-      if (!open?.busy) return open;
+      if (!open) return open;
+      agentRuntimeEpoch.current.set(
+        sessionId,
+        (agentRuntimeEpoch.current.get(sessionId) ?? 0) + 1,
+      );
+      if (!isInFlightSession(open) && !uncertainSessionAgents(open).length)
+        return open;
 
       turnGen.current.set(sessionId, (turnGen.current.get(sessionId) ?? 0) + 1);
       flushHarnessEvents();
-      await Promise.all(
-        sessionChildHarnesses(open).map((harness) =>
-          cancelHarnessTurn(harness, sessionId).catch(() => undefined),
-        ),
-      );
+      try {
+        await Promise.all(
+          sessionChildHarnesses(open).map((harness) =>
+            activeSessionAgents(open).length || uncertainSessionAgents(open).length
+              ? stopHarnessSession(harness, sessionId)
+              : cancelHarnessTurn(harness, sessionId),
+          ),
+        );
+      } catch (error) {
+        // Removal may fail while the provider process remains alive. Keep a
+        // truthful, stoppable row instead of either forgetting it or spinning.
+        const next = sessionsRef.current.map((session) => session.id !== sessionId
+          ? session
+          : { ...session, liveAgents: session.liveAgents?.map((agent) =>
+              ["running", "waiting", "unknown"].includes(agent.status)
+                ? { ...agent, status: "unknown" as const, detail: "Could not confirm the agent process stopped" }
+                : agent) });
+        sessionsRef.current = next;
+        setSessions(next);
+        throw error;
+      }
       flushHarnessEvents();
       return sessionsRef.current.find((session) => session.id === sessionId);
     },
@@ -1720,7 +1757,7 @@ export default function App({
   const nextBusySessionIds = useMemo(() => {
     const ids = new Set<string>();
     for (const session of sessions) {
-      if (session.busy) {
+      if (isInFlightSession(session)) {
         ids.add(session.id);
         if (session.orchestrationLeadId) ids.add(session.orchestrationLeadId);
       }
@@ -2230,6 +2267,12 @@ export default function App({
     // and attachments mounted when the panel closes or switches items.
     for (const session of sessions) {
       if (session.inboxAsk) visibleIds.add(session.id);
+      // A managed assignment may be finished while its native children keep
+      // working. Its lead remains the navigation target for those workers.
+      if (
+        session.orchestrationLeadId &&
+        (isInFlightSession(session) || uncertainSessionAgents(session).length)
+      ) visibleIds.add(session.orchestrationLeadId);
     }
     // Internal workers stay attached to the lead, even while idle between
     // turns. They must not be discarded merely because they have no tab.
@@ -2249,7 +2292,8 @@ export default function App({
     const idleDetached = sessions.filter(
       (session) =>
         !visibleIds.has(session.id) &&
-        !session.busy &&
+        !isInFlightSession(session) &&
+        !uncertainSessionAgents(session).length &&
         !(keepUnseen && unseenFinishedRef.current.has(session.id)),
     );
     if (idleDetached.length === 0) return;
@@ -2264,7 +2308,8 @@ export default function App({
       prev.filter(
         (session) =>
           visibleIds.has(session.id) ||
-          session.busy ||
+          isInFlightSession(session) ||
+          uncertainSessionAgents(session).length > 0 ||
           (keepUnseen && unseenFinishedRef.current.has(session.id)) ||
           skipForgetSessionIds.current.has(session.id),
       ),
@@ -4692,7 +4737,11 @@ export default function App({
       if (options.purgeData) {
         for (const session of projectSessions) {
           pendingPersist.current.delete(session.id);
-          if (session.busy) {
+          agentRuntimeEpoch.current.set(
+            session.id,
+            (agentRuntimeEpoch.current.get(session.id) ?? 0) + 1,
+          );
+          if (isInFlightSession(session)) {
             turnGen.current.set(
               session.id,
               (turnGen.current.get(session.id) ?? 0) + 1,
@@ -4709,7 +4758,10 @@ export default function App({
         void removeProjectData(normalized);
       } else {
         for (const session of projectSessions) {
-          if (session.busy) continue;
+          if (
+            isInFlightSession(session) ||
+            uncertainSessionAgents(session).length
+          ) continue;
           persistSession(session);
           pendingPersist.current.delete(session.id);
           for (const id of sessionChildHarnesses(session)) {
@@ -4721,7 +4773,10 @@ export default function App({
       let nextTabs = tabs.filter((tab) => !projectTabIds.has(tab.id));
       let nextSessions = sessions.filter((session) => {
         if (!projectSessionIds.has(session.id)) return true;
-        return !options.purgeData && session.busy;
+        return !options.purgeData && (
+          isInFlightSession(session) ||
+          uncertainSessionAgents(session).length > 0
+        );
       });
       let nextActiveTabId = activeTabIdRef.current;
 
@@ -5170,6 +5225,7 @@ export default function App({
         }
       }
       if (removingSessionIds.current.has(sessionId)) return false;
+      flushHarnessEvents();
       const storedCurrent = sessionsRef.current.find((s) => s.id === sessionId);
       if (!storedCurrent) return false;
       const current = options?.buildTarget
@@ -5342,6 +5398,14 @@ export default function App({
 
       const gen = (turnGen.current.get(sessionId) ?? 0) + 1;
       turnGen.current.set(sessionId, gen);
+      const restartingAgents = stoppedAgentRuntimes.current.delete(sessionId);
+      if (pendingSwitch || restartingAgents) {
+        agentRuntimeEpoch.current.set(
+          sessionId,
+          (agentRuntimeEpoch.current.get(sessionId) ?? 0) + 1,
+        );
+      }
+      const runtimeEpoch = agentRuntimeEpoch.current.get(sessionId) ?? 0;
       const activityTurnId = `${sessionId}:turn:${crypto.randomUUID()}`;
       activityTurnIds.current.set(sessionId, activityTurnId);
       failedActivityTurns.current.delete(sessionId);
@@ -5590,8 +5654,23 @@ export default function App({
             agentText,
             buildDeterministicHandoff(latest ?? current, text),
           );
-          await forgetHarnessSession(pendingSwitch.from, sessionId);
+          try {
+            await forgetHarnessSession(pendingSwitch.from, sessionId);
+          } catch (error) {
+            if (turnGen.current.get(sessionId) === gen) {
+              const uncertain = sessionsRef.current.map((session) => session.id === sessionId
+                ? { ...session, liveAgents: session.liveAgents?.map((agent) =>
+                    ["running", "waiting", "unknown"].includes(agent.status)
+                      ? { ...agent, status: "unknown" as const, detail: "Could not confirm the previous provider stopped" }
+                      : agent) }
+                : session);
+              sessionsRef.current = uncertain;
+              setSessions(uncertain);
+            }
+            throw error;
+          }
           if (turnGen.current.get(sessionId) !== gen) return;
+          enqueueHarnessEvent(sessionId, { type: "agents.cleared" });
           wrap = { from: pendingSwitch.from, to: current.harness, text: brief };
         }
 
@@ -5706,6 +5785,18 @@ export default function App({
             ),
             attachments: prepared,
             onEvent: (event) => {
+              if (event.type === "agent.updated" || event.type === "agents.cleared") {
+                if (
+                  !removingSessionIds.current.has(sessionId) &&
+                  isCurrentSessionAgentSource(
+                    sessionsRef.current.find((session) => session.id === sessionId),
+                    current.harness,
+                    runtimeEpoch,
+                    agentRuntimeEpoch.current.get(sessionId) ?? 0,
+                  )
+                ) enqueueHarnessEvent(sessionId, event);
+                return;
+              }
               if (turnGen.current.get(sessionId) !== gen) return;
               orchestrator.observe(sessionId, event);
               if (options?.onSettled && event.type === "message.delta")
@@ -6250,6 +6341,13 @@ export default function App({
       const gen = (turnGen.current.get(sessionId) ?? 0) + 1;
       turnGen.current.set(sessionId, gen);
       const workCwd = sessionWorkCwd(current);
+      if (stoppedAgentRuntimes.current.delete(sessionId)) {
+        agentRuntimeEpoch.current.set(
+          sessionId,
+          (agentRuntimeEpoch.current.get(sessionId) ?? 0) + 1,
+        );
+      }
+      const runtimeEpoch = agentRuntimeEpoch.current.get(sessionId) ?? 0;
       const started = sessionsRef.current.map((session) =>
         session.id === sessionId
           ? applyHarnessEvent(
@@ -6272,6 +6370,18 @@ export default function App({
             modelSettings: current.modelSettings,
             runtimeMode: current.runtimeMode,
             onEvent: (event) => {
+              if (event.type === "agent.updated" || event.type === "agents.cleared") {
+                if (
+                  !removingSessionIds.current.has(sessionId) &&
+                  isCurrentSessionAgentSource(
+                    sessionsRef.current.find((session) => session.id === sessionId),
+                    current.harness,
+                    runtimeEpoch,
+                    agentRuntimeEpoch.current.get(sessionId) ?? 0,
+                  )
+                ) enqueueHarnessEvent(sessionId, event);
+                return;
+              }
               if (turnGen.current.get(sessionId) !== gen) return;
               enqueueHarnessEvent(sessionId, event);
             },
@@ -6309,8 +6419,29 @@ export default function App({
   const onStop = useCallback(
     (sessionId: string, managed = false) => {
       if (!managed) {
+        const run = orchestrator.forSession(sessionId);
+        const managedWorkers = new Set(
+          run?.tasks.filter((task) =>
+            task.status === "running" || task.status === "cancelling",
+          ).map((task) => task.sessionId) ?? [],
+        );
+        // The orchestrator stops active assignments. A finished assignment
+        // may still own native children, so stop those runtimes as well.
+        for (const workerId of backgroundWorkerIdsForStop(
+          sessionsRef.current,
+          sessionId,
+          managedWorkers,
+        )) onStop(workerId, true);
         const stopping = orchestrator.stopForSession(sessionId);
         if (stopping) {
+          if (run?.leadId !== sessionId && !managedWorkers.has(sessionId)) {
+            // Closing a completed worker's task only updates orchestration
+            // history; it does not ask the provider to stop its child agents.
+            const worker = sessionsRef.current.find((entry) => entry.id === sessionId);
+            if (worker && (
+              activeSessionAgents(worker).length || uncertainSessionAgents(worker).length
+            )) onStop(sessionId, true);
+          }
           void stopping.catch(console.error);
           return;
         }
@@ -6321,13 +6452,55 @@ export default function App({
         activityTurnIds.current.get(sessionId) ??
         (session ? sessionTurnActivityId(session) : sessionId);
       turnGen.current.set(sessionId, (turnGen.current.get(sessionId) ?? 0) + 1);
+      const hasBackground = session && (
+        activeSessionAgents(session).length > 0 ||
+        uncertainSessionAgents(session).length > 0
+      );
+      const stopEpoch = (agentRuntimeEpoch.current.get(sessionId) ?? 0) +
+        (hasBackground ? 1 : 0);
+      if (hasBackground) {
+        agentRuntimeEpoch.current.set(sessionId, stopEpoch);
+        stoppedAgentRuntimes.current.add(sessionId);
+      }
       if (session) {
-        for (const id of sessionChildHarnesses(session)) {
-          void cancelHarnessTurn(id, sessionId);
+        if (hasBackground) {
+          // Interrupting only the lead does not reliably stop detached workers.
+          // Keep their rows until the process confirms it stopped.
+          void Promise.all(
+            sessionChildHarnesses(session).map((id) => stopHarnessSession(id, sessionId)),
+          ).then(
+            () => settleStoppedAgents("stopped"),
+            () => settleStoppedAgents("unknown"),
+          );
+        } else {
+          for (const id of sessionChildHarnesses(session)) {
+            void cancelHarnessTurn(id, sessionId).catch(console.error);
+          }
         }
       }
-      setSessions((prev) =>
-        prev.map((s) => {
+      function settleStoppedAgents(status: "stopped" | "unknown") {
+        if (agentRuntimeEpoch.current.get(sessionId) !== stopEpoch) return;
+        const next = sessionsRef.current.map((entry) =>
+          entry.id !== sessionId ? entry : {
+            ...entry,
+            liveAgents: entry.liveAgents?.map((agent) =>
+              ["running", "waiting", "unknown"].includes(agent.status)
+                ? {
+                    ...agent,
+                    status,
+                    detail: status === "unknown"
+                      ? "Could not confirm the agent process stopped"
+                      : "Stopped with this conversation",
+                  }
+                : agent,
+            ),
+          },
+        );
+        sessionsRef.current = next;
+        syncDockBadge(next);
+        setSessions(next);
+      }
+      const stoppedSessions = sessionsRef.current.map<Session>((s) => {
           if (s.id !== sessionId) return s;
           const stopped = stopStreaming(s);
           const completed = isPreparingHandoff(stopped)
@@ -6336,10 +6509,12 @@ export default function App({
           return completed.queuedMessages?.length
             ? { ...completed, queueStatus: "paused" }
             : completed;
-        }),
-      );
+        });
+      sessionsRef.current = stoppedSessions;
+      syncDockBadge(stoppedSessions);
+      setSessions(stoppedSessions);
       if (session) {
-        if (session.busy || sessionNeedsInput(session)) {
+        if (isInFlightSession(session)) {
           reconcileSessionActivityInputs(sessionId, []);
           announceActivity(session, {
             id: `${activityId}:stopped`,
@@ -6762,13 +6937,19 @@ export default function App({
     setActiveTabId(tab.id);
     setComposerFocused(false);
   }, [tabs, workerDetailRequest]);
+  const workerAgentRows = useRef<ReturnType<typeof workerAgentsByLead>>(new Map());
+  const agentsByLead = useMemo(() => {
+    workerAgentRows.current = workerAgentsByLead(sessions, workerAgentRows.current);
+    return workerAgentRows.current;
+  }, [sessions]);
   const orchestrationWorkers = useMemo(
     () => ({
       selectedId: inspectedWorkerId,
       inspect: setInspectedWorkerId,
       openDetails: onOpenWorkerDetails,
+      agentsByLead,
     }),
-    [inspectedWorkerId, onOpenWorkerDetails],
+    [inspectedWorkerId, onOpenWorkerDetails, agentsByLead],
   );
   const updateOrchestrationCard = useCallback(
     (leadId: string, blockId: string, proposal: OrchestrationProposal) => {
@@ -8266,7 +8447,7 @@ export default function App({
               textHarness={pickTextHarness(active?.harness)}
               recents={profiles.profileProjects}
               busyProjectPaths={sessions.flatMap((session) =>
-                session.busy && session.cwd ? [session.cwd] : [],
+                isInFlightSession(session) && session.cwd ? [session.cwd] : [],
               )}
               liveAgents={liveAgents}
               onSelectAgent={onSelectLiveAgent}
@@ -9106,7 +9287,7 @@ function lastUserBlockId(session: Session): string | undefined {
 }
 
 function isBlankSession(session: Session | undefined): boolean {
-  if (!session || session.busy) return false;
+  if (!session || isInFlightSession(session) || uncertainSessionAgents(session).length) return false;
   return !session.blocks.some((block) => block.role === "user");
 }
 
@@ -9171,7 +9352,7 @@ function toTitleTab(
     : tabSessions;
   for (const session of ordered) {
     const { harness } = sessionModelIdentity(session);
-    if (session.busy && !sessionNeedsInput(session) && !busySeen.has(harness)) {
+    if (isInFlightSession(session) && !sessionNeedsInput(session) && !busySeen.has(harness)) {
       busySeen.add(harness);
       busyHarnesses.push(harness);
     }

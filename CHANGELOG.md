@@ -12,6 +12,12 @@
 - Recognize Claude's structured API errors and failed results, so an expired sign-in shows a failed attempt instead of “Finished.”
 - Show sign-in instructions with a shortcut to Aven's terminal. Retire failed Claude processes so retrying after login reads fresh credentials while preserving the conversation.
 
+### Visible background agents
+
+- Track child-agent status separately from the main reply. Keep active or unknown agent states visible after the reply ends, with expandable names, progress, and outcomes above the composer.
+- Correct Codex and Claude lifecycle tracking, preserve background updates between turns, and include active workers in the workspace activity indicators.
+- Keep provider processes alive while agents remain active, and make Stop reach detached workers. Show an unavailable status when a disconnect or failed shutdown leaves their state unconfirmed.
+
 ## [0.1.91] - 2026-09-23
 
 ### Prevent a Bluetooth privacy crash

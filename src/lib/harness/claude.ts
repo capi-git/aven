@@ -104,8 +104,10 @@ type InFlightTool = {
 type LiveAgentTask = {
   taskId: string;
   toolUseId?: string;
+  callId: string;
   description: string;
   backgrounded: boolean;
+  status: "running" | "waiting" | "unknown";
 };
 
 type Live = {
@@ -122,8 +124,10 @@ type Live = {
   toolsByIndex: Map<number, InFlightTool>;
   toolsById: Map<string, InFlightTool>;
   agentTasks: Map<string, LiveAgentTask>;
+  inactiveTaskIds: Set<string>;
   turnResultSeen: boolean;
   apiErrorReported: boolean;
+  retired: boolean;
   cancelled: boolean;
   muteUpdates: boolean;
   turns: Promise<void>;
@@ -196,7 +200,7 @@ export async function compactClaudeContext(
 ): Promise<void> {
   const settingsKey = settingsKeyFor(input);
   let live = liveByThread.get(input.sessionId);
-  if (!live || live.cwd !== input.cwd || live.settingsKey !== settingsKey) {
+  if (!live || live.retired || live.apiErrorReported || live.cwd !== input.cwd || live.settingsKey !== settingsKey) {
     live = await ensureLive(input);
   }
   if (cancelledThreads.delete(input.sessionId)) return;
@@ -297,6 +301,7 @@ export async function stopClaudeSession(sessionId: string): Promise<void> {
   const live = liveByThread.get(sessionId);
   liveByThread.delete(sessionId);
   if (live) {
+    live.retired = true;
     live.muteUpdates = true;
     for (const [, pending] of live.approvals) pending.resolve("deny");
     live.approvals.clear();
@@ -311,7 +316,19 @@ export async function stopClaudeSession(sessionId: string): Promise<void> {
     live.initDone = null;
   }
   unwatchChild(sessionId);
-  const stopping = killChild(sessionId).catch(() => undefined);
+  const stopping = killChild(sessionId).then(
+    () => live?.onEvent({ type: "agents.cleared" }),
+    (error: unknown) => {
+      if (live) {
+        markAgentsUnknown(live, "Could not confirm the agent process stopped");
+        // Keep a non-reusable record so the next send retries shutdown rather
+        // than spawning a second process over an unconfirmed existing child.
+        live.apiErrorReported = true;
+        liveByThread.set(sessionId, live);
+      }
+      throw error;
+    },
+  );
   stoppingByThread.set(sessionId, stopping);
   try {
     await stopping;
@@ -394,8 +411,10 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     toolsByIndex: new Map(),
     toolsById: new Map(),
     agentTasks: new Map(),
+    inactiveTaskIds: new Set(),
     turnResultSeen: false,
     apiErrorReported: false,
+    retired: false,
     cancelled: false,
     muteUpdates: false,
     turns: Promise.resolve(),
@@ -418,13 +437,27 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     input.sessionId,
     (line) => {
       const current = liveRef.current;
-      if (!current) return;
+      if (!current || current.retired) return;
+      const bound = liveByThread.get(input.sessionId);
+      if (bound && bound !== current) return;
       handleLine(input.sessionId, current, line);
     },
     (code) => {
-      liveByThread.delete(input.sessionId);
-      input.onEvent({ type: "session.ended", code });
       const current = liveRef.current;
+      if (current?.retired) return;
+      const bound = liveByThread.get(input.sessionId);
+      if (bound && bound !== current) return;
+      if (liveByThread.get(input.sessionId) === current) {
+        liveByThread.delete(input.sessionId);
+      }
+      if (current) {
+        current.retired = true;
+        markAgentsUnknown(
+          current,
+          "Claude Code exited before reporting the agent's final status",
+        );
+        current.onEvent({ type: "session.ended", code });
+      }
       current?.turnFailed?.(new Error("Claude Code exited"));
       current?.initDone?.();
       if (current) {
@@ -458,6 +491,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       type: "session.providerBound",
       providerSessionId: live.claudeSessionId,
     });
+    live.onEvent({ type: "agents.cleared" });
     live.onEvent({ type: "session.started" });
     return live;
   } catch (error) {
@@ -467,6 +501,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
 }
 
 async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
+  if (live.retired) throw new Error("Claude Code session was stopped");
   const effort = input.modelSettings?.effort;
   const message = buildClaudeUserMessage({
     text: input.text,
@@ -482,8 +517,16 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
   live.completedMessages.clear();
   live.emittedReasoning = "";
   live.toolsByIndex.clear();
-  live.toolsById.clear();
-  live.agentTasks.clear();
+  // A lifecycle frame can arrive after the parent result. Keep those observed
+  // workers (and their tool identities) when a new user turn begins.
+  const activeAgentTools = new Set(
+    [...live.agentTasks.values()].flatMap((task) =>
+      task.toolUseId ? [task.callId, task.toolUseId] : [task.callId],
+    ),
+  );
+  for (const id of live.toolsById.keys()) {
+    if (!activeAgentTools.has(id)) live.toolsById.delete(id);
+  }
   live.turnResultSeen = false;
   live.apiErrorReported = false;
 
@@ -512,7 +555,10 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
     // credentials. Retire it after the turn settles; retain its resume ID so
     // retrying after sign-in continues this conversation in a fresh process.
     if (live.apiErrorReported && liveByThread.get(input.sessionId) === live) {
-      await stopClaudeSession(input.sessionId);
+      // The provider failure is already reported. A failed retirement remains
+      // non-reusable and reports unknown agents; don't replace its original
+      // error with a secondary process-shutdown exception.
+      await stopClaudeSession(input.sessionId).catch(() => undefined);
     }
   }
 }
@@ -547,7 +593,12 @@ function handleLine(sessionId: string, live: Live, line: string): void {
     return;
   }
 
-  if (live.muteUpdates) return;
+  if (live.muteUpdates) {
+    // Interrupting the lead does not prove its background workers stopped.
+    // Keep consuming their authoritative lifecycle while hiding late prose.
+    if (live.cancelled) handleAgentLifecycle(live, rec);
+    return;
+  }
 
   const sessionIdFromLine = sessionIdFromMessage(rec);
   if (sessionIdFromLine && sessionIdFromLine !== live.claudeSessionId) {
@@ -833,6 +884,7 @@ async function handleControlRequest(
       callId: control.toolUseId,
     });
     const outcome = await waitQuestion(live, uiId, control.requestId);
+    if (live.retired) return;
     const decision =
       outcome === "cancelled"
         ? "cancelled"
@@ -908,6 +960,7 @@ async function handleControlRequest(
     preview: previewFromTool(toolName, input),
   });
   const decision = await waitApproval(live, uiId, control.requestId, input);
+  if (live.retired) return;
   live.onEvent({ type: "approval.resolved", requestId: uiId, decision });
   if (decision === "cancelled") return;
   await writeJson(
@@ -978,39 +1031,74 @@ function handleAgentLifecycle(
 ): boolean {
   const started = parseTaskStarted(rec);
   if (started) {
-    if (started.ambient || !isAgentTaskType(started.taskType)) return true;
-    live.agentTasks.set(started.taskId, {
+    const linkedTool =
+      started.toolUseId && live.toolsById.get(started.toolUseId);
+    const isAgent =
+      isAgentTaskType(started.taskType) ||
+      (!started.taskType &&
+        (Boolean(started.subagentType) ||
+          Boolean(linkedTool && isAgentToolName(linkedTool.name))));
+    if (started.ambient || !isAgent) {
+      if (started.ambient || started.taskType) {
+        live.inactiveTaskIds.add(started.taskId);
+      }
+      return true;
+    }
+    live.inactiveTaskIds.delete(started.taskId);
+    const existing = live.agentTasks.get(started.taskId);
+    const task: LiveAgentTask = {
       taskId: started.taskId,
       toolUseId: started.toolUseId,
+      callId:
+        existing?.callId ?? started.toolUseId ?? `agent:${started.taskId}`,
       description: started.description,
       backgrounded: started.backgrounded,
-    });
-    upsertAgentTool(
-      live,
-      started.toolUseId,
-      started.description,
-      "in_progress",
-    );
+      status: "running",
+    };
+    live.agentTasks.set(task.taskId, task);
+    updateAgentTask(live, task);
     return true;
   }
 
   const progress = parseTaskProgress(rec);
   if (progress) {
-    const task = live.agentTasks.get(progress.taskId);
+    if (live.inactiveTaskIds.has(progress.taskId)) return true;
+    let task = live.agentTasks.get(progress.taskId);
+    const linkedTool =
+      progress.toolUseId && live.toolsById.get(progress.toolUseId);
+    // Progress is also emitted for background MCP tasks. Only recover a
+    // missed start when the provider identifies a subagent or its Agent tool.
+    if (
+      !task &&
+      !progress.subagentType &&
+      !(linkedTool && isAgentToolName(linkedTool.name))
+    ) {
+      return true;
+    }
     const title = progress.description || task?.description || "Subagent";
+    if (!task) {
+      task = {
+        taskId: progress.taskId,
+        toolUseId: progress.toolUseId,
+        callId: progress.toolUseId ?? `agent:${progress.taskId}`,
+        description: title,
+        // Progress alone does not establish whether the spawning tool is
+        // still waiting in the foreground; only a background snapshot does.
+        backgrounded: false,
+        status: "running",
+      };
+      live.agentTasks.set(task.taskId, task);
+    }
+    task.description = title;
+    task.toolUseId ??= progress.toolUseId;
+    task.status = "running";
     const detail =
       progress.summary ||
       progress.lastToolName ||
       (progress.subagentType
         ? `${progress.subagentType.replace(/[_-]+/g, " ")} subagent`
         : undefined);
-    upsertAgentTool(
-      live,
-      progress.toolUseId ?? task?.toolUseId,
-      title,
-      "in_progress",
-      detail,
-    );
+    updateAgentTask(live, task, detail);
     return true;
   }
 
@@ -1019,15 +1107,23 @@ function handleAgentLifecycle(
     const task = live.agentTasks.get(updated.taskId);
     if (task && updated.backgrounded !== undefined) {
       task.backgrounded = updated.backgrounded;
+      if (!updated.backgrounded && task.status === "unknown") {
+        task.status = "running";
+      }
     }
     if (task && updated.description) task.description = updated.description;
     if (isTerminalAgentTaskStatus(updated.status)) {
       completeAgentTask(
         live,
         updated.taskId,
-        updated.status === "completed" ? "completed" : "failed",
+        agentTerminalStatus(updated.status),
         updated.error,
       );
+    } else if (task) {
+      if (updated.status === "paused") task.status = "waiting";
+      else if (updated.status === "running" || updated.status === "pending")
+        task.status = "running";
+      updateAgentTask(live, task);
     }
     return true;
   }
@@ -1038,7 +1134,7 @@ function handleAgentLifecycle(
       completeAgentTask(
         live,
         notice.taskId,
-        notice.status === "completed" ? "completed" : "failed",
+        agentTerminalStatus(notice.status),
         notice.summary || undefined,
       );
     }
@@ -1048,17 +1144,36 @@ function handleAgentLifecycle(
   const liveTasks = parseBackgroundAgentTasks(rec);
   if (!liveTasks) return false;
   const next = new Set(liveTasks.map((task) => task.taskId));
-  for (const id of [...live.agentTasks.keys()]) {
-    if (!next.has(id)) completeAgentTask(live, id, "completed");
-  }
+  // Apply the whole replacement before checking turn completion. Finishing
+  // while removing the last old task can race a new worker in this payload.
   for (const row of liveTasks) {
-    if (live.agentTasks.has(row.taskId)) continue;
-    live.agentTasks.set(row.taskId, {
+    live.inactiveTaskIds.delete(row.taskId);
+    const existing = live.agentTasks.get(row.taskId);
+    const task: LiveAgentTask = {
       taskId: row.taskId,
+      toolUseId: existing?.toolUseId,
+      callId: existing?.callId ?? `agent:${row.taskId}`,
       description: row.description,
       backgrounded: true,
-    });
-    upsertAgentTool(live, undefined, row.description, "in_progress");
+      status: existing?.status === "waiting" ? "waiting" : "running",
+    };
+    live.agentTasks.set(task.taskId, task);
+    updateAgentTask(live, task);
+  }
+  for (const task of live.agentTasks.values()) {
+    // A background-only snapshot says nothing about foreground workers.
+    if (
+      task.backgrounded &&
+      task.status !== "unknown" &&
+      !next.has(task.taskId)
+    ) {
+      task.status = "unknown";
+      updateAgentTask(
+        live,
+        task,
+        "No longer reported as running; final status unavailable",
+      );
+    }
   }
   maybeFinishTurn(live);
   return true;
@@ -1108,19 +1223,60 @@ function noteSubagentTool(
 
 function isBackgroundedAgentTool(live: Live, toolUseId: string): boolean {
   for (const task of live.agentTasks.values()) {
-    if (task.toolUseId === toolUseId && task.backgrounded) return true;
+    if (
+      task.toolUseId === toolUseId &&
+      task.backgrounded &&
+      task.status !== "unknown"
+    )
+      return true;
   }
   return false;
 }
 
+function updateAgentTask(
+  live: Live,
+  task: LiveAgentTask,
+  detail?: string,
+): void {
+  live.onEvent({
+    type: "agent.updated",
+    agentId: task.taskId,
+    callId: task.callId,
+    title: task.description,
+    status: task.status,
+    ...(detail ? { detail } : {}),
+  });
+  upsertAgentTool(
+    live,
+    task.callId,
+    task.description,
+    task.status === "running" ? "in_progress" : task.status,
+    detail,
+  );
+}
+
+function markAgentsUnknown(live: Live, detail: string): void {
+  for (const task of live.agentTasks.values()) {
+    task.status = "unknown";
+    updateAgentTask(live, task, detail);
+  }
+}
+
+function agentTerminalStatus(
+  status: string | undefined,
+): "completed" | "failed" | "stopped" {
+  if (status === "completed") return "completed";
+  return status === "stopped" || status === "killed" ? "stopped" : "failed";
+}
+
 function upsertAgentTool(
   live: Live,
-  callId: string | undefined,
+  callId: string,
   title: string,
   status: string,
   detail?: string,
 ): void {
-  const id = callId ?? `agent:${title}`;
+  const id = callId;
   const existing = live.toolsById.get(id);
   if (!existing) {
     live.toolsById.set(id, {
@@ -1167,20 +1323,30 @@ function upsertAgentTool(
 function completeAgentTask(
   live: Live,
   taskId: string,
-  status: string,
+  status: "completed" | "failed" | "stopped",
   detail?: string,
 ): void {
   const task = live.agentTasks.get(taskId);
   live.agentTasks.delete(taskId);
+  live.inactiveTaskIds.add(taskId);
   if (task) {
-    upsertAgentTool(live, task.toolUseId, task.description, status, detail);
+    live.onEvent({
+      type: "agent.updated",
+      agentId: taskId,
+      callId: task.callId,
+      title: task.description,
+      status,
+      ...(detail ? { detail } : {}),
+    });
+    upsertAgentTool(live, task.callId, task.description, status, detail);
   }
   maybeFinishTurn(live);
 }
 
 function maybeFinishTurn(live: Live): void {
   if (!live.turnResultSeen) return;
-  if (live.agentTasks.size > 0) return;
+  if ([...live.agentTasks.values()].some((task) => task.status !== "unknown"))
+    return;
   if (!live.activeTurn && !live.turnDone) return;
   finishActiveTurn(live, [
     { type: "message.completed" },

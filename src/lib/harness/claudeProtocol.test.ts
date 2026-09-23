@@ -980,6 +980,63 @@ describe("contextFromResult", () => {
 });
 
 describe("subagent messages", () => {
+  it("does not treat malformed lifecycle data as confirmed task completion", () => {
+    expect(
+      parseBackgroundAgentTasks({
+        type: "system",
+        subtype: "background_tasks_changed",
+      }),
+    ).toBeNull();
+    expect(
+      parseBackgroundAgentTasks({
+        type: "system",
+        subtype: "background_tasks_changed",
+        tasks: null,
+      }),
+    ).toBeNull();
+    expect(
+      parseBackgroundAgentTasks({
+        type: "system",
+        subtype: "background_tasks_changed",
+        tasks: [],
+      }),
+    ).toEqual([]);
+    expect(
+      parseTaskNotification({
+        type: "system",
+        subtype: "task_notification",
+        task_id: "one",
+      }),
+    ).toBeNull();
+    expect(
+      parseTaskNotification({
+        type: "system",
+        subtype: "task_notification",
+        task_id: "one",
+        status: "running",
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps optional task type and description absent without losing subagent metadata", () => {
+    expect(
+      parseTaskStarted({
+        type: "system",
+        subtype: "task_started",
+        task_id: "one",
+        subagent_type: "Explore",
+        skip_transcript: true,
+      }),
+    ).toMatchObject({ taskId: "one", subagentType: "Explore", ambient: true });
+    expect(
+      parseTaskProgress({
+        type: "system",
+        subtype: "task_progress",
+        task_id: "one",
+      })?.description,
+    ).toBeUndefined();
+  });
+
   it("detects nested agent traffic by parent_tool_use_id", () => {
     expect(isSubagentMessage({ parent_tool_use_id: "toolu_agent" })).toBe(true);
     expect(isSubagentMessage({ parent_tool_use_id: null })).toBe(false);

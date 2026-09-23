@@ -2,6 +2,7 @@ import { leafIds, newTab, type WorkspaceTab } from "./layout";
 import type { ProjectTerminalDock } from "./projectTerminal";
 import { sessionNeedsInput, type Session } from "./session";
 import { stopStreaming } from "./harness/apply";
+import { activeSessionAgents } from "./sessionAgents";
 
 export const INTERRUPT_MESSAGE = "Turn interrupted when Aven quit.";
 const LEGACY_INTERRUPT_MESSAGES = new Set([
@@ -24,9 +25,13 @@ export type ResumedWorkspace = {
   projectTerminals?: ProjectTerminalDock[];
 };
 
-/** A turn or approval that would be lost if this webview died. */
+/** Confirmed live work that would be lost if this webview died. */
 export function isInFlightSession(session: Session): boolean {
-  return !!session.busy || sessionNeedsInput(session);
+  return (
+    !!session.busy ||
+    sessionNeedsInput(session) ||
+    activeSessionAgents(session).length > 0
+  );
 }
 
 export function hasInFlightSessions(sessions: Session[]): boolean {
@@ -149,7 +154,8 @@ export function shouldWriteInFlightSnapshot(
 
 function canResumeAfterQuit(session: Session): boolean {
   return (
-    session.cwd !== "~" && session.blocks.some((block) => block.role === "user")
+    session.cwd !== "~" &&
+    session.blocks.some((block) => block.role === "user")
   );
 }
 
@@ -157,6 +163,7 @@ function sealOpenWork(session: Session): Session {
   return {
     ...session,
     busy: false,
+    liveAgents: undefined,
     blocks: session.blocks.flatMap((block) => {
       if (block.role === "approval" && !block.approval?.decided) return [];
       if (!shouldCancelTool(block)) return [block];

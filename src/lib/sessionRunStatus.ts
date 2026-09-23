@@ -7,6 +7,7 @@ import {
   isSearchTool,
 } from "./harness/preview";
 import { hasPendingApproval, type Block, type Session } from "./session";
+import { activeSessionAgents, uncertainSessionAgents, sessionAgentSummary } from "./sessionAgents";
 
 export type SessionRunStatus = {
   kind:
@@ -139,7 +140,9 @@ export function sessionRunStatus(
   const startedAt = validTime(turn?.block.startedAt)
     ? turn.block.startedAt
     : undefined;
-  const canStop = !!session.busy;
+  const agents = activeSessionAgents(session);
+  const unknownAgents = uncertainSessionAgents(session);
+  const canStop = !!session.busy || agents.length > 0 || unknownAgents.length > 0;
   if (session.pendingQuestion || hasPendingApproval(session.blocks)) {
     return {
       kind: "waiting",
@@ -155,10 +158,29 @@ export function sessionRunStatus(
     return {
       kind: "working",
       label: "Working",
-      detail: workingDetail(session.blocks.slice(turn?.index ?? 0)),
+      detail: agents.length
+        ? `${agents.length} ${agents.length === 1 ? "agent" : "agents"} active · ${workingDetail(session.blocks.slice(turn?.index ?? 0))}`
+        : workingDetail(session.blocks.slice(turn?.index ?? 0)),
       ...(startedAt !== undefined && !validTime(turn?.block.durationMs)
         ? { startedAt }
         : {}),
+      canStop: true,
+    };
+  }
+  if (agents.length) {
+    const working = agents.some(agent => agent.status === "running");
+    return {
+      kind: working ? "working" : "waiting",
+      label: working ? "Agents still working" : "Agents waiting",
+      detail: sessionAgentSummary(session.liveAgents ?? []),
+      canStop: true,
+    };
+  }
+  if (unknownAgents.length) {
+    return {
+      kind: "waiting",
+      label: "Agent status unavailable",
+      detail: "Open agent details for the last reported state",
       canStop: true,
     };
   }
@@ -210,8 +232,19 @@ export function sessionRunStatus(
       },
     } as const;
     const state = terminal[outcome.outcome as keyof typeof terminal];
+    const failedAgents = session.liveAgents?.filter(agent => agent.status === "failed").length ?? 0;
+    const stoppedAgents = session.liveAgents?.filter(agent => agent.status === "stopped").length ?? 0;
     return {
       ...state,
+      ...(outcome.outcome === "completed" && failedAgents ? {
+        kind: "failed" as const,
+        label: "Agent failed",
+        detail: `${failedAgents} ${failedAgents === 1 ? "agent" : "agents"} failed · Open agent details`,
+      } : outcome.outcome === "completed" && stoppedAgents ? {
+        kind: "stopped" as const,
+        label: "Agents stopped",
+        detail: `${stoppedAgents} ${stoppedAgents === 1 ? "agent" : "agents"} stopped · Open agent details`,
+      } : {}),
       ...(needsClaudeLogin ? {
         label: "Sign in required",
         detail: "Reconnect Claude Code, then retry your message",

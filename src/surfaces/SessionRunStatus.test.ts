@@ -49,6 +49,29 @@ afterEach(async () => {
 });
 
 describe("persistent agent run status", () => {
+  it("shows inspectable child activity after the main reply and updates through completion", async () => {
+    session = { ...session, busy: false, liveAgents: [
+      { id: "one", title: "Asset inventory", status: "running", detail: "Checking photos" },
+      { id: "two", title: "Review", status: "completed" },
+    ] };
+    ledger.entries = [outcome("completed")];
+    await render();
+    expect(host.textContent).toContain("Agents still working");
+    expect(host.textContent).not.toContain("Finished");
+    expect(host.querySelector("summary")?.textContent).toContain("1 active · 1 done");
+    const details = host.querySelector("details")!;
+    details.open = true;
+    expect(host.querySelector('[aria-label="Agent status"]')?.textContent).toContain("Asset inventoryChecking photosWorking");
+    expect(host.querySelector('[role="timer"]')).toBeNull();
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Stop agent"]')!.click());
+    expect(stop).toHaveBeenCalledExactlyOnceWith("session");
+    session = { ...session, liveAgents: session.liveAgents!.map(agent => ({ ...agent, status: "completed" })) };
+    await render();
+    expect(host.textContent).toContain("Finished");
+    expect(host.querySelector("details")?.open).toBe(true);
+    expect(host.querySelector("summary")?.textContent).toContain("2 done");
+  });
+
   it("stays working between tool updates and while the answer streams, with a functional stop button", async () => {
     await render();
     expect(state()).toBe("working");

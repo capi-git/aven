@@ -21,6 +21,30 @@ function chat(cwd: string, patch: Partial<Session> = {}): Session {
 }
 
 describe("isInFlightSession", () => {
+  it.each(["running", "waiting"] as const)(
+    "keeps %s background work in flight after the lead stops",
+    (status) => {
+      const session = chat("/tmp/a", {
+        busy: false,
+        liveAgents: [{ id: "child", title: "Review", status }],
+      });
+      expect(isInFlightSession(session)).toBe(true);
+      expect(inFlightRefs([session], [])).toEqual([
+        { sessionId: session.id, cwd: session.cwd },
+      ]);
+    },
+  );
+
+  it.each(["completed", "failed", "stopped", "unknown"] as const)(
+    "does not make %s agent rows block quit or trigger resume",
+    (status) => {
+      const session = chat("/tmp/a", {
+        liveAgents: [{ id: "child", title: "Review", status }],
+      });
+      expect(isInFlightSession(session)).toBe(false);
+      expect(inFlightRefs([session], [])).toEqual([]);
+    },
+  );
   it("is true for a busy turn, a live approval, or a parked question", () => {
     expect(isInFlightSession(chat("/tmp/a"))).toBe(false);
     expect(isInFlightSession(chat("/tmp/a", { busy: true }))).toBe(true);
@@ -84,6 +108,15 @@ describe("inFlightRefs", () => {
 });
 
 describe("markTurnInterrupted", () => {
+  it("discards ephemeral agent state when interruption ends the runtime", () => {
+    const session = markTurnInterrupted(
+      chat("/tmp/a", {
+        liveAgents: [{ id: "child", title: "Review", status: "running" }],
+      }),
+    );
+    expect(session.liveAgents).toBeUndefined();
+    expect(isInFlightSession(session)).toBe(false);
+  });
   it("seals the stream, cancels open tools, and appends a system note", () => {
     const interrupted = markTurnInterrupted(
       chat("/tmp/a", {
@@ -250,7 +283,11 @@ describe("canAutoContinue", () => {
         ...interrupted,
         blocks: [
           ...interrupted.blocks,
-          { id: "c1", role: "user", text: "Continue from where you left off." },
+          {
+            id: "c1",
+            role: "user",
+            text: "Continue from where you left off.",
+          },
         ],
       }),
     ).toBe(false);

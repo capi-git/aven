@@ -52,6 +52,34 @@ function tool(kind: string, status = "in_progress"): Block {
 const queue = [{ id: "queued", text: "Next request", attachments: [] }];
 
 describe("sessionRunStatus", () => {
+  it("keeps reported agents visible after the main reply finishes", () => {
+    const current = session({ liveAgents: [
+      { id: "one", title: "Asset inventory", status: "running" },
+      { id: "two", title: "Review", status: "completed" },
+    ] });
+    expect(sessionRunStatus(current, [activity()])).toMatchObject({
+      kind: "working", label: "Agents still working", detail: "1 active · 1 done", canStop: true,
+    });
+    expect(sessionRunStatus(current, [activity()])?.durationMs).toBeUndefined();
+    current.liveAgents![0].status = "completed";
+    expect(sessionRunStatus(current, [activity()])?.label).toBe("Finished");
+  });
+
+  it("shows unavailable and failed child states honestly", () => {
+    const current = session({ liveAgents: [{ id: "one", title: "Review", status: "unknown" }] });
+    expect(sessionRunStatus(current, [activity()])?.label).toBe("Agent status unavailable");
+    current.liveAgents![0].status = "failed";
+    expect(sessionRunStatus(current, [activity()])?.label).toBe("Agent failed");
+    current.liveAgents![0].status = "waiting";
+    expect(sessionRunStatus(current, [activity()])?.label).toBe("Agents waiting");
+    current.liveAgents![0].status = "stopped";
+    expect(sessionRunStatus(current, [activity()])).toMatchObject({ kind: "stopped", label: "Agents stopped" });
+  });
+
+  it("does not infer live work from an old agent tool block", () => {
+    expect(sessionRunStatus(session({ blocks: [user(), tool("agent")] }), [activity()])?.label).toBe("Finished");
+  });
+
   it("keeps a fresh unused session quiet", () => {
     expect(sessionRunStatus(session({ blocks: [] }), [activity()])).toBeNull();
   });

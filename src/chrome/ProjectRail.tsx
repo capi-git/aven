@@ -607,7 +607,7 @@ function LiveAgentsPreview({
   const lockList = useLockOverscroll<HTMLDivElement>();
   const ticking =
     agents.length >= LIVE_AGENT_MIN &&
-    agents.some((agent) => !agent.done && agent.startedAt != null);
+    agents.some((agent) => !agent.done && !agent.statusUnknown && agent.startedAt != null);
 
   useEffect(() => {
     if (!ticking) return;
@@ -703,7 +703,7 @@ function LiveAgentCard({
   const key = projectKey(agent.cwd);
   const project = resolveTabGroupLabel(key, groupLabels, seed);
   const color = resolveTabGroupColor(key, groupColors, groupCustomColors, seed);
-  const elapsed = agent.done
+  const elapsed = agent.statusUnknown ? "" : agent.done
     ? agent.durationMs != null
       ? formatLiveElapsed(0, agent.durationMs)
       : ""
@@ -715,7 +715,7 @@ function LiveAgentCard({
     : agent.done
       ? "Done"
       : agent.activity;
-  const live = !agent.needsApproval && !agent.done;
+  const live = !agent.needsApproval && !agent.done && !agent.statusUnknown;
   const title = [agent.title, project, activity, elapsed]
     .filter(Boolean)
     .join("\n");
@@ -753,14 +753,14 @@ function LiveAgentCard({
       </span>
       <span
         className={`mt-1 flex min-w-0 items-center gap-1.5 pl-4 text-[11px] leading-tight ${
-          agent.needsApproval
+          agent.needsApproval || agent.statusUnknown
             ? "text-amber-400"
             : agent.done
               ? "text-emerald-400"
               : "text-content/50"
         }`}
       >
-        {agent.needsApproval ? (
+        {agent.needsApproval || agent.statusUnknown ? (
           <CircleAlert className="size-3 shrink-0" strokeWidth={1.75} />
         ) : agent.done ? (
           <Check className="size-3 shrink-0" strokeWidth={2.25} />

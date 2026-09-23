@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { formatLiveElapsed, liveAgentsFromSessions } from "./liveAgents";
+import {
+  backgroundWorkerIdsForStop,
+  formatLiveElapsed,
+  isCurrentSessionAgentSource,
+  liveAgentsFromSessions,
+  workerAgentsByLead,
+} from "./liveAgents";
 import { newSession, type Block, type Session } from "./session";
 
 function chat(cwd: string, patch: Partial<Session> = {}): Session {
@@ -11,7 +17,11 @@ function chat(cwd: string, patch: Partial<Session> = {}): Session {
   return { ...session, ...patch, blocks: patch.blocks ?? session.blocks };
 }
 
-function edit(id: string, path = "src/App.tsx", status = "in_progress"): Block {
+function edit(
+  id: string,
+  path = "src/App.tsx",
+  status = "in_progress",
+): Block {
   const fileName = path.split("/").pop() ?? path;
   return {
     id,
@@ -26,7 +36,101 @@ function edit(id: string, path = "src/App.tsx", status = "in_progress"): Block {
   };
 }
 
+describe("backgroundWorkerIdsForStop", () => {
+  it("stops finished worker runtimes with active or unknown native children", () => {
+    const worker = (
+      id: string,
+      status: NonNullable<Session["liveAgents"]>[number]["status"],
+      leadId = "lead",
+    ) =>
+      chat("/repo", {
+        id,
+        orchestrationLeadId: leadId,
+        busy: false,
+        liveAgents: [{ id: "child", title: "Review", status }],
+      });
+    const sessions = [
+      worker("running", "running"),
+      worker("waiting", "waiting"),
+      worker("unknown", "unknown"),
+      worker("done", "completed"),
+      worker("other", "running", "another-lead"),
+    ];
+    expect(backgroundWorkerIdsForStop(sessions, "lead")).toEqual([
+      "running",
+      "waiting",
+      "unknown",
+    ]);
+    expect(
+      backgroundWorkerIdsForStop(sessions, "lead", new Set(["running"])),
+    ).toEqual(["waiting", "unknown"]);
+  });
+});
+
 describe("liveAgentsFromSessions", () => {
+  it("shows detached provider workers after the parent reply is complete", () => {
+    const lead = chat("/repo", {
+      liveAgents: [
+        { id: "first", title: "Inventory", status: "completed" },
+        { id: "second", title: "Review", status: "running" },
+      ],
+    });
+    expect(
+      liveAgentsFromSessions([lead], new Set([lead.id]))[0],
+    ).toMatchObject({
+      id: lead.id,
+      activity: "1 background agent working",
+      done: false,
+      durationMs: undefined,
+    });
+  });
+
+  it("keeps uncertain agent state visible without claiming completion", () => {
+    const lead = chat("/repo", {
+      liveAgents: [{ id: "worker", title: "Review", status: "unknown" }],
+    });
+    expect(
+      liveAgentsFromSessions([lead], new Set([lead.id]))[0],
+    ).toMatchObject({
+      activity: "Agent status unavailable",
+      done: false,
+    });
+  });
+
+  it("shows an idle managed lead when one of its workers is still running", () => {
+    const lead = chat("/repo", { id: "lead" });
+    const worker = chat("/repo", {
+      id: "worker",
+      busy: true,
+      orchestrationLeadId: "lead",
+    });
+    expect(liveAgentsFromSessions([lead, worker])).toMatchObject([
+      {
+        id: "lead",
+        activity: "1 background agent working",
+        done: false,
+      },
+    ]);
+    expect(
+      liveAgentsFromSessions([lead, { ...worker, busy: false }]),
+    ).toEqual([]);
+  });
+
+  it("labels waiting workers and settles only after the last one ends", () => {
+    const lead = chat("/repo", {
+      liveAgents: [{ id: "worker", title: "Review", status: "waiting" }],
+    });
+    expect(liveAgentsFromSessions([lead])[0]?.activity).toBe(
+      "1 background agent waiting",
+    );
+    const finished: Session = {
+      ...lead,
+      liveAgents: [{ id: "worker", title: "Review", status: "completed" }],
+    };
+    expect(
+      liveAgentsFromSessions([finished], new Set([lead.id]))[0],
+    ).toMatchObject({ activity: "Done", done: true });
+  });
   it("keeps internal workers in their lead's agent panel", () => {
     const lead = chat("/repo", { id: "lead", busy: true });
     const worker = chat("/repo", {
@@ -146,7 +250,9 @@ describe("liveAgentsFromSessions", () => {
       ],
     });
     expect(liveAgentsFromSessions([finished])).toEqual([]);
-    expect(liveAgentsFromSessions([finished], new Set([finished.id]))).toEqual([
+    expect(
+      liveAgentsFromSessions([finished], new Set([finished.id])),
+    ).toEqual([
       {
         id: finished.id,
         cwd: "/tmp/done",
@@ -182,6 +288,76 @@ describe("liveAgentsFromSessions", () => {
         (row) => row.cwd,
       ),
     ).toEqual(["/tmp/a", "/tmp/b"]);
+  });
+});
+
+describe("isCurrentSessionAgentSource", () => {
+  it("accepts updates from the current runtime after the lead is idle", () => {
+    expect(isCurrentSessionAgentSource(chat("/repo"), "claude", 2, 2)).toBe(
+      true,
+    );
+  });
+  it("rejects events from a stopped runtime, removed session, or previous provider", () => {
+    expect(isCurrentSessionAgentSource(chat("/repo"), "claude", 1, 2)).toBe(
+      false,
+    );
+    expect(isCurrentSessionAgentSource(undefined, "claude", 2, 2)).toBe(
+      false,
+    );
+    expect(
+      isCurrentSessionAgentSource(
+        chat("/repo", { harness: "codex" }),
+        "claude",
+        2,
+        2,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("workerAgentsByLead", () => {
+  it("projects native children of managed workers without transcript churn", () => {
+    const worker = chat("/repo", {
+      id: "worker",
+      orchestrationLeadId: "lead",
+      liveAgents: [{ id: "child", title: "Asset check", status: "running" }],
+    });
+    const first = workerAgentsByLead([worker]);
+    expect(first.get("lead")).toEqual([
+      {
+        id: "worker:child",
+        title: "Fix the sidebar · Asset check",
+        status: "running",
+      },
+    ]);
+    expect(
+      workerAgentsByLead(
+        [
+          {
+            ...worker,
+            blocks: [
+              ...worker.blocks,
+              { id: "text", role: "assistant", text: "Update" },
+            ],
+          },
+        ],
+        first,
+      ),
+    ).toBe(first);
+    const finished = workerAgentsByLead(
+      [
+        {
+          ...worker,
+          liveAgents: [
+            { id: "child", title: "Asset check", status: "completed" },
+          ],
+        },
+      ],
+      first,
+    );
+    expect(finished).not.toBe(first);
+    expect(finished.get("lead")?.[0]?.status).toBe("completed");
+    expect(workerAgentsByLead([], finished).size).toBe(0);
   });
 });
 

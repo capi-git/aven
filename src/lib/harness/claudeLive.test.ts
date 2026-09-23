@@ -5,7 +5,9 @@ const sent: string[] = [];
 const spawned: string[][] = [];
 const killed: string[] = [];
 let killWait: Promise<void> | undefined;
+let killError: Error | undefined;
 let onLine: ((line: string) => void) | undefined;
+let onExit: ((code: number | null) => void) | undefined;
 
 vi.mock("./child", () => ({
   resolveClaudeBinary: async () => ({ path: "/fake/claude" }),
@@ -15,10 +17,16 @@ vi.mock("./child", () => ({
   killChild: async (id: string) => {
     killed.push(id);
     await killWait;
+    if (killError) throw killError;
   },
   unwatchChild: () => undefined,
-  watchChild: (_id: string, line: (l: string) => void) => {
+  watchChild: (
+    _id: string,
+    line: (l: string) => void,
+    exit: (code: number | null) => void,
+  ) => {
     onLine = line;
+    onExit = exit;
   },
   writeChild: async (_id: string, line: string) => {
     sent.push(line);
@@ -27,6 +35,7 @@ vi.mock("./child", () => ({
 
 const {
   compactClaudeContext,
+  cancelClaudeTurn,
   sendClaudeTurn,
   stopClaudeSession,
   __claudeTestReset,
@@ -96,11 +105,14 @@ beforeEach(() => {
   spawned.length = 0;
   killed.length = 0;
   killWait = undefined;
+  killError = undefined;
   onLine = undefined;
+  onExit = undefined;
   __claudeTestReset();
 });
 
 afterEach(async () => {
+  killError = undefined;
   await stopClaudeSession("s1");
   __claudeTestReset();
 });
@@ -214,7 +226,9 @@ describe("claude provider errors", () => {
       expect(events.filter((event) => event.type === "session.error")).toEqual([
         { type: "session.error", message: expiredSession },
       ]);
-      expect(events.some((event) => event.type === "message.delta")).toBe(false);
+      expect(events.some((event) => event.type === "message.delta")).toBe(
+        false,
+      );
       expect(killed).toEqual(["s1"]);
     },
   );
@@ -257,7 +271,9 @@ describe("claude provider errors", () => {
     });
     emit({ type: "result", subtype: "success", is_error: false });
     await retry.turn;
-    expect(retry.events.some((event) => event.type === "session.error")).toBe(false);
+    expect(retry.events.some((event) => event.type === "session.error")).toBe(
+      false,
+    );
     expect(killed).toEqual(["s1"]);
   });
 
@@ -301,14 +317,17 @@ describe("claude provider errors", () => {
     expect(spawned).toHaveLength(2);
     emit({ type: "result", subtype: "success", is_error: false });
     await retry.turn;
-    expect(retry.events.some((event) => event.type === "session.error")).toBe(false);
+    expect(retry.events.some((event) => event.type === "session.error")).toBe(
+      false,
+    );
   });
 
   it.each(["success", "error_during_execution"])(
     "preserves a synthetic API error after planning commentary and a %s result",
     async (subtype) => {
       const { events, turn } = await startTurn("s1", { intent: "plan" });
-      const commentary = "I'll investigate the project and prepare assignments.";
+      const commentary =
+        "I'll investigate the project and prepare assignments.";
       const message =
         "You've hit your session limit · resets 11:50am (America/Los_Angeles)";
       emit({
@@ -346,19 +365,350 @@ describe("claude provider errors", () => {
         ...(legacyMarker ? { isApiErrorMessage: true } : {}),
         error: "rate_limit",
         apiErrorStatus: 429,
-        message: { content: [{ type: "text", text: "Subagent limit reached" }] },
+        message: {
+          content: [{ type: "text", text: "Subagent limit reached" }],
+        },
       });
       emit({ type: "result", subtype: "success", session_id: "sess_1" });
       await turn;
 
-      expect(events.some((event) => event.type === "session.error")).toBe(false);
-      expect(events.some((event) => event.type === "message.delta")).toBe(false);
+      expect(events.some((event) => event.type === "session.error")).toBe(
+        false,
+      );
+      expect(events.some((event) => event.type === "message.delta")).toBe(
+        false,
+      );
       expect(killed).toEqual([]);
     },
   );
 });
 
 describe("claude subagents", () => {
+  const taskStarted = (taskId: string, options: Record<string, unknown> = {}) =>
+    emit({
+      type: "system",
+      subtype: "task_started",
+      task_id: taskId,
+      task_type: "local_agent",
+      description: "Inspect the app",
+      is_backgrounded: true,
+      ...options,
+    });
+  const taskFinished = (taskId: string) =>
+    emit({
+      type: "system",
+      subtype: "task_notification",
+      task_id: taskId,
+      status: "completed",
+      summary: "Inspection complete",
+    });
+  const backgroundTasks = (...ids: string[]) =>
+    emit({
+      type: "system",
+      subtype: "background_tasks_changed",
+      tasks: ids.map((id) => ({
+        task_id: id,
+        task_type: "local_agent",
+        description: "Inspect the app",
+      })),
+    });
+  const agentEvents = (events: HarnessEvent[]) =>
+    events.filter((event) => event.type === "agent.updated");
+
+  it("keeps identically named workers separate through renamed progress and completion", async () => {
+    const { events, turn } = await startTurn("s1");
+    taskStarted("one");
+    taskStarted("two");
+    emit({
+      type: "system",
+      subtype: "task_progress",
+      task_id: "one",
+      description: "Inspect the sidebar",
+    });
+    emit({ type: "result", subtype: "success" });
+    taskFinished("one");
+    expect(agentEvents(events).at(-1)).toMatchObject({
+      agentId: "one",
+      callId: "agent:one",
+      title: "Inspect the sidebar",
+      status: "completed",
+    });
+    expect(events.some((event) => event.type === "message.completed")).toBe(
+      false,
+    );
+    expect(
+      events
+        .filter((event) => event.type === "tool.started")
+        .map((event) => event.callId),
+    ).toEqual(["agent:one", "agent:two"]);
+    taskFinished("two");
+    await turn;
+    expect(agentEvents(events).at(-1)).toMatchObject({
+      agentId: "two",
+      status: "completed",
+    });
+  });
+
+  it("does not finish the lead in the middle of replacing background workers", async () => {
+    const { events, turn } = await startTurn("s1");
+    backgroundTasks("one");
+    emit({ type: "result", subtype: "success" });
+    backgroundTasks("two");
+    expect(events.some((event) => event.type === "message.completed")).toBe(
+      false,
+    );
+    expect(agentEvents(events).at(-1)).toMatchObject({
+      agentId: "one",
+      status: "unknown",
+    });
+    taskFinished("one");
+    expect(events.some((event) => event.type === "message.completed")).toBe(
+      false,
+    );
+    taskFinished("two");
+    await turn;
+  });
+
+  it("does not complete foreground workers when a background-only snapshot is empty", async () => {
+    const { events, turn } = await startTurn("s1");
+    taskStarted("foreground", { is_backgrounded: false });
+    backgroundTasks();
+    emit({ type: "result", subtype: "success" });
+    expect(events.some((event) => event.type === "message.completed")).toBe(
+      false,
+    );
+    expect(agentEvents(events).at(-1)).toMatchObject({
+      agentId: "foreground",
+      status: "running",
+    });
+    taskFinished("foreground");
+    await turn;
+  });
+
+  it("tracks a worker started without optional task_type and a progress-only worker", async () => {
+    const { events, turn } = await startTurn("s1");
+    taskStarted("one", { task_type: undefined, subagent_type: "Explore" });
+    taskStarted("two", { task_type: undefined });
+    emit({
+      type: "system",
+      subtype: "task_progress",
+      task_id: "two",
+      subagent_type: "Explore",
+      description: "Check tests",
+    });
+    emit({ type: "result", subtype: "success" });
+    taskFinished("one");
+    expect(events.some((event) => event.type === "message.completed")).toBe(
+      false,
+    );
+    expect(agentEvents(events)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ agentId: "one", status: "running" }),
+        expect.objectContaining({ agentId: "two", status: "running" }),
+      ]),
+    );
+    taskFinished("two");
+    await turn;
+  });
+
+  it("ignores ambient, non-agent and unclassified progress without reviving completed agents", async () => {
+    const { events, turn } = await startTurn("s1");
+    taskStarted("ambient", { ambient: true });
+    taskStarted("shell", { task_type: "local_bash" });
+    taskStarted("complete");
+    taskFinished("complete");
+    for (const id of ["ambient", "shell", "complete"]) {
+      emit({
+        type: "system",
+        subtype: "task_progress",
+        task_id: id,
+        subagent_type: "Explore",
+      });
+    }
+    emit({
+      type: "system",
+      subtype: "task_progress",
+      task_id: "mcp",
+      description: "Generating image",
+    });
+    emit({ type: "result", subtype: "success" });
+    await turn;
+    expect(
+      agentEvents(events).map((event) => [event.agentId, event.status]),
+    ).toEqual([
+      ["complete", "running"],
+      ["complete", "completed"],
+    ]);
+  });
+
+  it("reports late worker activity after the lead result and preserves it across the next turn", async () => {
+    const first = await startTurn("s1");
+    emit({ type: "result", subtype: "success" });
+    await first.turn;
+    taskStarted("late");
+    expect(agentEvents(first.events).at(-1)).toMatchObject({
+      agentId: "late",
+      status: "running",
+    });
+    const second: { events: HarnessEvent[]; turn: Promise<void> } = {
+      events: [],
+      turn: Promise.resolve(),
+    };
+    const userCount = parse().filter(
+      (message) => message.type === "user",
+    ).length;
+    second.turn = sendClaudeTurn({
+      sessionId: "s1",
+      cwd: "/repo",
+      model: "claude:claude-sonnet-5",
+      runtimeMode: "supervised",
+      text: "check another thing",
+      onEvent: (event) => second.events.push(event),
+    });
+    await waitFor(
+      () =>
+        parse().filter((message) => message.type === "user").length > userCount,
+      "second turn",
+    );
+    emit({ type: "result", subtype: "success" });
+    expect(
+      second.events.some((event) => event.type === "message.completed"),
+    ).toBe(false);
+    taskFinished("late");
+    await second.turn;
+    expect(agentEvents(second.events).at(-1)).toMatchObject({
+      agentId: "late",
+      status: "completed",
+    });
+  });
+
+  it("leaves final status unknown when a worker disappears without a completion message", async () => {
+    const { events, turn } = await startTurn("s1");
+    taskStarted("one");
+    emit({ type: "result", subtype: "success" });
+    backgroundTasks();
+    await turn;
+    expect(agentEvents(events).at(-1)).toMatchObject({
+      agentId: "one",
+      status: "unknown",
+    });
+    expect(
+      agentEvents(events).some((event) => event.status === "completed"),
+    ).toBe(false);
+    taskFinished("one");
+    expect(agentEvents(events).at(-1)).toMatchObject({
+      agentId: "one",
+      status: "completed",
+    });
+  });
+
+  it("reports waiting, stopped, and unexpected process loss without claiming success", async () => {
+    const { events, turn } = await startTurn("s1");
+    const turnFailure = expect(turn).rejects.toThrow("Claude Code exited");
+    taskStarted("one");
+    emit({
+      type: "system",
+      subtype: "task_updated",
+      task_id: "one",
+      patch: { status: "paused" },
+    });
+    expect(agentEvents(events).at(-1)).toMatchObject({
+      agentId: "one",
+      status: "waiting",
+    });
+    emit({
+      type: "system",
+      subtype: "task_notification",
+      task_id: "one",
+      status: "stopped",
+    });
+    expect(agentEvents(events).at(-1)).toMatchObject({
+      agentId: "one",
+      status: "stopped",
+    });
+    taskStarted("two");
+    onExit!(1);
+    await turnFailure;
+    expect(agentEvents(events).at(-1)).toMatchObject({
+      agentId: "two",
+      status: "unknown",
+    });
+    expect(events.filter((event) => event.type === "agents.cleared")).toHaveLength(1);
+  });
+
+  it("clears workers only after confirmed process shutdown", async () => {
+    const { events, turn } = await startTurn("s1");
+    emit({ type: "result", subtype: "success" });
+    await turn;
+    taskStarted("one");
+    let resolveStop!: () => void;
+    killWait = new Promise<void>((resolve) => {
+      resolveStop = resolve;
+    });
+    const stop = stopClaudeSession("s1");
+    expect(events.filter((event) => event.type === "agents.cleared")).toHaveLength(1);
+    resolveStop();
+    await stop;
+    expect(events.at(-1)).toEqual({ type: "agents.cleared" });
+    onExit!(0);
+    expect(events.at(-1)).toEqual({ type: "agents.cleared" });
+  });
+
+  it("keeps failed shutdown unknown and refuses to spawn over an unconfirmed child", async () => {
+    const { events, turn } = await startTurn("s1");
+    emit({ type: "result", subtype: "success" });
+    await turn;
+    taskStarted("one");
+    killError = new Error("Stop rejected");
+    await expect(stopClaudeSession("s1")).rejects.toThrow("Stop rejected");
+    expect(agentEvents(events).at(-1)).toMatchObject({
+      agentId: "one",
+      status: "unknown",
+    });
+    expect(events.filter((event) => event.type === "agents.cleared")).toHaveLength(1);
+    await expect(
+      sendClaudeTurn({
+        sessionId: "s1",
+        cwd: "/repo",
+        model: "claude:claude-sonnet-5",
+        runtimeMode: "supervised",
+        text: "try again",
+        onEvent: (event) => events.push(event),
+      }),
+    ).rejects.toThrow("Stop rejected");
+    expect(spawned).toHaveLength(1);
+    killError = undefined;
+    await stopClaudeSession("s1");
+    expect(events.at(-1)).toEqual({ type: "agents.cleared" });
+  });
+
+  it("keeps observing background worker completion after interrupting only the lead", async () => {
+    const { events, turn } = await startTurn("s1");
+    taskStarted("one");
+    await cancelClaudeTurn("s1");
+    await turn;
+    emit({ type: "assistant", message: { content: [{ type: "text", text: "Late prose" }] } });
+    taskFinished("one");
+    expect(agentEvents(events).at(-1)).toMatchObject({ agentId: "one", status: "completed" });
+    expect(events.some((event) => event.type === "message.delta" && event.text === "Late prose")).toBe(false);
+  });
+
+  it("ignores lifecycle and control requests from a retired process after replacement", async () => {
+    const first = await startTurn("s1");
+    emit({ type: "result", subtype: "success" });
+    await first.turn;
+    const oldLine = onLine!;
+    await stopClaudeSession("s1");
+    sent.length = 0;
+    const second = await startTurn("s1");
+    oldLine(JSON.stringify({ type: "system", subtype: "task_started", task_id: "stale", task_type: "local_agent" }));
+    oldLine(JSON.stringify({ type: "control_request", request_id: "stale-control", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "pwd" } } }));
+    expect([...first.events, ...second.events].some((event) => event.type === "agent.updated" && event.agentId === "stale")).toBe(false);
+    expect(parse().some((message) => (message.response as Record<string, unknown> | undefined)?.request_id === "stale-control")).toBe(false);
+    emit({ type: "result", subtype: "success" });
+    await second.turn;
+  });
+
   it("stays busy after a parent result while a background subagent is running", async () => {
     const { events, turn } = await startTurn("s1");
     let settled = false;

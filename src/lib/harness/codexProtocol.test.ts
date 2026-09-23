@@ -471,6 +471,10 @@ describe("mapCodexNotification", () => {
       status: "in_progress",
       title: "Explore Auth subagent",
     });
+    expect(started.events[1]).toEqual({
+      type: "agent.updated", agentId: "thr_child", title: "Explore Auth subagent",
+      status: "running", callId: "sa_1",
+    });
 
     const interrupted = mapCodexNotification("item/completed", {
       item: {
@@ -486,6 +490,47 @@ describe("mapCodexNotification", () => {
       kind: "agent",
       status: "failed",
     });
+  });
+
+  it("uses the child's stable identity when a later activity item reports completion", () => {
+    const mapped = mapCodexNotification("item/completed", {
+      item: { id: "sa_completed", type: "subAgentActivity", kind: "completed",
+        agentPath: "/root/asset-inventory", agentThreadId: "child" },
+    });
+    expect(mapped.events).toEqual([
+      { type: "tool.updated", callId: "sa_completed", title: "Asset Inventory subagent",
+        kind: "agent", status: "completed" },
+      { type: "agent.updated", agentId: "child", title: "Asset Inventory subagent",
+        callId: "sa_completed", status: "completed" },
+    ]);
+    expect(mapped.turnCompleted).toBeUndefined();
+  });
+
+  it("does not claim an interaction or an unknown activity kind started another child turn", () => {
+    for (const kind of ["interacted", "new-unknown-kind"]) {
+      const mapped = mapCodexNotification("item/completed", {
+        item: { id: "interaction", type: "subAgentActivity", kind,
+          agentPath: "/root/child", agentThreadId: "child" },
+      });
+      expect(mapped.events.some((event) => event.type === "agent.updated")).toBe(false);
+    }
+  });
+
+  it("tracks explicit collab child states without inferring activity from message delivery", () => {
+    const mapped = mapCodexNotification("item/completed", {
+      item: { id: "wait-call", type: "collabAgentToolCall", tool: "wait",
+        agentsStates: {
+          one: { status: "running" }, two: { status: "completed" },
+          three: { status: "errored" }, four: { status: "notFound" },
+          five: { status: "shutdown" }, future: { status: "future" },
+        } },
+    });
+    expect(mapped.events.map((event) => event.type === "agent.updated" && [event.agentId, event.status]))
+      .toEqual([["one", "running"], ["two", "completed"], ["three", "failed"], ["four", "unknown"], ["five", "stopped"]]);
+    expect(mapCodexNotification("item/completed", {
+      item: { id: "message", type: "collabAgentToolCall", tool: "sendMessage",
+        receiverThreadIds: ["idle-child"] },
+    }).events).toEqual([]);
   });
 
   it("does not treat a completed agent message as the end of the turn", () => {

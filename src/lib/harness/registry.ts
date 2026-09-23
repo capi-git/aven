@@ -8,6 +8,7 @@ import type { NativeCommandProvider } from "./nativeCommands";
 import type {
   ApprovalDecision,
   CompactContextInput,
+  HarnessEvent,
   SendTurnInput,
   SteerTurnInput,
 } from "./types";
@@ -83,6 +84,50 @@ const catalogRefreshes = new Map<HarnessId, CatalogRefresh>();
  */
 export const HARNESS_IDLE_PARK_MS = 5 * 60_000;
 const idleParkTimers = new Map<string, ReturnType<typeof setTimeout>>();
+type RuntimeActivity = {
+  harness: HarnessId;
+  turns: number;
+  stopping: boolean;
+  agents: Map<string, Extract<HarnessEvent, { type: "agent.updated" }>["status"]>;
+};
+const runtimeActivity = new Map<string, RuntimeActivity>();
+
+function beginRuntimeActivity<T extends CompactContextInput>(
+  input: T & { harness: HarnessId },
+): { input: T & { harness: HarnessId }; activity: RuntimeActivity } {
+  let activity = runtimeActivity.get(input.sessionId);
+  if (!activity || activity.harness !== input.harness || activity.stopping) {
+    activity = { harness: input.harness, turns: 0, stopping: false, agents: new Map() };
+    runtimeActivity.set(input.sessionId, activity);
+  }
+  activity.turns += 1;
+  const current = activity;
+  return {
+    activity,
+    input: {
+      ...input,
+      onEvent: (event) => {
+        if (runtimeActivity.get(input.sessionId) !== current) return;
+        if (event.type === "agent.updated") current.agents.set(event.agentId, event.status);
+        if (event.type === "agents.cleared") current.agents.clear();
+        if (event.type === "session.ended") {
+          for (const [id, status] of current.agents) {
+            if (status === "running" || status === "waiting") current.agents.set(id, "unknown");
+          }
+        }
+        if (event.type === "agent.updated" || event.type === "agents.cleared" || event.type === "session.ended") {
+          scheduleIdlePark(input.harness, input.sessionId);
+        }
+        input.onEvent(event);
+      },
+    },
+  };
+}
+
+function endRuntimeActivity(harness: HarnessId, sessionId: string, activity: RuntimeActivity): void {
+  activity.turns = Math.max(0, activity.turns - 1);
+  if (runtimeActivity.get(sessionId) === activity) scheduleIdlePark(harness, sessionId);
+}
 
 function cancelIdlePark(sessionId: string): void {
   const timer = idleParkTimers.get(sessionId);
@@ -91,12 +136,16 @@ function cancelIdlePark(sessionId: string): void {
 }
 
 function scheduleIdlePark(harness: HarnessId, sessionId: string): void {
+  const activity = runtimeActivity.get(sessionId);
+  if (activity && activity.harness !== harness) return;
   cancelIdlePark(sessionId);
+  if (activity && (activity.turns > 0 || activity.stopping ||
+    [...activity.agents.values()].some((status) => status === "running" || status === "waiting" || status === "unknown"))) return;
   idleParkTimers.set(
     sessionId,
     setTimeout(() => {
       idleParkTimers.delete(sessionId);
-      void stopHarnessSession(harness, sessionId);
+      void stopHarnessSession(harness, sessionId).catch(() => undefined);
     }, HARNESS_IDLE_PARK_MS),
   );
 }
@@ -105,6 +154,7 @@ function scheduleIdlePark(harness: HarnessId, sessionId: string): void {
 export function resetHarnessIdlePark(): void {
   for (const timer of idleParkTimers.values()) clearTimeout(timer);
   idleParkTimers.clear();
+  runtimeActivity.clear();
 }
 
 export function registerHarness(adapter: HarnessAdapter): void {
@@ -146,14 +196,15 @@ export async function sendHarnessTurn(
       sessionId: input.sessionId,
       cwd: input.cwd,
     });
+  const tracked = beginRuntimeActivity(input);
   try {
-    await adapter.sendTurn(input);
+    await adapter.sendTurn(tracked.input);
   } finally {
     try {
       if (controlled)
         await invoke("control_turn_finished", { sessionId: input.sessionId });
     } finally {
-      scheduleIdlePark(input.harness, input.sessionId);
+      endRuntimeActivity(input.harness, input.sessionId, tracked.activity);
     }
   }
 }
@@ -174,10 +225,11 @@ export async function compactHarnessContext(
     throw new Error(`${input.harness} does not support manual compaction`);
   }
   cancelIdlePark(input.sessionId);
+  const tracked = beginRuntimeActivity(input);
   try {
-    await adapter.compactContext(input);
+    await adapter.compactContext(tracked.input);
   } finally {
-    scheduleIdlePark(input.harness, input.sessionId);
+    endRuntimeActivity(input.harness, input.sessionId, tracked.activity);
   }
 }
 
@@ -231,27 +283,45 @@ export async function stopHarnessSession(
   harness: HarnessId,
   sessionId: string,
 ): Promise<void> {
-  cancelIdlePark(sessionId);
+  const currentActivity = runtimeActivity.get(sessionId);
+  const activity = currentActivity?.harness === harness ? currentActivity : undefined;
+  if (!currentActivity || activity) cancelIdlePark(sessionId);
   const adapter = getHarness(harness);
   if (!adapter?.live) return;
-  await Promise.all([
-    forgetAgentBrowser(sessionId).catch(() => {}),
-    adapter.stopSession(sessionId),
-  ]);
+  if (activity) activity.stopping = true;
+  try {
+    await Promise.all([
+      forgetAgentBrowser(sessionId).catch(() => {}),
+      adapter.stopSession(sessionId),
+    ]);
+    if (activity && runtimeActivity.get(sessionId) === activity) runtimeActivity.delete(sessionId);
+  } catch (error) {
+    if (activity) activity.stopping = false;
+    throw error;
+  }
 }
 
 export async function forgetHarnessSession(
   harness: HarnessId,
   sessionId: string,
 ): Promise<void> {
-  cancelIdlePark(sessionId);
+  const currentActivity = runtimeActivity.get(sessionId);
+  const activity = currentActivity?.harness === harness ? currentActivity : undefined;
+  if (!currentActivity || activity) cancelIdlePark(sessionId);
   const adapter = getHarness(harness);
   if (!adapter) return;
+  if (activity) activity.stopping = true;
   // Revoke before awaiting the old child; a replacement turn queues its bind after it.
-  await Promise.all([
-    forgetAgentBrowser(sessionId).catch(() => {}),
-    adapter.forgetSession(sessionId),
-  ]);
+  try {
+    await Promise.all([
+      forgetAgentBrowser(sessionId).catch(() => {}),
+      adapter.forgetSession(sessionId),
+    ]);
+    if (activity && runtimeActivity.get(sessionId) === activity) runtimeActivity.delete(sessionId);
+  } catch (error) {
+    if (activity) activity.stopping = false;
+    throw error;
+  }
 }
 
 export function bindHarnessSession(

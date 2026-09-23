@@ -592,6 +592,7 @@ export function isAgentTaskType(taskType: string | undefined): boolean {
 export type ClaudeAgentTaskStarted = {
   taskId: string;
   toolUseId?: string;
+  subagentType?: string;
   description: string;
   taskType: string;
   backgrounded: boolean;
@@ -612,17 +613,18 @@ export function parseTaskStarted(
   return {
     taskId,
     toolUseId: stringField(rec, "tool_use_id"),
+    subagentType: stringField(rec, "subagent_type"),
     description: stringField(rec, "description") ?? "Subagent",
     taskType: stringField(rec, "task_type") ?? "",
     backgrounded: rec.is_backgrounded === true,
-    ambient: rec.ambient === true,
+    ambient: rec.ambient === true || rec.skip_transcript === true,
   };
 }
 
 export type ClaudeAgentTaskProgress = {
   taskId: string;
   toolUseId?: string;
-  description: string;
+  description?: string;
   subagentType?: string;
   lastToolName?: string;
   summary?: string;
@@ -642,7 +644,7 @@ export function parseTaskProgress(
   return {
     taskId,
     toolUseId: stringField(rec, "tool_use_id"),
-    description: stringField(rec, "description") ?? "Subagent",
+    description: stringField(rec, "description"),
     subagentType: stringField(rec, "subagent_type"),
     lastToolName: stringField(rec, "last_tool_name"),
     summary: stringField(rec, "summary"),
@@ -703,12 +705,15 @@ export function parseTaskNotification(
   }
   const taskId = stringField(rec, "task_id");
   if (!taskId) return null;
+  const status = stringField(rec, "status");
+  if (status !== "completed" && status !== "failed" && status !== "stopped")
+    return null;
   return {
     taskId,
     toolUseId: stringField(rec, "tool_use_id"),
-    status: stringField(rec, "status") ?? "completed",
+    status,
     summary: stringField(rec, "summary") ?? "",
-    ambient: rec.ambient === true,
+    ambient: rec.ambient === true || rec.skip_transcript === true,
   };
 }
 
@@ -727,7 +732,9 @@ export function parseBackgroundAgentTasks(
   ) {
     return null;
   }
-  const tasks = Array.isArray(rec.tasks) ? rec.tasks : [];
+  // A missing/malformed payload is not an authoritative empty task list.
+  if (!Array.isArray(rec.tasks)) return null;
+  const tasks = rec.tasks;
   return tasks.flatMap((item) => {
     const row = asRecord(item);
     if (!row || row.ambient === true) return [];

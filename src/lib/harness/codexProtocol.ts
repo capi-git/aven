@@ -631,6 +631,14 @@ function mapItemLifecycle(
     return { events: [] };
   }
 
+  if (itemType === "subAgentActivity") {
+    return { events: mapSubAgentActivity(item, callId, completed) };
+  }
+
+  if (itemType === "collabAgentToolCall") {
+    return { events: mapCollabAgentStates(item, callId) };
+  }
+
   const mapped = mapToolItem(item, itemType, completed);
   return mapped ? { events: [mapped] } : { events: [] };
 }
@@ -739,10 +747,6 @@ function mapToolItem(
     };
   }
 
-  if (itemType === "subAgentActivity") {
-    return mapSubAgentActivity(item, callId, completed);
-  }
-
   // Unknown item types are ignored; Codex may add new internal kinds over time.
   void item;
   void completed;
@@ -753,39 +757,69 @@ function mapSubAgentActivity(
   item: Record<string, unknown>,
   callId: string,
   completed: boolean,
-): HarnessEvent {
+): HarnessEvent[] {
   const kind = (stringField(item, "kind") ?? "").toLowerCase();
   const path =
     stringField(item, "agentPath") ?? stringField(item, "agent_path");
   const leaf = path?.split(/[/\\]/).filter(Boolean).pop();
   const title = leaf ? `${formatAgentType(leaf)} subagent` : "Subagent";
-  if (kind === "interrupted") {
-    return {
-      type: "tool.updated",
-      callId,
-      title,
-      kind: "agent",
-      status: "failed",
-    };
+  const agentId = stringField(item, "agentThreadId") ?? path;
+  // The activity item itself can be complete while the child continues. Only
+  // the explicit child lifecycle kind tells us whether its work is finished.
+  if (!["started", "interacted", "interrupted", "completed"].includes(kind)) {
+    return [];
   }
-  if (kind === "interacted") {
-    return {
-      type: completed ? "tool.updated" : "tool.started",
-      callId,
-      title,
-      kind: "agent",
-      status: "in_progress",
-    };
-  }
-  // `started` items are completion-only in app-server v2: the spawn finished,
-  // but the child agent is still running.
-  return {
-    type: "tool.started",
+  const terminal = kind === "completed" || kind === "interrupted";
+  const events: HarnessEvent[] = [{
+    type: terminal || (kind === "interacted" && completed)
+      ? "tool.updated" : "tool.started",
     callId,
     title,
     kind: "agent",
-    status: "in_progress",
+    status: kind === "completed" ? "completed"
+      : kind === "interrupted" ? "failed" : "in_progress",
+  }];
+  // Interacting with an idle child (for example, sending a message) does not
+  // prove that it started another turn. Wait for an explicit running status.
+  if (agentId && kind !== "interacted") events.push({
+    type: "agent.updated",
+    agentId,
+    title,
+    status: kind === "completed" ? "completed"
+      : kind === "interrupted" ? "stopped" : "running",
+    callId,
+  });
+  return events;
+}
+
+function mapCollabAgentStates(
+  item: Record<string, unknown>,
+  callId: string,
+): HarnessEvent[] {
+  const states = asRecord(item.agentsStates);
+  if (!states) return [];
+  const statuses: Record<string, Extract<HarnessEvent, { type: "agent.updated" }>["status"]> = {
+    pendingInit: "running",
+    running: "running",
+    interrupted: "stopped",
+    completed: "completed",
+    errored: "failed",
+    shutdown: "stopped",
+    notFound: "unknown",
   };
+  return Object.entries(states).flatMap(([agentId, value]) => {
+    const state = asRecord(value);
+    const status = statuses[stringField(state, "status") ?? ""];
+    if (!agentId || !status) return [];
+    return [{
+      type: "agent.updated" as const,
+      agentId,
+      title: "Subagent",
+      status,
+      callId,
+      ...(status === "unknown" ? { detail: "Agent status is unavailable." } : {}),
+    }];
+  });
 }
 
 function mapFileChangeItem(

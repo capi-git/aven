@@ -1,8 +1,9 @@
 import { memo, useEffect, useState } from "react";
 import { AlertCircle, Check, LoaderCircle, Pause, Square } from "../chrome/icons";
 import { useActivity } from "../lib/activity";
-import type { Session } from "../lib/session";
+import type { Session, SessionAgent } from "../lib/session";
 import { sessionRunStatus } from "../lib/sessionRunStatus";
+import { sessionAgentSummary } from "../lib/sessionAgents";
 import "./SessionRunStatus.css";
 
 type Props = {
@@ -71,7 +72,38 @@ function VisibleRunStatus({ session, onStop, onOpenTerminal }: Props) {
           ) : null}
         </div>
       ) : null}
+      {session.liveAgents?.length ? <AgentDetails key={session.id} agents={session.liveAgents} /> : null}
     </div>
+  );
+}
+
+const agentStatusLabels: Record<SessionAgent["status"], string> = {
+  running: "Working", waiting: "Waiting", completed: "Done", failed: "Failed", stopped: "Stopped", unknown: "Status unknown",
+};
+
+function AgentDetails({ agents }: { agents: SessionAgent[] }) {
+  return (
+    <details className="session-run-agents">
+      <summary>Agents <span>{sessionAgentSummary(agents)}</span></summary>
+      <ul aria-label="Agent status" className="session-run-agent-list">
+        {agents.map(agent => {
+          const Icon = agent.status === "running" ? LoaderCircle
+            : agent.status === "completed" ? Check
+            : agent.status === "waiting" ? Pause
+            : agent.status === "stopped" ? Square : AlertCircle;
+          return (
+            <li key={agent.id} data-agent-state={agent.status}>
+              <span aria-hidden="true" className={agent.status === "running" ? "session-run-spinner" : undefined}><Icon className="size-3.5" /></span>
+              <div className="session-run-agent-copy">
+                <strong>{agent.title}</strong>
+                {agent.detail ? <span>{agent.detail}</span> : null}
+              </div>
+              <span className="session-run-agent-label">{agentStatusLabels[agent.status]}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </details>
   );
 }
 

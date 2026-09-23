@@ -2,6 +2,7 @@ import { ChevronDown, GripVertical, X } from "../chrome/icons";
 import {
   memo,
   useCallback,
+  useContext,
   useEffect,
   useRef,
   useState,
@@ -11,6 +12,8 @@ import {
 } from "react";
 import { Composer } from "../chrome/Composer";
 import { orchestrator, sameCheckout } from "../lib/orchestration";
+import { sessionWithManagedAgents } from "../lib/sessionAgents";
+import { OrchestrationWorkers } from "../chrome/OrchestrationActions";
 import { DiscussionEmpty } from "../chrome/DiscussionEmpty";
 import { SessionReview } from "../chrome/SessionReview";
 import { PromptOutline } from "../chrome/PromptOutline";
@@ -177,6 +180,7 @@ export const SessionPane = memo(function SessionPane({
   onNewTerminal,
   onPaneDragStart,
 }: Props) {
+  const workerAgents = useContext(OrchestrationWorkers).agentsByLead?.get(session.id);
   const orchestrationRuns = useSyncExternalStore(
     orchestrator.subscribe,
     orchestrator.snapshot,
@@ -587,7 +591,7 @@ export const SessionPane = memo(function SessionPane({
       </div>
       {dockComposer ? (
         <div className="personal-session-composer-dock mx-auto w-full max-w-4xl shrink-0">
-          <SessionRunStatus session={session} visible={visible} onStop={onStop} onOpenTerminal={onNewTerminal} />
+          <SessionRunStatus session={sessionWithManagedAgents(session, orchestrationRuns, workerAgents)} visible={visible} onStop={onStop} onOpenTerminal={onNewTerminal} />
           {composer}
         </div>
       ) : null}

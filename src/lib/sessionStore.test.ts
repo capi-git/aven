@@ -20,6 +20,10 @@ describe("isPersistableId", () => {
 });
 
 describe("sanitizeSessionForPersist", () => {
+  it("does not persist live agent observations as running work after a restart", () => {
+    const session: Session = { ...newSession("codex", "/repo"), liveAgents: [{ id: "one", title: "Review", status: "running" }] };
+    expect(sanitizeSessionForPersist(session)).not.toHaveProperty("liveAgents");
+  });
   it("preserves an internal worker's lead and hidden turns without mutating the runtime blocks", () => {
     const session = {
       ...newSession("claude", "/repo"),

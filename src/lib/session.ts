@@ -196,7 +196,17 @@ export type Block = {
   noteCard?: NoteCardMeta;
 };
 
+/** Provider-reported child activity for this live connection; never restored from history. */
+export type SessionAgent = {
+  id: string;
+  title: string;
+  status: "running" | "waiting" | "completed" | "failed" | "stopped" | "unknown";
+  callId?: string;
+  detail?: string;
+};
+
 export type Session = {
+  liveAgents?: SessionAgent[];
   /** Internal worker displayed with its lead, rather than as an independent session. */
   orchestrationLeadId?: string;
   /** Temporary Inbox conversation: shares the runtime, never saved as a session. */

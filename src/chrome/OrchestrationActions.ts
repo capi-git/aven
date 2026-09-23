@@ -1,6 +1,6 @@
 import { createContext } from "react";
 import type { OrchestrationProposal } from "../lib/orchestrationPlan";
-import type { HarnessId } from "../lib/session";
+import type { HarnessId, SessionAgent } from "../lib/session";
 
 export type OrchestrationWorkerDetail = {
   sessionId: string;
@@ -14,6 +14,7 @@ export type OrchestrationWorkerDetail = {
  * to the user; `openDetails` is the one way to watch a worker's transcript.
  */
 export const OrchestrationWorkers = createContext<{
+  agentsByLead?: ReadonlyMap<string, readonly SessionAgent[]>;
   selectedId: string | null;
   inspect(sessionId: string | null): void;
   /**

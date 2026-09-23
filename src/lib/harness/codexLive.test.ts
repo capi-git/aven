@@ -3,16 +3,21 @@ import { AVEN_BROWSER_HOST_POLICY } from "./browserHostPolicy";
 
 const sent: string[] = [];
 let onLine: ((line: string) => void) | undefined;
+let onExit: ((code: number) => void) | undefined;
+let killError: Error | undefined;
+let killPending: Promise<void> | undefined;
+let spawnCount = 0;
 let configReadResponse: unknown = { config: {} };
 let configReadError = false;
 
 vi.mock("./child", () => ({
   resolveCodexBinary: async () => ({ path: "/fake/codex" }),
-  spawnChild: async () => undefined,
-  killChild: async () => undefined,
+  spawnChild: async () => { spawnCount += 1; },
+  killChild: async () => { if (killError) throw killError; await killPending; },
   unwatchChild: () => undefined,
-  watchChild: (_id: string, line: (l: string) => void) => {
+  watchChild: (_id: string, line: (l: string) => void, exit: (code: number) => void) => {
     onLine = line;
+    onExit = exit;
   },
   writeChild: async (_id: string, line: string) => {
     sent.push(line);
@@ -119,14 +124,167 @@ describe("codex live turn sequence", () => {
   beforeEach(() => {
     sent.length = 0;
     onLine = undefined;
+    onExit = undefined;
+    killError = undefined;
+    killPending = undefined;
+    spawnCount = 0;
     configReadResponse = { config: {} };
     configReadError = false;
   });
 
   afterEach(async () => {
     vi.useRealTimers();
+    killError = undefined;
+    killPending = undefined;
     await stopCodexSession("codex-live");
     __codexTestReset();
+  });
+
+  it("keeps reporting stable child lifecycle after the lead has completed", async () => {
+    const { events, turn } = await startTurn("codex-live");
+    notify("item/completed", { threadId: "thr_1", item: {
+      id: "spawn", type: "subAgentActivity", kind: "started",
+      agentThreadId: "child", agentPath: "/root/asset-inventory",
+    } });
+    notify("turn/completed", { threadId: "thr_1", turn: { id: "turn_1", status: "completed" } });
+    await turn;
+    // Starting a fresh process clears stale observations once; ending its
+    // lead turn must not clear the child that subsequently started.
+    expect(events.filter((event) => event.type === "agents.cleared")).toHaveLength(1);
+    notify("item/completed", { threadId: "thr_1", item: {
+      id: "child-done", type: "subAgentActivity", kind: "completed",
+      agentThreadId: "child", agentPath: "/root/asset-inventory",
+    } });
+    expect(events.filter((event) => event.type === "agent.updated")).toEqual([
+      { type: "agent.updated", agentId: "child", title: "Asset Inventory subagent", status: "running", callId: "spawn" },
+      { type: "agent.updated", agentId: "child", title: "Asset Inventory subagent", status: "completed", callId: "child-done" },
+    ]);
+  });
+
+  it("does not let a child's terminal notification finish the lead or copy its transcript", async () => {
+    const { events, turn } = await startTurn("codex-live");
+    let finished = false;
+    void turn.then(() => { finished = true; });
+    notify("item/completed", { threadId: "thr_1", item: {
+      id: "spawn", type: "subAgentActivity", kind: "started",
+      agentThreadId: "child", agentPath: "/root/child",
+    } });
+    notify("thread/status/changed", { threadId: "child", status: { type: "active", activeFlags: ["waitingOnApproval"] } });
+    expect(events.at(-1)).toMatchObject({ type: "agent.updated", status: "waiting" });
+    notify("item/agentMessage/delta", { threadId: "child", delta: "child-only-output" });
+    notify("turn/completed", { threadId: "child", turn: { id: "child-turn", status: "completed" } });
+    await Promise.resolve();
+    expect(finished).toBe(false);
+    expect(events.at(-1)).toMatchObject({ type: "agent.updated", agentId: "child", status: "completed" });
+    expect(events.some((event) => event.type === "message.delta" && event.text.includes("child-only-output"))).toBe(false);
+    notify("turn/completed", { threadId: "unrelated", turn: { id: "other", status: "completed" } });
+    expect(finished).toBe(false);
+    notify("turn/completed", { threadId: "thr_1", turn: { id: "turn_1", status: "completed" } });
+    await turn;
+  });
+
+  it("marks unfinished children unknown on disconnect and clears only after a confirmed stop", async () => {
+    const { events, turn } = await startTurn("codex-live");
+    notify("item/completed", { item: {
+      id: "spawn", type: "subAgentActivity", kind: "started",
+      agentThreadId: "child", agentPath: "/root/child",
+    } });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+    killError = new Error("Could not stop provider");
+    await expect(stopCodexSession("codex-live")).rejects.toThrow("Could not stop provider");
+    expect(events.at(-1)).toMatchObject({ type: "agent.updated", status: "unknown" });
+    expect(events.filter((event) => event.type === "agents.cleared")).toHaveLength(1);
+    await expect(sendCodexTurn({ sessionId: "codex-live", cwd: "/repo",
+      model: "codex:gpt-5.4", runtimeMode: "supervised", text: "Try again",
+      onEvent: (event) => events.push(event) })).rejects.toThrow("Could not stop provider");
+    expect(spawnCount).toBe(1);
+  });
+
+  it("reports unknown live children when the app-server exits unexpectedly", async () => {
+    const { events, turn } = await startTurn("codex-live");
+    notify("item/completed", { item: {
+      id: "spawn", type: "subAgentActivity", kind: "started",
+      agentThreadId: "child", agentPath: "/root/child",
+    } });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+    onExit!(1);
+    expect(events.at(-2)).toMatchObject({ type: "agent.updated", agentId: "child", status: "unknown" });
+    expect(events.at(-1)).toEqual({ type: "session.ended", code: 1 });
+  });
+
+  it("preserves the child's failure when its thread later becomes idle or unloads", async () => {
+    const { events, turn } = await startTurn("codex-live");
+    notify("item/completed", { item: {
+      id: "spawn", type: "subAgentActivity", kind: "started",
+      agentThreadId: "child", agentPath: "/root/child",
+    } });
+    notify("turn/completed", { threadId: "child", turn: { id: "child-turn", status: "failed" } });
+    notify("thread/status/changed", { threadId: "child", status: { type: "idle" } });
+    notify("thread/status/changed", { threadId: "child", status: { type: "notLoaded" } });
+    expect(events.filter((event) => event.type === "agent.updated").at(-1))
+      .toMatchObject({ status: "failed" });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+  });
+
+  it("keeps child lifecycle updates after cancelling the lead turn", async () => {
+    const { events, turn } = await startTurn("codex-live");
+    notify("item/completed", { item: {
+      id: "spawn", type: "subAgentActivity", kind: "started",
+      agentThreadId: "child", agentPath: "/root/child",
+    } });
+    const cancel = cancelCodexTurn("codex-live");
+    await waitFor(() => parse().some((m) => m.method === "turn/interrupt"), "turn/interrupt");
+    reply(parse().find((m) => m.method === "turn/interrupt")!.id as number, {});
+    await cancel;
+    await turn;
+    notify("item/completed", { item: {
+      id: "done", type: "subAgentActivity", kind: "completed",
+      agentThreadId: "child", agentPath: "/root/child",
+    } });
+    expect(events.at(-1)).toMatchObject({ type: "agent.updated", agentId: "child", status: "completed" });
+    const count = events.length;
+    notify("item/agentMessage/delta", { delta: "late cancelled lead output" });
+    expect(events).toHaveLength(count);
+  });
+
+  it("clears children after a confirmed stop and ignores callbacks from the retired runtime", async () => {
+    const { events, turn } = await startTurn("codex-live");
+    notify("item/completed", { item: {
+      id: "spawn", type: "subAgentActivity", kind: "started",
+      agentThreadId: "child", agentPath: "/root/child",
+    } });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+    await stopCodexSession("codex-live");
+    expect(events.at(-1)).toEqual({ type: "agents.cleared" });
+    const count = events.length;
+    onExit!(1);
+    expect(events).toHaveLength(count);
+  });
+
+  it("waits for native shutdown before spawning the next process under the same session ID", async () => {
+    const { turn } = await startTurn("codex-live");
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+    let finishKill!: () => void;
+    killPending = new Promise<void>((resolve) => { finishKill = resolve; });
+    const stopping = stopCodexSession("codex-live");
+    sent.length = 0;
+    const restarting = startTurn("codex-live", { resume: true });
+    await Promise.resolve();
+    expect(spawnCount).toBe(1);
+    expect(parse()).toEqual([]);
+    finishKill();
+    await stopping;
+    const { events, turn: nextTurn } = await restarting;
+    expect(spawnCount).toBe(2);
+    expect(events.findIndex((event) => event.type === "agents.cleared"))
+      .toBeLessThan(events.findIndex((event) => event.type === "session.started"));
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await nextTurn;
   });
 
   it.each([false, true])("preserves configured developer instructions when opening the interactive thread (resume=%s)", async (resume) => {
