@@ -65,6 +65,12 @@ export function useUsagePanelTheme(open: boolean): UsagePanelSnapshot["theme"] {
   return theme;
 }
 
+export type UsagePanelState = {
+  snapshot: UsagePanelSnapshot;
+  openId: string;
+  revision: number;
+};
+
 /** Owned utility window; never mounts an occluding HTML element over Chromium. */
 export const nativeUsagePanel = {
   open: (anchor: HTMLElement, snapshot: UsagePanelSnapshot) => {
@@ -74,13 +80,14 @@ export const nativeUsagePanel = {
       snapshot,
     });
   },
-  update: (snapshot: UsagePanelSnapshot) =>
-    invoke<void>("usage_panel_update", { snapshot }),
-  close: () => invoke<void>("usage_panel_close"),
-  getState: () => invoke<UsagePanelSnapshot>("usage_panel_get_state"),
-  ready: () => invoke<void>("usage_panel_ready"),
-  action: (action: "refresh" | "close") =>
-    invoke<void>("usage_panel_action", { action }),
+  update: (snapshot: UsagePanelSnapshot, openId: string) =>
+    invoke<void>("usage_panel_update", { snapshot, openId }),
+  close: (openId: string) => invoke<void>("usage_panel_close", { openId }),
+  getState: () => invoke<UsagePanelState>("usage_panel_get_state"),
+  ready: (openId: string, revision: number) =>
+    invoke<void>("usage_panel_ready", { openId, revision }),
+  action: (action: "refresh" | "close", openId: string) =>
+    invoke<void>("usage_panel_action", { action, openId }),
   listen: <T>(event: string, callback: (payload: T) => void) =>
     getCurrentWebview().listen<T>(event, ({ payload }) => callback(payload)),
 };

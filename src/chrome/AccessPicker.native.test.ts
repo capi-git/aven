@@ -125,6 +125,7 @@ describe("app-rendered access popup", () => {
     expect(mocks.open).toHaveBeenCalledOnce();
     expect(mocks.update).toHaveBeenLastCalledWith(
       expect.objectContaining({ value: "auto", busy: true }),
+      "access-panel-1",
     );
   });
   it("reports an opening error and can retry without an occluding fallback", async () => {
@@ -154,7 +155,7 @@ describe("app-rendered access popup", () => {
     await click();
     expect(mocks.open).toHaveBeenCalledOnce();
     await act(async () => resolve("access-panel-1"));
-    expect(mocks.close).toHaveBeenCalledOnce();
+    expect(mocks.close).toHaveBeenCalledExactlyOnceWith("access-panel-1");
     expect(mocks.open).toHaveBeenCalledTimes(2);
     expect(mocks.close.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.open.mock.invocationCallOrder[1],
@@ -202,7 +203,9 @@ describe("app-rendered access popup", () => {
     await act(async () => root.render(null));
     await act(async () => resolve(lateStop));
     expect(lateStop).toHaveBeenCalledOnce();
-    expect(mocks.listen).toHaveBeenCalledOnce();
+    expect(mocks.listen).toHaveBeenCalledTimes(2);
+    expect(stops.every((stop) => stop.mock.calls.length === 1)).toBe(true);
+    expect(mocks.close).not.toHaveBeenCalled();
     expect(mocks.open).not.toHaveBeenCalled();
   });
   it("ignores events and closes an opening popup after unmount", async () => {
@@ -223,7 +226,7 @@ describe("app-rendered access popup", () => {
     });
     expect(onChange).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
-    expect(mocks.close).toHaveBeenCalledOnce();
+    expect(mocks.close).toHaveBeenCalledExactlyOnceWith("access-panel-1");
   });
   it.each([false, true])(
     "uses matching in-page options without a native host (opt-in %s)",

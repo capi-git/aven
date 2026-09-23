@@ -21,7 +21,7 @@ import {
   openComputerUseSettings,
   type AgentToolStatus,
 } from "../lib/agentTools";
-import { SettingsGroup } from "./SettingsControls";
+import { Select, SettingsGroup } from "./SettingsControls";
 import "./SkillsSettings.css";
 
 type InspectableSkill = FileSkill | BuiltinSkill;
@@ -598,16 +598,17 @@ function NewSkill({
         </label>
         <label>
           Location
-          <select
+          <Select
+            label="Skill location"
             value={scope}
-            onChange={(event) =>
-              setScope(event.target.value as "project" | "user")
-            }
+            onChange={(next) => setScope(next as "project" | "user")}
             disabled={busy}
-          >
-            {project ? <option value="project">This project</option> : null}
-            <option value="user">Personal · all projects</option>
-          </select>
+            fullWidth
+            options={[
+              ...(project ? [{ value: "project", label: "This project" }] : []),
+              { value: "user", label: "Personal · all projects" },
+            ]}
+          />
         </label>
         {error ? (
           <p className="skills-error" role="alert">

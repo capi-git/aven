@@ -327,9 +327,6 @@ function BrowserPaneSession({
   );
   const [nativeMenus, setNativeMenus] = useState(false);
   const [nativeDropIndicator, setNativeDropIndicator] = useState(false);
-  const [nativeToolsOpen, setNativeToolsOpen] = useState(false);
-  const nativeToolsRequest = useRef(0);
-  const nativeToolsPending = useRef(false);
   const [snapshot, setSnapshot] = useState<BrowserSnapshot | null>(null);
   const [readyId, setReadyId] = useState<string | null>(null);
   const [pendingToolbar, setPendingToolbar] = useState<{
@@ -605,15 +602,7 @@ function BrowserPaneSession({
   const presentation = useRef({ visible, error, floating });
   presentation.current = { visible, error, floating };
   useEffect(() => {
-    return () => {
-      ++nativeToolsRequest.current;
-      nativeToolsPending.current = false;
-    };
-  }, []);
-  useEffect(() => {
-    ++nativeToolsRequest.current;
-    nativeToolsPending.current = false;
-    setNativeToolsOpen(false);
+    setToolsMenu(null);
   }, [readyId, visible, floating]);
   const requestedPictureInPicture = useRef(0);
   const scheduleLayout = useRef<() => void>(() => {});
@@ -720,7 +709,6 @@ function BrowserPaneSession({
         setSnapshot(null);
         setNativeMenus(false);
         setNativeDropIndicator(false);
-        setNativeToolsOpen(false);
         setToolsMenu(null);
         setFindOpen(false);
         setDownloadsOpen(false);
@@ -728,8 +716,6 @@ function BrowserPaneSession({
         editingActive.current = false;
         setHistory({ back: false, forward: false });
         setLoadProgress(null);
-        nativeToolsPending.current = false;
-        nativeToolsRequest.current++;
         setFloating(false);
         if (nativeFloating) callbacks.current.onPictureInPictureChange?.(false);
         setError(
@@ -1584,7 +1570,14 @@ function BrowserPaneSession({
       .catch((reason) => setNotice(errorMessage(reason)));
   };
   const pickToolAction = (choice: string) => {
+    if (!presentation.current.visible) return;
     setToolsMenu(null);
+    if (
+      choice === "zoom-in" ||
+      choice === "zoom-out" ||
+      choice === "zoom-reset"
+    )
+      action(choice);
     if (choice === "chat") addToChat();
     if (choice === "external") openExternal();
     if (choice === "pip") changeFloating(!floating);
@@ -1598,46 +1591,32 @@ function BrowserPaneSession({
         );
   };
   const openTools = (button: HTMLButtonElement) => {
-    if (!nativeMenus || !readyId) {
-      setToolsMenu(toolsMenu ? null : browserMenuPosition(button));
-      return;
-    }
-    if (nativeToolsPending.current) return;
-    const anchor = browserBounds(button);
-    if (!anchor) return;
-    const request = ++nativeToolsRequest.current;
-    const page = readyId;
-    nativeToolsPending.current = true;
-    setNativeToolsOpen(true);
-    // AppKit draws this menu above the live native child. Mounting an HTML
-    // overlay here would hide Chromium and swap the whole pane to a screenshot.
-    void nativeBrowser
-      .menu(page, anchor, {
-        canAddToChat: !!onAddToChat,
-        canFloat: !isDetachedWorkspace(),
-        floating,
-        canUsePage: !!url,
-      })
-      .then((choice) => {
-        if (
-          choice &&
-          request === nativeToolsRequest.current &&
-          nativePageId.current === page &&
-          presentation.current.visible
-        )
-          pickToolAction(choice);
-      })
-      .catch((reason) => {
-        if (request === nativeToolsRequest.current)
-          setNotice(`Could not open browser actions: ${errorMessage(reason)}`);
-      })
-      .finally(() => {
-        if (request !== nativeToolsRequest.current) return;
-        nativeToolsPending.current = false;
-        setNativeToolsOpen(false);
-      });
+    setToolsMenu(toolsMenu ? null : browserMenuPosition(button));
   };
   const utilityItems: ExplorerMenuItem[] = [
+    ...(nativeMenus && readyId
+      ? [
+          {
+            kind: "item" as const,
+            id: "zoom-out",
+            label: "Zoom out",
+            shortcut: "⌘−",
+          },
+          {
+            kind: "item" as const,
+            id: "zoom-reset",
+            label: `Reset zoom (${Math.round((zoomFactor ?? 1) * 100)}%)`,
+            shortcut: "⌘0",
+          },
+          {
+            kind: "item" as const,
+            id: "zoom-in",
+            label: "Zoom in",
+            shortcut: "⌘+",
+          },
+          { kind: "sep" as const },
+        ]
+      : []),
     {
       kind: "item",
       id: "find",
@@ -1846,7 +1825,7 @@ function BrowserPaneSession({
           aria-label="More browser actions"
           title="More browser actions"
           aria-haspopup="menu"
-          aria-expanded={Boolean(toolsMenu) || nativeToolsOpen}
+          aria-expanded={Boolean(toolsMenu)}
           onClick={(event) => openTools(event.currentTarget)}
         >
           <MoreHorizontal size={14} />
@@ -1908,46 +1887,51 @@ function BrowserPaneSession({
           align="end"
           gap={4}
           width={BROWSER_ACTIONS_WIDTH}
-          native={false}
+          native={nativeMenus && !!readyId}
+          onError={() =>
+            setNotice("Could not open browser actions. Please try again.")
+          }
           className="browser-actions-menu"
           header={
-            <div
-              className="browser-menu-heading"
-              onKeyDown={(event) => event.stopPropagation()}
-            >
-              <span className="browser-engine-label">Zoom</span>
+            nativeMenus && readyId ? undefined : (
               <div
-                className="browser-zoom-controls"
-                role="group"
-                aria-label="Page zoom"
+                className="browser-menu-heading"
+                onKeyDown={(event) => event.stopPropagation()}
               >
-                <button
-                  type="button"
-                  aria-label="Zoom out"
-                  disabled={!readyId}
-                  onClick={() => action("zoom-out")}
+                <span className="browser-engine-label">Zoom</span>
+                <div
+                  className="browser-zoom-controls"
+                  role="group"
+                  aria-label="Page zoom"
                 >
-                  <Minus size={13} />
-                </button>
-                <button
-                  type="button"
-                  aria-label="Reset page zoom"
-                  title="Reset page zoom"
-                  disabled={!readyId}
-                  onClick={() => action("zoom-reset")}
-                >
-                  {`${Math.round((zoomFactor ?? 1) * 100)}%`}
-                </button>
-                <button
-                  type="button"
-                  aria-label="Zoom in"
-                  disabled={!readyId}
-                  onClick={() => action("zoom-in")}
-                >
-                  <Plus size={13} />
-                </button>
+                  <button
+                    type="button"
+                    aria-label="Zoom out"
+                    disabled={!readyId}
+                    onClick={() => action("zoom-out")}
+                  >
+                    <Minus size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Reset page zoom"
+                    title="Reset page zoom"
+                    disabled={!readyId}
+                    onClick={() => action("zoom-reset")}
+                  >
+                    {`${Math.round((zoomFactor ?? 1) * 100)}%`}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Zoom in"
+                    disabled={!readyId}
+                    onClick={() => action("zoom-in")}
+                  >
+                    <Plus size={13} />
+                  </button>
+                </div>
               </div>
-            </div>
+            )
           }
           ariaLabel="Browser actions"
           items={utilityItems}

@@ -20,6 +20,9 @@ struct Panel {
     owner: String,
     owner_window: String,
     snapshot: Value,
+    open_id: String,
+    revision: u64,
+    requested: bool,
     shown: bool,
     focused: bool,
 }
@@ -78,20 +81,87 @@ fn owned_label(entries: &HashMap<String, Panel>, owner: &str) -> Option<String> 
         .find_map(|(label, panel)| (panel.owner == owner).then(|| label.clone()))
 }
 
-fn dismiss(app: &AppHandle, label: &str, destroy: bool) {
-    let panel = with_panels(app, |entries| Ok(entries.remove(label)))
-        .ok()
-        .flatten();
-    if destroy {
-        if let Some(window) = app.get_window(label) {
+impl Panel {
+    fn active(&self, open_id: &str) -> bool {
+        self.requested && self.open_id == open_id
+    }
+
+    fn display_state(&self) -> Value {
+        json!({ "snapshot": self.snapshot, "openId": self.open_id, "revision": self.revision })
+    }
+
+    fn accept_ready(&mut self, open_id: &str, revision: u64) -> bool {
+        if !self.active(open_id) || self.revision != revision || self.shown {
+            return false;
+        }
+        self.shown = true;
+        true
+    }
+}
+
+// Serialize native visibility and state on the event thread: a late ready,
+// update or cleanup from the preceding opening cannot affect its replacement.
+async fn on_main<T: Send + 'static>(
+    app: &AppHandle,
+    operation: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    let (send, receive) = std::sync::mpsc::sync_channel(1);
+    let run = move || {
+        let _ = send.send(operation());
+    };
+    // AppKit may synchronously reenter Tao while showing or creating a window.
+    // The main queue runs outside Tao's event-handler lock (as in pip_group).
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app;
+        dispatch2::DispatchQueue::main().exec_async(run);
+    }
+    #[cfg(not(target_os = "macos"))]
+    app.run_on_main_thread(run)
+        .map_err(|error| error.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        receive
+            .recv()
+            .map_err(|_| "Panel operation was interrupted".to_string())?
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+fn dismiss(app: &AppHandle, label: &str, destroy: bool, open_id: Option<&str>) {
+    let dismissed = with_panels(app, |entries| {
+        let Some(panel) = entries.get_mut(label) else {
+            return Ok(None);
+        };
+        if open_id.is_some_and(|id| !panel.active(id)) {
+            return Ok(None);
+        }
+        let notice = panel
+            .requested
+            .then(|| (panel.owner.clone(), panel.open_id.clone()));
+        panel.requested = false;
+        panel.shown = false;
+        panel.focused = false;
+        if destroy {
+            entries.remove(label);
+        }
+        Ok(Some(notice))
+    })
+    .ok()
+    .flatten();
+    let Some(notice) = dismissed else { return };
+    if let Some(window) = app.get_window(label) {
+        if destroy {
             let _ = window.destroy();
+        } else {
+            let _ = window.hide();
         }
     }
-    if let Some(panel) = panel {
+    if let Some((owner, open_id)) = notice {
         let _ = app.emit_to(
-            EventTarget::webview(panel.owner),
+            EventTarget::webview(owner),
             CLOSED_EVENT,
-            json!({ "label": label }),
+            json!({ "label": open_id }),
         );
     }
 }
@@ -144,38 +214,73 @@ pub async fn usage_panel_open(
     validate_owner(&caller)?;
     anchor.validate()?;
     validate_snapshot(&snapshot)?;
+    let app = caller.app_handle().clone();
+    on_main(&app, move || open_panel(caller, anchor, snapshot)).await
+}
+
+fn open_panel(
+    caller: Webview,
+    anchor: UsagePanelAnchor,
+    snapshot: Value,
+) -> Result<String, String> {
     let app = caller.app_handle();
     let owner = caller.window();
+    if app.get_window(owner.label()).is_none() || app.get_webview(caller.label()).is_none() {
+        return Err("The owning workspace closed".into());
+    }
     let (position, size) = placement(&caller, anchor)?;
+    let open_id = uuid::Uuid::new_v4().to_string();
+    let existing = with_panels(app, |entries| Ok(owned_label(entries, caller.label())))?;
+    if let Some(label) = existing {
+        if app.get_window(&label).is_some() && app.get_webview(&label).is_some() {
+            dismiss(app, &label, false, None);
+            let state = with_panels(app, |entries| {
+                let panel = entries.get_mut(&label).ok_or("Panel closed")?;
+                panel.snapshot = snapshot;
+                panel.open_id = open_id.clone();
+                panel.revision += 1;
+                panel.requested = true;
+                Ok(panel.display_state())
+            })?;
+            let window = app.get_window(&label).ok_or("Panel window closed")?;
+            let result = window
+                .set_position(position)
+                .and_then(|()| window.set_size(size))
+                .map_err(|error| error.to_string())
+                .and_then(|()| {
+                    app.emit_to(EventTarget::webview(&label), STATE_EVENT, state)
+                        .map_err(|error| error.to_string())
+                });
+            if let Err(error) = result {
+                dismiss(app, &label, true, None);
+                return Err(error);
+            }
+            return Ok(open_id);
+        }
+        dismiss(app, &label, true, None);
+    }
     let expected = caller
         .url()
         .map_err(|error| error.to_string())?
         .join("index.html?usagePanel=1")
         .map_err(|error| error.to_string())?;
-    // Reserve atomically so simultaneous clicks cannot make duplicate panels.
-    // Unique labels also isolate delayed destroy/readiness events after reopen.
     let label = format!("usage-panel-{}", uuid::Uuid::new_v4());
-    let existing = with_panels(app, |entries| {
-        if let Some(existing) = owned_label(entries, caller.label()) {
-            entries.get_mut(&existing).unwrap().snapshot = snapshot.clone();
-            return Ok(Some(existing));
-        }
+    with_panels(app, |entries| {
         entries.insert(
             label.clone(),
             Panel {
                 owner: caller.label().into(),
                 owner_window: owner.label().into(),
-                snapshot: snapshot.clone(),
+                snapshot,
+                open_id: open_id.clone(),
+                revision: 1,
+                requested: true,
                 shown: false,
                 focused: false,
             },
         );
-        Ok(None)
+        Ok(())
     })?;
-    if let Some(existing) = existing {
-        let _ = app.emit_to(EventTarget::webview(&existing), STATE_EVENT, snapshot);
-        return Ok(existing);
-    }
     let build = (|| {
         let window = WindowBuilder::new(app, &label)
             .title("Usage")
@@ -212,35 +317,42 @@ pub async fn usage_panel_open(
         Ok::<(), String>(())
     })();
     if let Err(error) = build {
-        dismiss(app, &label, true);
+        dismiss(app, &label, true, None);
         return Err(error);
     }
-    if app.get_window(owner.label()).is_none()
-        || !with_panels(app, |entries| Ok(entries.contains_key(&label)))?
-    {
-        dismiss(app, &label, true);
-        return Err("The owning workspace closed".into());
-    }
-    Ok(label)
+    Ok(open_id)
 }
 
 #[tauri::command]
-pub async fn usage_panel_update(caller: Webview, snapshot: Value) -> Result<(), String> {
+pub async fn usage_panel_update(
+    caller: Webview,
+    snapshot: Value,
+    open_id: String,
+) -> Result<(), String> {
     validate_owner(&caller)?;
     validate_snapshot(&snapshot)?;
-    let app = caller.app_handle();
-    let label = with_panels(app, |entries| {
-        let label = owned_label(entries, caller.label());
-        if let Some(label) = &label {
-            entries.get_mut(label).unwrap().snapshot = snapshot.clone();
+    let app = caller.app_handle().clone();
+    on_main(&app, move || {
+        let app = caller.app_handle();
+        let update = with_panels(app, |entries| {
+            let Some(label) = owned_label(entries, caller.label()) else {
+                return Ok(None);
+            };
+            let panel = entries.get_mut(&label).unwrap();
+            if !panel.active(&open_id) || panel.snapshot == snapshot {
+                return Ok(None);
+            }
+            panel.snapshot = snapshot;
+            panel.revision += 1;
+            Ok(Some((label, panel.display_state())))
+        })?;
+        if let Some((label, state)) = update {
+            app.emit_to(EventTarget::webview(label), STATE_EVENT, state)
+                .map_err(|error| error.to_string())?;
         }
-        Ok(label)
-    })?;
-    if let Some(label) = label {
-        app.emit_to(EventTarget::webview(label), STATE_EVENT, snapshot)
-            .map_err(|error| error.to_string())?;
-    }
-    Ok(())
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -248,79 +360,100 @@ pub async fn usage_panel_get_state(caller: Webview) -> Result<Value, String> {
     with_panels(caller.app_handle(), |entries| {
         entries
             .get(caller.label())
-            .map(|panel| panel.snapshot.clone())
+            .map(Panel::display_state)
             .ok_or("This usage panel is closed".into())
     })
 }
 
 #[tauri::command]
-pub async fn usage_panel_ready(caller: Webview) -> Result<(), String> {
-    let app = caller.app_handle();
-    with_panels(app, |entries| {
-        let panel = entries
-            .get_mut(caller.label())
-            .ok_or("This usage panel is closed")?;
-        if app.get_window(&panel.owner_window).is_none() {
-            return Err("The owning workspace closed".into());
+pub async fn usage_panel_ready(
+    caller: Webview,
+    open_id: String,
+    revision: u64,
+) -> Result<(), String> {
+    let app = caller.app_handle().clone();
+    on_main(&app, move || {
+        let app = caller.app_handle();
+        let show = with_panels(app, |entries| {
+            let Some(panel) = entries.get_mut(caller.label()) else {
+                return Ok(false);
+            };
+            if app.get_window(&panel.owner_window).is_none() {
+                return Ok(false);
+            }
+            Ok(panel.accept_ready(&open_id, revision))
+        })?;
+        if !show {
+            return Ok(());
         }
-        panel.shown = true;
-        Ok(())
-    })?;
-    let window = caller.window();
-    // Making the utility window key does not guarantee its unfocused child
-    // webview becomes first responder. Escape must work before any click.
-    let result = window
-        .show()
-        .and_then(|()| window.set_focus())
-        .and_then(|()| caller.set_focus());
-    if result.is_err() {
-        dismiss(app, caller.label(), true);
-    }
-    result.map_err(|error| error.to_string())
+        let window = caller.window();
+        let result = window
+            .show()
+            .and_then(|()| window.set_focus())
+            .and_then(|()| caller.set_focus());
+        if result.is_err() {
+            dismiss(app, caller.label(), true, None);
+        }
+        result.map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
-pub async fn usage_panel_action(caller: Webview, action: String) -> Result<(), String> {
+pub async fn usage_panel_action(
+    caller: Webview,
+    action: String,
+    open_id: String,
+) -> Result<(), String> {
     if !matches!(action.as_str(), "refresh" | "close") {
         return Err("Unknown usage action".into());
     }
-    let app = caller.app_handle();
-    let (owner, owner_window) = with_panels(app, |entries| {
-        entries
-            .get(caller.label())
-            .map(|panel| (panel.owner.clone(), panel.owner_window.clone()))
-            .ok_or("This usage panel is closed".into())
-    })?;
-    if action == "close" {
-        dismiss(app, caller.label(), true);
-        // Escape and the explicit Close button return keyboard focus to the
-        // originating workspace. Outside-click dismissal intentionally leaves
-        // focus wherever the user moved it.
+    let app = caller.app_handle().clone();
+    on_main(&app, move || {
+        let app = caller.app_handle();
+        let target = with_panels(app, |entries| {
+            Ok(entries
+                .get(caller.label())
+                .filter(|panel| panel.active(&open_id) && panel.shown)
+                .map(|panel| (panel.owner.clone(), panel.owner_window.clone())))
+        })?;
+        let Some((owner, owner_window)) = target else {
+            return Ok(());
+        };
+        if action == "refresh" {
+            app.emit_to(
+                EventTarget::webview(owner),
+                ACTION_EVENT,
+                json!({ "action": action, "label": open_id }),
+            )
+            .map_err(|error| error.to_string())?;
+            return Ok(());
+        }
+        dismiss(app, caller.label(), false, Some(&open_id));
         if let Some(window) = app.get_window(&owner_window) {
             let _ = window.set_focus();
         }
-    } else {
-        app.emit_to(
-            EventTarget::webview(owner),
-            ACTION_EVENT,
-            json!({ "action": action, "label": caller.label() }),
-        )
-        .map_err(|error| error.to_string())?;
-    }
-    Ok(())
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
-pub async fn usage_panel_close(caller: Webview) -> Result<(), String> {
+pub async fn usage_panel_close(caller: Webview, open_id: String) -> Result<(), String> {
     validate_owner(&caller)?;
-    let app = caller.app_handle();
-    if let Some(label) = with_panels(app, |entries| Ok(owned_label(entries, caller.label())))? {
-        dismiss(app, &label, true);
-    }
-    Ok(())
+    let app = caller.app_handle().clone();
+    on_main(&app, move || {
+        let app = caller.app_handle();
+        if let Some(label) = with_panels(app, |entries| Ok(owned_label(entries, caller.label())))? {
+            dismiss(app, &label, false, Some(&open_id));
+        }
+        Ok(())
+    })
+    .await
 }
 
-/// Called for every native window event; no changes to browser layout are made.
+/// Hide on outside focus or owner movement; release retained renderers when
+/// their owner closes. No browser layout or visibility changes are made.
 pub fn window_event(app: &AppHandle, label: &str, event: &WindowEvent) {
     let dismiss_self = with_panels(app, |entries| {
         let Some(panel) = entries.get_mut(label) else {
@@ -328,7 +461,7 @@ pub fn window_event(app: &AppHandle, label: &str, event: &WindowEvent) {
         };
         match event {
             WindowEvent::Focused(true) => {
-                panel.focused = true;
+                panel.focused = panel.shown;
                 Ok(false)
             }
             WindowEvent::Focused(false) => Ok(panel.shown && panel.focused),
@@ -338,7 +471,11 @@ pub fn window_event(app: &AppHandle, label: &str, event: &WindowEvent) {
     })
     .unwrap_or(false);
     if dismiss_self {
-        dismiss(app, label, !matches!(event, WindowEvent::Destroyed));
+        let destroyed = matches!(
+            event,
+            WindowEvent::Destroyed | WindowEvent::CloseRequested { .. }
+        );
+        dismiss(app, label, destroyed, None);
     }
     if matches!(
         event,
@@ -356,8 +493,12 @@ pub fn window_event(app: &AppHandle, label: &str, event: &WindowEvent) {
                 .collect::<Vec<_>>())
         })
         .unwrap_or_default();
+        let destroy = matches!(
+            event,
+            WindowEvent::Destroyed | WindowEvent::CloseRequested { .. }
+        );
         for child in children {
-            dismiss(app, &child, true);
+            dismiss(app, &child, destroy, None);
         }
     }
 }
@@ -404,5 +545,32 @@ mod tests {
             &Url::parse("https://example.com/index.html?usagePanel=1").unwrap(),
             &url
         ));
+    }
+    #[test]
+    fn readiness_only_shows_the_current_opening_and_never_refocuses_updates() {
+        let mut panel = Panel {
+            owner: "main".into(),
+            owner_window: "main".into(),
+            snapshot: json!({}),
+            open_id: "new".into(),
+            revision: 2,
+            requested: true,
+            shown: false,
+            focused: false,
+        };
+        assert!(!panel.active("old"));
+        assert!(!panel.accept_ready("old", 2));
+        assert!(!panel.accept_ready("new", 1));
+        assert!(panel.accept_ready("new", 2));
+        panel.revision = 3;
+        assert!(!panel.accept_ready("new", 3));
+        panel.requested = false;
+        panel.shown = false;
+        assert!(!panel.active("new"));
+        assert!(!panel.accept_ready("new", 3));
+        panel.open_id = "replacement".into();
+        panel.requested = true;
+        assert!(!panel.accept_ready("new", 3));
+        assert!(panel.accept_ready("replacement", 3));
     }
 }

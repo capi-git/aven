@@ -1,12 +1,20 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useId,
+  useLayoutEffect,
   useRef,
+  useState,
   type CSSProperties,
   type ReactNode,
 } from "react";
 import { playCue } from "../lib/sounds";
+import { Popover } from "../chrome/Popover";
+import { ToolbarPanel } from "../chrome/ToolbarPanel";
+import { Check, ChevronDown } from "../chrome/icons";
+import { LAYER } from "../lib/layers";
+import { useUsagePanelTheme } from "../lib/usagePanel";
 import { settingSearchAnchor as settingAnchor } from "../lib/settingsSearch";
 export { settingSearchAnchor as settingAnchor } from "../lib/settingsSearch";
 import "./SettingsControls.css";
@@ -271,27 +279,217 @@ export function Select({
   value,
   options,
   onChange,
+  disabled = false,
+  fullWidth = false,
 }: {
   label: string;
   value: string;
-  options: { value: string; label: string }[];
+  options: {
+    value: string;
+    label: string;
+    description?: string;
+    disabled?: boolean;
+  }[];
   onChange: (value: string) => void;
+  disabled?: boolean;
+  fullWidth?: boolean;
 }) {
   const descriptionId = useContext(RowDescription);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const listId = useId();
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState<string | null>(null);
+  const [width, setWidth] = useState(240);
+  const [layer, setLayer] = useState<number>(LAYER.popover);
+  const typeahead = useRef({ text: "", time: 0 });
+  const theme = useUsagePanelTheme(open);
+  const enabled = options.filter((option) => !option.disabled);
+  const selected = options.find((option) => option.value === value);
+  const unavailable = disabled || !enabled.length;
+  const expanded = open && !unavailable;
+  const activeValue = enabled.some((option) => option.value === active)
+    ? active
+    : (enabled.find((option) => option.value === value)?.value ??
+      enabled[0]?.value);
+  const activeIndex = options.findIndex(
+    (option) => option.value === activeValue,
+  );
+  const dismiss = (restoreFocus: boolean) => {
+    setOpen(false);
+    typeahead.current = { text: "", time: 0 };
+    if (restoreFocus) trigger.current?.focus({ preventScroll: true });
+  };
+  const show = (next?: string) => {
+    if (unavailable) return;
+    const element = trigger.current;
+    element?.focus({ preventScroll: true });
+    setWidth(
+      Math.max(
+        220,
+        Math.min(340, element?.getBoundingClientRect().width ?? 240),
+      ),
+    );
+    setLayer(
+      element?.closest('[role="dialog"], [role="alertdialog"]')
+        ? LAYER.dialog + 1
+        : LAYER.popover,
+    );
+    setActive(
+      next ??
+        enabled.find((option) => option.value === value)?.value ??
+        enabled[0]?.value ??
+        null,
+    );
+    setOpen(true);
+  };
+  const choose = (next: string) => {
+    if (unavailable || !enabled.some((option) => option.value === next)) return;
+    dismiss(true);
+    if (next !== value) onChange(next);
+  };
+  useEffect(() => {
+    if (unavailable) setOpen(false);
+  }, [unavailable]);
+  useLayoutEffect(() => {
+    if (!expanded) return;
+    const option = list.current?.querySelector<HTMLElement>(
+      '[data-active="true"]',
+    );
+    option?.scrollIntoView?.({ block: "nearest" });
+  }, [expanded, activeValue]);
   return (
-    <select
-      className="settings-select"
-      aria-label={label}
-      aria-describedby={descriptionId}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-    >
-      {options.map((option) => (
-        <option key={option.value} value={option.value}>
-          {option.label}
-        </option>
-      ))}
-    </select>
+    <>
+      <button
+        ref={trigger}
+        type="button"
+        role="combobox"
+        className={`settings-select${fullWidth ? " settings-select-full-width" : ""}`}
+        aria-label={label}
+        aria-describedby={descriptionId}
+        aria-haspopup="listbox"
+        aria-expanded={expanded}
+        aria-controls={expanded ? listId : undefined}
+        aria-activedescendant={
+          expanded && activeIndex >= 0
+            ? `${listId}-option-${activeIndex}`
+            : undefined
+        }
+        disabled={unavailable}
+        onClick={() => (expanded ? dismiss(false) : show())}
+        onBlur={() => dismiss(false)}
+        onKeyDown={(event) => {
+          if (
+            unavailable ||
+            event.nativeEvent.isComposing ||
+            event.altKey ||
+            event.ctrlKey ||
+            event.metaKey
+          )
+            return;
+          const key = event.key;
+          if (["ArrowDown", "ArrowUp", "Home", "End"].includes(key)) {
+            event.preventDefault();
+            let next = activeValue;
+            if (key === "Home") next = enabled[0]?.value;
+            else if (key === "End") next = enabled[enabled.length - 1]?.value;
+            else if (expanded) {
+              const index = enabled.findIndex(
+                (option) => option.value === activeValue,
+              );
+              next =
+                enabled[
+                  (index + (key === "ArrowDown" ? 1 : -1) + enabled.length) %
+                    enabled.length
+                ]?.value;
+            }
+            if (expanded) setActive(next ?? null);
+            else show(next ?? undefined);
+          } else if (key === "Enter" || key === " ") {
+            event.preventDefault();
+            if (expanded && activeValue != null) choose(activeValue);
+            else show();
+          } else if (key === "Escape" && expanded) {
+            event.preventDefault();
+            event.stopPropagation();
+            dismiss(true);
+          } else if (key === "Tab") dismiss(false);
+          else if (key.length === 1 && key.trim()) {
+            const now = Date.now();
+            const text =
+              (now - typeahead.current.time < 600
+                ? typeahead.current.text
+                : "") + key.toLocaleLowerCase();
+            typeahead.current = { text, time: now };
+            const next = enabled.find((option) =>
+              option.label.toLocaleLowerCase().startsWith(text),
+            );
+            if (next) {
+              event.preventDefault();
+              if (expanded) setActive(next.value);
+              else show(next.value);
+            }
+          }
+        }}
+      >
+        <span>{selected?.label ?? value}</span>
+        <ChevronDown aria-hidden="true" size={14} />
+      </button>
+      {expanded ? (
+        <Popover
+          anchor={trigger}
+          align="end"
+          gap={5}
+          width={width}
+          maxHeight={320}
+          layer={layer}
+          panel
+          onDismiss={(reason) => dismiss(reason === "escape")}
+        >
+          <ToolbarPanel theme={theme} className="settings-select-panel">
+            <div
+              ref={list}
+              id={listId}
+              role="listbox"
+              aria-label={label}
+              aria-describedby={descriptionId}
+              className="settings-select-options"
+            >
+              {options.map((option, index) => (
+                <button
+                  key={option.value}
+                  id={`${listId}-option-${index}`}
+                  type="button"
+                  role="option"
+                  tabIndex={-1}
+                  aria-selected={option.value === value}
+                  disabled={option.disabled}
+                  data-active={option.value === activeValue || undefined}
+                  className="toolbar-panel-row settings-select-option"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onMouseEnter={() => {
+                    if (!option.disabled) setActive(option.value);
+                  }}
+                  onClick={() => choose(option.value)}
+                >
+                  <span className="settings-select-option-copy">
+                    <span>{option.label}</span>
+                    {option.description ? (
+                      <small className="toolbar-panel-secondary">
+                        {option.description}
+                      </small>
+                    ) : null}
+                  </span>
+                  {option.value === value ? (
+                    <Check aria-hidden="true" size={14} />
+                  ) : null}
+                </button>
+              ))}
+            </div>
+          </ToolbarPanel>
+        </Popover>
+      ) : null}
+    </>
   );
 }
 

@@ -604,7 +604,7 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
   );
   const panelSnapshotRef = useRef(panelSnapshot);
   panelSnapshotRef.current = panelSnapshot;
-  const panelOpen = useRef(false);
+  const panelOpen = useRef<string | null>(null);
   const panelOperations = useRef(Promise.resolve());
   const refreshUsage = useCallback(() => {
     for (const provider of providers)
@@ -634,32 +634,42 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
         setMenu(null);
       }
     };
-    const open = async () => {
-      if (cancelled) return;
-      const stopAction = await nativeUsagePanel.listen<{ action: string }>(
-        "usage-panel-action",
-        ({ action }) => {
-          if (!cancelled && action === "refresh") refreshUsageRef.current();
-        },
-      );
-      stops.push(stopAction);
-      const stopClosed = await nativeUsagePanel.listen(
-        "usage-panel-closed",
-        () => {
-          if (!cancelled) {
-            panelOpen.current = false;
-            setMenu(null);
-          }
-        },
-      );
-      stops.push(stopClosed);
-      if (cancelled) {
-        stops.splice(0).forEach((stop) => stop());
+    let openId: string | null = null;
+    let finished = false;
+    type PanelEvent = { label: string; action?: string };
+    const pending: PanelEvent[] = [];
+    const receive = (event: PanelEvent) => {
+      if (cancelled || finished) return;
+      if (!openId) {
+        pending.push(event);
         return;
       }
-      await nativeUsagePanel.open(anchor, panelSnapshotRef.current);
-      panelOpen.current = true;
-      if (!cancelled) await nativeUsagePanel.update(panelSnapshotRef.current);
+      if (event.label !== openId) return;
+      if (event.action === "refresh") {
+        refreshUsageRef.current();
+      } else if (event.action === undefined) {
+        finished = true;
+        panelOpen.current = null;
+        setMenu(null);
+      }
+    };
+    const subscribe = async (name: string) => {
+      const stop = await nativeUsagePanel.listen<PanelEvent>(name, receive);
+      if (cancelled) stop();
+      else stops.push(stop);
+    };
+    const open = async () => {
+      if (cancelled) return;
+      await subscribe("usage-panel-action");
+      if (cancelled) return;
+      await subscribe("usage-panel-closed");
+      if (cancelled) return;
+      openId = await nativeUsagePanel.open(anchor, panelSnapshotRef.current);
+      if (cancelled) return;
+      panelOpen.current = openId;
+      pending.splice(0).forEach(receive);
+      if (!finished)
+        await nativeUsagePanel.update(panelSnapshotRef.current, openId);
     };
     panelOperations.current = panelOperations.current
       .catch(() => {})
@@ -672,8 +682,8 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
       panelOperations.current = panelOperations.current
         .catch(() => {})
         .then(async () => {
-          panelOpen.current = false;
-          await nativeUsagePanel.close();
+          if (panelOpen.current === openId) panelOpen.current = null;
+          if (openId) await nativeUsagePanel.close(openId);
         })
         .catch(() => {});
     };
@@ -681,7 +691,9 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
 
   useEffect(() => {
     if (!nativeMenus || menu !== "usage" || !panelOpen.current) return;
-    void nativeUsagePanel.update(panelSnapshot).catch(() => {});
+    void nativeUsagePanel
+      .update(panelSnapshot, panelOpen.current)
+      .catch(() => {});
   }, [panelSnapshot, menu, nativeMenus]);
 
   const openSnapshot = useMemo(

@@ -1,18 +1,11 @@
-import {
-  useEffect,
-  useMemo,
-  useState,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type ReactNode,
-} from "react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { isTauri } from "@tauri-apps/api/core";
-import { LogicalPosition } from "@tauri-apps/api/dpi";
-import { Menu, type MenuOptions } from "@tauri-apps/api/menu";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { IS_MAC } from "../lib/platform";
-import { Check } from "./icons";
+import { useWorkspaceMenuPanel } from "../hooks/useWorkspaceMenuPanel";
+import { useUsagePanelTheme } from "../lib/usagePanel";
+import type { WorkspaceMenuPanelSnapshot } from "../lib/workspaceMenuPanel";
 import { Popover, type PopoverAnchor } from "./Popover";
 import type { PopoverAlign } from "../lib/popover";
+import { WorkspaceMenuPanelContent } from "./WorkspaceMenuPanel";
 
 export type ExplorerMenuItem =
   | { kind: "sep" }
@@ -40,194 +33,157 @@ type Props = {
   className?: string;
   onPick: (id: string) => void;
   onClose: () => void;
+  onError?: () => void;
 };
 
-const MENU_WIDTH = 228;
+const MENU_WIDTH = 260;
+type PanelAnchor =
+  HTMLElement | { x: number; y: number; width: number; height: number };
 
-function itemIndexAt(
-  items: ExplorerMenuItem[],
-  start: number,
-  dir: 1 | -1,
-): number {
-  let i = start;
-  while (i >= 0 && i < items.length) {
-    const item = items[i];
-    if (item?.kind === "item") return i;
-    i += dir;
+function nativeAnchor({ anchor, x, y }: Props): PanelAnchor {
+  if (anchor instanceof HTMLElement) return anchor;
+  if (anchor && "current" in anchor && anchor.current) return anchor.current;
+  if (anchor && "x" in anchor) {
+    return {
+      x: anchor.x,
+      y: anchor.y,
+      width: "width" in anchor ? anchor.width : 0,
+      height: "height" in anchor ? anchor.height : 0,
+    };
   }
-  return start;
+  return { x, y, width: 0, height: 0 };
 }
 
 export function ExplorerMenu(props: Props) {
-  return props.native && IS_MAC && isTauri() && !props.header ? (
-    <NativeExplorerMenu {...props} />
+  const theme = useUsagePanelTheme(true);
+  const {
+    items,
+    ariaLabel = "File actions",
+    width = MENU_WIDTH,
+    align = "start",
+    gap = 0,
+  } = props;
+  const itemSignature = JSON.stringify(items);
+  const snapshot = useMemo<WorkspaceMenuPanelSnapshot>(() => {
+    let separatorBefore = false;
+    const choices: WorkspaceMenuPanelSnapshot["items"] = [];
+    const choicesForOpen = JSON.parse(itemSignature) as ExplorerMenuItem[];
+    choicesForOpen.forEach((item, index) => {
+      if (item.kind === "sep") {
+        separatorBefore = choices.length > 0;
+        return;
+      }
+      choices.push({
+        // `close` belongs to the panel host. Domain IDs never cross that boundary.
+        id: `menu-item-${index}`,
+        label: item.label,
+        shortcut: item.shortcut,
+        checked: item.checked,
+        disabled: item.disabled,
+        danger: item.danger,
+        separatorBefore,
+      });
+      separatorBefore = false;
+    });
+    return {
+      title: ariaLabel,
+      items: choices,
+      theme,
+      compact: true,
+      width,
+      align: align === "center" ? "start" : align,
+      gap,
+    };
+  }, [itemSignature, ariaLabel, theme, width, align, gap]);
+  const select = (id: string) => {
+    const index = snapshot.items.findIndex((item) => item.id === id);
+    const selected = snapshot.items[index];
+    if (!selected || selected.disabled) return;
+    const item = items[Number(id.slice("menu-item-".length))];
+    if (item?.kind === "item" && !item.disabled) props.onPick(item.id);
+  };
+  // Native browser children require their own window, but the window's content
+  // is still Aven's themed UI. Arbitrary React headers stay in the HTML surface.
+  return props.native && isTauri() && !props.header ? (
+    <NativeExplorerMenu {...props} snapshot={snapshot} onSelect={select} />
   ) : (
-    <HtmlExplorerMenu {...props} />
+    <HtmlExplorerMenu {...props} snapshot={snapshot} onSelect={select} />
   );
 }
 
-function NativeExplorerMenu(props: Props) {
-  const [fallback, setFallback] = useState(false);
+type SurfaceProps = Props & {
+  snapshot: WorkspaceMenuPanelSnapshot;
+  onSelect: (id: string) => void;
+};
+
+function NativeExplorerMenu(props: SurfaceProps) {
+  const anchor = useRef<PanelAnchor | null>(null);
+  anchor.current = nativeAnchor(props);
+  const close = useRef(props.onClose);
+  close.current = props.onClose;
+  useWorkspaceMenuPanel({
+    open: true,
+    anchor,
+    snapshot: props.snapshot,
+    onSelect: props.onSelect,
+    onClose: props.onClose,
+    // Never swap to an HTML overlay here: doing so occludes live Chromium and
+    // causes the page to flash. Closing lets the user retry the owned panel.
+    onError: () => {
+      props.onError?.();
+      props.onClose();
+    },
+  });
   useEffect(() => {
-    let cancelled = false;
-    let menu: Menu | undefined;
-    let picked = false;
-    const items: NonNullable<MenuOptions["items"]> = props.items.map((item) => {
-      if (item.kind === "sep") return { item: "Separator" as const };
-      return {
-        text: item.label,
-        enabled: !item.disabled,
-        ...(item.checked == null ? {} : { checked: item.checked }),
-        ...(item.shortcut === "⌘W" ? { accelerator: "CmdOrCtrl+W" } : {}),
-        action: () => {
-          if (picked || item.disabled) return;
-          picked = true;
-          props.onPick(item.id);
-        },
-      };
-    });
-    void (async () => {
-      menu = await Menu.new({ items });
-      if (cancelled) return;
-      // A native menu sits above the live browser. No HTML overlay is mounted,
-      // so opening a tab dropdown never hides the page or swaps in a snapshot.
-      await menu.popup(
-        new LogicalPosition(props.x, props.y),
-        getCurrentWindow(),
-      );
-      if (!cancelled) props.onClose();
-    })()
-      .catch(() => {
-        if (!cancelled) setFallback(true);
-      })
-      .finally(() => {
-        void menu?.close().catch(() => {});
-      });
-    return () => {
-      cancelled = true;
+    const dismiss = () => close.current();
+    const checkAnchor = () => {
+      const target = anchor.current;
+      if (target instanceof HTMLElement && !target.isConnected) dismiss();
     };
-    // Native menus capture their choices when opened, not on each agent tick.
+    checkAnchor();
+    const observer = new MutationObserver(checkAnchor);
+    observer.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener("resize", dismiss);
+    window.addEventListener("scroll", dismiss, true);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", dismiss);
+      window.removeEventListener("scroll", dismiss, true);
+    };
   }, []);
-  return fallback ? <HtmlExplorerMenu {...props} /> : null;
+  return null;
 }
 
 function HtmlExplorerMenu({
   x,
   y,
-  items,
-  ariaLabel = "File actions",
   header,
   width = MENU_WIDTH,
   anchor,
   align,
   gap = 0,
   className = "",
-  onPick,
   onClose,
-}: Props) {
-  const [active, setActive] = useState(() => itemIndexAt(items, 0, 1));
-
-  const ids = useMemo(
-    () =>
-      items.flatMap((item, index) =>
-        item.kind === "item"
-          ? [{ index, id: item.id, disabled: !!item.disabled }]
-          : [],
-      ),
-    [items],
-  );
-
-  const move = (dir: 1 | -1) => {
-    const from = ids.findIndex((item) => item.index === active);
-    const next = ids[(from + dir + ids.length) % ids.length];
-    if (next) setActive(next.index);
-  };
-
-  const onMenuKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      move(1);
-      return;
-    }
-    if (e.key === "ArrowUp") {
-      e.preventDefault();
-      move(-1);
-      return;
-    }
-    if (e.key === "Enter") {
-      e.preventDefault();
-      const item = items[active];
-      if (item?.kind === "item" && !item.disabled) onPick(item.id);
-    }
-  };
-
+  snapshot,
+  onSelect,
+}: SurfaceProps) {
   return (
     <Popover
       anchor={anchor ?? { x, y }}
       align={align}
       gap={gap}
       width={width}
-      autoFocus
+      panel
       onDismiss={onClose}
-      role="menu"
-      tabIndex={-1}
-      aria-label={ariaLabel}
-      onKeyDown={onMenuKey}
       onContextMenu={(e) => e.preventDefault()}
-      className={`overflow-y-auto overscroll-none p-1 ${className}`}
+      className={className}
     >
-      {header ? (
-        <>
-          {header}
-          <div role="separator" className="my-1 h-px bg-content/10" />
-        </>
-      ) : null}
-      {items.map((item, index) => {
-        if (item.kind === "sep") {
-          return (
-            <div
-              key={`sep-${index}`}
-              role="separator"
-              className="my-1 h-px bg-content/10"
-            />
-          );
-        }
-        const highlighted = index === active;
-        return (
-          <button
-            key={item.id}
-            type="button"
-            role={item.checked == null ? "menuitem" : "menuitemcheckbox"}
-            aria-checked={item.checked}
-            disabled={item.disabled}
-            onMouseDown={(e) => e.preventDefault()}
-            onMouseEnter={() => setActive(index)}
-            onClick={() => {
-              if (!item.disabled) onPick(item.id);
-            }}
-            className={`flex h-7 w-full items-center gap-3 rounded-lg px-2 text-left text-[13px] leading-none ${
-              item.disabled
-                ? "text-content/30"
-                : item.danger
-                  ? highlighted
-                    ? "bg-red-500/20 text-red-300"
-                    : "text-red-300/90 hover:bg-red-500/15"
-                  : highlighted
-                    ? "bg-content/10 text-content"
-                    : "text-content hover:bg-content/5"
-            }`}
-          >
-            <span className="min-w-0 flex-1 truncate">{item.label}</span>
-            {item.checked ? (
-              <Check className="size-3.5 shrink-0" strokeWidth={2.25} />
-            ) : item.shortcut ? (
-              <span className="shrink-0 text-[11px] text-content/40">
-                {item.shortcut}
-              </span>
-            ) : null}
-          </button>
-        );
-      })}
+      <WorkspaceMenuPanelContent
+        snapshot={snapshot}
+        header={header}
+        onSelect={onSelect}
+        onClose={onClose}
+      />
     </Popover>
   );
 }

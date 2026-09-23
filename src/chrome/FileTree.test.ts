@@ -18,6 +18,7 @@ const { iconRender, directories, pendingDirectories } = vi.hoisted(() => ({
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
+  isTauri: () => false,
   invoke: vi.fn(async (command: string, args: { path: string }) => {
     if (command === "git_diff_stats")
       return { files: 1, additions: 2, deletions: 0 };

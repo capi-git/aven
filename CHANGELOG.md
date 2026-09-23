@@ -1,5 +1,19 @@
 # Aven changelog
 
+## [0.1.89] - 2026-09-23
+
+### Menus that stay with their controls
+
+- Replace macOS tab, file-action, and browser toolbar menus with Aven's themed panels. Anchor them to their controls with display scaling and screen-edge placement.
+- Reuse hidden menu, Usage, and Access windows so reopening avoids rebuilding their web renderer. Reject stale selections and late events from earlier openings.
+- Use the same themed menu treatment for Settings selectors, including keyboard navigation and skill locations.
+
+## [0.1.88] - 2026-09-23
+
+### A clearer place to type
+
+- Give the message composer a distinct surface, readable placeholder, and subtle focus treatment across grey, light, dark, and transparent themes.
+
 ## [0.1.87] - 2026-09-23
 
 ### Toolbar panels that belong together

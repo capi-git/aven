@@ -241,12 +241,26 @@ describe("provider and model controls", () => {
     await click("Show Opus 5 in Claude Code");
     expect(loadHiddenPickerModels()).toEqual([opus]);
     expect(defaultSessionChoice().model).toBe(sonnet);
-    const defaults = document.querySelector<HTMLSelectElement>(
-      '[aria-label="Claude Code default model"]',
+    const defaults = control("Claude Code default model");
+    expect(defaults.getAttribute("role")).toBe("combobox");
+    await act(async () => defaults.click());
+    const defaultChoices = document.querySelector(
+      '[role="listbox"][aria-label="Claude Code default model"]',
     )!;
-    expect(Array.from(defaults.options).map((option) => option.value)).toEqual([
-      sonnet,
-    ]);
+    expect(
+      [...defaultChoices.querySelectorAll('[role="option"]')].map(
+        (option) => option.textContent,
+      ),
+    ).toEqual(["Sonnet 5"]);
+    await act(async () =>
+      defaults.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
     expect(control("Show Sonnet 5 in Claude Code").disabled).toBe(true);
     await click("Claude Code Opus 5");
     const choices = document.querySelector(

@@ -287,7 +287,13 @@
 .settings-select {
   width: auto;
   max-width: min(100%, 240px);
-  padding: 4px 24px 4px 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 8px 4px 9px;
+  text-align: left;
+  cursor: pointer;
 }
 .settings-button {
   display: inline-flex;
@@ -297,7 +303,7 @@
   padding: 4px 10px;
   text-align: center;
 }
-.settings-select:hover,
+.settings-select:not(:disabled):hover,
 .settings-button:not(:disabled):hover {
   background: color-mix(
     in srgb,
@@ -314,6 +320,7 @@
   color: color-mix(in srgb, #dc3545 65%, var(--color-content));
   background: color-mix(in srgb, #ef4444 13%, transparent);
 }
+.settings-select:disabled,
 .settings-button:disabled,
 .settings-toggle:disabled {
   opacity: 0.45;
@@ -367,4 +374,59 @@
   .settings-segmented button {
     transition: none;
   }
+}
+
+.settings-select > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-select > svg {
+  flex-shrink: 0;
+  color: var(--aven-muted);
+}
+.settings-select-full-width {
+  width: 100%;
+  max-width: 100%;
+}
+.settings-select-panel {
+  max-height: inherit;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.settings-select-options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+}
+.settings-select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 30px;
+  padding: 6px 9px;
+  text-align: left;
+  cursor: pointer;
+}
+.settings-select-option[data-active="true"]:not(:disabled) {
+  background: var(--toolbar-panel-hover);
+  box-shadow: inset 0 0 0 1px var(--toolbar-panel-accent);
+}
+.settings-select-option:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.settings-select-option > svg {
+  flex-shrink: 0;
+  color: var(--toolbar-panel-accent);
+}
+.settings-select-option-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  overflow-wrap: anywhere;
 }

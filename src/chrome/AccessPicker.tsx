@@ -97,15 +97,16 @@ export function AccessPicker({
     };
     const start = async () => {
       if (cancelled) return;
-      await subscribe("access-panel-action");
-      if (cancelled) return;
-      await subscribe("access-panel-closed");
+      await Promise.all([
+        subscribe("access-panel-action"),
+        subscribe("access-panel-closed"),
+      ]);
       if (cancelled) return;
       label = await nativeAccessPanel.open(anchor, snapshotRef.current);
       if (cancelled) return;
       panelLabel.current = label;
       pending.splice(0).forEach(receive);
-      if (!finished) await nativeAccessPanel.update(snapshotRef.current);
+      if (!finished) await nativeAccessPanel.update(snapshotRef.current, label);
     };
     operations.current = operations.current
       .catch(() => {})
@@ -125,7 +126,7 @@ export function AccessPicker({
         .catch(() => {})
         .then(async () => {
           panelLabel.current = null;
-          await nativeAccessPanel.close();
+          if (label) await nativeAccessPanel.close(label);
         })
         .catch(() => {});
     };
@@ -133,7 +134,9 @@ export function AccessPicker({
 
   useEffect(() => {
     if (usePanel && open && panelLabel.current)
-      void nativeAccessPanel.update(snapshot).catch(() => {});
+      void nativeAccessPanel
+        .update(snapshot, panelLabel.current)
+        .catch(() => {});
   }, [snapshot, open, usePanel]);
 
   return (

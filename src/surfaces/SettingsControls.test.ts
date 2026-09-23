@@ -179,11 +179,14 @@ it("keeps range changes, select changes and switch sounds wired to the original 
       "value",
     )!.set!.call(slider, "180");
     slider.dispatchEvent(new Event("input", { bubbles: true }));
-    const select = container.querySelector("select")!;
-    select.value = "next";
-    select.dispatchEvent(new Event("change", { bubbles: true }));
     container.querySelector<HTMLButtonElement>('[role="switch"]')!.click();
   });
+  await act(async () =>
+    container.querySelector<HTMLButtonElement>('[role="combobox"]')!.click(),
+  );
+  await act(async () =>
+    document.querySelectorAll<HTMLButtonElement>('[role="option"]')[1].click(),
+  );
   expect(rangeChange).toHaveBeenCalledWith(180);
   expect(selectChange).toHaveBeenCalledWith("next");
   expect(toggleChange).toHaveBeenCalledWith(true);
@@ -280,4 +283,117 @@ it("accepts programmatic search focus without adding rows or groups to the tab o
   const slider = container.querySelector("input")!;
   slider.focus();
   expect(document.activeElement).toBe(slider);
+});
+
+describe("settings app-rendered select", () => {
+  const options = [
+    { value: "first", label: "First", description: "The default option." },
+    { value: "disabled", label: "Unavailable", disabled: true },
+    { value: "second", label: "Second" },
+    { value: "third", label: "Third" },
+  ];
+  function ControlledSelect({ disabled = false }: { disabled?: boolean }) {
+    const [value, onChange] = useState("second");
+    return h(
+      Row,
+      { label: "Choice", description: "Choose your preferred option." },
+      h(Select, { label: "Choice", value, onChange, options, disabled }),
+    );
+  }
+  const combo = () =>
+    container.querySelector<HTMLButtonElement>('[role="combobox"]')!;
+  const active = () =>
+    document.getElementById(combo().getAttribute("aria-activedescendant")!);
+
+  it("opens instantly in a themed listbox and commits keyboard selection only on Enter", async () => {
+    await act(async () => root.render(h(ControlledSelect)));
+    expect(container.querySelector("select")).toBeNull();
+    expect(combo().textContent).toBe("Second");
+    expect(combo().getAttribute("aria-expanded")).toBe("false");
+    await key(combo(), "ArrowDown");
+    expect(combo().getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement).toBe(combo());
+    expect(active()?.textContent).toBe("Second");
+    expect(document.querySelector('[role="listbox"]')?.getAttribute("id")).toBe(
+      combo().getAttribute("aria-controls"),
+    );
+    expect(
+      document
+        .querySelector('[role="listbox"]')
+        ?.getAttribute("aria-describedby"),
+    ).toBe(combo().getAttribute("aria-describedby"));
+    expect(document.querySelector(".toolbar-panel")).not.toBeNull();
+    await key(combo(), "ArrowUp");
+    expect(active()?.textContent).toContain("First");
+    expect(combo().textContent).toBe("Second");
+    await key(combo(), "Enter");
+    expect(combo().textContent).toBe("First");
+    expect(combo().getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
+    expect(document.activeElement).toBe(combo());
+  });
+
+  it("supports Home, End, wrapping arrows, typeahead, and Escape without committing", async () => {
+    await act(async () => root.render(h(ControlledSelect)));
+    await key(combo(), "Home");
+    expect(active()?.textContent).toContain("First");
+    await key(combo(), "ArrowUp");
+    expect(active()?.textContent).toBe("Third");
+    await key(combo(), "ArrowDown");
+    expect(active()?.textContent).toContain("First");
+    await key(combo(), "End");
+    expect(active()?.textContent).toBe("Third");
+    await key(combo(), "s");
+    expect(active()?.textContent).toBe("Second");
+    await key(combo(), "Home");
+    await key(combo(), "Escape");
+    expect(combo().textContent).toBe("Second");
+    expect(combo().getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(combo());
+  });
+
+  it("preserves pointer selection and disabled choices while restoring trigger focus", async () => {
+    await act(async () => root.render(h(ControlledSelect)));
+    await act(async () => combo().click());
+    const choices = [
+      ...document.querySelectorAll<HTMLButtonElement>('[role="option"]'),
+    ];
+    expect(choices[1].disabled).toBe(true);
+    await act(async () => choices[1].click());
+    expect(combo().textContent).toBe("Second");
+    expect(combo().getAttribute("aria-expanded")).toBe("true");
+    await act(async () => choices[3].click());
+    expect(combo().textContent).toBe("Third");
+    expect(document.activeElement).toBe(combo());
+  });
+
+  it("closes when disabled and does not reopen unexpectedly when enabled", async () => {
+    await act(async () => root.render(h(ControlledSelect)));
+    await act(async () => combo().click());
+    expect(document.querySelector('[role="listbox"]')).not.toBeNull();
+    await act(async () => root.render(h(ControlledSelect, { disabled: true })));
+    expect(combo().disabled).toBe(true);
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
+    await act(async () => combo().click());
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
+    await act(async () => root.render(h(ControlledSelect)));
+    expect(combo().getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("dismisses outside and on Tab without stealing focus", async () => {
+    await act(async () => root.render(h(ControlledSelect)));
+    await act(async () => combo().click());
+    await key(combo(), "Tab");
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
+    await act(async () => combo().click());
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    await act(async () => {
+      outside.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      outside.focus();
+    });
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
+    expect(document.activeElement).toBe(outside);
+    outside.remove();
+  });
 });

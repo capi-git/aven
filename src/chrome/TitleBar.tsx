@@ -949,10 +949,12 @@ function TitleBarComponent({
     tabId: string;
     x: number;
     y: number;
+    anchor?: HTMLElement;
   } | null>(null);
   const [browserMenu, setBrowserMenu] = useState<{
     x: number;
     y: number;
+    anchor?: HTMLElement;
   } | null>(null);
   const syncTabOverflow = useCallback(() => {
     const el = tabStripRef.current;
@@ -1540,9 +1542,9 @@ function TitleBarComponent({
                       activeTabRef.current = element;
                     }
                   : undefined;
-              const openMenu = (x: number, y: number) => {
+              const openMenu = (x: number, y: number, anchor?: HTMLElement) => {
                 setBrowserMenu(null);
-                setTabMenu({ tabId: id, x, y });
+                setTabMenu({ tabId: id, x, y, anchor });
               };
               if (tab)
                 return (
@@ -1606,13 +1608,17 @@ function TitleBarComponent({
                           const rect = button.getBoundingClientRect();
                           if (hasSurfaceMenu) {
                             if (tabMenu?.tabId === id) setTabMenu(null);
-                            else openMenu(rect.left, rect.bottom + 4);
+                            else openMenu(rect.left, rect.bottom + 4, button);
                           } else {
                             setTabMenu(null);
                             setBrowserMenu(
                               browserMenu
                                 ? null
-                                : { x: rect.left, y: rect.bottom + 4 },
+                                : {
+                                    x: rect.left,
+                                    y: rect.bottom + 4,
+                                    anchor: button,
+                                  },
                             );
                           }
                         }
@@ -1685,6 +1691,9 @@ function TitleBarComponent({
           native
           x={tabMenu.x}
           y={tabMenu.y}
+          anchor={tabMenu.anchor}
+          align="start"
+          gap={tabMenu.anchor ? 4 : 0}
           width={244}
           items={contextMenuItems}
           ariaLabel={
@@ -1701,6 +1710,9 @@ function TitleBarComponent({
           native
           x={browserMenu.x}
           y={browserMenu.y}
+          anchor={browserMenu.anchor}
+          align="start"
+          gap={browserMenu.anchor ? 4 : 0}
           width={192}
           ariaLabel="Browser layout"
           items={[

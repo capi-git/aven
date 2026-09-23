@@ -9,6 +9,12 @@ export type AccessPanelSnapshot = {
   theme: UsagePanelSnapshot["theme"];
 };
 
+export type AccessPanelState = {
+  snapshot: AccessPanelSnapshot;
+  openId: string;
+  revision: number;
+};
+
 /** A themed app surface above browser children, without hiding their contents. */
 export const nativeAccessPanel = {
   supported: isTauri,
@@ -19,13 +25,14 @@ export const nativeAccessPanel = {
       snapshot,
     });
   },
-  update: (snapshot: AccessPanelSnapshot) =>
-    invoke<void>("access_panel_update", { snapshot }),
-  close: () => invoke<void>("access_panel_close"),
-  getState: () => invoke<AccessPanelSnapshot>("access_panel_get_state"),
-  ready: () => invoke<void>("access_panel_ready"),
-  action: (action: RuntimeMode | "close") =>
-    invoke<void>("access_panel_action", { action }),
+  update: (snapshot: AccessPanelSnapshot, openId: string) =>
+    invoke<void>("access_panel_update", { snapshot, openId }),
+  close: (openId: string) => invoke<void>("access_panel_close", { openId }),
+  getState: () => invoke<AccessPanelState>("access_panel_get_state"),
+  ready: (openId: string, revision: number) =>
+    invoke<void>("access_panel_ready", { openId, revision }),
+  action: (action: RuntimeMode | "close", openId: string) =>
+    invoke<void>("access_panel_action", { action, openId }),
   listen: <T>(event: string, callback: (payload: T) => void) =>
     getCurrentWebview().listen<T>(event, ({ payload }) => callback(payload)),
 };

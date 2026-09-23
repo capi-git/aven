@@ -216,3 +216,43 @@ describe("Skills & Tools settings", () => {
     },
   );
 });
+
+it("chooses the new skill location in an app listbox without dismissing its dialog", async () => {
+  await render();
+  await click("New skill");
+  const dialog = document.querySelector('[role="dialog"]')!;
+  const location = dialog.querySelector<HTMLButtonElement>(
+    '[role="combobox"][aria-label="Skill location"]',
+  )!;
+  expect(dialog.querySelector("select")).toBeNull();
+  expect(location.textContent).toBe("This project");
+  await act(async () => location.click());
+  const choices = [
+    ...document.querySelectorAll<HTMLButtonElement>('[role="option"]'),
+  ];
+  expect(choices.map((choice) => choice.textContent)).toEqual([
+    "This project",
+    "Personal · all projects",
+  ]);
+  expect(
+    Number(
+      document.querySelector<HTMLElement>("[data-popover-side]")?.style.zIndex,
+    ),
+  ).toBeGreaterThan(90);
+  await act(async () => choices[1].click());
+  expect(location.textContent).toBe("Personal · all projects");
+  expect(document.activeElement).toBe(location);
+  expect(document.querySelector('[role="dialog"]')).toBe(dialog);
+  await act(async () => location.click());
+  await act(async () =>
+    location.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+        cancelable: true,
+      }),
+    ),
+  );
+  expect(document.querySelector('[role="listbox"]')).toBeNull();
+  expect(document.querySelector('[role="dialog"]')).toBe(dialog);
+});

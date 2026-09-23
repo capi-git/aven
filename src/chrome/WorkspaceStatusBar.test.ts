@@ -114,8 +114,14 @@ beforeEach(() => {
   nativePanel.update.mockResolvedValue(undefined);
   nativePanel.close.mockResolvedValue(undefined);
   nativePanel.callbacks.clear();
-  openPanel.open.mockResolvedValue("workspace-menu-panel-test");
-  openPanel.update.mockResolvedValue(undefined);
+  openPanel.open.mockResolvedValue({
+    label: "workspace-menu-panel-test",
+    presentation: "open-1",
+  });
+  openPanel.update.mockResolvedValue({
+    label: "workspace-menu-panel-test",
+    presentation: "open-1",
+  });
   openPanel.close.mockResolvedValue(undefined);
   openPanel.callbacks.clear();
   const storage = new Map<string, string>();
@@ -1016,7 +1022,10 @@ describe("native workspace toolbar menus", () => {
       "fetching",
     );
     await act(async () => {
-      nativePanel.callbacks.get("usage-panel-action")?.({ action: "refresh" });
+      nativePanel.callbacks.get("usage-panel-action")?.({
+        label: "usage-panel-test",
+        action: "refresh",
+      });
     });
     expect(api.codex).toHaveBeenCalledOnce();
     await act(async () => {
@@ -1038,6 +1047,7 @@ describe("native workspace toolbar menus", () => {
           }),
         ],
       }),
+      "usage-panel-test",
     );
     await act(async () => {
       nativePanel.callbacks.get("usage-panel-closed")?.({
@@ -1048,6 +1058,42 @@ describe("native workspace toolbar menus", () => {
       button("Context and provider usage").getAttribute("aria-expanded"),
     ).toBe("false");
     expect(props.onAccessModeChange).not.toHaveBeenCalled();
+  });
+  it("ignores Usage events from a previous opening of the retained panel", async () => {
+    nativeMenu.supported.mockReturnValue(true);
+    nativePanel.open
+      .mockResolvedValueOnce("usage-first")
+      .mockResolvedValueOnce("usage-second");
+    await render({ usageProviders: ["codex"] });
+    await click("Context and provider usage");
+    await act(async () =>
+      nativePanel.callbacks.get("usage-panel-closed")?.({
+        label: "usage-first",
+      }),
+    );
+    await click("Context and provider usage");
+    const calls = api.codex.mock.calls.length;
+    await act(async () => {
+      nativePanel.callbacks.get("usage-panel-action")?.({
+        label: "usage-first",
+        action: "refresh",
+      });
+      nativePanel.callbacks.get("usage-panel-closed")?.({
+        label: "usage-first",
+      });
+    });
+    expect(api.codex).toHaveBeenCalledTimes(calls);
+    expect(
+      button("Context and provider usage").getAttribute("aria-expanded"),
+    ).toBe("true");
+    await act(async () =>
+      nativePanel.callbacks.get("usage-panel-closed")?.({
+        label: "usage-second",
+      }),
+    );
+    expect(
+      button("Context and provider usage").getAttribute("aria-expanded"),
+    ).toBe("false");
   });
   it("allows a requested native panel to load while its parent loses visibility", async () => {
     nativeMenu.supported.mockReturnValue(true);
@@ -1077,6 +1123,7 @@ describe("native workspace toolbar menus", () => {
     await act(async () =>
       openPanel.callbacks.get("workspace-menu-panel-action")?.({
         label: "workspace-menu-panel-test",
+        presentation: "open-1",
         action: "editor",
       }),
     );
@@ -1095,16 +1142,33 @@ describe("native workspace toolbar menus", () => {
     await click("Open workspace externally");
     const receive = openPanel.callbacks.get("workspace-menu-panel-action")!;
     await act(async () => {
-      receive({ label: "old-panel", action: "editor" });
-      receive({ label: "workspace-menu-panel-test", action: "blocked" });
-      receive({ label: "workspace-menu-panel-test", action: "unknown" });
+      receive({ presentation: "open-1", label: "old-panel", action: "editor" });
+      receive({
+        presentation: "previous-open",
+        label: "workspace-menu-panel-test",
+        action: "editor",
+      });
+      receive({
+        presentation: "open-1",
+        label: "workspace-menu-panel-test",
+        action: "blocked",
+      });
+      receive({
+        presentation: "open-1",
+        label: "workspace-menu-panel-test",
+        action: "unknown",
+      });
     });
     expect(selected).not.toHaveBeenCalled();
     expect(
       button("Open workspace externally").getAttribute("aria-expanded"),
     ).toBe("true");
     await act(async () =>
-      receive({ label: "workspace-menu-panel-test", action: "editor" }),
+      receive({
+        presentation: "open-1",
+        label: "workspace-menu-panel-test",
+        action: "editor",
+      }),
     );
     expect(selected).toHaveBeenCalledOnce();
   });

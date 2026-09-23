@@ -6,6 +6,37 @@ import { BrowserPane } from "./BrowserPane";
 import type { BrowserState } from "../lib/browser";
 import * as workspaceTransfers from "../lib/workspaceTransfers";
 
+const appMenu = vi.hoisted(() => ({
+  open: vi.fn(),
+  update: vi.fn(),
+  close: vi.fn(),
+  callbacks: new Map<
+    string,
+    (event: { label: string; presentation: string; action?: string }) => void
+  >(),
+}));
+vi.mock("../lib/workspaceMenuPanel", () => ({
+  nativeWorkspaceMenuPanel: {
+    ...appMenu,
+    listen: vi.fn(
+      async (
+        name: string,
+        callback: (event: {
+          label: string;
+          presentation: string;
+          action?: string;
+        }) => void,
+      ) => {
+        appMenu.callbacks.set(name, callback);
+        return () => {
+          if (appMenu.callbacks.get(name) === callback)
+            appMenu.callbacks.delete(name);
+        };
+      },
+    ),
+  },
+}));
+
 const mocks = vi.hoisted(() => ({
   attach: vi.fn(),
   create: vi.fn(),
@@ -102,6 +133,16 @@ describe("native preview lifecycle", () => {
   };
   beforeEach(() => {
     vi.clearAllMocks();
+    appMenu.open.mockResolvedValue({
+      label: "browser-actions",
+      presentation: "open-1",
+    });
+    appMenu.update.mockResolvedValue({
+      label: "browser-actions",
+      presentation: "open-1",
+    });
+    appMenu.close.mockResolvedValue(undefined);
+    appMenu.callbacks.clear();
     vi.useFakeTimers();
     mocks.create.mockResolvedValue(undefined);
     mocks.attach.mockResolvedValue({
@@ -172,14 +213,20 @@ describe("native preview lifecycle", () => {
         disconnect() {}
       },
     );
+    const mutationObservers = new Set<typeof mutationCallback>();
+    mutationCallback = (records) => {
+      for (const callback of [...mutationObservers]) callback(records);
+    };
     vi.stubGlobal(
       "MutationObserver",
       class {
-        constructor(callback: typeof mutationCallback) {
-          mutationCallback = callback;
+        constructor(private callback: typeof mutationCallback) {}
+        observe() {
+          mutationObservers.add(this.callback);
         }
-        observe() {}
-        disconnect() {}
+        disconnect() {
+          mutationObservers.delete(this.callback);
+        }
       },
     );
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -1614,23 +1661,20 @@ describe("native preview lifecycle", () => {
     await act(async () => button.click());
   };
 
-  it("keeps Chromium live throughout its native actions menu without a screenshot swap", async () => {
-    const id = await openPane({ onAddToChat: vi.fn() });
+  it("keeps Chromium live beneath Aven's anchored actions menu without a screenshot swap", async () => {
+    await openPane({ onAddToChat: vi.fn() });
     await receive({ nativeMenus: true });
-    let dismiss!: (choice: string | null) => void;
-    mocks.browserMenu.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          dismiss = resolve;
-        }),
-    );
     mocks.layout.mockClear();
     await clickControl("More browser actions");
-    await clickControl("More browser actions");
-    expect(mocks.browserMenu).toHaveBeenCalledExactlyOnceWith(
-      id,
-      mocks.bounds.mock.results.at(-1)!.value,
-      { canAddToChat: true, canFloat: true, floating: false, canUsePage: true },
+    expect(mocks.browserMenu).not.toHaveBeenCalled();
+    expect(appMenu.open).toHaveBeenCalledExactlyOnceWith(
+      container.querySelector('[aria-label="More browser actions"]'),
+      expect.objectContaining({
+        title: "Browser actions",
+        compact: true,
+        align: "end",
+        gap: 4,
+      }),
     );
     await flushFrame();
     await act(async () => vi.advanceTimersByTime(30_000));
@@ -1645,7 +1689,12 @@ describe("native preview lifecycle", () => {
         .querySelector('[aria-label="More browser actions"]')
         ?.getAttribute("aria-expanded"),
     ).toBe("true");
-    await act(async () => dismiss(null));
+    await act(async () =>
+      appMenu.callbacks.get("workspace-menu-panel-closed")?.({
+        label: "browser-actions",
+        presentation: "open-1",
+      }),
+    );
     expect(
       container
         .querySelector('[aria-label="More browser actions"]')
@@ -1654,38 +1703,42 @@ describe("native preview lifecycle", () => {
     expect(mocks.close).not.toHaveBeenCalled();
   });
 
-  it("routes native menu choices to the owning pane and ignores a choice after hiding it", async () => {
+  it("routes app menu choices to the owning pane and ignores a choice after hiding it", async () => {
     const add = vi.fn();
     await openPane({ onAddToChat: add });
     await receive({ nativeMenus: true });
-    mocks.browserMenu.mockResolvedValueOnce("chat");
     await clickControl("More browser actions");
+    const snapshot = appMenu.open.mock.calls[0][1];
+    const action = snapshot.items.find(
+      (item: { label: string }) => item.label === "Add URL to chat",
+    ).id;
+    await act(async () =>
+      appMenu.callbacks.get("workspace-menu-panel-action")?.({
+        label: "browser-actions",
+        presentation: "open-1",
+        action,
+      }),
+    );
     expect(add).toHaveBeenCalledExactlyOnceWith(
       "Working page\nhttp://localhost:3000/",
     );
     add.mockClear();
-    let pick!: (choice: string) => void;
-    mocks.browserMenu.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          pick = resolve;
-        }),
-    );
     await clickControl("More browser actions");
+    const pick = appMenu.callbacks.get("workspace-menu-panel-action")!;
     await openPane({ visible: false, onAddToChat: add });
-    await act(async () => pick("chat"));
+    await act(async () =>
+      pick({ label: "browser-actions", presentation: "open-1", action }),
+    );
     expect(add).not.toHaveBeenCalled();
     expect(mocks.external).not.toHaveBeenCalled();
   });
 
-  it("reports a native menu failure without flashing into an HTML replacement", async () => {
+  it("closes a failed app menu without flashing an HTML replacement over Chromium", async () => {
     await openPane();
     await receive({ nativeMenus: true });
-    mocks.browserMenu.mockRejectedValueOnce(new Error("Menu unavailable"));
+    appMenu.open.mockRejectedValueOnce(new Error("Menu unavailable"));
     await clickControl("More browser actions");
-    expect(container.textContent).toContain(
-      "Could not open browser actions: Menu unavailable",
-    );
+    expect(container.textContent).toContain("Could not open browser actions");
     expect(document.querySelector('[role="menu"]')).toBeNull();
     expect(mocks.snapshot).not.toHaveBeenCalled();
     expect(
@@ -1716,16 +1769,26 @@ describe("native preview lifecycle", () => {
         '[aria-label="Browser actions"]',
       )!;
       expect(menu).not.toBeNull();
-      expect(menu.parentElement!.style.left).toBe(`${expectedLeft}px`);
-      expect(menu.parentElement!.style.top).toBe("112px");
+      expect(menu.closest<HTMLElement>(".aven-popover-frame")!.style.left).toBe(
+        `${expectedLeft}px`,
+      );
+      expect(menu.closest<HTMLElement>(".aven-popover-frame")!.style.top).toBe(
+        "112px",
+      );
       expect(
-        menu.querySelector(".browser-menu-heading > span")?.textContent,
+        menu
+          .closest(".toolbar-panel")!
+          .querySelector(".browser-menu-heading > span")?.textContent,
       ).toBe("Zoom");
       expect(
-        menu.querySelectorAll('[aria-label="Page zoom"] button'),
+        menu
+          .closest(".toolbar-panel")!
+          .querySelectorAll('[aria-label="Page zoom"] button'),
       ).toHaveLength(3);
       expect(
-        menu.querySelector('[aria-label="Reset page zoom"]')?.textContent,
+        menu
+          .closest(".toolbar-panel")!
+          .querySelector('[aria-label="Reset page zoom"]')?.textContent,
       ).toBe("100%");
       expect(
         [...menu.querySelectorAll('[role="menuitem"]')].some((item) =>
