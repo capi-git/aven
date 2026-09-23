@@ -1,5 +1,12 @@
 # Aven changelog
 
+## [0.1.91] - 2026-09-23
+
+### Prevent a Bluetooth privacy crash
+
+- Include the required Bluetooth usage description in Aven and its Chromium helpers, preventing macOS from terminating the app when Chromium checks Bluetooth devices.
+- Reject Chromium packages missing that description before signing, and verify that development builds and every helper retain it. Existing macOS permission choices still apply.
+
 ## [0.1.90] - 2026-09-23
 
 ### Home folders and skills that open correctly

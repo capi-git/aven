@@ -62,6 +62,8 @@ Outputs are in `target/releases/v<version>/`:
 
 The unpackaged/intermediate host app is not a release artifact. Use the ZIP produced after successful packaging. The final app is also available at `target/release/bundle/macos/Aven.app`; packaging diagnostics stay beside it and may contain local filesystem paths, so they are not part of the public artifacts.
 
+Privacy descriptions live in `src-tauri/Info.plist`. Both the release host and Aven Dev include them, and the Chromium packager copies them into every helper. In particular, Chromium can query Bluetooth devices; macOS requires [`NSBluetoothAlwaysUsageDescription`](https://developer.apple.com/documentation/bundleresources/information-property-list/nsbluetoothalwaysusagedescription). Omitting it caused a macOS privacy termination in Aven 0.1.89. Packaging must reject a missing or empty description before modifying or signing the candidate. This declaration does not grant Bluetooth access or alter macOS permission choices.
+
 The script never installs, launches, stops, or publishes an app. It requires the checkout's `target/` directory for Rust output; unset a custom `CARGO_TARGET_DIR` or `CARGO_BUILD_TARGET` before running it. A candidate app must be closed before rebuilding it.
 
 Optional environment settings:

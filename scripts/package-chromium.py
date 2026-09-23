@@ -87,6 +87,9 @@ def package(app, product_name, bundle_id, identity, log, env):
     info = plistlib.loads(info_path.read_bytes())
     require(info['CFBundleIdentifier'] == bundle_id, 'Unexpected candidate bundle identifier')
     require(info['CFBundleName'] == product_name, 'Unexpected candidate product name')
+    bluetooth_description = info.get('NSBluetoothAlwaysUsageDescription')
+    require(isinstance(bluetooth_description, str) and bluetooth_description.strip(),
+            'Host app is missing a nonempty NSBluetoothAlwaysUsageDescription; rebuild it from src-tauri/Info.plist before Chromium packaging')
     icon_name = info.get('CFBundleIconFile')
     require(isinstance(icon_name, str) and icon_name and Path(icon_name).name == icon_name,
             'The host app must declare a local icon for its Chromium helpers')
@@ -140,8 +143,8 @@ def package(app, product_name, bundle_id, identity, log, env):
             'LSMinimumSystemVersion': '13.0', 'LSUIElement': True,
             'NSSupportsAutomaticGraphicsSwitching': True,
         }
-        # CEF can receive TCC attribution in a helper process. Keep its camera,
-        # microphone, location, and chosen-folder explanations equal to the host.
+        # CEF can receive TCC attribution in a helper process. Keep every privacy
+        # explanation, including Bluetooth, equal to the host before signing.
         helper_info.update({key: value for key, value in info.items()
                             if key.startswith('NS') and key.endswith('UsageDescription')})
         (contents / 'Info.plist').write_bytes(plistlib.dumps(helper_info))

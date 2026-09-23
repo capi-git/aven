@@ -66,6 +66,9 @@ PY
 )"
 export CARGO_TARGET_DIR="$task_repo_root/target"
 
+python3 -B scripts/test-package-chromium.py
+python3 -B scripts/test-dev-aven.py
+
 task_app="$task_repo_root/target/release/bundle/macos/Aven.app"
 task_release_dir="$task_repo_root/target/releases/v$task_version"
 

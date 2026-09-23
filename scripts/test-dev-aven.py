@@ -38,6 +38,7 @@ class DevRunnerGuards(unittest.TestCase):
             'NSCameraUsageDescription': 'Camera requires approval.',
             'NSMicrophoneUsageDescription': 'Microphone requires approval.',
             'NSDocumentsFolderUsageDescription': 'Open chosen projects.',
+            'NSBluetoothAlwaysUsageDescription': 'The browser may check Bluetooth devices.',
         }))
         (self.root / 'src-tauri/icons/icon.icns').write_bytes(b'fixture icon')
         (self.root / 'package.json').write_text(json.dumps({'version': '0.9.0'}))
@@ -154,6 +155,7 @@ class DevRunnerGuards(unittest.TestCase):
         self.assertEqual(info['NSCameraUsageDescription'], 'Camera requires approval.')
         self.assertEqual(info['NSMicrophoneUsageDescription'], 'Microphone requires approval.')
         self.assertEqual(info['NSDocumentsFolderUsageDescription'], 'Open chosen projects.')
+        self.assertEqual(info['NSBluetoothAlwaysUsageDescription'], 'The browser may check Bluetooth devices.')
         self.assertTrue((self.app / 'Contents/Resources' / info['CFBundleIconFile']).is_file())
         self.assertTrue((self.app / 'Contents/MacOS' / info['CFBundleExecutable']).is_file())
 

@@ -16,5 +16,7 @@
 	<string>Aven lets websites use your location only when you approve their request.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Aven lets websites connect to local devices and services only when you approve their request.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Aven's built-in browser may check Bluetooth devices for website and sign-in features. You control Bluetooth access in macOS.</string>
 </dict>
 </plist>
