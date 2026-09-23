@@ -1,5 +1,12 @@
 # Aven changelog
 
+## [0.1.90] - 2026-09-23
+
+### Home folders and skills that open correctly
+
+- Resolve home-relative links such as `~/.agents/skills` against the user's home directory, without appending them to the project or substituting similarly named project files.
+- Browse linked folders inside Aven and open their files in the editor. Recover older broken home links when their original path no longer exists.
+
 ## [0.1.89] - 2026-09-23
 
 ### Menus that stay with their controls

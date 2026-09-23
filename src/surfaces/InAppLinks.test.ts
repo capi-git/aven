@@ -77,6 +77,8 @@ describe("in-app links", () => {
       { line: 4 },
     ],
     ["[Data](./report.json)", "/project/report.json", undefined],
+    ["[Skills](~/.agents/skills)", "~/.agents/skills", undefined],
+    ["[Skill](~/.agents/skills/example/SKILL.md:5)", "~/.agents/skills/example/SKILL.md", { line: 5 }],
     ["[Section](docs/guide.md#setup)", "/project/docs/guide.md", undefined],
     [
       "[Notes](/project/100%25%20ready%23today.md)",

@@ -49,13 +49,16 @@ import {
   basename,
   gitFileDiff,
   gitStageContents,
+  homeDir,
+  inspectPaths,
   notifyGitChanged,
   readTextFile,
   subscribeGitChanged,
   writeTextFile,
 } from "../lib/fs";
 import { syncWatchedMtime, watchFile } from "../lib/fileWatch";
-import { displayPath, parentPath } from "../lib/paths";
+import { displayPath, joinPath, parentPath } from "../lib/paths";
+import { IS_WIN } from "../lib/platform";
 import type { EditorNavigation } from "../lib/search";
 import { MarkdownPreview } from "./AgentMarkdown";
 import {
@@ -77,6 +80,7 @@ import {
 } from "./editorGit";
 import { editorLint } from "./editorLint";
 import { editorSearch } from "./editorSearch";
+import { DirectoryView } from "./DirectoryView";
 
 type EditorNavigationRequest = EditorNavigation & { token: number };
 
@@ -96,6 +100,7 @@ type Props = {
 type LoadState =
   | { status: "loading" }
   | { status: "ready"; content: string }
+  | { status: "directory"; path: string }
   | { status: "error"; message: string };
 
 type SaveState =
@@ -200,20 +205,51 @@ export function FileEditor({
         setLoadState({ status: "ready", content });
         setDraft(readEditorDraft(path)?.text ?? content);
       })
-      .catch((error: unknown) => {
+      .catch(async (error: unknown) => {
+        if (cancelled || generation !== loadGeneration.current) return;
+        const readError =
+          error instanceof Error ? error.message : String(error);
+        try {
+          const [info] = await inspectPaths([path]);
+          if (cancelled || generation !== loadGeneration.current) return;
+          if (info?.isDir) {
+            setLoadState({ status: "directory", path: info.path });
+            return;
+          }
+          // Older versions saved home links beneath the current project.
+          // Prefer any real literal `~/` entry; recover only a missing path
+          // with that exact project prefix, and only to an existing folder.
+          const legacyPrefix = `${cwd}/~/`;
+          const missingPath =
+            readError.endsWith("(os error 2)") ||
+            (IS_WIN && readError.endsWith("(os error 3)"));
+          if (!info && missingPath && cwd && path.startsWith(legacyPrefix)) {
+            const home = await homeDir();
+            if (cancelled || generation !== loadGeneration.current) return;
+            const recovered = joinPath(home, path.slice(legacyPrefix.length));
+            const [folder] = await inspectPaths([recovered]);
+            if (cancelled || generation !== loadGeneration.current) return;
+            if (folder?.isDir) {
+              setLoadState({ status: "directory", path: folder.path });
+              return;
+            }
+          }
+        } catch {
+          // Metadata is optional recovery. Retain the original read error.
+        }
         if (cancelled || generation !== loadGeneration.current) return;
         setLoadState({
           status: "error",
-          message: error instanceof Error ? error.message : String(error),
+          message: readError,
         });
       });
     return () => {
       cancelled = true;
     };
-  }, [path, reloadKey]);
+  }, [path, cwd, reloadKey]);
 
   useEffect(() => {
-    if (!showDiff) {
+    if (!showDiff || loadState.status !== "ready") {
       setGitBase({ path, original: null });
       return;
     }
@@ -276,7 +312,7 @@ export function FileEditor({
       unsubGit();
       unsubWatch();
     };
-  }, [cwd, path, reloadFromDisk, showDiff]);
+  }, [cwd, path, reloadFromDisk, showDiff, loadState.status]);
 
   const gitOriginal = gitBase.path === path ? gitBase.original : null;
 
@@ -399,6 +435,16 @@ export function FileEditor({
           </button>
         </div>
       </div>
+    );
+  }
+
+  if (loadState.status === "directory") {
+    return (
+      <DirectoryView
+        key={loadState.path}
+        path={loadState.path}
+        onOpenFile={onOpenFile}
+      />
     );
   }
 

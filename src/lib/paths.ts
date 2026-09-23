@@ -89,7 +89,7 @@ export function joinPath(parent: string, relative: string): string {
   return out;
 }
 
-/** Absolute path for a workspace file href, or `undefined` if it is not a local file. */
+/** Local path for a workspace href. Home-relative paths stay intact for native expansion. */
 export function resolveWorkspacePath(
   href: string,
   cwd?: string,
@@ -109,6 +109,10 @@ export function resolveWorkspacePath(
   if (!value || value === "." || value.startsWith("#") || value.startsWith("?") || value.includes("://")) {
     return undefined;
   }
+  // A leading tilde belongs to the user's home, never the active project.
+  // Keep it unresolved here: this synchronous parser cannot infer the actual
+  // home directory from a checkout (which may live on an external volume).
+  if (value === "~" || value.startsWith("~/")) return value;
   if (!looksLikeFilePath(value)) return undefined;
 
   if (/^[A-Za-z]:\//.test(value)) return value;

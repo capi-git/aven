@@ -40,6 +40,7 @@ vi.mock("./fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./fs")>();
   return {
     ...actual,
+    homeDir: vi.fn(async () => "/Users/me"),
     listProjectFiles: vi.fn(async () => files),
   };
 });
@@ -78,6 +79,19 @@ describe("resolveOpenablePath", () => {
       "apps/desktop/src/main.tsx",
     );
     expect(resolved).toBe(files[2].path);
+  });
+
+  it("resolves home folders and files without scanning or fuzzy-matching the project", async () => {
+    list.mockRejectedValue(new Error("Unrelated project is unavailable"));
+    expect(await resolveOpenablePath("/Volumes/Projects/app", "~/.agents/skills")).toBe("/Users/me/.agents/skills");
+    expect(await resolveOpenablePath(cwd, "~/My Notes/SKILL.md:12")).toBe("/Users/me/My Notes/SKILL.md");
+    expect(await resolveOpenablePath(cwd, "~")).toBe("/Users/me");
+    expect(list).not.toHaveBeenCalled();
+  });
+
+  it("honors paths outside the project instead of opening a same-named project file", async () => {
+    expect(await resolveOpenablePath(cwd, "/Users/me/.agents/skills/main.tsx")).toBe("/Users/me/.agents/skills/main.tsx");
+    expect(list).not.toHaveBeenCalled();
   });
 });
 

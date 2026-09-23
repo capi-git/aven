@@ -397,6 +397,19 @@ export function readTextFile(path: string): Promise<string> {
   return invoke<string>("read_text_file", { path });
 }
 
+export type PathInfo = {
+  path: string;
+  name: string;
+  size: number;
+  isDir: boolean;
+};
+
+/** Existing paths only; the native command expands home-relative paths. */
+export function inspectPaths(paths: string[]): Promise<PathInfo[]> {
+  if (paths.length === 0) return Promise.resolve([]);
+  return invoke<PathInfo[]>("inspect_paths", { paths });
+}
+
 /** Raw bytes for the image viewer. Arrives as an ArrayBuffer, not base64. */
 export async function readBinaryFile(path: string): Promise<Uint8Array> {
   const buffer = await invoke<ArrayBuffer>("read_binary_file", { path });

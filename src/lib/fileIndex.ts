@@ -1,7 +1,7 @@
-import { listProjectFiles, type ProjectFile } from "./fs";
+import { homeDir, listProjectFiles, type ProjectFile } from "./fs";
 import { subscribeDirsChanged } from "./fileTree";
 import { scorePath, type FuzzyHit } from "./fuzzy";
-import { resolveWorkspacePath, slash } from "./paths";
+import { isEqualOrInside, joinPath, resolveWorkspacePath, slash } from "./paths";
 import { looksLikeProject } from "./recents";
 import { normalizeEditorPath } from "./search";
 
@@ -198,6 +198,13 @@ export async function resolveOpenablePath(
 ): Promise<string | undefined> {
   const direct = resolveWorkspacePath(href, cwd);
   if (!direct) return undefined;
+
+  if (direct === "~" || direct.startsWith("~/")) {
+    return joinPath(await homeDir(), direct === "~" ? "" : direct.slice(2));
+  }
+  // An explicit target outside the project must not be replaced by a similarly
+  // named project file, or wait for an unrelated repository scan.
+  if (!isEqualOrInside(direct, cwd)) return direct;
 
   const files = await loadProjectFiles(cwd);
   if (files.length === 0) return direct;

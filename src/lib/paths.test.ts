@@ -7,8 +7,25 @@ import {
   prettyCwd,
   projectName,
   rebasePath,
+  resolveWorkspacePath,
   slash,
 } from "./paths";
+
+describe("home-relative workspace links", () => {
+  it.each([undefined, "~", "/Volumes/Projects/app", "/Users/me/project"])(
+    "preserves the home target independently of cwd %s",
+    (cwd) => {
+      expect(resolveWorkspacePath("~/.agents/skills", cwd)).toBe("~/.agents/skills");
+      expect(resolveWorkspacePath("~/My Notes/SKILL.md:12:3", cwd)).toBe("~/My Notes/SKILL.md");
+      expect(resolveWorkspacePath("~", cwd)).toBe("~");
+    },
+  );
+
+  it("keeps an explicitly relative literal tilde folder in the project", () => {
+    expect(resolveWorkspacePath("./~/notes.md", "/project")).toBe("/project/~/notes.md");
+    expect(resolveWorkspacePath("~someone/notes.md", "/project")).toBe("/project/~someone/notes.md");
+  });
+});
 
 describe("slash", () => {
   it("preserves backslashes in absolute Unix filenames", () => {
