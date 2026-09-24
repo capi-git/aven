@@ -277,6 +277,41 @@ export function hydrateWorkspaceSnapshot(
   };
 }
 
+/**
+ * Streaming replaces a session for every flushed batch of transcript events,
+ * but the snapshot keeps only these fields. Reuse the previous list when none
+ * changed so the workspace is not re-serialized on every streamed update.
+ * Composer drafts have their own change subscription.
+ */
+export function stableSnapshotSessions(
+  previous: Session[],
+  next: Session[],
+): Session[] {
+  if (previous === next) return previous;
+  if (previous.length !== next.length) return next;
+  for (let index = 0; index < next.length; index += 1) {
+    const a = previous[index];
+    const b = next[index];
+    if (
+      a !== b &&
+      (a.id !== b.id ||
+        a.cwd !== b.cwd ||
+        a.harness !== b.harness ||
+        a.model !== b.model ||
+        a.modelSettings !== b.modelSettings ||
+        a.runtimeMode !== b.runtimeMode ||
+        a.title !== b.title ||
+        a.queuedMessages !== b.queuedMessages ||
+        a.inboxAsk !== b.inboxAsk ||
+        a.providerSessionId !== b.providerSessionId ||
+        a.branch !== b.branch ||
+        a.worktreeCwd !== b.worktreeCwd)
+    )
+      return next;
+  }
+  return previous;
+}
+
 function sessionStub(session: Session): WorkspaceSessionStub | null {
   if (!session.id) return null;
   const draft = session.inboxAsk ? undefined : readComposerDraft(session.id);

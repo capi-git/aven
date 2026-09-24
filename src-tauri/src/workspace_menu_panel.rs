@@ -1,6 +1,7 @@
 //! App-rendered workspace actions in an owned window above native browser children.
 //! The panel only reports a validated selection to its originating workspace;
 //! it never changes browser visibility or executes actions itself.
+use crate::display_rate::FullRefreshRate;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -530,6 +531,7 @@ fn open_on_main(
             &label,
             WebviewUrl::App("index.html?workspaceMenuPanel=1".into()),
         )
+        .full_refresh_rate(app)
         .focused(false)
         .auto_resize()
         .disable_drag_drop_handler()

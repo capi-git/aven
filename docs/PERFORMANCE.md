@@ -37,3 +37,19 @@ The 0.1.95 baseline changed its scroll height from 15,023 to 34,235 CSS pixels d
 The fix removes estimated geometry for mounted turns and code fences, while retaining paging, collapsed completed work, and lazy highlighting. It also removes the transcript's blocking wheel interception and pauses hidden prompt outlines. Twelve wheel events through the corrected initial page held its height at 81,475 pixels; nine more after loading all 32 turns held it at 130,089 pixels. Both corrected samples recorded zero `getComputedStyle` calls during scrolling. The baseline recorded 25 such calls in its two-event sample.
 
 These measurements establish stable geometry and less synchronous input work in the fixture. They do not establish a displayed frame rate, a GPU-use percentage reduction, or elimination of every possible browser flicker. The fixture's native browser page did not finish loading, so its zero browser-layout/snapshot calls are not visual browser verification. Regression tests separately cover scroll defaults, auto-follow, nested tool scrolling, code-block CSS against real Streamdown markup, and hidden-outline cleanup.
+
+## Full refresh rate for Aven's interface
+
+WebKit enables "Prefer Page Rendering Updates near 60fps" by default. It paces `requestAnimationFrame`, scrolling updates and CSS animations near 60 fps on 120 Hz displays, which explains the 17–18 ms callbacks measured above. The page reads the preference when it is created: a standalone WKWebView on a 120 Hz display measured a 17 ms median frame interval by default, 17 ms after disabling it on a live view, and 8 ms when it was disabled on the configuration before creation.
+
+Aven's own documents (main window, detached workspaces, session pop-outs and panels) now receive a configuration with the preference disabled. On macOS, the main window is created during setup instead of from configuration so it can use one. Remote Chromium tabs are unaffected; they already use Chromium's compositor. Aven Dev's main window measured an 8 ms median `requestAnimationFrame` interval (p10 7 ms, p90 9 ms, 360 frames) on the same display. This is callback cadence, not a measurement of displayed frames or input latency.
+
+Running at twice the frame rate would also double per-frame work tied to animation frames. Streamed transcript events are therefore flushed at most about every 32 ms instead of every frame. Other changes in the same pass reduce work that competes with the frame budget:
+
+- The workspace snapshot is not rebuilt and serialized while only transcripts change.
+- Overscroll containment checks nested scrollers only when a container is at an edge.
+- The terminal spinner updates its glyph without React renders and pauses while hidden.
+- Pinned diff headers, approval toasts and detached composers use solid surfaces instead of backdrop blur.
+- The browser loading bar animates `transform` instead of `left`.
+
+Remaining known costs: each streaming flush still re-renders the top-level `App` and the sidebar, because sessions live in `App` state and many derived props change identity. Moving sessions to per-session subscriptions is the next structural improvement. Hidden workspace tabs also stay mounted; editors and terminals in them retain memory until closed.

@@ -18,6 +18,7 @@ import { createProjectTerminal } from "./projectTerminal";
 import { newSession, type Session } from "./session";
 import {
   collectWorkspaceSnapshot,
+  stableSnapshotSessions,
   hydrateWorkspaceSnapshot,
   parseWorkspaceSnapshot,
 } from "./workspaceSnapshot";
@@ -570,4 +571,27 @@ it("uses the newest workspace queue, including an empty queue, while keeping leg
     hydrateWorkspaceSnapshot(snapshot, new Map([[session.id, oldRecord]]))!
       .sessions[0].queuedMessages,
   ).toEqual(oldRecord.queuedMessages);
+});
+
+describe("stableSnapshotSessions", () => {
+  it("keeps the saved list while only transcripts stream", () => {
+    const saved = [chat("s1", "/tmp/a"), chat("s2", "/tmp/b")];
+    const streamed = [
+      { ...saved[0], blocks: [...saved[0].blocks] },
+      saved[1],
+    ];
+    expect(stableSnapshotSessions(saved, streamed)).toBe(saved);
+  });
+
+  it("accepts the new list when a persisted field or the set changes", () => {
+    const saved = [chat("s1", "/tmp/a")];
+    const renamed = [{ ...saved[0], title: "Renamed" }];
+    expect(stableSnapshotSessions(saved, renamed)).toBe(renamed);
+    const added = [...saved, chat("s2", "/tmp/b")];
+    expect(stableSnapshotSessions(saved, added)).toBe(added);
+    const reordered = [chat("s2", "/tmp/b"), saved[0]];
+    expect(stableSnapshotSessions([saved[0], reordered[0]], reordered)).toBe(
+      reordered,
+    );
+  });
 });

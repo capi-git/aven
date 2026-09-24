@@ -1,6 +1,7 @@
 //! App-rendered access controls in an owned window above native browser children.
 //! The panel only reports a validated selection to its originating workspace;
 //! it never changes browser visibility or applies permission settings itself.
+use crate::display_rate::FullRefreshRate;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{collections::HashMap, sync::Mutex};
@@ -350,6 +351,7 @@ fn open_panel(
             .map_err(|error| error.to_string())?;
         window.set_size(size).map_err(|error| error.to_string())?;
         let child = WebviewBuilder::new(&label, WebviewUrl::App("index.html?accessPanel=1".into()))
+            .full_refresh_rate(app)
             .focused(false)
             .auto_resize()
             .disable_drag_drop_handler()

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef } from "react";
 
 const FRAMES = [
   "⠋",
@@ -18,19 +18,34 @@ export function TerminalSpinner({
 }: {
   className?: string;
 }) {
-  const [frame, setFrame] = useState(0);
+  const ref = useRef<HTMLSpanElement>(null);
 
+  // Write the glyph directly: a React state update every 80 ms re-rendered the
+  // spinner (and ran effects) for every busy row. Pause while the window is
+  // hidden.
   useEffect(() => {
-    const id = window.setInterval(
-      () => setFrame((n) => (n + 1) % FRAMES.length),
-      80,
-    );
-    return () => window.clearInterval(id);
+    let frame = 0;
+    let id: number | undefined;
+    const tick = () => {
+      frame = (frame + 1) % FRAMES.length;
+      const glyph = ref.current?.firstChild;
+      if (glyph) glyph.nodeValue = FRAMES[frame];
+    };
+    const sync = () => {
+      window.clearInterval(id);
+      id = document.hidden ? undefined : window.setInterval(tick, 80);
+    };
+    sync();
+    document.addEventListener("visibilitychange", sync);
+    return () => {
+      document.removeEventListener("visibilitychange", sync);
+      window.clearInterval(id);
+    };
   }, []);
 
   return (
-    <span aria-hidden className={className}>
-      {FRAMES[frame]}
+    <span ref={ref} aria-hidden className={className}>
+      {FRAMES[0]}
     </span>
   );
 }

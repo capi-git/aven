@@ -442,12 +442,14 @@
   width: 30%;
   animation: browser-progress 1.5s ease-in-out infinite;
 }
+/* Move the 30%-wide bar from -30% to 100% of the track on the compositor;
+   animating `left` would relayout the toolbar every frame. */
 @keyframes browser-progress {
   from {
-    left: -30%;
+    transform: translateX(-100%);
   }
   to {
-    left: 100%;
+    transform: translateX(calc(100% / 0.3));
   }
 }
 @media (prefers-reduced-motion: reduce) {

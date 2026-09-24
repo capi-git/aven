@@ -1,6 +1,7 @@
 //! Trusted, temporary session windows. The owner keeps the harness and durable
 //! session; a floating window can only act on its own session through this bridge.
 
+use crate::display_rate::FullRefreshRate;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::{
@@ -539,6 +540,7 @@ pub async fn session_pip_open(
         &label,
         WebviewUrl::App("index.html?pipSession=1".into()),
     )
+    .full_refresh_rate(app)
     .title(title.chars().take(160).collect::<String>())
     .inner_size(500.0, 620.0)
     .min_inner_size(360.0, 360.0)

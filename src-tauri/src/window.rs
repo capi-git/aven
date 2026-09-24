@@ -1,3 +1,4 @@
+use crate::display_rate::FullRefreshRate;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -250,6 +251,29 @@ pub fn is_workspace_label(label: &str) -> bool {
         })
 }
 
+/// On macOS the configured main window is built here rather than by Tauri, so
+/// its WebKit document can render at the display's full refresh rate. Other
+/// platforms replace the window list and still create it from configuration.
+#[cfg(target_os = "macos")]
+pub fn create_main_window(app: &AppHandle) -> tauri::Result<()> {
+    if app.get_webview_window("main").is_some() {
+        return Ok(());
+    }
+    let Some(config) = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|window| window.label == "main")
+    else {
+        return Ok(());
+    };
+    WebviewWindowBuilder::from_config(app, config)?
+        .full_refresh_rate(app)
+        .build()?;
+    Ok(())
+}
+
 pub fn open_new_window(app: &AppHandle) -> Result<(), String> {
     let _work = begin_runtime_work(app)?;
     let mut config = app
@@ -266,6 +290,7 @@ pub fn open_new_window(app: &AppHandle) -> Result<(), String> {
 
     let window = WebviewWindowBuilder::from_config(app, &config)
         .map_err(|err| err.to_string())?
+        .full_refresh_rate(app)
         .build()
         .map_err(|err| err.to_string())?;
 

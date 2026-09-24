@@ -61,7 +61,7 @@ function ApprovalToastCard({
 
   return (
     <article
-      className="approval-toast pointer-events-auto overflow-hidden rounded-xl border border-content/20 border-dashed bg-content/10 shadow-xl backdrop-blur-xl"
+      className="approval-toast pointer-events-auto overflow-hidden rounded-xl border border-content/20 border-dashed bg-[color-mix(in_srgb,var(--color-content)_10%,var(--color-background-base))] shadow-xl"
       role="status"
     >
       <button

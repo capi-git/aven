@@ -1232,7 +1232,7 @@ export function Composer({
           data-composer-box
           data-file-drag={fileDrag || undefined}
           data-attachments-only={attachmentsOnly || undefined}
-          className={`relative z-10 rounded-lg border bg-content/3 backdrop-blur-sm ${
+          className={`relative z-10 rounded-lg border bg-content/3 ${
             fileDrag
               ? "border-accent/60"
               : "border-content/10 has-focus:border-content/20"

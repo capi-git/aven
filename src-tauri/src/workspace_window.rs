@@ -2,6 +2,7 @@
 //! Browser NSViews are moved as a transaction; no page/session is recreated.
 #[path = "workspace_placement.rs"]
 mod placement;
+use crate::display_rate::FullRefreshRate;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -300,6 +301,7 @@ pub async fn workspace_window_open(
                 &label,
                 WebviewUrl::App("index.html?workspaceWindow=1".into()),
             )
+            .full_refresh_rate(&app)
             .title(state["title"].as_str().unwrap_or("Aven workspace"))
             .inner_size(1000.0, 720.0)
             .min_inner_size(360.0, 300.0)

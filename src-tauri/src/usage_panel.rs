@@ -1,5 +1,6 @@
 //! A small owned window keeps usage graphics above native browser children.
 //! Its renderer receives only a display snapshot and can refresh or dismiss it.
+use crate::display_rate::FullRefreshRate;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{collections::HashMap, sync::Mutex};
@@ -304,6 +305,7 @@ fn open_panel(
             .map_err(|error| error.to_string())?;
         window.set_size(size).map_err(|error| error.to_string())?;
         let child = WebviewBuilder::new(&label, WebviewUrl::App("index.html?usagePanel=1".into()))
+            .full_refresh_rate(app)
             .focused(false)
             .auto_resize()
             .disable_drag_drop_handler()

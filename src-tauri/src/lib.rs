@@ -25,6 +25,7 @@ mod checkpoint;
 mod control;
 pub mod control_cli;
 mod cursor_store;
+mod display_rate;
 mod fs;
 mod github_account;
 mod harness;
@@ -257,6 +258,7 @@ pub fn run() {
             menu::install(app.handle())?;
             #[cfg(target_os = "macos")]
             {
+                window::create_main_window(app.handle())?;
                 macos::install_dock_menu(app.handle());
                 if let Some(window) = app.get_window("main") {
                     macos::install(&window);

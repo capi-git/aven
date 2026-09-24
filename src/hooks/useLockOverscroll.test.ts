@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { it, expect, vi } from "vitest";
-import { useLockOverscroll } from "./useLockOverscroll";
+import { lockOverscroll, useLockOverscroll } from "./useLockOverscroll";
 it("preserves mixed-axis and nested scrolling, contains the dominant edge, cleans replacement/unmount", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const root = createRoot(document.createElement("div"));
@@ -54,4 +54,24 @@ it("preserves mixed-axis and nested scrolling, contains the dominant edge, clean
   expect(wheel(el, 0, -40)).toBe(false);
   el.remove();
   vi.unstubAllGlobals();
+});
+
+it("reads no nested styles for wheel events away from the container's edge", () => {
+  const el = document.createElement("div");
+  Object.defineProperties(el, {
+    clientHeight: { value: 100 },
+    scrollHeight: { value: 400 },
+  });
+  const inner = document.createElement("div");
+  el.append(inner);
+  document.body.append(el);
+  el.scrollTop = 150;
+  const styles = vi.spyOn(window, "getComputedStyle");
+  const event = new WheelEvent("wheel", { deltaY: 40, cancelable: true });
+  Object.defineProperty(event, "target", { value: inner });
+  lockOverscroll(el, event);
+  expect(event.defaultPrevented).toBe(false);
+  expect(styles).not.toHaveBeenCalled();
+  styles.mockRestore();
+  el.remove();
 });

@@ -366,8 +366,12 @@ const FileSection = memo(function FileSection({
     >
       <header
         className={`${
-          fileLayout === "stacked" ? "sticky top-0 z-30 backdrop-blur-xl" : ""
-        } flex items-center gap-2 bg-content/2 px-3 py-1.5 ${
+          fileLayout === "stacked"
+            ? // Opaque rather than blurred: a backdrop blur per pinned header
+              // re-renders on every scroll frame over the moving diff.
+              "sticky top-0 z-30 bg-[color-mix(in_srgb,var(--color-content)_4%,var(--color-background-base))]"
+            : "bg-content/2"
+        } flex items-center gap-2 px-3 py-1.5 ${
           fileLayout === "stacked" || expanded
             ? "border-b border-content/10"
             : ""

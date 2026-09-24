@@ -536,7 +536,10 @@ import {
   isInFlightSession,
   shouldWriteInFlightSnapshot,
 } from "./lib/inFlight";
-import { collectWorkspaceSnapshot } from "./lib/workspaceSnapshot";
+import {
+  collectWorkspaceSnapshot,
+  stableSnapshotSessions,
+} from "./lib/workspaceSnapshot";
 import { subscribeComposerDrafts } from "./lib/composerDrafts";
 import type { InstalledUpdate } from "./lib/updateNotice";
 import {
@@ -552,6 +555,11 @@ import {
   setQuitWorkspace,
   type ResumedWorkspace,
 } from "./lib/appLifecycle";
+import {
+  cancelScheduledFlush,
+  scheduleStreamFlush,
+  type ScheduledFlush,
+} from "./lib/streamFlush";
 
 function withPlanStatus(
   session: Session,
@@ -586,21 +594,6 @@ function setsEqual<T>(a: Set<T>, b: Set<T>): boolean {
     if (!b.has(value)) return false;
   }
   return true;
-}
-
-type ScheduledFlush = { kind: "raf" | "timeout"; id: number };
-
-function cancelScheduledFlush(handle: ScheduledFlush | null) {
-  if (!handle) return;
-  if (handle.kind === "raf") cancelAnimationFrame(handle.id);
-  else clearTimeout(handle.id);
-}
-
-function scheduleHarnessFlush(run: () => void): ScheduledFlush {
-  if (document.hidden) {
-    return { kind: "timeout", id: window.setTimeout(run, 32) };
-  }
-  return { kind: "raf", id: requestAnimationFrame(run) };
 }
 
 function userTurnCards(
@@ -1504,6 +1497,7 @@ export default function App({
   // recomputed for every delta.
   const harnessQueued = useRef(new Map<string, HarnessEvent[]>());
   const harnessFlush = useRef<ScheduledFlush | null>(null);
+  const lastHarnessFlushAt = useRef(0);
   const skipForgetSessionIds = useRef(new Set<string>());
   const importedSessionsApplied = useRef(false);
 
@@ -1529,6 +1523,7 @@ export default function App({
     const batches = harnessQueued.current;
     if (batches.size === 0) return;
     harnessQueued.current = new Map();
+    lastHarnessFlushAt.current = performance.now();
     const prev = sessionsRef.current;
     const next = prev.map((session) => {
       const events = batches.get(session.id);
@@ -1619,7 +1614,10 @@ export default function App({
       if (events) events.push(event);
       else queued.set(sessionId, [event]);
       if (!harnessFlush.current) {
-        harnessFlush.current = scheduleHarnessFlush(flushHarnessEvents);
+        harnessFlush.current = scheduleStreamFlush(
+          flushHarnessEvents,
+          lastHarnessFlushAt.current,
+        );
       }
     },
     [applyApprovalEvent, flushHarnessEvents],
@@ -2182,11 +2180,20 @@ export default function App({
     void replaceInFlightSessions(refs).catch(() => undefined);
   }, [sessions, tabs]);
 
+  const snapshotSessionsRef = useRef(sessions);
+  const snapshotSessions = useMemo(() => {
+    snapshotSessionsRef.current = stableSnapshotSessions(
+      snapshotSessionsRef.current,
+      sessions,
+    );
+    return snapshotSessionsRef.current;
+  }, [sessions]);
+
   useEffect(() => {
     if (windowTransfer) return;
     const snapshot = collectWorkspaceSnapshot(
       tabs,
-      sessions,
+      snapshotSessions,
       activeTabId,
       projectCwd,
       projectTerminals,
@@ -2194,7 +2201,7 @@ export default function App({
     scheduleWorkspaceSnapshot(snapshot);
   }, [
     tabs,
-    sessions,
+    snapshotSessions,
     activeTabId,
     projectCwd,
     projectTerminals,
