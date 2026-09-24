@@ -1,5 +1,13 @@
 # Aven changelog
 
+## [0.1.95] - 2026-09-23
+
+### More efficient browser zoom
+
+- Correct the built-in browser's pixel density when zooming out, preventing canvas and WebGL pages from drawing oversized buffers.
+- Follow display density changes while preserving per-tab zoom and the browser's native input and screenshot coordinates.
+- Pause the optional composer mascot while its workspace or window is hidden, and resume from the same position.
+
 ## [0.1.94] - 2026-09-23
 
 ### Balanced browser memory saver

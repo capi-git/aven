@@ -53,6 +53,7 @@ bool initialized = false, stopping = false, library_loaded = false;
 int live_browser_count = 0;
 __strong SMChromiumPump *pump_handler=nil;
 __strong NSTimer *pump_timer=nil;
+__strong id backing_scale_observer=nil;
 bool pump_active=false,pump_reentered=false;
 constexpr int64_t kPumpFallback=INT_MAX;
 constexpr int64_t kPumpMaximumDelay=1000/30;
@@ -577,6 +578,14 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     State();
     ApplyZoom();
   }
+  void RefreshBackingScale() {
+    if (!browser_ || closing_ || sleep_.closing()) return;
+    NSView *view=(__bridge NSView*)browser_->GetHost()->GetWindowHandle();
+    if (zoom_.SetBackingScale(view.window.backingScaleFactor)) {
+      sleep_.Invalidate();
+      ApplyZoom();
+    }
+  }
   void ApplyZoom() {
     if (!browser_ || closing_) {
       auto waiters=std::move(zoom_waiters_); zoom_waiters_.clear();
@@ -586,17 +595,21 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     // CDP restores its saved emulation after a screenshot. Apply newer zoom
     // only once that restoration has completed, including canceled captures.
     if (screenshot_running_) return;
+    NSView *view=(__bridge NSView*)browser_->GetHost()->GetWindowHandle();
+    if (zoom_.SetBackingScale(view.window.backingScaleFactor)) sleep_.Invalidate();
     const auto factor=zoom_.Begin();
     if (!factor) return;
     auto waiters=std::move(zoom_waiters_); zoom_waiters_.clear();
     // CEF SetZoomLevel writes the shared host zoom map. Desktop metrics apply
     // to this DevTools target only: zero dimensions follow the actual widget,
     // divided by scale for layout, while Chromium keeps its real compositor
-    // pixel density and maps input through the same transform. No mobile or
-    // touch emulation, document mutation, or separate cookie profile is needed.
+    // pixel density and maps input through the same transform. The exposed
+    // device scale includes zoom, matching normal browser DPR: canvas/WebGL
+    // buffers must not grow quadratically when zooming out. Chromium preserves
+    // the original device scale for native sizing, rasterization and input.
     // Chromium: ScreenMetricsEmulator::Apply / DevToolsEmulator::EnableDeviceEmulation.
     auto params=Object(); params->SetInt("width",0); params->SetInt("height",0);
-    params->SetDouble("deviceScaleFactor",0); params->SetBool("mobile",false);
+    params->SetDouble("deviceScaleFactor",zoom_.device_scale_factor()); params->SetBool("mobile",false);
     params->SetDouble("scale",*factor); params->SetBool("dontSetVisibleSize",true);
     CefRefPtr<Page> self=this;
     Dev("Emulation.setDeviceMetricsOverride",params,[self,waiters=std::move(waiters)](bool ok,Dict result) {
@@ -642,6 +655,9 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     supermono::ApplyBrowserHostVisibility(clip_view_,view,visible_ && exposed>0);
     if (clip_view_.hidden) [drop_indicator_ clear];
     [drop_indicator_ placeAboveBrowser:view frame:aligned.browser];
+    // Covers reparenting to a different-density display. Ordinary layouts do
+    // not issue another metrics request when the physical scale is unchanged.
+    RefreshBackingScale();
     // AppKit delivers the actual frame/visibility changes to Chromium above.
     // NotifyMoveOrResizeStarted is only implemented for Windows and Linux.
   }
@@ -1292,6 +1308,10 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
 void FinishShutdownNow() {
   if (!initialized || !stopping || !pages.empty() || live_browser_count) return;
   KillPumpTimer();
+  if (backing_scale_observer) {
+    [NSNotificationCenter.defaultCenter removeObserver:backing_scale_observer];
+    backing_scale_observer=nil;
+  }
   profiles.clear(); CefShutdown(); initialized=false; application=nullptr;
   // Cocoa runtime classes remain registered until process exit, so retain the
   // loaded framework. CefScopedSendingEvent itself only calls NSApp selectors.
@@ -1347,6 +1367,18 @@ extern "C" int sm_chromium_initialize(const char *config_json,sm_chromium_event_
     application=new Application; event_callback=cb; event_context=context;
     initialized=true;
     if (!CefInitialize(CefMainArgs(*_NSGetArgc(),*_NSGetArgv()),settings,application,nullptr)) { initialized=false; application=nullptr; return Fail("Chromium initialization failed"); }
+    // A display-density change need not resize the DOM. Refresh only pages in
+    // the affected window; each tab coalesces changes behind in-flight work.
+    backing_scale_observer=[NSNotificationCenter.defaultCenter
+      addObserverForName:NSWindowDidChangeBackingPropertiesNotification object:nil
+      queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *notification) {
+        if (!initialized || stopping) return;
+        const auto current_pages=pages;
+        for (const auto& entry:current_pages) {
+          if (entry.second->parent_.window==notification.object)
+            entry.second->RefreshBackingScale();
+        }
+      }];
     SchedulePump(0); last_error.clear(); return 1;
   } catch (const std::exception& e) { return Fail(e.what()); } catch (...) { return Fail("Chromium initialization failed"); } }
 }

@@ -16,6 +16,17 @@ class BrowserTabZoom {
     return true;
   }
   double factor() const { return factor_; }
+  // Device emulation's visual scale does not adjust window.devicePixelRatio
+  // like normal page zoom does. Report the effective display density so a
+  // DPR-sized canvas keeps the same physical pixel budget when zooming out.
+  double device_scale_factor() const { return backing_scale_ * factor_; }
+  bool SetBackingScale(double scale) {
+    if (!std::isfinite(scale) || scale <= 0 || scale > 8 || scale == backing_scale_)
+      return false;
+    backing_scale_ = scale;
+    dirty_ = true;
+    return true;
+  }
   bool pending() const { return running_ || dirty_; }
   std::optional<double> Begin() {
     if (running_ || !dirty_) return std::nullopt;
@@ -35,6 +46,7 @@ class BrowserTabZoom {
 
  private:
   double factor_ = 1.0, applied_factor_ = 1.0, running_factor_ = 1.0;
+  double backing_scale_ = 1.0;
   bool running_ = false, dirty_ = false;
 };
 
