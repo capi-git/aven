@@ -1,5 +1,14 @@
 # Aven changelog
 
+## [0.1.93] - 2026-09-23
+
+### Less work in inactive workspaces
+
+- Disconnect browser presentation observers and release temporary overlay images while a pane is hidden, retaining the page and its agent connection for immediate return.
+- Skip unchanged native browser frames, visibility assignments, and corner masks instead of repeatedly invalidating the same layout.
+- Pause decorative animations in hidden retained workspaces. Pause the optional welcome-screen arcade while hidden, and render only the boards participating in the visible slide.
+- Preserve loaded browser pages, workspace layouts, conversation drafts, and game state rather than reloading them on every switch.
+
 ## [0.1.92] - 2026-09-23
 
 ### Aven command and application names

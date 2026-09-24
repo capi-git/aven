@@ -124,6 +124,8 @@ describe("native preview lifecycle", () => {
   let frames: Map<number, FrameRequestCallback>;
   let resizeCallback: () => void;
   let mutationCallback: (records: Partial<MutationRecord>[]) => void;
+  let observedResizes: Set<object>;
+  let observedMutations: Set<typeof mutationCallback>;
   const flushFrame = async () => {
     await act(async () => {
       const pending = [...frames.values()];
@@ -203,29 +205,34 @@ describe("native preview lifecycle", () => {
       return frameId;
     });
     vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
+    observedResizes = new Set();
     vi.stubGlobal(
       "ResizeObserver",
       class {
         constructor(callback: () => void) {
           resizeCallback = callback;
         }
-        observe() {}
-        disconnect() {}
+        observe() {
+          observedResizes.add(this);
+        }
+        disconnect() {
+          observedResizes.delete(this);
+        }
       },
     );
-    const mutationObservers = new Set<typeof mutationCallback>();
+    observedMutations = new Set();
     mutationCallback = (records) => {
-      for (const callback of [...mutationObservers]) callback(records);
+      for (const callback of [...observedMutations]) callback(records);
     };
     vi.stubGlobal(
       "MutationObserver",
       class {
         constructor(private callback: typeof mutationCallback) {}
         observe() {
-          mutationObservers.add(this.callback);
+          observedMutations.add(this.callback);
         }
         disconnect() {
-          mutationObservers.delete(this.callback);
+          observedMutations.delete(this.callback);
         }
       },
     );
@@ -2788,11 +2795,15 @@ describe("native preview lifecycle", () => {
   it("keeps a hidden pane's view and skips geometry work until shown", async () => {
     const props = { id: "one", initialUrl: "localhost:3000" };
     await openPane();
+    expect(observedMutations.size).toBe(1);
+    expect(observedResizes.size).toBe(1);
     await act(async () =>
       root.render(createElement(BrowserPane, { ...props, visible: false })),
     );
     await flushFrame();
     expect(mocks.layout.mock.calls.at(-1)![2]).toBe(false);
+    expect(observedMutations.size).toBe(0);
+    expect(observedResizes.size).toBe(0);
     mocks.bounds.mockClear();
     mocks.layout.mockClear();
     resizeCallback();
@@ -2803,7 +2814,37 @@ describe("native preview lifecycle", () => {
     await flushFrame();
     expect(mocks.layout).toHaveBeenCalledTimes(1);
     expect(mocks.layout.mock.calls[0][2]).toBe(true);
+    expect(observedMutations.size).toBe(1);
+    expect(observedResizes.size).toBe(1);
     expect(mocks.create).toHaveBeenCalledOnce();
+    expect(mocks.close).not.toHaveBeenCalled();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("rechecks overlays on return without observing app mutations for hidden tabs", async () => {
+    await openPane();
+    const nativeId = mocks.create.mock.calls[0][0];
+    await openPane({ visible: false });
+    expect(observedMutations.size).toBe(0);
+    expect(observedResizes.size).toBe(0);
+    mocks.layout.mockClear();
+    const overlay = addOverlay(new DOMRect(120, 100, 200, 300));
+    await flushFrame();
+    expect(mocks.layout).not.toHaveBeenCalled();
+    await openPane({ visible: true });
+    expect(observedMutations.size).toBe(1);
+    expect(observedResizes.size).toBe(1);
+    expect(mocks.layout.mock.calls.some((call) => call[2] === true)).toBe(false);
+    removeOverlay(overlay);
+    await flushFrame();
+    expect(mocks.layout).toHaveBeenLastCalledWith(
+      nativeId,
+      expect.any(Object),
+      true,
+    );
+    expect(mocks.create).toHaveBeenCalledOnce();
+    expect(mocks.close).not.toHaveBeenCalled();
+    expect(mocks.navigate).not.toHaveBeenCalled();
   });
 
   it("ignores an unrelated left menu and fullscreen dismiss backdrop", async () => {
@@ -3028,6 +3069,25 @@ describe("native preview lifecycle", () => {
     expect(mocks.close).not.toHaveBeenCalled();
   });
 
+  it("releases an overlay backing image when switching away without reloading the retained page", async () => {
+    await openPane();
+    await receive();
+    const overlay = addOverlay(new DOMRect(120, 100, 200, 300));
+    await flushFrame();
+    await flushFrame();
+    expect(container.querySelector(".browser-page-snapshot")).not.toBeNull();
+    await openPane({ visible: false });
+    expect(container.querySelector(".browser-page-snapshot")).toBeNull();
+    expect(observedMutations.size).toBe(0);
+    removeOverlay(overlay);
+    await openPane({ visible: true });
+    expect(mocks.layout.mock.lastCall![2]).toBe(true);
+    expect(mocks.create).toHaveBeenCalledOnce();
+    expect(mocks.snapshot).toHaveBeenCalledOnce();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect(mocks.close).not.toHaveBeenCalled();
+  });
+
   it("hides a switched tab immediately while an overlay snapshot is unresolved and ignores its late image", async () => {
     const props = { id: "one", initialUrl: "localhost:3000" };
     await openPane();
@@ -3198,6 +3258,8 @@ describe("native preview lifecycle", () => {
 
   it("does not scan overlay mutations while a retained pane is hidden", async () => {
     await openPane({ visible: false });
+    expect(observedMutations.size).toBe(0);
+    expect(observedResizes.size).toBe(0);
     const changed = document.createElement("div");
     const matches = vi.spyOn(changed, "matches");
     const query = vi.spyOn(changed, "querySelector");

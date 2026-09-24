@@ -585,8 +585,6 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     supermono::EnsureBrowserHost(parent_,clip_view_,view,WorkspaceWebView(parent_));
     // Clip only the obscured edges. The page retains its full viewport size,
     // scroll position and live rendering while a workspace sidebar hovers.
-    // Disable autoresizing before changing the wrapper, including PiP returns.
-    view.autoresizingMask=NSViewNotSizable;
     const double left=auto_resize_ ? 0 : clip_left_;
     const double right=auto_resize_ ? 0 : clip_right_;
     const double exposed=std::max(0.0,w_-left-right);
@@ -602,18 +600,16 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
         !NSEqualRects(edit_annotation_.frame,aligned.browser) ||
         !NSEqualSizes(clip_view_.bounds.size,aligned.clip.size)))
       EditMode(false);
-    clip_view_.frame=aligned.clip;
-    clip_view_.autoresizingMask=auto_resize_ ? NSViewWidthSizable|NSViewHeightSizable : NSViewNotSizable;
-    view.frame=aligned.browser;
-    view.autoresizingMask=auto_resize_ ? NSViewWidthSizable|NSViewHeightSizable : NSViewNotSizable;
-    supermono::ApplyBrowserBottomCornerMask(clip_view_,aligned.browser,auto_resize_ ? 0 : bottom_corner_radius_);
+    supermono::ApplyBrowserHostFrames(clip_view_,view,aligned,auto_resize_);
+    supermono::ApplyBrowserBottomCornerMask(clip_view_,aligned.browser,
+      auto_resize_ ? 0 : bottom_corner_radius_,corner_mask_);
     if (!visible_ || exposed<=0)
       supermono::ReturnHiddenBrowserFocus(clip_view_,WorkspaceWebView(parent_));
-    clip_view_.hidden=!visible_ || exposed<=0;
-    view.hidden=!visible_;
+    supermono::ApplyBrowserHostVisibility(clip_view_,view,visible_ && exposed>0);
     if (clip_view_.hidden) [drop_indicator_ clear];
     [drop_indicator_ placeAboveBrowser:view frame:aligned.browser];
-    browser_->GetHost()->NotifyMoveOrResizeStarted();
+    // AppKit delivers the actual frame/visibility changes to Chromium above.
+    // NotifyMoveOrResizeStarted is only implemented for Windows and Linux.
   }
   void Close() {
     ++edit_generation_; editing_=false; edit_selection_pending_=false;
@@ -1106,6 +1102,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   int dev_sequence_=0,context_id_=0,find_count_=0,find_ordinal_=0;
   uint64_t prompt_sequence_=0;
   supermono::BrowserTabZoom zoom_;
+  supermono::BrowserCornerMaskState corner_mask_;
   std::vector<Completion> zoom_waiters_;
   bool closing_=false;
   bool editing_=false;

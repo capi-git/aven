@@ -29,6 +29,15 @@
   pointer-events: none;
 }
 
+/* Retain layout and component state for instant switching, but stop decorative
+   spinners and pulses from scheduling animation work in invisible workspaces. */
+:where(.workspace-stage[hidden][data-retained="true"], .workspace-stage-surface[hidden][data-retained="true"], .personal-workspace-content[hidden]),
+:where(.workspace-stage[hidden][data-retained="true"], .workspace-stage-surface[hidden][data-retained="true"], .personal-workspace-content[hidden]) *,
+:where(.workspace-stage[hidden][data-retained="true"], .workspace-stage-surface[hidden][data-retained="true"], .personal-workspace-content[hidden]) *::before,
+:where(.workspace-stage[hidden][data-retained="true"], .workspace-stage-surface[hidden][data-retained="true"], .personal-workspace-content[hidden]) *::after {
+  animation-play-state: paused !important;
+}
+
 @layer base {
   /* Tailwind hides [hidden] with !important in this layer. Keep only visited
      layouts measurable; all other hidden elements retain the default rule. */

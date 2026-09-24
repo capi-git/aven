@@ -9,11 +9,26 @@ static int destroyed_probes = 0;
 @interface SMBrowserHostProbe : NSView
 @property(nonatomic) int detachments;
 @property(nonatomic) int window_changes;
+@property(nonatomic) int frame_updates;
+@property(nonatomic) int visibility_updates;
+@property(nonatomic) int resizing_updates;
 @property(nonatomic, strong) NSString* page_state;
 @end
 
 @implementation SMBrowserHostProbe
 - (BOOL)acceptsFirstResponder { return YES; }
+- (void)setFrame:(NSRect)frame {
+  ++_frame_updates;
+  [super setFrame:frame];
+}
+- (void)setHidden:(BOOL)hidden {
+  ++_visibility_updates;
+  [super setHidden:hidden];
+}
+- (void)setAutoresizingMask:(NSAutoresizingMaskOptions)mask {
+  ++_resizing_updates;
+  [super setAutoresizingMask:mask];
+}
 - (void)viewWillMoveToSuperview:(NSView*)newSuperview {
   if (!newSuperview) ++_detachments;
   [super viewWillMoveToSuperview:newSuperview];
@@ -180,22 +195,95 @@ static void CheckBottomCornerClipping() {
   NSView* browser = [[NSView alloc] initWithFrame:NSMakeRect(-40, 0, 600, 400)];
   [clip addSubview:browser];
   const NSRect original = browser.frame;
-  supermono::ApplyBrowserBottomCornerMask(clip, browser.frame, 8);
+  supermono::BrowserCornerMaskState previous;
+  CHECK(supermono::ApplyBrowserBottomCornerMask(clip, browser.frame, 8, previous));
   CAShapeLayer* mask = (CAShapeLayer*)clip.layer.mask;
+  CGPathRef original_path = CGPathRetain(mask.path);
+  for (int i = 0; i < 100; ++i) {
+    CHECK(!supermono::ApplyBrowserBottomCornerMask(clip, browser.frame, 8, previous));
+    CHECK(mask.path == original_path);
+  }
+  CGPathRelease(original_path);
   CHECK(mask && NSEqualRects(mask.frame, clip.bounds));
   CHECK(CGRectEqualToRect(CGPathGetPathBoundingBox(mask.path), NSRectToCGRect(original)));
   CHECK(Contains(mask.path, .5, .5));
   CHECK(NSEqualRects(browser.frame, original) && browser.superview == clip);
   clip.frame = NSMakeRect(0, 0, 400, 300);
   browser.frame = NSMakeRect(-40, 0, 450, 300);
-  supermono::ApplyBrowserBottomCornerMask(clip, browser.frame, 6.4);
+  CHECK(supermono::ApplyBrowserBottomCornerMask(clip, browser.frame, 6.4, previous));
   CHECK(clip.layer.mask == mask && NSEqualRects(mask.frame, clip.bounds));
   CHECK(!Contains(mask.path, 409.5, .5));
   CHECK(Contains(mask.path, 409.5, 299.5));
-  supermono::ApplyBrowserBottomCornerMask(clip, browser.frame, 0);
+  // A replacement mask must not be mistaken for the cached one.
+  clip.layer.mask = [CAShapeLayer layer];
+  CHECK(supermono::ApplyBrowserBottomCornerMask(clip, browser.frame, 6.4, previous));
+  CHECK(CGRectEqualToRect(CGPathGetPathBoundingBox(((CAShapeLayer*)clip.layer.mask).path),
+                         NSRectToCGRect(browser.frame)));
+  // Weak cache references become nil when a layer is discarded. A missing
+  // positive-radius mask must still be rebuilt, even with unchanged geometry.
+  clip.layer.mask = nil;
+  CHECK(supermono::ApplyBrowserBottomCornerMask(clip, browser.frame, 6.4, previous));
+  CHECK(clip.layer.mask != nil);
+  CHECK(supermono::ApplyBrowserBottomCornerMask(clip, browser.frame, 0, previous));
   CHECK(clip.layer.mask == nil);
+  CHECK(!supermono::ApplyBrowserBottomCornerMask(clip, browser.frame, 0, previous));
   CHECK(browser.superview == clip);
   std::puts("Browser bottom-corner clipping checks passed");
+}
+
+static void CheckRepeatedBrowserLayout() {
+  NSWindow* window = [[NSWindow alloc]
+      initWithContentRect:NSMakeRect(0, 0, 640, 480)
+                styleMask:NSWindowStyleMaskTitled
+                  backing:NSBackingStoreBuffered defer:NO];
+  SMBrowserHostProbe* clip = [[SMBrowserHostProbe alloc] initWithFrame:NSZeroRect];
+  SMBrowserHostProbe* browser = [[SMBrowserHostProbe alloc] initWithFrame:NSZeroRect];
+  [window.contentView addSubview:clip];
+  [clip addSubview:browser];
+  browser.page_state = @"Retained document, media and agent context";
+  const supermono::BrowserHostFrames frames = {
+      NSMakeRect(0, 0, 640, 480), NSMakeRect(0, 0, 640, 480)};
+  CHECK(supermono::ApplyBrowserHostFrames(clip, browser, frames, false));
+  supermono::ApplyBrowserHostVisibility(clip, browser, true);
+  clip.frame_updates = browser.frame_updates = 0;
+  clip.visibility_updates = browser.visibility_updates = 0;
+  clip.resizing_updates = browser.resizing_updates = 0;
+  const int moves = browser.window_changes;
+  const int detachments = browser.detachments;
+  for (int i = 0; i < 100; ++i) {
+    CHECK(!supermono::ApplyBrowserHostFrames(clip, browser, frames, false));
+    supermono::ApplyBrowserHostVisibility(clip, browser, true);
+  }
+  CHECK(clip.frame_updates == 0 && browser.frame_updates == 0);
+  CHECK(clip.visibility_updates == 0 && browser.visibility_updates == 0);
+  CHECK(clip.resizing_updates == 0 && browser.resizing_updates == 0);
+  supermono::ApplyBrowserHostVisibility(clip, browser, false);
+  CHECK(clip.hidden && browser.hidden && browser.hiddenOrHasHiddenAncestor);
+  CHECK(clip.visibility_updates == 1 && browser.visibility_updates == 1);
+  for (int i = 0; i < 100; ++i) {
+    CHECK(!supermono::ApplyBrowserHostFrames(clip, browser, frames, false));
+    supermono::ApplyBrowserHostVisibility(clip, browser, false);
+  }
+  CHECK(clip.frame_updates == 0 && browser.frame_updates == 0);
+  CHECK(clip.visibility_updates == 1 && browser.visibility_updates == 1);
+  supermono::ApplyBrowserHostVisibility(clip, browser, true);
+  CHECK(!clip.hidden && !browser.hidden && !browser.hiddenOrHasHiddenAncestor);
+  CHECK(browser.window == window && browser.window_changes == moves);
+  CHECK(browser.detachments == detachments);
+  CHECK([browser.page_state isEqualToString:@"Retained document, media and agent context"]);
+
+  // PiP/autoresize still follows its window. Returning to a docked viewport
+  // disables autoresize before changing the clip and restores exact bounds.
+  CHECK(!supermono::ApplyBrowserHostFrames(clip, browser, frames, true));
+  CHECK(browser.autoresizingMask == (NSViewWidthSizable | NSViewHeightSizable));
+  const supermono::BrowserHostFrames docked = {
+      NSMakeRect(40, 20, 460, 300), NSMakeRect(-40, 0, 540, 300)};
+  CHECK(supermono::ApplyBrowserHostFrames(clip, browser, docked, false));
+  CHECK(NSEqualRects(clip.frame, docked.clip) && NSEqualRects(browser.frame, docked.browser));
+  CHECK(clip.autoresizingMask == NSViewNotSizable && browser.autoresizingMask == NSViewNotSizable);
+  CHECK(browser.window == window && browser.detachments == detachments);
+  CHECK(!window.visible);
+  std::puts("Repeated browser layouts preserve state without native mutations");
 }
 
 static void CheckHiddenBrowserFocus() {
@@ -239,6 +327,7 @@ int main() {
     CheckBackingAlignment();
     CheckCanonicalBackingTies();
     CheckBottomCornerClipping();
+    CheckRepeatedBrowserLayout();
     CheckHiddenBrowserFocus();
     destroyed_probes = 0;
     NSWindow* owner = [[NSWindow alloc]

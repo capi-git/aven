@@ -527,6 +527,7 @@ export const SessionPane = memo(function SessionPane({
           ) : (
             <EmptySession
               cwd={session.cwd}
+              visible={visible}
               hasChatBackground={Boolean(
                 projectBackground || globalBackgroundPath,
               )}

@@ -1162,9 +1162,7 @@ function BrowserPaneSession({
       placementInvalidated = true;
       present();
     };
-    scheduleLayout.current = present;
     const resize = new ResizeObserver(schedule);
-    resize.observe(host.current);
     const overlayNode = (node: Node) =>
       node instanceof HTMLElement &&
       (node.matches(OVERLAYS) || node.querySelector(OVERLAYS));
@@ -1189,21 +1187,6 @@ function BrowserPaneSession({
       )
         present();
     });
-    overlays.observe(document.body, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: [
-        "aria-modal",
-        "role",
-        "open",
-        "hidden",
-        "class",
-        "style",
-        "data-native-browser-occluded",
-        "data-native-browser-edge",
-      ],
-    });
     const transitionEnded = (event: Event) => {
       const target = event.target;
       if (
@@ -1212,36 +1195,74 @@ function BrowserPaneSession({
       )
         schedule();
     };
-    document.addEventListener("visibilitychange", present);
-    document.addEventListener("transitionend", transitionEnded, true);
-    document.addEventListener("animationend", transitionEnded, true);
-    window.addEventListener("resize", schedule);
-    window.addEventListener("supermono:workspace-layout", present);
-    window.addEventListener("supermono:browser-layout-reset", resetPlacement);
-    const focusListener = getCurrentWindow().onFocusChanged(schedule);
-    present();
+    let stopObserving: (() => void) | undefined;
+    const observePresentation = () => {
+      if (isPaused()) {
+        stopObserving?.();
+        stopObserving = undefined;
+        return;
+      }
+      if (stopObserving || !host.current) return;
+      // Retain the native page, its agent binding and navigation state while
+      // hidden, without asking WebKit to collect whole-app mutation records
+      // for every visited tab. Reconnect before publishing the visible layout.
+      resize.observe(host.current);
+      overlays.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: [
+          "aria-modal",
+          "role",
+          "open",
+          "hidden",
+          "class",
+          "style",
+          "data-native-browser-occluded",
+          "data-native-browser-edge",
+        ],
+      });
+      document.addEventListener("visibilitychange", present);
+      document.addEventListener("transitionend", transitionEnded, true);
+      document.addEventListener("animationend", transitionEnded, true);
+      window.addEventListener("resize", schedule);
+      window.addEventListener("supermono:workspace-layout", present);
+      window.addEventListener("supermono:browser-layout-reset", resetPlacement);
+      const focusListener = getCurrentWindow().onFocusChanged(schedule);
+      stopObserving = () => {
+        resize.disconnect();
+        overlays.disconnect();
+        document.removeEventListener("visibilitychange", present);
+        document.removeEventListener("transitionend", transitionEnded, true);
+        document.removeEventListener("animationend", transitionEnded, true);
+        window.removeEventListener("resize", schedule);
+        window.removeEventListener("supermono:workspace-layout", present);
+        window.removeEventListener(
+          "supermono:browser-layout-reset",
+          resetPlacement,
+        );
+        void focusListener.then((unlisten) => unlisten()).catch(() => {});
+      };
+    };
+    scheduleLayout.current = () => {
+      observePresentation();
+      present();
+    };
+    scheduleLayout.current();
     return () => {
       disposed = true;
       cancelQueued();
       cancelOverlayCapture();
-      resize.disconnect();
-      overlays.disconnect();
+      stopObserving?.();
       scheduleLayout.current = () => {};
       refreshZoomSnapshot.current = () => {};
-      document.removeEventListener("visibilitychange", present);
-      document.removeEventListener("transitionend", transitionEnded, true);
-      document.removeEventListener("animationend", transitionEnded, true);
-      window.removeEventListener("resize", schedule);
-      window.removeEventListener("supermono:workspace-layout", present);
-      window.removeEventListener(
-        "supermono:browser-layout-reset",
-        resetPlacement,
-      );
-      void focusListener.then((unlisten) => unlisten()).catch(() => {});
     };
   }, [readyId]);
 
   useLayoutEffect(() => {
+    // Overlay captures are temporary backing images, not workspace previews.
+    // Release their decoded pixels/base64 once the pane no longer presents them.
+    if (!visible || error || floating) setSnapshot(null);
     scheduleLayout.current();
   }, [visible, error, floating, expanded]);
 

@@ -13,11 +13,17 @@ import "./EmptySession.css";
 
 type Props = {
   cwd: string;
+  visible: boolean;
   composer?: ReactNode;
   hasChatBackground?: boolean;
 };
 
-export function EmptySession({ cwd, composer, hasChatBackground }: Props) {
+export function EmptySession({
+  cwd,
+  visible,
+  composer,
+  hasChatBackground,
+}: Props) {
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const arcadeEnabled = useSyncExternalStore(
     subscribeGridArcadeEnabled,
@@ -32,7 +38,9 @@ export function EmptySession({ cwd, composer, hasChatBackground }: Props) {
       className="aven-opening empty-session"
       data-composer-docked={!composer || undefined}
     >
-      {arcadeEnabled && !hasChatBackground ? <TerminalGridBackground /> : null}
+      {arcadeEnabled && !hasChatBackground ? (
+        <TerminalGridBackground visible={visible} />
+      ) : null}
       <div className="personal-empty-session">
         <div className="aven-opening-heading personal-empty-session-heading">
           <h1>Make room for your next idea.</h1>

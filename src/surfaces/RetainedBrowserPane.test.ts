@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { leaf, leafIds, type LayoutNode } from "../lib/layout";
 import { RetainedBrowserPane } from "./RetainedBrowserPane";
 import { WorkspaceStage } from "./WorkspaceStage";
+import { getRegisteredAgentBrowserPage } from "../lib/agentBrowser";
 
 const native = vi.hoisted(() => ({
   attach: vi.fn(),
@@ -135,6 +136,39 @@ describe("retained browser pages in the workspace stage", () => {
     expect(native.create.mock.calls[0][1]).toBe(urls["project-a-preview"]);
     expect(address("project-a-docs")).toBeNull();
     expect(address("project-b-preview")).toBeNull();
+  });
+
+  it("creates an explicitly requested background agent page and retains its registration across workspace switches", async () => {
+    const props = {
+      id: "background-agent-preview",
+      initialUrl: "https://example.com/agent-preview",
+      visible: false,
+    };
+    await act(async () =>
+      root.render(createElement(RetainedBrowserPane, props)),
+    );
+    expect(native.create).not.toHaveBeenCalled();
+    await act(async () =>
+      root.render(
+        createElement(RetainedBrowserPane, { ...props, agentRequested: true }),
+      ),
+    );
+    expect(native.create).toHaveBeenCalledOnce();
+    const nativeId = native.create.mock.calls[0][0];
+    expect(getRegisteredAgentBrowserPage(props.id)).toBe(nativeId);
+    await act(async () =>
+      root.render(createElement(RetainedBrowserPane, props)),
+    );
+    await act(async () =>
+      root.render(createElement(RetainedBrowserPane, { ...props, visible: true })),
+    );
+    await act(async () =>
+      root.render(createElement(RetainedBrowserPane, props)),
+    );
+    expect(getRegisteredAgentBrowserPage(props.id)).toBe(nativeId);
+    expect(native.create).toHaveBeenCalledOnce();
+    expect(native.navigate).not.toHaveBeenCalled();
+    expect(native.close).not.toHaveBeenCalled();
   });
 
   it("acknowledges a returned native page even when its grouped tab is not selected", async () => {

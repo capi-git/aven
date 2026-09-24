@@ -30,6 +30,8 @@ const SPRITE_SCALE = 0.8;
 /** How hard the bubble chases its speaker; sprites move cell by cell. */
 const BUBBLE_EASE = 0.2;
 const FRAME_MS = 33;
+/** Matches the carousel's duration-700 transition. */
+const SLIDE_TRANSITION_MS = 700;
 
 const HEADING: Record<string, { x: number; y: number }> = {
   ArrowUp: { x: 0, y: -1 },
@@ -48,6 +50,10 @@ type Board = {
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
   bubbleAt: { x: number; y: number } | null;
+  stamp: Float32Array;
+  width: number;
+  height: number;
+  pixelRatio: number;
 };
 
 /**
@@ -149,7 +155,7 @@ function drawGhost(
   ctx.restore();
 }
 
-export function TerminalGridBackground() {
+export function TerminalGridBackground({ visible }: { visible: boolean }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
   const boardsRef = useRef<Board[] | null>(null);
@@ -166,9 +172,28 @@ export function TerminalGridBackground() {
     dir: 1,
   });
   const [hovered, setHovered] = useState(false);
+  const [documentVisible, setDocumentVisible] = useState(
+    () => typeof document === "undefined" || !document.hidden,
+  );
+  const [reducedMotion, setReducedMotion] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true,
+  );
+  const visibleRef = useRef(visible);
+  const reducedMotionRef = useRef(reducedMotion);
+  const syncAnimationRef = useRef<(() => void) | null>(null);
+  const previousIndexRef = useRef(slide.index);
+  const transitionRef = useRef({
+    from: slide.index,
+    to: slide.index,
+    until: 0,
+  });
 
   indexRef.current = slide.index;
   playingRef.current = playing;
+  visibleRef.current = visible;
+  reducedMotionRef.current = reducedMotion;
 
   const game = GRID_GAMES[slide.index] ?? GRID_GAMES[0]!;
 
@@ -188,6 +213,10 @@ export function TerminalGridBackground() {
         canvas,
         ctx,
         bubbleAt: null,
+        stamp: new Float32Array(0),
+        width: 0,
+        height: 0,
+        pixelRatio: 0,
       });
     }
     boardsRef.current = boards;
@@ -208,32 +237,57 @@ export function TerminalGridBackground() {
     let rgb = parseContentRgb();
     let surfaceRgb = parseSurfaceRgb();
     let lastFrame = 0;
+    let width = 0;
+    let height = 0;
+    let pixelRatio = 0;
+
+    const canPaint = () => visibleRef.current && !document.hidden;
 
     const layout = () => {
-      const { width, height } = root.getBoundingClientRect();
-      if (width <= 0 || height <= 0) return;
+      if (!canPaint()) return;
+      const bounds = root.getBoundingClientRect();
+      if (bounds.width <= 0 || bounds.height <= 0) return;
 
       const dpr = window.devicePixelRatio || 1;
-      const nextCols = Math.ceil(width / PITCH);
-      const nextRows = Math.ceil(height / PITCH);
-
-      for (const board of boards) {
-        board.canvas.width = Math.floor(width * dpr);
-        board.canvas.height = Math.floor(height * dpr);
-        board.canvas.style.width = `${width}px`;
-        board.canvas.style.height = `${height}px`;
-        board.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        board.arcade.resize(nextCols, nextRows);
+      if (
+        bounds.width === width &&
+        bounds.height === height &&
+        dpr === pixelRatio
+      ) {
+        return;
       }
+      width = bounds.width;
+      height = bounds.height;
+      pixelRatio = dpr;
+      cols = Math.ceil(width / PITCH);
+      rows = Math.ceil(height / PITCH);
+    };
 
-      cols = nextCols;
-      rows = nextRows;
+    const prepareBoard = (board: Board) => {
+      if (
+        board.width === width &&
+        board.height === height &&
+        board.pixelRatio === pixelRatio
+      )
+        return;
+      // Allocate a backing surface only when this board is actually presented.
+      board.canvas.width = Math.floor(width * pixelRatio);
+      board.canvas.height = Math.floor(height * pixelRatio);
+      board.canvas.style.width = `${width}px`;
+      board.canvas.style.height = `${height}px`;
+      board.ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      board.arcade.resize(cols, rows);
+      board.stamp = new Float32Array(cols * rows);
+      board.width = width;
+      board.height = height;
+      board.pixelRatio = pixelRatio;
     };
 
     const paint = (board: Board, width: number, height: number) => {
       const { ctx, arcade } = board;
       const dim = arcade.controlled() ? 1 : board.game.idleDim;
-      const stamp = new Float32Array(cols * rows);
+      const stamp = board.stamp;
+      stamp.fill(0);
       arcade.stamp(stamp, cols, rows);
 
       const fade = arcade.fade();
@@ -325,16 +379,14 @@ export function TerminalGridBackground() {
     };
 
     const draw = (time: number) => {
-      if (document.hidden) {
-        raf = 0;
-        return;
-      }
-      raf = requestAnimationFrame(draw);
-      if (time - lastFrame < FRAME_MS) return;
+      raf = 0;
+      if (!canPaint()) return;
+      const continuous = !reducedMotionRef.current || playingRef.current;
+      if (continuous) raf = requestAnimationFrame(draw);
+      if (lastFrame && time - lastFrame < FRAME_MS) return;
       const dt = lastFrame ? time - lastFrame : FRAME_MS;
       lastFrame = time;
 
-      const { width, height } = root.getBoundingClientRect();
       if (width <= 0 || height <= 0) return;
 
       const current = indexRef.current;
@@ -343,10 +395,19 @@ export function TerminalGridBackground() {
       for (let i = 0; i < boards.length; i++) {
         const board = boards[i];
         if (!board) continue;
-        // A live game only ticks the board you're on; idle keeps neighbours
-        // moving so a slide doesn't reveal a frozen frame.
-        if (controlled && i !== current) continue;
-        board.arcade.step(dt);
+        // Keep the incoming/outgoing boards moving only while they can be seen.
+        // Other boards retain their state without drawing offscreen canvases.
+        const transition = transitionRef.current;
+        const inTransition =
+          !controlled &&
+          time < transition.until &&
+          i >= Math.min(transition.from, transition.to) &&
+          i <= Math.max(transition.from, transition.to);
+        if (i !== current && !inTransition) continue;
+        prepareBoard(board);
+        // Reduced motion presents a settled still, not the almost-transparent
+        // first frame of the game's entrance fade. Explicit play still ticks.
+        board.arcade.step(!continuous && board.arcade.fade() < 1 ? 500 : dt);
         paint(board, width, height);
       }
 
@@ -365,22 +426,37 @@ export function TerminalGridBackground() {
       }
     };
 
-    layout();
-    raf = requestAnimationFrame(draw);
-
-    const onVisible = () => {
-      if (document.hidden || raf) return;
+    const syncAnimation = () => {
+      if (!canPaint()) {
+        cancelAnimationFrame(raf);
+        raf = 0;
+        lastFrame = 0;
+        return;
+      }
+      layout();
+      if (raf) return;
       lastFrame = 0;
       raf = requestAnimationFrame(draw);
     };
-    document.addEventListener("visibilitychange", onVisible);
+    syncAnimationRef.current = syncAnimation;
+    syncAnimation();
 
-    const resizeObserver = new ResizeObserver(layout);
+    const onVisible = () => {
+      setDocumentVisible(!document.hidden);
+      syncAnimation();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    const motion = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    const onMotion = () => setReducedMotion(motion?.matches === true);
+    motion?.addEventListener("change", onMotion);
+
+    const resizeObserver = new ResizeObserver(syncAnimation);
     resizeObserver.observe(root);
 
     const themeObserver = new MutationObserver(() => {
       rgb = parseContentRgb();
       surfaceRgb = parseSurfaceRgb();
+      syncAnimation();
     });
     themeObserver.observe(document.documentElement, {
       attributes: true,
@@ -390,11 +466,32 @@ export function TerminalGridBackground() {
     return () => {
       cancelAnimationFrame(raf);
       document.removeEventListener("visibilitychange", onVisible);
+      motion?.removeEventListener("change", onMotion);
       resizeObserver.disconnect();
       themeObserver.disconnect();
       boardsRef.current = null;
+      syncAnimationRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (previousIndexRef.current !== slide.index) {
+      transitionRef.current = {
+        from: previousIndexRef.current,
+        to: slide.index,
+        until:
+          playing || reducedMotion
+            ? 0
+            : performance.now() + SLIDE_TRANSITION_MS,
+      };
+      previousIndexRef.current = slide.index;
+    }
+    syncAnimationRef.current?.();
+  }, [visible, playing, reducedMotion, slide.index]);
+
+  useEffect(() => {
+    if (!visible || !documentVisible) setHovered(false);
+  }, [visible, documentVisible]);
 
   const takeControl = useCallback(() => {
     const board = boardsRef.current?.[indexRef.current];
@@ -431,19 +528,27 @@ export function TerminalGridBackground() {
   }, []);
 
   useEffect(() => {
-    if (playing || hovered || GRID_GAMES.length < 2) return;
+    if (
+      !visible ||
+      !documentVisible ||
+      reducedMotion ||
+      playing ||
+      hovered ||
+      GRID_GAMES.length < 2
+    )
+      return;
 
     const id = window.setInterval(() => {
-      if (document.hidden) return;
+      if (!visibleRef.current || document.hidden) return;
       setSlide((current) =>
         stepSlider(current.index, current.dir, GRID_GAMES.length),
       );
     }, SLIDE_HOLD_MS);
     return () => window.clearInterval(id);
-  }, [playing, hovered, slide.index]);
+  }, [visible, documentVisible, reducedMotion, playing, hovered, slide.index]);
 
   useEffect(() => {
-    if (!playing) return;
+    if (!visible || !documentVisible || !playing) return;
 
     const root = rootRef.current;
     root?.focus();
@@ -479,7 +584,7 @@ export function TerminalGridBackground() {
       window.removeEventListener("keydown", onKey, true);
       root?.removeEventListener("wheel", onWheel);
     };
-  }, [playing, releaseControl]);
+  }, [visible, documentVisible, playing, releaseControl]);
 
   return (
     <div

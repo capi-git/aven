@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { EmptySession } from "./EmptySession";
 
 vi.mock("./TerminalGridBackground", () => ({
-  TerminalGridBackground: () => createElement("canvas"),
+  TerminalGridBackground: ({ visible }: { visible: boolean }) =>
+    createElement("canvas", { "data-visible": String(visible) }),
 }));
 
 afterEach(() => vi.unstubAllGlobals());
@@ -14,7 +15,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe("empty session background", () => {
   it("inherits the workspace surface without branded artwork or an animated canvas", () => {
     const markup = renderToStaticMarkup(
-      createElement(EmptySession, { cwd: "/work/demo" }),
+      createElement(EmptySession, { visible: true, cwd: "/work/demo" }),
     );
 
     expect(markup).not.toContain('class="aven-opening-background"');
@@ -25,6 +26,7 @@ describe("empty session background", () => {
   it("does not render the arcade over a selected chat background", () => {
     const markup = renderToStaticMarkup(
       createElement(EmptySession, {
+        visible: true,
         cwd: "/work/demo",
         hasChatBackground: true,
       }),
@@ -45,6 +47,7 @@ describe("empty session background", () => {
     });
     const markup = renderToStaticMarkup(
       createElement(EmptySession, {
+        visible: true,
         cwd,
         hasChatBackground: true,
         composer: createElement("textarea"),
@@ -60,6 +63,7 @@ describe("empty session background", () => {
   it("retains the project name and folder tooltip for an ordinary project", () => {
     const markup = renderToStaticMarkup(
       createElement(EmptySession, {
+        visible: true,
         cwd: "/projects/demo",
         hasChatBackground: true,
         composer: createElement("textarea"),
@@ -79,13 +83,28 @@ describe("empty session background", () => {
     const root = createRoot(container);
     try {
       await act(async () =>
-        root.render(createElement(EmptySession, { cwd: "/projects/demo" })),
+        root.render(
+          createElement(EmptySession, { visible: true, cwd: "/projects/demo" }),
+        ),
       );
       expect(container.querySelector("canvas")).not.toBeNull();
       expect(container.querySelector(".aven-opening-background")).toBeNull();
+      const canvas = container.querySelector("canvas");
+      expect(canvas?.dataset.visible).toBe("true");
       await act(async () =>
         root.render(
           createElement(EmptySession, {
+            cwd: "/projects/demo",
+            visible: false,
+          }),
+        ),
+      );
+      expect(container.querySelector("canvas")).toBe(canvas);
+      expect(canvas?.dataset.visible).toBe("false");
+      await act(async () =>
+        root.render(
+          createElement(EmptySession, {
+            visible: true,
             cwd: "/projects/demo",
             hasChatBackground: true,
           }),

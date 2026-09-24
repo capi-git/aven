@@ -11,6 +11,47 @@ struct BrowserHostFrames {
   NSRect browser;
 };
 
+// Native layout arrives from several shell observers. Avoid telling Chromium
+// that its viewport changed when those observers report the same rectangles.
+// Keep autoresizing disabled while changing the clip, so a live PiP return
+// does not transiently resize the document before its final frame is applied.
+inline bool ApplyBrowserHostFrames(NSView* clip, NSView* browser,
+                                  const BrowserHostFrames& frames,
+                                  bool auto_resize) {
+  const bool clip_changed = !NSEqualRects(clip.frame, frames.clip);
+  const bool browser_changed = !NSEqualRects(browser.frame, frames.browser);
+  if ((clip_changed || browser_changed) &&
+      browser.autoresizingMask != NSViewNotSizable)
+    browser.autoresizingMask = NSViewNotSizable;
+  if (clip_changed) clip.frame = frames.clip;
+  if (!NSEqualRects(browser.frame, frames.browser)) browser.frame = frames.browser;
+  const NSAutoresizingMaskOptions resizing = auto_resize
+      ? NSViewWidthSizable | NSViewHeightSizable : NSViewNotSizable;
+  if (clip.autoresizingMask != resizing) clip.autoresizingMask = resizing;
+  if (browser.autoresizingMask != resizing) browser.autoresizingMask = resizing;
+  return clip_changed || browser_changed;
+}
+
+inline void ApplyBrowserHostVisibility(NSView* clip, NSView* browser,
+                                       bool visible) {
+  // WebContentsViewCocoa forwards AppKit hide/unhide to Chromium's normal page
+  // visibility lifecycle. Preserve it rather than using windowless WasHidden,
+  // freezing JavaScript, or detaching the loaded browser from its window.
+  const BOOL hidden = !visible;
+  if (clip.hidden != hidden) clip.hidden = hidden;
+  if (browser.hidden != hidden) browser.hidden = hidden;
+}
+
+struct BrowserCornerMaskState {
+  __weak NSView* clip = nil;
+  __weak CALayer* mask = nil;
+  NSRect bounds = NSZeroRect;
+  NSRect browser_frame = NSZeroRect;
+  double radius = -1;
+  double scale = 0;
+  bool flipped = false;
+};
+
 // Round only the document's bottom corners; its top edge meets the HTML
 // toolbar. The path follows the full page within the clipping host, so a hover
 // sidebar crops an existing curve rather than creating a new rounded edge.
@@ -40,8 +81,20 @@ inline CGPathRef CreateBrowserBottomCornerPath(NSRect frame, double radius,
   return reflected;
 }
 
-inline void ApplyBrowserBottomCornerMask(NSView* clip, NSRect browser_frame,
-                                         double radius) {
+inline bool ApplyBrowserBottomCornerMask(NSView* clip, NSRect browser_frame,
+                                         double radius,
+                                         BrowserCornerMaskState& previous) {
+  const double scale = std::max(1.0, clip.window.backingScaleFactor);
+  // A mask path assignment invalidates Core Animation's mask even if the path
+  // describes the same pixels. Retain it through redundant layouts; invalidate
+  // on real geometry, zoom, display-scale, or host/mask changes.
+  const bool same_mask = radius <= 0 ? clip.layer.mask == nil
+      : previous.mask != nil && previous.mask == clip.layer.mask;
+  if (previous.clip == clip && same_mask &&
+      NSEqualRects(previous.bounds, clip.bounds) &&
+      NSEqualRects(previous.browser_frame, browser_frame) &&
+      previous.radius == radius && previous.scale == scale &&
+      previous.flipped == static_cast<bool>(clip.flipped)) return false;
   clip.wantsLayer = YES;
   clip.clipsToBounds = YES;
   [CATransaction begin];
@@ -52,7 +105,7 @@ inline void ApplyBrowserBottomCornerMask(NSView* clip, NSRect browser_frame,
     CAShapeLayer* mask = [clip.layer.mask isKindOfClass:CAShapeLayer.class]
         ? (CAShapeLayer*)clip.layer.mask : [CAShapeLayer layer];
     mask.frame = clip.bounds;
-    mask.contentsScale = std::max(1.0, clip.window.backingScaleFactor);
+    mask.contentsScale = scale;
     mask.fillColor = NSColor.blackColor.CGColor;
     CGPathRef path = CreateBrowserBottomCornerPath(browser_frame, radius, clip.flipped);
     mask.path = path;
@@ -60,6 +113,14 @@ inline void ApplyBrowserBottomCornerMask(NSView* clip, NSRect browser_frame,
     clip.layer.mask = mask;
   }
   [CATransaction commit];
+  previous.clip = clip;
+  previous.mask = clip.layer.mask;
+  previous.bounds = clip.bounds;
+  previous.browser_frame = browser_frame;
+  previous.radius = radius;
+  previous.scale = scale;
+  previous.flipped = clip.flipped;
+  return true;
 }
 
 // Hiding a native child must not leave keyboard events in that invisible page.
