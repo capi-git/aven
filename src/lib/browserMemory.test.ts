@@ -86,6 +86,29 @@ describe("balanced browser memory", () => {
     await Promise.resolve();
     expect(b.sleep).not.toHaveBeenCalled();
   });
+  it("sleeps hidden pages immediately under memory pressure", async () => {
+    const [a, b, c, visible, protectedPage] = [
+      add("a"),
+      add("b"),
+      add("c"),
+      add("visible", true),
+      add("protected", false, true),
+    ];
+    await pool.relieve("warn");
+    expect(a.sleep).toHaveBeenCalledOnce();
+    expect(b.sleep).toHaveBeenCalledOnce();
+    expect(c.sleep).not.toHaveBeenCalled();
+    expect(visible.sleep).not.toHaveBeenCalled();
+    expect(protectedPage.sleep).not.toHaveBeenCalled();
+    await pool.relieve("critical");
+    expect(c.sleep).toHaveBeenCalledOnce();
+    expect(visible.sleep).not.toHaveBeenCalled();
+    expect(protectedPage.sleep).not.toHaveBeenCalled();
+    pool.enabled = false;
+    const late = add("late");
+    await pool.relieve("critical");
+    expect(late.sleep).not.toHaveBeenCalled();
+  });
   it("a stale cleanup does not remove a replacement page", async () => {
     const old = add("a");
     const current = add("a");

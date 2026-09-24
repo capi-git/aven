@@ -33,6 +33,7 @@ mod inbox_media;
 mod linear;
 #[cfg(target_os = "macos")]
 mod macos;
+mod memory_pressure;
 mod menu;
 mod notes;
 mod notifications;
@@ -258,6 +259,7 @@ pub fn run() {
             menu::install(app.handle())?;
             #[cfg(target_os = "macos")]
             {
+                memory_pressure::install(app.handle());
                 window::create_main_window(app.handle())?;
                 macos::install_dock_menu(app.handle());
                 if let Some(window) = app.get_window("main") {

@@ -1,7 +1,12 @@
+import { listen } from "@tauri-apps/api/event";
 import {
   loadBrowserMemorySaver,
   subscribeBrowserMemorySaver,
 } from "./settings";
+
+/** Published by the host when macOS reports memory pressure. */
+export const MEMORY_PRESSURE_EVENT = "aven:memory-pressure";
+export type MemoryPressureLevel = "warn" | "critical";
 
 export const BROWSER_SLEEP_AFTER_MS = 5 * 60_000;
 export const BROWSER_RECENT_TABS = 3;
@@ -72,7 +77,27 @@ export class BrowserMemoryPool {
     };
   }
 
-  async check() {
+  /**
+   * The system is short of memory: sleep every hidden page now rather than
+   * after its grace period. The most recent hidden page stays ready under
+   * ordinary pressure; a critical notice releases it too.
+   */
+  relieve(level: MemoryPressureLevel) {
+    return this.check({
+      keepRecent: level === "critical" ? 0 : 1,
+      graceMs: 0,
+      hiddenOnly: true,
+    });
+  }
+
+  async check(
+    { keepRecent, graceMs, hiddenOnly } = {
+      keepRecent: BROWSER_RECENT_TABS,
+      graceMs: BROWSER_SLEEP_AFTER_MS,
+      // The ordinary sweep counts visible tabs among the recent ones.
+      hiddenOnly: false,
+    },
+  ) {
     if (!this.enabled || this.checking) return;
     this.checking = true;
     try {
@@ -82,8 +107,9 @@ export class BrowserMemoryPool {
       for (const [id, entry] of candidates) {
         // Recompute after each await: another tab may have become recent.
         const recent = [...this.pages.values()]
+          .filter((page) => !hiddenOnly || (!page.visible && !page.protected))
           .sort((a, b) => b.lastUsed - a.lastUsed)
-          .slice(0, BROWSER_RECENT_TABS);
+          .slice(0, keepRecent);
         if (
           !this.enabled ||
           this.pages.get(id) !== entry ||
@@ -91,7 +117,7 @@ export class BrowserMemoryPool {
           entry.protected ||
           entry.pending ||
           recent.includes(entry) ||
-          Date.now() - entry.hiddenAt < BROWSER_SLEEP_AFTER_MS
+          Date.now() - entry.hiddenAt < graceMs
         )
           continue;
         entry.pending = true;
@@ -118,7 +144,25 @@ export function registerBrowserMemoryPage(id: string, page: Page) {
       pool.enabled = loadBrowserMemorySaver();
     };
     update();
-    unsubscribe = subscribeBrowserMemorySaver(update);
+    const unsubscribeSetting = subscribeBrowserMemorySaver(update);
+    let disposed = false;
+    let unlistenPressure: (() => void) | undefined;
+    void listen<{ level: MemoryPressureLevel }>(
+      MEMORY_PRESSURE_EVENT,
+      (event) => void pool.relieve(event.payload.level),
+    )
+      .then((unlisten) => {
+        if (disposed) unlisten();
+        else unlistenPressure = unlisten;
+      })
+      .catch(() => {
+        // Browser previews have no host events.
+      });
+    unsubscribe = () => {
+      disposed = true;
+      unsubscribeSetting();
+      unlistenPressure?.();
+    };
   }
   const registration = pool.register(id, page);
   return {
