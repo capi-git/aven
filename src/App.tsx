@@ -573,6 +573,9 @@ import {
  */
 const TRANSCRIPT_COMMIT_INTERVAL_MS = 250;
 
+/** Minimum spacing between full transcript saves of a chat that is still running. */
+const BUSY_PERSIST_INTERVAL_MS = 10_000;
+
 function withPlanStatus(
   session: Session,
   blockId: string,
@@ -1527,6 +1530,7 @@ export default function App({
   );
   const observedSessions = useRef(new Map<string, Session>());
   const pendingPersist = useRef(new Map<string, Session>());
+  const lastBusyPersistAt = useRef(new Map<string, number>());
   const removingSessionIds = useRef(new Set<string>());
   // Tokens arrive many times per frame; apply them once so React/markdown aren't
   // recomputed for every delta.
@@ -2157,11 +2161,25 @@ export default function App({
   const scheduleTranscriptDrain = useFixedDeadline(() => {
     const dirty = [...pendingPersist.current.values()];
     pendingPersist.current.clear();
+    const now = Date.now();
     void Promise.all(
       dirty.map(async (session) => {
         if (removingSessionIds.current.has(session.id)) return;
         const fingerprint = persistFingerprint(session);
         if (lastPersisted.current.get(session.id) === fingerprint) return;
+        // A running chat rewrites its whole transcript on every save. Space
+        // those out; the final state is saved as soon as the turn ends.
+        if (
+          session.busy &&
+          now - (lastBusyPersistAt.current.get(session.id) ?? 0) <
+            BUSY_PERSIST_INTERVAL_MS
+        ) {
+          if (!pendingPersist.current.has(session.id))
+            pendingPersist.current.set(session.id, session);
+          scheduleTranscriptDrain();
+          return;
+        }
+        if (session.busy) lastBusyPersistAt.current.set(session.id, now);
         const summary = await upsertSession(session).catch(() => null);
         if (!summary) return;
         lastPersisted.current.set(session.id, fingerprint);

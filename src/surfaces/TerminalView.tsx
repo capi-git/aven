@@ -182,7 +182,7 @@ export function TerminalView({ id, cwd, active, presented = true, onMetaChange }
       fontSize: 13,
       lineHeight: 1,
       letterSpacing: 0,
-      scrollback: 5000,
+      scrollback: 2000,
       allowTransparency: true,
       smoothScrollDuration: 0,
       theme: terminalTheme(isLightScheme()),

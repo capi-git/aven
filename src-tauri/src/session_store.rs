@@ -735,7 +735,12 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
         .map(|(value, _, _, _, _)| *value)
         .unwrap_or(now);
     let updated_at = match &existing {
-        Some((_, prev_updated, prev_blocks, _, _)) if json_eq(prev_blocks, &session.blocks) => {
+        // Both strings come from this serializer, so equal text is the
+        // common unchanged case. Parsing the stored transcript again to
+        // compare semantically costs tens of milliseconds per megabyte.
+        Some((_, prev_updated, prev_blocks, _, _))
+            if *prev_blocks == blocks_json || json_eq(prev_blocks, &session.blocks) =>
+        {
             *prev_updated
         }
         _ => now,

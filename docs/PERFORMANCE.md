@@ -67,3 +67,19 @@ The composer is memoized, and the chat pane passes it stable handlers and a memo
 Leaving a hover-revealed sidebar previously started its fade only after `App` re-rendered, because the slot's `data-open` attribute came from `App` state. The hover hook now sets `data-open="false"` on the panel when it dismisses, then commits the state in a React transition, so the re-render is interruptible work behind the compositor-driven fade. If the pointer returns before that commit, the hook restores the attribute. While hidden, the sidebar keeps its last profile and project previews instead of clearing them, which previously removed rows during the fade.
 
 In the Aven Dev fixture (twelve simulated leave events), the closing transition started a median 13 ms after pointer leave before the change and 1 ms after it. The worst frame interval during the 300 ms after leaving was similar (13–14 ms before, 11–15 ms after), so the remaining cost is the later re-render rather than a delayed start. The fixture had few projects, so it does not measure how long that re-render takes in a large workspace.
+
+## Footprint on small laptops
+
+Measurements of the installed app on September 24, 2026, while an agent streamed and a heavy page was open, showed roughly 5 GB across about twenty processes: about 3 GB in Chromium (ten renderers plus a 2 GB GPU process), about 1 GB in the interface's WebKit process, and about 360 MB in the host. Aven started Chromium with no memory-related options, so it behaved like a full desktop browser. The interface held 13 open chats whose saved transcripts totalled 20 MB, the largest 7 MB with 1,800 tool results.
+
+An isolated WKWebView test with 13 tab-sized stages, each holding a long scroller, measured the process's owned graphics memory: 54 MB when hidden stages use `visibility: hidden; opacity: 0` (Aven's retained-tab approach), 68 MB with `display: none`, and 309 MB with `content-visibility: hidden`. Hidden tabs therefore do not explain the interface's graphics memory, and `content-visibility` would make it worse.
+
+Changes in this pass:
+
+- Chromium tabs of the same site share a renderer (`--process-per-site`), and the spare pre-launched renderer is disabled. Localhost previews on different ports are one site. The feature name was confirmed present in the pinned engine; runtime process counts were not measured because Aven Dev had no tabs.
+- The native window stays opaque unless the sidebar opacity setting is below 100%, the only setting that reveals the desktop; blur and body glass mix the theme background at that opacity. Aven Dev confirmed `opaque=true` before, during and after appearance activation with `SUPERMONO_GLASS_DIAGNOSTICS=1`.
+- The host subscribes to macOS memory-pressure notices and publishes `aven:memory-pressure`. The browser memory saver then sleeps hidden tabs immediately, keeping one recent hidden tab under a warning and none under a critical notice. The notice itself was not simulated, which needs root; flag mapping and the sleep policy are unit tested.
+- Saving a transcript no longer re-parses the stored copy when the serialized text is unchanged, and a chat that is still running is fully saved at most every 10 seconds instead of every 650 ms. The final state is still saved when a turn ends. Serializing the 7 MB transcript measured about 20 ms in JavaScript and 25 ms to parse.
+- Terminal scrollback is 2,000 lines instead of 5,000 for each retained terminal.
+
+Not yet done: incremental (append-only) transcript saves, loading only the recent part of long transcripts, and an optional low-memory browser mode.
