@@ -535,7 +535,7 @@ struct DockMenuTargetIvars {
 
 define_class!(
     #[unsafe(super(NSObject))]
-    #[name = "MonoCodeDockMenuTarget"]
+    #[name = "AvenDockMenuTarget"]
     #[ivars = DockMenuTargetIvars]
     struct DockMenuTarget;
 
@@ -683,7 +683,7 @@ fn validate_dev_bundle_info(info: &serde_json::Value) -> Result<(), String> {
         ("CFBundleIdentifier", crate::DEV_BUNDLE_ID),
         ("CFBundleName", crate::DEV_PRODUCT_NAME),
         ("CFBundleDisplayName", crate::DEV_PRODUCT_NAME),
-        ("CFBundleExecutable", "monocode"),
+        ("CFBundleExecutable", "aven"),
         ("CFBundleShortVersionString", env!("CARGO_PKG_VERSION")),
     ] {
         if info.get(key).and_then(serde_json::Value::as_str) != Some(expected) {
@@ -712,7 +712,7 @@ fn validate_dev_bundle(app: &std::path::Path) -> Result<(), String> {
         let frameworks = app.join("Contents/Frameworks");
         for relative in [
             "Chromium Embedded Framework.framework/Chromium Embedded Framework",
-            "Supermono Helper.app/Contents/MacOS/Supermono Helper",
+            "Aven Helper.app/Contents/MacOS/Aven Helper",
         ] {
             if !frameworks.join(relative).is_file() {
                 return Err("The development app is missing Chromium. Run Aven's native development runner to package its framework and helpers before launch.".into());
@@ -753,7 +753,7 @@ fn relaunch_raw_dev_binary(exe: &std::path::Path) -> Result<(), String> {
     std::fs::create_dir_all(&macos_dir).map_err(|error| error.to_string())?;
     write_dev_bundle_icons(&app)?;
 
-    let bundled = macos_dir.join("monocode");
+    let bundled = macos_dir.join("aven");
     let _ = std::fs::remove_file(&bundled);
     // A copy, not a hard link: re-signing rewrites the running binary otherwise.
     std::fs::copy(exe, &bundled).map_err(|error| error.to_string())?;
@@ -762,6 +762,12 @@ fn relaunch_raw_dev_binary(exe: &std::path::Path) -> Result<(), String> {
         .permissions();
     perms.set_mode(0o755);
     std::fs::set_permissions(&bundled, perms).map_err(|error| error.to_string())?;
+    // Keep old saved command paths working after the bundle moves or updates.
+    let legacy = macos_dir.join("monocode");
+    if std::fs::symlink_metadata(&legacy).is_ok() {
+        std::fs::remove_file(&legacy).map_err(|error| error.to_string())?;
+    }
+    std::os::unix::fs::symlink("aven", &legacy).map_err(|error| error.to_string())?;
 
     let signed = Command::new("/usr/bin/codesign")
         .args([
@@ -807,7 +813,7 @@ fn dev_bundle_plist() -> String {
 <dict>
     <key>CFBundleDevelopmentRegion</key><string>en</string>
     <key>CFBundleDisplayName</key><string>{name}</string>
-    <key>CFBundleExecutable</key><string>monocode</string>
+    <key>CFBundleExecutable</key><string>aven</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundleIdentifier</key><string>{identifier}</string>
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
@@ -836,7 +842,7 @@ mod development_bundle_tests {
             "CFBundleIdentifier": crate::DEV_BUNDLE_ID,
             "CFBundleName": crate::DEV_PRODUCT_NAME,
             "CFBundleDisplayName": crate::DEV_PRODUCT_NAME,
-            "CFBundleExecutable": "monocode",
+            "CFBundleExecutable": "aven",
             "CFBundleShortVersionString": env!("CARGO_PKG_VERSION"),
         })
     }
@@ -863,11 +869,11 @@ mod development_bundle_tests {
         use std::path::Path;
         let bundle = "/repo/target/debug/Aven Dev.app";
         assert_eq!(
-            dev_bundle_root(Path::new(&format!("{bundle}/Contents/MacOS/monocode"))),
+            dev_bundle_root(Path::new(&format!("{bundle}/Contents/MacOS/aven"))),
             Some(Path::new(bundle).to_path_buf()),
         );
-        assert!(dev_bundle_root(Path::new("/repo/target/debug/monocode")).is_none());
-        assert!(dev_bundle_root(Path::new("/repo/app/Contents/MacOS/monocode")).is_none());
+        assert!(dev_bundle_root(Path::new("/repo/target/debug/aven")).is_none());
+        assert!(dev_bundle_root(Path::new("/repo/app/Contents/MacOS/aven")).is_none());
     }
 
     #[test]
@@ -906,7 +912,7 @@ mod development_bundle_tests {
         #[cfg(feature = "chromium")]
         for relative in [
             "Chromium Embedded Framework.framework/Chromium Embedded Framework",
-            "Supermono Helper.app/Contents/MacOS/Supermono Helper",
+            "Aven Helper.app/Contents/MacOS/Aven Helper",
         ] {
             let file = contents.join("Frameworks").join(relative);
             std::fs::create_dir_all(file.parent().unwrap()).unwrap();

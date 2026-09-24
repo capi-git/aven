@@ -516,11 +516,7 @@ fn configure_browser_environment(
     cmd: &mut Command,
     environment: Result<Vec<(String, String)>, String>,
 ) {
-    for key in [
-        "SUPERMONO_BROWSER_SOCKET",
-        "SUPERMONO_BROWSER_TOKEN",
-        "SUPERMONO_BROWSER_EXECUTABLE",
-    ] {
+    for key in crate::browser_agent::ENV_KEYS {
         cmd.env_remove(key);
     }
     match environment {
@@ -1610,6 +1606,7 @@ fn help_mentions_rpc_mode(path: &Path) -> bool {
     // npm-installed harnesses are `#!/usr/bin/env node` scripts, so this probe
     // fails outright without a PATH that has node on it.
     apply_gui_env(&mut cmd);
+    clear_scoped_capabilities(&mut cmd);
     isolate_child(&mut cmd);
     let Ok(child) = spawn_managed(&mut cmd) else {
         return false;
@@ -1701,6 +1698,7 @@ fn fx_help_mentions_acp(path: &Path) -> bool {
     // npm-installed harnesses are `#!/usr/bin/env node` scripts, so this probe
     // fails outright without a PATH that has node on it.
     apply_gui_env(&mut cmd);
+    clear_scoped_capabilities(&mut cmd);
     isolate_child(&mut cmd);
     let Ok(child) = spawn_managed(&mut cmd) else {
         return false;
@@ -1762,6 +1760,7 @@ fn grok_help_mentions_agent(path: &Path) -> bool {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     apply_gui_env(&mut cmd);
+    clear_scoped_capabilities(&mut cmd);
     isolate_child(&mut cmd);
     let Ok(child) = spawn_managed(&mut cmd) else {
         return false;
@@ -2012,11 +2011,19 @@ pub(crate) fn apply_gui_env(cmd: &mut Command) {
     }
 }
 
+/// Scoped agent capabilities must only be applied by the caller that owns a
+/// fresh grant. This helper deliberately does not load the login-shell env so
+/// the environment probe itself can use it without recursive shell startup.
+pub(crate) fn clear_scoped_capabilities(cmd: &mut Command) {
+    crate::control::clear_child_environment(cmd);
+    for key in crate::browser_agent::ENV_KEYS {
+        cmd.env_remove(key);
+    }
+}
+
 fn prepare_child(cmd: &mut Command, command: &str) {
     apply_gui_env(cmd);
-    // Never inherit a lead capability into unrelated helper processes.
-    cmd.env_remove("MONOCODE_CONTROL_ENDPOINT")
-        .env_remove("MONOCODE_CONTROL_TOKEN");
+    clear_scoped_capabilities(cmd);
     if command_basename(command) == "fx" {
         apply_fx_env(cmd);
     }
@@ -2120,6 +2127,7 @@ fn load_unix_login_shell_env() -> HashMap<String, String> {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
+    clear_scoped_capabilities(&mut cmd);
     isolate_child(&mut cmd);
     let Ok(child) = cmd.spawn() else {
         return HashMap::new();
@@ -2270,16 +2278,54 @@ mod tests {
     #[test]
     fn browser_setup_failure_still_runs_child_without_inherited_browser_credentials() {
         let mut cmd = Command::new("/bin/sh");
-        cmd.args(["-c", "test -z \"${SUPERMONO_BROWSER_TOKEN+x}${SUPERMONO_BROWSER_SOCKET+x}${SUPERMONO_BROWSER_EXECUTABLE+x}\""]);
-        for key in [
-            "SUPERMONO_BROWSER_TOKEN",
-            "SUPERMONO_BROWSER_SOCKET",
-            "SUPERMONO_BROWSER_EXECUTABLE",
-        ] {
+        cmd.args(["-c", "test -z \"${AVEN_BROWSER_TOKEN+x}${AVEN_BROWSER_SOCKET+x}${AVEN_BROWSER_EXECUTABLE+x}${SUPERMONO_BROWSER_TOKEN+x}${SUPERMONO_BROWSER_SOCKET+x}${SUPERMONO_BROWSER_EXECUTABLE+x}\""]);
+        for key in crate::browser_agent::ENV_KEYS {
             cmd.env(key, "stale-test-credential");
         }
         configure_browser_environment(&mut cmd, Err("synthetic browser setup failure".into()));
         assert!(cmd.status().expect("ordinary child still starts").success());
+    }
+
+    #[test]
+    fn helper_processes_do_not_inherit_either_browser_or_control_env_family() {
+        let mut cmd = Command::new("/bin/sh");
+        for key in crate::browser_agent::ENV_KEYS
+            .into_iter()
+            .chain(crate::control::ENV_KEYS)
+        {
+            cmd.env(key, "inherited-test-secret");
+        }
+        prepare_child(&mut cmd, "/bin/sh");
+        assert_capabilities_removed(&cmd);
+    }
+
+    #[test]
+    fn standalone_probe_sanitizer_removes_both_capability_families() {
+        let mut cmd = Command::new("/bin/sh");
+        cmd.args(["-c", "test -z \"${AVEN_BROWSER_TOKEN+x}${AVEN_BROWSER_SOCKET+x}${AVEN_BROWSER_EXECUTABLE+x}${SUPERMONO_BROWSER_TOKEN+x}${SUPERMONO_BROWSER_SOCKET+x}${SUPERMONO_BROWSER_EXECUTABLE+x}${AVEN_CONTROL_ENDPOINT+x}${AVEN_CONTROL_TOKEN+x}${MONOCODE_CONTROL_ENDPOINT+x}${MONOCODE_CONTROL_TOKEN+x}\""]);
+        for key in crate::browser_agent::ENV_KEYS
+            .into_iter()
+            .chain(crate::control::ENV_KEYS)
+        {
+            cmd.env(key, "inherited-test-secret");
+        }
+        clear_scoped_capabilities(&mut cmd);
+        assert_capabilities_removed(&cmd);
+        assert!(cmd.status().expect("probe child starts").success());
+    }
+
+    fn assert_capabilities_removed(cmd: &Command) {
+        let values: HashMap<_, _> = cmd.get_envs().collect();
+        for key in crate::browser_agent::ENV_KEYS
+            .into_iter()
+            .chain(crate::control::ENV_KEYS)
+        {
+            assert_eq!(
+                values[std::ffi::OsStr::new(key)],
+                None,
+                "helper inherited {key}"
+            );
+        }
     }
 
     #[test]

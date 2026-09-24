@@ -330,7 +330,7 @@ fn initialize(app: &AppHandle) -> Result<PathBuf, String> {
             .ok_or("Aven app bundle is unavailable")?;
         let frameworks = contents.join("Frameworks");
         let framework = frameworks.join("Chromium Embedded Framework.framework");
-        let helper = frameworks.join("Supermono Helper.app/Contents/MacOS/Supermono Helper");
+        let helper = frameworks.join("Aven Helper.app/Contents/MacOS/Aven Helper");
         if !framework.exists() || !helper.exists() {
             return Err("Chromium is missing from this app bundle. Reinstall the complete Aven application.".into());
         }

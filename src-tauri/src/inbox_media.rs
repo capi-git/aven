@@ -6,7 +6,7 @@ use crate::fs::MAX_PREVIEW_BYTES;
 const HTTP_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_REDIRECTS: usize = 5;
 const MAX_URL_BYTES: usize = 8192;
-const USER_AGENT: &str = "MonoCode";
+const USER_AGENT: &str = "Aven";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct MediaUrl {

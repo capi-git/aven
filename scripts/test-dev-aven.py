@@ -45,7 +45,7 @@ class DevRunnerGuards(unittest.TestCase):
         (self.root / 'node_modules/.bin').mkdir(parents=True)
         (self.root / 'node_modules/.bin/vite').write_text('fixture executable')
         (self.root / 'target/debug').mkdir(parents=True)
-        (self.root / 'target/debug/monocode').write_bytes(b'fixture binary; never executed')
+        (self.root / 'target/debug/aven').write_bytes(b'fixture binary; never executed')
         for patcher in (
             mock.patch.object(runner, 'ROOT', self.root),
             mock.patch.object(runner, 'APP', self.app),
@@ -89,11 +89,12 @@ class DevRunnerGuards(unittest.TestCase):
                 self.assertFalse(runner.port_is_available())
 
     def test_running_daily_app_is_allowed_but_development_helpers_block_rebuild(self):
-        with mock.patch.object(runner.subprocess, 'check_output', return_value='/Applications/Aven.app/Contents/MacOS/monocode\n'):
+        with mock.patch.object(runner.subprocess, 'check_output', return_value='/Applications/Aven.app/Contents/MacOS/aven\n'):
             runner.ensure_not_running()
         for executable in (
+            self.app / 'Contents/MacOS/aven',
             self.app / 'Contents/MacOS/monocode',
-            self.app / 'Contents/Frameworks/Supermono Helper.app/Contents/MacOS/Supermono Helper',
+            self.app / 'Contents/Frameworks/Aven Helper.app/Contents/MacOS/Aven Helper',
         ):
             with self.subTest(executable=str(executable)), \
                  mock.patch.object(runner.subprocess, 'check_output', return_value=str(executable) + '\n'):
@@ -116,7 +117,7 @@ class DevRunnerGuards(unittest.TestCase):
     def test_symlinked_debug_parent_never_builds_or_removes_external_bundle(self):
         # APP itself is a directory; its parent is the escaping link.
         debug = self.root / 'target/debug'
-        (debug / 'monocode').unlink()
+        (debug / 'aven').unlink()
         debug.rmdir()
         outside = Path(self.temporary.name) / 'external-output'
         outside.mkdir()
@@ -144,20 +145,26 @@ class DevRunnerGuards(unittest.TestCase):
         self.assertEqual(marker.read_text(), 'last working preview')
 
     def test_bundle_preserves_usage_descriptions_and_declares_dev_identity(self):
-        with mock.patch.object(runner, 'ensure_not_running'), mock.patch.object(runner, 'run'), \
+        with mock.patch.object(runner, 'ensure_not_running'), mock.patch.object(runner, 'run') as run, \
              contextlib.redirect_stdout(io.StringIO()):
             runner.prepare_bundle()
+        self.assertIn(mock.call('cargo', 'build', '--locked', '-p', 'aven', '--bin', 'aven'), run.call_args_list)
         info = plistlib.loads((self.app / 'Contents/Info.plist').read_bytes())
         self.assertEqual(info['CFBundleIdentifier'], 'com.capi.aven.dev')
         self.assertEqual(info['CFBundleName'], 'Aven Dev')
         self.assertEqual(info['CFBundleShortVersionString'], '0.9.0')
-        self.assertEqual(info['CFBundleExecutable'], 'monocode')
+        self.assertEqual(info['CFBundleExecutable'], 'aven')
         self.assertEqual(info['NSCameraUsageDescription'], 'Camera requires approval.')
         self.assertEqual(info['NSMicrophoneUsageDescription'], 'Microphone requires approval.')
         self.assertEqual(info['NSDocumentsFolderUsageDescription'], 'Open chosen projects.')
         self.assertEqual(info['NSBluetoothAlwaysUsageDescription'], 'The browser may check Bluetooth devices.')
         self.assertTrue((self.app / 'Contents/Resources' / info['CFBundleIconFile']).is_file())
         self.assertTrue((self.app / 'Contents/MacOS' / info['CFBundleExecutable']).is_file())
+        legacy = self.app / 'Contents/MacOS/monocode'
+        self.assertTrue(legacy.is_symlink())
+        self.assertEqual(os.readlink(legacy), 'aven')
+        self.assertEqual(legacy.resolve(), (self.app / 'Contents/MacOS/aven').resolve())
+        self.assertTrue(legacy.resolve().is_relative_to(self.app.resolve()))
 
     def test_launch_does_not_spawn_or_stop_anything_when_port_is_owned(self):
         with mock.patch.object(runner, 'port_is_available', return_value=False), \
@@ -176,7 +183,9 @@ class DevRunnerGuards(unittest.TestCase):
         app.wait.side_effect = [KeyboardInterrupt(), 0]
         response = mock.MagicMock()
         response.__enter__.return_value.status = 200
-        with mock.patch.dict(os.environ, {'SUPERMONO_BROWSER_TOKEN': 'fake-fixture-only',
+        with mock.patch.dict(os.environ, {'AVEN_BROWSER_TOKEN': 'fake-fixture-only',
+                                         'AVEN_CONTROL_TOKEN': 'fake-fixture-only',
+                                         'SUPERMONO_BROWSER_TOKEN': 'fake-fixture-only',
                                          'MONOCODE_CONTROL_TOKEN': 'fake-fixture-only',
                                          'TAURI_CONFIG': '{}', 'PATH': '/fixture/bin'}), \
              mock.patch.object(runner, 'port_is_available', return_value=True), \
@@ -187,10 +196,13 @@ class DevRunnerGuards(unittest.TestCase):
             runner.launch()
         for call in popen.call_args_list:
             env = call.kwargs['env']
+            self.assertNotIn('AVEN_BROWSER_TOKEN', env)
+            self.assertNotIn('AVEN_CONTROL_TOKEN', env)
             self.assertNotIn('SUPERMONO_BROWSER_TOKEN', env)
             self.assertNotIn('MONOCODE_CONTROL_TOKEN', env)
             self.assertNotIn('TAURI_CONFIG', env)
             self.assertEqual(env['PATH'], '/fixture/bin')
+        self.assertEqual(popen.call_args_list[1].args[0], [str(self.app / 'Contents/MacOS/aven')])
         app.terminate.assert_not_called()
         app.kill.assert_not_called()
         killpg.assert_called_once_with(server.pid, runner.signal.SIGTERM)

@@ -2,6 +2,11 @@
 
 ## [0.1.92] - 2026-09-23
 
+### Aven command and application names
+
+- Build the native app as `aven`, with Aven-named Chromium helpers, terminal identity, and generated browser and orchestration instructions.
+- Keep a `monocode` executable alias and accept older browser flags and scoped environment variables so existing agent conversations continue to work. Preserve saved sessions, preferences, application identity, and original license attribution.
+
 ### Responsive sidebar dismissal
 
 - Start the left sidebar's closing animation as soon as the pointer leaves, removing the extra hover-exit pause.

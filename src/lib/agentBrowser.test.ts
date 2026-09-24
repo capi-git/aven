@@ -20,7 +20,7 @@ beforeEach(() => {
   mocks.invoke.mockReset().mockImplementation(async (name: string) =>
     name === "browser_agent_bind"
       ? {
-          executablePath: "/Applications/CoveCode.app/Contents/MacOS/monocode",
+          executablePath: "/Applications/Aven.app/Contents/MacOS/aven",
           socketPath: "/private/unused.sock",
         }
       : undefined,
@@ -60,7 +60,11 @@ describe("agent browser session connection", () => {
       sessionId: "session-a",
       browserIds: ["native-mine"],
     });
-    expect(text).toContain("--supermono-browser");
+    expect(text).toContain("--aven-browser");
+    expect(text).toContain("<aven-browser>");
+    expect(text).toContain("</aven-browser>");
+    expect(text).toContain("'/Applications/Aven.app/Contents/MacOS/aven' --aven-browser");
+    expect(text).not.toContain("supermono-browser");
     expect(text).toContain('"action":"snapshot"');
     expect(text).toContain('"action":"openfile"');
     expect(text).toContain("no slash command is required");
@@ -384,7 +388,7 @@ describe("agent browser session connection", () => {
       cwd: "/p",
     });
     expect(text).toContain("unavailable for this turn");
-    expect(text).not.toContain("--supermono-browser");
+    expect(text).not.toContain("--aven-browser");
   });
   it("does not start a connection outside the native application", async () => {
     const api = await import("./agentBrowser");

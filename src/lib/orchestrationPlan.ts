@@ -169,7 +169,7 @@ export function orchestrationPlanningPrompt(
     "You are the orchestrator: the user selected you in the composer model picker. Decide the task breakdown and choose each worker's harness and model from the available catalog below. Do not ask the user to assemble a team. They can change your choices in the card before confirming.",
     "Keep planning efficient: inspect only what is needed to understand the request and relevant project conventions. Use the fewest useful tasks, with clear deliverables and acceptance checks. Do not create agents for trivial steps or duplicate investigation. Prefer a fast, economical model for straightforward work and a more capable model when complexity warrants it; do not invent model capabilities or prices. Reuse a suitable harness/model across tasks when that is sufficient. Explain your overall division of work briefly in the summary.",
     'Use only exact harness/model pairs from the catalog. Give each task self-contained instructions and project-relative write scopes; directories own their descendants. Parallelize independent work with disjoint files. Serialize shared-file edits with dependencies and avoid concurrent repository-wide commands. Assign shared operations and final combined validation to a task with files ["."]. All workers use one shared checkout without worktrees.',
-    "If a native plan submission tool is required, its plan must contain this same tagged JSON proposal, not a prose plan. Return your final proposal as one JSON object inside <monocode_proposal>...</monocode_proposal>. The app renders it as an editable card, so do not ask for approval in prose. No Markdown inside the JSON fields. Tasks may reference any task ID; the graph must be acyclic.",
+    "If a native plan submission tool is required, its plan must contain this same tagged JSON proposal, not a prose plan. Return your final proposal as one JSON object inside <aven_proposal>...</aven_proposal>. The app renders it as an editable card, so do not ask for approval in prose. No Markdown inside the JSON fields. Tasks may reference any task ID; the graph must be acyclic.",
     'Schema: {"title":"Short project title","summary":"What you will do and how the work fits together","tasks":[{"id":"task-1","title":"Short task title","prompt":"Self-contained instructions, constraints and checks","harness":"exact harness ID","model":"exact model ID","files":["src/feature"],"dependsOn":[]}]}',
     `Parallel worker limit: ${settings.maxWorkers}`,
     `<available_models>\n${JSON.stringify(settings.choices)}\n</available_models>`,
@@ -185,9 +185,9 @@ function proposalCandidates(responses: readonly string[]): string[] {
   const tagged = responses.flatMap((text) =>
     [
       ...text.matchAll(
-        /<monocode_proposal>\s*([\s\S]*?)\s*<\/monocode_proposal>/g,
+        /<(aven_proposal|monocode_proposal)>\s*([\s\S]*?)\s*<\/\1>/g,
       ),
-    ].map((match) => match[1]),
+    ].map((match) => match[2]),
   );
   const fenced = responses.flatMap((text) =>
     [...text.matchAll(/```(?:json)?[ \t]*\r?\n([\s\S]*?)```/gi)].map(

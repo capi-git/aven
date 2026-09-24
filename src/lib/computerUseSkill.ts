@@ -21,7 +21,7 @@ For websites and localhost pages, use the scoped in-app browser instructions sup
 
 For local Markdown, code, JSON and supported documents, use the same scoped command's \`openfile\` action with the absolute path, for example:
 
-\`"$SUPERMONO_BROWSER_EXECUTABLE" --supermono-browser '{"action":"openfile","path":"/absolute/path/notes.md","line":12}'\`
+\`"$AVEN_BROWSER_EXECUTABLE" --aven-browser '{"action":"openfile","path":"/absolute/path/notes.md","line":12}'\`
 
 The \`line\` and \`column\` fields are optional. Build the JSON with proper quoting for the actual path. A local Markdown file belongs in Aven's editor, not a \`file://\` browser tab or an external editor. Explain an unsupported file type or access error before offering another route; do not bypass the task's file scope. Verify the returned result and visible tab before claiming the file opened.
 

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(SupermonoChromium LANGUAGES C CXX OBJCXX)
+project(AvenChromium LANGUAGES C CXX OBJCXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0")
@@ -26,7 +26,7 @@ add_executable(supermono_chromium_helper helper.mm)
 target_include_directories(supermono_chromium_helper PRIVATE "${CEF_ROOT}")
 target_compile_definitions(supermono_chromium_helper PRIVATE CEF_USE_SANDBOX)
 target_link_libraries(supermono_chromium_helper PRIVATE libcef_dll_wrapper ${CEF_STANDARD_LIBS})
-set_target_properties(supermono_chromium_helper PROPERTIES OUTPUT_NAME "Supermono Chromium Helper")
+set_target_properties(supermono_chromium_helper PROPERTIES OUTPUT_NAME "Aven Chromium Helper")
 # Rust links one archive. libtool preserves every archive member without linking
 # the CEF framework; the framework is loaded lazily through cef_load_library.
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/libsupermono_chromium.a"

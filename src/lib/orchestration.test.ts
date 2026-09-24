@@ -104,9 +104,14 @@ describe("worker assignment prompts", () => {
   it("keeps the task text and wraps it in the assignment envelope", () => {
     const sent = workerTurnPrompt("Review the branch.", ["src/App.tsx"]);
     expect(sent.startsWith("Review the branch.")).toBe(true);
-    expect(sent).toContain("<monocode_assignment>");
+    expect(sent).toContain("<aven_assignment>");
     expect(sent).toContain("src/App.tsx");
     expect(visibleUserPrompt(sent)).toBe("Review the branch.");
+  });
+
+  it("still hides legacy assignment instructions in restored conversations", () => {
+    const restored = "Review the branch.\n\n<monocode_assignment>\nLegacy worker instructions\n</monocode_assignment>";
+    expect(visibleUserPrompt(restored)).toBe("Review the branch.");
   });
 });
 
@@ -227,10 +232,10 @@ describe("local orchestration", () => {
       .mocked(f.host.submit)
       .mock.calls.find(
         ([id, prompt]) =>
-          id !== "lead" && String(prompt).includes("<monocode_assignment>"),
+          id !== "lead" && String(prompt).includes("<aven_assignment>"),
       )?.[1];
     expect(workerPrompt).toContain("Define the types");
-    expect(workerPrompt).toContain("<monocode_assignment>");
+    expect(workerPrompt).toContain("<aven_assignment>");
     expect(
       vi.mocked(f.host.submit).mock.calls.find(([id]) => id === "lead")?.[1],
     ).toContain("do not delegate duplicates");

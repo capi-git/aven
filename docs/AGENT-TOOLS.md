@@ -21,7 +21,7 @@ configured browser tests, and provider sign-in flows retain their normal behavio
 Ask to open a local file. The agent uses the scoped `openfile` action:
 
 ```sh
-"$SUPERMONO_BROWSER_EXECUTABLE" --supermono-browser \
+"$AVEN_BROWSER_EXECUTABLE" --aven-browser \
   '{"action":"openfile","path":"/absolute/path/notes.md","line":12}'
 ```
 

@@ -55,4 +55,4 @@ Bug reports and focused pull requests are welcome. Read [CONTRIBUTING.md](CONTRI
 
 Aven is licensed under [MIT](LICENSE). It began from the MIT-licensed [MonoCode](https://github.com/hardbeat920/monocode) project by Nick and contributors and is maintained independently by Jack Hagan. Original copyright notices are preserved. Aven releases and updates come from this repository. See [NOTICE](NOTICE) for attribution and provider trademarks.
 
-Current product labels and frontend package metadata use **Aven**. Some internal identifiers retain older names for compatibility; see [Branding and compatibility](docs/BRANDING.md) before renaming them.
+Current product labels, native executables, helper applications, and frontend package metadata use **Aven**. Some internal identifiers retain older names for compatibility; see [Branding and compatibility](docs/BRANDING.md) before renaming them.

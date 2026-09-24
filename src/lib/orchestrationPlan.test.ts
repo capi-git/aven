@@ -47,7 +47,8 @@ describe("orchestration proposals", () => {
     expect(prompt).toContain("do not edit files, start workers");
     expect(prompt).toContain('"model":"codex:test"');
     expect(prompt).toContain("until the user confirms");
-    expect(prompt).toContain("<monocode_proposal>");
+    expect(prompt).toContain("<aven_proposal>");
+    expect(prompt).not.toContain("monocode_proposal");
     expect(prompt).toContain("fewest useful tasks");
     expect(prompt).toContain("Do not ask the user to assemble a team");
     expect(prompt).toContain("disjoint files");
@@ -56,12 +57,26 @@ describe("orchestration proposals", () => {
   it("turns the lead's structured response into a ready card without changing the discovered catalog", () => {
     const result = completeOrchestrationProposal(
       draft,
-      `Commentary\n<monocode_proposal>${JSON.stringify({ ...payload, settings: { choices: [] } })}</monocode_proposal>`,
+      `Commentary\n<aven_proposal>${JSON.stringify({ ...payload, settings: { choices: [] } })}</aven_proposal>`,
     );
     expect(result.status).toBe("ready");
     expect(result.tasks).toEqual(payload.tasks);
     expect(result.settings).toEqual(draft.settings);
     expect(result.author).toEqual(draft.author);
+  });
+  it("accepts historical proposal tags without treating mismatched tags as complete", () => {
+    const result = completeOrchestrationProposal(
+      draft,
+      `Commentary\n<monocode_proposal>${JSON.stringify(payload)}</monocode_proposal>`,
+    );
+    expect(result.status).toBe("ready");
+    expect(result.tasks).toEqual(payload.tasks);
+    expect(
+      completeOrchestrationProposal(
+        draft,
+        `<aven_proposal>${JSON.stringify(payload)}</monocode_proposal>`,
+      ).status,
+    ).toBe("invalid");
   });
   it("accepts fenced JSON and rejects prose or a model outside the available catalog", () => {
     expect(
@@ -87,7 +102,7 @@ describe("orchestration proposals", () => {
   it("uses assistant assignments when the native plan contains only prose", () => {
     const result = completeOrchestrationProposal(draft, [
       "I'll investigate the current editor first.",
-      `Commentary\n<monocode_proposal>${JSON.stringify(payload)}</monocode_proposal>`,
+      `Commentary\n<aven_proposal>${JSON.stringify(payload)}</aven_proposal>`,
     ]);
     expect(result.status).toBe("ready");
     expect(result.tasks).toEqual(payload.tasks);
@@ -101,7 +116,7 @@ describe("orchestration proposals", () => {
     const result = completeOrchestrationProposal(
       draft,
       '```json\n{"note":"investigation"}\n```\n' +
-        `<monocode_proposal>${JSON.stringify(proposal)}</monocode_proposal>`,
+        `<aven_proposal>${JSON.stringify(proposal)}</aven_proposal>`,
     );
     expect(result.status).toBe("ready");
     expect(result.tasks).toEqual(proposal.tasks);
@@ -124,8 +139,8 @@ describe("orchestration proposals", () => {
   it.each([
     "",
     "I'll investigate the editor first.",
-    '<monocode_proposal>{"title":',
-    "<monocode_proposal>{invalid}</monocode_proposal>",
+    '<aven_proposal>{"title":',
+    "<aven_proposal>{invalid}</aven_proposal>",
   ])(
     "keeps missing or malformed proposals non-executable without raw parser errors: %s",
     (response) => {

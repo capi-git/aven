@@ -15,6 +15,17 @@ ROOT = Path(__file__).resolve().parent.parent
 RELEASES = "https://github.com/capi-git/aven/releases/download"
 
 
+def verify_executable_identity(app, info):
+    binary = app / "Contents/MacOS/aven"
+    alias = app / "Contents/MacOS/monocode"
+    if info.get("CFBundleExecutable") != "aven" or not binary.is_file() or binary.is_symlink():
+        raise SystemExit("Expected the Aven executable in the final app bundle")
+    if not binary.resolve().is_relative_to(app.resolve()):
+        raise SystemExit("Executable path escapes the app bundle")
+    if not alias.is_symlink() or os.readlink(alias) != "aven" or alias.resolve() != binary.resolve():
+        raise SystemExit("Expected a relative monocode compatibility alias to aven inside the bundle")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--app", required=True, type=Path)
@@ -29,6 +40,7 @@ def main():
         raise SystemExit("Invalid release version")
     if info.get("CFBundleIdentifier") != config["identifier"] or info.get("CFBundleShortVersionString") != version:
         raise SystemExit("App identity/version differs from release configuration")
+    verify_executable_identity(args.app, info)
     if not (args.app / "Contents/Frameworks/Chromium Embedded Framework.framework").exists():
         raise SystemExit("Package Chromium before creating update artifacts")
     subprocess.run(["codesign", "--verify", "--deep", "--strict", str(args.app)], check=True)
@@ -50,7 +62,7 @@ def main():
         if not signature.is_file() or not signature.read_text().strip():
             raise SystemExit("Signer did not produce a signature")
         subprocess.run([
-            "cargo", "run", "--locked", "--release", "-p", "monocode", "--example", "verify_update", "--",
+            "cargo", "run", "--locked", "--release", "-p", "aven", "--example", "verify_update", "--",
             str(ROOT / "src-tauri/tauri.conf.json"), str(archive), str(signature),
         ], cwd=ROOT, check=True)
         changelog = (ROOT / "CHANGELOG.md").read_text()

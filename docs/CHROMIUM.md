@@ -82,7 +82,7 @@ Optional environment settings:
 
 The packaged executable accepts `--help` / `-h` and `--version` / `-V` without
 opening a desktop window. Use `control --help` for orchestration commands or
-`--supermono-browser --help` for scoped browser commands. Unsupported arguments
+`--aven-browser --help` for scoped browser commands. Unsupported arguments
 exit with a usage error rather than starting another copy of Aven. Launch with
 no arguments to open the desktop app normally.
 
@@ -93,7 +93,7 @@ npm ci
 export CEF_BUILD_DIR="$PWD/target/chromium"
 ./scripts/build-chromium.sh
 npm run check:web
-cargo test --locked -p monocode --lib
+cargo test --locked -p aven --lib
 npm run dev:app
 ```
 
@@ -103,7 +103,7 @@ The runner opens a complete **Aven Dev** bundle with separate application data a
 
 Interactive Codex and Claude sessions receive Aven's browser preference at startup, and each ordinary turn receives instructions for its scoped browser connection. Codex starts, resumes, and forks preserve configured developer instructions when adding the host policy; if those settings cannot be read safely, Aven retains the provider settings and relies on per-turn guidance. Claude may retain its original system prompt when resuming a saved conversation, so the per-turn instructions remain necessary. Orchestrated workers and mid-turn guidance use the same browser preparation path. Internal title and summary helpers do not receive browser host instructions.
 
-For an ordinary project preview, start the development server without browser auto-open, then open its URL through the supplied `--supermono-browser` CLI and verify the page with a fresh snapshot. Agents should pass the same routing when delegating browser work. An unavailable connection is reported instead of silently switching to an external browser. Explicit external-browser requests, configured browser tests, and provider sign-in flows retain their normal behavior; Aven does not change the system default browser or global provider configuration.
+For an ordinary project preview, start the development server without browser auto-open, then open its URL through the supplied `--aven-browser` CLI and verify the page with a fresh snapshot. Agents should pass the same routing when delegating browser work. An unavailable connection is reported instead of silently switching to an external browser. Explicit external-browser requests, configured browser tests, and provider sign-in flows retain their normal behavior; Aven does not change the system default browser or global provider configuration.
 
 ### Browser element comments
 

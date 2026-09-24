@@ -99,7 +99,7 @@ export async function fetchCodexRateLimits(): Promise<ProviderRateLimits> {
           "initialize",
           {
             clientInfo: {
-              name: "monocode",
+              name: "aven",
               title: "Aven",
               version: "0.1.0",
             },

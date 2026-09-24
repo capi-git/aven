@@ -68,6 +68,8 @@ export CARGO_TARGET_DIR="$task_repo_root/target"
 
 python3 -B scripts/test-package-chromium.py
 python3 -B scripts/test-dev-aven.py
+python3 -B scripts/test-package-update.py
+python3 -B scripts/test-bump-version.py
 
 task_app="$task_repo_root/target/release/bundle/macos/Aven.app"
 task_release_dir="$task_repo_root/target/releases/v$task_version"
@@ -81,7 +83,7 @@ fi
 
 ./scripts/build-chromium.sh
 npm run check:web
-cargo test --locked -p monocode --lib
+cargo test --locked -p aven --lib
 
 # Tauri creates an intermediate host bundle; the packager signs the complete
 # app only after Chromium and all helper executables have been added.

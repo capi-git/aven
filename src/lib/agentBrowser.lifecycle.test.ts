@@ -23,7 +23,7 @@ function deferred() {
 }
 
 const binding = {
-  executablePath: "/Applications/CoveCode.app/Contents/MacOS/monocode",
+  executablePath: "/Applications/Aven.app/Contents/MacOS/aven",
   socketPath: "/private/test-only.sock",
 };
 let dispose: (() => void) | undefined;
@@ -98,7 +98,7 @@ describe("agent browser lifecycle ordering", () => {
         "Next provider turn",
         context,
       );
-      expect(next).toContain("--supermono-browser");
+      expect(next).toContain("--aven-browser");
       expect(forgetSession).toHaveBeenCalledWith(context.sessionId);
       expect(oldCleanupFinished).toBe(false);
       expect(native.grants.get(context.sessionId)).toEqual(["native-page"]);
@@ -168,7 +168,7 @@ describe("agent browser lifecycle ordering", () => {
       expect(operations).toEqual(["bind", "revoke started"]);
       finishRevoke.resolve();
       await forgetting;
-      expect(await replacement).toContain("--supermono-browser");
+      expect(await replacement).toContain("--aven-browser");
       expect(operations).toEqual([
         "bind",
         "revoke started",

@@ -76,7 +76,7 @@ def prepare_bundle():
     require(not APP.is_symlink(), 'Unexpected symlink at the development bundle path.')
     ensure_not_running()
     run(ROOT / 'scripts/build-chromium.sh')
-    run('cargo', 'build', '--locked', '-p', 'monocode', '--bin', 'monocode')
+    run('cargo', 'build', '--locked', '-p', 'aven', '--bin', 'aven')
     version = json.loads((ROOT / 'package.json').read_text())['version']
     # This exact generated bundle is replaceable; never target /Applications.
     if APP.exists():
@@ -84,11 +84,14 @@ def prepare_bundle():
     contents = APP / 'Contents'
     (contents / 'MacOS').mkdir(parents=True)
     (contents / 'Resources').mkdir()
-    shutil.copy2(ROOT / 'target/debug/monocode', contents / 'MacOS/monocode')
+    shutil.copy2(ROOT / 'target/debug/aven', contents / 'MacOS/aven')
+    # Saved prompts may still invoke the old executable path. Keep this alias
+    # relative so it follows this bundle when the candidate is moved.
+    (contents / 'MacOS/monocode').symlink_to('aven')
     shutil.copy2(ROOT / 'src-tauri/icons/icon.icns', contents / 'Resources/icon.icns')
     info = plistlib.loads((ROOT / 'src-tauri/Info.plist').read_bytes())
     info.update(CFBundleIdentifier=IDENTITY, CFBundleName='Aven Dev', CFBundleDisplayName='Aven Dev',
-                CFBundleExecutable='monocode', CFBundleIconFile='icon.icns',
+                CFBundleExecutable='aven', CFBundleIconFile='icon.icns',
                 CFBundleShortVersionString=version, CFBundleVersion=version,
                 CFBundlePackageType='APPL', CFBundleInfoDictionaryVersion='6.0',
                 LSMinimumSystemVersion='13.0', NSHighResolutionCapable=True)
@@ -106,7 +109,7 @@ def launch():
     # Provider-scoped control credentials belong to the installed host, not the
     # development host. Aven Dev provisions its own connections for its agents.
     child_env = {key: value for key, value in os.environ.items()
-                 if not key.startswith(('SUPERMONO_', 'MONOCODE_'))}
+                 if not key.startswith(('AVEN_BROWSER_', 'AVEN_CONTROL_', 'SUPERMONO_', 'MONOCODE_'))}
     child_env.pop('TAURI_CONFIG', None)
     child_env.pop('TAURI_DEV_HOST', None)
     app = None
@@ -126,7 +129,7 @@ def launch():
             else:
                 raise RuntimeError(f'Development server did not become ready; inspect {log_path}')
             print('Opening Aven Dev. Quit its window to stop this preview. Installed Aven stays running.', flush=True)
-            app = subprocess.Popen([str(APP / 'Contents/MacOS/monocode')], cwd=ROOT, env=child_env,
+            app = subprocess.Popen([str(APP / 'Contents/MacOS/aven')], cwd=ROOT, env=child_env,
                                    start_new_session=True)
             # Control-C must not force-quit a desktop app that may contain work.
             while app.poll() is None:

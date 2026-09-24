@@ -83,7 +83,7 @@ async function discoverViaAcp(): Promise<AgentModel[]> {
         {
           protocolVersion: 1,
           clientCapabilities: CURSOR_CLIENT_CAPABILITIES,
-          clientInfo: { name: "monocode", version: "0.1.0" },
+          clientInfo: { name: "aven", version: "0.1.0" },
         },
         REQUEST_TIMEOUT_MS,
       );

@@ -438,7 +438,7 @@ mod platform {
             .summary(&format!("{title}: {subtitle}"))
             // The body is agent output; servers render it as markup.
             .body(&escape_markup(body))
-            .icon("monocode")
+            .icon("aven")
             // Servers only report the click when a "default" action exists.
             .action("default", "Show");
         if sound {

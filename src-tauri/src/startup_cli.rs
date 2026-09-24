@@ -3,13 +3,13 @@ use std::ffi::OsString;
 
 const HELP: &str = "Aven — one UI for every agent harness
 
-Usage: monocode [COMMAND]
+Usage: aven [COMMAND]
 
   (no arguments)             Open the Aven desktop app
   -h, --help                 Show this help without opening the app
   -V, --version              Show the installed version
   control --help             Show orchestration control commands
-  --supermono-browser --help Show in-app browser commands
+  --aven-browser --help      Show in-app browser commands
 
 Browser and orchestration commands use the scoped connection supplied by Aven.
 ";
@@ -34,7 +34,7 @@ fn classify(args: &[OsString], macos: bool) -> Startup {
     };
     match first {
         "control" => Startup::Control,
-        "--supermono-browser" => Startup::Browser,
+        "--aven-browser" | "--supermono-browser" => Startup::Browser,
         "--help" | "-h" | "help" if args.len() == 1 => Startup::Help,
         "--version" | "-V" if args.len() == 1 => Startup::Version,
         // Older LaunchServices versions pass a process serial number when
@@ -73,7 +73,7 @@ pub fn run_startup_cli() -> Option<i32> {
             Some(0)
         }
         Startup::Invalid => {
-            eprintln!("Unsupported command or arguments. Run monocode --help for usage.");
+            eprintln!("Unsupported command or arguments. Run aven --help for usage.");
             Some(2)
         }
     }
@@ -103,9 +103,11 @@ mod tests {
             let mut control = vec!["control"];
             control.extend(&args);
             assert_eq!(route(&control, true), Startup::Control);
-            let mut browser = vec!["--supermono-browser"];
-            browser.extend(&args);
-            assert_eq!(route(&browser, true), Startup::Browser);
+            for flag in ["--aven-browser", "--supermono-browser"] {
+                let mut browser = vec![flag];
+                browser.extend(&args);
+                assert_eq!(route(&browser, true), Startup::Browser);
+            }
         }
     }
 
@@ -124,6 +126,7 @@ mod tests {
             vec!["--help", "list"],
             vec!["--version", "list"],
             vec!["--supermono-browesr"],
+            vec!["--aven-browesr"],
             vec!["--type=renderer"],
             vec!["list"],
             vec![""],

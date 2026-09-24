@@ -12,6 +12,19 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 
+pub(crate) const ENV_KEYS: [&str; 4] = [
+    "AVEN_CONTROL_ENDPOINT",
+    "AVEN_CONTROL_TOKEN",
+    "MONOCODE_CONTROL_ENDPOINT",
+    "MONOCODE_CONTROL_TOKEN",
+];
+
+pub(crate) fn clear_child_environment(cmd: &mut Command) {
+    for key in ENV_KEYS {
+        cmd.env_remove(key);
+    }
+}
+
 #[derive(Clone)]
 struct Grant {
     window: String,
@@ -460,8 +473,7 @@ pub fn window_closed(app: &AppHandle, label: &str) {
 }
 
 pub fn configure_child(app: &AppHandle, window: &str, session_id: &str, cmd: &mut Command) {
-    cmd.env_remove("MONOCODE_CONTROL_ENDPOINT")
-        .env_remove("MONOCODE_CONTROL_TOKEN");
+    clear_child_environment(cmd);
     let Some(host) = app.try_state::<ControlHost>() else {
         return;
     };
@@ -477,15 +489,16 @@ fn configure_environment(
     session_id: &str,
     cmd: &mut Command,
 ) {
-    cmd.env_remove("MONOCODE_CONTROL_ENDPOINT")
-        .env_remove("MONOCODE_CONTROL_TOKEN");
+    clear_child_environment(cmd);
     if let Some(grant) = inner
         .grants
         .get(session_id)
         .filter(|grant| grant.window == window)
     {
-        cmd.env("MONOCODE_CONTROL_ENDPOINT", endpoint)
-            .env("MONOCODE_CONTROL_TOKEN", &grant.token);
+        for prefix in ["AVEN_CONTROL", "MONOCODE_CONTROL"] {
+            cmd.env(format!("{prefix}_ENDPOINT"), endpoint)
+                .env(format!("{prefix}_TOKEN"), &grant.token);
+        }
     }
 }
 
@@ -798,18 +811,21 @@ mod tests {
             ("owner", "ordinary", false),
         ] {
             let mut cmd = Command::new("unused-test-command");
-            cmd.env("MONOCODE_CONTROL_TOKEN", "inherited-test-secret");
-            cmd.env("MONOCODE_CONTROL_ENDPOINT", "inherited-test-endpoint");
+            for key in ENV_KEYS {
+                cmd.env(key, "inherited-test-secret");
+            }
             configure_environment(&inner, "127.0.0.1:12345", window, session, &mut cmd);
             let vars: HashMap<_, _> = cmd.get_envs().collect();
-            assert_eq!(
-                vars[std::ffi::OsStr::new("MONOCODE_CONTROL_TOKEN")],
-                allowed.then_some(std::ffi::OsStr::new("test-secret"))
-            );
-            assert_eq!(
-                vars[std::ffi::OsStr::new("MONOCODE_CONTROL_ENDPOINT")],
-                allowed.then_some(std::ffi::OsStr::new("127.0.0.1:12345"))
-            );
+            for prefix in ["AVEN_CONTROL", "MONOCODE_CONTROL"] {
+                assert_eq!(
+                    vars[std::ffi::OsStr::new(&format!("{prefix}_TOKEN"))],
+                    allowed.then_some(std::ffi::OsStr::new("test-secret"))
+                );
+                assert_eq!(
+                    vars[std::ffi::OsStr::new(&format!("{prefix}_ENDPOINT"))],
+                    allowed.then_some(std::ffi::OsStr::new("127.0.0.1:12345"))
+                );
+            }
         }
     }
 

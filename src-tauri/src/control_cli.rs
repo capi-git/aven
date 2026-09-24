@@ -65,7 +65,7 @@ under a fresh ID instead would queue a second worker.
 Tasks run inside the Aven app, not in this process. Exiting this CLI, or a
 failure here, never cancels a task that was already accepted.
 
-Aven sets MONOCODE_CONTROL_ENDPOINT and MONOCODE_CONTROL_TOKEN for the lead
+Aven sets AVEN_CONTROL_ENDPOINT and AVEN_CONTROL_TOKEN for the lead
 agent's process only. They are already in your environment; never print them.
 "#;
 
@@ -99,7 +99,7 @@ fn quoted(value: &str) -> String {
 pub fn help() -> String {
     let exe = std::env::current_exe()
         .map(|path| quoted(&path.to_string_lossy()))
-        .unwrap_or_else(|_| "monocode".into());
+        .unwrap_or_else(|_| "aven".into());
     USAGE.replace("{exe}", &exe)
 }
 
@@ -182,12 +182,32 @@ fn loopback_address(endpoint: &str) -> Result<SocketAddr, String> {
     Ok(address)
 }
 
+fn control_cli_connection(
+    env: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> Result<(String, String), Failure> {
+    let canonical = env("AVEN_CONTROL_ENDPOINT").is_some() || env("AVEN_CONTROL_TOKEN").is_some();
+    let prefix = if canonical {
+        "AVEN_CONTROL"
+    } else {
+        "MONOCODE_CONTROL"
+    };
+    // A partial canonical configuration cannot borrow authority from a stale
+    // legacy connection. Choose one complete family before opening transport.
+    let endpoint = env(&format!("{prefix}_ENDPOINT"))
+        .and_then(|value| value.into_string().ok())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            unsent("No Aven connection. Confirm the Orchestrator proposal in Aven first.")
+        })?;
+    let token = env(&format!("{prefix}_TOKEN"))
+        .and_then(|value| value.into_string().ok())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| unsent("No Aven session credential. Start the lead from Aven."))?;
+    Ok((endpoint, token))
+}
+
 fn send(action: &str, input: &Value, request_id: &str) -> Result<Value, Failure> {
-    let endpoint = std::env::var("MONOCODE_CONTROL_ENDPOINT").map_err(|_| {
-        unsent("No Aven connection. Confirm the Orchestrator proposal in Aven first.")
-    })?;
-    let token = std::env::var("MONOCODE_CONTROL_TOKEN")
-        .map_err(|_| unsent("No Aven session credential. Start the lead from Aven."))?;
+    let (endpoint, token) = control_cli_connection(|key| std::env::var_os(key))?;
     let address = loopback_address(&endpoint).map_err(unsent)?;
     let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(3))
         .map_err(|_| unsent("Aven is not running or this connection has expired."))?;
@@ -360,22 +380,64 @@ mod tests {
         }
         assert!(!text.contains("{exe}"));
         assert!(text.contains("--request-id"));
+        assert!(text.contains("AVEN_CONTROL_ENDPOINT"));
+        assert!(!text.contains("MONOCODE_CONTROL_"));
+    }
+    #[test]
+    fn control_connection_selects_one_complete_environment_family() {
+        let read = |values: &[(&str, &str)]| {
+            control_cli_connection(|key| {
+                values
+                    .iter()
+                    .find(|(name, _)| *name == key)
+                    .map(|(_, value)| (*value).into())
+            })
+            .map_err(|failure| failure.error)
+        };
+        let mut values = vec![
+            ("MONOCODE_CONTROL_ENDPOINT", "127.0.0.1:10001"),
+            ("MONOCODE_CONTROL_TOKEN", "legacy-test-grant"),
+        ];
+        assert_eq!(
+            read(&values).unwrap(),
+            ("127.0.0.1:10001".into(), "legacy-test-grant".into())
+        );
+        values.push(("AVEN_CONTROL_ENDPOINT", "127.0.0.1:10002"));
+        assert!(
+            read(&values).is_err(),
+            "canonical endpoint must not inherit a legacy token"
+        );
+        values.push(("AVEN_CONTROL_TOKEN", "current-test-grant"));
+        assert_eq!(
+            read(&values).unwrap(),
+            ("127.0.0.1:10002".into(), "current-test-grant".into())
+        );
+        values.retain(|(key, _)| *key != "AVEN_CONTROL_ENDPOINT");
+        assert!(
+            read(&values).is_err(),
+            "canonical token must not inherit a legacy endpoint"
+        );
+        values.push(("AVEN_CONTROL_ENDPOINT", ""));
+        assert!(
+            read(&values).is_err(),
+            "empty canonical endpoint must fail closed"
+        );
     }
     #[test]
     fn quotes_the_control_path_only_when_the_shell_needs_it() {
         assert_eq!(
-            quoted("/Applications/CoveCode.app/Contents/MacOS/monocode"),
-            "/Applications/CoveCode.app/Contents/MacOS/monocode"
+            quoted("/Applications/Aven.app/Contents/MacOS/aven"),
+            "/Applications/Aven.app/Contents/MacOS/aven"
         );
-        assert_eq!(quoted("/Users/a b/CoveCode"), "'/Users/a b/CoveCode'");
-        assert_eq!(quoted("C:\\Tools\\monocode.exe"), "C:\\Tools\\monocode.exe");
+        assert_eq!(quoted("/Users/a b/Aven"), "'/Users/a b/Aven'");
+        assert_eq!(quoted("C:\\Tools\\aven.exe"), "C:\\Tools\\aven.exe");
         assert_eq!(
-            quoted("C:\\Program Files\\CoveCode\\monocode.exe"),
-            "\"C:\\Program Files\\CoveCode\\monocode.exe\""
+            quoted("C:\\Program Files\\Aven\\aven.exe"),
+            "\"C:\\Program Files\\Aven\\aven.exe\""
         );
         // A backslash escapes in a POSIX shell, so bare would rewrite the path.
-        assert_eq!(quoted("/Users/a\\b/CoveCode"), "'/Users/a\\b/CoveCode'");
-        assert_eq!(quoted("/Users/it's/CoveCode"), r"'/Users/it'\''s/CoveCode'");
+        assert_eq!(quoted("/Users/a\\b/Aven"), "'/Users/a\\b/Aven'");
+        assert_eq!(quoted("/Users/it's/Aven"), r"'/Users/it'\''s/Aven'");
     }
     #[test]
     fn control_endpoint_rejects_remote_wildcard_and_hostname_addresses() {

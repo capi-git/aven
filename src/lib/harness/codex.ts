@@ -337,7 +337,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
   try {
     await rpc.request("initialize", {
       clientInfo: {
-        name: "monocode",
+        name: "aven",
         title: "Aven",
         version: "0.1.0",
       },

@@ -12,6 +12,17 @@ const MAX_REQUEST_BYTES: usize = 32 * 1024;
 const MAX_RESPONSE_BYTES: usize = 300 * 1024;
 const MAX_TABS: usize = 64;
 
+/// Both spellings carry the same scoped grant. Always clear every key before
+/// attaching a child's own connection, including when browser setup fails.
+pub(crate) const ENV_KEYS: [&str; 6] = [
+    "AVEN_BROWSER_SOCKET",
+    "AVEN_BROWSER_TOKEN",
+    "AVEN_BROWSER_EXECUTABLE",
+    "SUPERMONO_BROWSER_SOCKET",
+    "SUPERMONO_BROWSER_TOKEN",
+    "SUPERMONO_BROWSER_EXECUTABLE",
+];
+
 #[derive(Clone)]
 struct Grant {
     owner: String,
@@ -510,17 +521,22 @@ pub(crate) fn child_environment(session_id: &str) -> Vec<(String, String)> {
     let Ok(executable) = std::env::current_exe() else {
         return vec![];
     };
-    vec![
-        (
-            "SUPERMONO_BROWSER_SOCKET".into(),
-            server.socket_path.clone(),
-        ),
-        ("SUPERMONO_BROWSER_TOKEN".into(), token.clone()),
-        (
-            "SUPERMONO_BROWSER_EXECUTABLE".into(),
-            executable.to_string_lossy().into_owned(),
-        ),
-    ]
+    scoped_child_environment(&server.socket_path, token, &executable.to_string_lossy())
+}
+
+fn scoped_child_environment(socket: &str, token: &str, executable: &str) -> Vec<(String, String)> {
+    ["AVEN_BROWSER", "SUPERMONO_BROWSER"]
+        .into_iter()
+        .flat_map(|prefix| {
+            [
+                ("SOCKET", socket),
+                ("TOKEN", token),
+                ("EXECUTABLE", executable),
+            ]
+            .into_iter()
+            .map(move |(suffix, value)| (format!("{prefix}_{suffix}"), value.to_owned()))
+        })
+        .collect()
 }
 
 fn server(app: &AppHandle) -> Result<Arc<Server>, String> {
@@ -796,7 +812,7 @@ fn execute(server: &Arc<Server>, envelope: Envelope) -> Result<Value, String> {
 }
 
 const HELP: &str = r#"Aven in-app browser and editor
-Usage: "$SUPERMONO_BROWSER_EXECUTABLE" --supermono-browser '<JSON>'
+Usage: "$AVEN_BROWSER_EXECUTABLE" --aven-browser '<JSON>'
   {"action":"list"}
   {"action":"open","url":"http://localhost:3000"}
   {"action":"openfile","path":"/absolute/path/README.md","line":12,"column":1}
@@ -819,13 +835,16 @@ do not silently open them in an external application.
 Press supports Enter, Tab, Escape, Backspace, Delete, arrows, Home, End, PageUp,
 and PageDown. Scroll accepts at most 2000 pixels in either direction per call.
 Requests use session credentials already supplied to the harness environment.
-Do not print or persist SUPERMONO_BROWSER_TOKEN.
+Do not print or persist AVEN_BROWSER_TOKEN or its legacy alias.
 "#;
 
 /// Return None for a normal app launch, or the CLI exit code without booting UI.
 pub fn run_browser_cli() -> Option<i32> {
     let mut args = std::env::args().skip(1);
-    if args.next().as_deref() != Some("--supermono-browser") {
+    if !matches!(
+        args.next().as_deref(),
+        Some("--aven-browser" | "--supermono-browser")
+    ) {
         return None;
     }
     let input = args.next().unwrap_or_else(|| "--help".into());
@@ -852,6 +871,31 @@ pub fn run_browser_cli() -> Option<i32> {
     }
 }
 
+#[cfg(any(unix, test))]
+fn browser_cli_connection(
+    env: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> Result<(String, String), String> {
+    let canonical = env("AVEN_BROWSER_SOCKET").is_some() || env("AVEN_BROWSER_TOKEN").is_some();
+    let prefix = if canonical {
+        "AVEN_BROWSER"
+    } else {
+        "SUPERMONO_BROWSER"
+    };
+    // A partial or invalid canonical connection must fail closed. Never mix a
+    // socket from one scope with a token inherited through the other spelling.
+    let path = env(&format!("{prefix}_SOCKET"))
+        .and_then(|value| value.into_string().ok())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            "This agent has no in-app browser connection. Start a new turn in Aven.".to_string()
+        })?;
+    let token = env(&format!("{prefix}_TOKEN"))
+        .and_then(|value| value.into_string().ok())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "This agent has no browser access grant".to_string())?;
+    Ok((path, token))
+}
+
 #[cfg(unix)]
 fn browser_cli_request(input: &str) -> Result<Value, String> {
     use std::{io::Write, os::unix::net::UnixStream};
@@ -860,11 +904,7 @@ fn browser_cli_request(input: &str) -> Result<Value, String> {
     }
     let request: Value = serde_json::from_str(input)
         .map_err(|_| "Pass a JSON browser action; use --help for examples".to_string())?;
-    let path = std::env::var("SUPERMONO_BROWSER_SOCKET").map_err(|_| {
-        "This agent has no in-app browser connection. Start a new turn in Aven.".to_string()
-    })?;
-    let token = std::env::var("SUPERMONO_BROWSER_TOKEN")
-        .map_err(|_| "This agent has no browser access grant".to_string())?;
+    let (path, token) = browser_cli_connection(|key| std::env::var_os(key))?;
     let mut stream = UnixStream::connect(path)
         .map_err(|_| "Aven's browser connection is unavailable; keep the app open".to_string())?;
     stream
@@ -891,6 +931,60 @@ fn browser_cli_request(_input: &str) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn browser_connection_prefers_aven_and_falls_back_only_to_a_complete_legacy_scope() {
+        let legacy = [
+            ("SUPERMONO_BROWSER_SOCKET", "/tmp/legacy.sock"),
+            ("SUPERMONO_BROWSER_TOKEN", "legacy-test-grant"),
+        ];
+        let read = |values: &[(&str, &str)]| {
+            browser_cli_connection(|key| {
+                values
+                    .iter()
+                    .find(|(name, _)| *name == key)
+                    .map(|(_, value)| (*value).into())
+            })
+        };
+        assert_eq!(
+            read(&legacy).unwrap(),
+            ("/tmp/legacy.sock".into(), "legacy-test-grant".into())
+        );
+        let mut values = legacy.to_vec();
+        values.push(("AVEN_BROWSER_SOCKET", "/tmp/current.sock"));
+        assert!(read(&values).is_err(), "must not borrow a legacy token");
+        values.push(("AVEN_BROWSER_TOKEN", "current-test-grant"));
+        assert_eq!(
+            read(&values).unwrap(),
+            ("/tmp/current.sock".into(), "current-test-grant".into())
+        );
+        values.retain(|(name, _)| *name != "AVEN_BROWSER_SOCKET");
+        assert!(read(&values).is_err(), "must not borrow a legacy socket");
+        values.push(("AVEN_BROWSER_SOCKET", ""));
+        assert!(
+            read(&values).is_err(),
+            "empty canonical configuration must not activate legacy scope"
+        );
+    }
+
+    #[test]
+    fn both_browser_env_names_receive_only_the_same_grant() {
+        let values = scoped_child_environment(
+            "/tmp/own.sock",
+            "own-test-grant",
+            "/Applications/Aven.app/Contents/MacOS/aven",
+        );
+        assert_eq!(values.len(), ENV_KEYS.len());
+        let values: HashMap<_, _> = values.into_iter().collect();
+        for prefix in ["AVEN_BROWSER", "SUPERMONO_BROWSER"] {
+            assert_eq!(values[&format!("{prefix}_SOCKET")], "/tmp/own.sock");
+            assert_eq!(values[&format!("{prefix}_TOKEN")], "own-test-grant");
+            assert_eq!(
+                values[&format!("{prefix}_EXECUTABLE")],
+                "/Applications/Aven.app/Contents/MacOS/aven"
+            );
+        }
+    }
+
     fn grants() -> HashMap<String, Grant> {
         HashMap::from([(
             "secret".into(),

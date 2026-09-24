@@ -210,7 +210,7 @@ async function startLive(cwd: string): Promise<LiveText> {
       "initialize",
       {
         clientInfo: {
-          name: "monocode-text",
+          name: "aven-text",
           title: "Aven",
           version: "0.1.0",
         },

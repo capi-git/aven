@@ -2,6 +2,7 @@
 """Exercise app/helper privacy metadata without native builds, signing, or app launches."""
 import importlib.util
 import io
+import os
 from pathlib import Path
 import plistlib
 import shutil
@@ -27,7 +28,7 @@ class PrivacyPackagingTests(unittest.TestCase):
         (self.contents / 'MacOS').mkdir(parents=True)
         (self.contents / 'Resources').mkdir()
         (self.contents / 'Resources/icon.icns').write_bytes(b'fixture icon')
-        (self.contents / 'MacOS/monocode').write_bytes(b'fixture binary, never executed')
+        (self.contents / 'MacOS/aven').write_bytes(b'fixture binary, never executed')
         (self.root / 'src-tauri').mkdir()
         (self.root / 'src-tauri/Entitlements.plist').write_bytes(plistlib.dumps({}))
         for name in ('LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.txt'):
@@ -55,7 +56,7 @@ class PrivacyPackagingTests(unittest.TestCase):
     def host_info(self, product='Aven', identifier='com.capi.monocode.personal'):
         info = plistlib.loads((SOURCE_ROOT / 'src-tauri/Info.plist').read_bytes())
         info.update(CFBundleName=product, CFBundleIdentifier=identifier,
-                    CFBundleExecutable='monocode', CFBundleIconFile='icon.icns',
+                    CFBundleExecutable='aven', CFBundleIconFile='icon.icns',
                     CFBundleVersion='0.9.0', CFBundleShortVersionString='0.9.0')
         return info
 
@@ -71,6 +72,50 @@ class PrivacyPackagingTests(unittest.TestCase):
         description = self.host_info().get(BLUETOOTH_KEY)
         self.assertIsInstance(description, str)
         self.assertTrue(description.strip())
+
+    def test_legacy_alias_is_relative_relocatable_and_recorded_as_a_link(self):
+        legacy = self.contents / 'MacOS/monocode'
+        legacy.write_bytes(b'obsolete candidate executable')
+        packager.ensure_legacy_executable_alias(self.app)
+        self.assertTrue(legacy.is_symlink())
+        self.assertEqual(os.readlink(legacy), 'aven')
+        self.assertEqual(legacy.resolve(), (self.contents / 'MacOS/aven').resolve())
+        files, _, _ = packager.manifest(self.app)
+        self.assertEqual(files['Contents/MacOS/monocode'], {'type': 'symlink', 'target': 'aven'})
+        moved = self.app.with_name('Moved Aven.app')
+        self.app.rename(moved)
+        packager.ensure_legacy_executable_alias(moved)
+        self.assertEqual((moved / 'Contents/MacOS/monocode').read_bytes(),
+                         (moved / 'Contents/MacOS/aven').read_bytes())
+
+    def test_escaping_legacy_alias_is_rejected_without_touching_its_target(self):
+        outside = self.root / 'unrelated-file'
+        outside.write_text('preserved')
+        (self.contents / 'MacOS/monocode').symlink_to(outside)
+        with self.assertRaisesRegex(RuntimeError, 'legacy executable symlink'):
+            packager.ensure_legacy_executable_alias(self.app)
+        with self.assertRaisesRegex(RuntimeError, 'symlink escapes'):
+            packager.manifest(self.app)
+        self.assertEqual(outside.read_text(), 'preserved')
+
+    def test_executable_directory_cannot_escape_the_bundle(self):
+        macos = self.contents / 'MacOS'
+        outside = self.root / 'unrelated-executables'
+        macos.rename(outside)
+        macos.symlink_to(outside, target_is_directory=True)
+        with self.assertRaisesRegex(RuntimeError, 'directory escapes'):
+            packager.ensure_legacy_executable_alias(self.app)
+        self.assertFalse((outside / 'monocode').exists())
+
+    def test_old_executable_identity_requires_a_rebuild(self):
+        info = self.host_info()
+        info['CFBundleExecutable'] = 'monocode'
+        self.write_info(info)
+        with mock.patch.object(packager, 'run') as run:
+            with self.assertRaisesRegex(RuntimeError, 'CFBundleExecutable aven'):
+                packager.package(self.app, 'Aven', info['CFBundleIdentifier'], '-', io.StringIO(), {})
+            run.assert_not_called()
+        self.assertFalse((self.contents / 'MacOS/monocode').exists())
 
     def test_missing_or_invalid_purpose_fails_before_bundle_mutation_or_signing(self):
         for value in (None, '', ' \n\t', False, 7):
@@ -107,15 +152,21 @@ class PrivacyPackagingTests(unittest.TestCase):
                     _, _, helpers, _ = packager.package(self.app, product, identifier, '-', io.StringIO(), {})
                 host = plistlib.loads((self.contents / 'Info.plist').read_bytes())
                 self.assertEqual(host[BLUETOOTH_KEY], info[BLUETOOTH_KEY])
+                self.assertEqual(host['CFBundleExecutable'], 'aven')
+                self.assertEqual(os.readlink(self.contents / 'MacOS/monocode'), 'aven')
                 expected = {key: value for key, value in info.items()
                             if key.startswith('NS') and key.endswith('UsageDescription')}
                 self.assertEqual(len(helpers), 5)
-                for helper, _ in helpers:
+                for helper, suffix in helpers:
                     helper_info = plistlib.loads((helper / 'Contents/Info.plist').read_bytes())
                     actual = {key: value for key, value in helper_info.items()
                               if key.startswith('NS') and key.endswith('UsageDescription')}
                     self.assertEqual(actual, expected, helper.name)
-                    self.assertTrue(helper_info['CFBundleIdentifier'].startswith(identifier + '.chromium.helper'))
+                    id_suffix = dict(packager.HELPERS)[suffix]
+                    self.assertEqual(helper_info['CFBundleIdentifier'], identifier + '.chromium.helper' + id_suffix)
+                    self.assertEqual(helper.name, 'Aven Helper' + suffix + '.app')
+                    self.assertEqual(helper_info['CFBundleExecutable'], 'Aven Helper' + suffix)
+                    self.assertTrue((helper / 'Contents/MacOS' / helper_info['CFBundleExecutable']).is_file())
                 self.assertTrue(any(call.args[0][:2] == ['codesign', '--verify'] for call in run.call_args_list))
 
 

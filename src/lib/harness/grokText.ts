@@ -151,7 +151,7 @@ async function startLive(cwd: string): Promise<LiveText> {
       {
         protocolVersion: 1,
         clientCapabilities: CLIENT_CAPABILITIES,
-        clientInfo: { name: "monocode-text", version: "0.1.0" },
+        clientInfo: { name: "aven-text", version: "0.1.0" },
       },
       INIT_TIMEOUT_MS,
     );

@@ -52,7 +52,7 @@ replaceFirst(
 );
 replaceFirst(
   join(root, "Cargo.lock"),
-  /(name = "monocode"\nversion = ")[^"]+(")/,
+  /(name = "aven"\nversion = ")[^"]+(")/,
   `$1${version}$2`,
 );
 

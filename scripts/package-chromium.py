@@ -19,8 +19,8 @@ import tempfile
 REPO = Path(__file__).resolve().parent.parent
 CEF_VERSION = '152.0.6+g708dc14+chromium-152.0.7977.83'
 CEF_FRAMEWORK_SHA256 = 'f3edb1933329befbd09f03d05b15c49f0688d28ed81257d7931a5fded925ee8c'
-HELPER_NAME = 'Supermono Helper'
-HELPER_BUILD_NAME = 'Supermono Chromium Helper'
+HELPER_NAME = 'Aven Helper'
+HELPER_BUILD_NAME = 'Aven Chromium Helper'
 HELPERS = [('', ''), (' (Alerts)', '.alerts'), (' (GPU)', '.gpu'), (' (Plugin)', '.plugin'), (' (Renderer)', '.renderer')]
 MACHO_MAGICS = {b'\xcf\xfa\xed\xfe', b'\xfe\xed\xfa\xcf', b'\xca\xfe\xba\xbe', b'\xbe\xba\xfe\xca', b'\xca\xfe\xba\xbf', b'\xbf\xba\xfe\xca'}
 
@@ -82,11 +82,29 @@ def manifest(root):
     return result, hashlib.sha256(payload).hexdigest(), total
 
 
+def ensure_legacy_executable_alias(app):
+    """Preserve saved command paths without adding a second executable."""
+    macos = app / 'Contents/MacOS'
+    require(macos.resolve().is_relative_to(app.resolve()), 'Executable directory escapes app bundle')
+    executable = macos / 'aven'
+    require(executable.is_file() and not executable.is_symlink(), 'Expected a regular Aven executable')
+    alias = macos / 'monocode'
+    if alias.is_symlink():
+        require(os.readlink(alias) == 'aven' and alias.resolve() == executable.resolve(),
+                'Unexpected legacy executable symlink; it must point to aven inside this bundle')
+        return
+    if alias.exists():
+        require(alias.is_file(), 'Unexpected directory at the legacy executable path')
+        alias.unlink()
+    alias.symlink_to('aven')
+
+
 def package(app, product_name, bundle_id, identity, log, env):
     info_path = app / 'Contents/Info.plist'
     info = plistlib.loads(info_path.read_bytes())
     require(info['CFBundleIdentifier'] == bundle_id, 'Unexpected candidate bundle identifier')
     require(info['CFBundleName'] == product_name, 'Unexpected candidate product name')
+    require(info.get('CFBundleExecutable') == 'aven', 'Expected CFBundleExecutable aven; rebuild the host app')
     bluetooth_description = info.get('NSBluetoothAlwaysUsageDescription')
     require(isinstance(bluetooth_description, str) and bluetooth_description.strip(),
             'Host app is missing a nonempty NSBluetoothAlwaysUsageDescription; rebuild it from src-tauri/Info.plist before Chromium packaging')
@@ -97,6 +115,7 @@ def package(app, product_name, bundle_id, identity, log, env):
     if not host_icon.suffix:
         host_icon = host_icon.with_suffix('.icns')
     require(host_icon.is_file(), 'Host app icon is missing: ' + str(host_icon))
+    ensure_legacy_executable_alias(app)
     # Match Foundation's canonical XML bytes before signing; Chromium supplies
     # those bytes when validating the current process through Security.framework.
     info_path.write_bytes(plistlib.dumps(info, sort_keys=True))
@@ -117,11 +136,18 @@ def package(app, product_name, bundle_id, identity, log, env):
 
     helper_binary = CEF_BUILD / HELPER_BUILD_NAME
     require(helper_binary.is_file(), 'Native helper was not built: ' + str(helper_binary))
+    # Repackaging a generated candidate must not retain duplicate old helpers.
+    # Bundle identifiers remain stable to preserve existing macOS permissions.
+    for suffix, _ in HELPERS:
+        legacy = frameworks / ('Supermono Helper' + suffix + '.app')
+        if legacy.exists() or legacy.is_symlink():
+            require(not legacy.is_symlink(), 'Unexpected legacy helper symlink')
+            shutil.rmtree(legacy)
     helpers = []
     for suffix, id_suffix in HELPERS:
         name = HELPER_NAME + suffix
-        # Preserve CEF's executable paths and identities while presenting the
-        # current product name in macOS permission and notification settings.
+        # Helper executable names use Aven; identifiers stay unchanged so macOS
+        # continues attributing permissions and notifications to the same app.
         display_name = (product_name + ' Browser Notifications' if id_suffix == '.alerts'
                         else product_name + ' Helper' + suffix)
         helper = frameworks / (name + '.app')
@@ -233,7 +259,7 @@ def main():
     assert_not_running(app)
     result['started_at'] = datetime.datetime.now().astimezone().isoformat()
     try:
-        with tempfile.TemporaryDirectory(prefix='supermono-chromium-package-') as folder:
+        with tempfile.TemporaryDirectory(prefix='aven-chromium-package-') as folder:
             SCRATCH = Path(folder)
             with log_path.open('w') as log:
                 binary, framework, helpers, native = package(app, info['CFBundleName'], info['CFBundleIdentifier'], args.identity, log, os.environ.copy())

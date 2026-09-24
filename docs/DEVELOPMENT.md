@@ -29,7 +29,7 @@ export CMAKE="/absolute/path/to/cmake"
 export NINJA="/absolute/path/to/ninja"
 ```
 
-`scripts/with-dev-env.sh` loads that local file for the development commands. It also works with checks or builds, for example `./scripts/with-dev-env.sh cargo test --locked -p monocode --lib`. Do not store provider tokens or release-signing keys in this file. Build tools and the SDK can live under `~/Library/Application Support/Aven Development` so source folders stay uncluttered.
+`scripts/with-dev-env.sh` loads that local file for the development commands. It also works with checks or builds, for example `./scripts/with-dev-env.sh cargo test --locked -p aven --lib`. Do not store provider tokens or release-signing keys in this file. Build tools and the SDK can live under `~/Library/Application Support/Aven Development` so source folders stay uncluttered.
 
 The default local build uses ad-hoc signing. macOS can ask you to authorize **Aven Dev** to use Chromium's Safe Storage Keychain item when first opening its browser, and again after a native rebuild changes its signature. Complete or deny that protected system prompt yourself; the browser may wait until you do. If you already have a stable Developer ID signing identity in your login Keychain, set `AVEN_DEV_SIGNING_IDENTITY` to its name in your local configuration. The runner uses it for the complete bundle. It does not create a certificate, change Keychain permissions, disable encryption, or weaken the Chromium sandbox.
 
