@@ -29,6 +29,7 @@
 #include "include/cef_app.h"
 #include "include/cef_application_mac.h"
 #include "include/cef_client.h"
+#include "include/cef_command_line.h"
 #include "include/cef_image.h"
 #include "include/cef_parser.h"
 #include "include/cef_request_context.h"
@@ -205,6 +206,18 @@ class Application final : public CefApp, public CefBrowserProcessHandler {
  public:
   CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override { return this; }
   void OnScheduleMessagePumpWork(int64_t delay_ms) override { SchedulePump(delay_ms); }
+  // Aven hosts a few preview tabs, not a general browser. Chromium's defaults
+  // give every tab its own renderer and keep a spare renderer warm; both cost
+  // memory on small laptops. Same-site tabs (all localhost previews, for
+  // example) can share a renderer while cross-site isolation stays intact.
+  void OnBeforeCommandLineProcessing(const CefString& process_type,CefRefPtr<CefCommandLine> command_line) override {
+    if (!process_type.empty()) return;
+    command_line->AppendSwitch("process-per-site");
+    std::string disabled=command_line->HasSwitch("disable-features") ? command_line->GetSwitchValue("disable-features").ToString() : "";
+    if (!disabled.empty()) disabled+=",";
+    disabled+="SpareRendererForSitePerProcess";
+    command_line->AppendSwitchWithValue("disable-features",disabled);
+  }
  private:
   IMPLEMENT_REFCOUNTING(Application);
 };
