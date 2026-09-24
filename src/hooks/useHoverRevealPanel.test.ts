@@ -202,6 +202,15 @@ describe("temporary hover panels", () => {
     expect(element("[data-panel]").dataset.open).toBe("false");
   });
 
+  it("keeps a revealed panel open when it becomes pinned", async () => {
+    await render({ leaveDelay: 0 });
+    await reveal();
+    enter("[data-panel]");
+    await render({ pinned: true });
+    expect(latest.visible).toBe(true);
+    expect(element("[data-panel]").dataset.open).toBe("true");
+  });
+
   it("reopens a panel whose early close had not committed", async () => {
     await render({ enterDelay: 45, leaveDelay: 0 });
     await reveal();

@@ -97,7 +97,8 @@ export function useHoverRevealPanel({
     // Start the CSS close now. The owner's re-render (the whole workspace for
     // the sidebar) follows as interruptible work, so it neither delays the
     // first closing frame nor blocks the compositor-driven fade.
-    if (panel.current?.dataset.open === "true") {
+    // Pinning also ends a peek, but the panel stays open.
+    if (!options.current.pinned && panel.current?.dataset.open === "true") {
       panel.current.dataset.open = "false";
       uncommittedClose.current = panel.current;
     }
