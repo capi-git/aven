@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BrowserMemoryPool, BROWSER_SLEEP_AFTER_MS } from "./browserMemory";
+import {
+  BrowserMemoryPool,
+  BROWSER_LEAN_SLEEP_AFTER_MS,
+  BROWSER_SLEEP_AFTER_MS,
+} from "./browserMemory";
 
 describe("balanced browser memory", () => {
   let pool: BrowserMemoryPool;
@@ -86,6 +90,17 @@ describe("balanced browser memory", () => {
     await Promise.resolve();
     expect(b.sleep).not.toHaveBeenCalled();
   });
+  it("keeps one ready tab and sleeps sooner in lightweight mode", async () => {
+    pool.lean = true;
+    const [a, b, visible] = [add("a"), add("b"), add("visible", true)];
+    await vi.advanceTimersByTimeAsync(BROWSER_LEAN_SLEEP_AFTER_MS - 1);
+    expect(a.sleep).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(a.sleep).toHaveBeenCalledOnce();
+    expect(b.sleep).toHaveBeenCalledOnce();
+    expect(visible.sleep).not.toHaveBeenCalled();
+  });
+
   it("sleeps hidden pages immediately under memory pressure", async () => {
     const [a, b, c, visible, protectedPage] = [
       add("a"),

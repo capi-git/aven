@@ -1,5 +1,7 @@
 import {
+  loadBrowserLowMemory,
   loadBrowserMemorySaver,
+  subscribeBrowserLowMemory,
   subscribeBrowserMemorySaver,
 } from "./settings";
 import {
@@ -9,6 +11,9 @@ import {
 
 export const BROWSER_SLEEP_AFTER_MS = 5 * 60_000;
 export const BROWSER_RECENT_TABS = 3;
+/** With the Lightweight browser setting, fewer tabs stay ready for less time. */
+export const BROWSER_LEAN_SLEEP_AFTER_MS = 2 * 60_000;
+export const BROWSER_LEAN_RECENT_TABS = 1;
 const CHECK_INTERVAL_MS = 30_000;
 
 type Page = {
@@ -29,6 +34,8 @@ export class BrowserMemoryPool {
   private timer: ReturnType<typeof setInterval> | undefined;
   private checking = false;
   private active = true;
+  /** Lightweight browser mode: keep fewer tabs ready and sleep them sooner. */
+  lean = false;
 
   get enabled() {
     return this.active;
@@ -39,7 +46,8 @@ export class BrowserMemoryPool {
   }
 
   private syncTimer() {
-    if (this.active && this.pages.size > BROWSER_RECENT_TABS) {
+    const ready = this.lean ? BROWSER_LEAN_RECENT_TABS : BROWSER_RECENT_TABS;
+    if (this.active && this.pages.size > ready) {
       if (!this.timer)
         this.timer = setInterval(() => void this.check(), CHECK_INTERVAL_MS);
     } else if (this.timer) {
@@ -91,8 +99,8 @@ export class BrowserMemoryPool {
 
   async check(
     { keepRecent, graceMs, hiddenOnly } = {
-      keepRecent: BROWSER_RECENT_TABS,
-      graceMs: BROWSER_SLEEP_AFTER_MS,
+      keepRecent: this.lean ? BROWSER_LEAN_RECENT_TABS : BROWSER_RECENT_TABS,
+      graceMs: this.lean ? BROWSER_LEAN_SLEEP_AFTER_MS : BROWSER_SLEEP_AFTER_MS,
       // The ordinary sweep counts visible tabs among the recent ones.
       hiddenOnly: false,
     },
@@ -140,10 +148,16 @@ let unsubscribe: (() => void) | undefined;
 export function registerBrowserMemoryPage(id: string, page: Page) {
   if (!unsubscribe) {
     const update = () => {
+      pool.lean = loadBrowserLowMemory();
       pool.enabled = loadBrowserMemorySaver();
     };
     update();
-    const unsubscribeSetting = subscribeBrowserMemorySaver(update);
+    const unsubscribeSaver = subscribeBrowserMemorySaver(update);
+    const unsubscribeLean = subscribeBrowserLowMemory(update);
+    const unsubscribeSetting = () => {
+      unsubscribeSaver();
+      unsubscribeLean();
+    };
     const unsubscribePressure = subscribeMemoryPressure(
       (level) => void pool.relieve(level),
     );
