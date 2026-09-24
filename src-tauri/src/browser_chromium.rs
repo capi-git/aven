@@ -232,6 +232,22 @@ struct Registry {
 }
 static REGISTRY: OnceLock<Mutex<Registry>> = OnceLock::new();
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
+/// Chromium's low-end device mode, chosen in Settings; read once at engine start.
+static LOW_MEMORY: AtomicBool = AtomicBool::new(false);
+
+#[derive(Debug, Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserEngineOptions {
+    pub low_memory: bool,
+}
+
+/// Record engine options for the next Chromium start. Returns whether they
+/// still apply to this launch; once the engine runs, a restart is needed.
+#[tauri::command]
+pub fn browser_engine_options(options: BrowserEngineOptions) -> bool {
+    LOW_MEMORY.store(options.low_memory, Ordering::Release);
+    !INITIALIZED.load(Ordering::Acquire)
+}
 static NEXT: AtomicU64 = AtomicU64::new(1);
 fn registry() -> &'static Mutex<Registry> {
     REGISTRY.get_or_init(|| Mutex::new(Registry::default()))
@@ -342,6 +358,7 @@ fn initialize(app: &AppHandle) -> Result<PathBuf, String> {
                 "helperPath": helper.to_string_lossy(),
                 "cachePath": cache.to_string_lossy(),
                 "devUrl": app.config().build.dev_url.as_ref().map(Url::as_str),
+                "lowMemory": LOW_MEMORY.load(Ordering::Acquire),
             })
             .to_string(),
         )?;

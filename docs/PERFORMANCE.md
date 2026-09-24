@@ -82,4 +82,12 @@ Changes in this pass:
 - Saving a transcript no longer re-parses the stored copy when the serialized text is unchanged, and a chat that is still running is fully saved at most every 10 seconds instead of every 650 ms. The final state is still saved when a turn ends. Serializing the 7 MB transcript measured about 20 ms in JavaScript and 25 ms to parse.
 - Terminal scrollback is 2,000 lines instead of 5,000 for each retained terminal.
 
-Not yet done: incremental (append-only) transcript saves, loading only the recent part of long transcripts, and an optional low-memory browser mode.
+Later in the same pass:
+
+- Hidden workspace surfaces are demoted to `display: none` after three minutes, and all at once when the app is hidden or macOS reports memory pressure. The isolated test above measured WebKit's heap at 70 MB for 13 retained stages against 20 MB for collapsed ones. DOM and React state survive; scroll offsets are captured before demotion and restored on return. Age is checked when the hidden set, focus or visibility changes, not by polling.
+- **Settings › Browser › Lightweight browser** starts Chromium with `--enable-low-end-device-mode`, its reduced-memory profile. The option is handed to the host before the first tab and read once at engine start, so a change applies at the next launch; the setting explains this while a restart is pending. Aven Dev confirmed the switch on Chromium helper processes with the setting on and its absence with the setting off, alongside the merged `--disable-features=…,SpareRendererForSitePerProcess`.
+- `AVEN_DEBUG_COMPOSITING=1` enables WebKit's compositing borders and repaint counters in Aven's own documents, for inspecting layer counts without Safari. This was not exercised here: screen capture is unavailable from an agent session.
+
+Aven Dev idle after startup measured 0–2% CPU in both the host and the interface process, so idle timers are not a concern. The interface process's roughly 490 MB of graphics memory in the installed app remains unexplained; hidden tabs and browser snapshots were ruled out, and the layers inspector is the next step.
+
+Not yet done: incremental (append-only) transcript saves and loading only the recent part of long transcripts.

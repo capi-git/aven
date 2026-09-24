@@ -50,6 +50,7 @@ std::map<std::string, CefRefPtr<CefRequestContext>> profiles;
 sm_chromium_event_cb event_callback = nullptr;
 void *event_context = nullptr;
 std::string last_error, cache_root, download_root, dev_origin;
+bool low_memory=false;
 bool initialized = false, stopping = false, library_loaded = false;
 int live_browser_count = 0;
 __strong SMChromiumPump *pump_handler=nil;
@@ -213,6 +214,9 @@ class Application final : public CefApp, public CefBrowserProcessHandler {
   void OnBeforeCommandLineProcessing(const CefString& process_type,CefRefPtr<CefCommandLine> command_line) override {
     if (!process_type.empty()) return;
     command_line->AppendSwitch("process-per-site");
+    // Settings > Browser > Lightweight browser: Chromium's own reduced-memory
+    // profile (smaller caches and tile budgets), read once at engine start.
+    if (low_memory) command_line->AppendSwitch("enable-low-end-device-mode");
     std::string disabled=command_line->HasSwitch("disable-features") ? command_line->GetSwitchValue("disable-features").ToString() : "";
     if (!disabled.empty()) disabled+=",";
     disabled+="SpareRendererForSitePerProcess";
@@ -1369,6 +1373,7 @@ extern "C" int sm_chromium_initialize(const char *config_json,sm_chromium_event_
     NSError *directory_error=nil;
     if (![NSFileManager.defaultManager createDirectoryAtPath:cache withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions:@0700} error:&directory_error]) return Fail("Chromium profile directory is not writable");
     cache_root=Str(cache.stringByStandardizingPath); download_root=Str(string(@"downloadPath")); dev_origin=Origin([NSURL URLWithString:string(@"devUrl")]);
+    { id flag=config[@"lowMemory"]; low_memory=[flag isKindOfClass:NSNumber.class] && [flag boolValue]; }
     CefSettings settings; settings.no_sandbox=false; settings.external_message_pump=true; settings.multi_threaded_message_loop=false; settings.command_line_args_disabled=true;
     CefString(&settings.framework_dir_path)=Str(framework); CefString(&settings.browser_subprocess_path)=Str(helper);
     CefString(&settings.main_bundle_path)=Str(NSBundle.mainBundle.bundlePath);

@@ -266,6 +266,47 @@ export function subscribeBrowserMemorySaver(onChange: () => void) {
   };
 }
 
+const BROWSER_LOW_MEMORY_KEY = "aven.browserLowMemory";
+const BROWSER_LOW_MEMORY_CHANGE_EVENT = "aven:browser-low-memory-change";
+
+/** Chromium's reduced-memory mode for web pages; applies at the next launch. */
+export const BROWSER_LOW_MEMORY_DEFAULT = false;
+
+export function loadBrowserLowMemory(): boolean {
+  try {
+    const raw = localStorage.getItem(BROWSER_LOW_MEMORY_KEY);
+    if (raw === "1" || raw === "true") return true;
+    if (raw === "0" || raw === "false") return false;
+    return BROWSER_LOW_MEMORY_DEFAULT;
+  } catch {
+    return BROWSER_LOW_MEMORY_DEFAULT;
+  }
+}
+
+export function saveBrowserLowMemory(value: boolean) {
+  try {
+    localStorage.setItem(BROWSER_LOW_MEMORY_KEY, value ? "1" : "0");
+  } catch {
+    // private mode / quota
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(BROWSER_LOW_MEMORY_CHANGE_EVENT));
+  }
+}
+
+export function subscribeBrowserLowMemory(onChange: () => void) {
+  if (typeof window === "undefined") return () => {};
+  const onStorage = (event: StorageEvent) => {
+    if (!event.key || event.key === BROWSER_LOW_MEMORY_KEY) onChange();
+  };
+  window.addEventListener(BROWSER_LOW_MEMORY_CHANGE_EVENT, onChange);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(BROWSER_LOW_MEMORY_CHANGE_EVENT, onChange);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
 const GRID_ARCADE_ENABLED_KEY = "monocode.gridArcadeEnabled";
 
 export const GRID_ARCADE_ENABLED_DEFAULT = false;

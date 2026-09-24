@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { initAppearance } from "./lib/appearance";
 import { useBootSplashReady } from "./lib/bootSplash";
 import { initSounds } from "./lib/sounds";
+import { syncBrowserEngineOptions } from "./lib/browserEngine";
 import { consumeInstalledUpdate } from "./lib/updateNotice";
 import { showRenderFailure } from "./lib/renderFailure";
 import { preventFileDropNavigation } from "./lib/attachments";
@@ -102,6 +103,7 @@ if (new URLSearchParams(window.location.search).has("workspaceMenuPanel")) {
 } else {
   initAppearance();
   initSounds();
+  syncBrowserEngineOptions();
   void Promise.all([import("./App"), import("./lib/appLifecycle")])
     .then(
       async ([

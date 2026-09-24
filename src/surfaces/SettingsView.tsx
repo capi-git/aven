@@ -161,6 +161,7 @@ import {
   KEYBINDINGS,
   BROWSER_MEMORY_SAVER_DEFAULT,
   loadBrowserMemorySaver,
+  loadBrowserLowMemory,
   loadClaudeHooks,
   loadComposerRunner,
   loadDiffViewer,
@@ -177,12 +178,19 @@ import {
   saveNotesEnabled,
   saveBrowserMemorySaver,
   subscribeBrowserMemorySaver,
+  saveBrowserLowMemory,
+  subscribeBrowserLowMemory,
+  BROWSER_LOW_MEMORY_DEFAULT,
   settingsSectionDescription,
   settingsSectionLabel,
   type DiffViewer,
   type FollowUpBehavior,
   type SettingsSectionId,
 } from "../lib/settings";
+import {
+  browserEngineRestartNeeded,
+  subscribeBrowserEngineRestart,
+} from "../lib/browserEngine";
 import { loadSoundsEnabled, saveSoundsEnabled } from "../lib/sounds";
 import {
   cachedNotificationPermission,
@@ -546,6 +554,16 @@ function GeneralPage({
     loadBrowserMemorySaver,
     () => BROWSER_MEMORY_SAVER_DEFAULT,
   );
+  const browserLowMemory = useSyncExternalStore(
+    subscribeBrowserLowMemory,
+    loadBrowserLowMemory,
+    () => BROWSER_LOW_MEMORY_DEFAULT,
+  );
+  const browserEngineRestart = useSyncExternalStore(
+    subscribeBrowserEngineRestart,
+    browserEngineRestartNeeded,
+    () => false,
+  );
   const [liveAgentsEnabled, setLiveAgentsEnabled] = useState(
     loadLiveAgentsEnabled,
   );
@@ -793,6 +811,20 @@ function GeneralPage({
             label="Memory saver"
             on={browserMemorySaver}
             onChange={saveBrowserMemorySaver}
+          />
+        </Row>
+        <Row
+          label="Lightweight browser"
+          description={
+            browserEngineRestart
+              ? "Uses Chromium's reduced-memory mode for web pages. Restart Aven to apply this change."
+              : "Uses Chromium's reduced-memory mode for web pages: smaller caches and less pre-rendering, for laptops with little memory. Applies when Aven starts."
+          }
+        >
+          <Toggle
+            label="Lightweight browser"
+            on={browserLowMemory}
+            onChange={saveBrowserLowMemory}
           />
         </Row>
       </SettingsGroup>

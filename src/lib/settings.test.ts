@@ -16,6 +16,9 @@ import {
   loadLiveAgentsEnabled,
   loadNotesEnabled,
   loadBrowserMemorySaver,
+  loadBrowserLowMemory,
+  saveBrowserLowMemory,
+  BROWSER_LOW_MEMORY_DEFAULT,
   NOTES_ENABLED_DEFAULT,
   saveComposerRunner,
   saveDiffViewer,
@@ -33,6 +36,20 @@ const GRID_ARCADE_KEY = "monocode.gridArcadeEnabled";
 const DIFF_VIEWER_KEY = "monocode.diffViewer";
 const FOLLOW_UP_BEHAVIOR_KEY = "monocode.followUpBehavior";
 const BROWSER_MEMORY_SAVER_KEY = "aven.browserMemorySaver";
+
+describe("lightweight browser setting", () => {
+  beforeEach(mockLocalStorage);
+
+  it("is off by default and remembers an explicit choice", () => {
+    expect(BROWSER_LOW_MEMORY_DEFAULT).toBe(false);
+    expect(loadBrowserLowMemory()).toBe(false);
+    saveBrowserLowMemory(true);
+    expect(localStorage.getItem("aven.browserLowMemory")).toBe("1");
+    expect(loadBrowserLowMemory()).toBe(true);
+    localStorage.setItem("aven.browserLowMemory", "invalid");
+    expect(loadBrowserLowMemory()).toBe(false);
+  });
+});
 
 describe("browser memory saver setting", () => {
   beforeEach(mockLocalStorage);

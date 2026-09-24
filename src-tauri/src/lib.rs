@@ -309,6 +309,7 @@ pub fn run() {
             browser::browser_drop_indicator,
             browser::browser_layout,
             browser::browser_close,
+            browser::browser_engine_options,
             browser::browser_sleep_probe,
             browser::browser_sleep,
             browser::browser_set_floating,

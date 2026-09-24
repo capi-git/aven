@@ -1185,6 +1185,19 @@ pub async fn browser_close(caller: Webview, id: String) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserEngineOptions {
+    pub low_memory: bool,
+}
+
+/// The WebKit preview engine has no low-memory mode; options never apply.
+#[tauri::command]
+pub fn browser_engine_options(options: BrowserEngineOptions) -> bool {
+    let _ = options;
+    false
+}
+
 #[tauri::command]
 pub async fn browser_sleep_probe(
     caller: Webview,
