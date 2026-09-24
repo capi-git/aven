@@ -74,6 +74,7 @@ export function ComposerRunner({
   const busyRef = useRef(busy);
   const enabledRef = useRef(enabled);
   const onExitedRef = useRef(onExited);
+  const syncAnimationRef = useRef<() => void>(() => {});
   busyRef.current = busy;
   enabledRef.current = enabled;
   onExitedRef.current = onExited;
@@ -427,18 +428,40 @@ export function ComposerRunner({
       );
     };
 
-    apply(last);
+    const canAnimate = () => enabledRef.current && !document.hidden && !finished;
     const tick = (now: number) => {
+      raf = 0;
       apply(now);
-      raf = requestAnimationFrame(tick);
+      if (canAnimate()) raf = requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(tick);
+    const syncAnimation = () => {
+      cancelAnimationFrame(raf);
+      raf = 0;
+      // Retain the current run rather than recreating it when its workspace
+      // returns. Hidden time must not advance the mascot across the track.
+      last = performance.now();
+      apply(last);
+      if (canAnimate()) raf = requestAnimationFrame(tick);
+    };
+    syncAnimationRef.current = syncAnimation;
+    document.addEventListener("visibilitychange", syncAnimation);
+    syncAnimation();
     return () => {
       cancelAnimationFrame(raf);
+      document.removeEventListener("visibilitychange", syncAnimation);
+      if (syncAnimationRef.current === syncAnimation)
+        syncAnimationRef.current = () => {};
       clearCoins();
+      for (const el of starEls) el.remove();
       showLayer(false);
     };
   }, [boxRef]);
+
+  useLayoutEffect(() => {
+    // A turn may finish while its pane is parked; apply that state once so
+    // onExited still retires it without keeping a hidden animation loop alive.
+    syncAnimationRef.current();
+  }, [busy, enabled]);
 
   return createPortal(
     <div
