@@ -53,7 +53,7 @@
     var(--personal-main-surface) 94%,
     var(--color-content)
   );
-  --personal-panel-duration: 150ms;
+  --personal-panel-duration: 200ms;
   --color-accent: var(--personal-accent);
   --color-background-base: var(--personal-main-surface);
   position: relative;
@@ -187,9 +187,16 @@ html.has-native-glass.glass-body:not(.theme-light)
   background: transparent;
   opacity: 1;
   transform: translateX(0);
+  /* Open: a quick start that settles softly. Close: shorter and linear-ish,
+     so the panel is out of the way before the eye follows it. */
   transition:
-    opacity var(--personal-panel-duration) ease,
-    transform var(--personal-panel-duration) ease;
+    opacity var(--personal-panel-duration) ease-out,
+    transform var(--personal-panel-duration) cubic-bezier(0.22, 1, 0.36, 1);
+}
+.personal-shell .personal-sidebar-slot[data-open="false"] > .personal-sidebar {
+  transition:
+    opacity 120ms ease-in,
+    transform 120ms ease-in;
 }
 
 .personal-shell .personal-sidebar-slot > .personal-sidebar.sidebar-glass {
@@ -412,7 +419,7 @@ html.has-native-glass.glass-body:not(.theme-light)
 .personal-shell
   .personal-sidebar-slot[data-floating="true"][data-open="false"]
   > .personal-sidebar {
-  transform: translateX(-18px);
+  transform: translateX(-28px);
 }
 .personal-shell
   .personal-inspector-slot[data-floating="true"][data-open="false"]

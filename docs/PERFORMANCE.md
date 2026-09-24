@@ -68,6 +68,10 @@ Leaving a hover-revealed sidebar previously started its fade only after `App` re
 
 In the Aven Dev fixture (twelve simulated leave events), the closing transition started a median 13 ms after pointer leave before the change and 1 ms after it. The worst frame interval during the 300 ms after leaving was similar (13–14 ms before, 11–15 ms after), so the remaining cost is the later re-render rather than a delayed start. The fixture had few projects, so it does not measure how long that re-render takes in a large workspace.
 
+### Pinning a hover-revealed sidebar
+
+The early close wrote the panel's `data-open` attribute directly. Pinning from inside the revealed panel dismissed the hover first, so the attribute became `false`, and because React's own value stayed `true` it was never rewritten: the pinned sidebar stayed hidden. Aven Dev reproduced this on the previous code (`open=false` while pinned) and confirmed the fix, which re-asserts the attribute in a layout effect whenever the panel should be visible. The same session measured the tuned timing: reveal 160 ms after resting on the edge, close 93 ms after leaving, and no reveal for a 60 ms brush past the edge.
+
 ## Footprint on small laptops
 
 Measurements of the installed app on September 24, 2026, while an agent streamed and a heavy page was open, showed roughly 5 GB across about twenty processes: about 3 GB in Chromium (ten renderers plus a 2 GB GPU process), about 1 GB in the interface's WebKit process, and about 360 MB in the host. Aven started Chromium with no memory-related options, so it behaved like a full desktop browser. The interface held 13 open chats whose saved transcripts totalled 20 MB, the largest 7 MB with 1,800 tool results.

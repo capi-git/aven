@@ -2,6 +2,7 @@ import {
   startTransition,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -233,9 +234,15 @@ export function useHoverRevealPanel({
     };
   }, [enabled, pinned, cancelLeave, containsFocus, scheduleClose]);
 
-  useEffect(() => {
-    if (!temporary) uncommittedClose.current = null;
-  }, [temporary]);
+  const visible = enabled && (pinned || temporary);
+  useLayoutEffect(() => {
+    // The early close below writes the attribute directly. React only rewrites
+    // it when its own value changes, so a panel that is pinned (or re-revealed)
+    // while that close is pending would otherwise stay hidden.
+    if (visible && panel.current && panel.current.dataset.open !== "true")
+      panel.current.dataset.open = "true";
+    if (visible || !temporary) uncommittedClose.current = null;
+  });
 
   useEffect(() => {
     // Pin/unpin and project availability changes discard a previous hover.
@@ -330,7 +337,7 @@ export function useHoverRevealPanel({
   }, [temporary, enabled, pinned, cancelEnter, dismiss, scheduleClose]);
 
   return {
-    visible: enabled && (pinned || temporary),
+    visible,
     revealed: enabled && !pinned && temporary,
     edgeHandlers,
     panelHandlers,

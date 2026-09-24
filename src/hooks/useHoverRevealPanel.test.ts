@@ -202,6 +202,21 @@ describe("temporary hover panels", () => {
     expect(element("[data-panel]").dataset.open).toBe("false");
   });
 
+  it("shows a panel that is dismissed and pinned in the same click", async () => {
+    await render({ leaveDelay: 0 });
+    await reveal();
+    enter("[data-panel]");
+    // The edge button's click handler dismisses the hover, then pins.
+    await act(async () => {
+      latest.dismiss();
+      await Promise.resolve();
+      root.render(createElement(Harness, { ...props, pinned: true }));
+    });
+    props = { ...props, pinned: true };
+    expect(latest.visible).toBe(true);
+    expect(element("[data-panel]").dataset.open).toBe("true");
+  });
+
   it("keeps a revealed panel open when it becomes pinned", async () => {
     await render({ leaveDelay: 0 });
     await reveal();

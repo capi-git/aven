@@ -1396,10 +1396,13 @@ export default function App({
     useState<HTMLDivElement | null>(null);
   const unifiedWorkspaceTabs =
     workspaceVisible && visibleSurfaceIds.length === 1;
+  // Rest on the edge briefly before revealing, so a pointer passing the edge
+  // does not flash the sidebar; a short grace on leave absorbs the gap
+  // between the edge strip and the panel without feeling laggy.
   const sidebarHover = useHoverRevealPanel({
     pinned: sidebarOpen,
-    enterDelay: 45,
-    leaveDelay: 0,
+    enterDelay: 150,
+    leaveDelay: 90,
   });
   const inspectorVisible = workspaceVisible && inspector.open;
   useLayoutEffect(() => {
