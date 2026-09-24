@@ -149,12 +149,12 @@ function oscColors(parent: HTMLElement) {
     ),
     bg: cssHexColor(
       "var(--color-background-base)",
-      light ? "#fafafa" : "#0b121a",
+      light ? "#ffffff" : "#0a0a0a",
       parent,
     ),
     cursor: cssHexColor(
       "var(--color-accent)",
-      light ? "#4078f2" : "#6cabdd",
+      light ? "#0a0a0a" : "#f5f5f5",
       parent,
     ),
   };

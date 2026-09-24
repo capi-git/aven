@@ -25,3 +25,9 @@ These identifiers belong to Aven's implementation. Their names do not select an 
 | Legacy interruption text, old app names in migration tests, and historical fixtures | Compatibility tests and readers must recognize data produced by earlier builds. |
 
 Avoid a repository-wide text replacement: it can break existing sessions or bundled browser tools. Internal renames need old-name compatibility, data migration coverage where applicable, and verification of a complete packaged release.
+
+## Mark and default theme
+
+Aven's default workspace theme is monochrome: near-black and white in dark mode, white and near-black in light mode, with no tint. The former sky-blue default remains selectable as **Sky**; saved workspace themes are never rewritten.
+
+The mark is a white line chevron on a dark rounded tile, drawn like the interface's stroke icons. `scripts/render-brand-icons.py` renders the interface marks, the Icon Composer glyph layer and a 1024 px app icon source; regenerate bundle icons from that source with `npx tauri icon target/brand/app-icon-1024.png -o src-tauri/icons`. The compiled `src-tauri/macos/Assets.car` is not used by packaging, which installs `icon.icns`.

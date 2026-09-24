@@ -137,9 +137,9 @@ function mockLocalStorage() {
 describe("Aven appearance defaults", () => {
   beforeEach(mockLocalStorage);
 
-  it("uses a dark, opaque logo-matched tint without writing legacy settings", () => {
+  it("uses a dark, opaque monochrome default without writing legacy settings", () => {
     expect(loadThemeHue()).toBe(207);
-    expect(loadThemeSaturation()).toBe(16);
+    expect(loadThemeSaturation()).toBe(0);
     expect(loadThemePreference()).toBe("dark");
     expect(loadSidebarOpacity()).toBe(1);
     expect(loadSidebarBlur()).toBe(0);
@@ -163,6 +163,11 @@ describe("Aven appearance defaults", () => {
     expect(loadSidebarBlur()).toBe(12);
     expect(loadBodyGlass()).toBe(true);
     expect(localStorage.getItem("monocode.sidebarOpacity")).toBe("0.15");
+  });
+
+  it("keeps the tinted saturation for legacy preferences that omitted it", () => {
+    localStorage.setItem("monocode.sidebarOpacity", "0.4");
+    expect(loadThemeSaturation()).toBe(16);
   });
 
   it("retains the old tint when a legacy preference omitted the default hue", () => {

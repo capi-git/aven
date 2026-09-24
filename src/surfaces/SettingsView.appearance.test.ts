@@ -116,13 +116,13 @@ describe("workspace appearance settings", () => {
     expect(loadWorkspaceTheme("work")).toEqual(original);
   });
 
-  it("offers 19 real palettes and makes Black dark and opaque without changing saved light colors", async () => {
+  it("offers 20 real palettes and makes Black dark and opaque without changing saved light colors", async () => {
     saveWorkspaceTheme("work", { preference: "light" });
     const light = loadWorkspaceTheme("work").colors!.light;
     await act(async () => root.render(createElement(Harness)));
     expect(
       container.querySelectorAll('[aria-label="Workspace palette"] button'),
-    ).toHaveLength(19);
+    ).toHaveLength(20);
     await clickText("Black");
     expect(loadWorkspaceTheme("work")).toMatchObject({
       preference: "dark",

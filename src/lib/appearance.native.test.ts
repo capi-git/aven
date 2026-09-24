@@ -38,9 +38,9 @@ describe("native workspace transparency", () => {
   it("paints Aven before the first workspace render with opaque readable surfaces", () => {
     appearance.initAppearance();
     const style = document.documentElement.style;
-    expect(style.getPropertyValue("--theme-background-color")).toBe("#0b121a");
-    expect(style.getPropertyValue("--theme-accent-color")).toBe("#6cabdd");
-    expect(style.getPropertyValue("--theme-highlight-color")).toBe("#d7eefc");
+    expect(style.getPropertyValue("--theme-background-color")).toBe("#0a0a0a");
+    expect(style.getPropertyValue("--theme-accent-color")).toBe("#f5f5f5");
+    expect(style.getPropertyValue("--theme-highlight-color")).toBe("#a3a3a3");
     expect(style.getPropertyValue("--sidebar-opacity")).toBe("1");
     expect(document.documentElement.classList.contains("glass-body")).toBe(
       false,
@@ -160,7 +160,7 @@ describe("native workspace transparency", () => {
     appearance.activateWindowAppearance();
     await vi.waitFor(() => {
       expect(getCurrentWindow().setBackgroundColor).toHaveBeenLastCalledWith(
-        "#0b121a",
+        "#0a0a0a",
       );
     });
     expect(invoke).toHaveBeenCalledWith("set_window_glass_enabled", {
@@ -182,7 +182,7 @@ describe("native workspace transparency", () => {
     appearance.applyThemePreference("light");
     await vi.waitFor(() => {
       expect(getCurrentWindow().setBackgroundColor).toHaveBeenLastCalledWith(
-        "#edf5fc",
+        "#ffffff",
       );
     });
   });

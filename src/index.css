@@ -14,7 +14,7 @@
     --theme-content-color,
     hsl(var(--theme-hue) var(--theme-saturation) var(--content-lightness))
   );
-  --color-accent: var(--theme-accent-color, #6cabdd);
+  --color-accent: var(--theme-accent-color, #f5f5f5);
   --color-highlight: var(--theme-highlight-color, var(--color-accent));
   --color-skill: #e8c547;
   --color-mention: #38bdf8;

@@ -25,7 +25,7 @@
         "hiddenTitle": true,
         "dragDropEnabled": false,
         "transparent": true,
-        "backgroundColor": "#0b121a",
+        "backgroundColor": "#0a0a0a",
         "backgroundThrottling": "throttle",
         "shadow": true
       }

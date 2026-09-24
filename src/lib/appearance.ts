@@ -39,8 +39,22 @@ export type ChangesView = "list" | "tree";
 
 export const THEME_PREFERENCE_DEFAULT: ThemePreference = "dark";
 
-/** Aven's sky-blue identity. Saved workspace palettes remain independent. */
+/** Aven's monochrome default. Saved workspace palettes remain independent. */
 export const AVEN_THEME_COLORS = {
+  dark: {
+    background: "#0a0a0a",
+    accent: "#f5f5f5",
+    highlight: "#a3a3a3",
+  },
+  light: {
+    background: "#ffffff",
+    accent: "#0a0a0a",
+    highlight: "#737373",
+  },
+} satisfies Record<ColorScheme, Record<ThemeColorTarget, string>>;
+
+/** The former sky-blue default, kept selectable; saved colors are not rewritten. */
+export const SKY_THEME_COLORS = {
   dark: {
     background: "#0b121a",
     accent: "#6cabdd",
@@ -98,7 +112,9 @@ const LEGACY_THEME_HUE_DEFAULT = 180;
 
 export const THEME_SATURATION_MIN = 0;
 export const THEME_SATURATION_MAX = 100;
-export const THEME_SATURATION_DEFAULT = 16;
+export const THEME_SATURATION_DEFAULT = 0;
+/** Sky's tint strength, also the default for older standalone preferences. */
+export const SKY_THEME_SATURATION = 16;
 
 export const SIDEBAR_OPACITY_MIN = 0.05;
 export const SIDEBAR_OPACITY_MAX = 1;
@@ -199,7 +215,10 @@ export function saveThemeHue(value: number) {
 export function loadThemeSaturation(): number {
   return Math.round(
     clamp(
-      readNumber(THEME_SATURATION_KEY) ?? THEME_SATURATION_DEFAULT,
+      readNumber(THEME_SATURATION_KEY) ??
+        (hasLegacyAppearancePreferences()
+          ? SKY_THEME_SATURATION
+          : THEME_SATURATION_DEFAULT),
       THEME_SATURATION_MIN,
       THEME_SATURATION_MAX,
     ),

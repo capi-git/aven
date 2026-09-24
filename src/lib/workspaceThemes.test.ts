@@ -87,12 +87,12 @@ describe("workspace appearance migration and persistence", () => {
     expect(document.documentElement.classList.contains("match-workspace-panels")).toBe(false);
   });
 
-  it("starts fresh workspaces with the solid Aven logo palette and persists it", () => {
+  it("starts fresh workspaces with the monochrome Aven palette and persists it", () => {
     const aven = defaultWorkspaceTheme();
     expect(WORKSPACE_THEME_PRESETS[0].name).toBe("Aven");
     expect(aven).toEqual({
       hue: 207,
-      saturation: 16,
+      saturation: 0,
       preference: "dark",
       opacity: 1,
       blur: 0,
@@ -100,14 +100,14 @@ describe("workspace appearance migration and persistence", () => {
       matchPanels: false,
       colors: {
         dark: {
-          background: "#0b121a",
-          accent: "#6cabdd",
-          highlight: "#d7eefc",
+          background: "#0a0a0a",
+          accent: "#f5f5f5",
+          highlight: "#a3a3a3",
         },
         light: {
-          background: "#edf5fc",
-          accent: "#286b9f",
-          highlight: "#6cabdd",
+          background: "#ffffff",
+          accent: "#0a0a0a",
+          highlight: "#737373",
         },
       },
     });
@@ -263,13 +263,29 @@ describe("workspace appearance migration and persistence", () => {
     });
   });
 
+  it("keeps the former sky-blue default selectable as Sky", () => {
+    const sky = WORKSPACE_THEME_PRESETS.find(
+      (preset) => preset.name === "Sky",
+    )!;
+    expect(WORKSPACE_THEME_PRESETS[0].name).toBe("Aven");
+    expect(sky).toMatchObject({ hue: 207, saturation: 16 });
+    expect(sky.colors).toEqual({
+      dark: { background: "#0b121a", accent: "#6cabdd", highlight: "#d7eefc" },
+      light: {
+        background: "#edf5fc",
+        accent: "#286b9f",
+        highlight: "#6cabdd",
+      },
+    });
+  });
+
   it("stores custom colors by workspace and mode while preserving legacy settings and glass", () => {
     const original = loadWorkspaceTheme("personal");
     const light = resolvedWorkspaceColors(original, "light");
     const black = WORKSPACE_THEME_PRESETS.find(
       (preset) => preset.name === "Black",
     )!;
-    expect(WORKSPACE_THEME_PRESETS).toHaveLength(19);
+    expect(WORKSPACE_THEME_PRESETS).toHaveLength(20);
     const next = applyWorkspaceThemePreset("personal", black, "dark");
     expect({ ...next, colors: original.colors }).toEqual(original);
     expect(next.colors?.dark.background).toBe("#000000");
@@ -623,8 +639,8 @@ describe("workspace theme activation", () => {
     });
     expect(style.getPropertyValue("--theme-background-color")).toBe("#ffffff");
     render("work");
-    expect(style.getPropertyValue("--theme-background-color")).toBe("#0b121a");
-    expect(style.getPropertyValue("--theme-accent-color")).toBe("#6cabdd");
+    expect(style.getPropertyValue("--theme-background-color")).toBe("#0a0a0a");
+    expect(style.getPropertyValue("--theme-accent-color")).toBe("#f5f5f5");
   });
   it("switches directly to each destination theme without overwriting either profile", () => {
     saveWorkspaceTheme("personal", {
