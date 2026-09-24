@@ -13,6 +13,12 @@
 use tauri::{webview::WebviewBuilder, AppHandle, Runtime, WebviewWindowBuilder};
 
 const FEATURE_KEY: &str = "PreferPageRenderingUpdatesNear60FPSEnabled";
+/// Set `AVEN_DEBUG_COMPOSITING=1` to outline composited layers and tiles in
+/// Aven's own documents, WebKit's equivalent of Safari's Layers inspector.
+const COMPOSITING_DEBUG_KEYS: [&str; 2] = [
+    "CompositingBordersVisible",
+    "CompositingRepaintCountersVisible",
+];
 
 pub(crate) trait FullRefreshRate<R: Runtime>: Sized {
     /// Request full-refresh rendering for a trusted Aven document.
@@ -43,7 +49,7 @@ impl<R: Runtime, M: tauri::Manager<R>> FullRefreshRate<R> for WebviewWindowBuild
 
 #[cfg(target_os = "macos")]
 mod mac {
-    use super::FEATURE_KEY;
+    use super::{COMPOSITING_DEBUG_KEYS, FEATURE_KEY};
     use objc2::rc::Retained;
     use objc2::runtime::{AnyClass, AnyObject, Bool};
     use objc2::{msg_send, sel, MainThreadMarker};
@@ -101,15 +107,25 @@ mod mac {
             return false;
         };
         let wanted = NSString::from_str(FEATURE_KEY);
+        let debug_compositing =
+            std::env::var_os("AVEN_DEBUG_COMPOSITING").is_some_and(|v| v == "1");
+        let mut disabled = false;
         for feature in features.iter() {
             let key: Option<Retained<NSString>> = msg_send![&*feature, key];
-            if key.is_some_and(|key| key.isEqualToString(&wanted)) {
+            let Some(key) = key else { continue };
+            if key.isEqualToString(&wanted) {
                 let _: () = msg_send![&*preferences, _setEnabled: Bool::NO, forFeature: &*feature];
                 let enabled: Bool = msg_send![&*preferences, _isEnabledForFeature: &*feature];
-                return !enabled.as_bool();
+                disabled = !enabled.as_bool();
+            } else if debug_compositing
+                && COMPOSITING_DEBUG_KEYS
+                    .iter()
+                    .any(|debug| key.isEqualToString(&NSString::from_str(debug)))
+            {
+                let _: () = msg_send![&*preferences, _setEnabled: Bool::YES, forFeature: &*feature];
             }
         }
-        false
+        disabled
     }
 
     #[cfg(test)]
