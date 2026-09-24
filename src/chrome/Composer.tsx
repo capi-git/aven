@@ -17,6 +17,7 @@ import {
 } from "./icons";
 import "./Composer.css";
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -392,7 +393,13 @@ function MessageQueue({
   );
 }
 
-export function Composer({
+/**
+ * Memoized: the chat pane re-renders for streamed transcript text, which the
+ * composer does not display.
+ */
+export const Composer = memo(ComposerComponent);
+
+function ComposerComponent({
   enabled = true,
   focused,
   hotkeys = false,

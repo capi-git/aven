@@ -4,6 +4,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -354,6 +355,128 @@ export const SessionPane = memo(function SessionPane({
     },
     [persistDraft, session.id],
   );
+  // Stable handlers and children let the memoized Composer skip renders
+  // while this pane re-renders for streamed transcript text.
+  const sessionId = session.id;
+  const inboxAsk = !!session.inboxAsk;
+  const dismissInboxCard = useCallback(
+    () => onInboxCardDismiss?.(sessionId),
+    [onInboxCardDismiss, sessionId],
+  );
+  const dismissNoteCard = useCallback(
+    () => onNoteCardDismiss?.(sessionId),
+    [onNoteCardDismiss, sessionId],
+  );
+  const dismissHandoffCard = useCallback(
+    () => onHandoffCardDismiss?.(sessionId),
+    [onHandoffCardDismiss, sessionId],
+  );
+  const focusSession = useCallback(
+    () => onFocus(sessionId),
+    [onFocus, sessionId],
+  );
+  const changeCwd = useCallback(
+    (cwd: string) => onCwdChange(sessionId, cwd),
+    [onCwdChange, sessionId],
+  );
+  const changeBranch = useCallback(
+    () => onBranchChange(sessionId),
+    [onBranchChange, sessionId],
+  );
+  const newTerminal = useCallback(
+    () => onNewTerminal(sessionId),
+    [onNewTerminal, sessionId],
+  );
+  const changeRuntimeMode = useCallback(
+    (mode: Parameters<typeof onRuntimeModeChange>[1]) =>
+      onRuntimeModeChange(sessionId, mode),
+    [onRuntimeModeChange, sessionId],
+  );
+  const stop = useCallback(() => onStop(sessionId), [onStop, sessionId]);
+  const compactContext = useCallback(
+    () => onCompactContext(sessionId),
+    [onCompactContext, sessionId],
+  );
+  const resumeQueue = useCallback(
+    () => onResumeQueue(sessionId),
+    [onResumeQueue, sessionId],
+  );
+  const changeModelSettings = useCallback(
+    (settings: Parameters<typeof onModelSettingsChange>[1]) =>
+      onModelSettingsChange(sessionId, settings),
+    [onModelSettingsChange, sessionId],
+  );
+  const submit = useCallback(
+    (
+      text: Parameters<typeof onSubmit>[1],
+      attachments: Parameters<typeof onSubmit>[2],
+      options?: Parameters<typeof onSubmit>[3],
+    ) => onSubmit(sessionId, text, attachments, options),
+    [onSubmit, sessionId],
+  );
+  const deleteQueuedMessage = useCallback(
+    (messageId: string) => onDeleteQueuedMessage(sessionId, messageId),
+    [onDeleteQueuedMessage, sessionId],
+  );
+  const editQueuedMessage = useCallback(
+    (messageId: string, text: string) =>
+      onEditQueuedMessage(sessionId, messageId, text),
+    [onEditQueuedMessage, sessionId],
+  );
+  const changeQueuedMessageEditing = useCallback(
+    (messageId: Parameters<typeof onQueuedMessageEditingChange>[1]) =>
+      onQueuedMessageEditingChange(sessionId, messageId),
+    [onQueuedMessageEditingChange, sessionId],
+  );
+  const steerQueuedMessage = useCallback(
+    (messageId: string) => onSteerQueuedMessage(sessionId, messageId),
+    [onSteerQueuedMessage, sessionId],
+  );
+  const changeModel = useCallback(
+    (
+      harness: Parameters<typeof onModelChange>[1],
+      model: Parameters<typeof onModelChange>[2],
+    ) => {
+      onModelChange(sessionId, harness, model);
+      const selected = resolveModel(harness, model);
+      // A new key restarts the animation and its cleanup timer on every pick.
+      setAstraWelcomeRun(
+        isAstraModel(selected) ? ++astraWelcomeSequence.current : null,
+      );
+    },
+    [onModelChange, sessionId],
+  );
+  const reviewUndoBlocked =
+    reviewUndoLocked ||
+    orchestrationRuns.some(
+      (run) =>
+        (run.status === "active" || run.status === "paused") &&
+        (run.leadId === sessionId ||
+          run.tasks.some((task) => task.sessionId === sessionId)),
+    );
+  const busy = !!session.busy;
+  const review = useMemo(
+    () =>
+      inboxAsk ? null : (
+        <SessionReview
+          sessionId={sessionId}
+          cwd={workCwd}
+          enabled={visible}
+          busy={busy}
+          undoLocked={reviewUndoBlocked}
+          onOpenDiff={onOpenDiff}
+        />
+      ),
+    [
+      inboxAsk,
+      sessionId,
+      workCwd,
+      visible,
+      busy,
+      reviewUndoBlocked,
+      onOpenDiff,
+    ],
+  );
   const composer = (
     <Composer
       key={session.id}
@@ -387,67 +510,31 @@ export const SessionPane = memo(function SessionPane({
       handoffCard={session.handoffCard}
       question={session.pendingQuestion}
       onQuoteRequestConsumed={acknowledgeQuote}
-      onInboxCardDismiss={() => onInboxCardDismiss?.(session.id)}
-      onNoteCardDismiss={() => onNoteCardDismiss?.(session.id)}
-      onHandoffCardDismiss={() => onHandoffCardDismiss?.(session.id)}
+      onInboxCardDismiss={dismissInboxCard}
+      onNoteCardDismiss={dismissNoteCard}
+      onHandoffCardDismiss={dismissHandoffCard}
       onQuestionReply={replyQuestion}
-      onFocus={() => onFocus(session.id)}
-      onCwdChange={(cwd) => onCwdChange(session.id, cwd)}
-      onBranchChange={() => onBranchChange(session.id)}
-      onNewTerminal={() => onNewTerminal(session.id)}
-      onModelChange={(harness, model) => {
-        onModelChange(session.id, harness, model);
-        const selected = resolveModel(harness, model);
-        // A new key restarts the animation and its cleanup timer on every pick.
-        setAstraWelcomeRun(
-          isAstraModel(selected) ? ++astraWelcomeSequence.current : null,
-        );
-      }}
-      onModelSettingsChange={(settings) =>
-        onModelSettingsChange(session.id, settings)
-      }
-      onRuntimeModeChange={(mode) => onRuntimeModeChange(session.id, mode)}
-      onSubmit={(text, attachments, options) =>
-        onSubmit(session.id, text, attachments, options)
-      }
-      onStop={() => onStop(session.id)}
-      onCompactContext={() => onCompactContext(session.id)}
+      onFocus={focusSession}
+      onCwdChange={changeCwd}
+      onBranchChange={changeBranch}
+      onNewTerminal={newTerminal}
+      onModelChange={changeModel}
+      onModelSettingsChange={changeModelSettings}
+      onRuntimeModeChange={changeRuntimeMode}
+      onSubmit={submit}
+      onStop={stop}
+      onCompactContext={compactContext}
       queuedMessages={session.queuedMessages}
       queueStatus={session.queueStatus}
-      onDeleteQueuedMessage={(messageId) =>
-        onDeleteQueuedMessage(session.id, messageId)
-      }
-      onEditQueuedMessage={(messageId, text) =>
-        onEditQueuedMessage(session.id, messageId, text)
-      }
-      onQueuedMessageEditingChange={(messageId) =>
-        onQueuedMessageEditingChange(session.id, messageId)
-      }
-      onSteerQueuedMessage={(messageId) =>
-        onSteerQueuedMessage(session.id, messageId)
-      }
-      onResumeQueue={() => onResumeQueue(session.id)}
+      onDeleteQueuedMessage={deleteQueuedMessage}
+      onEditQueuedMessage={editQueuedMessage}
+      onQueuedMessageEditingChange={changeQueuedMessageEditing}
+      onSteerQueuedMessage={steerQueuedMessage}
+      onResumeQueue={resumeQueue}
       onOpenFile={onOpenFile}
-      busy={!!session.busy}
+      busy={busy}
     >
-      {session.inboxAsk ? null : (
-        <SessionReview
-          sessionId={session.id}
-          cwd={workCwd}
-          enabled={visible}
-          busy={!!session.busy}
-          undoLocked={
-            reviewUndoLocked ||
-            orchestrationRuns.some(
-              (run) =>
-                (run.status === "active" || run.status === "paused") &&
-                (run.leadId === session.id ||
-                  run.tasks.some((task) => task.sessionId === session.id)),
-            )
-          }
-          onOpenDiff={onOpenDiff}
-        />
-      )}
+      {review}
     </Composer>
   );
 
@@ -459,7 +546,7 @@ export const SessionPane = memo(function SessionPane({
       data-project-background-scope={projectBackground?.scope}
       style={projectBackgroundStyle}
       className="chat-pane-background relative isolate flex h-full min-h-0 min-w-0 flex-1 flex-col"
-      onMouseDown={() => onFocus(session.id)}
+      onMouseDown={focusSession}
     >
       {astraWelcomeRun !== null && visible ? (
         <AstraWelcome key={astraWelcomeRun} onDone={dismissAstraWelcome} />
