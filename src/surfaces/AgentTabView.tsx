@@ -2,6 +2,7 @@ import { AgentTranscript } from "./AgentTranscript";
 import { HarnessIcon } from "../chrome/HarnessIcon";
 import { findModel } from "../lib/models";
 import { HARNESS_TITLE, sessionWorkCwd, type Session } from "../lib/session";
+import { useLiveSession } from "../lib/liveSessions";
 
 /**
  * One orchestration worker, watched from its lead's workspace.
@@ -13,7 +14,7 @@ import { HARNESS_TITLE, sessionWorkCwd, type Session } from "../lib/session";
  */
 export function AgentTabView({
   title,
-  session,
+  session: committedSession,
   visible,
   onOpenFile,
 }: {
@@ -22,6 +23,7 @@ export function AgentTabView({
   visible: boolean;
   onOpenFile?: (path: string) => void;
 }) {
+  const session = useLiveSession(committedSession, visible);
   if (!session) {
     return (
       <div className="grid h-full place-items-center px-6 text-center">

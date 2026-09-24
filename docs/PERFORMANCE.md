@@ -52,4 +52,10 @@ Running at twice the frame rate would also double per-frame work tied to animati
 - Pinned diff headers, approval toasts and detached composers use solid surfaces instead of backdrop blur.
 - The browser loading bar animates `transform` instead of `left`.
 
-Remaining known costs: each streaming flush still re-renders the top-level `App` and the sidebar, because sessions live in `App` state and many derived props change identity. Moving sessions to per-session subscriptions is the next structural improvement. Hidden workspace tabs also stay mounted; editors and terminals in them retain memory until closed.
+Hidden workspace tabs stay mounted; editors and terminals in them retain memory until closed.
+
+## Streaming without workspace re-renders
+
+Sessions previously lived only in `App` state, so every streaming flush re-rendered the whole workspace and the sidebar. A live session store now holds the newest sessions. When a flush changes only transcripts (no other session field, and no change in whether input is needed), visible chat panes read the update from the store while `App` state catches up after at most 250 ms. Any other change commits immediately. Sessions shown in pop-out or detached windows also commit immediately, because those windows sync from committed state. Hidden panes do not subscribe.
+
+In an Aven Dev fixture, 180 simulated `message.delta` events over about three seconds re-rendered `App` and the sidebar 40 times, compared with 214 times on the previous code; the chat pane rendered about 200 times in both. Development builds use React StrictMode, which doubles render counts. Frame intervals in this lightweight fixture were similar in both runs (8 ms median), so the fixture does not demonstrate a frame-time change; the saving grows with workspace size.

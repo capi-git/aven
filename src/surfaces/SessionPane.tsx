@@ -58,6 +58,7 @@ import {
   subscribeProjectChatBackground,
 } from "../lib/projectChatBackground";
 import { projectChatBackgroundSrc } from "../lib/chatBackground";
+import { useLiveSession } from "../lib/liveSessions";
 import {
   loadChatBackgroundPath,
   subscribeChatBackgroundPath,
@@ -142,7 +143,7 @@ type Props = {
 };
 
 export const SessionPane = memo(function SessionPane({
-  session,
+  session: committedSession,
   reviewUndoLocked = false,
   visible,
   focused,
@@ -180,6 +181,8 @@ export const SessionPane = memo(function SessionPane({
   onNewTerminal,
   onPaneDragStart,
 }: Props) {
+  // Streaming updates this pane's transcript directly while it is shown.
+  const session = useLiveSession(committedSession, visible);
   const workerAgents = useContext(OrchestrationWorkers).agentsByLead?.get(session.id);
   const orchestrationRuns = useSyncExternalStore(
     orchestrator.subscribe,

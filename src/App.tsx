@@ -53,6 +53,7 @@ import {
   useState,
   useSyncExternalStore,
   type CSSProperties,
+  type SetStateAction,
 } from "react";
 import { PersonalInspectorDock } from "./chrome/PersonalInspectorDock";
 import { WorkspaceHome } from "./surfaces/WorkspaceHome";
@@ -560,6 +561,17 @@ import {
   scheduleStreamFlush,
   type ScheduledFlush,
 } from "./lib/streamFlush";
+import {
+  canDeferStreamCommit,
+  createLiveSessionStore,
+  LiveSessionsContext,
+} from "./lib/liveSessions";
+
+/**
+ * How long transcript-only streaming may trail workspace state. Visible panes
+ * update from the live store; the sidebar, tabs and persistence see it here.
+ */
+const TRANSCRIPT_COMMIT_INTERVAL_MS = 250;
 
 function withPlanStatus(
   session: Session,
@@ -750,8 +762,33 @@ export default function App({
     const tab = newTab(session.id);
     return { session, tab };
   });
-  const [sessions, setSessions] = useState<Session[]>(
+  const [sessions, setCommittedSessions] = useState<Session[]>(
     () => windowTransfer?.sessions ?? resumed?.sessions ?? [seed.session],
+  );
+  // Source of truth for the newest sessions. React state can trail it while
+  // transcript-only streaming reaches visible panes through the live store.
+  const sessionsRef = useRef(sessions);
+  const [liveSessions] = useState(() => createLiveSessionStore(sessions));
+  const transcriptCommit = useRef<number | null>(null);
+  const commitSessions = useCallback(
+    (next: Session[]) => {
+      if (transcriptCommit.current !== null) {
+        clearTimeout(transcriptCommit.current);
+        transcriptCommit.current = null;
+      }
+      sessionsRef.current = next;
+      liveSessions.set(next);
+      setCommittedSessions(next);
+    },
+    [liveSessions],
+  );
+  /** Updates always apply to the newest sessions, never to trailing state. */
+  const setSessions = useCallback(
+    (action: SetStateAction<Session[]>) =>
+      commitSessions(
+        typeof action === "function" ? action(sessionsRef.current) : action,
+      ),
+    [commitSessions],
   );
   const [tabs, setTabs] = useState<WorkspaceTab[]>(
     () => windowTransfer?.tabs ?? resumed?.tabs ?? [seed.tab],
@@ -1414,8 +1451,6 @@ export default function App({
   /** Project whose listing failed, so the error cannot leak to another one. */
   const [historyErrorCwd, setHistoryErrorCwd] = useState<string | null>(null);
 
-  const sessionsRef = useRef(sessions);
-  sessionsRef.current = sessions;
   const queueDispatchingRef = useRef(new Set<string>());
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
@@ -1497,6 +1532,8 @@ export default function App({
   // recomputed for every delta.
   const harnessQueued = useRef(new Map<string, HarnessEvent[]>());
   const harnessFlush = useRef<ScheduledFlush | null>(null);
+  /** Sessions shown by pop-out or detached windows, which sync from state. */
+  const externallyRenderedSessionIds = useRef<ReadonlySet<string>>(new Set());
   const lastHarnessFlushAt = useRef(0);
   const skipForgetSessionIds = useRef(new Set<string>());
   const importedSessionsApplied = useRef(false);
@@ -1530,10 +1567,22 @@ export default function App({
       return events ? events.reduce(applyHarnessEvent, session) : session;
     });
     if (!next.some((session, index) => session !== prev[index])) return;
-    sessionsRef.current = next;
     syncDockBadge(next);
-    setSessions(next);
-  }, []);
+    if (
+      !canDeferStreamCommit(prev, next, externallyRenderedSessionIds.current)
+    ) {
+      commitSessions(next);
+      return;
+    }
+    // Only transcripts changed: update visible panes now and let the rest of
+    // the workspace (sidebar, tabs, persistence) catch up a few times a second.
+    sessionsRef.current = next;
+    liveSessions.set(next);
+    transcriptCommit.current ??= window.setTimeout(() => {
+      transcriptCommit.current = null;
+      setCommittedSessions(sessionsRef.current);
+    }, TRANSCRIPT_COMMIT_INTERVAL_MS);
+  }, [commitSessions, liveSessions]);
 
   const stopSessionForRemoval = useCallback(
     async (sessionId: string): Promise<Session | undefined> => {
@@ -1651,6 +1700,12 @@ export default function App({
       stopBridge();
       cancelScheduledFlush(harnessFlush.current);
       harnessFlush.current = null;
+      // Never leave streamed text only in the live store.
+      if (transcriptCommit.current !== null) {
+        clearTimeout(transcriptCommit.current);
+        transcriptCommit.current = null;
+        setCommittedSessions(sessionsRef.current);
+      }
     };
   }, [resumed]);
 
@@ -8008,6 +8063,10 @@ export default function App({
     },
   });
   detachedBrowserBridge.current = detached.openForSession;
+  externallyRenderedSessionIds.current = new Set([
+    ...sessionPip.ids,
+    ...detached.detachedSessionIds,
+  ]);
   detachedFileBridge.current = detached.openFileForSession;
   detachedShowSurface.current = async (surfaceId) => {
     const window = detached.snapshots.find(
@@ -8309,6 +8368,7 @@ export default function App({
   };
 
   return (
+    <LiveSessionsContext.Provider value={liveSessions}>
     <OrchestrationActions.Provider value={orchestrationActions}>
       <OrchestrationWorkers.Provider value={orchestrationWorkers}>
         <div
@@ -9279,6 +9339,7 @@ export default function App({
         </div>
       </OrchestrationWorkers.Provider>
     </OrchestrationActions.Provider>
+    </LiveSessionsContext.Provider>
   );
 }
 function conversationTitle(session: Session): string {
