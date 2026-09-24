@@ -1,8 +1,10 @@
 import {
   memo,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
+  useState,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -17,6 +19,13 @@ import {
   type LayoutSash,
 } from "../lib/layout";
 import { suppressTextSelection } from "../lib/drag";
+import {
+  captureScrollOffsets,
+  HiddenSurfaceClock,
+  restoreScrollOffsets,
+  type ScrollOffsets,
+} from "../lib/hiddenSurfaces";
+import { subscribeMemoryPressure } from "../lib/memoryPressure";
 import { WORKSPACE_DROP_FEEDBACK } from "../hooks/useBrowserDropIndicator";
 import "./WorkspaceStage.css";
 
@@ -362,6 +371,66 @@ export function WorkspaceStage({
         });
     }
   });
+  // Long-hidden surfaces drop their render trees; see hiddenSurfaces.ts.
+  const hiddenClock = useRef(new HiddenSurfaceClock());
+  const [demoted, setDemoted] = useState<ReadonlySet<string>>(new Set());
+  const demotedScroll = useRef(new Map<string, ScrollOffsets>());
+  const shownIds = visible ? [...positions.keys()] : [];
+  const hiddenKey = surfaces
+    .map(({ id }) => id)
+    .filter((id) => !shownIds.includes(id))
+    .join("\0");
+  const demote = useCallback((ids: readonly string[]) => {
+    if (!ids.length) return;
+    for (const id of ids) {
+      const node = surfaceNodes.current.get(id);
+      if (node && !demotedScroll.current.has(id))
+        demotedScroll.current.set(id, captureScrollOffsets(node));
+    }
+    setDemoted((previous) => {
+      if (ids.every((id) => previous.has(id))) return previous;
+      return new Set([...previous, ...ids]);
+    });
+  }, []);
+  useEffect(() => {
+    const clock = hiddenClock.current;
+    clock.update(hiddenKey ? hiddenKey.split("\0") : [], Date.now());
+    if (!clock.size) return;
+    // No idle polling: age is checked when the hidden set changes and when
+    // the window's focus or visibility changes. Leaving the app or memory
+    // pressure releases every hidden surface at once.
+    demote(clock.due(Date.now()));
+    const sweep = () => demote(clock.due(Date.now()));
+    const releaseAll = () => demote(clock.all());
+    const visibility = () => {
+      if (document.hidden) releaseAll();
+    };
+    window.addEventListener("focus", sweep);
+    window.addEventListener("blur", sweep);
+    document.addEventListener("visibilitychange", visibility);
+    const unsubscribe = subscribeMemoryPressure(releaseAll);
+    return () => {
+      window.removeEventListener("focus", sweep);
+      window.removeEventListener("blur", sweep);
+      document.removeEventListener("visibilitychange", visibility);
+      unsubscribe();
+    };
+  }, [hiddenKey, demote]);
+  const promoted = shownIds.filter((id) => demoted.has(id));
+  if (promoted.length)
+    setDemoted((previous) => {
+      const next = new Set(previous);
+      for (const id of promoted) next.delete(id);
+      return next;
+    });
+  useLayoutEffect(() => {
+    // `display: none` cleared the offsets; the same DOM nodes are back.
+    for (const [id, saved] of demotedScroll.current) {
+      if (!shownIds.includes(id)) continue;
+      restoreScrollOffsets(saved);
+      demotedScroll.current.delete(id);
+    }
+  });
   const headerIds = leaves
     .filter(({ id }) => headerContents.has(id))
     .map(({ id }) => id)
@@ -568,6 +637,7 @@ export function WorkspaceStage({
             data-workspace-surface={id}
             data-focused={shown && focusedId === id}
             data-retained={shown || !!retained}
+            data-demoted={!shown && demoted.has(id) ? "true" : undefined}
             data-has-header={hasHeader}
             hidden={!shown}
             aria-hidden={!shown || undefined}

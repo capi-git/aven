@@ -1,12 +1,11 @@
-import { listen } from "@tauri-apps/api/event";
 import {
   loadBrowserMemorySaver,
   subscribeBrowserMemorySaver,
 } from "./settings";
-
-/** Published by the host when macOS reports memory pressure. */
-export const MEMORY_PRESSURE_EVENT = "aven:memory-pressure";
-export type MemoryPressureLevel = "warn" | "critical";
+import {
+  subscribeMemoryPressure,
+  type MemoryPressureLevel,
+} from "./memoryPressure";
 
 export const BROWSER_SLEEP_AFTER_MS = 5 * 60_000;
 export const BROWSER_RECENT_TABS = 3;
@@ -145,23 +144,12 @@ export function registerBrowserMemoryPage(id: string, page: Page) {
     };
     update();
     const unsubscribeSetting = subscribeBrowserMemorySaver(update);
-    let disposed = false;
-    let unlistenPressure: (() => void) | undefined;
-    void listen<{ level: MemoryPressureLevel }>(
-      MEMORY_PRESSURE_EVENT,
-      (event) => void pool.relieve(event.payload.level),
-    )
-      .then((unlisten) => {
-        if (disposed) unlisten();
-        else unlistenPressure = unlisten;
-      })
-      .catch(() => {
-        // Browser previews have no host events.
-      });
+    const unsubscribePressure = subscribeMemoryPressure(
+      (level) => void pool.relieve(level),
+    );
     unsubscribe = () => {
-      disposed = true;
       unsubscribeSetting();
-      unlistenPressure?.();
+      unsubscribePressure();
     };
   }
   const registration = pool.register(id, page);

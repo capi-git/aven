@@ -3,6 +3,8 @@ import { act, createElement, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { layoutLeaves, type LayoutNode } from "../lib/layout";
+import { HIDDEN_SURFACE_DEMOTE_MS } from "../lib/hiddenSurfaces";
+import { notifyMemoryPressure } from "../lib/memoryPressure";
 import {
   WorkspaceStage,
   workspaceSurfaceDropAt,
@@ -462,6 +464,70 @@ describe("workspace stage", () => {
     expect(chat.hasAttribute("inert")).toBe(false);
     expect(mounted).toHaveBeenCalledTimes(4);
     expect(unmounted).not.toHaveBeenCalled();
+  });
+
+  it("releases long-hidden surfaces without timers and restores their scroll offsets", async () => {
+    vi.setSystemTime(1_000_000);
+    const chatContent = createElement(
+      "div",
+      { "data-scroll": true, style: { overflow: "auto", height: "100%" } },
+      createElement(StatefulSurface, { id: "chat" }),
+    );
+    const surfaces = [
+      { id: "chat", content: chatContent },
+      ...["browser", "personal"].map((id) => ({
+        id,
+        content: createElement(StatefulSurface, { id }),
+      })),
+    ];
+    await render({ layout: leaf("chat"), focusedId: "chat", surfaces });
+    const chat = surface("chat");
+    const scroller = chat.querySelector<HTMLElement>("[data-scroll]")!;
+    scroller.scrollTop = 387;
+    await render({ layout: leaf("browser"), focusedId: "browser" });
+    expect(chat.hidden).toBe(true);
+    expect(chat.dataset.demoted).toBeUndefined();
+    expect(vi.getTimerCount()).toBe(0);
+
+    // Age alone changes nothing until the stage next looks at its hidden set.
+    vi.setSystemTime(1_000_000 + HIDDEN_SURFACE_DEMOTE_MS);
+    expect(chat.dataset.demoted).toBeUndefined();
+    await act(async () => window.dispatchEvent(new Event("blur")));
+    expect(chat.dataset.demoted).toBe("true");
+    expect(surface("browser").dataset.demoted).toBeUndefined();
+    expect(chat.querySelector("[data-scroll]")).toBe(scroller);
+
+    scroller.scrollTop = 0; // display: none discards the offset
+    await render({ layout: leaf("chat"), focusedId: "chat" });
+    expect(chat.hidden).toBe(false);
+    expect(chat.dataset.demoted).toBeUndefined();
+    expect(scroller.scrollTop).toBe(387);
+    expect(input("chat").value).toBe("Unsaved chat");
+  });
+
+  it("releases every hidden surface under memory pressure or when the app is hidden", async () => {
+    await render({
+      layout: leaf("chat"),
+      focusedId: "chat",
+      surfaces: ["chat", "browser", "personal"].map((id) => ({
+        id,
+        content: createElement(StatefulSurface, { id }),
+      })),
+    });
+    await render({ layout: leaf("browser"), focusedId: "browser" });
+    await render({ layout: leaf("personal"), focusedId: "personal" });
+    expect(surface("chat").dataset.demoted).toBeUndefined();
+    await act(async () => notifyMemoryPressure("warn"));
+    expect(surface("chat").dataset.demoted).toBe("true");
+    expect(surface("browser").dataset.demoted).toBe("true");
+    expect(surface("personal").dataset.demoted).toBeUndefined();
+
+    await render({ layout: leaf("chat"), focusedId: "chat" });
+    expect(surface("chat").dataset.demoted).toBeUndefined();
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+    expect(surface("personal").dataset.demoted).toBe("true");
+    hidden.mockRestore();
   });
 
   it("discards warm geometry when a surface closes and keeps a reopened inactive surface cold", async () => {

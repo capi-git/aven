@@ -47,6 +47,10 @@
   .workspace-stage-surface[hidden][data-retained="true"] {
     display: flex !important;
   }
+  /* Hidden long enough: release the render tree, keep DOM and React state. */
+  .workspace-stage-surface[hidden][data-demoted="true"] {
+    display: none !important;
+  }
 }
 
 .workspace-stage-surface {
