@@ -81,6 +81,7 @@ pub fn install(window: &Window) {
     window.on_window_event(move |event| match event {
         WindowEvent::Focused(true) => {
             pin(&event_window);
+            diagnose_opacity(&event_window, "focused");
         }
         WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
             stretch_titlebar(&event_window);
@@ -330,6 +331,22 @@ pub fn disable_glass(window: &Window) {
     set_glass_enabled(window, false);
     apply_blur(window, 0);
     set_launch_background(window, 247, 247, 247);
+    diagnose_opacity(window, "glass-disabled");
+}
+
+/// Reports whether the native window is opaque, which decides how much the
+/// window server must blend on every frame.
+fn diagnose_opacity(window: &Window, outcome: &str) {
+    if !blur_diagnostics_enabled() {
+        return;
+    }
+    if let Some(ns_window) = ns_window(window) {
+        eprintln!(
+            "[aven-glass] window={} outcome={outcome} opaque={}",
+            window.label(),
+            ns_window.isOpaque()
+        );
+    }
 }
 
 fn prepare_glass(window: &Window) {

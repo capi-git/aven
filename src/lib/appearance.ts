@@ -301,6 +301,8 @@ function paintThemeColors(scheme: ColorScheme) {
 export function applyThemeColors(colors: ThemeColorOverrides = {}) {
   appliedThemeColors = colors;
   paintThemeColors(isLightScheme() ? "light" : "dark");
+  if (nativeGlassReady && appliedNativeGlass === false)
+    void paintOpaqueWindow();
 }
 
 export function initAppearance() {
@@ -372,22 +374,62 @@ export function applyThemePreference(value: ThemePreference): ColorScheme {
   return next;
 }
 
+let appliedSidebarOpacity = SIDEBAR_OPACITY_DEFAULT;
+
+/**
+ * A see-through window costs GPU time on every frame: macOS blends it against
+ * whatever is behind it and keeps drawing those windows too. Every glass
+ * surface mixes the theme background at the sidebar opacity, so only an
+ * opacity below 100% reveals the desktop; blur and body glass alone do not.
+ */
+function windowTranslucencyWanted(): boolean {
+  return appliedSidebarOpacity < SIDEBAR_OPACITY_MAX;
+}
+
+let appliedNativeGlass: boolean | null = null;
+let paintedWindowColor: string | null = null;
+
+function opaqueWindowColor(): string {
+  const scheme = isLightScheme() ? "light" : "dark";
+  return (
+    normalizeThemeColor(appliedThemeColors[scheme]?.background) ??
+    AVEN_THEME_COLORS[scheme].background
+  );
+}
+
+/** An opaque window shows its own colour behind transparent page areas. */
+function paintOpaqueWindow() {
+  const color = opaqueWindowColor();
+  if (color === paintedWindowColor) return Promise.resolve();
+  paintedWindowColor = color;
+  return getCurrentWindow()
+    .setBackgroundColor(color)
+    .catch(() => {
+      paintedWindowColor = null;
+    });
+}
+
 function syncNativeGlass(scheme: ColorScheme) {
-  void invoke("set_window_glass_enabled", {
-    enabled: HAS_NATIVE_GLASS && scheme === "dark",
-  })
+  const enabled =
+    HAS_NATIVE_GLASS && scheme === "dark" && windowTranslucencyWanted();
+  appliedNativeGlass = enabled;
+  paintedWindowColor = null;
+  void invoke("set_window_glass_enabled", { enabled })
     .then(() => {
-      if (!HAS_NATIVE_GLASS) {
-        const currentScheme = isLightScheme() ? "light" : "dark";
-        return getCurrentWindow().setBackgroundColor(
-          normalizeThemeColor(appliedThemeColors[currentScheme]?.background) ??
-            AVEN_THEME_COLORS[currentScheme].background,
-        );
-      }
+      if (!enabled) return paintOpaqueWindow();
     })
     .catch(() => {
       // Browser previews have no native window.
     });
+}
+
+/** Re-evaluate window transparency after a glass setting changed. */
+function syncNativeGlassIfChanged() {
+  if (!nativeGlassReady) return;
+  const scheme = isLightScheme() ? "light" : "dark";
+  const enabled =
+    HAS_NATIVE_GLASS && scheme === "dark" && windowTranslucencyWanted();
+  if (enabled !== appliedNativeGlass) syncNativeGlass(scheme);
 }
 
 /** Synchronizes native appearance after the first opaque frame is ready. */
@@ -426,6 +468,8 @@ export function applySidebarOpacity(value: number) {
     ? clamp(value, SIDEBAR_OPACITY_MIN, SIDEBAR_OPACITY_MAX)
     : 1;
   document.documentElement.style.setProperty("--sidebar-opacity", String(next));
+  appliedSidebarOpacity = next;
+  syncNativeGlassIfChanged();
   return next;
 }
 

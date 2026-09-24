@@ -710,7 +710,10 @@ describe("workspace theme activation", () => {
     expect(document.documentElement.style.getPropertyValue("--theme-hue")).toBe(
       "90",
     );
-    expect(invoke).not.toHaveBeenCalled();
+    // Only the translucency this edit introduced reaches the native window.
+    expect(vi.mocked(invoke).mock.calls).toEqual([
+      ["set_window_glass_enabled", { enabled: true }],
+    ]);
   });
 
   it("system appearance follows the active workspace preference instead of the legacy global setting", () => {

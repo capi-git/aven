@@ -90,19 +90,54 @@ describe("native workspace transparency", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
-  it("enables Mac glass after activation and restores it after light mode", async () => {
+  it("keeps the window opaque until a setting reveals the desktop", async () => {
     appearance.applyThemePreference("dark");
     expect(invoke).not.toHaveBeenCalled();
     appearance.activateWindowAppearance();
+    await vi.waitFor(() => {
+      expect(getCurrentWindow().setBackgroundColor).toHaveBeenLastCalledWith(
+        "#0a0a0a",
+      );
+    });
+    appearance.applySidebarBlur(12);
+    appearance.applySidebarBlur(0);
+    appearance.applySidebarOpacity(0.6);
+    appearance.applySidebarOpacity(1);
+    appearance.applyBodyGlass(true);
     appearance.applyThemePreference("light");
     appearance.applyThemePreference("dark");
+    appearance.applyBodyGlass(false);
     await Promise.resolve();
-    expect(vi.mocked(invoke).mock.calls).toEqual([
-      ["set_window_glass_enabled", { enabled: true }],
+    expect(
+      vi
+        .mocked(invoke)
+        .mock.calls.filter(([name]) => name === "set_window_glass_enabled"),
+    ).toEqual([
       ["set_window_glass_enabled", { enabled: false }],
       ["set_window_glass_enabled", { enabled: true }],
+      ["set_window_glass_enabled", { enabled: false }],
+      ["set_window_glass_enabled", { enabled: false }],
+      ["set_window_glass_enabled", { enabled: false }],
     ]);
-    expect(getCurrentWindow().setBackgroundColor).not.toHaveBeenCalled();
+  });
+
+  it("repaints an opaque window when the theme background changes", async () => {
+    appearance.applyThemePreference("dark");
+    appearance.activateWindowAppearance();
+    await vi.waitFor(() => {
+      expect(getCurrentWindow().setBackgroundColor).toHaveBeenCalledTimes(1);
+    });
+    appearance.applyThemeColors({ dark: { background: "#123456" } });
+    await vi.waitFor(() => {
+      expect(getCurrentWindow().setBackgroundColor).toHaveBeenLastCalledWith(
+        "#123456",
+      );
+    });
+    appearance.applySidebarOpacity(0.5);
+    await Promise.resolve();
+    appearance.applyThemeColors({ dark: { background: "#654321" } });
+    await Promise.resolve();
+    expect(getCurrentWindow().setBackgroundColor).toHaveBeenCalledTimes(2);
   });
 
   it("uses near-clear backgrounds without changing text or saved preferences", () => {
