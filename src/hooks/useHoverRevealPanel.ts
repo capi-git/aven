@@ -1,4 +1,5 @@
 import {
+  startTransition,
   useCallback,
   useEffect,
   useMemo,
@@ -58,6 +59,8 @@ export function useHoverRevealPanel({
   const panel = useRef<HTMLElement | null>(null);
   const pointer = useRef({ edge: false, panel: false });
   const keyboardInteraction = useRef(true);
+  /** A panel closed ahead of the owner's re-render, until that commits. */
+  const uncommittedClose = useRef<HTMLElement | null>(null);
 
   const cancelEnter = useCallback(() => {
     if (enterTimer.current !== undefined) clearTimeout(enterTimer.current);
@@ -91,7 +94,14 @@ export function useHoverRevealPanel({
       panel.current?.contains(active)
     )
       active.blur();
-    setTemporary(false);
+    // Start the CSS close now. The owner's re-render (the whole workspace for
+    // the sidebar) follows as interruptible work, so it neither delays the
+    // first closing frame nor blocks the compositor-driven fade.
+    if (panel.current?.dataset.open === "true") {
+      panel.current.dataset.open = "false";
+      uncommittedClose.current = panel.current;
+    }
+    startTransition(() => setTemporary(false));
   }, [cancelEnter, cancelLeave]);
   const reveal = useCallback(() => {
     cancelEnter();
@@ -103,6 +113,12 @@ export function useHoverRevealPanel({
     if (!options.current.enabled || options.current.pinned) return;
     if (shown.current) return;
     shown.current = true;
+    // Returning before the close committed: React still renders the panel
+    // open, so restore the attribute it will not rewrite.
+    if (uncommittedClose.current) {
+      uncommittedClose.current.dataset.open = "true";
+      uncommittedClose.current = null;
+    }
     setTemporary(true);
   }, [cancelEnter, cancelLeave]);
   const scheduleClose = useCallback(() => {
@@ -215,6 +231,10 @@ export function useHoverRevealPanel({
       document.removeEventListener("keydown", keyDown, true);
     };
   }, [enabled, pinned, cancelLeave, containsFocus, scheduleClose]);
+
+  useEffect(() => {
+    if (!temporary) uncommittedClose.current = null;
+  }, [temporary]);
 
   useEffect(() => {
     // Pin/unpin and project availability changes discard a previous hover.

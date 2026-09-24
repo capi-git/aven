@@ -28,7 +28,12 @@ function Harness(options: HoverRevealPanelOptions) {
     ),
     createElement(
       "aside",
-      { ...latest.panelHandlers, hidden: !latest.visible, "data-panel": true },
+      {
+        ...latest.panelHandlers,
+        hidden: !latest.visible,
+        "data-open": latest.visible,
+        "data-panel": true,
+      },
       createElement("input", { "aria-label": "Panel input" }),
     ),
     createElement("button", { "data-outside": true }, "Outside"),
@@ -174,6 +179,55 @@ describe("temporary hover panels", () => {
     await act(async () => leave("[data-panel]"));
     expect(latest.visible).toBe(false);
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("starts closing the panel before the owner re-renders", async () => {
+    await render({ leaveDelay: 0 });
+    await reveal();
+    enter("[data-panel]");
+    await act(async () => {
+      element("[data-panel]").dispatchEvent(
+        new PointerEvent("pointerout", {
+          bubbles: true,
+          pointerType: "mouse",
+          relatedTarget: document.body,
+        }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(element("[data-panel]").dataset.open).toBe("false");
+      expect(latest.visible).toBe(true);
+    });
+    expect(latest.visible).toBe(false);
+    expect(element("[data-panel]").dataset.open).toBe("false");
+  });
+
+  it("reopens a panel whose early close had not committed", async () => {
+    await render({ enterDelay: 45, leaveDelay: 0 });
+    await reveal();
+    enter("[data-panel]");
+    await act(async () => {
+      element("[data-panel]").dispatchEvent(
+        new PointerEvent("pointerout", {
+          bubbles: true,
+          pointerType: "mouse",
+          relatedTarget: document.body,
+        }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      element("[data-edge]").dispatchEvent(
+        new PointerEvent("pointerover", {
+          bubbles: true,
+          pointerType: "mouse",
+          relatedTarget: document.body,
+        }),
+      );
+      expect(element("[data-panel]").dataset.open).toBe("false");
+      await vi.advanceTimersByTimeAsync(45);
+    });
+    expect(latest.visible).toBe(true);
+    expect(element("[data-panel]").dataset.open).toBe("true");
   });
 
   it("cancels a queued zero-delay close when the pointer re-enters", async () => {

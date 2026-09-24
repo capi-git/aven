@@ -8206,11 +8206,16 @@ export default function App({
     }
     return [...rows.values()];
   }, [standaloneCwd, history, sessions]);
+  // A closing sidebar keeps its last previews: clearing them would remove rows
+  // during the fade and re-render the sidebar for content no longer shown.
+  const lastProfileSessionSummaries = useRef<
+    Record<string, ReturnType<typeof historyWithLiveSessions>>
+  >({});
   const profileSessionSummaries = useMemo(
     () =>
       !sidebarHover.visible
-        ? {}
-        : Object.fromEntries(
+        ? lastProfileSessionSummaries.current
+        : (lastProfileSessionSummaries.current = Object.fromEntries(
             profiles.profileProjects.map((project) => [
               project.path,
               historyWithLiveSessions(
@@ -8221,7 +8226,7 @@ export default function App({
                 orchestrationRuns,
               ),
             ]),
-          ),
+          )),
     [
       sidebarHover.visible,
       profiles.profileProjects,
@@ -8230,10 +8235,13 @@ export default function App({
       orchestrationRuns,
     ],
   );
+  const lastProfilePreviews = useRef<
+    Readonly<Record<string, WorkspaceProfilePreviewData>>
+  >({});
   const profilePreviews = useMemo<
     Readonly<Record<string, WorkspaceProfilePreviewData>>
   >(() => {
-    if (!sidebarHover.visible) return {};
+    if (!sidebarHover.visible) return lastProfilePreviews.current;
     const labels = loadTabGroupLabels();
     const tasksFor = (cwd: string) =>
       historyWithLiveSessions(
@@ -8250,7 +8258,7 @@ export default function App({
           title: sessionDisplayTitle(session.title, session.harness),
           busy: busySessionIds.has(session.id),
         }));
-    return Object.fromEntries(
+    return (lastProfilePreviews.current = Object.fromEntries(
       profiles.profiles.map((profile) => {
         const standalone = projectlessCwdForProfile(profile.id);
         return [
@@ -8270,7 +8278,7 @@ export default function App({
           },
         ];
       }),
-    );
+    ));
   }, [
     sidebarHover.visible,
     profiles.profiles,
