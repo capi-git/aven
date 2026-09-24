@@ -27,3 +27,13 @@ The fixes preserve browser-managed wheel scrolling, momentum and snapping. They 
 Run `npm run check:web` for frontend tests and type checking, and follow [CHROMIUM.md](CHROMIUM.md) for a complete packaged app. Native checks should cover repeated workspace changes, reversing direction without extra clicks, hidden/reopened sidebars, preserved drafts and scroll positions, and browser panes remaining visible.
 
 Further performance work should measure the actual packaged app with continuous input and representative chat/browser workloads. Keep callback intervals, captured compositor changes, physical trackpad behavior and user-perceived latency separate. A native replacement also needs feature, text-selection and accessibility parity.
+
+## Chat scrolling in 0.1.96
+
+An isolated Aven Dev fixture used the production transcript and prompt outline with 32 synthetic turns of alternating short and long Markdown replies. The normal 20-turn initial page and code highlighting remained enabled. Input came from native wheel events, not assignments to `scrollTop`.
+
+The 0.1.95 baseline changed its scroll height from 15,023 to 34,235 CSS pixels during two upward wheel events. Disabling only turn-level containment exposed a second source of shifts: Streamdown code blocks supplied their own inline `auto 200px` size estimate. Their actual height replaced the estimate as they entered view.
+
+The fix removes estimated geometry for mounted turns and code fences, while retaining paging, collapsed completed work, and lazy highlighting. It also removes the transcript's blocking wheel interception and pauses hidden prompt outlines. Twelve wheel events through the corrected initial page held its height at 81,475 pixels; nine more after loading all 32 turns held it at 130,089 pixels. Both corrected samples recorded zero `getComputedStyle` calls during scrolling. The baseline recorded 25 such calls in its two-event sample.
+
+These measurements establish stable geometry and less synchronous input work in the fixture. They do not establish a displayed frame rate, a GPU-use percentage reduction, or elimination of every possible browser flicker. The fixture's native browser page did not finish loading, so its zero browser-layout/snapshot calls are not visual browser verification. Regression tests separately cover scroll defaults, auto-follow, nested tool scrolling, code-block CSS against real Streamdown markup, and hidden-outline cleanup.

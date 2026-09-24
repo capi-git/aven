@@ -162,17 +162,13 @@ html.chat-background-empty-only
   opacity: 0;
 }
 
-.transcript-turn {
-  content-visibility: auto;
-  contain-intrinsic-block-size: auto 240px;
-}
-
 /*
- * The live turn is still growing. Size containment would flash the 240px
- * intrinsic fallback when the first step arrives, which bounces Working
- * down and then back up.
+ * AgentTranscript pages older turns and folds completed tool trails to bound
+ * the rendered history. Keep mounted turns at their real height: substituting
+ * intrinsic placeholders changes the scroll range as the reader moves and
+ * can leave newly revealed content blank in WebKit.
  */
-.transcript-turn-live {
+.transcript-turn {
   content-visibility: visible;
 }
 
@@ -389,6 +385,10 @@ header[data-tauri-drag-region] button {
 }
 
 .agent-markdown [data-streamdown="code-block"] {
+  /* Streamdown's inline 200px containment estimate changes transcript height
+     when a fence enters view. Keep its real geometry; highlighting stays lazy. */
+  content-visibility: visible !important;
+  contain-intrinsic-size: none !important;
   min-width: 0;
   max-width: 100%;
   overflow: hidden;

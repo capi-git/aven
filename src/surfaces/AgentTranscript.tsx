@@ -61,7 +61,6 @@ import {
   type ToolPreview,
 } from "../lib/session";
 import { HarnessIcon } from "../chrome/HarnessIcon";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useTranscriptLayout } from "../hooks/useTranscriptLayout";
 import { useTranscriptAnchor } from "../hooks/useTranscriptAnchor";
 import { useTranscriptSelection } from "../hooks/useTranscriptSelection";
@@ -151,7 +150,6 @@ function AgentTranscriptComponent({
   visible = true,
   managed = false,
 }: Props) {
-  const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const scroller = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const showJumpRef = useRef(false);
@@ -217,14 +215,10 @@ function AgentTranscriptComponent({
     pinToBottom(el);
   }, [setShowJump]);
 
-  const setScroller = useCallback(
-    (el: HTMLDivElement | null) => {
-      scroller.current = el;
-      setScrollerEl(el);
-      lockOverscroll(el);
-    },
-    [lockOverscroll],
-  );
+  const setScroller = useCallback((el: HTMLDivElement | null) => {
+    scroller.current = el;
+    setScrollerEl(el);
+  }, []);
 
   useEffect(() => {
     onJumpToBottomReady?.(jumpToBottom);

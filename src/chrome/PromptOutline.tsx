@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -65,12 +66,45 @@ export function PromptOutline({
   const [focusId, setFocusId] = useState<string | null>(null);
   const rail = useRef<HTMLDivElement>(null);
   const frame = useRef<number | null>(null);
+  const alignmentFrame = useRef<number | null>(null);
   const openTimer = useRef<number | null>(null);
+  const visibleRef = useRef(visible);
   const pointerInside = useRef(false);
   const lastPromptId = useRef<string | null>(null);
   lastPromptId.current = prompts[prompts.length - 1]?.id ?? null;
 
+  const cancelOpen = useCallback(() => {
+    if (openTimer.current == null) return;
+    window.clearTimeout(openTimer.current);
+    openTimer.current = null;
+  }, []);
+
+  const cancelFrames = useCallback(() => {
+    for (const pending of [frame, alignmentFrame]) {
+      if (pending.current == null) continue;
+      window.cancelAnimationFrame(pending.current);
+      pending.current = null;
+    }
+  }, []);
+
+  useLayoutEffect(() => {
+    visibleRef.current = visible;
+    if (!visible) {
+      pointerInside.current = false;
+      setHover(null);
+      setOpen(false);
+    }
+    // Retained tabs keep their layout boxes. Visibility, not zero dimensions,
+    // determines whether their outline can measure, align, or show a preview.
+    return () => {
+      visibleRef.current = false;
+      cancelFrames();
+      cancelOpen();
+    };
+  }, [visible, cancelFrames, cancelOpen]);
+
   const measure = useCallback(() => {
+    if (!visibleRef.current) return;
     const scroller = scope.current?.querySelector<HTMLElement>(SCROLLER);
     if (!scroller) {
       setActiveId(null);
@@ -109,7 +143,7 @@ export function PromptOutline({
   }, [scope]);
 
   const schedule = useCallback(() => {
-    if (frame.current != null) return;
+    if (!visibleRef.current || frame.current != null) return;
     frame.current = window.requestAnimationFrame(() => {
       frame.current = null;
       measure();
@@ -117,46 +151,47 @@ export function PromptOutline({
   }, [measure]);
 
   useEffect(() => {
+    if (!visible) return;
     const scroller = scope.current?.querySelector<HTMLElement>(SCROLLER);
     if (!scroller) return;
-    scroller.addEventListener("scroll", schedule, { passive: true });
-    const observer = new ResizeObserver(schedule);
+    let attached = true;
+    const onChange = () => {
+      if (attached) schedule();
+    };
+    scroller.addEventListener("scroll", onChange, { passive: true });
+    const observer = new ResizeObserver(onChange);
     observer.observe(scroller);
     // Content growth moves the anchors without a scroll event.
     if (scroller.firstElementChild)
       observer.observe(scroller.firstElementChild);
     schedule();
     return () => {
-      scroller.removeEventListener("scroll", schedule);
+      attached = false;
+      scroller.removeEventListener("scroll", onChange);
       observer.disconnect();
       if (frame.current != null) {
         window.cancelAnimationFrame(frame.current);
         frame.current = null;
       }
     };
-  }, [schedule, scope]);
+  }, [schedule, scope, visible]);
 
   useEffect(() => {
     schedule();
   }, [schedule, blocks, visible]);
 
-  const cancelOpen = () => {
-    if (openTimer.current == null) return;
-    window.clearTimeout(openTimer.current);
-    openTimer.current = null;
-  };
-  useEffect(() => cancelOpen, []);
-
   /** The ripple follows the pointer at once. The card waits out a pass-through. */
   const hoverBar = (id: string, el: HTMLElement) => {
+    if (!visibleRef.current) return;
     setHover({ id, el });
     if (open || openTimer.current != null) return;
     openTimer.current = window.setTimeout(() => {
       openTimer.current = null;
-      setOpen(true);
+      if (visibleRef.current) setOpen(true);
     }, OPEN_DELAY_MS);
   };
   const showBar = (id: string, el: HTMLElement) => {
+    if (!visibleRef.current) return;
     cancelOpen();
     setHover({ id, el });
     setOpen(true);
@@ -186,6 +221,7 @@ export function PromptOutline({
   );
 
   const jumpTo = (id: string) => {
+    if (!visibleRef.current) return;
     const scroller = scope.current?.querySelector<HTMLElement>(SCROLLER);
     if (!scroller) return;
     // The transcript scrolls to the bottom on each streaming update until a
@@ -202,6 +238,7 @@ export function PromptOutline({
     }
     const target = anchor.closest<HTMLElement>(TURN) ?? anchor;
     const align = () => {
+      if (!visibleRef.current) return;
       const delta =
         target.getBoundingClientRect().top -
         scroller.getBoundingClientRect().top -
@@ -211,10 +248,15 @@ export function PromptOutline({
     align();
     // Turns that enter the screen get their real height. That can move the
     // target.
-    window.requestAnimationFrame(align);
+    if (alignmentFrame.current != null)
+      window.cancelAnimationFrame(alignmentFrame.current);
+    alignmentFrame.current = window.requestAnimationFrame(() => {
+      alignmentFrame.current = null;
+      align();
+    });
   };
 
-  if (prompts.length < MIN_PROMPTS) return null;
+  if (!visible || prompts.length < MIN_PROMPTS) return null;
 
   const activeIndex = prompts.findIndex((prompt) => prompt.id === activeId);
   const stack = barStack(

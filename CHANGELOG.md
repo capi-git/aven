@@ -1,5 +1,13 @@
 # Aven changelog
 
+## [0.1.96] - 2026-09-23
+
+### Stable chat scrolling
+
+- Let the browser scroll chat history without a blocking JavaScript wheel handler, while preserving scroll containment, nested tool output, and Jump to bottom.
+- Keep mounted messages and code blocks at their actual heights so scrolling does not swap in size estimates and shift the conversation. Older-message paging, collapsed tool trails, and lazy syntax highlighting remain in place.
+- Pause prompt navigation observers and previews in hidden chats; resume them when the chat becomes visible.
+
 ## [0.1.95] - 2026-09-23
 
 ### More efficient browser zoom
