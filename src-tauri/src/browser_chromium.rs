@@ -177,6 +177,7 @@ pub(crate) struct BrowserState {
     native_menus: bool,
     native_drop_indicator: bool,
     closed: bool,
+    sleeping: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -711,6 +712,14 @@ fn handle_event(native_id: &str, event: Value) {
             }
         }
         "closed" => {
+            // Sleep success is tied to CEF's confirmed close, not the request
+            // to close. Remove the page before resolving the promise so a
+            // foreground wake cannot race with stale registry ownership.
+            let sleeping = event.get("sleeping").and_then(Value::as_bool) == Some(true);
+            let sleep_pending = event
+                .get("sleepRequest")
+                .and_then(Value::as_str)
+                .and_then(|request| registry().lock().ok()?.pending.remove(request));
             if let Some(sender) = registry()
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -725,9 +734,16 @@ fn handle_event(native_id: &str, event: Value) {
                 if let Ok(mut state) = context.state.lock() {
                     state.loading = false;
                     state.closed = true;
-                    state.error = Some("This browser page closed. Retry to reopen it.".into());
+                    state.sleeping = sleeping;
+                    state.error =
+                        (!sleeping).then(|| "This browser page closed. Retry to reopen it.".into());
                 }
                 emit_state(&context);
+            }
+            if let Some(pending) = sleep_pending {
+                let _ = pending
+                    .sender
+                    .send(Ok(json!(crate::browser_sleep::BrowserSleepReport::slept())));
             }
         }
         "error" => notice(
@@ -865,6 +881,7 @@ impl ChromiumPage {
         let native_id = string(&id)?;
         let native_request_id = string(&request_id)?;
         let is_menu = menu_anchor.is_some();
+        let is_sleep = request.get("action").and_then(Value::as_str) == Some("sleep");
         let result = on_main(self.0.caller.app_handle(), move || {
             if let Some((window, bounds)) = menu_anchor {
                 let scale = window.scale_factor().map_err(|error| error.to_string())?;
@@ -899,7 +916,13 @@ impl ChromiumPage {
             tauri::async_runtime::spawn_blocking(move || {
                 // The native menu dispatch itself returns immediately. Its
                 // selection is user-driven, so only normal commands time out.
-                wait_for_command_result(receiver, (!is_menu).then_some(Duration::from_secs(12)))
+                // Sleep owns an agent-grant reservation until CEF confirms
+                // close/cancel. Timing out here could release that protection
+                // while an asynchronous non-forced close is still pending.
+                wait_for_command_result(
+                    receiver,
+                    (!is_menu && !is_sleep).then_some(Duration::from_secs(12)),
+                )
             })
             .await
             .map_err(|error| error.to_string())?
@@ -957,6 +980,7 @@ pub async fn browser_create(
             native_menus: true,
             native_drop_indicator: true,
             closed: false,
+            sleeping: false,
         }),
         downloads: Mutex::new(Vec::new()),
         pending_toolbar: Mutex::new(None),
@@ -1800,6 +1824,68 @@ pub async fn browser_close(caller: Webview, id: String) -> Result<(), String> {
     } else {
         Ok(())
     }
+}
+
+async fn check_browser_sleep(
+    caller: Webview,
+    id: String,
+    close: bool,
+) -> Result<crate::browser_sleep::BrowserSleepReport, String> {
+    use crate::browser_sleep::BrowserSleepReport;
+    let page = preview(&caller, &id)?;
+    {
+        let placement = page.0.placement.lock().await;
+        if placement.window.is_some() || placement.detached_window.is_some() {
+            return Ok(BrowserSleepReport::blocked("detached"));
+        }
+        if placement.dock_visible || placement.awaiting_layout {
+            return Ok(BrowserSleepReport::blocked("visible"));
+        }
+    }
+    // Reserve before querying the renderer. A concurrent agent bind cannot
+    // acquire a page while its safe close is in flight. No mutex is held over
+    // the await, so visibility and native cancellation still make progress.
+    let _reservation = if close {
+        match crate::browser_agent::reserve_browser_sleep(caller.label(), &id) {
+            Ok(reservation) => Some(reservation),
+            Err(_) => return Ok(BrowserSleepReport::blocked("agent-grant")),
+        }
+    } else {
+        if crate::browser_agent::has_browser_grant(caller.label(), &id)? {
+            return Ok(BrowserSleepReport::blocked("agent-grant"));
+        }
+        None
+    };
+    {
+        let entries = registry().lock().map_err(|_| "Browser is unavailable")?;
+        if entries
+            .pending
+            .values()
+            .any(|pending| pending.native_id == page.0.native_id)
+        {
+            return Ok(BrowserSleepReport::blocked("browser-busy"));
+        }
+    }
+    let result = page
+        .command(json!({"action": if close {"sleep"} else {"sleep-probe"}}))
+        .await?;
+    serde_json::from_value(result).map_err(|_| "Browser sleep state could not be verified".into())
+}
+
+#[tauri::command]
+pub async fn browser_sleep_probe(
+    caller: Webview,
+    id: String,
+) -> Result<crate::browser_sleep::BrowserSleepReport, String> {
+    check_browser_sleep(caller, id, false).await
+}
+
+#[tauri::command]
+pub async fn browser_sleep(
+    caller: Webview,
+    id: String,
+) -> Result<crate::browser_sleep::BrowserSleepReport, String> {
+    check_browser_sleep(caller, id, true).await
 }
 pub(crate) fn return_floating(root: &str) {
     let context = registry()

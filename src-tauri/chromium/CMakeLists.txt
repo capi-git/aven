@@ -18,6 +18,10 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS browser_edit_sele
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/browser_edit_selection.js" EDIT_SELECTION_SOURCE)
 file(WRITE "${CMAKE_BINARY_DIR}/browser_edit_source.h"
   "#pragma once\nstatic constexpr const char kBrowserEditSelection[] = R\"SM_EDIT(${EDIT_SELECTION_SOURCE})SM_EDIT\";\n")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS browser_sleep_probe.js)
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/browser_sleep_probe.js" SLEEP_PROBE_SOURCE)
+file(WRITE "${CMAKE_BINARY_DIR}/browser_sleep_source.h"
+  "#pragma once\nstatic constexpr const char kBrowserSleepProbe[] = R\"SM_SLEEP(${SLEEP_PROBE_SOURCE})SM_SLEEP\";\n")
 add_library(supermono_chromium_impl STATIC supermono_chromium.mm browser_actions_menu.mm browser_drop_indicator.mm browser_edit_annotation.mm browser_edit_image.mm)
 target_include_directories(supermono_chromium_impl PRIVATE "${CEF_ROOT}" "${CMAKE_BINARY_DIR}")
 target_compile_options(supermono_chromium_impl PRIVATE -fobjc-arc -fno-rtti -Wall -Wextra -Wno-unused-parameter)
@@ -61,6 +65,9 @@ add_test(NAME browser_host_view_reparent COMMAND supermono_chromium_browser_host
 # Per-tab command ordering, coalescing, navigation reapply and failure recovery.
 add_executable(supermono_chromium_browser_tab_zoom_test EXCLUDE_FROM_ALL browser_tab_zoom_test.cc)
 add_test(NAME browser_tab_zoom_isolation COMMAND supermono_chromium_browser_tab_zoom_test)
+
+add_executable(supermono_chromium_browser_sleep_state_test EXCLUDE_FROM_ALL browser_sleep_state_test.cc)
+add_test(NAME browser_sleep_state COMMAND supermono_chromium_browser_sleep_state_test)
 
 # Real menu controls, scoped callbacks, enablement, and selection without UI.
 add_executable(supermono_chromium_browser_actions_menu_test EXCLUDE_FROM_ALL

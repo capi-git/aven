@@ -226,6 +226,46 @@ export function subscribeLiveAgentsEnabled(onStoreChange: () => void) {
     window.removeEventListener(LIVE_AGENTS_ENABLED_CHANGE_EVENT, onStoreChange);
 }
 
+const BROWSER_MEMORY_SAVER_KEY = "aven.browserMemorySaver";
+const BROWSER_MEMORY_SAVER_CHANGE_EVENT = "aven:browser-memory-saver-change";
+
+export const BROWSER_MEMORY_SAVER_DEFAULT = true;
+
+export function loadBrowserMemorySaver(): boolean {
+  try {
+    const raw = localStorage.getItem(BROWSER_MEMORY_SAVER_KEY);
+    if (raw === "0" || raw === "false") return false;
+    if (raw === "1" || raw === "true") return true;
+    return BROWSER_MEMORY_SAVER_DEFAULT;
+  } catch {
+    return BROWSER_MEMORY_SAVER_DEFAULT;
+  }
+}
+
+export function saveBrowserMemorySaver(value: boolean) {
+  try {
+    localStorage.setItem(BROWSER_MEMORY_SAVER_KEY, value ? "1" : "0");
+  } catch {
+    // private mode / quota
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(BROWSER_MEMORY_SAVER_CHANGE_EVENT));
+  }
+}
+
+export function subscribeBrowserMemorySaver(onChange: () => void) {
+  if (typeof window === "undefined") return () => {};
+  const onStorage = (event: StorageEvent) => {
+    if (!event.key || event.key === BROWSER_MEMORY_SAVER_KEY) onChange();
+  };
+  window.addEventListener(BROWSER_MEMORY_SAVER_CHANGE_EVENT, onChange);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(BROWSER_MEMORY_SAVER_CHANGE_EVENT, onChange);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
 const GRID_ARCADE_ENABLED_KEY = "monocode.gridArcadeEnabled";
 
 export const GRID_ARCADE_ENABLED_DEFAULT = false;

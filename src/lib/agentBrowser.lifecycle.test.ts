@@ -73,6 +73,177 @@ function adapter(overrides: Partial<HarnessAdapter>): HarnessAdapter {
 }
 
 describe("agent browser lifecycle ordering", () => {
+  it("wakes only visited pages in the task's scope and waits for their replacement native page", async () => {
+    const api = await import("./agentBrowser");
+    const wakeStarted = deferred();
+    const finishWake = deferred();
+    dispose = api.installAgentBrowserHost({
+      surfaces: () => ["sleeping", "never-viewed"],
+      open: vi.fn(),
+    });
+    const ownWake = vi.fn(async () => {
+      wakeStarted.resolve();
+      await finishWake.promise;
+    });
+    const otherWake = vi.fn();
+    api.registerAgentBrowserWake("sleeping", ownWake);
+    api.registerAgentBrowserWake("other-workspace", otherWake);
+    api.registerAgentBrowserPage("other-workspace", "native-other");
+    const context = { sessionId: "wake-session", cwd: "/project" };
+    let prepared = false;
+    const preparation = api
+      .prepareAgentBrowserPrompt("Inspect my page", context)
+      .then((prompt) => {
+        prepared = true;
+        return prompt;
+      });
+    await wakeStarted.promise;
+    expect(ownWake).toHaveBeenCalledOnce();
+    expect(otherWake).not.toHaveBeenCalled();
+    expect(prepared).toBe(false);
+    expect(api.isAgentBrowserPageProtected("sleeping")).toBe(true);
+    expect(api.isAgentBrowserPageProtected("other-workspace")).toBe(false);
+    finishWake.resolve();
+    for (let index = 0; index < 12; index += 1) await Promise.resolve();
+    expect(prepared).toBe(false);
+    expect(native.grants.get(context.sessionId) ?? []).toEqual([]);
+    api.registerAgentBrowserPage("sleeping", "replacement-native");
+    expect(await preparation).toContain("--aven-browser");
+    expect(native.grants.get(context.sessionId)).toEqual([
+      "replacement-native",
+    ]);
+    expect(otherWake).not.toHaveBeenCalled();
+    expect(api.isAgentBrowserPageProtected("sleeping")).toBe(false);
+  });
+
+  it("keeps pages protected until every overlapping prompt has acquired its native grant", async () => {
+    const api = await import("./agentBrowser");
+    const startedA = deferred();
+    const startedB = deferred();
+    const finishedA = deferred();
+    const finishedB = deferred();
+    const invoke = native.invoke.getMockImplementation()!;
+    native.invoke.mockImplementation(
+      async (command: string, args: { sessionId: string }) => {
+        if (command === "browser_agent_bind") {
+          const isA = args.sessionId === "session-a";
+          (isA ? startedA : startedB).resolve();
+          await (isA ? finishedA : finishedB).promise;
+        }
+        return invoke(command, args);
+      },
+    );
+    dispose = api.installAgentBrowserHost({
+      surfaces: () => ["page"],
+      open: vi.fn(),
+    });
+    api.registerAgentBrowserPage("page", "native-page");
+    for (let index = 0; index < 12; index += 1) await Promise.resolve();
+    const preparationA = api.prepareAgentBrowserPrompt("First", {
+      sessionId: "session-a",
+      cwd: "/project",
+    });
+    await startedA.promise;
+    const preparationB = api.prepareAgentBrowserPrompt("Second", {
+      sessionId: "session-b",
+      cwd: "/project",
+    });
+    await startedB.promise;
+    expect(api.isAgentBrowserPageProtected("page")).toBe(true);
+    finishedA.resolve();
+    expect(await preparationA).toContain("--aven-browser");
+    expect(api.isAgentBrowserPageProtected("page")).toBe(true);
+    finishedB.resolve();
+    expect(await preparationB).toContain("--aven-browser");
+    expect(api.isAgentBrowserPageProtected("page")).toBe(false);
+    expect(native.grants.get("session-a")).toEqual(["native-page"]);
+    expect(native.grants.get("session-b")).toEqual(["native-page"]);
+  });
+
+  it("scope refreshes leave sleeping pages asleep until the next prompt", async () => {
+    const api = await import("./agentBrowser");
+    dispose = api.installAgentBrowserHost({
+      surfaces: () => ["page"],
+      open: vi.fn(),
+    });
+    const unregisterPage = api.registerAgentBrowserPage("page", "native-page");
+    const wake = vi.fn(() => {
+      api.registerAgentBrowserPage("page", "new-native-page");
+    });
+    const context = { sessionId: "sleep-session", cwd: "/project" };
+    await api.prepareAgentBrowserPrompt("First turn", context);
+    unregisterPage();
+    api.registerAgentBrowserWake("page", wake);
+    await api.refreshAgentBrowserScopes();
+    expect(wake).not.toHaveBeenCalled();
+    expect(native.grants.get(context.sessionId)).toEqual([]);
+    await api.prepareAgentBrowserPrompt("Continue", context);
+    expect(wake).toHaveBeenCalledOnce();
+    expect(native.grants.get(context.sessionId)).toEqual(["new-native-page"]);
+  });
+
+  it("an old pane's wake cleanup cannot unregister its replacement", async () => {
+    const api = await import("./agentBrowser");
+    dispose = api.installAgentBrowserHost({
+      surfaces: () => ["page"],
+      open: vi.fn(),
+    });
+    const oldWake = vi.fn();
+    const removeOld = api.registerAgentBrowserWake("page", oldWake);
+    const nextWake = vi.fn(() => {
+      api.registerAgentBrowserPage("page", "replacement-native");
+    });
+    api.registerAgentBrowserWake("page", nextWake);
+    removeOld();
+    await api.prepareAgentBrowserPrompt("Inspect", {
+      sessionId: "replacement-pane-session",
+      cwd: "/project",
+    });
+    expect(oldWake).not.toHaveBeenCalled();
+    expect(nextWake).toHaveBeenCalledOnce();
+  });
+
+  it("a task revoked during wake cannot reacquire browser access", async () => {
+    const api = await import("./agentBrowser");
+    const started = deferred();
+    const finished = deferred();
+    dispose = api.installAgentBrowserHost({
+      surfaces: () => ["page"],
+      open: vi.fn(),
+    });
+    api.registerAgentBrowserWake("page", async () => {
+      started.resolve();
+      await finished.promise;
+      api.registerAgentBrowserPage("page", "new-native-page");
+    });
+    const context = { sessionId: "revoked-session", cwd: "/project" };
+    const preparation = api.prepareAgentBrowserPrompt("Inspect", context);
+    await started.promise;
+    await api.forgetAgentBrowser(context.sessionId);
+    finished.resolve();
+    expect(await preparation).toContain("unavailable for this turn");
+    expect(native.grants.has(context.sessionId)).toBe(false);
+  });
+
+  it("a failed wake does not advertise working browser access", async () => {
+    const api = await import("./agentBrowser");
+    dispose = api.installAgentBrowserHost({
+      surfaces: () => ["page"],
+      open: vi.fn(),
+    });
+    api.registerAgentBrowserWake("page", async () => {
+      throw new Error("Native close could not be confirmed");
+    });
+    expect(
+      await api.prepareAgentBrowserPrompt("Inspect", {
+        sessionId: "failed-wake-session",
+        cwd: "/project",
+      }),
+    ).toContain("unavailable for this turn");
+    expect(native.grants.has("failed-wake-session")).toBe(false);
+    expect(api.isAgentBrowserPageProtected("page")).toBe(false);
+  });
+
   it("late cleanup of an old adapter cannot revoke a newer binding for the same session", async () => {
     const api = await import("./agentBrowser");
     const registry = await import("./harness/registry");

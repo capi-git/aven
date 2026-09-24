@@ -29,6 +29,8 @@ let host: AgentBrowserHost | null = null;
 let hostReady: Promise<unknown> = Promise.resolve();
 const contexts = new Map<string, AgentBrowserContext>();
 const nativePages = new Map<string, string>();
+const pageWakers = new Map<string, () => Promise<void> | void>();
+const preparingPages = new Map<string, number>();
 const bindingTails = new Map<string, Promise<unknown>>();
 const pageListeners = new Set<() => void>();
 let refreshQueued = false;
@@ -51,6 +53,63 @@ export function registerAgentBrowserPage(surfaceId: string, nativeId: string) {
     nativePages.delete(surfaceId);
     queueRefresh();
   };
+}
+
+/** Visited pages keep this hook while asleep; ordinary scope refreshes never wake them. */
+export function registerAgentBrowserWake(
+  surfaceId: string,
+  wake: () => Promise<void> | void,
+) {
+  pageWakers.set(surfaceId, wake);
+  return () => {
+    if (pageWakers.get(surfaceId) === wake) pageWakers.delete(surfaceId);
+  };
+}
+
+/** Bridges wake -> native binding; a successful native grant protects the page afterward. */
+export function isAgentBrowserPageProtected(surfaceId: string): boolean {
+  return (preparingPages.get(surfaceId) ?? 0) > 0;
+}
+
+function protectSessionBrowserPages(context: AgentBrowserContext) {
+  const surfaces = host?.surfaces(context);
+  if (!surfaces)
+    throw new Error("This task no longer owns a browser workspace.");
+  const protectedIds = [...new Set(surfaces)];
+  for (const id of protectedIds)
+    preparingPages.set(id, (preparingPages.get(id) ?? 0) + 1);
+  return () => {
+    for (const id of protectedIds) {
+      const remaining = (preparingPages.get(id) ?? 1) - 1;
+      if (remaining > 0) preparingPages.set(id, remaining);
+      else preparingPages.delete(id);
+    }
+  };
+}
+
+async function wakeSessionBrowserPages(context: AgentBrowserContext) {
+  const currentHost = host;
+  const surfaces = currentHost?.surfaces(context);
+  if (!currentHost || !surfaces)
+    throw new Error("This task no longer owns a browser workspace.");
+  await Promise.all(
+    surfaces.map(async (surfaceId) => {
+      const wake = pageWakers.get(surfaceId);
+      // Never-viewed saved tabs have no waker and remain lazy. Existing live
+      // pages without a waker (including detached owners) keep their binding.
+      if (!wake) return;
+      await wake();
+      if (
+        host !== currentHost ||
+        contexts.get(context.sessionId) !== context ||
+        !currentHost.surfaces(context)?.includes(surfaceId)
+      )
+        throw new Error("This browser task changed while its pages were waking.");
+      await waitForPage(surfaceId);
+    }),
+  );
+  if (host !== currentHost || contexts.get(context.sessionId) !== context)
+    throw new Error("This browser task has expired.");
 }
 
 /** Transfers must not wait for saved tabs whose native pane has never mounted. */
@@ -280,8 +339,14 @@ export async function prepareAgentBrowserPrompt(
   contexts.set(context.sessionId, stored);
   try {
     await hostReady;
-    const binding = await bind(stored);
-    return `${agentBrowserInstructions(binding.executablePath)}\n\n${text}`;
+    const release = protectSessionBrowserPages(stored);
+    try {
+      await wakeSessionBrowserPages(stored);
+      const binding = await bind(stored);
+      return `${agentBrowserInstructions(binding.executablePath)}\n\n${text}`;
+    } finally {
+      release();
+    }
   } catch {
     // A browser connection failure must not disable ordinary agent work.
     return browserUnavailablePrompt(text);

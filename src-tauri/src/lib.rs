@@ -18,6 +18,7 @@ pub use browser_agent::run_browser_cli;
 mod browser_dialogs;
 #[cfg(target_os = "macos")]
 mod browser_floating_controls;
+mod browser_sleep;
 mod browser_snapshot;
 mod chat_background;
 mod checkpoint;
@@ -304,6 +305,8 @@ pub fn run() {
             browser::browser_drop_indicator,
             browser::browser_layout,
             browser::browser_close,
+            browser::browser_sleep_probe,
+            browser::browser_sleep,
             browser::browser_set_floating,
             browser::browser_show_floating,
             browser::browser_find,

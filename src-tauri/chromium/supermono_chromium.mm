@@ -24,6 +24,8 @@
 #include "agent_dom_request.h"
 #include "agent_dom_source.h"
 #include "browser_edit_source.h"
+#include "browser_sleep_source.h"
+#include "browser_sleep_state.h"
 #include "include/cef_app.h"
 #include "include/cef_application_mac.h"
 #include "include/cef_client.h"
@@ -257,7 +259,7 @@ class FaviconDownload final : public CefDownloadImageCallback {
 class Page final : public CefClient, public CefLifeSpanHandler, public CefDisplayHandler,
   public CefLoadHandler, public CefRequestHandler, public CefDownloadHandler,
   public CefPermissionHandler, public CefKeyboardHandler, public CefFindHandler, public CefFocusHandler,
-  public CefDevToolsMessageObserver {
+  public CefDevToolsMessageObserver, public CefJSDialogHandler {
  public:
   explicit Page(std::string id) : id_(std::move(id)) {}
   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
@@ -269,6 +271,27 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   CefRefPtr<CefKeyboardHandler> GetKeyboardHandler() override { return this; }
   CefRefPtr<CefFindHandler> GetFindHandler() override { return this; }
   CefRefPtr<CefFocusHandler> GetFocusHandler() override { return this; }
+  CefRefPtr<CefJSDialogHandler> GetJSDialogHandler() override { return this; }
+  bool OnJSDialog(CefRefPtr<CefBrowser>,const CefString&,JSDialogType,const CefString&,
+      const CefString&,CefRefPtr<CefJSDialogCallback>,bool&) override {
+    js_dialog_open_=true; sleep_.Invalidate(); return false;
+  }
+  void OnDialogClosed(CefRefPtr<CefBrowser>) override { js_dialog_open_=false; }
+  void OnResetDialogState(CefRefPtr<CefBrowser>) override { js_dialog_open_=false; }
+  bool OnBeforeUnloadDialog(CefRefPtr<CefBrowser> browser,const CefString&,bool,
+      CefRefPtr<CefJSDialogCallback> callback) override {
+    if (!Main(browser) || !sleep_.closing()) return false;
+    // Automatic sleeping never dismisses an unsaved-work warning on behalf of
+    // the user and never shows an unexpected modal on an inactive workspace.
+    callback->Continue(false,CefString());
+    FinishSleep(sleep_.token(),{"before-unload"});
+    return true;
+  }
+  void OnMediaAccessChange(CefRefPtr<CefBrowser>,bool video,bool audio) override {
+    // Capture permission/usage is sticky for this native page. The public CEF
+    // API does not expose every screen/WebRTC capture lifetime reliably.
+    if (video || audio) { media_access_seen_=true; sleep_.Invalidate(); }
+  }
   bool OnSetFocus(CefRefPtr<CefBrowser> browser,FocusSource source) override { return Main(browser) && (!visible_ || closing_); }
   void OnGotFocus(CefRefPtr<CefBrowser> browser) override { if (Main(browser)) State(); }
   void OnTakeFocus(CefRefPtr<CefBrowser> browser,bool next) override {
@@ -299,7 +322,12 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       auto pending=std::move(pending_); pending_.clear();
       for (auto& item:pending) item.second(false,Error("Browser closed"));
       downloads_.clear(); download_names_.clear();
-      auto d=Object(); d->SetString("type","closed"); Emit(id_,d);
+      auto d=Object(); d->SetString("type","closed");
+      if (sleep_.closing()) {
+        d->SetBool("sleeping",true); d->SetString("sleepRequest",sleep_request_);
+        sleep_.Finish(sleep_.token()); sleep_request_.clear();
+      }
+      Emit(id_,d);
       // Popup callbacks retain this client until Chromium closes them.
       pages.erase(id_);
     } else popups_.erase(browser->GetIdentifier());
@@ -326,6 +354,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     const CefString& target_url,const CefString& target_frame_name,WindowOpenDisposition disposition,
     bool user_gesture,const CefPopupFeatures& features,CefWindowInfo& window_info,
     CefRefPtr<CefClient>& client,CefBrowserSettings& settings,Dict& extra_info,bool *no_javascript_access) override {
+    sleep_.Invalidate();
     const auto destination=target_url.empty() ? "about:blank" : target_url.ToString();
     if (!AllowedUrl(destination,true)) { Notice("This popup address is not available in the browser"); return true; }
     // Real Chromium popup windows preserve opener/postMessage and form POST for
@@ -353,6 +382,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   }
   void OnAddressChange(CefRefPtr<CefBrowser> browser,CefRefPtr<CefFrame> frame,const CefString& url) override {
     if (Main(browser) && frame->IsMain()) {
+      sleep_.Invalidate();
       if (EditActive()) EditMode(false);
       context_id_=0; error_.clear(); State();
     }
@@ -394,6 +424,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     if (Main(browser)) { if (EditActive()) EditMode(false); context_id_=0; error_="The page process stopped. Reload this tab to continue."; State(); }
   }
   bool OnPreKeyEvent(CefRefPtr<CefBrowser> browser,const CefKeyEvent& event,CefEventHandle os_event,bool *shortcut) override {
+    if (Main(browser)) sleep_.Invalidate();
     if (Main(browser) && EditActive() && event.windows_key_code==27 &&
         (event.type==KEYEVENT_RAWKEYDOWN || event.type==KEYEVENT_KEYDOWN)) {
       EditMode(false); return true;
@@ -417,6 +448,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   bool CanDownload(CefRefPtr<CefBrowser>,const CefString& url,const CefString&) override { return AllowedUrl(url.ToString(),false,true); }
   bool OnBeforeDownload(CefRefPtr<CefBrowser> browser,CefRefPtr<CefDownloadItem> item,
       const CefString& suggested,CefRefPtr<CefBeforeDownloadCallback> callback) override {
+    sleep_.Invalidate();
     if (!AllowedUrl(item->GetURL().ToString(),false,true)) return true;
     const auto filename=Str(Ns(suggested.ToString()).lastPathComponent);
     const auto key=std::to_string(browser->GetIdentifier())+":"+std::to_string(item->GetId());
@@ -448,6 +480,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   }
   bool OnRequestMediaAccessPermission(CefRefPtr<CefBrowser> browser,CefRefPtr<CefFrame> frame,
       const CefString& origin,uint32_t permissions,CefRefPtr<CefMediaAccessCallback> callback) override {
+    media_access_seen_=true; sleep_.Invalidate();
     std::string resources;
     if (permissions & CEF_MEDIA_PERMISSION_DEVICE_AUDIO_CAPTURE) resources+="microphone ";
     if (permissions & CEF_MEDIA_PERMISSION_DEVICE_VIDEO_CAPTURE) resources+="camera ";
@@ -574,6 +607,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     });
   }
   void Layout() {
+    if (visible_) sleep_.Invalidate();
     if (!visible_) [drop_indicator_ clear];
     if (!browser_) return;
     NSView *view=(__bridge NSView*)browser_->GetHost()->GetWindowHandle();
@@ -612,6 +646,9 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     // NotifyMoveOrResizeStarted is only implemented for Windows and Linux.
   }
   void Close() {
+    // An explicit user close supersedes automatic sleep, with existing close
+    // semantics. The waiter must not mistake that close for a sleeping tab.
+    if (sleep_.active()) FinishSleep(sleep_.token(),{"explicit-close"});
     ++edit_generation_; editing_=false; edit_selection_pending_=false;
     [edit_annotation_ clear];
     closing_=true; visible_=false; Layout();
@@ -623,7 +660,8 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   // Objective-C blocks preserve C++ reference captures. Own this request ID so
   // dismissal can finish the correct waiter after the FFI call has returned.
   void Menu(std::string request,NSView *anchor_parent,Dict command) {
-    if (!browser_ || closing_ || !anchor_parent.window || actions_menu_) {
+    sleep_.Invalidate();
+    if (!browser_ || closing_ || sleep_.closing() || !anchor_parent.window || actions_menu_) {
       Result(id_,request,false,Error("Browser menu is unavailable")); return;
     }
     const double x=Number(command,"x"),y=Number(command,"y"),w=Number(command,"width"),h=Number(command,"height");
@@ -681,6 +719,11 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   void Command(const std::string& request,Dict cmd) {
     if (!browser_ || closing_) { Result(id_,request,false,Error("Browser is still opening or has closed")); return; }
     const auto action=Text(cmd,"action"); auto host=browser_->GetHost();
+    if (action=="sleep-probe" || action=="sleep") {
+      ProbeSleep(request,action=="sleep"); return;
+    }
+    sleep_.Invalidate();
+    if (sleep_.closing()) { Result(id_,request,false,Error("This page is going to sleep. Wait for it to reopen.")); return; }
     if (edit_annotation_.active && (action=="navigate" || action=="back" ||
         action=="forward" || action=="reload" || action=="dom" ||
         action=="scroll" || action=="press" || action=="devtools"))
@@ -713,6 +756,130 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     Result(id_,request,true,Object());
   }
 
+  std::vector<std::string> SleepBlockers() const {
+    std::vector<std::string> blockers;
+    if (!browser_ || closing_ || !browser_->IsValid() || !browser_->HasDocument()) blockers.push_back("unavailable");
+    if (visible_ || auto_resize_ || Focused()) blockers.push_back("visible");
+    if (browser_ && browser_->IsLoading()) blockers.push_back("loading");
+    if (!error_.empty()) blockers.push_back("page-error");
+    if (!popups_.empty()) blockers.push_back("popup");
+    if (!downloads_.empty() || !download_names_.empty()) blockers.push_back("download");
+    if (!prompts_.empty() || js_dialog_open_) blockers.push_back("dialog");
+    if (media_access_seen_) blockers.push_back("media-capture");
+    if (web_audio_seen_) blockers.push_back("web-audio");
+    if (browser_ && browser_->GetHost()->HasDevTools()) blockers.push_back("devtools");
+    if (EditActive()) blockers.push_back("editing");
+    if (screenshot_running_ || zoom_.pending() || !pending_.empty() || actions_menu_) blockers.push_back("browser-busy");
+    return blockers;
+  }
+  static Dict SleepResult(const std::vector<std::string>& blockers) {
+    auto result=Object(); result->SetBool("eligible",blockers.empty()); result->SetBool("slept",false);
+    auto list=CefListValue::Create(); list->SetSize(blockers.size());
+    for (size_t i=0;i<blockers.size();++i) list->SetString(i,blockers[i]);
+    result->SetList("blockers",list); return result;
+  }
+  void FinishSleep(uint64_t attempt,const std::vector<std::string>& blockers) {
+    if (!sleep_.Finish(attempt)) return;
+    const auto request=std::move(sleep_request_); sleep_request_.clear();
+    if (browser_ && !closing_) Dev("WebAudio.disable",Object(),[](bool,Dict) {});
+    if (!request.empty()) Result(id_,request,true,SleepResult(blockers));
+  }
+  bool PrepareReparent() {
+    sleep_.Invalidate(); return !sleep_.closing();
+  }
+  void CheckUnloadHandlers(uint64_t generation,Completion done) {
+    const auto group="aven-sleep-probe-"+std::to_string(generation);
+    auto params=Object(); params->SetString("expression","this");
+    params->SetString("objectGroup",group); params->SetInt("timeout",1000);
+    CefRefPtr<Page> self=this;
+    // The default/main world is required: DOMDebugger filters listeners to
+    // the object's context. An isolated-world window would miss page handlers.
+    Dev("Runtime.evaluate",params,[self,generation,group,done](bool ok,Dict response) {
+      auto remote=response ? response->GetDictionary("result") : nullptr;
+      const auto object=Text(remote,"objectId");
+      if (!self->sleep_.Current(generation)) {
+        auto release=Object(); release->SetString("objectGroup",group);
+        self->Dev("Runtime.releaseObjectGroup",release,[](bool,Dict) {});
+        done(false,Error("page-changed")); return;
+      }
+      if (!ok || !response || response->HasKey("exceptionDetails") || object.empty()) {
+        done(false,Error("unknown-page-state")); return;
+      }
+      auto params=Object(); params->SetString("objectId",object); params->SetInt("depth",1);
+      self->Dev("DOMDebugger.getEventListeners",params,[self,generation,group,done](bool ok,Dict result) {
+        std::string blocker;
+        auto listeners=result ? result->GetList("listeners") : nullptr;
+        if (!self->sleep_.Current(generation)) blocker="page-changed";
+        else if (!ok || !listeners || listeners->GetSize()>2000) blocker="unknown-page-state";
+        else for (size_t i=0;i<listeners->GetSize();++i) {
+          auto entry=listeners->GetDictionary(i);
+          const auto type=Text(entry,"type");
+          if (type.empty()) { blocker="unknown-page-state"; break; }
+          if (type=="beforeunload" || type=="unload") { blocker="before-unload"; break; }
+        }
+        auto release=Object(); release->SetString("objectGroup",group);
+        self->Dev("Runtime.releaseObjectGroup",release,[done,blocker](bool released,Dict) {
+          done(released && blocker.empty(),Error(blocker.empty()?"unknown-page-state":blocker));
+        });
+      });
+    });
+  }
+  void ProbeSleep(const std::string& request,bool close) {
+    if (sleep_.active()) { Result(id_,request,true,SleepResult({"browser-busy"})); return; }
+    auto blockers=SleepBlockers();
+    if (!blockers.empty()) { Result(id_,request,true,SleepResult(blockers)); return; }
+    const auto generation=sleep_.Begin(); sleep_request_=request;
+    CefRefPtr<Page> self=this;
+    // A hung renderer must not pin an agent wake behind a chain of protocol
+    // timeouts. Only eligibility has a deadline: a close already submitted to
+    // CEF must retain its grant reservation until confirmed close or veto.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,3*NSEC_PER_SEC),dispatch_get_main_queue(),^{
+      if (self->sleep_.CanExpire(generation)) self->FinishSleep(generation,{"probe-timeout"});
+    });
+    // Chromium 152 AudioGraphTracer::SetInspectorAgent replays existing audio
+    // contexts when enabled. This covers WebAudio without intercepting or
+    // silencing audio output via CefAudioHandler. Disable after a veto/probe.
+    Dev("WebAudio.enable",Object(),[self,generation,close](bool ok,Dict) {
+      if (!self->sleep_.Current(generation)) { self->FinishSleep(generation,{"page-changed"}); return; }
+      if (!ok) { self->FinishSleep(generation,{"unknown-media-state"}); return; }
+      self->CheckUnloadHandlers(generation,[self,generation,close](bool ok,Dict result) {
+        if (!self->sleep_.Current(generation)) { self->FinishSleep(generation,{"page-changed"}); return; }
+        if (!ok) { self->FinishSleep(generation,{Text(result,"error")}); return; }
+        self->ProbeSleepDocument(generation,close);
+      });
+    });
+  }
+  void ProbeSleepDocument(uint64_t generation,bool close) {
+    CefRefPtr<Page> self=this;
+    EnsureWorld([self,generation,close](bool ok,Dict) {
+      if (!self->sleep_.Current(generation)) { self->FinishSleep(generation,{"page-changed"}); return; }
+      if (!ok) { self->FinishSleep(generation,{"unknown-page-state"}); return; }
+      auto params=Object(); params->SetString("expression",kBrowserSleepProbe);
+      params->SetInt("contextId",self->context_id_); params->SetBool("returnByValue",true);
+      params->SetBool("awaitPromise",false); params->SetInt("timeout",1000);
+      // No userGesture: a read-only eligibility probe must not activate a page.
+      self->Dev("Runtime.evaluate",params,[self,generation,close](bool ok,Dict response) {
+        if (!self->sleep_.Current(generation)) { self->FinishSleep(generation,{"page-changed"}); return; }
+        auto remote=response ? response->GetDictionary("result") : nullptr;
+        auto value=remote ? remote->GetDictionary("value") : nullptr;
+        auto list=value ? value->GetList("blockers") : nullptr;
+        if (!ok || !response || response->HasKey("exceptionDetails") || !list || list->GetSize()>32) {
+          self->FinishSleep(generation,{"unknown-page-state"}); return;
+        }
+        auto blockers=self->SleepBlockers();
+        for (size_t i=0;i<list->GetSize();++i) {
+          if (list->GetType(i)!=VTYPE_STRING) { blockers.push_back("unknown-page-state"); break; }
+          blockers.push_back(list->GetString(i).ToString());
+        }
+        if (!blockers.empty() || !close) { self->FinishSleep(generation,blockers); return; }
+        if (!self->sleep_.BeginClose(generation)) { self->FinishSleep(generation,{"page-changed"}); return; }
+        // Success is reported only from OnBeforeClose. Do not use Close(),
+        // which intentionally force-closes a user-dismissed browser tab.
+        self->browser_->GetHost()->CloseBrowser(false);
+      });
+    });
+  }
+
   void OnDevToolsMethodResult(CefRefPtr<CefBrowser>,int message_id,bool success,const void* raw,size_t size) override {
     auto found=pending_.find(message_id); if (found==pending_.end()) return;
     auto callback=std::move(found->second); pending_.erase(found);
@@ -723,6 +890,9 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     callback(success,result);
   }
   void OnDevToolsEvent(CefRefPtr<CefBrowser>,const CefString& method,const void* raw,size_t size) override {
+    if (method=="WebAudio.contextCreated" || method=="WebAudio.contextChanged") {
+      web_audio_seen_=true; sleep_.Invalidate();
+    }
     if (method=="Overlay.inspectModeCanceled" && editing_) EditMode(false);
     if (method=="Overlay.inspectNodeRequested" && editing_ && size<4096) {
       auto value=Parse(std::string((const char*)raw,size));
@@ -1105,6 +1275,9 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   supermono::BrowserCornerMaskState corner_mask_;
   std::vector<Completion> zoom_waiters_;
   bool closing_=false;
+  supermono::BrowserSleepState sleep_;
+  std::string sleep_request_;
+  bool media_access_seen_=false,web_audio_seen_=false,js_dialog_open_=false;
   bool editing_=false;
   bool edit_selection_pending_=false;
   bool screenshot_running_=false;
@@ -1217,6 +1390,7 @@ extern "C" int sm_chromium_layout(const char *id,double x,double y,double w,doub
 extern "C" int sm_chromium_reparent(const char *id,void *parent,double x,double y,double w,double h,double inset) {
   @autoreleasepool { if (!MainThread()) return 0; auto page=FindPage(id); if (!page) return 0;
     if (!parent || !Geometry(x,y,w,h) || !std::isfinite(inset)) return Fail("Invalid browser parent or bounds");
+    if (!page->PrepareReparent()) return Fail("This page is going to sleep. Wait for it to reopen.");
     [page->drop_indicator_ clear];
     if (page->EditActive()) page->EditMode(false);
     page->parent_=(__bridge NSView*)parent; page->x_=x; page->y_=y; page->w_=w; page->h_=h; page->clip_left_=page->clip_right_=page->viewport_height_=page->bottom_corner_radius_=0; page->auto_resize_=inset>=0; page->Layout(); return 1; }

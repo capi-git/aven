@@ -120,6 +120,12 @@ const SETTINGS_SEARCH_ENTRIES: readonly SearchEntry[] = [
   ),
   setting(
     "general",
+    "Memory saver",
+    "Keep your three most recent browser tabs ready. Older inactive tabs can sleep after five minutes and reload when reopened. Pages in use stay awake.",
+    "ram memory performance browser sleeping suspend inactive tabs resources",
+  ),
+  setting(
+    "general",
     "Sounds",
     "Control sound cues for tasks and workspace actions.",
     "audio mute volume",

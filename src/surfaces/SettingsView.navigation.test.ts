@@ -6,6 +6,9 @@ import { SettingsView } from "./SettingsView";
 import {
   loadFollowUpBehavior,
   loadNotesEnabled,
+  loadBrowserMemorySaver,
+  saveBrowserMemorySaver,
+  subscribeBrowserMemorySaver,
   type SettingsSectionId,
 } from "../lib/settings";
 import {
@@ -327,6 +330,7 @@ describe("settings navigation", () => {
     await mount();
     for (const [label, category, id] of [
       ["Version", "General", "setting-version"],
+      ["Memory saver", "General", "setting-memory-saver"],
       ["Linear API key", "General", "setting-linear-api-key"],
       ["Workspace palette", "Appearance", "setting-workspace-palette"],
       ["Workspace colors", "Appearance", "setting-workspace-colors"],
@@ -496,5 +500,42 @@ describe("settings navigation", () => {
         )
         ?.getAttribute("aria-checked"),
     ).toBe("true");
+  });
+
+  it("explains memory saver, retains the opt-out, and reflects changes from another window", async () => {
+    await mount();
+    const toggle = () => container.querySelector<HTMLButtonElement>(
+      '[role="switch"][aria-label="Memory saver"]',
+    )!;
+    expect(toggle().getAttribute("aria-checked")).toBe("true");
+    expect(container.querySelector("#setting-memory-saver")?.textContent).toContain(
+      "Keep your three most recent browser tabs ready. Older inactive tabs can sleep after five minutes and reload when reopened. Pages in use stay awake.",
+    );
+    await click(toggle());
+    expect(loadBrowserMemorySaver()).toBe(false);
+    await section("Appearance");
+    await section("General");
+    expect(toggle().getAttribute("aria-checked")).toBe("false");
+    await act(async () => saveBrowserMemorySaver(true));
+    expect(toggle().getAttribute("aria-checked")).toBe("true");
+    localStorage.setItem("aven.browserMemorySaver", "0");
+    await act(async () => window.dispatchEvent(new StorageEvent("storage", {
+      key: "aven.browserMemorySaver", newValue: "0",
+    })));
+    expect(toggle().getAttribute("aria-checked")).toBe("false");
+
+    const listener = vi.fn();
+    const unsubscribe = subscribeBrowserMemorySaver(listener);
+    window.dispatchEvent(new StorageEvent("storage", { key: "unrelated" }));
+    expect(listener).not.toHaveBeenCalled();
+    await act(async () => {
+      localStorage.removeItem("aven.browserMemorySaver");
+      window.dispatchEvent(new StorageEvent("storage", { key: null }));
+    });
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(toggle().getAttribute("aria-checked")).toBe("true");
+    unsubscribe();
+    await act(async () => saveBrowserMemorySaver(false));
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 });

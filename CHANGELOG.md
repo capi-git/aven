@@ -1,5 +1,14 @@
 # Aven changelog
 
+## [0.1.94] - 2026-09-23
+
+### Balanced browser memory saver
+
+- Keep the three most recently used browser tabs in each window ready for fast switching. Older hidden tabs can release their native page after five inactive minutes and reload their last URL when reopened.
+- Keep pages awake when they have agent access, forms or editors, media, downloads, popups, detached windows, or other state that cannot safely be restored. A failed eligibility check leaves the page intact; automatic sleeping never accepts an unsaved-work prompt.
+- Restore a task's sleeping browser pages before connecting its agent. Preserve tab names, addresses, and workspace layout while pages sleep.
+- Enable Memory saver by default, with an opt-out in Settings → General → Browser.
+
 ## [0.1.93] - 2026-09-23
 
 ### Less work in inactive workspaces

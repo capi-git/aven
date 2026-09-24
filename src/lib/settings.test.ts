@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   COMPOSER_RUNNER_DEFAULT,
+  BROWSER_MEMORY_SAVER_DEFAULT,
   DIFF_VIEWER_DEFAULT,
   FOLLOW_UP_BEHAVIOR_DEFAULT,
   filterKeybindings,
@@ -14,6 +15,7 @@ import {
   loadGridArcadeEnabled,
   loadLiveAgentsEnabled,
   loadNotesEnabled,
+  loadBrowserMemorySaver,
   NOTES_ENABLED_DEFAULT,
   saveComposerRunner,
   saveDiffViewer,
@@ -21,6 +23,7 @@ import {
   saveGridArcadeEnabled,
   saveLiveAgentsEnabled,
   saveNotesEnabled,
+  saveBrowserMemorySaver,
 } from "./settings";
 
 const KEY = "monocode.composerRunner";
@@ -29,6 +32,32 @@ const LIVE_AGENTS_KEY = "monocode.liveAgentsEnabled";
 const GRID_ARCADE_KEY = "monocode.gridArcadeEnabled";
 const DIFF_VIEWER_KEY = "monocode.diffViewer";
 const FOLLOW_UP_BEHAVIOR_KEY = "monocode.followUpBehavior";
+const BROWSER_MEMORY_SAVER_KEY = "aven.browserMemorySaver";
+
+describe("browser memory saver setting", () => {
+  beforeEach(mockLocalStorage);
+
+  it("defaults to enabled for existing and new installations", () => {
+    expect(BROWSER_MEMORY_SAVER_DEFAULT).toBe(true);
+    expect(loadBrowserMemorySaver()).toBe(true);
+  });
+
+  it("retains an explicit opt-out and allows re-enabling it", () => {
+    saveBrowserMemorySaver(false);
+    expect(localStorage.getItem(BROWSER_MEMORY_SAVER_KEY)).toBe("0");
+    expect(loadBrowserMemorySaver()).toBe(false);
+    saveBrowserMemorySaver(true);
+    expect(localStorage.getItem(BROWSER_MEMORY_SAVER_KEY)).toBe("1");
+    expect(loadBrowserMemorySaver()).toBe(true);
+  });
+
+  it.each([
+    ["false", false], ["true", true], ["invalid", true], ["", true],
+  ])("reads %s without silently disabling the default", (stored, expected) => {
+    localStorage.setItem(BROWSER_MEMORY_SAVER_KEY, stored);
+    expect(loadBrowserMemorySaver()).toBe(expected);
+  });
+});
 
 describe("follow-up behavior setting", () => {
   beforeEach(mockLocalStorage);

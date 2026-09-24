@@ -136,6 +136,14 @@ export type BrowserState = {
   nativeDropIndicator?: boolean;
   /** The native page was destroyed; Retry must allocate a fresh page. */
   closed?: boolean;
+  /** An intentional memory-saver close; the tab can recreate its page on return. */
+  sleeping?: boolean;
+};
+
+export type BrowserSleepResult = {
+  eligible: boolean;
+  blockers: string[];
+  slept: boolean;
 };
 
 export type BrowserDropIndicator = {
@@ -328,6 +336,7 @@ export const nativeBrowser = {
     invoke<void>("browser_layout", { id, bounds, visible }),
   snapshot: (id: string) => invoke<string>("browser_snapshot", { id }),
   close: (id: string) => invoke<void>("browser_close", { id }),
+  sleep: (id: string) => invoke<BrowserSleepResult>("browser_sleep", { id }),
   setFloating: (id: string, floating: boolean) =>
     invoke<string | null>("browser_set_floating", { id, floating }),
   showFloating: (id: string) => invoke<void>("browser_show_floating", { id }),

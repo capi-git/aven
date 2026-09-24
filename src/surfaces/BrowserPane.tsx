@@ -3,7 +3,13 @@ import {
   isDetachedWorkspace,
 } from "../lib/workspaceTransfers";
 import { browserFavicon } from "../lib/browserIcons";
-import { registerAgentBrowserPage } from "../lib/agentBrowser";
+import {
+  registerAgentBrowserPage,
+  registerAgentBrowserWake,
+  isAgentBrowserPageProtected,
+} from "../lib/agentBrowser";
+import { registerBrowserMemoryPage } from "../lib/browserMemory";
+import { loadBrowserMemorySaver } from "../lib/settings";
 import {
   useCallback,
   useEffect,
@@ -329,6 +335,11 @@ function BrowserPaneSession({
   const [nativeDropIndicator, setNativeDropIndicator] = useState(false);
   const [snapshot, setSnapshot] = useState<BrowserSnapshot | null>(null);
   const [readyId, setReadyId] = useState<string | null>(null);
+  const [sleeping, setSleeping] = useState(false);
+  const sleepOperation = useRef<Promise<boolean> | null>(null);
+  const wakeRequested = useRef(false);
+  const mounted = useRef(true);
+  const retireForSleep = useRef<(nativeId: string) => void>(() => {});
   const [pendingToolbar, setPendingToolbar] = useState<{
     action: "find" | "address";
   } | null>(null);
@@ -346,6 +357,7 @@ function BrowserPaneSession({
   const previousSnapshotZoom = useRef(zoomFactor);
   const refreshZoomSnapshot = useRef<(refresh: boolean) => void>(() => {});
   const nativePageId = useRef<string | null>(null);
+  const nativeGeneration = useRef(0);
   const retiredNativeId = useRef<string | null>(null);
   useBrowserDropIndicator(
     host,
@@ -608,6 +620,97 @@ function BrowserPaneSession({
   const scheduleLayout = useRef<() => void>(() => {});
   const hasUrl = !!url;
   const focusNewAddress = useRef(!hasUrl);
+  const sleepProtection =
+    floating ||
+    loading ||
+    !!error ||
+    editing ||
+    !!attachedNativeId ||
+    isDetachedWorkspace() ||
+    !!toolsMenu ||
+    findOpen ||
+    address !== url ||
+    (pictureInPictureRequest > 0 &&
+      pictureInPictureRequest !== requestedPictureInPicture.current);
+  const memoryState = useRef({ visible, protected: sleepProtection });
+  memoryState.current = { visible, protected: sleepProtection };
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const wakePage = useCallback(async () => {
+    wakeRequested.current = true;
+    await sleepOperation.current?.catch(() => false);
+    if (mounted.current) setSleeping(false);
+  }, []);
+  useEffect(
+    () => (hasUrl && !error ? registerAgentBrowserWake(id, wakePage) : undefined),
+    [id, hasUrl, error, wakePage],
+  );
+  useEffect(() => {
+    if (visible || pictureInPictureRequest || attachedNativeId) void wakePage();
+  }, [visible, pictureInPictureRequest, attachedNativeId, wakePage]);
+  const memoryRegistration = useRef<ReturnType<
+    typeof registerBrowserMemoryPage
+  > | null>(null);
+  useEffect(() => {
+    if (!readyId) return;
+    const registration = registerBrowserMemoryPage(id, {
+      ...memoryState.current,
+      sleep: async () => {
+        if (
+          !mounted.current ||
+          !loadBrowserMemorySaver() ||
+          memoryState.current.visible ||
+          memoryState.current.protected ||
+          isAgentBrowserPageProtected(id) ||
+          nativePageId.current !== readyId ||
+          browserIsTransferred(readyId) ||
+          pendingNavigation.current ||
+          sleepOperation.current
+        )
+          return false;
+        const generation = nativeGeneration.current;
+        wakeRequested.current = false;
+        const operation = (async () => {
+          // This native operation rechecks safety and uses a non-forced close.
+          // Never substitute the normal tab-close path for a failed probe.
+          const result = await nativeBrowser.sleep(readyId);
+          if (!result.slept || !mounted.current) return false;
+          // A transfer/retry can install a new native page while this close
+          // settles. The old completion has no authority over that page.
+          if (nativeGeneration.current !== generation) return true;
+          retireForSleep.current(readyId);
+          const reopen =
+            wakeRequested.current ||
+            memoryState.current.visible ||
+            !loadBrowserMemorySaver();
+          setSleeping(!reopen);
+          // Also restart when hide/show was batched while native close completed.
+          setRetryGeneration((generation) => generation + 1);
+          return true;
+        })().catch(() => false);
+        sleepOperation.current = operation;
+        try {
+          return await operation;
+        } finally {
+          if (sleepOperation.current === operation)
+            sleepOperation.current = null;
+        }
+      },
+    });
+    memoryRegistration.current = registration;
+    return () => {
+      registration.dispose();
+      if (memoryRegistration.current === registration)
+        memoryRegistration.current = null;
+    };
+  }, [id, readyId]);
+  useEffect(() => {
+    memoryRegistration.current?.update(memoryState.current);
+  }, [visible, sleepProtection, readyId]);
 
   const performNavigation = async (
     nativeId: string,
@@ -677,7 +780,8 @@ function BrowserPaneSession({
   }, [visible]);
 
   useEffect(() => {
-    if (!hasUrl || !isTauri()) return;
+    if (!hasUrl || !isTauri() || sleeping) return;
+    ++nativeGeneration.current;
     // An effect generation owns its own id: React StrictMode cleanup cannot
     // destroy a view created by the subsequent effect generation.
     const nativeId = requestedAttachmentId ?? crypto.randomUUID();
@@ -690,6 +794,24 @@ function BrowserPaneSession({
     let nativeTitle = "";
     let nativeFavicon = "";
     let nativeFloating = false;
+    const retireSleepingPage = (pageId: string) => {
+      if (disposed || pageId !== nativeId) return;
+      terminated = true;
+      retiredNativeId.current = nativeId;
+      if (nativePageId.current === nativeId) nativePageId.current = null;
+      unregisterAgentPage?.();
+      unregisterAgentPage = undefined;
+      setReadyId(null);
+      setLoading(false);
+      setLoadProgress(null);
+      setSnapshot(null);
+      setNativeMenus(false);
+      setNativeDropIndicator(false);
+      setError(null);
+      setNotice(null);
+      setSleeping(true);
+    };
+    retireForSleep.current = retireSleepingPage;
     nativePageId.current = null;
     setReadyId(null);
     setNativeMenus(false);
@@ -698,6 +820,10 @@ function BrowserPaneSession({
     setNotice(null);
     const receive = (state: BrowserState) => {
       if (disposed || terminated || state.id !== nativeId) return;
+      if (state.closed && state.sleeping) {
+        retireSleepingPage(nativeId);
+        return;
+      }
       if (state.closed) {
         terminated = true;
         retiredNativeId.current = nativeId;
@@ -854,13 +980,15 @@ function BrowserPaneSession({
     });
     return () => {
       disposed = true;
+      if (retireForSleep.current === retireSleepingPage)
+        retireForSleep.current = () => {};
       if (nativePageId.current === nativeId) nativePageId.current = null;
       if (!browserIsTransferred(nativeId)) unregisterAgentPage?.();
       unlisten?.();
       if (created && !terminated && !browserIsTransferred(nativeId))
         void nativeBrowser.close(nativeId).catch(() => {});
     };
-  }, [hasUrl, id, retryGeneration, requestedAttachmentId]);
+  }, [hasUrl, id, retryGeneration, requestedAttachmentId, sleeping]);
 
   useEffect(() => {
     if (!readyId || !host.current) return;
@@ -2117,7 +2245,15 @@ function BrowserPaneSession({
             draggable={false}
           />
         ) : null}
-        {floating ? (
+        {sleeping ? (
+          <div className="browser-empty" role="status">
+            <strong>{visible ? "Restoring tab…" : "Tab sleeping"}</strong>
+            <p>
+              Memory saver released this inactive page. It reloads when
+              reopened.
+            </p>
+          </div>
+        ) : floating ? (
           <div
             className="browser-empty browser-floating-placeholder"
             role="status"

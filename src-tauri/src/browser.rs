@@ -1186,6 +1186,25 @@ pub async fn browser_close(caller: Webview, id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn browser_sleep_probe(
+    caller: Webview,
+    id: String,
+) -> Result<crate::browser_sleep::BrowserSleepReport, String> {
+    preview(&caller, &id)?;
+    Ok(crate::browser_sleep::BrowserSleepReport::blocked(
+        "unsupported-engine",
+    ))
+}
+
+#[tauri::command]
+pub async fn browser_sleep(
+    caller: Webview,
+    id: String,
+) -> Result<crate::browser_sleep::BrowserSleepReport, String> {
+    browser_sleep_probe(caller, id).await
+}
+
+#[tauri::command]
 pub async fn browser_find(
     caller: Webview,
     id: String,

@@ -52,6 +52,145 @@ struct Server {
 
 static SERVER: OnceLock<Result<Arc<Server>, String>> = OnceLock::new();
 
+#[derive(Default)]
+struct SleepReservations {
+    pages: HashSet<(String, String)>,
+    requests: HashMap<(String, String), usize>,
+}
+static SLEEP_RESERVATIONS: OnceLock<Mutex<SleepReservations>> = OnceLock::new();
+
+fn sleep_reservations() -> &'static Mutex<SleepReservations> {
+    SLEEP_RESERVATIONS.get_or_init(|| Mutex::new(SleepReservations::default()))
+}
+
+#[cfg(any(test, all(feature = "chromium", target_os = "macos")))]
+fn grant_contains_page(grants: &HashMap<String, Grant>, owner: &str, id: &str) -> bool {
+    grants
+        .values()
+        .any(|grant| grant.owner == owner && grant.ids.iter().any(|page| page == id))
+}
+
+#[cfg(any(test, all(feature = "chromium", target_os = "macos")))]
+pub(crate) fn has_browser_grant(owner: &str, id: &str) -> Result<bool, String> {
+    let Some(Ok(server)) = SERVER.get() else {
+        return Ok(false);
+    };
+    let grants = server
+        .grants
+        .lock()
+        .map_err(|_| "Browser access is unavailable")?;
+    Ok(grant_contains_page(&grants, owner, id))
+}
+
+/// Hold through native eligibility/probe/close, so no agent can acquire this
+/// page between the sleep decision and its renderer actually closing.
+#[cfg(any(test, all(feature = "chromium", target_os = "macos")))]
+pub(crate) struct BrowserSleepReservation {
+    owner: String,
+    id: String,
+}
+
+#[cfg(any(test, all(feature = "chromium", target_os = "macos")))]
+impl Drop for BrowserSleepReservation {
+    fn drop(&mut self) {
+        sleep_reservations()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .pages
+            .remove(&(self.owner.clone(), self.id.clone()));
+    }
+}
+
+#[cfg(any(test, all(feature = "chromium", target_os = "macos")))]
+pub(crate) fn reserve_browser_sleep(
+    owner: &str,
+    id: &str,
+) -> Result<BrowserSleepReservation, String> {
+    // The shared order is reservations -> grants. Binding holds the same
+    // reservation lock until grant insertion completes, making both decisions
+    // atomic without keeping either mutex locked during native work.
+    let mut reservations = sleep_reservations()
+        .lock()
+        .map_err(|_| "Browser sleep is unavailable")?;
+    let key = (owner.to_owned(), id.to_owned());
+    if reservations.pages.contains(&key) {
+        return Err("This browser page is already going to sleep".into());
+    }
+    if reservations.requests.contains_key(&key) {
+        return Err("An agent is still using this browser page".into());
+    }
+    if has_browser_grant(owner, id)? {
+        return Err("An agent still has access to this browser page".into());
+    }
+    reservations.pages.insert(key);
+    Ok(BrowserSleepReservation {
+        owner: owner.into(),
+        id: id.into(),
+    })
+}
+
+fn check_sleep_reservations(
+    reservations: &SleepReservations,
+    owner: &str,
+    ids: &[String],
+) -> Result<(), String> {
+    if ids
+        .iter()
+        .any(|id| reservations.pages.contains(&(owner.to_owned(), id.clone())))
+    {
+        return Err("A browser page is going to sleep; wake it before connecting the agent".into());
+    }
+    Ok(())
+}
+
+/// Revoking a provider grant prevents new requests, but must not permit sleep
+/// while a request already authorized by that grant is waiting to dispatch.
+struct BrowserRequestLease {
+    pages: Vec<(String, String)>,
+}
+
+impl BrowserRequestLease {
+    fn acquire(
+        reservations: &mut SleepReservations,
+        grant: &Grant,
+        request: &Request,
+    ) -> Result<Self, String> {
+        let ids = match request.id() {
+            Some(id) => vec![id.to_owned()],
+            None if matches!(request, Request::List {}) => grant.ids.clone(),
+            None => Vec::new(),
+        };
+        check_sleep_reservations(reservations, &grant.owner, &ids)?;
+        let pages: Vec<_> = ids
+            .into_iter()
+            .map(|id| (grant.owner.clone(), id))
+            .collect();
+        for key in &pages {
+            *reservations.requests.entry(key.clone()).or_default() += 1;
+        }
+        Ok(Self { pages })
+    }
+}
+
+impl Drop for BrowserRequestLease {
+    fn drop(&mut self) {
+        if self.pages.is_empty() {
+            return;
+        }
+        let mut reservations = sleep_reservations()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        for key in &self.pages {
+            if let Some(count) = reservations.requests.get_mut(key) {
+                *count -= 1;
+                if *count == 0 {
+                    reservations.requests.remove(key);
+                }
+            }
+        }
+    }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserAgentBinding {
@@ -288,6 +427,10 @@ pub fn browser_agent_bind(
         .map_err(|error| error.to_string())?
         .to_string_lossy()
         .into_owned();
+    let reservations = sleep_reservations()
+        .lock()
+        .map_err(|_| "Browser sleep is unavailable")?;
+    check_sleep_reservations(&reservations, caller.label(), &browser_ids)?;
     let mut grants = server
         .grants
         .lock()
@@ -646,12 +789,19 @@ fn serve_connection(
 }
 
 fn execute(server: &Arc<Server>, envelope: Envelope) -> Result<Value, String> {
-    let grant = {
+    let (grant, _request_lease) = {
+        // Same lock order as bind/sleep. A revoked grant cannot leave a gap
+        // between successful authorization and protecting the active request.
+        let mut reservations = sleep_reservations()
+            .lock()
+            .map_err(|_| "Browser access is unavailable")?;
         let grants = server
             .grants
             .lock()
             .map_err(|_| "Browser access is unavailable")?;
-        authorize(&grants, &envelope.token, &envelope.request)?
+        let grant = authorize(&grants, &envelope.token, &envelope.request)?;
+        let lease = BrowserRequestLease::acquire(&mut reservations, &grant, &envelope.request)?;
+        (grant, lease)
     };
     let caller = server
         .app
@@ -1210,6 +1360,90 @@ mod tests {
         assert!(authorize(&grants, "secret", &Request::Snapshot { id: "tab-a".into() }).is_err());
         assert!(authorize(&grants, "secret", &Request::Snapshot { id: "tab-b".into() }).is_ok());
     }
+
+    #[test]
+    fn every_live_grant_protects_its_exact_window_and_page_from_sleep() {
+        let mut grants = grants();
+        assert!(grant_contains_page(&grants, "main", "tab-a"));
+        assert!(!grant_contains_page(&grants, "other-window", "tab-a"));
+        assert!(!grant_contains_page(&grants, "main", "tab-b"));
+        grants.insert(
+            "another-session-token".into(),
+            Grant {
+                owner: "main".into(),
+                session_id: "session-b".into(),
+                ids: vec!["tab-a".into()],
+            },
+        );
+        grants.remove("secret");
+        assert!(grant_contains_page(&grants, "main", "tab-a"));
+        grants.clear();
+        assert!(!grant_contains_page(&grants, "main", "tab-a"));
+    }
+
+    #[test]
+    fn a_pending_sleep_blocks_new_page_grants_until_the_reservation_is_released() {
+        let owner = format!("sleep-test-{}", uuid::Uuid::new_v4());
+        let id = "sleeping-tab";
+        let reservation = reserve_browser_sleep(&owner, id).unwrap();
+        assert!(reserve_browser_sleep(&owner, id).is_err());
+        {
+            let reservations = sleep_reservations().lock().unwrap();
+            assert!(check_sleep_reservations(&reservations, &owner, &[id.into()]).is_err());
+            assert!(check_sleep_reservations(&reservations, "other-window", &[id.into()]).is_ok());
+            assert!(check_sleep_reservations(&reservations, &owner, &["awake-tab".into()]).is_ok());
+            assert!(check_sleep_reservations(&reservations, &owner, &[]).is_ok());
+        }
+        drop(reservation);
+        let reservations = sleep_reservations().lock().unwrap();
+        assert!(check_sleep_reservations(&reservations, &owner, &[id.into()]).is_ok());
+    }
+
+    #[test]
+    fn authorized_requests_keep_pages_awake_after_their_grant_is_revoked() {
+        let owner = format!("request-test-{}", uuid::Uuid::new_v4());
+        let mut grants = grants();
+        grants.get_mut("secret").unwrap().owner = owner.clone();
+        let request = Request::Snapshot { id: "tab-a".into() };
+        let (first, second) = {
+            let mut reservations = sleep_reservations().lock().unwrap();
+            let grant = authorize(&grants, "secret", &request).unwrap();
+            (
+                BrowserRequestLease::acquire(&mut reservations, &grant, &request).unwrap(),
+                BrowserRequestLease::acquire(&mut reservations, &grant, &request).unwrap(),
+            )
+        };
+        grants.clear();
+        assert!(authorize(&grants, "secret", &request).is_err());
+        assert!(reserve_browser_sleep(&owner, "tab-a").is_err());
+        drop(first);
+        assert!(reserve_browser_sleep(&owner, "tab-a").is_err());
+        drop(second);
+        assert!(reserve_browser_sleep(&owner, "tab-a").is_ok());
+    }
+
+    #[test]
+    fn a_request_cannot_dispatch_into_a_page_already_reserved_for_sleep() {
+        let owner = format!("request-after-sleep-test-{}", uuid::Uuid::new_v4());
+        let reservation = reserve_browser_sleep(&owner, "tab-a").unwrap();
+        let grant = Grant {
+            owner: owner.clone(),
+            session_id: "session".into(),
+            ids: vec!["tab-a".into()],
+        };
+        let result = {
+            let mut reservations = sleep_reservations().lock().unwrap();
+            BrowserRequestLease::acquire(
+                &mut reservations,
+                &grant,
+                &Request::Snapshot { id: "tab-a".into() },
+            )
+        };
+        assert!(result.is_err());
+        drop(reservation);
+        assert!(reserve_browser_sleep(&owner, "tab-a").is_ok());
+    }
+
     #[test]
     fn attaches_only_session_children_and_skips_internal_probe_namespaces() {
         for session_id in [

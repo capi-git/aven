@@ -17,6 +17,9 @@ describe("settings search", () => {
   it.each([
     ["permissions", "Default task access", "general"],
     ["queued", "Follow-up behavior", "general"],
+    ["memory", "Memory saver", "general"],
+    ["ram", "Memory saver", "general"],
+    ["sleeping tabs", "Memory saver", "general"],
     ["do not disturb", "Quiet mode", "general"],
     ["wallpaper", "Chat background", "appearance"],
     ["text size", "Interface scale", "appearance"],

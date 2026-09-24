@@ -159,6 +159,8 @@ import {
   filterKeybindings,
   formatKeybindingContext,
   KEYBINDINGS,
+  BROWSER_MEMORY_SAVER_DEFAULT,
+  loadBrowserMemorySaver,
   loadClaudeHooks,
   loadComposerRunner,
   loadDiffViewer,
@@ -173,6 +175,8 @@ import {
   saveGridArcadeEnabled,
   saveLiveAgentsEnabled,
   saveNotesEnabled,
+  saveBrowserMemorySaver,
+  subscribeBrowserMemorySaver,
   settingsSectionDescription,
   settingsSectionLabel,
   type DiffViewer,
@@ -537,6 +541,11 @@ function GeneralPage({
     loadGridArcadeEnabled,
   );
   const [notesEnabled, setNotesEnabled] = useState(loadNotesEnabled);
+  const browserMemorySaver = useSyncExternalStore(
+    subscribeBrowserMemorySaver,
+    loadBrowserMemorySaver,
+    () => BROWSER_MEMORY_SAVER_DEFAULT,
+  );
   const [liveAgentsEnabled, setLiveAgentsEnabled] = useState(
     loadLiveAgentsEnabled,
   );
@@ -768,6 +777,22 @@ function GeneralPage({
             label="Empty session games"
             on={gridArcadeEnabled}
             onChange={onGridArcadeEnabled}
+          />
+        </Row>
+      </SettingsGroup>
+      <SettingsGroup
+        title="Browser"
+        description="Keep browser tabs ready while managing memory."
+        scope="Device"
+      >
+        <Row
+          label="Memory saver"
+          description="Keep your three most recent browser tabs ready. Older inactive tabs can sleep after five minutes and reload when reopened. Pages in use stay awake."
+        >
+          <Toggle
+            label="Memory saver"
+            on={browserMemorySaver}
+            onChange={saveBrowserMemorySaver}
           />
         </Row>
       </SettingsGroup>
