@@ -135,6 +135,10 @@ export function loadProjectFiles(
   const promise = listProjectFiles(cwd)
     .then((files) => {
       if (id !== epoch) return files;
+      // An unchanged rescan keeps the same list, so everything derived from
+      // it (the `@` index, ranking caches) is reused instead of rebuilt.
+      if (cache?.cwd === cwd && sameFiles(cache.files, files))
+        return cache.files;
       cache = { cwd, files };
       notifyProjectFilesChanged();
       return files;
@@ -144,6 +148,22 @@ export function loadProjectFiles(
     });
   inflight = { cwd, promise };
   return promise;
+}
+
+function sameFiles(a: ProjectFile[], b: ProjectFile[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]!;
+    const y = b[i]!;
+    if (
+      x.path !== y.path ||
+      x.relative !== y.relative ||
+      x.name !== y.name ||
+      Boolean(x.isDir) !== Boolean(y.isDir)
+    )
+      return false;
+  }
+  return true;
 }
 
 export type RankedFile = ProjectFile & FuzzyHit;
@@ -171,24 +191,45 @@ export function rankProjectFiles(
     return out;
   }
 
-  const scored: RankedFile[] = [];
+  // Keep only the best `limit`, in order. A short query matches most of a
+  // large project, and sorting all of it on every keystroke costs frames.
+  const best: RankedFile[] = [];
   for (const file of files) {
     const hit = scorePath(query, file.relative, file.name);
     if (!hit) continue;
     const recency = recentRank.get(file.path);
     const score =
       hit.score + (recency == null ? 0 : (MAX_RECENTS - recency) * 8);
-    scored.push({ ...file, score, positions: hit.positions });
-  }
-
-  scored.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
-    if (a.relative.length !== b.relative.length) {
-      return a.relative.length - b.relative.length;
+    const worst = best[best.length - 1];
+    if (
+      best.length >= limit &&
+      worst &&
+      compareRanked({ score, relative: file.relative }, worst) >= 0
+    )
+      continue;
+    const item = { ...file, score, positions: hit.positions };
+    let low = 0;
+    let high = best.length;
+    while (low < high) {
+      const mid = (low + high) >> 1;
+      if (compareRanked(best[mid]!, item) <= 0) low = mid + 1;
+      else high = mid;
     }
-    return a.relative.localeCompare(b.relative);
-  });
-  return scored.slice(0, limit);
+    best.splice(low, 0, item);
+    if (best.length > limit) best.pop();
+  }
+  return best;
+}
+
+function compareRanked(
+  a: { score: number; relative: string },
+  b: { score: number; relative: string },
+): number {
+  if (b.score !== a.score) return b.score - a.score;
+  if (a.relative.length !== b.relative.length) {
+    return a.relative.length - b.relative.length;
+  }
+  return a.relative.localeCompare(b.relative);
 }
 
 /** Resolve a transcript or markdown file link to an existing project file. */

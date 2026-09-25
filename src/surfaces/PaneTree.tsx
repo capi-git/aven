@@ -6,6 +6,7 @@ import {
   useState,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
+  type ComponentProps,
 } from "react";
 import { setGrabbing, suppressTextSelection } from "../lib/drag";
 import { paneDropFromPoint, useExternalPaneDrop } from "../lib/paneDrop";
@@ -71,6 +72,8 @@ type Shared = {
     attachments: Attachment[],
     options?: ComposerTurnOptions,
   ) => void;
+  /** Race a message across several agents; absent hides Race. */
+  onRace?: ComponentProps<typeof SessionPane>["onRace"];
   onStop: (sessionId: string) => void;
   onCompactContext: (sessionId: string) => boolean;
   onDeleteQueuedMessage: (sessionId: string, messageId: string) => void;
@@ -164,6 +167,7 @@ function PaneTreeComponent({
   onModelSettingsChange,
   onRuntimeModeChange,
   onSubmit,
+  onRace,
   onStop,
   onCompactContext,
   onDeleteQueuedMessage,
@@ -426,6 +430,7 @@ function PaneTreeComponent({
                 onModelSettingsChange={onModelSettingsChange}
                 onRuntimeModeChange={onRuntimeModeChange}
                 onSubmit={onSubmit}
+                onRace={onRace}
                 onStop={onStop}
                 onCompactContext={onCompactContext}
                 onDeleteQueuedMessage={onDeleteQueuedMessage}

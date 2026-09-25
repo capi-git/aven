@@ -901,9 +901,9 @@ export default function App({
     [],
   );
   const showAgentPageRef = useRef<(notice: AgentPageNotice) => void>(() => {});
-  const startRaceRef = useRef<(request: PaletteRaceRequest) => Promise<void>>(
-    async () => {},
-  );
+  const startRaceRef = useRef<
+    (request: PaletteRaceRequest) => Promise<boolean>
+  >(async () => false);
   const onRaceFromChat = useCallback(
     (
       sessionId: string,
@@ -912,12 +912,19 @@ export default function App({
       agents: PaletteAgent[],
     ) => {
       const session = sessionsRef.current.find((item) => item.id === sessionId);
-      if (!session) return;
-      void startRaceRef.current({
+      if (!session) return Promise.resolve(false);
+      // Lanes keep this chat's access; the first keeps its model settings too.
+      const own = agents[0];
+      return startRaceRef.current({
         text,
         agents,
         project: session.cwd,
         attachments,
+        runtimeMode: session.runtimeMode,
+        modelSettings:
+          own?.harness === session.harness && own.model === session.model
+            ? session.modelSettings
+            : undefined,
       });
     },
     [],
@@ -8630,14 +8637,14 @@ export default function App({
     onSubmit(session.id, request.text, []);
   };
 
-  const startRace = async (request: PaletteRaceRequest) => {
+  const startRace = async (request: PaletteRaceRequest): Promise<boolean> => {
     const raceId = crypto.randomUUID();
     let base: RaceBase;
     try {
       base = await raceHost.prepare(request.project);
     } catch (error) {
       void message(String(error), { title: "Can't start a race", kind: "error" });
-      return;
+      return false;
     }
     const created: { path: string; branch: string }[] = [];
     try {
@@ -8648,11 +8655,17 @@ export default function App({
     } catch (error) {
       void raceHost.cleanup(base.root, created).catch(() => {});
       void message(String(error), { title: "Can't start a race", kind: "error" });
-      return;
+      return false;
     }
-    const runtimeMode = loadDefaultRuntimeMode();
+    const runtimeMode = request.runtimeMode ?? loadDefaultRuntimeMode();
     const laneSessions: Session[] = request.agents.map((agent, index) => ({
-      ...newSession(agent.harness, request.project, agent.model, runtimeMode),
+      ...newSession(
+        agent.harness,
+        request.project,
+        agent.model,
+        runtimeMode,
+        index === 0 ? request.modelSettings : undefined,
+      ),
       worktreeCwd: created[index].path,
       title: `Race · ${agent.label}`,
     }));
@@ -8710,6 +8723,7 @@ export default function App({
     const prompt = racePrompt(request.text, laneSessions.length);
     for (const session of laneSessions)
       onSubmit(session.id, prompt, request.attachments ?? []);
+    return true;
   };
   startRaceRef.current = startRace;
   raceActionsRef.current = {

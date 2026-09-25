@@ -4,9 +4,11 @@ A race gives one prompt to two to four agents at once, each in its own copy of t
 
 ## Starting
 
-From a chat, click the Race button (lightning icon) beside the model picker. Turn on **Race this message** and choose the other agents; the chat's own agent is always included, with at least two and at most four in total. The send button then reads **Race N agents**. Race is one-shot: the following message sends normally. Attachments go to every agent.
+From a chat, click the Race button (lightning icon) beside the model picker. Turn on **Race this message** and choose the other agents; the chat's own agent is always included, with at least two and at most four in total. Each other agent has a model menu beside its name; picking a model also adds that agent if there's room. The chat's own agent uses the chat's model (change it with the model picker). Agent and model choices are remembered. The send button then reads **Race N agents**. Race is one-shot: the following message sends normally. Attachments go to every agent, and every lane gets the chat's access setting; the first lane also keeps the chat's model settings.
 
-From the command palette (⌘K), type a task: below **Start a chat** is **Race it**, which uses the chosen agent plus the agents saved in the Race menu; ⌥↵ starts it directly. The project must be a git repository with at least one commit.
+Race doesn't combine with Plan mode or Orchestrator: turning one on turns the others off, and a message starting with `/plan` is sent as a normal plan. Race is unavailable while a card (inbox task, note or handoff) is attached. If a race can't start, for example because the project isn't a git repository, an error explains why and the message is put back in the box.
+
+From the command palette (⌘K), type a task: below **Start a chat** is **Race it**, which uses the chosen agent plus the agents and models saved in the Race menu; ⌥↵ starts it directly. The project must be a git repository with at least one commit.
 
 The race starts from what you see: uncommitted changes to tracked files are recorded with `git stash create`, without touching your working tree, and every copy starts from that snapshot. New untracked files are not copied; the race view says so.
 

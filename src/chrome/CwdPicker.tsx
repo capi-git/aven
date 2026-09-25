@@ -149,7 +149,7 @@ export function CwdPicker({
     onCwdChange(row.path);
   };
 
-  const onKeyDown = (e: ReactKeyboardEvent<HTMLButtonElement>) => {
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLElement>) => {
     if (!enabled) return;
     if (!open) {
       if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
@@ -258,6 +258,11 @@ export function CwdPicker({
           maxHeight={MENU_MAX_HEIGHT}
           ignore={SELF}
           onDismiss={(reason) => dismiss(reason === "escape")}
+          // Take focus so arrow keys and Enter drive the menu; left in the
+          // composer, Enter would send the message instead.
+          autoFocus
+          tabIndex={-1}
+          onKeyDown={onKeyDown}
           role="menu"
           aria-label="Project picker"
           data-cwd-picker

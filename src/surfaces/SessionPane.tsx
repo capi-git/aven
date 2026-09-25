@@ -92,13 +92,16 @@ type Props = {
     attachments: Attachment[],
     options?: ComposerTurnOptions,
   ) => void | boolean;
-  /** Race a message across several agents; absent hides Race. */
+  /**
+   * Race a message across several agents; absent hides Race. Resolves false
+   * when the race could not start.
+   */
   onRace?: (
     sessionId: string,
     text: string,
     attachments: Attachment[],
     agents: PaletteAgent[],
-  ) => void;
+  ) => Promise<boolean>;
   onStop: (sessionId: string) => void;
   onCompactContext: (sessionId: string) => boolean;
   onDeleteQueuedMessage: (sessionId: string, messageId: string) => void;

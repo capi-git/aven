@@ -132,13 +132,8 @@ import { useComposerSkills } from "./useComposerSkills";
 import { Popover } from "./Popover";
 import { RaceToggle } from "./RaceToggle";
 import type { PaletteAgent } from "../lib/commandPalette";
-import { availablePaletteAgents } from "../lib/paletteAgents";
-import { resolveModel } from "../lib/models";
-import {
-  loadRaceAgentChoice,
-  resolveRaceAgents,
-  subscribeRaceAgentChoice,
-} from "../lib/raceAgents";
+import { RACE_MIN_LANES } from "../lib/race";
+import { useRaceAgents } from "./useRaceAgents";
 import { consumePlanCommand, PLAN_COMMAND } from "../lib/plan";
 import { COMPACT_COMMAND, isCompactCommand } from "../lib/compact";
 
@@ -188,12 +183,15 @@ type Props = {
     attachments: Attachment[],
     options?: ComposerTurnOptions,
   ) => void | boolean;
-  /** Send the message to several agents at once; absent hides Race. */
+  /**
+   * Send the message to several agents at once; absent hides Race. Resolves
+   * false when the race could not start, so the draft is put back.
+   */
   onRace?: (
     text: string,
     attachments: Attachment[],
     agents: PaletteAgent[],
-  ) => void;
+  ) => void | boolean | Promise<boolean>;
   onStop?: () => void;
   onCompactContext?: () => boolean;
   onDeleteQueuedMessage?: (messageId: string) => void;
@@ -502,41 +500,21 @@ function ComposerComponent({
   }, []);
   const [fileDrag, setFileDrag] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [commandNotice, setCommandNotice] = useState<string | null>(null);
   const [plusOpen, setPlusOpen] = useState(false);
   const [planSelected, setPlanSelected] = useState(false);
   const [raceOn, setRaceOn] = useState(false);
-  const raceChoiceVersion = useSyncExternalStore(
-    subscribeRaceAgentChoice,
-    () => loadRaceAgentChoice().join(","),
-    () => "",
+  const { available: raceAvailable, lanes: raceLanes } = useRaceAgents(
+    Boolean(onRace),
+    harness,
+    model,
   );
-  const raceAvailable = useMemo(() => {
-    if (!onRace) return [];
-    const agents = availablePaletteAgents();
-    const own = agents.find((agent) => agent.harness === harness) ?? {
-      harness,
-      model,
-      label: harness,
-    };
-    // This chat's agent, with its current model, is always the first lane.
-    // An unknown model id can resolve to another provider's default; show
-    // the id itself rather than a misleading name.
-    const resolved = resolveModel(harness, model);
-    const modelName =
-      resolved.harness === harness && resolved.id === model
-        ? resolved.name
-        : model;
-    const first = {
-      ...own,
-      model,
-      label: `${own.label.split(" · ")[0]} · ${modelName}`,
-    };
-    return [first, ...agents.filter((agent) => agent.harness !== harness)];
-  }, [onRace, harness, model, raceOn]);
-  const raceLanes = useMemo(
-    () => resolveRaceAgents(raceAvailable, raceAvailable[0]),
-    [raceAvailable, raceChoiceVersion],
-  );
+  // A card is consumed by a normal send; a race would leave it attached.
+  const raceBlocked =
+    inboxCard || noteCard || handoffCard
+      ? "Send or remove the attached card before racing"
+      : undefined;
+  const raceReady = raceLanes.length >= RACE_MIN_LANES && !raceBlocked;
   const [orchestrationSelected, setOrchestrationSelected] = useState(false);
   const [slash, setSlash] = useState<SlashToken | null>(null);
   const [skillActive, setSkillActive] = useState(0);
@@ -556,9 +534,17 @@ function ComposerComponent({
     loadFollowUpBehavior,
     () => "queue" as const,
   );
+  const draftPlanning = consumePlanCommand(draft).planning;
+  // Plan mode and Orchestrator are exclusive with Race; a typed /plan wins.
+  const raceActive =
+    raceOn &&
+    raceReady &&
+    !draftPlanning &&
+    !planSelected &&
+    !orchestrationSelected;
   const queueSubmission = shouldEnqueueSubmission(
     { harness, busy: Boolean(busy), queuedMessages },
-    planSelected || orchestrationSelected || consumePlanCommand(draft).planning
+    planSelected || orchestrationSelected || draftPlanning
       ? "queue"
       : followUpBehavior,
   );
@@ -597,7 +583,7 @@ function ComposerComponent({
   const slashItems = useMemo(
     () => [
       PLAN_COMMAND,
-      COMPACT_COMMAND,
+      ...(compactSupported ? [COMPACT_COMMAND] : []),
       ...skills.filter(
         (skill) =>
           skill.kind === "native" ||
@@ -605,12 +591,20 @@ function ComposerComponent({
             skill.name !== COMPACT_COMMAND.name),
       ),
     ],
-    [skills],
+    [compactSupported, skills],
   );
   const skillLimit = hasNativeCommands(harness)
     ? Number.POSITIVE_INFINITY
     : undefined;
-  const rankedSkills = rankSkills(slashItems, slash?.query ?? "", skillLimit);
+  // Ranking a native command catalog is not free; only do it while `/` is open.
+  const slashQuery = slash?.query;
+  const rankedSkills = useMemo(
+    () =>
+      slashQuery === undefined
+        ? []
+        : rankSkills(slashItems, slashQuery, skillLimit),
+    [slashItems, slashQuery, skillLimit],
+  );
   const attachmentsSupported = harnessSupportsAttachments(harness);
   const skillNames = useMemo(
     () => new Set(slashItems.map((skill) => skill.invocation)),
@@ -723,6 +717,10 @@ function ComposerComponent({
     }
     if (busy) setRunnerLive(true);
   }, [busy, runnerEnabled]);
+
+  useEffect(() => {
+    if (!raceReady) setRaceOn(false);
+  }, [raceReady]);
 
   useEffect(() => {
     setSkillActive(0);
@@ -931,7 +929,7 @@ function ComposerComponent({
     if (!focused) return;
     if (
       document.querySelector(
-        "[data-model-picker], [data-access-picker], [data-model-settings], [data-file-picker], [data-branch-picker], [data-skill-picker], [data-mention-picker], [data-composer-plus]",
+        "[data-model-picker], [data-access-picker], [data-model-settings], [data-file-picker], [data-branch-picker], [data-cwd-picker], [data-race-menu], [data-context-actions], [data-skill-picker], [data-mention-picker], [data-composer-plus]",
       )
     )
       return;
@@ -1015,7 +1013,12 @@ function ComposerComponent({
 
   const submit = (value: string) => {
     if (isCompactCommand(value)) {
-      if (!onCompactContext?.()) return;
+      if (!onCompactContext) return;
+      if (!onCompactContext()) {
+        setCommandNotice("Wait for the current reply to finish, then compact.");
+        return;
+      }
+      setCommandNotice(null);
       if (!ref.current) return;
       ref.current.value = "";
       ref.current.style.height = "auto";
@@ -1035,18 +1038,24 @@ function ComposerComponent({
       : composeInboxMessage(inboxCard, command.text);
     const files = attachments;
     if (!text && files.length === 0 && !noteCard && !handoffCard) return;
-    if (raceOn && onRace && raceLanes.length >= 2 && text) {
-      onRace(text, files, raceLanes);
+    if (raceActive && onRace && !command.planning && text) {
       setRaceOn(false);
-      if (!ref.current) return;
-      ref.current.value = "";
-      ref.current.style.height = "auto";
-      updateDraft("");
-      updateAttachments([]);
       setPlusOpen(false);
       setSlash(null);
       setMention(null);
-      syncHasValue("", []);
+      clearField();
+      // Clear at once so sending feels instant; put the draft back if the
+      // race could not start and the field is still empty.
+      void Promise.resolve(onRace(text, files, raceLanes)).then((started) => {
+        const el = ref.current;
+        if (started !== false || !el || el.value || attachmentsRef.current.length)
+          return;
+        el.value = value;
+        resizeTextarea(el);
+        updateDraft(value);
+        updateAttachments(files);
+        syncHasValue(value, files);
+      });
       return;
     }
     const accepted = onSubmit(text, files, {
@@ -1067,10 +1076,7 @@ function ComposerComponent({
     });
     if (accepted === false) return;
     if (!ref.current) return;
-    ref.current.value = "";
-    ref.current.style.height = "auto";
-    updateDraft("");
-    updateAttachments([]);
+    clearField();
     setPlanSelected(false);
     setOrchestrationSelected(false);
     setPlusOpen(false);
@@ -1078,6 +1084,14 @@ function ComposerComponent({
     setMention(null);
     setCreatingSkill(false);
     setCreateError(null);
+  };
+
+  const clearField = () => {
+    if (!ref.current) return;
+    ref.current.value = "";
+    ref.current.style.height = "auto";
+    updateDraft("");
+    updateAttachments([]);
     syncHasValue("", []);
   };
 
@@ -1199,10 +1213,12 @@ function ComposerComponent({
 
   const attachFromPicker = () => {
     if (!attachmentsSupported) return;
-    void pickAttachments().then((files) => {
-      addAttachments(files);
-      ref.current?.focus();
-    });
+    void pickAttachments()
+      .then((files) => {
+        addAttachments(files);
+        ref.current?.focus();
+      })
+      .catch(() => setAttachmentError("Couldn't attach these files. Try again."));
   };
 
   return (
@@ -1316,9 +1332,9 @@ function ComposerComponent({
               Drop files to attach
             </div>
           ) : null}
-          {attachmentError ? (
+          {attachmentError || commandNotice ? (
             <p role="alert" className="px-3 pt-2 text-[12px] text-content/80">
-              {attachmentError}
+              {attachmentError ?? commandNotice}
             </p>
           ) : null}
           {hideTopBar ? null : (
@@ -1408,7 +1424,15 @@ function ComposerComponent({
               className={`composer-field scrollbar-none relative max-h-40 w-full resize-none overflow-x-hidden whitespace-pre-wrap break-words bg-transparent px-3 text-sm leading-5.5 outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap font-sans ${
                 shell ? "py-4" : "py-3"
               }`}
-              onFocus={onFocus}
+              onFocus={() => {
+                // Going back to the message abandons an unfinished new skill;
+                // otherwise Enter and Escape stay ignored here.
+                if (creatingSkill && !createBusy) {
+                  setCreatingSkill(false);
+                  setCreateError(null);
+                }
+                onFocus();
+              }}
               onKeyDown={onKeyDown}
               onPaste={onPaste}
               onScroll={(e) => syncHighlightScroll(e.currentTarget)}
@@ -1417,6 +1441,7 @@ function ComposerComponent({
               onSelect={(e) => syncTokensFromTextarea(e.currentTarget)}
               onInput={(e) => {
                 const el = e.currentTarget;
+                setCommandNotice(null);
                 resizeTextarea(el);
                 updateDraft(el.value);
                 syncHasValue(el.value, attachments);
@@ -1477,6 +1502,7 @@ function ComposerComponent({
                     onClick={() => {
                       setPlanSelected((selected) => !selected);
                       setOrchestrationSelected(false);
+                      setRaceOn(false);
                       setPlusOpen(false);
                       ref.current?.focus();
                     }}
@@ -1501,6 +1527,7 @@ function ComposerComponent({
                       onClick={() => {
                         setOrchestrationSelected((selected) => !selected);
                         setPlanSelected(false);
+                        setRaceOn(false);
                         setPlusOpen(false);
                         ref.current?.focus();
                       }}
@@ -1593,10 +1620,16 @@ function ComposerComponent({
                 {onRace ? (
                   <div className="personal-composer-capsule personal-composer-race">
                     <RaceToggle
-                      active={raceOn}
+                      active={raceActive}
                       available={raceAvailable}
                       lanes={raceLanes}
-                      onActiveChange={setRaceOn}
+                      disabledReason={raceBlocked}
+                      onActiveChange={(on) => {
+                        setRaceOn(on);
+                        if (!on) return;
+                        setPlanSelected(false);
+                        setOrchestrationSelected(false);
+                      }}
                       onClose={() => ref.current?.focus()}
                     />
                   </div>
@@ -1627,7 +1660,7 @@ function ComposerComponent({
               <ComposerAction
                 busy={busy}
                 actionLabel={
-                  raceOn
+                  raceActive
                     ? `Race ${raceLanes.length} agents`
                     : queueSubmission
                     ? "Queue message"

@@ -46,8 +46,8 @@ import {
   Terminal,
   Zap,
 } from "./icons";
-import { resolveRaceAgents } from "../lib/raceAgents";
-import type { Attachment } from "../lib/session";
+import { resolveRaceAgents, withRaceModels } from "../lib/raceAgents";
+import type { Attachment, RuntimeMode } from "../lib/session";
 
 export type PaletteProject = { path: string; name: string };
 
@@ -56,6 +56,10 @@ export type PaletteRaceRequest = {
   agents: PaletteAgent[];
   project: string;
   attachments?: Attachment[];
+  /** Access for every lane; defaults to the app's default access. */
+  runtimeMode?: RuntimeMode;
+  /** Settings for the first lane, when it continues a chat's model. */
+  modelSettings?: Record<string, string>;
 };
 
 export type PaletteChatRequest = {
@@ -149,8 +153,10 @@ function CommandPaletteBody({
   const newChat = offersNewChat(mode, text) && agents.length > 0;
   const agent = agents[agentIndex] ?? agents[0];
   const target = targets[targetIndex] ?? project;
-  // The chosen agent plus the saved race choice (Race toggle), two to four.
-  const raceAgents = agent ? resolveRaceAgents(agents, agent) : [];
+  // The chosen agent plus the agents and models saved in the Race menu.
+  const raceAgents = agent
+    ? resolveRaceAgents(withRaceModels(agents), agent)
+    : [];
   const canRace = newChat && !!onStartRace && raceAgents.length >= 2;
 
   useEffect(() => {

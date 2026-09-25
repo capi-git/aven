@@ -75,10 +75,28 @@ export function replaceMentionToken(
   return `${text.slice(0, token.start)}@${label}${spacer}${rest}`;
 }
 
+/**
+ * What `@` can offer for one file list, computed once per list: typing after
+ * `@` re-ranks on every key, and a large project has tens of thousands.
+ */
+type Mentionable = { usable: ProjectFile[]; ordered?: ProjectFile[] };
+const mentionables = new WeakMap<ProjectFile[], Mentionable>();
+
+function mentionable(files: ProjectFile[]): Mentionable {
+  let entry = mentionables.get(files);
+  if (!entry) {
+    entry = {
+      usable: withMentionDirectories(files).filter((file) =>
+        isMentionableRelative(file.relative),
+      ),
+    };
+    mentionables.set(files, entry);
+  }
+  return entry;
+}
+
 export function buildMentionIndex(files: ProjectFile[]): MentionIndex {
-  const entries = withMentionDirectories(files).filter((file) =>
-    isMentionableRelative(file.relative),
-  );
+  const entries = mentionable(files).usable;
   const counts = new Map<string, number>();
   for (const file of entries) {
     counts.set(file.name, (counts.get(file.name) ?? 0) + 1);
@@ -128,9 +146,8 @@ export function rankMentionFiles(
   recents: string[],
   limit = MAX_PICKER,
 ): RankedFile[] {
-  const usable = withMentionDirectories(files).filter((file) =>
-    isMentionableRelative(file.relative),
-  );
+  const entry = mentionable(files);
+  const usable = entry.usable;
   const needle = query.replace(/\/+$/, "").trim();
   if (needle) return rankProjectFiles(usable, needle, recents, limit);
 
@@ -145,13 +162,13 @@ export function rankMentionFiles(
     if (out.length >= limit) return out;
   }
 
-  const rest = [...usable].sort((a, b) => {
+  const rest = (entry.ordered ??= [...usable].sort((a, b) => {
     const depth = pathDepth(a.relative) - pathDepth(b.relative);
     if (depth !== 0) return depth;
     const dir = Number(Boolean(b.isDir)) - Number(Boolean(a.isDir));
     if (dir !== 0) return dir;
     return a.relative.localeCompare(b.relative);
-  });
+  }));
   for (const file of rest) {
     if (seen.has(file.path)) continue;
     seen.add(file.path);

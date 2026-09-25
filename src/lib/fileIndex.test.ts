@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectFile } from "./fs";
 import { listProjectFiles } from "./fs";
+import { scorePath } from "./fuzzy";
 import {
   invalidateProjectFiles,
   loadProjectFiles,
   peekProjectFiles,
+  rankProjectFiles,
   rememberOpenedFile,
   resolveOpenablePath,
   subscribeProjectFiles,
@@ -158,6 +160,17 @@ describe("loadProjectFiles", () => {
     stop();
   });
 
+  it("keeps the same listing when a rescan finds nothing new", async () => {
+    const first = await loadProjectFiles(cwd);
+    const onChange = vi.fn();
+    const stop = subscribeProjectFiles(onChange);
+    list.mockResolvedValue(files.map((file) => ({ ...file })));
+    expect(await loadProjectFiles(cwd, true)).toBe(first);
+    expect(peekProjectFiles(cwd)).toBe(first);
+    expect(onChange).not.toHaveBeenCalled();
+    stop();
+  });
+
   it("reloads after a directory change", async () => {
     vi.useFakeTimers();
     await loadProjectFiles(cwd);
@@ -234,5 +247,40 @@ describe("loadProjectFiles", () => {
 
     expect(await scan).toEqual(files);
     expect(peekProjectFiles(other)).toEqual(files);
+  });
+});
+
+describe("rankProjectFiles", () => {
+  it("returns the same best matches, in order, as ranking every file", () => {
+    const many: ProjectFile[] = [];
+    for (let dir = 0; dir < 12; dir++)
+      for (let file = 0; file < 25; file++) {
+        const relative = `src/${dir % 3 ? "Area" : "area"}${dir}/file${file}.ts`;
+        many.push({ name: `file${file}.ts`, path: `/p/${relative}`, relative });
+      }
+    const recents = [many[40]!.path, many[7]!.path];
+    for (const query of ["f", "a1", "file2", "area3/file"]) {
+      const full = many
+        .map((file) => ({ file, hit: scorePath(query, file.relative, file.name) }))
+        .filter((entry) => entry.hit)
+        .map(({ file, hit }) => {
+          const recency = recents.indexOf(file.path);
+          return {
+            relative: file.relative,
+            score: hit!.score + (recency < 0 ? 0 : (30 - recency) * 8),
+          };
+        })
+        .sort(
+          (a, b) =>
+            b.score - a.score ||
+            a.relative.length - b.relative.length ||
+            a.relative.localeCompare(b.relative),
+        )
+        .slice(0, 10)
+        .map((entry) => entry.relative);
+      expect(
+        rankProjectFiles(many, query, recents, 10).map((file) => file.relative),
+      ).toEqual(full);
+    }
   });
 });

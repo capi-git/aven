@@ -70,6 +70,7 @@ export function ContextMeter({
           side="top"
           align="end"
           onDismiss={onCompact ? () => setOpen(false) : undefined}
+          data-context-actions={actionsOpen || undefined}
           className={`w-max px-2.5 py-1.5 ${actionsOpen ? "" : "pointer-events-none"}`}
         >
           <div className="text-[12px] leading-4 text-content">{headline}</div>

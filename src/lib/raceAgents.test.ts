@@ -1,13 +1,18 @@
 // @vitest-environment happy-dom
 import { beforeEach, expect, it, vi } from "vitest";
 import type { PaletteAgent } from "./commandPalette";
+import { pickerModelsFor, savePickerModelVisible } from "./models";
 import {
   loadRaceAgentChoice,
+  loadRaceModelChoice,
   resolveRaceAgents,
   saveRaceAgentChoice,
+  saveRaceModelChoice,
   subscribeRaceAgentChoice,
   toggleRaceAgent,
+  withRaceModels,
 } from "./raceAgents";
+import { HARNESS_TITLE } from "./session";
 
 const agent = (harness: PaletteAgent["harness"]): PaletteAgent => ({
   harness,
@@ -27,6 +32,7 @@ beforeEach(() => {
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => data.get(key) ?? null,
     setItem: (key: string, value: string) => void data.set(key, value),
+    removeItem: (key: string) => void data.delete(key),
   });
 });
 
@@ -77,4 +83,29 @@ it("remembers the choice and announces changes", () => {
   expect(loadRaceAgentChoice()).toEqual(["cursor", "codex"]);
   expect(listener).toHaveBeenCalledOnce();
   stop();
+});
+
+it("races an agent on the model picked for it, and falls back when it's gone", () => {
+  const [first, second] = pickerModelsFor("claude");
+  const listener = vi.fn();
+  const stop = subscribeRaceAgentChoice(listener);
+  saveRaceModelChoice("claude", second.id);
+  stop();
+  expect(listener).toHaveBeenCalledOnce();
+  expect(loadRaceModelChoice()).toEqual({ claude: second.id });
+  const claude = { harness: "claude" as const, model: first.id, label: "x" };
+  expect(withRaceModels([claude, agent("codex")])).toEqual([
+    {
+      harness: "claude",
+      model: second.id,
+      label: `${HARNESS_TITLE.claude} · ${second.name}`,
+    },
+    agent("codex"),
+  ]);
+  // A model the provider no longer lists, or one the user hid, is ignored.
+  expect(withRaceModels([claude], { claude: "retired-model" })).toEqual([
+    claude,
+  ]);
+  savePickerModelVisible(second.id, false);
+  expect(withRaceModels([claude])).toEqual([claude]);
 });
