@@ -239,7 +239,10 @@ export function loadBrowserWorkspaces(): Record<
   }
 }
 
-export function saveBrowserWorkspaces(value: Record<string, BrowserWorkspace>) {
+export function saveBrowserWorkspaces(
+  value: Record<string, BrowserWorkspace>,
+  strict = false,
+) {
   try {
     localStorage.setItem(
       BROWSER_KEY,
@@ -252,7 +255,8 @@ export function saveBrowserWorkspaces(value: Record<string, BrowserWorkspace>) {
         ),
       ),
     );
-  } catch {
+  } catch (error) {
+    if (strict) throw error;
     /* Keep the current window usable. */
   }
 }

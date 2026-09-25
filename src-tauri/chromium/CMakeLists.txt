@@ -22,6 +22,10 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS browser_sleep_pro
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/browser_sleep_probe.js" SLEEP_PROBE_SOURCE)
 file(WRITE "${CMAKE_BINARY_DIR}/browser_sleep_source.h"
   "#pragma once\nstatic constexpr const char kBrowserSleepProbe[] = R\"SM_SLEEP(${SLEEP_PROBE_SOURCE})SM_SLEEP\";\n")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS browser_update_probe.js)
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/browser_update_probe.js" UPDATE_PROBE_SOURCE)
+file(WRITE "${CMAKE_BINARY_DIR}/browser_update_source.h"
+  "#pragma once\nstatic constexpr const char kBrowserUpdateProbe[] = R\"SM_UPDATE(${UPDATE_PROBE_SOURCE})SM_UPDATE\";\n")
 add_library(supermono_chromium_impl STATIC supermono_chromium.mm browser_actions_menu.mm browser_drop_indicator.mm browser_edit_annotation.mm browser_edit_image.mm)
 target_include_directories(supermono_chromium_impl PRIVATE "${CEF_ROOT}" "${CMAKE_BINARY_DIR}")
 target_compile_options(supermono_chromium_impl PRIVATE -fobjc-arc -fno-rtti -Wall -Wextra -Wno-unused-parameter)
@@ -97,3 +101,11 @@ target_compile_options(supermono_chromium_browser_edit_image_test PRIVATE -fobjc
 target_link_libraries(supermono_chromium_browser_edit_image_test PRIVATE
   "-framework Foundation" "-framework ImageIO" "-framework CoreGraphics")
 add_test(NAME browser_edit_image_crop COMMAND supermono_chromium_browser_edit_image_test)
+
+# Trusted protocol inspection protects closed shadow editors during updates.
+add_executable(supermono_chromium_browser_update_dom_test EXCLUDE_FROM_ALL browser_update_dom_test.mm)
+target_include_directories(supermono_chromium_browser_update_dom_test PRIVATE "${CEF_ROOT}")
+target_compile_options(supermono_chromium_browser_update_dom_test PRIVATE -fobjc-arc)
+target_link_libraries(supermono_chromium_browser_update_dom_test PRIVATE libcef_dll_wrapper ${CEF_STANDARD_LIBS})
+add_test(NAME browser_update_dom COMMAND supermono_chromium_browser_update_dom_test
+  "${CEF_ROOT}/Release/Chromium Embedded Framework.framework/Chromium Embedded Framework")

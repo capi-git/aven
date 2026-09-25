@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { browserUpdatePaused } from "./browserUpdateState";
 import { lockUpdateInput } from "./updateInputLock";
 let release: (() => void) | undefined;
 beforeEach(() => {
@@ -16,10 +17,14 @@ it("blocks typing and portaled edits while the workspace is being installed", ()
   const composer = document.querySelector("textarea")!;
   composer.focus();
   release = lockUpdateInput();
+  expect(browserUpdatePaused()).toBe(true);
   expect(document.getElementById("root")?.hasAttribute("inert")).toBe(true);
   expect(document.activeElement?.getAttribute("role")).toBe("alertdialog");
   expect(document.activeElement?.textContent).toContain(
     "Saving and restarting…",
+  );
+  expect(document.activeElement?.textContent).toContain(
+    "Your tabs will reopen after the update.",
   );
   let draftChanged = false;
   composer.addEventListener("input", () => {
@@ -57,6 +62,7 @@ it("restores editing and focus after a failed restart and cleans up idempotently
   release = lockUpdateInput();
   release();
   release();
+  expect(browserUpdatePaused()).toBe(false);
   expect(document.querySelector("[data-update-input-lock]")).toBeNull();
   expect(document.getElementById("root")?.hasAttribute("inert")).toBe(false);
   expect(document.activeElement).toBe(composer);

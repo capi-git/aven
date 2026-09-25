@@ -1,4 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
+import { flushSync } from "react-dom";
+import type { BrowserState } from "./browser";
+import { applyBrowserUpdateStates } from "./browserUpdateState";
 import { flushWorkspaceDrafts } from "./workspaceDraftFlush";
 import { ask } from "@tauri-apps/plugin-dialog";
 import {
@@ -72,6 +75,7 @@ let liveWorkspace: {
   projectCwd: () => string;
   projectTerminals: () => ProjectTerminalDock[];
   flush: () => void;
+  saveBrowserState: () => void;
 } | null = null;
 
 export function isAppQuitting(): boolean {
@@ -85,6 +89,7 @@ export function setQuitWorkspace(
   projectCwd: () => string,
   projectTerminals: () => ProjectTerminalDock[],
   flush: () => void,
+  saveBrowserState: () => void = () => {},
 ): () => void {
   liveWorkspace = {
     sessions,
@@ -93,6 +98,7 @@ export function setQuitWorkspace(
     projectCwd,
     projectTerminals,
     flush,
+    saveBrowserState,
   };
   bootingResumed = null;
   return () => {
@@ -111,8 +117,9 @@ export async function prepareUpdateRestart(): Promise<void> {
       "Your tasks are still working or waiting for input. Finish them before restarting to update.",
     );
   }
-  await invoke("prepare_update_restart");
+  const browserStates = await invoke<BrowserState[]>("prepare_update_restart");
   try {
+    flushSync(() => applyBrowserUpdateStates(browserStates ?? []));
     await flushWorkspaceDrafts();
     workspace.flush();
     if (
@@ -134,6 +141,7 @@ export async function prepareUpdateRestart(): Promise<void> {
     if (hasInFlightSessions(workspace.sessions())) {
       throw new Error("A task started. Finish it before restarting to update.");
     }
+    workspace.saveBrowserState();
     await invoke("finish_update_restart_preparation");
   } catch (error) {
     await invoke("cancel_update_restart").catch(() => undefined);

@@ -180,11 +180,13 @@ async fn check_update_idle(app: &AppHandle, owner: &str) -> Result<(), String> {
     app.try_state::<crate::pty::PtyHost>()
         .ok_or("Terminal activity could not be checked")?
         .ensure_update_idle()?;
-    crate::browser::ensure_update_idle(app).await
+    Ok(())
 }
 
 #[tauri::command]
-pub async fn prepare_update_restart(caller: Webview) -> Result<(), String> {
+pub async fn prepare_update_restart(
+    caller: Webview,
+) -> Result<Vec<crate::browser::BrowserState>, String> {
     let owner = update_caller(&caller)?;
     let app = caller.app_handle();
     let state = app.state::<UpdateRestartState>();
@@ -193,18 +195,33 @@ pub async fn prepare_update_restart(caller: Webview) -> Result<(), String> {
         let _ = state.cancel(owner);
         return Err(error);
     }
-    Ok(())
+    match crate::browser::prepare_update_restart(app).await {
+        Ok(pages) => Ok(pages),
+        Err(error) => {
+            crate::browser::cancel_update_restart(app).await?;
+            let _ = state.cancel(owner);
+            Err(error)
+        }
+    }
 }
 
 /// The frontend calls this after strict persistence, before installing bytes.
-/// Nothing is closed here: the current browser close path is forced, so open
-/// pages must be saved and closed by the user before update preparation.
+/// Browser tabs are closed without overriding a page's unsaved-work warning.
 #[tauri::command]
 pub async fn finish_update_restart_preparation(caller: Webview) -> Result<(), String> {
     let owner = update_caller(&caller)?;
     let app = caller.app_handle();
     let state = app.state::<UpdateRestartState>();
+    if !state.owns(owner) {
+        return Err("Update restart preparation is no longer active in this window".into());
+    }
     if let Err(error) = check_update_idle(app, owner).await {
+        crate::browser::cancel_update_restart(app).await?;
+        let _ = state.cancel(owner);
+        return Err(error);
+    }
+    if let Err(error) = crate::browser::finish_update_restart(app).await {
+        crate::browser::cancel_update_restart(app).await?;
         let _ = state.cancel(owner);
         return Err(error);
     }
@@ -212,12 +229,13 @@ pub async fn finish_update_restart_preparation(caller: Webview) -> Result<(), St
 }
 
 #[tauri::command]
-pub fn cancel_update_restart(caller: Webview) -> Result<(), String> {
+pub async fn cancel_update_restart(caller: Webview) -> Result<(), String> {
     let owner = update_caller(&caller)?;
-    caller
-        .app_handle()
-        .state::<UpdateRestartState>()
-        .cancel(owner)
+    let app = caller.app_handle();
+    if app.state::<UpdateRestartState>().owns(owner) {
+        crate::browser::cancel_update_restart(app).await?;
+    }
+    app.state::<UpdateRestartState>().cancel(owner)
 }
 
 #[tauri::command]
@@ -228,6 +246,7 @@ pub async fn relaunch_after_update(caller: Webview) -> Result<(), String> {
     state.start_restart(owner)?;
     let result = async {
         check_update_idle(app, owner).await?;
+        crate::browser::ensure_update_idle(app).await?;
         #[cfg(all(feature = "chromium", target_os = "macos"))]
         crate::browser::prepare_shutdown(app).await?;
         Ok::<(), String>(())

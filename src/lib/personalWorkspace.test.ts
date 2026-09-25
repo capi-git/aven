@@ -264,3 +264,15 @@ describe("multiple browser tabs", () => {
     expect(id).toMatch(/^[a-zA-Z0-9-]{1,80}$/);
   });
 });
+
+it("blocks an update if browser tab persistence fails while ordinary autosave stays usable", () => {
+  vi.mocked(localStorage).setItem = () => {
+    throw new Error("storage full");
+  };
+  expect(() =>
+    saveBrowserWorkspaces({ "/project": EMPTY_BROWSER }),
+  ).not.toThrow();
+  expect(() =>
+    saveBrowserWorkspaces({ "/project": EMPTY_BROWSER }, true),
+  ).toThrow("storage full");
+});

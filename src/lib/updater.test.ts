@@ -236,6 +236,33 @@ describe("explicit restart", () => {
     expect(mocks.install).toHaveBeenCalledTimes(2);
     expect(mocks.download).toHaveBeenCalledOnce();
   });
+  it("keeps browser restoration paused until native cancellation finishes", async () => {
+    const updater = await ready();
+    mocks.install.mockRejectedValueOnce(new Error("disk full"));
+    let finishCancellation!: () => void;
+    mocks.invoke.mockImplementation((command) => {
+      if (command === "cancel_update_restart")
+        return new Promise<void>((resolve) => {
+          finishCancellation = resolve;
+        });
+      return Promise.resolve();
+    });
+
+    const installing = updater.installPendingUpdate();
+    await vi.waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith("cancel_update_restart"),
+    );
+    expect(mocks.releaseInput).not.toHaveBeenCalled();
+    expect(mocks.message).not.toHaveBeenCalled();
+
+    finishCancellation();
+    await installing;
+    expect(mocks.releaseInput).toHaveBeenCalledOnce();
+    expect(updater.getUpdaterSnapshot()).toMatchObject({
+      phase: "ready",
+      error: "disk full",
+    });
+  });
   it("retries a failed relaunch without reinstalling the consumed archive", async () => {
     const updater = await ready();
     mocks.invoke.mockImplementationOnce(async () => {
