@@ -2,7 +2,7 @@
 
 Aven is maintained independently. Its version numbers do not imply feature parity with MonoCode, and its updater uses Aven releases only. Compatible upstream changes are reviewed and adapted with their attribution intact.
 
-## Unreleased — project navigation review, 25 September 2026
+## Aven 0.1.100 — project navigation review, 25 September 2026
 
 Reviewed current MonoCode main at [`0d3db9c26a460f1354dcf350969d87a6896b8bf0`](https://github.com/hardbeat920/monocode/tree/0d3db9c26a460f1354dcf350969d87a6896b8bf0), including its project registry, rail ordering, remembered project panes, and per-project sidebar tab selection.
 
