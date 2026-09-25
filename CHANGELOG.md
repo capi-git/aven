@@ -1,5 +1,14 @@
 # Aven changelog
 
+## [0.1.99] - 2026-09-25
+
+### Updates without closing browser tabs by hand
+
+- Restart to update now saves browser tabs and closes them for you, then reopens them after the update. Addresses, order and the selected tab are kept; a page's in-memory state and history are not.
+- A tab you (or an agent) have clicked, typed in or dropped something onto still stops the update if it might hold unsaved work, as do downloads, playing media, camera or microphone use, open dialogs and pages still loading. The message names the tab and what to do, usually close it. Untouched tabs close whatever they contain.
+- If saving or installing fails, Aven leaves update mode and brings the tabs back.
+- Updating from 0.1.98 or earlier to this version still asks you to close browser tabs once; later updates don't.
+
 ## [0.1.98] - 2026-09-25
 
 ### Race, a command palette, and a faster chat box
