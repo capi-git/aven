@@ -1,5 +1,14 @@
 # Aven changelog
 
+## [0.1.97] - 2026-09-24
+
+### Smoother streaming and a lighter desktop app
+
+- Render Aven windows at the display's full refresh rate while trimming per-frame layout work. Stream transcript text into the visible chat without redrawing the whole workspace or composer, and save running transcripts less often.
+- Share Chromium renderers between same-site tabs, sleep eligible hidden tabs under macOS memory pressure, and release render trees for workspaces hidden for a long time. Add a Lightweight browser setting that keeps fewer tabs ready and uses Chromium's low-memory mode.
+- Make the monochrome appearance the default and redraw the Aven mark. Refine the sidebar's hover-close timing and keep it visible when pinned.
+- Keep windows opaque unless desktop transparency is enabled, and add an optional compositing-borders diagnostic.
+
 ## [0.1.96] - 2026-09-23
 
 ### Stable chat scrolling

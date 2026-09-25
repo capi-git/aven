@@ -237,12 +237,13 @@ export function useHoverRevealPanel({
   const visible = enabled && (pinned || temporary);
   useLayoutEffect(() => {
     // The early close below writes the attribute directly. React only rewrites
-    // it when its own value changes, so a panel that is pinned (or re-revealed)
-    // while that close is pending would otherwise stay hidden.
+    // it when its own value changes. Pinning can leave `visible` true, so it
+    // needs this repair; an unrelated owner render must not undo the close.
+    // Re-revealing before the close commits repairs the attribute in reveal().
     if (visible && panel.current && panel.current.dataset.open !== "true")
       panel.current.dataset.open = "true";
     if (visible || !temporary) uncommittedClose.current = null;
-  });
+  }, [visible, pinned, temporary]);
 
   useEffect(() => {
     // Pin/unpin and project availability changes discard a previous hover.
