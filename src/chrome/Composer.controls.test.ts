@@ -6,10 +6,14 @@ import { registerHarness } from "../lib/harness/registry";
 import { codexAdapter } from "../lib/harness/codexAdapter";
 import { Composer } from "./Composer";
 
-const picker = vi.hoisted(() => ({ pick: vi.fn() }));
+const picker = vi.hoisted(() => ({ pick: vi.fn(), createSkill: vi.fn() }));
 vi.mock("../lib/attachments", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../lib/attachments")>()),
   pickAttachments: picker.pick,
+}));
+vi.mock("../lib/skills", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/skills")>()),
+  createBlankSkill: picker.createSkill,
 }));
 vi.mock("./useComposerSkills", () => ({
   useComposerSkills: () => ({ skills: [], refresh: async () => true }),
@@ -34,6 +38,7 @@ beforeEach(() => {
   });
   registerHarness(codexAdapter);
   picker.pick.mockReset();
+  picker.createSkill.mockReset();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -134,4 +139,63 @@ it("drops an unfinished new skill when the message field is used again", async (
     [],
     expect.anything(),
   );
+});
+
+it("creates a new skill where this chat's agent works", async () => {
+  props.cwd = "/work/site";
+  props.executionCwd = "/data/races/r1/0";
+  picker.createSkill.mockResolvedValue(
+    "/data/races/r1/0/.agents/skills/tidy/SKILL.md",
+  );
+  await render();
+  await type("/tidy");
+  const newSkill = [...container.querySelectorAll("button")].find((item) =>
+    item.textContent?.includes("New skill"),
+  )!;
+  await act(async () => newSkill.click());
+  await act(async () =>
+    container
+      .querySelector("form")!
+      .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+  );
+  expect(picker.createSkill).toHaveBeenCalledWith({
+    cwd: "/data/races/r1/0",
+    name: "tidy",
+    scope: "project",
+  });
+});
+
+it("works the + menu from the keyboard", async () => {
+  await render();
+  await act(async () =>
+    container
+      .querySelector<HTMLButtonElement>(
+        '[aria-label="Add files or choose a mode"]',
+      )!
+      .click(),
+  );
+  const menu = document.body.querySelector<HTMLElement>(
+    "[data-composer-plus]",
+  )!;
+  expect(menu.contains(document.activeElement)).toBe(true);
+  const key = (name: string) =>
+    act(async () => {
+      (document.activeElement as HTMLElement).dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: name,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+  await key("ArrowDown");
+  expect(document.activeElement?.textContent).toContain("Upload file");
+  await key("ArrowDown");
+  expect(document.activeElement?.textContent).toContain("Plan mode");
+  await key("ArrowUp");
+  await key("ArrowUp");
+  expect(document.activeElement?.textContent).toContain("Plan mode");
+  await key("Escape");
+  expect(document.body.querySelector("[data-composer-plus]")).toBeNull();
+  expect(document.activeElement).toBe(field());
 });

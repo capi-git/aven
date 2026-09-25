@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import type { PaletteAgent } from "../lib/commandPalette";
+import { refreshHarnessCatalogs } from "../lib/harness/registry";
 import { pickerModelsFor } from "../lib/models";
 import { RACE_MAX_LANES, RACE_MIN_LANES } from "../lib/race";
 import {
@@ -7,6 +8,7 @@ import {
   saveRaceModelChoice,
   toggleRaceAgent,
 } from "../lib/raceAgents";
+import { moveMenuFocus } from "../lib/keyboard";
 import { HARNESS_TITLE, type HarnessId } from "../lib/session";
 import { HarnessIcon } from "./HarnessIcon";
 import { Check, ChevronDown, Zap } from "./icons";
@@ -21,6 +23,8 @@ type Props = {
   /** Why Race can't be used right now; disables the button. */
   disabledReason?: string;
   onActiveChange: (active: boolean) => void;
+  /** Model for the first lane (this chat's agent), for this race only. */
+  onFirstModelChange?: (model: string) => void;
   onClose?: () => void;
 };
 
@@ -28,6 +32,14 @@ const SELF = "[data-race-toggle]";
 
 const modelName = (agent: PaletteAgent) =>
   agent.label.split(" · ").slice(1).join(" · ") || agent.model;
+
+/** The provider's models, always including the one this lane uses now. */
+function laneModels(agent: PaletteAgent): { id: string; name: string }[] {
+  const models = pickerModelsFor(agent.harness);
+  return models.some((model) => model.id === agent.model)
+    ? models
+    : [{ id: agent.model, name: modelName(agent) }, ...models];
+}
 
 const saveLanes = (lanes: readonly PaletteAgent[]) =>
   saveRaceAgentChoice(lanes.slice(1).map((lane) => lane.harness));
@@ -39,6 +51,7 @@ export function RaceToggle({
   lanes,
   disabledReason,
   onActiveChange,
+  onFirstModelChange,
   onClose,
 }: Props) {
   const button = useRef<HTMLButtonElement>(null);
@@ -92,6 +105,7 @@ export function RaceToggle({
           aria-label="Race"
           data-race-menu
           tabIndex={-1}
+          onKeyDown={moveMenuFocus}
           className="p-1 font-sans"
         >
           <label className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-[12px] text-content hover:bg-content/5">
@@ -114,6 +128,7 @@ export function RaceToggle({
               ? lanes.length <= RACE_MIN_LANES
               : lanes.length >= RACE_MAX_LANES;
             const expanded = picking === agent.harness;
+            const fixedModel = locked && !onFirstModelChange;
             return (
               <div key={agent.harness}>
                 <div className="flex items-center gap-1 rounded-md pr-1 hover:bg-content/5">
@@ -152,13 +167,20 @@ export function RaceToggle({
                     aria-haspopup="listbox"
                     aria-expanded={expanded}
                     aria-label={`${title} model: ${modelName(agent)}`}
-                    disabled={locked}
+                    disabled={fixedModel}
                     title={
-                      locked
+                      fixedModel
                         ? "Uses this chat's model. Change it with the model picker."
-                        : `Choose the ${title} model`
+                        : `Choose the ${title} model for this race`
                     }
-                    onClick={() => setPicking(expanded ? null : agent.harness)}
+                    onClick={() => {
+                      if (expanded) return setPicking(null);
+                      setPicking(agent.harness);
+                      // Some providers list their models only once asked.
+                      void refreshHarnessCatalogs([agent.harness]).catch(
+                        () => undefined,
+                      );
+                    }}
                     className={`flex max-w-40 shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11px] disabled:cursor-default ${
                       expanded
                         ? "bg-content/10 text-content"
@@ -166,7 +188,7 @@ export function RaceToggle({
                     }`}
                   >
                     <span className="min-w-0 truncate">{modelName(agent)}</span>
-                    {locked ? null : (
+                    {fixedModel ? null : (
                       <ChevronDown
                         className={`size-3 shrink-0 ${expanded ? "rotate-180" : ""}`}
                         strokeWidth={1.75}
@@ -180,7 +202,7 @@ export function RaceToggle({
                     aria-label={`${title} models`}
                     className="mb-1 ml-5 max-h-44 overflow-y-auto border-l border-content/10 pl-1"
                   >
-                    {pickerModelsFor(agent.harness).map((model) => {
+                    {laneModels(agent).map((model) => {
                       const selected = model.id === agent.model;
                       return (
                         <button
@@ -189,11 +211,15 @@ export function RaceToggle({
                           role="option"
                           aria-selected={selected}
                           onClick={() => {
+                            setPicking(null);
+                            if (locked) {
+                              onFirstModelChange?.(model.id);
+                              return;
+                            }
                             saveRaceModelChoice(agent.harness, model.id);
                             // Picking a model also races that agent, if there's room.
                             if (!chosen && !atLimit)
                               saveLanes(toggleRaceAgent(lanes, agent));
-                            setPicking(null);
                           }}
                           className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[12px] ${
                             selected

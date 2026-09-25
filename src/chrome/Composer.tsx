@@ -79,7 +79,7 @@ import type {
   UserQuestionPrompt,
   UserQuestionReply,
 } from "../lib/userQuestion";
-import { isImeComposition } from "../lib/keyboard";
+import { isImeComposition, moveMenuFocus } from "../lib/keyboard";
 import {
   createBlankSkill,
   rankSkills,
@@ -504,10 +504,14 @@ function ComposerComponent({
   const [plusOpen, setPlusOpen] = useState(false);
   const [planSelected, setPlanSelected] = useState(false);
   const [raceOn, setRaceOn] = useState(false);
+  // This chat's agent races on the chat's model unless the Race menu picks
+  // another one for it; changing the chat's model starts over.
+  const [raceModel, setRaceModel] = useState<string>();
+  useEffect(() => setRaceModel(undefined), [harness, model]);
   const { available: raceAvailable, lanes: raceLanes } = useRaceAgents(
     Boolean(onRace),
     harness,
-    model,
+    raceModel ?? model,
   );
   // A card is consumed by a normal send; a race would leave it attached.
   const raceBlocked =
@@ -1252,7 +1256,7 @@ function ComposerComponent({
               query={slash?.query ?? ""}
               active={skillActive}
               creating={creatingSkill}
-              cwd={cwd}
+              cwd={executionCwd}
               error={createError}
               busy={createBusy}
               onActive={setSkillActive}
@@ -1271,7 +1275,9 @@ function ComposerComponent({
               onCreate={(name, scope) => {
                 setCreateBusy(true);
                 setCreateError(null);
-                void createBlankSkill({ cwd, name, scope })
+                // Where the agent runs and the skill list is read: a race
+                // lane or worktree chat gets it in its own copy.
+                void createBlankSkill({ cwd: executionCwd, name, scope })
                   .then((path) => {
                     const el = ref.current;
                     const token = slashRef.current;
@@ -1468,9 +1474,16 @@ function ComposerComponent({
                   side="top"
                   align="start"
                   width={250}
-                  onDismiss={() => setPlusOpen(false)}
+                  autoFocus
+                  tabIndex={-1}
+                  aria-label="Add to message"
+                  onKeyDown={moveMenuFocus}
+                  onDismiss={(reason) => {
+                    setPlusOpen(false);
+                    if (reason === "escape") ref.current?.focus();
+                  }}
                   data-composer-plus
-                  className="p-1.5"
+                  className="p-1.5 outline-none"
                 >
                   <p className="px-2 pb-1 pt-0.5 text-[10px] font-medium uppercase tracking-wide text-content/40">
                     Add to message
@@ -1630,6 +1643,7 @@ function ComposerComponent({
                         setPlanSelected(false);
                         setOrchestrationSelected(false);
                       }}
+                      onFirstModelChange={setRaceModel}
                       onClose={() => ref.current?.focus()}
                     />
                   </div>

@@ -4,7 +4,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { registerHarness } from "../lib/harness/registry";
 import { codexAdapter } from "../lib/harness/codexAdapter";
-import { pickerModelsFor, setHarnessModels } from "../lib/models";
+import {
+  pickerModelsFor,
+  resetHarnessModelOverlays,
+  setHarnessModels,
+} from "../lib/models";
 import { HARNESS_TITLE } from "../lib/session";
 import { Composer } from "./Composer";
 
@@ -66,6 +70,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await act(async () => root.unmount());
+  resetHarnessModelOverlays();
   container.remove();
   document.body.innerHTML = "";
   vi.unstubAllGlobals();
@@ -224,5 +229,79 @@ it("races each agent on the model picked for it", async () => {
         label: `${HARNESS_TITLE.claude} · ${pick.name}`,
       },
     ],
+  );
+});
+
+it("lets this chat's agent race on another of its models", async () => {
+  // Codex lists its models at run time.
+  setHarnessModels("codex", [
+    { id: "gpt-5", harness: "codex", name: "GPT-5" },
+    { id: "gpt-5-mini", harness: "codex", name: "GPT-5 Mini" },
+  ]);
+  const pick = pickerModelsFor("codex").find((model) => model.id !== "gpt-5")!;
+  await render();
+  await act(async () => raceButton().click());
+  const chip = raceMenu().querySelector<HTMLButtonElement>(
+    `[aria-label^="${HARNESS_TITLE.codex} model:"]`,
+  )!;
+  expect(chip.disabled).toBe(false);
+  await act(async () => chip.click());
+  const option = [
+    ...raceMenu().querySelectorAll<HTMLButtonElement>('[role="option"]'),
+  ].find((item) => item.textContent === pick.name)!;
+  await act(async () => option.click());
+  await turnRaceOn();
+  await act(async () => sendButton().click());
+  expect(props.onRace).toHaveBeenCalledWith(
+    "Fix the login loop",
+    [],
+    [
+      expect.objectContaining({ harness: "codex", model: pick.id }),
+      expect.objectContaining({ harness: "claude" }),
+    ],
+  );
+  // Only for the race: the chat keeps its own model.
+  expect(props.onModelChange).not.toHaveBeenCalled();
+});
+
+it("offers the model in use while a provider's list is still loading", async () => {
+  await render();
+  await act(async () => raceButton().click());
+  const chip = raceMenu().querySelector<HTMLButtonElement>(
+    `[aria-label^="${HARNESS_TITLE.codex} model:"]`,
+  )!;
+  await act(async () => chip.click());
+  const options = [
+    ...raceMenu().querySelectorAll<HTMLButtonElement>('[role="option"]'),
+  ];
+  expect(options.map((item) => item.textContent)).toContain("gpt-5");
+  expect(
+    options
+      .find((item) => item.textContent === "gpt-5")
+      ?.getAttribute("aria-selected"),
+  ).toBe("true");
+});
+
+it("moves through the Race menu with the arrow keys", async () => {
+  await render();
+  await act(async () => raceButton().click());
+  expect(raceMenu()).toBe(document.activeElement);
+  const key = (name: string) =>
+    act(async () => {
+      (document.activeElement as HTMLElement).dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: name,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+  await key("ArrowDown");
+  expect(document.activeElement).toBe(
+    raceMenu().querySelector('input[type="checkbox"]'),
+  );
+  await key("End");
+  expect(document.activeElement?.getAttribute("aria-label")).toMatch(
+    /^Cursor model:/,
   );
 });

@@ -79,3 +79,47 @@ describe("popover focus leaving the main webview", () => {
     expect(dismissed).not.toHaveBeenCalled();
   });
 });
+
+describe("popover autofocus", () => {
+  let root: Root;
+  let anchor: HTMLButtonElement;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    anchor = document.createElement("button");
+    document.body.append(anchor);
+    root = createRoot(document.createElement("div"));
+    // Like a real browser: focus does nothing while the popover is still
+    // hidden for measuring.
+    const focus = HTMLElement.prototype.focus;
+    vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (
+      this: HTMLElement,
+      options?: FocusOptions,
+    ) {
+      if (this.closest<HTMLElement>('[style*="visibility: hidden"]')) return;
+      focus.call(this, options);
+    });
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    anchor.remove();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("takes focus once it is placed and visible", async () => {
+    await act(async () =>
+      root.render(
+        createElement(
+          Popover,
+          { anchor, autoFocus: true, tabIndex: -1, "aria-label": "Menu" },
+          createElement("button", null, "Item"),
+        ),
+      ),
+    );
+    expect(document.activeElement).toBe(
+      document.querySelector('[aria-label="Menu"]'),
+    );
+  });
+});

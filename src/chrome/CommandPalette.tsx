@@ -71,6 +71,8 @@ export type PaletteChatRequest = {
 
 type Props = {
   open: boolean;
+  /** Text to start with, e.g. a race that couldn't start. */
+  initialQuery?: string;
   onClose: () => void;
   project: PaletteProject;
   projects: readonly PaletteProject[];
@@ -116,6 +118,7 @@ export function CommandPalette(props: Props) {
 }
 
 function CommandPaletteBody({
+  initialQuery = "",
   onClose,
   project,
   projects,
@@ -137,7 +140,7 @@ function CommandPaletteBody({
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
   const [active, setActive] = useState(0);
   const [agentIndex, setAgentIndex] = useState(0);
   const targets = useMemo(

@@ -7428,8 +7428,10 @@ export default function App({
   }, [captureUtilityFocus]);
 
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteQuery, setPaletteQuery] = useState("");
   const onOpenPalette = useCallback(() => {
     setFilePickerOpen(false);
+    setPaletteQuery("");
     setPaletteOpen(true);
   }, []);
 
@@ -9722,6 +9724,7 @@ export default function App({
           ) : null}
           <CommandPalette
             open={paletteOpen}
+            initialQuery={paletteQuery}
             onClose={() => setPaletteOpen(false)}
             project={{
               path: projectCwd,
@@ -9748,7 +9751,14 @@ export default function App({
               );
             }}
             onStartChat={startPaletteChat}
-            onStartRace={(request) => void startRace(request)}
+            onStartRace={(request) =>
+              // A race that can't start explains why; keep what was typed.
+              void startRace(request).then((started) => {
+                if (started) return;
+                setPaletteQuery(request.text);
+                setPaletteOpen(true);
+              })
+            }
           />
 
           <ApprovalToasts

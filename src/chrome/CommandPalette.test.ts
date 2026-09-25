@@ -180,3 +180,18 @@ it("offers a race of the chosen agent against another, started with Option-Enter
   });
   expect(props.onStartChat).not.toHaveBeenCalled();
 });
+
+it("reopens with the text of a race that couldn't start", async () => {
+  await act(async () => root.unmount());
+  root = createRoot(document.createElement("div"));
+  await act(async () =>
+    root.render(
+      createElement(CommandPalette, {
+        ...props,
+        initialQuery: "fix the redirect loop",
+      }),
+    ),
+  );
+  expect(input().value).toBe("fix the redirect loop");
+  expect(text()).toContain("Race it");
+});

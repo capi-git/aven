@@ -190,9 +190,15 @@ export function Popover({
     };
   }, [place]);
 
+  // Focus once placed: the first pass is `visibility: hidden` for measuring,
+  // and a browser ignores focus on a hidden element.
+  const focused = useRef(false);
+  const placedOnce = position !== null;
   useEffect(() => {
-    if (autoFocus) surface.current?.focus();
-  }, [autoFocus]);
+    if (!autoFocus || !placedOnce || focused.current) return;
+    focused.current = true;
+    surface.current?.focus({ preventScroll: true });
+  }, [autoFocus, placedOnce]);
 
   useEffect(() => {
     if (!onDismiss) return;
