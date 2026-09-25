@@ -87,13 +87,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           task_version="$(node -p "require('./package.json').version")"
-          test -s release/latest.json
-          cd release && sha256sum -c SHA256SUMS && cd ..
+          task_release_dir="release/v$task_version"
+          test -s "$task_release_dir/latest.json"
+          (cd "$task_release_dir" && sha256sum -c SHA256SUMS)
           # Never attach a new binary to a tag that points at different source.
           if git ls-remote --exit-code --tags origin "refs/tags/v$task_version" > /dev/null 2>&1; then
             echo "Version tag already exists; choose a new release version." >&2
             exit 1
           fi
-          gh release create "v$task_version" release/* --repo "$GITHUB_REPOSITORY" \
+          gh release create "v$task_version" "$task_release_dir"/* --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" --title "Aven $task_version" --latest \
             --notes "Aven $task_version for Apple Silicon Macs. Updates are signed by Aven. The app remains ad-hoc signed and is not Apple-notarized. See CHANGELOG.md for changes."
