@@ -3,15 +3,29 @@
   // never return, persist, or submit field values. A URL cannot restore drafts.
   const blockers = new Set();
   if (document.readyState !== "complete") blockers.add("loading");
-  if (document.designMode === "on") blockers.add("editable-page");
+  // Only input the user gave this page can be lost. A page they have not
+  // clicked, typed in or dropped onto since it loaded holds no draft of theirs,
+  // whatever its fields, frames or editors contain. Aven tracks that natively
+  // (Chromium's activation flag also counts address-bar loads); without it,
+  // fall back to activation. Unknown state counts as touched.
+  const touched = typeof __avenTouched === "boolean"
+    ? __avenTouched
+    : navigator.userActivation?.hasBeenActive !== false;
+  if (touched && document.designMode === "on") blockers.add("editable-page");
   const roots = [document];
   let count = 0;
   for (const root of roots) {
     const walker = document.createTreeWalker(root, 1);
     for (let element = walker.nextNode(); element; element = walker.nextNode()) {
-      if (++count > 20000) return { blockers: ["complex-page"] };
+      if (++count > 20000) {
+        if (touched) return { blockers: ["complex-page"], touched };
+        break;
+      }
       const tag = element.localName;
       if (element.shadowRoot) roots.push(element.shadowRoot);
+      if ((tag === "audio" || tag === "video") && !element.paused && !element.ended)
+        blockers.add("media");
+      if (!touched) continue;
       // Cross-origin frames and opaque custom controls can contain drafts that
       // the parent document cannot inspect. Let the user finish that work.
       if (tag === "iframe" || tag === "frame") blockers.add("embedded-frame");
@@ -42,12 +56,10 @@
         if (!element.multiple && !defaults.some(Boolean) && options.length) defaults[0] = true;
         if (options.some((option, index) => option.selected !== defaults[index])) blockers.add("dirty-form");
       }
-      if ((tag === "audio" || tag === "video") && !element.paused && !element.ended)
-        blockers.add("media");
-      if (tag === "canvas" && navigator.userActivation?.hasBeenActive) blockers.add("interactive-content");
+      if (tag === "canvas") blockers.add("interactive-content");
     }
   }
   if (document.pictureInPictureElement || document.fullscreenElement) blockers.add("media");
   if (navigator.mediaSession?.playbackState === "playing") blockers.add("media");
-  return { blockers: [...blockers] };
+  return { blockers: [...blockers], touched };
 })()

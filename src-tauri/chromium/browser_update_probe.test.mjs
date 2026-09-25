@@ -4,13 +4,18 @@ import test from "node:test";
 import { Window } from "happy-dom";
 
 const script = readFileSync(new URL("./browser_update_probe.js", import.meta.url), "utf8");
-function fixture(markup = "<main><h1>Reference</h1><input type=search></main>") {
+function fixture(
+  markup = "<main><h1>Reference</h1><input type=search></main>",
+  activation = { hasBeenActive: true },
+) {
   const window = new Window();
   Object.defineProperty(window.document, "readyState", { value: "complete", configurable: true });
-  Object.defineProperty(window.navigator, "userActivation", { value: { hasBeenActive: true } });
+  Object.defineProperty(window.navigator, "userActivation", { value: activation });
   window.document.body.innerHTML = markup;
-  const probe = () => new Function("document", "navigator", `return ${script}`)(window.document, window.navigator);
-  return { window, probe };
+  const run = () => new Function("document", "navigator", `return ${script}`)(window.document, window.navigator);
+  // Callers check blockers; `touched` is covered on its own below.
+  const probe = () => ({ blockers: run().blockers });
+  return { window, probe, run };
 }
 
 test("ordinary visited page with empty search field can update without mutation", () => {
@@ -65,4 +70,37 @@ test("loading and active media block while paused ordinary media is allowed", ()
   assert.ok(probe().blockers.includes("media"));
   Object.defineProperty(window.document, "readyState", { value: "loading" });
   assert.ok(probe().blockers.includes("loading"));
+});
+
+test("a page the user never clicked or typed in closes whatever it contains", () => {
+  const { window, probe, run } = fixture(
+    "<input value=query><textarea>kept</textarea><iframe></iframe><div contenteditable=true></div><canvas></canvas><custom-editor role=textbox></custom-editor>",
+    { hasBeenActive: false },
+  );
+  window.document.body.querySelector("input").value = "search terms";
+  assert.deepEqual(probe(), { blockers: [] });
+  assert.equal(run().touched, false);
+  // Media still waits: closing would stop it.
+  Object.defineProperty(window.document.body.appendChild(window.document.createElement("video")), "paused", { value: false });
+  assert.deepEqual(probe(), { blockers: ["media"] });
+});
+
+test("unknown interaction state stays protected", () => {
+  const { window, probe, run } = fixture("<input>", undefined);
+  window.document.body.firstChild.value = "draft";
+  assert.deepEqual(probe(), { blockers: ["dirty-form"] });
+  assert.equal(run().touched, true);
+});
+
+test("Aven's own record of user input wins over Chromium's activation flag", () => {
+  // Chromium marks address-bar loads as activated; Aven counts real input.
+  const page = fixture("<input value=query><iframe></iframe>", { hasBeenActive: true });
+  globalThis.__avenTouched = false;
+  try {
+    assert.deepEqual(page.probe(), { blockers: [] });
+    globalThis.__avenTouched = true;
+    assert.deepEqual(page.probe(), { blockers: ["dirty-form", "embedded-frame"] });
+  } finally {
+    delete globalThis.__avenTouched;
+  }
 });

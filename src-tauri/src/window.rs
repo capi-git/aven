@@ -198,7 +198,9 @@ pub async fn prepare_update_restart(
     match crate::browser::prepare_update_restart(app).await {
         Ok(pages) => Ok(pages),
         Err(error) => {
-            crate::browser::cancel_update_restart(app).await?;
+            // Always leave update mode, even if a tab could not be restored:
+            // a held reservation blocks every later task and browser action.
+            let _ = crate::browser::cancel_update_restart(app).await;
             let _ = state.cancel(owner);
             Err(error)
         }
@@ -216,12 +218,12 @@ pub async fn finish_update_restart_preparation(caller: Webview) -> Result<(), St
         return Err("Update restart preparation is no longer active in this window".into());
     }
     if let Err(error) = check_update_idle(app, owner).await {
-        crate::browser::cancel_update_restart(app).await?;
+        let _ = crate::browser::cancel_update_restart(app).await;
         let _ = state.cancel(owner);
         return Err(error);
     }
     if let Err(error) = crate::browser::finish_update_restart(app).await {
-        crate::browser::cancel_update_restart(app).await?;
+        let _ = crate::browser::cancel_update_restart(app).await;
         let _ = state.cancel(owner);
         return Err(error);
     }
@@ -232,10 +234,13 @@ pub async fn finish_update_restart_preparation(caller: Webview) -> Result<(), St
 pub async fn cancel_update_restart(caller: Webview) -> Result<(), String> {
     let owner = update_caller(&caller)?;
     let app = caller.app_handle();
-    if app.state::<UpdateRestartState>().owns(owner) {
-        crate::browser::cancel_update_restart(app).await?;
-    }
-    app.state::<UpdateRestartState>().cancel(owner)
+    let restored = if app.state::<UpdateRestartState>().owns(owner) {
+        crate::browser::cancel_update_restart(app).await
+    } else {
+        Ok(())
+    };
+    app.state::<UpdateRestartState>().cancel(owner)?;
+    restored
 }
 
 #[tauri::command]

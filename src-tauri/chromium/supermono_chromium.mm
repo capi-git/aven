@@ -58,6 +58,7 @@ int live_browser_count = 0;
 __strong SMChromiumPump *pump_handler=nil;
 __strong NSTimer *pump_timer=nil;
 __strong id backing_scale_observer=nil;
+__strong id input_monitor=nil;
 bool pump_active=false,pump_reentered=false;
 constexpr int64_t kPumpFallback=INT_MAX;
 constexpr int64_t kPumpMaximumDelay=1000/30;
@@ -279,7 +280,7 @@ class FaviconDownload final : public CefDownloadImageCallback {
 class Page final : public CefClient, public CefLifeSpanHandler, public CefDisplayHandler,
   public CefLoadHandler, public CefRequestHandler, public CefDownloadHandler,
   public CefPermissionHandler, public CefKeyboardHandler, public CefFindHandler, public CefFocusHandler,
-  public CefDevToolsMessageObserver, public CefJSDialogHandler {
+  public CefDevToolsMessageObserver, public CefJSDialogHandler, public CefDragHandler {
  public:
   explicit Page(std::string id) : id_(std::move(id)) {}
   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
@@ -292,6 +293,11 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   CefRefPtr<CefFindHandler> GetFindHandler() override { return this; }
   CefRefPtr<CefFocusHandler> GetFocusHandler() override { return this; }
   CefRefPtr<CefJSDialogHandler> GetJSDialogHandler() override { return this; }
+  CefRefPtr<CefDragHandler> GetDragHandler() override { return this; }
+  bool OnDragEnter(CefRefPtr<CefBrowser> browser,CefRefPtr<CefDragData>,DragOperationsMask) override {
+    if (Main(browser)) user_input_=true;
+    return false;
+  }
   bool OnJSDialog(CefRefPtr<CefBrowser>,const CefString&,JSDialogType,const CefString&,
       const CefString&,CefRefPtr<CefJSDialogCallback>,bool&) override {
     js_dialog_open_=true; sleep_.Invalidate(); return false;
@@ -410,8 +416,12 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     }
   }
   void OnTitleChange(CefRefPtr<CefBrowser> browser,const CefString& title) override { if (Main(browser)) { title_=title.ToString(); State(); } }
-  void OnLoadStart(CefRefPtr<CefBrowser> browser,CefRefPtr<CefFrame> frame,TransitionType) override {
+  void OnLoadStart(CefRefPtr<CefBrowser> browser,CefRefPtr<CefFrame> frame,TransitionType transition) override {
     if (Main(browser) && frame->IsMain()) {
+      // A new document holds no draft. Back, forward and reload can restore
+      // form values, so they keep the page marked as touched.
+      const int kind=transition;
+      if (!(kind & TT_FORWARD_BACK_FLAG) && (kind & TT_SOURCE_MASK)!=TT_RELOAD) user_input_=false;
       // Previous builds stored Chromium's host-shared zoom. Keep that baseline
       // at 100%; all user zoom changes below belong only to this live target.
       if (browser->GetHost()->GetZoomLevel()!=0) browser->GetHost()->SetZoomLevel(0);
@@ -447,7 +457,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   }
   bool OnPreKeyEvent(CefRefPtr<CefBrowser> browser,const CefKeyEvent& event,CefEventHandle os_event,bool *shortcut) override {
     if (Main(browser) && update_prepared_) return true;
-    if (Main(browser)) sleep_.Invalidate();
+    if (Main(browser)) { sleep_.Invalidate(); user_input_=true; }
     if (Main(browser) && EditActive() && event.windows_key_code==27 &&
         (event.type==KEYEVENT_RAWKEYDOWN || event.type==KEYEVENT_KEYDOWN)) {
       EditMode(false); return true;
@@ -754,7 +764,15 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     if (!visible_ || clip_view_.hidden) [drop_indicator_ clear];
     return accepted;
   }
+  // Chromium's own activation flag also counts address-bar loads, so update
+  // restarts rely on these: keys, clicks and drops the user sent this page.
+  void NoteMouseDown(NSEvent *event) {
+    if (!clip_view_ || clip_view_.hidden || event.window!=clip_view_.window) return;
+    const NSPoint point=[clip_view_ convertPoint:event.locationInWindow fromView:nil];
+    if (NSPointInRect(point,clip_view_.bounds)) user_input_=true;
+  }
   bool CancelUpdate() {
+    if (!update_prepared_) return true;
     if (sleep_.active()) return false;
     update_prepared_=false; update_url_.clear(); Layout();
     return true;
@@ -810,7 +828,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     }
     else if (action=="snapshot") { Screenshot(request); return; }
     else if (action=="dom") { Dom(request,cmd->GetDictionary("request")); return; }
-    else if (action=="press") { Press(request,Text(cmd,"key")); return; }
+    else if (action=="press") { user_input_=true; Press(request,Text(cmd,"key")); return; }
     else if (action=="scroll") { Scroll(request,Number(cmd,"deltaX"),Number(cmd,"deltaY")); return; }
     else { Result(id_,request,false,Error("Unknown Chromium command")); return; }
     Result(id_,request,true,Object());
@@ -905,10 +923,11 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       auto params=Object(); params->SetInt("depth",-1); params->SetBool("pierce",true);
       Dev("DOM.getDocument",params,[self,generation,close](bool ok,Dict response) {
         if (!self->sleep_.Current(generation)) { self->FinishSleep(generation,{"page-changed"}); return; }
+        // Closed shadow editors matter only if the user has touched the page;
+        // the document probe reports that and applies this blocker.
         const auto blocker=ok && response
           ? supermono::BrowserUpdateDomBlocker(response->GetDictionary("root")) : "unknown-page-state";
-        if (!blocker.empty()) { self->FinishSleep(generation,{blocker}); return; }
-        self->ProbeSleepDocument(generation,close,true);
+        self->ProbeSleepDocument(generation,close,true,blocker);
       });
       return;
     }
@@ -925,16 +944,19 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       });
     });
   }
-  void ProbeSleepDocument(uint64_t generation,bool close,bool update=false) {
+  void ProbeSleepDocument(uint64_t generation,bool close,bool update=false,std::string dom_blocker="") {
     CefRefPtr<Page> self=this;
-    EnsureWorld([self,generation,close,update](bool ok,Dict) {
+    EnsureWorld([self,generation,close,update,dom_blocker](bool ok,Dict) {
       if (!self->sleep_.Current(generation)) { self->FinishSleep(generation,{"page-changed"}); return; }
       if (!ok) { self->FinishSleep(generation,{"unknown-page-state"}); return; }
-      auto params=Object(); params->SetString("expression",update ? kBrowserUpdateProbe : kBrowserSleepProbe);
+      auto params=Object();
+      params->SetString("expression",update
+        ? std::string("var __avenTouched=")+(self->user_input_?"true":"false")+";\n"+kBrowserUpdateProbe
+        : std::string(kBrowserSleepProbe));
       params->SetInt("contextId",self->context_id_); params->SetBool("returnByValue",true);
       params->SetBool("awaitPromise",false); params->SetInt("timeout",1000);
       // No userGesture: a read-only eligibility probe must not activate a page.
-      self->Dev("Runtime.evaluate",params,[self,generation,close,update](bool ok,Dict response) {
+      self->Dev("Runtime.evaluate",params,[self,generation,close,update,dom_blocker](bool ok,Dict response) {
         if (!self->sleep_.Current(generation)) { self->FinishSleep(generation,{"page-changed"}); return; }
         auto remote=response ? response->GetDictionary("result") : nullptr;
         auto value=remote ? remote->GetDictionary("value") : nullptr;
@@ -945,6 +967,9 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
         auto blockers=self->SleepBlockers(update);
         if (update && self->update_url_!=self->browser_->GetMainFrame()->GetURL().ToString())
           blockers.push_back("page-changed");
+        // Missing activation state counts as touched.
+        const bool touched=value->GetType("touched")!=VTYPE_BOOL || value->GetBool("touched");
+        if (update && touched && !dom_blocker.empty()) blockers.push_back(dom_blocker);
         for (size_t i=0;i<list->GetSize();++i) {
           if (list->GetType(i)!=VTYPE_STRING) { blockers.push_back("unknown-page-state"); break; }
           blockers.push_back(list->GetString(i).ToString());
@@ -1227,6 +1252,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     operation=supermono::OwnAgentDomRequest(operation);
     const auto action=Text(operation,"action");
     if (!operation || (action!="snapshot"&&action!="fill"&&action!="click") || Json(operation).size()>70000) { Result(id_,request,false,Error("Invalid browser action")); return; }
+    if (action!="snapshot") user_input_=true;
     CefRefPtr<Page> self=this;
     EnsureWorld([self,request,operation](bool ok,Dict world) {
       if (!ok) { Result(self->id_,request,false,world); return; }
@@ -1353,7 +1379,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   supermono::BrowserCornerMaskState corner_mask_;
   std::vector<Completion> zoom_waiters_;
   bool closing_=false;
-  bool update_prepared_=false, update_attempt_=false;
+  bool update_prepared_=false, update_attempt_=false, user_input_=false;
   std::string update_url_;
   supermono::BrowserSleepState sleep_;
   std::string sleep_request_;
@@ -1376,6 +1402,7 @@ void FinishShutdownNow() {
     [NSNotificationCenter.defaultCenter removeObserver:backing_scale_observer];
     backing_scale_observer=nil;
   }
+  if (input_monitor) { [NSEvent removeMonitor:input_monitor]; input_monitor=nil; }
   profiles.clear(); CefShutdown(); initialized=false; application=nullptr;
   // Cocoa runtime classes remain registered until process exit, so retain the
   // loaded framework. CefScopedSendingEvent itself only calls NSApp selectors.
@@ -1443,6 +1470,13 @@ extern "C" int sm_chromium_initialize(const char *config_json,sm_chromium_event_
           if (entry.second->parent_.window==notification.object)
             entry.second->RefreshBackingScale();
         }
+      }];
+    // Clicks go straight to Chromium's views; note which page they land in.
+    input_monitor=[NSEvent addLocalMonitorForEventsMatchingMask:
+        NSEventMaskLeftMouseDown|NSEventMaskRightMouseDown|NSEventMaskOtherMouseDown
+      handler:^NSEvent *(NSEvent *event) {
+        if (initialized && !stopping) for (const auto& entry:pages) entry.second->NoteMouseDown(event);
+        return event;
       }];
     SchedulePump(0); last_error.clear(); return 1;
   } catch (const std::exception& e) { return Fail(e.what()); } catch (...) { return Fail("Chromium initialization failed"); } }
@@ -1518,8 +1552,10 @@ extern "C" int sm_chromium_live_browser_count() { return MainThread() ? live_bro
 extern "C" int sm_chromium_cancel_update() {
   @autoreleasepool {
     if (!MainThread()) return 0;
-    for (const auto& entry:pages) if (!entry.second->CancelUpdate()) return Fail("Browser close is still in progress");
-    return 1;
+    // Restore every page that can be restored, even if one is still closing.
+    bool restored=true;
+    for (const auto& entry:pages) if (!entry.second->CancelUpdate()) restored=false;
+    return restored ? 1 : Fail("Browser close is still in progress");
   }
 }
 extern "C" void sm_chromium_shutdown() {

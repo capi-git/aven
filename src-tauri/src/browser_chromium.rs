@@ -290,27 +290,38 @@ fn update_page_error(state: &BrowserState, blockers: &[String]) -> String {
     } else {
         &state.title
     };
-    let reason = if blockers.iter().any(|reason| {
-        matches!(
-            reason.as_str(),
-            "dirty-form" | "editable-page" | "before-unload"
-        )
-    }) {
-        "may contain unsaved work. Save it in the page, then retry the update"
-    } else if blockers.iter().any(|reason| reason == "download") {
-        "has an active download. Let it finish, then retry the update"
-    } else if blockers
-        .iter()
-        .any(|reason| matches!(reason.as_str(), "page-changed" | "loading"))
-    {
-        "changed while preparing the update. Retry when it has finished loading"
-    } else {
-        "has browser activity that cannot be safely restored yet. Finish that activity, then retry the update"
-    };
     format!(
-        "{} {reason}. Your tabs will stay available.",
-        page.chars().take(120).collect::<String>()
+        "{} {}, then restart to update again. Your tabs stay available.",
+        page.chars().take(120).collect::<String>(),
+        update_block_reason(blockers)
     )
+}
+
+/// Say what to do: most of these are fixed by closing that one tab.
+fn update_block_reason(blockers: &[String]) -> &'static str {
+    let has = |names: &[&str]| {
+        blockers
+            .iter()
+            .any(|reason| names.contains(&reason.as_str()))
+    };
+    if has(&[
+        "dirty-form",
+        "editable-page",
+        "before-unload",
+        "embedded-frame",
+    ]) {
+        "may have unsaved work you typed. Save it or close the tab"
+    } else if has(&["download"]) {
+        "is downloading a file. Let it finish"
+    } else if has(&["page-changed", "loading"]) {
+        "is still loading. Wait a moment"
+    } else if has(&["media", "media-capture", "web-audio"]) {
+        "is playing media or using the camera or microphone. Stop it or close the tab"
+    } else if has(&["dialog"]) {
+        "is showing a dialog. Answer it"
+    } else {
+        "can't be closed automatically. Close the tab"
+    }
 }
 
 fn update_lock() -> &'static tauri::async_runtime::Mutex<()> {
@@ -410,17 +421,16 @@ pub(crate) async fn cancel_update_restart(app: &AppHandle) -> Result<(), String>
     // reservation. Rollback uses native view state only: it cannot depend on a
     // renderer/CDP response, and already-closed pages need no cancellation.
     let _lock = update_lock().lock().await;
-    on_main_dispatch(
+    let restored = on_main_dispatch(
         app,
         || native_result(unsafe { sm_chromium_cancel_update() }),
         true,
     )
-    .await?;
-    registry()
-        .lock()
-        .map_err(|_| "Browser is unavailable")?
-        .update_pages = None;
-    Ok(())
+    .await;
+    if let Ok(mut entries) = registry().lock() {
+        entries.update_pages = None;
+    }
+    restored
 }
 
 fn string(value: &str) -> Result<CString, String> {
@@ -2293,7 +2303,25 @@ async fn workspace_pages_condition(
 
 #[cfg(test)]
 mod tests {
-    use super::BrowserDropIndicator;
+    use super::{update_block_reason, BrowserDropIndicator};
+
+    #[test]
+    fn update_blockers_say_what_to_do() {
+        let reason = |names: &[&str]| {
+            update_block_reason(
+                &names
+                    .iter()
+                    .map(|name| name.to_string())
+                    .collect::<Vec<_>>(),
+            )
+        };
+        assert!(reason(&["embedded-frame"]).contains("unsaved work"));
+        assert!(reason(&["media", "dirty-form"]).contains("unsaved work"));
+        assert!(reason(&["download"]).contains("downloading"));
+        assert!(reason(&["media-capture"]).contains("camera"));
+        assert!(reason(&["complex-page"]).contains("Close the tab"));
+        assert!(reason(&["probe-timeout"]).contains("Close the tab"));
+    }
 
     #[test]
     fn drop_indicator_rejects_invalid_geometry_and_unbounded_labels() {

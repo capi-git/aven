@@ -12,7 +12,7 @@
     "test:watch": "vitest",
     "check": "npm run check:web && npm run check:tooling && npm run check:rust",
     "check:web": "vitest run && tsc --noEmit",
-    "check:tooling": "python3 -B scripts/test-package-chromium.py && python3 -B scripts/test-dev-aven.py && python3 -B scripts/test-package-update.py && python3 -B scripts/test-bump-version.py",
+    "check:tooling": "python3 -B scripts/test-package-chromium.py && python3 -B scripts/test-dev-aven.py && python3 -B scripts/test-package-update.py && python3 -B scripts/test-bump-version.py && node --test src-tauri/chromium/browser_sleep_probe.test.mjs src-tauri/chromium/browser_update_probe.test.mjs",
     "check:rust": "cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test",
     "set-version": "node scripts/bump-version.mjs",
     "tauri": "tauri",
