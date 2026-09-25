@@ -41,6 +41,22 @@ afterEach(() => {
 });
 
 describe("session persistence concurrency", () => {
+  it("uses the complete project inventory instead of filtered sidebar history", async () => {
+    mocks.invoke.mockResolvedValue(["lead", "hidden-worker", "empty-chat"]);
+    const { listProjectSessionIds } = await loadStore();
+    await expect(listProjectSessionIds("/tmp/project/")).resolves.toEqual([
+      "lead",
+      "hidden-worker",
+      "empty-chat",
+    ]);
+    expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith(
+      "session_list_project_ids",
+      {
+        cwd: "/tmp/project",
+      },
+    );
+  });
+
   it("drains worker writes before deleting a lead and strips ownership from later snapshots", async () => {
     const firstWrite = deferred<unknown>();
     const commands: string[] = [];

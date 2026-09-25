@@ -220,6 +220,14 @@ export async function listSessionsByProject(
   return rows.map(normalizeSummary);
 }
 
+/** Complete project inventory; sidebar history intentionally hides some rows. */
+export async function listProjectSessionIds(cwd: string): Promise<string[]> {
+  if (!cwd || cwd === "~") return [];
+  return invoke<string[]>("session_list_project_ids", {
+    cwd: normalizeProjectPath(cwd),
+  });
+}
+
 export type SessionSearchHit = {
   kind: "conversation" | "message";
   sessionId: string;

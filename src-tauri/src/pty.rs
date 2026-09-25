@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 #[cfg(unix)]
-use std::os::unix::io::AsRawFd;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -40,7 +40,7 @@ struct PtyExit {
 struct LivePty {
     writer: Mutex<Box<dyn Write + Send>>,
     #[cfg(unix)]
-    master_fd: i32,
+    master_fd: OwnedFd,
     #[cfg(windows)]
     master: Mutex<Box<dyn portable_pty::MasterPty + Send>>,
     pid: u32,
@@ -108,7 +108,6 @@ impl PtyHost {
             #[cfg(unix)]
             {
                 hangup(live.pid);
-                close_fd(live.master_fd);
             }
             #[cfg(not(unix))]
             drop(live);
@@ -142,8 +141,6 @@ pub fn pty_spawn(
     }
     if let Some(prev) = host.remove(&id) {
         terminate(prev.pid);
-        #[cfg(unix)]
-        close_fd(prev.master_fd);
     }
 
     #[cfg(unix)]
@@ -188,7 +185,7 @@ pub fn pty_resize(host: State<PtyHost>, id: String, cols: u16, rows: u16) -> Res
         .ok_or_else(|| "Terminal is not running".to_string())?;
     #[cfg(unix)]
     {
-        resize_fd(live.master_fd, cols.max(2), rows.max(2))
+        resize_fd(live.master_fd.as_raw_fd(), cols.max(2), rows.max(2))
     }
     #[cfg(windows)]
     {
@@ -224,7 +221,7 @@ pub fn pty_status(host: State<'_, PtyHost>, id: String) -> Result<PtyStatus, Str
         .ok_or_else(|| "Terminal is not running".to_string())?;
     #[cfg(unix)]
     {
-        let foreground = foreground_label(live.master_fd, live.pid);
+        let foreground = foreground_label(live.master_fd.as_raw_fd(), live.pid);
         Ok(PtyStatus { foreground })
     }
     #[cfg(not(unix))]
@@ -238,8 +235,6 @@ pub fn pty_status(host: State<'_, PtyHost>, id: String) -> Result<PtyStatus, Str
 pub fn pty_kill(host: State<PtyHost>, id: String) -> Result<(), String> {
     if let Some(live) = host.remove(&id) {
         terminate(live.pid);
-        #[cfg(unix)]
-        close_fd(live.master_fd);
     }
     Ok(())
 }
@@ -262,20 +257,23 @@ fn spawn_unix(
     rows: u16,
 ) -> Result<(), String> {
     use std::fs::File;
-    use std::os::unix::io::FromRawFd;
     use std::os::unix::process::CommandExt;
     use std::process::Command;
 
     let workdir = working_dir(&cwd);
     let (shell, args) = default_shell();
     let (master, slave) = open_pty(cols, rows)?;
+    // Allocate everything before forking. Any setup failure drops all the FDs
+    // without leaving an unregistered shell behind.
+    let reader = File::from(dup_fd(master.as_raw_fd())?);
+    let writer = File::from(dup_fd(master.as_raw_fd())?);
 
     let mut cmd = Command::new(&shell);
     cmd.args(&args)
         .current_dir(&workdir)
-        .stdin(dup_stdio(slave)?)
-        .stdout(dup_stdio(slave)?)
-        .stderr(dup_stdio(slave)?)
+        .stdin(dup_stdio(slave.as_raw_fd())?)
+        .stdout(dup_stdio(slave.as_raw_fd())?)
+        .stderr(dup_stdio(slave.as_raw_fd())?)
         .env("TERM", "xterm-256color")
         .env("COLORTERM", "truecolor")
         .env("COLORFGBG", "15;0")
@@ -290,7 +288,7 @@ fn spawn_unix(
     // setsid() already creates a new session and process group. Calling
     // process_group(0) first makes the child a group leader, so setsid()
     // fails with EPERM ("Operation not permitted").
-    let slave_fd = slave;
+    let slave_fd = slave.as_raw_fd();
     unsafe {
         cmd.pre_exec(move || {
             if libc::setsid() < 0 {
@@ -308,12 +306,8 @@ fn spawn_unix(
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("Failed to start {shell}: {e}"))?;
-    close_fd(slave);
+    drop(slave);
     let pid = child.id();
-
-    set_cloexec(master);
-    let reader = unsafe { File::from_raw_fd(dup_fd(master)?) };
-    let writer = unsafe { File::from_raw_fd(dup_fd(master)?) };
 
     let live = Arc::new(LivePty {
         writer: Mutex::new(Box::new(writer)),
@@ -365,12 +359,7 @@ fn spawn_unix(
         // previous wait thread must not paint "[process exited]" on the new PTY
         // or yank the replacement out of the host map.
         let emit = if let Some(host) = wait_app.try_state::<PtyHost>() {
-            if let Some(live) = host.remove_if_pid(&wait_id, pid) {
-                close_fd(live.master_fd);
-                true
-            } else {
-                false
-            }
+            host.remove_if_pid(&wait_id, pid).is_some()
         } else {
             false
         };
@@ -581,28 +570,29 @@ fn terminate(pid: u32) {
 }
 
 #[cfg(unix)]
-fn open_pty(cols: u16, rows: u16) -> Result<(i32, i32), String> {
-    let master = unsafe { libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY) };
+fn open_pty(cols: u16, rows: u16) -> Result<(OwnedFd, OwnedFd), String> {
+    let master = unsafe { libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC) };
     if master < 0 {
         return Err(os_err("Failed to open terminal"));
     }
-    if unsafe { libc::grantpt(master) } != 0 || unsafe { libc::unlockpt(master) } != 0 {
-        close_fd(master);
+    let master = unsafe { OwnedFd::from_raw_fd(master) };
+    if unsafe { libc::grantpt(master.as_raw_fd()) } != 0
+        || unsafe { libc::unlockpt(master.as_raw_fd()) } != 0
+    {
         return Err(os_err("Failed to unlock terminal"));
     }
-    let name = slave_name(master).inspect_err(|_| {
-        close_fd(master);
-    })?;
-    let slave = unsafe { libc::open(name.as_ptr(), libc::O_RDWR | libc::O_NOCTTY) };
+    let name = slave_name(master.as_raw_fd())?;
+    let slave = unsafe {
+        libc::open(
+            name.as_ptr(),
+            libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC,
+        )
+    };
     if slave < 0 {
-        close_fd(master);
         return Err(os_err("Failed to open terminal slave"));
     }
-    if let Err(err) = resize_fd(master, cols, rows) {
-        close_fd(master);
-        close_fd(slave);
-        return Err(err);
-    }
+    let slave = unsafe { OwnedFd::from_raw_fd(slave) };
+    resize_fd(master.as_raw_fd(), cols, rows)?;
     Ok((master, slave))
 }
 
@@ -645,38 +635,19 @@ fn resize_fd(fd: i32, cols: u16, rows: u16) -> Result<(), String> {
 }
 
 #[cfg(unix)]
-fn dup_fd(fd: i32) -> Result<i32, String> {
-    let next = unsafe { libc::dup(fd) };
+fn dup_fd(fd: i32) -> Result<OwnedFd, String> {
+    // dup() clears FD_CLOEXEC. Set it atomically on every copy so unrelated
+    // terminals and agent children cannot inherit another terminal's handles.
+    let next = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0) };
     if next < 0 {
         return Err(os_err("Failed to duplicate terminal"));
     }
-    Ok(next)
+    Ok(unsafe { OwnedFd::from_raw_fd(next) })
 }
 
 #[cfg(unix)]
 fn dup_stdio(fd: i32) -> Result<std::process::Stdio, String> {
-    use std::os::unix::io::FromRawFd;
-    let next = dup_fd(fd)?;
-    Ok(unsafe { std::process::Stdio::from_raw_fd(next) })
-}
-
-#[cfg(unix)]
-fn set_cloexec(fd: i32) {
-    unsafe {
-        let flags = libc::fcntl(fd, libc::F_GETFD);
-        if flags >= 0 {
-            libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC);
-        }
-    }
-}
-
-#[cfg(unix)]
-fn close_fd(fd: i32) {
-    if fd >= 0 {
-        unsafe {
-            libc::close(fd);
-        }
-    }
+    Ok(std::process::Stdio::from(dup_fd(fd)?))
 }
 
 #[cfg(unix)]
@@ -834,6 +805,42 @@ mod tests {
     }
 
     #[test]
+    fn pty_handles_are_close_on_exec() {
+        let (master, slave) = open_pty(80, 24).unwrap();
+        let reader = dup_fd(master.as_raw_fd()).unwrap();
+        let writer = dup_fd(master.as_raw_fd()).unwrap();
+        for fd in [&master, &slave, &reader, &writer] {
+            let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFD) };
+            assert!(flags >= 0);
+            assert_ne!(
+                flags & libc::FD_CLOEXEC,
+                0,
+                "terminal FD can leak into children"
+            );
+        }
+    }
+
+    #[test]
+    fn pty_stdio_remains_connected_after_exec() {
+        let (master, slave) = open_pty(80, 24).unwrap();
+        let mut reader = std::fs::File::from(dup_fd(master.as_raw_fd()).unwrap());
+        let status = std::process::Command::new("/bin/sh")
+            .args(["-c", "printf pty-output"])
+            .stdin(std::process::Stdio::null())
+            .stdout(dup_stdio(slave.as_raw_fd()).unwrap())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success());
+        // Keep a slave handle until the read finishes: macOS can discard the
+        // output queue when the final slave closes after this short-lived child.
+        let mut bytes = [0; 10];
+        reader.read_exact(&mut bytes).unwrap();
+        assert_eq!(&bytes, b"pty-output");
+        drop(slave);
+    }
+
+    #[test]
     fn remove_if_pid_ignores_a_replaced_session() {
         let host = PtyHost::new();
         assert!(host.ensure_update_idle().is_ok());
@@ -841,7 +848,7 @@ mod tests {
             "term".into(),
             Arc::new(LivePty {
                 writer: Mutex::new(Box::new(std::io::sink())),
-                master_fd: -1,
+                master_fd: std::fs::File::open("/dev/null").unwrap().into(),
                 pid: 42,
             }),
         );

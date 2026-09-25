@@ -15,8 +15,14 @@ type Props = {
  * Delete drops the project from the rail and its saved chats. The folder on
  * disk is left alone; opening it again brings the project back empty.
  */
-export function RemoveProjectDialog({ name, path, onCancel, onConfirm }: Props) {
+export function RemoveProjectDialog({
+  name,
+  path,
+  onCancel,
+  onConfirm,
+}: Props) {
   const [sessions, setSessions] = useState<number | null>(null);
+  const [countError, setCountError] = useState(false);
   const cancelRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -25,9 +31,15 @@ export function RemoveProjectDialog({ name, path, onCancel, onConfirm }: Props) 
 
   useEffect(() => {
     let cancelled = false;
-    void projectSessionCount(path).then((count) => {
-      if (!cancelled) setSessions(count);
-    });
+    setSessions(null);
+    setCountError(false);
+    void projectSessionCount(path)
+      .then((count) => {
+        if (!cancelled) setSessions(count);
+      })
+      .catch(() => {
+        if (!cancelled) setCountError(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -59,15 +71,20 @@ export function RemoveProjectDialog({ name, path, onCancel, onConfirm }: Props) 
             Delete “{name}”?
           </h2>
           <p className="text-[12px] leading-snug text-content/55">
-            All conversations for this project will be deleted. It also
-            leaves the sidebar. The folder on disk stays put, and opening it
-            again brings the project back empty.
+            All conversations for this project, including agent conversations,
+            will be deleted. It also leaves the sidebar. The folder on disk
+            stays put, and opening it again brings the project back empty.
           </p>
           {sessions != null && sessions > 0 ? (
             <p className="text-[12px] leading-snug text-content/45">
               {sessions === 1
                 ? "1 saved conversation will be removed."
                 : `${sessions} saved conversations will be removed.`}
+            </p>
+          ) : null}
+          {countError ? (
+            <p role="alert" className="text-[12px] leading-snug text-red-300">
+              Could not load this project's conversations. Cancel and try again.
             </p>
           ) : null}
           <p className="truncate text-[11px] leading-tight text-content/40">
@@ -87,7 +104,8 @@ export function RemoveProjectDialog({ name, path, onCancel, onConfirm }: Props) 
           <button
             type="button"
             onClick={onConfirm}
-            className="rounded-md bg-red-500/20 px-3 py-1.5 text-[12px] font-medium text-red-300 hover:bg-red-500/30"
+            disabled={sessions == null || countError}
+            className="rounded-md bg-red-500/20 px-3 py-1.5 text-[12px] font-medium text-red-300 hover:bg-red-500/30 disabled:opacity-50"
           >
             Delete
           </button>

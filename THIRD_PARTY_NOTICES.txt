@@ -1519,10 +1519,10 @@ Text [143368af9701a24ebaf8]: LICENSE-APACHE
 Text [ae6e99144a735503e5b5]: LICENSE-Apache-2.0_WITH_LLVM-exception
 Text [23f18e03dc49df91622f]: LICENSE-MIT
 
-cargo:rustls@0.23.43
+cargo:rustls@0.23.45
 Declared license: Apache-2.0 OR ISC OR MIT
 Source: https://github.com/rustls/rustls
-Source archive: https://crates.io/api/v1/crates/rustls/0.23.43/download
+Source archive: https://crates.io/api/v1/crates/rustls/0.23.45/download
 Text [143368af9701a24ebaf8]: LICENSE-APACHE
 Text [7cfafc877eccc46c0e34]: LICENSE-ISC
 Text [709e3175b4212f7b13aa]: LICENSE-MIT

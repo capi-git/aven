@@ -57,6 +57,7 @@ const NOTE_SLUG_RE = /(^|\s)@note\/([A-Za-z0-9_-]+)/g;
 
 let cache: Note[] | null = null;
 let inflight: Promise<Note[]> | null = null;
+let generation = 0;
 
 export function peekNotes(): Note[] | null {
   return cache;
@@ -64,21 +65,31 @@ export function peekNotes(): Note[] | null {
 
 export function invalidateNotes() {
   cache = null;
+  inflight = null;
+  generation += 1;
 }
 
 export async function loadNotes(refresh = false): Promise<Note[]> {
   if (!refresh && cache) return cache;
   if (!refresh && inflight) return inflight;
 
+  const request = ++generation;
   const promise = invoke<Note[]>("notes_list")
-    .then((notes) => {
-      cache = notes;
-      return notes;
-    })
-    .catch(() => {
-      if (!cache) cache = [];
-      return cache;
-    })
+    .then(
+      (notes) => {
+        // A newer read or completed mutation owns the current snapshot. Old
+        // callers join it too, so their UI cannot resurrect deleted notes.
+        if (request !== generation) return inflight ?? loadNotes();
+        cache = notes;
+        return notes;
+      },
+      (error: unknown) => {
+        if (request !== generation) return inflight ?? loadNotes();
+        // Leave the last successful cache intact, but let callers distinguish
+        // unavailable storage from a genuinely empty collection and retry.
+        throw error;
+      },
+    )
     .finally(() => {
       if (inflight === promise) inflight = null;
     });
@@ -93,13 +104,13 @@ export async function getNote(id: string): Promise<Note | null> {
 
 export async function upsertNote(note: NoteUpsert): Promise<Note> {
   const saved = await invoke<Note>("notes_upsert", { note });
-  cache = null;
+  invalidateNotes();
   return saved;
 }
 
 export async function deleteNote(id: string): Promise<void> {
   await invoke("notes_delete", { id });
-  cache = null;
+  invalidateNotes();
 }
 
 export async function createNote(input: {
@@ -113,7 +124,9 @@ export async function createNote(input: {
     id: crypto.randomUUID(),
     title: (input.title ?? noteTitle(body)).slice(0, MAX_TITLE),
     body,
-    ...(input.sourceSessionId ? { sourceSessionId: input.sourceSessionId } : {}),
+    ...(input.sourceSessionId
+      ? { sourceSessionId: input.sourceSessionId }
+      : {}),
     ...(input.sourceCwd ? { sourceCwd: input.sourceCwd } : {}),
   });
 }

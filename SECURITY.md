@@ -8,7 +8,7 @@ If private reporting is unavailable, open an issue asking the maintainer for a p
 
 ## Scope and updates
 
-Security fixes target the latest Aven release. Older releases are not maintained separately. Updates are distributed manually through [Aven Releases](https://github.com/capi-git/aven/releases); there is no automatic updater.
+Security fixes target the latest Aven release. Older releases are not maintained separately. Aven checks its release feed and downloads cryptographically signed updates in the background; users choose when to restart and install them. The app verifies updates with Aven's configured public key. Manual downloads remain available through [Aven Releases](https://github.com/capi-git/aven/releases). See [the release guide](docs/RELEASING.md) for signing and verification details.
 
 Aven runs locally installed agent CLIs. Those processes can read or modify project files and run commands according to their configuration and the selected access mode. A workspace profile is an organizational feature, not a sandbox or a separate credential store. Provider authentication, network requests, and billing are handled by the corresponding provider and CLI.
 

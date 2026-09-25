@@ -454,6 +454,7 @@ pub fn run() {
             control::control_turn_finished,
             session_store::session_upsert,
             session_store::session_list_by_project,
+            session_store::session_list_project_ids,
             session_store::session_search,
             session_store::session_get,
             session_store::session_delete,

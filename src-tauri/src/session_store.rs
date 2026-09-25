@@ -190,6 +190,20 @@ pub fn session_list_by_project(
     list_by_project(&conn, &cwd).map_err(|e| e.to_string())
 }
 
+/// Destructive project operations need the complete inventory, including rows
+/// intentionally hidden from the sidebar (workers, Inbox chats, empty chats).
+#[tauri::command(async)]
+pub fn session_list_project_ids(
+    store: State<'_, SessionStore>,
+    cwd: String,
+) -> Result<Vec<String>, String> {
+    if cwd.trim().is_empty() {
+        return Err("cwd is required".into());
+    }
+    let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
+    list_project_ids(&conn, &cwd).map_err(|e| e.to_string())
+}
+
 #[tauri::command(async)]
 pub fn session_get(
     store: State<'_, SessionStore>,
@@ -381,6 +395,16 @@ fn ensure_column(conn: &Connection, name: &str, decl: &str) -> rusqlite::Result<
 }
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {
+    // Schema changes and their version rows must commit together. In particular,
+    // a failed ALTER/version write must not strand the next launch halfway
+    // through a migration. The idempotent column checks also repair databases
+    // left in that state by older builds.
+    let tx = conn.unchecked_transaction()?;
+    migrate_schema(&tx)?;
+    tx.commit()
+}
+
+fn migrate_schema(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS schema_migrations (
            version INTEGER PRIMARY KEY,
@@ -401,15 +425,15 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         )?;
     }
     if current < 2 {
-        conn.execute("ALTER TABLE sessions ADD COLUMN branch TEXT", [])?;
+        ensure_session_column(conn, "branch", "TEXT")?;
         conn.execute(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (2, ?1)",
             params![now_millis()],
         )?;
     }
     if current < 3 {
-        conn.execute("ALTER TABLE sessions ADD COLUMN context_used INTEGER", [])?;
-        conn.execute("ALTER TABLE sessions ADD COLUMN context_window INTEGER", [])?;
+        ensure_session_column(conn, "context_used", "INTEGER")?;
+        ensure_session_column(conn, "context_window", "INTEGER")?;
         conn.execute(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (3, ?1)",
             params![now_millis()],
@@ -442,17 +466,14 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         )?;
     }
     if current < 6 {
-        conn.execute(
-            "ALTER TABLE sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
-            [],
-        )?;
+        ensure_session_column(conn, "archived", "INTEGER NOT NULL DEFAULT 0")?;
         conn.execute(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (6, ?1)",
             params![now_millis()],
         )?;
     }
     if current < 7 {
-        conn.execute("ALTER TABLE sessions ADD COLUMN worktree_cwd TEXT", [])?;
+        ensure_session_column(conn, "worktree_cwd", "TEXT")?;
         conn.execute(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (7, ?1)",
             params![now_millis()],
@@ -579,8 +600,8 @@ fn ensure_orchestration_history(conn: &Connection) -> rusqlite::Result<()> {
         [],
         |row| row.get(0),
     )?;
-    let tx = conn.unchecked_transaction()?;
-    tx.execute_batch(
+    // This repair is part of migrate's transaction, including the backfill.
+    conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS orchestration_runs (lead_id TEXT PRIMARY KEY, state TEXT NOT NULL);
          CREATE TABLE IF NOT EXISTS orchestration_sidebar (lead_id TEXT PRIMARY KEY, summary TEXT NOT NULL);
          CREATE TABLE IF NOT EXISTS orchestration_workers (session_id TEXT PRIMARY KEY, lead_id TEXT NOT NULL);",
@@ -588,7 +609,7 @@ fn ensure_orchestration_history(conn: &Connection) -> rusqlite::Result<()> {
     if !indexed {
         // One-time compatibility pass for the preview that listed workers as
         // separate chats. Normal sidebar reads never scan transcripts/run blobs.
-        let runs = tx
+        let runs = conn
             .prepare("SELECT lead_id, state FROM orchestration_runs")?
             .query_map([], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -596,19 +617,19 @@ fn ensure_orchestration_history(conn: &Connection) -> rusqlite::Result<()> {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         for (lead, state) in runs {
             if let Ok(run) = serde_json::from_str::<Value>(&state) {
-                index_orchestration(&tx, &lead, &run)?;
+                index_orchestration(conn, &lead, &run)?;
             }
         }
-        let workers = tx.prepare("SELECT id, blocks_json FROM sessions WHERE blocks_json LIKE '%orchestrationLeadId%'")?
+        let workers = conn.prepare("SELECT id, blocks_json FROM sessions WHERE blocks_json LIKE '%orchestrationLeadId%'")?
             .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         for (id, blocks) in workers {
             if let Ok(blocks) = serde_json::from_str::<Value>(&blocks) {
-                remember_worker_from_blocks(&tx, &id, &blocks)?;
+                remember_worker_from_blocks(conn, &id, &blocks)?;
             }
         }
     }
-    tx.commit()
+    Ok(())
 }
 
 fn remember_worker(conn: &Connection, id: &str, lead: &str) -> rusqlite::Result<()> {
@@ -1068,6 +1089,12 @@ fn ceil_char_boundary(text: &str, mut index: usize) -> usize {
         index += 1;
     }
     index
+}
+
+fn list_project_ids(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<String>> {
+    let mut statement = conn.prepare("SELECT id FROM sessions WHERE cwd = ?1 ORDER BY id ASC")?;
+    let rows = statement.query_map([cwd], |row| row.get(0))?;
+    rows.collect()
 }
 
 fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<SessionSummary>> {
@@ -1821,6 +1848,93 @@ mod tests {
         assert_eq!(branch, 1);
     }
 
+    fn legacy_v1_database() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(MIGRATION_V1).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE schema_migrations (
+               version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL
+             );
+             INSERT INTO schema_migrations VALUES (1, 1);
+             INSERT INTO sessions (
+               id, cwd, harness, model, runtime_mode, title, blocks_json,
+               created_at, updated_at
+             ) VALUES (
+               'saved', '/tmp/project', 'codex', 'test', 'local', 'Saved chat',
+               '[{\"role\":\"user\",\"text\":\"keep this transcript\"}]', 1, 1
+             );",
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn migrate_recovers_columns_written_before_their_version_row() {
+        let additions = [
+            (2, "branch", "TEXT"),
+            (3, "context_used", "INTEGER"),
+            (3, "context_window", "INTEGER"),
+            (6, "archived", "INTEGER NOT NULL DEFAULT 0"),
+            (7, "worktree_cwd", "TEXT"),
+        ];
+        // Model interruption after every legacy ALTER, including the first of
+        // v3's two columns. Already stored transcripts must remain available.
+        for (interrupted_at, (version, _, _)) in additions.iter().enumerate() {
+            let conn = legacy_v1_database();
+            for recorded in 2..*version {
+                conn.execute("INSERT INTO schema_migrations VALUES (?1, 1)", [recorded])
+                    .unwrap();
+            }
+            for (_, column, decl) in &additions[..=interrupted_at] {
+                conn.execute(
+                    &format!("ALTER TABLE sessions ADD COLUMN {column} {decl}"),
+                    [],
+                )
+                .unwrap();
+            }
+
+            migrate(&conn).unwrap();
+            migrate(&conn).unwrap();
+            let saved = get_session(&conn, "saved").unwrap().unwrap();
+            assert_eq!(saved.blocks[0]["text"], "keep this transcript");
+            assert_eq!(list_by_project(&conn, "/tmp/project").unwrap().len(), 1);
+        }
+    }
+
+    #[test]
+    fn migrate_rolls_back_schema_changes_when_version_write_fails() {
+        let conn = legacy_v1_database();
+        conn.execute_batch(
+            "CREATE TRIGGER reject_migration BEFORE INSERT ON schema_migrations
+             WHEN NEW.version = 3
+             BEGIN SELECT RAISE(ABORT, 'simulated migration failure'); END;",
+        )
+        .unwrap();
+
+        assert!(migrate(&conn).is_err());
+        assert!(conn.is_autocommit());
+        let version: i64 = conn
+            .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, 1);
+        let added_columns: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('sessions')
+                 WHERE name IN ('branch', 'context_used', 'context_window')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(added_columns, 0);
+
+        conn.execute_batch("DROP TRIGGER reject_migration").unwrap();
+        migrate(&conn).unwrap();
+        let saved = get_session(&conn, "saved").unwrap().unwrap();
+        assert_eq!(saved.blocks[0]["text"], "keep this transcript");
+    }
+
     #[test]
     fn upsert_preserves_created_at_and_updates_fields() {
         let store = SessionStore::open_in_memory().unwrap();
@@ -1934,6 +2048,67 @@ mod tests {
         assert_eq!(listed.len(), 2);
         assert_eq!(listed[0].id, "s2");
         assert_eq!(listed[1].id, "s1");
+    }
+
+    #[test]
+    fn project_deletion_inventory_includes_hidden_rows_and_closed_workers() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+        for id in [
+            "lead",
+            "worker",
+            "earlier-worker",
+            "archived",
+            "inbox",
+            "empty",
+        ] {
+            let mut session = sample(id, "/tmp/a", id);
+            if id == "empty" {
+                session.blocks = json!([]);
+            }
+            upsert_session(&conn, &session).unwrap();
+        }
+        upsert_session(&conn, &sample("other-project", "/tmp/b", "Keep me")).unwrap();
+        conn.execute("UPDATE sessions SET archived = 1 WHERE id = 'archived'", [])
+            .unwrap();
+        conn.execute(
+            "UPDATE sessions SET inbox_ask = '{}' WHERE id = 'inbox'",
+            [],
+        )
+        .unwrap();
+        remember_worker(&conn, "earlier-worker", "lead").unwrap();
+        save_orchestration(
+            &conn,
+            "lead",
+            &json!({"status":"stopped","tasks":[{"id":"task","sessionId":"worker"}]}),
+        )
+        .unwrap();
+
+        let visible = list_by_project(&conn, "/tmp/a").unwrap();
+        assert_eq!(visible.len(), 2);
+        let ids = list_project_ids(&conn, "/tmp/a").unwrap();
+        assert_eq!(
+            ids,
+            [
+                "archived",
+                "earlier-worker",
+                "empty",
+                "inbox",
+                "lead",
+                "worker"
+            ]
+        );
+        // Capture IDs first: deleting the lead releases its workers, but the
+        // project operation must still delete those now-detached transcripts.
+        for id in ids {
+            delete_session(&conn, &id).unwrap();
+        }
+        assert!(list_project_ids(&conn, "/tmp/a").unwrap().is_empty());
+        assert!(orchestration_summary(&conn, "lead").unwrap().is_none());
+        assert_eq!(
+            list_project_ids(&conn, "/tmp/b").unwrap(),
+            ["other-project"]
+        );
     }
 
     #[test]

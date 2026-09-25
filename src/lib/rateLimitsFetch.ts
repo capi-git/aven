@@ -17,7 +17,6 @@ import {
 import { asRecord } from "./harness/codexProtocol";
 import { JsonRpcClient } from "./harness/jsonRpc";
 
-const USAGE_CHILD_ID = "monocode-codex-usage";
 const DISCOVERY_TIMEOUT_MS = 15_000;
 const REQUEST_TIMEOUT_MS = 12_000;
 
@@ -66,8 +65,11 @@ export async function fetchCodexRateLimits(): Promise<ProviderRateLimits> {
   }
 
   const cwd = await homeDir();
+  // The native child registry is shared by every window. A fixed id lets a
+  // second usage refresh replace or terminate another window's active probe.
+  const childId = `monocode-codex-usage-${crypto.randomUUID()}`;
   const rpc = new JsonRpcClient(
-    USAGE_CHILD_ID,
+    childId,
     {
       onRequest: (id) => {
         void rpc.respond(id, {}).catch(() => undefined);
@@ -78,20 +80,18 @@ export async function fetchCodexRateLimits(): Promise<ProviderRateLimits> {
 
   const stop = async () => {
     rpc.close();
-    unwatchChild(USAGE_CHILD_ID);
-    await killChild(USAGE_CHILD_ID).catch(() => undefined);
+    unwatchChild(childId);
+    await killChild(childId).catch(() => undefined);
   };
 
-  await killChild(USAGE_CHILD_ID).catch(() => undefined);
-
   watchChild(
-    USAGE_CHILD_ID,
+    childId,
     (line) => rpc.pushLine(line),
     () => rpc.close(new Error("Codex usage probe exited")),
   );
 
   try {
-    await spawnChild(USAGE_CHILD_ID, path, ["app-server"], cwd);
+    await spawnChild(childId, path, ["app-server"], cwd);
     return await withTimeout(
       DISCOVERY_TIMEOUT_MS,
       async () => {

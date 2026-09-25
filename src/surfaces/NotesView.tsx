@@ -93,6 +93,7 @@ export function NotesView({
   const [groupCustomColors] = useState(loadTabGroupCustomColors);
 
   const refresh = useCallback(async () => {
+    setLoading(true);
     try {
       const next = await loadNotes(true);
       setNotes(next);
@@ -160,6 +161,8 @@ export function NotesView({
   const selected =
     visible.find((note) => note.id === selectedId) ??
     notes.find((note) => note.id === selectedId) ??
+    visible[0] ??
+    notes[0] ??
     null;
 
   const onCreate = async () => {
@@ -171,9 +174,13 @@ export function NotesView({
         body: "",
         ...(cwd && looksLikeProject(cwd) ? { sourceCwd: cwd } : {}),
       });
-      setNotes(await loadNotes(true));
+      setNotes((current) => [
+        note,
+        ...current.filter((item) => item.id !== note.id),
+      ]);
       setSelectedId(note.id);
       setQuery("");
+      setError(null);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -192,17 +199,12 @@ export function NotesView({
   };
 
   const onDelete = async (id: string) => {
-    try {
-      await deleteNote(id);
-      const next = await loadNotes(true);
-      setNotes(next);
-      setSelectedId((current) => {
-        if (current !== id) return current;
-        return next[0]?.id ?? null;
-      });
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
+    // Only the mutation decides success. A separate list-read failure must not
+    // make the editor resume saving and recreate a successfully deleted note.
+    await deleteNote(id);
+    setNotes((current) => current.filter((note) => note.id !== id));
+    setSelectedId((current) => (current === id ? null : current));
+    setError(null);
   };
 
   const onAddToChat = (note: Note) => {
@@ -250,13 +252,24 @@ export function NotesView({
         ref={listLock}
         className="min-h-0 flex-1 overflow-y-auto overscroll-none"
       >
-        {error && notes.length === 0 ? (
-          <p className="px-3 py-2 text-[12px] text-content/50">{error}</p>
-        ) : loading && notes.length === 0 ? (
+        {error ? (
+          <div role="alert" className="px-3 py-2 text-[12px] text-content/50">
+            <p>{error}</p>
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() => void refresh()}
+              className="mt-1 rounded px-2 py-1 text-content hover:bg-content/10 disabled:opacity-40"
+            >
+              Retry
+            </button>
+          </div>
+        ) : null}
+        {loading && notes.length === 0 ? (
           <div className="flex justify-center py-10 text-content/40">
             <LoaderCircle className="size-4 animate-spin" strokeWidth={1.75} />
           </div>
-        ) : visible.length === 0 ? (
+        ) : error && notes.length === 0 ? null : visible.length === 0 ? (
           <p className="px-3 py-2 text-[12px] text-content/50">
             {query.trim()
               ? "No matching notes"
@@ -521,6 +534,7 @@ function NoteEditor({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [imageDrag, setImageDrag] = useState(false);
   const [imageBusy, setImageBusy] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const titleRef = useRef(title);
   const bodyRef = useRef(body);
   const noteRef = useRef(note);
@@ -585,6 +599,26 @@ function NoteEditor({
     saveTimer.current = null;
     return queueSave();
   }, [queueSave]);
+
+  const remove = async () => {
+    // A ref also covers two clicks before React commits the disabled button.
+    if (skipSave.current) return;
+    skipSave.current = true;
+    setDeleting(true);
+    if (saveTimer.current != null) window.clearTimeout(saveTimer.current);
+    saveTimer.current = null;
+    try {
+      await saveQueue.current;
+      await onDelete(note.id);
+    } catch (err: unknown) {
+      skipSave.current = false;
+      setDeleting(false);
+      setSaveError(err instanceof Error ? err.message : String(err));
+      // Include edits made while deletion was pending, even if this editor was
+      // closed in the meantime and its unmount flush was suppressed.
+      scheduleSave();
+    }
+  };
 
   const insertionRange = useCallback(() => {
     const field = sourceFieldRef.current;
@@ -704,12 +738,8 @@ function NoteEditor({
             </button>
             <button
               type="button"
-              onClick={() => {
-                skipSave.current = true;
-                if (saveTimer.current != null)
-                  window.clearTimeout(saveTimer.current);
-                void saveQueue.current.then(() => onDelete(note.id));
-              }}
+              disabled={deleting}
+              onClick={() => void remove()}
               className="inline-flex items-center gap-1.5 rounded-md px-3 h-7 text-[12px] text-content/70 hover:bg-content/10 hover:text-red-400"
             >
               <Trash2 className="size-3.5" strokeWidth={1.75} />

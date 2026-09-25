@@ -1195,7 +1195,7 @@ pub struct BrowserEngineOptions {
 /// applied so the interface never asks for a restart that would change nothing.
 #[tauri::command]
 pub fn browser_engine_options(options: BrowserEngineOptions) -> bool {
-    let _ = options;
+    let _ = options.low_memory;
     true
 }
 

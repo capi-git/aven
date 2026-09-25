@@ -22,10 +22,13 @@ Install dependencies with `npm ci`, then run the relevant checks:
 
 ```bash
 npm run check:web
+npm run check:tooling
 npm run check:rust
 ```
 
-`check:web` runs Vitest and the TypeScript compiler. `check:rust` runs Rust formatting, Clippy, and native tests. `npm run check` runs both. Native checks require the Rust and platform prerequisites described in the build guide.
+`check:web` runs Vitest and the TypeScript compiler. `check:tooling` runs the packaging, development-runner, signed-update packaging, and versioning regression tests in disposable fixtures. It requires Python 3 and Node, and does not launch or replace an app. `check:rust` runs Rust formatting, Clippy, and native tests. `npm run check` runs all three. Native checks require the Rust and platform prerequisites described in the build guide.
+
+Pull requests run frontend/tooling checks and native checks on macOS with the WebKit fallback (`--no-default-features`). The release workflow additionally compiles and tests the Chromium build. Passing fallback checks does not verify Chromium-specific code or packaged native interactions.
 
 For UI changes, also exercise the affected interaction in a running app. For browser, window, focus, or drag-and-drop changes, check the Chromium build. Automated tests alone do not establish that native interactions work correctly.
 

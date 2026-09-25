@@ -1,4 +1,4 @@
-name: Frontend checks
+name: Code checks
 
 on:
   push:
@@ -24,3 +24,25 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check:web
+      - run: npm run check:tooling
+
+  native:
+    # The WebKit build checks shared native code without downloading Chromium.
+    # The release workflow separately builds and tests the full Chromium app.
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock') }}
+      - run: cargo fmt --all --check
+      - run: cargo clippy --locked --workspace --all-targets --no-default-features -- -D warnings
+      - run: cargo test --locked --workspace --no-default-features

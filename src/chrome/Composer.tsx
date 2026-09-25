@@ -709,9 +709,12 @@ function ComposerComponent({
   useEffect(() => {
     if (!mentionOpen || !notesEnabled) return;
     let cancelled = false;
-    void loadNotes().then((next) => {
-      if (!cancelled) setNotes(next);
-    });
+    void loadNotes()
+      .then((next) => {
+        if (!cancelled) setNotes(next);
+      })
+      // Suggestions are optional; retain the last list and retry on reopening.
+      .catch(() => undefined);
     return () => {
       cancelled = true;
     };

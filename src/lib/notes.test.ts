@@ -1,9 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
 import {
   appendNoteReference,
   composeNoteMessage,
   injectNotePrompt,
   isNoteMentionPath,
+  deleteNote,
+  invalidateNotes,
+  loadNotes,
   noteCardMeta,
   noteMentionLabel,
   notePreview,
@@ -11,11 +15,100 @@ import {
   noteSlugsInText,
   notesAsProjectFiles,
   noteTitle,
+  peekNotes,
   rankNoteFiles,
+  upsertNote,
   type Note,
 } from "./notes";
 
-function note(partial: Partial<Note> & Pick<Note, "id" | "slug" | "title">): Note {
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+
+describe("notes storage cache", () => {
+  const saved = note({ id: "n", slug: "saved", title: "Saved" });
+  const newer = { ...saved, title: "New title", updatedAt: 2 };
+  const call = vi.mocked(invoke);
+
+  beforeEach(() => {
+    invalidateNotes();
+    call.mockReset();
+  });
+
+  it("reports a failed list and retries instead of caching empty success", async () => {
+    call.mockRejectedValueOnce(new Error("Storage unavailable"));
+    await expect(loadNotes()).rejects.toThrow("Storage unavailable");
+    expect(peekNotes()).toBeNull();
+    call.mockResolvedValueOnce([saved]);
+    await expect(loadNotes()).resolves.toEqual([saved]);
+    expect(call).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns the newer refresh even when an older list finishes last", async () => {
+    let finishOld!: (value: (typeof saved)[]) => void;
+    call.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishOld = resolve;
+      }),
+    );
+    const old = loadNotes();
+    call.mockResolvedValueOnce([newer]);
+    await expect(loadNotes(true)).resolves.toEqual([newer]);
+    finishOld([saved]);
+    await expect(old).resolves.toEqual([newer]);
+    expect(peekNotes()).toEqual([newer]);
+  });
+
+  it("joins an in-flight newer refresh even when an old cache exists", async () => {
+    call.mockResolvedValueOnce([saved]);
+    await loadNotes();
+    let finishOld!: (value: (typeof saved)[]) => void;
+    let finishNew!: (value: (typeof saved)[]) => void;
+    call.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishOld = resolve;
+      }),
+    );
+    const old = loadNotes(true);
+    call.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishNew = resolve;
+      }),
+    );
+    const latest = loadNotes(true);
+    finishOld([saved]);
+    await Promise.resolve();
+    finishNew([newer]);
+    await expect(latest).resolves.toEqual([newer]);
+    await expect(old).resolves.toEqual([newer]);
+  });
+
+  it.each(["upsert", "delete"] as const)(
+    "does not reuse or cache a list that preceded a successful %s",
+    async (mutation) => {
+      let finishOld!: (value: (typeof saved)[]) => void;
+      call.mockReturnValueOnce(
+        new Promise((resolve) => {
+          finishOld = resolve;
+        }),
+      );
+      const old = loadNotes();
+      call.mockResolvedValueOnce(mutation === "upsert" ? newer : undefined);
+      if (mutation === "upsert") await upsertNote(newer);
+      else await deleteNote(saved.id);
+      const expected = mutation === "upsert" ? [newer] : [];
+      call.mockResolvedValueOnce(expected);
+      const current = loadNotes();
+      finishOld([saved]);
+      await expect(current).resolves.toEqual(expected);
+      await expect(old).resolves.toEqual(expected);
+      expect(peekNotes()).toEqual(expected);
+      expect(call).toHaveBeenCalledTimes(3);
+    },
+  );
+});
+
+function note(
+  partial: Partial<Note> & Pick<Note, "id" | "slug" | "title">,
+): Note {
   return {
     body: "",
     createdAt: 1,
@@ -64,9 +157,9 @@ describe("noteSourceProject", () => {
 
 describe("note mentions", () => {
   it("collects unique @note/slug tokens", () => {
-    expect(noteSlugsInText("See @note/auth and @note/auth plus @note/plan-2.")).toEqual(
-      ["auth", "plan-2"],
-    );
+    expect(
+      noteSlugsInText("See @note/auth and @note/auth plus @note/plan-2."),
+    ).toEqual(["auth", "plan-2"]);
   });
 
   it("injects referenced bodies after the prompt", () => {
@@ -92,9 +185,9 @@ describe("note mentions", () => {
       relative: "note/auth",
     });
     expect(isNoteMentionPath(files[0]!.path)).toBe(true);
-    expect(noteMentionLabel(note({ id: "abc", slug: "auth", title: "Auth" }))).toBe(
-      "note/auth",
-    );
+    expect(
+      noteMentionLabel(note({ id: "abc", slug: "auth", title: "Auth" })),
+    ).toBe("note/auth");
   });
 });
 
@@ -175,8 +268,8 @@ describe("rankNoteFiles", () => {
 
 describe("noteMentionLabel", () => {
   it("prefixes the slug", () => {
-    expect(noteMentionLabel(note({ id: "n", slug: "auth", title: "Auth" }))).toBe(
-      "note/auth",
-    );
+    expect(
+      noteMentionLabel(note({ id: "n", slug: "auth", title: "Auth" })),
+    ).toBe("note/auth");
   });
 });
