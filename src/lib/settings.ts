@@ -423,7 +423,8 @@ export type KeybindingRow = {
  * `src-tauri/src/menu.rs`, `tabCommand`, and the window key handler in App.
  */
 export const KEYBINDINGS: KeybindingRow[] = [
-  { command: "App: Search", keys: `${MOD}K`, when: "Always" },
+  { command: "App: Command palette", keys: `${MOD}K`, when: "Always" },
+  { command: "App: Search", keys: `${MOD === "⌘" ? "⇧⌘" : "Ctrl+Shift+"}K`, when: "Always" },
   { command: "App: Go to File", keys: `${MOD}P`, when: "Always" },
   { command: "App: Find in Files", keys: `${MOD}${SHIFT}F`, when: "Always" },
   { command: "App: Open Project", keys: `${MOD}O`, when: "Always" },

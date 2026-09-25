@@ -153,6 +153,21 @@ import {
   AgentPageNotices,
   type AgentPageNotice,
 } from "./chrome/AgentPageNotices";
+import {
+  CommandPalette,
+  type PaletteChatRequest,
+} from "./chrome/CommandPalette";
+import {
+  PALETTE_COMMANDS,
+  type PaletteChat,
+  type PaletteCommandId,
+} from "./lib/commandPalette";
+import {
+  availablePaletteAgents,
+  searchPaletteChats,
+} from "./lib/paletteAgents";
+import { searchSettings } from "./lib/settingsSearch";
+import { conversationRowsFrom } from "./lib/appSearch";
 import { WhatsNewDialog } from "./chrome/WhatsNewDialog";
 import { TitleBar, type Tab as TitleTab } from "./chrome/TitleBar";
 import { MenuBar } from "./chrome/MenuBar";
@@ -7361,6 +7376,12 @@ export default function App({
     setSearchViewFocusToken((token) => token + 1);
   }, [captureUtilityFocus]);
 
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const onOpenPalette = useCallback(() => {
+    setFilePickerOpen(false);
+    setPaletteOpen(true);
+  }, []);
+
   const onLeaveSearch = useCallback(() => {
     setSearchViewOpen(false);
     restoreReturnFocus();
@@ -7530,6 +7551,7 @@ export default function App({
     onGoToFile,
     onFindInProject,
     onOpenSearch,
+    onOpenPalette,
     onOpenInbox,
     onOpenNotes,
     pickProject,
@@ -7559,6 +7581,7 @@ export default function App({
     onGoToFile,
     onFindInProject,
     onOpenSearch,
+    onOpenPalette,
     onOpenInbox,
     onOpenNotes,
     pickProject,
@@ -7787,6 +7810,12 @@ export default function App({
         }
         e.preventDefault();
         e.stopPropagation();
+        run("open_palette", actions.current.onOpenPalette);
+        return;
+      }
+      if (mod && e.shiftKey && !e.altKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        e.stopPropagation();
         run("open_search", actions.current.onOpenSearch);
         return;
       }
@@ -7863,6 +7892,7 @@ export default function App({
       }),
       listen("go_to_file", () => actions.current.onGoToFile()),
       listen("open_search", () => actions.current.onOpenSearch()),
+      listen("open_palette", () => actions.current.onOpenPalette()),
       listen("open_inbox", () => actions.current.onOpenInbox()),
       listen("open_notes", () => actions.current.onOpenNotes()),
       listen("open_settings", () => actions.current.openSettings()),
@@ -8487,6 +8517,73 @@ export default function App({
     },
   };
 
+
+  const labelsForPalette = paletteOpen ? loadTabGroupLabels() : null;
+  const paletteProjects = labelsForPalette
+    ? profiles.profileProjects.map((project) => ({
+        path: project.path,
+        name: projectDisplayName(project.path, labelsForPalette),
+      }))
+    : [];
+  const paletteChats: PaletteChat[] = paletteOpen
+    ? conversationRowsFrom(
+        history,
+        sessions.filter((session) => !session.inboxAsk),
+      ).map((row) => ({ ...row, busy: busySessionIds.has(row.id) }))
+    : [];
+  const paletteAgents = paletteOpen ? availablePaletteAgents() : [];
+  const paletteCommands = PALETTE_COMMANDS.filter(
+    (command) => command.id !== "open_notes" || notesEnabled,
+  );
+  const runPaletteCommand = (id: PaletteCommandId) => {
+    const run = actions.current;
+    const table: Record<PaletteCommandId, () => void> = {
+      new_chat: () => void run.onNew(),
+      new_terminal: run.onNewTerminal,
+      new_browser_tab: onNewBrowserTab,
+      open_search: run.onOpenSearch,
+      go_to_file: run.onGoToFile,
+      find_in_project: run.onFindInProject,
+      toggle_sidebar: run.onToggleSidebar,
+      toggle_inspector: run.onToggleInspector,
+      toggle_terminal: run.onToggleProjectTerminal,
+      split_right: () => run.onSplit("right"),
+      split_down: () => run.onSplit("down"),
+      reopen_closed_tab: run.onReopenClosedTab,
+      close_pane: run.onClosePane,
+      open_inbox: run.onOpenInbox,
+      open_notes: run.onOpenNotes,
+      add_project: () => void run.pickProject(),
+      open_settings: () => run.openSettings(),
+    };
+    table[id]();
+  };
+  const startPaletteChat = (request: PaletteChatRequest) => {
+    const session = newSession(
+      request.agent.harness,
+      request.project,
+      request.agent.model,
+      loadDefaultRuntimeMode(),
+    );
+    const tab = newTab(session.id);
+    setSessions((previous) => [...previous, session]);
+    appendTab(tab, request.project);
+    if (!request.background) {
+      setHomeViewOpen(false);
+      leaveExpandedPreview();
+      setSettingsOpen(false);
+      setSearchViewOpen(false);
+      setInboxViewOpen(false);
+      setNotesViewOpen(false);
+      if (!sameProjectPath(request.project, projectCwdRef.current)) {
+        revealProjectTask(request.project);
+        setProjectCwd(request.project);
+        setRecents(rememberProject(request.project));
+      }
+      setActiveTabId(tab.id);
+    }
+    onSubmit(session.id, request.text, []);
+  };
 
   showAgentPageRef.current = (notice) => {
     setAgentPageNotices((current) =>
@@ -9473,6 +9570,35 @@ export default function App({
               onClose={() => setFilePickerOpen(false)}
             />
           ) : null}
+          <CommandPalette
+            open={paletteOpen}
+            onClose={() => setPaletteOpen(false)}
+            project={{
+              path: projectCwd,
+              name: projectDisplayName(projectCwd, loadTabGroupLabels()),
+            }}
+            projects={paletteProjects}
+            chats={paletteChats}
+            agents={paletteAgents}
+            commands={paletteCommands}
+            searchChats={searchPaletteChats}
+            searchSettings={searchSettings}
+            onRunCommand={runPaletteCommand}
+            onOpenChat={(id) => void onSelectHistorySession(id)}
+            onOpenProject={onSelectProject}
+            onOpenFile={(path) => onOpenFile(path)}
+            onOpenSetting={(setting) => {
+              openSettings(setting.section);
+              requestAnimationFrame(() =>
+                requestAnimationFrame(() =>
+                  document
+                    .getElementById(setting.id)
+                    ?.scrollIntoView({ block: "center" }),
+                ),
+              );
+            }}
+            onStartChat={startPaletteChat}
+          />
 
           <ApprovalToasts
             notices={hiddenApprovalToasts}
