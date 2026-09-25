@@ -1,5 +1,18 @@
 # Aven changelog
 
+## [0.1.98] - 2026-09-25
+
+### Race, a command palette, and a faster chat box
+
+- Race a task across two to four agents. Turn on Race from the chat box or choose **Race it** in the command palette. Each agent works in its own git worktree, starting from the project as you see it, and can use any of its provider's models. A race tab compares status, time, changed files and diffs. Keep one agent's result or pick per file; every patch is checked before any is applied, so a conflict changes nothing.
+- Press ⌘K for a command palette over any surface: start a chat from what you type (Tab changes agent, Shift-Tab changes project, Command-Enter starts it in the background), and jump to chats, commands, projects, files and settings. Search moves to Shift-Command-K.
+- Open agent-opened pages beside the chat that asked for them instead of behind it, with a notice when the page opens in a project that isn't on screen.
+- Fix chat box controls: failed uploads, a `/compact` that can't run yet, and an unfinished new skill now explain themselves or recover; the project picker's Enter picks a project instead of sending; menus that are meant to take the keyboard now do, including arrow keys in the + and Race menus. Typing after `@` in a large project no longer drops frames.
+- Keep the macOS toolbar and traffic-light spacing aligned at every interface zoom level.
+- Harden saving and process ownership after a code audit: database migrations commit atomically, Notes deletion and reads recover from storage failures, project removal waits for its conversations and keeps the project on failure, simultaneous usage checks no longer stop one another, and terminal handles are no longer inherited by unrelated processes. Update the TLS library for RUSTSEC-2026-0285.
+- Fix memory-saver edge cases: a memory-pressure notice during a sleep sweep is applied afterwards, lightweight mode keeps the most recent inactive tab ready, and engine options no longer ask for a needless restart.
+- Give the Aven mark a charcoal glass tile.
+
 ## [0.1.97] - 2026-09-24
 
 ### Smoother streaming and a lighter desktop app
