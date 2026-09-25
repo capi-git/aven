@@ -1,5 +1,14 @@
 # Aven changelog
 
+## [0.1.100] - 2026-09-25
+
+### Reliable project selection
+
+- Keep the loaded project list and Personal/Work assignments when saved settings become missing, unreadable, or fail to save. Selecting a project no longer removes the other loaded projects or unexpectedly switches its workspace.
+- Keep project ordering stable when opening projects, while accepting intentional additions, removals, and assignments from other windows.
+- Adapt MonoCode's pane-aware project navigation: returning to a project focuses its chat, editor, or terminal pane in a split tab instead of another project's pane. Keep that selected tab visible without changing project deletion behavior.
+- Preserve valid project entries from partially damaged saved lists. These protections do not restore previously deleted data.
+
 ## [0.1.99] - 2026-09-25
 
 ### Updates without closing browser tabs by hand
