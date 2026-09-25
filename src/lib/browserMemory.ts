@@ -34,6 +34,12 @@ export class BrowserMemoryPool {
   private timer: ReturnType<typeof setInterval> | undefined;
   private checking = false;
   private active = true;
+  /** A pressure notice that arrived while a sweep was running. */
+  private pendingRelief: {
+    level: MemoryPressureLevel;
+    done: Promise<void>;
+    finish: () => void;
+  } | null = null;
   /** Lightweight browser mode: keep fewer tabs ready and sleep them sooner. */
   lean = false;
 
@@ -89,8 +95,17 @@ export class BrowserMemoryPool {
    * after its grace period. The most recent hidden page stays ready under
    * ordinary pressure; a critical notice releases it too.
    */
-  relieve(level: MemoryPressureLevel) {
-    return this.check({
+  async relieve(level: MemoryPressureLevel): Promise<void> {
+    if (this.checking) {
+      // The running sweep finishes first; the stronger notice wins.
+      if (!this.pendingRelief) {
+        let finish!: () => void;
+        const done = new Promise<void>((resolve) => (finish = resolve));
+        this.pendingRelief = { level, done, finish };
+      } else if (level === "critical") this.pendingRelief.level = level;
+      return this.pendingRelief.done;
+    }
+    await this.check({
       keepRecent: level === "critical" ? 0 : 1,
       graceMs: 0,
       hiddenOnly: true,
@@ -101,8 +116,10 @@ export class BrowserMemoryPool {
     { keepRecent, graceMs, hiddenOnly } = {
       keepRecent: this.lean ? BROWSER_LEAN_RECENT_TABS : BROWSER_RECENT_TABS,
       graceMs: this.lean ? BROWSER_LEAN_SLEEP_AFTER_MS : BROWSER_SLEEP_AFTER_MS,
-      // The ordinary sweep counts visible tabs among the recent ones.
-      hiddenOnly: false,
+      // The ordinary sweep counts visible tabs among the recent ones, so three
+      // ready tabs may include the visible one. Lightweight mode promises the
+      // most recent inactive tab, so it counts hidden tabs only.
+      hiddenOnly: this.lean,
     },
   ) {
     if (!this.enabled || this.checking) return;
@@ -138,6 +155,15 @@ export class BrowserMemoryPool {
       }
     } finally {
       this.checking = false;
+    }
+    const pending = this.pendingRelief;
+    this.pendingRelief = null;
+    if (pending) {
+      try {
+        await this.relieve(pending.level);
+      } finally {
+        pending.finish();
+      }
     }
   }
 }

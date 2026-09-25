@@ -818,7 +818,7 @@ function GeneralPage({
           description={
             browserEngineRestart
               ? "Uses Chromium's reduced-memory mode for web pages. Restart Aven to apply this change."
-              : "Uses Chromium's reduced-memory mode for web pages and keeps only your most recent inactive tab ready, sleeping others after two minutes. For laptops with little memory; the engine mode applies when Aven starts."
+              : "Uses Chromium's reduced-memory mode for web pages. With Memory saver on, keeps only your most recent inactive tab ready and sleeps others after two minutes. For laptops with little memory; the engine mode applies when Aven starts."
           }
         >
           <Toggle

@@ -1191,11 +1191,12 @@ pub struct BrowserEngineOptions {
     pub low_memory: bool,
 }
 
-/// The WebKit preview engine has no low-memory mode; options never apply.
+/// The WebKit preview engine has no low-memory mode. Report the options as
+/// applied so the interface never asks for a restart that would change nothing.
 #[tauri::command]
 pub fn browser_engine_options(options: BrowserEngineOptions) -> bool {
     let _ = options;
-    false
+    true
 }
 
 #[tauri::command]

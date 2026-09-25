@@ -126,6 +126,12 @@ const SETTINGS_SEARCH_ENTRIES: readonly SearchEntry[] = [
   ),
   setting(
     "general",
+    "Lightweight browser",
+    "Uses Chromium's reduced-memory mode for web pages and keeps only your most recent inactive tab ready. For laptops with little memory; applies when Aven starts.",
+    "ram memory low-end lightweight performance browser laptop restart",
+  ),
+  setting(
+    "general",
     "Sounds",
     "Control sound cues for tasks and workspace actions.",
     "audio mute volume",

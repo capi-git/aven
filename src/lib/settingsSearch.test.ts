@@ -20,6 +20,8 @@ describe("settings search", () => {
     ["memory", "Memory saver", "general"],
     ["ram", "Memory saver", "general"],
     ["sleeping tabs", "Memory saver", "general"],
+    ["lightweight", "Lightweight browser", "general"],
+    ["low-end", "Lightweight browser", "general"],
     ["do not disturb", "Quiet mode", "general"],
     ["wallpaper", "Chat background", "appearance"],
     ["text size", "Interface scale", "appearance"],

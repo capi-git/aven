@@ -234,6 +234,14 @@ static REGISTRY: OnceLock<Mutex<Registry>> = OnceLock::new();
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
 /// Chromium's low-end device mode, chosen in Settings; read once at engine start.
 static LOW_MEMORY: AtomicBool = AtomicBool::new(false);
+/// The value the running engine started with, once it has started.
+static APPLIED_LOW_MEMORY: AtomicBool = AtomicBool::new(false);
+
+/// Whether requested options match this launch: always before the engine
+/// starts, afterwards only when they equal what it started with.
+fn engine_options_apply(initialized: bool, applied_low_memory: bool, low_memory: bool) -> bool {
+    !initialized || applied_low_memory == low_memory
+}
 
 #[derive(Debug, Clone, Copy, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -246,7 +254,11 @@ pub struct BrowserEngineOptions {
 #[tauri::command]
 pub fn browser_engine_options(options: BrowserEngineOptions) -> bool {
     LOW_MEMORY.store(options.low_memory, Ordering::Release);
-    !INITIALIZED.load(Ordering::Acquire)
+    engine_options_apply(
+        INITIALIZED.load(Ordering::Acquire),
+        APPLIED_LOW_MEMORY.load(Ordering::Acquire),
+        options.low_memory,
+    )
 }
 static NEXT: AtomicU64 = AtomicU64::new(1);
 fn registry() -> &'static Mutex<Registry> {
@@ -365,6 +377,7 @@ fn initialize(app: &AppHandle) -> Result<PathBuf, String> {
         native_result(unsafe {
             sm_chromium_initialize(config.as_ptr(), native_event, std::ptr::null_mut())
         })?;
+        APPLIED_LOW_MEMORY.store(LOW_MEMORY.load(Ordering::Acquire), Ordering::Release);
         INITIALIZED.store(true, Ordering::Release);
     }
     Ok(cache)
@@ -2303,6 +2316,15 @@ mod tests {
         assert!(payload.get("screenshot").is_none());
     }
     use super::*;
+
+    #[test]
+    fn engine_options_need_a_restart_only_when_the_running_engine_differs() {
+        assert!(engine_options_apply(false, false, true));
+        assert!(engine_options_apply(true, true, true));
+        assert!(engine_options_apply(true, false, false));
+        assert!(!engine_options_apply(true, false, true));
+        assert!(!engine_options_apply(true, true, false));
+    }
     #[test]
     fn converts_css_zoom_and_retina_to_native_points() {
         let bounds = BrowserBounds {

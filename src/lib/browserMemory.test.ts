@@ -90,15 +90,45 @@ describe("balanced browser memory", () => {
     await Promise.resolve();
     expect(b.sleep).not.toHaveBeenCalled();
   });
-  it("keeps one ready tab and sleeps sooner in lightweight mode", async () => {
+  it("keeps the most recent inactive tab ready and sleeps sooner in lightweight mode", async () => {
     pool.lean = true;
     const [a, b, visible] = [add("a"), add("b"), add("visible", true)];
     await vi.advanceTimersByTimeAsync(BROWSER_LEAN_SLEEP_AFTER_MS - 1);
     expect(a.sleep).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(30_000);
     expect(a.sleep).toHaveBeenCalledOnce();
-    expect(b.sleep).toHaveBeenCalledOnce();
+    expect(b.sleep).not.toHaveBeenCalled();
     expect(visible.sleep).not.toHaveBeenCalled();
+  });
+
+  it("applies a pressure notice that arrives during a sweep once it finishes", async () => {
+    let finishSleep: (() => void) | undefined;
+    // The first sleep stalls (a slow probe); later calls resolve at once.
+    const slow = vi
+      .fn()
+      .mockResolvedValue(true)
+      .mockImplementationOnce(
+        () =>
+          new Promise<boolean>(
+            (resolve) => (finishSleep = () => resolve(true)),
+          ),
+      );
+    const registration = pool.register("slow", {
+      visible: false,
+      protected: false,
+      sleep: slow,
+    });
+    dispose.push(registration.dispose);
+    const [b, c, d] = [add("b"), add("c"), add("d")];
+    await vi.advanceTimersByTimeAsync(BROWSER_SLEEP_AFTER_MS);
+    expect(slow).toHaveBeenCalledOnce(); // the timed sweep is now awaiting it
+    const relief = pool.relieve("critical");
+    expect(b.sleep).not.toHaveBeenCalled();
+    finishSleep!();
+    await relief;
+    expect(b.sleep).toHaveBeenCalledOnce();
+    expect(c.sleep).toHaveBeenCalledOnce();
+    expect(d.sleep).toHaveBeenCalledOnce();
   });
 
   it("sleeps hidden pages immediately under memory pressure", async () => {
