@@ -320,6 +320,75 @@ describe("workspace stage", () => {
     expect(workspaceSurfaceDropAt(oldStage, 102, 300, "chat")).toBeNull();
   });
 
+  it.each([0.5, 2])(
+    "keeps hosted insertion feedback in local coordinates at CSS zoom %s",
+    async (zoom) => {
+      const toolbar = externalContainer();
+      toolbar.style.setProperty("zoom", String(zoom));
+      await render({
+        toolbarHost: toolbar,
+        headers: [
+          {
+            id: "chat",
+            content: createElement(
+              "div",
+              null,
+              createElement(
+                "button",
+                { "data-surface-tab-id": "chat" },
+                "Chat",
+              ),
+              createElement(
+                "button",
+                { "data-surface-tab-id": "browser" },
+                "Browser",
+              ),
+            ),
+          },
+        ],
+      });
+      const external = toolbar.querySelector<HTMLElement>(
+        "[data-workspace-header]",
+      )!;
+      vi.spyOn(external, "getBoundingClientRect").mockReturnValue(
+        rectangle(100, 5, 500 * zoom, 40 * zoom),
+      );
+      const tabs = [
+        ...external.querySelectorAll<HTMLElement>("[data-surface-tab-id]"),
+      ];
+      for (const [index, tab] of tabs.entries())
+        vi.spyOn(tab, "getBoundingClientRect").mockReturnValue(
+          rectangle(100 + index * 100 * zoom, 5, 100 * zoom, 40 * zoom),
+        );
+
+      // Hit testing stays in viewport coordinates even though the marker is
+      // positioned in the counterzoomed header's own CSS coordinate space.
+      expect(
+        workspaceSurfaceDropAt(stage(), 100 + 90 * zoom, 10, "another"),
+      ).toEqual({
+        id: "chat",
+        edge: "tab",
+        index: 1,
+      });
+      await render({
+        dragging: true,
+        dragTarget: { id: "chat", edge: "tab", index: 1 },
+      });
+      const marker = external.querySelector<HTMLElement>(
+        "[data-drop-insertion]",
+      )!;
+      expect(marker.style.left).toBe("100px");
+
+      await render({ dragTarget: { id: "chat", edge: "tab", index: 0 } });
+      expect(marker.style.left).toBe("1px");
+      vi.mocked(tabs[1].getBoundingClientRect).mockReturnValue(
+        rectangle(100 + 500 * zoom, 5, 100 * zoom, 40 * zoom),
+      );
+      await render({ dragTarget: { id: "chat", edge: "tab", index: 2 } });
+      expect(marker.style.left).toBe("498px");
+    },
+  );
+
   it("scopes external header membership to its stage and clears it when the host changes", async () => {
     const toolbar = externalContainer();
     const nextToolbar = externalContainer();

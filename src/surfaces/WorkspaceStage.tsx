@@ -18,7 +18,7 @@ import {
   type LayoutRect,
   type LayoutSash,
 } from "../lib/layout";
-import { suppressTextSelection } from "../lib/drag";
+import { effectiveCssZoom, suppressTextSelection } from "../lib/drag";
 import {
   captureScrollOffsets,
   HiddenSurfaceClock,
@@ -332,7 +332,11 @@ export function WorkspaceStage({
       index < tabs.length
         ? tabs[index].getBoundingClientRect().left
         : (tabs[tabs.length - 1]?.getBoundingClientRect().right ?? rect.left);
-    marker.style.left = `${Math.max(1, Math.min(rect.width - 2, position - rect.left))}px`;
+    // Rectangles are in viewport pixels; the hosted toolbar can counterzoom
+    // its contents, so position the marker and its edge insets in local pixels.
+    const zoom = effectiveCssZoom(header);
+    const localPosition = (position - rect.left) / zoom;
+    marker.style.left = `${Math.max(1, Math.min(rect.width / zoom - 2, localPosition))}px`;
   }, [dragging, dragTarget]);
   const current = useRef({ layout, onFocus, onLayoutChange });
   current.current = { layout, onFocus, onLayoutChange };

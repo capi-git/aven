@@ -1,4 +1,5 @@
 import { moveItem } from "./reorder";
+import { effectiveCssZoom } from "./drag";
 
 type Axis = "x" | "y";
 type Point = { x: number; y: number };
@@ -53,6 +54,7 @@ type MotionEntry = {
   visual: HTMLElement;
   transform: string;
   transition: string;
+  zoom: number;
 };
 
 /** Owns only a dedicated visual child; registered outer nodes never transform. */
@@ -84,6 +86,7 @@ export class SortableMotion {
           visual: child,
           transform: child.style.transform,
           transition: child.style.transition,
+          zoom: effectiveCssZoom(child),
         });
     }
     const bounds = outer.getBoundingClientRect();
@@ -133,12 +136,13 @@ export class SortableMotion {
         entry.visual.style.transform = entry.transform;
         continue;
       }
-      const offset = dragged
+      const viewportOffset = dragged
         ? (axis === "x" ? point.x : point.y) -
           (sourceStart ?? 0) -
           source.grab -
           source.inset
         : (offsets.get(id) ?? 0);
+      const offset = viewportOffset / entry.zoom;
       entry.visual.style.transform =
         axis === "x"
           ? `translate3d(${offset}px, 0, 0)`
@@ -176,9 +180,12 @@ export class SortableMotion {
         const visual = visualOf(nodes.get(id));
         if (!visual || typeof visual.animate !== "function") continue;
         const bounds = visual.getBoundingClientRect();
-        const x = previous.left - bounds.left;
-        const y = previous.top - bounds.top;
-        if (Math.abs(x) < 0.5 && Math.abs(y) < 0.5) continue;
+        const viewportX = previous.left - bounds.left;
+        const viewportY = previous.top - bounds.top;
+        if (Math.abs(viewportX) < 0.5 && Math.abs(viewportY) < 0.5) continue;
+        const zoom = effectiveCssZoom(visual);
+        const x = viewportX / zoom;
+        const y = viewportY / zoom;
         const animation = visual.animate(
           [
             { transform: `translate3d(${x}px, ${y}px, 0)` },
