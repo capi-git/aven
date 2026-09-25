@@ -169,6 +169,40 @@ describe("projectRailItems", () => {
   });
 });
 
+describe("opening a project", () => {
+  beforeEach(() => mockLocalStorage());
+  afterEach(() => mockLocalStorage());
+  const shown = () =>
+    projectRailItems(loadRecents(), "~").map((item) => item.path);
+
+  it("never moves it in the sidebar", () => {
+    // Stored as the sidebar has always shown them: most recent first.
+    localStorage.setItem(
+      "monocode.recentProjects",
+      JSON.stringify([
+        { path: "/tmp/c", openedAt: 3 },
+        { path: "/tmp/b", openedAt: 2 },
+        { path: "/tmp/a", openedAt: 1 },
+      ]),
+    );
+    expect(shown()).toEqual(["/tmp/c", "/tmp/b", "/tmp/a"]);
+    rememberProject("/tmp/a");
+    expect(shown()).toEqual(["/tmp/c", "/tmp/b", "/tmp/a"]);
+    rememberProject("/tmp/b");
+    expect(shown()).toEqual(["/tmp/c", "/tmp/b", "/tmp/a"]);
+  });
+
+  it("keeps a custom order and puts a new project on top", () => {
+    rememberProject("/tmp/a");
+    rememberProject("/tmp/b");
+    saveProjectRailOrder(["/tmp/a", "/tmp/b"]);
+    rememberProject("/tmp/b");
+    expect(shown()).toEqual(["/tmp/a", "/tmp/b"]);
+    rememberProject("/tmp/new");
+    expect(shown()).toEqual(["/tmp/new", "/tmp/a", "/tmp/b"]);
+  });
+});
+
 describe("forgetProject", () => {
   beforeEach(() => {
     mockLocalStorage();

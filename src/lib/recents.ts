@@ -70,15 +70,32 @@ export function rememberProject(path: string): RecentProject[] {
   const normalized = normalize(path);
   if (normalized === "~" || isProjectlessCwd(normalized)) return loadRecents();
   dropArchived(normalized);
-  const prev = loadRecents().filter(
-    (p) => !sameProjectPath(p.path, normalized),
-  );
+  const current = loadRecents();
+  keepRailPosition(normalized, current);
+  const prev = current.filter((p) => !sameProjectPath(p.path, normalized));
   const next = [{ path: normalized, openedAt: Date.now() }, ...prev].slice(
     0,
     MAX,
   );
   save(next);
   return next;
+}
+
+/**
+ * Opening a project never moves it in the sidebar. Save the order the sidebar
+ * shows before this open (recency fills in anything never placed), so the new
+ * open time can't reorder it; a project new to the sidebar goes on top.
+ */
+function keepRailPosition(path: string, recents: RecentProject[]) {
+  const shown = syncProjectRailOrder(
+    loadProjectRailOrder(),
+    collectRailProjects(recents, "~"),
+  );
+  saveProjectRailOrder(
+    shown.some((entry) => sameProjectPath(entry, path))
+      ? shown
+      : [path, ...shown],
+  );
 }
 
 /** Drops a project from the rail: its recent entry, saved order slot, and pin. */
