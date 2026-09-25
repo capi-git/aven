@@ -1,14 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { leafIds, newTab, type WorkspaceTab } from "./layout";
+import {
+  leafIds,
+  newFileTab,
+  newTab,
+  newTerminalFile,
+  splitPane,
+  type WorkspaceTab,
+} from "./layout";
 import type { Session } from "./session";
 import {
   applyPlaceSessionOnPane,
   filterTabsForProject,
+  findProjectPane,
   findTabForProject,
+  focusedWorkspaceTabCwd,
   loadProjectFocusedTabs,
   saveProjectFocusedTabs,
   planWorkspaceTabClose,
   replaceGroupInTabOrder,
+  visibleProjectTabs,
+  workspaceTabCwd,
   workspaceTabProject,
 } from "./workspaceTabGroups";
 
@@ -80,6 +91,134 @@ describe("findTabForProject", () => {
   });
 });
 
+describe("project pane navigation", () => {
+  const holo = "/projects/HOLO";
+  const aven = "/projects/Aven";
+  const sessions = [session("holo", holo), session("aven", aven)];
+
+  it.each([
+    ["holo", "aven"],
+    ["aven", "holo"],
+  ])("finds HOLO in a mixed tab ordered %s then %s", (first, second) => {
+    const mixed: WorkspaceTab = {
+      ...tab("mixed", first),
+      layout: splitPane(newTab(first).layout, first, "right", second),
+      focusedId: "aven",
+    };
+    expect(focusedWorkspaceTabCwd(mixed, sessions)).toBe(aven);
+    expect(findProjectPane(mixed, sessions, holo)).toBe("holo");
+    expect(findTabForProject([mixed], sessions, holo)).toBe(mixed);
+    // Navigation resolution neither mutates focus nor changes tab ownership.
+    expect(mixed.focusedId).toBe("aven");
+    expect(workspaceTabCwd(mixed, sessions)).toBe(first === "holo" ? holo : aven);
+  });
+
+  it("validates preferred panes and keeps an already focused project pane", () => {
+    const currentSessions = [...sessions, session("other-holo", holo)];
+    const mixed: WorkspaceTab = {
+      ...tab("mixed", "holo"),
+      layout: splitPane(
+        splitPane(newTab("holo").layout, "holo", "right", "other-holo"),
+        "other-holo", "right", "aven",
+      ),
+      focusedId: "aven",
+    };
+    expect(findProjectPane(mixed, currentSessions, holo, "other-holo"))
+      .toBe("other-holo");
+    expect(findProjectPane(mixed, currentSessions, holo, "aven")).toBe("holo");
+    expect(findProjectPane(mixed, currentSessions, holo, "closed")).toBe("holo");
+    expect(findProjectPane({ ...mixed, focusedId: "holo" }, currentSessions, holo, "other-holo"))
+      .toBe("holo");
+  });
+
+  it.each(["editor", "terminal"] as const)(
+    "finds the active %s surface in a mixed tab",
+    (kind) => {
+      const file = kind === "editor"
+        ? newFileTab(`${holo}/readme.md`, holo)
+        : newTerminalFile(holo);
+      const pane = { id: "surface", files: [file], activeFileId: file.id };
+      const mixed: WorkspaceTab = {
+        ...tab("mixed", "aven"),
+        layout: splitPane(newTab("aven").layout, "aven", "right", pane.id),
+        editorPanes: kind === "editor" ? [pane] : [],
+        terminalPanes: kind === "terminal" ? [pane] : [],
+      };
+      expect(findProjectPane(mixed, sessions, holo)).toBe(pane.id);
+      expect(findTabForProject([mixed], sessions, holo)).toBe(mixed);
+      const focused = { ...mixed, focusedId: pane.id };
+      expect(focusedWorkspaceTabCwd(focused, sessions)).toBe(holo);
+      expect(workspaceTabCwd(focused, sessions)).toBe(aven);
+      const surfaceOnly = { ...focused, layout: newTab(pane.id).layout };
+      expect(findProjectPane(surfaceOnly, [], holo)).toBe(pane.id);
+      expect(focusedWorkspaceTabCwd(surfaceOnly, [])).toBe(holo);
+    },
+  );
+
+  it("ignores inactive files and stale active file IDs", () => {
+    const active = newFileTab(`${aven}/readme.md`, aven);
+    const inactive = newFileTab(`${holo}/readme.md`, holo);
+    const pane = {
+      id: "editor", files: [active, inactive], activeFileId: active.id,
+    };
+    const workspace = { ...tab("files", pane.id), editorPanes: [pane] };
+    expect(findProjectPane(workspace, [], holo)).toBeUndefined();
+    expect(focusedWorkspaceTabCwd(workspace, [])).toBe(aven);
+    const stale = {
+      ...workspace, editorPanes: [{ ...pane, activeFileId: "closed-file" }],
+    };
+    expect(findProjectPane(stale, [], holo)).toBeUndefined();
+    expect(focusedWorkspaceTabCwd(stale, [])).toBeNull();
+  });
+
+  it("ignores unmounted chats and surfaces, including in a preferred tab", () => {
+    const file = newFileTab(`${holo}/readme.md`, holo);
+    const ghost: WorkspaceTab = {
+      ...tab("ghost", "aven"),
+      focusedId: "holo",
+      editorPanes: [{ id: "editor", files: [file], activeFileId: file.id }],
+      terminalPanes: [{ id: "terminal", files: [file], activeFileId: file.id }],
+    };
+    for (const id of ["holo", "editor", "terminal"]) {
+      expect(findProjectPane(ghost, sessions, holo, id)).toBeUndefined();
+      expect(focusedWorkspaceTabCwd({ ...ghost, focusedId: id }, sessions))
+        .toBeNull();
+    }
+    const live = tab("live", "holo");
+    expect(findTabForProject([ghost, live], sessions, holo, ghost.id)).toBe(live);
+    expect(findProjectPane(live, [], holo)).toBeUndefined();
+  });
+
+  it("does not borrow a different pane's cwd for projectless or browser focus", () => {
+    const mixed: WorkspaceTab = {
+      ...tab("mixed", "blank"),
+      layout: splitPane(newTab("blank").layout, "blank", "right", "holo"),
+    };
+    const currentSessions = [...sessions, session("blank", "~")];
+    expect(focusedWorkspaceTabCwd(mixed, currentSessions)).toBeNull();
+    expect(findProjectPane(mixed, currentSessions, "~")).toBeUndefined();
+    expect(findProjectPane(mixed, currentSessions, holo)).toBe("holo");
+    // Browser workspaces are separate from Aven's chat/editor/terminal leaves.
+    const browser = tab("browser", "browser:HOLO:preview");
+    expect(focusedWorkspaceTabCwd(browser, currentSessions)).toBeNull();
+    expect(findProjectPane(browser, currentSessions, holo)).toBeUndefined();
+  });
+
+  it("matches canonical Windows paths without confusing equal folder names", () => {
+    const workspace: WorkspaceTab = {
+      ...tab("windows", "foreign"),
+      layout: splitPane(newTab("foreign").layout, "foreign", "right", "holo"),
+    };
+    const windows = [
+      session("foreign", "C:\\Personal\\HOLO"),
+      session("holo", "C:\\Work\\HOLO\\"),
+    ];
+    expect(findProjectPane(workspace, windows, "c:/work/holo", "foreign"))
+      .toBe("holo");
+    expect(findTabForProject([workspace], windows, "c:/work/holo/")).toBe(workspace);
+  });
+});
+
 describe("project focused tab preferences", () => {
   const key = "monocode.personal.focusedTabs";
   beforeEach(() => {
@@ -147,6 +286,37 @@ describe("filterTabsForProject", () => {
     expect(
       filterTabsForProject(tabs, sessions, "/tmp/beta").map((tab) => tab.id),
     ).toEqual(["t2", "t3"]);
+  });
+});
+
+describe("visibleProjectTabs", () => {
+  it("shows the selected mixed tab while keeping ownership-based actions unchanged", () => {
+    const sessions = [
+      session("aven", "/projects/Aven"),
+      session("holo", "/projects/HOLO"),
+      session("first", "/projects/HOLO"),
+      session("last", "/projects/HOLO"),
+    ];
+    const mixed: WorkspaceTab = {
+      ...tab("mixed", "aven"),
+      layout: splitPane(newTab("aven").layout, "aven", "right", "holo"),
+      focusedId: "holo",
+    };
+    const tabs = [tab("first", "first"), mixed, tab("last", "last")];
+    const ids = (items: WorkspaceTab[]) => items.map((item) => item.id);
+    expect(ids(filterTabsForProject(tabs, sessions, "/projects/HOLO")))
+      .toEqual(["first", "last"]);
+    expect(ids(visibleProjectTabs(tabs, sessions, "/projects/HOLO", mixed.id)))
+      .toEqual(["first", "mixed", "last"]);
+    expect(ids(filterTabsForProject(tabs, sessions, "/projects/Aven")))
+      .toEqual(["mixed"]);
+    // An inactive mixed tab, or one focused elsewhere, is not added to the deck.
+    expect(ids(visibleProjectTabs(tabs, sessions, "/projects/HOLO", "first")))
+      .toEqual(["first", "last"]);
+    expect(ids(visibleProjectTabs(
+      [tabs[0], { ...mixed, focusedId: "aven" }, tabs[2]],
+      sessions, "/projects/HOLO", mixed.id,
+    ))).toEqual(["first", "last"]);
   });
 });
 

@@ -2,6 +2,16 @@
 
 Aven is maintained independently. Its version numbers do not imply feature parity with MonoCode, and its updater uses Aven releases only. Compatible upstream changes are reviewed and adapted with their attribution intact.
 
+## Unreleased — project navigation review, 25 September 2026
+
+Reviewed current MonoCode main at [`0d3db9c26a460f1354dcf350969d87a6896b8bf0`](https://github.com/hardbeat920/monocode/tree/0d3db9c26a460f1354dcf350969d87a6896b8bf0), including its project registry, rail ordering, remembered project panes, and per-project sidebar tab selection.
+
+- **Adapted pane-aware project return from [#144 / `5c31b3a`](https://github.com/hardbeat920/monocode/commit/5c31b3a4b2084d7a1eb379d68b42ec919bf7c43e):** locate the requested project's mounted chat, editor, or terminal pane, focus that pane, and derive the active project from it. This prevents a mixed-project split tab from focusing another project's conversation or creating a duplicate tab merely because the requested project is not its first pane. Aven keeps its existing remembered-tab storage, workspace profiles, separate browser surfaces, detached-window routing, and destructive tab ownership rules.
+- **Retained Aven's storage-loss fix (`c289e97`):** upstream [`recents.ts`](https://github.com/hardbeat920/monocode/blob/0d3db9c26a460f1354dcf350969d87a6896b8bf0/src/features/projects/model/recents.ts) still reloads storage on each `rememberProject` call, returning an empty list on a missing store. A reproduction using upstream source and fake localStorage loaded Aven, HOLO, and ClippedIn, cleared the fake store, and selected HOLO; upstream returned only HOLO. Copying that implementation would reintroduce the reported disappearance. Aven retains loaded lists and profile assignments through missing/corrupt storage and failed writes.
+- **Not imported for this fix:** per-project Workspace tab preferences, folder rename recovery, and shared project context menus address different workflows. Aven's Files and Changes actions use its separate inspector; replacing that routing would change the interface without fixing project membership.
+
+Regression coverage exercises both mixed-chat pane orders, editor/terminal focus, invalid or removed panes, distinct project paths, visible-tab inclusion without changing deletion ownership, and the existing lost-storage sidebar clicks. All 3,430 frontend tests, TypeScript checks, and the frontend build passed. Validation is source/headless only; no production data migration, app restart, or installation is part of this review.
+
 ## Aven 0.1.85 — 22 September 2026
 
 Reviewed [MonoCode 0.1.54](https://github.com/hardbeat920/monocode/releases/tag/v0.1.54), main commit `e0a9ab79bc82fb903593e97448f38b64abb539a5`, including [94 commits since the preceding review](https://github.com/hardbeat920/monocode/compare/7d307094e4a4da498419ba2cd23c7b3ce47af0a4...e0a9ab79bc82fb903593e97448f38b64abb539a5).

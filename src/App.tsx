@@ -402,10 +402,13 @@ import {
 import {
   applyPlaceSessionOnPane,
   filterTabsForProject,
+  findProjectPane,
   findTabForProject,
+  focusedWorkspaceTabCwd,
   loadProjectFocusedTabs,
   saveProjectFocusedTabs,
   planWorkspaceTabClose,
+  visibleProjectTabs,
   workspaceTabCwd,
 } from "./lib/workspaceTabGroups";
 import { runSessionRemoval } from "./lib/sessionRemoval";
@@ -962,9 +965,9 @@ export default function App({
       navigation?: EditorNavigation,
     ) => Promise<boolean>
   >(async () => false);
-  const detachedShowSurface = useRef<(surfaceId: string) => Promise<boolean>>(
-    async () => false,
-  );
+  const detachedShowSurface = useRef<
+    (surfaceId: string, paneId?: string) => Promise<boolean>
+  >(async () => false);
   useEffect(
     () =>
       installAgentBrowserHost({
@@ -1076,7 +1079,7 @@ export default function App({
       !detachedIds.has(active.id)
     )
       return [active];
-    return filterTabsForProject(tabs, sessions, projectCwd).filter(
+    return visibleProjectTabs(tabs, sessions, projectCwd, activeTabId).filter(
       (tab) => !detachedIds.has(tab.id),
     );
   }, [activeTabId, tabs, sessions, projectCwd, detachedIds]);
@@ -1579,14 +1582,14 @@ export default function App({
   projectCwdRef.current = projectCwd;
   useEffect(() => {
     const tab = tabsRef.current.find((entry) => entry.id === activeTabId);
-    const cwd = tab ? workspaceTabCwd(tab, sessionsRef.current) : null;
+    const cwd = tab ? focusedWorkspaceTabCwd(tab, sessionsRef.current) : null;
     if (!cwd || !looksLikeProject(cwd)) return;
     const key = normalizeProjectPath(cwd);
     if (lastTabByProjectRef.current[key] === activeTabId) return;
     const next = { ...lastTabByProjectRef.current, [key]: activeTabId };
     lastTabByProjectRef.current = next;
     saveProjectFocusedTabs(next);
-  }, [activeTabId, projectCwd]);
+  }, [activeTabId, projectCwd, tabs]);
   const leaveExpandedPreview = useCallback(() => {
     setHomeViewOpen(false);
     setBrowserWorkspaces((all) => {
@@ -2507,37 +2510,57 @@ export default function App({
     );
   }, [sessions, tabs, persistSession, liveAgentsEnabled, orchestrationRuns]);
 
-  const activateTab = useCallback((id: string, restoreWorkspace = false) => {
-    if (detachedIdsRef.current.has(id)) {
-      void detachedShowSurface.current(id);
-      return;
-    }
-    setHomeViewOpen(false);
-    if (!restoreWorkspace) leaveExpandedPreview();
-    setActiveTabId(id);
-    const tab = tabsRef.current.find((entry) => entry.id === id);
-    const targetCwd = tab ? workspaceTabCwd(tab, sessionsRef.current) : "";
-    if (!restoreWorkspace)
-      viewRef.current.focus(
-        targetCwd ? normalizeProjectPath(targetCwd) : projectCwdRef.current,
-        id,
-      );
-    if (tab) {
-      const cwd = workspaceTabCwd(tab, sessionsRef.current);
-      if (cwd && looksLikeProject(cwd)) {
-        const normalized = normalizeProjectPath(cwd);
+  const activateTab = useCallback(
+    (id: string, restoreWorkspace = false, paneId?: string) => {
+      if (detachedIdsRef.current.has(id)) {
+        void detachedShowSurface.current(id, paneId);
+        return;
+      }
+      setHomeViewOpen(false);
+      if (!restoreWorkspace) leaveExpandedPreview();
+      setActiveTabId(id);
+      const original = tabsRef.current.find((entry) => entry.id === id);
+      const requestedPane =
+        original && paneId && leafIds(original.layout).includes(paneId)
+          ? paneId
+          : undefined;
+      const tab =
+        original &&
+        requestedPane &&
+        (requestedPane !== original.focusedId || original.diffFocused)
+          ? { ...original, focusedId: requestedPane, diffFocused: false }
+          : original;
+      if (tab && tab !== original)
+        setTabs((previous) =>
+          previous.map((entry) =>
+            entry.id === id
+              ? { ...entry, focusedId: tab.focusedId, diffFocused: false }
+              : entry,
+          ),
+        );
+      const targetCwd = tab
+        ? focusedWorkspaceTabCwd(tab, sessionsRef.current)
+        : "";
+      if (!restoreWorkspace)
+        viewRef.current.focus(
+          targetCwd ? normalizeProjectPath(targetCwd) : projectCwdRef.current,
+          id,
+        );
+      if (targetCwd && looksLikeProject(targetCwd)) {
+        const normalized = normalizeProjectPath(targetCwd);
         profilesRef.current.selectProjectProfile(normalized);
         if (!sameProjectPath(normalized, projectCwdRef.current)) {
           setProjectCwd(normalized);
           rememberRecentProject(normalized);
         }
       }
-    }
-    setComposerFocused(
-      !!tab &&
-        sessionsRef.current.some((session) => session.id === tab.focusedId),
-    );
-  }, []);
+      setComposerFocused(
+        !!tab &&
+          sessionsRef.current.some((session) => session.id === tab.focusedId),
+      );
+    },
+    [leaveExpandedPreview, rememberRecentProject],
+  );
 
   const isLocationAvailable = useCallback((place: WorkspaceLocation) => {
     if (
@@ -3716,21 +3739,9 @@ export default function App({
         leafIds(tab.layout).includes(paneId),
       );
       if (!owner) return;
-      setActiveTabId(owner.id);
-      leaveExpandedPreview();
-      viewRef.current.change((view) => selectWorkspaceView(view, owner.id));
-      setTabs((prev) =>
-        prev.map((tab) =>
-          tab.id === owner.id
-            ? { ...tab, focusedId: paneId, diffFocused: false }
-            : tab,
-        ),
-      );
-      setComposerFocused(
-        sessionsRef.current.some((session) => session.id === paneId),
-      );
+      activateTab(owner.id, false, paneId);
     },
-    [inboxAskPortal, leaveExpandedPreview],
+    [activateTab, inboxAskPortal],
   );
 
   const onOpenDiff = useCallback(
@@ -4785,10 +4796,14 @@ export default function App({
             (session) => session.id === activeWorkspace.focusedId,
           )
         : undefined;
-      const currentCwd =
-        current?.cwd ??
-        (activeWorkspace ? focusedFileTab(activeWorkspace)?.cwd : undefined);
-      if (currentCwd && sameProjectPath(currentCwd, normalized)) return;
+      const currentCwd = activeWorkspace
+        ? focusedWorkspaceTabCwd(activeWorkspace, sessionsRef.current)
+        : undefined;
+      if (currentCwd && sameProjectPath(currentCwd, normalized)) {
+        setProjectCwd(normalized);
+        rememberRecentProject(normalized);
+        return;
+      }
 
       const match = findTabForProject(
         tabsRef.current,
@@ -4803,7 +4818,11 @@ export default function App({
           setProjectCwd(normalized);
           rememberRecentProject(normalized);
         }
-        activateTab(match.id, true);
+        activateTab(
+          match.id,
+          true,
+          findProjectPane(match, sessionsRef.current, normalized),
+        );
         return;
       }
 
@@ -8245,7 +8264,7 @@ export default function App({
     ...detached.detachedSessionIds,
   ]);
   detachedFileBridge.current = detached.openFileForSession;
-  detachedShowSurface.current = async (surfaceId) => {
+  detachedShowSurface.current = async (surfaceId, paneId) => {
     const window = detached.snapshots.find(
       (entry) =>
         entry.state.tabs.some((tab) => tab.id === surfaceId) ||
@@ -8253,6 +8272,14 @@ export default function App({
     );
     if (!window) return false;
     try {
+      // The detached protocol can focus chats; editor/terminal panes keep the
+      // existing show-window behavior instead of being sent as session IDs.
+      if (
+        paneId &&
+        window.state.sessions.some((entry) => entry.session.id === paneId)
+      ) {
+        if (await detached.showSession(paneId)) return true;
+      }
       await detached.show(window.id);
       return true;
     } catch (error) {

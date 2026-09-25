@@ -63,6 +63,49 @@ export function workspaceTabCwd(
   return null;
 }
 
+// Pane matching adapted from MonoCode #144 / 5c31b3a4b2084d7a1eb379d68b42ec919bf7c43e.
+// Aven only matches mounted panes; workspaceTabCwd retains tab ownership rules.
+function mountedPaneCwd(
+  tab: WorkspaceTab,
+  sessions: readonly Pick<Session, "id" | "cwd">[],
+  paneId: string,
+): string | null {
+  if (!leafIds(tab.layout).includes(paneId)) return null;
+  const session = sessions.find((entry) => entry.id === paneId);
+  const pane =
+    tab.editorPanes.find((entry) => entry.id === paneId) ??
+    tab.terminalPanes?.find((entry) => entry.id === paneId);
+  const file = pane?.files.find((entry) => entry.id === pane.activeFileId);
+  const cwd = session?.cwd ?? file?.cwd;
+  return cwd && cwd !== "~" ? cwd : null;
+}
+
+/** The visible pane's project, without falling back to a different split pane. */
+export function focusedWorkspaceTabCwd(
+  tab: WorkspaceTab,
+  sessions: readonly Pick<Session, "id" | "cwd">[],
+): string | null {
+  return mountedPaneCwd(tab, sessions, tab.focusedId);
+}
+
+/** Find a live pane that can actually be focused for this project. */
+export function findProjectPane(
+  tab: WorkspaceTab,
+  sessions: readonly Pick<Session, "id" | "cwd">[],
+  path: string,
+  preferredPaneId?: string,
+): string | undefined {
+  const candidates = new Set([
+    tab.focusedId,
+    ...(preferredPaneId ? [preferredPaneId] : []),
+    ...leafIds(tab.layout),
+  ]);
+  return [...candidates].find((paneId) => {
+    const cwd = mountedPaneCwd(tab, sessions, paneId);
+    return cwd ? sameProjectPath(cwd, path) : false;
+  });
+}
+
 export function workspaceTabProject(
   tab: WorkspaceTab,
   sessions: Session[],
@@ -79,10 +122,8 @@ export function findTabForProject(
   path: string,
   preferredTabId?: string,
 ): WorkspaceTab | undefined {
-  const matchesProject = (tab: WorkspaceTab) => {
-    const cwd = workspaceTabCwd(tab, sessions);
-    return cwd ? sameProjectPath(cwd, path) : false;
-  };
+  const matchesProject = (tab: WorkspaceTab) =>
+    findProjectPane(tab, sessions, path) !== undefined;
   const preferred = preferredTabId
     ? tabs.find((tab) => tab.id === preferredTabId)
     : undefined;
@@ -97,6 +138,22 @@ export function filterTabsForProject(
 ): WorkspaceTab[] {
   return tabs.filter((tab) => {
     const cwd = workspaceTabCwd(tab, sessions);
+    return cwd ? sameProjectPath(cwd, path) : false;
+  });
+}
+
+/** Display a selected split tab without changing project ownership for actions. */
+export function visibleProjectTabs(
+  tabs: WorkspaceTab[],
+  sessions: Session[],
+  path: string,
+  activeTabId: string,
+): WorkspaceTab[] {
+  const owned = new Set(filterTabsForProject(tabs, sessions, path));
+  return tabs.filter((tab) => {
+    if (owned.has(tab)) return true;
+    if (tab.id !== activeTabId) return false;
+    const cwd = focusedWorkspaceTabCwd(tab, sessions);
     return cwd ? sameProjectPath(cwd, path) : false;
   });
 }
