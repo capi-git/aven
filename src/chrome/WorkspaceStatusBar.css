@@ -469,6 +469,8 @@
 /* A sidebar owns its navigation width, including the space left by traffic
    lights. Collapse actions into an in-app menu instead of clipping the capsule. */
 .workspace-navigation {
+  display: flex;
+  align-items: center;
   flex: 0 0 auto;
   min-width: 0;
 }

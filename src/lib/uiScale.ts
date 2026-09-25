@@ -61,6 +61,13 @@ export async function applyUiScale(value: number) {
     // No Tauri runtime (browser dev): fall back to CSS zoom.
     document.documentElement.style.setProperty("zoom", String(next));
   }
+  // AppKit's traffic lights stay in native points while page zoom changes CSS
+  // pixels. The macOS window toolbar cancels that zoom so its controls, reserved
+  // traffic-light space, and occupied height keep the same native geometry.
+  document.documentElement.style.setProperty(
+    "--aven-titlebar-scale",
+    String(1 / next),
+  );
   if (typeof window !== "undefined") {
     window.dispatchEvent(
       new CustomEvent<number>(UI_SCALE_CHANGE_EVENT, { detail: next }),
@@ -86,7 +93,8 @@ export function uiScaleCommand(e: {
   key: string;
   code: string;
 }): "zoom-in" | "zoom-out" | "zoom-reset" | null {
-  if (e.code === "NumpadAdd" || e.key === "+" || e.key === "=") return "zoom-in";
+  if (e.code === "NumpadAdd" || e.key === "+" || e.key === "=")
+    return "zoom-in";
   if (e.code === "NumpadSubtract" || e.key === "-" || e.key === "_") {
     return "zoom-out";
   }

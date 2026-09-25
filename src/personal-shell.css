@@ -802,6 +802,12 @@ html .personal-shell[data-unified-toolbar] > .workspace-status-bar {
   background: var(--aven-toolbar-surface, var(--personal-frame));
 }
 html.is-mac .personal-shell[data-unified-toolbar] > .workspace-status-bar {
+  /* The native buttons remain 14pt centered in a 40pt titlebar. Keep this
+     whole frame row in native points while the workspace follows UI zoom.
+     Stretch, rather than 100% width, lets flex layout account for CSS zoom. */
+  zoom: var(--aven-titlebar-scale, 1);
+  width: auto;
+  align-self: stretch;
   padding-left: 88px;
 }
 .personal-shell[data-unified-toolbar] .personal-sidebar-windowbar {
