@@ -43,16 +43,58 @@ export function defaultWorkspaceProfiles(): WorkspaceProfilesState {
   };
 }
 
+function stringRecord(value: unknown): value is Record<string, string> {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.values(value).every((entry) => typeof entry === "string")
+  );
+}
+
+function completeWorkspaceProfiles(saved: Partial<WorkspaceProfilesState>) {
+  return (
+    Array.isArray(saved.profiles) &&
+    saved.profiles.every(
+      (profile) =>
+        profile &&
+        typeof profile.id === "string" &&
+        !!profile.id &&
+        typeof profile.name === "string" &&
+        !!profile.name.trim() &&
+        ["home", "briefcase", "folder"].includes(profile.icon),
+    ) &&
+    typeof saved.activeProfileId === "string" &&
+    !!saved.activeProfileId &&
+    stringRecord(saved.projectProfiles) &&
+    stringRecord(saved.lastProjectByProfile)
+  );
+}
+
+function workspaceProfilesSnapshot(state: WorkspaceProfilesState): string {
+  return JSON.stringify({
+    ...state,
+    projectProfiles: Object.entries(state.projectProfiles).sort(),
+    lastProjectByProfile: Object.entries(state.lastProjectByProfile).sort(),
+  });
+}
+
 /** Profiles organize local projects; they never select an external account. */
-export function loadWorkspaceProfiles(): WorkspaceProfilesState {
-  const fallback = defaultWorkspaceProfiles();
+export function loadWorkspaceProfiles(
+  retained?: WorkspaceProfilesState,
+): WorkspaceProfilesState {
+  const defaults = defaultWorkspaceProfiles();
+  const fallback = retained ?? defaults;
   try {
     const raw: unknown = JSON.parse(
       localStorage.getItem(WORKSPACE_PROFILES_KEY) ?? "null",
     );
-    if (!raw || typeof raw !== "object") return fallback;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return fallback;
     const saved = raw as Partial<WorkspaceProfilesState>;
-    const profiles = [...fallback.profiles];
+    // Startup can salvage older partial data. A live refresh may replace loaded
+    // assignments only with a complete snapshot, including an explicit reset.
+    if (retained && !completeWorkspaceProfiles(saved)) return retained;
+    const profiles = [...defaults.profiles];
     if (Array.isArray(saved.profiles)) {
       for (const profile of saved.profiles) {
         if (
@@ -117,8 +159,10 @@ export function loadWorkspaceProfiles(): WorkspaceProfilesState {
 export function saveWorkspaceProfiles(state: WorkspaceProfilesState) {
   try {
     localStorage.setItem(WORKSPACE_PROFILES_KEY, JSON.stringify(state));
+    return true;
   } catch {
     // Keep this window usable when storage is unavailable.
+    return false;
   }
 }
 
@@ -210,24 +254,33 @@ export function useWorkspaceProfiles(
   const [state, setState] = useState(loadWorkspaceProfiles);
   useActivateWorkspaceTheme(state.activeProfileId);
   const stateRef = useRef(state);
+  const persistedSnapshot = useRef(workspaceProfilesSnapshot(state));
   const commit = useCallback((next: WorkspaceProfilesState) => {
     stateRef.current = next;
     setState(next);
-    saveWorkspaceProfiles(next);
+    if (saveWorkspaceProfiles(next))
+      persistedSnapshot.current = workspaceProfilesSnapshot(next);
   }, []);
 
+  const refresh = useCallback(() => {
+    const next = loadWorkspaceProfiles(stateRef.current);
+    if (next === stateRef.current) return stateRef.current;
+    const snapshot = workspaceProfilesSnapshot(next);
+    // A failed local write leaves the previous snapshot on disk. Repeated
+    // events for that snapshot must not undo the newer in-memory assignment.
+    if (snapshot === persistedSnapshot.current) return stateRef.current;
+    persistedSnapshot.current = snapshot;
+    stateRef.current = next;
+    setState(next);
+    return next;
+  }, []);
   useEffect(() => {
-    const refresh = () => {
-      const next = loadWorkspaceProfiles();
-      stateRef.current = next;
-      setState(next);
-    };
     const onStorage = (event: StorageEvent) => {
-      if (event.key === WORKSPACE_PROFILES_KEY) refresh();
+      if (event.key === WORKSPACE_PROFILES_KEY || event.key === null) refresh();
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, []);
+  }, [refresh]);
 
   useEffect(() => {
     const current = stateRef.current;
@@ -295,6 +348,18 @@ export function useWorkspaceProfiles(
     },
     [availableProjects, currentProject, commit],
   );
+  // Navigation must use the same assignments as the visible sidebar, even if
+  // persistence becomes unavailable or a recent move could not be saved.
+  const projectProfile = useCallback(
+    (path: string) => projectWorkspaceProfile(refresh(), path),
+    [refresh],
+  );
+  const selectProjectProfile = useCallback(
+    (path: string) => {
+      selectProfile(projectProfile(path));
+    },
+    [projectProfile, selectProfile],
+  );
   const assignProject = useCallback(
     (path: string, profileId?: string) => {
       const current = stateRef.current;
@@ -347,6 +412,8 @@ export function useWorkspaceProfiles(
     )!,
     profileProjects,
     projectsByProfile,
+    projectProfile,
+    selectProjectProfile,
     selectProfile,
     assignProject,
     moveProject,

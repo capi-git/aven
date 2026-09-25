@@ -59,6 +59,7 @@ import { PersonalInspectorDock } from "./chrome/PersonalInspectorDock";
 import { WorkspaceHome } from "./surfaces/WorkspaceHome";
 import { useHoverRevealPanel } from "./hooks/useHoverRevealPanel";
 import { useWorkspaceSnapshotPersistence } from "./hooks/useWorkspaceSnapshotPersistence";
+import { useRecentProjects } from "./hooks/useRecentProjects";
 import { Sidebar } from "./chrome/Sidebar";
 import type { WorkspaceProfilePreviewData } from "./chrome/ProfileCarouselPreview";
 import { projectDisplayName } from "./hooks/useProjectLabels";
@@ -203,8 +204,6 @@ import { installInAppLinks } from "./lib/inAppLinks";
 import { normalizeBrowserUrl } from "./lib/browser";
 import {
   useWorkspaceProfiles,
-  loadWorkspaceProfiles,
-  projectWorkspaceProfile,
   restoreProfileWorkspace,
 } from "./lib/workspaceProfiles";
 import { loadRunScripts, saveRunScripts } from "./lib/workspaceActions";
@@ -394,14 +393,10 @@ import {
 } from "./lib/paths";
 import { removeProjectData } from "./lib/projectData";
 import {
-  archiveProject,
-  forgetProject,
   lastProjectPath,
-  loadRecents,
   looksLikeProject,
   normalizeProjectPath,
   projectRailItems,
-  rememberProject,
   sameProjectPath,
 } from "./lib/recents";
 import {
@@ -785,11 +780,14 @@ export default function App({
       lastProjectPath() ??
       "~",
   );
-  const [recents, setRecents] = useState(() =>
-    resumed?.projectCwd && looksLikeProject(resumed.projectCwd)
-      ? rememberProject(resumed.projectCwd)
-      : loadRecents(),
-  );
+  const {
+    recents,
+    remember: rememberRecentProject,
+    rememberIfEmpty: rememberInitialProject,
+    forget: forgetRecentProject,
+    archive: archiveRecentProject,
+    isKnownProject,
+  } = useRecentProjects(resumed?.projectCwd);
   const [seed] = useState(() => {
     const cwd = lastProjectPath() ?? "~";
     const session = newDefaultSession(cwd);
@@ -2431,7 +2429,7 @@ export default function App({
           return;
         if (!looksLikeProject(cwd)) return;
         setProjectCwd(cwd);
-        setRecents((prev) => (prev.length > 0 ? prev : rememberProject(cwd)));
+        rememberInitialProject(cwd);
         setSessions((prev) =>
           prev.map((s) => (s.cwd === "~" ? { ...s, cwd } : s)),
         );
@@ -2528,12 +2526,10 @@ export default function App({
       const cwd = workspaceTabCwd(tab, sessionsRef.current);
       if (cwd && looksLikeProject(cwd)) {
         const normalized = normalizeProjectPath(cwd);
-        profilesRef.current.selectProfile(
-          projectWorkspaceProfile(loadWorkspaceProfiles(), normalized),
-        );
+        profilesRef.current.selectProjectProfile(normalized);
         if (!sameProjectPath(normalized, projectCwdRef.current)) {
           setProjectCwd(normalized);
-          setRecents(rememberProject(normalized));
+          rememberRecentProject(normalized);
         }
       }
     }
@@ -3899,11 +3895,9 @@ export default function App({
     );
     if (target && looksLikeProject(target.cwd)) {
       revealProjectTask(target.cwd);
-      profilesRef.current.selectProfile(
-        projectWorkspaceProfile(loadWorkspaceProfiles(), target.cwd),
-      );
+      profilesRef.current.selectProjectProfile(target.cwd);
       setProjectCwd(target.cwd);
-      setRecents(rememberProject(target.cwd));
+      rememberRecentProject(target.cwd);
     }
     setActiveTabId(tab.id);
     setTabs((prev) =>
@@ -4091,7 +4085,7 @@ export default function App({
       setNotesViewOpen(false);
       profilesRef.current.selectProfile(
         projectlessProfileForCwd(entry.cwd) ??
-          projectWorkspaceProfile(loadWorkspaceProfiles(), entry.cwd),
+          profilesRef.current.projectProfile(entry.cwd),
       );
       setProjectCwd(entry.cwd);
       viewRef.current.focus(entry.cwd, surfaceId);
@@ -4234,11 +4228,9 @@ export default function App({
         if (focusOpenSession(session.id)) return;
       }
       revealProjectTask(session.cwd);
-      profilesRef.current.selectProfile(
-        projectWorkspaceProfile(loadWorkspaceProfiles(), session.cwd),
-      );
+      profilesRef.current.selectProjectProfile(session.cwd);
       setProjectCwd(session.cwd);
-      setRecents(rememberProject(session.cwd));
+      rememberRecentProject(session.cwd);
       if (
         sameProjectPath(session.cwd, projectCwdRef.current) &&
         replaceBlankPaneWithSession(session)
@@ -4678,14 +4670,8 @@ export default function App({
         isProjectlessCwd(previous) &&
         !isProjectlessCwd(normalized)
       ) {
-        if (
-          loadRecents().some((project) =>
-            sameProjectPath(project.path, normalized),
-          )
-        ) {
-          profilesRef.current.selectProfile(
-            projectWorkspaceProfile(loadWorkspaceProfiles(), normalized),
-          );
+        if (isKnownProject(normalized)) {
+          profilesRef.current.selectProjectProfile(normalized);
         } else profilesRef.current.assignProject(normalized);
       }
       // Threads stay bound to their project. Switching from the composer opens a
@@ -4698,7 +4684,7 @@ export default function App({
         !isBlankSession(current)
       ) {
         setProjectCwd(normalized);
-        setRecents(rememberProject(normalized));
+        rememberRecentProject(normalized);
         const session = newSession(
           current.harness,
           normalized,
@@ -4721,7 +4707,7 @@ export default function App({
         void keepSessionChanges(sessionId, previous).catch(() => undefined);
       }
       setProjectCwd(normalized);
-      setRecents(rememberProject(normalized));
+      rememberRecentProject(normalized);
       setSessions((prev) =>
         prev.map((s) =>
           s.id === sessionId
@@ -4789,9 +4775,7 @@ export default function App({
       const normalized = normalizeProjectPath(path);
       if (!looksLikeProject(normalized)) return;
       if (!restoreWorkspace) revealProjectTask(normalized);
-      profilesRef.current.selectProfile(
-        projectWorkspaceProfile(loadWorkspaceProfiles(), normalized),
-      );
+      profilesRef.current.selectProjectProfile(normalized);
 
       const activeWorkspace = tabsRef.current.find(
         (entry) => entry.id === activeTabIdRef.current,
@@ -4817,7 +4801,7 @@ export default function App({
         // tabs only reveal their own window, so retain this window's update.
         if (detachedIdsRef.current.has(match.id)) {
           setProjectCwd(normalized);
-          setRecents(rememberProject(normalized));
+          rememberRecentProject(normalized);
         }
         activateTab(match.id, true);
         return;
@@ -4833,7 +4817,7 @@ export default function App({
       );
       const tab = newTab(session.id);
       setProjectCwd(normalized);
-      setRecents(rememberProject(normalized));
+      rememberRecentProject(normalized);
       setSessions((prev) => [...prev, session]);
       appendTab(tab, normalized);
       setActiveTabId(tab.id);
@@ -4898,7 +4882,7 @@ export default function App({
       const session = newDefaultSession(path);
       const tab = newTab(session.id);
       setProjectCwd(path);
-      setRecents(rememberProject(path));
+      rememberRecentProject(path);
       setSessions((previous) => [...previous, session]);
       appendTab(tab, path);
       setActiveTabId(tab.id);
@@ -4971,9 +4955,8 @@ export default function App({
         // Read current state only after all saves, process stops, and deletes.
         const wasCurrent = sameProjectPath(projectCwdRef.current, normalized);
         const remaining = options.purgeData
-          ? forgetProject(normalized)
-          : archiveProject(normalized);
-        setRecents(remaining);
+          ? forgetRecentProject(normalized)
+          : archiveRecentProject(normalized);
 
         const tabs = tabsRef.current;
         const sessions = sessionsRef.current;
@@ -5045,11 +5028,10 @@ export default function App({
         );
 
         if (wasCurrent) {
-          const profileState = loadWorkspaceProfiles();
           const next = remaining.find(
             (item) =>
               looksLikeProject(item.path) &&
-              projectWorkspaceProfile(profileState, item.path) ===
+              profilesRef.current.projectProfile(item.path) ===
                 profilesRef.current.activeProfileId,
           );
           if (next) {
@@ -5077,7 +5059,7 @@ export default function App({
 
   const onRestoreProject = useCallback(
     (path: string) => {
-      setRecents(rememberProject(path));
+      rememberRecentProject(path);
       onSelectProject(path);
     },
     [onSelectProject],
@@ -6860,9 +6842,7 @@ export default function App({
         const session = await ensureOpenSession(sessionId);
         if (!session || session.inboxAsk) return false;
         flushSync(() => {
-          profilesRef.current.selectProfile(
-            projectWorkspaceProfile(loadWorkspaceProfiles(), session.cwd),
-          );
+          profilesRef.current.selectProjectProfile(session.cwd);
           setProjectCwd(session.cwd);
           setHomeViewOpen(false);
           setSettingsOpen(false);
@@ -8219,7 +8199,7 @@ export default function App({
       setNotesViewOpen(false);
       profilesRef.current.selectProfile(
         projectlessProfileForCwd(cwd) ??
-          projectWorkspaceProfile(loadWorkspaceProfiles(), cwd),
+          profilesRef.current.projectProfile(cwd),
       );
       setProjectCwd(cwd);
       viewRef.current.restore(cwd, restored);
@@ -8633,7 +8613,7 @@ export default function App({
       if (!sameProjectPath(request.project, projectCwdRef.current)) {
         revealProjectTask(request.project);
         setProjectCwd(request.project);
-        setRecents(rememberProject(request.project));
+        rememberRecentProject(request.project);
       }
       setActiveTabId(tab.id);
     }
@@ -8720,7 +8700,7 @@ export default function App({
     if (!sameProjectPath(request.project, projectCwdRef.current)) {
       revealProjectTask(request.project);
       setProjectCwd(request.project);
-      setRecents(rememberProject(request.project));
+      rememberRecentProject(request.project);
     }
     setActiveTabId(laneTab.id);
     const prompt = racePrompt(request.text, laneSessions.length);

@@ -68,6 +68,7 @@ afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
   container.remove();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -202,6 +203,179 @@ describe("workspace project organization", () => {
 });
 
 describe("workspace transitions", () => {
+  it("opens an externally assigned project before its storage event without overwriting its workspace", () => {
+    const initial = configuredProfiles();
+    initial.activeProfileId = "work";
+    saveWorkspaceProfiles(initial);
+    render(otherWorkPath);
+    const holoPath = "/Users/test/Projects/HOLO";
+    saveWorkspaceProfiles(assignWorkspaceProject(loadWorkspaceProfiles(), holoPath, "work"));
+
+    act(() => latest.selectProjectProfile(holoPath));
+    expect(latest.activeProfileId).toBe("work");
+    expect(latest.projectProfile(holoPath)).toBe("work");
+    expect(projectWorkspaceProfile(loadWorkspaceProfiles(), holoPath)).toBe("work");
+  });
+
+  it.each([
+    "missing",
+    "malformed",
+    "empty object",
+    "null assignments",
+    "unavailable",
+  ])(
+    "keeps project navigation in its loaded workspace when profile storage is %s",
+    (failure) => {
+      const initial = configuredProfiles();
+      initial.activeProfileId = "work";
+      saveWorkspaceProfiles(initial);
+      render(otherWorkPath);
+      const previews = latest.projectsByProfile;
+      const read = localStorage.getItem.bind(localStorage);
+      vi.spyOn(localStorage, "getItem").mockImplementation((key) => {
+        if (key !== WORKSPACE_PROFILES_KEY) return read(key);
+        if (failure === "unavailable") throw new Error("Storage unavailable");
+        if (failure === "empty object") return "{}";
+        if (failure === "null assignments")
+          return JSON.stringify({ ...initial, projectProfiles: null });
+        return failure === "missing" ? null : "not json";
+      });
+
+      // A project click must agree with the Work project row already visible.
+      expect(projectWorkspaceProfile(loadWorkspaceProfiles(), workPath)).toBe(
+        "personal",
+      );
+      act(() => latest.selectProjectProfile(workPath));
+      expect(latest.activeProfileId).toBe("work");
+      expect(latest.projectProfile(workPath)).toBe("work");
+      expect(latest.projectsByProfile).toBe(previews);
+      expect(latest.profileProjects.map((project) => project.path)).toEqual([
+        workPath,
+        otherWorkPath,
+      ]);
+
+      // Missing data on a storage notification is not an intentional reset.
+      for (const key of [WORKSPACE_PROFILES_KEY, null]) {
+        act(() => window.dispatchEvent(new StorageEvent("storage", { key })));
+        expect(latest.activeProfileId).toBe("work");
+        expect(latest.projectsByProfile).toBe(previews);
+      }
+
+      // Retaining assignments must still allow deliberate cross-workspace opens.
+      act(() => latest.selectProjectProfile(personalPath));
+      expect(latest.activeProfileId).toBe("personal");
+      act(() => latest.selectProjectProfile(workPath));
+      expect(latest.activeProfileId).toBe("work");
+    },
+  );
+
+  it("uses an assignment or move immediately even when its write fails", () => {
+    render(personalPath);
+    const holoPath = "/Users/test/Projects/HOLO";
+    const write = localStorage.setItem.bind(localStorage);
+    vi.spyOn(localStorage, "setItem").mockImplementation((key, value) => {
+      if (key === WORKSPACE_PROFILES_KEY) throw new Error("Storage unavailable");
+      write(key, value);
+    });
+
+    act(() => {
+      latest.assignProject(holoPath, "work");
+      latest.selectProjectProfile(holoPath);
+    });
+    expect(latest.activeProfileId).toBe("work");
+    expect(latest.projectProfile(holoPath)).toBe("work");
+    // The persisted snapshot still lacks the new assignment.
+    expect(projectWorkspaceProfile(loadWorkspaceProfiles(), holoPath)).toBe(
+      "personal",
+    );
+    for (const key of [WORKSPACE_PROFILES_KEY, null]) {
+      act(() => window.dispatchEvent(new StorageEvent("storage", { key })));
+      act(() => latest.selectProjectProfile(holoPath));
+      expect(latest.activeProfileId).toBe("work");
+      expect(latest.projectProfile(holoPath)).toBe("work");
+    }
+    render(holoPath);
+    expect(latest.profileProjects.map((project) => project.path)).toEqual([
+      workPath,
+      otherWorkPath,
+      holoPath,
+    ]);
+
+    act(() => {
+      latest.moveProject(holoPath, "personal");
+      latest.selectProjectProfile(holoPath);
+    });
+    expect(latest.activeProfileId).toBe("personal");
+    expect(latest.projectProfile(holoPath)).toBe("personal");
+    expect(latest.projectProfile(workPath)).toBe("work");
+  });
+
+  it("adopts valid profile moves from another window", () => {
+    render(personalPath);
+    saveWorkspaceProfiles(
+      assignWorkspaceProject(loadWorkspaceProfiles(), workPath, "personal"),
+    );
+    act(() => {
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: WORKSPACE_PROFILES_KEY }),
+      );
+    });
+    expect(latest.projectProfile(workPath)).toBe("personal");
+    expect(latest.profileProjects.map((project) => project.path)).toEqual([
+      personalPath,
+      workPath,
+    ]);
+    act(() => latest.selectProjectProfile(workPath));
+    expect(latest.activeProfileId).toBe("personal");
+    act(() => latest.selectProjectProfile(otherWorkPath));
+    expect(latest.activeProfileId).toBe("work");
+  });
+
+  it("adopts a changed external snapshot after a local write fails", () => {
+    render(personalPath);
+    const write = localStorage.setItem.bind(localStorage);
+    vi.spyOn(localStorage, "setItem").mockImplementation((key, value) => {
+      if (key === WORKSPACE_PROFILES_KEY) throw new Error("Storage unavailable");
+      write(key, value);
+    });
+    act(() => latest.moveProject(workPath, "personal"));
+    expect(latest.projectProfile(workPath)).toBe("personal");
+
+    const external = assignWorkspaceProject(
+      configuredProfiles(),
+      otherWorkPath,
+      "personal",
+    );
+    write(WORKSPACE_PROFILES_KEY, JSON.stringify(external));
+    act(() => {
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: WORKSPACE_PROFILES_KEY }),
+      );
+    });
+    expect(latest.projectProfile(workPath)).toBe("work");
+    expect(latest.projectProfile(otherWorkPath)).toBe("personal");
+  });
+
+  it("accepts an explicit complete reset from another window", () => {
+    const initial = configuredProfiles();
+    initial.activeProfileId = "work";
+    initial.profiles.push({ id: "research", name: "Research", icon: "folder" });
+    saveWorkspaceProfiles(initial);
+    render(workPath);
+
+    const reset = defaultWorkspaceProfiles();
+    saveWorkspaceProfiles(reset);
+    act(() => {
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: WORKSPACE_PROFILES_KEY }),
+      );
+    });
+    expect(latest.profiles).toEqual(reset.profiles);
+    expect(latest.activeProfileId).toBe("personal");
+    expect(latest.projectProfile(workPath)).toBe("personal");
+    expect(latest.projectProfile(otherWorkPath)).toBe("personal");
+  });
+
   it("restores standalone sessions to their workspace without adding project cards or changing their membership", () => {
     const standalone =
       "/Users/test/Library/Application Support/com.capi.monocode.personal/projectless-workspaces/work";

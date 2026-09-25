@@ -1,8 +1,17 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadWorkspaceTheme } from "../lib/workspaceThemes";
+import { useRecentProjects } from "../hooks/useRecentProjects";
+import { RECENT_PROJECTS_KEY } from "../lib/recents";
+import {
+  assignWorkspaceProject,
+  defaultWorkspaceProfiles,
+  restoreProfileWorkspace,
+  saveWorkspaceProfiles,
+  useWorkspaceProfiles,
+} from "../lib/workspaceProfiles";
 import { Sidebar, type SidebarProps } from "./Sidebar";
 
 vi.mock("../lib/platform", async (importOriginal) => ({
@@ -38,11 +47,33 @@ const props: SidebarProps = {
   onSelectProfile: noop,
 };
 
+function ProjectNavigationSidebar() {
+  const [cwd, setCwd] = useState("/projects/Catalog");
+  const recentProjects = useRecentProjects();
+  const profiles = useWorkspaceProfiles(recentProjects.recents, cwd);
+  const selectProject = (path: string) => {
+    profiles.selectProjectProfile(path);
+    setCwd(path);
+    recentProjects.remember(path);
+  };
+  return createElement(Sidebar, {
+    ...props,
+    cwd,
+    recents: profiles.profileProjects,
+    profiles: profiles.profiles,
+    activeProfileId: profiles.activeProfileId,
+    onSelectProject: selectProject,
+    onSelectProfile: (id) =>
+      restoreProfileWorkspace(id, profiles.selectProfile, selectProject),
+  });
+}
+
 beforeEach(() => {
   const values = new Map<string, string>();
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => values.get(key) ?? null,
     setItem: (key: string, value: string) => values.set(key, value),
+    clear: () => values.clear(),
   });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.spyOn(document, "hidden", "get").mockReturnValue(false);
@@ -73,6 +104,62 @@ function menu() {
 }
 
 describe("sidebar workspace navigation", () => {
+  it.each([false, true])(
+    "keeps Work projects and their workspace after storage loss (writes fail: %s)",
+    async (writesFail) => {
+      const paths = ["/projects/HOLO", "/projects/Catalog", "/projects/Aven"];
+      localStorage.setItem(
+        RECENT_PROJECTS_KEY,
+        JSON.stringify(paths.map((path, index) => ({ path, openedAt: 3 - index }))),
+      );
+      let initial = defaultWorkspaceProfiles();
+      for (const path of paths.slice(0, 2))
+        initial = assignWorkspaceProject(initial, path, "work");
+      saveWorkspaceProfiles({ ...initial, activeProfileId: "work" });
+      await act(async () => root.render(createElement(ProjectNavigationSidebar)));
+
+      const content = () => container.querySelector<HTMLElement>(".personal-profile-content")!;
+      const visibleButton = (label: string) =>
+        content().querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+      const visibleProjects = () =>
+        [...content().querySelectorAll<HTMLButtonElement>(".personal-project-open")]
+          .map((item) => item.title).sort();
+      const expectWork = () => {
+        expect(visibleButton("Switch workspace, Work")).not.toBeNull();
+        expect(visibleProjects()).toEqual(paths.slice(0, 2).sort());
+      };
+      expectWork();
+      if (writesFail)
+        vi.spyOn(localStorage, "setItem").mockImplementation(() => {
+          throw new Error("Storage unavailable");
+        });
+      await act(async () => {
+        localStorage.clear();
+        window.dispatchEvent(new StorageEvent("storage", { key: null }));
+      });
+      expectWork();
+
+      for (const name of ["HOLO", "Catalog", "HOLO"]) {
+        await click(visibleButton(`Open ${name} project`));
+        expectWork();
+        expect(content().querySelector(".personal-project-row[data-active=true] .personal-project-open")?.getAttribute("title"))
+          .toBe(`/projects/${name}`);
+      }
+      await click(visibleButton("Switch workspace, Work"));
+      await click([...menu()!.querySelectorAll<HTMLButtonElement>("button")]
+        .find((item) => item.textContent === "Personal")!);
+      expect(visibleButton("Switch workspace, Personal")).not.toBeNull();
+      expect(visibleProjects()).toEqual(["/projects/Aven"]);
+      await click(visibleButton("Open Aven project"));
+      expect(visibleButton("Switch workspace, Personal")).not.toBeNull();
+      expect(visibleProjects()).toEqual(["/projects/Aven"]);
+      await click(visibleButton("Switch workspace, Personal"));
+      await click([...menu()!.querySelectorAll<HTMLButtonElement>("button")]
+        .find((item) => item.textContent === "Work")!);
+      expectWork();
+    },
+  );
+
   it("switches profiles from the heading without changing appearance", async () => {
     const select = vi.fn();
     const before = loadWorkspaceTheme("personal");

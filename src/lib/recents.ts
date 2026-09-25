@@ -1,7 +1,8 @@
 import { pathKey, prettyCwd, slash } from "./paths";
 import { isProjectlessCwd } from "./projectlessWorkspace";
 
-const KEY = "monocode.recentProjects";
+export const RECENT_PROJECTS_KEY = "monocode.recentProjects";
+const KEY = RECENT_PROJECTS_KEY;
 const RAIL_ORDER_KEY = "monocode.projectRailOrder";
 const RAIL_PINNED_KEY = "monocode.projectRailPinned";
 const ARCHIVED_KEY = "monocode.archivedProjects";
@@ -31,21 +32,29 @@ export function sameProjectPath(a: string, b: string): boolean {
 }
 
 export function loadRecents(): RecentProject[] {
+  // On launch, salvage valid entries from older or partially damaged lists.
+  return readRecents(true) ?? [];
+}
+
+/** A missing/unreadable store is different from an explicitly saved empty list. */
+export function readRecents(allowPartial = false): RecentProject[] | null {
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return [];
+    if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
+    if (!Array.isArray(parsed)) return null;
     const out: RecentProject[] = [];
     for (const item of parsed) {
-      if (!item || typeof item !== "object") continue;
+      if (!item || typeof item !== "object") {
+        if (allowPartial) continue;
+        return null;
+      }
       const rec = item as { path?: unknown; openedAt?: unknown };
-      if (
-        typeof rec.path !== "string" ||
-        !rec.path ||
-        isProjectlessCwd(rec.path)
-      )
-        continue;
+      if (typeof rec.path !== "string" || !rec.path) {
+        if (allowPartial) continue;
+        return null;
+      }
+      if (isProjectlessCwd(rec.path)) continue;
       const openedAt =
         typeof rec.openedAt === "number" && Number.isFinite(rec.openedAt)
           ? rec.openedAt
@@ -54,7 +63,7 @@ export function loadRecents(): RecentProject[] {
     }
     return out;
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -66,11 +75,13 @@ function save(next: RecentProject[]) {
   }
 }
 
-export function rememberProject(path: string): RecentProject[] {
+export function rememberProject(
+  path: string,
+  current = loadRecents(),
+): RecentProject[] {
   const normalized = normalize(path);
-  if (normalized === "~" || isProjectlessCwd(normalized)) return loadRecents();
+  if (normalized === "~" || isProjectlessCwd(normalized)) return current;
   dropArchived(normalized);
-  const current = loadRecents();
   keepRailPosition(normalized, current);
   const prev = current.filter((p) => !sameProjectPath(p.path, normalized));
   const next = [{ path: normalized, openedAt: Date.now() }, ...prev].slice(
@@ -99,9 +110,9 @@ function keepRailPosition(path: string, recents: RecentProject[]) {
 }
 
 /** Drops a project from the rail: its recent entry, saved order slot, and pin. */
-function dropFromRail(path: string): RecentProject[] {
+function dropFromRail(path: string, current: RecentProject[]): RecentProject[] {
   const normalized = normalize(path);
-  const next = loadRecents().filter(
+  const next = current.filter(
     (item) => !sameProjectPath(item.path, normalized),
   );
   save(next);
@@ -117,16 +128,22 @@ function dropFromRail(path: string): RecentProject[] {
 }
 
 /** Removes a project from the rail and from the archive (Delete). */
-export function forgetProject(path: string): RecentProject[] {
+export function forgetProject(
+  path: string,
+  current = loadRecents(),
+): RecentProject[] {
   dropArchived(path);
-  return dropFromRail(path);
+  return dropFromRail(path, current);
 }
 
 /** Removes a project from the rail and files it in the archive (Archive). */
-export function archiveProject(path: string): RecentProject[] {
+export function archiveProject(
+  path: string,
+  current = loadRecents(),
+): RecentProject[] {
   const normalized = normalize(path);
-  if (!looksLikeProject(normalized)) return loadRecents();
-  const recents = dropFromRail(normalized);
+  if (!looksLikeProject(normalized)) return current;
+  const recents = dropFromRail(normalized, current);
   const rest = loadArchivedProjects().filter(
     (item) => !sameProjectPath(item.path, normalized),
   );
