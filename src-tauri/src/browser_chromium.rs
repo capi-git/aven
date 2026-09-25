@@ -62,6 +62,7 @@ extern "C" {
     fn sm_chromium_close(id: *const c_char) -> c_int;
     fn sm_chromium_is_focused(id: *const c_char) -> c_int;
     fn sm_chromium_live_browser_count() -> c_int;
+    fn sm_chromium_cancel_update() -> c_int;
     fn sm_chromium_shutdown();
     fn sm_chromium_last_error() -> *const c_char;
 }
@@ -229,6 +230,7 @@ struct Registry {
     pending: HashMap<String, Pending>,
     creating: HashMap<String, mpsc::Sender<Result<(), String>>>,
     closing: HashMap<String, mpsc::Sender<()>>,
+    update_pages: Option<HashMap<String, String>>,
 }
 static REGISTRY: OnceLock<Mutex<Registry>> = OnceLock::new();
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
@@ -282,6 +284,145 @@ pub(crate) async fn ensure_update_idle(app: &AppHandle) -> Result<(), String> {
     }
     Ok(())
 }
+fn update_page_error(state: &BrowserState, blockers: &[String]) -> String {
+    let page = if state.title.trim().is_empty() {
+        &state.url
+    } else {
+        &state.title
+    };
+    let reason = if blockers.iter().any(|reason| {
+        matches!(
+            reason.as_str(),
+            "dirty-form" | "editable-page" | "before-unload"
+        )
+    }) {
+        "may contain unsaved work. Save it in the page, then retry the update"
+    } else if blockers.iter().any(|reason| reason == "download") {
+        "has an active download. Let it finish, then retry the update"
+    } else if blockers
+        .iter()
+        .any(|reason| matches!(reason.as_str(), "page-changed" | "loading"))
+    {
+        "changed while preparing the update. Retry when it has finished loading"
+    } else {
+        "has browser activity that cannot be safely restored yet. Finish that activity, then retry the update"
+    };
+    format!(
+        "{} {reason}. Your tabs will stay available.",
+        page.chars().take(120).collect::<String>()
+    )
+}
+
+fn update_lock() -> &'static tauri::async_runtime::Mutex<()> {
+    static LOCK: OnceLock<tauri::async_runtime::Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| tauri::async_runtime::Mutex::new(()))
+}
+
+fn update_pages() -> Result<Vec<Arc<PageContext>>, String> {
+    let entries = registry()
+        .lock()
+        .map_err(|_| "Browser activity could not be checked")?;
+    if !entries.creating.is_empty() || !entries.closing.is_empty() || !entries.pending.is_empty() {
+        return Err("Wait for browser activity to finish, then retry the update.".into());
+    }
+    Ok(entries.roots.values().cloned().collect())
+}
+
+/// Freeze pages before taking their current URL/title snapshot. No page closes
+/// until the frontend acknowledges that this snapshot is durably saved.
+pub(crate) async fn prepare_update_restart(_app: &AppHandle) -> Result<Vec<BrowserState>, String> {
+    let _lock = update_lock().lock().await;
+    let pages = update_pages()?;
+    let mut states = Vec::with_capacity(pages.len());
+    let mut expected = HashMap::new();
+    for context in pages {
+        let placement = context.placement.lock().await;
+        if placement.window.is_some() || placement.detached_window.is_some() {
+            return Err("Return detached browser tabs to the workspace before updating.".into());
+        }
+        drop(placement);
+        let result = ChromiumPage(context.clone())
+            .update_command(json!({"action":"update-probe"}))
+            .await?;
+        let report: crate::browser_sleep::BrowserSleepReport = serde_json::from_value(result)
+            .map_err(|_| "Browser update state could not be verified")?;
+        let state = context
+            .state
+            .lock()
+            .map_err(|_| "Browser state could not be saved")?
+            .clone();
+        if !report.eligible {
+            return Err(update_page_error(&state, &report.blockers));
+        }
+        expected.insert(context.native_id.clone(), state.url.clone());
+        states.push(state);
+    }
+    registry()
+        .lock()
+        .map_err(|_| "Browser state could not be saved")?
+        .update_pages = Some(expected);
+    Ok(states)
+}
+
+pub(crate) async fn finish_update_restart(app: &AppHandle) -> Result<(), String> {
+    let _lock = update_lock().lock().await;
+    let pages = update_pages()?;
+    let expected = registry()
+        .lock()
+        .map_err(|_| "Browser is unavailable")?
+        .update_pages
+        .clone()
+        .ok_or("Browser update preparation is no longer active")?;
+    if pages.len() != expected.len() {
+        return Err("Browser tabs changed while saving. Retry the update.".into());
+    }
+    // Validate every page before closing any. Each native close probes again,
+    // checks this exact URL, and honors a real beforeunload veto.
+    for context in &pages {
+        let state = context.state.lock().map_err(|_| "Browser is unavailable")?;
+        if expected.get(&context.native_id) != Some(&state.url) {
+            return Err(update_page_error(&state, &["page-changed".into()]));
+        }
+    }
+    for context in pages {
+        let state = context
+            .state
+            .lock()
+            .map_err(|_| "Browser is unavailable")?
+            .clone();
+        let url = expected
+            .get(&context.native_id)
+            .ok_or("Browser tabs changed while saving")?;
+        let result = ChromiumPage(context)
+            .update_command(json!({"action":"update-close", "url":url}))
+            .await?;
+        let report: crate::browser_sleep::BrowserSleepReport = serde_json::from_value(result)
+            .map_err(|_| "Browser update close could not be verified")?;
+        if !report.slept {
+            return Err(update_page_error(&state, &report.blockers));
+        }
+    }
+    ensure_update_idle(app).await
+}
+
+pub(crate) async fn cancel_update_restart(app: &AppHandle) -> Result<(), String> {
+    // Wait for every submitted non-forced close to resolve before releasing the
+    // reservation. Rollback uses native view state only: it cannot depend on a
+    // renderer/CDP response, and already-closed pages need no cancellation.
+    let _lock = update_lock().lock().await;
+    on_main_dispatch(
+        app,
+        || native_result(unsafe { sm_chromium_cancel_update() }),
+        true,
+    )
+    .await?;
+    registry()
+        .lock()
+        .map_err(|_| "Browser is unavailable")?
+        .update_pages = None;
+    Ok(())
+}
+
 fn string(value: &str) -> Result<CString, String> {
     CString::new(value).map_err(|_| "Browser input contains a null character".into())
 }
@@ -306,15 +447,29 @@ async fn on_main<T: Send + 'static>(
     app: &AppHandle,
     operation: impl FnOnce() -> Result<T, String> + Send + 'static,
 ) -> Result<T, String> {
+    on_main_dispatch(app, operation, false).await
+}
+
+async fn on_main_dispatch<T: Send + 'static>(
+    app: &AppHandle,
+    operation: impl FnOnce() -> Result<T, String> + Send + 'static,
+    update: bool,
+) -> Result<T, String> {
     let (send, receive) = mpsc::channel();
     app.run_on_main_thread(move || {
         let _ = send.send(operation());
     })
     .map_err(|error| error.to_string())?;
     tauri::async_runtime::spawn_blocking(move || {
-        receive
-            .recv_timeout(Duration::from_secs(20))
-            .map_err(|_| "Chromium did not respond".to_string())?
+        if update {
+            receive
+                .recv()
+                .map_err(|_| "Chromium update completion was lost".to_string())?
+        } else {
+            receive
+                .recv_timeout(Duration::from_secs(20))
+                .map_err(|_| "Chromium did not respond".to_string())?
+        }
     })
     .await
     .map_err(|error| error.to_string())?
@@ -881,14 +1036,26 @@ fn wait_for_command_result(
 
 impl ChromiumPage {
     pub(crate) async fn command(&self, request: Value) -> Result<Value, String> {
-        self.request(request, None).await
+        self.request(request, None, false).await
+    }
+
+    async fn update_command(&self, request: Value) -> Result<Value, String> {
+        self.request(request, None, true).await
     }
 
     async fn request(
         &self,
         mut request: Value,
         menu_anchor: Option<(Window, BrowserBounds)>,
+        update: bool,
     ) -> Result<Value, String> {
+        let _work = if update {
+            None
+        } else {
+            Some(crate::window::begin_runtime_work(
+                self.0.caller.app_handle(),
+            )?)
+        };
         if self.0.closed.load(Ordering::Acquire) {
             return Err("Browser is closed".into());
         }
@@ -911,36 +1078,43 @@ impl ChromiumPage {
         let native_id = string(&id)?;
         let native_request_id = string(&request_id)?;
         let is_menu = menu_anchor.is_some();
-        let is_sleep = request.get("action").and_then(Value::as_str) == Some("sleep");
-        let result = on_main(self.0.caller.app_handle(), move || {
-            if let Some((window, bounds)) = menu_anchor {
-                let scale = window.scale_factor().map_err(|error| error.to_string())?;
-                let [x, y, width, height] = bounds.points(scale)?;
-                request["x"] = json!(x);
-                request["y"] = json!(y);
-                request["width"] = json!(width);
-                request["height"] = json!(height);
-                request["viewportHeight"] = json!(bounds.viewport_points(scale)?);
-                let request = string(&request.to_string())?;
-                native_result(unsafe {
-                    sm_chromium_menu(
-                        native_id.as_ptr(),
-                        native_request_id.as_ptr(),
-                        content_view(&window)?,
-                        request.as_ptr(),
-                    )
-                })
-            } else {
-                let request = string(&request.to_string())?;
-                native_result(unsafe {
-                    sm_chromium_command(
-                        native_id.as_ptr(),
-                        native_request_id.as_ptr(),
-                        request.as_ptr(),
-                    )
-                })
-            }
-        })
+        let is_sleep = matches!(
+            request.get("action").and_then(Value::as_str),
+            Some("sleep" | "update-close")
+        );
+        let result = on_main_dispatch(
+            self.0.caller.app_handle(),
+            move || {
+                if let Some((window, bounds)) = menu_anchor {
+                    let scale = window.scale_factor().map_err(|error| error.to_string())?;
+                    let [x, y, width, height] = bounds.points(scale)?;
+                    request["x"] = json!(x);
+                    request["y"] = json!(y);
+                    request["width"] = json!(width);
+                    request["height"] = json!(height);
+                    request["viewportHeight"] = json!(bounds.viewport_points(scale)?);
+                    let request = string(&request.to_string())?;
+                    native_result(unsafe {
+                        sm_chromium_menu(
+                            native_id.as_ptr(),
+                            native_request_id.as_ptr(),
+                            content_view(&window)?,
+                            request.as_ptr(),
+                        )
+                    })
+                } else {
+                    let request = string(&request.to_string())?;
+                    native_result(unsafe {
+                        sm_chromium_command(
+                            native_id.as_ptr(),
+                            native_request_id.as_ptr(),
+                            request.as_ptr(),
+                        )
+                    })
+                }
+            },
+            update,
+        )
         .await;
         let result = if result.is_ok() {
             tauri::async_runtime::spawn_blocking(move || {
@@ -1192,6 +1366,7 @@ pub async fn browser_menu(
         .request(
             serde_json::to_value(options).map_err(|error| error.to_string())?,
             Some((caller.window(), anchor)),
+            false,
         )
         .await?;
     Ok(result
@@ -1841,6 +2016,7 @@ async fn close_context(context: Arc<PageContext>) -> Result<(), String> {
 }
 #[tauri::command]
 pub async fn browser_close(caller: Webview, id: String) -> Result<(), String> {
+    let _work = crate::window::begin_runtime_work(caller.app_handle())?;
     let root = label(&caller, &id)?;
     let context = registry()
         .lock()

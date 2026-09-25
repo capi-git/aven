@@ -2148,6 +2148,7 @@ export default function App({
       () => projectCwdRef.current,
       () => projectTerminalsRef.current,
       flushHarnessEvents,
+      () => saveBrowserWorkspaces(browserWorkspacesRef.current, true),
     );
     void getCurrentWindow()
       .onCloseRequested((event) => {

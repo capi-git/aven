@@ -54,7 +54,7 @@ impl BrowserBounds {
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct BrowserState {
+pub(crate) struct BrowserState {
     id: String,
     url: String,
     title: String,
@@ -260,6 +260,19 @@ pub(crate) async fn ensure_update_idle(_app: &AppHandle) -> Result<(), String> {
     if !entries.roots.is_empty() || !entries.popups.is_empty() {
         return Err(crate::window::UPDATE_BROWSER_BUSY.into());
     }
+    Ok(())
+}
+
+// WebKit has no confirmed non-forced close bridge yet. Keep its pages open
+// rather than silently discarding web forms on unsupported builds.
+pub(crate) async fn prepare_update_restart(app: &AppHandle) -> Result<Vec<BrowserState>, String> {
+    ensure_update_idle(app).await?;
+    Ok(Vec::new())
+}
+pub(crate) async fn finish_update_restart(app: &AppHandle) -> Result<(), String> {
+    ensure_update_idle(app).await
+}
+pub(crate) async fn cancel_update_restart(_app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 

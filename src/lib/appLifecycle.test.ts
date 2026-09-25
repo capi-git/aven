@@ -250,7 +250,7 @@ describe("preparing a safe update restart", () => {
     vi.clearAllMocks();
     vi.mocked(invoke).mockResolvedValue(undefined);
   });
-  function idleWorkspace() {
+  function idleWorkspace(saveBrowserState = vi.fn()) {
     const session = newSession("cursor", "/project");
     const tab = newTab(session.id);
     const flush = vi.fn();
@@ -261,8 +261,9 @@ describe("preparing a safe update restart", () => {
       () => session.cwd,
       () => [],
       flush,
+      saveBrowserState,
     );
-    return { session, release, flush };
+    return { session, release, flush, saveBrowserState };
   }
   it("refuses a still-running task without stopping it or acquiring a guard", async () => {
     const { session, release } = idleWorkspace();
@@ -303,6 +304,47 @@ describe("preparing a safe update restart", () => {
         },
       });
       expect(killAllChildren).not.toHaveBeenCalled();
+    } finally {
+      release();
+    }
+  });
+  it("strictly saves browser tabs after native metadata is captured and before native close", async () => {
+    const order: string[] = [];
+    const saveBrowserState = vi.fn(() => {
+      order.push("browser-save");
+    });
+    const { release } = idleWorkspace(saveBrowserState);
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      order.push(command);
+      return command === "prepare_update_restart" ? [] : undefined;
+    });
+    try {
+      await prepareUpdateRestart();
+      expect(saveBrowserState).toHaveBeenCalledOnce();
+      expect(order.indexOf("prepare_update_restart")).toBeLessThan(
+        order.indexOf("browser-save"),
+      );
+      expect(order.indexOf("browser-save")).toBeLessThan(
+        order.indexOf("finish_update_restart_preparation"),
+      );
+    } finally {
+      release();
+    }
+  });
+  it("cancels before closing pages when browser persistence fails", async () => {
+    const { release } = idleWorkspace(
+      vi.fn(() => {
+        throw new Error("browser storage full");
+      }),
+    );
+    try {
+      await expect(prepareUpdateRestart()).rejects.toThrow(
+        "browser storage full",
+      );
+      expect(invoke).toHaveBeenCalledWith("cancel_update_restart");
+      expect(invoke).not.toHaveBeenCalledWith(
+        "finish_update_restart_preparation",
+      );
     } finally {
       release();
     }

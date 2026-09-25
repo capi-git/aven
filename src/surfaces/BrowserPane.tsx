@@ -8,6 +8,11 @@ import {
   registerAgentBrowserWake,
   isAgentBrowserPageProtected,
 } from "../lib/agentBrowser";
+import {
+  browserUpdatePaused,
+  registerBrowserUpdatePage,
+  subscribeBrowserUpdate,
+} from "../lib/browserUpdateState";
 import { registerBrowserMemoryPage } from "../lib/browserMemory";
 import { loadBrowserMemorySaver } from "../lib/settings";
 import {
@@ -16,6 +21,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type FormEvent,
 } from "react";
 import { flushSync } from "react-dom";
@@ -356,6 +362,12 @@ function BrowserPaneSession({
   snapshotZoom.current = { factor: zoomFactor, menu: toolsMenu };
   const previousSnapshotZoom = useRef(zoomFactor);
   const refreshZoomSnapshot = useRef<(refresh: boolean) => void>(() => {});
+  const updatePaused = useSyncExternalStore(
+    subscribeBrowserUpdate,
+    browserUpdatePaused,
+    browserUpdatePaused,
+  );
+  const creationPaused = useRef(false);
   const nativePageId = useRef<string | null>(null);
   const nativeGeneration = useRef(0);
   const retiredNativeId = useRef<string | null>(null);
@@ -641,17 +653,31 @@ function BrowserPaneSession({
     };
   }, []);
   const wakePage = useCallback(async () => {
+    if (browserUpdatePaused()) return;
     wakeRequested.current = true;
     await sleepOperation.current?.catch(() => false);
-    if (mounted.current) setSleeping(false);
+    if (mounted.current && !browserUpdatePaused()) setSleeping(false);
   }, []);
   useEffect(
-    () => (hasUrl && !error ? registerAgentBrowserWake(id, wakePage) : undefined),
+    () =>
+      hasUrl && !error ? registerAgentBrowserWake(id, wakePage) : undefined,
     [id, hasUrl, error, wakePage],
   );
   useEffect(() => {
+    if (updatePaused) return;
+    if (creationPaused.current) {
+      creationPaused.current = false;
+      setRetryGeneration((generation) => generation + 1);
+    }
     if (visible || pictureInPictureRequest || attachedNativeId) void wakePage();
-  }, [visible, pictureInPictureRequest, attachedNativeId, wakePage]);
+  }, [
+    visible,
+    pictureInPictureRequest,
+    attachedNativeId,
+    wakePage,
+    updatePaused,
+    sleeping,
+  ]);
   const memoryRegistration = useRef<ReturnType<
     typeof registerBrowserMemoryPage
   > | null>(null);
@@ -662,6 +688,7 @@ function BrowserPaneSession({
       sleep: async () => {
         if (
           !mounted.current ||
+          browserUpdatePaused() ||
           !loadBrowserMemorySaver() ||
           memoryState.current.visible ||
           memoryState.current.protected ||
@@ -684,9 +711,10 @@ function BrowserPaneSession({
           if (nativeGeneration.current !== generation) return true;
           retireForSleep.current(readyId);
           const reopen =
-            wakeRequested.current ||
-            memoryState.current.visible ||
-            !loadBrowserMemorySaver();
+            !browserUpdatePaused() &&
+            (wakeRequested.current ||
+              memoryState.current.visible ||
+              !loadBrowserMemorySaver());
           setSleeping(!reopen);
           // Also restart when hide/show was batched while native close completed.
           setRetryGeneration((generation) => generation + 1);
@@ -781,6 +809,10 @@ function BrowserPaneSession({
 
   useEffect(() => {
     if (!hasUrl || !isTauri() || sleeping) return;
+    if (browserUpdatePaused()) {
+      creationPaused.current = true;
+      return;
+    }
     ++nativeGeneration.current;
     // An effect generation owns its own id: React StrictMode cleanup cannot
     // destroy a view created by the subsequent effect generation.
@@ -922,6 +954,7 @@ function BrowserPaneSession({
         }
       }
     };
+    const unregisterUpdatePage = registerBrowserUpdatePage(nativeId, receive);
     const open = async () => {
       unlisten = await nativeBrowser.listen(receive);
       if (disposed) {
@@ -980,6 +1013,7 @@ function BrowserPaneSession({
     });
     return () => {
       disposed = true;
+      unregisterUpdatePage();
       if (retireForSleep.current === retireSleepingPage)
         retireForSleep.current = () => {};
       if (nativePageId.current === nativeId) nativePageId.current = null;

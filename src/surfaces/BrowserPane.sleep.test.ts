@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RetainedBrowserPane } from "./RetainedBrowserPane";
 import { BROWSER_SLEEP_AFTER_MS } from "../lib/browserMemory";
 import { getRegisteredAgentBrowserPage } from "../lib/agentBrowser";
+import { pauseBrowsersForUpdate, applyBrowserUpdateStates } from "../lib/browserUpdateState";
 import type { BrowserState } from "../lib/browser";
 
 const native = vi.hoisted(() => ({
@@ -100,6 +101,83 @@ describe("sleeping retained browser tabs", () => {
     expect(getRegisteredAgentBrowserPage("a")).not.toBe(original);
     expect(container.querySelector('[data-browser-pane="a"]')?.textContent).not.toContain("Tab sleeping");
   });
+  it("captures latest native metadata and keeps safely closed tabs asleep until update cancellation", async () => {
+    const onUrlChange = vi.fn();
+    const onTitleChange = vi.fn();
+    await render(["a"], { onUrlChange, onTitleChange });
+    const original = getRegisteredAgentBrowserPage("a")!;
+    let resume!: () => void;
+    await act(async () => {
+      resume = pauseBrowsersForUpdate();
+    });
+    try {
+      expect(native.close).not.toHaveBeenCalled();
+      await act(async () =>
+        applyBrowserUpdateStates([
+          {
+            id: original,
+            url: "https://example.com/latest",
+            title: "Latest saved title",
+            loading: false,
+            canGoBack: false,
+            canGoForward: false,
+            error: null,
+          },
+        ]),
+      );
+      expect(onUrlChange).toHaveBeenLastCalledWith(
+        "https://example.com/latest",
+      );
+      expect(onTitleChange).toHaveBeenLastCalledWith("Latest saved title");
+      await act(async () => {
+        for (const handler of native.handlers)
+          handler({
+            id: original,
+            url: "https://example.com/latest",
+            title: "Latest saved title",
+            loading: false,
+            canGoBack: false,
+            canGoForward: false,
+            error: null,
+            closed: true,
+            sleeping: true,
+          });
+      });
+      expect(native.create).toHaveBeenCalledTimes(1);
+      expect(getRegisteredAgentBrowserPage("a")).toBeUndefined();
+      await render(["a", "b"]);
+      expect(native.create).toHaveBeenCalledTimes(1);
+      await act(async () => resume());
+      expect(native.create).toHaveBeenCalledTimes(3);
+      expect(native.create.mock.calls.map((call) => call[1])).toContain(
+        "https://example.com/latest",
+      );
+      expect(getRegisteredAgentBrowserPage("a")).toBeTruthy();
+      expect(getRegisteredAgentBrowserPage("b")).toBeTruthy();
+    } finally {
+      await act(async () => resume());
+    }
+  });
+
+  it("wakes a visible page if an update close event arrives just after cancellation", async () => {
+    await render(["a"]);
+    const original = getRegisteredAgentBrowserPage("a")!;
+    let resume!: () => void;
+    await act(async () => { resume = pauseBrowsersForUpdate(); });
+    await act(async () => resume());
+    await act(async () => {
+      for (const handler of native.handlers) handler({
+        id: original, url: "https://example.com/a", title: "Saved page",
+        loading: false, canGoBack: false, canGoForward: false, error: null,
+        closed: true, sleeping: true,
+      });
+    });
+    expect(native.create).toHaveBeenCalledTimes(2);
+    expect(getRegisteredAgentBrowserPage("a")).toBeTruthy();
+    expect(getRegisteredAgentBrowserPage("a")).not.toBe(original);
+    expect(native.close).not.toHaveBeenCalled();
+  });
+
   it("keeps blocked or failed sleep probes alive without using forced close", async () => {
     await render(["a", "b", "c", "d"]);
     const original = getRegisteredAgentBrowserPage("a");

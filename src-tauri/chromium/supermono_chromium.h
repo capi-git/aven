@@ -22,6 +22,7 @@ int sm_chromium_menu(const char *id, const char *request_id, void *anchor_parent
 int sm_chromium_close(const char *id);
 int sm_chromium_is_focused(const char *id);
 int sm_chromium_live_browser_count(void);
+int sm_chromium_cancel_update(void);
 void sm_chromium_shutdown(void);
 const char *sm_chromium_last_error(void);
 

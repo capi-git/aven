@@ -1,6 +1,9 @@
+import { pauseBrowsersForUpdate } from "./browserUpdateState";
+
 /** Block new edits synchronously before an update snapshots the workspace. */
 export function lockUpdateInput(): () => void {
-  if (typeof document === "undefined") return () => {};
+  const resumeBrowsers = pauseBrowsersForUpdate();
+  if (typeof document === "undefined") return resumeBrowsers;
   const root = document.getElementById("root");
   const wasInert = root?.hasAttribute("inert") ?? false;
   const previousFocus = document.activeElement;
@@ -27,7 +30,7 @@ export function lockUpdateInput(): () => void {
   detail.id = "aven-update-restart-detail";
   detail.className = "text-xs text-content/65";
   detail.textContent =
-    "Aven is saving your workspace and installing the downloaded update.";
+    "Aven is saving your workspace and browser tabs. Your tabs will reopen after the update.";
   dialog.append(spinner, title, detail);
   overlay.append(dialog);
 
@@ -64,6 +67,7 @@ export function lockUpdateInput(): () => void {
   return () => {
     if (released) return;
     released = true;
+    resumeBrowsers();
     for (const event of events) window.removeEventListener(event, block, true);
     window.removeEventListener("focusin", keepFocus, true);
     overlay.remove();
