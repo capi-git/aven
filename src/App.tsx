@@ -75,6 +75,7 @@ import {
 } from "./surfaces/WorkspaceStage";
 import {
   useWorkspaceViews,
+  revealBesideWorkspaceView,
   selectWorkspaceView,
   splitWorkspaceView,
   closeWorkspaceViews,
@@ -148,6 +149,10 @@ import {
   saveDefaultRuntimeMode,
 } from "./lib/runtimeMode";
 import { ApprovalToasts } from "./chrome/ApprovalToasts";
+import {
+  AgentPageNotices,
+  type AgentPageNotice,
+} from "./chrome/AgentPageNotices";
 import { WhatsNewDialog } from "./chrome/WhatsNewDialog";
 import { TitleBar, type Tab as TitleTab } from "./chrome/TitleBar";
 import { MenuBar } from "./chrome/MenuBar";
@@ -866,6 +871,10 @@ export default function App({
   );
   const browserWorkspacesRef = useRef(browserWorkspaces);
   browserWorkspacesRef.current = browserWorkspaces;
+  const [agentPageNotices, setAgentPageNotices] = useState<AgentPageNotice[]>(
+    [],
+  );
+  const showAgentPageRef = useRef<(notice: AgentPageNotice) => void>(() => {});
   const [agentBrowserSurfaces, setAgentBrowserSurfaces] = useState<Set<string>>(
     () => new Set(),
   );
@@ -925,19 +934,53 @@ export default function App({
           const project = session.cwd;
           const id = crypto.randomUUID();
           const surfaceId = browserIdForTab(project, id);
-          setAgentBrowserSurfaces(
-            (current) => new Set([...current, surfaceId]),
-          );
-          setBrowserWorkspaces((all) => ({
-            ...all,
-            [project]: addBrowserTab(
-              { ...(all[project] ?? EMPTY_BROWSER), mode: "tab" },
-              { id, url },
-            ),
-          }));
-          // Show a requested page in the active project without switching profiles.
-          if (sameProjectPath(projectCwdRef.current, project))
-            viewRef.current.focus(project, surfaceId);
+          // Commit the tab first so the workspace view knows the new surface.
+          flushSync(() => {
+            setAgentBrowserSurfaces(
+              (current) => new Set([...current, surfaceId]),
+            );
+            setBrowserWorkspaces((all) => ({
+              ...all,
+              [project]: addBrowserTab(
+                { ...(all[project] ?? EMPTY_BROWSER), mode: "tab" },
+                { id, url },
+              ),
+            }));
+          });
+          // Show a requested page in the active project without switching
+          // profiles, beside the chat that asked for it rather than behind it.
+          if (sameProjectPath(projectCwdRef.current, project)) {
+            const requester = tabsRef.current.find((tab) =>
+              leafIds(tab.layout).includes(sessionId),
+            )?.id;
+            viewRef.current.change((view) =>
+              revealBesideWorkspaceView(view, surfaceId, requester),
+            );
+          } else {
+            // Never switch projects under the user; say where the page went.
+            const notice: AgentPageNotice = {
+              id: surfaceId,
+              project,
+              projectName: projectDisplayName(project, loadTabGroupLabels()),
+              surfaceId,
+              tabId: id,
+              sessionId,
+              harness: session.harness,
+              url,
+            };
+            setAgentPageNotices((current) =>
+              [...current.filter((item) => item.id !== notice.id), notice].slice(
+                -3,
+              ),
+            );
+            window.setTimeout(
+              () =>
+                setAgentPageNotices((current) =>
+                  current.filter((item) => item.id !== notice.id),
+                ),
+              12_000,
+            );
+          }
           return surfaceId;
         },
       }),
@@ -8444,6 +8487,35 @@ export default function App({
     },
   };
 
+
+  showAgentPageRef.current = (notice) => {
+    setAgentPageNotices((current) =>
+      current.filter((item) => item.id !== notice.id),
+    );
+    const tabId = notice.tabId;
+    flushSync(() => {
+      onSelectProject(notice.project);
+      setBrowserWorkspaces((all) => {
+        const current = all[notice.project];
+        return current
+          ? {
+              ...all,
+              [notice.project]: {
+                ...selectBrowserTab(current, tabId),
+                expanded: true,
+              },
+            }
+          : all;
+      });
+    });
+    const requester = tabsRef.current.find((tab) =>
+      leafIds(tab.layout).includes(notice.sessionId),
+    )?.id;
+    viewRef.current.change((view) =>
+      revealBesideWorkspaceView(view, notice.surfaceId, requester),
+    );
+  };
+
   return (
     <LiveSessionsContext.Provider value={liveSessions}>
     <OrchestrationActions.Provider value={orchestrationActions}>
@@ -9406,6 +9478,15 @@ export default function App({
             notices={hiddenApprovalToasts}
             onFocusSession={onOpenApprovalSession}
             onApproval={onApproval}
+          />
+          <AgentPageNotices
+            notices={agentPageNotices}
+            onShow={(notice) => showAgentPageRef.current(notice)}
+            onDismiss={(id) =>
+              setAgentPageNotices((current) =>
+                current.filter((item) => item.id !== id),
+              )
+            }
           />
           {whatsNewVersion ? (
             <WhatsNewDialog

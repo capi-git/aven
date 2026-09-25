@@ -362,6 +362,41 @@ export function moveWorkspaceTab(
   };
 }
 
+/**
+ * Show a surface that an agent opened without covering the chat that asked
+ * for it. Selecting it inside the chat's own pane is not enough: the next
+ * interaction with that chat re-selects the chat and hides the page again.
+ * With one pane, split to the right of the chat; with several, show it in
+ * the first other pane. Without a known requester, select it where it is.
+ */
+export function revealBesideWorkspaceView(
+  view: WorkspaceView,
+  id: string,
+  requesterId?: string,
+): WorkspaceView {
+  if (!workspaceGroupOwner(view, id) || !view.layout) return view;
+  // If the page already covers the chat's pane, uncover the chat first so
+  // the pane keeps showing the conversation rather than another tab.
+  if (
+    requesterId &&
+    workspaceGroupOwner(view, id) === id &&
+    workspaceGroupOwner(view, requesterId) === id
+  )
+    view = selectWorkspaceView(view, requesterId);
+  const owner = workspaceGroupOwner(view, id)!;
+  if (!view.layout) return view;
+  const panes = leafIds(view.layout);
+  const requesterPane = requesterId
+    ? workspaceGroupOwner(view, requesterId)
+    : undefined;
+  if (!requesterPane || !panes.includes(requesterPane))
+    return selectWorkspaceView(view, id);
+  if (owner !== requesterPane) return selectWorkspaceView(view, id);
+  const other = panes.find((pane) => pane !== requesterPane);
+  if (!other) return splitWorkspaceView(view, id, "right", requesterId);
+  return selectWorkspaceView(moveWorkspaceTab(view, id, other), id);
+}
+
 /** Combine whole pane groups, retaining the destination's selected tab. */
 export function combineWorkspaceGroups(
   view: WorkspaceView,

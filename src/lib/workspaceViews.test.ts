@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { leaf, leafIds, layoutLeaves, type LayoutNode } from "./layout";
 import {
   resolveWorkspaceView,
+  revealBesideWorkspaceView,
   selectWorkspaceView,
   splitWorkspaceView,
   closeWorkspaceViews,
@@ -551,5 +552,86 @@ describe("temporary workspace expansion", () => {
       order: [],
       groups: {},
     });
+  });
+});
+
+describe("agent-opened surfaces", () => {
+  const single = (): WorkspaceView =>
+    resolveWorkspaceView(
+      {
+        layout: leaf("chat-a"),
+        focusedId: "chat-a",
+        order: ["chat-a", "page"],
+        groups: { "chat-a": ["chat-a", "page"] },
+      },
+      ["chat-a", "page"],
+      "chat-a",
+    );
+
+  it("opens beside the requesting chat instead of behind it", () => {
+    const next = revealBesideWorkspaceView(single(), "page", "chat-a");
+    expect(next.layout && leafIds(next.layout)).toEqual(["chat-a", "page"]);
+    expect(next.focusedId).toBe("page");
+    expect(next.groups["chat-a"]).toEqual(["chat-a"]);
+    expectPartition(next);
+    // Focusing the chat afterwards keeps the page visible in its own pane.
+    const refocused = selectWorkspaceView(next, "chat-a");
+    expect(refocused.layout && leafIds(refocused.layout)).toContain("page");
+  });
+
+  it("moves a page that already covers the chat into its own pane and shows the chat again", () => {
+    const three = ["chat-a", "other", "page"];
+    const covered = selectWorkspaceView(
+      resolveWorkspaceView(
+        {
+          layout: leaf("chat-a"),
+          focusedId: "chat-a",
+          order: three,
+          groups: { "chat-a": three },
+        },
+        three,
+        "chat-a",
+      ),
+      "page",
+    );
+    expect(covered.layout && leafIds(covered.layout)).toEqual(["page"]);
+    const next = revealBesideWorkspaceView(covered, "page", "chat-a");
+    expect(next.layout && leafIds(next.layout)).toEqual(["chat-a", "page"]);
+    expect(next.focusedId).toBe("page");
+    expectPartition(next, three);
+  });
+
+  it("uses another existing pane rather than adding a third", () => {
+    const view = resolveWorkspaceView(
+      {
+        layout: columns,
+        focusedId: "chat-a",
+        order: [...ids, "page"],
+        groups: {
+          "chat-a": ["chat-a", "browser-a", "page"],
+          "chat-b": ["chat-b", "browser-b", "chat-c"],
+        },
+      },
+      [...ids, "page"],
+      "chat-a",
+    );
+    const next = revealBesideWorkspaceView(view, "page", "chat-a");
+    expect(next.layout && leafIds(next.layout)).toEqual(["chat-a", "page"]);
+    expect(next.groups["page"]).toContain("chat-b");
+    expect(next.groups["chat-a"]).not.toContain("page");
+    expect(next.focusedId).toBe("page");
+    expectPartition(next);
+  });
+
+  it("selects the page in place when it is already outside the chat's pane or the chat is unknown", () => {
+    const view = grouped();
+    const elsewhere = revealBesideWorkspaceView(view, "browser-b", "chat-a");
+    expect(elsewhere.layout && leafIds(elsewhere.layout)).toEqual([
+      "chat-a",
+      "browser-b",
+    ]);
+    const unknown = revealBesideWorkspaceView(single(), "page", "missing");
+    expect(unknown.layout && leafIds(unknown.layout)).toEqual(["page"]);
+    expect(revealBesideWorkspaceView(view, "missing", "chat-a")).toBe(view);
   });
 });
