@@ -156,7 +156,16 @@ import {
 import {
   CommandPalette,
   type PaletteChatRequest,
+  type PaletteRaceRequest,
 } from "./chrome/CommandPalette";
+import {
+  installRaceWorkspace,
+  raceHost,
+  racePrompt,
+  saveRace,
+  type RaceBase,
+  type RaceWorkspace,
+} from "./lib/race";
 import {
   PALETTE_COMMANDS,
   type PaletteChat,
@@ -236,6 +245,7 @@ import {
   isCommitTab,
   isTerminalTab,
   leaf,
+  newRaceWorkspaceTab,
   leafIds,
   movePane,
   neighborLeafId,
@@ -890,6 +900,18 @@ export default function App({
     [],
   );
   const showAgentPageRef = useRef<(notice: AgentPageNotice) => void>(() => {});
+  const raceActionsRef = useRef<RaceWorkspace>({
+    stop: () => {},
+    openChat: () => {},
+  });
+  useEffect(
+    () =>
+      installRaceWorkspace({
+        stop: (ids) => raceActionsRef.current.stop(ids),
+        openChat: (id) => raceActionsRef.current.openChat(id),
+      }),
+    [],
+  );
   const [agentBrowserSurfaces, setAgentBrowserSurfaces] = useState<Set<string>>(
     () => new Set(),
   );
@@ -8585,6 +8607,95 @@ export default function App({
     onSubmit(session.id, request.text, []);
   };
 
+  const startRace = async (request: PaletteRaceRequest) => {
+    const raceId = crypto.randomUUID();
+    let base: RaceBase;
+    try {
+      base = await raceHost.prepare(request.project);
+    } catch (error) {
+      void message(String(error), { title: "Can't start a race", kind: "error" });
+      return;
+    }
+    const created: { path: string; branch: string }[] = [];
+    try {
+      for (const [slot] of request.agents.entries())
+        created.push(
+          await raceHost.createLane(base.root, raceId, slot, base.base),
+        );
+    } catch (error) {
+      void raceHost.cleanup(base.root, created).catch(() => {});
+      void message(String(error), { title: "Can't start a race", kind: "error" });
+      return;
+    }
+    const runtimeMode = loadDefaultRuntimeMode();
+    const laneSessions: Session[] = request.agents.map((agent, index) => ({
+      ...newSession(agent.harness, request.project, agent.model, runtimeMode),
+      worktreeCwd: created[index].path,
+      title: `Race · ${agent.label}`,
+    }));
+    saveRace({
+      id: raceId,
+      project: request.project,
+      root: base.root,
+      base: base.base,
+      prompt: request.text,
+      createdAt: Date.now(),
+      uncommitted: base.uncommitted,
+      untracked: base.untracked,
+      state: "running",
+      lanes: request.agents.map((agent, index) => ({
+        sessionId: laneSessions[index].id,
+        harness: agent.harness,
+        model: agent.model,
+        label: agent.label,
+        path: created[index].path,
+        branch: created[index].branch,
+      })),
+    });
+    const laneTab: WorkspaceTab = {
+      ...newTab(laneSessions[0].id),
+      layout: {
+        type: "split",
+        id: crypto.randomUUID(),
+        dir: "right",
+        children: laneSessions.map((session) => leaf(session.id)),
+        sizes: laneSessions.map(() => 1 / laneSessions.length),
+      },
+    };
+    const title =
+      request.text.length > 40 ? `${request.text.slice(0, 40)}…` : request.text;
+    const raceTab = newRaceWorkspaceTab(
+      raceId,
+      `Race · ${title}`,
+      request.project,
+    );
+    setSessions((previous) => [...previous, ...laneSessions]);
+    appendTab(laneTab, request.project);
+    appendTab(raceTab, request.project);
+    setHomeViewOpen(false);
+    leaveExpandedPreview();
+    setSettingsOpen(false);
+    setSearchViewOpen(false);
+    setInboxViewOpen(false);
+    setNotesViewOpen(false);
+    if (!sameProjectPath(request.project, projectCwdRef.current)) {
+      revealProjectTask(request.project);
+      setProjectCwd(request.project);
+      setRecents(rememberProject(request.project));
+    }
+    setActiveTabId(laneTab.id);
+    const prompt = racePrompt(request.text, laneSessions.length);
+    for (const session of laneSessions) onSubmit(session.id, prompt, []);
+  };
+  raceActionsRef.current = {
+    stop: (ids) => {
+      for (const id of ids)
+        if (sessionsRef.current.find((session) => session.id === id)?.busy)
+          onStop(id);
+    },
+    openChat: (id) => onFocusPane(id),
+  };
+
   showAgentPageRef.current = (notice) => {
     setAgentPageNotices((current) =>
       current.filter((item) => item.id !== notice.id),
@@ -9598,6 +9709,7 @@ export default function App({
               );
             }}
             onStartChat={startPaletteChat}
+            onStartRace={(request) => void startRace(request)}
           />
 
           <ApprovalToasts

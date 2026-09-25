@@ -10,6 +10,7 @@ import {
   isChangesTab,
   isCommitTab,
   isPlanTab,
+  isRaceTab,
   isReleaseNotesTab,
   isReviewTab,
   isSessionChangesTab,
@@ -34,6 +35,7 @@ import { ReleaseNotesSurface } from "./ReleaseNotesSurface";
 import { SessionChangesDiff } from "./SessionChangesDiff";
 import { TerminalView } from "./TerminalView";
 import { WorkingTreeDiff } from "./WorkingTreeDiff";
+import { RaceView } from "./RaceView";
 
 const PdfViewer = lazy(() => import("./PdfViewer"));
 
@@ -171,6 +173,12 @@ function FilePaneComponent({
                 />
               ) : isReleaseNotesTab(file) ? (
                 <ReleaseNotesSurface source={file.releaseNotes} />
+              ) : isRaceTab(file) ? (
+                <RaceView
+                  raceId={file.race.raceId}
+                  sessions={sessions}
+                  visible={presented && file.id === pane.activeFileId}
+                />
               ) : isTerminalTab(file) ? (
                 <TerminalView
                   id={file.id}

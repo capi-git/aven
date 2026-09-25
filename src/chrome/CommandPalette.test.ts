@@ -50,6 +50,7 @@ beforeEach(async () => {
     onOpenFile: vi.fn(),
     onOpenSetting: vi.fn(),
     onStartChat: vi.fn(),
+    onStartRace: vi.fn(),
   };
   root = createRoot(document.createElement("div"));
   await act(async () => root.render(createElement(CommandPalette, props)));
@@ -137,6 +138,8 @@ it("lists matching chats under the new chat and opens one with the arrow keys", 
   await vi.advanceTimersByTimeAsync(200);
   expect(props.searchChats).toHaveBeenCalledWith("login");
   expect(text()).toContain("Fix login redirect on Safari");
+  // Below "Start a chat" comes "Race it", then the matching chats.
+  await key("ArrowDown");
   await key("ArrowDown");
   await key("Enter");
   expect(props.onOpenChat).toHaveBeenCalledWith("c1");
@@ -164,4 +167,16 @@ it("narrows to chats with # and closes on Escape", async () => {
     );
   });
   expect(props.onClose).toHaveBeenCalled();
+});
+
+it("offers a race of the chosen agent against another, started with Option-Enter", async () => {
+  await type("fix the redirect loop");
+  expect(text()).toContain("Race it: Claude Code vs Codex");
+  await key("Enter", { altKey: true });
+  expect(props.onStartRace).toHaveBeenCalledWith({
+    text: "fix the redirect loop",
+    agents: props.agents,
+    project: "~",
+  });
+  expect(props.onStartChat).not.toHaveBeenCalled();
 });

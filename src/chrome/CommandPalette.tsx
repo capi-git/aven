@@ -49,6 +49,12 @@ import {
 
 export type PaletteProject = { path: string; name: string };
 
+export type PaletteRaceRequest = {
+  text: string;
+  agents: PaletteAgent[];
+  project: string;
+};
+
 export type PaletteChatRequest = {
   text: string;
   agent: PaletteAgent;
@@ -72,10 +78,13 @@ type Props = {
   onOpenFile: (path: string) => void;
   onOpenSetting: (setting: SettingsSearchResult) => void;
   onStartChat: (request: PaletteChatRequest) => void;
+  /** Absent hides races. */
+  onStartRace?: (request: PaletteRaceRequest) => void;
 };
 
 type Item =
   | { kind: "new-chat"; key: string }
+  | { kind: "race"; key: string }
   | { kind: "command"; key: string; command: PaletteCommand }
   | { kind: "chat"; key: string; chat: PaletteChat }
   | { kind: "project"; key: string; project: PaletteProject }
@@ -114,6 +123,7 @@ function CommandPaletteBody({
   onOpenFile,
   onOpenSetting,
   onStartChat,
+  onStartRace,
 }: Props) {
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement | null>(null);
@@ -136,6 +146,14 @@ function CommandPaletteBody({
   const newChat = offersNewChat(mode, text) && agents.length > 0;
   const agent = agents[agentIndex] ?? agents[0];
   const target = targets[targetIndex] ?? project;
+  // Race the chosen agent against the next distinct one.
+  const raceAgents = agent
+    ? [agent, ...agents.filter((item) => item.harness !== agent.harness)].slice(
+        0,
+        2,
+      )
+    : [];
+  const canRace = newChat && !!onStartRace && raceAgents.length >= 2;
 
   useEffect(() => {
     input.current?.focus();
@@ -253,7 +271,13 @@ function CommandPaletteBody({
       return out;
     }
     if (newChat)
-      out.push({ title: "", items: [{ kind: "new-chat", key: "new-chat" }] });
+      out.push({
+        title: "",
+        items: [
+          { kind: "new-chat", key: "new-chat" },
+          ...(canRace ? [{ kind: "race" as const, key: "race" }] : []),
+        ],
+      });
     add(
       "Chats",
       chatItems(
@@ -279,6 +303,7 @@ function CommandPaletteBody({
     project.path,
     searchSettings,
     newChat,
+    canRace,
   ]);
 
   const items = useMemo(
@@ -303,9 +328,15 @@ function CommandPaletteBody({
     onStartChat({ text, agent, project: target.path, background });
     onClose();
   };
+  const race = () => {
+    if (!canRace || !onStartRace) return;
+    onStartRace({ text, agents: raceAgents, project: target.path });
+    onClose();
+  };
   const activate = (item: Item | undefined) => {
     if (!item) return;
     if (item.kind === "new-chat") return start(false);
+    if (item.kind === "race") return race();
     onClose();
     if (item.kind === "command") onRunCommand(item.command.id);
     else if (item.kind === "chat") onOpenChat(item.chat.id);
@@ -334,6 +365,7 @@ function CommandPaletteBody({
     if (event.key === "Enter" && !event.nativeEvent.isComposing) {
       event.preventDefault();
       if (newChat && (event.metaKey || event.ctrlKey)) return start(true);
+      if (canRace && event.altKey) return race();
       activate(items[active]);
     }
   };
@@ -402,6 +434,30 @@ function CommandPaletteBody({
                 index += 1;
                 const position = index;
                 const selected = position === active;
+                if (item.kind === "race")
+                  return (
+                    <div
+                      key={item.key}
+                      id={`palette-${position}`}
+                      role="option"
+                      aria-selected={selected}
+                      data-palette-index={position}
+                      onMouseMove={() => setActive(position)}
+                      onClick={race}
+                      className={`mx-1 flex cursor-default items-center gap-2.5 rounded-lg px-3 py-1.5 text-[13px] ${selected ? "bg-content/10" : ""}`}
+                    >
+                      <Zap className="size-4 shrink-0 text-content/60" />
+                      <span className="min-w-0 flex-1 truncate text-content">
+                        Race it:{" "}
+                        {raceAgents
+                          .map((item) => item.label.split(" · ")[0])
+                          .join(" vs ")}
+                      </span>
+                      <span className="shrink-0 text-[11px] text-content/40">
+                        separate copies · ⌥↵
+                      </span>
+                    </div>
+                  );
                 if (item.kind === "new-chat")
                   return (
                     <div
@@ -479,6 +535,7 @@ function CommandPaletteBody({
               <span>{MOD}↵ start in background</span>
               <span>⇥ agent</span>
               <span>⇧⇥ project</span>
+              {canRace ? <span>⌥↵ race</span> : null}
             </>
           ) : (
             <>

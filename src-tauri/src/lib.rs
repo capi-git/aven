@@ -43,6 +43,7 @@ mod project_logo;
 mod projectless;
 mod provider_updates;
 mod pty;
+mod race;
 mod rate_limits;
 mod search;
 mod session_pip;
@@ -309,6 +310,12 @@ pub fn run() {
             browser::browser_drop_indicator,
             browser::browser_layout,
             browser::browser_close,
+            race::race_prepare,
+            race::race_worktree_create,
+            race::race_diff,
+            race::race_file_diff,
+            race::race_apply,
+            race::race_cleanup,
             browser::browser_engine_options,
             browser::browser_sleep_probe,
             browser::browser_sleep,

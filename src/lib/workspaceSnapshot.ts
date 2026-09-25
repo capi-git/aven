@@ -522,6 +522,12 @@ function sanitizeFile(raw: unknown): FilePaneTab | null {
   const commit = sanitizeCommit(value.commit);
   const hasSessionChanges = "sessionChanges" in value;
   const sessionChanges = sanitizeSessionChanges(value.sessionChanges);
+  const race =
+    value.race &&
+    typeof value.race === "object" &&
+    typeof (value.race as { raceId?: unknown }).raceId === "string"
+      ? { raceId: (value.race as { raceId: string }).raceId }
+      : undefined;
   if (hasReleaseNotes && !releaseNotes) return null;
   if (hasCommit && !commit) return null;
   if (hasSessionChanges && !sessionChanges) return null;
@@ -563,6 +569,7 @@ function sanitizeFile(raw: unknown): FilePaneTab | null {
     ...(plan ? { plan } : {}),
     ...(releaseNotes ? { releaseNotes } : {}),
     ...(commit ? { commit } : {}),
+    ...(race ? { race } : {}),
     ...(sessionChanges ? { sessionChanges, review: true } : {}),
     ...(value.review === true ? { review: true } : {}),
     ...(value.changes === true ? { changes: true, review: true } : {}),

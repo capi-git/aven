@@ -71,6 +71,8 @@ export type FilePaneTab = {
   commit?: CommitTabSource;
   /** Read-only transcript of an orchestration worker. Live only — not persisted. */
   agent?: AgentTabSource;
+  /** A race's comparison view. */
+  race?: RaceTabSource;
   terminal?: boolean;
   /** Foreground command when it isn't the shell. Live only — not persisted. */
   foreground?: string;
@@ -336,8 +338,39 @@ export function isVirtualDocumentTab(file: FilePaneTab): boolean {
     isPlanTab(file) ||
     isReleaseNotesTab(file) ||
     isCommitTab(file) ||
-    isAgentTab(file)
+    isAgentTab(file) ||
+    isRaceTab(file)
   );
+}
+
+export type RaceTabSource = { raceId: string };
+
+export function isRaceTab(
+  file: FilePaneTab,
+): file is FilePaneTab & { race: RaceTabSource } {
+  return !!file.race;
+}
+
+/** A workspace tab holding one race's comparison view. */
+export function newRaceWorkspaceTab(
+  raceId: string,
+  title: string,
+  cwd: string,
+): WorkspaceTab {
+  const pane = newEditorPane({
+    id: crypto.randomUUID(),
+    path: title,
+    cwd,
+    race: { raceId },
+  });
+  return {
+    kind: "session",
+    id: crypto.randomUUID(),
+    layout: leaf(pane.id),
+    focusedId: pane.id,
+    editorPanes: [pane],
+    terminalPanes: [],
+  };
 }
 
 export function isFilesystemTab(file: FilePaneTab): boolean {

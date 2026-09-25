@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { slash } from "./paths";
+import { isLiveRaceWorktree } from "./race";
 
 export type FsEntry = {
   name: string;
@@ -290,6 +291,9 @@ export function restoreSessionCheckout<
   T extends { cwd: string; branch?: string; worktreeCwd?: string; providerSessionId?: string },
 >(session: T): T {
   if (!session.branch && !session.worktreeCwd) return session;
+  // A running race lane must keep working in its own copy, not the project.
+  if (isLiveRaceWorktree(session.worktreeCwd))
+    return session.branch ? { ...session, branch: undefined } : session;
   return {
     ...session,
     branch: undefined,
