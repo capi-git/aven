@@ -168,6 +168,7 @@ import {
 } from "./lib/race";
 import {
   PALETTE_COMMANDS,
+  type PaletteAgent,
   type PaletteChat,
   type PaletteCommandId,
 } from "./lib/commandPalette";
@@ -900,6 +901,27 @@ export default function App({
     [],
   );
   const showAgentPageRef = useRef<(notice: AgentPageNotice) => void>(() => {});
+  const startRaceRef = useRef<(request: PaletteRaceRequest) => Promise<void>>(
+    async () => {},
+  );
+  const onRaceFromChat = useCallback(
+    (
+      sessionId: string,
+      text: string,
+      attachments: Attachment[],
+      agents: PaletteAgent[],
+    ) => {
+      const session = sessionsRef.current.find((item) => item.id === sessionId);
+      if (!session) return;
+      void startRaceRef.current({
+        text,
+        agents,
+        project: session.cwd,
+        attachments,
+      });
+    },
+    [],
+  );
   const raceActionsRef = useRef<RaceWorkspace>({
     stop: () => {},
     openChat: () => {},
@@ -8015,6 +8037,7 @@ export default function App({
   }, [currentProjectDock, dockVisible]);
 
   const sessionPaneProps = {
+    onRace: onRaceFromChat,
     recents,
     hideProjectPicker: true,
     onFocus: onFocusPane,
@@ -8685,8 +8708,10 @@ export default function App({
     }
     setActiveTabId(laneTab.id);
     const prompt = racePrompt(request.text, laneSessions.length);
-    for (const session of laneSessions) onSubmit(session.id, prompt, []);
+    for (const session of laneSessions)
+      onSubmit(session.id, prompt, request.attachments ?? []);
   };
+  startRaceRef.current = startRace;
   raceActionsRef.current = {
     stop: (ids) => {
       for (const id of ids)

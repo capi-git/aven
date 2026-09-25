@@ -130,6 +130,15 @@ import {
 import { resolveTabGroupLogo } from "../lib/tabGroups";
 import { useComposerSkills } from "./useComposerSkills";
 import { Popover } from "./Popover";
+import { RaceToggle } from "./RaceToggle";
+import type { PaletteAgent } from "../lib/commandPalette";
+import { availablePaletteAgents } from "../lib/paletteAgents";
+import { resolveModel } from "../lib/models";
+import {
+  loadRaceAgentChoice,
+  resolveRaceAgents,
+  subscribeRaceAgentChoice,
+} from "../lib/raceAgents";
 import { consumePlanCommand, PLAN_COMMAND } from "../lib/plan";
 import { COMPACT_COMMAND, isCompactCommand } from "../lib/compact";
 
@@ -179,6 +188,12 @@ type Props = {
     attachments: Attachment[],
     options?: ComposerTurnOptions,
   ) => void | boolean;
+  /** Send the message to several agents at once; absent hides Race. */
+  onRace?: (
+    text: string,
+    attachments: Attachment[],
+    agents: PaletteAgent[],
+  ) => void;
   onStop?: () => void;
   onCompactContext?: () => boolean;
   onDeleteQueuedMessage?: (messageId: string) => void;
@@ -441,6 +456,7 @@ function ComposerComponent({
   onHandoffCardDismiss,
   onQuestionReply,
   onSubmit,
+  onRace,
   onStop,
   onCompactContext,
   onDeleteQueuedMessage,
@@ -488,6 +504,39 @@ function ComposerComponent({
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [plusOpen, setPlusOpen] = useState(false);
   const [planSelected, setPlanSelected] = useState(false);
+  const [raceOn, setRaceOn] = useState(false);
+  const raceChoiceVersion = useSyncExternalStore(
+    subscribeRaceAgentChoice,
+    () => loadRaceAgentChoice().join(","),
+    () => "",
+  );
+  const raceAvailable = useMemo(() => {
+    if (!onRace) return [];
+    const agents = availablePaletteAgents();
+    const own = agents.find((agent) => agent.harness === harness) ?? {
+      harness,
+      model,
+      label: harness,
+    };
+    // This chat's agent, with its current model, is always the first lane.
+    // An unknown model id can resolve to another provider's default; show
+    // the id itself rather than a misleading name.
+    const resolved = resolveModel(harness, model);
+    const modelName =
+      resolved.harness === harness && resolved.id === model
+        ? resolved.name
+        : model;
+    const first = {
+      ...own,
+      model,
+      label: `${own.label.split(" · ")[0]} · ${modelName}`,
+    };
+    return [first, ...agents.filter((agent) => agent.harness !== harness)];
+  }, [onRace, harness, model, raceOn]);
+  const raceLanes = useMemo(
+    () => resolveRaceAgents(raceAvailable, raceAvailable[0]),
+    [raceAvailable, raceChoiceVersion],
+  );
   const [orchestrationSelected, setOrchestrationSelected] = useState(false);
   const [slash, setSlash] = useState<SlashToken | null>(null);
   const [skillActive, setSkillActive] = useState(0);
@@ -986,6 +1035,20 @@ function ComposerComponent({
       : composeInboxMessage(inboxCard, command.text);
     const files = attachments;
     if (!text && files.length === 0 && !noteCard && !handoffCard) return;
+    if (raceOn && onRace && raceLanes.length >= 2 && text) {
+      onRace(text, files, raceLanes);
+      setRaceOn(false);
+      if (!ref.current) return;
+      ref.current.value = "";
+      ref.current.style.height = "auto";
+      updateDraft("");
+      updateAttachments([]);
+      setPlusOpen(false);
+      setSlash(null);
+      setMention(null);
+      syncHasValue("", []);
+      return;
+    }
     const accepted = onSubmit(text, files, {
       intent:
         planSelected || command.planning
@@ -1527,6 +1590,17 @@ function ComposerComponent({
                     onClose={() => ref.current?.focus()}
                   />
                 </div>
+                {onRace ? (
+                  <div className="personal-composer-capsule personal-composer-race">
+                    <RaceToggle
+                      active={raceOn}
+                      available={raceAvailable}
+                      lanes={raceLanes}
+                      onActiveChange={setRaceOn}
+                      onClose={() => ref.current?.focus()}
+                    />
+                  </div>
+                ) : null}
                 <div className="personal-composer-capsule personal-composer-settings">
                   <ModelSettings
                     harness={harness}
@@ -1553,7 +1627,9 @@ function ComposerComponent({
               <ComposerAction
                 busy={busy}
                 actionLabel={
-                  queueSubmission
+                  raceOn
+                    ? `Race ${raceLanes.length} agents`
+                    : queueSubmission
                     ? "Queue message"
                     : busy
                       ? "Steer active turn"

@@ -1,10 +1,12 @@
 # Race
 
-A race gives one prompt to two agents at once, each in its own copy of the project, then lets you compare their changes and keep one result or a per-file mix.
+A race gives one prompt to two to four agents at once, each in its own copy of the project, then lets you compare their changes and keep one result or a per-file mix.
 
 ## Starting
 
-Type a task in the command palette (⌘K). Below **Start a chat** is **Race it: A vs B**, which races the chosen agent against the next installed one; ⌥↵ starts it directly. The project must be a git repository with at least one commit.
+From a chat, click the Race button (lightning icon) beside the model picker. Turn on **Race this message** and choose the other agents; the chat's own agent is always included, with at least two and at most four in total. The send button then reads **Race N agents**. Race is one-shot: the following message sends normally. Attachments go to every agent.
+
+From the command palette (⌘K), type a task: below **Start a chat** is **Race it**, which uses the chosen agent plus the agents saved in the Race menu; ⌥↵ starts it directly. The project must be a git repository with at least one commit.
 
 The race starts from what you see: uncommitted changes to tracked files are recorded with `git stash create`, without touching your working tree, and every copy starts from that snapshot. New untracked files are not copied; the race view says so.
 

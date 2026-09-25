@@ -64,6 +64,7 @@ import {
   loadChatBackgroundPath,
   subscribeChatBackgroundPath,
 } from "../lib/appearance";
+import type { PaletteAgent } from "../lib/commandPalette";
 
 type Props = {
   session: Session;
@@ -91,6 +92,13 @@ type Props = {
     attachments: Attachment[],
     options?: ComposerTurnOptions,
   ) => void | boolean;
+  /** Race a message across several agents; absent hides Race. */
+  onRace?: (
+    sessionId: string,
+    text: string,
+    attachments: Attachment[],
+    agents: PaletteAgent[],
+  ) => void;
   onStop: (sessionId: string) => void;
   onCompactContext: (sessionId: string) => boolean;
   onDeleteQueuedMessage: (sessionId: string, messageId: string) => void;
@@ -161,6 +169,7 @@ export const SessionPane = memo(function SessionPane({
   onModelSettingsChange,
   onRuntimeModeChange,
   onSubmit,
+  onRace,
   onStop,
   onCompactContext,
   onDeleteQueuedMessage,
@@ -392,6 +401,11 @@ export const SessionPane = memo(function SessionPane({
       onRuntimeModeChange(sessionId, mode),
     [onRuntimeModeChange, sessionId],
   );
+  const race = useCallback(
+    (text: string, attachments: Attachment[], agents: PaletteAgent[]) =>
+      onRace?.(sessionId, text, attachments, agents),
+    [onRace, sessionId],
+  );
   const stop = useCallback(() => onStop(sessionId), [onStop, sessionId]);
   const compactContext = useCallback(
     () => onCompactContext(sessionId),
@@ -522,6 +536,7 @@ export const SessionPane = memo(function SessionPane({
       onModelSettingsChange={changeModelSettings}
       onRuntimeModeChange={changeRuntimeMode}
       onSubmit={submit}
+      onRace={onRace && !session.inboxAsk ? race : undefined}
       onStop={stop}
       onCompactContext={compactContext}
       queuedMessages={session.queuedMessages}

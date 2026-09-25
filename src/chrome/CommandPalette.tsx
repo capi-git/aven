@@ -46,6 +46,8 @@ import {
   Terminal,
   Zap,
 } from "./icons";
+import { resolveRaceAgents } from "../lib/raceAgents";
+import type { Attachment } from "../lib/session";
 
 export type PaletteProject = { path: string; name: string };
 
@@ -53,6 +55,7 @@ export type PaletteRaceRequest = {
   text: string;
   agents: PaletteAgent[];
   project: string;
+  attachments?: Attachment[];
 };
 
 export type PaletteChatRequest = {
@@ -146,13 +149,8 @@ function CommandPaletteBody({
   const newChat = offersNewChat(mode, text) && agents.length > 0;
   const agent = agents[agentIndex] ?? agents[0];
   const target = targets[targetIndex] ?? project;
-  // Race the chosen agent against the next distinct one.
-  const raceAgents = agent
-    ? [agent, ...agents.filter((item) => item.harness !== agent.harness)].slice(
-        0,
-        2,
-      )
-    : [];
+  // The chosen agent plus the saved race choice (Race toggle), two to four.
+  const raceAgents = agent ? resolveRaceAgents(agents, agent) : [];
   const canRace = newChat && !!onStartRace && raceAgents.length >= 2;
 
   useEffect(() => {
