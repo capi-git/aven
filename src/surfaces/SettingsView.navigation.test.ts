@@ -311,7 +311,7 @@ describe("settings navigation", () => {
     expect(destination.dataset.searchMatch).toBe("true");
 
     await act(async () => externalSelectSection("appearance"));
-    await act(async () => externalSelectSection("general"));
+    await act(async () => externalSelectSection("tasks"));
     const revisited = container.querySelector<HTMLElement>(
       "#setting-follow-up-behavior",
     )!;
@@ -330,13 +330,13 @@ describe("settings navigation", () => {
     await mount();
     for (const [label, category, id] of [
       ["Version", "General", "setting-version"],
-      ["Memory saver", "General", "setting-memory-saver"],
-      ["Linear API key", "General", "setting-linear-api-key"],
-      ["Workspace palette", "Appearance", "setting-workspace-palette"],
+      ["Memory saver", "Browser", "setting-memory-saver"],
+      ["Linear API key", "Connections", "setting-linear-api-key"],
+      ["Agent connections", "Connections", "setting-agent-connections"],
       ["Workspace colors", "Appearance", "setting-workspace-colors"],
       ["Chat background", "Appearance", "setting-chat-background"],
-      ["Keybindings", "Keybindings", "setting-keybindings"],
-      ["Providers", "Providers", "setting-providers"],
+      ["Keybindings", "Keyboard", "setting-keybindings"],
+      ["Providers", "Providers & models", "setting-providers"],
       ["Archived projects", "Archive", "setting-archived-projects"],
       ["Archived conversations", "Archive", "setting-archived-conversations"],
     ]) {
@@ -467,6 +467,7 @@ describe("settings navigation", () => {
     expect(notes.getAttribute("aria-checked")).toBe("true");
     await click(notes);
     expect(loadNotesEnabled()).toBe(false);
+    await section("Tasks & review");
     const steer = [
       ...container.querySelectorAll<HTMLButtonElement>(
         '[role="radiogroup"][aria-label="Follow-up behavior"] [role="radio"]',
@@ -483,7 +484,7 @@ describe("settings navigation", () => {
     const appearance = loadWorkspaceTheme("work");
     expect(appearance.matchPanels).toBe(true);
     expect(appearance.colors?.dark?.background).toBe("#112233");
-    await section("Keybindings");
+    await section("Keyboard");
     await section("General");
     expect(
       container
@@ -503,25 +504,33 @@ describe("settings navigation", () => {
   });
 
   it("explains memory saver, retains the opt-out, and reflects changes from another window", async () => {
-    await mount();
-    const toggle = () => container.querySelector<HTMLButtonElement>(
-      '[role="switch"][aria-label="Memory saver"]',
-    )!;
+    await mount("browser");
+    const toggle = () =>
+      container.querySelector<HTMLButtonElement>(
+        '[role="switch"][aria-label="Memory saver"]',
+      )!;
     expect(toggle().getAttribute("aria-checked")).toBe("true");
-    expect(container.querySelector("#setting-memory-saver")?.textContent).toContain(
+    expect(
+      container.querySelector("#setting-memory-saver")?.textContent,
+    ).toContain(
       "Keep your three most recent browser tabs ready. Older inactive tabs can sleep after five minutes and reload when reopened. Pages in use stay awake.",
     );
     await click(toggle());
     expect(loadBrowserMemorySaver()).toBe(false);
     await section("Appearance");
-    await section("General");
+    await section("Browser");
     expect(toggle().getAttribute("aria-checked")).toBe("false");
     await act(async () => saveBrowserMemorySaver(true));
     expect(toggle().getAttribute("aria-checked")).toBe("true");
     localStorage.setItem("aven.browserMemorySaver", "0");
-    await act(async () => window.dispatchEvent(new StorageEvent("storage", {
-      key: "aven.browserMemorySaver", newValue: "0",
-    })));
+    await act(async () =>
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: "aven.browserMemorySaver",
+          newValue: "0",
+        }),
+      ),
+    );
     expect(toggle().getAttribute("aria-checked")).toBe("false");
 
     const listener = vi.fn();

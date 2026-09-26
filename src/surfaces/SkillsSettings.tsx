@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Plus, RefreshCw, Search } from "../chrome/icons";
 import { ModalPanel } from "../chrome/Modal";
 import { listSkills, readTextFile } from "../lib/fs";
-import { openInAppFile, openInAppUrl } from "../lib/inAppLinks";
+import { openInAppFile } from "../lib/inAppLinks";
 import { parentPath } from "../lib/paths";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { looksLikeProject } from "../lib/recents";
@@ -17,7 +17,6 @@ import {
 } from "../lib/skills";
 import {
   getAgentToolStatus,
-  installPersonalComputerUseSkill,
   openComputerUseSettings,
   type AgentToolStatus,
 } from "../lib/agentTools";
@@ -44,13 +43,15 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
   const [skillsError, setSkillsError] = useState("");
   const [skillsLoading, setSkillsLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const [source, setSource] = useState<
+    "all" | "project" | "personal" | "builtin"
+  >("all");
   const [tools, setTools] = useState<AgentToolStatus | null>(null);
   const [toolsLoading, setToolsLoading] = useState(true);
   const [toolsError, setToolsError] = useState("");
   const [toolReload, setToolReload] = useState(0);
   const [selected, setSelected] = useState<InspectableSkill | null>(null);
   const [creating, setCreating] = useState(false);
-  const [exporting, setExporting] = useState(false);
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
@@ -115,38 +116,39 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
       .includes(needle),
   );
   const desktop = tools?.desktop;
-  const personalCopy = skills.some(
-    (skill) =>
-      skill.name === BUILTIN_COMPUTER_USE_SKILL.name &&
-      skill.kind === "file" &&
-      skill.scope === "user",
-  );
 
   const showError = (error: unknown) =>
     setNotice(error instanceof Error ? error.message : String(error));
-  const exportSkill = async () => {
-    if (exporting) return;
-    setExporting(true);
-    setNotice("");
-    try {
-      const path = await installPersonalComputerUseSkill();
-      setNotice(
-        "Added to personal skills. Providers with their own skill catalog may need a new task to discover it.",
-      );
-      setReload((value) => value + 1);
-      openInAppFile(path);
-    } catch (error) {
-      showError(error);
-    } finally {
-      setExporting(false);
-    }
+
+  const missingPermissions =
+    desktop?.permissions.filter(
+      (permission) => permission.required && !permission.granted,
+    ) ?? [];
+  const sourceCounts = {
+    all: skills.length,
+    project: skills.filter(
+      (skill) => skill.kind === "file" && skill.scope !== "user",
+    ).length,
+    personal: skills.filter(
+      (skill) => skill.kind === "file" && skill.scope === "user",
+    ).length,
+    builtin: skills.filter((skill) => skill.kind === "builtin").length,
   };
+  const visible = filtered.filter((skill) =>
+    source === "all"
+      ? true
+      : source === "builtin"
+        ? skill.kind === "builtin"
+        : skill.kind === "file" &&
+          (source === "personal") === (skill.scope === "user"),
+  );
+  const projectName = cwd ? cwd.split("/").filter(Boolean).pop() : null;
 
   return (
     <div className="skills-settings">
       <SettingsGroup
-        title="Tools for your tasks"
-        description="Web tools are built in. Desktop control uses an optional local helper."
+        title="Tools"
+        description="What agents can use beyond your files and terminal."
       >
         <div
           className="skills-tool"
@@ -169,18 +171,8 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
             </span>
           </div>
           <p>
-            Agents can open and inspect web pages beside your conversation. Each
-            task receives access to its own browser tabs.
-          </p>
-          <p className="skills-note">
-            Access is supplied when a task runs. No separate browser extension
-            or MCP setup is needed.
-          </p>
-          <p className="skills-note">
-            Websites and localhost previews stay in Aven. Markdown, code and
-            supported documents open in the editor beside the requesting task.
-            An external browser is used only when you ask for one or a sign-in
-            flow requires it.
+            Agents open web pages and local previews beside the task, each in
+            its own tabs. Nothing to set up.
           </p>
         </div>
         <div
@@ -202,42 +194,31 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
             </span>
           </div>
           <p>
-            Use Peekaboo to inspect and interact with native Mac windows,
-            including Aven. Tasks receive the guidance automatically. Just ask
-            the agent to inspect or test an app; no slash command is needed. Use{" "}
-            <code>/aven-computer-use</code> for the complete instructions.
+            Agents can see and operate Mac apps, including Aven, when you ask
+            them to. Powered by Peekaboo.
           </p>
-          {desktop?.version ? (
+          {desktop?.state === "missing" ? (
             <p className="skills-note">
-              {desktop.version}
-              {desktop.source ? ` · Permission source: ${desktop.source}` : ""}
+              Install it with Homebrew, then check again:{" "}
+              <code className="skills-command">
+                brew install openclaw/tap/peekaboo
+              </code>
             </p>
           ) : null}
-          {desktop?.permissions.length ? (
-            <ul className="skills-permissions" aria-label="Desktop permissions">
-              {desktop.permissions.map((permission) => (
-                <li key={permission.name}>
-                  <span>
-                    {permission.name}
-                    {!permission.required ? " (optional)" : ""}
-                  </span>
-                  <strong>
-                    {permission.granted ? "Granted" : "Not granted"}
-                  </strong>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          {desktop?.state === "ready" ? (
+          {missingPermissions.length ? (
             <p className="skills-note">
-              The selected host reports the required permissions. The agent
-              still checks the intended window and verifies each action.
+              macOS needs to allow{" "}
+              {missingPermissions
+                .map((permission) => permission.name)
+                .join(" and ")}
+              {desktop?.source === "bridge" ? " for the Peekaboo bridge" : ""}.
+              Aven never changes these for you.
             </p>
           ) : null}
           {desktop?.state === "unverified" ? (
             <p className="skills-note">
-              Peekaboo was found, but its status response could not be verified.
-              Check the installed CLI and selected bridge, then refresh.
+              Peekaboo was found, but its status couldn’t be read. Check its
+              setup, then check again.
             </p>
           ) : null}
           {toolsError ? (
@@ -246,6 +227,25 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
             </p>
           ) : null}
           <div className="skills-actions">
+            {missingPermissions.map((permission) =>
+              permission.name === "Screen Recording" ||
+              permission.name === "Accessibility" ? (
+                <button
+                  key={permission.name}
+                  type="button"
+                  className="settings-button"
+                  onClick={() =>
+                    void openComputerUseSettings(
+                      permission.name === "Accessibility"
+                        ? "accessibility"
+                        : "screenRecording",
+                    ).catch(showError)
+                  }
+                >
+                  Open {permission.name} settings
+                </button>
+              ) : null,
+            )}
             <button
               type="button"
               className="settings-button"
@@ -253,7 +253,7 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
               onClick={() => setToolReload((value) => value + 1)}
             >
               <RefreshCw aria-hidden className="size-3.5" />
-              {toolsLoading ? "Checking…" : "Check status"}
+              {toolsLoading ? "Checking…" : "Check again"}
             </button>
             <button
               type="button"
@@ -262,77 +262,7 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
             >
               View instructions
             </button>
-            <button
-              type="button"
-              className="settings-button"
-              disabled={exporting || personalCopy}
-              onClick={() => void exportSkill()}
-            >
-              {personalCopy
-                ? "In personal skills"
-                : exporting
-                  ? "Adding…"
-                  : "Add to personal skills"}
-            </button>
           </div>
-          <details className="skills-setup">
-            <summary>Setup and permissions</summary>
-            <div>
-              <p>Install the optional CLI with Homebrew:</p>
-              <code className="skills-command">
-                brew install openclaw/tap/peekaboo
-              </code>
-              <p>
-                Screen Recording and Accessibility belong to the execution host
-                reported by Peekaboo. If it uses a bridge, grant access to that
-                host. Event Synthesizing enables additional input actions.
-              </p>
-              <p>
-                Aven checks status without requesting or changing permissions.
-                You choose which access to grant in macOS.
-              </p>
-              {desktop && desktop.state !== "unsupported" ? (
-                <div className="skills-actions">
-                  <button
-                    type="button"
-                    className="settings-button"
-                    onClick={() =>
-                      void openComputerUseSettings("screenRecording").catch(
-                        showError,
-                      )
-                    }
-                  >
-                    Screen Recording settings
-                  </button>
-                  <button
-                    type="button"
-                    className="settings-button"
-                    onClick={() =>
-                      void openComputerUseSettings("accessibility").catch(
-                        showError,
-                      )
-                    }
-                  >
-                    Accessibility settings
-                  </button>
-                </div>
-              ) : null}
-              <button
-                type="button"
-                className="skills-text-button"
-                onClick={() =>
-                  void openInAppUrl(
-                    "https://github.com/openclaw/Peekaboo/blob/main/docs/permissions.md",
-                  ).catch(showError)
-                }
-              >
-                Read the setup guide
-              </button>
-              {desktop?.executable ? (
-                <p className="skills-path">{desktop.executable}</p>
-              ) : null}
-            </div>
-          </details>
           {notice ? (
             <p className="skills-note" role="status">
               {notice}
@@ -342,10 +272,10 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
       </SettingsGroup>
 
       <SettingsGroup
-        title="Installed skills"
+        title="Skills"
         id={settingSearchAnchor("Installed skills")}
         scope={skillsLoading ? "Loading…" : `${skills.length} available`}
-        description="Reusable instructions from this project, your personal folders, and supported provider skill locations."
+        description={`Reusable instructions. Type / in the composer to use one.${projectName ? ` Includes skills from ${projectName}.` : ""}`}
       >
         <div className="skills-catalog-toolbar">
           <label className="skills-search">
@@ -375,20 +305,46 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
             New skill
           </button>
         </div>
-        <p className="skills-context">
-          Project: <span>{cwd || "No project selected"}</span>
-        </p>
+        <div
+          className="skills-filters"
+          role="radiogroup"
+          aria-label="Skill source"
+        >
+          {(
+            [
+              ["all", "All"],
+              ["project", "Project"],
+              ["personal", "Personal"],
+              ["builtin", "Built in"],
+            ] as const
+          ).map(([value, label]) =>
+            value === "all" || sourceCounts[value] ? (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={source === value}
+                className="skills-filter"
+                onClick={() => setSource(value)}
+              >
+                {label}
+                <span>{sourceCounts[value]}</span>
+              </button>
+            ) : null,
+          )}
+        </div>
         {skillsError ? (
           <p className="skills-error" role="alert">
             {skillsError}
           </p>
         ) : null}
         <div className="skills-list" aria-busy={skillsLoading}>
-          {filtered.map((skill) => (
+          {visible.map((skill) => (
             <button
               type="button"
               className="skills-item"
               key={skill.name}
+              title={skill.description || undefined}
               onClick={() => setSelected(skill)}
             >
               <span className="skills-item-copy">
@@ -402,7 +358,7 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
               </span>
             </button>
           ))}
-          {!filtered.length ? (
+          {!visible.length ? (
             <p className="skills-empty">
               {skillsLoading
                 ? "Loading skill instructions…"
@@ -411,28 +367,10 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
           ) : null}
         </div>
         <p className="skills-note skills-catalog-footer">
-          Use / in the composer to choose a skill. Project and personal
-          .agents/skills folders take precedence over provider copies with the
-          same name.
+          A skill adds instructions, not tools. Add MCP servers in Connections.
+          Project and personal copies win over provider copies with the same
+          name.
         </p>
-      </SettingsGroup>
-
-      <SettingsGroup
-        title="Provider tools"
-        id={settingSearchAnchor("Provider tools")}
-        description="MCP servers, plugins, and native commands stay with the provider that owns them."
-      >
-        <div className="skills-tool">
-          <p>
-            Codex and Claude use their existing provider configuration. Pi and
-            Oh My Pi supply their own command catalogs; this list shows files
-            Aven can discover, not a live inventory of every provider tool.
-          </p>
-          <p className="skills-note">
-            Installing a skill adds instructions. It does not install the tools
-            it mentions or prove that a server is connected.
-          </p>
-        </div>
       </SettingsGroup>
       {selected ? (
         <SkillInspector

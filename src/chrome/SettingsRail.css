@@ -81,25 +81,20 @@
   color: var(--color-content);
 }
 
-/* Keep buttons as direct nav children: embedded settings becomes a
-   horizontal category strip in narrow panes. */
-.settings-nav__item:is(
-  [data-settings-section="providers"],
-  [data-settings-section="archive"]
-) {
-  margin-top: 14px;
+/* Group labels stay direct nav children beside the buttons: embedded settings
+   becomes a horizontal category strip in narrow panes, where they hide. */
+.settings-nav__group {
+  flex-shrink: 0;
+  padding: 14px 8px 4px;
+  color: var(--personal-muted, var(--aven-muted));
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  line-height: 16px;
 }
 
-.settings-nav__item:is(
-    [data-settings-section="providers"],
-    [data-settings-section="archive"]
-  )::before {
-  content: "";
-  position: absolute;
-  inset: -8px 8px auto;
-  height: 1px;
-  background: var(--aven-line);
-  pointer-events: none;
+.settings-nav__group:first-child {
+  padding-top: 4px;
 }
 
 .settings-nav__icon {
@@ -123,11 +118,7 @@
 }
 
 @container settings-shell (max-width: 760px) {
-  .settings-nav--embedded .settings-nav__item {
-    margin-top: 0;
-  }
-
-  .settings-nav--embedded .settings-nav__item::before {
+  .settings-nav--embedded .settings-nav__group {
     display: none;
   }
 }

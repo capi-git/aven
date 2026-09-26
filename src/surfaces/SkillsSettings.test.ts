@@ -85,6 +85,11 @@ function button(text: string) {
   if (!found) throw new Error(`No button: ${text}`);
   return found;
 }
+function hasButton(text: string) {
+  return [...document.querySelectorAll("button")].some((item) =>
+    item.textContent?.includes(text),
+  );
+}
 async function click(text: string) {
   await act(async () => button(text).click());
 }
@@ -93,11 +98,9 @@ describe("Skills & Tools settings", () => {
   it("shows actual permission state without requesting or changing permissions", async () => {
     await render();
     expect(container.textContent).toContain("Permissions granted");
-    expect(container.textContent).toContain("Permission source: bridge");
-    expect(container.textContent).toContain("/aven-computer-use");
+    expect(hasButton("Open Accessibility settings")).toBe(false);
+    expect(container.querySelector("details")).toBeNull();
     expect(mocks.permissions).not.toHaveBeenCalled();
-    await click("Accessibility settings");
-    expect(mocks.permissions).toHaveBeenCalledExactlyOnceWith("accessibility");
   });
 
   it("opens built-in instructions in an accessible dialog", async () => {
@@ -194,10 +197,52 @@ describe("Skills & Tools settings", () => {
   it("clears stale ready status on a failed refresh while keeping the catalog usable", async () => {
     await render();
     mocks.status.mockRejectedValue(new Error("timed out"));
-    await click("Check status");
+    await click("Check again");
     expect(container.textContent).toContain("Tools could not be checked");
     expect(container.textContent).not.toContain("Permissions granted");
     expect(button("/review-changes").disabled).toBe(false);
+  });
+
+  it("offers only the macOS settings that are still missing", async () => {
+    mocks.status.mockResolvedValue({
+      browserAvailable: true,
+      desktop: {
+        ...ready.desktop,
+        state: "permissionsRequired",
+        permissions: [
+          { name: "Screen Recording", granted: true, required: true },
+          { name: "Accessibility", granted: false, required: true },
+          { name: "Event Synthesizing", granted: false, required: false },
+        ],
+      },
+    });
+    await render();
+    expect(container.textContent).toContain(
+      "macOS needs to allow Accessibility for the Peekaboo bridge",
+    );
+    expect(hasButton("Open Screen Recording settings")).toBe(false);
+    await click("Open Accessibility settings");
+    expect(mocks.permissions).toHaveBeenCalledExactlyOnceWith("accessibility");
+  });
+
+  it("filters skills by where they come from", async () => {
+    mocks.listSkills.mockResolvedValue([
+      file,
+      {
+        ...file,
+        name: "mine",
+        scope: "user",
+        path: "/home/.agents/skills/mine/SKILL.md",
+      },
+    ]);
+    await render();
+    expect(hasButton("/review-changes")).toBe(true);
+    await click("Personal1");
+    expect(hasButton("/mine")).toBe(true);
+    expect(hasButton("/review-changes")).toBe(false);
+    await click("Project1");
+    expect(hasButton("/review-changes")).toBe(true);
+    expect(hasButton("/mine")).toBe(false);
   });
 
   it.each(["missing", "permissionsRequired", "unverified"] as const)(

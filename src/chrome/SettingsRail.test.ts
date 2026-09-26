@@ -62,7 +62,7 @@ describe("settings navigation", () => {
         navigation
           .querySelector('[aria-current="page"]')
           ?.getAttribute("aria-description"),
-      ).toBe("Colors & layout");
+      ).toBe("Colors & transparency");
 
       for (const [index, button] of buttons.entries()) {
         await act(async () => button.click());
@@ -98,7 +98,7 @@ describe("settings navigation", () => {
       container
         .querySelector('[aria-current="page"]')
         ?.getAttribute("aria-label"),
-    ).toBe("Providers");
+    ).toBe("Providers & models");
 
     const back = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Back"]',

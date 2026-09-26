@@ -15,14 +15,14 @@ describe("settings search", () => {
   });
 
   it.each([
-    ["permissions", "Default task access", "general"],
-    ["queued", "Follow-up behavior", "general"],
-    ["memory", "Memory saver", "general"],
-    ["ram", "Memory saver", "general"],
-    ["sleeping tabs", "Memory saver", "general"],
-    ["lightweight", "Lightweight browser", "general"],
-    ["low-end", "Lightweight browser", "general"],
-    ["do not disturb", "Quiet mode", "general"],
+    ["permissions", "Default task access", "tasks"],
+    ["queued", "Follow-up behavior", "tasks"],
+    ["memory", "Memory saver", "browser"],
+    ["ram", "Memory saver", "browser"],
+    ["sleeping tabs", "Memory saver", "browser"],
+    ["lightweight", "Lightweight browser", "browser"],
+    ["low-end", "Lightweight browser", "browser"],
+    ["do not disturb", "Quiet mode", "notifications"],
     ["wallpaper", "Chat background", "appearance"],
     ["text size", "Interface scale", "appearance"],
     ["hotkeys", "Keybindings", "keybindings"],

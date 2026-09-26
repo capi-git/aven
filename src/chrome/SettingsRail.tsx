@@ -1,8 +1,12 @@
 import {
+  AppWindow,
   Archive,
   ArrowLeft,
   Bot,
+  Globe,
+  Inbox,
   Keyboard,
+  MessageSquare,
   Palette,
   Settings,
   Wrench,
@@ -15,18 +19,26 @@ import "./SettingsRail.css";
 const SECTION_ICONS: Record<SettingsSectionId, IconComponent> = {
   general: Settings,
   appearance: Palette,
+  notifications: Inbox,
   keybindings: Keyboard,
   providers: Bot,
+  tasks: MessageSquare,
   skills: Wrench,
+  connections: Globe,
+  browser: AppWindow,
   archive: Archive,
 };
 
 const SECTION_DESCRIPTIONS: Record<SettingsSectionId, string> = {
-  general: "Tasks & preferences",
-  appearance: "Colors & layout",
+  general: "Updates & extras",
+  appearance: "Colors & transparency",
+  notifications: "Alerts & sound",
   keybindings: "Keyboard shortcuts",
-  providers: "Models & connections",
+  providers: "Agents & models",
+  tasks: "Access, follow-ups & review",
   skills: "Instructions & computer use",
+  connections: "Linked services",
+  browser: "Tab memory",
   archive: "Saved history",
 };
 
@@ -53,7 +65,17 @@ export function SettingsNav({
         aria-label="Settings sections"
         className="settings-nav__sections"
       >
-        {SETTINGS_SECTIONS.map((item) => (
+        {SETTINGS_SECTIONS.flatMap((item, index) => [
+          ...(index === 0 || SETTINGS_SECTIONS[index - 1].group !== item.group
+            ? [
+                <div
+                  key={`group-${item.group}`}
+                  className="settings-nav__group"
+                >
+                  {item.group}
+                </div>,
+              ]
+            : []),
           <NavRow
             key={item.id}
             sectionId={item.id}
@@ -62,8 +84,8 @@ export function SettingsNav({
             icon={SECTION_ICONS[item.id]}
             active={item.id === section}
             onClick={() => onSelect(item.id)}
-          />
-        ))}
+          />,
+        ])}
       </nav>
       <div className="settings-nav__footer">
         <NavRow label="Back" icon={ArrowLeft} onClick={onClose} />

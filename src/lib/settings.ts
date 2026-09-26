@@ -3,41 +3,84 @@ import { ALT, IS_MAC, MOD, SHIFT } from "./platform";
 const SECTION_KEY = "monocode.settingsSection";
 
 export type SettingsSectionId =
-  "general" | "appearance" | "keybindings" | "providers" | "skills" | "archive";
+  | "general"
+  | "appearance"
+  | "notifications"
+  | "keybindings"
+  | "providers"
+  | "tasks"
+  | "skills"
+  | "connections"
+  | "browser"
+  | "archive";
 
+export type SettingsSectionGroup = "App" | "Agents" | "Data";
+
+/** Navigation order. Each group starts where its first section appears. */
 export const SETTINGS_SECTIONS: {
   id: SettingsSectionId;
+  group: SettingsSectionGroup;
   label: string;
   description: string;
 }[] = [
   {
     id: "general",
+    group: "App",
     label: "General",
-    description: "Task behavior, workspace tools, and app preferences.",
+    description: "Updates, the project rail, and small extras.",
   },
   {
     id: "appearance",
+    group: "App",
     label: "Appearance",
     description: "Colors, transparency, and display preferences.",
   },
   {
+    id: "notifications",
+    group: "App",
+    label: "Notifications",
+    description: "Decide when and how Aven gets your attention.",
+  },
+  {
     id: "keybindings",
-    label: "Keybindings",
+    group: "App",
+    label: "Keyboard",
     description: "Find keyboard shortcuts and where they work.",
   },
   {
     id: "providers",
-    label: "Providers",
+    group: "Agents",
+    label: "Providers & models",
     description: "Choose your agents, models, and defaults for new tasks.",
   },
   {
+    id: "tasks",
+    group: "Agents",
+    label: "Tasks & review",
+    description: "How agents start, take follow-ups, and show their work.",
+  },
+  {
     id: "skills",
-    label: "Skills & Tools",
+    group: "Agents",
+    label: "Skills & tools",
     description:
       "Reusable instructions, browser tools, and optional desktop control.",
   },
   {
+    id: "connections",
+    group: "Agents",
+    label: "Connections",
+    description: "Services Aven connects to on your behalf.",
+  },
+  {
+    id: "browser",
+    group: "Data",
+    label: "Browser",
+    description: "Keep browser tabs ready while managing memory.",
+  },
+  {
     id: "archive",
+    group: "Data",
     label: "Archive",
     description: "Find and restore archived projects and conversations.",
   },
@@ -424,7 +467,11 @@ export type KeybindingRow = {
  */
 export const KEYBINDINGS: KeybindingRow[] = [
   { command: "App: Command palette", keys: `${MOD}K`, when: "Always" },
-  { command: "App: Search", keys: `${MOD === "⌘" ? "⇧⌘" : "Ctrl+Shift+"}K`, when: "Always" },
+  {
+    command: "App: Search",
+    keys: `${MOD === "⌘" ? "⇧⌘" : "Ctrl+Shift+"}K`,
+    when: "Always",
+  },
   { command: "App: Go to File", keys: `${MOD}P`, when: "Always" },
   { command: "App: Find in Files", keys: `${MOD}${SHIFT}F`, when: "Always" },
   { command: "App: Open Project", keys: `${MOD}O`, when: "Always" },

@@ -18,7 +18,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { SettingsNav } from "../chrome/SettingsRail";
-import { searchSettings } from "../lib/settingsSearch";
+import { settingSearchAnchor, searchSettings } from "../lib/settingsSearch";
 import {
   PageHeader,
   Heading,
@@ -72,10 +72,6 @@ import {
   SIDEBAR_BLUR_MIN,
   SIDEBAR_OPACITY_MAX,
   SIDEBAR_OPACITY_MIN,
-  THEME_HUE_MAX,
-  THEME_HUE_MIN,
-  THEME_SATURATION_MAX,
-  THEME_SATURATION_MIN,
   type ThemePreference,
   type ChatBackgroundScope,
   type TranscriptLayout,
@@ -207,14 +203,12 @@ import {
 } from "../lib/notifications";
 import { ApplyWorkspaceThemeButton } from "../chrome/ApplyWorkspaceThemeButton";
 import {
-  applyWorkspaceThemePreset,
   resolvedWorkspaceColors,
   resetWorkspaceTheme,
   saveWorkspaceColor,
   saveWorkspaceTheme,
   type WorkspaceColorTarget,
   useActiveWorkspaceTheme,
-  WORKSPACE_THEME_PRESETS,
 } from "../lib/workspaceThemes";
 import {
   installPendingUpdate,
@@ -223,6 +217,8 @@ import {
   subscribeUpdater,
 } from "../lib/updater";
 import { SkillsSettings } from "./SkillsSettings";
+import { SettingsColorPicker } from "./SettingsColorPicker";
+import { ProviderConnections } from "./ProviderConnections";
 
 type Props = {
   section: SettingsSectionId;
@@ -497,11 +493,13 @@ export function SettingsView({
                   ? "Workspace colors · device display preferences"
                   : section === "skills"
                     ? "Project instructions · device tools"
-                    : "Your preferences are saved automatically"}
+                    : section === "connections"
+                      ? "Provider connections for this project · device services"
+                      : "Your preferences are saved automatically"}
               </span>
             </div>
-            {section === "general" ? (
-              <GeneralPage onOpenWhatsNew={onOpenWhatsNew} />
+            {isPreferencesSection(section) ? (
+              <PreferencesPage page={section} onOpenWhatsNew={onOpenWhatsNew} />
             ) : null}
             {section === "appearance" ? (
               <AppearancePage appearance={appearance} />
@@ -509,6 +507,7 @@ export function SettingsView({
             {section === "keybindings" ? <KeybindingsPage /> : null}
             {section === "providers" ? <ProvidersPage /> : null}
             {section === "skills" ? <SkillsSettings cwd={cwd} /> : null}
+            {section === "connections" ? <ConnectionsPage cwd={cwd} /> : null}
             {section === "archive" ? (
               <ArchivePage
                 cwd={cwd}
@@ -527,9 +526,28 @@ export function SettingsView({
   );
 }
 
-function GeneralPage({
+type PreferencesSection = Extract<
+  SettingsSectionId,
+  "general" | "notifications" | "tasks" | "browser"
+>;
+
+function isPreferencesSection(
+  section: SettingsSectionId,
+): section is PreferencesSection {
+  return (
+    section === "general" ||
+    section === "notifications" ||
+    section === "tasks" ||
+    section === "browser"
+  );
+}
+
+/** The device preferences that used to share one General page, one page each. */
+function PreferencesPage({
+  page,
   onOpenWhatsNew,
 }: {
+  page: PreferencesSection;
   onOpenWhatsNew: (version: string) => void;
 }) {
   const [defaultAccess, setDefaultAccess] = useState(loadDefaultRuntimeMode);
@@ -598,14 +616,14 @@ function GeneralPage({
   // The user may flip the switch in System Settings and come back: re-read
   // the OS state whenever the window regains focus while the toggle is on.
   useEffect(() => {
-    if (!notificationsEnabled) return;
+    if (!notificationsEnabled || page !== "notifications") return;
     const refresh = () => {
       void probeNotificationPermission().then(setNotificationPermission);
     };
     refresh();
     window.addEventListener("focus", refresh);
     return () => window.removeEventListener("focus", refresh);
-  }, [notificationsEnabled]);
+  }, [notificationsEnabled, page]);
 
   useEffect(() => {
     const onAnchor = (event: Event) => {
@@ -673,6 +691,171 @@ function GeneralPage({
     saveClaudeHooks(next);
     setClaudeHooks(next);
   };
+
+  const workspaceGroup = (
+    <SettingsGroup
+      title="Project rail &amp; extras"
+      description="Choose what appears around your work."
+      scope="Device"
+    >
+      <Row
+        label="Notes"
+        description="Keep reusable notes in the sidebar. Add them to a conversation with @note."
+      >
+        <Toggle label="Notes" on={notesEnabled} onChange={onNotesEnabled} />
+      </Row>
+      <Row
+        label="Working agents"
+        description="Show running agents together in the sidebar when multiple tasks are active."
+      >
+        <Toggle
+          label="Working agents"
+          on={liveAgentsEnabled}
+          onChange={onLiveAgentsEnabled}
+        />
+      </Row>
+      <Row
+        label="Composer mascot"
+        description="Show a small animated mascot while an agent is working."
+      >
+        <Toggle
+          label="Composer mascot"
+          on={composerRunner}
+          onChange={onComposerRunner}
+        />
+      </Row>
+      <Row
+        label="Empty session games"
+        description="Show interactive games in empty sessions. Turn off for a quieter workspace."
+      >
+        <Toggle
+          label="Empty session games"
+          on={gridArcadeEnabled}
+          onChange={onGridArcadeEnabled}
+        />
+      </Row>
+    </SettingsGroup>
+  );
+
+  const notificationsGroup = (
+    <SettingsGroup
+      title="Alerts &amp; sound"
+      description="Decide what needs your attention."
+      scope="Device"
+    >
+      <Row
+        label="Notifications"
+        description="Send macOS notifications when a task needs attention while you are elsewhere. Activity keeps a local history even when these are off."
+      >
+        {notificationsEnabled && notificationPermission === "denied" ? (
+          <NotificationsBlocked />
+        ) : null}
+        {notificationsEnabled && notificationPermission === "unsupported" ? (
+          <span className="text-[12px] text-content/45">
+            Not available on this platform
+          </span>
+        ) : null}
+        <Toggle
+          label="Notifications"
+          on={notificationsEnabled}
+          onChange={onNotificationsEnabled}
+        />
+      </Row>
+      <Row
+        label="Activity alerts"
+        description="Choose which outcomes can interrupt you. Every outcome still appears in Activity."
+      >
+        <div className="settings-alert-options">
+          {(
+            [
+              ["needsInput", "Needs input"],
+              ["failures", "Failures"],
+              ["finished", "Finished / stopped"],
+              ["sound", "Sound"],
+            ] as const
+          ).map(([key, label]) => (
+            <label
+              key={key}
+              className="flex items-center gap-2 text-[11px] text-content/65"
+            >
+              {label}
+              <Toggle
+                label={`Activity: ${label}`}
+                on={notificationPreferences[key]}
+                onChange={(value) => onNotificationPreference(key, value)}
+              />
+            </label>
+          ))}
+        </div>
+      </Row>
+      <Row
+        label="Quiet mode"
+        description="Keep recording Activity without task banners or task sounds. Your other sound settings stay unchanged."
+      >
+        <Toggle
+          label="Quiet mode"
+          on={notificationPreferences.quiet}
+          onChange={(value) => onNotificationPreference("quiet", value)}
+        />
+      </Row>
+      <Row
+        label="Sounds"
+        description="Play short cues for task completion, inbox items, updates, and interactions."
+      >
+        <Toggle label="Sounds" on={soundsEnabled} onChange={onSoundsEnabled} />
+      </Row>
+    </SettingsGroup>
+  );
+
+  if (page === "general")
+    return (
+      <>
+        {workspaceGroup}
+        <SettingsGroup
+          title="About Aven"
+          description="Your installed version and software updates."
+          scope="Device"
+        >
+          <UpdateRow onOpenWhatsNew={onOpenWhatsNew} />
+        </SettingsGroup>
+      </>
+    );
+
+  if (page === "browser")
+    return (
+      <SettingsGroup
+        title="Memory"
+        description="Keep browser tabs ready while managing memory."
+        scope="Device"
+      >
+        <Row
+          label="Memory saver"
+          description="Keep your three most recent browser tabs ready. Older inactive tabs can sleep after five minutes and reload when reopened. Pages in use stay awake."
+        >
+          <Toggle
+            label="Memory saver"
+            on={browserMemorySaver}
+            onChange={saveBrowserMemorySaver}
+          />
+        </Row>
+        <Row
+          label="Lightweight browser"
+          description={
+            browserEngineRestart
+              ? "Uses Chromium's reduced-memory mode for web pages. Restart Aven to apply this change."
+              : "Uses Chromium's reduced-memory mode for web pages. With Memory saver on, keeps only your most recent inactive tab ready and sleeps others after two minutes. For laptops with little memory; the engine mode applies when Aven starts."
+          }
+        >
+          <Toggle
+            label="Lightweight browser"
+            on={browserLowMemory}
+            onChange={saveBrowserLowMemory}
+          />
+        </Row>
+      </SettingsGroup>
+    );
+
+  if (page === "notifications") return notificationsGroup;
 
   return (
     <>
@@ -756,164 +939,30 @@ function GeneralPage({
           />
         </Row>
       </SettingsGroup>
+    </>
+  );
+}
+
+/** Agent connections come from each provider; Linear is Aven's own. */
+function ConnectionsPage({ cwd }: { cwd: string }) {
+  return (
+    <>
       <SettingsGroup
-        title="Workspace"
-        description="Choose what appears around your work."
-        scope="Device"
+        title="Agent connections"
+        id={settingSearchAnchor("Agent connections")}
+        description="Add, remove, and sign in to the MCP servers Claude and Codex can reach. Each provider keeps its own settings and sign-in."
+        scope="Project"
       >
-        <Row
-          label="Notes"
-          description="Keep reusable notes in the sidebar. Add them to a conversation with @note."
-        >
-          <Toggle label="Notes" on={notesEnabled} onChange={onNotesEnabled} />
-        </Row>
-        <Row
-          label="Working agents"
-          description="Show running agents together in the sidebar when multiple tasks are active."
-        >
-          <Toggle
-            label="Working agents"
-            on={liveAgentsEnabled}
-            onChange={onLiveAgentsEnabled}
-          />
-        </Row>
-        <Row
-          label="Composer mascot"
-          description="Show a small animated mascot while an agent is working."
-        >
-          <Toggle
-            label="Composer mascot"
-            on={composerRunner}
-            onChange={onComposerRunner}
-          />
-        </Row>
-        <Row
-          label="Empty session games"
-          description="Show interactive games in empty sessions. Turn off for a quieter workspace."
-        >
-          <Toggle
-            label="Empty session games"
-            on={gridArcadeEnabled}
-            onChange={onGridArcadeEnabled}
-          />
-        </Row>
+        <ProviderConnections cwd={cwd} />
       </SettingsGroup>
       <SettingsGroup
-        title="Browser"
-        description="Keep browser tabs ready while managing memory."
-        scope="Device"
-      >
-        <Row
-          label="Memory saver"
-          description="Keep your three most recent browser tabs ready. Older inactive tabs can sleep after five minutes and reload when reopened. Pages in use stay awake."
-        >
-          <Toggle
-            label="Memory saver"
-            on={browserMemorySaver}
-            onChange={saveBrowserMemorySaver}
-          />
-        </Row>
-        <Row
-          label="Lightweight browser"
-          description={
-            browserEngineRestart
-              ? "Uses Chromium's reduced-memory mode for web pages. Restart Aven to apply this change."
-              : "Uses Chromium's reduced-memory mode for web pages. With Memory saver on, keeps only your most recent inactive tab ready and sleeps others after two minutes. For laptops with little memory; the engine mode applies when Aven starts."
-          }
-        >
-          <Toggle
-            label="Lightweight browser"
-            on={browserLowMemory}
-            onChange={saveBrowserLowMemory}
-          />
-        </Row>
-      </SettingsGroup>
-      <SettingsGroup
-        title="Notifications &amp; sound"
-        description="Decide what needs your attention."
-        scope="Device"
-      >
-        <Row
-          label="Notifications"
-          description="Send macOS notifications when a task needs attention while you are elsewhere. Activity keeps a local history even when these are off."
-        >
-          {notificationsEnabled && notificationPermission === "denied" ? (
-            <NotificationsBlocked />
-          ) : null}
-          {notificationsEnabled && notificationPermission === "unsupported" ? (
-            <span className="text-[12px] text-content/45">
-              Not available on this platform
-            </span>
-          ) : null}
-          <Toggle
-            label="Notifications"
-            on={notificationsEnabled}
-            onChange={onNotificationsEnabled}
-          />
-        </Row>
-        <Row
-          label="Activity alerts"
-          description="Choose which outcomes can interrupt you. Every outcome still appears in Activity."
-        >
-          <div className="settings-alert-options">
-            {(
-              [
-                ["needsInput", "Needs input"],
-                ["failures", "Failures"],
-                ["finished", "Finished / stopped"],
-                ["sound", "Sound"],
-              ] as const
-            ).map(([key, label]) => (
-              <label
-                key={key}
-                className="flex items-center gap-2 text-[11px] text-content/65"
-              >
-                {label}
-                <Toggle
-                  label={`Activity: ${label}`}
-                  on={notificationPreferences[key]}
-                  onChange={(value) => onNotificationPreference(key, value)}
-                />
-              </label>
-            ))}
-          </div>
-        </Row>
-        <Row
-          label="Quiet mode"
-          description="Keep recording Activity without task banners or task sounds. Your other sound settings stay unchanged."
-        >
-          <Toggle
-            label="Quiet mode"
-            on={notificationPreferences.quiet}
-            onChange={(value) => onNotificationPreference("quiet", value)}
-          />
-        </Row>
-        <Row
-          label="Sounds"
-          description="Play short cues for task completion, inbox items, updates, and interactions."
-        >
-          <Toggle
-            label="Sounds"
-            on={soundsEnabled}
-            onChange={onSoundsEnabled}
-          />
-        </Row>
-      </SettingsGroup>
-      <SettingsGroup
-        title="Integrations"
-        description="Connect the services you use alongside Aven."
+        title="Linear"
+        description="Bring Linear issues into your inbox."
         scope="Device"
       >
         <div id="setting-linear-api-key" tabIndex={-1}>
           <LinearSettings />
         </div>
-      </SettingsGroup>
-      <SettingsGroup
-        title="About Aven"
-        description="Your installed version and software updates."
-        scope="Device"
-      >
-        <UpdateRow onOpenWhatsNew={onOpenWhatsNew} />
       </SettingsGroup>
     </>
   );
@@ -1171,8 +1220,6 @@ function useAppearanceSettings() {
   const colorScheme = useColorScheme();
   const colors = resolvedWorkspaceColors(theme, colorScheme);
   const themePreference = theme.preference;
-  const themeHue = theme.hue;
-  const themeSaturation = theme.saturation;
   const { opacity, blur, bodyGlass, matchPanels } = theme;
   const [chatBackgroundPath, setChatBackgroundPath] = useState(
     loadChatBackgroundPath,
@@ -1211,35 +1258,9 @@ function useAppearanceSettings() {
     [profileId],
   );
 
-  const onTint = useCallback(
-    (hue: number, saturation: number) => {
-      saveWorkspaceTheme(profileId, { hue, saturation });
-    },
-    [profileId],
-  );
-
   const onColor = useCallback(
     (target: WorkspaceColorTarget, color: string) => {
       saveWorkspaceColor(profileId, colorScheme, target, color);
-    },
-    [profileId, colorScheme],
-  );
-
-  const onPreset = useCallback(
-    (preset: (typeof WORKSPACE_THEME_PRESETS)[number]) => {
-      applyWorkspaceThemePreset(
-        profileId,
-        preset,
-        preset.name === "Black" ? "dark" : colorScheme,
-      );
-      if (preset.name === "Black") {
-        saveWorkspaceTheme(profileId, {
-          preference: "dark",
-          opacity: 1,
-          blur: 0,
-          bodyGlass: true,
-        });
-      }
     },
     [profileId, colorScheme],
   );
@@ -1331,8 +1352,6 @@ function useAppearanceSettings() {
     colors,
     opacity,
     blur,
-    themeHue,
-    themeSaturation,
     bodyGlass,
     matchPanels,
     chatBackgroundPath,
@@ -1344,9 +1363,7 @@ function useAppearanceSettings() {
     onThemePreference,
     onOpacity,
     onBlur,
-    onTint,
     onColor,
-    onPreset,
     onBodyGlass,
     onMatchPanels,
     onChooseChatBackground,
@@ -1358,56 +1375,18 @@ function useAppearanceSettings() {
   };
 }
 
-function WorkspaceColorField({
-  label,
-  value,
-  onChange,
-}: {
+const COLOR_TARGETS = [
+  { value: "background", label: "Background" },
+  { value: "accent", label: "Accent" },
+  { value: "highlight", label: "Highlight" },
+] as const satisfies readonly {
+  value: WorkspaceColorTarget;
   label: string;
-  value: string;
-  onChange: (color: string) => void;
-}) {
-  const [hex, setHex] = useState(value);
-  useEffect(() => setHex(value), [value]);
-  const commitHex = () => {
-    const digits = hex.trim().replace(/^#/, "");
-    if (/^[\da-f]{6}$/i.test(digits)) onChange(`#${digits.toLowerCase()}`);
-    else setHex(value);
-  };
-  return (
-    <div className="flex flex-col gap-1 text-[11px] text-content/60">
-      <span>{label}</span>
-      <span className="flex h-8 items-center gap-1.5 rounded-md border border-content/15 px-1.5 focus-within:border-content/40">
-        <input
-          type="color"
-          aria-label={`${label} color`}
-          value={value}
-          onChange={(event) => onChange(event.currentTarget.value)}
-          className="size-5 cursor-pointer border-0 bg-transparent p-0"
-        />
-        <input
-          type="text"
-          aria-label={`${label} hex`}
-          value={hex}
-          maxLength={7}
-          spellCheck={false}
-          autoComplete="off"
-          className="w-16 bg-transparent font-mono text-[11px] text-content outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
-          onChange={(event) => setHex(event.currentTarget.value)}
-          onBlur={commitHex}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              commitHex();
-            }
-          }}
-        />
-      </span>
-    </div>
-  );
-}
+}[];
 
 function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
+  const [colorTarget, setColorTarget] =
+    useState<WorkspaceColorTarget>("background");
   const percent = Math.round(appearance.opacity * 100);
   const glassDisabled = appearance.colorScheme === "light";
   return (
@@ -1432,78 +1411,16 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
             onChange={appearance.onThemePreference}
           />
         </Row>
-        <div
-          id="setting-workspace-palette"
-          className="settings-palette-section"
-          tabIndex={-1}
-        >
-          <div className="settings-field-heading">
-            <span>Workspace palette</span>
-            <span>Dark and light palettes are saved separately</span>
-          </div>
-          <div
-            className="settings-palette-grid"
-            role="group"
-            aria-label="Workspace palette"
-          >
-            {WORKSPACE_THEME_PRESETS.map((palette) => {
-              const colors =
-                palette.colors[
-                  palette.name === "Black" ? "dark" : appearance.colorScheme
-                ];
-              const selected =
-                (palette.name !== "Black" ||
-                  appearance.colorScheme === "dark") &&
-                appearance.colors.background === colors.background &&
-                appearance.colors.accent === colors.accent &&
-                appearance.colors.highlight === colors.highlight;
-              return (
-                <button
-                  key={palette.name}
-                  type="button"
-                  className="settings-palette"
-                  aria-label={palette.name}
-                  aria-pressed={selected}
-                  onClick={() => appearance.onPreset(palette)}
-                >
-                  <span className="settings-palette-colors" aria-hidden>
-                    <span style={{ background: colors.background }} />
-                    <span style={{ background: colors.accent }} />
-                    <span style={{ background: colors.highlight }} />
-                  </span>
-                  <span className="settings-palette-name">
-                    {palette.name}
-                    {selected ? <Check className="size-3" aria-hidden /> : null}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+        <div id="setting-workspace-colors" tabIndex={-1}>
+          <SettingsColorPicker
+            targets={COLOR_TARGETS}
+            target={colorTarget}
+            onTarget={setColorTarget}
+            colors={appearance.colors}
+            onChange={appearance.onColor}
+            note={`Editing ${appearance.colorScheme} colors for this workspace. Dark and light are saved separately.`}
+          />
         </div>
-        <Row
-          id="setting-workspace-colors"
-          label={
-            appearance.colorScheme === "dark" ? "Dark colors" : "Light colors"
-          }
-          description="Background sets the surfaces, accent colors the controls, and highlight marks selections."
-        >
-          <div className="flex flex-wrap justify-end gap-3">
-            {(
-              [
-                ["background", "Background"],
-                ["accent", "Accent"],
-                ["highlight", "Highlight"],
-              ] as const
-            ).map(([target, label]) => (
-              <WorkspaceColorField
-                key={target}
-                label={label}
-                value={appearance.colors[target]}
-                onChange={(color) => appearance.onColor(target, color)}
-              />
-            ))}
-          </div>
-        </Row>
       </SettingsGroup>
       <SettingsGroup
         title="Window &amp; sidebars"
@@ -1579,40 +1496,6 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
             />
           </Row>
         )}
-      </SettingsGroup>
-      <SettingsGroup
-        title="Fine-tune colors"
-        description="Adjust the base tint. This replaces custom colors in the current palette."
-        scope="Workspace"
-      >
-        <Row
-          label="Hue"
-          description="Base tint. Changing it replaces custom colors for the current appearance."
-        >
-          <Slider
-            label="Hue"
-            value={appearance.themeHue}
-            display={`${appearance.themeHue}°`}
-            min={THEME_HUE_MIN}
-            max={THEME_HUE_MAX}
-            onChange={(value) =>
-              appearance.onTint(value, appearance.themeSaturation)
-            }
-          />
-        </Row>
-        <Row
-          label="Saturation"
-          description="Tint strength. Changing it replaces custom colors for the current appearance; zero keeps it neutral."
-        >
-          <Slider
-            label="Saturation"
-            value={appearance.themeSaturation}
-            display={`${appearance.themeSaturation}%`}
-            min={THEME_SATURATION_MIN}
-            max={THEME_SATURATION_MAX}
-            onChange={(value) => appearance.onTint(appearance.themeHue, value)}
-          />
-        </Row>
       </SettingsGroup>
       <SettingsGroup
         title="Chat &amp; display"

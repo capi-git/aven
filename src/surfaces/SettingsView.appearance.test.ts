@@ -7,7 +7,6 @@ import {
   loadWorkspaceTheme,
   saveWorkspaceTheme,
   useActivateWorkspaceTheme,
-  WORKSPACE_THEME_PRESETS,
   defaultWorkspaceTheme,
 } from "../lib/workspaceThemes";
 
@@ -51,7 +50,10 @@ describe("workspace appearance settings", () => {
       setItem: (key: string, value: string) => storage.set(key, value),
       removeItem: (key: string) => storage.delete(key),
     });
-    document.documentElement.classList.remove("theme-light", "match-workspace-panels");
+    document.documentElement.classList.remove(
+      "theme-light",
+      "match-workspace-panels",
+    );
     saveWorkspaceTheme("work", {
       preference: "dark",
       opacity: 0.45,
@@ -78,7 +80,10 @@ describe("workspace appearance settings", () => {
   afterEach(async () => {
     await act(async () => root.unmount());
     container.remove();
-    document.documentElement.classList.remove("theme-light", "match-workspace-panels");
+    document.documentElement.classList.remove(
+      "theme-light",
+      "match-workspace-panels",
+    );
     vi.unstubAllGlobals();
   });
 
@@ -107,38 +112,47 @@ describe("workspace appearance settings", () => {
   it("toggles sidebar matching while preserving workspace colors and glass settings", async () => {
     await act(async () => root.render(createElement(Harness)));
     const original = loadWorkspaceTheme("work");
-    const toggle = container.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Match sidebars to workspace"]')!;
+    const toggle = container.querySelector<HTMLButtonElement>(
+      '[role="switch"][aria-label="Match sidebars to workspace"]',
+    )!;
     expect(toggle.getAttribute("aria-checked")).toBe("false");
     await act(async () => toggle.click());
-    expect(loadWorkspaceTheme("work")).toEqual({ ...original, matchPanels: true });
+    expect(loadWorkspaceTheme("work")).toEqual({
+      ...original,
+      matchPanels: true,
+    });
     expect(toggle.getAttribute("aria-checked")).toBe("true");
     await act(async () => toggle.click());
     expect(loadWorkspaceTheme("work")).toEqual(original);
   });
 
-  it("offers 20 real palettes and makes Black dark and opaque without changing saved light colors", async () => {
-    saveWorkspaceTheme("work", { preference: "light" });
-    const light = loadWorkspaceTheme("work").colors!.light;
+  it("replaces preset palettes with a picker that edits the chosen color", async () => {
     await act(async () => root.render(createElement(Harness)));
     expect(
-      container.querySelectorAll('[aria-label="Workspace palette"] button'),
-    ).toHaveLength(20);
-    await clickText("Black");
-    expect(loadWorkspaceTheme("work")).toMatchObject({
-      preference: "dark",
-      opacity: 1,
-      blur: 0,
-      bodyGlass: true,
-      colors: { dark: { background: "#000000" }, light },
-    });
-    expect(container.textContent).toContain(
-      "Lower background opacity to see desktop blur",
-    );
+      container.querySelector('[aria-label="Workspace palette"]'),
+    ).toBeNull();
+    expect(container.querySelector('[aria-label="Hue"]')).toBeNull();
+    expect(
+      container.querySelector<HTMLInputElement>(
+        'input[aria-label="Background hex"]',
+      )?.value,
+    ).toBe("#112233");
+    await clickText("Accent", '[role="radio"]');
+    expect(
+      container.querySelector<HTMLInputElement>(
+        'input[aria-label="Accent hex"]',
+      )?.value,
+    ).toBe("#446688");
   });
 
-  it("edits native and hex colors in the selected mode while retaining the other palette and glass", async () => {
+  it("edits hex colors in the selected mode while retaining the other mode and glass", async () => {
     await act(async () => root.render(createElement(Harness)));
-    await input("Accent color", "#abcdef", "change");
+    await clickText("Accent", '[role="radio"]');
+    const accent = await input("Accent hex", "#abcdef");
+    await act(async () =>
+      accent.dispatchEvent(new FocusEvent("focusout", { bubbles: true })),
+    );
+    await clickText("Background", '[role="radio"]');
     const hex = await input("Background hex", "#123abc");
     await act(async () =>
       hex.dispatchEvent(
@@ -150,30 +164,46 @@ describe("workspace appearance settings", () => {
       accent: "#abcdef",
     });
     await clickText("Light", '[role="radio"]');
-    expect(container.textContent).toContain("Light colors");
-    await input("Highlight color", "#aabbcc", "change");
-    expect(loadWorkspaceTheme("work").colors!.light!.highlight).toBe("#aabbcc");
-    expect(loadWorkspaceTheme("work").colors!.dark!.background).toBe("#123abc");
-    await clickText("Ocean");
+    await clickText("Highlight", '[role="radio"]');
+    const highlight = await input("Highlight hex", "#aabbcc");
+    await act(async () =>
+      highlight.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      ),
+    );
     expect(loadWorkspaceTheme("work")).toMatchObject({
       opacity: 0.45,
       blur: 12,
       bodyGlass: false,
       colors: {
-        light: WORKSPACE_THEME_PRESETS.find(
-          (preset) => preset.name === "Ocean",
-        )!.colors.light,
+        dark: { background: "#123abc", accent: "#abcdef" },
+        light: { highlight: "#aabbcc" },
       },
     });
   });
 
-  it("clears current-mode custom colors when tint changes and restores Cove on Restore defaults", async () => {
+  it("adjusts the color from the keyboard and restores defaults", async () => {
     await act(async () => root.render(createElement(Harness)));
-    await input("Hue", "160");
-    expect(loadWorkspaceTheme("work").colors?.dark).toBeUndefined();
-    expect(loadWorkspaceTheme("work").colors?.light?.background).toBe(
-      "#eeeeff",
-    );
+    const field = container.querySelector<HTMLElement>(
+      '[role="slider"][aria-label="Background richness and brightness"]',
+    )!;
+    await act(async () => {
+      field.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowUp",
+          shiftKey: true,
+          bubbles: true,
+        }),
+      );
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+    const brighter = loadWorkspaceTheme("work").colors!.dark!.background!;
+    expect(brighter).not.toBe("#112233");
+    expect(
+      container.querySelector<HTMLInputElement>(
+        'input[aria-label="Background hex"]',
+      )?.value,
+    ).toBe(brighter);
     await clickText("Restore defaults");
     expect(loadWorkspaceTheme("work")).toEqual(defaultWorkspaceTheme());
   });
