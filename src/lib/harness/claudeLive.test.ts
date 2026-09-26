@@ -994,3 +994,54 @@ describe("Claude message-scoped stream reconciliation", () => {
     expect(events.filter((e) => e.type === "message.delta").map((e) => e.text).join("")).toBe("Again. Again. ");
   });
 });
+
+describe("Claude connection form requests", () => {
+  const responseFor = (id: string) =>
+    parse().find(
+      (m) => (m.response as Record<string, unknown> | undefined)?.request_id === id,
+    );
+
+  it("asks the user and returns typed content instead of cancelling", async () => {
+    const { respondClaudeQuestion } = await import("./claude");
+    const { events, turn } = await startTurn("s1", { runtimeMode: "full-access" });
+    emit({
+      type: "control_request",
+      request_id: "elicit_1",
+      request: {
+        subtype: "elicitation",
+        mcp_server_name: "aventest",
+        message: "Which color do you want?",
+        mode: "form",
+        requested_schema: { type: "object", properties: { color: { type: "string", enum: ["red", "blue"] } }, required: ["color"] },
+      },
+    });
+    await waitFor(() => events.some((e) => e.type === "question.asked"), "question card");
+    expect(responseFor("elicit_1")).toBeUndefined();
+    const asked = events.find((e) => e.type === "question.asked") as { requestId: number; title: string };
+    expect(asked.title).toBe("aventest: Which color do you want?");
+    respondClaudeQuestion("s1", asked.requestId, { kind: "answered", answers: { color: ["blue"] } });
+    await waitFor(() => !!responseFor("elicit_1"), "elicitation response");
+    expect(responseFor("elicit_1")).toMatchObject({
+      response: { response: { action: "accept", content: { color: "blue" } } },
+    });
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+  });
+
+  it("declines when the user skips the form", async () => {
+    const { respondClaudeQuestion } = await import("./claude");
+    const { events, turn } = await startTurn("s1");
+    emit({
+      type: "control_request",
+      request_id: "elicit_2",
+      request: { subtype: "elicitation", mcp_server_name: "s", message: "Name?", mode: "form", requested_schema: { type: "object", properties: { name: { type: "string" } } } },
+    });
+    await waitFor(() => events.some((e) => e.type === "question.asked"), "question card");
+    const asked = events.find((e) => e.type === "question.asked") as { requestId: number };
+    respondClaudeQuestion("s1", asked.requestId, { kind: "skipped" });
+    await waitFor(() => !!responseFor("elicit_2"), "decline");
+    expect(responseFor("elicit_2")).toMatchObject({ response: { response: { action: "decline" } } });
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+  });
+});

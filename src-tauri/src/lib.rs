@@ -33,6 +33,7 @@ mod inbox_media;
 mod linear;
 #[cfg(target_os = "macos")]
 mod macos;
+mod mcp_manage;
 mod memory_pressure;
 mod menu;
 mod notes;
@@ -443,6 +444,7 @@ pub fn run() {
             harness::harness_sse_open,
             harness::harness_sse_close,
             harness::harness_exec,
+            mcp_manage::provider_mcp,
             rate_limits::fetch_claude_usage,
             pty::pty_spawn,
             pty::pty_write,

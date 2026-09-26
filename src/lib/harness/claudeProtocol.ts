@@ -20,6 +20,7 @@ import {
 import { streamTextDelta } from "./streamText";
 import type { ApprovalDecision, HarnessEvent } from "./types";
 import { AVEN_BROWSER_HOST_POLICY } from "./browserHostPolicy";
+import type { McpElicitation } from "../mcpElicitation";
 
 /** Claude Code versions that first ship each supported model generation. */
 export const MINIMUM_CLAUDE_OPUS_5_5_VERSION = "2.1.280";
@@ -46,6 +47,8 @@ export type ClaudeControlRequest = {
   toolName?: string;
   input?: Record<string, unknown>;
   toolUseId?: string;
+  /** Present for `elicitation`: a connected MCP server asking the user. */
+  elicitation?: McpElicitation;
 };
 
 export type ClaudeMappedLine = {
@@ -386,9 +389,12 @@ export function parseControlRequest(
     asRecord(nested?.tool_input) ??
     asRecord(rec.input) ??
     {};
+  const elicitation =
+    subtype === "elicitation" ? elicitationFromControl(nested ?? rec) : undefined;
   return {
     requestId,
     subtype,
+    ...(elicitation ? { elicitation } : {}),
     toolName: stringField(nested, "tool_name") ?? stringField(rec, "tool_name"),
     input,
     toolUseId:
@@ -396,6 +402,24 @@ export function parseControlRequest(
       stringField(nested, "toolUseID") ??
       stringField(rec, "tool_use_id"),
   };
+}
+
+function elicitationFromControl(
+  rec: Record<string, unknown>,
+): McpElicitation | undefined {
+  const serverName =
+    stringField(rec, "mcp_server_name") ??
+    stringField(rec, "display_name") ??
+    "Connection";
+  const message =
+    stringField(rec, "message") ?? stringField(rec, "title") ?? "";
+  if (stringField(rec, "mode") === "url") {
+    const url = stringField(rec, "url");
+    if (!url) return undefined;
+    return { serverName, message, mode: "url", url };
+  }
+  const schema = asRecord(rec.requested_schema) ?? undefined;
+  return { serverName, message, mode: "form", ...(schema ? { schema } : {}) };
 }
 
 export function parseControlCancelId(

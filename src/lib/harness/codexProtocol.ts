@@ -15,6 +15,12 @@ import {
 import { streamTextDelta } from "./streamText";
 import type { HarnessEvent } from "./types";
 import { AVEN_BROWSER_HOST_POLICY } from "./browserHostPolicy";
+import type { McpElicitation } from "../mcpElicitation";
+import {
+  selectedAnswerLabels,
+  type UserQuestion,
+  type UserQuestionReply,
+} from "../userQuestion";
 
 /** Codex approval / sandbox settings for thread/start and turn/start. */
 export type CodexThreadConfig = {
@@ -267,7 +273,8 @@ function numberField(
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
-export type CodexApprovalKind = "command" | "file-change" | "permissions";
+export type CodexApprovalKind =
+  "command" | "file-change" | "permissions" | "mcp-tool";
 
 export type CodexApprovalDecisionWire =
   "accept" | "acceptForSession" | "decline" | "cancel";
@@ -991,4 +998,132 @@ export function mapApprovalRequest(
   }
 
   return null;
+}
+
+/** Codex `item/tool/requestUserInput` questions, as Aven's shared question card. */
+export function codexUserInputQuestions(params: unknown): UserQuestion[] {
+  const rec = asRecord(params);
+  const raw = Array.isArray(rec?.questions) ? rec.questions : [];
+  const used = new Set<string>();
+  return raw.flatMap((item) => {
+    const question = asRecord(item);
+    const id = stringField(question, "id");
+    if (!question || !id || used.has(id)) return [];
+    used.add(id);
+    const options = (Array.isArray(question.options) ? question.options : [])
+      .flatMap((option) => {
+        const label = stringField(asRecord(option), "label");
+        if (!label) return [];
+        const description = stringField(asRecord(option), "description");
+        return [{ id: label, label, ...(description ? { description } : {}) }];
+      });
+    const header = stringField(question, "header");
+    return [
+      {
+        id,
+        ...(header ? { header } : {}),
+        prompt: stringField(question, "question") ?? header ?? "Question",
+        multiSelect: false,
+        allowCustom: question.isOther === true || options.length === 0,
+        options,
+      },
+    ];
+  });
+}
+
+/** Map the user's reply to `ToolRequestUserInputResponse`. Skips send no answers. */
+export function codexUserInputResponse(
+  questions: UserQuestion[],
+  reply: UserQuestionReply | "cancelled",
+): { answers: Record<string, { answers: string[] }> } {
+  if (reply === "cancelled" || reply.kind === "skipped") return { answers: {} };
+  const answers: Record<string, { answers: string[] }> = {};
+  for (const question of questions) {
+    const labels = selectedAnswerLabels(question, reply);
+    if (labels.length > 0) answers[question.id] = { answers: labels };
+  }
+  return { answers };
+}
+
+export type CodexElicitationRequest =
+  | {
+      kind: "tool-approval";
+      serverName: string;
+      toolName?: string;
+      message: string;
+      params: Array<{ name: string; value: string }>;
+    }
+  | { kind: "question"; request: McpElicitation }
+  | { kind: "unsupported" };
+
+/**
+ * `mcpServer/elicitation/request` carries both Codex's own MCP tool approvals
+ * (`_meta.codex_approval_kind: "mcp_tool_call"`) and genuine server forms.
+ */
+export function parseCodexElicitation(params: unknown): CodexElicitationRequest {
+  const rec = asRecord(params);
+  if (!rec) return { kind: "unsupported" };
+  const serverName = stringField(rec, "serverName") ?? "Connection";
+  const message = stringField(rec, "message") ?? "";
+  const meta = asRecord(rec._meta);
+  if (meta?.codex_approval_kind === "mcp_tool_call") {
+    const toolName =
+      stringField(meta, "tool_title") ??
+      message.match(/run tool "([^"]+)"/)?.[1];
+    const display = Array.isArray(meta.tool_params_display)
+      ? meta.tool_params_display
+      : [];
+    const params = display.flatMap((item) => {
+      const row = asRecord(item);
+      const name = stringField(row, "display_name") ?? stringField(row, "name");
+      if (!row || !name) return [];
+      const value =
+        typeof row.value === "string" ? row.value : JSON.stringify(row.value);
+      return [{ name, value: value ?? "" }];
+    });
+    return {
+      kind: "tool-approval",
+      serverName,
+      ...(toolName ? { toolName } : {}),
+      message: message || `Allow ${serverName} to run a tool?`,
+      params,
+    };
+  }
+  const mode = stringField(rec, "mode");
+  if (mode === "form") {
+    const schema = asRecord(rec.requestedSchema) ?? undefined;
+    return {
+      kind: "question",
+      request: { serverName, message, mode: "form", ...(schema ? { schema } : {}) },
+    };
+  }
+  if (mode === "url") {
+    const url = stringField(rec, "url");
+    return {
+      kind: "question",
+      request: { serverName, message, mode: "url", ...(url ? { url } : {}) },
+    };
+  }
+  return { kind: "unsupported" };
+}
+
+/** Approval card for a Codex MCP tool call; the title matches the tool row. */
+export function codexToolApprovalEvent(
+  request: Extract<CodexElicitationRequest, { kind: "tool-approval" }>,
+  requestId: number,
+): Extract<HarnessEvent, { type: "approval.requested" }> {
+  const output = request.params
+    .map((param) => `${param.name}: ${param.value}`)
+    .join("\n");
+  return {
+    type: "approval.requested",
+    requestId,
+    title: request.toolName
+      ? `${request.serverName}:${request.toolName}`
+      : request.message,
+    kind: "other",
+    ...(output
+      ? { preview: { kind: "shell", title: request.message, output } }
+      : {}),
+  };
 }

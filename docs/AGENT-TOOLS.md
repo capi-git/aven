@@ -1,7 +1,7 @@
 # Browser, files and desktop control
 
 Aven supplies these routes automatically to ordinary agent turns and follow-ups.
-Use **Settings → Skills & Tools** to inspect the installed tools and their status.
+Use **Settings → Skills & tools** to inspect the installed tools and their status. Use **Settings → Connections** to add, remove, and sign in to MCP servers. Aven makes those changes through `claude mcp` and `codex mcp`, so each provider's own configuration stays authoritative.
 The same setup works when Aven is the project you are developing.
 
 ## Websites and previews

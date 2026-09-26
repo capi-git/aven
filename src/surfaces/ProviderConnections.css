@@ -1,0 +1,112 @@
+.provider-connections li {
+  align-items: center;
+}
+.provider-connections strong {
+  flex-shrink: 0;
+  text-align: right;
+}
+.provider-connections li[data-state="needs-sign-in"] strong,
+.provider-connections li[data-state="failed"] strong {
+  color: var(--color-accent);
+}
+.provider-connection-name {
+  min-width: 0;
+  flex: 1;
+  color: var(--color-content);
+}
+.provider-connection-source {
+  color: var(--aven-muted);
+}
+.provider-connection-detail {
+  display: block;
+  margin-top: 2px;
+  color: var(--aven-muted);
+  overflow-wrap: anywhere;
+}
+.provider-connections-heading {
+  align-items: center;
+}
+.provider-connections-actions,
+.provider-row-confirm,
+.provider-form-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.provider-connections-heading .settings-button,
+.provider-row-action {
+  min-height: 24px;
+  padding-block: 2px;
+  font-size: 11px;
+}
+.provider-row-action {
+  flex-shrink: 0;
+}
+.skills-tool p.provider-connection-notice {
+  margin-top: 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--aven-line);
+  border-radius: 6px;
+  background: var(--aven-field-bg);
+  color: var(--color-content);
+}
+.skills-tool p.provider-connection-notice[data-tone="error"] {
+  border-color: color-mix(in srgb, #ef4444 45%, var(--aven-line));
+}
+
+.provider-server-form {
+  display: grid;
+  gap: 10px;
+}
+.provider-field {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+}
+.provider-field > span:first-child {
+  color: var(--aven-muted);
+}
+.provider-field input:not([type="checkbox"]),
+.provider-field textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--aven-line);
+  border-radius: 6px;
+  background: var(--aven-field-bg);
+  color: var(--color-content);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  outline: none;
+  resize: vertical;
+}
+.provider-field input:not([type="checkbox"]):focus-visible,
+.provider-field textarea:focus-visible {
+  border-color: color-mix(in srgb, var(--color-content) 30%, transparent);
+}
+.provider-field .settings-segmented {
+  justify-self: start;
+}
+.provider-targets {
+  display: inline-flex;
+  gap: 16px;
+}
+.provider-targets label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-content);
+}
+.provider-form-actions {
+  justify-content: flex-end;
+}
+
+@container settings-shell (max-width: 560px) {
+  .provider-field {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+}

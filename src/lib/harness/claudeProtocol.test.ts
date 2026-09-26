@@ -1151,3 +1151,45 @@ describe("subagent messages", () => {
     });
   });
 });
+
+describe("Claude connection form requests", () => {
+  it("parses an MCP elicitation control request", () => {
+    expect(
+      parseControlRequest({
+        type: "control_request",
+        request_id: "req_9",
+        request: {
+          subtype: "elicitation",
+          mcp_server_name: "aventest",
+          message: "Which color do you want?",
+          mode: "form",
+          requested_schema: { type: "object", properties: { color: { type: "string", enum: ["red", "blue"] } }, required: ["color"] },
+        },
+      }),
+    ).toMatchObject({
+      requestId: "req_9",
+      subtype: "elicitation",
+      elicitation: {
+        serverName: "aventest",
+        message: "Which color do you want?",
+        mode: "form",
+        schema: { required: ["color"] },
+      },
+    });
+  });
+
+  it("keeps the page for url elicitations and drops url requests without one", () => {
+    const withUrl = parseControlRequest({
+      type: "control_request",
+      request_id: "req_1",
+      request: { subtype: "elicitation", mcp_server_name: "gh", message: "Authorize", mode: "url", url: "https://x.test/a", elicitation_id: "e1" },
+    });
+    expect(withUrl?.elicitation).toEqual({ serverName: "gh", message: "Authorize", mode: "url", url: "https://x.test/a" });
+    const withoutUrl = parseControlRequest({
+      type: "control_request",
+      request_id: "req_2",
+      request: { subtype: "elicitation", mcp_server_name: "gh", message: "Authorize", mode: "url" },
+    });
+    expect(withoutUrl?.elicitation).toBeUndefined();
+  });
+});

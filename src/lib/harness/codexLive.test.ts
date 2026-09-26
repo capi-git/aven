@@ -990,3 +990,132 @@ describe("codex live turn sequence", () => {
     expect(settled).toBe(true);
   });
 });
+
+describe("Codex connection prompts", () => {
+  beforeEach(() => {
+    sent.length = 0;
+    __codexTestReset();
+  });
+
+  it("asks before a supervised MCP tool call and accepts when allowed", async () => {
+    const { respondCodexApproval } = await import("./codex");
+    const { events, turn } = await startTurn("codex-mcp-approve");
+    onLine!(JSON.stringify({
+      id: 301,
+      method: "mcpServer/elicitation/request",
+      params: {
+        threadId: "thr_1", turnId: "turn_1", serverName: "aventest", mode: "form",
+        _meta: { codex_approval_kind: "mcp_tool_call", persist: ["session", "always"] },
+        message: 'Allow the aventest MCP server to run tool "save_note"?',
+        requestedSchema: { type: "object", properties: {} },
+      },
+    }));
+    await waitFor(() => events.some((e) => e.type === "approval.requested"), "approval card");
+    const card = events.find((e) => e.type === "approval.requested");
+    expect(card).toMatchObject({ title: "aventest:save_note" });
+    expect(parse().some((m) => m.id === 301)).toBe(false);
+    respondCodexApproval("codex-mcp-approve", (card as { requestId: number }).requestId, "allow");
+    await waitFor(() => parse().some((m) => m.id === 301), "approval response");
+    expect(parse().find((m) => m.id === 301)?.result).toEqual({ action: "accept", content: null, _meta: null });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+  });
+
+  it("declines an MCP tool call when the user denies it", async () => {
+    const { respondCodexApproval } = await import("./codex");
+    const { events, turn } = await startTurn("codex-mcp-deny");
+    onLine!(JSON.stringify({
+      id: 302,
+      method: "mcpServer/elicitation/request",
+      params: { threadId: "thr_1", turnId: "turn_1", serverName: "s", mode: "form", _meta: { codex_approval_kind: "mcp_tool_call" }, message: 'Allow the s MCP server to run tool "t"?', requestedSchema: { type: "object", properties: {} } },
+    }));
+    await waitFor(() => events.some((e) => e.type === "approval.requested"), "approval card");
+    const card = events.find((e) => e.type === "approval.requested") as { requestId: number };
+    respondCodexApproval("codex-mcp-deny", card.requestId, "deny");
+    await waitFor(() => parse().some((m) => m.id === 302), "deny response");
+    expect(parse().find((m) => m.id === 302)?.result).toEqual({ action: "decline", content: null, _meta: null });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+  });
+
+  it("approves MCP tool calls without a card in Full access", async () => {
+    const { events, turn } = await startTurn("codex-mcp-full", { runtimeMode: "full-access" });
+    onLine!(JSON.stringify({
+      id: 303,
+      method: "mcpServer/elicitation/request",
+      params: { threadId: "thr_1", turnId: "turn_1", serverName: "s", mode: "form", _meta: { codex_approval_kind: "mcp_tool_call" }, message: 'Allow the s MCP server to run tool "t"?', requestedSchema: { type: "object", properties: {} } },
+    }));
+    await waitFor(() => parse().some((m) => m.id === 303), "auto response");
+    expect(parse().find((m) => m.id === 303)?.result).toEqual({ action: "accept", content: null, _meta: null });
+    expect(events.some((e) => e.type === "approval.requested")).toBe(false);
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+  });
+
+  it("shows a connection's form as a question and returns typed content", async () => {
+    const { respondCodexQuestion } = await import("./codex");
+    const { events, turn } = await startTurn("codex-mcp-form", { runtimeMode: "full-access" });
+    onLine!(JSON.stringify({
+      id: 304,
+      method: "mcpServer/elicitation/request",
+      params: { threadId: "thr_1", turnId: "turn_1", serverName: "aventest", mode: "form", _meta: null, message: "Which color do you want?", requestedSchema: { type: "object", properties: { color: { type: "string", enum: ["red", "blue"] } }, required: ["color"] } },
+    }));
+    await waitFor(() => events.some((e) => e.type === "question.asked"), "question card");
+    const asked = events.find((e) => e.type === "question.asked") as { requestId: number; title: string };
+    expect(asked.title).toBe("aventest: Which color do you want?");
+    respondCodexQuestion("codex-mcp-form", asked.requestId, { kind: "answered", answers: { color: ["blue"] } });
+    await waitFor(() => parse().some((m) => m.id === 304), "form response");
+    expect(parse().find((m) => m.id === 304)?.result).toEqual({ action: "accept", content: { color: "blue" }, _meta: null });
+    expect(events.some((e) => e.type === "question.resolved" && e.decision === "answered")).toBe(true);
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+  });
+
+  it("asks Codex's own clarifying questions instead of answering them blank", async () => {
+    const { respondCodexQuestion } = await import("./codex");
+    const { events, turn } = await startTurn("codex-user-input");
+    onLine!(JSON.stringify({
+      id: 305,
+      method: "item/tool/requestUserInput",
+      params: { threadId: "thr_1", turnId: "turn_1", itemId: "i1", isBlocking: true, autoResolutionMs: null, questions: [{ id: "q1", header: "Target", question: "Which target?", isOther: false, isSecret: false, options: [{ label: "Web", description: "" }, { label: "Desktop", description: "" }] }] },
+    }));
+    await waitFor(() => events.some((e) => e.type === "question.asked"), "question card");
+    const asked = events.find((e) => e.type === "question.asked") as { requestId: number };
+    respondCodexQuestion("codex-user-input", asked.requestId, { kind: "answered", answers: { q1: ["Desktop"] } });
+    await waitFor(() => parse().some((m) => m.id === 305), "answer");
+    expect(parse().find((m) => m.id === 305)?.result).toEqual({ answers: { q1: { answers: ["Desktop"] } } });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+  });
+
+  it("retires a question card when Codex resolves the request itself", async () => {
+    const { events, turn } = await startTurn("codex-user-input-resolved");
+    onLine!(JSON.stringify({
+      id: 306,
+      method: "item/tool/requestUserInput",
+      params: { threadId: "thr_1", turnId: "turn_1", itemId: "i1", isBlocking: false, autoResolutionMs: 1000, questions: [{ id: "q1", header: "H", question: "Q?", isOther: true, isSecret: false, options: null }] },
+    }));
+    await waitFor(() => events.some((e) => e.type === "question.asked"), "question card");
+    notify("serverRequest/resolved", { threadId: "thr_1", requestId: 306 });
+    await waitFor(() => events.some((e) => e.type === "question.resolved"), "resolved");
+    expect(events.find((e) => e.type === "question.resolved")).toMatchObject({ decision: "cancelled" });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(parse().some((m) => m.id === 306)).toBe(false);
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+  });
+
+  it("declines connection requests during plan turns", async () => {
+    const { events, turn } = await startTurn("codex-mcp-plan", { intent: "plan" });
+    onLine!(JSON.stringify({
+      id: 307,
+      method: "mcpServer/elicitation/request",
+      params: { threadId: "thr_1", turnId: "turn_1", serverName: "s", mode: "form", _meta: null, message: "Pick", requestedSchema: { type: "object", properties: { c: { type: "string", enum: ["a"] } } } },
+    }));
+    await waitFor(() => parse().some((m) => m.id === 307), "plan decline");
+    expect(parse().find((m) => m.id === 307)?.result).toEqual({ action: "decline", content: null, _meta: null });
+    expect(events.some((e) => e.type === "question.asked")).toBe(false);
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+  });
+});

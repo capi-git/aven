@@ -846,3 +846,43 @@ describe("orchestration control sandbox", () => {
     });
   });
 });
+
+describe("Codex connection requests", () => {
+  it("maps request_user_input questions and answers by label", async () => {
+    const { codexUserInputQuestions, codexUserInputResponse } = await import("./codexProtocol");
+    const questions = codexUserInputQuestions({
+      questions: [
+        { id: "scope", header: "Scope", question: "Which scope?", isOther: true, isSecret: false, options: [{ label: "Repo", description: "Whole repo" }, { label: "File", description: "" }] },
+        { id: "name", header: "Name", question: "Branch name?", isOther: false, isSecret: false, options: null },
+      ],
+    });
+    expect(questions).toEqual([
+      { id: "scope", header: "Scope", prompt: "Which scope?", multiSelect: false, allowCustom: true, options: [{ id: "Repo", label: "Repo", description: "Whole repo" }, { id: "File", label: "File" }] },
+      { id: "name", header: "Name", prompt: "Branch name?", multiSelect: false, allowCustom: true, options: [] },
+    ]);
+    expect(codexUserInputResponse(questions, { kind: "answered", answers: { scope: ["File"] }, custom: { name: "feat/x" } })).toEqual({
+      answers: { scope: { answers: ["File"] }, name: { answers: ["feat/x"] } },
+    });
+    expect(codexUserInputResponse(questions, { kind: "skipped" })).toEqual({ answers: {} });
+  });
+
+  it("recognizes Codex MCP tool approvals and titles them like the tool row", async () => {
+    const { parseCodexElicitation, codexToolApprovalEvent } = await import("./codexProtocol");
+    const request = parseCodexElicitation({
+      threadId: "t", turnId: "u", serverName: "aventest", mode: "form",
+      _meta: { codex_approval_kind: "mcp_tool_call", persist: ["session", "always"], tool_params_display: [{ name: "text", value: "hello", display_name: "text" }] },
+      message: 'Allow the aventest MCP server to run tool "save_note"?',
+      requestedSchema: { type: "object", properties: {} },
+    });
+    expect(request).toMatchObject({ kind: "tool-approval", serverName: "aventest", toolName: "save_note", params: [{ name: "text", value: "hello" }] });
+    if (request.kind !== "tool-approval") throw new Error("expected approval");
+    expect(codexToolApprovalEvent(request, 7)).toMatchObject({ type: "approval.requested", requestId: 7, title: "aventest:save_note", kind: "other", preview: { output: "text: hello" } });
+  });
+
+  it("treats other elicitations as questions and declines unknown modes", async () => {
+    const { parseCodexElicitation } = await import("./codexProtocol");
+    expect(parseCodexElicitation({ serverName: "s", mode: "form", _meta: null, message: "Pick", requestedSchema: { type: "object", properties: { c: { type: "string", enum: ["a"] } } } })).toMatchObject({ kind: "question", request: { serverName: "s", mode: "form", message: "Pick" } });
+    expect(parseCodexElicitation({ serverName: "s", mode: "url", message: "Sign in", url: "https://x.test", elicitationId: "e" })).toMatchObject({ kind: "question", request: { mode: "url", url: "https://x.test" } });
+    expect(parseCodexElicitation({ serverName: "s", mode: "openai/form", message: "?" })).toEqual({ kind: "unsupported" });
+  });
+});

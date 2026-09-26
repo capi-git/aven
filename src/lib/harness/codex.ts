@@ -14,14 +14,28 @@ import {
   buildTurnSteerParams,
   codexAttachmentInputs,
   codexBrowserHostInstructionsFromConfig,
+  codexToolApprovalEvent,
+  codexUserInputQuestions,
+  codexUserInputResponse,
   isRecoverableThreadResumeError,
   isThreadWriterConflict,
   mapApprovalRequest,
   mapCodexNotification,
+  parseCodexElicitation,
   toCodexApprovalDecision,
   type CodexApprovalKind,
 } from "./codexProtocol";
 import { JsonRpcClient, type JsonRpcId } from "./jsonRpc";
+import {
+  elicitationPrompt,
+  elicitationResult,
+  type McpElicitationPrompt,
+} from "../mcpElicitation";
+import {
+  questionPromptTitle,
+  type UserQuestion,
+  type UserQuestionReply,
+} from "../userQuestion";
 import { joinStreamText, snapshotRemainder } from "./streamText";
 import type {
   ApprovalDecision,
@@ -36,6 +50,15 @@ type PendingApproval = {
   rpcId: JsonRpcId;
   kind: CodexApprovalKind;
   resolve: (decision: ApprovalDecision) => void;
+  /** Codex already settled the request; it must not receive a late reply. */
+  settled?: boolean;
+};
+
+type PendingQuestion = {
+  rpcId: JsonRpcId;
+  resolve: (reply: UserQuestionReply | "cancelled") => void;
+  /** Codex already settled the request; it must not receive a late reply. */
+  settled?: boolean;
 };
 
 /** Terminal notifications report their error before rejecting the active turn. */
@@ -51,6 +74,7 @@ type Live = {
   planning: boolean;
   onEvent: (event: HarnessEvent) => void;
   approvals: Map<number, PendingApproval>;
+  questions: Map<number, PendingQuestion>;
   nextApprovalUiId: number;
   cancelled: boolean;
   muteUpdates: boolean;
@@ -190,6 +214,17 @@ export function respondCodexApproval(
   pending.resolve(decision);
 }
 
+export function respondCodexQuestion(
+  sessionId: string,
+  requestId: number,
+  reply: UserQuestionReply,
+): void {
+  const live = liveByThread.get(sessionId);
+  const pending = live?.questions.get(requestId);
+  if (!pending) return;
+  pending.resolve(reply);
+}
+
 export async function cancelCodexTurn(sessionId: string): Promise<void> {
   const live = liveByThread.get(sessionId);
   if (!live) {
@@ -202,6 +237,10 @@ export async function cancelCodexTurn(sessionId: string): Promise<void> {
     pending.resolve("deny");
   }
   live.approvals.clear();
+  for (const [, pending] of live.questions) {
+    pending.resolve("cancelled");
+  }
+  live.questions.clear();
   // A prompt may not have its authoritative turn ID yet. Wait for that RPC
   // response before interrupting so Stop cannot leave an unseen turn running.
   await live.turnReady;
@@ -453,6 +492,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       planning: input.intent === "plan",
       onEvent: input.onEvent,
       approvals: new Map(),
+      questions: new Map(),
       nextApprovalUiId: 1,
       cancelled: false,
       muteUpdates: didResume,
@@ -599,6 +639,10 @@ async function runCompaction(live: Live): Promise<void> {
 }
 
 function handleNotification(live: Live, method: string, params: unknown): void {
+  if (method === "serverRequest/resolved") {
+    resolveServerRequest(live, params);
+    return;
+  }
   // A Codex turn is a sequence of items. Completing an agentMessage does not
   // mean the turn is over — more tools and messages can still arrive. Only
   // turn/completed (and turn/aborted) settle sendCodexTurn, which is what the
@@ -837,7 +881,11 @@ async function handleServerRequest(
   params: unknown,
 ): Promise<void> {
   if (method === "item/tool/requestUserInput") {
-    await live.rpc.respond(id, { answers: {} }).catch(() => undefined);
+    await handleUserInputRequest(live, id, params);
+    return;
+  }
+  if (method === "mcpServer/elicitation/request") {
+    await handleElicitationRequest(live, id, params);
     return;
   }
 
@@ -932,6 +980,111 @@ async function handleServerRequest(
   await live.rpc.respond(id, {
     decision: toCodexApprovalDecision(decision, mapped.kind),
   });
+}
+
+async function handleUserInputRequest(
+  live: Live,
+  id: JsonRpcId,
+  params: unknown,
+): Promise<void> {
+  const questions = codexUserInputQuestions(params);
+  if (questions.length === 0 || live.cancelled || live.muteUpdates) {
+    await live.rpc.respond(id, { answers: {} }).catch(() => undefined);
+    return;
+  }
+  const reply = await askQuestions(live, id, questionPromptTitle(questions), questions);
+  if (reply === null) return;
+  await live.rpc
+    .respond(id, codexUserInputResponse(questions, reply))
+    .catch(() => undefined);
+}
+
+async function handleElicitationRequest(
+  live: Live,
+  id: JsonRpcId,
+  params: unknown,
+): Promise<void> {
+  const respond = (action: "accept" | "decline" | "cancel", content: unknown = null) =>
+    live.rpc.respond(id, { action, content, _meta: null }).catch(() => undefined);
+  const request = parseCodexElicitation(params);
+  if (request.kind === "unsupported" || live.cancelled || live.muteUpdates) {
+    await respond("decline");
+    return;
+  }
+  if (live.planning) {
+    // Plan turns never act; a connected server must not act on their behalf.
+    await respond("decline");
+    return;
+  }
+
+  if (request.kind === "tool-approval") {
+    const auto = autoApproval(live.runtimeMode, "mcp-tool");
+    if (auto) {
+      await respond(auto === "allow" ? "accept" : "decline");
+      return;
+    }
+    const uiId = live.nextApprovalUiId++;
+    live.onEvent(codexToolApprovalEvent(request, uiId));
+    let pending: PendingApproval | undefined;
+    const decision = await new Promise<ApprovalDecision>((resolve) => {
+      pending = { rpcId: id, kind: "mcp-tool", resolve };
+      live.approvals.set(uiId, pending);
+    }).finally(() => live.approvals.delete(uiId));
+    live.onEvent({ type: "approval.resolved", requestId: uiId, decision });
+    if (pending?.settled) return;
+    await respond(decision === "allow" ? "accept" : "decline");
+    return;
+  }
+
+  const prompt: McpElicitationPrompt = elicitationPrompt(request.request);
+  const reply = await askQuestions(live, id, prompt.title, prompt.questions);
+  if (reply === null) return;
+  const result = elicitationResult(prompt, reply);
+  await respond(result.action, result.content);
+}
+
+async function askQuestions(
+  live: Live,
+  rpcId: JsonRpcId,
+  title: string,
+  questions: UserQuestion[],
+): Promise<UserQuestionReply | "cancelled" | null> {
+  const uiId = live.nextApprovalUiId++;
+  live.onEvent({ type: "question.asked", requestId: uiId, title, questions });
+  let pending: PendingQuestion | undefined;
+  const reply = await new Promise<UserQuestionReply | "cancelled">((resolve) => {
+    pending = { rpcId, resolve };
+    live.questions.set(uiId, pending);
+  }).finally(() => {
+    live.questions.delete(uiId);
+  });
+  live.onEvent({
+    type: "question.resolved",
+    requestId: uiId,
+    decision:
+      reply === "cancelled"
+        ? "cancelled"
+        : reply.kind === "answered"
+          ? "answered"
+          : "skipped",
+  });
+  return pending?.settled ? null : reply;
+}
+
+/** Codex settled a request itself (turn ended, auto-resolution): retire its card. */
+function resolveServerRequest(live: Live, params: unknown): void {
+  const requestId = asRecord(params)?.requestId;
+  if (requestId === undefined) return;
+  for (const [, pending] of live.questions) {
+    if (pending.rpcId !== requestId) continue;
+    pending.settled = true;
+    pending.resolve("cancelled");
+  }
+  for (const [, pending] of live.approvals) {
+    if (pending.rpcId !== requestId) continue;
+    pending.settled = true;
+    pending.resolve("deny");
+  }
 }
 
 function waitApproval(

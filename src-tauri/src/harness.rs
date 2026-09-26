@@ -801,6 +801,64 @@ pub async fn harness_exec(
     .map_err(|e| e.to_string())?
 }
 
+pub(crate) fn resolved_claude_binary() -> Option<PathBuf> {
+    resolve_claude()
+}
+
+pub(crate) fn resolved_codex_binary() -> Option<PathBuf> {
+    resolve_codex()
+}
+
+/// Runs a provider CLI to completion. Unlike `exec_capture`, any failing exit
+/// is an error, reported with whatever the CLI printed.
+pub(crate) fn run_provider_cli(
+    binary: &Path,
+    args: &[String],
+    cwd: Option<&str>,
+    timeout: Duration,
+) -> Result<String, String> {
+    let command = binary.to_string_lossy().into_owned();
+    let mut cmd = Command::new(binary);
+    cmd.args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    prepare_child(&mut cmd, &command);
+    if let Some(dir) = cwd {
+        let workdir = expand_home(dir);
+        if workdir.is_dir() {
+            cmd.current_dir(workdir);
+        }
+    }
+    let name = command_basename(&command).to_string();
+    let child = spawn_managed(&mut cmd).map_err(|e| format!("Failed to run {name}: {e}"))?;
+    let pid = child.id();
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let _ = tx.send(child.wait_with_output());
+    });
+    match rx.recv_timeout(timeout) {
+        Ok(Ok(output)) => {
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            if output.status.success() {
+                return Ok(stdout);
+            }
+            let message = if stderr.is_empty() { stdout } else { stderr };
+            Err(if message.is_empty() {
+                format!("{name} could not finish that change.")
+            } else {
+                message
+            })
+        }
+        Ok(Err(e)) => Err(format!("Failed to run {name}: {e}")),
+        Err(_) => {
+            terminate(pid);
+            Err(format!("{name} took too long and was stopped."))
+        }
+    }
+}
+
 fn exec_capture(command: &str, args: &[String], cwd: Option<&str>) -> Result<String, String> {
     let mut cmd = Command::new(command);
     cmd.args(args)

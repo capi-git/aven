@@ -59,6 +59,7 @@ import {
   type ClaudeCliSettings,
   type ClaudeControlRequest,
 } from "./claudeProtocol";
+import { elicitationPrompt, elicitationResult } from "../mcpElicitation";
 import { isAgentToolName } from "./preview";
 import { joinStreamText, snapshotRemainder } from "./streamText";
 import {
@@ -200,7 +201,13 @@ export async function compactClaudeContext(
 ): Promise<void> {
   const settingsKey = settingsKeyFor(input);
   let live = liveByThread.get(input.sessionId);
-  if (!live || live.retired || live.apiErrorReported || live.cwd !== input.cwd || live.settingsKey !== settingsKey) {
+  if (
+    !live ||
+    live.retired ||
+    live.apiErrorReported ||
+    live.cwd !== input.cwd ||
+    live.settingsKey !== settingsKey
+  ) {
     live = await ensureLive(input);
   }
   if (cancelledThreads.delete(input.sessionId)) return;
@@ -676,7 +683,8 @@ function handleStreamEvent(live: Live, rec: Record<string, unknown>): void {
       const id = live.streamingMessageId;
       if (id && live.completedMessages.has(id)) return;
       // Claude text_delta is an append, including legitimately repeated words.
-      if (id) live.messageText.set(id, (live.messageText.get(id) ?? "") + delta.text);
+      if (id)
+        live.messageText.set(id, (live.messageText.get(id) ?? "") + delta.text);
       else live.emittedAssistant += delta.text;
       live.onEvent({ type: "message.delta", text: delta.text });
     } else {
@@ -765,8 +773,11 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
   const snapshot = assistantTextBlocks(rec).join("");
   // Completed assistant records cover ONE message, not the whole turn. A
   // turn-wide prefix comparison duplicates later commentary and final replies.
-  const messageId = stringField(asRecord(rec.message), "id") ?? live.streamingMessageId;
-  const already = messageId ? (live.messageText.get(messageId) ?? "") : live.emittedAssistant;
+  const messageId =
+    stringField(asRecord(rec.message), "id") ?? live.streamingMessageId;
+  const already = messageId
+    ? (live.messageText.get(messageId) ?? "")
+    : live.emittedAssistant;
   const extra = snapshotRemainder(already, snapshot);
   if (extra) live.onEvent({ type: "message.delta", text: extra });
   if (messageId) {
@@ -850,6 +861,10 @@ async function handleControlRequest(
   live: Live,
   control: ClaudeControlRequest,
 ): Promise<void> {
+  if (control.subtype === "elicitation") {
+    await handleElicitation(sessionId, live, control);
+    return;
+  }
   if (control.subtype !== "can_use_tool" && control.subtype !== "permission") {
     await writeJson(
       sessionId,
@@ -970,6 +985,55 @@ async function handleControlRequest(
       toClaudePermissionResult(decision, input),
     ),
   ).catch(() => undefined);
+}
+
+/** A connected MCP server asks the user for input (form fields or a page to visit). */
+async function handleElicitation(
+  sessionId: string,
+  live: Live,
+  control: ClaudeControlRequest,
+): Promise<void> {
+  const respond = (result: Record<string, unknown>) =>
+    writeJson(sessionId, buildControlResponse(control.requestId, result)).catch(
+      () => undefined,
+    );
+  if (!control.elicitation || live.cancelled || live.muteUpdates) {
+    await respond({ action: control.elicitation ? "cancel" : "decline" });
+    return;
+  }
+  if (live.planning) {
+    // Plan turns never act; a connected server must not act on their behalf.
+    await respond({ action: "decline" });
+    return;
+  }
+  const prompt = elicitationPrompt(control.elicitation);
+  const uiId = live.nextApprovalUiId++;
+  live.onEvent({
+    type: "question.asked",
+    requestId: uiId,
+    title: prompt.title,
+    questions: prompt.questions,
+  });
+  const reply = await waitQuestion(live, uiId, control.requestId);
+  if (live.retired) return;
+  live.onEvent({
+    type: "question.resolved",
+    requestId: uiId,
+    decision:
+      reply === "cancelled"
+        ? "cancelled"
+        : reply.kind === "answered"
+          ? "answered"
+          : "skipped",
+  });
+  // A cancelled control request has already been withdrawn by Claude Code.
+  if (reply === "cancelled") return;
+  const result = elicitationResult(prompt, reply);
+  await respond(
+    result.content
+      ? { action: result.action, content: result.content }
+      : { action: result.action },
+  );
 }
 
 function applyKnownToolInput(
