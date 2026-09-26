@@ -7,6 +7,7 @@ const killed: string[] = [];
 let killWait: Promise<void> | undefined;
 let killError: Error | undefined;
 let onLine: ((line: string) => void) | undefined;
+let echoPrompts = true;
 let onExit: ((code: number | null) => void) | undefined;
 
 vi.mock("./child", () => ({
@@ -30,6 +31,12 @@ vi.mock("./child", () => ({
   },
   writeChild: async (_id: string, line: string) => {
     sent.push(line);
+    // Like --replay-user-messages: Claude echoes each prompt as it starts on it.
+    const rec = JSON.parse(line) as Record<string, unknown>;
+    if (rec.type === "user" && typeof rec.uuid === "string" && echoPrompts)
+      queueMicrotask(() =>
+        onLine?.(JSON.stringify({ ...rec, isReplay: true })),
+      );
   },
 }));
 
@@ -108,6 +115,7 @@ beforeEach(() => {
   killError = undefined;
   onLine = undefined;
   onExit = undefined;
+  echoPrompts = true;
   __claudeTestReset();
 });
 
@@ -130,6 +138,49 @@ describe("Opus 5.5 launch", () => {
     expect(settings.fastMode).not.toBe(true);
     expect(settings.alwaysThinkingEnabled).toBeUndefined();
     emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+  });
+});
+
+describe("turn boundaries", () => {
+  const settled = (turn: Promise<void>) => {
+    let done = false;
+    void turn.then(() => (done = true));
+    return async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return done;
+    };
+  };
+
+  it("keeps the user's turn open through a background task's own result", async () => {
+    echoPrompts = false;
+    const { turn } = await startTurn("s1");
+    const isDone = settled(turn);
+    expect(spawned.at(-1)).toContain("--replay-user-messages");
+    const prompt = parse().find((m) => m.type === "user")!;
+    expect(typeof prompt.uuid).toBe("string");
+
+    // Claude reports on a background task before starting the queued prompt.
+    emit({ type: "system", subtype: "task_notification", task_id: "t1", status: "stopped" });
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    expect(await isDone()).toBe(false);
+
+    emit({ ...prompt, isReplay: true });
+    expect(await isDone()).toBe(false);
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    expect(await isDone()).toBe(true);
+  });
+
+  it("still ends the turn when Claude never echoes the prompt", async () => {
+    echoPrompts = false;
+    const { turn } = await startTurn("s1");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      emit({ type: "result", subtype: "success", session_id: "sess_1" });
+      await vi.advanceTimersByTimeAsync(5_000);
+    } finally {
+      vi.useRealTimers();
+    }
     await turn;
   });
 });

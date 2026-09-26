@@ -30,11 +30,12 @@ vi.mock("./piClient", () => ({
 
     request = mocks.request;
     close = mocks.close;
+    cancelRequest = vi.fn();
     pushLine = vi.fn();
   },
 }));
 
-import { compactPiContext, stopPiSession } from "./pi";
+import { compactPiContext, sendPiTurn, stopPiSession } from "./pi";
 import type { HarnessEvent } from "./types";
 
 describe("Pi live session", () => {
@@ -124,5 +125,80 @@ describe("Pi live session", () => {
       { type: "status", text: "Plugin ready" },
     ]);
     await stopPiSession("pi-ansi");
+  });
+
+  describe("turn boundaries", () => {
+    let stats: Array<() => void>;
+
+    beforeEach(() => {
+      stats = [];
+      const base = mocks.request.getMockImplementation()!;
+      mocks.request.mockImplementation(
+        async (command: Record<string, unknown>) => {
+          if (command.type === "get_session_stats")
+            return new Promise((resolve) =>
+              stats.push(() => resolve({ data: {} })),
+            );
+          return base(command);
+        },
+      );
+    });
+
+    const start = async (sessionId: string) => {
+      let done = false;
+      const turn = sendPiTurn({
+        sessionId,
+        cwd: "/repo",
+        model: "pi:default",
+        modelSettings: {},
+        runtimeMode: "supervised",
+        text: "fix it",
+        attachments: [],
+        onEvent: () => undefined,
+      }).then(() => (done = true));
+      await vi.waitFor(() =>
+        expect(
+          mocks.request.mock.calls.some(([c]) => c.type === "prompt"),
+        ).toBe(true),
+      );
+      const frame = mocks.frames.at(-1)!;
+      const flush = async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return done;
+      };
+      return { frame, flush, turn };
+    };
+
+    it("keeps the turn open when a retry starts while it is settling", async () => {
+      const { frame, flush, turn } = await start("pi-retry");
+      frame({ type: "agent_end", willRetry: false });
+      await vi.waitFor(() => expect(stats).toHaveLength(1));
+      frame({ type: "auto_retry_start", attempt: 1 });
+      stats.shift()!();
+      expect(await flush()).toBe(false);
+
+      frame({ type: "auto_retry_end" });
+      frame({ type: "agent_start" });
+      expect(await flush()).toBe(false);
+      frame({ type: "agent_end", willRetry: false });
+      await vi.waitFor(() => expect(stats.length).toBeGreaterThan(0));
+      stats.splice(0).forEach((resolve) => resolve());
+      await turn;
+      await stopPiSession("pi-retry");
+    });
+
+    it("finishes after compaction that follows the final answer", async () => {
+      const { frame, flush, turn } = await start("pi-compact");
+      frame({ type: "agent_end", willRetry: false });
+      await vi.waitFor(() => expect(stats).toHaveLength(1));
+      frame({ type: "compaction_start" });
+      stats.shift()!();
+      expect(await flush()).toBe(false);
+      frame({ type: "compaction_end" });
+      await vi.waitFor(() => expect(stats.length).toBeGreaterThan(0));
+      stats.splice(0).forEach((resolve) => resolve());
+      await turn;
+      await stopPiSession("pi-compact");
+    });
   });
 });

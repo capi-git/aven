@@ -127,6 +127,10 @@ type Live = {
   agentTasks: Map<string, LiveAgentTask>;
   inactiveTaskIds: Set<string>;
   turnResultSeen: boolean;
+  /** The last prompt sent this turn, until Claude echoes that it started on it. */
+  awaitingEcho: string | null;
+  /** Ends the turn if a result arrived but the echo never does. */
+  echoFallback: ReturnType<typeof setTimeout> | null;
   apiErrorReported: boolean;
   retired: boolean;
   cancelled: boolean;
@@ -245,14 +249,18 @@ export async function steerClaudeTurn(input: SteerTurnInput): Promise<void> {
   const live = liveByThread.get(input.sessionId);
   if (!live?.activeTurn) throw new Error("No active turn to steer");
 
+  const uuid = crypto.randomUUID();
   const message = buildClaudeUserMessage({
     text: input.text,
     attachments: input.attachments,
     effort: input.modelSettings?.effort,
+    uuid,
   });
   const content = (message.message as { content: unknown[] }).content;
   if (content.length === 0) return;
 
+  // A steer Claude queues as its own turn must also finish before this one ends.
+  live.awaitingEcho = uuid;
   await writeJson(input.sessionId, message);
 }
 
@@ -420,6 +428,8 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     agentTasks: new Map(),
     inactiveTaskIds: new Set(),
     turnResultSeen: false,
+    awaitingEcho: null,
+    echoFallback: null,
     apiErrorReported: false,
     retired: false,
     cancelled: false,
@@ -510,10 +520,12 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
 async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
   if (live.retired) throw new Error("Claude Code session was stopped");
   const effort = input.modelSettings?.effort;
+  const uuid = crypto.randomUUID();
   const message = buildClaudeUserMessage({
     text: input.text,
     attachments: input.attachments,
     effort,
+    uuid,
   });
   const content = (message.message as { content: unknown[] }).content;
   if (content.length === 0) return;
@@ -535,6 +547,9 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
     if (!activeAgentTools.has(id)) live.toolsById.delete(id);
   }
   live.turnResultSeen = false;
+  // Slash commands such as /compact can run inside the CLI without an echo.
+  live.awaitingEcho = input.text.trim().startsWith("/") ? null : uuid;
+  clearEchoFallback(live);
   live.apiErrorReported = false;
 
   const turnPromise = new Promise<void>((resolve, reject) => {
@@ -558,6 +573,8 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
   } finally {
     live.turnDone = null;
     live.turnFailed = null;
+    live.awaitingEcho = null;
+    clearEchoFallback(live);
     // A failed request may leave the long-lived CLI holding expired
     // credentials. Retire it after the turn settles; retain its resume ID so
     // retrying after sign-in continues this conversation in a fresh process.
@@ -815,6 +832,13 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
 
 function handleUser(live: Live, rec: Record<string, unknown>): void {
   if (isSubagentMessage(rec)) return;
+  if (rec.isReplay === true) {
+    if (live.awaitingEcho && stringField(rec, "uuid") === live.awaitingEcho) {
+      live.awaitingEcho = null;
+      clearEchoFallback(live);
+    }
+    return;
+  }
   for (const result of toolResultsFromUserMessage(rec)) {
     const tool = live.toolsById.get(result.toolUseId);
     if (!tool) continue;
@@ -852,8 +876,33 @@ function handleResult(live: Live, rec: Record<string, unknown>): void {
     live.apiErrorReported = true;
     live.onEvent({ type: "session.error", message: result.error });
   }
+  if (live.activeTurn && live.awaitingEcho) {
+    // Claude finished something else first, such as the turn it runs when a
+    // background task reports back. The user's prompt is still queued.
+    armEchoFallback(live, live.awaitingEcho);
+    return;
+  }
   live.turnResultSeen = true;
   maybeFinishTurn(live);
+}
+
+/** Without an echo (an older CLI), fall back to ending on the last result. */
+const ECHO_FALLBACK_MS = 5_000;
+
+function armEchoFallback(live: Live, uuid: string): void {
+  clearEchoFallback(live);
+  live.echoFallback = setTimeout(() => {
+    live.echoFallback = null;
+    if (live.awaitingEcho !== uuid) return;
+    live.awaitingEcho = null;
+    live.turnResultSeen = true;
+    maybeFinishTurn(live);
+  }, ECHO_FALLBACK_MS);
+}
+
+function clearEchoFallback(live: Live): void {
+  if (live.echoFallback) clearTimeout(live.echoFallback);
+  live.echoFallback = null;
 }
 
 async function handleControlRequest(

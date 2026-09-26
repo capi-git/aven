@@ -89,6 +89,12 @@ type Live = {
   turnFailed: ((error: Error) => void) | null;
   turnEndPending: boolean;
   activeTurn: boolean;
+  /** OpenCode reported busy after this turn's prompt, so its idle is ours. */
+  turnBusySeen: boolean;
+  /** Ends the turn if an idle arrives but busy never does. */
+  idleFallback: ReturnType<typeof setTimeout> | null;
+  /** An error from before busy; shown only if no busy follows. */
+  heldError: string | null;
 };
 
 type Resume = {
@@ -369,6 +375,9 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       turnFailed: null,
       turnEndPending: false,
       activeTurn: false,
+      turnBusySeen: false,
+      idleFallback: null,
+      heldError: null,
     };
     liveRef.current = live;
     liveByThread.set(input.sessionId, live);
@@ -460,6 +469,9 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
     live.turnFailed = reject;
   });
   live.activeTurn = true;
+  live.turnBusySeen = false;
+  live.heldError = null;
+  clearIdleFallback(live);
   settlePendingTurn(live);
 
   try {
@@ -482,6 +494,7 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
   } finally {
     live.turnDone = null;
     live.turnFailed = null;
+    clearIdleFallback(live);
   }
 }
 
@@ -658,18 +671,30 @@ function handleEvent(live: Live, event: Record<string, unknown>): void {
         if (message) live.onEvent({ type: "status", text: message });
         break;
       }
+      if (statusType === "busy" && live.activeTurn) {
+        live.turnBusySeen = true;
+        live.heldError = null;
+        clearIdleFallback(live);
+      }
       if (statusType === "idle" && live.activeTurn) {
-        finishActiveTurn(live, [
-          { type: "message.completed" },
-          { type: "reasoning.completed" },
-        ]);
+        // An idle before this prompt made OpenCode busy belongs to an earlier
+        // run, such as the abort of a stopped turn.
+        if (live.turnBusySeen) finishOpenCodeTurn(live);
+        else armIdleFallback(live);
       }
       break;
     }
     case "session.error": {
       const message = sessionErrorMessage(properties.error);
+      if (live.activeTurn && !live.turnBusySeen) {
+        // Before this prompt made OpenCode busy, an error belongs to an
+        // earlier run, such as the abort of a stopped turn.
+        live.heldError = message;
+        armIdleFallback(live);
+        break;
+      }
       live.onEvent({ type: "session.error", message });
-      finishActiveTurn(live);
+      if (live.activeTurn) finishActiveTurn(live);
       break;
     }
     default:
@@ -805,9 +830,38 @@ async function waitQuestion(
   await live.client.replyQuestion(id, answers).catch(() => undefined);
 }
 
+function finishOpenCodeTurn(live: Live): void {
+  finishActiveTurn(live, [
+    { type: "message.completed" },
+    { type: "reasoning.completed" },
+  ]);
+}
+
+/** Without a busy report (an older server), end on the idle after a pause. */
+const IDLE_FALLBACK_MS = 5_000;
+
+function armIdleFallback(live: Live): void {
+  clearIdleFallback(live);
+  live.idleFallback = setTimeout(() => {
+    live.idleFallback = null;
+    if (!live.activeTurn || live.turnBusySeen) return;
+    if (live.heldError)
+      live.onEvent({ type: "session.error", message: live.heldError });
+    live.heldError = null;
+    finishOpenCodeTurn(live);
+  }, IDLE_FALLBACK_MS);
+}
+
+function clearIdleFallback(live: Live): void {
+  if (live.idleFallback) clearTimeout(live.idleFallback);
+  live.idleFallback = null;
+}
+
 function finishActiveTurn(live: Live, extraEvents: HarnessEvent[] = []): void {
+  const wasActive = live.activeTurn;
   live.turnEndPending = false;
   live.activeTurn = false;
+  clearIdleFallback(live);
   for (const event of extraEvents) live.onEvent(event);
   const done = live.turnDone;
   const failed = live.turnFailed;
@@ -817,7 +871,7 @@ function finishActiveTurn(live: Live, extraEvents: HarnessEvent[] = []): void {
     done();
     return;
   }
-  if (!failed) live.turnEndPending = true;
+  if (!failed && wasActive) live.turnEndPending = true;
 }
 
 function settlePendingTurn(live: Live): void {

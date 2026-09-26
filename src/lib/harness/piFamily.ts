@@ -102,6 +102,8 @@ type Live = {
   compacting: boolean;
   retrying: boolean;
   settling: boolean;
+  /** The agent reported a final agent_end and has not started again. */
+  agentEnded: boolean;
   settleToken: number;
   turns: Promise<void>;
   turnDone: (() => void) | null;
@@ -475,6 +477,7 @@ async function startLive(
     compacting: false,
     retrying: false,
     settling: false,
+    agentEnded: false,
     settleToken: 0,
     turns: Promise.resolve(),
     turnDone: null,
@@ -561,6 +564,7 @@ async function runTurn(
   live.retrying = false;
   live.settleToken += 1;
   live.settling = false;
+  live.agentEnded = false;
   const promptId = `mc_turn_${crypto.randomUUID()}`;
   live.promptId = promptId;
 
@@ -734,6 +738,28 @@ function handleFrame(
   if (type === "compaction_end") live.compacting = false;
   if (type === "auto_retry_start") live.retrying = true;
   if (type === "auto_retry_end") live.retrying = false;
+  // Compaction after the final answer is housekeeping; once it ends, settle.
+  if (
+    (type === "compaction_end" || type === "auto_retry_end") &&
+    live.agentEnded &&
+    !live.compacting &&
+    !live.retrying
+  ) {
+    flushTurnError(flavor, live);
+    void settleTurn(live);
+  }
+  // New work after an agent_end (a retry, compaction, or queued follow-up)
+  // means the turn is not over: drop any settle still fetching stats.
+  if (type === "agent_start") live.agentEnded = false;
+  if (
+    live.settling &&
+    (type === "agent_start" ||
+      type === "compaction_start" ||
+      type === "auto_retry_start")
+  ) {
+    live.settleToken += 1;
+    live.settling = false;
+  }
 
   const status = statusFromPiEvent(rec);
   if (status) live.onEvent({ type: "status", text: status });
@@ -835,6 +861,7 @@ function handleFrame(
   const willRetry = agentEndWillRetry(rec);
   // The retry carries the real answer, so the attempt it replaces stays quiet.
   if (willRetry === true) live.turnError = null;
+  if (willRetry === false) live.agentEnded = true;
   if (willRetry === false && !live.compacting && !live.retrying) {
     flushTurnError(flavor, live);
     void settleTurn(live);
@@ -868,7 +895,12 @@ async function settleTurn(live: Live): Promise<void> {
   } catch {
     // meter stays on the last streamed usage
   }
-  if (live.settleToken === token && !live.cancelled) {
+  if (
+    live.settleToken === token &&
+    !live.cancelled &&
+    !live.compacting &&
+    !live.retrying
+  ) {
     finishActiveTurn(live, [
       { type: "message.completed" },
       { type: "reasoning.completed" },

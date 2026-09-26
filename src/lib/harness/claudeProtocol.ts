@@ -185,6 +185,8 @@ export function buildClaudeUserMessage(input: {
   text: string;
   attachments?: Attachment[];
   effort?: string | null;
+  /** Claude echoes this back when it starts on the message. */
+  uuid?: string;
 }): Record<string, unknown> {
   const text = applyClaudePromptEffortPrefix(input.text.trim(), input.effort);
   const content: Array<Record<string, unknown>> = [];
@@ -198,6 +200,7 @@ export function buildClaudeUserMessage(input: {
     type: "user",
     session_id: "",
     parent_tool_use_id: null,
+    ...(input.uuid ? { uuid: input.uuid } : {}),
     message: {
       role: "user",
       content,
@@ -246,6 +249,9 @@ export function buildClaudeSpawnArgs(input: {
   ];
   if (!input.isolated) {
     args.push("--permission-prompt-tool", "stdio");
+    // Echo each prompt when Claude starts on it, so a background task's own
+    // follow-up turn and its result are never mistaken for the user's turn.
+    args.push("--replay-user-messages");
     // Add host routing without replacing Claude's default system prompt.
     // Resumed sessions may reuse a system-prompt snapshot, so per-turn scoped
     // browser guidance must still be supplied by the app.

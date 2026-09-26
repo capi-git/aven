@@ -77,11 +77,17 @@ async function waitForPrompt(count: number) {
   });
 }
 
-function finish() {
+function status(type: "busy" | "idle") {
   onEvent!({
     type: "session.status",
-    properties: { sessionID: "oc_1", status: { type: "idle" } },
+    properties: { sessionID: "oc_1", status: { type } },
   });
+}
+
+/** OpenCode reports busy while it works on a prompt, then idle. */
+function finish() {
+  status("busy");
+  status("idle");
 }
 
 function askPermission(id: string) {
@@ -105,6 +111,57 @@ beforeEach(() => {
 
 afterEach(async () => {
   await forgetOpenCodeSession("opencode-live");
+});
+
+describe("OpenCode turn boundaries", () => {
+  const settled = (turn: Promise<void>) => {
+    let done = false;
+    void turn.then(() => (done = true));
+    return async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return done;
+    };
+  };
+
+  it("ignores an idle or error left over from before this prompt", async () => {
+    const turn = send("supervised", []);
+    await waitForPrompt(1);
+    const isDone = settled(turn);
+    // A stopped turn's abort reports idle and an error after the next prompt.
+    status("idle");
+    onEvent!({
+      type: "session.error",
+      properties: { sessionID: "oc_1", error: { name: "MessageAbortedError" } },
+    });
+    expect(await isDone()).toBe(false);
+    finish();
+    expect(await isDone()).toBe(true);
+  });
+
+  it("still ends when a server never reports busy", async () => {
+    const turn = send("supervised", []);
+    await waitForPrompt(1);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      status("idle");
+      await vi.advanceTimersByTimeAsync(5_000);
+    } finally {
+      vi.useRealTimers();
+    }
+    await turn;
+  });
+
+  it("waits for the idle that follows this prompt's busy", async () => {
+    const turn = send("supervised", []);
+    await waitForPrompt(1);
+    const isDone = settled(turn);
+    status("idle");
+    expect(await isDone()).toBe(false);
+    status("busy");
+    expect(await isDone()).toBe(false);
+    status("idle");
+    expect(await isDone()).toBe(true);
+  });
 });
 
 describe("OpenCode access propagation", () => {
