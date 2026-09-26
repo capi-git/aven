@@ -1,6 +1,5 @@
 import { getIdentifier, getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
-import { message } from "@tauri-apps/plugin-dialog";
 import {
   check,
   type DownloadEvent,
@@ -11,6 +10,31 @@ import { lockUpdateInput } from "./updateInputLock";
 import { announceUpdateAvailable } from "./sounds";
 import { rememberInstalledUpdate } from "./updateNotice";
 import { IS_PERSONAL_BUILD, PERSONAL_UPDATE_MESSAGE } from "./personalBuild";
+
+export type UpdateNotice = { title: string; text: string };
+
+/** Update messages show in Aven's own dialog rather than a system alert. */
+let notice: UpdateNotice | null = null;
+const noticeListeners = new Set<() => void>();
+
+function showUpdateNotice(title: string, text: string): void {
+  notice = { title, text };
+  for (const listener of noticeListeners) listener();
+}
+
+export function getUpdateNotice(): UpdateNotice | null {
+  return notice;
+}
+
+export function dismissUpdateNotice(): void {
+  notice = null;
+  for (const listener of noticeListeners) listener();
+}
+
+export function subscribeUpdateNotice(listener: () => void): () => void {
+  noticeListeners.add(listener);
+  return () => noticeListeners.delete(listener);
+}
 
 export type UpdaterPhase =
   | "idle"
@@ -190,7 +214,8 @@ export async function runUpdateFlow(
         result.phase === "current" ||
         result.phase === "error")
     ) {
-      await message(
+      showUpdateNotice(
+        developmentBuild ? "Aven Dev" : "Aven",
         result.phase === "idle"
           ? developmentBuild
             ? DEVELOPMENT_UPDATE_MESSAGE
@@ -198,7 +223,6 @@ export async function runUpdateFlow(
           : result.phase === "current"
             ? "You're on the latest version."
             : `Couldn't prepare the update.\n\n${result.error}`,
-        { title: developmentBuild ? "Aven Dev" : "Aven" },
       );
     }
     return result;
@@ -279,7 +303,7 @@ export function installPendingUpdate(
         availableVersion: update.version,
         error: detail,
       });
-      await message(detail, { title: "Aven update" });
+      showUpdateNotice("Couldn’t restart to update", detail);
       return result;
     }
   })().finally(() => {

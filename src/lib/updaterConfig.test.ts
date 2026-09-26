@@ -19,10 +19,11 @@ vi.mock("./appLifecycle", () => ({ prepareUpdateRestart: vi.fn() }));
 vi.mock("./sounds", () => ({ announceUpdateAvailable: vi.fn() }));
 // Missing release configuration must never pretend the build is current.
 
-import { runUpdateFlow } from "./updater";
+import { dismissUpdateNotice, getUpdateNotice, runUpdateFlow } from "./updater";
 
 describe("updater", () => {
   beforeEach(() => {
+    dismissUpdateNotice();
     getIdentifier.mockResolvedValue("com.capi.monocode.personal");
   });
   afterEach(() => {
@@ -39,7 +40,7 @@ describe("updater", () => {
       phase: "idle",
       currentVersion: "0.1.23",
     });
-    expect(message).not.toHaveBeenCalled();
+    expect(getUpdateNotice()).toBeNull();
   });
 
   it("points manual checks without updater endpoints to GitHub releases", async () => {
@@ -52,10 +53,12 @@ describe("updater", () => {
       phase: "idle",
       currentVersion: "0.1.23",
     });
-    expect(message).toHaveBeenCalledWith(
-      expect.stringContaining("https://github.com/capi-git/aven/releases"),
-      { title: "Aven" },
-    );
+    expect(getUpdateNotice()).toEqual({
+      title: "Aven",
+      text: expect.stringContaining(
+        "https://github.com/capi-git/aven/releases",
+      ),
+    });
   });
 
   it("still reports real updater failures", async () => {
@@ -66,6 +69,6 @@ describe("updater", () => {
       phase: "error",
       error: "network failed",
     });
-    expect(message).toHaveBeenCalledOnce();
+    expect(getUpdateNotice()?.text).toContain("network failed");
   });
 });

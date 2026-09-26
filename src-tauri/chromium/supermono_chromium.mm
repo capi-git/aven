@@ -907,6 +907,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   }
   void ProbeSleep(const std::string& request,bool close,bool update=false) {
     if (sleep_.active()) { Result(id_,request,true,SleepResult({"browser-busy"})); return; }
+    if (update) { CloseForUpdate(request,close); return; }
     auto blockers=SleepBlockers(update);
     if (!blockers.empty()) { Result(id_,request,true,SleepResult(blockers)); return; }
     const auto generation=sleep_.Begin(); sleep_request_=request; update_attempt_=update;
@@ -943,6 +944,20 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
         self->ProbeSleepDocument(generation,close);
       });
     });
+  }
+  // An update saves every tab's address and reopens it afterwards, so page
+  // state (dialogs, forms, popups, media) never holds it. Only a download in
+  // progress would be lost outright. Closing is forced: no beforeunload veto.
+  void CloseForUpdate(const std::string& request,bool close) {
+    std::vector<std::string> blockers;
+    if (!downloads_.empty() || !download_names_.empty()) blockers.push_back("download");
+    if (!blockers.empty() || !close) { Result(id_,request,true,SleepResult(blockers)); return; }
+    const auto generation=sleep_.Begin(); sleep_request_=request; update_attempt_=true;
+    if (!sleep_.BeginClose(generation)) { FinishSleep(generation,{"page-changed"}); return; }
+    DismissPrompts(browser_->GetIdentifier());
+    auto popups=popups_; for (auto& item:popups) item.second->GetHost()->CloseBrowser(true);
+    // Success is reported from OnBeforeClose, as for an ordinary sleep.
+    browser_->GetHost()->CloseBrowser(true);
   }
   void ProbeSleepDocument(uint64_t generation,bool close,bool update=false,std::string dom_blocker="") {
     CefRefPtr<Page> self=this;

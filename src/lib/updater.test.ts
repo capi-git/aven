@@ -84,7 +84,7 @@ describe("isolated development updates", () => {
     expect(mocks.download).not.toHaveBeenCalled();
     expect(mocks.install).not.toHaveBeenCalled();
     expect(mocks.invoke).not.toHaveBeenCalled();
-    expect(mocks.message).not.toHaveBeenCalled();
+    expect(updater.getUpdateNotice()).toBeNull();
   });
 
   it("explains source-based updates on a manual development check", async () => {
@@ -95,10 +95,12 @@ describe("isolated development updates", () => {
       phase: "idle",
     });
 
-    expect(mocks.message).toHaveBeenCalledWith(
-      expect.stringContaining("Rebuild and restart the development preview"),
-      { title: "Aven Dev" },
-    );
+    expect(updater.getUpdateNotice()).toEqual({
+      title: "Aven Dev",
+      text: expect.stringContaining(
+        "Rebuild and restart the development preview",
+      ),
+    });
     expect(mocks.check).not.toHaveBeenCalled();
   });
 
@@ -119,7 +121,7 @@ describe("isolated development updates", () => {
       developmentBuild: true,
     });
     expect(mocks.check).not.toHaveBeenCalled();
-    expect(mocks.message).not.toHaveBeenCalled();
+    expect(updater.getUpdateNotice()).toBeNull();
   });
 });
 
@@ -135,7 +137,7 @@ describe("automatic signed update staging", () => {
     expect(mocks.prepare).not.toHaveBeenCalled();
     expect(mocks.invoke).not.toHaveBeenCalled();
     expect(mocks.lockInput).not.toHaveBeenCalled();
-    expect(mocks.message).not.toHaveBeenCalled();
+    expect(updater.getUpdateNotice()).toBeNull();
   });
   it("shares concurrent checks and download progress between subscribers", async () => {
     offer();
@@ -178,7 +180,7 @@ describe("automatic signed update staging", () => {
     await updater.installPendingUpdate();
     expect(mocks.install).not.toHaveBeenCalled();
     expect(mocks.announce).not.toHaveBeenCalled();
-    expect(mocks.message).not.toHaveBeenCalled();
+    expect(updater.getUpdateNotice()).toBeNull();
   });
   it("retries a failed background download and only then offers restart", async () => {
     offer();
@@ -253,7 +255,7 @@ describe("explicit restart", () => {
       expect(mocks.invoke).toHaveBeenCalledWith("cancel_update_restart"),
     );
     expect(mocks.releaseInput).not.toHaveBeenCalled();
-    expect(mocks.message).not.toHaveBeenCalled();
+    expect(updater.getUpdateNotice()).toBeNull();
 
     finishCancellation();
     await installing;

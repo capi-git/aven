@@ -1,5 +1,14 @@
 # Aven changelog
 
+## [0.1.102] - 2026-09-26
+
+### Update without closing tabs
+
+- Restart to update no longer stops for a browser tab showing a dialog, a sign-in popup, a filled form or a leave-page warning. Aven saves every tab's address and reopens it after the update; what a page held in memory, including anything typed and not saved, is not kept.
+- An update still waits for running or queued tasks, terminal work and downloads in progress.
+- Update messages now appear in Aven's own dialog instead of a macOS alert.
+- Updating from 0.1.101 or earlier still uses the old checks once; later updates don't.
+
 ## [0.1.101] - 2026-09-26
 
 ### A reorganized Settings, MCP servers, and turns that finish when the agent does

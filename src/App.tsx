@@ -41,6 +41,7 @@ import {
   OrchestrationWorkers,
   type OrchestrationWorkerDetail,
 } from "./chrome/OrchestrationActions";
+import { UpdateNoticeDialog } from "./chrome/UpdateNoticeDialog";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, message } from "@tauri-apps/plugin-dialog";
@@ -9730,6 +9731,7 @@ export default function App({
               onClose={() => setFilePickerOpen(false)}
             />
           ) : null}
+          <UpdateNoticeDialog />
           <CommandPalette
             open={paletteOpen}
             initialQuery={paletteQuery}
