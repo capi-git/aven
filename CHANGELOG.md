@@ -1,5 +1,17 @@
 # Aven changelog
 
+## [0.1.101] - 2026-09-26
+
+### A reorganized Settings, MCP servers, and turns that finish when the agent does
+
+- Settings is grouped into App, Agents and Data. The former General page is split into General, Notifications, Tasks & review, Connections and Browser, and search opens each setting on its new page. The sidebar scrolls in short windows.
+- Pick workspace colors by dragging instead of choosing a preset: drag the square for richness and brightness and the strip for hue, for the background, accent or highlight. A drag previews in place and saves once when released. Dark and light colors are still saved separately.
+- Connections lists the MCP servers Claude and Codex load, with their status, and can add, remove and sign in to them. Aven makes these changes through `claude mcp` and `codex mcp`, so each provider's own settings stay authoritative. Linear moves here too.
+- When a connected server asks a question or needs approval mid-task, it now appears in the task for both Claude and Codex. Plan turns decline those requests.
+- Fix turns that appeared to finish after about a second while the agent kept working. Claude's reply to a background task, and OpenCode's late report from a stopped turn, no longer end the next turn; Pi and Oh My Pi no longer finish while a retry or compaction is starting.
+- Skills & tools is shorter: one-line tool summaries, only the macOS permissions still missing, and source filters with one-line skill descriptions.
+- Remove the "next turn" label from the access button; its tooltip still explains when a change applies.
+
 ## [0.1.100] - 2026-09-25
 
 ### Reliable project selection
