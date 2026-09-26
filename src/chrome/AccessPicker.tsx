@@ -165,13 +165,8 @@ export function AccessPicker({
         <Icon className="size-3.5 shrink-0" strokeWidth={1.75} />
         <span className={compact ? "sr-only" : "min-w-0 truncate text-[11px]"}>
           {RUNTIME_MODE_LABEL[value]}
-          {busy ? " · next turn" : ""}
         </span>
-        {compact ? (
-          busy ? (
-            <span className="text-[10px]">next turn</span>
-          ) : null
-        ) : (
+        {compact ? null : (
           <ChevronDown
             className={`size-3 shrink-0 text-content/50 ${open ? "rotate-180" : ""}`}
             strokeWidth={1.75}

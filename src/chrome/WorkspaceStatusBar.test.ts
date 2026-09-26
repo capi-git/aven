@@ -871,7 +871,7 @@ describe("workspace status data and actions", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
-  it("keeps the exact access mode and next-turn qualifier in compact controls", async () => {
+  it("keeps the next-turn qualifier out of the visible compact control", async () => {
     await render({
       accessMode: "full-access",
       session: task({ busy: true, runtimeMode: "full-access" }),
@@ -883,9 +883,7 @@ describe("workspace status data and actions", () => {
     const visibleLabels = [...trigger.querySelectorAll("span")].filter(
       (node) => !node.classList.contains("sr-only"),
     );
-    expect(visibleLabels.map((node) => node.textContent)).toEqual([
-      "next turn",
-    ]);
+    expect(visibleLabels).toEqual([]);
     await act(async () => trigger.click());
     const selected = container.querySelector(
       '[role="menuitemradio"][aria-checked="true"]',
