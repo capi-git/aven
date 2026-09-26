@@ -79,28 +79,52 @@ const CLAUDE_SCOPES: {
   },
 ];
 
-/** Results survive closing Settings; checking starts each provider briefly. */
-const cache = new Map<string, Inventory>();
+/**
+ * Checking starts each provider and its servers, so a recent result is reused
+ * when Settings reopens. Failures are never reused, and results expire.
+ */
+const cache = new Map<string, { inventory: Inventory; at: number }>();
+const CACHE_MS = 5 * 60_000;
+
+function cached(key: string): Inventory | undefined {
+  const entry = cache.get(key);
+  if (!entry || Date.now() - entry.at > CACHE_MS) return undefined;
+  return entry.inventory;
+}
 
 type Notice = { tone: "ok" | "error"; text: string } | null;
 
 export function ProviderConnections({ cwd }: { cwd: string }) {
   const [inventories, setInventories] = useState<Record<Provider, Inventory>>(
     () => ({
-      claude: cache.get(`claude:${cwd}`) ?? { status: "loading" },
-      codex: cache.get(`codex:${cwd}`) ?? { status: "loading" },
+      claude: cached(`claude:${cwd}`) ?? { status: "loading" },
+      codex: cached(`codex:${cwd}`) ?? { status: "loading" },
     }),
   );
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
+  // Without a project, both the check and every change use the home folder.
+  const [home, setHome] = useState<string | null>(null);
+  useEffect(() => {
+    if (cwd) return;
+    let active = true;
+    void homeDir().then(
+      (dir) => active && setHome(dir),
+      () => undefined,
+    );
+    return () => {
+      active = false;
+    };
+  }, [cwd]);
+  const folder = cwd || home || "";
 
   const load = useCallback(
     (provider: (typeof PROVIDERS)[number], force: boolean) => {
       const key = `${provider.id}:${cwd}`;
-      const cached = cache.get(key);
-      if (!force && cached && cached.status !== "loading") {
-        setInventories((prev) => ({ ...prev, [provider.id]: cached }));
+      const recent = force ? undefined : cached(key);
+      if (recent) {
+        setInventories((prev) => ({ ...prev, [provider.id]: recent }));
         return () => {};
       }
       let active = true;
@@ -119,7 +143,9 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
           }),
         )
         .then((inventory) => {
-          cache.set(key, inventory);
+          if (inventory.status === "loaded")
+            cache.set(key, { inventory, at: Date.now() });
+          else cache.delete(key);
           if (active)
             setInventories((prev) => ({ ...prev, [provider.id]: inventory }));
         });
@@ -170,7 +196,7 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
       async () => {
         await manageMcpServer(
           { action: "login", provider, name: row.key },
-          cwd,
+          folder,
         );
         return `Signed in to ${row.name}.`;
       },
@@ -188,7 +214,7 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
             name: row.key,
             ...(row.scope ? { scope: row.scope } : {}),
           },
-          cwd,
+          folder,
         );
         return `Removed ${row.name} from ${provider === "claude" ? "Claude" : "Codex"}.`;
       },
@@ -269,7 +295,7 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
                         ...(provider === "claude" ? { scope } : {}),
                         server: draftToSpec(draft, provider),
                       },
-                      cwd,
+                      folder,
                     );
                     done.push(provider === "claude" ? "Claude" : "Codex");
                   } catch (error) {

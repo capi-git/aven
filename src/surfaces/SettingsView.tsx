@@ -75,6 +75,7 @@ import {
   type ThemePreference,
   type ChatBackgroundScope,
   type TranscriptLayout,
+  applyThemeColors,
 } from "../lib/appearance";
 import {
   pickAndSaveChatBackground,
@@ -1265,6 +1266,17 @@ function useAppearanceSettings() {
     [profileId, colorScheme],
   );
 
+  /** Repaints this window only; the drag saves once when released. */
+  const onPreviewColor = useCallback(
+    (target: WorkspaceColorTarget, color: string) => {
+      applyThemeColors({
+        ...theme.colors,
+        [colorScheme]: { ...theme.colors?.[colorScheme], [target]: color },
+      });
+    },
+    [theme.colors, colorScheme],
+  );
+
   const onBodyGlass = useCallback(
     (next: boolean) => {
       saveWorkspaceTheme(profileId, { bodyGlass: next });
@@ -1364,6 +1376,7 @@ function useAppearanceSettings() {
     onOpacity,
     onBlur,
     onColor,
+    onPreviewColor,
     onBodyGlass,
     onMatchPanels,
     onChooseChatBackground,
@@ -1418,6 +1431,7 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
             onTarget={setColorTarget}
             colors={appearance.colors}
             onChange={appearance.onColor}
+            onPreview={appearance.onPreviewColor}
             note={`Editing ${appearance.colorScheme} colors for this workspace. Dark and light are saved separately.`}
           />
         </div>

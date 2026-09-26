@@ -269,6 +269,7 @@ export async function stopCodexSession(sessionId: string): Promise<void> {
   if (live) {
     live.retired = true;
     live.muteUpdates = true;
+    retirePendingRequests(live);
     live.turnDone?.();
     live.turnDone = null;
     live.turnFailed = null;
@@ -361,7 +362,10 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       const live = liveRef.current;
       if (live && liveByThread.get(input.sessionId) !== live) return;
       liveByThread.delete(input.sessionId);
-      if (live) markAgentStatusesUnknown(live);
+      if (live) {
+        markAgentStatusesUnknown(live);
+        retirePendingRequests(live);
+      }
       (live?.onEvent ?? input.onEvent)({ type: "session.ended", code });
       live?.turnFailed?.(new Error("Codex app-server exited"));
       if (live) {
@@ -1069,6 +1073,18 @@ async function askQuestions(
           : "skipped",
   });
   return pending?.settled ? null : reply;
+}
+
+/** The process is gone: close open cards without replying to it. */
+function retirePendingRequests(live: Live): void {
+  for (const [, pending] of live.questions) {
+    pending.settled = true;
+    pending.resolve("cancelled");
+  }
+  for (const [, pending] of live.approvals) {
+    pending.settled = true;
+    pending.resolve("deny");
+  }
 }
 
 /** Codex settled a request itself (turn ended, auto-resolution): retire its card. */

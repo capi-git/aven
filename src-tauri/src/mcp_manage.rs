@@ -329,8 +329,14 @@ pub async fn provider_mcp(
 ) -> Result<String, String> {
     let work = crate::window::begin_runtime_work(&app)?;
     let args = mcp_args(&request)?;
-    if request.needs_project() && cwd.as_deref().is_none_or(str::is_empty) {
-        return Err("Open a project to add a server just for that project.".into());
+    // A missing folder would silently write the project's config elsewhere.
+    let project_folder = cwd
+        .as_deref()
+        .filter(|dir| !dir.is_empty())
+        .map(crate::fs::expand_home)
+        .filter(|dir| dir.is_dir());
+    if request.needs_project() && project_folder.is_none() {
+        return Err("Open a project that still exists to change its servers.".into());
     }
     let timeout = request.timeout();
     let provider = request.provider();

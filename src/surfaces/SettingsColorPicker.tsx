@@ -26,6 +26,7 @@ export function SettingsColorPicker<T extends string>({
   onTarget,
   colors,
   onChange,
+  onPreview,
   note,
 }: {
   targets: readonly Target<T>[];
@@ -33,6 +34,8 @@ export function SettingsColorPicker<T extends string>({
   onTarget: (target: T) => void;
   colors: Record<T, string>;
   onChange: (target: T, color: string) => void;
+  /** Shows a color without saving it, while a drag is in progress. */
+  onPreview?: (target: T, color: string) => void;
   note?: string;
 }) {
   const value = colors[target];
@@ -67,14 +70,19 @@ export function SettingsColorPicker<T extends string>({
   // A different mode or workspace saves elsewhere; finish the old drag first.
   useEffect(() => flush, [onChange]);
 
-  const update = (next: Hsv) => {
+  const update = (next: Hsv, dragging = false) => {
     setHsv(next);
     const color = toHex(next);
     setHex(color);
     committed.current = color;
-    // Saving repaints every workspace surface; once per frame is enough.
-    // Keep the save for the mode and workspace the drag started in.
+    // Keep the save for the mode and workspace the change started in.
     pending.current = { target, color, save: onChange };
+    // A drag only previews; saving (which every window hears) waits for release.
+    if (dragging && onPreview) {
+      onPreview(target, color);
+      return;
+    }
+    // Other changes save at most once per frame.
     if (!frame.current) frame.current = requestAnimationFrame(flush);
   };
 
@@ -99,6 +107,7 @@ export function SettingsColorPicker<T extends string>({
             clamp((clientX - rect.left) / rect.width, 0, 1),
             clamp((clientY - rect.top) / rect.height, 0, 1),
           ),
+          true,
         );
       };
       move(event.clientX, event.clientY);
@@ -108,6 +117,7 @@ export function SettingsColorPicker<T extends string>({
         element.removeEventListener("pointermove", onMove);
         element.removeEventListener("pointerup", onUp);
         element.removeEventListener("pointercancel", onUp);
+        flush();
       };
       element.addEventListener("pointermove", onMove);
       element.addEventListener("pointerup", onUp);
