@@ -1048,6 +1048,18 @@ describe("browser tab integration", () => {
       expect(loadMinimizedTabs()).toBe(false);
     });
 
+    it("is also on each tab's own menu", async () => {
+      await render({ paneLocal: true });
+      await act(async () =>
+        container.querySelector('[role="tab"]')!.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true }),
+        ),
+      );
+      expect(minimizedItem()?.getAttribute("aria-checked")).toBe("false");
+      await act(async () => minimizedItem()!.click());
+      expect(loadMinimizedTabs()).toBe(true);
+    });
+
     it("shows only the active tab's title and a hover card for the others", async () => {
       vi.useFakeTimers();
       await act(async () => saveMinimizedTabs(true));

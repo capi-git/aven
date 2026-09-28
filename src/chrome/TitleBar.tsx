@@ -826,7 +826,7 @@ function TabGroupLabel({
             onContextMenu={(event) => {
               event.preventDefault();
               event.stopPropagation();
-              onMenu(event.clientX, event.clientY);
+              onMenu(event.clientX, event.clientY, event.currentTarget);
             }}
             onKeyDown={(event) => {
               if (event.key === "F2") {
@@ -1640,6 +1640,13 @@ function TitleBarComponent({
         id: "race-overview",
         label: "Open race overview",
       });
+    // Also on the empty-strip menu, but people look for it on a tab.
+    tabRootItems.push({
+      kind: "item",
+      id: "minimized-tabs",
+      label: "Minimized tabs",
+      checked: minimizedTabs,
+    });
     tabRootItems.push(
       { kind: "sep" },
       {
@@ -2302,9 +2309,18 @@ function TitleBarComponent({
                       activeTabRef.current = element;
                     }
                   : undefined;
+              // Anchor to the tab itself so the menu drops from it, not from
+              // wherever the pointer happened to be.
               const openMenu = (x: number, y: number, anchor?: HTMLElement) => {
+                const element =
+                  anchor ??
+                  Array.from(
+                    tabStripRef.current?.querySelectorAll<HTMLElement>(
+                      "[data-surface-tab-id]",
+                    ) ?? [],
+                  ).find((node) => node.dataset.surfaceTabId === id);
                 setBrowserMenu(null);
-                setTabMenu({ tabId: id, x, y, anchor });
+                setTabMenu({ tabId: id, x, y, anchor: element });
               };
               if (tab)
                 return (
