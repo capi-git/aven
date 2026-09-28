@@ -3,6 +3,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Flag,
   Globe,
   GripVertical,
   Inbox,
@@ -57,6 +58,13 @@ import { IS_MAC, MOD, SHIFT } from "../lib/platform";
 import type { RecentProject } from "../lib/recents";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 import { mergePreviewTabOrder, previewTabIds } from "../lib/previewTabs";
+import {
+  MINIMIZED_TABS_DEFAULT,
+  loadMinimizedTabs,
+  saveMinimizedTabs,
+  subscribeMinimizedTabs,
+} from "../lib/settings";
+import { Popover } from "./Popover";
 import "./TitleBar.css";
 
 export type Tab = {
@@ -85,6 +93,10 @@ export type Tab = {
   blank?: boolean;
   /** Explicit tab group; absent means ungrouped. */
   groupId?: string;
+  /** A session in this tab is waiting on an approval or question. */
+  needsInput?: boolean;
+  /** The tab holds one race's agents; `title` is the race prompt. */
+  race?: boolean;
   dirty?: boolean;
   terminal?: boolean;
 };
@@ -95,9 +107,6 @@ export type TitleBarProps = {
   windowToolbar?: boolean;
   paneFocused?: boolean;
   onNewView?: (id: string) => void;
-  onPictureInPicture?: (id: string) => void;
-  onGroupPictureInPicture?: () => void;
-  pictureInPictureIds?: string[];
   combineTargets?: Array<{ id: string; label: string }>;
   onCombineWith?: (targetId: string) => void;
   totalSessionTabs?: number;
@@ -185,6 +194,9 @@ export type TitleBarProps = {
   onCloseMany: (ids: string[], fallbackId: string) => void;
   onReorder: (ids: string[], movedId?: string) => void;
   onGoToFile?: () => void;
+  /** Short preview of a tab's latest reply, read when its hover card opens. */
+  describeTab?: (id: string) => string | undefined;
+  onOpenRaceOverview?: (id: string) => void;
   recents?: RecentProject[];
   onSelectProject?: (path: string) => void;
 };
@@ -299,6 +311,11 @@ export function titleTabContextCloseIds(
 }
 
 type SortableApi = ReturnType<typeof useSortable>;
+
+/** Hover intent before a minimized tab's card opens. */
+const HOVER_CARD_DELAY_MS = 300;
+/** Moving between minimized tabs soon after a card closes skips the delay. */
+const HOVER_CARD_WARM_MS = 400;
 type MenuPoint = Pick<ReactMouseEvent, "clientX" | "clientY">;
 
 function TitleTabItem({
@@ -313,6 +330,8 @@ function TitleTabItem({
   onSelect,
   onClose,
   onContextMenu,
+  minimized = false,
+  onHover,
   itemRef,
 }: {
   tab: Tab;
@@ -326,6 +345,9 @@ function TitleTabItem({
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onContextMenu: (id: string, event: MenuPoint) => void;
+  /** Icon-only; the hover card replaces the native tooltip. */
+  minimized?: boolean;
+  onHover?: (id: string, element: HTMLElement | null) => void;
   itemRef?: (el: HTMLDivElement | null) => void;
 }) {
   const { headline, meta, tooltip } = tabCopy(tab, projectless);
@@ -353,9 +375,12 @@ function TitleTabItem({
       data-active={active}
       data-visible={visible}
       data-has-models={Boolean(tab.models?.length)}
+      data-minimized={minimized || undefined}
       data-surface-id={tab.id}
       data-surface-tab-id={tab.id}
       data-tauri-drag-region="false"
+      onPointerEnter={(event) => onHover?.(tab.id, event.currentTarget)}
+      onPointerLeave={() => onHover?.(tab.id, null)}
       onContextMenu={(event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -395,7 +420,7 @@ function TitleTabItem({
       <div className="aven-tab-motion" data-sortable-motion>
         <button
           type="button"
-          title={tooltip}
+          title={minimized ? undefined : tooltip}
           aria-label={tooltip}
           role="tab"
           aria-selected={active}
@@ -416,6 +441,13 @@ function TitleTabItem({
             className="personal-title-tab-identity"
             data-busy={tab.busyHarnesses.length > 0}
           >
+            {tab.race ? (
+              <Flag
+                className="personal-title-tab-race size-3.5 shrink-0"
+                strokeWidth={1.75}
+                aria-hidden
+              />
+            ) : null}
             {tab.harnesses.length > 0 ? (
               <ProviderMarks
                 harnesses={tab.harnesses}
@@ -435,7 +467,7 @@ function TitleTabItem({
               </span>
             )}
           </span>
-          <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
+          <span className="personal-title-tab-text flex min-w-0 flex-1 flex-col justify-center gap-0.5">
             <span className="flex min-w-0 items-center gap-1">
               <span
                 className={`personal-title-tab-label min-w-0 truncate leading-none ${
@@ -503,6 +535,8 @@ function BrowserTitleTabItem({
   menuOpen,
   preview = false,
   onKeep,
+  minimized = false,
+  onHover,
   itemRef,
 }: {
   id: string;
@@ -521,6 +555,8 @@ function BrowserTitleTabItem({
   menuOpen: boolean;
   preview?: boolean;
   onKeep?: () => void;
+  minimized?: boolean;
+  onHover?: (id: string, element: HTMLElement | null) => void;
   itemRef?: (element: HTMLDivElement | null) => void;
 }) {
   const label = title.trim() || "Browser";
@@ -545,7 +581,10 @@ function BrowserTitleTabItem({
       data-surface-id={id}
       data-surface-tab-id={id}
       data-has-menu={Boolean(onMenu)}
+      data-minimized={minimized || undefined}
       data-tauri-drag-region="false"
+      onPointerEnter={(event) => onHover?.(id, event.currentTarget)}
+      onPointerLeave={() => onHover?.(id, null)}
       onPointerDown={(event) => {
         if (canDrag) sortable.onItemPointerDown(id, event);
       }}
@@ -595,7 +634,7 @@ function BrowserTitleTabItem({
                 : undefined
           }
           aria-label={label === "Browser" ? "Browser" : `Browser: ${label}`}
-          title={label}
+          title={minimized ? undefined : label}
           className="personal-title-tab-button personal-title-browser-button flex min-w-0 flex-1 items-center px-2.5"
         >
           <BrowserTabIcon favicon={favicon} />
@@ -838,9 +877,6 @@ function TitleBarComponent({
   windowToolbar = false,
   paneFocused = true,
   onNewView,
-  onPictureInPicture,
-  onGroupPictureInPicture,
-  pictureInPictureIds,
   combineTargets,
   onCombineWith,
   totalSessionTabs,
@@ -894,10 +930,17 @@ function TitleBarComponent({
   onCloseMany,
   onReorder,
   onGoToFile,
+  describeTab,
+  onOpenRaceOverview,
   recents = [],
   onSelectProject,
 }: TitleBarProps) {
   useSyncExternalStore(subscribeModels, getModelSnapshot, getModelSnapshot);
+  const minimizedTabs = useSyncExternalStore(
+    subscribeMinimizedTabs,
+    loadMinimizedTabs,
+    () => MINIMIZED_TABS_DEFAULT,
+  );
   const projectLabels = useProjectLabels();
   const tabs = useMemo(
     () =>
@@ -1026,6 +1069,33 @@ function TitleBarComponent({
   }, []);
   const activeTabRef = useRef<HTMLDivElement | null>(null);
   const canDrag = orderedIds.length > 1 || Boolean(onSurfaceDragEnd);
+  const [hoverCard, setHoverCard] = useState<{
+    id: string;
+    element: HTMLElement;
+  } | null>(null);
+  const hoverTimer = useRef<number | undefined>(undefined);
+  const hoverShownId = useRef<string | null>(null);
+  const hoverWarmUntil = useRef(0);
+  const hoverTab = useCallback(
+    (id: string, element: HTMLElement | null) => {
+      window.clearTimeout(hoverTimer.current);
+      if (!element || element.dataset.minimized !== "true") {
+        if (hoverShownId.current === id)
+          hoverWarmUntil.current = Date.now() + HOVER_CARD_WARM_MS;
+        hoverShownId.current = null;
+        setHoverCard(null);
+        return;
+      }
+      const show = () => {
+        hoverShownId.current = id;
+        setHoverCard({ id, element });
+      };
+      if (Date.now() < hoverWarmUntil.current) show();
+      else hoverTimer.current = window.setTimeout(show, HOVER_CARD_DELAY_MS);
+    },
+    [],
+  );
+  useEffect(() => () => window.clearTimeout(hoverTimer.current), []);
   const previousSelectedId = useRef<string | null>(null);
 
   useEffect(() => {
@@ -1147,7 +1217,6 @@ function TitleBarComponent({
     onSplitTab ||
     onUnsplit ||
     onCombineWith ||
-    onPictureInPicture ||
     onNewView;
   if (
     contextId &&
@@ -1160,22 +1229,6 @@ function TitleBarComponent({
       label: "Split right",
     });
   }
-  if (
-    contextId &&
-    onPictureInPicture &&
-    (!pictureInPictureIds || pictureInPictureIds.includes(contextId))
-  )
-    contextMenuItems.push({
-      kind: "item",
-      id: "picture-in-picture",
-      label: "Picture in Picture",
-    });
-  if (contextId && onGroupPictureInPicture)
-    contextMenuItems.push({
-      kind: "item",
-      id: "group-picture-in-picture",
-      label: "Group Picture in Picture",
-    });
   if (contextId && hasSurfaceMenu) {
     if (onSplitTab && contextId !== focusedId) {
       contextMenuItems.push({
@@ -1270,6 +1323,20 @@ function TitleBarComponent({
       });
     contextMenuItems.push({ kind: "sep" });
   }
+  if (contextTab?.race && onOpenRaceOverview)
+    contextMenuItems.push(
+      { kind: "item", id: "race-overview", label: "Open race overview" },
+      { kind: "sep" },
+    );
+  contextMenuItems.push(
+    {
+      kind: "item",
+      id: "minimized-tabs",
+      label: "Minimized tabs",
+      checked: minimizedTabs,
+    },
+    { kind: "sep" },
+  );
   if (contextId)
     contextMenuItems.push({
       kind: "item",
@@ -1312,6 +1379,10 @@ function TitleBarComponent({
     contextMenuItems.pop();
   const onPickTabMenu = (id: string) => {
     setTabMenu(null);
+    if (id === "minimized-tabs") {
+      saveMinimizedTabs(!minimizedTabs);
+      return;
+    }
     if (id === "reopen-tab") {
       if (canReopenClosedTab) onReopenClosedTab?.();
       return;
@@ -1345,12 +1416,10 @@ function TitleBarComponent({
       const target = id.slice("move-tab-window:".length);
       if (windowTargets.some((item) => item.id === target))
         onMoveTabToWindow?.(contextId, target);
+    } else if (id === "race-overview") {
+      onOpenRaceOverview?.(contextId);
     } else if (id === "new-view") {
       onNewView?.(contextId);
-    } else if (id === "picture-in-picture") {
-      onPictureInPicture?.(contextId);
-    } else if (id === "group-picture-in-picture") {
-      onGroupPictureInPicture?.();
     } else if (id.startsWith("combine:")) {
       const targetId = id.slice("combine:".length);
       if (availableCombineTargets.some((target) => target.id === targetId))
@@ -1385,6 +1454,80 @@ function TitleBarComponent({
       onCloseMany(contextCloseIds[id], contextTab.id);
     }
   };
+
+  const hoverCardContent = (() => {
+    if (
+      !hoverCard ||
+      !minimizedTabs ||
+      tabMenu ||
+      sortable.draggingId ||
+      hoverCard.id === focusedId ||
+      !hoverCard.element.isConnected
+    )
+      return null;
+    const tab = sessionTabs.get(hoverCard.id);
+    if (tab) {
+      const { headline, meta } = tabCopy(tab, projectlessWorkspace);
+      const details = [projectlessWorkspace ? "" : tab.project, meta]
+        .filter(Boolean)
+        .join(" · ");
+      const status = tab.needsInput
+        ? "Needs your input"
+        : tab.busyHarnesses.length > 0
+          ? "Working"
+          : "";
+      const reply = describeTab?.(tab.id);
+      return (
+        <>
+          <div className="flex min-w-0 items-center gap-2">
+            {tab.harnesses.length > 0 ? (
+              <ProviderMarks
+                harnesses={tab.harnesses}
+                busyHarnesses={tab.busyHarnesses}
+              />
+            ) : (
+              <Terminal className="size-3.5 shrink-0" strokeWidth={1.75} />
+            )}
+            <span className="min-w-0 truncate text-[12.5px] font-medium text-content">
+              {headline}
+            </span>
+          </div>
+          {details ? (
+            <p className="truncate text-[11px] text-content/55">{details}</p>
+          ) : null}
+          {status ? (
+            <p
+              className="personal-tab-card-status"
+              data-tone={tab.needsInput ? "attention" : "working"}
+            >
+              {status}
+            </p>
+          ) : null}
+          {reply ? (
+            <p className="line-clamp-2 text-[11.5px] leading-snug text-content/70">
+              {reply}
+            </p>
+          ) : null}
+        </>
+      );
+    }
+    const browser = browsers.get(hoverCard.id);
+    if (!browser) return null;
+    const url = "url" in browser ? browser.url : undefined;
+    return (
+      <>
+        <div className="flex min-w-0 items-center gap-2">
+          <BrowserTabIcon favicon={browser.favicon} />
+          <span className="min-w-0 truncate text-[12.5px] font-medium text-content">
+            {browser.title.trim() || "Browser"}
+          </span>
+        </div>
+        {url ? (
+          <p className="truncate text-[11px] text-content/55">{url}</p>
+        ) : null}
+      </>
+    );
+  })();
 
   const railClosed = !sidebarOpen;
   const showCurrentProject = looksLikeProject(cwd);
@@ -1511,8 +1654,12 @@ function TitleBarComponent({
             className="personal-tab-group-handle"
             data-tauri-drag-region="false"
             data-dragging={groupSortable.draggingId === groupId || undefined}
-            aria-label={`Move group: ${groupLabel ?? "Tab group"} (${orderedIds.length} tabs)`}
-            title={`Drag ${groupLabel ?? "group"} · ${orderedIds.length} tabs`}
+            aria-label={
+              groupLabel
+                ? `Move group: ${groupLabel} (${orderedIds.length} tabs)`
+                : `Move group (${orderedIds.length} tabs)`
+            }
+            title="Drag to move these tabs together"
             onPointerDown={(event) => {
               if (onGroupDragEnd)
                 groupSortable.onItemPointerDown(groupId, event);
@@ -1524,15 +1671,6 @@ function TitleBarComponent({
             }}
           >
             <GripVertical className="size-3" />
-            {new Set(tabs.flatMap((tab) => tab.harnesses)).size > 1 ? (
-              <ProviderMarks
-                harnesses={tabs.flatMap((tab) => tab.harnesses)}
-                busyHarnesses={tabs.flatMap((tab) => tab.busyHarnesses)}
-              />
-            ) : null}
-            <span className="personal-tab-group-label">
-              {groupLabel ?? "Group"}
-            </span>
           </button>
         ) : null}
         <div
@@ -1612,7 +1750,9 @@ function TitleBarComponent({
                 return (
                   <div
                     key={id}
-                    className="personal-title-tab-slot relative flex h-full w-56 min-w-28 shrink cursor-default items-center"
+                    className="personal-title-tab-slot relative flex h-full shrink cursor-default items-center"
+                    data-active={id === focusedId}
+                    data-minimized={minimizedTabs && id !== focusedId}
                     data-tauri-drag-region="false"
                   >
                     <TitleTabItem
@@ -1629,6 +1769,8 @@ function TitleBarComponent({
                       onContextMenu={(_id, event) =>
                         openMenu(event.clientX, event.clientY)
                       }
+                      minimized={minimizedTabs && id !== focusedId}
+                      onHover={hoverTab}
                       itemRef={itemRef}
                     />
                   </div>
@@ -1691,6 +1833,8 @@ function TitleBarComponent({
                   }
                   preview={previewEnabled && preview.previewId === id}
                   onKeep={onKeepBrowser ? () => onKeepBrowser(id) : undefined}
+                  minimized={minimizedTabs && id !== focusedId}
+                  onHover={hoverTab}
                   itemRef={itemRef}
                 />
               );
@@ -1808,6 +1952,19 @@ function TitleBarComponent({
           }}
           onClose={() => setRecentMenu(null)}
         />
+      ) : null}
+      {hoverCardContent ? (
+        <Popover
+          anchor={hoverCard?.element ?? null}
+          side="bottom"
+          align="start"
+          gap={6}
+          width={280}
+          aria-label="Tab details"
+          className="personal-tab-card pointer-events-none flex flex-col gap-1.5 p-3 font-sans"
+        >
+          {hoverCardContent}
+        </Popover>
       ) : null}
       {tabMenu && (contextId || onReopenClosedTab || onUndoLayout) ? (
         <ExplorerMenu

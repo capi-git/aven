@@ -130,7 +130,6 @@ export type BrowserState = {
   notice: string | null;
   /** Authored by the native window's first-responder observer. */
   focused?: boolean;
-  floating?: boolean;
   /** Native menus can sit above Chromium without replacing the page. */
   nativeMenus?: boolean;
   nativeDropIndicator?: boolean;
@@ -337,9 +336,6 @@ export const nativeBrowser = {
   snapshot: (id: string) => invoke<string>("browser_snapshot", { id }),
   close: (id: string) => invoke<void>("browser_close", { id }),
   sleep: (id: string) => invoke<BrowserSleepResult>("browser_sleep", { id }),
-  setFloating: (id: string, floating: boolean) =>
-    invoke<string | null>("browser_set_floating", { id, floating }),
-  showFloating: (id: string) => invoke<void>("browser_show_floating", { id }),
   listen: (callback: (state: BrowserState) => void) =>
     getCurrentWebview().listen<BrowserState>("browser-state", ({ payload }) =>
       callback(payload),

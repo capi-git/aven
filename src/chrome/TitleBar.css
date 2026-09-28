@@ -18,21 +18,27 @@
   gap: 6px;
   padding-inline: 7px;
 }
+/* Tabs size to their title: short titles stay short, long ones cap, and a
+   crowded strip shortens titles down to the minimum before it scrolls. */
 .personal-shell .personal-title-tab-slot,
 .personal-shell .personal-title-browser-tab {
-  flex: 0 1 216px;
-  width: 216px;
-  min-width: 128px;
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 96px;
+  max-width: 172px;
+}
+.personal-shell .personal-title-tab-slot[data-active="true"],
+.personal-shell .personal-title-browser-tab[data-active="true"] {
   max-width: 240px;
 }
 .personal-shell .personal-title-tab-button {
   align-self: center;
-  height: calc(100% - 6px);
+  height: 24px;
   min-height: 24px;
-  gap: 8px;
-  padding-inline-start: 10px;
+  gap: 7px;
+  padding-inline-start: 8px;
   border: 0;
-  border-radius: 10px;
+  border-radius: 7px;
   background: transparent;
   color: color-mix(in srgb, var(--color-content) 68%, transparent);
   transition:
@@ -182,11 +188,13 @@
   cursor: grab;
   touch-action: none;
   user-select: none;
+  /* The tabs already show who is in the group; the grip appears on demand. */
+  opacity: 0;
+  transition: opacity 120ms ease;
 }
-.personal-tab-group-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.personal-titlebar:hover .personal-tab-group-handle,
+.personal-tab-group-handle:focus-visible {
+  opacity: 1;
 }
 .personal-tab-group-handle:hover {
   color: var(--color-content);
@@ -199,15 +207,6 @@
 .personal-tab-group-handle[data-dragging="true"] {
   cursor: grabbing;
   opacity: 0.5;
-}
-.personal-tab-group-handle .provider-mark {
-  width: 18px;
-  height: 18px;
-  padding: 1px;
-}
-.personal-tab-group-handle .provider-mark-art {
-  width: 14px;
-  height: 14px;
 }
 
 /* Pane tabs stay flat so they do not compete with workspace destinations.
@@ -390,4 +389,54 @@ html.theme-light .personal-shell .personal-titlebar {
 .personal-tab-preview-action:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: -2px;
+}
+
+.personal-tab-card-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: color-mix(in srgb, var(--color-content) 80%, transparent);
+}
+.personal-tab-card-status::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+.personal-tab-card-status[data-tone="attention"] {
+  color: var(--color-warning, #d99c45);
+}
+.personal-tab-card-status[data-tone="attention"]::before {
+  background: currentColor;
+}
+
+/* Minimized tabs: inactive tabs show only their icon. Last in the file so it
+   overrides the browser tab padding rules above. */
+.personal-shell .personal-title-tab-slot[data-minimized="true"],
+.personal-shell .personal-title-browser-tab[data-minimized="true"] {
+  flex: 0 0 30px;
+  width: 30px;
+  min-width: 30px;
+  max-width: 30px;
+}
+.personal-shell
+  :is(.personal-title-tab, .personal-title-browser-tab)[data-minimized="true"]
+  .personal-title-tab-button {
+  justify-content: center;
+  gap: 0;
+  padding-inline: 0;
+}
+.personal-shell
+  :is(.personal-title-tab, .personal-title-browser-tab)[data-minimized="true"]
+  :is(
+    .personal-title-tab-text,
+    .personal-title-tab-label,
+    .personal-title-tab-visible,
+    .personal-title-tab-close,
+    .personal-title-browser-menu
+  ) {
+  display: none;
 }

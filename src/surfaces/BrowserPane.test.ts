@@ -65,8 +65,6 @@ const mocks = vi.hoisted(() => ({
   browserMenu: vi.fn(),
   dropIndicator: vi.fn(),
   external: vi.fn(),
-  setFloating: vi.fn(),
-  showFloating: vi.fn(),
   unlisten: vi.fn(),
   listen: vi.fn(),
   bounds: vi.fn(),
@@ -112,8 +110,6 @@ vi.mock("../lib/browser", async (original) => ({
     listenToolbar: mocks.listenToolbar,
     listenEditing: mocks.listenEditing,
     snapshot: mocks.snapshot,
-    setFloating: mocks.setFloating,
-    showFloating: mocks.showFloating,
   },
 }));
 
@@ -183,8 +179,6 @@ describe("native preview lifecycle", () => {
     mocks.ownerFocus.mockResolvedValue(undefined);
     mocks.shellFocus.mockResolvedValue(undefined);
     mocks.external.mockResolvedValue(undefined);
-    mocks.setFloating.mockResolvedValue(undefined);
-    mocks.showFloating.mockResolvedValue(undefined);
     mocks.snapshot.mockResolvedValue("data:image/png;base64,c25hcHNob3Q=");
     mocks.decode.mockResolvedValue(undefined);
     vi.spyOn(HTMLImageElement.prototype, "decode").mockImplementation(
@@ -1102,53 +1096,48 @@ describe("native preview lifecycle", () => {
     expect(container.querySelector(".browser-edit-hint")).toBeNull();
   });
 
-  it.each(["hidden", "floating"])(
-    "does not revive a %s picker when a stop error arrives late",
-    async (mode) => {
-      const add = vi.fn();
-      const id = await openPane({ onAddToChat: add });
-      await act(async () =>
-        container
-          .querySelector<HTMLButtonElement>('[aria-label="Edit page"]')!
-          .click(),
-      );
-      const token = mocks.edit.mock.calls.at(-1)![2];
-      const callback = mocks.listenEditing.mock.calls.at(-1)![0];
-      let rejectStop!: (reason: Error) => void;
-      mocks.edit.mockImplementationOnce(
-        () =>
-          new Promise<void>((_resolve, reject) => {
-            rejectStop = reject;
-          }),
-      );
-      await act(async () =>
-        container
-          .querySelector<HTMLButtonElement>('[aria-label="Exit edit mode"]')!
-          .click(),
-      );
-      if (mode === "floating") await receive({ floating: true });
-      else
-        await act(async () =>
-          root.render(
-            createElement(BrowserPane, {
-              id: "one",
-              initialUrl: "localhost:3000",
-              visible: false,
-              onAddToChat: add,
-            }),
-          ),
-        );
-      await act(async () => {
-        callback({ id, token, active: true, error: "Late stop failure" });
-        rejectStop(new Error("Late stop rejection"));
-      });
-      expect(
-        container.querySelector('[aria-label="Exit edit mode"]'),
-      ).toBeNull();
-      expect(container.querySelector(".browser-edit-hint")).toBeNull();
-      expect(add).not.toHaveBeenCalled();
-    },
-  );
+  it("does not revive a hidden picker when a stop error arrives late", async () => {
+    const add = vi.fn();
+    const id = await openPane({ onAddToChat: add });
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Edit page"]')!
+        .click(),
+    );
+    const token = mocks.edit.mock.calls.at(-1)![2];
+    const callback = mocks.listenEditing.mock.calls.at(-1)![0];
+    let rejectStop!: (reason: Error) => void;
+    mocks.edit.mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectStop = reject;
+        }),
+    );
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Exit edit mode"]')!
+        .click(),
+    );
+    await act(async () =>
+      root.render(
+        createElement(BrowserPane, {
+          id: "one",
+          initialUrl: "localhost:3000",
+          visible: false,
+          onAddToChat: add,
+        }),
+      ),
+    );
+    await act(async () => {
+      callback({ id, token, active: true, error: "Late stop failure" });
+      rejectStop(new Error("Late stop rejection"));
+    });
+    expect(
+      container.querySelector('[aria-label="Exit edit mode"]'),
+    ).toBeNull();
+    expect(container.querySelector(".browser-edit-hint")).toBeNull();
+    expect(add).not.toHaveBeenCalled();
+  });
 
   it("ignores a previous run's stop, selection, and rejection after restarting the picker", async () => {
     const add = vi.fn();
@@ -1431,140 +1420,6 @@ describe("native preview lifecycle", () => {
     expect(mocks.close).not.toHaveBeenCalled();
   });
 
-  it("waits for its native page before consuming a Picture in Picture request once", async () => {
-    let finish!: () => void;
-    mocks.create.mockImplementationOnce(
-      () =>
-        new Promise<void>((resolve) => {
-          finish = resolve;
-        }),
-    );
-    await openPane({ pictureInPictureRequest: 1 });
-    expect(mocks.setFloating).not.toHaveBeenCalled();
-    await act(async () => finish());
-    const id = mocks.create.mock.calls[0][0];
-    expect(mocks.setFloating).toHaveBeenCalledExactlyOnceWith(id, true);
-    await openPane({ pictureInPictureRequest: 1 });
-    expect(mocks.setFloating).toHaveBeenCalledOnce();
-    await openPane({ pictureInPictureRequest: 2 });
-    expect(mocks.setFloating).toHaveBeenCalledTimes(2);
-    expect(mocks.create).toHaveBeenCalledOnce();
-    expect(mocks.navigate).not.toHaveBeenCalled();
-  });
-
-  it("reports the native floating label only after completion and uses the latest result callback", async () => {
-    let finish!: (label: string) => void;
-    mocks.setFloating.mockImplementationOnce(
-      () =>
-        new Promise<string>((resolve) => {
-          finish = resolve;
-        }),
-    );
-    const original = vi.fn();
-    const latest = vi.fn();
-    const id = await openPane({
-      pictureInPictureRequest: 7,
-      onPictureInPictureResult: original,
-    });
-    expect(original).not.toHaveBeenCalled();
-    await openPane({
-      pictureInPictureRequest: 7,
-      onPictureInPictureResult: latest,
-    });
-    expect(mocks.setFloating).toHaveBeenCalledExactlyOnceWith(id, true);
-    await act(async () => finish("preview-float-seven"));
-    expect(original).not.toHaveBeenCalled();
-    expect(latest).toHaveBeenCalledExactlyOnceWith(7, "preview-float-seven");
-
-    mocks.setFloating.mockRejectedValueOnce(new Error("Native popout failed"));
-    await openPane({
-      pictureInPictureRequest: 8,
-      onPictureInPictureResult: latest,
-    });
-    expect(latest).toHaveBeenLastCalledWith(8, null, "Native popout failed");
-    expect(mocks.create).toHaveBeenCalledOnce();
-    expect(mocks.navigate).not.toHaveBeenCalled();
-    expect(mocks.close).not.toHaveBeenCalled();
-  });
-
-  it("keeps a blank Picture in Picture request local with useful guidance", async () => {
-    const result = vi.fn();
-    await act(async () =>
-      root.render(
-        createElement(BrowserPane, {
-          id: "blank",
-          pictureInPictureRequest: 1,
-          onPictureInPictureResult: result,
-        }),
-      ),
-    );
-    expect(container.textContent).toContain(
-      "Open a page before using Picture in Picture.",
-    );
-    expect(mocks.setFloating).not.toHaveBeenCalled();
-    expect(mocks.create).not.toHaveBeenCalled();
-    expect(result).toHaveBeenCalledExactlyOnceWith(
-      1,
-      null,
-      "Open a page before using Picture in Picture.",
-    );
-  });
-
-  it("retains the same detached page while hidden and returns to its owner only on the native return transition", async () => {
-    const onPictureInPictureChange = vi.fn();
-    const onFocus = vi.fn();
-    const props = { onPictureInPictureChange, onFocus };
-    const id = await openPane(props);
-    await receive({ floating: false });
-    expect(onPictureInPictureChange).not.toHaveBeenCalled();
-    await receive({ floating: true, focused: true });
-    expect(onFocus).not.toHaveBeenCalled();
-    expect(onPictureInPictureChange).not.toHaveBeenCalled();
-    expect(
-      container.querySelector(".browser-floating-placeholder")?.textContent,
-    ).toContain("Open in Picture in Picture");
-    const buttons = Array.from(
-      container.querySelectorAll<HTMLButtonElement>(
-        ".browser-floating-placeholder button",
-      ),
-    );
-    await act(async () =>
-      buttons.find((b) => b.textContent === "Show window")!.click(),
-    );
-    expect(mocks.showFloating).toHaveBeenCalledExactlyOnceWith(id);
-    await act(async () =>
-      buttons.find((b) => b.textContent === "Return to workspace")!.click(),
-    );
-    expect(mocks.setFloating).toHaveBeenCalledExactlyOnceWith(id, false);
-    await openPane({ ...props, visible: false });
-    await act(async () => {
-      resizeCallback();
-      window.dispatchEvent(new Event("supermono:workspace-layout"));
-    });
-    await flushFrame();
-    expect(mocks.snapshot).not.toHaveBeenCalled();
-    expect(mocks.close).not.toHaveBeenCalled();
-    await receive({ floating: false, focused: false });
-    expect(onPictureInPictureChange).toHaveBeenCalledExactlyOnceWith(false);
-    await receive({ floating: false });
-    expect(onPictureInPictureChange).toHaveBeenCalledOnce();
-    await openPane(props);
-    expect(container.querySelector(".browser-floating-placeholder")).toBeNull();
-    expect(mocks.create).toHaveBeenCalledOnce();
-    expect(mocks.navigate).not.toHaveBeenCalled();
-  });
-
-  it("keeps a failed detach nonfatal and closes a detached page only when its owner unmounts", async () => {
-    mocks.setFloating.mockRejectedValueOnce(new Error("Window unavailable"));
-    const id = await openPane({ pictureInPictureRequest: 1 });
-    expect(container.textContent).toContain("Window unavailable");
-    expect(container.textContent).not.toContain("Preview unavailable");
-    expect(mocks.close).not.toHaveBeenCalled();
-    await receive({ floating: true });
-    await act(async () => root.render(null));
-    expect(mocks.close).toHaveBeenCalledExactlyOnceWith(id);
-  });
-
   it("uses an in-toolbar loading indicator without repeating the page title below it", async () => {
     await openPane();
     await receive({ loading: true, title: "Current page title" });
@@ -1641,7 +1496,7 @@ describe("native preview lifecycle", () => {
     );
     const items =
       document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]');
-    expect(items).toHaveLength(6);
+    expect(items).toHaveLength(5);
     for (const item of items) expect(item.disabled).toBe(true);
     expect(mocks.create).not.toHaveBeenCalled();
   });
@@ -2266,11 +2121,6 @@ describe("native preview lifecycle", () => {
     await openPane({ visible: true });
     expect(container.querySelector(".browser-find-bar")).not.toBeNull();
     await clickControl("Close find in page");
-    await receive({ floating: true });
-    await act(async () => command({ id, action: "find" }));
-    expect(container.querySelector(".browser-find-bar")).toBeNull();
-    await receive({ floating: false });
-    expect(container.querySelector(".browser-find-bar")).not.toBeNull();
     await act(async () => command({ id, action: "address" }));
     expect(document.activeElement).toBe(
       container.querySelector('[aria-label="Preview address"]'),
@@ -2364,7 +2214,6 @@ describe("native preview lifecycle", () => {
     "another control",
     "native page",
     "hidden pane",
-    "floating pane",
     "window blur",
     "unmount",
   ] as const)(
@@ -2402,8 +2251,6 @@ describe("native preview lifecycle", () => {
         await receive({ focused: true });
       else if (destination === "hidden pane")
         await openPane({ visible: false });
-      else if (destination === "floating pane")
-        await receive({ floating: true });
       else if (destination === "window blur")
         window.dispatchEvent(new Event("blur"));
       else await act(async () => root.render(null));
@@ -2438,22 +2285,16 @@ describe("native preview lifecycle", () => {
   });
 
   it.each(["find", "address"] as const)(
-    "waits for the grouped PiP return before focusing %s without recreating the page",
+    "waits for its workspace to be visible before focusing %s without recreating the page",
     async (action) => {
-      const onReturned = vi.fn();
-      const props = { onPictureInPictureChange: onReturned };
-      const id = await openPane(props);
-      await receive({ floating: true });
-      await openPane({ ...props, visible: false });
-      await receive({ floating: false });
-      expect(onReturned).toHaveBeenCalledWith(false);
+      const id = await openPane();
+      await openPane({ visible: false });
       const command = mocks.listenToolbar.mock.calls.at(-1)![0];
       await act(async () => command({ id, action }));
-      // The selected browser has docked, but its session siblings have not
-      // completed the native group-return handshake yet.
+      // The page is docked, but its owning workspace is not visible yet.
       expect(mocks.shellFocus).not.toHaveBeenCalled();
       expect(mocks.ownerFocus).not.toHaveBeenCalled();
-      await openPane({ ...props, visible: true });
+      await openPane({ visible: true });
       expect(mocks.shellFocus).toHaveBeenCalledOnce();
       expect(mocks.ownerFocus).toHaveBeenCalledOnce();
       expect(mocks.ownerFocus.mock.invocationCallOrder[0]).toBeLessThan(
@@ -2469,7 +2310,6 @@ describe("native preview lifecycle", () => {
       expect(mocks.create).toHaveBeenCalledOnce();
       expect(mocks.close).not.toHaveBeenCalled();
       expect(mocks.navigate).not.toHaveBeenCalled();
-      expect(mocks.setFloating).not.toHaveBeenCalled();
     },
   );
 

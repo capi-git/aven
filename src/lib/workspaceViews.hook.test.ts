@@ -11,7 +11,6 @@ import {
   useWorkspaceViews,
   type WorkspaceView,
 } from "./workspaceViews";
-import { createWorkspacePipReturns } from "./workspacePictureInPicture";
 
 const STORAGE_KEY = "supermono.workspaceViews.v1";
 const projectA = "/projects/a";
@@ -153,31 +152,14 @@ describe("useWorkspaceViews project and explicit focus lifecycle", () => {
     expect(current.view.groups["a-other"]).toEqual(["a-web", "a-other"]);
   });
 
-  it("returns a selected grouped browser without mirrored focus loops or detaching its original group", async () => {
+  it("focuses a grouped browser without mirrored focus loops or detaching its original group", async () => {
     await act(async () => root.render(createElement(MirroredFocusHarness)));
     await act(async () => selectLegacySession("a-other"));
-    const returns = createWorkspacePipReturns();
-    returns.register([
-      {
-        label: "pip-session",
-        target: { kind: "session", id: "session", surfaceId: "a-other" },
-      },
-      {
-        label: "pip-browser",
-        target: { kind: "browser", id: "a-web", surfaceId: "a-web" },
-      },
-    ]);
-    returns.complete("pip-browser", ["pip-session", "pip-browser"]);
-    returns.restored("session", "session", () =>
-      selectLegacySession("a-other"),
-    );
     await act(async () => {
-      returns.restored("browser", "a-web", () => {
-        flushSync(() => {
-          current.focus(projectA, "a-web");
-          // A pending project selection can still carry the prior session.
-          selectLegacySession("a-chat");
-        });
+      flushSync(() => {
+        current.focus(projectA, "a-web");
+        // A pending project selection can still carry the prior session.
+        selectLegacySession("a-chat");
       });
     });
     expect(current.view).toEqual(savedA);

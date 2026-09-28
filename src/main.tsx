@@ -85,21 +85,6 @@ if (new URLSearchParams(window.location.search).has("workspaceMenuPanel")) {
       );
     })
     .catch(showStartupFailure);
-} else if (new URLSearchParams(window.location.search).has("pipSession")) {
-  // Floating sessions render a controlled view only. The owner keeps every
-  // harness, queue and persistence loop; this window must never restore App.
-  void import("./surfaces/SessionPictureInPicture")
-    .then(({ SessionPictureInPicture }) => {
-      ReactDOM.createRoot(
-        document.getElementById("root") as HTMLElement,
-        rootOptions,
-      ).render(
-        <React.StrictMode>
-          <SessionPictureInPicture />
-        </React.StrictMode>,
-      );
-    })
-    .catch(showStartupFailure);
 } else {
   initAppearance();
   initSounds();

@@ -563,39 +563,6 @@ html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar {
   outline: none;
 }
 
-.session-pip-placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 24px;
-  height: 100%;
-  text-align: center;
-  color: var(--color-content);
-  font-size: 12px;
-}
-.session-pip-placeholder p {
-  opacity: 0.55;
-}
-.session-pip-placeholder > div {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-  margin-top: 8px;
-}
-.session-pip-placeholder button {
-  padding: 7px 11px;
-  border: 1px solid color-mix(in srgb, var(--color-content) 14%, transparent);
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--color-content) 4%, transparent);
-  cursor: pointer;
-}
-.session-pip-placeholder button:hover {
-  background: color-mix(in srgb, var(--color-content) 10%, transparent);
-}
-
 /* The light shell follows the pale frame / white workspace reference.
    These are static surfaces; no extra backdrop filters or animation layers. */
 html.theme-light .personal-shell .personal-main.body-glass {

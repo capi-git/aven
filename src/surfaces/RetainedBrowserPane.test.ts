@@ -16,7 +16,6 @@ const native = vi.hoisted(() => ({
   listen: vi.fn(),
   listenToolbar: vi.fn().mockResolvedValue(() => {}),
   unlisten: vi.fn(),
-  setFloating: vi.fn(),
 }));
 vi.mock("@tauri-apps/api/core", () => ({ isTauri: () => true }));
 vi.mock("@tauri-apps/api/window", () => ({
@@ -38,7 +37,6 @@ describe("retained browser pages in the workspace stage", () => {
   };
   type PageId = keyof typeof urls;
   let pageIds: PageId[];
-  const pipResult = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -68,7 +66,6 @@ describe("retained browser pages in the workspace stage", () => {
     ])
       fn.mockResolvedValue(undefined);
     native.listen.mockResolvedValue(native.unlisten);
-    native.setFloating.mockResolvedValue("preview-float-requested");
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -82,11 +79,7 @@ describe("retained browser pages in the workspace stage", () => {
     vi.unstubAllGlobals();
   });
 
-  async function render(
-    layout: LayoutNode,
-    visible = true,
-    requests: Partial<Record<PageId, number>> = {},
-  ) {
+  async function render(layout: LayoutNode, visible = true) {
     const shown = leafIds(layout);
     await act(async () =>
       root.render(
@@ -105,8 +98,6 @@ describe("retained browser pages in the workspace stage", () => {
               initialUrl: urls[id],
               visible: visible && shown.includes(id),
               expanded: shown.length === 1,
-              pictureInPictureRequest: requests[id],
-              onPictureInPictureResult: pipResult,
             }),
           })),
         }),
@@ -201,37 +192,6 @@ describe("retained browser pages in the workspace stage", () => {
     expect(native.create).not.toHaveBeenCalled();
     expect(native.navigate).not.toHaveBeenCalled();
     expect(native.close).not.toHaveBeenCalled();
-  });
-
-  it("mounts only the explicitly requested unvisited page for group Picture in Picture", async () => {
-    await render(leaf("project-a-preview"), false);
-    expect(native.create).not.toHaveBeenCalled();
-    const request = { "project-a-docs": 12 };
-    await render(leaf("project-a-preview"), false, request);
-    expect(native.create).toHaveBeenCalledOnce();
-    expect(native.create.mock.calls[0][1]).toBe(urls["project-a-docs"]);
-    expect(native.setFloating).toHaveBeenCalledExactlyOnceWith(
-      native.create.mock.calls[0][0],
-      true,
-    );
-    expect(pipResult).toHaveBeenCalledExactlyOnceWith(
-      12,
-      "preview-float-requested",
-    );
-    expect(address("project-a-preview")).toBeNull();
-    expect(address("project-b-preview")).toBeNull();
-    const docs = address("project-a-docs");
-    expect(docs).not.toBeNull();
-    await render(leaf("project-a-preview"), false, request);
-    await render(leaf("project-a-preview"), false);
-    expect(address("project-a-docs")).toBe(docs);
-    expect(native.create).toHaveBeenCalledOnce();
-    expect(native.setFloating).toHaveBeenCalledOnce();
-    expect(native.close).not.toHaveBeenCalled();
-    expect(native.navigate).not.toHaveBeenCalled();
-    expect(native.layout.mock.calls.some((call) => call[2] === true)).toBe(
-      false,
-    );
   });
 
   it("keeps each native page and its input through split, mixed order, project switching and closing a sibling", async () => {

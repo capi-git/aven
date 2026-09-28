@@ -9,23 +9,12 @@ export function RetainedBrowserPane(props: BrowserPaneProps) {
       !!props.attachedNativeId,
   );
   useEffect(() => {
-    if (
-      props.visible ||
-      props.agentRequested ||
-      props.pictureInPictureRequest ||
-      props.attachedNativeId
-    )
+    if (props.visible || props.agentRequested || props.attachedNativeId)
       setVisited(true);
-  }, [
-    props.visible,
-    props.agentRequested,
-    props.pictureInPictureRequest,
-    props.attachedNativeId,
-  ]);
+  }, [props.visible, props.agentRequested, props.attachedNativeId]);
   return visited ||
     props.visible ||
     props.agentRequested ||
-    props.pictureInPictureRequest ||
     props.attachedNativeId ? (
     <BrowserPane {...props} />
   ) : null;

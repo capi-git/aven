@@ -3,16 +3,9 @@ import { RetainedBrowserPane } from "./RetainedBrowserPane";
 import type { Attachment } from "../lib/session";
 
 export type BrowserSurfaceActions = {
-  pictureInPictureResult?(
-    id: string,
-    request: number,
-    label: string | null,
-    error?: string,
-  ): void;
   focus(project: string, id: string): void;
   close(project: string, id: string): void;
   expand(id: string): void;
-  returnToWorkspace?(project: string, id: string, tabId: string): void;
   update(
     project: string,
     tabId: string,
@@ -31,7 +24,6 @@ export const WorkspaceBrowserSurface = memo(function WorkspaceBrowserSurface({
   visible,
   agentRequested,
   expanded,
-  pictureInPictureRequest,
   actions,
 }: {
   id: string;
@@ -42,7 +34,6 @@ export const WorkspaceBrowserSurface = memo(function WorkspaceBrowserSurface({
   visible: boolean;
   agentRequested?: boolean;
   expanded: boolean;
-  pictureInPictureRequest?: number;
   actions: RefObject<BrowserSurfaceActions>;
 }) {
   const onFocus = useCallback(
@@ -76,17 +67,6 @@ export const WorkspaceBrowserSurface = memo(function WorkspaceBrowserSurface({
         : actions.current.addToChat(text),
     [actions],
   );
-  const onPictureInPictureChange = useCallback(
-    (floating: boolean) => {
-      if (!floating) actions.current.returnToWorkspace?.(project, id, tabId);
-    },
-    [actions, project, id, tabId],
-  );
-  const onPictureInPictureResult = useCallback(
-    (request: number, label: string | null, error?: string) =>
-      actions.current.pictureInPictureResult?.(id, request, label, error),
-    [actions, id],
-  );
   return (
     <RetainedBrowserPane
       id={id}
@@ -95,9 +75,6 @@ export const WorkspaceBrowserSurface = memo(function WorkspaceBrowserSurface({
       visible={visible}
       agentRequested={agentRequested}
       expanded={expanded}
-      pictureInPictureRequest={pictureInPictureRequest}
-      onPictureInPictureChange={onPictureInPictureChange}
-      onPictureInPictureResult={onPictureInPictureResult}
       onFocus={onFocus}
       onClose={onClose}
       onToggleExpand={onToggleExpand}

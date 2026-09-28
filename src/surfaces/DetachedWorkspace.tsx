@@ -931,9 +931,6 @@ export function DetachedWorkspace() {
         onReturnGroupToWindow={() => void returnSelection(members)}
         onNew={() => void nativeWorkspaceWindow.newSession().catch(report)}
         onNewBrowser={() => openUrl("")}
-        onGroupPictureInPicture={() =>
-          void nativeWorkspaceWindow.pinned(true).catch(report)
-        }
       />
     ),
   }));

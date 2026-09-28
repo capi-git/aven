@@ -102,6 +102,12 @@ const SETTINGS_SEARCH_ENTRIES: readonly SearchEntry[] = [
   ),
   setting(
     "general",
+    "Minimized tabs",
+    "Show tabs as icons, except the one you're on.",
+    "compact icon only tab bar strip hover",
+  ),
+  setting(
+    "general",
     "Empty session games",
     "Show small games in empty conversations.",
     "pacman snake arcade idle",

@@ -92,14 +92,6 @@ import {
   type WorkspaceView,
 } from "./lib/workspaceViews";
 import {
-  nativeSessionPip,
-  useSessionPictureInPicture,
-} from "./lib/sessionPictureInPicture";
-import {
-  useBrowserPipRequests,
-  createWorkspacePipReturns,
-} from "./lib/workspacePictureInPicture";
-import {
   selectWorkspaceArrangement,
   captureWorkspaceReturnPlacement,
   restoreWorkspaceArrangement,
@@ -119,7 +111,6 @@ import {
 import { flushSync } from "react-dom";
 import {
   useDetachedWorkspaces,
-  nativeWorkspaceWindow,
   type DetachedWorkspaceState,
   type WorkspaceDropPoint,
 } from "./lib/detachedWorkspaces";
@@ -169,6 +160,7 @@ import {
   raceHost,
   racePrompt,
   releaseRaceCheckout,
+  raceLaneFor,
   saveRace,
   usesRaceCheckout,
   type RaceBase,
@@ -581,6 +573,7 @@ import {
 } from "./lib/workspaceSnapshot";
 import { readComposerDraft, subscribeComposerDrafts } from "./lib/composerDrafts";
 import type { InstalledUpdate } from "./lib/updateNotice";
+import { previewLines } from "./lib/promptOutline";
 import {
   bindResumedSessions,
   closeBusyWindow,
@@ -769,7 +762,9 @@ function titleTabsEqual(a: TitleTab[], b: TitleTab[]): boolean {
       tab.fileFocused === other.fileFocused &&
       tab.blank === other.blank &&
       tab.terminal === other.terminal &&
-      tab.groupId === other.groupId
+      tab.groupId === other.groupId &&
+      tab.needsInput === other.needsInput &&
+      tab.race === other.race
     );
   });
 }
@@ -1223,35 +1218,6 @@ export default function App({
     // Focus is the authority here. Browser navigation and session updates must
     // not pull focus away from a sibling surface that the user is reading.
   }, [view.focusedId, projectCwd]);
-  const browserPip = useBrowserPipRequests();
-  const browserPipRequests = browserPip.requests;
-  const groupPipReturns = useMemo(createWorkspacePipReturns, []);
-  useEffect(() => {
-    let disposed = false;
-    const listener = nativeSessionPip
-      .listen<{
-        selectedLabel: string;
-        labels: string[];
-      }>("pip-group-returned", ({ selectedLabel, labels }) => {
-        if (!disposed) groupPipReturns.complete(selectedLabel, labels);
-      })
-      .catch(() => () => {});
-    const errors = nativeSessionPip
-      .listen<{ message: string }>("pip-group-error", (event) => {
-        if (!disposed && typeof event.message === "string")
-          void message(event.message, {
-            title: "Picture in Picture",
-            kind: "error",
-          });
-      })
-      .catch(() => () => {});
-    return () => {
-      disposed = true;
-      void Promise.all([listener, errors]).then((stops) =>
-        stops.forEach((stop) => stop()),
-      );
-    };
-  }, [groupPipReturns]);
   const [surfaceDragging, setSurfaceDragging] = useState(false);
   const [surfaceDrop, setSurfaceDrop] =
     useState<WorkspaceSurfaceDropTarget | null>(null);
@@ -2013,13 +1979,12 @@ export default function App({
   );
   const notificationWindowFocusedRef = useRef(notificationWindowFocused);
   notificationWindowFocusedRef.current = notificationWindowFocused;
-  // Later-created PiP and detached controllers update these bridges before effects run.
+  // The later-created detached-window controller updates this bridge before effects run.
   const activityWindowBridgeRef = useRef<{
     floatingSessionIds: readonly string[];
     focusedSessionIds: ReadonlySet<string>;
     showSession?: (id: string) => boolean | Promise<boolean>;
   }>({ floatingSessionIds: [], focusedSessionIds: new Set() });
-  const activityPipIdsRef = useRef<readonly string[]>([]);
   const activityMainViewRef = useRef({ workspaceVisible, visibleSurfaceIds });
   activityMainViewRef.current = { workspaceVisible, visibleSurfaceIds };
   const activityPresentation = useCallback((sessionId: string) => {
@@ -2029,10 +1994,7 @@ export default function App({
       ...activityMainViewRef.current,
       tabs: tabsRef.current,
       sessionIds: new Set(sessionsRef.current.map((session) => session.id)),
-      floatingSessionIds: [
-        ...activityPipIdsRef.current,
-        ...activityWindowBridgeRef.current.floatingSessionIds,
-      ],
+      floatingSessionIds: activityWindowBridgeRef.current.floatingSessionIds,
     }).has(sessionId);
     return {
       visible: otherFocused || mainVisible,
@@ -6932,10 +6894,6 @@ export default function App({
       try {
         if (await activityWindowBridgeRef.current.showSession?.(sessionId))
           return true;
-        if (activityPipIdsRef.current.includes(sessionId)) {
-          await nativeSessionPip.show(sessionId);
-          return true;
-        }
         const session = await ensureOpenSession(sessionId);
         if (!session || session.inboxAsk) return false;
         flushSync(() => {
@@ -7389,6 +7347,24 @@ export default function App({
     },
     [onOpenApprovalSession],
   );
+
+  // Read on demand by a minimized tab's hover card, so streaming replies
+  // don't re-render the tab strip.
+  const describeTitleTab = useCallback((tabId: string) => {
+    const tab = tabsRef.current.find((entry) => entry.id === tabId);
+    if (!tab) return undefined;
+    const ids = leafIds(tab.layout);
+    const sessionId = ids.includes(tab.focusedId) ? tab.focusedId : ids[0];
+    const session = sessionsRef.current.find((entry) => entry.id === sessionId);
+    if (!session) return undefined;
+    for (let index = session.blocks.length - 1; index >= 0; index -= 1) {
+      const block = session.blocks[index];
+      if (block?.role !== "assistant") continue;
+      const lines = previewLines(block.text, 2);
+      if (lines.length > 0) return lines.join(" ");
+    }
+    return undefined;
+  }, []);
 
   const nextTitleTabs: TitleTab[] = deckProjectTabs.map((tab) =>
     toTitleTab(tab, sessions, dirtyFiles),
@@ -8157,54 +8133,6 @@ export default function App({
     onNewTerminal: onNewTerminalInSession,
   };
 
-  const returnToSession = useCallback(
-    (id: string) => {
-      const session = sessionsRef.current.find((entry) => entry.id === id);
-      if (!session || removingSessionIds.current.has(id)) return;
-      // Return is also used before opening a file from a floating transcript.
-      // Commit the owning project and tab before those callbacks read their refs.
-      flushSync(() => {
-        let tab = tabsRef.current.find((entry) =>
-          leafIds(entry.layout).includes(id),
-        );
-        if (!tab) {
-          tab = newTab(id);
-          const next = [...tabsRef.current, tab];
-          tabsRef.current = next;
-          setTabs(next);
-        }
-        onSelectProject(session.cwd);
-        activateTab(tab.id);
-        const focused = tabsRef.current.map((entry) =>
-          entry.id === tab.id
-            ? { ...entry, focusedId: id, diffFocused: false }
-            : entry,
-        );
-        tabsRef.current = focused;
-        setTabs(focused);
-        setProjectTerminalFocused(false);
-        setComposerFocused(true);
-      });
-    },
-    [activateTab, onSelectProject],
-  );
-  const sessionPip = useSessionPictureInPicture(
-    sessions,
-    sessionPaneProps,
-    returnToSession,
-    (id, focusAndRunActions, hasOwnerActions) => {
-      if (
-        !groupPipReturns.restored(
-          "session",
-          id,
-          focusAndRunActions,
-          hasOwnerActions,
-        )
-      )
-        focusAndRunActions();
-    },
-  );
-  activityPipIdsRef.current = sessionPip.ids;
   const mergeDetachedState = useCallback(
     (state: DetachedWorkspaceState, returning: boolean) => {
       const ids = new Set(
@@ -8339,10 +8267,7 @@ export default function App({
     },
   });
   detachedBrowserBridge.current = detached.openForSession;
-  externallyRenderedSessionIds.current = new Set([
-    ...sessionPip.ids,
-    ...detached.detachedSessionIds,
-  ]);
+  externallyRenderedSessionIds.current = new Set(detached.detachedSessionIds);
   detachedFileBridge.current = detached.openFileForSession;
   detachedShowSurface.current = async (surfaceId, paneId) => {
     const window = detached.snapshots.find(
@@ -8440,26 +8365,6 @@ export default function App({
     void moveWindowRef.current(viewRef.current.view.groups[id] ?? [id], target);
   };
 
-  const reportPipError = (reason: unknown) => {
-    void message(reason instanceof Error ? reason.message : String(reason), {
-      title: "Picture in Picture",
-      kind: "error",
-    });
-  };
-  const onGroupPictureInPicture = async (members: string[]) => {
-    const id = await moveWindowRef.current(members);
-    if (id) await nativeWorkspaceWindow.pinned(true, id).catch(reportPipError);
-  };
-  const onPictureInPicture = (id: string) => {
-    void onGroupPictureInPicture([id]);
-  };
-  useEffect(() => {
-    if (sessionPip.error)
-      void message(sessionPip.error, {
-        title: "Picture in Picture",
-        kind: "error",
-      });
-  }, [sessionPip.error]);
 
   const profileSessions = useMemo(
     () =>
@@ -8596,37 +8501,6 @@ export default function App({
   ];
   const browserSurfaceActions = useRef<BrowserSurfaceActions>(null!);
   browserSurfaceActions.current = {
-    pictureInPictureResult: browserPip.complete,
-    returnToWorkspace: (project, id, tabId) => {
-      const restore = () => {
-        if (
-          !normalizeBrowserWorkspace(browserWorkspaces[project]).tabs.some(
-            (tab) => tab.id === tabId,
-          )
-        )
-          return;
-        // Project selection normally reveals its session. Restore the browser
-        // selection in the same commit so that fallback cannot steal focus.
-        flushSync(() => {
-          onSelectProject(project);
-          setBrowserWorkspaces((all) => {
-            const current = all[project];
-            return current
-              ? {
-                  ...all,
-                  [project]: {
-                    ...selectBrowserTab(current, tabId),
-                    expanded: true,
-                  },
-                }
-              : all;
-          });
-          viewRef.current.focus(project, id);
-          setComposerFocused(false);
-        });
-      };
-      if (!groupPipReturns.restored("browser", id, restore)) restore();
-    },
     focus: (project, id) => {
       if (project === projectCwd && workspaceVisible && view.focusedId !== id)
         onSelectBrowserTab(id);
@@ -8788,16 +8662,9 @@ export default function App({
         sizes: laneSessions.map(() => 1 / laneSessions.length),
       },
     };
-    const title =
-      request.text.length > 40 ? `${request.text.slice(0, 40)}…` : request.text;
-    const raceTab = newRaceWorkspaceTab(
-      raceId,
-      `Race · ${title}`,
-      request.project,
-    );
+    // The overview opens on request (tab menu), so the agents get the room.
     setSessions((previous) => [...previous, ...laneSessions]);
     appendTab(laneTab, request.project);
-    appendTab(raceTab, request.project);
     setHomeViewOpen(false);
     leaveExpandedPreview();
     setSettingsOpen(false);
@@ -8816,6 +8683,27 @@ export default function App({
     return true;
   };
   startRaceRef.current = startRace;
+  const openRaceOverview = (tabId: string) => {
+    const tab = tabsRef.current.find((entry) => entry.id === tabId);
+    const race = tab
+      ? leafIds(tab.layout)
+          .map((id) => raceLaneFor(id)?.race)
+          .find((entry) => entry != null)
+      : undefined;
+    if (!race) return;
+    const existing = tabsRef.current.find((entry) =>
+      entry.editorPanes.some((pane) =>
+        pane.files.some((file) => file.race?.raceId === race.id),
+      ),
+    );
+    if (existing) {
+      setActiveTabId(existing.id);
+      return;
+    }
+    const overview = newRaceWorkspaceTab(race.id, "Race overview", race.project);
+    appendTab(overview, race.project);
+    setActiveTabId(overview.id);
+  };
   raceActionsRef.current = {
     stop: (ids) => {
       for (const id of ids)
@@ -9320,6 +9208,8 @@ export default function App({
                                       members.includes(tab.id),
                                     )}
                                     totalSessionTabs={titleTabs.length}
+                                    describeTab={describeTitleTab}
+                                    onOpenRaceOverview={openRaceOverview}
                                     paneLocal
                                     windowToolbar={unifiedWorkspaceTabs}
                                     paneFocused={owner === view.focusedId}
@@ -9428,11 +9318,6 @@ export default function App({
                                         ),
                                       );
                                     }}
-                                    onPictureInPicture={onPictureInPicture}
-                                    onGroupPictureInPicture={() => {
-                                      void onGroupPictureInPicture(members);
-                                    }}
-                                    pictureInPictureIds={members}
                                     windowTargets={detached.windows.filter(
                                       (target) =>
                                         detached.states.get(target.id)?.cwd ===
@@ -9441,7 +9326,6 @@ export default function App({
                                     onMoveTabToWindow={moveTabToWindow}
                                     onMoveGroupToWindow={moveGroupToWindow}
                                     groupId={owner}
-                                    groupLabel={`${members.length} tabs`}
                                     onGroupDragMove={onGroupDragMove}
                                     onGroupDragEnd={onGroupDragEnd}
                                     onReopenClosedTab={() => {
@@ -9552,11 +9436,6 @@ export default function App({
                                   content: (
                                     <PaneTree
                                       {...sessionPaneProps}
-                                      floatingSessionIds={sessionPip.ids}
-                                      onShowFloatingSession={sessionPip.show}
-                                      onReturnFloatingSession={
-                                        sessionPip.returnSession
-                                      }
                                       visible={
                                         visibleSurfaceIds.includes(tab.id) &&
                                         workspaceVisible
@@ -9646,9 +9525,6 @@ export default function App({
                                                 }
                                                 expanded={
                                                   visibleSurfaceIds.length === 1
-                                                }
-                                                pictureInPictureRequest={
-                                                  browserPipRequests[id]
                                                 }
                                                 actions={browserSurfaceActions}
                                               />
@@ -10046,6 +9922,13 @@ function toTitleTab(
       (tab.terminalPanes ?? []).some((pane) => pane.id === tab.focusedId));
   const focused =
     sessions.find((session) => session.id === tab.focusedId) ?? tabSessions[0];
+  // A race's agents share one tab: name it once, after the prompt.
+  const lanes = tabSessions.map((session) => raceLaneFor(session.id));
+  const race =
+    lanes.length > 1 &&
+    lanes.every((lane) => lane && lane.race.id === lanes[0]?.race.id)
+      ? lanes[0]?.race
+      : undefined;
 
   const seen = new Set<HarnessId>();
   const harnesses: HarnessId[] = [];
@@ -10120,7 +10003,11 @@ function toTitleTab(
       : focusedFile
         ? projectName(focusedFile.cwd)
         : "~",
-    title: focused ? conversationTitle(focused) : "",
+    title: race
+      ? racePromptTitle(race.prompt)
+      : focused
+        ? conversationTitle(focused)
+        : "",
     more,
     sessionCount: tabSessions.length,
     models: ordered.map(sessionModelIdentity),
@@ -10137,7 +10024,18 @@ function toTitleTab(
     ),
     terminal: hasTerminal && harnesses.length === 0,
     groupId: tab.groupId,
+    needsInput: tabSessions.some(sessionNeedsInput),
+    race: Boolean(race),
   };
+}
+
+function racePromptTitle(prompt: string): string {
+  return (
+    prompt
+      .split("\n")
+      .map((line) => line.trim())
+      .find(Boolean) ?? "Race"
+  );
 }
 
 function dropOpenFiles(

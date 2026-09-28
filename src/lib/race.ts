@@ -99,6 +99,17 @@ export function getRace(id: string): RaceRecord | undefined {
   return read().find((race) => race.id === id);
 }
 
+/** The race and lane a session belongs to, if it is a race agent. */
+export function raceLaneFor(
+  sessionId: string,
+): { race: RaceRecord; lane: RaceLaneRecord } | undefined {
+  for (const race of read()) {
+    const lane = race.lanes.find((item) => item.sessionId === sessionId);
+    if (lane) return { race, lane };
+  }
+  return undefined;
+}
+
 export function saveRace(race: RaceRecord) {
   write([...read().filter((item) => item.id !== race.id), race]);
 }

@@ -157,7 +157,9 @@ import {
   formatKeybindingContext,
   KEYBINDINGS,
   BROWSER_MEMORY_SAVER_DEFAULT,
+  MINIMIZED_TABS_DEFAULT,
   loadBrowserMemorySaver,
+  loadMinimizedTabs,
   loadBrowserLowMemory,
   loadClaudeHooks,
   loadComposerRunner,
@@ -174,7 +176,9 @@ import {
   saveLiveAgentsEnabled,
   saveNotesEnabled,
   saveBrowserMemorySaver,
+  saveMinimizedTabs,
   subscribeBrowserMemorySaver,
+  subscribeMinimizedTabs,
   saveBrowserLowMemory,
   subscribeBrowserLowMemory,
   BROWSER_LOW_MEMORY_DEFAULT,
@@ -568,6 +572,11 @@ function PreferencesPage({
     loadGridArcadeEnabled,
   );
   const [notesEnabled, setNotesEnabled] = useState(loadNotesEnabled);
+  const minimizedTabs = useSyncExternalStore(
+    subscribeMinimizedTabs,
+    loadMinimizedTabs,
+    () => MINIMIZED_TABS_DEFAULT,
+  );
   const browserMemorySaver = useSyncExternalStore(
     subscribeBrowserMemorySaver,
     loadBrowserMemorySaver,
@@ -699,6 +708,16 @@ function PreferencesPage({
       description="Choose what appears around your work."
       scope="Device"
     >
+      <Row
+        label="Minimized tabs"
+        description="Show tabs as icons, except the one you're on. Hover a tab to see what it is."
+      >
+        <Toggle
+          label="Minimized tabs"
+          on={minimizedTabs}
+          onChange={saveMinimizedTabs}
+        />
+      </Row>
       <Row
         label="Notes"
         description="Keep reusable notes in the sidebar. Add them to a conversation with @note."

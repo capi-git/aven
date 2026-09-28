@@ -49,6 +49,7 @@ import { createNote, noteTitle } from "../lib/notes";
 import { loadNotesEnabled, subscribeNotesEnabled } from "../lib/settings";
 import { getModelSnapshot, resolveModel, subscribeModels } from "../lib/models";
 import { sessionPaneLabel } from "../lib/sessionLabels";
+import { raceLaneFor } from "../lib/race";
 import { isAstraModel } from "../lib/astraWelcome";
 import { AstraWelcome } from "./AstraWelcome";
 import { projectKey } from "../lib/paths";
@@ -212,7 +213,10 @@ export const SessionPane = memo(function SessionPane({
       void orchestrator.hydrate(session.id).catch(console.error);
   }, [session.id, session.inboxAsk]);
   useSyncExternalStore(subscribeModels, getModelSnapshot, getModelSnapshot);
-  const paneLabel = sessionPaneLabel(session);
+  const paneLabel = sessionPaneLabel(
+    session,
+    raceLaneFor(session.id)?.lane.label,
+  );
   const backgroundRevision = useSyncExternalStore(
     subscribeProjectChatBackground,
     projectChatBackgroundRevision,

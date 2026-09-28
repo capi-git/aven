@@ -47,9 +47,6 @@ type Shared = {
   composerFocused: boolean;
   recents: RecentProject[];
   hideProjectPicker?: boolean;
-  floatingSessionIds?: string[];
-  onShowFloatingSession?: (id: string) => void;
-  onReturnFloatingSession?: (id: string) => void;
   onFocus: (paneId: string) => void;
   onClose: (sessionId: string) => void;
   onSelectFile: (paneId: string, fileId: string) => void;
@@ -151,9 +148,6 @@ function PaneTreeComponent({
   composerFocused,
   recents,
   hideProjectPicker,
-  floatingSessionIds,
-  onShowFloatingSession,
-  onReturnFloatingSession,
   onFocus,
   onClose,
   onSelectFile,
@@ -345,7 +339,7 @@ function PaneTreeComponent({
         const backgroundStyle = {
           // The outer workspace owns the image dimensions. The inner split
           // contributes only its crop offset; standalone trees keep their
-          // original local canvas and PiP remains sized to its own window.
+          // original local canvas.
           "--chat-background-left": `calc(var(--workspace-background-left, 0px) - ${(leaf.rect.x / leaf.rect.w) * 100}%)`,
           "--chat-background-top": `calc(var(--workspace-background-top, 0px) - ${(leaf.rect.y / leaf.rect.h) * 100}%)`,
           "--chat-background-width": `var(--workspace-background-width, ${100 / leaf.rect.w}%)`,
@@ -389,23 +383,6 @@ function PaneTreeComponent({
                 onPaneDragStart={onPaneDragStart}
                 onTerminalMetaChange={onTerminalMetaChange}
               />
-            ) : session && floatingSessionIds?.includes(session.id) ? (
-              <div
-                className="session-pip-placeholder"
-                role="region"
-                aria-label="Session in Picture in Picture"
-              >
-                <strong>Open in Picture in Picture</strong>
-                <p>This session is running in its floating window.</p>
-                <div>
-                  <button onClick={() => onShowFloatingSession?.(session.id)}>
-                    Show window
-                  </button>
-                  <button onClick={() => onReturnFloatingSession?.(session.id)}>
-                    Return to workspace
-                  </button>
-                </div>
-              </div>
             ) : session ? (
               <SessionPane
                 session={session}
@@ -482,10 +459,7 @@ function PaneTreeComponent({
 
 export const PaneTree = memo(
   PaneTreeComponent,
-  (previous, next) =>
-    !previous.visible &&
-    !next.visible &&
-    previous.floatingSessionIds === next.floatingSessionIds,
+  (previous, next) => !previous.visible && !next.visible,
 );
 
 function PaneDropHint({ edge }: { edge: PaneEdge }) {

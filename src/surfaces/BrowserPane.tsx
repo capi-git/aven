@@ -73,13 +73,6 @@ export type BrowserPaneProps = {
   onTitleChange?: (title: string) => void;
   onFaviconChange?: (favicon: string) => void;
   onFocus?: () => void;
-  pictureInPictureRequest?: number;
-  onPictureInPictureChange?: (floating: boolean) => void;
-  onPictureInPictureResult?: (
-    request: number,
-    label: string | null,
-    error?: string,
-  ) => void;
   expanded?: boolean;
   onToggleExpand?: () => void;
 };
@@ -302,9 +295,6 @@ function BrowserPaneSession({
   onTitleChange,
   onFaviconChange,
   onFocus,
-  pictureInPictureRequest = 0,
-  onPictureInPictureChange,
-  onPictureInPictureResult,
   attachedNativeId,
   onNativeReady,
   expanded = false,
@@ -330,8 +320,7 @@ function BrowserPaneSession({
   const [downloads, setDownloads] = useState<BrowserDownload[]>([]);
   const [downloadsLoading, setDownloadsLoading] = useState(false);
   const [downloadsError, setDownloadsError] = useState<string | null>(null);
-  const [floating, setFloating] = useState(false);
-  editVisible.current = visible && !floating;
+  editVisible.current = visible;
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [toolsMenu, setToolsMenu] = useState<{ x: number; y: number } | null>(
@@ -374,7 +363,7 @@ function BrowserPaneSession({
   useBrowserDropIndicator(
     host,
     readyId,
-    nativeDropIndicator && visible && !floating && !error,
+    nativeDropIndicator && visible && !error,
   );
   const [nativeAttachment, setNativeAttachment] = useState({
     surfaceId: id,
@@ -411,8 +400,6 @@ function BrowserPaneSession({
     onFaviconChange,
     onAddToChat,
     onFocus,
-    onPictureInPictureChange,
-    onPictureInPictureResult,
   });
   callbacks.current = {
     onNativeReady,
@@ -421,20 +408,17 @@ function BrowserPaneSession({
     onFaviconChange,
     onAddToChat,
     onFocus,
-    onPictureInPictureChange,
-    onPictureInPictureResult,
   };
   const toolbarFocusGeneration = useRef(0);
   const toolbarFocusTarget = useRef<HTMLInputElement | null>(null);
   const browserPageHasNativeFocus = useRef(false);
-  const toolbarPresentation = useRef({ visible, floating });
-  toolbarPresentation.current = { visible, floating };
+  const toolbarPresentation = useRef({ visible });
+  toolbarPresentation.current = { visible };
   const focusShellForToolbar = useCallback((input: HTMLInputElement | null) => {
     if (
       !input ||
       !isTauri() ||
-      !toolbarPresentation.current.visible ||
-      toolbarPresentation.current.floating
+      !toolbarPresentation.current.visible
     )
       return;
     const generation = ++toolbarFocusGeneration.current;
@@ -448,7 +432,6 @@ function BrowserPaneSession({
         if (
           generation !== toolbarFocusGeneration.current ||
           !toolbarPresentation.current.visible ||
-          toolbarPresentation.current.floating ||
           !input.isConnected
         )
           return;
@@ -488,7 +471,7 @@ function BrowserPaneSession({
       document.removeEventListener("focusout", blur, true);
       window.removeEventListener("blur", cancel);
     };
-  }, [visible, floating]);
+  }, [visible]);
   useEffect(() => {
     setEditing(false);
     if (!readyId || !onAddToChat) return;
@@ -572,12 +555,12 @@ function BrowserPaneSession({
     };
   }, [readyId, Boolean(onAddToChat)]);
   useEffect(() => {
-    if ((visible && !floating) || !readyId || !editingActive.current) return;
+    if (visible || !readyId || !editingActive.current) return;
     editingActive.current = false;
     ++editRequest.current;
     setEditing(false);
     void nativeBrowser.edit(readyId, false, editToken.current).catch(() => {});
-  }, [visible, floating, readyId]);
+  }, [visible, readyId]);
   const stopPageEditing = useCallback(() => {
     if (!readyId || !editingActive.current || editStopRequest.current !== null)
       return;
@@ -605,7 +588,7 @@ function BrowserPaneSession({
       });
   }, [readyId]);
   useEffect(() => {
-    if (!editing || !readyId || !visible || floating) return;
+    if (!editing || !readyId || !visible) return;
     const cancel = (event: KeyboardEvent) => {
       if (
         event.key !== "Escape" ||
@@ -622,18 +605,16 @@ function BrowserPaneSession({
     // Escape handler cannot receive that key until the page itself has focus.
     window.addEventListener("keydown", cancel, true);
     return () => window.removeEventListener("keydown", cancel, true);
-  }, [editing, readyId, visible, floating, stopPageEditing]);
-  const presentation = useRef({ visible, error, floating });
-  presentation.current = { visible, error, floating };
+  }, [editing, readyId, visible, stopPageEditing]);
+  const presentation = useRef({ visible, error });
+  presentation.current = { visible, error };
   useEffect(() => {
     setToolsMenu(null);
-  }, [readyId, visible, floating]);
-  const requestedPictureInPicture = useRef(0);
+  }, [readyId, visible]);
   const scheduleLayout = useRef<() => void>(() => {});
   const hasUrl = !!url;
   const focusNewAddress = useRef(!hasUrl);
   const sleepProtection =
-    floating ||
     loading ||
     !!error ||
     editing ||
@@ -641,9 +622,7 @@ function BrowserPaneSession({
     isDetachedWorkspace() ||
     !!toolsMenu ||
     findOpen ||
-    address !== url ||
-    (pictureInPictureRequest > 0 &&
-      pictureInPictureRequest !== requestedPictureInPicture.current);
+    address !== url;
   const memoryState = useRef({ visible, protected: sleepProtection });
   memoryState.current = { visible, protected: sleepProtection };
   useEffect(() => {
@@ -669,10 +648,9 @@ function BrowserPaneSession({
       creationPaused.current = false;
       setRetryGeneration((generation) => generation + 1);
     }
-    if (visible || pictureInPictureRequest || attachedNativeId) void wakePage();
+    if (visible || attachedNativeId) void wakePage();
   }, [
     visible,
-    pictureInPictureRequest,
     attachedNativeId,
     wakePage,
     updatePaused,
@@ -770,7 +748,7 @@ function BrowserPaneSession({
 
   useEffect(() => {
     setToolsMenu(null);
-  }, [readyId, floating]);
+  }, [readyId]);
 
   useEffect(() => {
     const changed = previousSnapshotZoom.current !== zoomFactor;
@@ -825,7 +803,6 @@ function BrowserPaneSession({
     browserPageHasNativeFocus.current = false;
     let nativeTitle = "";
     let nativeFavicon = "";
-    let nativeFloating = false;
     const retireSleepingPage = (pageId: string) => {
       if (disposed || pageId !== nativeId) return;
       terminated = true;
@@ -874,8 +851,6 @@ function BrowserPaneSession({
         editingActive.current = false;
         setHistory({ back: false, forward: false });
         setLoadProgress(null);
-        setFloating(false);
-        if (nativeFloating) callbacks.current.onPictureInPictureChange?.(false);
         setError(
           state.error || "This browser page closed. Retry to reopen it.",
         );
@@ -885,8 +860,7 @@ function BrowserPaneSession({
       if (
         state.focused &&
         !browserPageHasNativeFocus.current &&
-        presentation.current.visible &&
-        !state.floating
+        presentation.current.visible
       )
         callbacks.current.onFocus?.();
       if (state.focused && !browserPageHasNativeFocus.current) {
@@ -894,14 +868,8 @@ function BrowserPaneSession({
         toolbarFocusTarget.current = null;
       }
       browserPageHasNativeFocus.current = !!state.focused;
-      const nextFloating = !!state.floating;
-      setFloating(nextFloating);
       setNativeMenus(state.nativeMenus === true);
       setNativeDropIndicator(state.nativeDropIndicator === true);
-      if (nextFloating) setSnapshot(null);
-      if (nativeFloating && !nextFloating)
-        callbacks.current.onPictureInPictureChange?.(false);
-      nativeFloating = nextFloating;
       if (state.title !== nativeTitle) {
         nativeTitle = state.title;
         callbacks.current.onTitleChange?.(state.title);
@@ -1047,9 +1015,7 @@ function BrowserPaneSession({
     // WK may report itself occluded by the native Chromium child. Presentation
     // belongs to the selected workspace pane; macOS hides minimized windows.
     const isPaused = () =>
-      !presentation.current.visible ||
-      presentation.current.floating ||
-      !!presentation.current.error;
+      !presentation.current.visible || !!presentation.current.error;
     const cancelQueued = () => {
       if (frame !== null) cancelAnimationFrame(frame);
       if (fallback !== null) window.clearTimeout(fallback);
@@ -1424,47 +1390,9 @@ function BrowserPaneSession({
   useLayoutEffect(() => {
     // Overlay captures are temporary backing images, not workspace previews.
     // Release their decoded pixels/base64 once the pane no longer presents them.
-    if (!visible || error || floating) setSnapshot(null);
+    if (!visible || error) setSnapshot(null);
     scheduleLayout.current();
-  }, [visible, error, floating, expanded]);
-
-  useEffect(() => {
-    if (
-      !pictureInPictureRequest ||
-      requestedPictureInPicture.current === pictureInPictureRequest
-    )
-      return;
-    if (!hasUrl) {
-      requestedPictureInPicture.current = pictureInPictureRequest;
-      const notice = "Open a page before using Picture in Picture.";
-      setNotice(notice);
-      callbacks.current.onPictureInPictureResult?.(
-        pictureInPictureRequest,
-        null,
-        notice,
-      );
-      return;
-    }
-    if (!readyId) return;
-    requestedPictureInPicture.current = pictureInPictureRequest;
-    void nativeBrowser
-      .setFloating(readyId, true)
-      .then((label) =>
-        callbacks.current.onPictureInPictureResult?.(
-          pictureInPictureRequest,
-          label,
-        ),
-      )
-      .catch((reason) => {
-        const notice = errorMessage(reason);
-        setNotice(notice);
-        callbacks.current.onPictureInPictureResult?.(
-          pictureInPictureRequest,
-          null,
-          notice,
-        );
-      });
-  }, [pictureInPictureRequest, readyId, hasUrl]);
+  }, [visible, error, expanded]);
 
   useEffect(() => {
     if (!loading || !isTauri()) return;
@@ -1550,7 +1478,7 @@ function BrowserPaneSession({
     action("stop-find");
   };
   const openFind = () => {
-    if (!readyId || floating) return;
+    if (!readyId) return;
     setToolsMenu(null);
     setFindOpen(true);
     findInput.current?.focus();
@@ -1558,7 +1486,7 @@ function BrowserPaneSession({
     focusShellForToolbar(findInput.current);
   };
   useLayoutEffect(() => {
-    if (findOpen && visible && !floating) {
+    if (findOpen && visible) {
       findInput.current?.focus({ preventScroll: true });
       findInput.current?.select();
       // Native toolbar shortcuts already own the window-to-shell handoff.
@@ -1570,7 +1498,7 @@ function BrowserPaneSession({
   }, [findOpen, downloadsOpen]);
 
   useEffect(() => {
-    if (!readyId || !findOpen || !visible || floating) return;
+    if (!readyId || !findOpen || !visible) return;
     const generation = ++findGeneration.current;
     setFindResult(null);
     if (!findText) {
@@ -1597,7 +1525,7 @@ function BrowserPaneSession({
       cancelFindTimer();
       ++findGeneration.current;
     };
-  }, [readyId, findOpen, findText, visible, floating]);
+  }, [readyId, findOpen, findText, visible]);
 
   useEffect(() => {
     if (!readyId) return;
@@ -1606,8 +1534,8 @@ function BrowserPaneSession({
     void nativeBrowser
       .listenToolbar((command) => {
         if (disposed || command.id !== readyId) return;
-        // A grouped PiP return may dock this page before the owning workspace
-        // becomes visible. Preserve its shortcut until that handshake finishes.
+        // A workspace-window return may dock this page before the owning
+        // workspace becomes visible. Preserve its shortcut until that handshake finishes.
         setPendingToolbar({ action: command.action });
       })
       .then((stop) => {
@@ -1622,7 +1550,7 @@ function BrowserPaneSession({
   }, [readyId]);
 
   useEffect(() => {
-    if (!pendingToolbar || !readyId || !visible || floating) return;
+    if (!pendingToolbar || !readyId || !visible) return;
     let disposed = false;
     const command = pendingToolbar;
     setToolsMenu(null);
@@ -1654,7 +1582,7 @@ function BrowserPaneSession({
     return () => {
       disposed = true;
     };
-  }, [pendingToolbar, readyId, visible, floating]);
+  }, [pendingToolbar, readyId, visible]);
 
   useEffect(() => {
     if (!readyId || !downloadsOpen || !visible) return;
@@ -1740,18 +1668,6 @@ function BrowserPaneSession({
         setNotice(`Could not select a page element: ${errorMessage(reason)}`);
       });
   };
-  const changeFloating = (next: boolean) => {
-    if (!readyId) return;
-    void nativeBrowser
-      .setFloating(readyId, next)
-      .catch((reason) => setNotice(errorMessage(reason)));
-  };
-  const showFloating = () => {
-    if (!readyId) return;
-    void nativeBrowser
-      .showFloating(readyId)
-      .catch((reason) => setNotice(errorMessage(reason)));
-  };
   const pickToolAction = (choice: string) => {
     if (!presentation.current.visible) return;
     setToolsMenu(null);
@@ -1763,7 +1679,6 @@ function BrowserPaneSession({
       action(choice);
     if (choice === "chat") addToChat();
     if (choice === "external") openExternal();
-    if (choice === "pip") changeFloating(!floating);
     if (choice === "find") openFind();
     if (choice === "downloads") setDownloadsOpen((open) => !open);
     if (choice === "devtools" && readyId)
@@ -1805,7 +1720,7 @@ function BrowserPaneSession({
       id: "find",
       label: "Find in page",
       shortcut: "⌘F",
-      disabled: !readyId || floating,
+      disabled: !readyId,
     },
     { kind: "item", id: "downloads", label: "Downloads", disabled: !readyId },
     {
@@ -1815,16 +1730,6 @@ function BrowserPaneSession({
       disabled: !readyId,
     },
     { kind: "sep" },
-    ...(isDetachedWorkspace()
-      ? []
-      : [
-          {
-            kind: "item" as const,
-            id: "pip",
-            label: floating ? "Return to workspace" : "Picture in Picture",
-            disabled: !readyId,
-          },
-        ]),
     ...(onAddToChat
       ? [
           {
@@ -1845,7 +1750,7 @@ function BrowserPaneSession({
       data-browser-pane={id}
       onKeyDown={(event) => {
         if ((event.metaKey || event.ctrlKey) && !event.altKey) {
-          if (event.key.toLowerCase() === "f" && readyId && !floating) {
+          if (event.key.toLowerCase() === "f" && readyId) {
             event.preventDefault();
             event.stopPropagation();
             openFind();
@@ -1940,7 +1845,7 @@ function BrowserPaneSession({
               editing ? "Exit edit mode (Esc)" : "Select an element to edit"
             }
             aria-pressed={editing}
-            disabled={!readyId || !url || floating}
+            disabled={!readyId || !url}
             onClick={() => setPageEditing(!editing)}
           >
             {editing ? (
@@ -1963,44 +1868,6 @@ function BrowserPaneSession({
         >
           <ExternalLink size={14} />
         </button>
-        {!isDetachedWorkspace() && (
-          <button
-            type="button"
-            className="browser-icon-button browser-utility"
-            aria-label={
-              floating ? "Return browser to workspace" : "Picture in Picture"
-            }
-            title={floating ? "Return to workspace" : "Picture in Picture"}
-            disabled={!readyId}
-            onClick={() => changeFloating(!floating)}
-          >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 20 20"
-              fill="none"
-              aria-hidden="true"
-            >
-              <rect
-                x="2"
-                y="3"
-                width="16"
-                height="13"
-                rx="2"
-                stroke="currentColor"
-                strokeWidth="1.5"
-              />
-              <rect
-                x="10"
-                y="9"
-                width="6"
-                height="5"
-                rx="1"
-                fill="currentColor"
-              />
-            </svg>
-          </button>
-        )}
         <button
           ref={toolsButton}
           type="button"
@@ -2122,7 +1989,7 @@ function BrowserPaneSession({
           onClose={() => setToolsMenu(null)}
         />
       ) : null}
-      {findOpen && !floating ? (
+      {findOpen ? (
         <div
           className="browser-find-bar"
           role="search"
@@ -2264,7 +2131,7 @@ function BrowserPaneSession({
         </div>
       ) : null}
       <div ref={host} className="browser-native-host">
-        {snapshot && !error && !floating ? (
+        {snapshot && !error ? (
           <img
             className="browser-page-snapshot"
             src={snapshot.src}
@@ -2286,23 +2153,6 @@ function BrowserPaneSession({
               Memory saver released this inactive page. It reloads when
               reopened.
             </p>
-          </div>
-        ) : floating ? (
-          <div
-            className="browser-empty browser-floating-placeholder"
-            role="status"
-          >
-            <span className="browser-empty-mark">↗</span>
-            <strong>Open in Picture in Picture</strong>
-            <p>{error || "This page is open in its floating window."}</p>
-            <div className="browser-empty-actions">
-              <button type="button" onClick={showFloating}>
-                Show window
-              </button>
-              <button type="button" onClick={() => changeFloating(false)}>
-                Return to workspace
-              </button>
-            </div>
           </div>
         ) : error ? (
           <div className="browser-empty" role="status">

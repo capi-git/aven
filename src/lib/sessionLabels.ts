@@ -72,14 +72,22 @@ export function compactModelNames(names: readonly string[]): string {
     : names.map(compactModelName).join(" + ");
 }
 
-export function sessionPaneLabel(session: Session) {
-  const display = sessionDisplayTitle(session.title, session.harness).trim();
+/**
+ * `titleOverride` names the pane by role instead of its conversation title,
+ * e.g. a race agent's "Provider · Model". The model is never repeated when the
+ * headline already contains it.
+ */
+export function sessionPaneLabel(session: Session, titleOverride?: string) {
+  const display = (
+    titleOverride ?? sessionDisplayTitle(session.title, session.harness)
+  ).trim();
   const title = display === "New session" ? "" : display;
   const model = sessionModelName(sessionModelIdentity(session));
   const compact = compactModelName(model);
   return {
     headline: title || compact,
-    model: title && title !== compact ? compact : "",
-    tooltip: title && title !== model ? `${title} · ${model}` : title || model,
+    model: title && !title.includes(compact) ? compact : "",
+    tooltip:
+      title && !title.includes(model) ? `${title} · ${model}` : title || model,
   };
 }

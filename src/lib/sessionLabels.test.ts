@@ -101,6 +101,16 @@ describe("truthful session labels", () => {
     );
   });
 
+  it("names a race agent by role without repeating its model", () => {
+    const racer = session({ title: "Race · Codex · local-model" });
+    expect(sessionPaneLabel(racer, "Codex · local-model")).toEqual({
+      headline: "Codex · local-model",
+      model: "",
+      tooltip: "Codex · local-model",
+    });
+    expect(sessionPaneLabel(racer).model).toBe("");
+  });
+
   it("keeps the running model visible when the composer has a pending provider switch", () => {
     const pending = session({
       harness: "claude",

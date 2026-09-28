@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetHarnessModelOverlays, setHarnessModels } from "../lib/models";
 import { saveTabGroupLabel } from "../lib/tabGroups";
+import { loadMinimizedTabs, saveMinimizedTabs } from "../lib/settings";
 import { projectKey } from "../lib/paths";
 import {
   TitleBar,
@@ -714,7 +715,7 @@ describe("browser tab integration", () => {
   });
 
   it.each(["session", "browser"])(
-    "offers pane combine and Picture in Picture actions for a %s without selecting or closing it",
+    "offers pane combine actions for a %s without selecting or closing it",
     async (kind) => {
       const browser = kind === "browser";
       const id = browser ? "web-a" : "a";
@@ -731,8 +732,6 @@ describe("browser tab integration", () => {
         ],
         onCombineWith: vi.fn(),
         onUnsplit: vi.fn(),
-        onPictureInPicture: vi.fn(),
-        onGroupPictureInPicture: vi.fn(),
       });
       const openMenu = async () =>
         act(async () =>
@@ -764,12 +763,7 @@ describe("browser tab integration", () => {
       await openMenu();
       await pick("Combine all tabs");
       expect(props.onUnsplit).toHaveBeenCalledOnce();
-      await openMenu();
-      await pick("Picture in Picture");
-      expect(props.onPictureInPicture).toHaveBeenCalledExactlyOnceWith(id);
-      await openMenu();
-      await pick("Group Picture in Picture");
-      expect(props.onGroupPictureInPicture).toHaveBeenCalledOnce();
+      expect(labels).not.toContain("Picture in Picture");
       expect(props.onSelect).not.toHaveBeenCalled();
       expect(props.onSelectBrowser).not.toHaveBeenCalled();
       expect(props.onClose).not.toHaveBeenCalled();
@@ -777,7 +771,7 @@ describe("browser tab integration", () => {
     },
   );
 
-  it("hides combine actions in a single pane and omits unavailable Picture in Picture", async () => {
+  it("hides combine actions in a single pane", async () => {
     await render({
       paneLocal: true,
       visibleIds: ["a"],
@@ -796,7 +790,133 @@ describe("browser tab integration", () => {
       document.querySelectorAll('[role="menuitem"]'),
     ).map((item) => item.textContent);
     expect(labels.some((label) => label?.startsWith("Combine"))).toBe(false);
-    expect(labels).not.toContain("Picture in Picture");
+  });
+
+  describe("minimized tabs", () => {
+    beforeEach(() => {
+      const values = new Map<string, string>();
+      vi.stubGlobal("localStorage", {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => void values.set(key, value),
+        removeItem: (key: string) => void values.delete(key),
+      });
+    });
+    afterEach(() => {
+      saveMinimizedTabs(false);
+      vi.useRealTimers();
+    });
+
+    const openMenu = async () =>
+      act(async () =>
+        container.querySelector('[role="tab"]')!.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true }),
+        ),
+      );
+    const minimizedItem = () =>
+      Array.from(
+        document.querySelectorAll<HTMLButtonElement>(
+          '[role="menuitemcheckbox"]',
+        ),
+      ).find((item) => item.textContent?.includes("Minimized tabs"));
+
+    it("turns the setting on and off from the tab menu", async () => {
+      await render({ paneLocal: true });
+      await openMenu();
+      expect(minimizedItem()?.getAttribute("aria-checked")).toBe("false");
+      await act(async () => minimizedItem()!.click());
+      expect(loadMinimizedTabs()).toBe(true);
+      await openMenu();
+      expect(minimizedItem()?.getAttribute("aria-checked")).toBe("true");
+      await act(async () => minimizedItem()!.click());
+      expect(loadMinimizedTabs()).toBe(false);
+    });
+
+    it("shows only the active tab's title and a hover card for the others", async () => {
+      vi.useFakeTimers();
+      await act(async () => saveMinimizedTabs(true));
+      await render({
+        paneLocal: true,
+        tabs: [
+          tab({ id: "a", title: "First task" }),
+          tab({
+            id: "b",
+            title: "Second task",
+            harnesses: ["codex"],
+            needsInput: true,
+          }),
+        ],
+        browserTabs: [
+          { id: "web-a", title: "Preview", url: "http://localhost:5173/" },
+        ],
+        surfaceOrder: ["a", "b", "web-a"],
+        describeTab: (id) => (id === "b" ? "Wants to run the tests" : undefined),
+      });
+      const surface = (id: string) =>
+        container.querySelector<HTMLElement>(`[data-surface-tab-id="${id}"]`)!;
+      expect(surface("a").dataset.minimized).toBeUndefined();
+      expect(surface("b").dataset.minimized).toBe("true");
+      expect(surface("web-a").dataset.minimized).toBe("true");
+      expect(
+        surface("b").querySelector('[role="tab"]')!.getAttribute("title"),
+      ).toBeNull();
+
+      const card = () =>
+        document.querySelector<HTMLElement>('[aria-label="Tab details"]');
+      await act(async () => {
+        surface("b").dispatchEvent(
+          new PointerEvent("pointerover", { bubbles: true }),
+        );
+      });
+      expect(card()).toBeNull();
+      await act(async () => vi.advanceTimersByTime(400));
+      expect(card()?.textContent).toContain("Second task");
+      expect(card()?.textContent).toContain("Needs your input");
+      expect(card()?.textContent).toContain("Wants to run the tests");
+
+      await act(async () => {
+        surface("b").dispatchEvent(
+          new PointerEvent("pointerout", { bubbles: true }),
+        );
+        surface("web-a").dispatchEvent(
+          new PointerEvent("pointerover", { bubbles: true }),
+        );
+      });
+      expect(card()?.textContent).toContain("localhost:5173");
+
+      await act(async () => saveMinimizedTabs(false));
+      expect(surface("b").dataset.minimized).toBeUndefined();
+      expect(card()).toBeNull();
+    });
+  });
+
+  it("names a race tab once and opens its overview on request", async () => {
+    await render({
+      paneLocal: true,
+      tabs: [
+        tab({
+          id: "race",
+          title: "Try new tab designs",
+          harnesses: ["claude", "codex"],
+          race: true,
+        }),
+      ],
+      activeId: "race",
+      onOpenRaceOverview: vi.fn(),
+    });
+    expect(
+      container.querySelector(".personal-title-tab-race"),
+    ).not.toBeNull();
+    await act(async () =>
+      container.querySelector('[role="tab"]')!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true }),
+      ),
+    );
+    const overview = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent === "Open race overview")!;
+    expect(overview).toBeDefined();
+    await act(async () => overview.click());
+    expect(props.onOpenRaceOverview).toHaveBeenCalledExactlyOnceWith("race");
   });
 
   it.each(["session", "browser"])(
@@ -1189,7 +1309,7 @@ describe("browser tab integration", () => {
     );
     expect(marks('[data-surface-tab-id="b"]')).toEqual(["claude"]);
     expect(container.querySelector('[data-surface-tab-id="b"] [data-working="true"]')).toBeNull();
-    expect(marks(".personal-tab-group-handle")).toEqual(["codex", "claude"]);
+    expect(marks(".personal-tab-group-handle")).toEqual([]);
     expect(marks('[data-surface-tab-id="a"]')).toEqual(["codex"]);
     await render({ activeId: "a" });
     expect(marks('[data-surface-tab-id="a"]')).toEqual(["codex"]);
