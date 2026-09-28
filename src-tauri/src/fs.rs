@@ -311,6 +311,66 @@ pub(crate) fn git_worktrees_for(root: &Path) -> Vec<GitWorktree> {
         .collect()
 }
 
+/// Remove another checkout of this repository that is no longer needed. Its
+/// uncommitted files are discarded; a branch that still holds commits the
+/// default branch lacks is kept so that work stays reachable.
+#[tauri::command]
+pub async fn git_worktree_remove(cwd: String, path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        remove_worktree_for(&expand_home(&cwd), &expand_home(&path))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+pub(crate) fn remove_worktree_for(root: &Path, path: &Path) -> Result<(), String> {
+    let copies = git_worktrees_for(root);
+    let copy = copies
+        .iter()
+        .find(|copy| same_entry(Path::new(&copy.path), path))
+        .ok_or("This copy is no longer part of the project.")?;
+    if copy.primary {
+        return Err("The main copy can't be removed.".into());
+    }
+    if copy.current {
+        return Err("The copy that's open here can't be removed.".into());
+    }
+    if copy
+        .branch
+        .as_deref()
+        .is_some_and(|branch| branch.starts_with("aven/race/"))
+    {
+        return Err("Race copies are removed through their race.".into());
+    }
+    let primary = copies
+        .iter()
+        .find(|copy| copy.primary)
+        .map(|copy| PathBuf::from(&copy.path))
+        .unwrap_or_else(|| root.to_path_buf());
+    let output = git_cmd()
+        .arg("--no-pager")
+        .arg("-C")
+        .arg(&primary)
+        .args(["worktree", "remove", "--force", &copy.path])
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if message.is_empty() {
+            "Git could not remove this copy.".into()
+        } else {
+            message
+        });
+    }
+    if let (Some(branch), 0) = (copy.branch.as_deref(), copy.ahead_of_default) {
+        // Git's safe delete still refuses a branch it considers unmerged.
+        let _ = git_run(&primary, &["branch", "-d", branch]);
+    }
+    let _ = git_run(&primary, &["worktree", "prune"]);
+    Ok(())
+}
+
 /// `(path, branch)` for each usable entry of `git worktree list --porcelain`.
 fn parse_worktree_list(text: &str) -> Vec<(String, Option<String>)> {
     text.split("\n\n")
@@ -4368,6 +4428,63 @@ mod tests {
             (copies[1].ahead_of_default, copies[1].behind_default),
             (0, 0)
         );
+    }
+
+    #[test]
+    fn removes_a_finished_copy_and_keeps_branches_with_unmerged_work() {
+        let dir = tmp("git-worktree-remove");
+        let repo = dir.0.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        assert!(git(&repo, &["init", "-q", "-b", "main"]));
+        std::fs::write(repo.join("a.txt"), "one\n").unwrap();
+        assert!(git(&repo, &["add", "."]));
+        assert!(git(&repo, &["commit", "-q", "-m", "first"]));
+        let add = |name: &str| {
+            let copy = dir.0.join(name);
+            assert!(git(
+                &repo,
+                &["worktree", "add", "-q", "-b", name, copy.to_str().unwrap()]
+            ));
+            copy
+        };
+        let branch_exists = |name: &str| {
+            git(
+                &repo,
+                &[
+                    "show-ref",
+                    "--verify",
+                    "--quiet",
+                    &format!("refs/heads/{name}"),
+                ],
+            )
+        };
+
+        // Unsaved files are discarded; a merged branch goes with the folder.
+        let finished = add("finished");
+        std::fs::write(finished.join("scratch.txt"), "draft\n").unwrap();
+        remove_worktree_for(&repo, &finished).unwrap();
+        assert!(!finished.exists());
+        assert!(!branch_exists("finished"));
+
+        // Commits main lacks stay reachable on their branch.
+        let ahead = add("ahead");
+        std::fs::write(ahead.join("b.txt"), "two\n").unwrap();
+        assert!(git(&ahead, &["add", "."]));
+        assert!(git(&ahead, &["commit", "-q", "-m", "second"]));
+        remove_worktree_for(&repo, &ahead).unwrap();
+        assert!(!ahead.exists());
+        assert!(branch_exists("ahead"));
+
+        // The main checkout, the open copy and race copies are refused.
+        assert!(remove_worktree_for(&repo, &repo).is_err());
+        let open = add("open");
+        assert!(remove_worktree_for(&open, &open).is_err());
+        assert!(open.exists());
+        let race = add("aven/race/abc-0");
+        assert!(remove_worktree_for(&repo, &race).is_err());
+        assert!(race.exists());
+        assert!(remove_worktree_for(&repo, &dir.0.join("missing")).is_err());
+        assert_eq!(git_worktrees_for(&repo).len(), 3);
     }
 
     fn git(dir: &Path, args: &[&str]) -> bool {

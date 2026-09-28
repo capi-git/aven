@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
-import { ChevronRight, ExternalLink, GitBranch } from "./icons";
+import { ChevronRight, ExternalLink, GitBranch, Trash2 } from "./icons";
 import { ProviderMarks } from "./ProviderMarks";
 import {
   basename,
   gitWorktrees,
+  notifyGitChanged,
+  removeGitWorktree,
   revealPath,
   subscribeGitChanged,
   type GitWorktree,
 } from "../lib/fs";
-import { raceLaneAtPath } from "../lib/race";
+import { finishRace, raceHost, raceLaneAtPath } from "../lib/race";
 import type { HarnessId } from "../lib/session";
 import "./GitCopies.css";
 
@@ -23,6 +25,8 @@ export type CopySummary = {
   harness?: HarnessId;
   /** No uncommitted files and nothing the default branch lacks. */
   finished: boolean;
+  /** The race this copy is a lane of, if any. */
+  race?: ReturnType<typeof raceLaneAtPath>;
 };
 
 /** Other checkouts of this repository, most in need of attention first. */
@@ -45,6 +49,7 @@ export function summarizeCopies(worktrees: readonly GitWorktree[]): CopySummary[
         detail: race ? race.lane.label : (worktree.branch ?? "Detached"),
         harness: race?.lane.harness,
         finished,
+        race,
       };
     })
     .sort(
@@ -53,6 +58,36 @@ export function summarizeCopies(worktrees: readonly GitWorktree[]): CopySummary[
         b.worktree.aheadOfDefault - a.worktree.aheadOfDefault ||
         Number(a.finished) - Number(b.finished),
     );
+}
+
+/** What removing a copy throws away, for its confirmation. */
+export function removalWarning(copy: CopySummary): string {
+  const { worktree, race } = copy;
+  if (race?.race.state === "running")
+    return `This race is still running. Removing it stops its agents and deletes all ${race.race.lanes.length} of its copies.`;
+  const parts: string[] = [];
+  const files = worktree.files.length;
+  if (files > 0)
+    parts.push(
+      `${files} unsaved ${files === 1 ? "file" : "files"} will be deleted.`,
+    );
+  if (worktree.aheadOfDefault > 0)
+    parts.push(
+      race
+        ? `Its ${worktree.aheadOfDefault} unmerged ${worktree.aheadOfDefault === 1 ? "commit is" : "commits are"} deleted too.`
+        : `Its branch keeps the ${worktree.aheadOfDefault} ${worktree.aheadOfDefault === 1 ? "commit" : "commits"} main doesn't have.`,
+    );
+  return parts.length
+    ? parts.join(" ")
+    : "The folder is deleted. Nothing in it is lost.";
+}
+
+/** Remove a copy the right way: races clean up through their race. */
+export async function removeCopy(cwd: string, copy: CopySummary) {
+  const { race } = copy;
+  if (!race) return removeGitWorktree(cwd, copy.worktree.path);
+  if (race.race.state === "running") return finishRace(race.race, null);
+  return raceHost.cleanup(race.race.root, [race.lane]);
 }
 
 function firstLine(text: string): string {
@@ -123,6 +158,30 @@ function useWorktrees(cwd: string, enabled: boolean): GitWorktree[] {
 export function GitCopies({ cwd, enabled }: { cwd: string; enabled: boolean }) {
   const copies = summarizeCopies(useWorktrees(cwd, enabled));
   const [open, setOpen] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{
+    path: string;
+    message: string;
+  } | null>(null);
+  const remove = async (copy: CopySummary) => {
+    const { path } = copy.worktree;
+    setRemoving(path);
+    setFailure(null);
+    try {
+      await removeCopy(cwd, copy);
+      setConfirming(null);
+      setOpen(null);
+    } catch (error) {
+      setFailure({
+        path,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setRemoving(null);
+      notifyGitChanged();
+    }
+  };
   if (copies.length === 0) return null;
   const waiting = copies.filter((copy) => !copy.finished).length;
   return (
@@ -207,14 +266,65 @@ export function GitCopies({ cwd, enabled }: { cwd: string; enabled: boolean }) {
                     Nothing here that main doesn't have.
                   </p>
                 ) : null}
-                <button
-                  type="button"
-                  className="git-copy-action"
-                  onClick={() => void revealPath(worktree.path)}
-                >
-                  <ExternalLink className="size-3" strokeWidth={1.75} />
-                  Show in Finder
-                </button>
+                {confirming === worktree.path ? (
+                  <div
+                    className="git-copy-confirm"
+                    role="group"
+                    aria-label="Remove this copy?"
+                  >
+                    <p>{removalWarning(copy)}</p>
+                    <div>
+                      <button
+                        type="button"
+                        className="git-copy-action"
+                        data-tone="danger"
+                        disabled={removing === worktree.path}
+                        onClick={() => void remove(copy)}
+                      >
+                        {removing === worktree.path
+                          ? "Removing…"
+                          : "Remove copy"}
+                      </button>
+                      <button
+                        type="button"
+                        className="git-copy-action"
+                        disabled={removing === worktree.path}
+                        onClick={() => setConfirming(null)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="git-copy-actions">
+                    <button
+                      type="button"
+                      className="git-copy-action"
+                      onClick={() => void revealPath(worktree.path)}
+                    >
+                      <ExternalLink className="size-3" strokeWidth={1.75} />
+                      Show in Finder
+                    </button>
+                    {worktree.primary ? null : (
+                      <button
+                        type="button"
+                        className="git-copy-action"
+                        onClick={() => {
+                          setFailure(null);
+                          setConfirming(worktree.path);
+                        }}
+                      >
+                        <Trash2 className="size-3" strokeWidth={1.75} />
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                )}
+                {failure?.path === worktree.path ? (
+                  <p className="git-copy-error" role="alert">
+                    {failure.message}
+                  </p>
+                ) : null}
               </div>
             ) : null}
           </div>

@@ -138,6 +138,33 @@
   background: color-mix(in srgb, var(--color-content) 12%, transparent);
   color: var(--color-content);
 }
+.git-copy-action:disabled {
+  opacity: 0.6;
+}
+.git-copy-action[data-tone="danger"] {
+  background: color-mix(in srgb, var(--color-danger, #e5484d) 18%, transparent);
+  color: var(--color-danger, #ff6b6b);
+}
+.git-copy-action[data-tone="danger"]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-danger, #e5484d) 28%, transparent);
+}
+.git-copy-actions,
+.git-copy-confirm > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.git-copy-confirm {
+  margin-top: 6px;
+}
+.git-copy-confirm > p {
+  margin: 0;
+  color: color-mix(in srgb, var(--color-content) 70%, transparent);
+}
+.git-copy-error {
+  margin-top: 6px;
+  color: var(--color-danger, #ff6b6b);
+}
 
 /* Status card shown instead of the commit box when nothing is uncommitted. */
 .git-status-card {

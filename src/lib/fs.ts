@@ -105,6 +105,15 @@ export function gitWorktrees(cwd: string): Promise<GitWorktree[]> {
   return invoke<GitWorktree[]>("git_worktrees", { cwd });
 }
 
+/**
+ * Delete another checkout of this repository. Its uncommitted files are lost;
+ * a branch holding commits the default branch lacks is kept. Race copies are
+ * refused here and go through their race instead.
+ */
+export function removeGitWorktree(cwd: string, path: string): Promise<void> {
+  return invoke<void>("git_worktree_remove", { cwd, path });
+}
+
 /** File list and counts only, for diff content views that do not need sync data. */
 export function gitDiffFiles(cwd: string): Promise<GitDiffIndex> {
   return invoke<GitDiffIndex>("git_diff_files", { cwd });
