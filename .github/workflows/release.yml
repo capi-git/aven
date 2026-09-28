@@ -1,6 +1,9 @@
-name: Build macOS release candidate
+name: Release Aven
 
-# A reviewed source revision can be published as a Developer ID signed update.
+# One run builds the macOS app and the Windows test installer from the same
+# commit. Publishing creates a single versioned release: the Developer ID
+# signed macOS update is the stable download, and the Windows installer is
+# attached as a clearly named test package.
 on:
   workflow_dispatch:
     inputs:
@@ -8,6 +11,10 @@ on:
         description: Publish this reviewed version to Aven's update channel
         type: boolean
         default: false
+      windows:
+        description: Build and attach the Windows test installer
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -81,9 +88,18 @@ jobs:
         if: ${{ always() }}
         run: python3 -B scripts/ci-signing-keychain.py --cleanup
 
+  windows:
+    if: inputs.windows
+    uses: ./.github/workflows/windows-candidate.yml
+
   publish:
-    if: inputs.publish
-    needs: macos-arm64
+    # Windows is optional, but when requested it must succeed before anything
+    # is published, so a version never ships with half its downloads.
+    if: >-
+      ${{ !cancelled() && inputs.publish &&
+      needs.macos-arm64.result == 'success' &&
+      (needs.windows.result == 'success' || (!inputs.windows && needs.windows.result == 'skipped')) }}
+    needs: [macos-arm64, windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -93,6 +109,11 @@ jobs:
         with:
           name: Aven-macos-arm64-candidate
           path: release
+      - uses: actions/download-artifact@v4
+        if: inputs.windows
+        with:
+          name: Aven-windows-x64-test
+          path: windows
       - name: Publish signed Aven release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -118,10 +139,33 @@ jobs:
               raise SystemExit('Refusing to publish an unverified signing identity.')
           PY
           # Never attach a new binary to a tag that points at different source.
-          if git ls-remote --exit-code --tags origin "refs/tags/v$task_version" > /dev/null 2>&1; then
-            echo "Version tag already exists; choose a new release version." >&2
-            exit 1
+          task_tag_status=0
+          git ls-remote --exit-code --tags origin "refs/tags/v$task_version" > /dev/null 2>&1 || task_tag_status=$?
+          case "$task_tag_status" in
+            2) ;; # Only a successful lookup with no matching ref permits publication.
+            0)
+              echo "Version tag already exists; choose a new release version." >&2
+              exit 1
+              ;;
+            *)
+              echo "Could not verify whether the release tag exists (Git exit $task_tag_status); refusing to publish." >&2
+              exit 1
+              ;;
+          esac
+          task_notes="Aven $task_version for Apple Silicon Macs. The app is Developer ID signed and updates are signed by Aven. This build is not Apple-notarized. See CHANGELOG.md for changes."
+          task_windows_dir="windows/Aven-$task_version-windows-x64-test"
+          if [ -d "$task_windows_dir" ]; then
+            # The package keeps its own checksums; the release list covers the
+            # ZIP and installer so every attached file is verifiable.
+            (cd "$task_windows_dir" && sha256sum -c SHA256SUMS)
+            grep -q "Source commit: $GITHUB_SHA" "$task_windows_dir/README.md"
+            (cd windows && zip -qr "../$task_release_dir/Aven-$task_version-windows-x64-test.zip" "Aven-$task_version-windows-x64-test")
+            cp "$task_windows_dir"/*-setup.exe "$task_release_dir/"
+            (cd "$task_release_dir" && sha256sum "Aven-$task_version-windows-x64-test.zip" *-setup.exe >> SHA256SUMS && sha256sum -c SHA256SUMS)
+            task_notes="$task_notes
+
+          Windows x64 test build: the ZIP and setup file are unsigned test downloads built from the same commit. Windows may warn about an unknown publisher, and Windows builds do not update automatically. See docs/WINDOWS-TESTING.md."
           fi
           gh release create "v$task_version" "$task_release_dir"/* --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" --title "Aven $task_version" --latest \
-            --notes "Aven $task_version for Apple Silicon Macs. The app is Developer ID signed and updates are signed by Aven. This build is not Apple-notarized. See CHANGELOG.md for changes."
+            --notes "$task_notes"

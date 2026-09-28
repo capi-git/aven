@@ -1,6 +1,6 @@
 # Releasing Aven
 
-Stable Aven releases target Apple Silicon Macs running macOS 13 or later. The release build now requires Developer ID signing with the team and bundle identity in `scripts/release-signing.json`; it never silently falls back to ad-hoc signing. Apple notarization is a separate step and is not yet part of this script. Published macOS builds through 0.1.107 were ad-hoc signed. From 0.1.80 onward, Aven checks this repository's release feed and downloads cryptographically signed updates automatically; users choose when to restart. Windows x64 test builds are published separately as prereleases. Linux and Intel Mac release builds are not currently provided or verified.
+Stable Aven releases target Apple Silicon Macs running macOS 13 or later. The release build now requires Developer ID signing with the team and bundle identity in `scripts/release-signing.json`; it never silently falls back to ad-hoc signing. Apple notarization is a separate step and is not yet part of this script. Published macOS builds through 0.1.107 were ad-hoc signed. From 0.1.80 onward, Aven checks this repository's release feed and downloads cryptographically signed updates automatically; users choose when to restart. Windows x64 test builds are attached to the same release as unsigned test downloads. Linux and Intel Mac release builds are not currently provided or verified.
 
 ## Prepare a candidate
 
@@ -41,32 +41,33 @@ Extract the final ZIP and exercise that app before sharing it. At minimum, verif
 
 Check the download on a second Mac or clean macOS account when possible. In release notes, distinguish checks that ran from anything still unverified. Do not claim broad platform or website compatibility from one local launch.
 
-## Build in GitHub Actions
+## Release from GitHub Actions
 
-The **Build macOS release candidate** workflow is started manually with `workflow_dispatch`. It uses `macos-15`, currently documented by GitHub as an arm64 runner, and asserts the architecture before building. It downloads the pinned CEF archive over HTTPS, verifies the fixed SHA-256, and runs the same release script. See [GitHub's runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+Releases go through one manually started workflow, **Release Aven** (`.github/workflows/release.yml`). Start it from the repository's Actions tab or from the **Release** card in Aven's Changes panel. It builds whatever is on GitHub's `main`, so merge and push first.
 
-A normal run uploads **Aven-macos-arm64-candidate** as a workflow artifact and does not publish. For a reviewed source revision, select the **Publish** workflow input. The build then signs the complete archive using the repository's `TAURI_SIGNING_PRIVATE_KEY` secret (and optional password secret); a separate job creates a versioned stable GitHub release. Only that publishing job receives repository write permission. The version must not already exist. Workflow artifacts expire; GitHub Releases is the public distribution channel.
+1. Merge the changes for this release into `main` through pull requests.
+2. On a release branch, run `npm run set-version -- <version>`, add the matching `CHANGELOG.md` entry, and merge that through a pull request too.
+3. Run **Release Aven** with **Publish** selected. Leave **Windows** selected to include the Windows test build.
 
-Every macOS workflow run requires two GitHub Actions secrets: `APPLE_DEVELOPER_ID_P12_BASE64`, containing an encrypted PKCS#12 export of the intended Developer ID identity, and `APPLE_DEVELOPER_ID_P12_PASSWORD`. These are independent of the Tauri updater key. Missing or invalid Apple signing secrets stop the build before compiling. Import uses a temporary runner keychain, restricts signing to the configured team, and deletes the decoded certificate archive and temporary keychain. The helper temporarily adds that keychain to the disposable runner's search list so macOS can resolve the certificate chain, then restores the original ordered list during cleanup. It never changes the default keychain or existing keys. Do not put the certificate export, passwords, or Keychain files in logs or workflow artifacts. The publish job also requires the checksummed Developer ID verification report; an ad-hoc candidate cannot be published through this workflow.
+One run builds the macOS app and the Windows test installer from the same commit. The macOS job uses `macos-15`, currently documented by GitHub as an arm64 runner, asserts the architecture, downloads and verifies the pinned CEF archive, and runs the same release script. See [GitHub's runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners). The Windows job reuses **Build Windows test installer**: web checks, native Windows tests, an NSIS installer, and an install-and-launch check on a Windows runner.
 
-The separate frontend CI runs on pull requests and main-branch pushes with Node.js 22. It does not replace the macOS candidate build or native interaction checks.
+Without **Publish**, the run uploads **Aven-macos-arm64-candidate** and **Aven-windows-x64-test** as workflow artifacts for review and publishes nothing. With **Publish**, the macOS job also signs the complete update archive with the repository's `TAURI_SIGNING_PRIVATE_KEY` secret (and optional password secret). A separate publishing job, the only one with repository write permission, then creates a single `v<version>` release:
 
-## Publish a Windows test build
+- The Developer ID signed macOS ZIP, `.app.tar.gz`, `.sig` and `latest.json` are the stable download and update. The release is marked latest.
+- `Aven-<version>-windows-x64-test.zip` and the setup `.exe` are attached as unsigned Windows test downloads. The ZIP keeps its own payload checksums. Windows builds have automatic updates disabled, and `latest.json` only describes macOS.
+- The release `SHA256SUMS` covers every attached file.
 
-The **Build Windows test installer** workflow (`.github/workflows/windows-candidate.yml`) is available from the repository's Actions tab. Choose **Run workflow** and select the source branch to build. It runs web checks and native Windows tests, builds an NSIS installer, and installs and launches that installer on a Windows runner. It produces artifacts without publishing them.
+Publishing waits for every requested platform, so a version never ships with half its downloads. If the Windows job fails, rerun it or run the release again without **Windows**. The version must not already exist; the workflow refuses to reuse a tag. Workflow artifacts expire; GitHub Releases is the public distribution channel. Do not upload build logs, runner screenshots, or smoke JSON as release assets; they may contain local paths. The Windows startup evidence stays in the workflow's diagnostic artifacts.
 
-To publish a successful run:
+Every macOS run requires two GitHub Actions secrets: `APPLE_DEVELOPER_ID_P12_BASE64`, containing an encrypted PKCS#12 export of the intended Developer ID identity, and `APPLE_DEVELOPER_ID_P12_PASSWORD`. These are independent of the Tauri updater key. Missing or invalid Apple signing secrets stop the build before compiling. Import uses a temporary runner keychain, restricts signing to the configured team, and deletes the decoded certificate archive and temporary keychain. The helper temporarily adds that keychain to the disposable runner's search list so macOS can resolve the certificate chain, then restores the original ordered list during cleanup. It never changes the default keychain or existing keys. Do not put the certificate export, passwords, or Keychain files in logs or workflow artifacts. The publish job also requires the checksummed Developer ID verification report; an ad-hoc candidate cannot be published through this workflow.
 
-1. Download **Aven-windows-x64-test** and **Aven-windows-startup-evidence**. Confirm both jobs succeeded, inspect `windows-smoke-results.json` and the screenshot, and verify the package's `SHA256SUMS`.
-2. Read the exact source commit appended to the package's `README.md`. Create a GitHub prerelease tag for that commit, such as `v0.1.103-windows-test.1`. Never attach the Windows binary to a macOS version tag that points to different source.
-3. Package the complete `Aven-<version>-windows-x64-test` directory as a ZIP. Attach that ZIP, the setup `.exe`, `README.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.txt`, and a release-level `SHA256SUMS` covering all six assets. The ZIP retains its own payload checksums.
-4. Mark the release **Prerelease**, and do not mark it as the latest stable release. The macOS updater uses the latest stable release; Windows test builds have automatic updates disabled.
-5. State the exact source commit, successful workflow run, tested Windows runner, unsigned-installer status, and remaining manual checks in the release notes. Installation and startup checks do not establish provider authentication or interactive feature coverage.
-6. Download the published assets and verify their checksums against the reviewed files. Update the Windows download link in the repository's README to the published prerelease.
+The README's download links point at `releases/latest`, so a release needs no follow-up commit. Use the verified personal GitHub account for this repository (`ghp` locally), as required by the account-routing instructions, and inspect the remote and account identity immediately before publishing.
 
-Use the verified personal GitHub account for this repository (`ghp` locally), as required by the account-routing instructions. Inspect the remote and account identity immediately before publishing. Do not upload build logs, runner screenshots, or smoke JSON as distributable assets; they may contain local paths. Keep them in the workflow's diagnostic artifacts.
+The separate frontend CI runs on pull requests and main-branch pushes with Node.js 22. It does not replace the release build or native interaction checks.
 
-The current Windows test build is [Aven 0.1.106 Windows test 1](https://github.com/capi-git/aven/releases/tag/v0.1.106-windows-test.1). See [WINDOWS-TESTING.md](WINDOWS-TESTING.md) for installation, source-build commands, and feature limitations.
+## Windows test builds on their own
+
+Run **Build Windows test installer** from the Actions tab to check a branch on Windows without releasing. It produces the same **Aven-windows-x64-test** package and startup evidence as artifacts and publishes nothing. Releases through 0.1.106 published Windows builds separately as `v<version>-windows-test.N` prereleases; later versions attach them to the main release instead. See [WINDOWS-TESTING.md](WINDOWS-TESTING.md) for installation, source-build commands, and feature limitations.
 
 ## Publish manually
 

@@ -9,6 +9,7 @@ import {
   FileDiff,
   FolderTree,
   GitBranch,
+  GitMerge,
   GitPullRequest,
   ListBullet,
   Loader,
@@ -70,6 +71,8 @@ import { MOD } from "../lib/platform";
 import { applyProjectDiffStats } from "../hooks/useProjectDiffStats";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { GitCopies } from "./GitCopies";
+import { GitHousekeeping } from "./GitHousekeeping";
+import { gitPrSquashMerge } from "../lib/gitHousekeeping";
 
 const GIT_POLL_MS = 2000;
 
@@ -458,6 +461,27 @@ function ChangedFiles({
     await openInAppUrl(url.trim());
   };
 
+  const mergePr = async () => {
+    if (!hasOpenPr || !pr || busy) return;
+    const base = index?.defaultBranch ?? "the default branch";
+    const ok = await confirmNative(
+      `Squash and merge PR #${pr.number} into ${base}? Its commits become one commit, and GitHub deletes the branch afterwards.`,
+      "Squash and merge",
+    );
+    if (!ok) return;
+    setBusy("merge");
+    try {
+      await gitPrSquashMerge(cwd, pr.number);
+      onMutated();
+      notifyGitChanged();
+      reloadPr();
+    } catch (error) {
+      fail(error);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const createPr = async () => {
     if (!canCreatePr) return;
     if (!(await confirmDefault("pr"))) return;
@@ -575,6 +599,7 @@ function ChangedFiles({
             canViewPr={canViewPr}
             onSync={() => void sync()}
             onCreatePr={() => void createPr()}
+            onMergePr={() => void mergePr()}
             onViewPr={() => {
               if (pr?.url) void openInAppUrl(pr.url);
             }}
@@ -675,6 +700,7 @@ function ChangedFiles({
           </>
         )}
         <GitCopies cwd={cwd} enabled={enabled} />
+        <GitHousekeeping cwd={cwd} enabled={enabled} />
       </div>
     </aside>
   );
@@ -806,6 +832,7 @@ function GitSyncActions({
   canViewPr,
   onSync,
   onCreatePr,
+  onMergePr,
   onViewPr,
 }: {
   index: GitDiffIndex;
@@ -820,6 +847,7 @@ function GitSyncActions({
   canViewPr: boolean;
   onSync: () => void;
   onCreatePr: () => void;
+  onMergePr: () => void;
   onViewPr: () => void;
 }) {
   if (!hasRemote) return null;
@@ -928,6 +956,29 @@ function GitSyncActions({
           <span className="min-w-0 truncate">
             {pr?.number ? `View PR #${pr.number}` : "View PR"}
           </span>
+        </button>
+      ) : null}
+      {showViewPr ? (
+        <button
+          type="button"
+          title={
+            index.defaultBranch
+              ? `Squash this pull request into one commit on ${index.defaultBranch}`
+              : "Squash and merge this pull request"
+          }
+          disabled={!!busy}
+          onClick={onMergePr}
+          className={secondary}
+        >
+          {busy === "merge" ? (
+            <Loader
+              className="size-3.5 shrink-0 animate-spin"
+              strokeWidth={1.75}
+            />
+          ) : (
+            <GitMerge className="size-3.5 shrink-0" strokeWidth={1.75} />
+          )}
+          <span className="min-w-0 truncate">Squash and merge</span>
         </button>
       ) : null}
     </div>
