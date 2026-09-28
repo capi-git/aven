@@ -1,5 +1,12 @@
 # Aven changelog
 
+## [0.1.107] - 2026-09-28
+
+### Tab menus open from their tab
+
+- Right-clicking a tab or a group's label now opens its menu directly beneath that tab instead of at the pointer, so the menu no longer appears away from the tab you clicked.
+- **Minimized tabs** is back on each tab's right-click menu. It also stays on the menu for empty tab-bar space and in Settings › General.
+
 ## [0.1.106] - 2026-09-28
 
 ### A Changes panel that shows where work is happening
