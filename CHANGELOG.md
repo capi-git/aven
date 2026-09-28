@@ -1,5 +1,15 @@
 # Aven changelog
 
+## [0.1.104] - 2026-09-28
+
+### Compact tabs, minimized tabs and one tab per Race
+
+- Tabs are shorter and only as wide as their titles. The tab you're on gets the most room, and a crowded strip shortens titles before it scrolls. The "N tabs" label on split groups is gone; the group's drag grip appears only while the pointer is over the tab bar.
+- New **Minimized tabs** setting in Settings › General, also available from any tab's right-click menu. Every tab except the one you're on shows only its icon. Hover an icon for a card with its title, project, model, status (working or needs your input) and latest reply, or a browser page's address.
+- A Race now shows as one tab named after your prompt, with a flag icon and each agent's mark. Agent panes are labelled "Provider · Model" without repeating the model. The Race overview no longer opens automatically; right-click the Race tab and choose **Open race overview**.
+- Picture in Picture has been removed from tab menus and the browser toolbar. To keep work on screen, move a tab or group to its own window instead.
+- Windows test builds now include the WebView2 license notices, keep their window controls visible in every workspace, and verify installer checksums. Windows builds remain unsigned test prereleases.
+
 ## [0.1.103] - 2026-09-27
 
 ### Cleaner tabs and reliable Race handoffs
