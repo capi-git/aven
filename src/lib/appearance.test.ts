@@ -137,13 +137,13 @@ function mockLocalStorage() {
 describe("Aven appearance defaults", () => {
   beforeEach(mockLocalStorage);
 
-  it("uses a dark, opaque monochrome default without writing legacy settings", () => {
+  it("follows the system with a translucent glass default without writing legacy settings", () => {
     expect(loadThemeHue()).toBe(207);
     expect(loadThemeSaturation()).toBe(0);
-    expect(loadThemePreference()).toBe("dark");
-    expect(loadSidebarOpacity()).toBe(1);
-    expect(loadSidebarBlur()).toBe(0);
-    expect(loadBodyGlass()).toBe(false);
+    expect(loadThemePreference()).toBe("system");
+    expect(loadSidebarOpacity()).toBe(0.66);
+    expect(loadSidebarBlur()).toBe(54);
+    expect(loadBodyGlass()).toBe(true);
     expect(hasLegacyAppearancePreferences()).toBe(false);
     expect(localStorage.length).toBe(0);
   });
@@ -297,9 +297,9 @@ describe("theme preference setting", () => {
     Reflect.deleteProperty(globalThis, "window");
   });
 
-  it("defaults to dark", () => {
-    expect(THEME_PREFERENCE_DEFAULT).toBe("dark");
-    expect(loadThemePreference()).toBe("dark");
+  it("defaults to following the system", () => {
+    expect(THEME_PREFERENCE_DEFAULT).toBe("system");
+    expect(loadThemePreference()).toBe("system");
   });
 
   it("persists each preference", () => {
@@ -311,8 +311,11 @@ describe("theme preference setting", () => {
   });
 
   it("ignores unknown stored values", () => {
-    localStorage.setItem(SCHEME_KEY, "solarized");
     expect(loadThemePreference()).toBe(THEME_PREFERENCE_DEFAULT);
+    localStorage.setItem(SCHEME_KEY, "solarized");
+    // Any stored standalone preference marks an older install, which keeps
+    // the dark default it had before "system" became the default.
+    expect(loadThemePreference()).toBe("dark");
   });
 
   it("resolves system against the OS appearance", () => {

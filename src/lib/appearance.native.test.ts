@@ -16,6 +16,14 @@ vi.mock("@tauri-apps/api/window", () => {
   return { getCurrentWindow: vi.fn(() => nativeWindow) };
 });
 let appearance: typeof import("./appearance");
+let systemQuery: ReturnType<typeof vi.spyOn> | undefined;
+/** The default preference follows the system; pin it per test. */
+function systemScheme(scheme: "dark" | "light") {
+  systemQuery = vi.spyOn(window, "matchMedia").mockReturnValue({
+    matches: scheme === "light",
+    addEventListener: vi.fn(),
+  } as unknown as MediaQueryList);
+}
 
 describe("native workspace transparency", () => {
   beforeEach(async () => {
@@ -33,21 +41,59 @@ describe("native workspace transparency", () => {
     document.documentElement.style.cssText = "";
     appearance = await import("./appearance");
   });
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    systemQuery?.mockRestore();
+    systemQuery = undefined;
+    vi.unstubAllGlobals();
+  });
 
-  it("paints Aven before the first workspace render with opaque readable surfaces", () => {
+  it("paints Aven glass before the first workspace render and reveals the desktop only once activated", async () => {
+    systemScheme("dark");
     appearance.initAppearance();
     const style = document.documentElement.style;
-    expect(style.getPropertyValue("--theme-background-color")).toBe("#0a0a0a");
-    expect(style.getPropertyValue("--theme-accent-color")).toBe("#f5f5f5");
-    expect(style.getPropertyValue("--theme-highlight-color")).toBe("#a3a3a3");
-    expect(style.getPropertyValue("--sidebar-opacity")).toBe("1");
+    expect(style.getPropertyValue("--theme-background-color")).toBe("#000000");
+    expect(style.getPropertyValue("--theme-content-color")).toBe("#ffffff");
+    expect(style.getPropertyValue("--theme-accent-color")).toBe("#57b5ff");
+    expect(style.getPropertyValue("--theme-highlight-color")).toBe("#57b5ff");
+    expect(style.getPropertyValue("--sidebar-opacity")).toBe("0.66");
     expect(document.documentElement.classList.contains("glass-body")).toBe(
-      false,
+      true,
     );
     expect(document.documentElement.classList.contains("theme-light")).toBe(
       false,
     );
+    // The window stays opaque until the first frame is ready.
+    expect(vi.mocked(invoke).mock.calls).toEqual([
+      ["set_window_background_blur", { radius: 54 }],
+    ]);
+    appearance.activateWindowAppearance();
+    await Promise.resolve();
+    expect(invoke).toHaveBeenLastCalledWith("set_window_glass_enabled", {
+      enabled: true,
+    });
+    expect(getCurrentWindow().setBackgroundColor).not.toHaveBeenCalled();
+  });
+
+  it("follows a light system with an opaque, readable Aven light window", async () => {
+    systemScheme("light");
+    appearance.initAppearance();
+    const style = document.documentElement.style;
+    expect(document.documentElement.classList.contains("theme-light")).toBe(
+      true,
+    );
+    expect(style.getPropertyValue("--theme-background-color")).toBe("#ffffff");
+    expect(style.getPropertyValue("--theme-content-color")).toBe("#000000");
+    expect(style.getPropertyValue("--theme-accent-color")).toBe("#0a0a0a");
+    expect(style.getPropertyValue("--theme-highlight-color")).toBe("#737373");
+    appearance.activateWindowAppearance();
+    await vi.waitFor(() => {
+      expect(getCurrentWindow().setBackgroundColor).toHaveBeenLastCalledWith(
+        "#ffffff",
+      );
+    });
+    expect(invoke).toHaveBeenCalledWith("set_window_glass_enabled", {
+      enabled: false,
+    });
   });
 
   it("keeps explicit legacy tint and transparency on the initial frame", () => {
@@ -91,12 +137,13 @@ describe("native workspace transparency", () => {
   });
 
   it("keeps the window opaque until a setting reveals the desktop", async () => {
+    appearance.applySidebarOpacity(1);
     appearance.applyThemePreference("dark");
     expect(invoke).not.toHaveBeenCalled();
     appearance.activateWindowAppearance();
     await vi.waitFor(() => {
       expect(getCurrentWindow().setBackgroundColor).toHaveBeenLastCalledWith(
-        "#0a0a0a",
+        "#000000",
       );
     });
     appearance.applySidebarBlur(12);
@@ -122,6 +169,7 @@ describe("native workspace transparency", () => {
   });
 
   it("repaints an opaque window when the theme background changes", async () => {
+    appearance.applySidebarOpacity(1);
     appearance.applyThemePreference("dark");
     appearance.activateWindowAppearance();
     await vi.waitFor(() => {
@@ -158,18 +206,19 @@ describe("native workspace transparency", () => {
     expect(localStorage.getItem("monocode.sidebarOpacity")).toBe("0.4");
   });
 
-  it("defaults to zero blur and only sends native blur when its value changes", () => {
-    expect(appearance.loadSidebarBlur()).toBe(0);
-    expect(appearance.loadSidebarOpacity()).toBe(1);
-    expect(appearance.loadBodyGlass()).toBe(false);
-    appearance.applySidebarBlur(0);
-    appearance.applySidebarBlur(0);
+  it("defaults to glass blur and only sends native blur when its value changes", () => {
+    expect(appearance.loadSidebarBlur()).toBe(54);
+    expect(appearance.loadSidebarOpacity()).toBe(0.66);
+    expect(appearance.loadBodyGlass()).toBe(true);
+    appearance.applySidebarBlur(appearance.loadSidebarBlur());
+    appearance.applySidebarBlur(appearance.loadSidebarBlur());
     appearance.applySidebarOpacity(0.6);
     appearance.applyBodyGlass(false);
     appearance.applySidebarBlur(12);
     appearance.applySidebarBlur(0);
+    appearance.applySidebarBlur(0);
     expect(vi.mocked(invoke).mock.calls).toEqual([
-      ["set_window_background_blur", { radius: 0 }],
+      ["set_window_background_blur", { radius: 54 }],
       ["set_window_background_blur", { radius: 12 }],
       ["set_window_background_blur", { radius: 0 }],
     ]);
@@ -183,9 +232,14 @@ describe("native workspace transparency", () => {
     expect(invoke).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps unsupported platforms opaque while preserving stored glass settings", async () => {
+  it("keeps unsupported platforms opaque, including with the glass defaults, while preserving stored glass settings", async () => {
     platform.HAS_NATIVE_GLASS = false;
     platform.IS_MAC = false;
+    expect(appearance.applyBodyGlass(appearance.loadBodyGlass())).toBe(false);
+    expect(appearance.applySidebarOpacity(appearance.loadSidebarOpacity())).toBe(
+      1,
+    );
+    appearance.applySidebarBlur(appearance.loadSidebarBlur());
     localStorage.setItem("monocode.bodyGlass", "1");
     expect(appearance.loadBodyGlass()).toBe(true);
     expect(appearance.applyBodyGlass(true)).toBe(false);
@@ -195,7 +249,7 @@ describe("native workspace transparency", () => {
     appearance.activateWindowAppearance();
     await vi.waitFor(() => {
       expect(getCurrentWindow().setBackgroundColor).toHaveBeenLastCalledWith(
-        "#0a0a0a",
+        "#000000",
       );
     });
     expect(invoke).toHaveBeenCalledWith("set_window_glass_enabled", {

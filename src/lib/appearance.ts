@@ -37,10 +37,28 @@ export type TranscriptLayout = "full" | "chat";
 export type ChatBackgroundScope = "empty" | "all";
 export type ChangesView = "list" | "tree";
 
-export const THEME_PREFERENCE_DEFAULT: ThemePreference = "dark";
+export const THEME_PREFERENCE_DEFAULT: ThemePreference = "system";
+/** Older standalone preferences predate the glass default; unsaved ones keep
+ *  the opaque dark look those installs had. */
+const LEGACY_THEME_PREFERENCE_DEFAULT: ThemePreference = "dark";
 
-/** Aven's monochrome default. Saved workspace palettes remain independent. */
+/** Aven's default: black glass with a blue accent in dark mode, white and
+ *  near-black in light mode. Saved workspace palettes remain independent. */
 export const AVEN_THEME_COLORS = {
+  dark: {
+    background: "#000000",
+    accent: "#57b5ff",
+    highlight: "#57b5ff",
+  },
+  light: {
+    background: "#ffffff",
+    accent: "#0a0a0a",
+    highlight: "#737373",
+  },
+} satisfies Record<ColorScheme, Record<ThemeColorTarget, string>>;
+
+/** The former monochrome default, kept selectable; saved colors are not rewritten. */
+export const MONO_THEME_COLORS = {
   dark: {
     background: "#0a0a0a",
     accent: "#f5f5f5",
@@ -118,17 +136,20 @@ export const SKY_THEME_SATURATION = 16;
 
 export const SIDEBAR_OPACITY_MIN = 0.05;
 export const SIDEBAR_OPACITY_MAX = 1;
-export const SIDEBAR_OPACITY_DEFAULT = 1;
+export const SIDEBAR_OPACITY_DEFAULT = 0.66;
+const LEGACY_SIDEBAR_OPACITY_DEFAULT = 1;
 
 export const SIDEBAR_BLUR_MIN = 0;
 export const SIDEBAR_BLUR_MAX = 64;
-export const SIDEBAR_BLUR_DEFAULT = 0;
+export const SIDEBAR_BLUR_DEFAULT = 54;
+const LEGACY_SIDEBAR_BLUR_DEFAULT = 0;
 
 export const PROJECT_RAIL_WIDTH_MIN = 180;
 export const PROJECT_RAIL_WIDTH_MAX = 360;
 export const PROJECT_RAIL_WIDTH_DEFAULT = 200;
 
-export const BODY_GLASS_DEFAULT = false;
+export const BODY_GLASS_DEFAULT = true;
+const LEGACY_BODY_GLASS_DEFAULT = false;
 
 export const CHAT_BACKGROUND_OPACITY_MIN = 0.05;
 export const CHAT_BACKGROUND_OPACITY_MAX = 0.65;
@@ -331,7 +352,10 @@ function isThemePreference(value: unknown): value is ThemePreference {
 export function loadThemePreference(): ThemePreference {
   try {
     const raw = localStorage.getItem(SCHEME_KEY);
-    return isThemePreference(raw) ? raw : THEME_PREFERENCE_DEFAULT;
+    if (isThemePreference(raw)) return raw;
+    return hasLegacyAppearancePreferences()
+      ? LEGACY_THEME_PREFERENCE_DEFAULT
+      : THEME_PREFERENCE_DEFAULT;
   } catch {
     return THEME_PREFERENCE_DEFAULT;
   }
@@ -450,7 +474,10 @@ export function watchSystemColorScheme() {
 
 export function loadSidebarOpacity(): number {
   return clamp(
-    readNumber(OPACITY_KEY) ?? SIDEBAR_OPACITY_DEFAULT,
+    readNumber(OPACITY_KEY) ??
+      (hasLegacyAppearancePreferences()
+        ? LEGACY_SIDEBAR_OPACITY_DEFAULT
+        : SIDEBAR_OPACITY_DEFAULT),
     SIDEBAR_OPACITY_MIN,
     SIDEBAR_OPACITY_MAX,
   );
@@ -476,7 +503,10 @@ export function applySidebarOpacity(value: number) {
 export function loadSidebarBlur(): number {
   return Math.round(
     clamp(
-      readNumber(BLUR_KEY) ?? SIDEBAR_BLUR_DEFAULT,
+      readNumber(BLUR_KEY) ??
+        (hasLegacyAppearancePreferences()
+          ? LEGACY_SIDEBAR_BLUR_DEFAULT
+          : SIDEBAR_BLUR_DEFAULT),
       SIDEBAR_BLUR_MIN,
       SIDEBAR_BLUR_MAX,
     ),
@@ -504,7 +534,12 @@ export function applySidebarBlur(value: number) {
 
 export function loadBodyGlass(): boolean {
   // Preserve the preference during migration even on a platform without glass.
-  return readFlag(BODY_KEY) ?? BODY_GLASS_DEFAULT;
+  return (
+    readFlag(BODY_KEY) ??
+    (hasLegacyAppearancePreferences()
+      ? LEGACY_BODY_GLASS_DEFAULT
+      : BODY_GLASS_DEFAULT)
+  );
 }
 
 export function saveBodyGlass(value: boolean) {

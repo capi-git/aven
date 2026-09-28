@@ -28,6 +28,6 @@ Avoid a repository-wide text replacement: it can break existing sessions or bund
 
 ## Mark and default theme
 
-Aven's default workspace theme is monochrome: near-black and white in dark mode, white and near-black in light mode, with no tint. The former sky-blue default remains selectable as **Sky**; saved workspace themes are never rewritten.
+Aven's default workspace theme follows the system appearance. In dark mode it is black glass with a blue accent (`#57b5ff`): translucent panels at 66% opacity with a strong blur, so the desktop shows through on Macs with native glass; other platforms and light mode stay opaque. Light mode is white and near-black with no tint. The former monochrome default remains selectable as **Mono** and the sky-blue one as **Sky**. Installs that already saved appearance settings keep their opaque look; saved workspace themes are never rewritten.
 
 The mark is a white line chevron on a charcoal glass tile: a soft top-to-bottom gradient, a sheen and a rim that catch light along the top, and a faint glow behind the glyph, in the style of macOS dark icons. `scripts/render-brand-icons.py` renders the interface marks, the Icon Composer glyph layer and a 1024 px app icon source; regenerate bundle icons from that source with `npx tauri icon target/brand/app-icon-1024.png -o src-tauri/icons`. The compiled `src-tauri/macos/Assets.car` is not used by packaging, which installs `icon.icns`.

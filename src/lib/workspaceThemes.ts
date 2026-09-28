@@ -7,6 +7,7 @@ import {
   applyThemePreference,
   applyThemeTint,
   AVEN_THEME_COLORS,
+  MONO_THEME_COLORS,
   BODY_GLASS_DEFAULT,
   COVE_THEME_COLORS,
   SKY_THEME_COLORS,
@@ -94,6 +95,12 @@ export const WORKSPACE_THEME_PRESETS: readonly WorkspaceThemePreset[] = [
     hue: THEME_HUE_DEFAULT,
     saturation: THEME_SATURATION_DEFAULT,
     colors: AVEN_THEME_COLORS,
+  },
+  {
+    name: "Mono",
+    hue: THEME_HUE_DEFAULT,
+    saturation: THEME_SATURATION_DEFAULT,
+    colors: MONO_THEME_COLORS,
   },
   {
     name: "Sky",

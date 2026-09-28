@@ -33,7 +33,14 @@ vi.mock("@tauri-apps/api/window", () => ({
 let root: Root;
 let container: HTMLDivElement;
 let activeSettings: ReturnType<typeof useActiveWorkspaceTheme>;
-const defaultGlass = { opacity: 1, blur: 0, bodyGlass: false, matchPanels: false };
+const defaultGlass = { opacity: 0.66, blur: 54, bodyGlass: true, matchPanels: false };
+/** Fresh workspaces follow the system; pin it so each test controls the mode. */
+function systemScheme(scheme: "dark" | "light") {
+  vi.spyOn(window, "matchMedia").mockReturnValue({
+    matches: scheme === "light",
+    addEventListener: vi.fn(),
+  } as unknown as MediaQueryList);
+}
 function SettingsProbe() {
   activeSettings = useActiveWorkspaceTheme();
   return null;
@@ -62,6 +69,7 @@ beforeEach(() => {
   root = createRoot(container);
   vi.clearAllMocks();
   vi.mocked(invoke).mockResolvedValue(undefined);
+  systemScheme("dark");
 });
 afterEach(() => {
   act(() => root.unmount());
@@ -87,22 +95,22 @@ describe("workspace appearance migration and persistence", () => {
     expect(document.documentElement.classList.contains("match-workspace-panels")).toBe(false);
   });
 
-  it("starts fresh workspaces with the monochrome Aven palette and persists it", () => {
+  it("starts fresh workspaces with the Aven glass palette following the system and persists it", () => {
     const aven = defaultWorkspaceTheme();
     expect(WORKSPACE_THEME_PRESETS[0].name).toBe("Aven");
     expect(aven).toEqual({
       hue: 207,
       saturation: 0,
-      preference: "dark",
-      opacity: 1,
-      blur: 0,
-      bodyGlass: false,
+      preference: "system",
+      opacity: 0.66,
+      blur: 54,
+      bodyGlass: true,
       matchPanels: false,
       colors: {
         dark: {
-          background: "#0a0a0a",
-          accent: "#f5f5f5",
-          highlight: "#a3a3a3",
+          background: "#000000",
+          accent: "#57b5ff",
+          highlight: "#57b5ff",
         },
         light: {
           background: "#ffffff",
@@ -263,6 +271,23 @@ describe("workspace appearance migration and persistence", () => {
     });
   });
 
+  it("keeps the former monochrome default selectable as Mono", () => {
+    expect(WORKSPACE_THEME_PRESETS.map((preset) => preset.name).slice(0, 3)).toEqual([
+      "Aven",
+      "Mono",
+      "Sky",
+    ]);
+    expect(WORKSPACE_THEME_PRESETS[1]).toEqual({
+      name: "Mono",
+      hue: 207,
+      saturation: 0,
+      colors: {
+        dark: { background: "#0a0a0a", accent: "#f5f5f5", highlight: "#a3a3a3" },
+        light: { background: "#ffffff", accent: "#0a0a0a", highlight: "#737373" },
+      },
+    });
+  });
+
   it("keeps the former sky-blue default selectable as Sky", () => {
     const sky = WORKSPACE_THEME_PRESETS.find(
       (preset) => preset.name === "Sky",
@@ -285,7 +310,7 @@ describe("workspace appearance migration and persistence", () => {
     const black = WORKSPACE_THEME_PRESETS.find(
       (preset) => preset.name === "Black",
     )!;
-    expect(WORKSPACE_THEME_PRESETS).toHaveLength(20);
+    expect(WORKSPACE_THEME_PRESETS).toHaveLength(21);
     const next = applyWorkspaceThemePreset("personal", black, "dark");
     expect({ ...next, colors: original.colors }).toEqual(original);
     expect(next.colors?.dark.background).toBe("#000000");
@@ -331,11 +356,18 @@ describe("workspace appearance migration and persistence", () => {
     localStorage.setItem("monocode.themeHue", "155");
     localStorage.setItem("monocode.themeSaturation", "22");
     localStorage.setItem("monocode.colorScheme", "light");
+    // Older installs keep the opaque look they had for glass they never set.
+    const legacyGlass = {
+      opacity: 1,
+      blur: 0,
+      bodyGlass: false,
+      matchPanels: false,
+    };
     const original = {
       hue: 155,
       saturation: 22,
       preference: "light",
-      ...defaultGlass,
+      ...legacyGlass,
     };
     expect(loadWorkspaceTheme("personal")).toEqual(original);
     saveWorkspaceTheme("personal", { hue: 260, preference: "dark" });
@@ -344,7 +376,7 @@ describe("workspace appearance migration and persistence", () => {
     expect(loadWorkspaceTheme("work")).toEqual(original);
     expect(loadWorkspaceTheme("new-custom-profile")).toEqual(original);
     expect(loadWorkspaceTheme("personal")).toEqual({
-      ...defaultGlass,
+      ...legacyGlass,
       hue: 260,
       saturation: 22,
       preference: "dark",
@@ -384,7 +416,7 @@ describe("workspace appearance migration and persistence", () => {
       ...defaultGlass,
       hue: 360,
       saturation: 0,
-      preference: "dark",
+      preference: "system",
       colors: { light: defaultWorkspaceTheme().colors!.light },
     });
     const saved = JSON.parse(localStorage.getItem(WORKSPACE_THEMES_KEY)!);
@@ -587,7 +619,7 @@ describe("workspace glass migration", () => {
     expect(loadWorkspaceTheme("work")).toMatchObject({
       opacity: 0.05,
       blur: 64,
-      bodyGlass: false,
+      bodyGlass: true,
       matchPanels: false,
     });
     saveWorkspaceTheme("personal", { opacity: Infinity, blur: NaN });
@@ -623,11 +655,11 @@ describe("workspace theme activation", () => {
   });
 
   it("activates custom colors without leaking them to another workspace or mode", async () => {
-    saveWorkspaceColor("personal", "dark", "background", "#000000");
-    saveWorkspaceColor("personal", "light", "background", "#ffffff");
+    saveWorkspaceColor("personal", "dark", "background", "#101010");
+    saveWorkspaceColor("personal", "light", "background", "#f0f0f0");
     render("personal");
     const style = document.documentElement.style;
-    expect(style.getPropertyValue("--theme-background-color")).toBe("#000000");
+    expect(style.getPropertyValue("--theme-background-color")).toBe("#101010");
     vi.mocked(invoke).mockClear();
     act(() => {
       saveWorkspaceColor("personal", "dark", "accent", "#aabbcc");
@@ -637,10 +669,10 @@ describe("workspace theme activation", () => {
     act(() => {
       saveWorkspaceTheme("personal", { preference: "light" });
     });
-    expect(style.getPropertyValue("--theme-background-color")).toBe("#ffffff");
+    expect(style.getPropertyValue("--theme-background-color")).toBe("#f0f0f0");
     render("work");
-    expect(style.getPropertyValue("--theme-background-color")).toBe("#0a0a0a");
-    expect(style.getPropertyValue("--theme-accent-color")).toBe("#f5f5f5");
+    expect(style.getPropertyValue("--theme-background-color")).toBe("#000000");
+    expect(style.getPropertyValue("--theme-accent-color")).toBe("#57b5ff");
   });
   it("switches directly to each destination theme without overwriting either profile", () => {
     saveWorkspaceTheme("personal", {
@@ -679,6 +711,8 @@ describe("workspace theme activation", () => {
   });
 
   it("editing an inactive workspace does not repaint or send native-window IPC", async () => {
+    // Start opaque so the later active edit is what reveals the desktop.
+    saveWorkspaceTheme("personal", { opacity: 1, blur: 0, bodyGlass: false });
     render("personal");
     activateWindowAppearance();
     await Promise.resolve();
