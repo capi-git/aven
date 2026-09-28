@@ -13,6 +13,7 @@
 - New installs start with black glass and a blue accent in dark mode. The previous monochrome look is available as the **Mono** preset, and saved themes are unchanged.
 - Tabs lose their grey fill; the tab you're on is shown with full-strength text and icon, and tab and toolbar icons are slightly smaller. Dragging a tab over a pane previews the drop as a plain grey outline. With Minimized tabs on, browser tabs keep their titles unless the window is split.
 - Switching to a browser tab no longer flashes the window background while the page appears.
+- Opening a new browser tab yourself no longer replaces the page you had open. Both stay in the tab strip; pages that open on their own still share one preview slot.
 
 ## [0.1.107] - 2026-09-28
 

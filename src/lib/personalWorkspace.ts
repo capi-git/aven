@@ -170,6 +170,21 @@ export function keepBrowserTab(
   return updateBrowserTab(state, id, { kept: true });
 }
 
+/**
+ * A browser tab the user opened on purpose is retained, and so is the page it
+ * would otherwise push out of the shared preview slot.
+ */
+export function addRetainedBrowserTab(
+  state: BrowserWorkspace,
+  value: BrowserTab,
+): NormalizedBrowserWorkspace {
+  const current = normalizeBrowserWorkspace(state);
+  const covered = current.tabs.find((tab) => tab.id === current.activeTabId);
+  const kept =
+    covered && !covered.kept ? keepBrowserTab(current, covered.id) : current;
+  return addBrowserTab(kept, { ...value, kept: true });
+}
+
 export function closeBrowserTab(
   state: BrowserWorkspace,
   id: string,
