@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { GitChangesPanel } from "./GitChangesPanel";
+import { GitChangesPanel, gitStatusSummary } from "./GitChangesPanel";
 import { notifyGitChanged, type GitDiffIndex, type GitPr } from "../lib/fs";
 
 const mocks = vi.hoisted(() => ({
@@ -32,6 +32,7 @@ vi.mock("../hooks/useProjectDiffStats", () => ({
   applyProjectDiffStats: mocks.applyStats,
 }));
 vi.mock("./FileTypeIcon", () => ({ FileTypeIcon: () => null }));
+vi.mock("./GitCopies", () => ({ GitCopies: () => null }));
 vi.mock("./GitHistoryGraph", () => ({
   GitHistoryGraph: () => null,
   GraphResizeSash: () => null,
@@ -256,5 +257,42 @@ describe("Changes panel visibility polling", () => {
     await visibility(false);
     expect(mocks.diffIndex).toHaveBeenCalledTimes(2);
     expect(vi.getTimerCount()).toBe(1);
+  });
+});
+
+describe("clean copy status", () => {
+  const base: GitDiffIndex = {
+    branch: "main",
+    files: [],
+    additions: 0,
+    deletions: 0,
+    remote: "origin",
+    upstream: "origin/main",
+    defaultBranch: "main",
+    ahead: 0,
+    behind: 0,
+    aheadOfDefault: 0,
+  };
+
+  it("says a synced copy is clean and up to date", () => {
+    expect(gitStatusSummary(base)).toEqual({
+      tone: "ok",
+      title: "main is clean and up to date",
+      detail: "Matches origin/main",
+    });
+  });
+
+  it("points out commits to push, unpublished branches and local-only folders", () => {
+    expect(gitStatusSummary({ ...base, ahead: 2 })).toMatchObject({
+      tone: "info",
+      title: "2 unpushed commits",
+    });
+    expect(
+      gitStatusSummary({ ...base, branch: "feature", upstream: null }),
+    ).toMatchObject({ tone: "info", title: "feature isn't on origin yet" });
+    expect(gitStatusSummary({ ...base, remote: null })).toMatchObject({
+      tone: "neutral",
+      title: "Nothing to commit",
+    });
   });
 });

@@ -99,6 +99,17 @@ export function getRace(id: string): RaceRecord | undefined {
   return read().find((race) => race.id === id);
 }
 
+/** The race and lane whose checkout is at `path`, if any. */
+export function raceLaneAtPath(
+  path: string,
+): { race: RaceRecord; lane: RaceLaneRecord } | undefined {
+  for (const race of read()) {
+    const lane = race.lanes.find((item) => isEqualOrInside(path, item.path));
+    if (lane) return { race, lane };
+  }
+  return undefined;
+}
+
 /** The race and lane a session belongs to, if it is a race agent. */
 export function raceLaneFor(
   sessionId: string,

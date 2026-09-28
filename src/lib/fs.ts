@@ -84,6 +84,27 @@ export function gitDiffIndex(cwd: string): Promise<GitDiffIndex> {
   return invoke<GitDiffIndex>("git_diff_index", { cwd });
 }
 
+export type GitWorktree = {
+  path: string;
+  branch: string | null;
+  /** The checkout containing the queried folder. */
+  current: boolean;
+  /** The repository's main checkout. */
+  primary: boolean;
+  files: GitChangedFile[];
+  additions: number;
+  deletions: number;
+  /** Commits here that the default branch does not have. */
+  aheadOfDefault: number;
+  /** Default-branch commits this checkout does not have yet. */
+  behindDefault: number;
+};
+
+/** Every checkout of the repository containing `cwd`, with its uncommitted work. */
+export function gitWorktrees(cwd: string): Promise<GitWorktree[]> {
+  return invoke<GitWorktree[]>("git_worktrees", { cwd });
+}
+
 /** File list and counts only, for diff content views that do not need sync data. */
 export function gitDiffFiles(cwd: string): Promise<GitDiffIndex> {
   return invoke<GitDiffIndex>("git_diff_files", { cwd });

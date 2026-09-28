@@ -69,6 +69,7 @@ import { invalidateWatchedFiles } from "../lib/fileWatch";
 import { MOD } from "../lib/platform";
 import { applyProjectDiffStats } from "../hooks/useProjectDiffStats";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
+import { GitCopies } from "./GitCopies";
 
 const GIT_POLL_MS = 2000;
 
@@ -114,6 +115,8 @@ export function GitChangesPanel({
 }: Props) {
   const { index, reload } = useDiffIndex(cwd, enabled);
   const files = index?.files ?? [];
+  // Nothing to commit: the history takes the space the file list would use.
+  const clean = index !== null && files.length === 0;
   const paneRef = useRef<HTMLDivElement>(null);
   const [graphHeight, setGraphHeight] = useState(loadGraphPanelHeight);
   const [graphExpanded, setGraphExpanded] = useState(graphOpen);
@@ -168,7 +171,7 @@ export function GitChangesPanel({
         selected={selectedPath}
         selectedKind={selectedKind}
         enabled={enabled}
-        fill
+        fill={!clean}
         onOpenFile={onOpenFile}
         onOpenAllChanges={onOpenAllChanges}
         onMutated={(paths) => {
@@ -178,7 +181,7 @@ export function GitChangesPanel({
           window.setTimeout(() => invalidateWatchedFiles(paths), 150);
         }}
       />
-      {graphExpanded ? (
+      {graphExpanded && !clean ? (
         <GraphResizeSash
           height={graphHeight}
           onHeightPaint={setGraphHeight}
@@ -194,10 +197,14 @@ export function GitChangesPanel({
         />
       ) : null}
       <div
-        className={`shrink-0 overflow-hidden border-t border-content/10 ${
-          graphExpanded ? "min-h-0" : "h-7"
+        className={`overflow-hidden border-t border-content/10 ${
+          !graphExpanded
+            ? "h-7 shrink-0"
+            : clean
+              ? "min-h-40 flex-1"
+              : "min-h-0 shrink-0"
         }`}
-        style={graphExpanded ? { height: graphHeight } : undefined}
+        style={graphExpanded && !clean ? { height: graphHeight } : undefined}
       >
         <GitHistoryGraph
           cwd={cwd}
@@ -470,10 +477,11 @@ function ChangedFiles({
 
   return (
     <aside
-      className={`flex min-h-0 min-w-0 flex-col ${fill ? "flex-1" : "shrink-0"}`}
+      className={`flex min-h-0 min-w-0 flex-col ${fill ? "flex-1" : "shrink"}`}
     >
       <div className="shrink-0 border-b border-content/10 p-2">
-        <div className="relative">
+        {files.length === 0 && index ? <GitStatusCard index={index} /> : null}
+        <div className={files.length === 0 ? "hidden" : "relative"}>
           <textarea
             ref={messageRef}
             rows={1}
@@ -508,7 +516,10 @@ function ChangedFiles({
             )}
           </button>
         </div>
-        <div ref={menuRef} className="relative mt-1.5 flex">
+        <div
+          ref={menuRef}
+          className={files.length === 0 ? "hidden" : "relative mt-1.5 flex"}
+        >
           <button
             type="button"
             disabled={!canCommit}
@@ -572,16 +583,16 @@ function ChangedFiles({
       </div>
       <div
         ref={lockOverscroll}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-none py-1"
+        className={`min-h-0 overflow-y-auto overscroll-none py-1 ${
+          fill ? "flex-1" : "shrink"
+        }`}
       >
         {files.length === 0 ? (
-          <p className="px-3 py-2 text-[12px] text-content/45">
-            {index
-              ? index.ahead > 0 || index.behind > 0
-                ? syncStatusLabel(index)
-                : "No uncommitted changes"
-              : "Loading changes…"}
-          </p>
+          index ? null : (
+            <p className="px-3 py-2 text-[12px] text-content/45">
+              Loading changes…
+            </p>
+          )
         ) : (
           <>
             {staged.length > 0 ? (
@@ -663,6 +674,7 @@ function ChangedFiles({
             ) : null}
           </>
         )}
+        <GitCopies cwd={cwd} enabled={enabled} />
       </div>
     </aside>
   );
@@ -721,6 +733,49 @@ function cachedPr(
 ): GitPr | null {
   if (!cwd || cwd === "~" || !branch) return null;
   return prByCwd.get(cwd) ?? null;
+}
+
+/** One-line state of a folder with nothing to commit. */
+export function gitStatusSummary(index: GitDiffIndex): {
+  tone: "ok" | "info" | "neutral";
+  title: string;
+  detail: string;
+} {
+  const branch = index.branch ?? "This copy";
+  if (!index.remote)
+    return { tone: "neutral", title: "Nothing to commit", detail: branch };
+  if (!index.upstream)
+    return {
+      tone: "info",
+      title: `${branch} isn't on ${index.remote} yet`,
+      detail: "Nothing to commit. Publish it to share it.",
+    };
+  if (index.ahead > 0 || index.behind > 0)
+    return {
+      tone: "info",
+      title: syncStatusLabel(index),
+      detail: `${branch} · nothing to commit`,
+    };
+  return {
+    tone: "ok",
+    title: `${branch} is clean and up to date`,
+    detail: `Matches ${index.upstream}`,
+  };
+}
+
+function GitStatusCard({ index }: { index: GitDiffIndex }) {
+  const { tone, title, detail } = gitStatusSummary(index);
+  return (
+    <div className="git-status-card" data-tone={tone} role="status">
+      <span className="git-status-card-mark" aria-hidden>
+        {tone === "ok" ? "✓" : tone === "info" ? "↕" : "•"}
+      </span>
+      <div className="min-w-0">
+        <p className="git-status-card-title">{title}</p>
+        <p className="git-status-card-detail">{detail}</p>
+      </div>
+    </div>
+  );
 }
 
 function syncStatusLabel(index: GitDiffIndex): string {

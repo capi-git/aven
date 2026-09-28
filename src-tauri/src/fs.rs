@@ -244,6 +244,100 @@ pub async fn git_diff_files(cwd: String) -> Result<GitDiffIndex, String> {
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct GitWorktree {
+    pub path: String,
+    pub branch: Option<String>,
+    /// The checkout containing the queried folder.
+    pub current: bool,
+    /// The repository's main checkout (listed first by Git).
+    pub primary: bool,
+    pub files: Vec<GitChangedFile>,
+    pub additions: i64,
+    pub deletions: i64,
+    /// Commits in this checkout that the default branch does not have.
+    pub ahead_of_default: i64,
+    /// Default-branch commits this checkout does not have yet.
+    pub behind_default: i64,
+}
+
+/// Every checkout of the repository containing `cwd`, with its uncommitted
+/// files and how far it is from the default branch.
+#[tauri::command]
+pub async fn git_worktrees(cwd: String) -> Result<Vec<GitWorktree>, String> {
+    tauri::async_runtime::spawn_blocking(move || git_worktrees_for(&expand_home(&cwd)))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+pub(crate) fn git_worktrees_for(root: &Path) -> Vec<GitWorktree> {
+    let Some(text) = git_run(root, &["worktree", "list", "--porcelain"]) else {
+        return Vec::new();
+    };
+    let current = git_stdout(root, &["rev-parse", "--show-toplevel"]).map(PathBuf::from);
+    let remote = git_remote_name(root);
+    let base = git_default_branch(root, remote.as_deref()).map(|branch| match &remote {
+        Some(remote) if git_ref_exists(root, &format!("refs/remotes/{remote}/{branch}")) => {
+            format!("{remote}/{branch}")
+        }
+        _ => branch,
+    });
+    parse_worktree_list(&text)
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, (path, branch))| {
+            let dir = PathBuf::from(&path);
+            if !dir.is_dir() {
+                return None;
+            }
+            let changes = git_diff_files_for(&dir);
+            let (ahead_of_default, behind_default) = base
+                .as_deref()
+                .map(|base| git_ahead_behind(&dir, base))
+                .unwrap_or((0, 0));
+            Some(GitWorktree {
+                current: current
+                    .as_deref()
+                    .is_some_and(|current| same_entry(current, &dir)),
+                primary: index == 0,
+                path,
+                branch,
+                files: changes.files,
+                additions: changes.additions,
+                deletions: changes.deletions,
+                ahead_of_default,
+                behind_default,
+            })
+        })
+        .collect()
+}
+
+/// `(path, branch)` for each usable entry of `git worktree list --porcelain`.
+fn parse_worktree_list(text: &str) -> Vec<(String, Option<String>)> {
+    text.split("\n\n")
+        .filter_map(|block| {
+            let mut path = None;
+            let mut branch = None;
+            for line in block.lines() {
+                if let Some(value) = line.strip_prefix("worktree ") {
+                    path = Some(value.to_string());
+                } else if let Some(value) = line.strip_prefix("branch ") {
+                    branch = Some(
+                        value
+                            .strip_prefix("refs/heads/")
+                            .unwrap_or(value)
+                            .to_string(),
+                    );
+                } else if line == "bare" || line.starts_with("prunable") {
+                    return None;
+                }
+            }
+            path.map(|path| (path, branch))
+        })
+        .collect()
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct GitFileDiff {
     pub path: String,
     pub relative: String,
@@ -4217,6 +4311,62 @@ mod tests {
         assert_eq!(
             info.repo.as_deref(),
             dir.0.file_name().and_then(|name| name.to_str())
+        );
+    }
+
+    #[test]
+    fn parses_worktree_list_and_skips_unusable_entries() {
+        let text = "worktree /repo\nHEAD abc\nbranch refs/heads/main\n\nworktree /copies/a\nHEAD def\ndetached\n\nworktree /copies/gone\nHEAD 123\nbranch refs/heads/old\nprunable gitdir file points to non-existent location\n";
+        assert_eq!(
+            parse_worktree_list(text),
+            vec![
+                ("/repo".to_string(), Some("main".to_string())),
+                ("/copies/a".to_string(), None),
+            ]
+        );
+    }
+
+    #[test]
+    fn lists_every_checkout_with_its_uncommitted_work() {
+        let dir = tmp("git-worktrees");
+        let repo = dir.0.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        assert!(git(&repo, &["init", "-q", "-b", "main"]));
+        std::fs::write(repo.join("a.txt"), "one\n").unwrap();
+        assert!(git(&repo, &["add", "."]));
+        assert!(git(&repo, &["commit", "-q", "-m", "first"]));
+        let copy = dir.0.join("copy");
+        assert!(git(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "agent",
+                copy.to_str().unwrap()
+            ]
+        ));
+        std::fs::write(copy.join("a.txt"), "one\ntwo\n").unwrap();
+        std::fs::write(copy.join("b.txt"), "new\n").unwrap();
+
+        let copies = git_worktrees_for(&copy);
+        assert_eq!(copies.len(), 2);
+        assert!(copies[0].primary && !copies[0].current);
+        assert_eq!(copies[0].branch.as_deref(), Some("main"));
+        assert!(copies[0].files.is_empty());
+        assert!(!copies[1].primary && copies[1].current);
+        assert_eq!(copies[1].branch.as_deref(), Some("agent"));
+        let mut changed: Vec<_> = copies[1]
+            .files
+            .iter()
+            .map(|file| file.relative.as_str())
+            .collect();
+        changed.sort();
+        assert_eq!(changed, ["a.txt", "b.txt"]);
+        assert_eq!(
+            (copies[1].ahead_of_default, copies[1].behind_default),
+            (0, 0)
         );
     }
 
