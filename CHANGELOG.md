@@ -1,5 +1,18 @@
 # Aven changelog
 
+## [Unreleased]
+
+### Releases, merges and branch clean-up in the Changes panel, and a signed Mac app
+
+- The Changes panel has a **Release** card for projects with a release workflow. It shows the latest release and how many changes on main aren't released yet. Once a new version is set, **Publish** runs the release on GitHub, after you confirm, and the card follows it until it finishes.
+- **Squash and merge** sits next to **View PR** for an open pull request. The pull request lands on the default branch as one commit, and GitHub deletes its branch.
+- **Merged branches** lists local and GitHub branches whose work is already in main, including squash-merged ones, and deletes them in one step after you confirm. Branches open in any copy are kept.
+- The Mac app is now signed with Aven's Apple Developer ID. It is not yet Apple-notarized, so macOS may still ask you to approve opening a downloaded copy once.
+- Each release now includes the Windows test installer, built from the same commit as the Mac app, instead of a separate Windows release. Windows builds remain unsigned test downloads without automatic updates.
+- New installs start with black glass and a blue accent in dark mode. The previous monochrome look is available as the **Mono** preset, and saved themes are unchanged.
+- Tabs lose their grey fill; the tab you're on is shown with full-strength text and icon, and tab and toolbar icons are slightly smaller. Dragging a tab over a pane previews the drop as a plain grey outline. With Minimized tabs on, browser tabs keep their titles unless the window is split.
+- Switching to a browser tab no longer flashes the window background while the page appears.
+
 ## [0.1.107] - 2026-09-28
 
 ### Tab menus open from their tab

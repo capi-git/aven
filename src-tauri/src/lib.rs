@@ -27,6 +27,7 @@ pub mod control_cli;
 mod cursor_store;
 mod display_rate;
 mod fs;
+mod git_housekeeping;
 mod github_account;
 mod harness;
 mod inbox_media;
@@ -389,6 +390,11 @@ pub fn run() {
             fs::git_sync,
             fs::git_range_context,
             fs::git_pr_status,
+            git_housekeeping::git_merged_branches,
+            git_housekeeping::git_delete_merged_branches,
+            git_housekeeping::git_pr_squash_merge,
+            git_housekeeping::git_release_status,
+            git_housekeeping::git_release_start,
             fs::git_pr_create,
             fs::git_github_repo,
             fs::git_github_work_items,

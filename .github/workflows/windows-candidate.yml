@@ -1,16 +1,18 @@
 name: Build Windows test installer
 
+# Run on its own for a test installer, or from "Release Aven", which attaches
+# the same package to that version's release.
 on:
   workflow_dispatch:
-  push:
-    branches: [build/windows-candidate]
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: windows-candidate-${{ github.ref }}
-  cancel-in-progress: true
+  # A release call must not cancel, or be cancelled by, a standalone test run.
+  group: windows-candidate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.workflow == 'Build Windows test installer' }}
 
 jobs:
   frontend:

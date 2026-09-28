@@ -1,0 +1,161 @@
+/* Release status and merged-branch clean-up, below Other copies. Shares the
+   section rhythm of .git-copies so the panel reads as one list. */
+.git-house {
+  padding: 4px 0 8px;
+}
+.git-house-title {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 8px 12px 4px;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+}
+.git-house-title span {
+  margin-left: auto;
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.git-house-card {
+  --git-house-tone: color-mix(in srgb, var(--color-content) 45%, transparent);
+  margin: 4px 8px;
+  padding: 8px 9px 9px;
+  border: 1px solid color-mix(in srgb, var(--color-content) 8%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+}
+.git-house-card[data-tone="ok"] {
+  --git-house-tone: #4ade80;
+}
+.git-house-card[data-tone="info"] {
+  --git-house-tone: var(--color-accent);
+}
+.git-house-card[data-tone="busy"] {
+  --git-house-tone: var(--color-accent);
+}
+.git-house-card[data-tone="warn"] {
+  --git-house-tone: var(--color-warning, #d99c45);
+  border-color: color-mix(in srgb, var(--git-house-tone) 30%, transparent);
+}
+.git-house-headline {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-content);
+}
+.git-house-headline > svg {
+  color: var(--git-house-tone);
+}
+.git-house-dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--git-house-tone);
+}
+.git-house-detail,
+.git-house-error {
+  margin: 3px 0 0 14px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--color-content) 55%, transparent);
+}
+.git-house-error {
+  color: var(--color-warning, #d99c45);
+}
+.git-house-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.git-house-primary,
+.git-house-secondary,
+.git-house-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: default;
+}
+.git-house-primary {
+  background: var(--color-accent);
+  color: var(--color-background-base, #0d0d0e);
+}
+.git-house-primary:hover:enabled {
+  filter: brightness(1.08);
+}
+.git-house-secondary {
+  background: color-mix(in srgb, var(--color-content) 10%, transparent);
+  color: var(--color-content);
+}
+.git-house-secondary:hover:enabled {
+  background: color-mix(in srgb, var(--color-content) 15%, transparent);
+}
+.git-house-link {
+  padding: 0 6px;
+  background: transparent;
+  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+}
+.git-house-link:hover {
+  color: var(--color-content);
+  background: color-mix(in srgb, var(--color-content) 7%, transparent);
+}
+.git-house-primary:disabled,
+.git-house-secondary:disabled {
+  opacity: 0.5;
+}
+.git-house-primary:focus-visible,
+.git-house-secondary:focus-visible,
+.git-house-link:focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: 2px;
+}
+.git-house-branches {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.git-house-branches li {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: color-mix(in srgb, var(--color-content) 80%, transparent);
+}
+.git-house-branches li > svg {
+  color: color-mix(in srgb, var(--color-content) 40%, transparent);
+}
+.git-house-branch {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-house-where,
+.git-house-more {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  color: color-mix(in srgb, var(--color-content) 45%, transparent);
+}
+.git-house-more {
+  padding-left: 18px;
+}
