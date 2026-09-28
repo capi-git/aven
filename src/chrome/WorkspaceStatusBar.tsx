@@ -304,7 +304,7 @@ export function WorkspaceNavigation({
               aria-pressed={!!sidebarOpen}
               onClick={onToggleSidebar}
             >
-              <PanelLeft size={15} />
+              <PanelLeft size={14} />
             </button>
           ) : null}
           {onSearch ? (
@@ -315,7 +315,7 @@ export function WorkspaceNavigation({
               title="Search workspace"
               onClick={onSearch}
             >
-              <Search size={15} />
+              <Search size={14} />
             </button>
           ) : null}
           {onNewBrowser ? (
@@ -326,7 +326,7 @@ export function WorkspaceNavigation({
               title="New browser tab"
               onClick={onNewBrowser}
             >
-              <Globe size={15} />
+              <Globe size={14} />
             </button>
           ) : null}
         </div>
@@ -339,7 +339,7 @@ export function WorkspaceNavigation({
               aria-pressed={!!homeOpen}
               onClick={onHome}
             >
-              <Home size={14} />
+              <Home size={13} />
             </button>
           ) : null}
           {onGoBack ? (
@@ -350,7 +350,7 @@ export function WorkspaceNavigation({
               disabled={!canGoBack}
               onClick={onGoBack}
             >
-              <ChevronLeft size={14} />
+              <ChevronLeft size={13} />
             </button>
           ) : null}
           {onGoForward ? (
@@ -361,7 +361,7 @@ export function WorkspaceNavigation({
               disabled={!canGoForward}
               onClick={onGoForward}
             >
-              <ChevronRight size={14} />
+              <ChevronRight size={13} />
             </button>
           ) : null}
         </div>
@@ -382,7 +382,7 @@ export function WorkspaceNavigation({
               }
             }}
           >
-            <MoreHorizontal size={15} />
+            <MoreHorizontal size={14} />
           </button>
         ) : null}
       </div>
@@ -414,7 +414,7 @@ export function WorkspaceNavigation({
                 action.onSelect?.();
               }}
             >
-              <action.icon size={15} aria-hidden />
+              <action.icon size={14} aria-hidden />
               <span>{action.label}</span>
             </button>
           ))}
@@ -915,7 +915,7 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
               onClick={settingsView.onClose}
               data-tauri-drag-region="false"
             >
-              <X size={15} aria-hidden />
+              <X size={14} aria-hidden />
             </button>
           ) : onOpenSettings ? (
             <button
@@ -924,7 +924,7 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
               title="Settings"
               onClick={onOpenSettings}
             >
-              <Settings size={15} />
+              <Settings size={14} />
             </button>
           ) : null}
           {onToggleInspector ? (
@@ -936,7 +936,7 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
               aria-pressed={!!inspectorOpen}
               onClick={onToggleInspector}
             >
-              <PanelRight size={15} />
+              <PanelRight size={14} />
             </button>
           ) : null}
         </div>

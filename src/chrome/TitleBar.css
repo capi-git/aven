@@ -1,3 +1,8 @@
+/* Shared easing for tab motion. Defined on the shell because the unified
+   toolbar hosts the tab strip outside the title bar. */
+.personal-shell {
+  --aven-tab-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
 /* Glass workspace tabs, quiet pane headers. Keep the native 32px geometry:
    WorkspaceStage and Chromium place their content below this exact height. */
 .personal-shell .personal-titlebar {
@@ -37,6 +42,16 @@
 .personal-shell .personal-title-tab-slot > .personal-title-tab {
   container-type: normal;
 }
+/* Tabs sit directly on the toolbar with no fill: the active tab is marked by
+   full-strength text and icon, the rest are dimmed. */
+.personal-shell .personal-title-tab-button,
+.personal-shell .personal-title-tab-button:hover,
+.personal-shell
+  .personal-title-tab[data-active="true"]
+  .personal-title-tab-button {
+  background: transparent;
+  box-shadow: none;
+}
 .personal-shell .personal-title-tab-button {
   align-self: center;
   height: 24px;
@@ -45,27 +60,16 @@
   padding-inline-start: 8px;
   border: 0;
   border-radius: 7px;
-  background: transparent;
-  color: color-mix(in srgb, var(--color-content) 68%, transparent);
-  transition:
-    background-color 140ms ease,
-    color 140ms ease,
-    box-shadow 140ms ease;
+  color: color-mix(in srgb, var(--color-content) 55%, transparent);
+  transition: color 220ms var(--aven-tab-ease);
 }
 .personal-shell .personal-title-tab-button:hover {
-  background: color-mix(in srgb, var(--color-content) 5%, transparent);
-  color: var(--color-content);
+  color: color-mix(in srgb, var(--color-content) 85%, transparent);
 }
 .personal-shell
   .personal-title-tab[data-active="true"]
   .personal-title-tab-button {
-  background: linear-gradient(
-    125deg,
-    var(--aven-tab-light),
-    var(--aven-tab-material)
-  );
   color: var(--color-content);
-  box-shadow: var(--aven-tab-shadow);
 }
 .personal-shell .personal-title-tab[data-active="true"]::after {
   content: none;
@@ -73,8 +77,23 @@
 .personal-shell
   .personal-title-tab[data-visible="true"][data-active="false"]
   .personal-title-tab-button {
-  background: color-mix(in srgb, var(--color-content) 3%, transparent);
-  color: color-mix(in srgb, var(--color-content) 84%, transparent);
+  color: color-mix(in srgb, var(--color-content) 80%, transparent);
+}
+/* Smaller provider badges in tabs; the sidebar keeps its larger marks. */
+.personal-shell .personal-title-tab-identity .provider-mark {
+  width: 18px;
+  height: 18px;
+  padding: 1.5px;
+}
+.personal-shell .personal-title-tab-identity .provider-mark + .provider-mark {
+  margin-left: -4px;
+}
+.personal-shell .personal-title-tab-identity .provider-mark-art {
+  width: 13px;
+  height: 13px;
+}
+.personal-shell .personal-title-tab-identity .provider-marks {
+  transition: opacity 220ms var(--aven-tab-ease);
 }
 .personal-shell .personal-title-tab-visible {
   width: 4px;
@@ -354,6 +373,7 @@ html.theme-light .personal-shell .personal-titlebar {
 
 @media (prefers-reduced-motion: reduce) {
   .aven-tab-motion,
+  .personal-shell .personal-title-tab-identity .provider-marks,
   .personal-shell .personal-title-tab-button,
   .personal-shell .aven-surface-tab-slot > .aven-tab-motion {
     transition: none;

@@ -820,12 +820,6 @@ html .personal-shell[data-unified-toolbar] .workspace-stage-header,
 .personal-shell[data-unified-toolbar] .personal-title-tab-button {
   border-radius: 8px;
 }
-.personal-shell[data-unified-toolbar]
-  .personal-title-tab[data-active="true"]
-  .personal-title-tab-button {
-  background: color-mix(in srgb, var(--color-content) 10%, transparent);
-  box-shadow: none;
-}
 .personal-shell[data-unified-toolbar] .personal-composer [data-composer-box] {
   border-radius: 18px;
 }
