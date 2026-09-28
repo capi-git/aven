@@ -10,6 +10,7 @@ import {
   loadPersonalSidebar,
   savePersonalSidebar,
   addBrowserTab,
+  addRetainedBrowserTab,
   selectBrowserTab,
   updateBrowserTab,
   keepBrowserTab,
@@ -136,6 +137,30 @@ describe("personal panel persistence", () => {
 });
 
 describe("multiple browser tabs", () => {
+  it("keeps the covered page when the user opens a new browser tab", () => {
+    const preview = addBrowserTab(EMPTY_BROWSER, {
+      id: "docs",
+      url: "https://docs.example",
+      title: "Docs",
+    });
+    const next = addRetainedBrowserTab(preview, { id: "blank", url: "" });
+    expect(next.tabs).toEqual([
+      { id: "docs", url: "https://docs.example", title: "Docs", kept: true },
+      { id: "blank", url: "", kept: true },
+    ]);
+    expect(next.activeTabId).toBe("blank");
+    // An already kept page and an empty workspace are left as they are.
+    const again = addRetainedBrowserTab(next, { id: "third", url: "" });
+    expect(again.tabs.map((tab) => [tab.id, tab.kept])).toEqual([
+      ["docs", true],
+      ["blank", true],
+      ["third", true],
+    ]);
+    expect(addRetainedBrowserTab(EMPTY_BROWSER, { id: "only", url: "" }).tabs).toEqual([
+      { id: "only", url: "", kept: true },
+    ]);
+  });
+
   it("keeps an existing preview without replacing its page, focus or layout", () => {
     const state = addBrowserTab(
       addBrowserTab(
