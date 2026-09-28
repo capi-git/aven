@@ -1,6 +1,6 @@
 # Releasing Aven
 
-Aven releases target Apple Silicon Macs running macOS 13 or later. The app is ad-hoc signed and is not Apple-notarized. From 0.1.80 onward, Aven checks this repository's release feed and downloads cryptographically signed updates automatically; users choose when to restart. Windows, Linux, and Intel Mac release builds are not currently provided or verified.
+Stable Aven releases target Apple Silicon Macs running macOS 13 or later. The app is ad-hoc signed and is not Apple-notarized. From 0.1.80 onward, Aven checks this repository's release feed and downloads cryptographically signed updates automatically; users choose when to restart. Windows x64 test builds are published separately as prereleases. Linux and Intel Mac release builds are not currently provided or verified.
 
 ## Prepare a candidate
 
@@ -42,6 +42,23 @@ The **Build macOS release candidate** workflow is started manually with `workflo
 A normal run uploads **Aven-macos-arm64-candidate** as a workflow artifact and does not publish. For a reviewed source revision, select the **Publish** workflow input. The build then signs the complete archive using the repository's `TAURI_SIGNING_PRIVATE_KEY` secret (and optional password secret); a separate job creates a versioned stable GitHub release. Only that publishing job receives repository write permission. The version must not already exist. Workflow artifacts expire; GitHub Releases is the public distribution channel.
 
 The separate frontend CI runs on pull requests and main-branch pushes with Node.js 22. It does not replace the macOS candidate build or native interaction checks.
+
+## Publish a Windows test build
+
+The **Build Windows test installer** workflow (`.github/workflows/windows-candidate.yml`) is available from the repository's Actions tab. Choose **Run workflow** and select the source branch to build. It runs web checks and native Windows tests, builds an NSIS installer, and installs and launches that installer on a Windows runner. It produces artifacts without publishing them.
+
+To publish a successful run:
+
+1. Download **Aven-windows-x64-test** and **Aven-windows-startup-evidence**. Confirm both jobs succeeded, inspect `windows-smoke-results.json` and the screenshot, and verify the package's `SHA256SUMS`.
+2. Read the exact source commit appended to the package's `README.md`. Create a GitHub prerelease tag for that commit, such as `v0.1.103-windows-test.1`. Never attach the Windows binary to a macOS version tag that points to different source.
+3. Package the complete `Aven-<version>-windows-x64-test` directory as a ZIP. Attach that ZIP, the setup `.exe`, `README.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.txt`, and a release-level `SHA256SUMS` covering all six assets. The ZIP retains its own payload checksums.
+4. Mark the release **Prerelease**, and do not mark it as the latest stable release. The macOS updater uses the latest stable release; Windows test builds have automatic updates disabled.
+5. State the exact source commit, successful workflow run, tested Windows runner, unsigned-installer status, and remaining manual checks in the release notes. Installation and startup checks do not establish provider authentication or interactive feature coverage.
+6. Download the published assets and verify their checksums against the reviewed files. Update the Windows download link in the repository's README to the published prerelease.
+
+Use the verified personal GitHub account for this repository (`ghp` locally), as required by the account-routing instructions. Inspect the remote and account identity immediately before publishing. Do not upload build logs, runner screenshots, or smoke JSON as distributable assets; they may contain local paths. Keep them in the workflow's diagnostic artifacts.
+
+The first published Windows test build is [Aven 0.1.103 Windows test 1](https://github.com/capi-git/aven/releases/tag/v0.1.103-windows-test.1). See [WINDOWS-TESTING.md](WINDOWS-TESTING.md) for installation, source-build commands, and feature limitations.
 
 ## Publish manually
 
