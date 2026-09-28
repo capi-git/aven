@@ -1,5 +1,15 @@
 # Aven changelog
 
+## [0.1.105] - 2026-09-28
+
+### Tab groups and a shorter tab menu
+
+- Group tabs like in Brave or Chrome. Right-click a tab and choose **Add to new group**, then name it. A group shows a coloured label ahead of its tabs and one line beneath them. Conversations, files and browser pages can share a group, and groups are remembered after a restart.
+- Click a group's label to fold it down to the label and a count; the tab you're on stays visible. Double-click the label to rename it, or right-click it to change its colour, open a new tab in it, move it to a window, ungroup it or close it.
+- Drag a label to move its whole group, or drag it off the window to open the group in a new window. Drop a tab right after a label, or between two of its tabs, to add it; drag it out to remove it. Moving a tab to another pane or window takes it out of its group.
+- The tab menu is shorter. Split, Move to and Close others each open their own page with a Back entry. Minimized tabs, folding all groups and moving every tab in a pane to another window are on a new menu when you right-click empty space in the tab bar. "Focus this tab" has been removed.
+- Chat tabs now size to their titles like browser tabs instead of staying at the minimum width, and the empty space before the first tab is gone; the pane drag grip only appears in split view.
+
 ## [0.1.104] - 2026-09-28
 
 ### Compact tabs, minimized tabs and one tab per Race
