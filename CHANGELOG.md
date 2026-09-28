@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-- The Windows installer now shows the Aven mark and name. Aven names also cover internal terminal styling, new temporary files, provider probes and test examples. Existing app data, signing identifiers and upstream attribution remain compatible.
+## [0.1.108] - 2026-09-28
 
 ### Releases, merges and branch clean-up in the Changes panel, and a signed Mac app
 
@@ -12,6 +12,7 @@
 - Cleanup preserves branches that changed after they were checked. Removing another copy refuses ignored local files and detached commits, and explains what will be deleted. Release confirmation stays tied to the project, version and remote source you reviewed.
 - The Mac app is now signed with Aven's Apple Developer ID. It is not yet Apple-notarized, so macOS may still ask you to approve opening a downloaded copy once.
 - Each release now includes the Windows test installer, built from the same commit as the Mac app, instead of a separate Windows release. Windows builds remain unsigned test downloads without automatic updates.
+- The Windows installer now shows the Aven mark and name. Aven names also cover internal terminal styling, new temporary files, provider probes and test examples. Existing app data, signing identifiers and upstream attribution remain compatible.
 - New installs start with black glass and a blue accent in dark mode. The previous monochrome look is available as the **Mono** preset, and saved themes are unchanged.
 - Tabs lose their grey fill; the tab you're on is shown with full-strength text and icon, and tab and toolbar icons are slightly smaller. Dragging a tab over a pane previews the drop as a plain grey outline. With Minimized tabs on, browser tabs keep their titles unless the window is split.
 - Switching to a browser tab no longer flashes the window background while the page appears.
