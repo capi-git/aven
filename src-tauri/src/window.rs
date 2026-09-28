@@ -29,6 +29,14 @@ struct UpdateRestartInner {
     ready: bool,
     restarting: bool,
     operations: usize,
+    close_terminals: bool,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateRestartPreparation {
+    browser_states: Vec<crate::browser::BrowserState>,
+    open_terminals: usize,
 }
 
 /// Held only while a native operation starts or performs work, not throughout
@@ -73,25 +81,27 @@ impl UpdateRestartState {
         state.owner = Some(owner.into());
         state.ready = false;
         state.restarting = false;
+        state.close_terminals = false;
         Ok(())
     }
 
-    fn ready(&self, owner: &str) -> Result<(), String> {
+    fn ready(&self, owner: &str, close_terminals: bool) -> Result<(), String> {
         let mut state = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         if state.owner.as_deref() != Some(owner) || state.restarting {
             return Err("Update restart preparation is no longer active in this window".into());
         }
         state.ready = true;
+        state.close_terminals = close_terminals;
         Ok(())
     }
 
-    fn start_restart(&self, owner: &str) -> Result<(), String> {
+    fn start_restart(&self, owner: &str) -> Result<bool, String> {
         let mut state = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         if state.owner.as_deref() != Some(owner) || !state.ready || state.restarting {
             return Err("Save the workspace and prepare the update before restarting".into());
         }
         state.restarting = true;
-        Ok(())
+        Ok(state.close_terminals)
     }
 
     fn cancel(&self, owner: &str) -> Result<(), String> {
@@ -107,6 +117,7 @@ impl UpdateRestartState {
         }
         state.owner = None;
         state.ready = false;
+        state.close_terminals = false;
         Ok(())
     }
 
@@ -116,6 +127,7 @@ impl UpdateRestartState {
             state.owner = None;
             state.ready = false;
             state.restarting = false;
+            state.close_terminals = false;
         }
     }
 
@@ -172,31 +184,40 @@ fn check_update_windows(owner: &str, labels: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-async fn check_update_idle(app: &AppHandle, owner: &str) -> Result<(), String> {
+async fn check_update_idle(
+    app: &AppHandle,
+    owner: &str,
+    close_terminals: bool,
+) -> Result<usize, String> {
     check_update_windows(owner, &app.windows().into_keys().collect::<Vec<_>>())?;
     app.try_state::<crate::control::ControlHost>()
         .ok_or("Agent activity could not be checked")?
         .ensure_update_idle()?;
     app.try_state::<crate::pty::PtyHost>()
         .ok_or("Terminal activity could not be checked")?
-        .ensure_update_idle()?;
-    Ok(())
+        .ensure_update_idle(close_terminals)
 }
 
 #[tauri::command]
-pub async fn prepare_update_restart(
-    caller: Webview,
-) -> Result<Vec<crate::browser::BrowserState>, String> {
+pub async fn prepare_update_restart(caller: Webview) -> Result<UpdateRestartPreparation, String> {
     let owner = update_caller(&caller)?;
     let app = caller.app_handle();
     let state = app.state::<UpdateRestartState>();
     state.reserve(owner)?;
-    if let Err(error) = check_update_idle(app, owner).await {
-        let _ = state.cancel(owner);
-        return Err(error);
-    }
+    // Reservation prevents terminal creation/input while the frontend asks for
+    // consent. Existing terminals keep running until the actual restart.
+    let open_terminals = match check_update_idle(app, owner, true).await {
+        Ok(count) => count,
+        Err(error) => {
+            let _ = state.cancel(owner);
+            return Err(error);
+        }
+    };
     match crate::browser::prepare_update_restart(app).await {
-        Ok(pages) => Ok(pages),
+        Ok(browser_states) => Ok(UpdateRestartPreparation {
+            browser_states,
+            open_terminals,
+        }),
         Err(error) => {
             // Always leave update mode, even if a tab could not be restored:
             // a held reservation blocks every later task and browser action.
@@ -210,14 +231,18 @@ pub async fn prepare_update_restart(
 /// The frontend calls this after strict persistence, before installing bytes.
 /// Browser tabs are closed without overriding a page's unsaved-work warning.
 #[tauri::command]
-pub async fn finish_update_restart_preparation(caller: Webview) -> Result<(), String> {
+pub async fn finish_update_restart_preparation(
+    caller: Webview,
+    close_terminals: Option<bool>,
+) -> Result<(), String> {
     let owner = update_caller(&caller)?;
     let app = caller.app_handle();
     let state = app.state::<UpdateRestartState>();
     if !state.owns(owner) {
         return Err("Update restart preparation is no longer active in this window".into());
     }
-    if let Err(error) = check_update_idle(app, owner).await {
+    let close_terminals = close_terminals.unwrap_or(false);
+    if let Err(error) = check_update_idle(app, owner, close_terminals).await {
         let _ = crate::browser::cancel_update_restart(app).await;
         let _ = state.cancel(owner);
         return Err(error);
@@ -227,7 +252,7 @@ pub async fn finish_update_restart_preparation(caller: Webview) -> Result<(), St
         let _ = state.cancel(owner);
         return Err(error);
     }
-    state.ready(owner)
+    state.ready(owner, close_terminals)
 }
 
 #[tauri::command]
@@ -248,9 +273,9 @@ pub async fn relaunch_after_update(caller: Webview) -> Result<(), String> {
     let owner = update_caller(&caller)?;
     let app = caller.app_handle();
     let state = app.state::<UpdateRestartState>();
-    state.start_restart(owner)?;
+    let close_terminals = state.start_restart(owner)?;
     let result = async {
-        check_update_idle(app, owner).await?;
+        check_update_idle(app, owner, close_terminals).await?;
         crate::browser::ensure_update_idle(app).await?;
         #[cfg(all(feature = "chromium", target_os = "macos"))]
         crate::browser::prepare_shutdown(app).await?;
@@ -573,10 +598,10 @@ mod tests {
         assert!(guard.start_restart("main").is_err());
         guard.reserve("main").unwrap();
         assert!(guard.start_restart("main").is_err());
-        assert!(guard.ready("window-2").is_err());
-        guard.ready("main").unwrap();
+        assert!(guard.ready("window-2", true).is_err());
+        guard.ready("main", false).unwrap();
         assert!(guard.start_restart("window-2").is_err());
-        guard.start_restart("main").unwrap();
+        assert!(!guard.start_restart("main").unwrap());
         assert!(guard.start_restart("main").is_err());
         assert!(guard.cancel("main").is_err());
         assert!(guard.begin_work().is_err());
@@ -590,10 +615,43 @@ mod tests {
     fn cancelled_update_must_persist_again_before_another_restart() {
         let guard = UpdateRestartState::default();
         guard.reserve("main").unwrap();
-        guard.ready("main").unwrap();
+        guard.ready("main", true).unwrap();
         guard.cancel("main").unwrap();
         guard.reserve("main").unwrap();
         assert!(guard.start_restart("main").is_err());
+    }
+
+    #[test]
+    fn terminal_close_consent_belongs_to_the_prepared_owner() {
+        let guard = UpdateRestartState::default();
+        guard.reserve("main").unwrap();
+        assert!(guard.ready("window-2", true).is_err());
+        assert!(guard.start_restart("main").is_err());
+        guard.ready("main", true).unwrap();
+        assert!(guard.start_restart("window-2").is_err());
+        assert!(guard.start_restart("main").unwrap());
+    }
+
+    #[test]
+    fn cancelling_or_failing_an_update_does_not_reuse_terminal_close_consent() {
+        let guard = UpdateRestartState::default();
+        guard.reserve("main").unwrap();
+        guard.ready("main", true).unwrap();
+        guard.cancel("main").unwrap();
+
+        guard.reserve("main").unwrap();
+        guard.ready("main", false).unwrap();
+        assert!(!guard.start_restart("main").unwrap());
+        guard.restart_failed("main");
+
+        guard.reserve("main").unwrap();
+        guard.ready("main", true).unwrap();
+        assert!(guard.start_restart("main").unwrap());
+        guard.restart_failed("main");
+
+        guard.reserve("window-2").unwrap();
+        guard.ready("window-2", false).unwrap();
+        assert!(!guard.start_restart("window-2").unwrap());
     }
 
     #[test]

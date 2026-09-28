@@ -3,7 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { forgetHarnessSession, killAllChildren } from "./harness";
 import { newSession } from "./session";
-import { newTab } from "./layout";
+import { newTab, newTerminalFile } from "./layout";
+import {
+  createProjectTerminal,
+  type ProjectTerminalDock,
+} from "./projectTerminal";
 import {
   closeBusyWindow,
   persistQuitState,
@@ -246,11 +250,21 @@ it("keeps unload snapshots scoped to their arguments without waiting for return 
 });
 
 describe("preparing a safe update restart", () => {
+  const preparation = (openTerminals = 0) => ({
+    browserStates: [],
+    openTerminals,
+  });
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(invoke).mockResolvedValue(undefined);
+    vi.mocked(ask).mockResolvedValue(true);
+    vi.mocked(invoke).mockImplementation(async (command) =>
+      command === "prepare_update_restart" ? preparation() : undefined,
+    );
   });
-  function idleWorkspace(saveBrowserState = vi.fn()) {
+  function idleWorkspace(
+    saveBrowserState = vi.fn(),
+    projectTerminals: ProjectTerminalDock[] = [],
+  ) {
     const session = newSession("cursor", "/project");
     const tab = newTab(session.id);
     const flush = vi.fn();
@@ -259,7 +273,7 @@ describe("preparing a safe update restart", () => {
       () => [tab],
       () => tab.id,
       () => session.cwd,
-      () => [],
+      () => projectTerminals,
       flush,
       saveBrowserState,
     );
@@ -304,6 +318,10 @@ describe("preparing a safe update restart", () => {
         },
       });
       expect(killAllChildren).not.toHaveBeenCalled();
+      expect(ask).not.toHaveBeenCalled();
+      expect(invoke).toHaveBeenCalledWith("finish_update_restart_preparation", {
+        closeTerminals: false,
+      });
     } finally {
       release();
     }
@@ -316,7 +334,7 @@ describe("preparing a safe update restart", () => {
     const { release } = idleWorkspace(saveBrowserState);
     vi.mocked(invoke).mockImplementation(async (command) => {
       order.push(command);
-      return command === "prepare_update_restart" ? [] : undefined;
+      return command === "prepare_update_restart" ? preparation() : undefined;
     });
     try {
       await prepareUpdateRestart();
@@ -344,6 +362,7 @@ describe("preparing a safe update restart", () => {
       expect(invoke).toHaveBeenCalledWith("cancel_update_restart");
       expect(invoke).not.toHaveBeenCalledWith(
         "finish_update_restart_preparation",
+        expect.anything(),
       );
     } finally {
       release();
@@ -353,13 +372,14 @@ describe("preparing a safe update restart", () => {
     const { release } = idleWorkspace();
     vi.mocked(invoke).mockImplementation(async (command) => {
       if (command === "workspace_set_snapshot") throw new Error("disk full");
-      return undefined;
+      return command === "prepare_update_restart" ? preparation() : undefined;
     });
     try {
       await expect(prepareUpdateRestart()).rejects.toThrow("disk full");
       expect(invoke).toHaveBeenCalledWith("cancel_update_restart");
       expect(invoke).not.toHaveBeenCalledWith(
         "finish_update_restart_preparation",
+        expect.anything(),
       );
     } finally {
       release();
@@ -370,13 +390,120 @@ describe("preparing a safe update restart", () => {
     vi.mocked(invoke).mockImplementation(async (command) => {
       if (command === "finish_update_restart_preparation")
         throw new Error("Browser tabs are still open");
-      return undefined;
+      return command === "prepare_update_restart" ? preparation() : undefined;
     });
     try {
       await expect(prepareUpdateRestart()).rejects.toThrow(
         "Browser tabs are still open",
       );
       expect(invoke).toHaveBeenCalledWith("cancel_update_restart");
+    } finally {
+      release();
+    }
+  });
+  it("asks before saving and grants terminal shutdown only after confirmation", async () => {
+    const first = newTerminalFile("/project/server");
+    const second = newTerminalFile("/other/client");
+    const docks = [
+      createProjectTerminal("/project", first),
+      createProjectTerminal("/other", second),
+    ];
+    const { release } = idleWorkspace(vi.fn(), docks);
+    vi.mocked(invoke).mockImplementation(async (command) =>
+      command === "prepare_update_restart" ? preparation(2) : undefined,
+    );
+    let confirm!: (answer: boolean) => void;
+    vi.mocked(ask).mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          confirm = resolve;
+        }),
+    );
+    try {
+      const preparing = prepareUpdateRestart();
+      await vi.waitFor(() => expect(ask).toHaveBeenCalledOnce());
+      expect(ask).toHaveBeenCalledWith(
+        expect.stringContaining("your 2 open terminals"),
+        expect.objectContaining({ cancelLabel: "Keep working" }),
+      );
+      expect(invoke).not.toHaveBeenCalledWith(
+        "workspace_set_snapshot",
+        expect.anything(),
+      );
+      expect(invoke).not.toHaveBeenCalledWith(
+        "finish_update_restart_preparation",
+        expect.anything(),
+      );
+      confirm(true);
+      await expect(preparing).resolves.toBe(true);
+      expect(invoke).toHaveBeenCalledWith("workspace_set_snapshot", {
+        snapshot: expect.objectContaining({ projectTerminals: docks }),
+      });
+      const calls = vi.mocked(invoke).mock.calls;
+      expect(
+        calls.findIndex(([command]) => command === "workspace_set_snapshot"),
+      ).toBeLessThan(
+        calls.findIndex(
+          ([command]) => command === "finish_update_restart_preparation",
+        ),
+      );
+      expect(invoke).toHaveBeenCalledWith("finish_update_restart_preparation", {
+        closeTerminals: true,
+      });
+      expect(
+        vi
+          .mocked(invoke)
+          .mock.calls.some(([command]) => command.startsWith("pty_kill")),
+      ).toBe(false);
+    } finally {
+      release();
+    }
+  });
+  it("cancels without saving or stopping terminals and asks again on retry", async () => {
+    const { release } = idleWorkspace();
+    vi.mocked(invoke).mockImplementation(async (command) =>
+      command === "prepare_update_restart" ? preparation(1) : undefined,
+    );
+    vi.mocked(ask).mockResolvedValue(false);
+    try {
+      await expect(prepareUpdateRestart()).resolves.toBe(false);
+      expect(invoke).toHaveBeenCalledWith("cancel_update_restart");
+      expect(invoke).not.toHaveBeenCalledWith(
+        "workspace_set_snapshot",
+        expect.anything(),
+      );
+      expect(invoke).not.toHaveBeenCalledWith(
+        "finish_update_restart_preparation",
+        expect.anything(),
+      );
+      expect(
+        vi
+          .mocked(invoke)
+          .mock.calls.some(([command]) => command.startsWith("pty_kill")),
+      ).toBe(false);
+      await expect(prepareUpdateRestart()).resolves.toBe(false);
+      expect(ask).toHaveBeenCalledTimes(2);
+    } finally {
+      release();
+    }
+  });
+  it("still refuses work started while the terminal confirmation was open", async () => {
+    const { session, release } = idleWorkspace();
+    vi.mocked(invoke).mockImplementation(async (command) =>
+      command === "prepare_update_restart" ? preparation(1) : undefined,
+    );
+    vi.mocked(ask).mockImplementationOnce(async () => {
+      session.busy = true;
+      return true;
+    });
+    try {
+      await expect(prepareUpdateRestart()).rejects.toThrow("workspace changed");
+      expect(invoke).toHaveBeenCalledWith("cancel_update_restart");
+      expect(invoke).not.toHaveBeenCalledWith(
+        "finish_update_restart_preparation",
+        expect.anything(),
+      );
+      expect(killAllChildren).not.toHaveBeenCalled();
     } finally {
       release();
     }
