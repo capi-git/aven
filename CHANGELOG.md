@@ -1,5 +1,15 @@
 # Aven changelog
 
+## [0.1.103] - 2026-09-27
+
+### Cleaner tabs and reliable Race handoffs
+
+- Files and browser pages use one preview slot per pane or tab group. Choose **Keep open** or double-click a preview to leave it in the tab strip; use searchable **Recent** menus to return to earlier items. Editing a file keeps it open automatically, including after saving. Aven's sidebar stays the same.
+- Switching previews preserves editor buffers and browser page identities. Kept tabs survive workspace recovery and detached windows; moving or combining groups preserves their visible pages without bringing every background tab back.
+- Finishing a Race waits for lane agents and follow-up chats to stop before applying changes or removing temporary copies. Follow-up chats retain their original project, and temporary Race folders no longer appear as new projects.
+- Orchestration recovers proposals that arrive after the planning turn finishes, shows them in the assignment card, and keeps raw proposal markup out of the conversation. Stopped or failed turns cannot revive an outdated proposal.
+- Includes the pending 0.1.102 updater improvements: browser dialogs, popups, forms and leave-page warnings no longer hold up a restart. Addresses reopen after updating; unsaved page state is not preserved. Running tasks, terminal work and active downloads still hold the update. Updating from 0.1.101 uses its existing restart checks once.
+
 ## [0.1.102] - 2026-09-26
 
 ### Update without closing tabs
