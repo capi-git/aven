@@ -7,7 +7,6 @@
 @property(nonatomic, readonly) BOOL active;
 @property(nonatomic, readonly) NSRect normalizedTarget;
 @property(nonatomic, readonly) NSRect targetRect;
-@property(nonatomic, readonly) NSRect labelRect;
 @property(nonatomic, readonly) NSString *outcome;
 @property(nonatomic, readonly) NSString *moveLabel;
 @property(nonatomic, readonly) NSString *title;

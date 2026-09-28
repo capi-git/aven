@@ -831,6 +831,7 @@ export function DetachedWorkspace() {
     content: (
       <TitleBar
         paneLocal
+        splitPanes={Object.keys(state.view.groups).length > 1}
         paneFocused={state.view.focusedId === id}
         tabs={titleTabs.filter((t) => members.includes(t.id))}
         activeId={id}

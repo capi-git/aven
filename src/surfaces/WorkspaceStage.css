@@ -154,61 +154,16 @@
   background: var(--color-accent);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 25%, transparent);
 }
+/* Drop previews are a plain grey outline, like window snapping: no labels
+   and no accent colour. The dark halo keeps it visible on light content. */
 .workspace-stage-drop-hint {
   position: absolute;
   z-index: 41;
   pointer-events: none;
-  border: 2px solid var(--color-accent);
+  border: 2px solid color-mix(in srgb, var(--color-content) 55%, transparent);
   border-radius: 8px;
-  box-shadow:
-    0 0 0 1px #101416,
-    inset 0 0 0 1px #fff9;
-  background: color-mix(in srgb, var(--color-accent) 15%, transparent);
-}
-
-.workspace-stage-drop-hint {
-  display: grid;
-  place-items: center;
-}
-.workspace-stage-drop-label {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  max-width: min(220px, 90%);
-  padding: 9px 13px;
-  border-radius: 9px;
-  background: var(--color-background-base);
-  color: var(--color-content);
-  font-size: 11px;
-  border: 1px solid color-mix(in srgb, var(--color-accent) 35%, transparent);
-  box-shadow: 0 3px 14px #0002;
-}
-.workspace-stage-drop-title {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  opacity: 0.7;
-}
-.workspace-stage-drop-label strong {
-  font-size: 12px;
-  font-weight: 600;
-}
-.workspace-stage-drop-label > span:last-child {
-  opacity: 0.65;
-}
-.workspace-stage-insert-label {
-  position: absolute;
-  right: 8px;
-  top: 6px;
-  z-index: 42;
-  pointer-events: none;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--color-background-base);
-  color: var(--color-accent);
-  font-size: 10px;
+  box-shadow: 0 0 0 1px #0000004d;
+  background: color-mix(in srgb, var(--color-content) 7%, transparent);
 }
 
 .workspace-stage-insertion {
@@ -217,7 +172,7 @@
   bottom: 4px;
   width: 2px;
   z-index: 42;
-  background: var(--color-accent);
+  background: color-mix(in srgb, var(--color-content) 55%, transparent);
   border-radius: 2px;
   pointer-events: none;
 }

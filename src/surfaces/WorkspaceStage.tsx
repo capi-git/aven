@@ -671,17 +671,6 @@ export function WorkspaceStage({
     : dragTarget && dragTarget.edge !== "tab"
       ? { x: 0, y: 0, w: 1, h: 1 }
       : null;
-  const dropOutcome =
-    dragTarget?.edge === "tab"
-      ? "Join group"
-      : (
-          {
-            left: "Split left",
-            right: "Split right",
-            up: "Split above",
-            down: "Split below",
-          } as const
-        )[dragTarget?.edge ?? "right"];
   if (hint && dragTarget && !joining) {
     if (dragTarget.edge === "left" || dragTarget.edge === "right") {
       hint.w /= 2;
@@ -756,19 +745,7 @@ export function WorkspaceStage({
                   data-drop-title={dragLabel ?? ""}
                   style={rectStyle(hint)}
                   aria-hidden="true"
-                >
-                  <span className="workspace-stage-drop-label">
-                    {dragLabel ? (
-                      <span className="workspace-stage-drop-title">
-                        {dragLabel}
-                      </span>
-                    ) : null}
-                    <strong>{dropOutcome}</strong>
-                    <span>
-                      {dragKind === "group" ? "Move group" : "Move tab"}
-                    </span>
-                  </span>
-                </div>
+                />
               ) : null}
             </div>
           </div>
@@ -809,13 +786,6 @@ export function WorkspaceStage({
                 data-drop-insertion
                 aria-hidden="true"
               />
-            ) : null}
-            {dragging && dragTarget?.id === id ? (
-              <span className="workspace-stage-insert-label" aria-hidden="true">
-                {dragTarget.edge === "tab" && dragTarget.index !== undefined
-                  ? `Insert ${dragKind}`
-                  : dropOutcome}
-              </span>
             ) : null}
           </div>
         );

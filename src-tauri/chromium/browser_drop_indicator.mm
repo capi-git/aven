@@ -101,64 +101,20 @@
       _normalizedTarget.size.width * bounds.size.width,
       _normalizedTarget.size.height * bounds.size.height);
 }
-- (NSRect)labelRect {
-  NSRect area = NSIntersectionRect(self.targetRect, self.bounds);
-  if (self.superview)
-    area = NSIntersectionRect(area,
-        [self convertRect:self.superview.bounds fromView:self.superview]);
-  const CGFloat width = std::min<CGFloat>(220, area.size.width - 12);
-  const CGFloat height = std::min<CGFloat>(_title.length ? 65 : 49, area.size.height - 12);
-  if (width < 36 || height < 24) return NSZeroRect;
-  return NSMakeRect(NSMidX(area) - width / 2, NSMidY(area) - height / 2, width, height);
-}
 - (void)drawRect:(NSRect)dirtyRect {
   if (!_active) return;
   NSRect target = NSInsetRect(self.targetRect, 3, 3);
   if (target.size.width <= 0 || target.size.height <= 0) return;
-  NSColor *accent = [NSColor colorWithSRGBRed:94.0/255 green:217.0/255 blue:208.0/255 alpha:1];
+  // A plain grey outline, like window snapping: no label and no accent. The
+  // dark halo keeps it visible on white websites, the grey line on dark ones.
   NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:target xRadius:8 yRadius:8];
-  [[accent colorWithAlphaComponent:.14] setFill];
+  [[NSColor colorWithSRGBRed:.5 green:.5 blue:.5 alpha:.12] setFill];
   [path fill];
-  // The dark outer stroke is visible on white websites; the pale inner stroke
-  // is visible on dark ones. Neither depends on the website's own palette.
-  [[NSColor colorWithSRGBRed:.03 green:.08 blue:.09 alpha:.95] setStroke];
-  path.lineWidth = 5;
+  [[NSColor colorWithSRGBRed:0 green:0 blue:0 alpha:.35] setStroke];
+  path.lineWidth = 4;
   [path stroke];
-  [[NSColor colorWithSRGBRed:.87 green:1 blue:.98 alpha:1] setStroke];
-  path.lineWidth = 3;
+  [[NSColor colorWithSRGBRed:.72 green:.72 blue:.72 alpha:1] setStroke];
+  path.lineWidth = 2;
   [path stroke];
-  [accent setStroke];
-  path.lineWidth = 1.5;
-  [path stroke];
-
-  NSRect label = self.labelRect;
-  if (NSIsEmptyRect(label)) return;
-  NSBezierPath *card = [NSBezierPath bezierPathWithRoundedRect:label xRadius:8 yRadius:8];
-  [[NSColor colorWithSRGBRed:.055 green:.105 blue:.115 alpha:1] setFill];
-  [card fill];
-  [accent setStroke];
-  card.lineWidth = 1;
-  [card stroke];
-  NSMutableParagraphStyle *paragraph = [NSMutableParagraphStyle new];
-  paragraph.alignment = NSTextAlignmentCenter;
-  paragraph.lineBreakMode = NSLineBreakByTruncatingTail;
-  const BOOL expanded = label.size.height >= (_title.length ? 61 : 45);
-  const CGFloat textX = label.origin.x + 8, textWidth = label.size.width - 16;
-  CGFloat textY = expanded ? label.origin.y + 7 : NSMidY(label) - 8;
-  if (expanded && _title.length) {
-    [_title drawInRect:NSMakeRect(textX, textY, textWidth, 14) withAttributes:@{
-      NSFontAttributeName: [NSFont systemFontOfSize:10.5],
-      NSForegroundColorAttributeName: [NSColor colorWithSRGBRed:.77 green:.86 blue:.86 alpha:1],
-      NSParagraphStyleAttributeName: paragraph}];
-    textY += 16;
-  }
-  [_outcome drawInRect:NSMakeRect(textX, textY, textWidth, 16) withAttributes:@{
-    NSFontAttributeName: [NSFont systemFontOfSize:12 weight:NSFontWeightSemibold],
-    NSForegroundColorAttributeName: NSColor.whiteColor,
-    NSParagraphStyleAttributeName: paragraph}];
-  if (expanded) [_moveLabel drawInRect:NSMakeRect(textX, textY + 18, textWidth, 14) withAttributes:@{
-    NSFontAttributeName: [NSFont systemFontOfSize:10.5],
-    NSForegroundColorAttributeName: [NSColor colorWithSRGBRed:.7 green:.83 blue:.83 alpha:1],
-    NSParagraphStyleAttributeName: paragraph}];
 }
 @end

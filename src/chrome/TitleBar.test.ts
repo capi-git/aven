@@ -1084,6 +1084,9 @@ describe("browser tab integration", () => {
         container.querySelector<HTMLElement>(`[data-surface-tab-id="${id}"]`)!;
       expect(surface("a").dataset.minimized).toBeUndefined();
       expect(surface("b").dataset.minimized).toBe("true");
+      // A lone strip keeps browser titles; split panes shrink them too.
+      expect(surface("web-a").dataset.minimized).toBeUndefined();
+      await render({ splitPanes: true });
       expect(surface("web-a").dataset.minimized).toBe("true");
       expect(
         surface("b").querySelector('[role="tab"]')!.getAttribute("title"),

@@ -122,6 +122,8 @@ export type Tab = {
 
 export type TitleBarProps = {
   paneLocal?: boolean;
+  /** Other panes' tab strips share the window, so space is tight. */
+  splitPanes?: boolean;
   /** This pane-local strip is hosted in the window's unified toolbar. */
   windowToolbar?: boolean;
   paneFocused?: boolean;
@@ -1046,6 +1048,7 @@ function dragWindowToolbar(event: ReactMouseEvent<HTMLElement>) {
 
 function TitleBarComponent({
   paneLocal = false,
+  splitPanes = false,
   windowToolbar = false,
   paneFocused = true,
   onNewView,
@@ -1114,6 +1117,9 @@ function TitleBarComponent({
     loadMinimizedTabs,
     () => MINIMIZED_TABS_DEFAULT,
   );
+  // A favicon alone rarely says which page a tab holds, so browser tabs keep
+  // their titles. Split panes share the window and still shrink them.
+  const minimizedBrowserTabs = minimizedTabs && splitPanes;
   const projectLabels = useProjectLabels();
   const tabs = useMemo(
     () =>
@@ -2413,7 +2419,7 @@ function TitleBarComponent({
                   onKeep={onKeepBrowser ? () => onKeepBrowser(id) : undefined}
                   groupStyle={groupStyle}
                   groupRun={groupRun}
-                  minimized={minimizedTabs && id !== focusedId}
+                  minimized={minimizedBrowserTabs && id !== focusedId}
                   onHover={hoverTab}
                   itemRef={itemRef}
                 />

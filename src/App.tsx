@@ -9214,6 +9214,7 @@ export default function App({
                                     describeTab={describeTitleTab}
                                     onOpenRaceOverview={openRaceOverview}
                                     paneLocal
+                                    splitPanes={visibleSurfaceIds.length > 1}
                                     windowToolbar={unifiedWorkspaceTabs}
                                     paneFocused={owner === view.focusedId}
                                     activeId={owner}

@@ -86,8 +86,6 @@ static void HierarchyClippingAndResize() {
   CHECK(view.superview == clip && clip.subviews.lastObject == view);
   CHECK(NSEqualRects(view.frame, browser.frame));
   CHECK([view updateTarget:NSMakeRect(0, 0, .5, 1) edge:@"left" kind:@"tab" title:@"Documentation"]);
-  CHECK(NSMinX(view.labelRect) >= 100);
-  CHECK(NSMaxX(view.labelRect) <= 400);
   CHECK([clip hitTest:NSMakePoint(200, 200)] == browser);
   browser.frame = NSMakeRect(-80, 0, 640, 400);
   [view placeAboveBrowser:browser frame:browser.frame];
@@ -131,7 +129,7 @@ static void TransferClears() {
   [first close]; [second close];
 }
 
-static void OpaqueLabelOnLightAndDarkPages() {
+static void GreyOutlineOnLightAndDarkPages() {
   SMBrowserDropIndicator *view = [[SMBrowserDropIndicator alloc]
       initWithFrame:NSMakeRect(0, 0, 400, 300)];
   CHECK([view updateTarget:NSMakeRect(.1,.1,.8,.8) edge:@"right" kind:@"tab" title:@"Docs"]);
@@ -147,11 +145,18 @@ static void OpaqueLabelOnLightAndDarkPages() {
     [view drawRect:view.bounds];
     [context flushGraphics];
     [NSGraphicsContext restoreGraphicsState];
-    NSRect card = view.labelRect;
-    NSColor *pixel = [[bitmap colorAtX:(NSInteger)NSMinX(card)+4 y:(NSInteger)NSMidY(card)]
+    const CGFloat base = [background colorUsingColorSpace:NSColorSpace.sRGBColorSpace].redComponent;
+    // The outline runs along the inset target's left edge.
+    NSRect outline = NSInsetRect(view.targetRect, 3, 3);
+    NSColor *edge = [[bitmap colorAtX:(NSInteger)NSMinX(outline) y:(NSInteger)NSMidY(outline)]
         colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
-    CHECK(pixel.alphaComponent > .99);
-    CHECK(pixel.redComponent < .2 && pixel.greenComponent < .2 && pixel.blueComponent < .2);
+    CHECK(std::fabs(edge.redComponent - base) > .2);
+    CHECK(std::fabs(edge.redComponent - edge.greenComponent) < .02 &&
+        std::fabs(edge.greenComponent - edge.blueComponent) < .02);
+    // No label card: the middle is the page with only a faint grey wash.
+    NSColor *middle = [[bitmap colorAtX:200 y:150]
+        colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+    CHECK(std::fabs(middle.redComponent - base) < .1);
   }
 }
 
@@ -161,7 +166,7 @@ int main() {
     ValidationAndLabels();
     HierarchyClippingAndResize();
     TransferClears();
-    OpaqueLabelOnLightAndDarkPages();
+    GreyOutlineOnLightAndDarkPages();
     std::puts("Browser drop indicator: 4 AppKit checks passed");
   }
   return 0;

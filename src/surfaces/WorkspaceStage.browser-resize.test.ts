@@ -258,12 +258,12 @@ describe("workspace divider and native page presentation", () => {
 
   it.each([
     [null, null],
-    [{ id: "page", edge: "tab", index: 0 }, "Insert tab"],
-    [{ id: "page", edge: "tab" }, "Join group"],
-    [{ id: "page", edge: "right" }, "Split right"],
+    [{ id: "page", edge: "tab", index: 0 }, "[data-drop-insertion]"],
+    [{ id: "page", edge: "tab" }, "[data-drop-target]"],
+    [{ id: "page", edge: "right" }, "[data-drop-target]"],
   ] as const)(
     "keeps the browser live through a tab drag to %j",
-    async (target, label) => {
+    async (target, feedback) => {
       await act(async () =>
         root.render(
           createElement(WorkspaceStage, {
@@ -275,10 +275,10 @@ describe("workspace divider and native page presentation", () => {
         ),
       );
       await notifyDomChange();
-      expect(
-        container.querySelector(".workspace-stage-insert-label")?.textContent ??
-          null,
-      ).toBe(label);
+      if (feedback) expect(container.querySelector(feedback)).not.toBeNull();
+      expect(container.querySelector("[data-drop-target]") !== null).toBe(
+        target !== null,
+      );
       await act(async () => root.render(createElement(WorkspaceStage, props)));
       await notifyDomChange();
       expect(native.layout.mock.calls.some((call) => call[2] === false)).toBe(

@@ -1482,10 +1482,15 @@ describe("workspace stage", () => {
       dragLabel: "Research · 2 tabs",
       dragKind: "group",
     });
-    const hint = container.querySelector(".workspace-stage-drop-hint")!;
-    expect(hint.textContent).toContain("Join group");
-    expect(hint.textContent).toContain("Move group");
-    expect(hint.textContent).toContain("Research");
+    const hint = container.querySelector<HTMLElement>(
+      ".workspace-stage-drop-hint",
+    )!;
+    // The preview is an outline only; the native indicator still gets the
+    // drop details through data attributes.
+    expect(hint.textContent).toBe("");
+    expect(hint.dataset.dropEdge).toBe("tab");
+    expect(hint.dataset.dropKind).toBe("group");
+    expect(hint.dataset.dropTitle).toBe("Research · 2 tabs");
   });
 
   it("refuses to split or join a moving whole group back onto itself", async () => {
