@@ -1,6 +1,6 @@
 name: Build macOS release candidate
 
-# A reviewed source revision can be published as an Aven-signed update.
+# A reviewed source revision can be published as a Developer ID signed update.
 on:
   workflow_dispatch:
     inputs:
@@ -31,6 +31,11 @@ jobs:
           node-version: 22
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
+      - name: Import Developer ID into an isolated signing keychain
+        env:
+          APPLE_DEVELOPER_ID_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
+          APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+        run: python3 -B scripts/ci-signing-keychain.py
       - name: Install native build tools
         run: |
           command -v cmake >/dev/null || brew install cmake
@@ -57,10 +62,13 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
+          set -euo pipefail
           task_version="$(node -p "require('./package.json').version")"
+          python3 -B scripts/release-signing.py verify --app target/release/bundle/macos/Aven.app
           python3 scripts/package-update.py --app target/release/bundle/macos/Aven.app --out "target/releases/v$task_version"
           cd "target/releases/v$task_version"
           shasum -a 256 "Aven-$task_version-macos-arm64.app.tar.gz" "Aven-$task_version-macos-arm64.app.tar.gz.sig" latest.json >> SHA256SUMS
+          shasum -a 256 -c SHA256SUMS
       - name: Upload candidate for manual review
         uses: actions/upload-artifact@v4
         with:
@@ -69,6 +77,9 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+      - name: Remove temporary signing material
+        if: ${{ always() }}
+        run: python3 -B scripts/ci-signing-keychain.py --cleanup
 
   publish:
     if: inputs.publish
@@ -86,10 +97,26 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           task_version="$(node -p "require('./package.json').version")"
           task_release_dir="release/v$task_version"
           test -s "$task_release_dir/latest.json"
           (cd "$task_release_dir" && sha256sum -c SHA256SUMS)
+          python3 - "$task_release_dir/signing-verification.json" <<'PY'
+          import json, sys
+          from pathlib import Path
+          expected = json.loads(Path('scripts/release-signing.json').read_text())
+          result = json.loads(Path(sys.argv[1]).read_text())
+          required = {
+              'status': 'verified',
+              'mode': 'developer-id',
+              'teamId': expected['teamId'],
+              'bundleId': expected['bundleId'],
+              'strictSignatureVerification': 'passed',
+          }
+          if any(result.get(key) != value for key, value in required.items()):
+              raise SystemExit('Refusing to publish an unverified signing identity.')
+          PY
           # Never attach a new binary to a tag that points at different source.
           if git ls-remote --exit-code --tags origin "refs/tags/v$task_version" > /dev/null 2>&1; then
             echo "Version tag already exists; choose a new release version." >&2
@@ -97,4 +124,4 @@ jobs:
           fi
           gh release create "v$task_version" "$task_release_dir"/* --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" --title "Aven $task_version" --latest \
-            --notes "Aven $task_version for Apple Silicon Macs. Updates are signed by Aven. The app remains ad-hoc signed and is not Apple-notarized. See CHANGELOG.md for changes."
+            --notes "Aven $task_version for Apple Silicon Macs. The app is Developer ID signed and updates are signed by Aven. This build is not Apple-notarized. See CHANGELOG.md for changes."

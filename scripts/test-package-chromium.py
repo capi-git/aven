@@ -169,6 +169,26 @@ class PrivacyPackagingTests(unittest.TestCase):
                     self.assertTrue((helper / 'Contents/MacOS' / helper_info['CFBundleExecutable']).is_file())
                 self.assertTrue(any(call.args[0][:2] == ['codesign', '--verify'] for call in run.call_args_list))
 
+    def test_explicit_keychain_is_used_for_all_final_signing(self):
+        def simulated_run(command, _log, _env):
+            if command[0] == 'ditto':
+                shutil.copytree(command[1], command[2])
+
+        info = self.host_info()
+        self.write_info(info)
+        keychain = self.root / 'isolated.keychain-db'
+        with mock.patch.object(packager, 'run', side_effect=simulated_run) as run, \
+             mock.patch.object(packager.subprocess, 'check_output', return_value=''):
+            packager.package(self.app, 'Aven', info['CFBundleIdentifier'], 'A' * 40,
+                             io.StringIO(), {}, keychain)
+        signing = [call.args[0] for call in run.call_args_list if '--sign' in call.args[0]]
+        self.assertEqual(len(signing), 7)
+        for command in signing:
+            self.assertEqual(command[command.index('--keychain') + 1], keychain)
+            self.assertEqual(command[command.index('--sign') + 1], 'A' * 40)
+            self.assertIn('--timestamp', command)
+        self.assertFalse(any('security' == call.args[0][0] for call in run.call_args_list))
+
 
 if __name__ == '__main__':
     unittest.main()

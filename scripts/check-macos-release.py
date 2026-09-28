@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Read-only preflight for an Aven notarized release with automatic updates; never reads signing secrets."""
 import argparse
+import importlib.util
 import json
 from pathlib import Path
 import plistlib
@@ -9,6 +10,9 @@ import subprocess
 from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parent.parent
+SIGNING_SPEC = importlib.util.spec_from_file_location("aven_release_signing", ROOT / "scripts/release-signing.py")
+release_signing = importlib.util.module_from_spec(SIGNING_SPEC)
+SIGNING_SPEC.loader.exec_module(release_signing)
 
 
 def merge(base, override):
@@ -20,24 +24,25 @@ def merge(base, override):
     return base
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", type=Path, help="Public Tauri release config override")
-    parser.add_argument("--app", type=Path, help="Final packaged macOS app to verify")
-    args = parser.parse_args()
-    config = json.loads((ROOT / "src-tauri/tauri.conf.json").read_text())
-    if args.config:
-        merge(config, json.loads(args.config.read_text()))
+def check_release(config, app=None):
     checks = []
 
     def record(name, passed, detail):
         checks.append({"check": name, "passed": bool(passed), "detail": detail})
 
-    bundle = config.get("bundle", {})
-    signing = bundle.get("macOS", {}).get("signingIdentity", "")
     updater = config.get("plugins", {}).get("updater", {})
-    record("Developer ID configured", isinstance(signing, str) and signing.startswith("Developer ID Application:"),
-           "Use a stable Developer ID Application identity for distributed builds.")
+    try:
+        policy = release_signing.policy()
+        record("Developer ID configured", config.get("identifier") == policy["bundleId"],
+               "The final Chromium app uses scripts/release-signing.json, team " + policy["teamId"]
+               + " and bundle " + policy["bundleId"] + ". Tauri's intermediate bundle is not the release signer.")
+        try:
+            release_signing.preflight()
+            record("Developer ID identity available", True, "A valid identity matches the configured release team.")
+        except (RuntimeError, OSError, ValueError) as error:
+            record("Developer ID identity available", False, str(error))
+    except (RuntimeError, OSError, ValueError) as error:
+        record("Developer ID configured", False, str(error))
     record("Final Chromium updater packager configured", (ROOT / "scripts/package-update.py").is_file(),
            "Sign the complete Chromium app archive after packaging; do not ship Tauri's intermediate host bundle.")
     record("Updater public key configured", bool(str(updater.get("pubkey", "")).strip()),
@@ -54,8 +59,8 @@ def main():
     record("Manual-only updater guard reviewed", not re.search(r"IS_PERSONAL_BUILD\s*=\s*true\b", marker),
            "The current guard intentionally prevents downloading upstream builds. Replace it only when a Aven feed is configured and verified.")
 
-    if args.app:
-        info_path = args.app / "Contents/Info.plist"
+    if app:
+        info_path = app / "Contents/Info.plist"
         if not info_path.is_file():
             record("App bundle exists", False, "Select the final packaged .app.")
         else:
@@ -63,26 +68,38 @@ def main():
             record("Bundle identity and version", info.get("CFBundleIdentifier") == config.get("identifier")
                    and info.get("CFBundleShortVersionString") == config.get("version"),
                    "The installed/update identity and version must match the release configuration.")
-            commands = [
-                ("Strict bundle signature", ["codesign", "--verify", "--deep", "--strict", str(args.app)]),
-                ("Stapled notarization ticket", ["xcrun", "stapler", "validate", str(args.app)]),
-            ]
-            for name, command in commands:
-                result = subprocess.run(command, capture_output=True, text=True)
-                record(name, result.returncode == 0, "Passed." if result.returncode == 0 else "Verification did not pass.")
-            signature = subprocess.run(["codesign", "-dv", "--verbose=2", str(args.app)], capture_output=True, text=True)
-            record("Final app has Developer ID signature", signature.returncode == 0
-                   and "Authority=Developer ID Application:" in signature.stderr
-                   and "TeamIdentifier=not set" not in signature.stderr,
-                   "Ad-hoc signatures change identity between builds and are unsuitable for the release channel.")
-            record("Bundled Chromium runtime", (args.app / "Contents/Frameworks/Chromium Embedded Framework.framework").exists(),
+            try:
+                release_signing.verify(app)
+                record("Final app signing contract", True,
+                       "Strict signature, expected team and identifiers, stable requirements, timestamps, and hardened runtime passed for Aven and Chromium helpers.")
+            except (RuntimeError, OSError, ValueError) as error:
+                record("Final app signing contract", False, str(error))
+            try:
+                result = subprocess.run(["xcrun", "stapler", "validate", str(app)], capture_output=True, text=True)
+                record("Stapled notarization ticket", result.returncode == 0,
+                       "Passed." if result.returncode == 0 else "Notarization ticket validation did not pass; Developer ID signing alone is insufficient.")
+            except OSError:
+                record("Stapled notarization ticket", False, "The macOS stapler tool is unavailable.")
+            record("Bundled Chromium runtime", (app / "Contents/Frameworks/Chromium Embedded Framework.framework").exists(),
                    "A plain Tauri bundle does not include Aven's browser runtime.")
     else:
         record("Final packaged app verified", False, "Pass --app after packaging and notarization.")
     ready = all(check["passed"] for check in checks)
-    print(json.dumps({"configuration_ready": ready, "checks": checks,
-                      "scope": "Configuration and packaging only; does not certify crash-free operation, update delivery, or website compatibility."}, indent=2))
-    return 0 if ready else 1
+    return {"configuration_ready": ready, "checks": checks,
+            "scope": "Configuration, signing identity, and notarization ticket only; does not certify crash-free operation, update delivery, or website compatibility."}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", type=Path, help="Public Tauri release config override")
+    parser.add_argument("--app", type=Path, help="Final packaged macOS app to verify")
+    args = parser.parse_args()
+    config = json.loads((ROOT / "src-tauri/tauri.conf.json").read_text())
+    if args.config:
+        merge(config, json.loads(args.config.read_text()))
+    report = check_release(config, args.app)
+    print(json.dumps(report, indent=2))
+    return 0 if report["configuration_ready"] else 1
 
 
 if __name__ == "__main__":

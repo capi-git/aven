@@ -99,7 +99,7 @@ def ensure_legacy_executable_alias(app):
     alias.symlink_to('aven')
 
 
-def package(app, product_name, bundle_id, identity, log, env):
+def package(app, product_name, bundle_id, identity, log, env, keychain=None):
     info_path = app / 'Contents/Info.plist'
     info = plistlib.loads(info_path.read_bytes())
     require(info['CFBundleIdentifier'] == bundle_id, 'Unexpected candidate bundle identifier')
@@ -215,6 +215,8 @@ def package(app, product_name, bundle_id, identity, log, env):
 
     common = ['codesign', '--force', '--sign', identity, '--options', 'runtime',
               '--timestamp=none' if identity == '-' else '--timestamp']
+    if keychain:
+        common += ['--keychain', keychain]
     for path in sorted([p for p in framework.rglob('*') if macho(p)], key=lambda p: len(p.parts), reverse=True):
         run(common + [path], log, env)
     run(common + [framework], log, env)
@@ -234,8 +236,13 @@ def main():
     parser.add_argument('--cef-root', type=Path, default=os.environ.get('CEF_ROOT'))
     parser.add_argument('--cef-build-dir', type=Path, default=os.environ.get('CEF_BUILD_DIR'))
     parser.add_argument('--identity', default='-', help='Ad-hoc by default; optional shared Developer ID identity')
+    parser.add_argument('--keychain', type=Path, help='Explicit signing keychain; leaves the global search list unchanged')
     parser.add_argument('--execute', action='store_true', help='Package and sign the existing candidate; otherwise print a plan')
     args = parser.parse_args()
+    if args.keychain:
+        args.keychain = args.keychain.expanduser().resolve()
+        require(args.keychain.is_file(), 'Signing keychain does not exist')
+        require(args.identity != '-', 'Ad-hoc signing does not use a keychain')
     require(sys.platform == 'darwin', 'Packaging requires macOS command-line tools')
     app = args.app.absolute()
     require(not app.is_symlink() and app.resolve().is_relative_to((REPO / 'target').resolve()), 'Only candidate bundles under this checkout target directory may be packaged')
@@ -262,7 +269,7 @@ def main():
         with tempfile.TemporaryDirectory(prefix='aven-chromium-package-') as folder:
             SCRATCH = Path(folder)
             with log_path.open('w') as log:
-                binary, framework, helpers, native = package(app, info['CFBundleName'], info['CFBundleIdentifier'], args.identity, log, os.environ.copy())
+                binary, framework, helpers, native = package(app, info['CFBundleName'], info['CFBundleIdentifier'], args.identity, log, os.environ.copy(), args.keychain)
         files, fingerprint, size = manifest(app)
         manifest_path = app.with_suffix('.chromium-manifest.json')
         manifest_path.write_text(json.dumps(files, indent=2) + '\n')

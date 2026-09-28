@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build a local, ad-hoc-signed Aven release. Never installs or publishes it.
+# Build a Developer ID-signed Aven release. Never installs or publishes it.
 set -euo pipefail
 
 task_repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -9,8 +9,11 @@ if [[ "$(uname -s)" != Darwin || "$(uname -m)" != arm64 ]]; then
   echo 'Aven release builds currently require an Apple Silicon Mac running natively.' >&2
   exit 1
 fi
-if (( $# != 0 )); then
-  echo 'Usage: CEF_ROOT=/path/to/verified/cef ./scripts/build-release.sh' >&2
+task_signing_args=(preflight)
+if [[ $# == 1 && "$1" == --ad-hoc ]]; then
+  task_signing_args+=(--ad-hoc)
+elif (( $# != 0 )); then
+  echo 'Usage: CEF_ROOT=/path/to/verified/cef ./scripts/build-release.sh [--ad-hoc]' >&2
   exit 1
 fi
 : "${CEF_ROOT:?Set CEF_ROOT to the verified pinned macOS arm64 CEF distribution; see docs/CHROMIUM.md}"
@@ -20,7 +23,7 @@ fi
 : "${CARGO_BUILD_JOBS:=4}"
 export CEF_ROOT CEF_BUILD_DIR CMAKE NINJA CARGO_BUILD_JOBS
 
-for task_tool in node npm cargo rustc python3 "$CMAKE" "$NINJA" codesign ditto xcrun lipo shasum unzip; do
+for task_tool in node npm cargo rustc python3 "$CMAKE" "$NINJA" codesign security ditto xcrun lipo shasum unzip; do
   if ! command -v "$task_tool" >/dev/null 2>&1; then
     echo "Missing build prerequisite: $task_tool. See docs/CHROMIUM.md." >&2
     exit 1
@@ -28,6 +31,14 @@ for task_tool in node npm cargo rustc python3 "$CMAKE" "$NINJA" codesign ditto x
 done
 node -e 'if (Number(process.versions.node.split(".")[0]) < 22) { console.error("Node.js 22 or newer is required."); process.exit(1); }'
 xcrun --find clang >/dev/null
+
+# Fail before dependency installation, engine verification, tests, or compilation.
+# Only the public signing fingerprint is returned; no private key is exported.
+task_signing_identity="$(python3 -B scripts/release-signing.py "${task_signing_args[@]}")"
+task_package_signing_args=(--identity "$task_signing_identity")
+if [[ -n "${AVEN_RELEASE_KEYCHAIN:-}" ]]; then
+  task_package_signing_args+=(--keychain "$AVEN_RELEASE_KEYCHAIN")
+fi
 
 # Verify the engine before compiling, and keep generated bundles under target/.
 # Importing the packager reuses its exact pins without executing packaging.
@@ -58,6 +69,8 @@ lock = json.loads((root / 'package-lock.json').read_text())
 version = package['version']
 packager.require(re.fullmatch(r'\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?', version), 'Invalid package version')
 packager.require(config['productName'] == 'Aven', 'Expected Aven product name')
+signing_policy = json.loads((root / 'scripts/release-signing.json').read_text())
+packager.require(config['identifier'] == signing_policy['bundleId'], 'Production bundle identifier must match scripts/release-signing.json')
 packager.require(config['version'] == version and lock['version'] == version and lock['packages']['']['version'] == version, 'JavaScript and Tauri versions must match')
 workspace = (root / 'Cargo.toml').read_text().split('[workspace.package]', 1)[1].split('\n[', 1)[0]
 packager.require(re.search(r'^version\s*=\s*"' + re.escape(version) + r'"\s*$', workspace, re.M), 'Rust workspace version must match')
@@ -70,9 +83,16 @@ python3 -B scripts/test-package-chromium.py
 python3 -B scripts/test-dev-aven.py
 python3 -B scripts/test-package-update.py
 python3 -B scripts/test-bump-version.py
+python3 -B scripts/test-release-signing.py
+python3 -B scripts/test-check-macos-release.py
+python3 -B scripts/test-ci-signing-keychain.py
 
 task_app="$task_repo_root/target/release/bundle/macos/Aven.app"
 task_release_dir="$task_repo_root/target/releases/v$task_version"
+if [[ "$task_signing_identity" == - ]]; then
+  task_release_dir="$task_repo_root/target/releases/ad-hoc/v$task_version"
+fi
+python3 -B scripts/release-signing.py check-output --out "$task_release_dir" --version "$task_version"
 
 if [[ "${AVEN_SKIP_NPM_CI:-0}" != 1 ]]; then
   npm ci
@@ -89,31 +109,45 @@ cargo test --locked -p aven --lib
 # app only after Chromium and all helper executables have been added.
 npm run tauri -- build --ci --bundles app --no-sign -- --locked
 python3 scripts/generate-third-party-notices.py
-python3 scripts/package-chromium.py --app "$task_app" --execute
+python3 scripts/package-chromium.py --app "$task_app" "${task_package_signing_args[@]}" --execute
 
 mkdir -p "$task_release_dir"
 task_stage="$(mktemp -d "$task_release_dir/.stage.XXXXXX")"
 trap 'rm -rf "$task_stage"' EXIT
+# Check the final Chromium app, including stable requirements for the host and
+# all helpers. Archive/update bytes must come from this fully signed bundle.
+task_verification_args=(verify --app "$task_app" --report "$task_stage/signing-verification.json")
+if [[ "$task_signing_identity" == - ]]; then
+  task_verification_args+=(--ad-hoc)
+fi
+python3 -B scripts/release-signing.py "${task_verification_args[@]}"
 task_archive="Aven-$task_version-macos-arm64.zip"
 ditto -c -k --norsrc --noextattr --keepParent "$task_app" "$task_stage/$task_archive"
 unzip -tq "$task_stage/$task_archive"
 cp LICENSE NOTICE THIRD_PARTY_NOTICES.txt "$task_stage/"
 (
   cd "$task_stage"
-  shasum -a 256 "$task_archive" LICENSE NOTICE THIRD_PARTY_NOTICES.txt > SHA256SUMS
+  shasum -a 256 "$task_archive" LICENSE NOTICE THIRD_PARTY_NOTICES.txt signing-verification.json > SHA256SUMS
   shasum -a 256 -c SHA256SUMS
 )
-for task_artifact in "$task_archive" LICENSE NOTICE THIRD_PARTY_NOTICES.txt SHA256SUMS; do
-  mv -f "$task_stage/$task_artifact" "$task_release_dir/$task_artifact"
-done
-if [[ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" || -n "${TAURI_SIGNING_PRIVATE_KEY_PATH:-}" ]]; then
-  python3 scripts/package-update.py --app "$task_app" --out "$task_release_dir"
+task_artifacts=("$task_archive" LICENSE NOTICE THIRD_PARTY_NOTICES.txt signing-verification.json SHA256SUMS)
+if [[ "$task_signing_identity" != - && ( -n "${TAURI_SIGNING_PRIVATE_KEY:-}" || -n "${TAURI_SIGNING_PRIVATE_KEY_PATH:-}" ) ]]; then
+  python3 scripts/package-update.py --app "$task_app" --out "$task_stage"
+  task_artifacts+=("Aven-$task_version-macos-arm64.app.tar.gz" "Aven-$task_version-macos-arm64.app.tar.gz.sig" latest.json)
   (
-    cd "$task_release_dir"
+    cd "$task_stage"
     shasum -a 256 "Aven-$task_version-macos-arm64.app.tar.gz" \
       "Aven-$task_version-macos-arm64.app.tar.gz.sig" latest.json >> SHA256SUMS
     shasum -a 256 -c SHA256SUMS
   )
 fi
+for task_artifact in "${task_artifacts[@]}"; do
+  mv -f "$task_stage/$task_artifact" "$task_release_dir/$task_artifact"
+done
 printf 'Built Aven %s: %s\n' "$task_version" "$task_release_dir/$task_archive"
-printf '%s\n' 'Ad-hoc signed; not notarized. Complete native interaction checks before sharing. Nothing was installed or published.'
+if [[ "$task_signing_identity" == - ]]; then
+  printf '%s\n' 'Ad-hoc signed local test only; not notarized and unsuitable for distribution or automatic updates.'
+else
+  printf '%s\n' 'Developer ID signed; not notarized. Complete native interaction checks and notarization before public distribution.'
+fi
+printf '%s\n' 'Nothing was installed or published.'
