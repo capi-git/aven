@@ -5,6 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BrowserPane } from "./BrowserPane";
 import { EXTERNAL_BROWSER_NAME, type BrowserState } from "../lib/browser";
 import * as workspaceTransfers from "../lib/workspaceTransfers";
+import {
+  BROWSER_HANDOFF_MAX_MS,
+  beginBrowserHandoff,
+  browserHandoffPending,
+  endBrowserHandoff,
+  resetBrowserHandoff,
+} from "../lib/browserHandoff";
 
 const appMenu = vi.hoisted(() => ({
   open: vi.fn(),
@@ -395,6 +402,62 @@ describe("native preview lifecycle", () => {
     expect(mocks.create).toHaveBeenCalledTimes(1);
     expect(mocks.snapshot).not.toHaveBeenCalled();
     expect(frames.size).toBe(0);
+  });
+
+  it("keeps an outgoing page shown until the incoming page is presented", async () => {
+    resetBrowserHandoff();
+    try {
+      const id = await openPane();
+      expect(mocks.layout).toHaveBeenLastCalledWith(
+        id,
+        expect.any(Object),
+        true,
+      );
+      expect(browserHandoffPending()).toBe(false);
+      mocks.layout.mockClear();
+      await act(async () => {
+        beginBrowserHandoff("incoming");
+        root.render(
+          createElement(BrowserPane, {
+            id: "one",
+            initialUrl: "localhost:3000",
+            visible: false,
+          }),
+        );
+      });
+      expect(mocks.layout).not.toHaveBeenCalled();
+      await act(async () => endBrowserHandoff("incoming"));
+      expect(mocks.layout).toHaveBeenLastCalledWith(
+        id,
+        expect.any(Object),
+        false,
+      );
+
+      // A page that never arrives releases the outgoing one at the deadline.
+      await openPane({ visible: true });
+      mocks.layout.mockClear();
+      await act(async () => {
+        beginBrowserHandoff("stuck");
+        root.render(
+          createElement(BrowserPane, {
+            id: "one",
+            initialUrl: "localhost:3000",
+            visible: false,
+          }),
+        );
+      });
+      expect(mocks.layout).not.toHaveBeenCalled();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(BROWSER_HANDOFF_MAX_MS);
+      });
+      expect(mocks.layout).toHaveBeenLastCalledWith(
+        id,
+        expect.any(Object),
+        false,
+      );
+    } finally {
+      resetBrowserHandoff();
+    }
   });
 
   it("keeps the selected native page presented when WK reports itself occluded", async () => {

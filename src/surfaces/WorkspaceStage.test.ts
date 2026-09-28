@@ -1,9 +1,15 @@
 // @vitest-environment happy-dom
-import { act, createElement, useEffect } from "react";
+import { act, createElement, useEffect, useLayoutEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { layoutLeaves, type LayoutNode } from "../lib/layout";
 import { HIDDEN_SURFACE_DEMOTE_MS } from "../lib/hiddenSurfaces";
+import {
+  BROWSER_HANDOFF_MAX_MS,
+  beginBrowserHandoff,
+  endBrowserHandoff,
+  resetBrowserHandoff,
+} from "../lib/browserHandoff";
 import { notifyMemoryPressure } from "../lib/memoryPressure";
 import { moveWorkspaceTab, resolveWorkspaceView } from "../lib/workspaceViews";
 import {
@@ -181,6 +187,65 @@ describe("workspace stage", () => {
     expect(mounted.mock.calls).toEqual([["chat"], ["browser"]]);
     expect(unmounted).not.toHaveBeenCalled();
     expect(rendered).toHaveBeenCalledTimes(2);
+  });
+
+  describe("switching to a native browser page", () => {
+    function IncomingPage({ id, active }: { id: string; active: boolean }) {
+      useLayoutEffect(() => {
+        if (active) beginBrowserHandoff(id);
+      }, [id, active]);
+      return null;
+    }
+    const surfacesFor = (active: string) =>
+      ["chat", "browser"].map((id) => ({
+        id,
+        content:
+          id === "browser"
+            ? createElement(IncomingPage, { id, active: active === id })
+            : createElement(StatefulSurface, { id }),
+      }));
+
+    beforeEach(() => resetBrowserHandoff());
+    afterEach(() => resetBrowserHandoff());
+
+    it("keeps the outgoing chat painted underneath until the page is shown", async () => {
+      await render({ surfaces: surfacesFor("chat") });
+      await render({
+        layout: leaf("browser"),
+        focusedId: "browser",
+        surfaces: surfacesFor("browser"),
+      });
+      expect(surface("chat").hidden).toBe(false);
+      expect(surface("chat").dataset.handoff).toBe("out");
+      expect(surface("chat").hasAttribute("inert")).toBe(true);
+      expect(stage().dataset.handoff).toBe("true");
+
+      await act(async () => endBrowserHandoff("browser"));
+      expect(surface("chat").hidden).toBe(true);
+      expect(surface("chat").dataset.handoff).toBeUndefined();
+      expect(stage().dataset.handoff).toBeUndefined();
+    });
+
+    it("releases the outgoing chat at the deadline if the page never shows", async () => {
+      await render({ surfaces: surfacesFor("chat") });
+      await render({
+        layout: leaf("browser"),
+        focusedId: "browser",
+        surfaces: surfacesFor("browser"),
+      });
+      expect(surface("chat").hidden).toBe(false);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(BROWSER_HANDOFF_MAX_MS);
+      });
+      expect(surface("chat").hidden).toBe(true);
+    });
+
+    it("hides the outgoing surface in the same commit when nothing is on its way in", async () => {
+      await render({ layout: leaf("browser"), focusedId: "browser" });
+      await render({ layout: leaf("chat"), focusedId: "chat" });
+      expect(surface("browser").hidden).toBe(true);
+      expect(surface("browser").dataset.handoff).toBeUndefined();
+    });
   });
 
   it("portals one unsplit header without duplicate chrome or local header padding", async () => {

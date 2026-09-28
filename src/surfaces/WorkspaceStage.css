@@ -53,6 +53,17 @@
   }
 }
 
+/* A surface that just left stays painted under an incoming native browser
+   page until that page is shown; see browserHandoff.ts. */
+.workspace-stage-surface[data-handoff="out"] {
+  z-index: 0;
+  pointer-events: none;
+}
+.workspace-stage[data-handoff="true"]
+  .workspace-stage-surface:not([hidden], [data-handoff]) {
+  z-index: 1;
+}
+
 .workspace-stage-surface {
   --workspace-background-width: 100cqw;
   --workspace-background-height: 100cqh;

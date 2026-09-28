@@ -26,6 +26,10 @@ import {
   type ScrollOffsets,
 } from "../lib/hiddenSurfaces";
 import { subscribeMemoryPressure } from "../lib/memoryPressure";
+import {
+  browserHandoffPending,
+  waitForBrowserHandoff,
+} from "../lib/browserHandoff";
 import { WORKSPACE_DROP_FEEDBACK } from "../hooks/useBrowserDropIndicator";
 import "./WorkspaceStage.css";
 
@@ -468,6 +472,41 @@ export function WorkspaceStage({
       for (const id of promoted) next.delete(id);
       return next;
     });
+  // A switch into a native browser page: surfaces that just left stay painted
+  // underneath until the page is shown, so the window background never
+  // flashes between them. See browserHandoff.ts.
+  const committedShown = useRef<readonly string[]>([]);
+  const [heldOut, setHeldOut] = useState<ReadonlySet<string>>(new Set());
+  const held = new Set(
+    [
+      ...heldOut,
+      ...committedShown.current.filter((id) =>
+        retainedGeometry.current.has(id),
+      ),
+    ].filter((id) => visible && !shownIds.includes(id)),
+  );
+  const heldKey = [...held].join("\0");
+  useLayoutEffect(() => {
+    committedShown.current = shownIds;
+  });
+  useLayoutEffect(() => {
+    if (!held.size) return;
+    // Children's layout effects have run, so incoming pages have registered.
+    // Always set a new object: the surfaces that just left are derived from
+    // the previous commit and need this render to drop or keep them.
+    if (!browserHandoffPending()) {
+      setHeldOut(new Set());
+      return;
+    }
+    setHeldOut(new Set(held));
+    let cancelled = false;
+    void waitForBrowserHandoff().then(() => {
+      if (!cancelled) setHeldOut(new Set());
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [heldKey]);
   useLayoutEffect(() => {
     // `display: none` cleared the offsets; the same DOM nodes are back.
     for (const [id, saved] of demotedScroll.current) {
@@ -659,6 +698,7 @@ export function WorkspaceStage({
       className="workspace-stage"
       data-workspace-stage
       data-retained={visible || retainedGeometry.current.size > 0}
+      data-handoff={held.size ? "true" : undefined}
       hidden={!visible}
       aria-hidden={!visible || undefined}
       inert={!visible || undefined}
@@ -667,6 +707,7 @@ export function WorkspaceStage({
         const currentRect = positions.get(id);
         const shown = visible && !!currentRect;
         const retained = retainedGeometry.current.get(id);
+        const handoff = !shown && held.has(id) && !!retained;
         const rect = shown ? currentRect : (retained?.rect ?? currentRect);
         const hasHeader = shown
           ? headerContents.has(id) && toolbarHeaderId !== id
@@ -684,7 +725,8 @@ export function WorkspaceStage({
             data-retained={shown || !!retained}
             data-demoted={!shown && demoted.has(id) ? "true" : undefined}
             data-has-header={hasHeader}
-            hidden={!shown}
+            data-handoff={handoff ? "out" : undefined}
+            hidden={!shown && !handoff}
             aria-hidden={!shown || undefined}
             inert={!shown || undefined}
             style={

@@ -58,6 +58,11 @@ import {
   type BrowserState,
 } from "../lib/browser";
 import { useBrowserDropIndicator } from "../hooks/useBrowserDropIndicator";
+import {
+  beginBrowserHandoff,
+  endBrowserHandoff,
+  waitForBrowserHandoff,
+} from "../lib/browserHandoff";
 import "./BrowserPane.css";
 import type { Attachment } from "../lib/session";
 
@@ -1178,8 +1183,10 @@ function BrowserPaneSession({
       if (
         nextLayout === lastLayout &&
         (!bounds || JSON.stringify(lastBounds) === lastGeometry)
-      )
+      ) {
+        endBrowserHandoff(id);
         return;
+      }
       inFlight = true;
       try {
         if (
@@ -1214,6 +1221,22 @@ function BrowserPaneSession({
             return;
           }
         }
+        if (
+          !show &&
+          !presentation.current.visible &&
+          lastLayout &&
+          lastLayout !== "hidden"
+        ) {
+          // Leaving this page for another tab. If that tab is a native page
+          // still on its way in, keep this one painted until it arrives so
+          // the window background never shows between them.
+          await waitForBrowserHandoff();
+          if (disposed) return;
+          if (!isPaused()) {
+            pending = true;
+            return;
+          }
+        }
         const sentBounds = lastBounds;
         const viewportChanged =
           !!lastNativeBounds &&
@@ -1244,6 +1267,7 @@ function BrowserPaneSession({
           );
       } finally {
         inFlight = false;
+        if (!show || lastLayout !== "hidden") endBrowserHandoff(id);
         if (pending && !disposed) {
           pending = false;
           if (pendingImmediate) {
@@ -1380,6 +1404,7 @@ function BrowserPaneSession({
     scheduleLayout.current();
     return () => {
       disposed = true;
+      endBrowserHandoff(id);
       cancelQueued();
       cancelOverlayCapture();
       stopObserving?.();
@@ -1392,8 +1417,11 @@ function BrowserPaneSession({
     // Overlay captures are temporary backing images, not workspace previews.
     // Release their decoded pixels/base64 once the pane no longer presents them.
     if (!visible || error) setSnapshot(null);
+    // Register before any outgoing page decides to hide in this commit.
+    if (visible && !error && isTauri()) beginBrowserHandoff(id);
+    else endBrowserHandoff(id);
     scheduleLayout.current();
-  }, [visible, error, expanded]);
+  }, [visible, error, expanded, id]);
 
   useEffect(() => {
     if (!loading || !isTauri()) return;
