@@ -44,7 +44,7 @@ jobs:
           components: rustfmt
       - uses: Swatinem/rust-cache@v2
         with:
-          key: windows-candidate
+          key: windows-candidate-compiled-v2
           cache-on-failure: true
       - run: npm ci
       - run: cargo fmt --all --check
@@ -56,6 +56,18 @@ jobs:
         run: python scripts/generate-third-party-notices.py --target x86_64-pc-windows-msvc --npm-os win32 --npm-cpu x64
       - name: Build NSIS installer
         run: npm run build:windows
+      - name: Preserve built installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aven-windows-x64-installer
+          path: |
+            target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+            LICENSE
+            NOTICE
+            THIRD_PARTY_NOTICES.txt
+            docs/WINDOWS-TESTING.md
+          if-no-files-found: error
+          retention-days: 30
       - name: Install and launch on Windows
         shell: pwsh
         run: |
@@ -72,7 +84,7 @@ jobs:
           Copy-Item LICENSE, NOTICE, THIRD_PARTY_NOTICES.txt $output
           Copy-Item docs/WINDOWS-TESTING.md "$output/README.md"
           "Source commit: $env:GITHUB_SHA" | Add-Content "$output/README.md"
-          Get-ChildItem $output -File -Exclude SHA256SUMS | ForEach-Object {
+          Get-ChildItem -LiteralPath $output -File | Where-Object Name -ne SHA256SUMS | ForEach-Object {
             $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             "$hash  $($_.Name)"
           } | Set-Content "$output/SHA256SUMS" -Encoding utf8
