@@ -1243,8 +1243,10 @@ mod tests {
 
     #[test]
     fn validates_scoped_file_commands_and_navigation_bounds() {
+        let path = std::env::temp_dir().join("project/My README.md");
+        let path = path.to_str().unwrap();
         let request: Request = serde_json::from_value(json!({
-            "action":"openfile","path":"/project/README.md","line":12,"column":2
+            "action":"openfile","path":path,"line":12,"column":2
         }))
         .unwrap();
         assert!(authorize(&grants(), "secret", &request).is_ok());
@@ -1261,13 +1263,11 @@ mod tests {
         }
         assert!(validate_file_request(&format!("/{}", "x".repeat(4096)), None, None).is_err());
         for coordinate in [0, 1_000_001, u32::MAX] {
-            assert!(validate_file_request("/project/README.md", Some(coordinate), None).is_err());
-            assert!(
-                validate_file_request("/project/README.md", Some(1), Some(coordinate)).is_err()
-            );
+            assert!(validate_file_request(path, Some(coordinate), None).is_err());
+            assert!(validate_file_request(path, Some(1), Some(coordinate)).is_err());
         }
-        assert!(validate_file_request("/project/README.md", None, Some(1)).is_err());
-        assert!(validate_file_request("/project/My README.md", Some(1_000_000), Some(1)).is_ok());
+        assert!(validate_file_request(path, None, Some(1)).is_err());
+        assert!(validate_file_request(path, Some(1_000_000), Some(1)).is_ok());
         for value in [
             json!({"action":"openfile","path":"/p/a.md","command":"open"}),
             json!({"action":"openfile","path":"/p/a.md","line":-1}),

@@ -219,7 +219,9 @@ def main():
              'Includes production npm dependencies, non-dev Rust dependency graph (including build-time',
              'dependencies), and the source-distributed portable-pty crate. This is intentionally broader',
              'than only code retained after bundling. Other-platform optional npm binaries are excluded.',
-             'CEF/Chromium notices and credits are distributed separately in Contents/Resources/Chromium.',
+             ('CEF/Chromium notices and credits are distributed separately in Contents/Resources/Chromium.'
+              if args.target.endswith('apple-darwin') else
+              'This build uses the system webview runtime; CEF/Chromium is not bundled.'),
              'Aven and original application copyrights are in LICENSE and NOTICE.',
              'Copyright statements and complete license texts follow. Identical texts are shared by ID.',
              'Declared alternative licenses are preserved; supplying multiple texts does not remove alternatives.',

@@ -43,6 +43,7 @@ import {
 } from "../chrome/icons";
 import { ExplorerMenu, type ExplorerMenuItem } from "../chrome/ExplorerMenu";
 import {
+  EXTERNAL_BROWSER_NAME,
   browserBounds,
   browserDownloadProgress,
   browserEditAttachment,
@@ -1835,7 +1836,12 @@ function BrowserPaneSession({
           },
         ]
       : []),
-    { kind: "item", id: "external", label: "Open in Brave", disabled: !url },
+    {
+      kind: "item",
+      id: "external",
+      label: `Open in ${EXTERNAL_BROWSER_NAME}`,
+      disabled: !url,
+    },
   ];
 
   return (
@@ -1956,8 +1962,8 @@ function BrowserPaneSession({
         <button
           type="button"
           className="browser-icon-button browser-utility"
-          aria-label="Open preview in Brave"
-          title="Open in Brave"
+          aria-label={`Open preview in ${EXTERNAL_BROWSER_NAME}`}
+          title={`Open in ${EXTERNAL_BROWSER_NAME}`}
           disabled={!url}
           onClick={openExternal}
         >
@@ -2331,7 +2337,7 @@ function BrowserPaneSession({
               ) : null}
               {url ? (
                 <button type="button" onClick={openExternal}>
-                  Open in Brave
+                  Open in {EXTERNAL_BROWSER_NAME}
                 </button>
               ) : null}
             </div>

@@ -145,6 +145,12 @@ fn clean_relative(value: &str) -> Result<String, String> {
     let value = value.replace('\\', "/");
     if value.is_empty()
         || value.starts_with('/')
+        || Path::new(&value).components().any(|part| {
+            matches!(
+                part,
+                std::path::Component::Prefix(_) | std::path::Component::RootDir
+            )
+        })
         || value
             .split('/')
             .any(|part| part.is_empty() || part == "." || part == "..")
@@ -586,6 +592,22 @@ mod tests {
         assert!(!valid_race_id("../x"));
         assert!(create_lane(&races, &races, "ok", MAX_LANES, &"a".repeat(40)).is_err());
         let _ = std::fs::remove_dir_all(&races);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn rejects_windows_paths_that_replace_the_race_worktree() {
+        for path in [
+            r"C:\outside.txt",
+            "C:/outside.txt",
+            "C:outside.txt",
+            r"\outside.txt",
+            r"\\server\share\outside.txt",
+            r"\\?\C:\outside.txt",
+        ] {
+            assert!(clean_relative(path).is_err(), "{path}");
+        }
+        assert_eq!(clean_relative(r"src\main.rs").unwrap(), "src/main.rs");
     }
 
     #[test]

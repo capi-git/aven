@@ -1,0 +1,92 @@
+name: Build Windows test installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [build/windows-candidate]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-candidate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check:web
+
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-candidate
+          cache-on-failure: true
+      - run: npm ci
+      - run: cargo fmt --all --check
+      - run: cargo fetch --locked --target x86_64-pc-windows-msvc
+      - name: Generate Windows dependency notices
+        run: python scripts/generate-third-party-notices.py --target x86_64-pc-windows-msvc --npm-os win32 --npm-cpu x64
+      - run: npm run build
+      - name: Run native Windows tests
+        run: cargo test --locked --workspace --release --target x86_64-pc-windows-msvc --no-default-features --features tauri/custom-protocol
+      - name: Build NSIS installer
+        run: npm run build:windows
+      - name: Install and launch on Windows
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+          if (@($installer).Count -ne 1) { throw 'Expected exactly one Windows installer' }
+          ./scripts/test-windows-install.ps1 -Installer $installer.FullName -OutputDir target/windows-smoke
+      - name: Prepare shareable test package
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $output = "target/releases/Aven-$version-windows-x64-test"
+          New-Item -ItemType Directory -Force $output | Out-Null
+          Copy-Item target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe $output
+          Copy-Item LICENSE, NOTICE, THIRD_PARTY_NOTICES.txt $output
+          Copy-Item docs/WINDOWS-TESTING.md "$output/README.md"
+          Get-ChildItem $output -File | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          } | Set-Content "$output/SHA256SUMS" -Encoding utf8
+          "Source commit: $env:GITHUB_SHA" | Add-Content "$output/README.md"
+      - name: Upload test installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aven-windows-x64-test
+          path: target/releases/Aven-*-windows-x64-test/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload startup evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aven-windows-startup-evidence
+          path: target/windows-smoke/
+          if-no-files-found: ignore
+          retention-days: 30
