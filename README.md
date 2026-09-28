@@ -16,7 +16,7 @@ Aven brings agent conversations, your project, and a browser into one window. Us
 
 The app is ad-hoc signed, not Apple-notarized, so macOS may require you to approve opening it in **System Settings → Privacy & Security**. Only approve a copy you downloaded from this repository's releases. Intel Mac and Linux release builds are not currently provided or verified.
 
-**Windows:** Download the [Windows x64 test build](https://github.com/capi-git/aven/releases/tag/v0.1.103-windows-test.1). Extract `Aven-0.1.103-windows-x64-test.zip` and run `Aven_0.1.103_x64-setup.exe`. The installer is unsigned and may show an unknown-publisher warning. Installation and startup have been checked on a Windows runner; provider sign-in and authenticated chats still need tester verification. See the [Windows testing guide](docs/WINDOWS-TESTING.md) for setup and current limitations.
+**Windows:** Download the [Windows x64 test build](https://github.com/capi-git/aven/releases/tag/v0.1.104-windows-test.1). Extract `Aven-0.1.104-windows-x64-test.zip` and run `Aven_0.1.104_x64-setup.exe`. The installer is unsigned and may show an unknown-publisher warning. Installation and startup have been checked on a Windows runner; provider sign-in and authenticated chats still need tester verification. See the [Windows testing guide](docs/WINDOWS-TESTING.md) for setup and current limitations.
 
 On macOS, Aven 0.1.80 and later checks for updates from this repository and downloads signed updates in the background. Choose **Restart to update** when your work is ready; Aven does not interrupt running agents. Older versions need one manual replacement to enable this updater.
 

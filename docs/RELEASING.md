@@ -58,7 +58,7 @@ To publish a successful run:
 
 Use the verified personal GitHub account for this repository (`ghp` locally), as required by the account-routing instructions. Inspect the remote and account identity immediately before publishing. Do not upload build logs, runner screenshots, or smoke JSON as distributable assets; they may contain local paths. Keep them in the workflow's diagnostic artifacts.
 
-The first published Windows test build is [Aven 0.1.103 Windows test 1](https://github.com/capi-git/aven/releases/tag/v0.1.103-windows-test.1). See [WINDOWS-TESTING.md](WINDOWS-TESTING.md) for installation, source-build commands, and feature limitations.
+The current Windows test build is [Aven 0.1.104 Windows test 1](https://github.com/capi-git/aven/releases/tag/v0.1.104-windows-test.1). See [WINDOWS-TESTING.md](WINDOWS-TESTING.md) for installation, source-build commands, and feature limitations.
 
 ## Publish manually
 
