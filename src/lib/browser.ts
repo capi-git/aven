@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Attachment } from "./session";
+import { IS_WIN } from "./platform";
 
 export type BrowserBounds = {
   x: number;
@@ -342,8 +343,11 @@ export const nativeBrowser = {
     ),
 };
 
+export const EXTERNAL_BROWSER_NAME = IS_WIN ? "default browser" : "Brave";
+
 export function openBrowserExternally(url: string): Promise<void> {
-  return openUrl(normalizeBrowserUrl(url), "Brave Browser");
+  const normalized = normalizeBrowserUrl(url);
+  return IS_WIN ? openUrl(normalized) : openUrl(normalized, "Brave Browser");
 }
 
 /** Compact transfer size without inventing a total for unknown-length downloads. */

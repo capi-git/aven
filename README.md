@@ -12,11 +12,13 @@ Aven brings agent conversations, your project, and a browser into one window. Us
 
 ## Download
 
-Get the build for Apple Silicon Macs running macOS 13 or later from [Aven Releases](https://github.com/capi-git/aven/releases). Download the macOS ZIP, extract it, and move **Aven.app** to Applications.
+**macOS:** Get the build for Apple Silicon Macs running macOS 13 or later from [Aven Releases](https://github.com/capi-git/aven/releases). Download the macOS ZIP, extract it, and move **Aven.app** to Applications.
 
-The app is ad-hoc signed, not Apple-notarized, so macOS may require you to approve opening it in **System Settings → Privacy & Security**. Only approve a copy you downloaded from this repository's releases. Intel Mac, Windows, and Linux release builds are not currently provided or verified.
+The app is ad-hoc signed, not Apple-notarized, so macOS may require you to approve opening it in **System Settings → Privacy & Security**. Only approve a copy you downloaded from this repository's releases. Intel Mac and Linux release builds are not currently provided or verified.
 
-Aven 0.1.80 and later checks for updates from this repository and downloads signed updates in the background. Choose **Restart to update** when your work is ready; Aven does not interrupt running agents. Older versions need one manual replacement to enable this updater.
+**Windows:** Download the [Windows x64 test build](https://github.com/capi-git/aven/releases/tag/v0.1.103-windows-test.1). Extract `Aven-0.1.103-windows-x64-test.zip` and run `Aven_0.1.103_x64-setup.exe`. The installer is unsigned and may show an unknown-publisher warning. Installation and startup have been checked on a Windows runner; provider sign-in and authenticated chats still need tester verification. See the [Windows testing guide](docs/WINDOWS-TESTING.md) for setup and current limitations.
+
+On macOS, Aven 0.1.80 and later checks for updates from this repository and downloads signed updates in the background. Choose **Restart to update** when your work is ready; Aven does not interrupt running agents. Older versions need one manual replacement to enable this updater.
 
 Model lists refresh automatically from your installed providers. New models appear as the provider makes them available to your account, without an Aven release. Native Codex and Claude installations can also keep themselves current through their official updaters; control this in **Settings → Providers → Keep provider tools up to date**. Package-manager installations stay managed by their package manager.
 
@@ -45,7 +47,7 @@ Agents can edit files and run commands according to the access mode you select. 
 
 ## Build and contribute
 
-Aven uses React, TypeScript, Rust, and Tauri. The macOS release also embeds Chromium. See the [Chromium build guide](docs/CHROMIUM.md) for prerequisites and build commands, and [release instructions](docs/RELEASING.md) for packaging.
+Aven uses React, TypeScript, Rust, and Tauri. The macOS release also embeds Chromium. See the [Chromium build guide](docs/CHROMIUM.md) for prerequisites and build commands, and [release instructions](docs/RELEASING.md) for packaging. Windows builds use WebView2; see the [Windows build and testing guide](docs/WINDOWS-TESTING.md).
 
 To work on Aven inside Aven, open this repository and run `npm run dev:app` in its terminal. The complete **Aven Dev** preview uses separate chats, settings and browser data while your installed app stays open. See [Develop Aven inside Aven](docs/DEVELOPMENT.md) for setup and checks. **Settings → Skills & Tools** lists reusable skills and reports readiness for built-in browser tools and optional desktop computer use.
 

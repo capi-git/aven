@@ -120,7 +120,7 @@ def rust_packages(metadata, missing):
     # its actual text even though the initial release target is Apple Silicon.
     vendor = ROOT / 'vendor/portable-pty'
     if vendor.is_dir() and not any(p['name'] == 'portable-pty' for p in records):
-        manifest = (vendor / 'Cargo.toml').read_text()
+        manifest = (vendor / 'Cargo.toml').read_text(encoding='utf-8')
         version = re.search(r'^version = "([^"]+)"', manifest, re.M).group(1)
         records.append(package_record('vendored', 'portable-pty', version, 'MIT',
                                       'https://github.com/wezterm/wezterm', ['Wez Furlong'], vendor))
@@ -160,7 +160,7 @@ def main():
     else:
         try:
             result = subprocess.run(['cargo', 'metadata', '--offline', '--locked', '--format-version', '1',
-                                     '--filter-platform', args.target], cwd=ROOT, capture_output=True, text=True, check=True)
+                                     '--filter-platform', args.target], cwd=ROOT, capture_output=True, encoding='utf-8', check=True)
         except (OSError, subprocess.CalledProcessError):
             raise SystemExit('Could not resolve offline Cargo metadata. Install Rust and run cargo fetch --locked, then retry.')
         metadata = json.loads(result.stdout)
@@ -187,7 +187,7 @@ def main():
             if name not in sources:
                 raise SystemExit('Untracked upstream license supplement: ' + name)
             collected.append((sources[name]['url'], file_text(CACHE / name)))
-        if package['name'] == '@napi-rs/canvas-darwin-arm64':
+        if package['name'].startswith('@napi-rs/canvas-'):
             companion = ROOT / 'node_modules/@napi-rs/canvas'
             meta = read_json(companion / 'package.json')
             if meta['version'] != package['version']:
@@ -219,7 +219,9 @@ def main():
              'Includes production npm dependencies, non-dev Rust dependency graph (including build-time',
              'dependencies), and the source-distributed portable-pty crate. This is intentionally broader',
              'than only code retained after bundling. Other-platform optional npm binaries are excluded.',
-             'CEF/Chromium notices and credits are distributed separately in Contents/Resources/Chromium.',
+             ('CEF/Chromium notices and credits are distributed separately in Contents/Resources/Chromium.'
+              if args.target.endswith('apple-darwin') else
+              'This build uses the system webview runtime; CEF/Chromium is not bundled.'),
              'Aven and original application copyrights are in LICENSE and NOTICE.',
              'Copyright statements and complete license texts follow. Identical texts are shared by ID.',
              'Declared alternative licenses are preserved; supplying multiple texts does not remove alternatives.',
@@ -241,11 +243,12 @@ def main():
     report['aggregate_sha256'] = digest(output.encode())
     args.report.write_text(json.dumps(report, indent=2) + '\n')
     if args.check:
-        if not args.output.is_file() or args.output.read_text() != output:
+        if not args.output.is_file() or args.output.read_text(encoding='utf-8') != output:
             raise SystemExit('Third-party notices are stale. Regenerate before packaging.')
     else:
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(output, encoding='utf-8')
+        with args.output.open('w', encoding='utf-8', newline='\n') as stream:
+            stream.write(output)
     print(json.dumps({'complete': True, 'packages': len(packages), 'unique_texts': len(texts),
                       'output': str(args.output), 'sha256': report['aggregate_sha256']}, indent=2))
     return 0

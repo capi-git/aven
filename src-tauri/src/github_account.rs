@@ -387,7 +387,8 @@ mod tests {
             assert!(!valid_command(command));
         }
         assert!(valid_command("gh-team"));
-        assert!(valid_command("/some tools/gh-wrapper"));
+        let absolute_wrapper = std::env::temp_dir().join("some tools/gh-wrapper");
+        assert!(valid_command(absolute_wrapper.to_str().unwrap()));
     }
 
     #[test]

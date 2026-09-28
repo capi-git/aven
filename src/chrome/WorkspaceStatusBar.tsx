@@ -941,7 +941,7 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
           ) : null}
         </div>
       </div>
-      {settingsView && !IS_MAC ? <WindowControls /> : null}
+      {!IS_MAC ? <WindowControls /> : null}
 
       {nativeMenuError ? (
         <span role="status" className="workspace-status-menu-error">

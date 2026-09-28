@@ -4,12 +4,14 @@
     "windows": [
       {
         "label": "main",
+        "create": true,
         "title": "Aven",
         "width": 1280,
         "height": 800,
         "minWidth": 800,
         "minHeight": 520,
         "decorations": false,
+        "dragDropEnabled": false,
         "transparent": true,
         "backgroundColor": "#171717",
         "backgroundThrottling": "throttle",
@@ -23,6 +25,7 @@
     ],
     "createUpdaterArtifacts": false,
     "category": "DeveloperTool",
+    "licenseFile": "../LICENSE",
     "windows": {
       "nsis": {
         "installMode": "currentUser",
@@ -30,6 +33,15 @@
         "installerIcon": "icons/icon.ico"
       }
     },
-    "resources": null
+    "resources": {
+      "../LICENSE": "LICENSE",
+      "../NOTICE": "NOTICE",
+      "../THIRD_PARTY_NOTICES.txt": "THIRD_PARTY_NOTICES.txt"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": []
+    }
   }
 }

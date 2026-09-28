@@ -13,9 +13,12 @@ import {
   type WorkspaceStatusBarProps,
 } from "./WorkspaceStatusBar";
 
+const platform = vi.hoisted(() => ({ isMac: true }));
 vi.mock("../lib/platform", async (original) => ({
   ...(await original<typeof import("../lib/platform")>()),
-  IS_MAC: true,
+  get IS_MAC() {
+    return platform.isMac;
+  },
 }));
 
 const nativeMenu = vi.hoisted(() => ({
@@ -69,6 +72,10 @@ const api = vi.hoisted(() => ({ claude: vi.fn(), codex: vi.fn() }));
 const nativeWindow = vi.hoisted(() => ({
   startDragging: vi.fn().mockResolvedValue(undefined),
   toggleMaximize: vi.fn().mockResolvedValue(undefined),
+  isMaximized: vi.fn().mockResolvedValue(false),
+  onResized: vi.fn().mockResolvedValue(() => {}),
+  minimize: vi.fn().mockResolvedValue(undefined),
+  close: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => nativeWindow,
@@ -108,6 +115,7 @@ let container: HTMLDivElement;
 let props: WorkspaceStatusBarProps;
 beforeEach(() => {
   vi.clearAllMocks();
+  platform.isMac = true;
   nativeMenu.supported.mockReturnValue(false);
   nativeMenu.show.mockResolvedValue(null);
   nativePanel.open.mockResolvedValue("usage-panel-test");
@@ -178,6 +186,27 @@ async function click(label: string) {
 }
 
 describe("workspace status data and actions", () => {
+  it.each(["home", "workspace", "settings"] as const)(
+    "keeps Windows caption controls available in the %s toolbar",
+    async (view) => {
+      platform.isMac = false;
+      await render(
+        view === "settings"
+          ? { settingsView: { section: "appearance", onClose: vi.fn() } }
+          : view === "workspace"
+            ? { workspaceTabs: createElement("div", null, "Session tabs") }
+            : {},
+      );
+      await click("Minimize window");
+      await click("Maximize window");
+      await click("Close window");
+      expect(nativeWindow.minimize).toHaveBeenCalledOnce();
+      expect(nativeWindow.toggleMaximize).toHaveBeenCalledOnce();
+      expect(nativeWindow.close).toHaveBeenCalledOnce();
+      expect(nativeWindow.startDragging).not.toHaveBeenCalled();
+    },
+  );
+
   it("toggles the file sidebar on click without opening on hover or focus", async () => {
     vi.useFakeTimers();
     function ClickInspector() {

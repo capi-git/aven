@@ -3,7 +3,7 @@ import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BrowserPane } from "./BrowserPane";
-import type { BrowserState } from "../lib/browser";
+import { EXTERNAL_BROWSER_NAME, type BrowserState } from "../lib/browser";
 import * as workspaceTransfers from "../lib/workspaceTransfers";
 
 const appMenu = vi.hoisted(() => ({
@@ -75,6 +75,7 @@ vi.mock("@tauri-apps/api/menu", () => ({ Menu: { new: mocks.nativeMenu } }));
 vi.mock("../lib/platform", async (original) => ({
   ...(await original<typeof import("../lib/platform")>()),
   IS_MAC: true,
+  IS_WIN: false,
 }));
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
@@ -1455,7 +1456,7 @@ describe("native preview lifecycle", () => {
     expect(onAddToChat).toHaveBeenCalledExactlyOnceWith(
       "Working page\nhttp://localhost:3000/",
     );
-    await pick("Open in Brave");
+    await pick(`Open in ${EXTERNAL_BROWSER_NAME}`);
     expect(mocks.external).toHaveBeenCalledExactlyOnceWith(
       "http://localhost:3000/",
     );
@@ -3364,7 +3365,7 @@ describe("native preview lifecycle", () => {
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>(
-          '[aria-label="Open preview in Brave"]',
+          `[aria-label="Open preview in ${EXTERNAL_BROWSER_NAME}"]`,
         )!
         .click(),
     );
@@ -3438,7 +3439,7 @@ describe("native preview lifecycle", () => {
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>(
-          '[aria-label="Open preview in Brave"]',
+          `[aria-label="Open preview in ${EXTERNAL_BROWSER_NAME}"]`,
         )!
         .click(),
     );

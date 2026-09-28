@@ -198,9 +198,12 @@ import {
 import { BranchPicker } from "./chrome/BranchPicker";
 import { Popover } from "./chrome/Popover";
 import { FolderPlus, ArrowDownCircle, Folder } from "./chrome/icons";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { installInAppLinks } from "./lib/inAppLinks";
-import { normalizeBrowserUrl } from "./lib/browser";
+import {
+  EXTERNAL_BROWSER_NAME,
+  normalizeBrowserUrl,
+  openBrowserExternally,
+} from "./lib/browser";
 import {
   useWorkspaceProfiles,
   restoreProfileWorkspace,
@@ -8480,10 +8483,10 @@ export default function App({
   const openActions: WorkspaceStatusAction[] = [
     {
       id: "browser",
-      label: "Open preview in Brave",
+      label: `Open preview in ${EXTERNAL_BROWSER_NAME}`,
       disabled: profileHome || !browserState.url,
       onSelect: () => {
-        void openUrl(browserState.url, "Brave Browser").catch((error) =>
+        void openBrowserExternally(browserState.url).catch((error) =>
           message(String(error), { kind: "error" }),
         );
       },
