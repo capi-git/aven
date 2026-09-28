@@ -1645,9 +1645,10 @@ function TitleBarComponent({
           showProjectButton ? " border-l border-content/10" : ""
         }`}
       >
-        {groupId &&
-        orderedIds.length > 1 &&
-        (onGroupDragEnd || onMoveGroupToWindow) ? (
+        {/* The grip is hidden until hover but still takes width, so only
+            reserve it when a group can be dragged. Moving a group to a
+            window stays in the tab menu. */}
+        {groupId && orderedIds.length > 1 && onGroupDragEnd ? (
           <button
             type="button"
             ref={(element) => groupSortable.setItemRef(groupId, element)}
@@ -1660,10 +1661,9 @@ function TitleBarComponent({
                 : `Move group (${orderedIds.length} tabs)`
             }
             title="Drag to move these tabs together"
-            onPointerDown={(event) => {
-              if (onGroupDragEnd)
-                groupSortable.onItemPointerDown(groupId, event);
-            }}
+            onPointerDown={(event) =>
+              groupSortable.onItemPointerDown(groupId, event)
+            }
             onClick={(event) => {
               if (groupSortable.consumeClick()) return;
               const rect = event.currentTarget.getBoundingClientRect();

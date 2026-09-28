@@ -31,6 +31,12 @@
 .personal-shell .personal-title-browser-tab[data-active="true"] {
   max-width: 240px;
 }
+/* Session tabs carry Tailwind's @container, whose inline-size containment
+   hides the title from the slot and pins every chat tab at the minimum while
+   browser tabs grow. This shell hides the container-query meta line anyway. */
+.personal-shell .personal-title-tab-slot > .personal-title-tab {
+  container-type: normal;
+}
 .personal-shell .personal-title-tab-button {
   align-self: center;
   height: 24px;

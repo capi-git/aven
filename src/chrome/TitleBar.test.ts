@@ -1309,7 +1309,9 @@ describe("browser tab integration", () => {
     );
     expect(marks('[data-surface-tab-id="b"]')).toEqual(["claude"]);
     expect(container.querySelector('[data-surface-tab-id="b"] [data-working="true"]')).toBeNull();
-    expect(marks(".personal-tab-group-handle")).toEqual([]);
+    // Without a group drag there is nothing for the grip to do, so it takes
+    // no width; moving the group to a window stays in the tab menu.
+    expect(container.querySelector(".personal-tab-group-handle")).toBeNull();
     expect(marks('[data-surface-tab-id="a"]')).toEqual(["codex"]);
     await render({ activeId: "a" });
     expect(marks('[data-surface-tab-id="a"]')).toEqual(["codex"]);

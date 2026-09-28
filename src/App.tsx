@@ -9329,8 +9329,16 @@ export default function App({
                                     onMoveTabToWindow={moveTabToWindow}
                                     onMoveGroupToWindow={moveGroupToWindow}
                                     groupId={owner}
-                                    onGroupDragMove={onGroupDragMove}
-                                    onGroupDragEnd={onGroupDragEnd}
+                                    onGroupDragMove={
+                                      visibleSurfaceIds.length > 1
+                                        ? onGroupDragMove
+                                        : undefined
+                                    }
+                                    onGroupDragEnd={
+                                      visibleSurfaceIds.length > 1
+                                        ? onGroupDragEnd
+                                        : undefined
+                                    }
                                     onReopenClosedTab={() => {
                                       void onReopenClosedTab();
                                     }}
