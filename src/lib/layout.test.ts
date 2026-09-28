@@ -5,6 +5,8 @@ import {
   isChangesTab,
   isCommitTab,
   isFilesystemTab,
+  isPreviewFileTab,
+  keepFileTab,
   isReleaseNotesTab,
   isReviewTab,
   isSessionChangesTab,
@@ -35,6 +37,40 @@ import {
   splitSizesAtBoundary,
   updateTerminalTab,
 } from "./layout";
+
+describe("file previews", () => {
+  it("keeps a file without changing selection, dropping older files, or reopening its editor", () => {
+    const first = newFileTab("/repo/first.md", "/repo");
+    const second = newFileTab("/repo/second.md", "/repo");
+    const tab = openEditorTab(openEditorTab(newTab("session"), first), second);
+    const pane = tab.editorPanes[0];
+    const kept = keepFileTab(tab, first.id, pane.id);
+    expect(kept.editorPanes[0].activeFileId).toBe(second.id);
+    expect(kept.editorPanes[0].files).toEqual([{ ...first, kept: true }, second]);
+    expect(tab.editorPanes[0].files[0].kept).toBeUndefined();
+    expect(keepFileTab(kept, first.id)).toBe(kept);
+    expect(keepFileTab(tab, first.id, "another-pane")).toBe(tab);
+    const reopened = openEditorTab(kept, newFileTab(first.path, first.cwd));
+    expect(reopened.editorPanes[0].files[0]).toEqual({ ...first, kept: true });
+    expect(reopened.editorPanes[0].files).toHaveLength(2);
+  });
+
+  it("limits previews to ordinary files while retaining special surfaces", () => {
+    expect(isPreviewFileTab(newFileTab("/repo/guide.md", "/repo"))).toBe(true);
+    const special = [
+      newFileTab("/repo/a.ts", "/repo", true),
+      newPlanTab("session", "block", "Plan", "/repo"),
+      newChangesTab("/repo"),
+      newSessionChangesTab("/repo", "session"),
+      newTerminalFile("/repo"),
+    ];
+    for (const file of special) {
+      expect(isPreviewFileTab(file)).toBe(false);
+      const tab = openEditorTab(newTab("session"), file);
+      expect(keepFileTab(tab, file.id)).toBe(tab);
+    }
+  });
+});
 
 describe("splitSizesAtBoundary", () => {
   it("moves only the adjacent panes and preserves their total", () => {

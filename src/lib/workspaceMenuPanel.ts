@@ -3,12 +3,12 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { UsagePanelSnapshot } from "./usagePanel";
 
 export type WorkspaceMenuPanelAnchor =
-  | HTMLElement
-  | { x: number; y: number; width: number; height: number };
+  HTMLElement | { x: number; y: number; width: number; height: number };
 
 export type WorkspaceMenuPanelSnapshot = {
   title: string;
   compact?: boolean;
+  searchable?: boolean;
   width?: number;
   align?: "start" | "end";
   gap?: number;

@@ -1,5 +1,6 @@
 import { pathKey, prettyCwd, slash } from "./paths";
 import { isProjectlessCwd } from "./projectlessWorkspace";
+import { raceLaneProject } from "./race";
 
 export const RECENT_PROJECTS_KEY = "monocode.recentProjects";
 const KEY = RECENT_PROJECTS_KEY;
@@ -31,6 +32,16 @@ export function sameProjectPath(a: string, b: string): boolean {
   return pathKey(a) === pathKey(b);
 }
 
+const RACE_LANE =
+  /\/com\.capi\.(?:monocode\.personal|aven\.dev)\/races\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/\d+(?:\/|$)/i;
+
+/** A Race lane is a temporary copy inside Aven's app data, never a project. */
+export function isRaceLanePath(path: string): boolean {
+  // Saved ownership handles custom app-data locations. The app-specific
+  // fallback also excludes orphaned lanes without hiding user race projects.
+  return raceLaneProject(path) !== undefined || RACE_LANE.test(slash(path));
+}
+
 export function loadRecents(): RecentProject[] {
   // On launch, salvage valid entries from older or partially damaged lists.
   return readRecents(true) ?? [];
@@ -54,7 +65,7 @@ export function readRecents(allowPartial = false): RecentProject[] | null {
         if (allowPartial) continue;
         return null;
       }
-      if (isProjectlessCwd(rec.path)) continue;
+      if (isProjectlessCwd(rec.path) || isRaceLanePath(rec.path)) continue;
       const openedAt =
         typeof rec.openedAt === "number" && Number.isFinite(rec.openedAt)
           ? rec.openedAt
@@ -80,7 +91,12 @@ export function rememberProject(
   current = loadRecents(),
 ): RecentProject[] {
   const normalized = normalize(path);
-  if (normalized === "~" || isProjectlessCwd(normalized)) return current;
+  if (
+    normalized === "~" ||
+    isProjectlessCwd(normalized) ||
+    isRaceLanePath(normalized)
+  )
+    return current;
   dropArchived(normalized);
   keepRailPosition(normalized, current);
   const prev = current.filter((p) => !sameProjectPath(p.path, normalized));
@@ -275,7 +291,7 @@ export function knownProjectPaths(): string[] {
   ];
   for (const path of paths) {
     const key = pathKey(path);
-    if (seen.has(key)) continue;
+    if (seen.has(key) || isRaceLanePath(path)) continue;
     seen.add(key);
     out.push(normalize(path));
   }
@@ -374,5 +390,6 @@ export function looksLikeProject(path: string): boolean {
   // it. Indexing it walks `~/Library`, which trips the OS consent prompt.
   if (prettyCwd(path) === "~") return false;
   if (path.includes(".app/") || path.includes(".app\\")) return false;
+  if (isRaceLanePath(normalized)) return false;
   return true;
 }

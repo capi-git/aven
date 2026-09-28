@@ -100,3 +100,66 @@ html.workspace-menu-panel-window #root {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.workspace-menu-panel-searchable {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.workspace-menu-panel-searchable .workspace-menu-panel-items {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.workspace-menu-panel-searchable .workspace-menu-panel-item small {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 18px;
+}
+.workspace-menu-panel-search {
+  flex: 0 0 auto;
+  padding: 8px 8px 6px;
+  border-bottom: 1px solid var(--toolbar-panel-line);
+}
+.workspace-menu-panel-search-field {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid var(--toolbar-panel-line);
+  border-radius: 7px;
+  color: var(--toolbar-panel-muted);
+  background: var(--toolbar-panel-hover);
+}
+.workspace-menu-panel-search-field:focus-within {
+  border-color: var(--toolbar-panel-accent);
+}
+.workspace-menu-panel-search-field input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--toolbar-panel-text);
+  font: inherit;
+}
+.workspace-menu-panel-search-field input::placeholder {
+  color: var(--toolbar-panel-muted);
+}
+.workspace-menu-panel-count {
+  margin-top: 5px;
+  color: var(--toolbar-panel-muted);
+  font-size: 11px;
+  line-height: 16px;
+}
+.workspace-menu-panel-empty {
+  margin: 0;
+  padding: 12px 6px;
+  color: var(--toolbar-panel-muted);
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+}

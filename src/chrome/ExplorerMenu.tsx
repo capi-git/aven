@@ -13,6 +13,7 @@ export type ExplorerMenuItem =
       kind: "item";
       id: string;
       label: string;
+      description?: string;
       shortcut?: string;
       disabled?: boolean;
       danger?: boolean;
@@ -30,6 +31,7 @@ type Props = {
   align?: PopoverAlign;
   gap?: number;
   native?: boolean;
+  searchable?: boolean;
   className?: string;
   onPick: (id: string) => void;
   onClose: () => void;
@@ -62,6 +64,7 @@ export function ExplorerMenu(props: Props) {
     width = MENU_WIDTH,
     align = "start",
     gap = 0,
+    searchable,
   } = props;
   const itemSignature = JSON.stringify(items);
   const snapshot = useMemo<WorkspaceMenuPanelSnapshot>(() => {
@@ -77,6 +80,7 @@ export function ExplorerMenu(props: Props) {
         // `close` belongs to the panel host. Domain IDs never cross that boundary.
         id: `menu-item-${index}`,
         label: item.label,
+        description: item.description,
         shortcut: item.shortcut,
         checked: item.checked,
         disabled: item.disabled,
@@ -90,11 +94,12 @@ export function ExplorerMenu(props: Props) {
       items: choices,
       theme,
       compact: true,
+      ...(searchable ? { searchable: true } : {}),
       width,
       align: align === "center" ? "start" : align,
       gap,
     };
-  }, [itemSignature, ariaLabel, theme, width, align, gap]);
+  }, [itemSignature, ariaLabel, theme, width, align, gap, searchable]);
   const select = (id: string) => {
     const index = snapshot.items.findIndex((item) => item.id === id);
     const selected = snapshot.items[index];

@@ -56,6 +56,7 @@ export type DetachedBrowser = {
   url: string;
   title?: string;
   favicon?: string;
+  kept?: boolean;
   nativeId?: string;
 };
 export type DetachedWorkspaceState = {

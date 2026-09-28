@@ -4,9 +4,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { DetachedWorkspace } from "./DetachedWorkspace";
 import { nativeWorkspaceWindow } from "../lib/detachedWorkspaces";
-import { leaf, newTab } from "../lib/layout";
+import { leaf, newTab, splitPane } from "../lib/layout";
 import { resolveWorkspaceView } from "../lib/workspaceViews";
 import { installInAppLinks } from "../lib/inAppLinks";
+
+const previews = vi.hoisted(() => ({ filePane: vi.fn(), titleBar: vi.fn() }));
 
 vi.mock("./BrowserPane", () => ({
   BrowserPane: ({ id, visible }: { id: string; visible: boolean }) =>
@@ -17,15 +19,18 @@ vi.mock("./BrowserPane", () => ({
 }));
 vi.mock("./SessionPane", () => ({ SessionPane: () => null }));
 vi.mock("./FilePane", () => ({
-  FilePane: ({ pane, editorNavigation }: any) =>
-    createElement("div", {
+  FilePane: (props: any) => {
+    previews.filePane(props);
+    const { pane, editorNavigation } = props;
+    return createElement("div", {
       "data-test-file": pane.files.find(
         (file: any) => file.id === pane.activeFileId,
       )?.path,
       "data-navigation": JSON.stringify(editorNavigation),
-    }),
+    });
+  },
 }));
-vi.mock("../chrome/TitleBar", () => ({ TitleBar: () => null }));
+vi.mock("../chrome/TitleBar", () => ({ TitleBar: (props: unknown) => { previews.titleBar(props); return null; } }));
 vi.mock("../lib/inAppLinks", () => ({
   installInAppLinks: vi.fn(() => () => {}),
 }));
@@ -40,6 +45,8 @@ let root: Root;
 let host: HTMLDivElement;
 let listeners: Map<string, (value: any) => void>;
 beforeEach(() => {
+  previews.filePane.mockClear();
+  previews.titleBar.mockClear();
   vi.useFakeTimers();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal(
@@ -86,6 +93,87 @@ beforeEach(() => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
+});
+
+it("keeps edited detached files after saving and checkpoints their complete preview history", async () => {
+  const initial = await nativeWorkspaceWindow.getState();
+  const files = ["a", "b", "c"].map((id) => ({ id, path: `/project/${id}.md`, cwd: "/project" }));
+  const tab = {
+    ...newTab("task"),
+    layout: leaf("editor"), focusedId: "editor",
+    editorPanes: [{ id: "editor", files, activeFileId: "c" }],
+  };
+  initial.state.tabs = [tab];
+  initial.state.browsers = [];
+  initial.state.view = resolveWorkspaceView(undefined, [tab.id], tab.id);
+  await act(async () => root.render(createElement(DetachedWorkspace)));
+  const pane = () => previews.filePane.mock.calls.at(-1)![0];
+  await act(async () => pane().onDirtyChange("a", true));
+  expect(pane().pane.files[0].kept).toBe(true);
+  expect(pane().dirtyFileIds.has("a")).toBe(true);
+  await act(async () => pane().onDirtyChange("a", false));
+  expect(pane().pane.files[0].kept).toBe(true);
+  expect(pane().dirtyFileIds.has("a")).toBe(false);
+  await act(async () => pane().onKeepFile("editor", "c"));
+  await act(async () => vi.advanceTimersByTime(150));
+  expect(nativeWorkspaceWindow.checkpoint).toHaveBeenLastCalledWith(expect.objectContaining({
+    tabs: [expect.objectContaining({ editorPanes: [{ id: "editor", activeFileId: "c", files: [{ ...files[0], kept: true }, files[1], { ...files[2], kept: true }] }] })],
+  }));
+});
+
+it("keeps detached browser previews and remembers their slot when returning to a conversation", async () => {
+  const initial = await nativeWorkspaceWindow.getState();
+  const tab = newTab("task");
+  initial.state.tabs = [tab];
+  initial.state.view = resolveWorkspaceView({
+    layout: leaf("selected"), focusedId: "selected", order: [tab.id, "selected", "background"],
+    groups: { selected: [tab.id, "selected", "background"] },
+  }, [tab.id, "selected", "background"], "selected");
+  await act(async () => root.render(createElement(DetachedWorkspace)));
+  const header = () => previews.titleBar.mock.calls.at(-1)![0];
+  await act(async () => header().onSelect(tab.id));
+  expect(header().browserPreviewId).toBe("selected");
+  await act(async () => header().onKeepBrowser("selected"));
+  expect(header().browserTabs.find((browser: { id: string }) => browser.id === "selected").kept).toBe(true);
+});
+
+it("combines the two visible browser owners without promoting hidden Recent pages", async () => {
+  const initial = await nativeWorkspaceWindow.getState();
+  initial.state.browsers.push(
+    { id: "target", tabId: "target", title: "Target", url: "https://target.test" },
+    { id: "target-history", tabId: "target-history", title: "Target history", url: "https://history.test" },
+    { id: "saved", tabId: "saved", title: "Saved", url: "https://saved.test", kept: true },
+  );
+  initial.state.view = {
+    layout: splitPane(leaf("selected"), "selected", "right", "target"),
+    focusedId: "selected",
+    order: ["selected", "background", "saved", "target", "target-history"],
+    groups: {
+      selected: ["selected", "background", "saved"],
+      target: ["target", "target-history"],
+    },
+  };
+  await act(async () => root.render(createElement(DetachedWorkspace)));
+  const sourceHeader = previews.titleBar.mock.calls.find(([props]) => props.groupId === "selected")![0];
+  await act(async () => sourceHeader.onCombineWith("target"));
+  const combined = previews.titleBar.mock.calls.at(-1)![0];
+  expect(combined.groupId).toBe("target");
+  expect(combined.browserTabs.filter((browser: { kept?: boolean }) => browser.kept).map((browser: { id: string }) => browser.id)).toEqual(["selected", "target", "saved"]);
+  expect(combined.browserTabs).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: "background", kept: undefined, url: "https://example.org" }),
+    expect.objectContaining({ id: "target-history", kept: undefined, url: "https://history.test" }),
+  ]));
+  expect(combined.browserTabs).toHaveLength(5);
+  await act(async () => vi.advanceTimersByTime(150));
+  expect(nativeWorkspaceWindow.checkpoint).toHaveBeenLastCalledWith(expect.objectContaining({
+    view: expect.objectContaining({ groups: { target: ["target", "target-history", "selected", "background", "saved"] } }),
+    browsers: expect.arrayContaining([
+      expect.objectContaining({ id: "selected", kept: true }),
+      expect.objectContaining({ id: "target", kept: true }),
+      initial.state.browsers[1],
+      initial.state.browsers[3],
+    ]),
+  }));
 });
 afterEach(async () => {
   await act(async () => root.unmount());

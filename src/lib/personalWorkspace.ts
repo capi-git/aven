@@ -8,6 +8,8 @@ export type BrowserTab = {
   url: string;
   title?: string;
   favicon?: string;
+  /** Shown as a retained tab instead of sharing the temporary preview slot. */
+  kept?: boolean;
 };
 
 export type BrowserWorkspace = {
@@ -46,6 +48,7 @@ function validTab(value: unknown): BrowserTab | null {
     ...(typeof tab.title === "string" && tab.title.trim()
       ? { title: tab.title.trim() }
       : {}),
+    ...(tab.kept === true ? { kept: true } : {}),
   };
 }
 
@@ -122,7 +125,7 @@ export function selectBrowserTab(
 export function updateBrowserTab(
   state: BrowserWorkspace,
   id: string,
-  patch: Partial<Pick<BrowserTab, "url" | "title" | "favicon">>,
+  patch: Partial<Pick<BrowserTab, "url" | "title" | "favicon" | "kept">>,
 ): NormalizedBrowserWorkspace {
   const current = normalizeBrowserWorkspace(state);
   const tabs = current.tabs.map((tab) => {
@@ -148,6 +151,8 @@ export function updateBrowserTab(
       if (patch.title.trim()) next.title = patch.title.trim();
       else delete next.title;
     }
+    if (patch.kept === true) next.kept = true;
+    else if (patch.kept === false) delete next.kept;
     return next;
   });
   return {
@@ -155,6 +160,14 @@ export function updateBrowserTab(
     tabs,
     url: tabs.find((tab) => tab.id === current.activeTabId)?.url ?? "",
   };
+}
+
+/** Retain the existing page without navigating, activating or replacing it. */
+export function keepBrowserTab(
+  state: BrowserWorkspace,
+  id: string,
+): NormalizedBrowserWorkspace {
+  return updateBrowserTab(state, id, { kept: true });
 }
 
 export function closeBrowserTab(

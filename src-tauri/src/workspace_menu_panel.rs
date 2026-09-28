@@ -91,12 +91,14 @@ fn valid_text(value: &Value, max: usize) -> bool {
 
 fn validate_snapshot(snapshot: &Value) -> Result<(), String> {
     let valid = || {
+        let searchable = snapshot["searchable"] == true;
         if !snapshot.is_object()
-            || snapshot.to_string().len() > 32_768
+            || snapshot.to_string().len() > if searchable { 1_048_576 } else { 32_768 }
             || !valid_text(&snapshot["title"], 120)
             || !matches!(snapshot["theme"]["mode"].as_str(), Some("dark" | "light"))
             || !valid_text(&snapshot["theme"]["accent"], 1024)
             || (!snapshot["compact"].is_null() && !snapshot["compact"].is_boolean())
+            || (!snapshot["searchable"].is_null() && !snapshot["searchable"].is_boolean())
             || (!snapshot["align"].is_null()
                 && !matches!(snapshot["align"].as_str(), Some("start" | "end")))
             || (!snapshot["width"].is_null()
@@ -118,7 +120,7 @@ fn validate_snapshot(snapshot: &Value) -> Result<(), String> {
         let Some(items) = snapshot["items"].as_array() else {
             return false;
         };
-        if items.is_empty() || items.len() > 24 {
+        if (!searchable && items.is_empty()) || items.len() > if searchable { 1024 } else { 24 } {
             return false;
         }
         let mut ids = HashSet::new();
@@ -133,8 +135,9 @@ fn validate_snapshot(snapshot: &Value) -> Result<(), String> {
                     .bytes()
                     .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b':'))
                 && ids.insert(id)
-                && valid_text(&item["label"], 240)
-                && (item["description"].is_null() || valid_text(&item["description"], 512))
+                && valid_text(&item["label"], if searchable { 4096 } else { 240 })
+                && (item["description"].is_null()
+                    || valid_text(&item["description"], if searchable { 8192 } else { 512 }))
                 && ["disabled", "checked", "danger", "separatorBefore"]
                     .iter()
                     .all(|key| item[key].is_null() || item[key].is_boolean())
@@ -163,7 +166,24 @@ fn panel_height(snapshot: &Value) -> f64 {
     let Some(items) = snapshot["items"].as_array() else {
         return 108.0;
     };
+    let search_height = if snapshot["searchable"] == true {
+        68.0
+    } else {
+        0.0
+    };
     if snapshot["compact"] == true {
+        let descriptions = if snapshot["searchable"] == true {
+            items
+                .iter()
+                .filter(|item| {
+                    item["description"]
+                        .as_str()
+                        .is_some_and(|text| !text.is_empty())
+                })
+                .count()
+        } else {
+            0
+        };
         let separators = items
             .iter()
             .skip(1)
@@ -171,10 +191,12 @@ fn panel_height(snapshot: &Value) -> f64 {
             .count();
         let children = items.len() + separators;
         let height = 14.0
+            + search_height
+            + 21.0 * descriptions as f64
             + 30.0 * items.len() as f64
             + 9.0 * separators as f64
             + 2.0 * children.saturating_sub(1) as f64;
-        return height.clamp(44.0, 560.0);
+        return height.clamp(if search_height > 0.0 { 128.0 } else { 44.0 }, 560.0);
     }
     let rows: f64 = items
         .iter()
@@ -189,7 +211,8 @@ fn panel_height(snapshot: &Value) -> f64 {
             (20.0 + 19.0 * label_lines as f64 + description_height).max(48.0)
         })
         .sum();
-    (58.0 + rows + 2.0 * items.len().saturating_sub(1) as f64).clamp(108.0, 560.0)
+    (58.0 + search_height + rows + 2.0 * items.len().saturating_sub(1) as f64)
+        .clamp(108.0 + search_height, 560.0)
 }
 
 fn accept_ready(panel: &mut Panel, presentation: &str) -> bool {
@@ -887,6 +910,66 @@ mod tests {
                 .collect(),
         );
         assert!(validate_snapshot(&too_many).is_err());
+    }
+
+    #[test]
+    fn searchable_snapshots_allow_bounded_recent_lists_without_changing_legacy_limits() {
+        let mut value = snapshot();
+        value["searchable"] = json!(true);
+        value["items"] = json!([]);
+        assert!(validate_snapshot(&value).is_ok());
+        value["items"] = Value::Array(
+            (0..1024)
+                .map(|id| json!({"id":id.to_string(), "label":"Recent tab"}))
+                .collect(),
+        );
+        assert!(validate_snapshot(&value).is_ok());
+        assert_eq!(panel_height(&value), 560.0);
+        value["searchable"] = json!(false);
+        assert!(validate_snapshot(&value).is_err());
+        value["searchable"] = json!(true);
+        value["items"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"id":"overflow", "label":"Extra"}));
+        assert!(validate_snapshot(&value).is_err());
+        value["items"] = json!([{"id":"a", "label":"Recent"}]);
+        value["searchable"] = json!("true");
+        assert!(validate_snapshot(&value).is_err());
+    }
+
+    #[test]
+    fn searchable_titles_and_paths_have_explicit_per_item_and_snapshot_bounds() {
+        let mut value = snapshot();
+        value["searchable"] = json!(true);
+        value["items"] =
+            json!([{"id":"a", "label":"x".repeat(4096), "description":"y".repeat(8192)}]);
+        assert!(validate_snapshot(&value).is_ok());
+        value["searchable"] = json!(false);
+        assert!(validate_snapshot(&value).is_err());
+        value["searchable"] = json!(true);
+        value["items"][0]["label"] = json!("x".repeat(4097));
+        assert!(validate_snapshot(&value).is_err());
+        value["items"][0]["label"] = json!("Recent tab");
+        value["items"][0]["description"] = json!("y".repeat(8193));
+        assert!(validate_snapshot(&value).is_err());
+        value["items"] = Value::Array(
+            (0..256)
+                .map(|id| json!({"id":id.to_string(), "label":"x".repeat(4096)}))
+                .collect(),
+        );
+        assert!(validate_snapshot(&value).is_err());
+    }
+
+    #[test]
+    fn searchable_height_reserves_input_count_and_empty_state_space() {
+        let mut value = snapshot();
+        value["compact"] = json!(true);
+        let original = panel_height(&value);
+        value["searchable"] = json!(true);
+        assert_eq!(panel_height(&value), original + 68.0 + 21.0);
+        value["items"] = json!([]);
+        assert_eq!(panel_height(&value), 128.0);
     }
 
     #[test]

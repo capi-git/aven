@@ -251,6 +251,7 @@ describe("detached workspace transactions", () => {
         tabId: "page",
         url: "https://example.com",
         nativeId: "existing-cef",
+        kept: true,
       },
     ];
     b.view = resolveWorkspaceView(
@@ -285,6 +286,7 @@ describe("detached workspace transactions", () => {
       merged.view.layout!.type === "split" && merged.view.layout.children[1],
     ).toEqual(b.view.layout);
     expect(merged.browsers[0].nativeId).toBe("existing-cef");
+    expect(merged.browsers[0].kept).toBe(true);
     expect(merged.editorDrafts).toEqual(b.editorDrafts);
     expect(() =>
       mergeDetachedWorkspaces(a, { ...b, cwd: "/different" }),
@@ -299,6 +301,7 @@ describe("detached workspace transactions", () => {
       id: `group-browser-${i}`,
       tabId: `group-page-${i}`,
       url: `https://example.com/page-${i}`,
+      ...(i === 0 ? { kept: true } : {}),
       ...(i === 1 ? { nativeId: "native-explicit-group" } : {}),
     }));
     const ids = group.browsers.map((browser) => browser.id);

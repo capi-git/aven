@@ -19,6 +19,7 @@ import {
   orchestrationOwnsTurn,
 } from "./lib/workspaceOrchestration";
 import {
+  adoptLateProposal,
   completeOrchestrationProposal,
   orchestrationPlanningPrompt,
   proposalBlock,
@@ -26,6 +27,7 @@ import {
   withOrchestrationProposal,
   type OrchestrationProposal,
 } from "./lib/orchestrationPlan";
+import { createOrchestrationProposalStream } from "./lib/orchestrationProposalStream";
 import {
   discoverOrchestrationSettings,
   orchestrationWorkerChoices,
@@ -142,6 +144,7 @@ import {
   addBrowserTab,
   selectBrowserTab,
   closeBrowserTab,
+  keepBrowserTab,
   updateBrowserTab,
   browserIdForTab,
   patchBrowserWorkspace,
@@ -162,9 +165,12 @@ import {
 } from "./chrome/CommandPalette";
 import {
   installRaceWorkspace,
+  isFinishingRaceCheckout,
   raceHost,
   racePrompt,
+  releaseRaceCheckout,
   saveRace,
+  usesRaceCheckout,
   type RaceBase,
   type RaceWorkspace,
 } from "./lib/race";
@@ -245,6 +251,7 @@ import {
   isFilesystemTab,
   isCommitTab,
   isTerminalTab,
+  keepFileTab,
   leaf,
   newRaceWorkspaceTab,
   leafIds,
@@ -448,6 +455,7 @@ import { dropContextWindow } from "./lib/contextUsage";
 import {
   deleteSession,
   getSession,
+  listProjectSessionIds,
   listSessionsByProject,
   persistFingerprint,
   replaceInFlightSessions,
@@ -631,6 +639,11 @@ function lastAssistantTextInTurn(session: Session): string {
     if (block.role === "assistant" && block.text.trim()) return block.text;
   }
   return "";
+}
+
+/** A chat started from a Race lane keeps the project but works in the lane. */
+function laneCheckout(source: Session): Pick<Session, "worktreeCwd"> {
+  return source.worktreeCwd ? { worktreeCwd: source.worktreeCwd } : {};
 }
 
 function setsEqual<T>(a: Set<T>, b: Set<T>): boolean {
@@ -933,12 +946,16 @@ export default function App({
   );
   const raceActionsRef = useRef<RaceWorkspace>({
     stop: () => {},
+    settle: async () => {},
+    release: async () => {},
     openChat: () => {},
   });
   useEffect(
     () =>
       installRaceWorkspace({
         stop: (ids) => raceActionsRef.current.stop(ids),
+        settle: (race) => raceActionsRef.current.settle(race),
+        release: (race) => raceActionsRef.current.release(race),
         openChat: (id) => raceActionsRef.current.openChat(id),
       }),
     [],
@@ -1304,6 +1321,19 @@ export default function App({
         }
         return false;
       }
+      // A deliberate move keeps the page visible in its destination group.
+      setBrowserWorkspaces((all) => {
+        const cwd = projectCwdRef.current;
+        const state = all[cwd];
+        if (!state) return all;
+        let next = normalizeBrowserWorkspace(state);
+        const moving = next.tabs.filter(
+          (tab) => browserIdForTab(cwd, tab.id) === id && !tab.kept,
+        );
+        if (!moving.length) return all;
+        for (const tab of moving) next = keepBrowserTab(next, tab.id);
+        return { ...all, [cwd]: next };
+      });
       changeLayout((value) =>
         group
           ? moveWorkspaceGroup(
@@ -1311,10 +1341,10 @@ export default function App({
               id,
               target.id,
               target.edge,
-              target.edge === "tab" ? target.index : undefined,
+              target.edge === "tab" ? target.orderIndex ?? target.index : undefined,
             )
           : target.edge === "tab"
-            ? moveWorkspaceTab(value, id, target.id, target.index)
+            ? moveWorkspaceTab(value, id, target.id, target.orderIndex ?? target.index)
             : splitWorkspaceView(value, id, target.edge, target.id),
       );
       return true;
@@ -1430,6 +1460,18 @@ export default function App({
     },
     [projectCwd, browserState],
   );
+  const onKeepBrowser = useCallback((surfaceId: string) => {
+    const cwd = projectCwdRef.current;
+    setBrowserWorkspaces((all) => {
+      const current = all[cwd];
+      if (!current) return all;
+      const target = normalizeBrowserWorkspace(current).tabs.find(
+        (tab) => browserIdForTab(cwd, tab.id) === surfaceId,
+      );
+      if (!target || target.kept) return all;
+      return { ...all, [cwd]: keepBrowserTab(current, target.id) };
+    });
+  }, []);
   useEffect(() => {
     saveBrowserWorkspaces(browserWorkspaces);
   }, [browserWorkspaces]);
@@ -5313,6 +5355,8 @@ export default function App({
   );
 
   const onFileDirtyChange = useCallback((fileId: string, dirty: boolean) => {
+    // An edit promotes its preview permanently, even after a save clears dirty.
+    if (dirty) setTabs((prev) => prev.map((tab) => keepFileTab(tab, fileId)));
     setDirtyFiles((prev) => {
       if (prev.has(fileId) === dirty) return prev;
       const next = new Set(prev);
@@ -5320,6 +5364,10 @@ export default function App({
       else next.delete(fileId);
       return next;
     });
+  }, []);
+
+  const onKeepFile = useCallback((paneId: string, fileId: string) => {
+    setTabs((prev) => prev.map((tab) => keepFileTab(tab, fileId, paneId)));
   }, []);
 
   /** The editor reports 0 as it unmounts, so closed tabs drop out on their own. */
@@ -5471,6 +5519,14 @@ export default function App({
       flushHarnessEvents();
       const storedCurrent = sessionsRef.current.find((s) => s.id === sessionId);
       if (!storedCurrent) return false;
+      if (isFinishingRaceCheckout(sessionWorkCwd(storedCurrent))) {
+        enqueueHarnessEvent(sessionId, {
+          type: "status",
+          text: "Wait for the race to finish before continuing this chat.",
+        });
+        flushHarnessEvents();
+        return false;
+      }
       const current = options?.buildTarget
         ? withPlanBuildTarget(storedCurrent, options.buildTarget)
         : storedCurrent;
@@ -5849,8 +5905,9 @@ export default function App({
         error: "Turn did not complete",
       };
       let controlText = "";
-      let proposalText = "";
-      let nativeProposalText = "";
+      let proposalStream:
+        | ReturnType<typeof createOrchestrationProposalStream>
+        | undefined;
       void (async () => {
         if (proposalDraft && proposalId) {
           const settings = await discoverOrchestrationSettings();
@@ -5930,6 +5987,11 @@ export default function App({
         let nativePlanSeen = false;
         let providerFailureSeen = false;
         let failureSummary: string | undefined;
+        if (proposalId && proposalDraft)
+          proposalStream = createOrchestrationProposalStream(
+            proposalId,
+            proposalDraft,
+          );
         const routePlanEvent = (event: HarnessEvent): HarnessEvent | null => {
           if (event.type === "session.error") {
             providerFailureSeen = true;
@@ -5945,22 +6007,23 @@ export default function App({
               },
             );
           }
-          if (proposalDraft) {
-            if (event.type === "message.delta") {
-              proposalText = (proposalText + event.text).slice(-200_000);
-              return null;
-            }
-            if (event.type === "message.completed") {
-              proposalText += "\n";
-              return null;
-            }
-            if (event.type === "plan") {
-              nativeProposalText = event.append
-                ? nativeProposalText + event.text
-                : event.text;
-              return null;
-            }
+          const proposalEvent = proposalStream?.consume(event);
+          if (
+            proposalStream &&
+            (event.type === "session.error" ||
+              event.type === "message.completed" ||
+              (event.type === "plan" && !event.streaming))
+          ) {
+            const stream = proposalStream;
+            setSessions((prev) =>
+              prev.map((session) =>
+                session.id === sessionId
+                  ? stream.recover(session, event)
+                  : session,
+              ),
+            );
           }
+          if (proposalEvent) return null;
           if (intent !== "plan") return event;
           if (event.type === "plan") {
             nativePlanSeen = true;
@@ -6040,7 +6103,16 @@ export default function App({
                 ) enqueueHarnessEvent(sessionId, event);
                 return;
               }
-              if (turnGen.current.get(sessionId) !== gen) return;
+              if (
+                turnGen.current.get(sessionId) !== gen ||
+                removingSessionIds.current.has(sessionId) ||
+                !isCurrentSessionAgentSource(
+                  sessionsRef.current.find((session) => session.id === sessionId),
+                  current.harness,
+                  runtimeEpoch,
+                  agentRuntimeEpoch.current.get(sessionId) ?? 0,
+                )
+              ) return;
               orchestrator.observe(sessionId, event);
               if (options?.onSettled && event.type === "message.delta")
                 controlText = (controlText + event.text).slice(-20_000);
@@ -6125,14 +6197,12 @@ export default function App({
             failedActivityTurns.current.get(sessionId) === activityTurnId ||
             !buildSucceeded ||
             isProviderFailureText(lastAssistantTextInTurn(stopped));
-          const finalized =
-            proposalDraft && proposalId
+          let finalized =
+            proposalStream && proposalId
               ? withOrchestrationProposal(
                   stopped,
                   proposalId,
-                  completeOrchestrationProposal(
-                    proposalDraft,
-                    [nativeProposalText, proposalText],
+                  proposalStream.finish(
                     providerFailed
                       ? (controlOutcome.error ??
                           failureSummary ??
@@ -6143,6 +6213,10 @@ export default function App({
               : intent === "plan" && !nativePlanSeen && !providerFailed
                 ? promoteLastAssistantToPlan(stopped, planEventKey)
                 : stopped;
+          if (!proposalStream && !providerFailed) {
+            const blocks = adoptLateProposal(finalized.blocks);
+            if (blocks !== finalized.blocks) finalized = { ...finalized, blocks };
+          }
           const finished =
             approvedPlan && intent === "build"
               ? withPlanStatus(
@@ -6178,6 +6252,7 @@ export default function App({
             text: controlText,
             error: error instanceof Error ? error.message : String(error),
           };
+          proposalStream?.finish(controlOutcome.error);
           if (turnGen.current.get(sessionId) === gen) {
             enqueueHarnessEvent(sessionId, {
               type: "session.error",
@@ -6485,10 +6560,11 @@ export default function App({
         files,
       });
       const session = {
-        ...newSession(harness, cwd, model, source.runtimeMode),
+        ...newSession(harness, source.cwd, model, source.runtimeMode),
+        ...laneCheckout(source),
         title: formatSessionTitle(harness, SECOND_OPINION_TITLE),
       };
-      openSessionBeside(sourceId, session, cwd);
+      openSessionBeside(sourceId, session, source.cwd);
       onSubmit(session.id, prompt, [], {
         secondOpinion: buildSecondOpinionCard({
           from,
@@ -6514,7 +6590,8 @@ export default function App({
       const files = turnEditedFiles(sliced.blocks, cwd);
       const display = sessionDisplayTitle(source.title, source.harness);
       const session = {
-        ...newSession(harness, cwd, model, source.runtimeMode),
+        ...newSession(harness, source.cwd, model, source.runtimeMode),
+        ...laneCheckout(source),
         title: formatSessionTitle(
           harness,
           display === "New session" ? HANDOFF_TITLE : display,
@@ -6527,7 +6604,7 @@ export default function App({
           files,
         }),
       };
-      openSessionBeside(sourceId, session, cwd, true);
+      openSessionBeside(sourceId, session, source.cwd, true);
     },
     [openSessionBeside],
   );
@@ -8165,12 +8242,14 @@ export default function App({
                 url: page.url,
                 title: page.title,
                 favicon: page.favicon,
+                kept: page.kept,
               })
             : addBrowserTab(current, {
                 id: page.tabId,
                 url: page.url,
                 title: page.title,
                 favicon: page.favicon,
+                kept: page.kept,
               });
         }
         browserWorkspacesRef.current = next;
@@ -8743,6 +8822,96 @@ export default function App({
         if (sessionsRef.current.find((session) => session.id === id)?.busy)
           onStop(id);
     },
+    settle: async (race) => {
+      const affected = sessionsRef.current.filter((session) =>
+        usesRaceCheckout(session, race),
+      );
+      const ids = new Set(affected.map((session) => session.id));
+      // A queued follow-up must not restart a lane while its copy is removed.
+      const paused = sessionsRef.current.map((session) =>
+        ids.has(session.id) && session.queuedMessages?.length
+          ? { ...session, queueStatus: "paused" as const }
+          : session,
+      );
+      sessionsRef.current = paused;
+      setSessions(paused);
+      const settled = await Promise.allSettled(
+        affected.map(async (session) => {
+          await stopSessionForRemoval(session.id);
+          // Idle providers also remember their old cwd. Await their teardown,
+          // including pending provider switches, before native worktree cleanup.
+          await Promise.all(
+            sessionChildHarnesses(session).map((harness) =>
+              forgetHarnessSession(harness, session.id),
+            ),
+          );
+        }),
+      );
+      flushHarnessEvents();
+      const stoppedIds = new Set(
+        affected
+          .filter((_, index) => settled[index].status === "fulfilled")
+          .map((session) => session.id),
+      );
+      const stopped = sessionsRef.current.map((session) =>
+        stoppedIds.has(session.id)
+          ? {
+              ...stopStreaming(session),
+              liveAgents: session.liveAgents?.map((agent) =>
+                ["running", "waiting", "unknown"].includes(agent.status)
+                  ? {
+                      ...agent,
+                      status: "stopped" as const,
+                      detail: "Stopped when the race finished",
+                    }
+                  : agent,
+              ),
+            }
+          : session,
+      );
+      sessionsRef.current = stopped;
+      setSessions(stopped);
+      const failure = settled.find((result) => result.status === "rejected");
+      if (failure?.status === "rejected") throw failure.reason;
+    },
+    release: async (race) => {
+      const changed: Session[] = [];
+      const next = sessionsRef.current.map((session) => {
+        const released = releaseRaceCheckout(session, race);
+        if (released !== session) {
+          changed.push(released);
+          pendingPersist.current.delete(session.id);
+        }
+        return released;
+      });
+      sessionsRef.current = next;
+      setSessions(next);
+      await Promise.all(changed.map((session) => upsertSession(session)));
+      // Repair legacy chats filed under a lane so project history can find
+      // them. Chats already filed under the project clear their old checkout
+      // through restoreSessionCheckout when opened; do not load every saved
+      // transcript in the project just to finish one race.
+      const open = new Set(next.map((session) => session.id));
+      const saved = await Promise.all(
+        race.lanes.map((lane) => listProjectSessionIds(lane.path)),
+      );
+      const ids = new Set([
+        ...saved.flat(),
+        ...race.lanes.map((lane) => lane.sessionId),
+      ]);
+      await Promise.all(
+        [...ids]
+          .filter((id) => !open.has(id))
+          .map(async (id) => {
+            const session = await getSession(id);
+            if (!session) return;
+            const released = releaseRaceCheckout(session, race);
+            if (released !== session) await upsertSession(released);
+          }),
+      );
+      notifyGitChanged();
+      nudgeWatchedFiles();
+    },
     openChat: (id) => onFocusPane(id),
   };
 
@@ -9169,6 +9338,8 @@ export default function App({
                                       .map((tab) => ({
                                         id: tab.surfaceId,
                                         favicon: tab.favicon,
+                                        kept: tab.kept,
+                                        url: tab.url,
                                         title:
                                           tab.title ||
                                           (tab.url
@@ -9205,11 +9376,12 @@ export default function App({
                                         ),
                                       )
                                     }
-                                    onUnsplit={() =>
+                                    onUnsplit={() => {
+                                      visibleSurfaceIds.forEach(onKeepBrowser);
                                       changeLayout((view) =>
                                         collapseWorkspaceView(view, owner),
-                                      )
-                                    }
+                                      );
+                                    }}
                                     combineTargets={
                                       view.layout
                                         ? (
@@ -9245,15 +9417,17 @@ export default function App({
                                             )
                                         : []
                                     }
-                                    onCombineWith={(targetId) =>
+                                    onCombineWith={(targetId) => {
+                                      onKeepBrowser(owner);
+                                      onKeepBrowser(targetId);
                                       changeLayout((view) =>
                                         combineWorkspaceGroups(
                                           view,
                                           owner,
                                           targetId,
                                         ),
-                                      )
-                                    }
+                                      );
+                                    }}
                                     onPictureInPicture={onPictureInPicture}
                                     onGroupPictureInPicture={() => {
                                       void onGroupPictureInPicture(members);
@@ -9303,6 +9477,12 @@ export default function App({
                                         : undefined
                                     }
                                     onSelectBrowser={onSelectBrowserTab}
+                                    onKeepBrowser={onKeepBrowser}
+                                    browserPreviewId={
+                                      browserState.activeTabId
+                                        ? browserIdForTab(projectCwd, browserState.activeTabId)
+                                        : null
+                                    }
                                     onCloseBrowser={onCloseBrowserTab}
                                     onToggleSidebar={onToggleSidebar}
                                     onSelect={(id) => {
@@ -9409,6 +9589,7 @@ export default function App({
                                         !projectTerminalFocused
                                       }
                                       onSelectFile={onSelectFileSurface}
+                                      onKeepFile={onKeepFile}
                                       onCloseFile={onCloseFile}
                                       onReorderFiles={onReorderFiles}
                                       onFileDirtyChange={onFileDirtyChange}

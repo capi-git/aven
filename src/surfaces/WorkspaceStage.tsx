@@ -31,7 +31,14 @@ import "./WorkspaceStage.css";
 
 export type WorkspaceSurfaceDropTarget =
   | { id: string; edge: "left" | "right" | "up" | "down" }
-  | { id: string; edge: "tab"; index?: number };
+  | {
+      id: string;
+      edge: "tab";
+      /** Visible slot used to place the drop indicator. */
+      index?: number;
+      /** Full group position when hidden Recent tabs precede the slot. */
+      orderIndex?: number;
+    };
 export type WorkspaceStageProps = {
   layout: LayoutNode | null;
   focusedId: string;
@@ -52,6 +59,33 @@ export type WorkspaceStageProps = {
 // committed header nodes belonging to each exact stage, never query the window
 // globally by tab id (different retained workspaces can share those ids).
 const toolbarHeaders = new WeakMap<HTMLElement, Map<string, HTMLElement>>();
+
+/** Map a visible insertion boundary to retained membership without moving hidden pages. */
+function retainedDropIndex(
+  header: HTMLElement,
+  tabs: readonly HTMLElement[],
+  index: number,
+): number {
+  const serialized = header.querySelector<HTMLElement>("[data-surface-order]")
+    ?.dataset.surfaceOrder;
+  if (!serialized) return index;
+  try {
+    const order: unknown = JSON.parse(serialized);
+    if (
+      !Array.isArray(order) ||
+      !order.every((id): id is string => typeof id === "string") ||
+      new Set(order).size !== order.length ||
+      tabs.some((tab) => !order.includes(tab.dataset.surfaceTabId ?? ""))
+    )
+      return index;
+    const next = tabs[index]?.dataset.surfaceTabId;
+    if (next) return order.indexOf(next);
+    const previous = tabs[index - 1]?.dataset.surfaceTabId;
+    return previous ? order.indexOf(previous) + 1 : index;
+  } catch {
+    return index;
+  }
+}
 
 /** Client coordinates keep drop targets independent of native browser stacking. */
 export function workspaceSurfaceDropAt(
@@ -114,16 +148,23 @@ export function workspaceSurfaceDropAt(
         y <= rect.bottom
       ) {
         if (sameGroup) return null;
-        const tabRects = tabs
-          .map((tab) => tab.getBoundingClientRect())
-          .filter((rect) => rect.width > 0 && rect.height > 0);
-        const before = tabRects.findIndex(
-          (rect) => x < rect.left + rect.width / 2,
+        const measuredTabs = tabs
+          .map((tab) => ({ tab, rect: tab.getBoundingClientRect() }))
+          .filter(({ rect }) => rect.width > 0 && rect.height > 0);
+        const before = measuredTabs.findIndex(
+          ({ rect }) => x < rect.left + rect.width / 2,
+        );
+        const index = before < 0 ? measuredTabs.length : before;
+        const orderIndex = retainedDropIndex(
+          header,
+          measuredTabs.map(({ tab }) => tab),
+          index,
         );
         return {
           id,
           edge: "tab",
-          index: before < 0 ? tabRects.length : before,
+          index,
+          ...(orderIndex !== index ? { orderIndex } : {}),
         };
       }
     }

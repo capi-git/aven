@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  adoptLateProposal,
   completeOrchestrationProposal,
+  hideProposalMarkup,
   orchestrationPlanningPrompt,
   proposalBlock,
   restoreOrchestrationProposal,
@@ -219,5 +221,129 @@ describe("orchestration proposals", () => {
     expect(
       sanitizeSessionForPersist(session).blocks[0].orchestration?.status,
     ).toBe("invalid");
+  });
+  describe("a proposal that arrives after planning ended", () => {
+    const failed = completeOrchestrationProposal(draft, "Still investigating");
+    const card = { ...proposalBlock("card", failed), streaming: false };
+    const tagged = `<aven_proposal>\n${JSON.stringify({
+      ...payload,
+      tasks: [{ ...task, prompt: "Sign commits with <noreply@example.com>" }],
+    })}\n</aven_proposal>`;
+    const blocks = [
+      { id: "ask", role: "user" as const, text: "Plan it" },
+      card,
+      { id: "more", role: "user" as const, text: "Also fix the folder" },
+      { id: "late", role: "assistant" as const, text: `Ready.\n\n${tagged}` },
+    ];
+
+    it("moves the lead's later proposal into the card and out of the chat", () => {
+      const adopted = adoptLateProposal(blocks);
+      expect(adopted.map((block) => block.id)).toEqual([
+        "ask",
+        "more",
+        "late",
+        "card",
+      ]);
+      expect(adopted[2].text).toBe("Ready.");
+      expect(adopted[3].orchestration?.status).toBe("ready");
+      expect(adopted[3].orchestration?.tasks[0].prompt).toContain(
+        "<noreply@example.com>",
+      );
+      expect(adopted[3].text).toContain("# Settings");
+    });
+    it("replaces a reply that was only the proposal", () => {
+      const adopted = adoptLateProposal([
+        ...blocks.slice(0, 3),
+        { id: "late", role: "assistant", text: tagged },
+      ]);
+      expect(adopted.map((block) => block.id)).toEqual(["ask", "more", "card"]);
+    });
+    it("adopts native plan output without retaining a second Build action", () => {
+      const adopted = adoptLateProposal([
+        card,
+        {
+          id: "native",
+          role: "plan",
+          text: `Ready.\n${tagged}`,
+          plan: { status: "ready", originalText: tagged },
+        },
+      ]);
+      expect(adopted[0]).toEqual({ id: "native", role: "assistant", text: "Ready." });
+      expect(adopted[1].orchestration?.status).toBe("ready");
+      expect(adoptLateProposal(adopted)).toBe(adopted);
+    });
+    it("does not resurrect proposals from an earlier turn or a failed continuation", () => {
+      const newerTurn = [
+        ...blocks,
+        { id: "new", role: "user" as const, text: "Never mind, explain this instead" },
+        { id: "reply", role: "assistant" as const, text: "Explanation" },
+      ];
+      expect(adoptLateProposal(newerTurn)).toBe(newerTurn);
+      const failedTurn = [
+        ...blocks,
+        { id: "error", role: "system" as const, text: "Connection lost" },
+      ];
+      expect(adoptLateProposal(failedTurn)).toBe(failedTurn);
+      const stillStreaming = [
+        ...blocks,
+        { id: "stream", role: "assistant" as const, text: "One more change", streaming: true },
+      ];
+      expect(adoptLateProposal(stillStreaming)).toBe(stillStreaming);
+    });
+    it("does not recover an interrupted planning card after persistence", () => {
+      const saved = sanitizeSessionForPersist({
+        ...newSession("claude", "/repo"),
+        blocks: [proposalBlock("card", draft), blocks[3]],
+      }).blocks;
+      expect(saved[0].orchestration?.status).toBe("invalid");
+      expect(adoptLateProposal(saved)).toBe(saved);
+    });
+    it("leaves ready, started and streaming cards alone", () => {
+      const ready = completeOrchestrationProposal(draft, tagged);
+      const readyBlocks = [
+        { ...proposalBlock("card", ready), streaming: false },
+        blocks[3],
+      ];
+      expect(adoptLateProposal(readyBlocks)).toBe(readyBlocks);
+      for (const status of ["planning", "starting", "approved"] as const) {
+        const protectedBlocks = [
+          card,
+          { ...proposalBlock("new-card", { ...ready, status }), streaming: false },
+          blocks[3],
+        ];
+        expect(adoptLateProposal(protectedBlocks)).toBe(protectedBlocks);
+      }
+      const streaming = [card, { ...blocks[3], streaming: true }];
+      expect(adoptLateProposal(streaming)).toBe(streaming);
+      const untagged = [card, { ...blocks[3], text: JSON.stringify(payload) }];
+      expect(adoptLateProposal(untagged)).toBe(untagged);
+    });
+    it("shows why a late proposal could not be used", () => {
+      const adopted = adoptLateProposal([
+        card,
+        {
+          id: "late",
+          role: "assistant",
+          text: `<aven_proposal>${JSON.stringify({ ...payload, tasks: [{ ...task, model: "codex:missing" }] })}</aven_proposal>`,
+        },
+      ]);
+      expect(adopted[0].orchestration?.status).toBe("invalid");
+      expect(adopted[0].orchestration?.error).toContain(
+        "outside the available catalog",
+      );
+    });
+  });
+  it("hides proposal markup from chat text, including while it streams", () => {
+    expect(hideProposalMarkup("Plain <b>text</b>")).toBe("Plain <b>text</b>");
+    expect(
+      hideProposalMarkup('Done.\n<aven_proposal>{"title":"x"}</aven_proposal>'),
+    ).toBe("Done.");
+    expect(hideProposalMarkup('Done.\n<aven_proposal>{"title":"x", "tas')).toBe(
+      "Done.",
+    );
+    expect(hideProposalMarkup("Done.\n<aven_prop")).toBe("Done.");
+    expect(hideProposalMarkup("a < b")).toBe("a < b");
+    expect(hideProposalMarkup("Use <")).toBe("Use <");
+    expect(hideProposalMarkup("Use <a")).toBe("Use <a");
   });
 });

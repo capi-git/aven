@@ -179,6 +179,8 @@ export function orchestrationPlanningPrompt(
 
 const INCOMPLETE_PROPOSAL =
   "The lead did not return a complete assignment proposal. No assignments were started. Try again when the lead is available.";
+const INTERRUPTED_PROPOSAL =
+  "Planning was interrupted. Generate the assignments again.";
 
 /** Commentary and native plan prose are not assignment data. */
 function proposalCandidates(responses: readonly string[]): string[] {
@@ -245,6 +247,87 @@ export function completeOrchestrationProposal(
   }
 }
 
+const PROPOSAL_MARKUP =
+  /<(aven_proposal|monocode_proposal)>[\s\S]*?(?:<\/\1>|$)/g;
+const PROPOSAL_OPEN_TAGS = ["<aven_proposal>", "<monocode_proposal>"];
+
+/** Hide protocol payload while rendering an active proposal response. */
+export function hideProposalMarkup(text: string): string {
+  if (!text.includes("<")) return text;
+  let visible = text.replace(PROPOSAL_MARKUP, "");
+  // A streaming reply may end partway through the opening tag.
+  const tail = visible.slice(visible.lastIndexOf("<"));
+  if (
+    tail.length >= "<aven_".length &&
+    PROPOSAL_OPEN_TAGS.some((tag) => tag.startsWith(tail))
+  )
+    visible = visible.slice(0, -tail.length);
+  return visible === text ? text : visible.trim();
+}
+
+const CLOSED_PROPOSAL = /<(aven_proposal|monocode_proposal)>[\s\S]*?<\/\1>/;
+
+/** Only the latest unfinished card can receive a continuation. */
+export function lateProposalCardIndex(blocks: readonly Block[]): number {
+  let index = blocks.length - 1;
+  while (index >= 0 && !blocks[index].orchestration) index--;
+  const proposal = blocks[index]?.orchestration;
+  return proposal?.status === "invalid" &&
+    proposal.error !== INTERRUPTED_PROPOSAL
+    ? index
+    : -1;
+}
+
+/**
+ * A planning turn can end before the lead answers (for example when Claude
+ * reports a turn result while its background helpers still run). The lead
+ * then delivers the proposal in a later, ordinary turn. Move that proposal
+ * into the latest unfinished card instead of leaving raw JSON in the chat.
+ */
+export function adoptLateProposal(blocks: Block[]): Block[] {
+  const cardIndex = lateProposalCardIndex(blocks);
+  const card = blocks[cardIndex];
+  if (!card?.orchestration) return blocks;
+  let sourceIndex = blocks.length - 1;
+  for (; sourceIndex > cardIndex; sourceIndex--) {
+    const block = blocks[sourceIndex];
+    // Do not resurrect an old response while a newer user turn is settling,
+    // or turn a response followed by a provider failure into a ready card.
+    if (block.role === "user" || block.role === "system") return blocks;
+    if (block.streaming) return blocks;
+    if (
+      (block.role === "assistant" || block.role === "plan") &&
+      CLOSED_PROPOSAL.test(block.text)
+    )
+      break;
+  }
+  if (sourceIndex <= cardIndex) return blocks;
+  const source = blocks[sourceIndex];
+  const proposal = completeOrchestrationProposal(
+    { ...card.orchestration, status: "planning", error: undefined },
+    source.text,
+  );
+  const moved: Block = {
+    ...card,
+    text: proposalMarkdown(proposal),
+    orchestration: proposal,
+    streaming: false,
+  };
+  const remaining = hideProposalMarkup(source.text);
+  // A native plan is the proposal transport. Its surrounding prose must not
+  // leave a second, independently executable Build plan card behind.
+  const remainder: Block = { ...source, text: remaining };
+  if (remainder.role === "plan") {
+    remainder.role = "assistant";
+    delete remainder.plan;
+  }
+  return blocks.flatMap((block, index) => {
+    if (index === cardIndex) return [];
+    if (index !== sourceIndex) return [block];
+    return remaining ? [remainder, moved] : [moved];
+  });
+}
+
 export function proposalMarkdown(proposal: OrchestrationProposal): string {
   return [
     `# ${proposal.title}`,
@@ -304,7 +387,7 @@ export function restoreOrchestrationProposal(
     return {
       ...value,
       status: "invalid",
-      error: "Planning was interrupted. Generate the assignments again.",
+      error: INTERRUPTED_PROPOSAL,
     };
   if (value.status === "starting") return { ...value, status: "ready" };
   return value;

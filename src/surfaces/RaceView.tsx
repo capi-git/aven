@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
@@ -9,13 +10,12 @@ import { HarnessIcon } from "../chrome/HarnessIcon";
 import { AlertCircle, Check, LoaderCircle } from "../chrome/icons";
 import {
   getRace,
-  raceChoices,
+  finishRace,
   raceFileRows,
   raceHost,
   raceWorkspace,
   selectLane,
   subscribeRaces,
-  updateRace,
   type RaceDiff,
   type RaceRecord,
   type RaceSelection,
@@ -94,28 +94,34 @@ function RaceBody({
     null,
   );
   const [working, setWorking] = useState<string | null>(null);
+  const finishingRef = useRef(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   const refresh = useCallback(() => {
-    if (race.state !== "running") return;
+    if (race.state !== "running" || working || finishingRef.current) return;
     void Promise.all(
       race.lanes.map((lane) =>
         raceHost.diff(lane.path, race.base).catch(() => undefined),
       ),
     )
       .then((next) => {
+        if (finishingRef.current || getRace(race.id)?.state !== "running")
+          return;
         setDiffs(next);
         setLoadError(
           next.every((diff) => !diff) ? "Couldn’t read the race copies." : null,
         );
       })
-      .catch((error: unknown) => setLoadError(String(error)));
-  }, [race]);
+      .catch((error: unknown) => {
+        if (!finishingRef.current && getRace(race.id)?.state === "running")
+          setLoadError(String(error));
+      });
+  }, [race, working]);
 
   // Reload when a lane starts or finishes, and periodically while one works.
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || !running || working) return;
     refresh();
     if (!anyBusy) return;
     const timer = window.setInterval(() => {
@@ -123,7 +129,7 @@ function RaceBody({
       refresh();
     }, REFRESH_WHILE_RUNNING_MS);
     return () => window.clearInterval(timer);
-  }, [visible, busyKey, anyBusy, refresh]);
+  }, [visible, running, working, busyKey, anyBusy, refresh]);
 
   const rows = useMemo(() => raceFileRows(diffs), [diffs]);
   const current =
@@ -131,7 +137,7 @@ function RaceBody({
 
   const [fileModel, setFileModel] = useState<UnifiedDiffFileModel | null>(null);
   useEffect(() => {
-    if (!current || !visible) {
+    if (!current || !visible || !running || working || finishingRef.current) {
       setFileModel(null);
       return;
     }
@@ -147,7 +153,12 @@ function RaceBody({
     void raceHost
       .fileDiff(lane.path, race.base, current.path)
       .then((result) => {
-        if (cancelled) return;
+        if (
+          cancelled ||
+          finishingRef.current ||
+          getRace(race.id)?.state !== "running"
+        )
+          return;
         const unreadable =
           stats.binary ||
           (result.original == null && stats.status !== "added") ||
@@ -169,7 +180,11 @@ function RaceBody({
         });
       })
       .catch((error: unknown) => {
-        if (!cancelled)
+        if (
+          !cancelled &&
+          !finishingRef.current &&
+          getRace(race.id)?.state === "running"
+        )
           setFileModel({
             id: `${current.lane}:${current.path}`,
             path: current.path,
@@ -183,28 +198,19 @@ function RaceBody({
     return () => {
       cancelled = true;
     };
-  }, [current?.path, current?.lane, diffs, race, visible]);
+  }, [current?.path, current?.lane, diffs, race, visible, running, working]);
 
   const finish = async (label: string, keep: RaceSelection | null) => {
+    if (finishingRef.current) return;
+    finishingRef.current = true;
     setWorking(label);
     setActionError(null);
     try {
-      if (keep) {
-        const choices = raceChoices(race, keep);
-        if (!choices.length)
-          throw new Error("Choose at least one file to keep.");
-        await raceHost.apply(race.root, race.base, choices);
-      }
-      raceWorkspace()?.stop(race.lanes.map((lane) => lane.sessionId));
-      await raceHost.cleanup(race.root, race.lanes).catch((error: unknown) => {
-        updateRace(race.id, {
-          error: `Copies were not all removed: ${String(error)}`,
-        });
-      });
-      updateRace(race.id, { state: keep ? "kept" : "discarded" });
+      await finishRace(race, keep);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : String(error));
     } finally {
+      finishingRef.current = false;
       setWorking(null);
     }
   };
@@ -219,7 +225,9 @@ function RaceBody({
           <div className="truncate text-content">{race.prompt}</div>
           <div className="truncate text-[12px] text-content/45">
             {race.state === "kept"
-              ? "Kept. The race copies were removed."
+              ? race.error
+                ? "Kept. Some race copies could not be removed."
+                : "Kept. The race copies were removed."
               : race.state === "discarded"
                 ? "Discarded. Your project was not changed."
                 : [
@@ -261,7 +269,7 @@ function RaceBody({
         ) : null}
       </header>
 
-      {actionError || race.error || loadError ? (
+      {actionError || race.error || (running && loadError) ? (
         <div className="flex items-start gap-2 border-b border-content/10 bg-content/[0.04] px-4 py-2 text-[12px] text-content/75">
           <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
           <span>{actionError ?? race.error ?? loadError}</span>
@@ -290,31 +298,33 @@ function RaceBody({
                 <span className="min-w-0 flex-1 truncate text-content">
                   {lane.label}
                 </span>
-                <span
-                  className={`flex shrink-0 items-center gap-1 text-[12px] ${status.tone === "done" ? "text-content" : status.tone === "warn" ? "text-content" : "text-content/55"}`}
-                >
-                  {status.tone === "busy" ? (
-                    <LoaderCircle className="size-3 animate-spin" />
-                  ) : status.tone === "done" ? (
-                    <Check className="size-3" />
-                  ) : null}
-                  {status.label} · {clock(laneSeconds(session, race, now))}
-                </span>
+                {running ? (
+                  <span
+                    className={`flex shrink-0 items-center gap-1 text-[12px] ${status.tone === "done" ? "text-content" : status.tone === "warn" ? "text-content" : "text-content/55"}`}
+                  >
+                    {status.tone === "busy" ? (
+                      <LoaderCircle className="size-3 animate-spin" />
+                    ) : status.tone === "done" ? (
+                      <Check className="size-3" />
+                    ) : null}
+                    {status.label} · {clock(laneSeconds(session, race, now))}
+                  </span>
+                ) : null}
               </div>
-              <div className="text-[12px] text-content/55">
-                {diff ? (
-                  <>
-                    <span className="text-content">+{diff.additions}</span>{" "}
-                    <span className="text-content">−{diff.deletions}</span> ·{" "}
-                    {diff.files.length}{" "}
-                    {diff.files.length === 1 ? "file" : "files"}
-                  </>
-                ) : running ? (
-                  "Reading changes…"
-                ) : (
-                  "—"
-                )}
-              </div>
+              {running ? (
+                <div className="text-[12px] text-content/55">
+                  {diff ? (
+                    <>
+                      <span className="text-content">+{diff.additions}</span>{" "}
+                      <span className="text-content">−{diff.deletions}</span> ·{" "}
+                      {diff.files.length}{" "}
+                      {diff.files.length === 1 ? "file" : "files"}
+                    </>
+                  ) : (
+                    "Reading changes…"
+                  )}
+                </div>
+              ) : null}
               <div className="flex gap-1.5">
                 <button
                   type="button"
@@ -323,136 +333,161 @@ function RaceBody({
                 >
                   Open chat
                 </button>
-                <button
-                  type="button"
-                  disabled={disabled || !diff?.files.length}
-                  onClick={() =>
-                    void finish("Keeping…", selectLane(diffs, index))
-                  }
-                  className="rounded-md bg-content px-2 py-0.5 text-[12px] font-medium text-background-base hover:opacity-90 disabled:opacity-30"
-                >
-                  Keep this
-                </button>
+                {running ? (
+                  <button
+                    type="button"
+                    disabled={disabled || !diff?.files.length}
+                    onClick={() =>
+                      void finish("Keeping…", selectLane(diffs, index))
+                    }
+                    className="rounded-md bg-content px-2 py-0.5 text-[12px] font-medium text-background-base hover:opacity-90 disabled:opacity-30"
+                  >
+                    Keep this
+                  </button>
+                ) : null}
               </div>
             </section>
           );
         })}
       </div>
 
-      <div
-        className="grid min-h-0 flex-1"
-        style={{ gridTemplateColumns: "minmax(200px, 280px) minmax(0, 1fr)" }}
-      >
-        <div className="flex min-h-0 flex-col border-r border-content/10">
-          <div className="px-3 pb-1 pt-2 text-[11px] text-content/40">
-            Files · pick which agent’s version to keep
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
-            {rows.length === 0 ? (
-              <p className="px-2 py-3 text-[12px] text-content/45">
-                {anyBusy ? "No changes yet." : "No agent changed any files."}
-              </p>
-            ) : null}
-            {rows.map((row) => (
-              <div
-                key={row.path}
-                onClick={() =>
-                  setFocus({
-                    path: row.path,
-                    lane:
-                      current?.path === row.path ? current.lane : row.lanes[0],
-                  })
-                }
-                className={`flex cursor-default items-center gap-1.5 rounded-md px-2 py-1 ${current?.path === row.path ? "bg-content/10 text-content" : "text-content/70 hover:bg-content/5"}`}
+      {running ? (
+        <div
+          className="grid min-h-0 flex-1"
+          style={{ gridTemplateColumns: "minmax(200px, 280px) minmax(0, 1fr)" }}
+        >
+          <div className="flex min-h-0 flex-col border-r border-content/10">
+            <div className="px-3 pb-1 pt-2 text-[11px] text-content/40">
+              Files · pick which agent’s version to keep
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
+              {rows.length === 0 ? (
+                <p className="px-2 py-3 text-[12px] text-content/45">
+                  {anyBusy ? "No changes yet." : "No agent changed any files."}
+                </p>
+              ) : null}
+              {rows.map((row) => (
+                <div
+                  key={row.path}
+                  onClick={() =>
+                    setFocus({
+                      path: row.path,
+                      lane:
+                        current?.path === row.path
+                          ? current.lane
+                          : row.lanes[0],
+                    })
+                  }
+                  className={`flex cursor-default items-center gap-1.5 rounded-md px-2 py-1 ${current?.path === row.path ? "bg-content/10 text-content" : "text-content/70 hover:bg-content/5"}`}
+                >
+                  <span className="min-w-0 flex-1 truncate font-mono text-[12px]">
+                    {row.path}
+                  </span>
+                  <span className="flex shrink-0 gap-0.5">
+                    {race.lanes.map((lane, index) => {
+                      const touched = row.lanes.includes(index);
+                      const chosen = selection[row.path] === index;
+                      return (
+                        <button
+                          key={lane.sessionId}
+                          type="button"
+                          disabled={!touched || disabled}
+                          aria-pressed={chosen}
+                          title={
+                            touched
+                              ? `Keep ${lane.label}'s version`
+                              : `${lane.label} did not change this file`
+                          }
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setFocus({ path: row.path, lane: index });
+                            setSelection((previous) => {
+                              const next = { ...previous };
+                              if (next[row.path] === index)
+                                delete next[row.path];
+                              else next[row.path] = index;
+                              return next;
+                            });
+                          }}
+                          className={`grid size-5 place-items-center rounded border ${chosen ? "border-content bg-content text-background-base" : "border-content/15"} ${touched ? "" : "opacity-25"}`}
+                        >
+                          <HarnessIcon
+                            harness={lane.harness}
+                            className="size-3"
+                          />
+                        </button>
+                      );
+                    })}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="border-t border-content/10 p-2">
+              <button
+                type="button"
+                disabled={disabled || selectedCount === 0}
+                onClick={() => void finish("Keeping…", selection)}
+                className="w-full rounded-md bg-content px-2 py-1.5 text-[12px] font-medium text-background-base hover:opacity-90 disabled:opacity-30"
               >
-                <span className="min-w-0 flex-1 truncate font-mono text-[12px]">
-                  {row.path}
-                </span>
-                <span className="flex shrink-0 gap-0.5">
-                  {race.lanes.map((lane, index) => {
-                    const touched = row.lanes.includes(index);
-                    const chosen = selection[row.path] === index;
-                    return (
-                      <button
-                        key={lane.sessionId}
-                        type="button"
-                        disabled={!touched || disabled}
-                        aria-pressed={chosen}
-                        title={
-                          touched
-                            ? `Keep ${lane.label}'s version`
-                            : `${lane.label} did not change this file`
-                        }
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setFocus({ path: row.path, lane: index });
-                          setSelection((previous) => {
-                            const next = { ...previous };
-                            if (next[row.path] === index) delete next[row.path];
-                            else next[row.path] = index;
-                            return next;
-                          });
-                        }}
-                        className={`grid size-5 place-items-center rounded border ${chosen ? "border-content bg-content text-background-base" : "border-content/15"} ${touched ? "" : "opacity-25"}`}
-                      >
-                        <HarnessIcon
-                          harness={lane.harness}
-                          className="size-3"
-                        />
-                      </button>
-                    );
-                  })}
-                </span>
+                {working ??
+                  (selectedCount
+                    ? `Keep ${selectedCount} selected ${selectedCount === 1 ? "file" : "files"}`
+                    : "Select files to combine")}
+              </button>
+            </div>
+          </div>
+          <div className="flex min-h-0 min-w-0 flex-col">
+            {current ? (
+              <div className="flex items-center gap-1 border-b border-content/10 px-2 py-1.5">
+                {race.lanes.map((lane, index) =>
+                  rows
+                    .find((row) => row.path === current.path)
+                    ?.lanes.includes(index) ? (
+                    <button
+                      key={lane.sessionId}
+                      type="button"
+                      onClick={() =>
+                        setFocus({ path: current.path, lane: index })
+                      }
+                      className={`flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[12px] ${current.lane === index ? "bg-content/10 text-content" : "text-content/55 hover:bg-content/5"}`}
+                    >
+                      <HarnessIcon
+                        harness={lane.harness}
+                        className="size-3.5"
+                      />
+                      {lane.label}
+                    </button>
+                  ) : null,
+                )}
               </div>
-            ))}
-          </div>
-          <div className="border-t border-content/10 p-2">
-            <button
-              type="button"
-              disabled={disabled || selectedCount === 0}
-              onClick={() => void finish("Keeping…", selection)}
-              className="w-full rounded-md bg-content px-2 py-1.5 text-[12px] font-medium text-background-base hover:opacity-90 disabled:opacity-30"
-            >
-              {working ??
-                (selectedCount
-                  ? `Keep ${selectedCount} selected ${selectedCount === 1 ? "file" : "files"}`
-                  : "Select files to combine")}
-            </button>
-          </div>
-        </div>
-        <div className="flex min-h-0 min-w-0 flex-col">
-          {current ? (
-            <div className="flex items-center gap-1 border-b border-content/10 px-2 py-1.5">
-              {race.lanes.map((lane, index) =>
-                rows
-                  .find((row) => row.path === current.path)
-                  ?.lanes.includes(index) ? (
-                  <button
-                    key={lane.sessionId}
-                    type="button"
-                    onClick={() =>
-                      setFocus({ path: current.path, lane: index })
-                    }
-                    className={`flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[12px] ${current.lane === index ? "bg-content/10 text-content" : "text-content/55 hover:bg-content/5"}`}
-                  >
-                    <HarnessIcon harness={lane.harness} className="size-3.5" />
-                    {lane.label}
-                  </button>
-                ) : null,
+            ) : null}
+            <div className="relative min-h-0 flex-1">
+              {fileModel ? (
+                <UnifiedDiffView files={[fileModel]} fileLayout="cards" />
+              ) : (
+                <p className="grid h-full place-items-center text-[12px] text-content/40">
+                  {rows.length ? "Loading diff…" : ""}
+                </p>
               )}
             </div>
-          ) : null}
-          <div className="relative min-h-0 flex-1">
-            {fileModel ? (
-              <UnifiedDiffView files={[fileModel]} fileLayout="cards" />
-            ) : (
-              <p className="grid h-full place-items-center text-[12px] text-content/40">
-                {rows.length ? "Loading diff…" : ""}
-              </p>
-            )}
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-8 text-center">
+          <Check className="mb-1 size-5 text-content/60" />
+          <p className="text-content">
+            {race.state === "kept"
+              ? "Changes kept in your project"
+              : "Your project is unchanged"}
+          </p>
+          <p className="break-all font-mono text-[12px] text-content/60">
+            {race.project}
+          </p>
+          <p className="text-[12px] text-content/45">
+            Open a chat to continue in this project.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

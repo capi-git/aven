@@ -8,6 +8,7 @@ import {
   Inbox,
   PanelLeft,
   PanelRight,
+  Pin,
   Plus,
   Search,
   Settings,
@@ -55,6 +56,7 @@ import { WindowControls } from "./WindowControls";
 import { IS_MAC, MOD, SHIFT } from "../lib/platform";
 import type { RecentProject } from "../lib/recents";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
+import { mergePreviewTabOrder, previewTabIds } from "../lib/previewTabs";
 import "./TitleBar.css";
 
 export type Tab = {
@@ -108,7 +110,16 @@ export type TitleBarProps = {
   browserActive?: boolean;
   browserTitle?: string;
   browserMode?: "tab" | "split";
-  browserTabs?: Array<{ id: string; title: string; favicon?: string }>;
+  browserTabs?: Array<{
+    id: string;
+    title: string;
+    favicon?: string;
+    kept?: boolean;
+    url?: string;
+  }>;
+  onKeepBrowser?: (id: string) => void;
+  /** Last selected page in this workspace, used when its header remounts. */
+  browserPreviewId?: string | null;
   surfaceOrder?: string[];
   visibleIds?: string[];
   onReorderSurfaces?: (ids: string[], movedId?: string) => void;
@@ -490,6 +501,8 @@ function BrowserTitleTabItem({
   onContextMenu,
   onMenu,
   menuOpen,
+  preview = false,
+  onKeep,
   itemRef,
 }: {
   id: string;
@@ -506,6 +519,8 @@ function BrowserTitleTabItem({
   onContextMenu: (event: MenuPoint) => void;
   onMenu?: (button: HTMLButtonElement) => void;
   menuOpen: boolean;
+  preview?: boolean;
+  onKeep?: () => void;
   itemRef?: (element: HTMLDivElement | null) => void;
 }) {
   const label = title.trim() || "Browser";
@@ -525,6 +540,7 @@ function BrowserTitleTabItem({
       }}
       className="personal-title-tab personal-title-browser-tab group relative flex h-full min-w-0 touch-none items-center"
       data-active={active}
+      data-preview={preview || undefined}
       data-visible={visible}
       data-surface-id={id}
       data-surface-tab-id={id}
@@ -536,6 +552,10 @@ function BrowserTitleTabItem({
       onClick={(event) => {
         if ((event.target as HTMLElement).closest("[data-no-drag]")) return;
         if (!sortable.consumeClick()) onSelect();
+      }}
+      onDoubleClick={(event) => {
+        if ((event.target as HTMLElement).closest("[data-no-drag]")) return;
+        onKeep?.();
       }}
       onContextMenu={(event) => {
         event.preventDefault();
@@ -567,7 +587,13 @@ function BrowserTitleTabItem({
           type="button"
           role="tab"
           aria-selected={active}
-          aria-description={visible && !active ? "Visible in split" : undefined}
+          aria-description={
+            preview
+              ? "Preview tab. Keep open to retain in the tab strip."
+              : visible && !active
+                ? "Visible in split"
+                : undefined
+          }
           aria-label={label === "Browser" ? "Browser" : `Browser: ${label}`}
           title={label}
           className="personal-title-tab-button personal-title-browser-button flex min-w-0 flex-1 items-center px-2.5"
@@ -827,6 +853,8 @@ function TitleBarComponent({
   browserTitle,
   browserMode = "tab",
   browserTabs,
+  onKeepBrowser,
+  browserPreviewId,
   surfaceOrder,
   visibleIds,
   onReorderSurfaces,
@@ -891,12 +919,12 @@ function TitleBarComponent({
   const projectlessWorkspace = isProjectlessCwd(cwd);
   const tabIds = tabs.map((tab) => tab.id);
   const unified = browserTabs !== undefined;
-  const browserEntries =
+  const browserEntries: NonNullable<TitleBarProps["browserTabs"]> =
     browserTabs ??
     (browserOpen
       ? [{ id: LEGACY_BROWSER_ID, title: browserTitle ?? "Browser" }]
       : []);
-  const orderedIds = titleSurfaceOrder(
+  const allOrderedIds = titleSurfaceOrder(
     tabIds,
     browserEntries.map((tab) => tab.id),
     surfaceOrder,
@@ -914,13 +942,38 @@ function TitleBarComponent({
   const shown = new Set(shownIds);
   const sessionTabs = new Map(tabs.map((tab) => [tab.id, tab]));
   const browsers = new Map(browserEntries.map((tab) => [tab.id, tab]));
+  const previousPreview = useRef<string | null>(browserPreviewId ?? null);
+  const previewEnabled = Boolean(onKeepBrowser);
+  const keptIds = new Set([
+    ...tabIds,
+    ...browserEntries
+      .filter((tab) => tab.kept || (shown.has(tab.id) && tab.id !== focusedId))
+      .map((tab) => tab.id),
+  ]);
+  // Keeping the preview must not bring an older background page back into the
+  // strip. Switching to a conversation keeps the last preview in its slot.
+  const remembered =
+    previousPreview.current && browsers.has(previousPreview.current)
+      ? previousPreview.current
+      : browserPreviewId && browsers.has(browserPreviewId)
+        ? browserPreviewId
+        : null;
+  const previous =
+    remembered && browsers.get(remembered)?.kept ? null : remembered;
+  const preview = previewTabIds(allOrderedIds, keptIds, focusedId, previous);
+  const orderedIds = previewEnabled ? preview.visibleIds : allOrderedIds;
+  useLayoutEffect(() => {
+    if (previewEnabled) previousPreview.current = preview.previewId;
+  }, [previewEnabled, preview.previewId]);
+  const [recentMenu, setRecentMenu] = useState<HTMLElement | null>(null);
   const sortable = useSortable(
     orderedIds,
     (ids, movedId) => {
-      if (onReorderSurfaces) onReorderSurfaces(ids, movedId);
+      const complete = mergePreviewTabOrder(allOrderedIds, ids);
+      if (onReorderSurfaces) onReorderSurfaces(complete, movedId);
       else
         onReorder(
-          ids.filter((id) => sessionTabs.has(id)),
+          complete.filter((id) => sessionTabs.has(id)),
           movedId && sessionTabs.has(movedId) ? movedId : undefined,
         );
     },
@@ -1080,6 +1133,12 @@ function TitleBarComponent({
     else onSelect(id);
   };
   const contextMenuItems: ExplorerMenuItem[] = [];
+  if (contextBrowser && onKeepBrowser && !contextBrowser.kept) {
+    contextMenuItems.push(
+      { kind: "item", id: "keep-open", label: "Keep open" },
+      { kind: "sep" },
+    );
+  }
   const availableCombineTargets = (combineTargets ?? []).filter(
     (target) => target.id !== focusedId && shown.has(target.id),
   );
@@ -1276,7 +1335,9 @@ function TitleBarComponent({
       return;
     }
     if (!contextId) return;
-    if (id === "move-tab-new-window") {
+    if (id === "keep-open") {
+      if (contextBrowser) onKeepBrowser?.(contextId);
+    } else if (id === "move-tab-new-window") {
       onMoveTabToWindow?.(contextId);
     } else if (id === "return-tab-window") {
       onReturnTabToWindow?.(contextId);
@@ -1495,6 +1556,7 @@ function TitleBarComponent({
             role="tablist"
             tabIndex={orderedIds.length ? -1 : 0}
             data-sortable-scroll-container
+            data-surface-order={JSON.stringify(allOrderedIds)}
             aria-label="Workspace tabs"
             className="personal-tab-strip scrollbar-none flex h-full min-w-0 cursor-default items-center gap-0.5 overflow-x-auto overflow-y-hidden overscroll-none px-1.5"
             onKeyDown={(event) => {
@@ -1627,6 +1689,8 @@ function TitleBarComponent({
                   menuOpen={
                     tabMenu?.tabId === id || (!unified && Boolean(browserMenu))
                   }
+                  preview={previewEnabled && preview.previewId === id}
+                  onKeep={onKeepBrowser ? () => onKeepBrowser(id) : undefined}
                   itemRef={itemRef}
                 />
               );
@@ -1677,6 +1741,39 @@ function TitleBarComponent({
           </div>
         </div>
 
+        {previewEnabled && browserEntries.length > 0 ? (
+          <div
+            className="personal-tab-preview-actions"
+            data-tauri-drag-region="false"
+          >
+            {preview.previewId === focusedId ? (
+              <button
+                type="button"
+                className="personal-tab-preview-action"
+                aria-label="Keep browser open"
+                title="Keep open"
+                onClick={() => onKeepBrowser?.(focusedId)}
+              >
+                <Pin className="size-3" />
+                <span>Keep open</span>
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="personal-tab-preview-action"
+              aria-label="Recent browser tabs"
+              aria-haspopup="menu"
+              aria-expanded={Boolean(recentMenu)}
+              onClick={(event) => {
+                setTabMenu(null);
+                setBrowserMenu(null);
+                setRecentMenu(recentMenu ? null : event.currentTarget);
+              }}
+            >
+              Recent <ChevronDown className="size-3" />
+            </button>
+          </div>
+        ) : null}
         {paneLocal || IS_MAC ? null : (
           <div className="flex min-w-0 flex-1 items-center justify-center px-4">
             <span className="pointer-events-none truncate text-[11.5px] font-medium text-content/40 select-none">
@@ -1686,6 +1783,32 @@ function TitleBarComponent({
         )}
         {paneLocal ? null : trailingControls}
       </div>
+      {recentMenu && previewEnabled ? (
+        <ExplorerMenu
+          native
+          searchable
+          x={0}
+          y={0}
+          anchor={recentMenu}
+          align="end"
+          gap={4}
+          width={300}
+          ariaLabel="Recent browser tabs"
+          items={[...browserEntries].reverse().map((tab) => ({
+            kind: "item",
+            id: tab.id,
+            label: tab.title || "Browser",
+            description: tab.url,
+            checked: tab.id === focusedId,
+            shortcut: tab.kept ? "Kept" : undefined,
+          }))}
+          onPick={(id) => {
+            setRecentMenu(null);
+            if (browsers.has(id)) onSelectBrowser?.(unified ? id : undefined);
+          }}
+          onClose={() => setRecentMenu(null)}
+        />
+      ) : null}
       {tabMenu && (contextId || onReopenClosedTab || onUndoLayout) ? (
         <ExplorerMenu
           native

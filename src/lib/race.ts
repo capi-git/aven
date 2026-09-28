@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { HarnessId } from "./session";
+import { isEqualOrInside } from "./paths";
+import type { HarnessId, Session } from "./session";
 
 /**
  * A race runs one prompt through several agents, each in its own git
@@ -131,8 +132,103 @@ export function isLiveRaceWorktree(path: string | undefined): boolean {
   if (!path) return false;
   return read().some(
     (race) =>
-      race.state === "running" && race.lanes.some((lane) => lane.path === path),
+      race.state === "running" &&
+      race.lanes.some((lane) => isEqualOrInside(path, lane.path)),
   );
+}
+
+/** The project a Race lane folder, or a path inside one, was copied from. */
+export function raceLaneProject(path: string): string | undefined {
+  return read().find((race) =>
+    race.lanes.some((lane) => isEqualOrInside(path, lane.path)),
+  )?.project;
+}
+
+type RaceCheckout = Pick<
+  Session,
+  "cwd" | "worktreeCwd" | "branch" | "providerSessionId" | "pendingSwitch"
+>;
+
+/** Includes follow-up chats that share a lane but have their own session ID. */
+export function usesRaceCheckout(
+  session: RaceCheckout,
+  race: RaceRecord,
+): boolean {
+  return race.lanes.some((lane) =>
+    isEqualOrInside(session.worktreeCwd ?? session.cwd, lane.path),
+  );
+}
+
+/** A finished lane continues in its original project with a fresh provider. */
+export function releaseRaceCheckout<T extends RaceCheckout>(
+  session: T,
+  race: RaceRecord,
+): T {
+  if (!usesRaceCheckout(session, race)) return session;
+  return {
+    ...session,
+    cwd: race.lanes.some((lane) => isEqualOrInside(session.cwd, lane.path))
+      ? race.project
+      : session.cwd,
+    branch: undefined,
+    worktreeCwd: undefined,
+    providerSessionId: undefined,
+    ...(session.pendingSwitch
+      ? {
+          pendingSwitch: {
+            ...session.pendingSwitch,
+            fromProviderSessionId: undefined,
+          },
+        }
+      : {}),
+  };
+}
+
+const finishing = new Set<string>();
+
+export function isFinishingRaceCheckout(path: string): boolean {
+  return read().some(
+    (race) =>
+      finishing.has(race.id) &&
+      race.lanes.some((lane) => isEqualOrInside(path, lane.path)),
+  );
+}
+
+/** Stop every writer before reading its final diff or deleting its checkout. */
+export async function finishRace(
+  race: RaceRecord,
+  keep: RaceSelection | null,
+): Promise<void> {
+  if (finishing.has(race.id))
+    throw new Error("This race is already finishing.");
+  if (getRace(race.id)?.state !== "running")
+    throw new Error("This race has already finished.");
+  const host = raceWorkspace();
+  if (!host)
+    throw new Error(
+      "The race workspace is unavailable. Reopen it and try again.",
+    );
+  const choices = keep ? raceChoices(race, keep) : [];
+  if (keep && !choices.length)
+    throw new Error("Choose at least one file to keep.");
+  finishing.add(race.id);
+  try {
+    await host.settle(race);
+    if (keep) await raceHost.apply(race.root, race.base, choices);
+    let cleanupError: string | undefined;
+    try {
+      await raceHost.cleanup(race.root, race.lanes);
+    } catch (error) {
+      cleanupError = `Copies were not all removed: ${String(error)}`;
+    }
+    updateRace(race.id, {
+      state: keep ? "kept" : "discarded",
+      error: cleanupError,
+    });
+    await host.release(race);
+  } finally {
+    finishing.delete(race.id);
+  }
 }
 
 /** Appended to the prompt each lane receives. */
@@ -235,6 +331,8 @@ export function raceFileRows(
 
 export type RaceWorkspace = {
   stop: (sessionIds: string[]) => void;
+  settle: (race: RaceRecord) => Promise<void>;
+  release: (race: RaceRecord) => Promise<void>;
   openChat: (sessionId: string) => void;
 };
 

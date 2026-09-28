@@ -146,6 +146,16 @@ it("retains a stable anchor and semantic snapshot across callback and item ident
   expect(next.onPick).toHaveBeenCalledExactlyOnceWith("picture-in-picture");
 });
 
+it("sends searchable Recent menus through the owned native panel", async () => {
+  await render({ ariaLabel: "Recent tabs", searchable: true });
+  expect(panel().snapshot.searchable).toBe(true);
+  expect(panel().snapshot.title).toBe("Recent tabs");
+  expect(document.querySelector("input")).toBeNull();
+  expect(document.querySelector('[role="menu"]')).toBeNull();
+  await render();
+  expect(panel().snapshot.searchable).toBeUndefined();
+});
+
 it("preserves full rect anchors and closes on failure without mounting an occluding fallback", async () => {
   const rect = new DOMRect(48, 27, 24, 20);
   const onError = vi.fn();

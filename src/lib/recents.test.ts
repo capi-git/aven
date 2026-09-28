@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   archiveProject,
+  isRaceLanePath,
   collectRailProjects,
   forgetProject,
+  knownProjectPaths,
   loadArchivedProjects,
   loadPinnedProjects,
   loadProjectRailOrder,
@@ -80,6 +82,62 @@ function mockLocalStorage() {
     configurable: true,
   });
 }
+
+describe("Race lane folders", () => {
+  const lane =
+    "/Users/test/Library/Application Support/com.capi.monocode.personal/races/050df34e-f720-4782-8f47-95a70f047dc9/1";
+  beforeEach(() => mockLocalStorage());
+  afterEach(() => {
+    delete (globalThis as { localStorage?: unknown }).localStorage;
+  });
+
+  it("never treats a lane copy or anything inside it as a project", () => {
+    expect(isRaceLanePath(lane)).toBe(true);
+    expect(isRaceLanePath(`${lane}/docs`)).toBe(true);
+    expect(looksLikeProject(lane)).toBe(false);
+    expect(looksLikeProject("/Users/test/code/races")).toBe(true);
+    expect(looksLikeProject("/Users/test/code/races/2024/1")).toBe(true);
+    expect(
+      looksLikeProject(
+        "/Users/test/code/races/050df34e-f720-4782-8f47-95a70f047dc9/1",
+      ),
+    ).toBe(true);
+  });
+
+  it("recognizes orphaned Aven Dev and Windows lane folders", () => {
+    expect(isRaceLanePath(lane.replace("monocode.personal", "aven.dev"))).toBe(
+      true,
+    );
+    expect(
+      isRaceLanePath(
+        "C:\\Users\\test\\AppData\\Roaming\\com.capi.monocode.personal\\races\\050df34e-f720-4782-8f47-95a70f047dc9\\1\\docs",
+      ),
+    ).toBe(true);
+    expect(isRaceLanePath(`${lane}notes`)).toBe(false);
+  });
+
+  it("excludes old lane pins and order entries from project lookup", () => {
+    savePinnedProjects([lane, "/tmp/project"]);
+    saveProjectRailOrder([`${lane}/docs`, "/tmp/project"]);
+    expect(knownProjectPaths()).toEqual(["/tmp/project"]);
+  });
+
+  it("does not remember a lane and drops one already saved", () => {
+    rememberProject("/tmp/project");
+    expect(rememberProject(lane).map((item) => item.path)).toEqual([
+      "/tmp/project",
+    ]);
+    const saved = [
+      { path: lane, openedAt: 2 },
+      { path: "/tmp/project", openedAt: 1 },
+    ];
+    localStorage.setItem("monocode.recentProjects", JSON.stringify(saved));
+    expect(loadRecents().map((item) => item.path)).toEqual(["/tmp/project"]);
+    expect(
+      [...collectRailProjects(saved, lane).values()].map((item) => item.path),
+    ).toEqual(["/tmp/project"]);
+  });
+});
 
 describe("looksLikeProject", () => {
   it("rejects the home directory so it is never indexed", () => {

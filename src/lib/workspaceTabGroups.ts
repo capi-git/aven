@@ -9,7 +9,12 @@ import {
   type WorkspaceTab,
 } from "./layout";
 import { projectName } from "./paths";
-import { normalizeProjectPath, sameProjectPath } from "./recents";
+import { raceLaneProject } from "./race";
+import {
+  isRaceLanePath,
+  normalizeProjectPath,
+  sameProjectPath,
+} from "./recents";
 import type { Session } from "./session";
 
 const PROJECT_FOCUSED_TABS_KEY = "monocode.personal.focusedTabs";
@@ -48,19 +53,23 @@ export function saveProjectFocusedTabs(record: Record<string, string>) {
   }
 }
 
+/** Files an agent opens from a Race lane belong to the project it copied. */
+function paneProject(cwd: string | undefined): string | null {
+  if (!cwd || cwd === "~") return null;
+  return raceLaneProject(cwd) ?? (isRaceLanePath(cwd) ? null : cwd);
+}
+
 export function workspaceTabCwd(
   tab: WorkspaceTab,
   sessions: Session[],
 ): string | null {
   for (const id of leafIds(tab.layout)) {
     const session = sessions.find((entry) => entry.id === id);
-    if (session?.cwd && session.cwd !== "~") return session.cwd;
+    const project = paneProject(session?.cwd);
+    if (project) return project;
   }
 
-  const file = focusedFileTab(tab);
-  if (file?.cwd && file.cwd !== "~") return file.cwd;
-
-  return null;
+  return paneProject(focusedFileTab(tab)?.cwd);
 }
 
 // Pane matching adapted from MonoCode #144 / 5c31b3a4b2084d7a1eb379d68b42ec919bf7c43e.
@@ -76,8 +85,7 @@ function mountedPaneCwd(
     tab.editorPanes.find((entry) => entry.id === paneId) ??
     tab.terminalPanes?.find((entry) => entry.id === paneId);
   const file = pane?.files.find((entry) => entry.id === pane.activeFileId);
-  const cwd = session?.cwd ?? file?.cwd;
-  return cwd && cwd !== "~" ? cwd : null;
+  return paneProject(session?.cwd ?? file?.cwd);
 }
 
 /** The visible pane's project, without falling back to a different split pane. */

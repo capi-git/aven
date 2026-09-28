@@ -358,6 +358,42 @@ describe("layout undo", () => {
 });
 
 describe("versioned recovery storage", () => {
+  it("preserves kept file and browser choices through close, storage and reopen", () => {
+    const storage = memoryStorage();
+    const keptFile = { ...file, kept: true };
+    const tab: WorkspaceTab = {
+      ...newTab("session"),
+      layout: leaf("editor"),
+      focusedId: "editor",
+      editorPanes: [{ id: "editor", activeFileId: file.id, files: [keptFile] }],
+    };
+    const entries: ClosedWorkspaceEntry[] = [
+      fileEntry(keptFile),
+      { kind: "browser", cwd, closedAt: 2, browser: { id: "browser", url: "https://example.test", kept: true } },
+      { kind: "tab", cwd, closedAt: 3, tab },
+    ];
+    const state = entries.reduce(pushClosedWorkspaceEntry, emptyWorkspaceRecovery());
+    expect(saveWorkspaceRecovery(state, storage)).toBe(true);
+    const restored = loadWorkspaceRecovery(storage);
+    expect(restored.closed).toMatchObject([
+      { file: { kept: true } },
+      { browser: { kept: true } },
+      { tab: { editorPanes: [{ files: [{ kept: true }] }] } },
+    ]);
+    const entry = restored.closed[2];
+    expect(entry.kind).toBe("tab");
+    if (entry.kind === "tab") {
+      expect(prepareRecoveredWorkspaceTab(entry.tab).editorPanes[0].files[0].kept).toBe(true);
+    }
+    const invalid = JSON.parse(JSON.stringify(state));
+    invalid.closed[0].file.kept = "true";
+    invalid.closed[1].browser.kept = "true";
+    expect(parseWorkspaceRecovery(invalid).closed).toMatchObject([
+      { file: { id: file.id } }, { browser: { id: "browser" } }, {},
+    ]);
+    expect(JSON.stringify(parseWorkspaceRecovery(invalid).closed.slice(0, 2))).not.toContain("kept");
+  });
+
   it("roundtrips only schema-whitelisted metadata with a caller-owned storage key", () => {
     const storage = memoryStorage();
     const state = pushClosedWorkspaceEntry(

@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { Block } from "../lib/session";
+import { proposalBlock } from "../lib/orchestrationPlan";
 import { AgentTranscript } from "./AgentTranscript";
 
 function tool(id: string, approval?: Block["approval"]): Block {
@@ -19,6 +20,51 @@ function render(blocks: Block[], busy = false) {
 }
 
 describe("AgentTranscript collapsed work", () => {
+  it("preserves protocol examples and less-than text in ordinary conversation", () => {
+    const markup = render([
+      { id: "user", role: "user", text: "Explain the format" },
+      {
+        id: "reply",
+        role: "assistant",
+        text: "Use `<aven_proposal>visible-example</aven_proposal>` and compare x <",
+      },
+    ]);
+    expect(markup).toContain("visible-example");
+    expect(markup).toContain("x &lt;");
+  });
+  it.each(["assistant", "plan"] as const)(
+    "hides a live %s proposal only while an unfinished card can receive it",
+    (role) => {
+      const card = proposalBlock("card", {
+        version: 1,
+        leadId: "lead",
+        cwd: "/repo",
+        request: "Build settings",
+        author: { harness: "claude", model: "claude:test", name: "Lead" },
+        settings: { choices: [], maxWorkers: 2 },
+        status: "invalid",
+        title: "Assignments",
+        summary: "",
+        tasks: [],
+      });
+      const blocks: Block[] = [
+        { id: "ask", role: "user", text: "Plan it" },
+        card,
+        { id: "more", role: "user", text: "Finish the proposal" },
+        {
+          id: "reply",
+          role,
+          text: 'Ready.\n<aven_proposal>{"title":"hidden-assignment-payload"',
+          streaming: true,
+        },
+      ];
+      expect(render(blocks, true)).not.toContain("hidden-assignment-payload");
+      expect(render(blocks, true)).toContain("Ready.");
+      // An ordinary reply after a completed card must remain inspectable.
+      card.orchestration!.status = "approved";
+      expect(render(blocks, true)).toContain("hidden-assignment-payload");
+    },
+  );
   it("reveals an orchestration result after the finished turn and before its action row", () => {
     const card: Block = {
       id: "proposal",

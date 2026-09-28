@@ -12,6 +12,7 @@ import {
   addBrowserTab,
   selectBrowserTab,
   updateBrowserTab,
+  keepBrowserTab,
   closeBrowserTab,
   normalizeBrowserWorkspace,
   patchBrowserWorkspace,
@@ -135,6 +136,54 @@ describe("personal panel persistence", () => {
 });
 
 describe("multiple browser tabs", () => {
+  it("keeps an existing preview without replacing its page, focus or layout", () => {
+    const state = addBrowserTab(
+      addBrowserTab(
+        { ...EMPTY_BROWSER, mode: "split", ratio: 0.6 },
+        { id: "preview", url: "https://preview.example", title: "Preview" },
+      ),
+      { id: "active", url: "https://active.example" },
+    );
+    const kept = keepBrowserTab(state, "preview");
+    expect(kept).toEqual({
+      ...state,
+      tabs: [{ ...state.tabs[0], kept: true }, state.tabs[1]],
+    });
+    expect(state.tabs[0].kept).toBeUndefined();
+    expect(keepBrowserTab(kept, "preview")).toEqual(kept);
+    expect(keepBrowserTab(kept, "missing")).toEqual(kept);
+
+    const selected = selectBrowserTab(kept, "preview");
+    const navigated = updateBrowserTab(selected, "preview", {
+      url: "https://preview.example/next",
+      title: "Next page",
+    });
+    const closedOther = closeBrowserTab(navigated, "active");
+    expect(closedOther.tabs).toEqual([
+      { id: "preview", url: "https://preview.example/next", title: "Next page", kept: true },
+    ]);
+    saveBrowserWorkspaces({ "/project": closedOther });
+    expect(loadBrowserWorkspaces()["/project"]).toEqual(closedOther);
+  });
+
+  it("accepts only true kept metadata and leaves older saved tabs preview eligible", () => {
+    const state = normalizeBrowserWorkspace({
+      tabs: [
+        { id: "legacy", url: "https://legacy.example" },
+        { id: "kept", url: "https://kept.example", kept: true },
+        { id: "invalid", url: "https://invalid.example", kept: "true" },
+        { id: "preview", url: "https://preview.example", kept: false },
+      ],
+    });
+    expect(state.tabs.map((tab) => tab.kept)).toEqual([
+      undefined, true, undefined, undefined,
+    ]);
+    expect(updateBrowserTab(state, "legacy", { kept: true }).tabs[0].kept).toBe(true);
+    expect(updateBrowserTab(state, "kept", { kept: false }).tabs[1].kept).toBeUndefined();
+    expect(updateBrowserTab(state, "kept", { kept: undefined }).tabs[1].kept).toBe(true);
+    expect(normalizeBrowserWorkspace(state)).toEqual(state);
+  });
+
   it("migrates hidden single-page workspaces without replacing their saved URL", () => {
     const old = {
       open: false,

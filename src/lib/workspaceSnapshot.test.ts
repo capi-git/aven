@@ -32,6 +32,26 @@ function chat(id: string, cwd: string): Session {
 }
 
 describe("collectWorkspaceSnapshot", () => {
+  it("restores kept files and hidden preview history without promoting old previews", () => {
+    const kept = { ...newFileTab("/repo/kept.md", "/repo"), kept: true };
+    const older = newFileTab("/repo/older.md", "/repo");
+    const preview = newFileTab("/repo/preview.md", "/repo");
+    const tab = {
+      ...newTab("session"),
+      layout: leaf("editor"),
+      focusedId: "editor",
+      editorPanes: [{ id: "editor", files: [kept, older, preview], activeFileId: preview.id }],
+    };
+    const snapshot = collectWorkspaceSnapshot([tab], [], tab.id, "/repo");
+    const parsed = parseWorkspaceSnapshot(JSON.parse(JSON.stringify(snapshot)));
+    expect(parsed?.tabs[0].editorPanes[0].files).toEqual([kept, older, preview]);
+    expect(hydrateWorkspaceSnapshot(parsed!, new Map())?.tabs[0].editorPanes[0].activeFileId).toBe(preview.id);
+
+    const invalid = JSON.parse(JSON.stringify(snapshot));
+    invalid.tabs[0].editorPanes[0].files[1].kept = "true";
+    expect(parseWorkspaceSnapshot(invalid)?.tabs[0].editorPanes[0].files[1].kept).toBeUndefined();
+  });
+
   it("saves unsent standalone drafts separately from transcripts, including pasted attachments", () => {
     const session = newSession(
       "cursor",

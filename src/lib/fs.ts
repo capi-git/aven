@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { slash } from "./paths";
-import { isLiveRaceWorktree } from "./race";
+import { isLiveRaceWorktree, raceLaneProject } from "./race";
 
 export type FsEntry = {
   name: string;
@@ -290,6 +290,16 @@ export function isCheckoutBlockedByChanges(message: string): boolean {
 export function restoreSessionCheckout<
   T extends { cwd: string; branch?: string; worktreeCwd?: string; providerSessionId?: string },
 >(session: T): T {
+  // Older handoffs saved the temporary lane as their project. Restore their
+  // project identity while preserving the checkout only for an unfinished race.
+  const project = raceLaneProject(session.cwd);
+  if (project) {
+    session = {
+      ...session,
+      cwd: project,
+      worktreeCwd: session.worktreeCwd ?? session.cwd,
+    };
+  }
   if (!session.branch && !session.worktreeCwd) return session;
   // A running race lane must keep working in its own copy, not the project.
   if (isLiveRaceWorktree(session.worktreeCwd))

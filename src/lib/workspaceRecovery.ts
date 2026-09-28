@@ -93,6 +93,7 @@ function fileMetadata(raw: unknown): unknown {
     id,
     path,
     cwd,
+    kept,
     plan,
     releaseNotes,
     review,
@@ -106,6 +107,7 @@ function fileMetadata(raw: unknown): unknown {
     id,
     path,
     cwd,
+    kept,
     plan,
     releaseNotes,
     review,
@@ -265,6 +267,7 @@ function cleanEntry(raw: unknown): ClosedWorkspaceEntry | null {
         browser: {
           id: browser.id,
           url: browser.url,
+          ...(browser.kept === true ? { kept: true } : {}),
           ...(text(browser.title, 2048) ? { title: browser.title } : {}),
           ...(favicon && favicon.length <= 16384 ? { favicon } : {}),
         },

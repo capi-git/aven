@@ -357,3 +357,37 @@ html.theme-light .personal-shell .personal-titlebar {
     translate: none;
   }
 }
+
+/* A preview changes its label in place; the native header stays one row tall. */
+.personal-title-browser-tab[data-preview="true"] .personal-title-tab-label {
+  font-style: italic;
+}
+.personal-tab-preview-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 2px;
+  padding: 0 5px;
+}
+.personal-tab-preview-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 5px;
+  color: color-mix(in srgb, var(--color-content) 58%, transparent);
+  font-size: 10px;
+  white-space: nowrap;
+  cursor: default;
+}
+.personal-tab-preview-action:hover,
+.personal-tab-preview-action[aria-expanded="true"] {
+  color: var(--color-content);
+  background: color-mix(in srgb, var(--color-content) 7%, transparent);
+}
+.personal-tab-preview-action:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}

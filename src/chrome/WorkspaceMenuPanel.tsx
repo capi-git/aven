@@ -2,12 +2,13 @@ import {
   Fragment,
   useEffect,
   useRef,
+  useState,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
 import type { WorkspaceMenuPanelSnapshot } from "../lib/workspaceMenuPanel";
 import { ToolbarPanel, ToolbarPanelHeader } from "./ToolbarPanel";
-import { Check } from "./icons";
+import { Check, Search } from "./icons";
 import "./WorkspaceMenuPanel.css";
 
 /** Identical content in the web popover and the owned native popup. */
@@ -26,46 +27,80 @@ export function WorkspaceMenuPanelContent({
   error?: string | null;
 }) {
   const menu = useRef<HTMLDivElement>(null);
+  const search = useRef<HTMLInputElement>(null);
+  const [query, setQuery] = useState("");
+  const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  const items =
+    snapshot.searchable && terms.length
+      ? snapshot.items.filter((item) => {
+          const text =
+            `${item.label} ${item.description ?? ""}`.toLocaleLowerCase();
+          return terms.every((term) => text.includes(term));
+        })
+      : snapshot.items;
   useEffect(() => {
     const target = menu.current;
     const first = target?.querySelector<HTMLButtonElement>(
       "button:not(:disabled)",
     );
-    (first ?? target)?.focus();
+    (search.current ?? first ?? target)?.focus();
   }, []);
   const navigate = (event: KeyboardEvent) => {
+    const inSearch = event.target === search.current;
+    if (inSearch && event.nativeEvent.isComposing) return;
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
       onClose();
       return;
     }
+    // Home/End belong to the text caret, and composition must keep owning its
+    // Enter/arrows. The input's arrows intentionally enter the result list.
+    if (
+      inSearch &&
+      (event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        ["Home", "End"].includes(event.key))
+    )
+      return;
+    if (inSearch && event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      const first = items.find((item) => !item.disabled);
+      if (first) onSelect(first.id);
+      return;
+    }
     if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
-    const items = [
+    const buttons = [
       ...(menu.current?.querySelectorAll<HTMLButtonElement>(
         "button:not(:disabled)",
       ) ?? []),
     ];
-    if (!items.length) return;
-    const index = items.indexOf(document.activeElement as HTMLButtonElement);
+    if (!buttons.length) return;
+    const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    if (snapshot.searchable && index === 0 && event.key === "ArrowUp") {
+      search.current?.focus();
+      return;
+    }
     const next =
       event.key === "Home"
         ? 0
         : event.key === "End"
-          ? items.length - 1
+          ? buttons.length - 1
           : index < 0
             ? event.key === "ArrowDown"
               ? 0
-              : items.length - 1
-            : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) %
-              items.length;
-    items[next]?.focus();
+              : buttons.length - 1
+            : (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) %
+              buttons.length;
+    buttons[next]?.focus();
   };
   return (
     <ToolbarPanel
       theme={snapshot.theme}
-      className={`workspace-menu-panel${snapshot.compact ? " workspace-menu-panel-compact" : ""}`}
+      className={`workspace-menu-panel${snapshot.compact ? " workspace-menu-panel-compact" : ""}${snapshot.searchable ? " workspace-menu-panel-searchable" : ""}`}
     >
       {header ? (
         <div className="workspace-menu-panel-custom-header">{header}</div>
@@ -76,6 +111,33 @@ export function WorkspaceMenuPanelContent({
           closeLabel="Close open options"
         />
       ) : null}
+      {snapshot.searchable ? (
+        <div className="workspace-menu-panel-search">
+          <label className="workspace-menu-panel-search-field">
+            <Search size={14} aria-hidden="true" />
+            <input
+              ref={search}
+              type="search"
+              aria-label={`Search ${snapshot.title}`}
+              placeholder="Search..."
+              value={query}
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={navigate}
+            />
+          </label>
+          <div
+            className="workspace-menu-panel-count"
+            role="status"
+            aria-live="polite"
+          >
+            {terms.length
+              ? `${items.length} of ${snapshot.items.length}`
+              : `${items.length} ${items.length === 1 ? "item" : "items"}`}
+          </div>
+        </div>
+      ) : null}
       <div
         ref={menu}
         role="menu"
@@ -84,9 +146,9 @@ export function WorkspaceMenuPanelContent({
         className="workspace-menu-panel-items"
         onKeyDown={navigate}
       >
-        {snapshot.items.map((item) => (
+        {items.map((item, index) => (
           <Fragment key={item.id}>
-            {item.separatorBefore ? (
+            {item.separatorBefore && (!snapshot.searchable || index > 0) ? (
               <div
                 role="separator"
                 className="workspace-menu-panel-separator"
@@ -128,6 +190,11 @@ export function WorkspaceMenuPanelContent({
             </button>
           </Fragment>
         ))}
+        {snapshot.searchable && !items.length ? (
+          <p className="workspace-menu-panel-empty">
+            {terms.length ? "No matches" : "No recent tabs"}
+          </p>
+        ) : null}
       </div>
       {error ? (
         <p role="alert" className="workspace-menu-panel-error">

@@ -1,10 +1,83 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
 import { newSession, type Block, type Session } from "./session";
 import {
+  completeOrchestrationProposal,
+  proposalBlock,
+  type OrchestrationProposal,
+} from "./orchestrationPlan";
+import {
+  getSession,
   isPersistableId,
   persistFingerprint,
   sanitizeSessionForPersist,
 } from "./sessionStore";
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+
+describe("restoring late orchestration proposals", () => {
+  const draft: OrchestrationProposal = {
+    version: 1,
+    leadId: "lead",
+    cwd: "/repo",
+    request: "Build settings",
+    author: { harness: "claude", model: "claude:test", name: "Lead" },
+    settings: {
+      choices: [{ harness: "claude", model: "claude:test", name: "Worker" }],
+      maxWorkers: 2,
+    },
+    status: "planning",
+    title: "Assignments",
+    summary: "",
+    tasks: [],
+  };
+  const reply: Block = {
+    id: "reply",
+    role: "assistant",
+    text: `<aven_proposal>${JSON.stringify({
+      title: "Settings",
+      summary: "Build settings",
+      tasks: [{
+        id: "ui", title: "UI", prompt: "Build the view", harness: "claude",
+        model: "claude:test", files: ["src/settings"], dependsOn: [],
+      }],
+    })}</aven_proposal>`,
+  };
+  const failed = completeOrchestrationProposal(draft, "Still investigating");
+
+  async function restore(blocks: Block[]) {
+    vi.mocked(invoke).mockResolvedValueOnce({ ...newSession("claude", "/repo"), id: "lead", blocks });
+    return (await getSession("lead"))!;
+  }
+
+  it("does not manufacture a ready card from historical response text", async () => {
+    const restored = await restore([
+      { ...proposalBlock("card", failed), streaming: false }, reply,
+    ]);
+    expect(restored.blocks).toHaveLength(2);
+    expect(restored.blocks[0].orchestration?.status).toBe("invalid");
+  });
+
+  it("does not promote interrupted cards or streaming replies during sanitization", async () => {
+    const planning = await restore([proposalBlock("card", draft), reply]);
+    expect(planning.blocks[0].orchestration?.status).toBe("invalid");
+    expect(planning.blocks[0].orchestration?.error).toContain("interrupted");
+    const streaming = await restore([
+      { ...proposalBlock("card", failed), streaming: false },
+      { ...reply, streaming: true },
+    ]);
+    expect(streaming.blocks[0].orchestration?.status).toBe("invalid");
+    expect(streaming.blocks).toHaveLength(2);
+    const reloaded = await restore(sanitizeSessionForPersist(streaming).blocks);
+    expect(reloaded.blocks[0].orchestration?.status).toBe("invalid");
+  });
+
+  it("preserves cards recovered by a successfully settled live turn", async () => {
+    const completed = completeOrchestrationProposal(failed, reply.text);
+    const restored = await restore([proposalBlock("card", completed)]);
+    expect(restored.blocks[0].orchestration?.status).toBe("ready");
+  });
+});
 
 describe("isPersistableId", () => {
   it("accepts alphanumeric ids with hyphens and underscores", () => {

@@ -309,6 +309,130 @@ describe("browser tab integration", () => {
     return event;
   }
 
+  it("uses one browser preview while retaining every page in Recent", async () => {
+    const pages = [
+      { id: "web-1", title: "First page" },
+      { id: "web-2", title: "Second page" },
+      { id: "web-3", title: "Third page" },
+    ];
+    await render({
+      browserTabs: pages,
+      activeId: "web-3",
+      onKeepBrowser: vi.fn(),
+    });
+    const ids = () =>
+      Array.from(container.querySelectorAll("[data-surface-id]")).map((node) =>
+        node.getAttribute("data-surface-id"),
+      );
+    expect(ids()).toEqual(["a", "b", "web-3"]);
+    expect(
+      container
+        .querySelector('[data-surface-id="web-3"]')
+        ?.getAttribute("data-preview"),
+    ).toBe("true");
+    await click('[aria-label="Recent browser tabs"]');
+    const first = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('[role="menuitemcheckbox"]'),
+    ).find((node) => node.textContent?.includes("First page"));
+    expect(first).toBeDefined();
+    await act(async () => first!.click());
+    expect(props.onSelectBrowser).toHaveBeenCalledWith("web-1");
+    expect(props.onCloseBrowser).not.toHaveBeenCalled();
+    await render({ activeId: "web-1" });
+    expect(ids()).toEqual(["a", "b", "web-1"]);
+    expect(pages).toHaveLength(3);
+  });
+
+  it("keeps a preview without resurrecting hidden pages and retains it on the next open", async () => {
+    const pages = [
+      { id: "web-1", title: "Old page" },
+      { id: "web-2", title: "Current page" },
+    ];
+    await render({
+      browserTabs: pages,
+      activeId: "web-2",
+      onKeepBrowser: vi.fn(),
+    });
+    await click('[aria-label="Keep browser open"]');
+    expect(props.onKeepBrowser).toHaveBeenCalledExactlyOnceWith("web-2");
+    const kept = [pages[0], { ...pages[1], kept: true }];
+    await render({ browserTabs: kept });
+    expect(container.querySelector('[data-surface-id="web-1"]')).toBeNull();
+    expect(
+      container.querySelector('[aria-label="Keep browser open"]'),
+    ).toBeNull();
+    await render({
+      browserTabs: [...kept, { id: "web-3", title: "Next page" }],
+      activeId: "web-3",
+    });
+    expect(container.querySelector('[data-surface-id="web-2"]')).not.toBeNull();
+    expect(
+      container
+        .querySelector('[data-surface-id="web-3"]')
+        ?.getAttribute("data-preview"),
+    ).toBe("true");
+    expect(props.onCloseBrowser).not.toHaveBeenCalled();
+  });
+
+  it("retains the same preview when returning to a conversation", async () => {
+    await render({
+      browserTabs: [
+        { id: "web-1", title: "Earlier page" },
+        { id: "web-2", title: "Later page" },
+      ],
+      activeId: "web-1",
+      onKeepBrowser: vi.fn(),
+    });
+    await render({ activeId: "a" });
+    expect(container.querySelector('[data-surface-id="web-1"]')).not.toBeNull();
+    expect(container.querySelector('[data-surface-id="web-2"]')).toBeNull();
+  });
+
+  it("keeps a browser by double-clicking its preview tab", async () => {
+    await render({
+      browserTabs: [{ id: "web-1", title: "Page" }],
+      activeId: "web-1",
+      onKeepBrowser: vi.fn(),
+    });
+    const item = container.querySelector('[data-surface-id="web-1"]')!;
+    await act(async () =>
+      item.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })),
+    );
+    expect(props.onKeepBrowser).toHaveBeenCalledExactlyOnceWith("web-1");
+    expect(props.onCloseBrowser).not.toHaveBeenCalled();
+  });
+
+  it("does not resurrect a hidden page after Keep and a header remount", async () => {
+    const pages = [{ id: "web-1", title: "Older page" }, { id: "web-2", title: "Kept page", kept: true }];
+    for (const activeId of ["web-2", "a"]) {
+      await act(async () => root.unmount());
+      root = createRoot(container);
+      await render({ browserTabs: pages, activeId, browserPreviewId: "web-2", onKeepBrowser: vi.fn() });
+      expect(container.querySelector('[data-surface-id="web-1"]')).toBeNull();
+      expect(container.querySelector('[data-surface-id="web-2"]')).not.toBeNull();
+      expect(container.querySelector('[aria-label="Recent browser tabs"]')).not.toBeNull();
+    }
+  });
+
+  it("restores the selected preview hint while its conversation has focus", async () => {
+    await render({ browserTabs: [{ id: "web-1", title: "Earlier page" }, { id: "web-2", title: "Later page" }], activeId: "a", browserPreviewId: "web-1", onKeepBrowser: vi.fn() });
+    expect(container.querySelector('[data-surface-id="web-1"]')).not.toBeNull();
+    expect(container.querySelector('[data-surface-id="web-2"]')).toBeNull();
+  });
+
+  it("ignores a remembered preview belonging to another group", async () => {
+    await render({
+      browserTabs: [{ id: "web-1", title: "Hidden page" }],
+      activeId: "a",
+      browserPreviewId: "another-group-page",
+      onKeepBrowser: vi.fn(),
+    });
+    expect(container.querySelector('[data-surface-id="web-1"]')).toBeNull();
+    expect(container.querySelector('[aria-label="Recent browser tabs"]')).not.toBeNull();
+    await render({ activeId: "web-1" });
+    expect(container.querySelector('[data-surface-id="web-1"]')).not.toBeNull();
+  });
+
   it("updates both untitled labels and titled model metadata when the live model catalog arrives", async () => {
     const models = [{ harness: "codex" as const, model: "codex:qa-model" }];
     await render({

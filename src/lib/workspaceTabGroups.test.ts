@@ -509,3 +509,70 @@ describe("replaceGroupInTabOrder", () => {
     ).toEqual(["a", "d", "c", "d"]);
   });
 });
+
+describe("Race lane files", () => {
+  const project = "/Users/me/code/app";
+  const lane =
+    "/Users/me/Library/Application Support/com.capi.monocode.personal/races/050df34e-f720-4782-8f47-95a70f047dc9/1";
+  beforeEach(() => {
+    const data = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => data.get(key) ?? null,
+      setItem: (key: string, value: string) => data.set(key, value),
+    });
+    localStorage.setItem(
+      "aven.races.v1",
+      JSON.stringify([
+        {
+          id: "race",
+          project,
+          root: project,
+          base: "abc",
+          prompt: "Task",
+          createdAt: 1,
+          uncommitted: false,
+          untracked: false,
+          state: "running",
+          lanes: [{ sessionId: "lane", path: lane, branch: "aven/race/x-1" }],
+        },
+      ]),
+    );
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("keeps a file a lane opened in the project it was copied from", () => {
+    const base = newTab("file-pane");
+    const tab: WorkspaceTab = {
+      ...base,
+      layout: { type: "leaf", id: "file-pane" },
+      focusedId: "file-pane",
+      editorPanes: [
+        {
+          id: "file-pane",
+          files: [newFileTab(`${lane}/docs/notes.md`, lane)],
+          activeFileId: undefined,
+        },
+      ],
+    };
+    tab.editorPanes[0].activeFileId = tab.editorPanes[0].files[0].id;
+    expect(focusedWorkspaceTabCwd(tab, [])).toBe(project);
+    expect(workspaceTabCwd(tab, [])).toBe(project);
+  });
+
+  it("never reports an unknown lane folder as a project", () => {
+    localStorage.setItem("aven.races.v1", "[]");
+    expect(workspaceTabCwd(newTab("lane"), [session("lane", lane)])).toBeNull();
+  });
+
+  it("routes a registered lane in a custom data directory to its project", () => {
+    const saved = JSON.parse(localStorage.getItem("aven.races.v1")!);
+    saved[0].lanes[0].path = "D:\\Aven Data\\races\\custom\\1\\";
+    localStorage.setItem("aven.races.v1", JSON.stringify(saved));
+    const tab = newTab("lane");
+    const sessions = [session("lane", "d:/aven data/races/custom/1/docs")];
+    expect(focusedWorkspaceTabCwd(tab, sessions)).toBe(project);
+    expect(workspaceTabCwd(tab, sessions)).toBe(project);
+    expect(findProjectPane(tab, sessions, project)).toBe("lane");
+    expect(filterTabsForProject([tab], sessions, project)).toEqual([tab]);
+  });
+});

@@ -29,10 +29,12 @@ import {
 } from "./WorkspaceStage";
 import { nativeBrowser } from "../lib/browser";
 import { browserIdForTab } from "../lib/personalWorkspace";
+import { orderByIds } from "../lib/reorder";
 import { installInAppLinks } from "../lib/inAppLinks";
 import {
   leaf,
   leafIds,
+  keepFileTab,
   newFileTab,
   placePane,
   removePane,
@@ -113,6 +115,23 @@ export function DetachedWorkspace() {
     target: WorkspaceSurfaceDropTarget | null;
   } | null>(null);
   const [readyNatives, setReadyNatives] = useState<Set<string>>(new Set());
+  const recentBrowserSelections = useRef<string[]>([]);
+  useEffect(() => {
+    const state = envelope?.state;
+    const selected = state?.view.focusedId;
+    if (
+      !selected ||
+      !state.browsers.some((browser) => browser.id === selected)
+    )
+      return;
+    recentBrowserSelections.current = [
+      selected,
+      ...recentBrowserSelections.current.filter(
+        (id) =>
+          id !== selected && state.browsers.some((browser) => browser.id === id),
+      ),
+    ];
+  }, [envelope?.state.view.focusedId, envelope?.state.browsers]);
   const checkpointTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
@@ -792,9 +811,17 @@ export function DetachedWorkspace() {
     if (cancelled || !target) return false;
     change((s) => ({
       ...s,
+      browsers: s.browsers.map((browser) =>
+        browser.id === id ? { ...browser, kept: true } : browser,
+      ),
       view:
         target.edge === "tab"
-          ? moveWorkspaceTab(s.view, id, target.id, target.index)
+          ? moveWorkspaceTab(
+              s.view,
+              id,
+              target.id,
+              target.orderIndex ?? target.index,
+            )
           : splitWorkspaceView(s.view, id, target.edge, target.id),
     }));
     return true;
@@ -810,12 +837,17 @@ export function DetachedWorkspace() {
         cwd={state.cwd}
         browserOpen={state.browsers.some((b) => members.includes(b.id))}
         browserActive={state.browsers.some((b) => b.id === id)}
+        browserPreviewId={recentBrowserSelections.current.find((browserId) =>
+          members.includes(browserId),
+        )}
         browserTabs={state.browsers
           .filter((b) => members.includes(b.id))
           .map((b) => ({
             id: b.id,
             title: b.title || "Browser",
+            url: b.url,
             favicon: b.favicon,
+            kept: b.kept,
           }))}
         surfaceOrder={members}
         visibleIds={active.size > 1 ? [id] : []}
@@ -836,6 +868,14 @@ export function DetachedWorkspace() {
         onCloseBrowser={(selected) => {
           if (selected) void closeSurface(selected).catch(report);
         }}
+        onKeepBrowser={(selected) =>
+          change((s) => ({
+            ...s,
+            browsers: s.browsers.map((browser) =>
+              browser.id === selected ? { ...browser, kept: true } : browser,
+            ),
+          }))
+        }
         onCloseMany={(ids) =>
           void (async () => {
             for (const id of ids) await closeSurface(id);
@@ -879,6 +919,11 @@ export function DetachedWorkspace() {
         onCombineWith={(target) =>
           change((s) => ({
             ...s,
+            browsers: s.browsers.map((browser) =>
+              browser.id === id || browser.id === target
+                ? { ...browser, kept: true }
+                : browser,
+            ),
             view: combineWorkspaceGroups(s.view, id, target),
           }))
         }
@@ -1039,16 +1084,21 @@ export function DetachedWorkspace() {
               onCloseFile: (_, fileId) => {
                 void closeFile(tab.id, id, fileId).catch(report);
               },
+              onKeepFile: (_, fileId) =>
+                updateTab(tab.id, (current) =>
+                  keepFileTab(current, fileId, id),
+                ),
               onReorderFiles: (_, ids) =>
                 updateFilePane(tab, id, (p) => ({
                   ...p,
-                  files: ids.flatMap((fid) =>
-                    p.files.filter((f) => f.id === fid),
-                  ),
+                  files: orderByIds(p.files, ids),
                 })),
               onDirtyChange: (fileId, dirty) =>
                 change((s) => ({
                   ...s,
+                  tabs: dirty
+                    ? s.tabs.map((current) => keepFileTab(current, fileId))
+                    : s.tabs,
                   dirtyFileIds: dirty
                     ? [...new Set([...(s.dirtyFileIds ?? []), fileId])]
                     : (s.dirtyFileIds ?? []).filter((id) => id !== fileId),

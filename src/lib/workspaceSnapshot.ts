@@ -566,6 +566,7 @@ function sanitizeFile(raw: unknown): FilePaneTab | null {
     id: value.id,
     path: value.path,
     cwd: value.cwd,
+    ...(value.kept === true ? { kept: true } : {}),
     ...(plan ? { plan } : {}),
     ...(releaseNotes ? { releaseNotes } : {}),
     ...(commit ? { commit } : {}),

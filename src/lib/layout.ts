@@ -58,6 +58,8 @@ export type FilePaneTab = {
   id: string;
   path: string;
   cwd: string;
+  /** Retain this file in the strip when another preview opens. */
+  kept?: boolean;
   plan?: PlanTabSource;
   releaseNotes?: ReleaseNotesTabSource;
   review?: boolean;
@@ -377,6 +379,33 @@ export function isFilesystemTab(file: FilePaneTab): boolean {
   return (
     !isTerminalTab(file) && !isVirtualDocumentTab(file) && !file.sessionChanges
   );
+}
+
+/** Special surfaces keep their existing tabs; only ordinary files use previews. */
+export function isPreviewFileTab(file: FilePaneTab): boolean {
+  return isFilesystemTab(file) && !file.review && !file.changes;
+}
+
+/** Keep changes and manually retained files visible without moving their pane. */
+export function keepFileTab(
+  tab: WorkspaceTab,
+  fileId: string,
+  paneId?: string,
+): WorkspaceTab {
+  let changed = false;
+  const editorPanes = tab.editorPanes.map((pane) => {
+    if (paneId && pane.id !== paneId) return pane;
+    const target = pane.files.find((file) => file.id === fileId);
+    if (!target || target.kept || !isPreviewFileTab(target)) return pane;
+    changed = true;
+    return {
+      ...pane,
+      files: pane.files.map((file) =>
+        file.id === fileId ? { ...file, kept: true } : file,
+      ),
+    };
+  });
+  return changed ? { ...tab, editorPanes } : tab;
 }
 
 export function focusedFileTab(tab: WorkspaceTab): FilePaneTab | undefined {

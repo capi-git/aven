@@ -46,6 +46,10 @@ import {
 } from "../lib/harness/preview";
 import { copyText } from "../lib/clipboard";
 import { visibleUserPrompt } from "../lib/orchestration";
+import {
+  hideProposalMarkup,
+  lateProposalCardIndex,
+} from "../lib/orchestrationPlan";
 import { playCue } from "../lib/sounds";
 import { legacyTaskListFromText } from "../lib/taskList";
 import { displayPath, resolveWorkspacePath } from "../lib/paths";
@@ -185,6 +189,18 @@ function AgentTranscriptComponent({
     (block) =>
       block.role === "handoff" && block.handoff?.status === "preparing",
   );
+  const proposalReplyIds = useMemo(() => {
+    const ids = new Set<string>();
+    const cardIndex = busy ? lateProposalCardIndex(blocks) : -1;
+    if (cardIndex < 0) return ids;
+    for (let index = blocks.length - 1; index > cardIndex; index--) {
+      const block = blocks[index];
+      if (block.role === "user") break;
+      if (block.role === "assistant" || block.role === "plan")
+        ids.add(block.id);
+    }
+    return ids;
+  }, [blocks, busy]);
 
   const setShowJump = useCallback(
     (show: boolean) => {
@@ -455,6 +471,7 @@ function AgentTranscriptComponent({
               <TranscriptBlock
                 key={item.block.id}
                 block={item.block}
+                proposalReply={proposalReplyIds.has(item.block.id)}
                 layout={transcriptLayout}
                 stickyIndex={firstVisibleTurn + turnIndex + 1}
                 // Prose reads the same wherever it lands: under the fold
@@ -806,6 +823,7 @@ function SaveNoteButton({
 
 const TranscriptBlock = memo(function TranscriptBlock({
   block,
+  proposalReply = false,
   layout,
   stickyIndex,
   underLine = false,
@@ -820,6 +838,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
   planModel,
 }: {
   block: Block;
+  proposalReply?: boolean;
   layout: TranscriptLayout;
   stickyIndex: number;
   /** True when something already sits directly above this in the turn. */
@@ -873,7 +892,9 @@ const TranscriptBlock = memo(function TranscriptBlock({
     );
   }
 
-  if (block.role === "plan") {
+  const text = proposalReply ? hideProposalMarkup(block.text) : block.text;
+
+  if (block.role === "plan" && text === block.text) {
     if (block.orchestration) return null;
     const legacyTasks = legacyTaskListFromText(block.text);
     if (legacyTasks) {
@@ -927,7 +948,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
     );
   }
 
-  if (!block.text && block.streaming) return null;
+  if (!text) return null;
 
   return (
     <div
@@ -935,7 +956,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
       className={`personal-transcript-response min-w-0 px-4 pb-1 text-content ${underLine ? "pt-1" : "pt-3"}`}
     >
       <AgentMarkdown
-        text={block.text}
+        text={text}
         streaming={block.streaming}
         cwd={cwd}
         onOpenFile={onOpenFile}

@@ -7,11 +7,14 @@ import {
   listRaces,
   raceChoices,
   raceFileRows,
+  raceLaneProject,
   racePrompt,
+  releaseRaceCheckout,
   saveRace,
   selectLane,
   subscribeRaces,
   updateRace,
+  usesRaceCheckout,
   type RaceDiff,
   type RaceRecord,
 } from "./race";
@@ -101,6 +104,64 @@ describe("race records", () => {
 });
 
 describe("restoring race lanes", () => {
+  it("repairs legacy handoffs whose saved project was a lane, without escaping a running race", () => {
+    saveRace(race());
+    const handoff = { cwd: "/data/races/r1/0", providerSessionId: "p" };
+    expect(restoreSessionCheckout(handoff)).toEqual({
+      cwd: "/work/site",
+      worktreeCwd: "/data/races/r1/0",
+      providerSessionId: "p",
+    });
+    updateRace("r1", { state: "discarded" });
+    expect(restoreSessionCheckout(handoff)).toEqual({
+      cwd: "/work/site",
+      worktreeCwd: undefined,
+      branch: undefined,
+      providerSessionId: undefined,
+    });
+  });
+
+  it("releases lane and follow-up chats while preserving unrelated checkouts", () => {
+    const record = race();
+    const lane = {
+      id: "second-opinion",
+      cwd: record.project,
+      worktreeCwd: record.lanes[0].path,
+      providerSessionId: "provider-in-copy",
+      pendingSwitch: {
+        from: "claude" as const,
+        fromProviderSessionId: "old-provider",
+      },
+    };
+    expect(usesRaceCheckout(lane, record)).toBe(true);
+    expect(releaseRaceCheckout(lane, record)).toEqual({
+      ...lane,
+      worktreeCwd: undefined,
+      branch: undefined,
+      providerSessionId: undefined,
+      pendingSwitch: { from: "claude", fromProviderSessionId: undefined },
+    });
+    const unrelated = { cwd: record.project, worktreeCwd: "/work/other" };
+    expect(usesRaceCheckout(unrelated, record)).toBe(false);
+    expect(releaseRaceCheckout(unrelated, record)).toBe(unrelated);
+    expect(
+      releaseRaceCheckout(
+        { cwd: record.lanes[0].path, providerSessionId: "old" },
+        record,
+      ).cwd,
+    ).toBe(record.project);
+  });
+
+  it("matches registered checkout boundaries and normalized Windows paths", () => {
+    const record = race();
+    record.lanes[0].path = "C:\\Data\\races\\r1\\0";
+    saveRace(record);
+    expect(raceLaneProject("c:/data/races/r1/0/docs/")).toBe(record.project);
+    expect(isLiveRaceWorktree("c:/data/races/r1/0/docs/")).toBe(true);
+    expect(raceLaneProject("c:/data/races/r1/01")).toBeUndefined();
+    expect(raceLaneProject("/data/races/r1")).toBeUndefined();
+  });
+
   it("keeps a running lane in its own copy and strips it once the race ends", () => {
     saveRace(race());
     const lane = {
