@@ -9328,6 +9328,9 @@ export default function App({
                                     )}
                                     onMoveTabToWindow={moveTabToWindow}
                                     onMoveGroupToWindow={moveGroupToWindow}
+                                    onMoveTabsToWindow={(ids, target) => {
+                                      void moveWindowRef.current(ids, target);
+                                    }}
                                     groupId={owner}
                                     onGroupDragMove={
                                       visibleSurfaceIds.length > 1

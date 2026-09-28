@@ -26,6 +26,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
@@ -65,6 +66,24 @@ import {
   subscribeMinimizedTabs,
 } from "../lib/settings";
 import { Popover } from "./Popover";
+import {
+  SURFACE_GROUP_COLORS,
+  changeSurfaceGroup,
+  chipGroupId,
+  createSurfaceGroup,
+  groupAfterDrop,
+  loadSurfaceGroups,
+  nextSurfaceGroupColor,
+  orderFromDisplay,
+  setSurfaceGroupMembership,
+  setSurfaceGroupsCollapsed,
+  stripDisplayIds,
+  stripSegments,
+  subscribeSurfaceGroups,
+  surfaceGroupColor,
+  ungroupSurfaceGroup,
+  type SurfaceGroup,
+} from "../lib/surfaceGroups";
 import "./TitleBar.css";
 
 export type Tab = {
@@ -163,6 +182,8 @@ export type TitleBarProps = {
   windowTargets?: Array<{ id: string; label: string }>;
   onMoveTabToWindow?: (tabId: string, targetWindowId?: string) => void;
   onMoveGroupToWindow?: (groupId: string, targetWindowId?: string) => void;
+  /** Moves a user tab group; its members may be a subset of this pane. */
+  onMoveTabsToWindow?: (ids: string[], targetWindowId?: string) => void;
   onReturnTabToWindow?: (tabId: string) => void;
   onReturnGroupToWindow?: (groupId: string) => void;
   onReopenClosedTab?: () => void;
@@ -535,6 +556,7 @@ function BrowserTitleTabItem({
   menuOpen,
   preview = false,
   onKeep,
+  groupStyle,
   minimized = false,
   onHover,
   itemRef,
@@ -555,6 +577,8 @@ function BrowserTitleTabItem({
   menuOpen: boolean;
   preview?: boolean;
   onKeep?: () => void;
+  /** Colour of the user tab group this page belongs to. */
+  groupStyle?: CSSProperties;
   minimized?: boolean;
   onHover?: (id: string, element: HTMLElement | null) => void;
   itemRef?: (element: HTMLDivElement | null) => void;
@@ -581,6 +605,8 @@ function BrowserTitleTabItem({
       data-surface-id={id}
       data-surface-tab-id={id}
       data-has-menu={Boolean(onMenu)}
+      data-tab-group={groupStyle ? "true" : undefined}
+      style={groupStyle}
       data-minimized={minimized || undefined}
       data-tauri-drag-region="false"
       onPointerEnter={(event) => onHover?.(id, event.currentTarget)}
@@ -679,6 +705,149 @@ function BrowserTitleTabItem({
             <ChevronDown className="size-3" strokeWidth={1.75} />
           </button>
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+/** A user tab group's label: click folds, double-click renames, drag moves the group. */
+function TabGroupLabel({
+  id,
+  group,
+  count,
+  index,
+  canDrag,
+  sortable,
+  renaming,
+  menuOpen,
+  onToggle,
+  onRename,
+  onStartRename,
+  onMenu,
+}: {
+  id: string;
+  group: SurfaceGroup;
+  count: number;
+  index: number;
+  canDrag: boolean;
+  sortable: SortableApi;
+  renaming: boolean;
+  menuOpen: boolean;
+  onToggle: () => void;
+  /** Null cancels. */
+  onRename: (name: string | null) => void;
+  onStartRename: () => void;
+  onMenu: (x: number, y: number, anchor?: HTMLElement) => void;
+}) {
+  const finished = useRef(false);
+  useEffect(() => {
+    if (renaming) finished.current = false;
+  }, [renaming]);
+  const finish = (name: string | null) => {
+    if (finished.current) return;
+    finished.current = true;
+    onRename(name);
+  };
+  const colorName = SURFACE_GROUP_COLORS[group.color]?.name ?? "Blue";
+  const name = group.name || `${colorName} group`;
+  const tabs = `${count} ${count === 1 ? "tab" : "tabs"}`;
+  const dropBefore =
+    sortable.toIndex === index &&
+    sortable.fromIndex !== null &&
+    index < sortable.fromIndex;
+  const dropAfter =
+    sortable.toIndex === index &&
+    sortable.fromIndex !== null &&
+    index > sortable.fromIndex;
+  return (
+    <div
+      ref={(element) => sortable.setItemRef(id, element)}
+      className="personal-tab-group-slot relative flex h-full shrink-0 touch-none items-center"
+      style={{ "--tab-group-color": surfaceGroupColor(group) } as CSSProperties}
+      data-collapsed={group.collapsed}
+      data-tauri-drag-region="false"
+      onPointerDown={(event) => {
+        if (canDrag && !renaming) sortable.onItemPointerDown(id, event);
+      }}
+    >
+      {dropBefore ? (
+        <div className="pointer-events-none absolute inset-y-1.5 left-0 z-20 w-0.5 rounded-full bg-accent" />
+      ) : null}
+      {dropAfter ? (
+        <div className="pointer-events-none absolute inset-y-1.5 right-0 z-20 w-0.5 rounded-full bg-accent" />
+      ) : null}
+      <div className="aven-tab-motion" data-sortable-motion>
+        {renaming ? (
+          <input
+            autoFocus
+            className="personal-tab-group-rename"
+            aria-label="Group name"
+            placeholder="Name"
+            defaultValue={group.name}
+            maxLength={60}
+            size={Math.max(6, group.name.length + 1)}
+            onPointerDown={(event) => event.stopPropagation()}
+            onFocus={(event) => event.currentTarget.select()}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                finish(event.currentTarget.value);
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                finish(null);
+              }
+            }}
+            onBlur={(event) => finish(event.currentTarget.value)}
+          />
+        ) : (
+          <button
+            type="button"
+            className="personal-tab-group-chip"
+            data-empty={group.name ? undefined : "true"}
+            data-collapsed={group.collapsed}
+            aria-expanded={!group.collapsed}
+            aria-haspopup="menu"
+            data-menu-open={menuOpen || undefined}
+            aria-label={`${name}, ${tabs}${group.collapsed ? ", folded" : ""}`}
+            title={`${name} · ${tabs}. Click to ${
+              group.collapsed ? "unfold" : "fold"
+            }, double-click to rename`}
+            onClick={() => {
+              if (sortable.consumeClick()) return;
+              onToggle();
+            }}
+            onDoubleClick={(event) => {
+              event.stopPropagation();
+              onStartRename();
+            }}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onMenu(event.clientX, event.clientY);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "F2") {
+                event.preventDefault();
+                onStartRename();
+              } else if (
+                event.key === "ContextMenu" ||
+                (event.shiftKey && event.key === "F10")
+              ) {
+                event.preventDefault();
+                event.stopPropagation();
+                const rect = event.currentTarget.getBoundingClientRect();
+                onMenu(rect.left, rect.bottom, event.currentTarget);
+              }
+            }}
+          >
+            {group.name ? (
+              <span className="personal-tab-group-chip-name">{group.name}</span>
+            ) : null}
+            {group.collapsed ? (
+              <span className="personal-tab-group-chip-count">{count}</span>
+            ) : null}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -906,6 +1075,7 @@ function TitleBarComponent({
   windowTargets = [],
   onMoveTabToWindow,
   onMoveGroupToWindow,
+  onMoveTabsToWindow,
   onReturnTabToWindow,
   onReturnGroupToWindow,
   onReopenClosedTab,
@@ -1009,21 +1179,61 @@ function TitleBarComponent({
     if (previewEnabled) previousPreview.current = preview.previewId;
   }, [previewEnabled, preview.previewId]);
   const [recentMenu, setRecentMenu] = useState<HTMLElement | null>(null);
+  const groupState = useSyncExternalStore(
+    subscribeSurfaceGroups,
+    loadSurfaceGroups,
+    loadSurfaceGroups,
+  );
+  const segments = stripSegments(orderedIds, groupState, focusedId);
+  // Labels sit in the sortable sequence so a group drags like a tab.
+  const displayIds = stripDisplayIds(segments);
+  const stripGroups = segments.flatMap((segment) =>
+    segment.kind === "group" ? [segment] : [],
+  );
+  const groupMembers = (id: string) =>
+    stripGroups.find((segment) => segment.group.id === id)?.members ?? [];
   const sortable = useSortable(
-    orderedIds,
+    displayIds,
     (ids, movedId) => {
-      const complete = mergePreviewTabOrder(allOrderedIds, ids);
-      if (onReorderSurfaces) onReorderSurfaces(complete, movedId);
+      let members = groupState.members;
+      const joined = movedId ? groupAfterDrop(ids, movedId, members) : undefined;
+      if (movedId && joined !== undefined) {
+        members = { ...members };
+        if (joined) members[movedId] = joined;
+        else delete members[movedId];
+        setSurfaceGroupMembership({ [movedId]: joined });
+      }
+      const order = orderFromDisplay(ids, members, orderedIds);
+      const moved = movedId && !chipGroupId(movedId) ? movedId : undefined;
+      const complete = mergePreviewTabOrder(allOrderedIds, order);
+      if (onReorderSurfaces) onReorderSurfaces(complete, moved);
       else
         onReorder(
           complete.filter((id) => sessionTabs.has(id)),
-          movedId && sessionTabs.has(movedId) ? movedId : undefined,
+          moved && sessionTabs.has(moved) ? moved : undefined,
         );
     },
     {
       animate: true,
-      onDragMove: onSurfaceDragMove,
-      onDragEnd: onSurfaceDragEnd,
+      onDragMove: (id, x, y, pointer) => {
+        if (!chipGroupId(id)) onSurfaceDragMove?.(id, x, y, pointer);
+      },
+      onDragEnd: (id, x, y, cancelled, pointer) => {
+        const dragged = chipGroupId(id);
+        if (dragged) {
+          // Only leaving the window tears a group out; the strip reorders it.
+          const outside =
+            x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight;
+          if (cancelled || !outside || !onMoveTabsToWindow) return false;
+          onMoveTabsToWindow(groupMembers(dragged));
+          return true;
+        }
+        const consumed = onSurfaceDragEnd?.(id, x, y, cancelled, pointer);
+        // A tab that left this strip for another pane or window leaves its group.
+        if (consumed && !cancelled && groupState.members[id])
+          setSurfaceGroupMembership({ [id]: null });
+        return consumed ?? false;
+      },
     },
   );
   const groupSortable = useSortable(groupId ? [groupId] : [], () => {}, {
@@ -1042,11 +1252,55 @@ function TitleBarComponent({
   );
   const [tabOverflow, setTabOverflow] = useState({ left: false, right: false });
   const [tabMenu, setTabMenu] = useState<{
+    /** A tab, a group label, or empty strip space. Defaults to a tab. */
+    kind?: "tab" | "group" | "bar";
     tabId: string;
+    groupId?: string;
+    /** Secondary page; the native panel cannot nest submenus. */
+    page?: string;
     x: number;
     y: number;
     anchor?: HTMLElement;
   } | null>(null);
+  // A page change closes the native panel; that close must not end the menu.
+  const menuPageSwitch = useRef(false);
+  useLayoutEffect(() => {
+    menuPageSwitch.current = false;
+  }, [tabMenu?.page, tabMenu?.kind]);
+  const [renamingGroup, setRenamingGroup] = useState<string | null>(null);
+  const pendingGroupJoin = useRef<{
+    groupId: string;
+    known: Set<string>;
+    at: number;
+  } | null>(null);
+  const allOrderedKey = allOrderedIds.join("\n");
+  useEffect(() => {
+    const pending = pendingGroupJoin.current;
+    if (!pending) return;
+    if (Date.now() - pending.at > 10_000) {
+      pendingGroupJoin.current = null;
+      return;
+    }
+    const fresh = allOrderedIds.find((id) => !pending.known.has(id));
+    if (!fresh) return;
+    pendingGroupJoin.current = null;
+    setSurfaceGroupMembership({ [fresh]: pending.groupId });
+    // allOrderedIds is derived each render; its joined key is the change signal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allOrderedKey]);
+  const openBarMenu = (x: number, y: number, anchor?: HTMLElement) => {
+    setBrowserMenu(null);
+    setTabMenu({ kind: "bar", tabId: focusedId, x, y, anchor });
+  };
+  const openGroupMenu = (
+    group: string,
+    x: number,
+    y: number,
+    anchor?: HTMLElement,
+  ) => {
+    setBrowserMenu(null);
+    setTabMenu({ kind: "group", tabId: focusedId, groupId: group, x, y, anchor });
+  };
   const [browserMenu, setBrowserMenu] = useState<{
     x: number;
     y: number;
@@ -1068,7 +1322,7 @@ function TitleBarComponent({
     el.scrollBy({ left: direction * amount, behavior: "smooth" });
   }, []);
   const activeTabRef = useRef<HTMLDivElement | null>(null);
-  const canDrag = orderedIds.length > 1 || Boolean(onSurfaceDragEnd);
+  const canDrag = displayIds.length > 1 || Boolean(onSurfaceDragEnd);
   const [hoverCard, setHoverCard] = useState<{
     id: string;
     element: HTMLElement;
@@ -1180,9 +1434,20 @@ function TitleBarComponent({
     } catch {}
   }, [systemTitle, paneLocal, paneFocused, productName]);
 
-  const contextTab = tabMenu ? sessionTabs.get(tabMenu.tabId) : undefined;
-  const contextBrowser = tabMenu ? browsers.get(tabMenu.tabId) : undefined;
+  const menuKind = tabMenu?.kind ?? "tab";
+  const contextTab =
+    tabMenu && menuKind === "tab" ? sessionTabs.get(tabMenu.tabId) : undefined;
+  const contextBrowser =
+    tabMenu && menuKind === "tab" ? browsers.get(tabMenu.tabId) : undefined;
   const contextId = contextTab?.id ?? contextBrowser?.id;
+  const contextGroupId = contextId ? groupState.members[contextId] : undefined;
+  const contextGroup = contextGroupId
+    ? stripGroups.find((segment) => segment.group.id === contextGroupId)
+    : undefined;
+  const menuGroup =
+    menuKind === "group" && tabMenu?.groupId
+      ? stripGroups.find((segment) => segment.group.id === tabMenu.groupId)
+      : undefined;
   const orderedSessions = orderedIds.flatMap((id) => {
     const tab = sessionTabs.get(id);
     return tab ? [tab] : [];
@@ -1198,186 +1463,363 @@ function TitleBarComponent({
         left: titleTabContextCloseIds(orderedSessions, contextTab.id, "left"),
       }
     : null;
-  const selectSurface = (id: string) => {
-    if (browsers.has(id)) onSelectBrowser?.(unified ? id : undefined);
-    else onSelect(id);
-  };
-  const contextMenuItems: ExplorerMenuItem[] = [];
-  if (contextBrowser && onKeepBrowser && !contextBrowser.kept) {
-    contextMenuItems.push(
-      { kind: "item", id: "keep-open", label: "Keep open" },
-      { kind: "sep" },
-    );
-  }
+  const groupName = (group: SurfaceGroup) =>
+    group.name ||
+    `${SURFACE_GROUP_COLORS[group.color]?.name ?? "Unnamed"} group`;
   const availableCombineTargets = (combineTargets ?? []).filter(
     (target) => target.id !== focusedId && shown.has(target.id),
   );
   const hasSurfaceMenu =
-    unified ||
-    onSplitTab ||
-    onUnsplit ||
-    onCombineWith ||
-    onNewView;
+    unified || onSplitTab || onUnsplit || onCombineWith || onNewView;
+
+  // Tab menu: everyday actions stay on the first page; the rest sit one page in.
+  const splitItems: ExplorerMenuItem[] = [];
   if (
     contextId &&
     onNewView &&
     !(onSplitTab && shown.has(contextId) && shown.size > 1)
-  ) {
-    contextMenuItems.push({
-      kind: "item",
-      id: "new-view",
-      label: "Split right",
-    });
-  }
+  )
+    splitItems.push({ kind: "item", id: "new-view", label: "Split right" });
   if (contextId && hasSurfaceMenu) {
-    if (onSplitTab && contextId !== focusedId) {
-      contextMenuItems.push({
+    if (onSplitTab && contextId !== focusedId)
+      splitItems.push({
         kind: "item",
         id: "beside",
         label: "Split right of current tab",
       });
-    }
-    if (onSplitTab && shown.has(contextId) && shown.size > 1) {
-      contextMenuItems.push(
+    if (onSplitTab && shown.has(contextId) && shown.size > 1)
+      splitItems.push(
         { kind: "item", id: "move-left", label: "Split left" },
         { kind: "item", id: "move-right", label: "Split right" },
         { kind: "item", id: "move-up", label: "Split above" },
         { kind: "item", id: "move-down", label: "Split below" },
       );
-    }
-    contextMenuItems.push({
-      kind: "item",
-      id: "focus",
-      label: "Focus this tab",
-      disabled: contextId === focusedId && (!paneLocal || paneFocused),
-    });
     if (onCombineWith && shown.size > 1)
       for (const target of availableCombineTargets)
-        contextMenuItems.push({
+        splitItems.push({
           kind: "item",
           id: `combine:${target.id}`,
           label: `Combine with ${target.label}`,
         });
     if (onUnsplit && shown.size > 1)
-      contextMenuItems.push({
+      splitItems.push({
         kind: "item",
         id: "unsplit",
         label: paneLocal ? "Combine all tabs" : "Return to single view",
       });
-    contextMenuItems.push({ kind: "sep" });
   }
+  if (contextId && onUndoLayout && splitItems.length)
+    splitItems.push(
+      { kind: "sep" },
+      {
+        kind: "item",
+        id: "undo-layout",
+        label: "Undo layout change",
+        disabled: !canUndoLayout,
+      },
+    );
+  const moveItems: ExplorerMenuItem[] = [];
   if (contextId && onMoveTabToWindow) {
-    contextMenuItems.push({
+    moveItems.push({
       kind: "item",
       id: "move-tab-new-window",
       label: "Move tab to new window",
     });
     for (const target of windowTargets)
-      contextMenuItems.push({
+      moveItems.push({
         kind: "item",
         id: `move-tab-window:${target.id}`,
         label: `Move tab to ${target.label}`,
       });
   }
-  if (groupId && onMoveGroupToWindow) {
-    contextMenuItems.push({
-      kind: "item",
-      id: "move-group-new-window",
-      label: "Move group to new window",
-    });
-    for (const target of windowTargets)
-      contextMenuItems.push({
-        kind: "item",
-        id: `move-group-window:${target.id}`,
-        label: `Move group to ${target.label}`,
-      });
-  }
   if (contextId && onReturnTabToWindow)
-    contextMenuItems.push({
+    moveItems.push({
       kind: "item",
       id: "return-tab-window",
       label: "Return tab to original window",
     });
-  if (groupId && onReturnGroupToWindow)
-    contextMenuItems.push({
-      kind: "item",
-      id: "return-group-window",
-      label: "Return group to original window",
-    });
-  if (onReopenClosedTab || onUndoLayout) {
-    contextMenuItems.push({ kind: "sep" });
+  const joinableGroups = stripGroups.filter(
+    (segment) => segment.group.id !== contextGroupId,
+  );
+  const groupPageItems: ExplorerMenuItem[] = [
+    { kind: "item", id: "group-new", label: "New group" },
+    ...(joinableGroups.length ? [{ kind: "sep" } as const] : []),
+    ...joinableGroups.map(
+      (segment): ExplorerMenuItem => ({
+        kind: "item",
+        id: `group-join:${segment.group.id}`,
+        label: groupName(segment.group),
+        description: `${segment.members.length} ${
+          segment.members.length === 1 ? "tab" : "tabs"
+        }`,
+      }),
+    ),
+  ];
+  const closeItems: ExplorerMenuItem[] = contextTab
+    ? [
+        {
+          kind: "item",
+          id: "others",
+          label: unified ? "Close other sessions" : "Close other tabs",
+          disabled: contextCloseIds?.others.length === 0,
+        },
+        {
+          kind: "item",
+          id: "right",
+          label: unified
+            ? "Close sessions to the right"
+            : "Close tabs to the right",
+          disabled: contextCloseIds?.right.length === 0,
+        },
+        {
+          kind: "item",
+          id: "left",
+          label: unified
+            ? "Close sessions to the left"
+            : "Close tabs to the left",
+          disabled: contextCloseIds?.left.length === 0,
+        },
+      ]
+    : [];
+  /** One item stays inline; several collapse behind a page entry. */
+  const pageEntry = (
+    page: string,
+    label: string,
+    items: ExplorerMenuItem[],
+  ): ExplorerMenuItem[] => {
+    const choices = items.filter((item) => item.kind === "item");
+    if (choices.length === 0) return [];
+    if (choices.length === 1) return choices;
+    return [{ kind: "item", id: `page:${page}`, label, shortcut: "›" }];
+  };
+  const tabRootItems: ExplorerMenuItem[] = [];
+  if (contextId) {
+    if (contextBrowser && onKeepBrowser && !contextBrowser.kept)
+      tabRootItems.push(
+        { kind: "item", id: "keep-open", label: "Keep open" },
+        { kind: "sep" },
+      );
+    if (joinableGroups.length)
+      tabRootItems.push({
+        kind: "item",
+        id: "page:group",
+        label: contextGroup ? "Move to group" : "Add to group",
+        shortcut: "›",
+      });
+    else if (!contextGroup)
+      tabRootItems.push({
+        kind: "item",
+        id: "group-new",
+        label: "Add to new group",
+      });
+    if (contextGroup)
+      tabRootItems.push({
+        kind: "item",
+        id: "group-leave",
+        label: "Remove from group",
+      });
+    tabRootItems.push(
+      ...pageEntry("split", "Split", splitItems),
+      ...pageEntry("move", "Move to", moveItems),
+      { kind: "sep" },
+    );
     if (onReopenClosedTab)
-      contextMenuItems.push({
+      tabRootItems.push({
         kind: "item",
         id: "reopen-tab",
         label: "Reopen closed tab",
         shortcut: `${MOD}${SHIFT}T`,
         disabled: !canReopenClosedTab,
       });
-    if (onUndoLayout)
-      contextMenuItems.push({
+    if (contextTab?.race && onOpenRaceOverview)
+      tabRootItems.push({
         kind: "item",
-        id: "undo-layout",
-        label: "Undo layout change",
-        disabled: !canUndoLayout,
+        id: "race-overview",
+        label: "Open race overview",
       });
-    contextMenuItems.push({ kind: "sep" });
-  }
-  if (contextTab?.race && onOpenRaceOverview)
-    contextMenuItems.push(
-      { kind: "item", id: "race-overview", label: "Open race overview" },
+    tabRootItems.push(
       { kind: "sep" },
+      {
+        kind: "item",
+        id: "close",
+        label: contextBrowser ? "Close browser" : "Close tab",
+        shortcut: `${MOD}W`,
+        disabled: contextTab
+          ? !titleTabClosable(contextTab, sessionTabCount)
+          : !onCloseBrowser,
+      },
+      ...pageEntry("close", "Close others", closeItems),
     );
-  contextMenuItems.push(
+  }
+
+  // Group label menu.
+  const groupSessionIds = menuGroup
+    ? menuGroup.members.filter((id) => sessionTabs.has(id))
+    : [];
+  const groupFallback = menuGroup
+    ? orderedSessions.find((tab) => !menuGroup.members.includes(tab.id))?.id
+    : undefined;
+  const groupRootItems: ExplorerMenuItem[] = menuGroup
+    ? [
+        { kind: "item", id: "group-rename", label: "Rename group…" },
+        { kind: "item", id: "page:color", label: "Colour", shortcut: "›" },
+        { kind: "sep" },
+        { kind: "item", id: "group-new-tab", label: "New tab in group" },
+        {
+          kind: "item",
+          id: "group-fold",
+          label: menuGroup.group.collapsed ? "Unfold group" : "Fold group",
+        },
+        ...(onMoveTabsToWindow
+          ? pageEntry("group-move", "Move group to", [
+              {
+                kind: "item",
+                id: "group-move-new",
+                label: "Move group to new window",
+              },
+              ...windowTargets.map(
+                (target): ExplorerMenuItem => ({
+                  kind: "item",
+                  id: `group-move:${target.id}`,
+                  label: `Move group to ${target.label}`,
+                }),
+              ),
+            ])
+          : []),
+        { kind: "sep" },
+        { kind: "item", id: "group-ungroup", label: "Ungroup" },
+        {
+          kind: "item",
+          id: "group-close",
+          label: "Close group",
+          disabled: groupSessionIds.length > 0 && !groupFallback,
+        },
+      ]
+    : [];
+  const colorItems: ExplorerMenuItem[] = menuGroup
+    ? SURFACE_GROUP_COLORS.map((color, index) => ({
+        kind: "item",
+        id: `group-color:${index}`,
+        label: color.name,
+        checked: menuGroup.group.color === index,
+      }))
+    : [];
+  const groupMoveItems: ExplorerMenuItem[] = menuGroup
+    ? [
+        { kind: "item", id: "group-move-new", label: "New window" },
+        ...windowTargets.map(
+          (target): ExplorerMenuItem => ({
+            kind: "item",
+            id: `group-move:${target.id}`,
+            label: target.label,
+          }),
+        ),
+      ]
+    : [];
+
+  // Empty strip space: settings for the whole strip.
+  const barItems: ExplorerMenuItem[] = [];
+  barItems.push({ kind: "item", id: "bar-new-session", label: "New session" });
+  if (onNewBrowser)
+    barItems.push({
+      kind: "item",
+      id: "bar-new-browser",
+      label: "New browser tab",
+    });
+  barItems.push(
+    { kind: "sep" },
     {
       kind: "item",
       id: "minimized-tabs",
       label: "Minimized tabs",
       checked: minimizedTabs,
     },
-    { kind: "sep" },
   );
-  if (contextId)
-    contextMenuItems.push({
+  if (stripGroups.some((segment) => !segment.group.collapsed))
+    barItems.push({ kind: "item", id: "fold-all", label: "Fold all groups" });
+  if (stripGroups.some((segment) => segment.group.collapsed))
+    barItems.push({
       kind: "item",
-      id: "close",
-      label: contextBrowser ? "Close Browser" : "Close Tab",
-      shortcut: `${MOD}W`,
-      disabled: contextTab
-        ? !titleTabClosable(contextTab, sessionTabCount)
-        : !onCloseBrowser,
+      id: "unfold-all",
+      label: "Unfold all groups",
     });
-  if (contextTab)
-    contextMenuItems.push(
-      { kind: "sep" },
-      {
+  barItems.push({ kind: "sep" });
+  if (onReopenClosedTab)
+    barItems.push({
+      kind: "item",
+      id: "reopen-tab",
+      label: "Reopen closed tab",
+      shortcut: `${MOD}${SHIFT}T`,
+      disabled: !canReopenClosedTab,
+    });
+  if (onUndoLayout)
+    barItems.push({
+      kind: "item",
+      id: "undo-layout",
+      label: "Undo layout change",
+      disabled: !canUndoLayout,
+    });
+  if (groupId && (onMoveGroupToWindow || onReturnGroupToWindow)) {
+    barItems.push({ kind: "sep" });
+    if (onMoveGroupToWindow) {
+      barItems.push({
         kind: "item",
-        id: "others",
-        label: unified ? "Close Other Sessions" : "Close Other Tabs",
-        disabled: contextCloseIds?.others.length === 0,
-      },
-      {
+        id: "move-group-new-window",
+        label: "Move all tabs to new window",
+      });
+      for (const target of windowTargets)
+        barItems.push({
+          kind: "item",
+          id: `move-group-window:${target.id}`,
+          label: `Move all tabs to ${target.label}`,
+        });
+    }
+    if (onReturnGroupToWindow)
+      barItems.push({
         kind: "item",
-        id: "right",
-        label: unified
-          ? "Close Sessions to the Right"
-          : "Close Tabs to the Right",
-        disabled: contextCloseIds?.right.length === 0,
-      },
-      {
-        kind: "item",
-        id: "left",
-        label: unified
-          ? "Close Sessions to the Left"
-          : "Close Tabs to the Left",
-        disabled: contextCloseIds?.left.length === 0,
-      },
-    );
+        id: "return-group-window",
+        label: "Return all tabs to original window",
+      });
+  }
 
+  const pages: Record<string, ExplorerMenuItem[]> = {
+    group: groupPageItems,
+    split: splitItems,
+    move: moveItems,
+    close: closeItems,
+    color: colorItems,
+    "group-move": groupMoveItems,
+  };
+  const page = tabMenu?.page;
+  const contextMenuItems: ExplorerMenuItem[] =
+    page && pages[page]
+      ? [
+          { kind: "item", id: "page:", label: "‹ Back" },
+          { kind: "sep" },
+          ...pages[page],
+        ]
+      : menuKind === "bar"
+        ? barItems
+        : menuKind === "group"
+          ? groupRootItems
+          : tabRootItems;
   while (contextMenuItems[0]?.kind === "sep") contextMenuItems.shift();
   while (contextMenuItems[contextMenuItems.length - 1]?.kind === "sep")
     contextMenuItems.pop();
+  for (let index = contextMenuItems.length - 1; index > 0; index--)
+    if (
+      contextMenuItems[index].kind === "sep" &&
+      contextMenuItems[index - 1].kind === "sep"
+    )
+      contextMenuItems.splice(index, 1);
+
   const onPickTabMenu = (id: string) => {
+    if (id.startsWith("page:")) {
+      menuPageSwitch.current = true;
+      const next = id.slice("page:".length) || undefined;
+      setTabMenu((menu) => (menu ? { ...menu, page: next } : menu));
+      return;
+    }
     setTabMenu(null);
     if (id === "minimized-tabs") {
       saveMinimizedTabs(!minimizedTabs);
@@ -1389,6 +1831,21 @@ function TitleBarComponent({
     }
     if (id === "undo-layout") {
       if (canUndoLayout) onUndoLayout?.();
+      return;
+    }
+    if (id === "bar-new-session") {
+      onNew();
+      return;
+    }
+    if (id === "bar-new-browser") {
+      onNewBrowser?.();
+      return;
+    }
+    if (id === "fold-all" || id === "unfold-all") {
+      setSurfaceGroupsCollapsed(
+        stripGroups.map((segment) => segment.group.id),
+        id === "fold-all",
+      );
       return;
     }
     if (id === "move-group-new-window" && groupId) {
@@ -1405,8 +1862,57 @@ function TitleBarComponent({
         onMoveGroupToWindow?.(groupId, target);
       return;
     }
+    if (menuGroup) {
+      const group = menuGroup.group;
+      if (id === "group-rename") setRenamingGroup(group.id);
+      else if (id.startsWith("group-color:"))
+        changeSurfaceGroup(group.id, {
+          color: Number(id.slice("group-color:".length)),
+        });
+      else if (id === "group-new-tab") {
+        pendingGroupJoin.current = {
+          groupId: group.id,
+          known: new Set(allOrderedIds),
+          at: Date.now(),
+        };
+        if (group.collapsed) changeSurfaceGroup(group.id, { collapsed: false });
+        onNew();
+      } else if (id === "group-fold")
+        changeSurfaceGroup(group.id, { collapsed: !group.collapsed });
+      else if (id === "group-move-new") onMoveTabsToWindow?.(menuGroup.members);
+      else if (id.startsWith("group-move:")) {
+        const target = id.slice("group-move:".length);
+        if (windowTargets.some((item) => item.id === target))
+          onMoveTabsToWindow?.(menuGroup.members, target);
+      } else if (id === "group-ungroup") ungroupSurfaceGroup(group.id);
+      else if (id === "group-close") {
+        if (groupSessionIds.length > 0 && !groupFallback) return;
+        const browserIds = menuGroup.members.filter((member) =>
+          browsers.has(member),
+        );
+        ungroupSurfaceGroup(group.id);
+        if (groupSessionIds.length && groupFallback)
+          onCloseMany(groupSessionIds, groupFallback);
+        if (onCloseBrowser)
+          for (const member of browserIds)
+            onCloseBrowser(unified ? member : undefined);
+      }
+      return;
+    }
     if (!contextId) return;
-    if (id === "keep-open") {
+    if (id === "group-new") {
+      const created = createSurfaceGroup(
+        [contextId],
+        nextSurfaceGroupColor(stripGroups.map((segment) => segment.group)),
+      );
+      setRenamingGroup(created);
+    } else if (id.startsWith("group-join:")) {
+      const target = id.slice("group-join:".length);
+      if (stripGroups.some((segment) => segment.group.id === target))
+        setSurfaceGroupMembership({ [contextId]: target });
+    } else if (id === "group-leave") {
+      setSurfaceGroupMembership({ [contextId]: null });
+    } else if (id === "keep-open") {
       if (contextBrowser) onKeepBrowser?.(contextId);
     } else if (id === "move-tab-new-window") {
       onMoveTabToWindow?.(contextId);
@@ -1427,8 +1933,6 @@ function TitleBarComponent({
     } else if (id === "close") {
       if (contextBrowser) onCloseBrowser?.(unified ? contextId : undefined);
       else onClose(contextId);
-    } else if (id === "focus") {
-      selectSurface(contextId);
     } else if (id === "beside") {
       onSplitTab?.(contextId, "right", focusedId);
     } else if (id === "unsplit") {
@@ -1453,6 +1957,10 @@ function TitleBarComponent({
     ) {
       onCloseMany(contextCloseIds[id], contextTab.id);
     }
+  };
+  const closeTabMenu = () => {
+    if (menuPageSwitch.current) return;
+    setTabMenu(null);
   };
 
   const hoverCardContent = (() => {
@@ -1608,9 +2116,8 @@ function TitleBarComponent({
       data-tauri-drag-region={paneLocal ? "false" : "deep"}
       onMouseDown={paneLocal && windowToolbar ? dragWindowToolbar : undefined}
       onContextMenu={(event) => {
-        if (!onReopenClosedTab && !onUndoLayout) return;
         event.preventDefault();
-        setTabMenu({ tabId: focusedId, x: event.clientX, y: event.clientY });
+        openBarMenu(event.clientX, event.clientY);
       }}
     >
       {!paneLocal && !sidebarOpen && IS_MAC ? (
@@ -1667,7 +2174,7 @@ function TitleBarComponent({
             onClick={(event) => {
               if (groupSortable.consumeClick()) return;
               const rect = event.currentTarget.getBoundingClientRect();
-              setTabMenu({ tabId: focusedId, x: rect.left, y: rect.bottom });
+              openBarMenu(rect.left, rect.bottom, event.currentTarget);
             }}
           >
             <GripVertical className="size-3" />
@@ -1701,13 +2208,12 @@ function TitleBarComponent({
               const target = event.target as HTMLElement;
               if (
                 target === event.currentTarget &&
-                (onReopenClosedTab || onUndoLayout) &&
                 (event.key === "ContextMenu" ||
                   (event.shiftKey && event.key === "F10"))
               ) {
                 event.preventDefault();
                 const rect = event.currentTarget.getBoundingClientRect();
-                setTabMenu({ tabId: focusedId, x: rect.left, y: rect.bottom });
+                openBarMenu(rect.left, rect.bottom);
                 return;
               }
               if (target.getAttribute("role") !== "tab") return;
@@ -1733,9 +2239,53 @@ function TitleBarComponent({
               buttons[next]?.click();
             }}
           >
-            {orderedIds.map((id, index) => {
+            {displayIds.map((id, index) => {
+              const labelGroup = chipGroupId(id);
+              const labelSegment = labelGroup
+                ? stripGroups.find((segment) => segment.group.id === labelGroup)
+                : undefined;
+              if (labelSegment)
+                return (
+                  <TabGroupLabel
+                    key={id}
+                    id={id}
+                    group={labelSegment.group}
+                    count={labelSegment.members.length}
+                    index={index}
+                    canDrag={canDrag}
+                    sortable={sortable}
+                    renaming={renamingGroup === labelSegment.group.id}
+                    menuOpen={
+                      menuKind === "group" &&
+                      tabMenu?.groupId === labelSegment.group.id
+                    }
+                    onToggle={() =>
+                      changeSurfaceGroup(labelSegment.group.id, {
+                        collapsed: !labelSegment.group.collapsed,
+                      })
+                    }
+                    onRename={(name) => {
+                      setRenamingGroup(null);
+                      if (name !== null)
+                        changeSurfaceGroup(labelSegment.group.id, { name });
+                    }}
+                    onStartRename={() => setRenamingGroup(labelSegment.group.id)}
+                    onMenu={(x, y, anchor) =>
+                      openGroupMenu(labelSegment.group.id, x, y, anchor)
+                    }
+                  />
+                );
               const tab = sessionTabs.get(id);
               const browser = browsers.get(id);
+              const memberOf = groupState.members[id];
+              const memberGroup = stripGroups.find(
+                (segment) => segment.group.id === memberOf,
+              )?.group;
+              const groupStyle = memberGroup
+                ? ({
+                    "--tab-group-color": surfaceGroupColor(memberGroup),
+                  } as CSSProperties)
+                : undefined;
               const itemRef =
                 id === focusedId
                   ? (element: HTMLDivElement | null) => {
@@ -1751,6 +2301,8 @@ function TitleBarComponent({
                   <div
                     key={id}
                     className="personal-title-tab-slot relative flex h-full shrink cursor-default items-center"
+                    data-tab-group={memberGroup ? "true" : undefined}
+                    style={groupStyle}
                     data-active={id === focusedId}
                     data-minimized={minimizedTabs && id !== focusedId}
                     data-tauri-drag-region="false"
@@ -1833,6 +2385,7 @@ function TitleBarComponent({
                   }
                   preview={previewEnabled && preview.previewId === id}
                   onKeep={onKeepBrowser ? () => onKeepBrowser(id) : undefined}
+                  groupStyle={groupStyle}
                   minimized={minimizedTabs && id !== focusedId}
                   onHover={hoverTab}
                   itemRef={itemRef}
@@ -1966,8 +2519,9 @@ function TitleBarComponent({
           {hoverCardContent}
         </Popover>
       ) : null}
-      {tabMenu && (contextId || onReopenClosedTab || onUndoLayout) ? (
+      {tabMenu && contextMenuItems.length ? (
         <ExplorerMenu
+          key={`${menuKind}:${tabMenu.page ?? ""}`}
           native
           x={tabMenu.x}
           y={tabMenu.y}
@@ -1977,12 +2531,14 @@ function TitleBarComponent({
           width={244}
           items={contextMenuItems}
           ariaLabel={
-            contextId
-              ? `Tab actions for ${contextTab ? tabCopy(contextTab).headline : contextBrowser?.title || "Browser"}`
-              : "Workspace tab actions"
+            menuGroup
+              ? `Group actions for ${groupName(menuGroup.group)}`
+              : contextId
+                ? `Tab actions for ${contextTab ? tabCopy(contextTab).headline : contextBrowser?.title || "Browser"}`
+                : "Workspace tab actions"
           }
           onPick={onPickTabMenu}
-          onClose={() => setTabMenu(null)}
+          onClose={closeTabMenu}
         />
       ) : null}
       {browserOpen && browserMenu && onBrowserModeChange ? (

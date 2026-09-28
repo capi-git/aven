@@ -446,3 +446,87 @@ html.theme-light .personal-shell .personal-titlebar {
   ) {
   display: none;
 }
+
+/* User tab groups: a coloured label ahead of the group's tabs and a matching
+   underline beneath them. The count shows only while the group is folded. */
+.personal-shell .personal-tab-group-slot {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+.personal-shell .personal-tab-group-chip {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: 5px;
+  height: 20px;
+  max-width: 140px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--tab-group-color);
+  color: #0d0d0e;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: default;
+  transition:
+    filter 120ms ease,
+    box-shadow 120ms ease;
+}
+.personal-shell .personal-tab-group-chip:hover,
+.personal-shell .personal-tab-group-chip[data-menu-open="true"] {
+  filter: brightness(1.12);
+}
+/* An unnamed open group is just a dot; folded, it widens to show its count. */
+.personal-shell
+  .personal-tab-group-chip[data-empty="true"][data-collapsed="false"] {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border-radius: 50%;
+}
+.personal-shell .personal-tab-group-chip:focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: 2px;
+}
+.personal-shell .personal-tab-group-chip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.personal-shell .personal-tab-group-chip-count {
+  opacity: 0.72;
+  font-variant-numeric: tabular-nums;
+}
+.personal-shell .personal-tab-group-rename {
+  align-self: center;
+  height: 22px;
+  min-width: 64px;
+  max-width: 160px;
+  padding: 0 7px;
+  border: 1px solid var(--tab-group-color);
+  border-radius: 6px;
+  outline: 0;
+  background: color-mix(in srgb, var(--tab-group-color) 14%, transparent);
+  color: var(--color-content);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.personal-shell .personal-tab-strip [data-tab-group]::after {
+  content: "";
+  position: absolute;
+  left: -2px;
+  right: -2px;
+  bottom: 2px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--tab-group-color);
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .personal-shell .personal-tab-group-chip {
+    transition: none;
+  }
+}

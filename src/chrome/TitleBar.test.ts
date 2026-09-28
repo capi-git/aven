@@ -751,7 +751,15 @@ describe("browser tab integration", () => {
         expect(button).toBeDefined();
         await act(async () => button!.click());
       };
-      await openMenu();
+      const openSplit = async () => {
+        await openMenu();
+        const page = menuItems().find((item) =>
+          item.textContent?.startsWith("Split"),
+        );
+        expect(page).toBeDefined();
+        await act(async () => page!.click());
+      };
+      await openSplit();
       const labels = menuItems().map((item) => item.textContent);
       expect(labels.filter((label) => label?.startsWith("Combine"))).toEqual([
         "Combine with right pane",
@@ -760,7 +768,7 @@ describe("browser tab integration", () => {
       expect(labels).not.toContain("Return to single view");
       await pick("Combine with right pane");
       expect(props.onCombineWith).toHaveBeenCalledExactlyOnceWith("other");
-      await openMenu();
+      await openSplit();
       await pick("Combine all tabs");
       expect(props.onUnsplit).toHaveBeenCalledOnce();
       expect(labels).not.toContain("Picture in Picture");
@@ -792,6 +800,205 @@ describe("browser tab integration", () => {
     expect(labels.some((label) => label?.startsWith("Combine"))).toBe(false);
   });
 
+  describe("user tab groups", () => {
+    beforeEach(() => {
+      const values = new Map<string, string>();
+      vi.stubGlobal("localStorage", {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => void values.set(key, value),
+        removeItem: (key: string) => void values.delete(key),
+      });
+    });
+
+    const menuItem = (prefix: string) =>
+      Array.from(
+        document.querySelectorAll<HTMLButtonElement>(
+          '[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]',
+        ),
+      ).find((item) => item.textContent?.startsWith(prefix));
+    const choose = async (...path: string[]) => {
+      for (const label of path) {
+        const item = menuItem(label);
+        expect(item, label).toBeDefined();
+        await act(async () => item!.click());
+      }
+    };
+    const openTabMenu = (id: string) =>
+      act(async () =>
+        container
+          .querySelector(`[data-surface-tab-id="${id}"] [role="tab"]`)!
+          .dispatchEvent(
+            new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true }),
+          ),
+      );
+    const label = () =>
+      container.querySelector<HTMLButtonElement>(".personal-tab-group-chip");
+    const drawn = () =>
+      Array.from(
+        container.querySelectorAll<HTMLElement>(
+          "[data-surface-id], .personal-tab-group-chip",
+        ),
+      ).map((node) =>
+        node.classList.contains("personal-tab-group-chip")
+          ? `[${node.textContent}]`
+          : node.getAttribute("data-surface-id"),
+      );
+
+    async function makeGroup(id: string, name: string) {
+      await openTabMenu(id);
+      await choose("Add to new group");
+      const input = container.querySelector<HTMLInputElement>(
+        '[aria-label="Group name"]',
+      )!;
+      expect(input).not.toBeNull();
+      input.value = name;
+      await act(async () =>
+        input.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+        ),
+      );
+    }
+
+    it("names a new group and shows ungrouped tabs without a label", async () => {
+      await render({
+        tabs: [tab({ id: "a" }), tab({ id: "b" }), tab({ id: "c" })],
+      });
+      expect(label()).toBeNull();
+      await makeGroup("b", "Research");
+      expect(drawn()).toEqual(["a", "[Research]", "b", "c"]);
+      expect(
+        container.querySelector('[data-surface-tab-id="b"]')!.parentElement!
+          .dataset.tabGroup,
+      ).toBe("true");
+      expect(
+        container.querySelector('[data-surface-tab-id="a"]')!.parentElement!
+          .dataset.tabGroup,
+      ).toBeUndefined();
+    });
+
+    it("folds to the label with a count, keeping the active tab in view", async () => {
+      await render({
+        tabs: [tab({ id: "a" }), tab({ id: "b" }), tab({ id: "c" })],
+        browserTabs: [{ id: "web-a", title: "Docs" }],
+        surfaceOrder: ["a", "b", "web-a", "c"],
+        activeId: "a",
+      });
+      await makeGroup("b", "Docs");
+      await openTabMenu("web-a");
+      await choose("Add to group", "Docs");
+      expect(drawn()).toEqual(["a", "[Docs]", "b", "web-a", "c"]);
+      expect(label()!.getAttribute("aria-expanded")).toBe("true");
+      await act(async () => label()!.click());
+      expect(drawn()).toEqual(["a", "[Docs2]", "c"]);
+      expect(label()!.getAttribute("aria-label")).toBe("Docs, 2 tabs, folded");
+      await render({ activeId: "b" });
+      expect(drawn()).toEqual(["a", "[Docs2]", "b", "c"]);
+      await act(async () => label()!.click());
+      expect(drawn()).toEqual(["a", "[Docs]", "b", "web-a", "c"]);
+    });
+
+    it("recolours, removes a member, and ungroups from the label menu", async () => {
+      await render({
+        tabs: [tab({ id: "a" }), tab({ id: "b" }), tab({ id: "c" })],
+      });
+      await makeGroup("a", "Race");
+      await openTabMenu("b");
+      await choose("Add to group", "Race");
+      const openLabelMenu = () =>
+        act(async () =>
+          label()!.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true }),
+          ),
+        );
+      await openLabelMenu();
+      await choose("Colour", "Green");
+      expect(
+        (label()!.closest(".personal-tab-group-slot") as HTMLElement).style
+          .getPropertyValue("--tab-group-color"),
+      ).toBe("hsl(142 55% 50%)");
+      await openTabMenu("a");
+      await choose("Remove from group");
+      expect(drawn()).toEqual(["a", "[Race]", "b", "c"]);
+      await openLabelMenu();
+      await choose("Ungroup");
+      expect(label()).toBeNull();
+      expect(drawn()).toEqual(["a", "b", "c"]);
+    });
+
+    it("moves a group to a window and closes it with a fallback tab", async () => {
+      const onMoveTabsToWindow = vi.fn();
+      await render({
+        tabs: [tab({ id: "a" }), tab({ id: "b" }), tab({ id: "c" })],
+        windowTargets: [{ id: "window-2", label: "Work window" }],
+        onMoveTabsToWindow,
+      });
+      await makeGroup("b", "Move me");
+      await openTabMenu("c");
+      await choose("Add to group", "Move me");
+      const openLabelMenu = () =>
+        act(async () =>
+          label()!.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true }),
+          ),
+        );
+      await openLabelMenu();
+      await choose("Move group to", "Work window");
+      expect(onMoveTabsToWindow).toHaveBeenCalledExactlyOnceWith(
+        ["b", "c"],
+        "window-2",
+      );
+      await openLabelMenu();
+      await choose("Close group");
+      expect(props.onCloseMany).toHaveBeenCalledExactlyOnceWith(["b", "c"], "a");
+      expect(label()).toBeNull();
+    });
+
+    it("joins a group when a tab is dropped right after its label", async () => {
+      await render({
+        tabs: [tab({ id: "a" }), tab({ id: "b" }), tab({ id: "c" })],
+        onReorderSurfaces: vi.fn(),
+      });
+      await makeGroup("b", "G");
+      // Strip: a, [G], b, c — drag c between the label and b.
+      const nodes = [
+        container.querySelector<HTMLElement>('[data-surface-tab-id="a"]')!,
+        label()!.closest<HTMLElement>(".personal-tab-group-slot")!,
+        container.querySelector<HTMLElement>('[data-surface-tab-id="b"]')!,
+        container.querySelector<HTMLElement>('[data-surface-tab-id="c"]')!,
+      ];
+      for (const [index, node] of nodes.entries()) {
+        node.getBoundingClientRect = () => new DOMRect(index * 100, 0, 100, 30);
+        node.setPointerCapture = vi.fn();
+        node.releasePointerCapture = vi.fn();
+      }
+      container.querySelector<HTMLElement>(
+        '[role="tablist"]',
+      )!.getBoundingClientRect = () => new DOMRect(0, 0, 400, 30);
+      const handle = nodes[3].querySelector<HTMLElement>('[role="tab"]')!;
+      const pointer = (target: EventTarget, type: string, x: number) =>
+        act(async () =>
+          target.dispatchEvent(
+            new PointerEvent(type, {
+              bubbles: true,
+              pointerId: 1,
+              button: 0,
+              clientX: x,
+              clientY: 15,
+            }),
+          ),
+        );
+      await pointer(handle, "pointerdown", 350);
+      await pointer(window, "pointermove", 220);
+      await pointer(window, "pointerup", 220);
+      expect(props.onReorderSurfaces).toHaveBeenCalledExactlyOnceWith(
+        ["a", "c", "b"],
+        "c",
+      );
+      await render({ surfaceOrder: ["a", "c", "b"] });
+      expect(drawn()).toEqual(["a", "[G]", "c", "b"]);
+    });
+  });
+
   describe("minimized tabs", () => {
     beforeEach(() => {
       const values = new Map<string, string>();
@@ -806,9 +1013,10 @@ describe("browser tab integration", () => {
       vi.useRealTimers();
     });
 
+    // Minimized tabs is a strip setting, so it lives on the empty-bar menu.
     const openMenu = async () =>
       act(async () =>
-        container.querySelector('[role="tab"]')!.dispatchEvent(
+        container.querySelector('[role="tablist"]')!.dispatchEvent(
           new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true }),
         ),
       );
@@ -819,7 +1027,7 @@ describe("browser tab integration", () => {
         ),
       ).find((item) => item.textContent?.includes("Minimized tabs"));
 
-    it("turns the setting on and off from the tab menu", async () => {
+    it("turns the setting on and off from the tab bar menu", async () => {
       await render({ paneLocal: true });
       await openMenu();
       expect(minimizedItem()?.getAttribute("aria-checked")).toBe("false");
@@ -1107,10 +1315,12 @@ describe("browser tab integration", () => {
         }),
       );
     });
-    const right = Array.from(
-      document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
-    ).find((item) => item.textContent === "Close Tabs to the Right")!;
-    await act(async () => right.click());
+    const item = (prefix: string) =>
+      Array.from(
+        document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+      ).find((entry) => entry.textContent?.startsWith(prefix))!;
+    await act(async () => item("Close others").click());
+    await act(async () => item("Close tabs to the right").click());
     expect(props.onCloseMany).toHaveBeenCalledExactlyOnceWith(["b"], "a");
     expect(props.onCloseBrowser).not.toHaveBeenCalled();
   });
@@ -1190,12 +1400,13 @@ describe("browser tab integration", () => {
     const menuAction = async (label: string) => {
       const button = Array.from(
         document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
-      ).find((item) => item.textContent === label)!;
+      ).find((item) => item.textContent?.startsWith(label))!;
       expect(button).not.toBeUndefined();
       await act(async () => button.click());
     };
     await openMenu();
     expect(props.onSelectBrowser).not.toHaveBeenCalled();
+    await menuAction("Split");
     await menuAction("Split right of current tab");
     expect(props.onSplitTab).toHaveBeenCalledExactlyOnceWith(
       "web-a",
@@ -1203,11 +1414,10 @@ describe("browser tab integration", () => {
       "a",
     );
     await openMenu();
-    await menuAction("Focus this tab");
-    expect(props.onSelectBrowser).toHaveBeenCalledExactlyOnceWith("web-a");
-    await openMenu();
+    await menuAction("Split");
     await menuAction("Return to single view");
     expect(props.onUnsplit).toHaveBeenCalledOnce();
+    expect(props.onSelectBrowser).not.toHaveBeenCalled();
   });
 
   it.each([false, true])("reorders an inactive browser without selecting it or consuming the split target (hosted=%s)", async (windowToolbar) => {
@@ -1327,7 +1537,7 @@ describe("browser tab integration", () => {
       (node) => node.getAttribute("data-provider"))).toEqual(["claude", "codex"]);
   });
 
-  it("offers precise tab/group window destinations, returns, and history callbacks", async () => {
+  it("offers precise tab and pane window destinations, returns, and history callbacks", async () => {
     await render({
       groupId: "group-owner",
       groupLabel: "Research",
@@ -1339,38 +1549,47 @@ describe("browser tab integration", () => {
       onReopenClosedTab: vi.fn(),
       onUndoLayout: vi.fn(),
     });
-    const pick = async (label: string) => {
-      await act(async () =>
-        container
-          .querySelector('[role="tab"]')!
-          .dispatchEvent(
-            new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true }),
-          ),
-      );
+    const choose = async (label: string) => {
       const item = [
         ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
       ].find((item) => item.textContent?.startsWith(label));
       expect(item).toBeDefined();
       await act(async () => item!.click());
     };
-    await pick("Move tab to new window");
+    const open = (selector: string) =>
+      act(async () =>
+        container
+          .querySelector(selector)!
+          .dispatchEvent(
+            new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true }),
+          ),
+      );
+    const pickTab = async (...path: string[]) => {
+      await open('[role="tab"]');
+      for (const label of path) await choose(label);
+    };
+    const pickBar = async (label: string) => {
+      await open('[role="tablist"]');
+      await choose(label);
+    };
+    await pickTab("Move to", "Move tab to new window");
     expect(props.onMoveTabToWindow).toHaveBeenLastCalledWith("a");
-    await pick("Move tab to Work window");
+    await pickTab("Move to", "Move tab to Work window");
     expect(props.onMoveTabToWindow).toHaveBeenLastCalledWith("a", "window-2");
-    await pick("Move group to new window");
+    await pickTab("Move to", "Return tab to original window");
+    expect(props.onReturnTabToWindow).toHaveBeenCalledWith("a");
+    await pickBar("Move all tabs to new window");
     expect(props.onMoveGroupToWindow).toHaveBeenLastCalledWith("group-owner");
-    await pick("Move group to Work window");
+    await pickBar("Move all tabs to Work window");
     expect(props.onMoveGroupToWindow).toHaveBeenLastCalledWith(
       "group-owner",
       "window-2",
     );
-    await pick("Return tab to original window");
-    expect(props.onReturnTabToWindow).toHaveBeenCalledWith("a");
-    await pick("Return group to original window");
+    await pickBar("Return all tabs to original window");
     expect(props.onReturnGroupToWindow).toHaveBeenCalledWith("group-owner");
-    await pick("Reopen closed tab");
+    await pickTab("Reopen closed tab");
     expect(props.onReopenClosedTab).toHaveBeenCalledOnce();
-    await pick("Undo layout change");
+    await pickBar("Undo layout change");
     expect(props.onUndoLayout).toHaveBeenCalledOnce();
     expect(props.onSelect).not.toHaveBeenCalled();
     expect(props.onClose).not.toHaveBeenCalled();
