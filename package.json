@@ -19,7 +19,7 @@
     "tauri:stable": "tauri dev --no-watch --config src-tauri/tauri.stable.conf.json",
     "setup:linux:deb": "bash scripts/install-linux-deps-debian.sh",
     "build:linux": "tauri build --bundles deb,appimage",
-    "build:windows": "tauri build --target x86_64-pc-windows-msvc --bundles nsis --no-default-features -- --locked",
+    "build:windows": "tauri build --ci --target x86_64-pc-windows-msvc --bundles nsis -- --locked --no-default-features",
     "dev:doctor": "bash scripts/with-dev-env.sh python3 scripts/dev-aven.py --doctor",
     "dev:app": "bash scripts/with-dev-env.sh python3 scripts/dev-aven.py"
   },

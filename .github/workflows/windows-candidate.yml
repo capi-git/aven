@@ -71,11 +71,17 @@ jobs:
           Copy-Item target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe $output
           Copy-Item LICENSE, NOTICE, THIRD_PARTY_NOTICES.txt $output
           Copy-Item docs/WINDOWS-TESTING.md "$output/README.md"
-          Get-ChildItem $output -File | ForEach-Object {
+          "Source commit: $env:GITHUB_SHA" | Add-Content "$output/README.md"
+          Get-ChildItem $output -File -Exclude SHA256SUMS | ForEach-Object {
             $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             "$hash  $($_.Name)"
           } | Set-Content "$output/SHA256SUMS" -Encoding utf8
-          "Source commit: $env:GITHUB_SHA" | Add-Content "$output/README.md"
+          Get-Content "$output/SHA256SUMS" | ForEach-Object {
+            $entry = [regex]::Match($_, '^([0-9a-f]{64})  (.+)$')
+            if (-not $entry.Success) { throw 'Invalid checksum entry' }
+            $actual = (Get-FileHash (Join-Path $output $entry.Groups[2].Value) -Algorithm SHA256).Hash
+            if ($actual -ine $entry.Groups[1].Value) { throw "Checksum mismatch: $_" }
+          }
       - name: Upload test installer
         uses: actions/upload-artifact@v4
         with:
