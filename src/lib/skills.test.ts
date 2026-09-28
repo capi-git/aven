@@ -253,8 +253,9 @@ describe("mergeCatalog", () => {
   it("includes usable built-in desktop instructions without requiring an external skill package", async () => {
     expect(mergeCatalog([])).toContainEqual(BUILTIN_COMPUTER_USE_SKILL);
     const body = await readSkillBody(BUILTIN_COMPUTER_USE_SKILL);
-    expect(body).toContain("permissions status --json");
-    expect(body).toContain("peekaboo");
+    expect(body).toContain('--aven-desktop \'{"action":"status"}\'');
+    expect(body).toContain("Settings → Skills & tools → Desktop control");
+    expect(body).toContain("Agent actions never trigger permission prompts");
     expect(body).not.toContain("orca skills get");
   });
   it("lets .agents win, then Aven create-skill, then provider skills", () => {

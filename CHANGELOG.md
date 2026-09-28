@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Desktop control built into Aven
+
+- Let agents see and use apps on your Mac with a switch in **Settings → Skills & tools**. It starts off, needs no extra install, and asks for macOS Screen Recording and Accessibility access with Aven listed by name.
+- The Desktop control card shows which permissions are missing, with **Allow** and **Open settings** buttons. Agents receive the new commands automatically and check screenshots before and after acting.
+
 ## [0.1.108] - 2026-09-28
 
 ### Releases, merges and branch clean-up in the Changes panel, and a signed Mac app

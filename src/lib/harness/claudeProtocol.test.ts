@@ -117,6 +117,7 @@ describe("buildClaudeSpawnArgs", () => {
       expect(args[args.indexOf("--append-system-prompt") + 1]).toBe(
         AVEN_BROWSER_HOST_POLICY,
       );
+      expect(args[args.indexOf("--append-system-prompt") + 1]).toContain("Aven --aven-desktop command");
       expect(args).not.toContain("--system-prompt");
       expect(args.some((arg) => arg.includes("system-prompt-snapshot"))).toBe(false);
       expect(args).not.toContain("--append-subagent-system-prompt");

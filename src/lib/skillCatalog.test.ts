@@ -97,10 +97,11 @@ describe("provider-aware skill catalog", () => {
         context,
       );
       expect(prompt).toContain("# Desktop control from Aven");
-      expect(prompt).toContain("permissions status --json");
+      expect(prompt).toContain('--aven-desktop \'{"action":"status"}\'');
       expect(prompt).toContain('"action":"openfile"');
-      expect(prompt).toContain("see --window-id <returned-window-id>");
-      expect(prompt).toContain("--snapshot <returned-snapshot-id>");
+      expect(prompt).toContain('"action":"screenshot","windowId":123');
+      expect(prompt).toContain("Open the returned PNG");
+      expect(prompt).toContain("After each action, take a new screenshot");
       expect(prompt.endsWith("/aven-computer-use inspect the app")).toBe(true);
     },
   );

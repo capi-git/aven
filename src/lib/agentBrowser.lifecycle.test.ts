@@ -108,7 +108,10 @@ describe("agent browser lifecycle ordering", () => {
     expect(prepared).toBe(false);
     expect(native.grants.get(context.sessionId) ?? []).toEqual([]);
     api.registerAgentBrowserPage("sleeping", "replacement-native");
-    expect(await preparation).toContain("--aven-browser");
+    const prompt = await preparation;
+    expect(prompt).toContain("--aven-browser");
+    expect(prompt).toContain(`'${binding.executablePath}' --aven-desktop '{"action":"status"}'`);
+    expect(prompt).not.toContain(binding.socketPath);
     expect(native.grants.get(context.sessionId)).toEqual([
       "replacement-native",
     ]);
@@ -221,7 +224,10 @@ describe("agent browser lifecycle ordering", () => {
     await started.promise;
     await api.forgetAgentBrowser(context.sessionId);
     finished.resolve();
-    expect(await preparation).toContain("unavailable for this turn");
+    const prompt = await preparation;
+    expect(prompt).toContain("unavailable for this turn");
+    expect(prompt).toContain("Native desktop control uses the same scoped connection and is also unavailable");
+    expect(prompt).not.toContain("--aven-desktop");
     expect(native.grants.has(context.sessionId)).toBe(false);
   });
 

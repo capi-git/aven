@@ -41,15 +41,43 @@ Regular clicks and middle-clicks use Aven's editor.
 
 ## Native Mac apps
 
-Aven supports the optional [Peekaboo CLI](https://github.com/openclaw/Peekaboo)
-for observing and operating native windows. Ask the agent to inspect or test an
-app; no slash command is needed. `/aven-computer-use` contains the full workflow.
+Aven has built-in desktop control for observing and operating native Mac windows.
+It is off by default. In **Settings → Skills & tools → Desktop control**, turn on
+**Let agents see and use apps on this Mac**. macOS asks you for Screen Recording
+and Accessibility access, with Aven listed by name. You can turn desktop control
+off from the same switch at any time.
 
-The agent checks the installed version, command help and current permission
-status, then targets an observed app/window and verifies each action. It uses the
-selected Peekaboo execution host or bridge. Screen Recording and Accessibility
-must be granted to that host; optional Event Synthesizing may be needed for
-additional input actions. Aven's status check does not change those permissions.
+The card shows **Ready**, **Permissions needed**, **Off**, or **Unsupported**.
+For a missing permission, choose **Allow** to request access, or **Open settings**
+to open its macOS pane. Use **Check again** after changing permissions. macOS may
+ask you to quit and reopen Aven after allowing Screen Recording; save your work
+and handle that restart yourself. Desktop control requires the macOS app.
+
+Ask the agent to inspect or test an app; no slash command is needed. Every task
+receives the command automatically, and **View instructions** or
+`/aven-computer-use` provides the full workflow. There is nothing else to install.
+The Aven executable accepts `--aven-desktop` with one JSON argument and reuses the
+task's scoped in-app browser connection:
+
+```sh
+"$AVEN_BROWSER_EXECUTABLE" --aven-desktop '{"action":"status"}'
+"$AVEN_BROWSER_EXECUTABLE" --aven-desktop --help
+"$AVEN_BROWSER_EXECUTABLE" --aven-desktop '{"action":"windows"}'
+```
+
+The agent checks status once, selects an observed window, and takes a `screenshot`
+with its `windowId`. The result is `{path,width,height,originX,originY}`; the agent
+must open the PNG at `path` with an image or file reader before acting. A successful
+JSON response alone is not visual verification. It then uses `click`, `type`,
+`press`, `scroll`, or `activate` as needed and takes and opens a new screenshot to
+verify each result. Screenshot pixels equal points. With `windowId`, click and
+scroll `x,y` are that window screenshot's pixel coordinates. Without `windowId`,
+use global points: `originX + x, originY + y` from the screenshot used. The help command documents all fields,
+including optional screenshot regions.
+
+Agent actions never trigger permission prompts. If the switch is off or access is
+missing, the agent directs you to the Desktop control card. It must not change
+macOS settings or install other tools to bypass the missing access.
 
 Skills are instructions, not extra permissions or new tools. They do not bypass
 the provider's sandbox, approvals, or macOS privacy controls. Websites continue
