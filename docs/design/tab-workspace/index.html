@@ -1,0 +1,884 @@
+<!doctype html>
+<html lang="en" style="color-scheme: dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0c0e">
+  <title>Aven · Tab workspace explorations</title>
+  <style>
+    :root {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #e8e9eb;
+      background: #0b0c0e;
+      font-synthesis: none;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    button, textarea { font: inherit; }
+    button { cursor: pointer; }
+    button:focus-visible, textarea:focus-visible, [tabindex="0"]:focus-visible {
+      outline: 2px solid #8ab8ff !important;
+      outline-offset: 2px;
+    }
+    body { margin: 0; min-width: 780px; }
+    .lab {
+      width: min(100%, 1880px);
+      margin: 0 auto;
+      padding: 20px clamp(16px, 2.2vw, 36px) 30px;
+    }
+    .lab-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 18px;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: #9ca1aa;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+    .eyebrow::before {
+      content: "";
+      width: 6px; height: 6px; border-radius: 50%;
+      background: #e4a95b; box-shadow: 0 0 12px #e4a95b70;
+    }
+    h1 { margin: 7px 0 3px; font-size: clamp(22px, 2vw, 30px); font-weight: 650; letter-spacing: -.035em; }
+    .lab-head p { margin: 0; color: #898e98; font-size: 12px; line-height: 1.5; }
+    .lab-meta { display: flex; gap: 8px; align-items: center; flex-shrink: 0; padding-bottom: 3px; }
+    .meta-pill { border: 1px solid #2c2f34; border-radius: 999px; padding: 6px 10px; color: #a9acb4; font-size: 11px; background: #141518; }
+    .variant-nav {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .variant-nav button {
+      min-width: 0;
+      text-align: left;
+      border: 1px solid #292c31;
+      border-radius: 10px;
+      padding: 10px 12px 11px;
+      color: #a7aab1;
+      background: #141518;
+      transition: background 150ms, border-color 150ms, transform 150ms;
+    }
+    .variant-nav button:hover { background: #1b1d21; border-color: #454a52; transform: translateY(-1px); }
+    .variant-nav button[aria-current="true"] { color: #f2f3f5; background: #202226; border-color: #a27445; box-shadow: inset 0 1px 0 #ffffff10, 0 0 0 1px #a2744528; }
+    .nav-line { display: flex; gap: 9px; align-items: baseline; white-space: nowrap; }
+    .nav-letter { color: #dfa969; font-size: 11px; font-weight: 750; }
+    .nav-name { overflow: hidden; text-overflow: ellipsis; font-size: 12px; font-weight: 650; }
+    .nav-desc { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 4px; color: #818690; font-size: 10px; }
+    .review-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      min-height: 46px;
+      margin-bottom: 10px;
+    }
+    .concept-summary { min-width: 0; display: flex; align-items: baseline; gap: 10px; }
+    .concept-summary strong { flex-shrink: 0; font-size: 12px; }
+    .concept-summary span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #91959d; font-size: 11px; }
+    .review-actions { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
+    .lab-action {
+      height: 28px; display: inline-flex; align-items: center; justify-content: center;
+      gap: 6px; border: 1px solid #34373d; border-radius: 7px; padding: 0 10px;
+      background: #1a1c20; color: #c9cbd0; font-size: 11px; white-space: nowrap;
+    }
+    .lab-action:hover { background: #272a2f; }
+    .lab-action[aria-pressed="true"] { background: #353026; border-color: #ad7e4c; color: #f2d2a7; }
+    .lab-action.primary { background: #dca76a; border-color: #dfb47d; color: #17120d; font-weight: 650; }
+    .lab-action.primary:hover { background: #e8b77d; }
+    .preview-wrap {
+      position: relative;
+      height: clamp(535px, 69vh, 790px);
+      overflow: hidden;
+      border: 1px solid #34363a;
+      border-radius: 12px;
+      background: #050506;
+      box-shadow: 0 26px 72px #0008, 0 1px 0 #ffffff09 inset;
+    }
+    .app-frame {
+      display: grid;
+      grid-template-columns: 194px minmax(0, 1fr) 214px;
+      grid-template-rows: 36px minmax(0, 1fr) 25px;
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: #050506;
+      color: #d8d9dc;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .app-frame button { color: inherit; }
+    .app-frame button:hover { filter: brightness(1.18); }
+    .mock-sidebar {
+      grid-column: 1; grid-row: 1 / 4;
+      min-width: 0; overflow: hidden;
+      border-right: 1px solid #2b2d30;
+      background: linear-gradient(100deg, #191a1c, #151618);
+      display: flex; flex-direction: column;
+    }
+    .mac-head { height: 36px; flex: 0 0 36px; display: flex; align-items: center; gap: 5px; padding: 0 11px; }
+    .light { width: 8px; height: 8px; border-radius: 50%; background: #ff5e58; }
+    .light.yellow { background: #f6be49; }
+    .light.green { background: #32c76a; }
+    .sidebar-tool { margin-left: auto; color: #747983; font-size: 14px; }
+    .sidebar-profile { display:flex; align-items:center; justify-content:space-between; padding: 8px 11px 6px; font-size: 10px; font-weight: 650; }
+    .sidebar-profile span:last-child { color:#747982; }
+    .sidebar-mini { display:flex; gap: 17px; align-items:center; padding: 4px 11px 8px; color:#a0a4ab; font-size: 10px; }
+    .sidebar-new { margin: 2px 7px 10px; width: calc(100% - 14px); height: 27px; text-align:left; padding:0 8px; border:1px solid #27292d; border-radius:5px; background:#1e2023; font-size:10px; }
+    .sidebar-new span { color: #bbbfc6; margin-right: 5px; }
+    .sidebar-label { color:#7b7e85; font-size:9px; padding: 0 11px 5px; }
+    .project-line { display:flex; gap:6px; align-items:center; padding:6px 10px 4px; font-size:10px; }
+    .project-line .folder { color:#aeb2b9; }
+    .project-line .add { color:#777b84; margin-left:auto; }
+    .side-item { display:flex; align-items:center; gap:6px; width:100%; height:25px; padding:0 13px; border:0; background:transparent; text-align:left; font-size:10px; color:#b8babf !important; }
+    .side-item.active { background:#25272b; color:#f1f1f2 !important; }
+    .side-item span:nth-child(2) { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .side-item small { color:#777b82; margin-left:auto; font-size:9px; }
+    .side-dot { width:4px; height:4px; border-radius:50%; background:#e7ac65; flex:0 0 4px; }
+    .side-dot.blue { background:#7d94e0; }
+    .side-dot.gray { background:#73777e; }
+    .sidebar-bottom { margin-top:auto; border-top:1px solid #282a2d; padding:8px 10px; display:flex; align-items:center; gap:8px; color:#8b8e94; font-size:10px; }
+    .avatar { display:grid; place-items:center; width:20px; height:20px; border-radius:6px; background:#31343a; color:#eee; font-size:10px; }
+    .window-top { grid-column:2 / 4; grid-row:1; min-width:0; border-bottom:1px solid #25272a; background:#111214; }
+    .top-variant { display:none; height:100%; min-width:0; align-items:center; padding:0 8px; gap:7px; }
+    .top-variant.active { display:flex; }
+    .top-leading { display:flex; align-items:center; gap:8px; flex-shrink:0; color:#858992; padding:0 5px 0 2px; font-size:14px; }
+    .top-leading button, .top-tool {
+      display:grid; place-items:center; height:25px; min-width:25px; border:0; border-radius:6px; background:transparent; color:#898d95 !important; font-size:13px;
+    }
+    .top-leading button:hover, .top-tool:hover { background:#25272b; }
+    .top-right { display:flex; align-items:center; gap:3px; margin-left:auto; flex-shrink:0; }
+    .top-right .subtle { color:#71757c; font-size:10px; padding:0 7px; }
+    .tab-strip { display:flex; align-items:center; gap:4px; min-width:0; overflow-x:auto; overflow-y:hidden; scrollbar-width:none; height:100%; }
+    .tab-strip::-webkit-scrollbar, .page-strip::-webkit-scrollbar { display:none; }
+    .surface-tab, .page-tab, .local-tab {
+      display:inline-flex; align-items:center; justify-content:flex-start; gap:6px;
+      flex:0 0 auto; height:25px; min-width:0; max-width:150px;
+      padding:0 8px; border:1px solid transparent; border-radius:7px;
+      background:transparent; color:#a0a3a9 !important; white-space:nowrap;
+      font-size:10px; text-align:left; transition:background 140ms, color 140ms, width 160ms;
+    }
+    .surface-tab { width:116px; }
+    .surface-tab.active, .page-tab.active, .local-tab.active { background:#292b30; border-color:#383a40; color:#f3f3f4 !important; box-shadow:0 1px 2px #0005, inset 0 1px 0 #ffffff0a; }
+    .surface-tab:hover, .page-tab:hover, .local-tab:hover { background:#25272a; }
+    .surface-tab.active { width:150px; }
+    .tab-title { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+    .tab-icon {
+      width:15px; height:15px; flex:0 0 15px;
+      display:grid; place-items:center; border-radius:5px; font-size:10px; font-weight:700;
+      color:#fff; background:#565d72;
+    }
+    .tab-icon.opus { border-radius:50%; background:conic-gradient(#eaa975, #b8a2a9, #f6c49e, #eaa975); color:#513b36; }
+    .tab-icon.audit { border-radius:50%; background:#626ea6; font-size:9px; }
+    .tab-icon.race { border-radius:50%; background:#9b6c5b; font-size:9px; }
+    .tab-icon.web { background:#3d6d6d; }
+    .tab-icon.local { background:#687e61; }
+    .tab-icon.figma { background:#775b8d; }
+    .group-chip {
+      display:none; flex:0 0 auto; align-items:center; gap:5px;
+      height:23px; padding:0 7px; border:1px solid #76553b; border-radius:6px;
+      background:#392b22; color:#e6b687; font-size:10px; white-space:nowrap;
+    }
+    .group-chip::before { content:""; width:5px; height:5px; border-radius:2px; background:#e0a266; }
+    .app-frame.grouped .group-chip { display:inline-flex; }
+    .group-chip .group-number { color:#f2d2ae; font-weight:700; }
+    .group-chip .group-mini { display:none; }
+    .app-frame.minimized .surface-tab, .app-frame.minimized .local-tab, .app-frame.minimized .page-tab { width:31px; max-width:31px; padding:0 7px; justify-content:center; }
+    .app-frame.minimized .tab-title, .app-frame.minimized .group-full { display:none; }
+    .app-frame.minimized .group-chip { width:29px; padding:0; justify-content:center; }
+    .app-frame.minimized .group-chip::before { display:none; }
+    .app-frame.minimized .group-mini { display:inline; font-weight:750; }
+    .mini-toggle {
+      display:inline-flex; align-items:center; gap:5px; height:23px; padding:0 7px;
+      border:1px solid #34363a; border-radius:6px; background:#202226; font-size:10px;
+      color:#aaaeb5 !important; white-space:nowrap;
+    }
+    .mini-toggle:hover { background:#2d3035; }
+    .mainstage { grid-column:2; grid-row:2; min-width:0; min-height:0; position:relative; overflow:hidden; background:#050506; }
+    .stage-variant { display:none; position:absolute; inset:0; min-width:0; min-height:0; }
+    .stage-variant.active { display:flex; }
+    .single-view { position:relative; flex:1; min-width:0; min-height:0; }
+    .content-view { display:none; position:absolute; inset:0; }
+    .content-view.active { display:block; }
+    .chat-canvas {
+      position:relative; display:flex; align-items:center; justify-content:center; width:100%; height:100%;
+      overflow:hidden; background: radial-gradient(ellipse 58% 54% at 50% 57%, #101013 0, #070708 54%, #050506 100%);
+    }
+    .chat-canvas::before { content:""; position:absolute; inset:0; opacity:.26; pointer-events:none; background:linear-gradient(125deg, transparent 14%, #292b3113 30%, transparent 46%, #25272d0a 72%, transparent 83%); }
+    .chat-center { position:relative; z-index:1; width:min(398px, calc(100% - 46px)); text-align:center; margin-top:-18px; }
+    .chat-orb { display:grid; place-items:center; width:30px; height:30px; margin:0 auto 12px; border-radius:9px; color:#c5c6cb; background:#27292c; font-size:17px; box-shadow:0 4px 16px #0007; }
+    .chat-center h2 { margin:0 0 4px; font-size:17px; line-height:1.2; letter-spacing:-.035em; font-weight:670; }
+    .chat-center p { margin:0 0 15px; color:#898c94; font-size:10px; }
+    .composer-card { min-height:90px; padding:11px; border:1px solid #34363a; border-radius:11px; background:#202124; text-align:left; box-shadow:0 12px 32px #0005; }
+    .composer-copy { color:#cdd0d4; font-size:10px; line-height:1.55; }
+    .composer-foot { display:flex; align-items:center; gap:9px; margin-top:13px; color:#8e9299; font-size:9px; }
+    .composer-foot .push { margin-left:auto; }
+    .send-pill { display:grid; place-items:center; width:18px; height:18px; border-radius:5px; color:#08111b; background:#7eb8e6; font-size:11px; font-weight:700; }
+    .content-label { position:absolute; top:14px; left:18px; display:flex; align-items:center; gap:7px; color:#7d8189; font-size:10px; }
+    .content-label strong { color:#bcbfc6; font-weight:550; }
+    .web-canvas { display:flex; flex-direction:column; width:100%; height:100%; min-height:0; background:#0e1011; }
+    .web-controls { height:36px; flex:0 0 36px; display:flex; align-items:center; gap:9px; border-bottom:1px solid #252a2a; padding:0 10px; color:#8c9695; font-size:12px; background:#16191a; }
+    .address { display:flex; align-items:center; gap:7px; min-width:0; height:22px; flex:1; border:1px solid #303637; border-radius:6px; padding:0 9px; color:#a9b3b2; background:#202526; font-size:10px; }
+    .address span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .web-page { flex:1; min-height:0; overflow:auto; padding:28px clamp(20px, 5vw, 60px); color:#dedfd9; background:radial-gradient(ellipse at 78% 12%, #19333270, transparent 35%), #101616; }
+    .web-page-nav { display:flex; align-items:center; gap:12px; color:#b5c2be; font-size:10px; }
+    .web-logo { display:grid; place-items:center; width:24px; height:24px; border:1px solid #4e7168; border-radius:7px; color:#c2efe0; font-size:13px; font-weight:700; }
+    .web-page-nav span:nth-child(3) { margin-left:auto; }
+    .web-kicker { margin:34px 0 9px; color:#8eb7a8; font-size:9px; letter-spacing:.17em; font-weight:750; }
+    .web-page h2 { max-width:530px; margin:0; color:#ecf3ed; font-size:clamp(20px, 2.5vw, 32px); line-height:1.13; letter-spacing:-.045em; }
+    .web-page p { max-width:440px; margin:12px 0 20px; color:#a8b6b1; font-size:11px; line-height:1.55; }
+    .web-cards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; max-width:600px; }
+    .web-card { min-height:90px; padding:12px; border:1px solid #34504a; border-radius:9px; background:#ffffff08; }
+    .web-card b { display:block; margin:8px 0 4px; font-size:11px; }
+    .web-card small { color:#94aaa3; font-size:9px; line-height:1.45; }
+    .web-card .symbol { color:#a7d7c5; font-size:15px; }
+    .mock-inspector { grid-column:3; grid-row:2 / 4; display:flex; flex-direction:column; min-width:0; overflow:hidden; border-left:1px solid #292b2e; background:#111214; }
+    .inspector-tabs { display:flex; gap:16px; align-items:center; height:28px; flex:0 0 28px; padding:0 10px; border-bottom:1px solid #24262a; color:#777b82; font-size:10px; }
+    .inspector-tabs strong { color:#dedfe2; font-weight:600; }
+    .inspector-head { display:flex; justify-content:space-between; padding:10px 10px 5px; font-size:10px; }
+    .inspector-head small { color:#6c7078; font-size:9px; }
+    .change-field { height:22px; margin:0 8px 6px; border:1px solid #292c30; border-radius:5px; padding:4px 6px; color:#737780; background:#191b1e; font-size:9px; }
+    .commit-button { height:23px; margin:0 8px 5px; border:0; border-radius:5px; background:#4a4b4c; color:#e2e3e4 !important; font-size:9px; }
+    .publish-button { height:22px; margin:0 8px; border:1px solid #303236; border-radius:5px; background:#222427; font-size:9px; }
+    .inspector-empty { padding:14px 10px; border-top:1px solid #24262a; margin-top:11px; color:#777b82; font-size:9px; }
+    .graph { margin-top:auto; border-top:1px solid #2b2d30; padding:8px 10px; }
+    .graph-title { font-size:9px; color:#a7aaaf; letter-spacing:.08em; }
+    .graph-row { display:flex; align-items:center; gap:5px; overflow:hidden; white-space:nowrap; height:17px; color:#969aa0; font-size:9px; }
+    .graph-row i { width:4px; height:4px; flex:0 0 4px; border-radius:50%; background:#ddb340; }
+    .graph-row span { overflow:hidden; text-overflow:ellipsis; }
+    .statusbar { grid-column:2; grid-row:3; display:flex; align-items:center; justify-content:space-between; min-width:0; border-top:1px solid #25272a; padding:0 10px; color:#7a7e85; background:#111214; font-size:9px; }
+    .statusbar strong { color:#adafb4; font-weight:500; }
+    .statusbar .status-right { display:flex; gap:12px; }
+    .stage-a.split .single-view { width:60%; flex:0 0 60%; border-right:4px solid #202226; }
+    .a-side-browser { display:none; width:40%; min-width:0; }
+    .stage-a.split .a-side-browser { display:block; }
+    .stage-a.split .a-side-browser .web-page { padding:22px; }
+    .stage-a.split .a-side-browser .web-cards { grid-template-columns:1fr; }
+    .top-b .surface-tab { width:105px; }
+    .top-b .surface-tab.active { width:133px; }
+    .browser-destination { display:flex; align-items:center; gap:6px; height:25px; padding:0 10px; border:1px solid #343839; border-radius:7px; background:#1d2323; color:#c8d6d1 !important; font-size:10px; white-space:nowrap; }
+    .browser-destination.active { border-color:#568475; background:#243a33; }
+    .stage-b .b-chat, .stage-b .b-browser { display:none; width:100%; height:100%; }
+    .stage-b[data-mode="chat"] .b-chat, .stage-b[data-mode="browser"] .b-browser { display:block; }
+    .b-browser { min-width:0; background:#111617; }
+    .browser-deck-head { display:flex; align-items:center; gap:7px; height:32px; border-bottom:1px solid #303737; padding:0 8px; background:#171d1e; }
+    .page-strip { display:flex; align-items:center; gap:4px; min-width:0; flex:1; overflow-x:auto; scrollbar-width:none; }
+    .page-tab { width:126px; height:24px; }
+    .page-tab.active { background:#2b3735; border-color:#3a514a; }
+    .deck-action { flex:0 0 auto; border:1px solid #3c514b; border-radius:6px; background:#22302c; padding:4px 8px; color:#b6d1c7 !important; font-size:9px; white-space:nowrap; }
+    .b-browser .web-canvas { height:calc(100% - 32px); }
+    .b-promoted { display:none; }
+    .stage-b.promoted .b-browser .browser-deck-head { background:#1d2325; }
+    .stage-b.promoted .b-promoted { display:block; color:#c1d2cc; font-size:9px; white-space:nowrap; }
+    .top-c .shelf { display:flex; align-items:center; gap:5px; min-width:0; }
+    .shelf-tab { display:flex; align-items:center; justify-content:center; gap:7px; flex:0 0 32px; width:32px; height:27px; padding:0 7px; overflow:hidden; border:1px solid transparent; border-radius:7px; background:transparent; color:#bec1c7 !important; white-space:nowrap; font-size:10px; transition:width 180ms, background 150ms; }
+    .shelf-tab.active { background:#2a2d31; border-color:#404248; }
+    .top-c.revealed .shelf-tab { flex-basis:116px; width:116px; justify-content:flex-start; }
+    .top-c.revealed .shelf-tab.active { flex-basis:146px; width:146px; }
+    .shelf-tab .tab-title { display:none; }
+    .top-c.revealed .shelf-tab .tab-title { display:block; }
+    .top-c .current-crumb { display:flex; align-items:center; gap:6px; min-width:0; margin-left:10px; padding-left:14px; border-left:1px solid #36383c; color:#cfd0d4; font-size:10px; }
+    .current-crumb span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .app-frame.minimized .top-c.revealed .shelf-tab { flex-basis:32px; width:32px; justify-content:center; }
+    .app-frame.minimized .top-c .shelf-tab .tab-title { display:none; }
+    .top-d .workspace-title { display:flex; align-items:center; gap:8px; color:#dfe0e2; white-space:nowrap; font-size:11px; font-weight:600; }
+    .workspace-title .tiny-folder { color:#c09a6c; font-size:13px; }
+    .top-d .d-divider { height:17px; border-left:1px solid #323438; margin:0 4px; }
+    .overview-button { height:25px; display:flex; align-items:center; gap:7px; border:1px solid #35383d; border-radius:7px; padding:0 9px; background:#222428; color:#d3d5d9 !important; font-size:10px; }
+    .stage-d { gap:4px; padding:4px; background:#08090a; }
+    .pane { display:flex; flex-direction:column; min-width:0; flex:1; overflow:hidden; border:1px solid #2f3235; border-radius:7px; background:#070808; }
+    .pane.focused { border-color:#66604f; }
+    .pane:first-child { flex:1.08; }
+    .pane-head { display:flex; align-items:center; gap:5px; height:29px; flex:0 0 29px; min-width:0; padding:0 5px; border-bottom:1px solid #292b2f; background:#17191b; }
+    .pane-name { flex:0 0 auto; margin:0 5px 0 3px; color:#8d9199; font-size:9px; letter-spacing:.04em; text-transform:uppercase; }
+    .pane-head .local-tab { width:102px; height:22px; font-size:9px; }
+    .pane-head .local-tab.active { width:125px; }
+    .pane .chat-canvas, .pane .web-canvas { flex:1; min-height:0; }
+    .pane .chat-center { width:min(350px, calc(100% - 26px)); }
+    .pane .web-page { padding:20px; }
+    .pane .web-cards { grid-template-columns:1fr; }
+    .pane .web-kicker { margin-top:20px; }
+    .pane .web-page h2 { font-size:21px; }
+    .pane .web-card { min-height:62px; }
+    .stage-d.single .browser-pane { display:none; }
+    .stage-d.single .chat-pane { flex:1; }
+    .overview-popover { position:absolute; top:12px; left:50%; z-index:5; transform:translateX(-50%); width:min(440px,calc(100% - 40px)); padding:12px; border:1px solid #44484d; border-radius:10px; background:#222428; box-shadow:0 20px 48px #000b; }
+    .overview-popover h3 { margin:0 0 11px; font-size:11px; font-weight:650; }
+    .overview-columns { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .overview-col { border:1px solid #34373b; border-radius:7px; padding:8px; background:#1a1c1f; }
+    .overview-col strong { display:block; margin-bottom:6px; color:#8e939b; font-size:9px; font-weight:600; }
+    .overview-col button { display:flex; align-items:center; gap:5px; width:100%; padding:5px 3px; border:0; border-radius:4px; background:transparent; color:#d2d4d8; text-align:left; font-size:10px; }
+    .overview-col button:hover { background:#2d3035; }
+    .top-e .surface-tab { width:104px; }
+    .top-e .surface-tab.active { width:132px; }
+    .stage-e { background:#08090a; }
+    .e-chat { flex:1; min-width:0; border-right:4px solid #25282b; }
+    .browser-dock { display:flex; flex-direction:column; width:274px; flex:0 0 274px; min-width:0; background:#15191a; border-left:1px solid #34403b; transition:width 180ms, flex-basis 180ms; }
+    .browser-dock-head { display:flex; align-items:center; gap:8px; height:30px; flex:0 0 30px; border-bottom:1px solid #303a35; padding:0 8px; color:#cedbd5; font-size:10px; font-weight:650; }
+    .browser-dock-head .push { margin-left:auto; }
+    .browser-dock-head button { width:23px; height:23px; border:0; border-radius:5px; background:transparent; color:#9caaa3; }
+    .dock-list { display:flex; gap:4px; padding:7px; }
+    .dock-tab { display:flex; align-items:center; gap:6px; min-width:0; width:50%; height:24px; padding:0 7px; border:1px solid #34423d; border-radius:6px; background:#202827; color:#a6b9b0 !important; text-align:left; font-size:9px; }
+    .dock-tab.active { background:#30473c; color:#e8f3eb !important; border-color:#5b816d; }
+    .dock-tab .tab-title { min-width:0; }
+    .browser-dock .web-canvas { flex:1; min-height:0; }
+    .browser-dock .web-controls { height:31px; flex-basis:31px; gap:6px; }
+    .browser-dock .web-page { padding:16px; }
+    .browser-dock .web-page-nav { gap:7px; }
+    .browser-dock .web-kicker { margin:20px 0 7px; }
+    .browser-dock .web-page h2 { font-size:19px; }
+    .browser-dock .web-page p { font-size:9px; }
+    .browser-dock .web-cards { grid-template-columns:1fr; }
+    .browser-dock .web-card { min-height:60px; }
+    .browser-dock.collapsed { width:38px; flex-basis:38px; }
+    .browser-dock.collapsed .dock-list { flex-direction:column; align-items:center; padding:7px 3px; }
+    .browser-dock.collapsed .dock-tab { width:30px; padding:0 7px; }
+    .browser-dock.collapsed .dock-tab .tab-title, .browser-dock.collapsed .web-canvas, .browser-dock.collapsed .dock-name, .browser-dock.collapsed .dock-wide { display:none; }
+    .browser-dock.collapsed .browser-dock-head { justify-content:center; padding:0; }
+    .browser-dock.collapsed .browser-dock-head .push { margin:0; }
+    .browser-dock.wide { width:min(47%, 520px); flex-basis:min(47%, 520px); }
+    .browser-dock.wide .web-cards { grid-template-columns:repeat(3,minmax(0,1fr)); }
+    .dock-hint { margin-top:auto; padding:8px; border-top:1px solid #2c3631; color:#7f9389; font-size:9px; line-height:1.4; }
+    .browser-dock.collapsed .dock-hint { display:none; }
+    .placement-well {
+      position:absolute; z-index:3; right:13px; bottom:13px;
+      display:flex; align-items:center; gap:7px;
+      padding:6px 9px; border:1px dashed #4c555b; border-radius:7px;
+      background:#1d2226d9; color:#9caab1; font-size:9px;
+    }
+    .placement-well.dragover { border-color:#dda767; color:#f4d0a1; background:#3a3026; }
+    .dragging-tab { opacity:.45; }
+    .drop-highlight { box-shadow:inset 0 0 0 1px #dda767 !important; }
+    .toast { position:absolute; left:50%; bottom:14px; z-index:6; transform:translateX(-50%); padding:7px 11px; border:1px solid #765b3c; border-radius:7px; background:#302820; color:#eed0a8; font-size:10px; box-shadow:0 10px 24px #0008; white-space:nowrap; }
+    .review-drawer {
+      position:absolute; z-index:12; right:13px; bottom:13px; width:315px; max-height:calc(100% - 26px); overflow-y:auto;
+      border:1px solid #66645c; border-radius:10px; padding:12px; background:#222427f5; box-shadow:0 18px 48px #000c;
+      font-size:11px; backdrop-filter:blur(14px);
+    }
+    .drawer-head { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .drawer-head strong { font-size:12px; }
+    .drawer-head button { border:0; background:transparent; color:#aeb0b6; font-size:17px; line-height:1; }
+    .drawer-intro { margin:7px 0 10px; color:#aeb1b7; line-height:1.45; font-size:10px; }
+    .selected-target { padding:7px 8px; border:1px solid #4e4437; border-radius:6px; color:#e3c69f; background:#342c23; font-size:10px; }
+    .review-drawer label { display:block; margin:10px 0 5px; color:#bfc2c7; font-size:10px; font-weight:600; }
+    .review-drawer textarea { width:100%; min-height:55px; resize:vertical; padding:7px; border:1px solid #41454b; border-radius:6px; color:#e9ebed; background:#15171a; font-size:10px; line-height:1.4; }
+    .drawer-actions { display:flex; gap:6px; margin-top:7px; }
+    .drawer-actions button { border:1px solid #4a4d52; border-radius:6px; padding:5px 8px; background:#303237; color:#dfe0e3; font-size:10px; }
+    .drawer-actions button.emphasis { background:#c89761; border-color:#d1a370; color:#19140f; font-weight:650; }
+    .drawer-actions button:disabled { opacity:.45; cursor:not-allowed; }
+    .note-list { display:flex; flex-direction:column; gap:5px; margin-top:9px; max-height:85px; overflow-y:auto; }
+    .saved-note { display:flex; justify-content:space-between; gap:6px; border:1px solid #393c41; border-radius:6px; padding:6px; background:#1b1d20; font-size:9px; }
+    .saved-note div { min-width:0; }
+    .saved-note b { color:#dda96d; font-weight:600; }
+    .saved-note span { color:#b6b9bf; }
+    .saved-note button { align-self:start; border:0; background:transparent; color:#9fa3aa; }
+    .copy-status { min-height:14px; margin:6px 0 0; color:#a9cdae; font-size:9px; }
+    .feedback-mode .app-frame button:hover, .feedback-mode .app-frame [data-feedback-target]:hover { outline:1px dashed #edb879; outline-offset:-2px; }
+    .feedback-mode .app-frame { cursor:crosshair; }
+    .feedback-mode .app-frame button { cursor:crosshair; }
+    .feedback-selected { outline:2px solid #ecb474 !important; outline-offset:2px; }
+    .concept-foot { display:flex; justify-content:space-between; gap:16px; padding:11px 2px 0; color:#979ba3; font-size:11px; line-height:1.45; }
+    .concept-foot strong { color:#d0d2d6; font-weight:600; }
+    .concept-foot div { flex:1; }
+    .concept-foot .hint { text-align:right; max-width:430px; }
+    @media (max-width: 1250px) {
+      .app-frame { grid-template-columns:174px minmax(0,1fr) 190px; }
+      .variant-nav button { padding:9px; }
+      .nav-desc { display:none; }
+      .lab-head p { max-width:680px; }
+      .mock-inspector { font-size:10px; }
+      .browser-dock { width:230px; flex-basis:230px; }
+    }
+    @media (max-width: 1050px) {
+      .app-frame { grid-template-columns:164px minmax(0,1fr); }
+      .window-top { grid-column:2; }
+      .mock-inspector { display:none; }
+      .variant-nav { gap:5px; }
+      .variant-nav button { padding:8px; }
+      .nav-name { font-size:10px; }
+      .review-bar { flex-wrap:wrap; }
+      .concept-summary { flex:1; }
+      .preview-wrap { height:550px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior:auto !important; transition-duration:.01ms !important; animation-duration:.01ms !important; }
+    }
+  </style>
+</head>
+<body>
+<div class="lab">
+  <header class="lab-head">
+    <div>
+      <span class="eyebrow">Aven design exploration</span>
+      <h1>Less tab, more workspace.</h1>
+      <p>Five ways to shrink the top row and place browser pages where they make sense. These are interactive visual mocks.</p>
+    </div>
+    <div class="lab-meta"><span class="meta-pill">05 directions</span><span class="meta-pill">Desktop workspace</span></div>
+  </header>
+
+  <nav class="variant-nav" aria-label="Design directions">
+    <button type="button" data-variant="A" aria-current="true"><span class="nav-line"><span class="nav-letter">A</span><span class="nav-name">Compact strip</span></span><span class="nav-desc">One familiar row, less width</span></button>
+    <button type="button" data-variant="B" aria-current="false"><span class="nav-line"><span class="nav-letter">B</span><span class="nav-name">Browser deck</span></span><span class="nav-desc">Pages live with the browser</span></button>
+    <button type="button" data-variant="C" aria-current="false"><span class="nav-line"><span class="nav-letter">C</span><span class="nav-name">Icon shelf</span></span><span class="nav-desc">Reveal labels on demand</span></button>
+    <button type="button" data-variant="D" aria-current="false"><span class="nav-line"><span class="nav-letter">D</span><span class="nav-name">Pane canvas</span></span><span class="nav-desc">Tabs belong to their pane</span></button>
+    <button type="button" data-variant="E" aria-current="false"><span class="nav-line"><span class="nav-letter">E</span><span class="nav-name">Browser dock</span></span><span class="nav-desc">Web pages at the right edge</span></button>
+  </nav>
+
+  <div class="review-bar">
+    <div class="concept-summary"><strong id="conceptTitle">A · Compact strip</strong><span id="conceptDescription">The current mixed row, compressed to leave more breathing room.</span></div>
+    <div class="review-actions">
+      <button class="lab-action" id="groupToggle" type="button" aria-pressed="false">＋ Create group</button>
+      <button class="lab-action" id="minimizeToggle" type="button" aria-pressed="false">◫ Minimize labels</button>
+      <button class="lab-action primary" id="feedbackToggle" type="button" aria-pressed="false">✎ Add feedback</button>
+    </div>
+  </div>
+
+  <section class="preview-wrap" id="previewWrap" aria-label="Interactive Aven workspace mock">
+    <div class="app-frame" id="appFrame">
+      <aside class="mock-sidebar" aria-label="Mock Aven sidebar">
+        <div class="mac-head"><i class="light"></i><i class="light yellow"></i><i class="light green"></i><span class="sidebar-tool">◫　⌕　⋮</span></div>
+        <div class="sidebar-profile"><span>▢ &nbsp;Personal</span><span>⌄　⌕</span></div>
+        <div class="sidebar-mini"><span>▤ Notes</span><span>▣ Inbox</span></div>
+        <button class="sidebar-new" type="button" data-action="new-session"><span>＋</span> New session</button>
+        <div class="sidebar-label">Projects</div>
+        <div class="project-line"><span class="folder">▱</span><strong>Aven</strong><span class="add">⌄　＋</span></div>
+        <button class="side-item active" type="button" data-tab="race"><i class="side-dot"></i><span>Fix Aven errors after races</span><small>4m</small></button>
+        <button class="side-item" type="button" data-tab="audit"><i class="side-dot blue"></i><span>Audit Orchestration Race Fixes</span><small>7m</small></button>
+        <button class="side-item" type="button" data-tab="opus"><i class="side-dot gray"></i><span>Opus 5.5</span><small>12m</small></button>
+        <div class="project-line"><span class="folder">▱</span><strong>ClippedIn Website</strong><span class="add">⌄　＋</span></div>
+        <div class="project-line"><span class="folder">▱</span><strong>Email Agent</strong><span class="add">⌄　＋</span></div>
+        <div class="sidebar-bottom"><span class="avatar">J</span><span>Jack Hagan</span><span style="margin-left:auto">⚙</span></div>
+      </aside>
+
+      <div class="window-top">
+        <div class="top-variant top-a active" data-panel="A">
+          <div class="top-leading"><button type="button" aria-label="Toggle sidebar">◧</button><span>‹</span><span>›</span></div>
+          <div class="tab-strip reorder-zone" data-feedback-target="Compact mixed tab strip">
+            <span class="group-chip" data-feedback-target="Explicit Research group"><span class="group-full">Research <span class="group-number">· 2</span></span><span class="group-mini">R₂</span></span>
+            <button class="surface-tab" type="button" draggable="true" data-tab="race" title="Fix Aven errors after races"><span class="tab-icon race">✦</span><span class="tab-title">Fix Aven errors after races</span></button>
+            <button class="surface-tab" type="button" draggable="true" data-tab="opus" title="Opus 5.5"><span class="tab-icon opus">✳</span><span class="tab-title">Opus 5.5</span></button>
+            <button class="surface-tab" type="button" draggable="true" data-tab="audit" title="Audit Orchestration Race Fixes"><span class="tab-icon audit">✣</span><span class="tab-title">Audit Orchestration Race Fixes</span></button>
+            <button class="surface-tab" type="button" draggable="true" data-tab="preview" title="Local preview"><span class="tab-icon local">A</span><span class="tab-title">Local preview</span></button>
+            <button class="surface-tab" type="button" draggable="true" data-tab="docs" title="Aven docs"><span class="tab-icon web">◇</span><span class="tab-title">Aven docs</span></button>
+          </div>
+          <div class="top-right"><button class="top-tool" type="button" data-action="split-a" aria-label="Place browser beside task" title="Place browser beside task">◫</button><button class="top-tool" type="button" data-action="new-browser" aria-label="New browser tab" title="New browser tab">⊕</button><span class="subtle">Usage</span></div>
+        </div>
+
+        <div class="top-variant top-b" data-panel="B">
+          <div class="top-leading"><button type="button" aria-label="Toggle sidebar">◧</button><span>‹</span><span>›</span></div>
+          <div class="tab-strip reorder-zone" data-feedback-target="Task tabs with browser destination">
+            <span class="group-chip" data-feedback-target="Explicit Research group"><span class="group-full">Research <span class="group-number">· 2</span></span><span class="group-mini">R₂</span></span>
+            <button class="surface-tab" type="button" draggable="true" data-tab="race" title="Fix Aven errors after races"><span class="tab-icon race">✦</span><span class="tab-title">Fix Aven errors</span></button>
+            <button class="surface-tab" type="button" draggable="true" data-tab="opus" title="Opus 5.5"><span class="tab-icon opus">✳</span><span class="tab-title">Opus 5.5</span></button>
+            <button class="surface-tab" type="button" draggable="true" data-tab="audit" title="Audit Orchestration Race Fixes"><span class="tab-icon audit">✣</span><span class="tab-title">Audit Race Fixes</span></button>
+          </div>
+          <button class="browser-destination" type="button" data-action="browser-deck" aria-label="Open browser deck"><span class="tab-icon local">A</span><span class="tab-title">Web</span><span style="opacity:.65">⌄</span></button>
+          <div class="top-right"><button class="top-tool" type="button" data-action="new-browser" aria-label="New browser page" title="New browser page">⊕</button><span class="subtle">Usage</span></div>
+        </div>
+
+        <div class="top-variant top-c" data-panel="C">
+          <div class="top-leading"><button type="button" aria-label="Toggle sidebar">◧</button></div>
+          <span class="group-chip" data-feedback-target="Explicit Research group"><span class="group-full">Research <span class="group-number">· 2</span></span><span class="group-mini">R₂</span></span>
+          <div class="shelf reorder-zone" data-feedback-target="Icon shelf">
+            <button class="shelf-tab" type="button" draggable="true" data-tab="race" title="Fix Aven errors after races" aria-label="Fix Aven errors after races"><span class="tab-icon race">✦</span><span class="tab-title">Fix Aven errors</span></button>
+            <button class="shelf-tab" type="button" draggable="true" data-tab="opus" title="Opus 5.5" aria-label="Opus 5.5"><span class="tab-icon opus">✳</span><span class="tab-title">Opus 5.5</span></button>
+            <button class="shelf-tab" type="button" draggable="true" data-tab="audit" title="Audit Orchestration Race Fixes" aria-label="Audit Orchestration Race Fixes"><span class="tab-icon audit">✣</span><span class="tab-title">Audit Race Fixes</span></button>
+            <button class="shelf-tab" type="button" draggable="true" data-tab="preview" title="Local preview" aria-label="Local preview"><span class="tab-icon local">A</span><span class="tab-title">Local preview</span></button>
+            <button class="shelf-tab" type="button" draggable="true" data-tab="docs" title="Aven docs" aria-label="Aven docs"><span class="tab-icon web">◇</span><span class="tab-title">Aven docs</span></button>
+          </div>
+          <div class="current-crumb"><span id="shelfCurrent">Opus 5.5</span></div>
+          <div class="top-right"><button class="mini-toggle" type="button" data-action="shelf-reveal">Reveal titles</button><button class="top-tool" type="button" data-action="split-c" aria-label="Split with browser" title="Split with browser">◫</button><span class="subtle">Usage</span></div>
+        </div>
+
+        <div class="top-variant top-d" data-panel="D">
+          <div class="top-leading"><button type="button" aria-label="Toggle sidebar">◧</button><span>‹</span><span>›</span></div>
+          <div class="workspace-title"><span class="tiny-folder">▱</span>Aven <span style="color:#787d85">/</span> Workspace</div>
+          <div class="d-divider"></div>
+          <button class="overview-button" type="button" data-action="overview" aria-expanded="false">▦ &nbsp; All open tabs</button>
+          <div class="top-right"><button class="mini-toggle" type="button" data-action="split-d">Combine panes</button><span class="subtle">Usage</span></div>
+        </div>
+
+        <div class="top-variant top-e" data-panel="E">
+          <div class="top-leading"><button type="button" aria-label="Toggle sidebar">◧</button><span>‹</span><span>›</span></div>
+          <div class="tab-strip reorder-zone" data-feedback-target="Session tabs separate from browser dock">
+            <span class="group-chip" data-feedback-target="Explicit Research group"><span class="group-full">Research <span class="group-number">· 2</span></span><span class="group-mini">R₂</span></span>
+            <button class="surface-tab" type="button" draggable="true" data-tab="race" title="Fix Aven errors after races"><span class="tab-icon race">✦</span><span class="tab-title">Fix Aven errors</span></button>
+            <button class="surface-tab" type="button" draggable="true" data-tab="opus" title="Opus 5.5"><span class="tab-icon opus">✳</span><span class="tab-title">Opus 5.5</span></button>
+            <button class="surface-tab" type="button" draggable="true" data-tab="audit" title="Audit Orchestration Race Fixes"><span class="tab-icon audit">✣</span><span class="tab-title">Audit Race Fixes</span></button>
+          </div>
+          <div class="top-right"><button class="mini-toggle" type="button" data-action="dock-collapse">Minimize browser dock</button><span class="subtle">Usage</span></div>
+        </div>
+      </div>
+
+      <main class="mainstage" aria-label="Mock workspace canvas">
+        <section class="stage-variant stage-a active" data-stage="A" aria-label="Compact strip concept">
+          <div class="single-view" data-feedback-target="Main task or browser surface">
+            <div class="content-view active" data-view="chat"><div class="chat-slot"></div></div>
+            <div class="content-view" data-view="browser"><div class="web-slot"></div></div>
+          </div>
+          <div class="a-side-browser" data-feedback-target="Browser split pane"><div class="web-slot"></div></div>
+          <div class="placement-well" data-drop-place="split" data-feedback-target="Drop target for a browser split">↳ &nbsp; Drop a tab here to split right</div>
+        </section>
+
+        <section class="stage-variant stage-b" data-stage="B" data-mode="browser" aria-label="Browser deck concept">
+          <div class="b-chat"><div class="chat-slot"></div></div>
+          <div class="b-browser" data-feedback-target="Browser deck beneath workspace tabs">
+            <div class="browser-deck-head">
+              <div class="page-strip reorder-zone" data-feedback-target="Browser page tabs">
+                <button class="page-tab" type="button" draggable="true" data-tab="preview" title="Local preview"><span class="tab-icon local">A</span><span class="tab-title">Local preview</span></button>
+                <button class="page-tab" type="button" draggable="true" data-tab="docs" title="Aven docs"><span class="tab-icon web">◇</span><span class="tab-title">Aven docs</span></button>
+              </div>
+              <span class="b-promoted">Page in workspace</span>
+              <button class="deck-action" type="button" data-action="promote-browser">Move page to top row ↗</button>
+            </div>
+            <div class="web-slot"></div>
+          </div>
+        </section>
+
+        <section class="stage-variant stage-c" data-stage="C" aria-label="Icon shelf concept">
+          <div class="single-view" data-feedback-target="Canvas below the icon shelf">
+            <div class="content-view active" data-view="chat"><div class="chat-slot"></div></div>
+            <div class="content-view" data-view="browser"><div class="web-slot"></div></div>
+          </div>
+          <div class="a-side-browser" data-feedback-target="Browser split pane"><div class="web-slot"></div></div>
+        </section>
+
+        <section class="stage-variant stage-d" data-stage="D" aria-label="Pane first concept">
+          <div class="pane chat-pane focused" data-pane="chat" data-drop-place="chat" data-feedback-target="Task pane with local tabs">
+            <div class="pane-head reorder-zone"><span class="pane-name">Task</span><span class="group-chip"><span class="group-full">Research <span class="group-number">· 2</span></span><span class="group-mini">R₂</span></span>
+              <button class="local-tab" type="button" draggable="true" data-tab="race" title="Fix Aven errors"><span class="tab-icon race">✦</span><span class="tab-title">Fix Aven errors</span></button>
+              <button class="local-tab" type="button" draggable="true" data-tab="opus" title="Opus 5.5"><span class="tab-icon opus">✳</span><span class="tab-title">Opus 5.5</span></button>
+              <button class="local-tab" type="button" draggable="true" data-tab="audit" title="Audit Race Fixes"><span class="tab-icon audit">✣</span><span class="tab-title">Audit Race Fixes</span></button>
+            </div>
+            <div class="chat-slot"></div>
+          </div>
+          <div class="pane browser-pane" data-pane="browser" data-drop-place="browser" data-feedback-target="Browser pane with local tabs">
+            <div class="pane-head reorder-zone"><span class="pane-name">Web</span>
+              <button class="local-tab" type="button" draggable="true" data-tab="preview" title="Local preview"><span class="tab-icon local">A</span><span class="tab-title">Local preview</span></button>
+              <button class="local-tab" type="button" draggable="true" data-tab="docs" title="Aven docs"><span class="tab-icon web">◇</span><span class="tab-title">Aven docs</span></button>
+            </div>
+            <div class="web-slot"></div>
+          </div>
+          <div class="overview-popover" id="overview" hidden>
+            <h3>All open tabs <span style="float:right;color:#878b93;font-weight:400">Select a destination</span></h3>
+            <div class="overview-columns">
+              <div class="overview-col"><strong>Task pane</strong><button type="button" data-tab="race">✦ &nbsp; Fix Aven errors</button><button type="button" data-tab="opus">✳ &nbsp; Opus 5.5</button><button type="button" data-tab="audit">✣ &nbsp; Audit Race Fixes</button></div>
+              <div class="overview-col"><strong>Browser pane</strong><button type="button" data-tab="preview">▣ &nbsp; Local preview</button><button type="button" data-tab="docs">◇ &nbsp; Aven docs</button></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="stage-variant stage-e" data-stage="E" aria-label="Browser side dock concept">
+          <div class="e-chat" data-feedback-target="Full width task canvas"><div class="chat-slot"></div></div>
+          <div class="browser-dock" id="browserDock" data-drop-place="dock" data-feedback-target="Collapsible browser side dock">
+            <div class="browser-dock-head"><span class="dock-name">◇ &nbsp; Browser</span><button class="push" type="button" data-action="dock-collapse" aria-label="Minimize browser dock" title="Minimize browser dock">◧</button><button class="dock-wide" type="button" data-action="dock-wide" aria-label="Open browser beside task" title="Open browser beside task">⤢</button></div>
+            <div class="dock-list reorder-zone">
+              <button class="dock-tab" type="button" draggable="true" data-tab="preview" title="Local preview" aria-label="Local preview"><span class="tab-icon local">A</span><span class="tab-title">Local preview</span></button>
+              <button class="dock-tab" type="button" draggable="true" data-tab="docs" title="Aven docs" aria-label="Aven docs"><span class="tab-icon web">◇</span><span class="tab-title">Aven docs</span></button>
+            </div>
+            <div class="web-slot"></div>
+            <div class="dock-hint">Browser pages stay available while the task stays in view. Drag a page into the canvas or expand this dock.</div>
+          </div>
+        </section>
+        <div class="toast" id="toast" role="status" hidden></div>
+      </main>
+
+      <aside class="mock-inspector" aria-label="Mock changes inspector">
+        <div class="inspector-tabs"><span>Files</span><strong>Changes</strong><span style="margin-left:auto">×</span></div>
+        <div class="inspector-head"><strong>Changes</strong><small>↳ fix/capture-chrome-alignment &nbsp;+24</small></div>
+        <div class="change-field">Message (⌘↵ to commit)</div>
+        <button class="commit-button" type="button">✓ &nbsp; Commit</button>
+        <button class="publish-button" type="button">♧ &nbsp; Publish Branch</button>
+        <div class="inspector-empty">24 incoming commits</div>
+        <div class="graph"><div class="graph-title">GRAPH</div>
+          <div class="graph-row"><i></i><span>Release Aven 0.1.101 with reorganized tabs</span></div>
+          <div class="graph-row"><i></i><span>Fix issues found auditing Settings</span></div>
+          <div class="graph-row"><i></i><span>End agent turns only on user's own prompt</span></div>
+          <div class="graph-row"><i></i><span>Message Claude and Codex MCP servers</span></div>
+        </div>
+      </aside>
+      <footer class="statusbar"><span><strong>⎇</strong> &nbsp;fix/capture-chrome-alignment &nbsp; · &nbsp; Changes +0 −0</span><span class="status-right"><span>Aven</span><span>◷</span><span>⚙</span></span></footer>
+    </div>
+
+    <aside class="review-drawer" id="reviewDrawer" aria-label="Design feedback" hidden>
+      <div class="drawer-head"><strong>Feedback on <span id="drawerVariant">A · Compact strip</span></strong><button type="button" id="closeDrawer" aria-label="Close feedback panel">×</button></div>
+      <p class="drawer-intro" id="feedbackInstruction">Turn on note mode, then click any control or outlined region in the mock.</p>
+      <div class="selected-target" id="selectedTarget">No element selected</div>
+      <label for="targetNote">Note on selected element</label>
+      <textarea id="targetNote" placeholder="What would you change here?"></textarea>
+      <div class="drawer-actions"><button class="emphasis" type="button" id="saveNote">Save note</button><button type="button" id="noteModeButton">Select element</button></div>
+      <div class="note-list" id="noteList"></div>
+      <label for="overallDirection">Overall direction</label>
+      <textarea id="overallDirection" placeholder="Which concept would you choose, and what should it borrow from the others?"></textarea>
+      <div class="drawer-actions"><button class="emphasis" type="button" id="copyFeedback">Copy feedback</button><button type="button" id="clearVariantNotes">Clear this concept</button></div>
+      <p class="copy-status" id="copyStatus" aria-live="polite"></p>
+    </aside>
+  </section>
+
+  <div class="concept-foot"><div><strong id="conceptBenefit">Why it works:</strong> <span id="benefitText">Keeps the current drag language and gives substantially more room to the workspace.</span></div><div class="hint" id="interactionHint">Click tabs to switch. Drag one to reorder, or drop it on the split target.</div></div>
+</div>
+
+<template id="chatTemplate">
+  <div class="chat-canvas">
+    <div class="content-label"><span>✳</span><strong class="chat-active-title">Opus 5.5</strong><span>· &nbsp; Aven</span></div>
+    <div class="chat-center">
+      <div class="chat-orb">✦</div>
+      <h2>Make room for your next idea.</h2>
+      <p>Start something in Aven.</p>
+      <div class="composer-card"><div class="composer-copy">Try and build out different mock designs for a new way we can move the browsers and tabs around, and how they are situated…</div><div class="composer-foot"><span>＋</span><span>♧ Full access</span><span class="push">✳ Opus 5.5</span><span>⌁ High</span><span class="send-pill">↑</span></div></div>
+    </div>
+  </div>
+</template>
+<template id="webTemplate">
+  <div class="web-canvas">
+    <div class="web-controls"><span>‹</span><span>›</span><span>↻</span><div class="address"><span>♧</span><span class="web-address">localhost:4179 / workspace</span></div><span>⋮</span></div>
+    <div class="web-page">
+      <div class="web-page-nav"><span class="web-logo">A</span><strong>AVEN</strong><span>Workspace</span><span>Documentation</span></div>
+      <div class="web-kicker">LOCAL BROWSER PREVIEW</div>
+      <h2 class="web-heading">A quieter place for every open page.</h2>
+      <p>Move a page beside a task, keep it in a deck, or tuck it into a dock. Your work stays right where you left it.</p>
+      <div class="web-cards"><div class="web-card"><span class="symbol">◫</span><b>Arrange</b><small>Place browser content next to the work it supports.</small></div><div class="web-card"><span class="symbol">✳</span><b>Focus</b><small>Keep the active title clear as the strip gets smaller.</small></div><div class="web-card"><span class="symbol">▧</span><b>Return</b><small>Find hidden pages from the same workspace.</small></div></div>
+    </div>
+  </div>
+</template>
+
+<script>
+  (function () {
+    "use strict";
+    var definitions = {
+      A: { name: "Compact strip", description: "The current mixed row, compressed to leave more breathing room.", benefit: "Keeps the current drag language and gives substantially more room to the workspace.", hint: "Click tabs to switch. Drag one to reorder, or drop it on the split target." },
+      B: { name: "Browser deck", description: "Task tabs stay on top; page tabs travel with the browser surface.", benefit: "Makes task and page hierarchy easier to scan when several web pages are open.", hint: "Switch between task tabs and Web. Use “Move page to top row” to try promotion." },
+      C: { name: "Icon shelf", description: "Persistent marks replace titles until you ask to reveal them.", benefit: "Gives the canvas the most breathing room and keeps every tab one click away.", hint: "Click Reveal titles, then choose an icon. The active title stays in the breadcrumb." },
+      D: { name: "Pane canvas", description: "Each pane carries only the tabs that live inside it.", benefit: "The visual placement of a task or page matches the place where it opens.", hint: "Click local tabs or All open tabs. Drag a tab to another pane header." },
+      E: { name: "Browser dock", description: "Browser pages live in a collapsible rail beside task tabs.", benefit: "Keeps a reference page available without adding it to the task tab row.", hint: "Choose a browser page; minimize the dock or expand it beside the task." }
+    };
+    var tabNames = { race: "Fix Aven errors after races", opus: "Opus 5.5", audit: "Audit Orchestration Race Fixes", preview: "Local preview", docs: "Aven docs" };
+    var browsers = { preview: true, docs: true };
+    var activeByVariant = { A: "opus", B: "preview", C: "opus", D: "opus", E: "opus" };
+    var activeBrowser = "preview";
+    var current = (location.hash || "").replace("#", "").toUpperCase();
+    if (!definitions[current]) current = "A";
+    var grouped = false, minimized = false, shelfRevealed = false, splitA = false, splitC = false, splitD = true, dockCollapsed = false, dockWide = false, overviewOpen = false, promoted = false;
+    var feedbackMode = false, feedbackOpen = false, selectedTarget = null, dragId = null, toastTimer = 0;
+    var notes = [];
+    var overall = "";
+    try {
+      notes = JSON.parse(localStorage.getItem("aven-tab-mock-notes") || "[]");
+      if (!Array.isArray(notes)) notes = [];
+      overall = localStorage.getItem("aven-tab-mock-overall") || "";
+    } catch (_) { notes = []; overall = ""; }
+    var frame = document.getElementById("appFrame");
+    var wrap = document.getElementById("previewWrap");
+    var drawer = document.getElementById("reviewDrawer");
+    var toast = document.getElementById("toast");
+    document.querySelectorAll(".chat-slot").forEach(function (slot) { slot.appendChild(document.getElementById("chatTemplate").content.cloneNode(true)); });
+    document.querySelectorAll(".web-slot").forEach(function (slot) { slot.appendChild(document.getElementById("webTemplate").content.cloneNode(true)); });
+
+    function saveFeedback() {
+      try {
+        localStorage.setItem("aven-tab-mock-notes", JSON.stringify(notes));
+        localStorage.setItem("aven-tab-mock-overall", overall);
+      } catch (_) {}
+    }
+    function flash(message) {
+      clearTimeout(toastTimer);
+      toast.textContent = message;
+      toast.hidden = false;
+      toastTimer = setTimeout(function () { toast.hidden = true; }, 2600);
+    }
+    function setActive(id) {
+      if (!tabNames[id]) return;
+      if (current === "E" && browsers[id]) activeBrowser = id;
+      else if (current === "D" && browsers[id]) activeBrowser = id;
+      else activeByVariant[current] = id;
+      if (current === "B" && browsers[id]) activeByVariant.B = id;
+      if (current === "B" && !browsers[id]) activeByVariant.B = id;
+      if (current === "D") overviewOpen = false;
+      update();
+    }
+    function activeTab() { return activeByVariant[current]; }
+    function setVariant(key) {
+      if (!definitions[key]) return;
+      current = key;
+      location.hash = key;
+      selectedTarget = null;
+      update();
+    }
+    function update() {
+      var def = definitions[current];
+      document.querySelectorAll(".variant-nav button").forEach(function (b) { b.setAttribute("aria-current", String(b.dataset.variant === current)); });
+      document.getElementById("conceptTitle").textContent = current + " · " + def.name;
+      document.getElementById("conceptDescription").textContent = def.description;
+      document.getElementById("benefitText").textContent = def.benefit;
+      document.getElementById("interactionHint").textContent = def.hint;
+      document.getElementById("drawerVariant").textContent = current + " · " + def.name;
+      frame.classList.toggle("grouped", grouped);
+      frame.classList.toggle("minimized", minimized);
+      wrap.classList.toggle("feedback-mode", feedbackMode);
+      document.getElementById("groupToggle").setAttribute("aria-pressed", String(grouped));
+      document.getElementById("groupToggle").textContent = grouped ? "✓ Research group · 2" : "＋ Create group";
+      document.getElementById("minimizeToggle").setAttribute("aria-pressed", String(minimized));
+      document.getElementById("minimizeToggle").textContent = minimized ? "▤ Show labels" : "◫ Minimize labels";
+      document.getElementById("feedbackToggle").setAttribute("aria-pressed", String(feedbackMode));
+      document.getElementById("feedbackToggle").textContent = feedbackMode ? "✓ Selecting elements" : "✎ Add feedback";
+      document.querySelectorAll("[data-panel]").forEach(function (p) { p.classList.toggle("active", p.dataset.panel === current); });
+      document.querySelectorAll("[data-stage]").forEach(function (p) { p.classList.toggle("active", p.dataset.stage === current); });
+      document.querySelectorAll(".app-frame [data-tab]").forEach(function (b) {
+        var id = b.dataset.tab;
+        var active = current === "D" || current === "E" ? (b.closest(".browser-pane,.browser-dock") ? id === activeBrowser : id === activeByVariant[current]) : id === activeTab();
+        b.classList.toggle("active", active);
+        if (b.tagName === "BUTTON") b.setAttribute("aria-pressed", String(active));
+      });
+      document.querySelectorAll(".side-item").forEach(function (b) { b.classList.toggle("active", b.dataset.tab === activeByVariant[current]); });
+      document.querySelectorAll(".chat-active-title").forEach(function (el) { el.textContent = tabNames[browsers[activeTab()] ? "opus" : activeTab()] || "Opus 5.5"; });
+      var webId = current === "E" || current === "D" ? activeBrowser : (browsers[activeTab()] ? activeTab() : activeBrowser);
+      document.querySelectorAll(".web-address").forEach(function (el) { el.textContent = webId === "docs" ? "docs.aven.app / guide" : "localhost:4179 / workspace"; });
+      document.querySelectorAll(".web-heading").forEach(function (el) { el.textContent = webId === "docs" ? "Build a workspace around your work." : "A quieter place for every open page."; });
+      document.getElementById("shelfCurrent").textContent = tabNames[activeByVariant.C];
+      var stageA = document.querySelector(".stage-a"), stageB = document.querySelector(".stage-b"), stageC = document.querySelector(".stage-c"), stageD = document.querySelector(".stage-d");
+      stageA.classList.toggle("split", splitA);
+      stageC.classList.toggle("split", splitC);
+      stageD.classList.toggle("single", !splitD);
+      stageB.dataset.mode = browsers[activeByVariant.B] ? "browser" : "chat";
+      stageB.classList.toggle("promoted", promoted);
+      document.querySelector(".top-b .browser-destination").classList.toggle("active", browsers[activeByVariant.B]);
+      document.querySelector(".top-c").classList.toggle("revealed", shelfRevealed);
+      document.querySelector('[data-action="shelf-reveal"]').textContent = shelfRevealed ? "Hide titles" : "Reveal titles";
+      document.querySelector('[data-action="split-d"]').textContent = splitD ? "Combine panes" : "Split panes";
+      document.querySelector(".top-e [data-action='dock-collapse']").textContent = dockCollapsed ? "Show browser dock" : "Minimize browser dock";
+      var dock = document.getElementById("browserDock");
+      dock.classList.toggle("collapsed", dockCollapsed);
+      dock.classList.toggle("wide", dockWide && !dockCollapsed);
+      document.getElementById("overview").hidden = !overviewOpen;
+      document.querySelector('[data-action="overview"]').setAttribute("aria-expanded", String(overviewOpen));
+      document.querySelectorAll(".stage-a .content-view, .stage-c .content-view").forEach(function (view) {
+        var container = view.closest(".stage-variant");
+        var id = activeByVariant[container.dataset.stage];
+        view.classList.toggle("active", view.dataset.view === (browsers[id] ? "browser" : "chat"));
+      });
+      document.querySelectorAll("[data-feedback-target]").forEach(function (el) { if (feedbackMode) el.setAttribute("tabindex", "0"); else el.removeAttribute("tabindex"); });
+      drawer.hidden = !feedbackOpen;
+      renderFeedback();
+    }
+    function renderFeedback() {
+      document.getElementById("selectedTarget").textContent = selectedTarget ? selectedTarget.label : "No element selected";
+      document.getElementById("feedbackInstruction").textContent = feedbackMode ? "Click a control or outlined region in the mock. Press Esc to stop selecting." : "Use Select element to attach a note to a specific part of this concept.";
+      document.getElementById("saveNote").disabled = !selectedTarget;
+      document.getElementById("noteModeButton").textContent = feedbackMode ? "Stop selecting" : "Select element";
+      var list = document.getElementById("noteList");
+      list.replaceChildren();
+      notes.filter(function (n) { return n.variant === current; }).forEach(function (n) {
+        var row = document.createElement("div"); row.className = "saved-note";
+        var words = document.createElement("div");
+        var name = document.createElement("b"); name.textContent = n.target + ": ";
+        var copy = document.createElement("span"); copy.textContent = n.text;
+        var remove = document.createElement("button"); remove.type = "button"; remove.textContent = "×"; remove.title = "Remove note"; remove.setAttribute("aria-label", "Remove note on " + n.target); remove.dataset.removeNote = n.id;
+        words.append(name, copy); row.append(words, remove); list.append(row);
+      });
+      if (document.getElementById("overallDirection").value !== overall) document.getElementById("overallDirection").value = overall;
+    }
+    function targetName(el) {
+      return (el.getAttribute("data-feedback-target") || el.getAttribute("aria-label") || el.getAttribute("title") || el.textContent || el.tagName.toLowerCase()).replace(/\s+/g, " ").trim().slice(0, 90);
+    }
+    function chooseTarget(el) {
+      if (!el) return;
+      document.querySelectorAll(".feedback-selected").forEach(function (item) { item.classList.remove("feedback-selected"); });
+      el.classList.add("feedback-selected");
+      selectedTarget = { label: targetName(el), selector: el.dataset.feedbackTarget ? '[data-feedback-target="' + el.dataset.feedbackTarget + '"]' : (el.dataset.tab ? '[data-tab="' + el.dataset.tab + '"]' : el.tagName.toLowerCase()) };
+      feedbackOpen = true; update();
+      document.getElementById("targetNote").focus();
+    }
+    function reorder(source, target) {
+      if (!source || !target || source === target) return;
+      var container = target.closest(".reorder-zone");
+      var sourceNode = container && container.querySelector('[data-tab="' + source + '"]');
+      if (!sourceNode) { flash("Drop on a pane to move this tab there"); return; }
+      container.insertBefore(sourceNode, target);
+      flash("Tab moved. This is a layout mock.");
+    }
+    document.querySelector(".variant-nav").addEventListener("click", function (e) { var b = e.target.closest("[data-variant]"); if (b) setVariant(b.dataset.variant); });
+    document.getElementById("groupToggle").addEventListener("click", function () { grouped = !grouped; update(); flash(grouped ? "Research group created for two tabs" : "Research group removed"); });
+    document.getElementById("minimizeToggle").addEventListener("click", function () { minimized = !minimized; update(); });
+    document.getElementById("feedbackToggle").addEventListener("click", function () { feedbackMode = !feedbackMode; feedbackOpen = true; selectedTarget = null; update(); });
+    document.getElementById("noteModeButton").addEventListener("click", function () { feedbackMode = !feedbackMode; feedbackOpen = true; update(); });
+    document.getElementById("closeDrawer").addEventListener("click", function () { feedbackOpen = false; feedbackMode = false; selectedTarget = null; document.querySelectorAll(".feedback-selected").forEach(function (el) { el.classList.remove("feedback-selected"); }); update(); });
+    document.getElementById("saveNote").addEventListener("click", function () {
+      var text = document.getElementById("targetNote").value.trim();
+      if (!selectedTarget || !text) { document.getElementById("copyStatus").textContent = "Select an element and write a note first."; return; }
+      notes.push({ id: String(Date.now()) + Math.random().toString(16).slice(2), variant: current, target: selectedTarget.label, selector: selectedTarget.selector, text: text });
+      document.getElementById("targetNote").value = ""; document.getElementById("copyStatus").textContent = "Saved locally in this browser.";
+      saveFeedback(); renderFeedback();
+    });
+    document.getElementById("noteList").addEventListener("click", function (e) { var b = e.target.closest("[data-remove-note]"); if (!b) return; notes = notes.filter(function (n) { return n.id !== b.dataset.removeNote; }); saveFeedback(); renderFeedback(); });
+    document.getElementById("overallDirection").addEventListener("input", function (e) { overall = e.target.value; saveFeedback(); });
+    document.getElementById("clearVariantNotes").addEventListener("click", function () { notes = notes.filter(function (n) { return n.variant !== current; }); saveFeedback(); renderFeedback(); document.getElementById("copyStatus").textContent = "Notes for this concept cleared."; });
+    document.getElementById("copyFeedback").addEventListener("click", function () {
+      var lines = ["## Aven tab workspace feedback", "", "**Overall direction:** " + (overall.trim() || "(none yet)"), ""];
+      Object.keys(definitions).forEach(function (key) {
+        var items = notes.filter(function (n) { return n.variant === key; });
+        if (!items.length) return;
+        lines.push("### " + key + " · " + definitions[key].name);
+        items.forEach(function (n, i) { lines.push((i + 1) + ". **" + n.target + "** (" + n.selector + "): " + n.text); });
+        lines.push("");
+      });
+      var value = lines.join("\n");
+      var status = document.getElementById("copyStatus");
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(value).then(function () { status.textContent = "Feedback copied. Paste it into the Aven conversation."; }, function () { status.textContent = "Clipboard unavailable. Select and copy your notes here."; });
+      else status.textContent = "Clipboard unavailable in this preview.";
+    });
+    frame.addEventListener("click", function (e) {
+      var element = e.target.closest("button,[data-feedback-target]");
+      if (feedbackMode) { e.preventDefault(); e.stopPropagation(); chooseTarget(element); return; }
+      var tab = e.target.closest("[data-tab]");
+      if (tab) { setActive(tab.dataset.tab); return; }
+      var action = e.target.closest("[data-action]");
+      if (!action) return;
+      switch (action.dataset.action) {
+        case "split-a": splitA = !splitA; flash(splitA ? "Browser placed beside task" : "Returned to one surface"); break;
+        case "split-c": splitC = !splitC; flash(splitC ? "Browser placed beside task" : "Returned to one surface"); break;
+        case "split-d": splitD = !splitD; flash(splitD ? "Two panes restored" : "Panes combined"); break;
+        case "browser-deck": activeByVariant.B = activeBrowser; break;
+        case "promote-browser": promoted = !promoted; flash(promoted ? "Browser page promoted to workspace row" : "Browser page returned to deck"); break;
+        case "shelf-reveal": shelfRevealed = !shelfRevealed; break;
+        case "overview": overviewOpen = !overviewOpen; break;
+        case "dock-collapse": dockCollapsed = !dockCollapsed; break;
+        case "dock-wide": dockWide = !dockWide; dockCollapsed = false; break;
+        case "new-browser": activeBrowser = "preview"; activeByVariant[current] = "preview"; flash("Local preview opened"); break;
+        case "new-session": activeByVariant[current] = "opus"; flash("New session preview"); break;
+      }
+      update();
+    });
+    frame.addEventListener("keydown", function (e) {
+      if (!feedbackMode || (e.key !== "Enter" && e.key !== " ")) return;
+      var el = e.target.closest("[data-feedback-target]");
+      if (el && el.tagName !== "BUTTON") { e.preventDefault(); chooseTarget(el); }
+    });
+    frame.addEventListener("dragstart", function (e) { var tab = e.target.closest("[data-tab]"); if (!tab) return; dragId = tab.dataset.tab; tab.classList.add("dragging-tab"); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", dragId); });
+    frame.addEventListener("dragend", function () { dragId = null; document.querySelectorAll(".dragging-tab,.drop-highlight,.dragover").forEach(function (el) { el.classList.remove("dragging-tab", "drop-highlight", "dragover"); }); });
+    frame.addEventListener("dragover", function (e) { var zone = e.target.closest("[data-tab],[data-drop-place]"); if (!zone || !dragId) return; e.preventDefault(); zone.classList.add(zone.hasAttribute("data-drop-place") ? "dragover" : "drop-highlight"); });
+    frame.addEventListener("dragleave", function (e) { var zone = e.target.closest("[data-tab],[data-drop-place]"); if (zone) zone.classList.remove("dragover", "drop-highlight"); });
+    frame.addEventListener("drop", function (e) {
+      var zone = e.target.closest("[data-tab],[data-drop-place]");
+      if (!zone || !dragId) return;
+      e.preventDefault();
+      if (zone.dataset.tab) reorder(dragId, zone);
+      else if (zone.dataset.dropPlace === "split") { splitA = true; flash("Tab placed in a right split"); }
+      else if (zone.dataset.dropPlace === "dock") { dockCollapsed = false; dockWide = true; if (browsers[dragId]) activeBrowser = dragId; flash("Page moved to browser dock"); }
+      else if (zone.dataset.dropPlace === "browser" || zone.dataset.dropPlace === "chat") { flash("Tab placed in " + zone.dataset.dropPlace + " pane"); }
+      dragId = null; update();
+    });
+    window.addEventListener("keydown", function (e) { if (e.key === "Escape") { if (feedbackMode) { feedbackMode = false; update(); } else if (overviewOpen) { overviewOpen = false; update(); } } });
+    window.addEventListener("hashchange", function () { var key = location.hash.replace("#", "").toUpperCase(); if (definitions[key] && key !== current) setVariant(key); });
+    update();
+  }());
+</script>
+</body>
+</html>
