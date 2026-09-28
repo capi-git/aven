@@ -133,6 +133,7 @@ import {
   saveBrowserWorkspaces,
   normalizeBrowserWorkspace,
   addBrowserTab,
+  addRetainedBrowserTab,
   selectBrowserTab,
   closeBrowserTab,
   keepBrowserTab,
@@ -1353,7 +1354,9 @@ export default function App({
     const id = crypto.randomUUID();
     setBrowserWorkspaces((all) => ({
       ...all,
-      [projectCwd]: addBrowserTab(
+      // Every caller is an explicit "new browser" request, so the page it
+      // covers stays in the strip instead of being replaced as a preview.
+      [projectCwd]: addRetainedBrowserTab(
         { ...(all[projectCwd] ?? EMPTY_BROWSER), mode: "tab" },
         { id, url: "" },
       ),
