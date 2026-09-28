@@ -118,10 +118,19 @@ jobs:
               raise SystemExit('Refusing to publish an unverified signing identity.')
           PY
           # Never attach a new binary to a tag that points at different source.
-          if git ls-remote --exit-code --tags origin "refs/tags/v$task_version" > /dev/null 2>&1; then
-            echo "Version tag already exists; choose a new release version." >&2
-            exit 1
-          fi
+          task_tag_status=0
+          git ls-remote --exit-code --tags origin "refs/tags/v$task_version" > /dev/null 2>&1 || task_tag_status=$?
+          case "$task_tag_status" in
+            2) ;; # Only a successful lookup with no matching ref permits publication.
+            0)
+              echo "Version tag already exists; choose a new release version." >&2
+              exit 1
+              ;;
+            *)
+              echo "Could not verify whether the release tag exists (Git exit $task_tag_status); refusing to publish." >&2
+              exit 1
+              ;;
+          esac
           gh release create "v$task_version" "$task_release_dir"/* --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" --title "Aven $task_version" --latest \
             --notes "Aven $task_version for Apple Silicon Macs. The app is Developer ID signed and updates are signed by Aven. This build is not Apple-notarized. See CHANGELOG.md for changes."

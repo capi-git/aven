@@ -64,8 +64,14 @@ export function summarizeCopies(worktrees: readonly GitWorktree[]): CopySummary[
 export function removalWarning(copy: CopySummary): string {
   const { worktree, race } = copy;
   if (race?.race.state === "running")
-    return `This race is still running. Removing it stops its agents and deletes all ${race.race.lanes.length} of its copies.`;
-  const parts: string[] = [];
+    return `This race is still running. Removing it stops its agents and deletes all ${race.race.lanes.length} of its copies, including unsaved and ignored files.`;
+  if (!race && !worktree.branch)
+    return "This copy has no branch. Create a branch in it before removing it so its commits stay reachable.";
+  const parts = [
+    race
+      ? "The entire folder, including ignored files, will be deleted."
+      : "The folder will be deleted. Copies with ignored files must be backed up and cleared first.",
+  ];
   const files = worktree.files.length;
   if (files > 0)
     parts.push(
@@ -77,9 +83,7 @@ export function removalWarning(copy: CopySummary): string {
         ? `Its ${worktree.aheadOfDefault} unmerged ${worktree.aheadOfDefault === 1 ? "commit is" : "commits are"} deleted too.`
         : `Its branch keeps the ${worktree.aheadOfDefault} ${worktree.aheadOfDefault === 1 ? "commit" : "commits"} main doesn't have.`,
     );
-  return parts.length
-    ? parts.join(" ")
-    : "The folder is deleted. Nothing in it is lost.";
+  return parts.join(" ");
 }
 
 /** Remove a copy the right way: races clean up through their race. */

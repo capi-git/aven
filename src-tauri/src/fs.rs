@@ -342,6 +342,36 @@ pub(crate) fn remove_worktree_for(root: &Path, path: &Path) -> Result<(), String
     {
         return Err("Race copies are removed through their race.".into());
     }
+    if copy.branch.is_none() {
+        return Err(
+            "This copy has no branch. Create a branch in it before removing it so its commits stay reachable."
+                .into(),
+        );
+    }
+    // The Changes list deliberately excludes ignored files. A clean-looking
+    // copy can still hold local data, so never discard that data with --force.
+    // Collapse ignored directories rather than walking every dependency file.
+    let ignored = git_run(
+        Path::new(&copy.path),
+        &[
+            "ls-files",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "--directory",
+            "--no-empty-directory",
+            "-z",
+            "--",
+            ".",
+        ],
+    )
+    .ok_or("Could not check this copy for ignored files. Nothing was removed.")?;
+    if !ignored.is_empty() {
+        return Err(
+            "This copy contains ignored files or folders. Back up anything you need and remove those files before removing the copy. Nothing was removed."
+                .into(),
+        );
+    }
     let primary = copies
         .iter()
         .find(|copy| copy.primary)
@@ -4431,7 +4461,7 @@ mod tests {
     }
 
     #[test]
-    fn removes_a_finished_copy_and_keeps_branches_with_unmerged_work() {
+    fn worktree_removal_keeps_branches_with_unmerged_work() {
         let dir = tmp("git-worktree-remove");
         let repo = dir.0.join("repo");
         std::fs::create_dir_all(&repo).unwrap();
@@ -4485,6 +4515,100 @@ mod tests {
         assert!(race.exists());
         assert!(remove_worktree_for(&repo, &dir.0.join("missing")).is_err());
         assert_eq!(git_worktrees_for(&repo).len(), 3);
+    }
+
+    #[test]
+    fn worktree_removal_refuses_ignored_files_and_folders() {
+        let dir = tmp("git-worktree-remove-ignored");
+        let repo = dir.0.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        assert!(init_git_commit(
+            &repo,
+            &[(".gitignore", ".env\nlocal-data/\n")]
+        ));
+        let copy = dir.0.join("copy");
+        assert!(git(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "copy",
+                copy.to_str().unwrap()
+            ]
+        ));
+        std::fs::write(copy.join(".env"), "local configuration\n").unwrap();
+        std::fs::create_dir(copy.join("local-data")).unwrap();
+        std::fs::write(copy.join("local-data/draft.txt"), "private draft\n").unwrap();
+
+        // These files never appear in the Changes list, but must survive.
+        assert!(git_diff_files_for(&copy).files.is_empty());
+        let error = remove_worktree_for(&repo, &copy).unwrap_err();
+        assert!(error.contains("ignored files or folders"));
+        assert_eq!(
+            std::fs::read_to_string(copy.join(".env")).unwrap(),
+            "local configuration\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(copy.join("local-data/draft.txt")).unwrap(),
+            "private draft\n"
+        );
+        assert!(git_ref_exists(&repo, "refs/heads/copy"));
+
+        // An ignored directory alone still blocks removal. Once the user has
+        // cleared its files, removing the otherwise finished copy succeeds.
+        std::fs::remove_file(copy.join(".env")).unwrap();
+        assert!(remove_worktree_for(&repo, &copy).is_err());
+        assert!(copy.join("local-data/draft.txt").is_file());
+        std::fs::remove_dir_all(copy.join("local-data")).unwrap();
+        remove_worktree_for(&repo, &copy).unwrap();
+        assert!(!copy.exists());
+    }
+
+    #[test]
+    fn worktree_removal_refuses_detached_commits() {
+        let dir = tmp("git-worktree-remove-detached");
+        let repo = dir.0.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        assert!(init_git_commit(&repo, &[("a.txt", "base\n")]));
+        let copy = dir.0.join("copy");
+        assert!(git(
+            &repo,
+            &["worktree", "add", "-q", "--detach", copy.to_str().unwrap()]
+        ));
+        std::fs::write(copy.join("a.txt"), "unique detached work\n").unwrap();
+        assert!(git(&copy, &["add", "."]));
+        assert!(git(&copy, &["commit", "-q", "-m", "detached work"]));
+        let head = git_stdout(&copy, &["rev-parse", "HEAD"]).unwrap();
+        assert_eq!(
+            git_run(&repo, &["for-each-ref", "--contains", &head]),
+            Some(String::new())
+        );
+
+        let error = remove_worktree_for(&repo, &copy).unwrap_err();
+        assert!(error.contains("Create a branch"));
+        assert_eq!(
+            git_stdout(&copy, &["rev-parse", "HEAD"]),
+            Some(head.clone())
+        );
+        assert!(git_run(&copy, &["reflog", "show", "--format=%H", "HEAD"])
+            .unwrap()
+            .contains(&head));
+        assert_eq!(
+            std::fs::read_to_string(copy.join("a.txt")).unwrap(),
+            "unique detached work\n"
+        );
+
+        // Following the refusal's guidance makes removal safe: the new branch
+        // retains the unique commit after the checkout itself is gone.
+        assert!(git(&copy, &["switch", "-q", "-c", "recovered"]));
+        remove_worktree_for(&repo, &copy).unwrap();
+        assert!(!copy.exists());
+        assert_eq!(
+            git_stdout(&repo, &["rev-parse", "refs/heads/recovered"]),
+            Some(head)
+        );
     }
 
     fn git(dir: &Path, args: &[&str]) -> bool {

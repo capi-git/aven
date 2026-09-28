@@ -156,18 +156,23 @@ describe("other copies", () => {
 
   it("says what removing a copy throws away", () => {
     expect(removalWarning(summary({}))).toBe(
-      "The folder is deleted. Nothing in it is lost.",
+      "The folder will be deleted. Copies with ignored files must be backed up and cleared first.",
     );
     expect(
       removalWarning(summary({ files: [file("a.ts")], aheadOfDefault: 2 })),
     ).toBe(
-      "1 unsaved file will be deleted. Its branch keeps the 2 commits main doesn't have.",
+      "The folder will be deleted. Copies with ignored files must be backed up and cleared first. 1 unsaved file will be deleted. Its branch keeps the 2 commits main doesn't have.",
     );
     expect(
       removalWarning(summary({ aheadOfDefault: 1 }, raceRecord("kept"))),
-    ).toBe("Its 1 unmerged commit is deleted too.");
+    ).toBe(
+      "The entire folder, including ignored files, will be deleted. Its 1 unmerged commit is deleted too.",
+    );
     expect(removalWarning(summary({}, raceRecord("running")))).toBe(
-      "This race is still running. Removing it stops its agents and deletes all 2 of its copies.",
+      "This race is still running. Removing it stops its agents and deletes all 2 of its copies, including unsaved and ignored files.",
+    );
+    expect(removalWarning(summary({ branch: null, aheadOfDefault: 1 }))).toBe(
+      "This copy has no branch. Create a branch in it before removing it so its commits stay reachable.",
     );
   });
 

@@ -68,7 +68,7 @@ describe("removing another copy", () => {
     await act(async () => button("Done")!.click());
     await act(async () => button("Remove")!.click());
     expect(container.textContent).toContain(
-      "The folder is deleted. Nothing in it is lost.",
+      "The folder will be deleted. Copies with ignored files must be backed up and cleared first.",
     );
     expect(invoke).not.toHaveBeenCalledWith(
       "git_worktree_remove",

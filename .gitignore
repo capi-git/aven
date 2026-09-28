@@ -11,6 +11,8 @@
 *.mobileprovision
 *.keystore
 *.jks
+*.keychain
+*.keychain-db*
 id_rsa*
 id_ed25519*
 .tauri/
