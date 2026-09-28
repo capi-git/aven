@@ -15,7 +15,7 @@ import {
 import { JsonRpcClient, type JsonRpcId } from "./jsonRpc";
 import { mergeStream, streamTextDelta } from "./streamText";
 
-const TEXT_CHILD_ID = "monocode-codex-text";
+const TEXT_CHILD_ID = "aven-codex-text";
 const INIT_TIMEOUT_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 45_000;
 const TEXT_RUNTIME_MODE = "supervised" as const;

@@ -257,7 +257,7 @@ describe("mergeCatalog", () => {
     expect(body).toContain("peekaboo");
     expect(body).not.toContain("orca skills get");
   });
-  it("lets .agents win, then MonoCode create-skill, then provider skills", () => {
+  it("lets .agents win, then Aven create-skill, then provider skills", () => {
     const catalog = mergeCatalog([
       {
         name: "review-pr",

@@ -388,7 +388,7 @@ describe("orchestration composer and card", () => {
       allowedHarnesses: ["codex", "cursor"],
       proposalId: "card",
       maxWorkers: 2,
-      cli: "monocode",
+      cli: "aven",
       tasks: [
         task,
         {
@@ -516,7 +516,7 @@ describe("orchestration composer and card", () => {
       status: "active",
       allowedHarnesses: ["codex"],
       maxWorkers: 2,
-      cli: "monocode",
+      cli: "aven",
       tasks: [
         task,
         {

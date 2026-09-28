@@ -8,7 +8,7 @@ import {
 } from "./child";
 import { mergeStream } from "./streamText";
 
-const TEXT_CHILD_ID = "monocode-text";
+const TEXT_CHILD_ID = "aven-text";
 const INIT_TIMEOUT_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 20_000;
 const TEXT_MODEL = "composer-2.5";

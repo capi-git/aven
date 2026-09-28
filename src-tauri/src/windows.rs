@@ -174,8 +174,8 @@ mod tests {
     // This subprocess deliberately dies before it can wait; the parent verifies cleanup.
     #[allow(clippy::zombie_processes)]
     fn abrupt_exit_kills_children() {
-        const MARKER: &str = "MONOCODE_JOB_TEST_CHILD";
-        const PID_FILE: &str = "MONOCODE_JOB_TEST_DESCENDANT_FILE";
+        const MARKER: &str = "AVEN_JOB_TEST_CHILD";
+        const PID_FILE: &str = "AVEN_JOB_TEST_DESCENDANT_FILE";
         if std::env::var(MARKER).as_deref() == Ok("terminal") {
             // This is the terminal's startup code. Launch a detached child
             // immediately, before the supervisor can do any post-spawn work.
@@ -204,10 +204,8 @@ mod tests {
             let pair = portable_pty::native_pty_system()
                 .openpty(portable_pty::PtySize::default())
                 .unwrap();
-            let pid_file = std::env::temp_dir().join(format!(
-                "monocode-pty-descendant-{}.pid",
-                std::process::id()
-            ));
+            let pid_file = std::env::temp_dir()
+                .join(format!("aven-pty-descendant-{}.pid", std::process::id()));
             let _ = std::fs::remove_file(&pid_file);
             let mut terminal = portable_pty::CommandBuilder::new(std::env::current_exe().unwrap());
             terminal.args([

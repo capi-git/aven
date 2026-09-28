@@ -2089,7 +2089,7 @@ fn with_temp_markdown(
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let path = std::env::temp_dir().join(format!("monocode-comment-{stamp}.md"));
+    let path = std::env::temp_dir().join(format!("aven-comment-{stamp}.md"));
     std::fs::write(&path, body).map_err(|error| error.to_string())?;
     let path_str = path.to_string_lossy().into_owned();
     let result = run(&path_str);
@@ -2647,7 +2647,7 @@ fn git_pr_create_for(root: &Path, input: &GitPrCreateInput) -> Result<String, St
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let body_path = std::env::temp_dir().join(format!("monocode-pr-{stamp}.md"));
+    let body_path = std::env::temp_dir().join(format!("aven-pr-{stamp}.md"));
     std::fs::write(&body_path, input.body.trim()).map_err(|e| e.to_string())?;
     let result = gh_checked_write(
         root,
@@ -3698,7 +3698,7 @@ fn write_attachment_sync(name: &str, data: &str) -> Result<String, String> {
             MAX_ATTACHMENT_EMBED_BYTES / 1024 / 1024
         ));
     }
-    let dir = std::env::temp_dir().join("monocode-attachments");
+    let dir = std::env::temp_dir().join("aven-attachments");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -3806,7 +3806,7 @@ fn write_text_file_sync(path: &str, content: &str) -> Result<(), String> {
     let mut temporary = None;
     for attempt in 0..100 {
         let candidate = parent.join(format!(
-            ".{name}.monocode-{}-{stamp}-{attempt}.tmp",
+            ".{name}.aven-{}-{stamp}-{attempt}.tmp",
             std::process::id()
         ));
         match std::fs::OpenOptions::new()
@@ -3935,10 +3935,7 @@ fn rename_path_sync(path: &str, name: &str) -> Result<String, String> {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        let tmp = parent.join(format!(
-            ".{}.monocode-rename-{stamp}",
-            file_label(&from, "tmp")
-        ));
+        let tmp = parent.join(format!(".{}.aven-rename-{stamp}", file_label(&from, "tmp")));
         std::fs::rename(&from, &tmp).map_err(|e| e.to_string())?;
         if let Err(e) = std::fs::rename(&tmp, &dest) {
             let _ = std::fs::rename(&tmp, &from);
@@ -4120,8 +4117,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let dir =
-            std::env::temp_dir().join(format!("monocode-editor-{}-{stamp}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("aven-editor-{}-{stamp}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("example.rs");
         std::fs::write(&path, "fn old() {}\n").unwrap();
@@ -4190,10 +4186,8 @@ mod tests {
                 .unwrap()
                 .as_nanos();
             let seq = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
-            let dir = std::env::temp_dir().join(format!(
-                "monocode-{label}-{}-{stamp}-{seq}",
-                std::process::id()
-            ));
+            let dir = std::env::temp_dir()
+                .join(format!("aven-{label}-{}-{stamp}-{seq}", std::process::id()));
             match std::fs::create_dir(&dir) {
                 Ok(()) => return Tmp(dir),
                 Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
@@ -4369,8 +4363,8 @@ mod tests {
                 return false;
             }
         }
-        git(dir, &["config", "user.name", "MonoCode"])
-            && git(dir, &["config", "user.email", "monocode@test"])
+        git(dir, &["config", "user.name", "Aven"])
+            && git(dir, &["config", "user.email", "aven@test"])
             && git(dir, &["config", "commit.gpgsign", "false"])
             && git(dir, &["config", "core.autocrlf", "false"])
     }
@@ -4615,18 +4609,18 @@ mod tests {
         Command::new("git")
             .args([
                 "-c",
-                "user.name=MonoCode",
+                "user.name=Aven",
                 "-c",
-                "user.email=monocode@test",
+                "user.email=aven@test",
                 "-c",
                 "commit.gpgsign=false",
             ])
             .args(args)
             .current_dir(dir)
-            .env("GIT_AUTHOR_NAME", "MonoCode")
-            .env("GIT_AUTHOR_EMAIL", "monocode@test")
-            .env("GIT_COMMITTER_NAME", "MonoCode")
-            .env("GIT_COMMITTER_EMAIL", "monocode@test")
+            .env("GIT_AUTHOR_NAME", "Aven")
+            .env("GIT_AUTHOR_EMAIL", "aven@test")
+            .env("GIT_COMMITTER_NAME", "Aven")
+            .env("GIT_COMMITTER_EMAIL", "aven@test")
             .status()
             .map(|status| status.success())
             .unwrap_or(false)
@@ -5292,8 +5286,8 @@ mod tests {
                 .status()
                 .map(|status| !status.success())
                 .unwrap_or(true)
-            || !git(&b.0, &["config", "user.name", "MonoCode"])
-            || !git(&b.0, &["config", "user.email", "monocode@test"])
+            || !git(&b.0, &["config", "user.name", "Aven"])
+            || !git(&b.0, &["config", "user.email", "aven@test"])
             || !git(&b.0, &["config", "commit.gpgsign", "false"])
             || !git(&b.0, &["config", "core.autocrlf", "false"])
             || !git(&b.0, &["checkout", "--", "."])
@@ -5339,8 +5333,8 @@ mod tests {
     #[test]
     fn pr_head_filter_qualifies_branch_with_repo_owner() {
         assert_eq!(
-            github_pr_head_filter("hardbeat920/monocode", "main").as_deref(),
-            Some("hardbeat920:main")
+            github_pr_head_filter("acme/aven", "main").as_deref(),
+            Some("acme:main")
         );
     }
 
@@ -5421,10 +5415,10 @@ mod tests {
     #[test]
     fn split_github_repo_reads_owner_and_name() {
         assert_eq!(
-            split_github_repo(" hardbeat920/monocode ").unwrap(),
-            ("hardbeat920".into(), "monocode".into())
+            split_github_repo(" acme/aven ").unwrap(),
+            ("acme".into(), "aven".into())
         );
-        assert!(split_github_repo("monocode").is_err());
+        assert!(split_github_repo("aven").is_err());
         assert!(split_github_repo("acme/web extra").is_err());
     }
 

@@ -111,7 +111,7 @@ describe("OMP native commands", () => {
       },
     ]);
     expect(mocks.spawnChild).toHaveBeenCalledWith(
-      expect.stringMatching(/^monocode-omp-skills-/),
+      expect.stringMatching(/^aven-omp-skills-/),
       "/bin/omp",
       ["--mode", "rpc", "--no-session"],
       "/repo-worktree",
@@ -123,7 +123,7 @@ describe("OMP native commands", () => {
     expect(mocks.releaseBridge).toHaveBeenCalledOnce();
   });
 
-  it("preserves metadata from all command origins and escapes reserved MonoCode commands", () => {
+  it("preserves metadata from all command origins and escapes reserved Aven commands", () => {
     expect(
       ompCommandsFromRpcData({
         commands: [
@@ -282,7 +282,7 @@ describe("discoverPiSkills", () => {
 
     expect(mocks.acquireHarnessBridge).toHaveBeenCalledOnce();
     const [childId, command, args, cwd] = mocks.spawnChild.mock.calls[0]!;
-    expect(childId).toMatch(/^monocode-pi-skills-/);
+    expect(childId).toMatch(/^aven-pi-skills-/);
     expect(command).toBe("/bin/pi");
     expect(args).toEqual(["--mode", "rpc", "--no-session"]);
     expect(cwd).toBe("/repo");

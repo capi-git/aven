@@ -197,9 +197,9 @@ input,
 .inbox-pr-diff,
 .unified-diff,
 .inbox-comment-md,
-.monocode-terminal,
-.monocode-terminal .xterm,
-.monocode-terminal .xterm-viewport {
+.aven-terminal,
+.aven-terminal .xterm,
+.aven-terminal .xterm-viewport {
   user-select: text;
 }
 
@@ -862,44 +862,44 @@ button.chat-reference:hover,
   }
 }
 
-.monocode-terminal {
+.aven-terminal {
   box-sizing: border-box;
   overflow: hidden;
   /* Shell padding; full-screen TUIs use the alt buffer and drop to 0. */
   padding: 8px 10px;
 }
 
-.monocode-terminal--alt-screen {
+.aven-terminal--alt-screen {
   padding: 0;
 }
 
-.monocode-terminal--alt-screen .monocode-terminal-host,
-.monocode-terminal--alt-screen .xterm,
-.monocode-terminal--alt-screen .xterm-viewport,
-.monocode-terminal--alt-screen .xterm-scrollable-element {
+.aven-terminal--alt-screen .aven-terminal-host,
+.aven-terminal--alt-screen .xterm,
+.aven-terminal--alt-screen .xterm-viewport,
+.aven-terminal--alt-screen .xterm-scrollable-element {
   width: 100%;
   height: 100%;
 }
 
 /* xterm draws its own scrollbar rather than using the browser's chrome. */
-.monocode-terminal .xterm .xterm-scrollable-element > .scrollbar {
+.aven-terminal .xterm .xterm-scrollable-element > .scrollbar {
   display: none !important;
 }
 
-.monocode-terminal .xterm {
+.aven-terminal .xterm {
   padding: 0;
 }
 
-.monocode-terminal .xterm-viewport {
+.aven-terminal .xterm-viewport {
   background: transparent !important;
   overflow: hidden;
 }
 
-.monocode-terminal .xterm-scrollable-element > .shadow {
+.aven-terminal .xterm-scrollable-element > .shadow {
   display: none !important;
 }
 
-.monocode-terminal .xterm-screen {
+.aven-terminal .xterm-screen {
   user-select: text;
 }
 

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- The Windows installer now shows the Aven mark and name. Aven names also cover internal terminal styling, new temporary files, provider probes and test examples. Existing app data, signing identifiers and upstream attribution remain compatible.
+
 ### Releases, merges and branch clean-up in the Changes panel, and a signed Mac app
 
 - The Changes panel has a **Release** card for projects with a release workflow. It shows the latest release and how many changes on main aren't released yet. Once a new version is set, **Publish** runs the release on GitHub, after you confirm, and the card follows it until it finishes.

@@ -104,7 +104,7 @@ describe("provider-aware skill catalog", () => {
       expect(prompt.endsWith("/aven-computer-use inspect the app")).toBe(true);
     },
   );
-  it("uses Pi discovery without adding MonoCode's built-in row", async () => {
+  it("uses Pi discovery without adding Aven's built-in row", async () => {
     const catalog = await loadSkills({ harness: "pi", cwd: "/repo/" });
 
     expect(mocks.discoverPiSkills).toHaveBeenCalledWith("/repo");

@@ -18,7 +18,7 @@ import {
   modelsFromSessionNew,
 } from "./grokProtocol";
 
-const PROBE_ID = "monocode-grok-probe";
+const PROBE_ID = "aven-grok-probe";
 const DISCOVERY_TIMEOUT_MS = 15_000;
 const REQUEST_TIMEOUT_MS = 12_000;
 

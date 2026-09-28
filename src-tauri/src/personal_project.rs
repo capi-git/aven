@@ -111,7 +111,7 @@ mod tests {
                 .unwrap()
                 .as_nanos();
             let path = std::env::temp_dir().join(format!(
-                "monocode personal project {} {stamp} {}",
+                "aven personal project {} {stamp} {}",
                 std::process::id(),
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));
@@ -135,7 +135,7 @@ mod tests {
                     "-c",
                     "commit.gpgsign=false",
                     "-c",
-                    "user.name=MonoCode Test",
+                    "user.name=Aven Test",
                     "-c",
                     "user.email=test@example.invalid",
                 ])

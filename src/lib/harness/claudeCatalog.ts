@@ -198,9 +198,9 @@ export const CLAUDE_MODEL_CATALOG: AgentModel[] = [
   },
 ];
 
-const PROBE_ID = "monocode-claude-probe";
-const LIST_MODELS_REQUEST_ID = "monocode_list_models";
-const INIT_REQUEST_ID = "monocode_init";
+const PROBE_ID = "aven-claude-probe";
+const LIST_MODELS_REQUEST_ID = "aven_list_models";
+const INIT_REQUEST_ID = "aven_init";
 const DISCOVERY_TIMEOUT_MS = 15_000;
 
 const EFFORT_LABELS: Record<string, string> = {

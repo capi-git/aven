@@ -1510,7 +1510,7 @@ function waitForInit(live: Live, timeoutMs: number): Promise<void> {
 
 function nextControlId(live: Live): string {
   live.nextControlId += 1;
-  return `monocode_${live.nextControlId}`;
+  return `aven_${live.nextControlId}`;
 }
 
 function writeJson(

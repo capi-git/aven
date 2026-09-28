@@ -67,7 +67,7 @@ export async function fetchCodexRateLimits(): Promise<ProviderRateLimits> {
   const cwd = await homeDir();
   // The native child registry is shared by every window. A fixed id lets a
   // second usage refresh replace or terminate another window's active probe.
-  const childId = `monocode-codex-usage-${crypto.randomUUID()}`;
+  const childId = `aven-codex-usage-${crypto.randomUUID()}`;
   const rpc = new JsonRpcClient(
     childId,
     {

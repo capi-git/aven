@@ -606,7 +606,9 @@ pub(crate) fn shutdown() {
 /// Internal catalog/title/skill workers never operate the user's browser.
 /// Real sessions use UUIDs; explicitly scoped synthetic QA sessions remain valid.
 fn should_attach_session_browser(session_id: &str) -> bool {
-    valid_id(session_id) && !session_id.starts_with("monocode-")
+    // Both generations of internal workers must remain unprivileged during
+    // upgrades; renaming their IDs must never grant browser credentials.
+    valid_id(session_id) && !session_id.starts_with("aven-") && !session_id.starts_with("monocode-")
 }
 
 /// Warm harnesses need their stable credential before the first visible turn.
@@ -1452,18 +1454,33 @@ mod tests {
         ] {
             assert!(should_attach_session_browser(session_id));
         }
-        for session_id in [
-            "monocode-codex-probe",
-            "monocode-claude-probe",
-            "monocode-cursor-probe",
-            "monocode-grok-probe",
-            "monocode-codex-text",
-            "monocode-text",
-            "monocode-pi-skills-c5ff3199-1de1-4dda-a03a-3f95d37ff495",
-            "monocode-omp-skills-c5ff3199-1de1-4dda-a03a-3f95d37ff495",
-            "",
-            "invalid/session",
-        ] {
+        for prefix in ["aven", "monocode"] {
+            for worker in [
+                "codex-probe",
+                "claude-probe",
+                "cursor-probe",
+                "grok-probe",
+                "pi-probe",
+                "omp-probe",
+                "codex-text",
+                "claude-text",
+                "opencode-text",
+                "grok-text",
+                "pi-text",
+                "omp-text",
+                "text",
+                "codex-usage-c5ff3199-1de1-4dda-a03a-3f95d37ff495",
+                "pi-skills-c5ff3199-1de1-4dda-a03a-3f95d37ff495",
+                "omp-skills-c5ff3199-1de1-4dda-a03a-3f95d37ff495",
+            ] {
+                let session_id = format!("{prefix}-{worker}");
+                assert!(
+                    !should_attach_session_browser(&session_id),
+                    "internal worker must not receive browser credentials: {session_id}"
+                );
+            }
+        }
+        for session_id in ["", "invalid/session"] {
             assert!(!should_attach_session_browser(session_id));
         }
     }
