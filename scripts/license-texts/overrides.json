@@ -152,5 +152,14 @@
   "cargo:siphasher@1.0.3": [
     "Apache-2.0-standard.txt",
     "MIT-standard.txt"
+  ],
+  "cargo:webview2-com@0.38.2": [
+    "webview2-rs-b74dc5e2-LICENSE"
+  ],
+  "cargo:webview2-com-sys@0.38.2": [
+    "webview2-rs-b74dc5e2-LICENSE"
+  ],
+  "cargo:webview2-com-macros@0.8.1": [
+    "webview2-rs-dffa41a8-LICENSE"
   ]
 }

@@ -49,11 +49,11 @@ jobs:
       - run: npm ci
       - run: cargo fmt --all --check
       - run: cargo fetch --locked --target x86_64-pc-windows-msvc
-      - name: Generate Windows dependency notices
-        run: python scripts/generate-third-party-notices.py --target x86_64-pc-windows-msvc --npm-os win32 --npm-cpu x64
       - run: npm run build
       - name: Run native Windows tests
         run: cargo test --locked --workspace --release --target x86_64-pc-windows-msvc --no-default-features --features tauri/custom-protocol
+      - name: Generate Windows dependency notices
+        run: python scripts/generate-third-party-notices.py --target x86_64-pc-windows-msvc --npm-os win32 --npm-cpu x64
       - name: Build NSIS installer
         run: npm run build:windows
       - name: Install and launch on Windows
