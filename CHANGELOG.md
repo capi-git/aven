@@ -1,5 +1,13 @@
 # Aven changelog
 
+## [0.1.106] - 2026-09-28
+
+### A Changes panel that shows where work is happening
+
+- When the open project has nothing to commit, the Changes panel shows a status card instead of an empty commit box: clean and up to date, commits to push or pull, or a branch that isn't on GitHub yet. Push, pull and pull request buttons still appear when they apply.
+- A new **Other copies** section lists this project's other working copies, such as agent and Race copies, with their unsaved files, lines added and removed, and how far behind main they are. Race copies are named after their prompt and agent, and fully merged copies are marked. Click one to see its files or show it in Finder.
+- The history graph now fills the free space instead of leaving a blank gap.
+
 ## [0.1.105] - 2026-09-28
 
 ### Tab groups and a shorter tab menu
