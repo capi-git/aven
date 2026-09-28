@@ -869,7 +869,7 @@ describe("browser tab integration", () => {
       expect(
         container.querySelector('[data-surface-tab-id="b"]')!.parentElement!
           .dataset.tabGroup,
-      ).toBe("true");
+      ).toBe("end");
       expect(
         container.querySelector('[data-surface-tab-id="a"]')!.parentElement!
           .dataset.tabGroup,
@@ -887,6 +887,15 @@ describe("browser tab integration", () => {
       await openTabMenu("web-a");
       await choose("Add to group", "Docs");
       expect(drawn()).toEqual(["a", "[Docs]", "b", "web-a", "c"]);
+      // One unbroken underline: b bridges to web-a, which ends the group.
+      expect(
+        container.querySelector<HTMLElement>('[data-surface-tab-id="b"]')!
+          .parentElement!.dataset.tabGroup,
+      ).toBe("run");
+      expect(
+        container.querySelector<HTMLElement>('[data-surface-tab-id="web-a"]')!
+          .dataset.tabGroup,
+      ).toBe("end");
       expect(label()!.getAttribute("aria-expanded")).toBe("true");
       await act(async () => label()!.click());
       expect(drawn()).toEqual(["a", "[Docs2]", "c"]);

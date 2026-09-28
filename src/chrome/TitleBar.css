@@ -514,16 +514,21 @@ html.theme-light .personal-shell .personal-titlebar {
   font-size: 11.5px;
   font-weight: 600;
 }
+/* Each member's line runs under the following gap so the group reads as one
+   unbroken line at any interface zoom; the strip gap is at most 6px. */
 .personal-shell .personal-tab-strip [data-tab-group]::after {
   content: "";
   position: absolute;
-  left: -2px;
-  right: -2px;
+  left: 0;
+  right: -6px;
   bottom: 2px;
   height: 2px;
   border-radius: 1px;
   background: var(--tab-group-color);
   pointer-events: none;
+}
+.personal-shell .personal-tab-strip [data-tab-group="end"]::after {
+  right: 0;
 }
 @media (prefers-reduced-motion: reduce) {
   .personal-shell .personal-tab-group-chip {

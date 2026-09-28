@@ -557,6 +557,7 @@ function BrowserTitleTabItem({
   preview = false,
   onKeep,
   groupStyle,
+  groupRun,
   minimized = false,
   onHover,
   itemRef,
@@ -579,6 +580,8 @@ function BrowserTitleTabItem({
   onKeep?: () => void;
   /** Colour of the user tab group this page belongs to. */
   groupStyle?: CSSProperties;
+  /** "run" continues the group underline to the next tab; "end" stops it. */
+  groupRun?: "run" | "end";
   minimized?: boolean;
   onHover?: (id: string, element: HTMLElement | null) => void;
   itemRef?: (element: HTMLDivElement | null) => void;
@@ -605,7 +608,7 @@ function BrowserTitleTabItem({
       data-surface-id={id}
       data-surface-tab-id={id}
       data-has-menu={Boolean(onMenu)}
-      data-tab-group={groupStyle ? "true" : undefined}
+      data-tab-group={groupRun}
       style={groupStyle}
       data-minimized={minimized || undefined}
       data-tauri-drag-region="false"
@@ -2281,6 +2284,13 @@ function TitleBarComponent({
               const memberGroup = stripGroups.find(
                 (segment) => segment.group.id === memberOf,
               )?.group;
+              // The underline bridges the gap to the next member; the last one stops flush.
+              const nextId = displayIds[index + 1];
+              const groupRun = memberGroup
+                ? nextId && groupState.members[nextId] === memberOf
+                  ? "run"
+                  : "end"
+                : undefined;
               const groupStyle = memberGroup
                 ? ({
                     "--tab-group-color": surfaceGroupColor(memberGroup),
@@ -2301,7 +2311,7 @@ function TitleBarComponent({
                   <div
                     key={id}
                     className="personal-title-tab-slot relative flex h-full shrink cursor-default items-center"
-                    data-tab-group={memberGroup ? "true" : undefined}
+                    data-tab-group={groupRun}
                     style={groupStyle}
                     data-active={id === focusedId}
                     data-minimized={minimizedTabs && id !== focusedId}
@@ -2386,6 +2396,7 @@ function TitleBarComponent({
                   preview={previewEnabled && preview.previewId === id}
                   onKeep={onKeepBrowser ? () => onKeepBrowser(id) : undefined}
                   groupStyle={groupStyle}
+                  groupRun={groupRun}
                   minimized={minimizedTabs && id !== focusedId}
                   onHover={hoverTab}
                   itemRef={itemRef}
