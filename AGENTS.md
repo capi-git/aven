@@ -10,4 +10,6 @@ This repository is the source of Aven. The installed Aven may be hosting the ver
 - Run focused tests for the changed behavior, TypeScript checks, and applicable native tests. Keep source checks, rendered checks and packaged-app checks distinct in reports.
 - Use `scripts/build-release.sh` for a complete Chromium release. It does not install or publish. Preserve MIT attribution and third-party notices when importing upstream changes.
 - Aven is independently maintained. Review upstream MonoCode changes and port compatible fixes; do not replace Aven's UI, persistent state, provider support or release feed wholesale.
+- Work on a branch in your own worktree under `~/Developer/.worktrees/Aven/`, never directly on `main`. Merge through a pull request; the repository only allows squash merges and deletes the branch afterwards. Remove the local worktree and branch once merged.
+- Releases are batched: bump the version and changelog in their own pull request, then run **Release Aven**, which builds macOS and Windows together. Do not publish per change, and do not add follow-up commits for download links.
 - Inspect the Git remote and explicitly verified account before pushing. Follow the user's account-routing instructions; never change a shared global account or expose credentials.

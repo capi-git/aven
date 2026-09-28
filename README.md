@@ -12,11 +12,11 @@ Aven brings agent conversations, your project, and a browser into one window. Us
 
 ## Download
 
-**macOS:** Get the build for Apple Silicon Macs running macOS 13 or later from [Aven Releases](https://github.com/capi-git/aven/releases). Download the macOS ZIP, extract it, and move **Aven.app** to Applications.
+**macOS:** Get the build for Apple Silicon Macs running macOS 13 or later from the [latest Aven release](https://github.com/capi-git/aven/releases/latest). Download the macOS ZIP, extract it, and move **Aven.app** to Applications.
 
-The app is ad-hoc signed, not Apple-notarized, so macOS may require you to approve opening it in **System Settings → Privacy & Security**. Only approve a copy you downloaded from this repository's releases. Intel Mac and Linux release builds are not currently provided or verified.
+The app is Developer ID signed from 0.1.108 but not yet Apple-notarized, so macOS may require you to approve opening it in **System Settings → Privacy & Security**. Only approve a copy you downloaded from this repository's releases. Intel Mac and Linux release builds are not currently provided or verified.
 
-**Windows:** Download the [Windows x64 test build](https://github.com/capi-git/aven/releases/tag/v0.1.106-windows-test.1). Extract `Aven-0.1.106-windows-x64-test.zip` and run `Aven_0.1.106_x64-setup.exe`. The installer is unsigned and may show an unknown-publisher warning. Installation and startup have been checked on a Windows runner; provider sign-in and authenticated chats still need tester verification. See the [Windows testing guide](docs/WINDOWS-TESTING.md) for setup and current limitations.
+**Windows:** From the same [latest release](https://github.com/capi-git/aven/releases/latest), download `Aven-<version>-windows-x64-test.zip`, extract it, and run the `setup.exe` inside. This is an unsigned test build: Windows may show an unknown-publisher warning, and it does not update itself. Installation and startup are checked on a Windows runner; provider sign-in and authenticated chats still need tester verification. See the [Windows testing guide](docs/WINDOWS-TESTING.md) for setup and current limitations.
 
 On macOS, Aven 0.1.80 and later checks for updates from this repository and downloads signed updates in the background. Choose **Restart to update** when your work is ready; Aven does not interrupt running agents. Older versions need one manual replacement to enable this updater.
 

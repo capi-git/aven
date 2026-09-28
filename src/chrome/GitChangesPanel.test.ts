@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   applyStats: vi.fn(),
   invalidate: vi.fn(),
   prStatus: vi.fn(),
+  squashMerge: vi.fn(),
+  ask: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -18,6 +20,8 @@ vi.mock("@tauri-apps/api/core", () => ({
     if (command === "git_diff_index") return mocks.diffIndex(args.cwd);
     if (command === "git_stage_all") return mocks.stageAll(args.cwd);
     if (command === "git_pr_status") return mocks.prStatus(args.cwd);
+    if (command === "git_pr_squash_merge")
+      return mocks.squashMerge(args.cwd, (args as { number?: number }).number);
     throw new Error(`Unexpected native command: ${command}`);
   },
 }));
@@ -33,6 +37,8 @@ vi.mock("../hooks/useProjectDiffStats", () => ({
 }));
 vi.mock("./FileTypeIcon", () => ({ FileTypeIcon: () => null }));
 vi.mock("./GitCopies", () => ({ GitCopies: () => null }));
+vi.mock("./GitHousekeeping", () => ({ GitHousekeeping: () => null }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: mocks.ask }));
 vi.mock("./GitHistoryGraph", () => ({
   GitHistoryGraph: () => null,
   GraphResizeSash: () => null,
@@ -102,6 +108,48 @@ async function visibility(value: boolean) {
   hidden = value;
   await act(async () => document.dispatchEvent(new Event("visibilitychange")));
 }
+
+describe("pull request merging", () => {
+  it("squash-merges the open pull request only after confirming", async () => {
+    index.remote = "origin";
+    index.upstream = "origin/feature";
+    mocks.prStatus.mockResolvedValue({
+      number: 4,
+      title: "Tab groups",
+      url: "https://example.com/pr/4",
+      state: "open",
+    });
+    mocks.squashMerge.mockResolvedValue(undefined);
+    await render();
+    const merge = () =>
+      Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent === "Squash and merge",
+      );
+    expect(merge()).toBeDefined();
+    mocks.ask.mockResolvedValueOnce(false);
+    await act(async () => merge()!.click());
+    expect(mocks.squashMerge).not.toHaveBeenCalled();
+    mocks.ask.mockResolvedValueOnce(true);
+    await act(async () => merge()!.click());
+    expect(mocks.ask).toHaveBeenLastCalledWith(
+      expect.stringContaining("Squash and merge PR #4 into main?"),
+      expect.objectContaining({ okLabel: "Squash and merge" }),
+    );
+    expect(mocks.squashMerge).toHaveBeenCalledExactlyOnceWith(cwd, 4);
+  });
+
+  it("offers no merge without an open pull request", async () => {
+    index.remote = "origin";
+    mocks.prStatus.mockResolvedValue({
+      number: 5,
+      title: "Done",
+      url: "https://example.com/pr/5",
+      state: "merged",
+    });
+    await render();
+    expect(container.textContent).not.toContain("Squash and merge");
+  });
+});
 
 describe("Changes panel visibility polling", () => {
   it("retains PR state without hidden focus reads or late hidden publications", async () => {
