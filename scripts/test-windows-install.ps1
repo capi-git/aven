@@ -96,6 +96,8 @@ function Start-SmokeProcess {
     $info.Arguments = $Arguments
     $info.UseShellExecute = $false
     if ($IsolateData) {
+        # Redirect components that honor these variables. Windows Known Folder
+        # APIs may still use the runner profile, hence the hosted-runner guard.
         $info.Environment['APPDATA'] = $appData
         $info.Environment['LOCALAPPDATA'] = $localAppData
     }
@@ -187,8 +189,8 @@ try {
     try {
         Add-Type -AssemblyName UIAutomationClient
         Add-Type -AssemblyName UIAutomationTypes
-        $element = [Windows.Automation.AutomationElement]::FromHandle($window)
-        $elements = $element.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
+        $element = [System.Windows.Automation.AutomationElement]::FromHandle($window)
+        $elements = $element.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
         $result.accessibleText = @($elements | ForEach-Object { $_.Current.Name } | Where-Object { $_ } | Select-Object -Unique -First 100)
     } catch {
         $result.warnings += "UI Automation text unavailable: $($_.Exception.Message)"

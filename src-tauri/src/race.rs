@@ -469,6 +469,8 @@ mod tests {
         git_ok(&root, &["init", "-q", "-b", "main"]);
         git_ok(&root, &["config", "user.email", "test@example.com"]);
         git_ok(&root, &["config", "user.name", "Test"]);
+        git_ok(&root, &["config", "core.autocrlf", "false"]);
+        git_ok(&root, &["config", "commit.gpgsign", "false"]);
         std::fs::write(root.join("a.txt"), "one\ntwo\n").unwrap();
         std::fs::write(root.join("b.txt"), "keep\n").unwrap();
         git_ok(&root, &["add", "-A"]);
