@@ -26,6 +26,7 @@ P12 = b'\x30fictional PKCS12 fixture; never import into a real keychain'
 P12_PASSWORD = 'test-certificate-password-never-real'
 KEYCHAIN_PASSWORD = 'test-temporary-password-never-real'
 CERTIFICATE = b'fictional G2 certificate fixture; never trust or import'
+LEAF_CERTIFICATE = b'fictional leaf certificate fixture; never trust or import'
 ORIGINAL = ['/Users/runner/Library/Keychains/login.keychain-db',
             '/Users/runner/Library/Keychains/build tools.keychain-db']
 
@@ -54,6 +55,10 @@ class SigningKeychainTests(unittest.TestCase):
         self.identities = identity_output()
         self.failure = None
         self.import_observed = False
+        self.p12_certificates = [LEAF_CERTIFICATE]
+        self.certificates = []
+        self.certificate_output = None
+        self.discard_intermediate_import = False
         self.addCleanup(mock.patch.stopall)
         mock.patch.object(ci, 'POLICY', self.policy).start()
         mock.patch.object(ci, 'G2_SHA256', hashlib.sha256(CERTIFICATE).hexdigest()).start()
@@ -80,6 +85,24 @@ class SigningKeychainTests(unittest.TestCase):
             output = '\n'.join(shlex.quote(path) for path in ORIGINAL)
         elif action == 'create-keychain':
             Path(command[-1]).write_bytes(b'fake keychain; not an actual Security database')
+            self.certificates = []
+            output = ''
+        elif action == 'import':
+            self.certificates.extend(self.p12_certificates)
+            output = ''
+        elif action == 'find-certificate':
+            self.assertEqual(command[2:4], ['-a', '-p'])
+            self.assertEqual(command[4], str(self.directory / ci.KEYCHAIN))
+            output = self.certificate_output if self.certificate_output is not None else ''.join(
+                '-----BEGIN CERTIFICATE-----\n' + base64.b64encode(certificate).decode()
+                + '\n-----END CERTIFICATE-----\n' for certificate in self.certificates)
+        elif action == 'add-certificates':
+            self.assertEqual(command[2:4], ['-k', str(self.directory / ci.KEYCHAIN)])
+            certificate = Path(command[4]).read_bytes()
+            if certificate in self.certificates:
+                return subprocess.CompletedProcess(command, 1, stdout='', stderr='already in keychain')
+            if not self.discard_intermediate_import:
+                self.certificates.append(certificate)
             output = ''
         elif action == 'find-identity':
             output = self.identities
@@ -118,6 +141,57 @@ class SigningKeychainTests(unittest.TestCase):
             self.assertNotIn(command[1], ('default-keychain', 'login-keychain', 'add-trusted-cert'))
         search_update = next(command for command in self.commands if command[1] == 'list-keychains' and '-s' in command)
         self.assertEqual(search_update[5:], ORIGINAL + [keychain])
+
+    def test_p12_that_already_contains_exact_g2_skips_duplicate_import(self):
+        self.p12_certificates.append(CERTIFICATE)
+        ci.setup(self.environment)
+        self.assertFalse(any(command[1] == 'add-certificates' for command in self.commands))
+        queries = [command for command in self.commands if command[1] == 'find-certificate']
+        self.assertEqual(queries, [['/usr/bin/security', 'find-certificate', '-a', '-p',
+                                    str(self.directory / ci.KEYCHAIN)]])
+        self.assertTrue(self.envfile.exists())
+
+    def test_other_certificate_does_not_substitute_for_exact_pinned_intermediate(self):
+        self.p12_certificates.append(CERTIFICATE + b'different bytes')
+        ci.setup(self.environment)
+        imports = [command for command in self.commands if command[1] == 'add-certificates']
+        self.assertEqual(len(imports), 1)
+        queries = [command for command in self.commands if command[1] == 'find-certificate']
+        self.assertEqual(len(queries), 2)
+        self.assertIn(CERTIFICATE, self.certificates)
+        query_positions = [index for index, command in enumerate(self.commands) if command[1] == 'find-certificate']
+        self.assertLess(self.commands.index(imports[0]), query_positions[-1])
+
+    def test_certificate_query_or_import_failure_still_fails_closed_and_cleans_up(self):
+        for action in ('find-certificate', 'add-certificates'):
+            with self.subTest(action=action):
+                self.failure = action
+                with self.assertRaises(ci.SigningError) as failure:
+                    ci.setup(self.environment)
+                self.assertNotIn(P12_PASSWORD, str(failure.exception))
+                self.assertNotIn(KEYCHAIN_PASSWORD, str(failure.exception))
+                self.assertFalse(self.directory.exists())
+                self.assertFalse(self.envfile.exists())
+                self.assertEqual(self.commands[-2][5:], ORIGINAL)
+                self.assertEqual(self.commands[-1][1], 'delete-keychain')
+
+    def test_malformed_public_certificate_output_never_allows_setup(self):
+        for output in ('not PEM', '', '-----BEGIN CERTIFICATE-----\nA====\n-----END CERTIFICATE-----'):
+            with self.subTest(output=output):
+                self.certificate_output = output
+                with self.assertRaisesRegex(ci.SigningError, 'certificate data could not be verified'):
+                    ci.setup(self.environment)
+                self.assertFalse(self.directory.exists())
+                self.assertFalse(self.envfile.exists())
+        self.assertFalse(any(command[1] == 'add-certificates' for command in self.commands))
+
+    def test_successful_import_must_leave_exact_g2_in_owned_keychain(self):
+        self.discard_intermediate_import = True
+        with self.assertRaisesRegex(ci.SigningError, 'intermediate is missing'):
+            ci.setup(self.environment)
+        self.assertFalse(self.directory.exists())
+        self.assertFalse(self.envfile.exists())
+        self.assertFalse(any(command[1] == 'set-key-partition-list' for command in self.commands))
 
     def test_explicit_cleanup_restores_ordered_search_list_and_removes_only_owned_directory(self):
         unrelated = self.root / 'unrelated'

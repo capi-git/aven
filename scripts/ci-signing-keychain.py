@@ -107,6 +107,36 @@ def download_intermediate():
     return contents
 
 
+def has_pinned_intermediate(keychain):
+    # PKCS12 exports may already include the issuing certificate chain. Query
+    # only this job's keychain: a matching certificate in the login/search-list
+    # keychains must not make an incomplete isolated signing keychain pass.
+    output = run_security(['find-certificate', '-a', '-p', keychain],
+                          'Read temporary keychain certificates', True)
+    blocks = re.findall(r'-----BEGIN CERTIFICATE-----\s*([A-Za-z0-9+/=\s]+?)'
+                        r'-----END CERTIFICATE-----', output)
+    require(bool(blocks), 'Temporary keychain certificate data could not be verified.')
+    fingerprints = set()
+    try:
+        for block in blocks:
+            der = base64.b64decode(''.join(block.split()), validate=True)
+            require(bool(der), 'Temporary keychain certificate data could not be verified.')
+            fingerprints.add(hashlib.sha256(der).hexdigest())
+    except (binascii.Error, ValueError):
+        raise SigningError('Temporary keychain certificate data could not be verified.') from None
+    return G2_SHA256 in fingerprints
+
+
+def ensure_intermediate(keychain, intermediate_path):
+    # add-certificates treats an exact duplicate as failure. Skip only after an
+    # exact pinned DER hash match, never by common name or by ignoring errors.
+    if not has_pinned_intermediate(keychain):
+        run_security(['add-certificates', '-k', keychain, intermediate_path],
+                     'Import verified Apple intermediate')
+        require(has_pinned_intermediate(keychain),
+                'Verified Apple intermediate is missing from the temporary keychain.')
+
+
 def selected_identity(output, team_id):
     rows = re.findall(r'^\s*\d+\)\s+([0-9a-fA-F]{40})\s+"([^"\r\n]+)"\s*$', output, re.M)
     totals = re.findall(r'^\s*(\d+) valid identities found\s*$', output, re.M)
@@ -236,7 +266,7 @@ def setup(environment):
                           '-P', password, '-T', '/usr/bin/codesign'], 'Import Developer ID identity')
         finally:
             p12_path.unlink(missing_ok=True)
-        run_security(['add-certificates', '-k', keychain, intermediate_path], 'Import verified Apple intermediate')
+        ensure_intermediate(keychain, intermediate_path)
         output = run_security(['find-identity', '-v', '-p', 'codesigning', keychain],
                               'Verify temporary signing identity', True)
         fingerprint = selected_identity(output, team_id)
