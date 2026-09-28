@@ -13,7 +13,7 @@ import {
 } from "./grokProtocol";
 import { mergeStream } from "./streamText";
 
-const TEXT_CHILD_ID = "monocode-grok-text";
+const TEXT_CHILD_ID = "aven-grok-text";
 const INIT_TIMEOUT_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 20_000;
 

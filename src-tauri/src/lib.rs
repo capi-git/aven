@@ -372,6 +372,7 @@ pub fn run() {
             fs::git_diff_index,
             fs::git_diff_files,
             fs::git_worktrees,
+            fs::git_worktree_remove,
             fs::git_file_diff,
             fs::git_history,
             fs::git_commit_files,

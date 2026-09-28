@@ -36,6 +36,8 @@ export type ReleaseStatus = {
   /** Commits on the remote base branch since the latest release. */
   unreleased: number | null;
   version: string | null;
+  /** Exact remote default-branch commit this status describes. */
+  sourceSha: string | null;
   /** The declared version has no release tag yet. */
   versionUnreleased: boolean;
   workflow: string | null;
@@ -67,8 +69,12 @@ export function gitReleaseStatus(cwd: string): Promise<ReleaseStatus> {
   return invoke<ReleaseStatus>("git_release_status", { cwd });
 }
 
-export function gitReleaseStart(cwd: string, version: string): Promise<void> {
-  return invoke<void>("git_release_start", { cwd, version });
+export function gitReleaseStart(
+  cwd: string,
+  version: string,
+  sourceSha: string,
+): Promise<void> {
+  return invoke<void>("git_release_start", { cwd, version, sourceSha });
 }
 
 export type ReleaseSummary = {
@@ -89,7 +95,10 @@ export function summarizeRelease(status: ReleaseStatus): ReleaseSummary {
         ? `Everything on ${status.base} is released.`
         : `${status.unreleased} ${status.unreleased === 1 ? "change" : "changes"} on ${status.base} since ${latest}.`;
   const ready =
-    status.workflowHasPublish && status.versionUnreleased && status.version
+    status.workflowHasPublish &&
+    status.versionUnreleased &&
+    status.version &&
+    status.sourceSha
       ? status.version
       : null;
   if (status.run && status.run.status !== "completed")

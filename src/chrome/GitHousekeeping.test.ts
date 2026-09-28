@@ -17,7 +17,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: (command: string, args: Record<string, unknown>) => {
     if (command === "git_release_status") return mocks.release(args.cwd);
-    if (command === "git_release_start") return mocks.start(args.cwd, args.version);
+    if (command === "git_release_start")
+      return mocks.start(args.cwd, args.version, args.sourceSha);
     if (command === "git_merged_branches") return mocks.merged(args.cwd);
     if (command === "git_delete_merged_branches")
       return mocks.remove(args.cwd, args.local, args.remote);
@@ -40,6 +41,7 @@ const released: ReleaseStatus = {
   },
   unreleased: 2,
   version: "0.1.108",
+  sourceSha: "a".repeat(40),
   versionUnreleased: true,
   workflow: "release.yml",
   workflowHasPublish: true,
@@ -69,9 +71,9 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function render() {
+async function render(cwd = "/repo") {
   await act(async () =>
-    root.render(createElement(GitHousekeeping, { cwd: "/repo", enabled: true })),
+    root.render(createElement(GitHousekeeping, { cwd, enabled: true })),
   );
 }
 
@@ -79,6 +81,14 @@ const button = (text: string) =>
   Array.from(container.querySelectorAll("button")).find((item) =>
     item.textContent?.includes(text),
   );
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 
 describe("release card", () => {
   it("publishes the ready version only after confirming", async () => {
@@ -91,7 +101,74 @@ describe("release card", () => {
     expect(mocks.start).not.toHaveBeenCalled();
     mocks.ask.mockResolvedValueOnce(true);
     await act(async () => button("Publish 0.1.108")!.click());
-    expect(mocks.start).toHaveBeenCalledExactlyOnceWith("/repo", "0.1.108");
+    expect(mocks.start).toHaveBeenCalledExactlyOnceWith(
+      "/repo",
+      "0.1.108",
+      released.sourceSha,
+    );
+  });
+
+  it("does not offer publication when the source commit is unknown", async () => {
+    mocks.release.mockResolvedValue({ ...released, sourceSha: null });
+    await render();
+    expect(button("Publish")).toBeUndefined();
+    expect(mocks.ask).not.toHaveBeenCalled();
+    expect(mocks.start).not.toHaveBeenCalled();
+  });
+
+  it("binds confirmation to the displayed source even if status refreshes", async () => {
+    const consent = deferred<boolean>();
+    mocks.ask.mockReturnValue(consent.promise);
+    mocks.start.mockResolvedValue(undefined);
+    await render();
+    await act(async () => button("Publish 0.1.108")!.click());
+    mocks.release.mockResolvedValue({ ...released, sourceSha: "b".repeat(40) });
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    await act(async () => consent.resolve(true));
+    expect(mocks.start).toHaveBeenCalledExactlyOnceWith(
+      "/repo",
+      "0.1.108",
+      released.sourceSha,
+    );
+  });
+
+  it("clears the previous project's cards and ignores its pending reads", async () => {
+    mocks.merged.mockResolvedValue({ ...none, local: ["old-project-branch"] });
+    await render();
+    const staleRelease = deferred<ReleaseStatus>();
+    const staleBranches = deferred<MergedBranches>();
+    const nextRelease = deferred<ReleaseStatus>();
+    const nextBranches = deferred<MergedBranches>();
+    mocks.release.mockImplementation((cwd) =>
+      cwd === "/repo" ? staleRelease.promise : nextRelease.promise,
+    );
+    mocks.merged.mockImplementation((cwd) =>
+      cwd === "/repo" ? staleBranches.promise : nextBranches.promise,
+    );
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    await render("/other-project");
+    expect(button("Publish")).toBeUndefined();
+    expect(button("Delete merged branches")).toBeUndefined();
+    expect(container.textContent).not.toContain("old-project-branch");
+    await act(async () => {
+      staleRelease.resolve({ ...released, version: "0.1.999" });
+      staleBranches.resolve({ ...none, local: ["stale-branch"] });
+    });
+    expect(button("Publish")).toBeUndefined();
+    expect(container.textContent).not.toContain("stale-branch");
+    const next = { ...released, version: "0.1.109", sourceSha: "c".repeat(40) };
+    await act(async () => {
+      nextRelease.resolve(next);
+      nextBranches.resolve(none);
+    });
+    mocks.ask.mockResolvedValue(true);
+    mocks.start.mockResolvedValue(undefined);
+    await act(async () => button("Publish 0.1.109")!.click());
+    expect(mocks.start).toHaveBeenCalledExactlyOnceWith(
+      "/other-project",
+      "0.1.109",
+      next.sourceSha,
+    );
   });
 
   it("shows why a publish was refused", async () => {

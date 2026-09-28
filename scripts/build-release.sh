@@ -86,6 +86,7 @@ python3 -B scripts/test-bump-version.py
 python3 -B scripts/test-release-signing.py
 python3 -B scripts/test-check-macos-release.py
 python3 -B scripts/test-ci-signing-keychain.py
+python3 -B scripts/test-release-workflow.py
 
 task_app="$task_repo_root/target/release/bundle/macos/Aven.app"
 task_release_dir="$task_repo_root/target/releases/v$task_version"

@@ -15,6 +15,14 @@ on:
         description: Build and attach the Windows test installer
         type: boolean
         default: true
+      expected_version:
+        description: Optional version confirmed by the release UI
+        type: string
+        default: ''
+      expected_source_sha:
+        description: Optional full source commit confirmed by the release UI
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -24,7 +32,35 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  validate-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate requested release source
+        env:
+          AVEN_EXPECTED_VERSION: ${{ inputs.expected_version }}
+          AVEN_EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          from pathlib import Path
+          actual_sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          actual_version = json.loads(Path('package.json').read_text())['version']
+          expected_version = os.environ.get('AVEN_EXPECTED_VERSION', '')
+          expected_sha = os.environ.get('AVEN_EXPECTED_SOURCE_SHA', '')
+          if actual_sha != os.environ['GITHUB_SHA']:
+              raise SystemExit('Checked-out source differs from the workflow revision; refusing to release.')
+          if expected_version and actual_version != expected_version:
+              raise SystemExit('Release version changed since confirmation; refresh the release status and try again.')
+          if expected_sha and (not re.fullmatch(r'[0-9a-fA-F]{40}', expected_sha) or actual_sha != expected_sha.lower()):
+              raise SystemExit('Release source changed since confirmation; refresh the release status and try again.')
+          print('Release source verified: ' + actual_sha + ', version ' + actual_version)
+          PY
+
   macos-arm64:
+    needs: validate-source
     runs-on: macos-15
     timeout-minutes: 90
     env:
@@ -89,6 +125,7 @@ jobs:
         run: python3 -B scripts/ci-signing-keychain.py --cleanup
 
   windows:
+    needs: validate-source
     if: inputs.windows
     uses: ./.github/workflows/windows-candidate.yml
 
@@ -97,9 +134,10 @@ jobs:
     # is published, so a version never ships with half its downloads.
     if: >-
       ${{ !cancelled() && inputs.publish &&
+      needs.validate-source.result == 'success' &&
       needs.macos-arm64.result == 'success' &&
       (needs.windows.result == 'success' || (!inputs.windows && needs.windows.result == 'skipped')) }}
-    needs: [macos-arm64, windows]
+    needs: [validate-source, macos-arm64, windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -117,8 +155,13 @@ jobs:
       - name: Publish signed Aven release
         env:
           GH_TOKEN: ${{ github.token }}
+          AVEN_INCLUDE_WINDOWS: ${{ inputs.windows }}
         run: |
           set -euo pipefail
+          case "$AVEN_INCLUDE_WINDOWS" in
+            true|false) ;;
+            *) echo 'Windows release selection must be true or false.' >&2; exit 1 ;;
+          esac
           task_version="$(node -p "require('./package.json').version")"
           task_release_dir="release/v$task_version"
           test -s "$task_release_dir/latest.json"
@@ -154,14 +197,40 @@ jobs:
           esac
           task_notes="Aven $task_version for Apple Silicon Macs. The app is Developer ID signed and updates are signed by Aven. This build is not Apple-notarized. See CHANGELOG.md for changes."
           task_windows_dir="windows/Aven-$task_version-windows-x64-test"
-          if [ -d "$task_windows_dir" ]; then
+          if [[ "$AVEN_INCLUDE_WINDOWS" == true ]]; then
             # The package keeps its own checksums; the release list covers the
             # ZIP and installer so every attached file is verifiable.
-            (cd "$task_windows_dir" && sha256sum -c SHA256SUMS)
-            grep -q "Source commit: $GITHUB_SHA" "$task_windows_dir/README.md"
+            task_windows_installer="$(python3 - "$task_windows_dir" "$GITHUB_SHA" <<'PY'
+          import re, sys
+          from pathlib import Path
+          folder = Path(sys.argv[1])
+          def require(condition, message):
+              if not condition:
+                  raise SystemExit('Invalid requested Windows package: ' + message)
+          require(folder.is_dir() and not folder.is_symlink(), 'expected artifact directory is missing')
+          files = list(folder.iterdir())
+          require(all(path.is_file() and not path.is_symlink() for path in files), 'expected regular package files only')
+          for name in ('SHA256SUMS', 'README.md'):
+              require((folder / name).is_file() and (folder / name).stat().st_size > 0, name + ' is missing or empty')
+          installers = [path for path in files if path.name.endswith('-setup.exe')]
+          require(len(installers) == 1, 'expected exactly one installer')
+          markers = [line for line in (folder / 'README.md').read_text().splitlines() if line.startswith('Source commit:')]
+          require(markers == ['Source commit: ' + sys.argv[2]], 'source commit does not match this release')
+          names = []
+          for line in (folder / 'SHA256SUMS').read_text().splitlines():
+              match = re.fullmatch(r'[0-9a-fA-F]{64}  ([^/\\\r\n]+)', line)
+              require(match is not None, 'invalid checksum entry')
+              names.append(match.group(1))
+          require(len(names) == len(set(names)), 'duplicate checksum entry')
+          require(set(names) == {path.name for path in files if path.name != 'SHA256SUMS'}, 'checksums must cover every package file')
+          print(installers[0].name)
+          PY
+            )"
+            # PowerShell writes CRLF; normalize the verification stream only.
+            (cd "$task_windows_dir" && tr -d '\r' < SHA256SUMS | sha256sum -c -)
             (cd windows && zip -qr "../$task_release_dir/Aven-$task_version-windows-x64-test.zip" "Aven-$task_version-windows-x64-test")
-            cp "$task_windows_dir"/*-setup.exe "$task_release_dir/"
-            (cd "$task_release_dir" && sha256sum "Aven-$task_version-windows-x64-test.zip" *-setup.exe >> SHA256SUMS && sha256sum -c SHA256SUMS)
+            cp "$task_windows_dir/$task_windows_installer" "$task_release_dir/"
+            (cd "$task_release_dir" && sha256sum "Aven-$task_version-windows-x64-test.zip" "$task_windows_installer" >> SHA256SUMS && sha256sum -c SHA256SUMS)
             task_notes="$task_notes
 
           Windows x64 test build: the ZIP and setup file are unsigned test downloads built from the same commit. Windows may warn about an unknown publisher, and Windows builds do not update automatically. See docs/WINDOWS-TESTING.md."

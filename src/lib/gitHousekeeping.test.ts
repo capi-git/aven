@@ -14,6 +14,7 @@ function status(overrides: Partial<ReleaseStatus> = {}): ReleaseStatus {
     },
     unreleased: 0,
     version: "0.1.107",
+    sourceSha: "a".repeat(40),
     versionUnreleased: false,
     workflow: "release.yml",
     workflowHasPublish: true,
@@ -81,6 +82,16 @@ describe("release summary", () => {
       }),
     );
     expect(failed).toMatchObject({ tone: "warn", publish: "0.1.108" });
+  });
+
+  it("does not offer publication without a verified source commit", () => {
+    for (const sourceSha of [null, ""]) {
+      expect(
+        summarizeRelease(
+          status({ version: "0.1.108", versionUnreleased: true, sourceSha }),
+        ).publish,
+      ).toBeNull();
+    }
   });
 
   it("explains a project without releases", () => {

@@ -6827,7 +6827,7 @@ export default function App({
     const onEscape = (event: KeyboardEvent) => {
       if (!workspaceVisibleRef.current || hasWorkspaceOverlay()) return;
       const target = event.target instanceof Element ? event.target : null;
-      const inTerminal = Boolean(target?.closest(".monocode-terminal"));
+      const inTerminal = Boolean(target?.closest(".aven-terminal"));
       const activeTabId = activeTabIdRef.current;
       if (viewRef.current.view.focusedId !== activeTabId) return;
       const sessionId = focusedBusyAgentSessionId(
@@ -7793,7 +7793,7 @@ export default function App({
         if (listNavigation) {
           const blockedTarget = Boolean(
             target?.closest(
-              'input, textarea, select, [contenteditable="true"], .cm-editor, .monocode-terminal, [role="dialog"], [data-model-picker], [data-file-picker], [data-branch-picker], [data-skill-picker], [data-mention-picker], [data-app-search]',
+              'input, textarea, select, [contenteditable="true"], .cm-editor, .aven-terminal, [role="dialog"], [data-model-picker], [data-file-picker], [data-branch-picker], [data-skill-picker], [data-mention-picker], [data-app-search]',
             ),
           );
           const emptyComposerTarget = Boolean(
@@ -7817,7 +7817,7 @@ export default function App({
           }
         }
         if (
-          target?.closest(".monocode-terminal") &&
+          target?.closest(".aven-terminal") &&
           e.ctrlKey &&
           !e.metaKey &&
           (cmd === "back" ||
@@ -7918,7 +7918,7 @@ export default function App({
       }
       if (mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") {
         const target = e.target instanceof Element ? e.target : null;
-        if (target?.closest(".monocode-terminal") && e.ctrlKey && !e.metaKey) {
+        if (target?.closest(".aven-terminal") && e.ctrlKey && !e.metaKey) {
           return;
         }
         e.preventDefault();

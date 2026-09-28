@@ -311,6 +311,96 @@ pub(crate) fn git_worktrees_for(root: &Path) -> Vec<GitWorktree> {
         .collect()
 }
 
+/// Remove another checkout of this repository that is no longer needed. Its
+/// uncommitted files are discarded; a branch that still holds commits the
+/// default branch lacks is kept so that work stays reachable.
+#[tauri::command]
+pub async fn git_worktree_remove(cwd: String, path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        remove_worktree_for(&expand_home(&cwd), &expand_home(&path))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+pub(crate) fn remove_worktree_for(root: &Path, path: &Path) -> Result<(), String> {
+    let copies = git_worktrees_for(root);
+    let copy = copies
+        .iter()
+        .find(|copy| same_entry(Path::new(&copy.path), path))
+        .ok_or("This copy is no longer part of the project.")?;
+    if copy.primary {
+        return Err("The main copy can't be removed.".into());
+    }
+    if copy.current {
+        return Err("The copy that's open here can't be removed.".into());
+    }
+    if copy
+        .branch
+        .as_deref()
+        .is_some_and(|branch| branch.starts_with("aven/race/"))
+    {
+        return Err("Race copies are removed through their race.".into());
+    }
+    if copy.branch.is_none() {
+        return Err(
+            "This copy has no branch. Create a branch in it before removing it so its commits stay reachable."
+                .into(),
+        );
+    }
+    // The Changes list deliberately excludes ignored files. A clean-looking
+    // copy can still hold local data, so never discard that data with --force.
+    // Collapse ignored directories rather than walking every dependency file.
+    let ignored = git_run(
+        Path::new(&copy.path),
+        &[
+            "ls-files",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "--directory",
+            "--no-empty-directory",
+            "-z",
+            "--",
+            ".",
+        ],
+    )
+    .ok_or("Could not check this copy for ignored files. Nothing was removed.")?;
+    if !ignored.is_empty() {
+        return Err(
+            "This copy contains ignored files or folders. Back up anything you need and remove those files before removing the copy. Nothing was removed."
+                .into(),
+        );
+    }
+    let primary = copies
+        .iter()
+        .find(|copy| copy.primary)
+        .map(|copy| PathBuf::from(&copy.path))
+        .unwrap_or_else(|| root.to_path_buf());
+    let output = git_cmd()
+        .arg("--no-pager")
+        .arg("-C")
+        .arg(&primary)
+        .args(["worktree", "remove", "--force", &copy.path])
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if message.is_empty() {
+            "Git could not remove this copy.".into()
+        } else {
+            message
+        });
+    }
+    if let (Some(branch), 0) = (copy.branch.as_deref(), copy.ahead_of_default) {
+        // Git's safe delete still refuses a branch it considers unmerged.
+        let _ = git_run(&primary, &["branch", "-d", branch]);
+    }
+    let _ = git_run(&primary, &["worktree", "prune"]);
+    Ok(())
+}
+
 /// `(path, branch)` for each usable entry of `git worktree list --porcelain`.
 fn parse_worktree_list(text: &str) -> Vec<(String, Option<String>)> {
     text.split("\n\n")
@@ -1999,7 +2089,7 @@ fn with_temp_markdown(
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let path = std::env::temp_dir().join(format!("monocode-comment-{stamp}.md"));
+    let path = std::env::temp_dir().join(format!("aven-comment-{stamp}.md"));
     std::fs::write(&path, body).map_err(|error| error.to_string())?;
     let path_str = path.to_string_lossy().into_owned();
     let result = run(&path_str);
@@ -2557,7 +2647,7 @@ fn git_pr_create_for(root: &Path, input: &GitPrCreateInput) -> Result<String, St
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let body_path = std::env::temp_dir().join(format!("monocode-pr-{stamp}.md"));
+    let body_path = std::env::temp_dir().join(format!("aven-pr-{stamp}.md"));
     std::fs::write(&body_path, input.body.trim()).map_err(|e| e.to_string())?;
     let result = gh_checked_write(
         root,
@@ -3608,7 +3698,7 @@ fn write_attachment_sync(name: &str, data: &str) -> Result<String, String> {
             MAX_ATTACHMENT_EMBED_BYTES / 1024 / 1024
         ));
     }
-    let dir = std::env::temp_dir().join("monocode-attachments");
+    let dir = std::env::temp_dir().join("aven-attachments");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -3716,7 +3806,7 @@ fn write_text_file_sync(path: &str, content: &str) -> Result<(), String> {
     let mut temporary = None;
     for attempt in 0..100 {
         let candidate = parent.join(format!(
-            ".{name}.monocode-{}-{stamp}-{attempt}.tmp",
+            ".{name}.aven-{}-{stamp}-{attempt}.tmp",
             std::process::id()
         ));
         match std::fs::OpenOptions::new()
@@ -3845,10 +3935,7 @@ fn rename_path_sync(path: &str, name: &str) -> Result<String, String> {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        let tmp = parent.join(format!(
-            ".{}.monocode-rename-{stamp}",
-            file_label(&from, "tmp")
-        ));
+        let tmp = parent.join(format!(".{}.aven-rename-{stamp}", file_label(&from, "tmp")));
         std::fs::rename(&from, &tmp).map_err(|e| e.to_string())?;
         if let Err(e) = std::fs::rename(&tmp, &dest) {
             let _ = std::fs::rename(&tmp, &from);
@@ -4030,8 +4117,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let dir =
-            std::env::temp_dir().join(format!("monocode-editor-{}-{stamp}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("aven-editor-{}-{stamp}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("example.rs");
         std::fs::write(&path, "fn old() {}\n").unwrap();
@@ -4100,10 +4186,8 @@ mod tests {
                 .unwrap()
                 .as_nanos();
             let seq = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
-            let dir = std::env::temp_dir().join(format!(
-                "monocode-{label}-{}-{stamp}-{seq}",
-                std::process::id()
-            ));
+            let dir = std::env::temp_dir()
+                .join(format!("aven-{label}-{}-{stamp}-{seq}", std::process::id()));
             match std::fs::create_dir(&dir) {
                 Ok(()) => return Tmp(dir),
                 Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
@@ -4279,8 +4363,8 @@ mod tests {
                 return false;
             }
         }
-        git(dir, &["config", "user.name", "MonoCode"])
-            && git(dir, &["config", "user.email", "monocode@test"])
+        git(dir, &["config", "user.name", "Aven"])
+            && git(dir, &["config", "user.email", "aven@test"])
             && git(dir, &["config", "commit.gpgsign", "false"])
             && git(dir, &["config", "core.autocrlf", "false"])
     }
@@ -4370,22 +4454,173 @@ mod tests {
         );
     }
 
+    #[test]
+    fn worktree_removal_keeps_branches_with_unmerged_work() {
+        let dir = tmp("git-worktree-remove");
+        let repo = dir.0.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        assert!(git(&repo, &["init", "-q", "-b", "main"]));
+        std::fs::write(repo.join("a.txt"), "one\n").unwrap();
+        assert!(git(&repo, &["add", "."]));
+        assert!(git(&repo, &["commit", "-q", "-m", "first"]));
+        let add = |name: &str| {
+            let copy = dir.0.join(name);
+            assert!(git(
+                &repo,
+                &["worktree", "add", "-q", "-b", name, copy.to_str().unwrap()]
+            ));
+            copy
+        };
+        let branch_exists = |name: &str| {
+            git(
+                &repo,
+                &[
+                    "show-ref",
+                    "--verify",
+                    "--quiet",
+                    &format!("refs/heads/{name}"),
+                ],
+            )
+        };
+
+        // Unsaved files are discarded; a merged branch goes with the folder.
+        let finished = add("finished");
+        std::fs::write(finished.join("scratch.txt"), "draft\n").unwrap();
+        remove_worktree_for(&repo, &finished).unwrap();
+        assert!(!finished.exists());
+        assert!(!branch_exists("finished"));
+
+        // Commits main lacks stay reachable on their branch.
+        let ahead = add("ahead");
+        std::fs::write(ahead.join("b.txt"), "two\n").unwrap();
+        assert!(git(&ahead, &["add", "."]));
+        assert!(git(&ahead, &["commit", "-q", "-m", "second"]));
+        remove_worktree_for(&repo, &ahead).unwrap();
+        assert!(!ahead.exists());
+        assert!(branch_exists("ahead"));
+
+        // The main checkout, the open copy and race copies are refused.
+        assert!(remove_worktree_for(&repo, &repo).is_err());
+        let open = add("open");
+        assert!(remove_worktree_for(&open, &open).is_err());
+        assert!(open.exists());
+        let race = add("aven/race/abc-0");
+        assert!(remove_worktree_for(&repo, &race).is_err());
+        assert!(race.exists());
+        assert!(remove_worktree_for(&repo, &dir.0.join("missing")).is_err());
+        assert_eq!(git_worktrees_for(&repo).len(), 3);
+    }
+
+    #[test]
+    fn worktree_removal_refuses_ignored_files_and_folders() {
+        let dir = tmp("git-worktree-remove-ignored");
+        let repo = dir.0.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        assert!(init_git_commit(
+            &repo,
+            &[(".gitignore", ".env\nlocal-data/\n")]
+        ));
+        let copy = dir.0.join("copy");
+        assert!(git(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "copy",
+                copy.to_str().unwrap()
+            ]
+        ));
+        std::fs::write(copy.join(".env"), "local configuration\n").unwrap();
+        std::fs::create_dir(copy.join("local-data")).unwrap();
+        std::fs::write(copy.join("local-data/draft.txt"), "private draft\n").unwrap();
+
+        // These files never appear in the Changes list, but must survive.
+        assert!(git_diff_files_for(&copy).files.is_empty());
+        let error = remove_worktree_for(&repo, &copy).unwrap_err();
+        assert!(error.contains("ignored files or folders"));
+        assert_eq!(
+            std::fs::read_to_string(copy.join(".env")).unwrap(),
+            "local configuration\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(copy.join("local-data/draft.txt")).unwrap(),
+            "private draft\n"
+        );
+        assert!(git_ref_exists(&repo, "refs/heads/copy"));
+
+        // An ignored directory alone still blocks removal. Once the user has
+        // cleared its files, removing the otherwise finished copy succeeds.
+        std::fs::remove_file(copy.join(".env")).unwrap();
+        assert!(remove_worktree_for(&repo, &copy).is_err());
+        assert!(copy.join("local-data/draft.txt").is_file());
+        std::fs::remove_dir_all(copy.join("local-data")).unwrap();
+        remove_worktree_for(&repo, &copy).unwrap();
+        assert!(!copy.exists());
+    }
+
+    #[test]
+    fn worktree_removal_refuses_detached_commits() {
+        let dir = tmp("git-worktree-remove-detached");
+        let repo = dir.0.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        assert!(init_git_commit(&repo, &[("a.txt", "base\n")]));
+        let copy = dir.0.join("copy");
+        assert!(git(
+            &repo,
+            &["worktree", "add", "-q", "--detach", copy.to_str().unwrap()]
+        ));
+        std::fs::write(copy.join("a.txt"), "unique detached work\n").unwrap();
+        assert!(git(&copy, &["add", "."]));
+        assert!(git(&copy, &["commit", "-q", "-m", "detached work"]));
+        let head = git_stdout(&copy, &["rev-parse", "HEAD"]).unwrap();
+        assert_eq!(
+            git_run(&repo, &["for-each-ref", "--contains", &head]),
+            Some(String::new())
+        );
+
+        let error = remove_worktree_for(&repo, &copy).unwrap_err();
+        assert!(error.contains("Create a branch"));
+        assert_eq!(
+            git_stdout(&copy, &["rev-parse", "HEAD"]),
+            Some(head.clone())
+        );
+        assert!(git_run(&copy, &["reflog", "show", "--format=%H", "HEAD"])
+            .unwrap()
+            .contains(&head));
+        assert_eq!(
+            std::fs::read_to_string(copy.join("a.txt")).unwrap(),
+            "unique detached work\n"
+        );
+
+        // Following the refusal's guidance makes removal safe: the new branch
+        // retains the unique commit after the checkout itself is gone.
+        assert!(git(&copy, &["switch", "-q", "-c", "recovered"]));
+        remove_worktree_for(&repo, &copy).unwrap();
+        assert!(!copy.exists());
+        assert_eq!(
+            git_stdout(&repo, &["rev-parse", "refs/heads/recovered"]),
+            Some(head)
+        );
+    }
+
     fn git(dir: &Path, args: &[&str]) -> bool {
         Command::new("git")
             .args([
                 "-c",
-                "user.name=MonoCode",
+                "user.name=Aven",
                 "-c",
-                "user.email=monocode@test",
+                "user.email=aven@test",
                 "-c",
                 "commit.gpgsign=false",
             ])
             .args(args)
             .current_dir(dir)
-            .env("GIT_AUTHOR_NAME", "MonoCode")
-            .env("GIT_AUTHOR_EMAIL", "monocode@test")
-            .env("GIT_COMMITTER_NAME", "MonoCode")
-            .env("GIT_COMMITTER_EMAIL", "monocode@test")
+            .env("GIT_AUTHOR_NAME", "Aven")
+            .env("GIT_AUTHOR_EMAIL", "aven@test")
+            .env("GIT_COMMITTER_NAME", "Aven")
+            .env("GIT_COMMITTER_EMAIL", "aven@test")
             .status()
             .map(|status| status.success())
             .unwrap_or(false)
@@ -5051,8 +5286,8 @@ mod tests {
                 .status()
                 .map(|status| !status.success())
                 .unwrap_or(true)
-            || !git(&b.0, &["config", "user.name", "MonoCode"])
-            || !git(&b.0, &["config", "user.email", "monocode@test"])
+            || !git(&b.0, &["config", "user.name", "Aven"])
+            || !git(&b.0, &["config", "user.email", "aven@test"])
             || !git(&b.0, &["config", "commit.gpgsign", "false"])
             || !git(&b.0, &["config", "core.autocrlf", "false"])
             || !git(&b.0, &["checkout", "--", "."])
@@ -5098,8 +5333,8 @@ mod tests {
     #[test]
     fn pr_head_filter_qualifies_branch_with_repo_owner() {
         assert_eq!(
-            github_pr_head_filter("hardbeat920/monocode", "main").as_deref(),
-            Some("hardbeat920:main")
+            github_pr_head_filter("acme/aven", "main").as_deref(),
+            Some("acme:main")
         );
     }
 
@@ -5180,10 +5415,10 @@ mod tests {
     #[test]
     fn split_github_repo_reads_owner_and_name() {
         assert_eq!(
-            split_github_repo(" hardbeat920/monocode ").unwrap(),
-            ("hardbeat920".into(), "monocode".into())
+            split_github_repo(" acme/aven ").unwrap(),
+            ("acme".into(), "aven".into())
         );
-        assert!(split_github_repo("monocode").is_err());
+        assert!(split_github_repo("aven").is_err());
         assert!(split_github_repo("acme/web extra").is_err());
     }
 

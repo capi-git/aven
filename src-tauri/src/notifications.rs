@@ -277,7 +277,7 @@ mod platform {
 
     define_class!(
         #[unsafe(super(NSObject))]
-        #[name = "MonoCodeNotificationDelegate"]
+        #[name = "AvenNotificationDelegate"]
         #[ivars = DelegateIvars]
         struct Delegate;
 

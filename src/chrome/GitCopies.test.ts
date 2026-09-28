@@ -1,8 +1,20 @@
+import { invoke } from "@tauri-apps/api/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GitWorktree } from "../lib/fs";
-import { copyName, summarizeCopies } from "./GitCopies";
+import { finishRace, type RaceRecord } from "../lib/race";
+import {
+  copyName,
+  removalWarning,
+  removeCopy,
+  summarizeCopies,
+  type CopySummary,
+} from "./GitCopies";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("../lib/race", async (original) => ({
+  ...(await original<typeof import("../lib/race")>()),
+  finishRace: vi.fn(),
+}));
 
 function copy(overrides: Partial<GitWorktree>): GitWorktree {
   return {
@@ -29,7 +41,45 @@ const file = (relative: string) => ({
   unstaged: true,
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.clearAllMocks();
+});
+
+function raceRecord(state: RaceRecord["state"]): RaceRecord {
+  return {
+    id: "race-1",
+    project: "/repo",
+    root: "/repo",
+    base: "abc",
+    prompt: "Try designs",
+    createdAt: 1,
+    uncommitted: false,
+    untracked: false,
+    state,
+    lanes: [0, 1].map((slot) => ({
+      sessionId: `s${slot}`,
+      harness: "claude",
+      model: "opus",
+      label: "Claude Code",
+      path: `/races/race-1/${slot}`,
+      branch: `aven/race/race-1-${slot}`,
+    })),
+  };
+}
+
+function summary(
+  overrides: Partial<GitWorktree>,
+  race?: RaceRecord,
+): CopySummary {
+  return {
+    worktree: copy(overrides),
+    name: "Copy",
+    detail: "",
+    finished: false,
+    ...(race ? { race: { race, lane: race.lanes[0] } } : {}),
+  };
+}
 
 describe("other copies", () => {
   it("names copies after their branch or folder", () => {
@@ -102,5 +152,49 @@ describe("other copies", () => {
       detail: "Claude Code · Opus 5.5",
       harness: "claude",
     });
+  });
+
+  it("says what removing a copy throws away", () => {
+    expect(removalWarning(summary({}))).toBe(
+      "The folder will be deleted. Copies with ignored files must be backed up and cleared first.",
+    );
+    expect(
+      removalWarning(summary({ files: [file("a.ts")], aheadOfDefault: 2 })),
+    ).toBe(
+      "The folder will be deleted. Copies with ignored files must be backed up and cleared first. 1 unsaved file will be deleted. Its branch keeps the 2 commits main doesn't have.",
+    );
+    expect(
+      removalWarning(summary({ aheadOfDefault: 1 }, raceRecord("kept"))),
+    ).toBe(
+      "The entire folder, including ignored files, will be deleted. Its 1 unmerged commit is deleted too.",
+    );
+    expect(removalWarning(summary({}, raceRecord("running")))).toBe(
+      "This race is still running. Removing it stops its agents and deletes all 2 of its copies, including unsaved and ignored files.",
+    );
+    expect(removalWarning(summary({ branch: null, aheadOfDefault: 1 }))).toBe(
+      "This copy has no branch. Create a branch in it before removing it so its commits stay reachable.",
+    );
+  });
+
+  it("removes ordinary copies with Git and race copies through their race", async () => {
+    await removeCopy("/repo", summary({ path: "/copies/done" }));
+    expect(invoke).toHaveBeenLastCalledWith("git_worktree_remove", {
+      cwd: "/repo",
+      path: "/copies/done",
+    });
+
+    const finished = raceRecord("discarded");
+    await removeCopy("/repo", summary({ path: "/races/race-1/0" }, finished));
+    expect(invoke).toHaveBeenLastCalledWith("race_cleanup", {
+      root: "/repo",
+      lanes: [finished.lanes[0]],
+    });
+    expect(finishRace).not.toHaveBeenCalled();
+
+    const running = raceRecord("running");
+    vi.mocked(invoke).mockClear();
+    await removeCopy("/repo", summary({ path: "/races/race-1/0" }, running));
+    expect(finishRace).toHaveBeenCalledWith(running, null);
+    expect(invoke).not.toHaveBeenCalled();
   });
 });

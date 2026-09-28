@@ -2,11 +2,14 @@
 
 ## [Unreleased]
 
+- The Windows installer now shows the Aven mark and name. Aven names also cover internal terminal styling, new temporary files, provider probes and test examples. Existing app data, signing identifiers and upstream attribution remain compatible.
+
 ### Releases, merges and branch clean-up in the Changes panel, and a signed Mac app
 
 - The Changes panel has a **Release** card for projects with a release workflow. It shows the latest release and how many changes on main aren't released yet. Once a new version is set, **Publish** runs the release on GitHub, after you confirm, and the card follows it until it finishes.
 - **Squash and merge** sits next to **View PR** for an open pull request. The pull request lands on the default branch as one commit, and GitHub deletes its branch.
 - **Merged branches** lists local and GitHub branches whose work is already in main, including squash-merged ones, and deletes them in one step after you confirm. Branches open in any copy are kept.
+- Cleanup preserves branches that changed after they were checked. Removing another copy refuses ignored local files and detached commits, and explains what will be deleted. Release confirmation stays tied to the project, version and remote source you reviewed.
 - The Mac app is now signed with Aven's Apple Developer ID. It is not yet Apple-notarized, so macOS may still ask you to approve opening a downloaded copy once.
 - Each release now includes the Windows test installer, built from the same commit as the Mac app, instead of a separate Windows release. Windows builds remain unsigned test downloads without automatic updates.
 - New installs start with black glass and a blue accent in dark mode. The previous monochrome look is available as the **Mono** preset, and saved themes are unchanged.

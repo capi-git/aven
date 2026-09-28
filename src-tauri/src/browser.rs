@@ -1496,7 +1496,7 @@ mod tests {
     #[test]
     fn download_names_stay_inside_downloads_and_avoid_existing_or_pending_files() {
         let directory = std::env::temp_dir().join(format!(
-            "monocode-browser-downloads-{}-{}",
+            "aven-browser-downloads-{}-{}",
             std::process::id(),
             NEXT_POPUP.fetch_add(1, Ordering::Relaxed)
         ));

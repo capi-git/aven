@@ -45,6 +45,8 @@ Check the download on a second Mac or clean macOS account when possible. In rele
 
 Releases go through one manually started workflow, **Release Aven** (`.github/workflows/release.yml`). Start it from the repository's Actions tab or from the **Release** card in Aven's Changes panel. It builds whatever is on GitHub's `main`, so merge and push first.
 
+The Release card confirms the version at the remote source revision and passes both to the workflow. If that revision changes before the run starts, the workflow stops before building. Refresh the card and review the new version before trying again; a local version bump alone is not ready to publish.
+
 1. Merge the changes for this release into `main` through pull requests.
 2. On a release branch, run `npm run set-version -- <version>`, add the matching `CHANGELOG.md` entry, and merge that through a pull request too.
 3. Run **Release Aven** with **Publish** selected. Leave **Windows** selected to include the Windows test build.
@@ -57,7 +59,7 @@ Without **Publish**, the run uploads **Aven-macos-arm64-candidate** and **Aven-w
 - `Aven-<version>-windows-x64-test.zip` and the setup `.exe` are attached as unsigned Windows test downloads. The ZIP keeps its own payload checksums. Windows builds have automatic updates disabled, and `latest.json` only describes macOS.
 - The release `SHA256SUMS` covers every attached file.
 
-Publishing waits for every requested platform, so a version never ships with half its downloads. If the Windows job fails, rerun it or run the release again without **Windows**. The version must not already exist; the workflow refuses to reuse a tag. Workflow artifacts expire; GitHub Releases is the public distribution channel. Do not upload build logs, runner screenshots, or smoke JSON as release assets; they may contain local paths. The Windows startup evidence stays in the workflow's diagnostic artifacts.
+Publishing waits for every requested platform and refuses missing or mismatched Windows artifacts when **Windows** was selected. If the Windows job fails, rerun it or run the release again without **Windows**; that explicitly creates a macOS-only release, with no Windows download on the latest release page. The version must not already exist; the workflow refuses to reuse a tag or continue when it cannot check the remote tag. Workflow artifacts expire; GitHub Releases is the public distribution channel. Do not upload build logs, runner screenshots, or smoke JSON as release assets; they may contain local paths. The Windows startup evidence stays in the workflow's diagnostic artifacts.
 
 Every macOS run requires two GitHub Actions secrets: `APPLE_DEVELOPER_ID_P12_BASE64`, containing an encrypted PKCS#12 export of the intended Developer ID identity, and `APPLE_DEVELOPER_ID_P12_PASSWORD`. These are independent of the Tauri updater key. Missing or invalid Apple signing secrets stop the build before compiling. Import uses a temporary runner keychain, restricts signing to the configured team, and deletes the decoded certificate archive and temporary keychain. The helper temporarily adds that keychain to the disposable runner's search list so macOS can resolve the certificate chain, then restores the original ordered list during cleanup. It never changes the default keychain or existing keys. Do not put the certificate export, passwords, or Keychain files in logs or workflow artifacts. The publish job also requires the checksummed Developer ID verification report; an ad-hoc candidate cannot be published through this workflow.
 

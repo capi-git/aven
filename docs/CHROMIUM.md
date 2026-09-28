@@ -50,7 +50,7 @@ With the verified `CEF_ROOT` exported:
 ./scripts/build-release.sh
 ```
 
-The script installs JavaScript dependencies using `npm ci`, builds the Chromium wrapper and helper, runs frontend checks and locked native tests, builds the host app with the locked Cargo dependencies, generates third-party notices, and packages the complete app. It signs the final bundle ad-hoc and verifies its signature, then creates a ZIP and checksums.
+The script requires a valid Developer ID Application identity for the team in `scripts/release-signing.json`. It installs JavaScript dependencies using `npm ci`, builds the Chromium wrapper and helper, runs frontend checks and locked native tests, builds the host app with the locked Cargo dependencies, generates third-party notices, and packages the complete app. It signs the final bundle with Developer ID, verifies every nested signature and the stable signing requirements, then creates a ZIP, a public signing report, and checksums.
 
 Outputs are in `target/releases/v<version>/`:
 
@@ -58,7 +58,10 @@ Outputs are in `target/releases/v<version>/`:
 - `LICENSE`
 - `NOTICE`
 - `THIRD_PARTY_NOTICES.txt`
+- `signing-verification.json`
 - `SHA256SUMS`
+
+For an explicitly local-only build, `./scripts/build-release.sh --ad-hoc` writes to `target/releases/ad-hoc/v<version>/` and refuses updater signing credentials. Ad-hoc output must not be published as an update.
 
 The unpackaged/intermediate host app is not a release artifact. Use the ZIP produced after successful packaging. The final app is also available at `target/release/bundle/macos/Aven.app`; packaging diagnostics stay beside it and may contain local filesystem paths, so they are not part of the public artifacts.
 
@@ -124,9 +127,9 @@ In the packaged app, also verify picking and changing an element, correct screen
 
 The packager adds the complete CEF framework, helper applications, CEF licenses and credits, and Aven's project and dependency notices. It signs nested native code before the host app, then runs strict signature verification. Some internal helper and executable identifiers retain compatibility names; the app is presented as Aven.
 
-Ad-hoc signing has no Apple Developer Team ID. The package uses a scoped library-validation entitlement for its bundled framework; it does not change global macOS security settings. Renderer and GPU helpers receive the JIT entitlement required by Chromium. The CEF sandbox remains enabled. No remote-debugging, mock-keychain, or no-sandbox workaround is part of the build.
+Release signing uses the configured Apple Developer Team ID and stable designated requirements. Explicit local-only ad-hoc signing has no Apple Developer Team ID and uses a scoped library-validation exception for its bundled framework; Developer ID builds omit that exception. Neither mode changes global macOS security settings. Renderer and GPU helpers receive the JIT entitlement required by Chromium. The CEF sandbox remains enabled. No remote-debugging, mock-keychain, or no-sandbox workaround is part of the build.
 
-Notarization is a separate process and is not performed by these scripts. See [RELEASING.md](RELEASING.md) for the release boundary and the future Developer ID path.
+Notarization is a separate process and is not performed by these scripts. See [RELEASING.md](RELEASING.md) for the Developer ID setup and remaining public-distribution checks.
 
 ## Browser data and maintenance
 

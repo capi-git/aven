@@ -8,7 +8,7 @@ import { COMPACT_COMMAND } from "../lib/compact";
 import type { Skill } from "../lib/skills";
 
 describe("native command picker", () => {
-  it("renders native commands and argument hints alongside MonoCode shortcuts", () => {
+  it("renders native commands and argument hints alongside Aven shortcuts", () => {
     const native: Skill[] = ompCommandsFromRpcData({
       commands: [
         { name: "plan", source: "builtin", description: "OMP planning" },
