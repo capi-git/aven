@@ -55,8 +55,10 @@ pub struct ReleaseStatus {
     pub latest: Option<ReleaseInfo>,
     /// Commits on the remote base branch since the latest release.
     pub unreleased: Option<u32>,
-    /// Version declared in package.json, when there is one.
+    /// Version declared at the remote default branch revision.
     pub version: Option<String>,
+    /// Exact remote revision the version and workflow were read from.
+    pub source_sha: Option<String>,
     /// True when that version has no release tag yet.
     pub version_unreleased: bool,
     /// Workflow file that can publish, e.g. `release.yml`.
@@ -100,10 +102,16 @@ pub async fn git_release_status(cwd: String) -> Result<ReleaseStatus, String> {
 }
 
 #[tauri::command]
-pub async fn git_release_start(cwd: String, version: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || release_start_for(&expand_home(&cwd), &version))
-        .await
-        .map_err(|e| e.to_string())?
+pub async fn git_release_start(
+    cwd: String,
+    version: String,
+    source_sha: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        release_start_for(&expand_home(&cwd), &version, &source_sha)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 fn git() -> Command {
@@ -179,15 +187,18 @@ fn base_branch(root: &Path, remote: Option<&str>) -> Option<String> {
 }
 
 /// Branches checked out anywhere cannot be deleted and belong to live work.
-fn checked_out_branches(root: &Path) -> HashSet<String> {
-    lines(git_text(root, &["worktree", "list", "--porcelain"]))
+fn checked_out_branches(root: &Path) -> Result<HashSet<String>, String> {
+    let text = git_text(root, &["worktree", "list", "--porcelain"])
+        .ok_or("Could not verify which branches are checked out.")?;
+    Ok(lines(Some(text))
         .into_iter()
         .filter_map(|line| line.strip_prefix("branch refs/heads/").map(str::to_string))
-        .collect()
+        .collect())
 }
 
-/// A squash merge leaves no shared commit, so ask whether the branch's whole
-/// change as one patch is already in the base (the approach `git cherry` uses).
+/// A squash merge leaves no shared commit. Prove that merging the branch
+/// adds no content to the base, including whitespace (which git cherry ignores).
+/// Conflicts, unsupported Git versions, and later divergent edits fail closed.
 fn squash_merged(root: &Path, base_ref: &str, branch: &str) -> bool {
     let Some(merge_base) = git_text(root, &["merge-base", base_ref, branch]) else {
         return false;
@@ -198,88 +209,115 @@ fn squash_merged(root: &Path, base_ref: &str, branch: &str) -> bool {
     let Some(merge_tree) = git_text(root, &["rev-parse", &format!("{merge_base}^{{tree}}")]) else {
         return false;
     };
-    // An empty branch is not "merged work"; leave it for the owner.
     if tree == merge_tree {
         return false;
     }
-    let Some(probe) = git_text(
-        root,
-        &[
-            "commit-tree",
-            &tree,
-            "-p",
-            &merge_base,
-            "-m",
-            "aven squash probe",
-        ],
-    ) else {
+    let Some(base_tree) = git_text(root, &["rev-parse", &format!("{base_ref}^{{tree}}")]) else {
         return false;
     };
-    git_text(root, &["cherry", base_ref, &probe])
-        .is_some_and(|out| out.starts_with('-') && !out.contains('+'))
+    git_text(root, &["merge-tree", "--write-tree", base_ref, branch])
+        .is_some_and(|output| output.lines().next() == Some(base_tree.as_str()))
 }
 
-fn merged_branches_for(root: &Path) -> Result<MergedBranches, String> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct BranchCandidate {
+    name: String,
+    oid: String,
+}
+
+struct BranchSnapshot {
+    base: String,
+    remote: Option<String>,
+    local: Vec<BranchCandidate>,
+    remote_branches: Vec<BranchCandidate>,
+}
+
+fn valid_oid(oid: &str) -> bool {
+    matches!(oid.len(), 40 | 64) && oid.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn branch_refs(root: &Path, prefix: &str) -> Result<Vec<BranchCandidate>, String> {
+    let text = git_text(
+        root,
+        &[
+            "for-each-ref",
+            "--format=%(objectname) %(refname) %(symref)",
+            prefix,
+        ],
+    )
+    .ok_or("Could not read branch revisions.")?;
+    let mut branches = Vec::new();
+    for line in text.lines() {
+        let fields: Vec<_> = line.split_whitespace().collect();
+        // Symbolic remote HEAD is not a deletable branch.
+        if fields.len() != 2 {
+            continue;
+        }
+        let Some(name) = fields[1].strip_prefix(prefix) else {
+            continue;
+        };
+        if !valid_oid(fields[0]) || name.is_empty() {
+            return Err("Could not verify a branch revision.".into());
+        }
+        branches.push(BranchCandidate {
+            name: name.into(),
+            oid: fields[0].into(),
+        });
+    }
+    Ok(branches)
+}
+
+fn merged_branch_snapshot(root: &Path) -> Result<BranchSnapshot, String> {
     let remote = remote_name(root);
     let base = base_branch(root, remote.as_deref()).ok_or("This project has no main branch.")?;
-    let base_ref = match &remote {
-        Some(remote)
-            if git_text(
+    let base_oid = remote
+        .as_ref()
+        .and_then(|remote| {
+            git_text(
                 root,
                 &[
                     "rev-parse",
                     "--verify",
-                    "--quiet",
-                    &format!("refs/remotes/{remote}/{base}"),
+                    &format!("refs/remotes/{remote}/{base}^{{commit}}"),
                 ],
             )
-            .is_some() =>
-        {
-            format!("{remote}/{base}")
-        }
-        _ => base.clone(),
+        })
+        .or_else(|| {
+            git_text(
+                root,
+                &[
+                    "rev-parse",
+                    "--verify",
+                    &format!("refs/heads/{base}^{{commit}}"),
+                ],
+            )
+        })
+        .filter(|oid| valid_oid(oid))
+        .ok_or("Could not verify the main branch revision.")?;
+    let busy = checked_out_branches(root)?;
+    let is_ancestor =
+        |oid: &str| git_text(root, &["merge-base", "--is-ancestor", oid, &base_oid]).is_some();
+    let local = branch_refs(root, "refs/heads/")?
+        .into_iter()
+        .filter(|branch| {
+            branch.name != base
+                && !busy.contains(&branch.name)
+                && (is_ancestor(&branch.oid) || squash_merged(root, &base_oid, &branch.oid))
+        })
+        .collect();
+    let remote_branches = match &remote {
+        Some(remote) => branch_refs(root, &format!("refs/remotes/{remote}/"))?
+            .into_iter()
+            .filter(|branch| {
+                branch.name != base
+                    && branch.name != "HEAD"
+                    && !busy.contains(&branch.name)
+                    && is_ancestor(&branch.oid)
+            })
+            .collect(),
+        None => Vec::new(),
     };
-    let busy = checked_out_branches(root);
-    let merged: HashSet<String> = lines(git_text(
-        root,
-        &["branch", "--format=%(refname:short)", "--merged", &base_ref],
-    ))
-    .into_iter()
-    .collect();
-    let mut local = Vec::new();
-    for branch in lines(git_text(root, &["branch", "--format=%(refname:short)"])) {
-        if branch == base || busy.contains(&branch) {
-            continue;
-        }
-        if merged.contains(&branch) || squash_merged(root, &base_ref, &branch) {
-            local.push(branch);
-        }
-    }
-    let mut remote_branches = Vec::new();
-    if let Some(remote) = &remote {
-        let prefix = format!("{remote}/");
-        for name in lines(git_text(
-            root,
-            &[
-                "branch",
-                "-r",
-                "--format=%(refname:short)",
-                "--merged",
-                &base_ref,
-            ],
-        )) {
-            let Some(branch) = name.strip_prefix(&prefix) else {
-                continue;
-            };
-            if branch == base || branch == "HEAD" || name == *remote {
-                continue;
-            }
-            remote_branches.push(branch.to_string());
-        }
-    }
-    local.sort();
-    remote_branches.sort();
-    Ok(MergedBranches {
+    Ok(BranchSnapshot {
         base,
         remote,
         local,
@@ -287,54 +325,207 @@ fn merged_branches_for(root: &Path) -> Result<MergedBranches, String> {
     })
 }
 
+fn merged_branches_for(root: &Path) -> Result<MergedBranches, String> {
+    let snapshot = merged_branch_snapshot(root)?;
+    Ok(MergedBranches {
+        base: snapshot.base,
+        remote: snapshot.remote,
+        local: snapshot
+            .local
+            .into_iter()
+            .map(|branch| branch.name)
+            .collect(),
+        remote_branches: snapshot
+            .remote_branches
+            .into_iter()
+            .map(|branch| branch.name)
+            .collect(),
+    })
+}
+
+fn delete_local_branch(root: &Path, branch: &BranchCandidate) -> Result<(), String> {
+    // update-ref supplies the atomic old-OID comparison that branch -D lacks.
+    // Retain branch's worktree guard and only remove its metadata after success.
+    if checked_out_branches(root)?.contains(&branch.name) {
+        return Err("This branch is checked out in a working copy.".into());
+    }
+    let reference = format!("refs/heads/{}", branch.name);
+    git_checked(
+        root,
+        &["update-ref", "--no-deref", "-d", &reference, &branch.oid],
+    )?;
+    // update-ref removes the reflog. Do not disturb configuration if another
+    // writer has already recreated the branch after the conditional deletion.
+    if git_text(root, &["rev-parse", "--verify", "--quiet", &reference]).is_none() {
+        let _ = git_checked(
+            root,
+            &[
+                "config",
+                "--local",
+                "--remove-section",
+                &format!("branch.{}", branch.name),
+            ],
+        );
+    }
+    Ok(())
+}
+
+fn remote_delete_args(target: &str, branches: &[BranchCandidate]) -> Vec<String> {
+    let mut args = vec!["push".into(), "--atomic".into()];
+    for branch in branches {
+        args.push(format!(
+            "--force-with-lease=refs/heads/{}:{}",
+            branch.name, branch.oid
+        ));
+    }
+    args.push("--".into());
+    args.push(target.into());
+    args.extend(
+        branches
+            .iter()
+            .map(|branch| format!(":refs/heads/{}", branch.name)),
+    );
+    args
+}
+
+fn delete_remote_branches(
+    root: &Path,
+    remote: &str,
+    branches: &[BranchCandidate],
+) -> Result<(), String> {
+    // Resolve the selected remote again immediately before the write. Use its
+    // verified account token for Git too, rather than ambient SSH credentials.
+    let url = git_text(root, &["remote", "get-url", remote])
+        .ok_or("Could not read the selected remote.")?;
+    let route = crate::github_account::route(root, &url)?;
+    let credentials = route.command(root)?; // verifies identity with this exact token
+    let gh_path = credentials
+        .get_program()
+        .to_string_lossy()
+        .replace('\'', "'\"'\"'");
+    let token = credentials
+        .get_envs()
+        .find_map(|(key, value)| (key == "GH_TOKEN").then_some(value).flatten())
+        .ok_or("Could not verify this project's GitHub account.")?;
+    let target = format!("https://github.com/{}.git", route.repository);
+    if git_text(root, &["ls-remote", "--get-url", &target]).as_deref() != Some(target.as_str()) {
+        return Err("Git URL rewriting would change the verified GitHub destination.".into());
+    }
+    let args = remote_delete_args(&target, branches);
+    let mut command = git();
+    command
+        .arg("-C")
+        .arg(root)
+        .args([
+            "-c",
+            "credential.helper=",
+            "-c",
+            &format!("credential.helper=!'{}' auth git-credential", gh_path),
+            "-c",
+            "http.extraHeader=",
+        ])
+        .args(args)
+        .env("GH_TOKEN", token)
+        .env("GH_HOST", "github.com")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GCM_INTERACTIVE", "never");
+    for (key, _) in std::env::vars_os() {
+        let name = key.to_string_lossy();
+        if name.starts_with("GIT_TRACE")
+            || name.starts_with("GIT_CONFIG_")
+            || matches!(
+                name.as_ref(),
+                "GIT_CURL_VERBOSE"
+                    | "GH_DEBUG"
+                    | "DEBUG"
+                    | "GIT_DIR"
+                    | "GIT_COMMON_DIR"
+                    | "GIT_WORK_TREE"
+            )
+        {
+            command.env_remove(key);
+        }
+    }
+    let output = command
+        .output()
+        .map_err(|_| "Could not delete the selected remote branches.")?;
+    // Never return credential-helper diagnostics to the UI.
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err("Remote branches changed or GitHub refused deletion. Refresh before retrying.".into())
+    }
+}
+
+fn delete_from_snapshot(
+    root: &Path,
+    current: BranchSnapshot,
+    local: &[String],
+    remote: &[String],
+    mut push: impl FnMut(&str, &[BranchCandidate]) -> Result<(), String>,
+) -> Result<BranchCleanup, String> {
+    let mut result = BranchCleanup::default();
+    for name in local {
+        let Some(branch) = current.local.iter().find(|branch| &branch.name == name) else {
+            result.failed.push(name.clone());
+            continue;
+        };
+        match delete_local_branch(root, branch) {
+            Ok(()) => result.deleted_local.push(name.clone()),
+            Err(_) => result.failed.push(name.clone()),
+        }
+    }
+    let busy = checked_out_branches(root)?;
+    let mut requested = Vec::new();
+    for name in remote {
+        match current
+            .remote_branches
+            .iter()
+            .find(|branch| &branch.name == name && !busy.contains(name))
+        {
+            Some(branch) => requested.push(branch.clone()),
+            None => result.failed.push(format!(
+                "{}/{name}",
+                current.remote.as_deref().unwrap_or("remote")
+            )),
+        }
+    }
+    if let Some(name) = current.remote.as_deref().filter(|_| !requested.is_empty()) {
+        match push(name, &requested) {
+            Ok(()) => {
+                for branch in requested {
+                    // Retire only the exact cached revision we deleted. A fetch
+                    // that observed a recreated/advanced branch must win.
+                    let reference = format!("refs/remotes/{name}/{}", branch.name);
+                    let _ = git_checked(
+                        root,
+                        &["update-ref", "--no-deref", "-d", &reference, &branch.oid],
+                    );
+                    result.deleted_remote.push(branch.name);
+                }
+            }
+            Err(_) => result.failed.extend(
+                requested
+                    .into_iter()
+                    .map(|branch| format!("{name}/{}", branch.name)),
+            ),
+        }
+    }
+    Ok(result)
+}
+
 fn delete_merged_branches_for(
     root: &Path,
     local: &[String],
     remote: &[String],
 ) -> Result<BranchCleanup, String> {
-    // Never trust the request: only delete what is merged right now.
-    let current = merged_branches_for(root)?;
-    let mut result = BranchCleanup::default();
-    for branch in local {
-        if !current.local.contains(branch) {
-            result.failed.push(branch.clone());
-            continue;
-        }
-        match git_checked(root, &["branch", "-D", "--", branch]) {
-            Ok(()) => result.deleted_local.push(branch.clone()),
-            Err(_) => result.failed.push(branch.clone()),
-        }
-    }
-    let requested: Vec<&String> = remote
-        .iter()
-        .filter(|branch| current.remote_branches.contains(branch))
-        .collect();
-    result.failed.extend(
-        remote
-            .iter()
-            .filter(|branch| !current.remote_branches.contains(branch))
-            .map(|branch| {
-                format!(
-                    "{}/{}",
-                    current.remote.as_deref().unwrap_or("remote"),
-                    branch
-                )
-            }),
-    );
-    if let (Some(name), false) = (current.remote.as_deref(), requested.is_empty()) {
-        let mut args = vec!["push", name, "--delete"];
-        args.extend(requested.iter().map(|branch| branch.as_str()));
-        match git_checked(root, &args) {
-            Ok(()) => result.deleted_remote.extend(requested.into_iter().cloned()),
-            Err(_) => result.failed.extend(
-                requested
-                    .into_iter()
-                    .map(|branch| format!("{name}/{branch}")),
-            ),
-        }
-        let _ = git_checked(root, &["fetch", "--prune", "--quiet", name]);
-    }
-    Ok(result)
+    delete_from_snapshot(
+        root,
+        merged_branch_snapshot(root)?,
+        local,
+        remote,
+        |name, branches| delete_remote_branches(root, name, branches),
+    )
 }
 
 fn gh(root: &Path, args: &[&str], write: bool) -> Result<String, String> {
@@ -373,33 +564,78 @@ fn squash_merge_for(root: &Path, number: i64) -> Result<(), String> {
     .map(|_| ())
 }
 
-fn release_workflow(root: &Path) -> Option<(String, bool)> {
-    for name in ["release.yml", "release.yaml"] {
-        let path = root.join(".github/workflows").join(name);
-        let Ok(text) = std::fs::read_to_string(&path) else {
+/// Only offer publication for workflows that accept both approval guards.
+/// Unknown/generic workflows remain read-only rather than dropping the guard.
+fn workflow_has_publish_input(text: &str) -> bool {
+    let mut dispatch_indent = None;
+    let mut inputs_indent = None;
+    let mut input_indent = None;
+    let mut names = HashSet::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
-        };
-        if text.contains("workflow_dispatch") {
-            return Some((name.to_string(), workflow_has_publish_input(&text)));
+        }
+        let indent = line.len() - line.trim_start().len();
+        if let Some(dispatch) = dispatch_indent {
+            if indent <= dispatch {
+                break;
+            }
+            if let Some(inputs) = inputs_indent {
+                if indent <= inputs {
+                    break;
+                }
+                let level = *input_indent.get_or_insert(indent);
+                if indent == level {
+                    if let Some(name) = trimmed.strip_suffix(':') {
+                        names.insert(name);
+                    }
+                }
+            } else if trimmed == "inputs:" {
+                inputs_indent = Some(indent);
+            }
+        } else if trimmed == "workflow_dispatch:" {
+            dispatch_indent = Some(indent);
         }
     }
-    None
+    ["publish", "expected_version", "expected_source_sha"]
+        .into_iter()
+        .all(|name| names.contains(name))
 }
 
-fn workflow_has_publish_input(text: &str) -> bool {
-    text.lines().map(str::trim).any(|line| line == "publish:")
-}
-
-fn package_version(root: &Path) -> Option<String> {
+fn package_version(text: &str) -> Option<String> {
     #[derive(Deserialize)]
     struct Package {
         version: Option<String>,
     }
-    let text = std::fs::read_to_string(root.join("package.json")).ok()?;
-    serde_json::from_str::<Package>(&text)
+    serde_json::from_str::<Package>(text)
         .ok()?
         .version
         .filter(|version| valid_version(version))
+}
+
+fn api_component(text: &str) -> String {
+    text.bytes()
+        .map(|byte| {
+            if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
+                (byte as char).to_string()
+            } else {
+                format!("%{byte:02X}")
+            }
+        })
+        .collect()
+}
+
+fn tag_is_absent(json: &str, version: &str) -> Result<bool, String> {
+    #[derive(Deserialize)]
+    struct Reference {
+        #[serde(rename = "ref")]
+        name: String,
+    }
+    let refs: Vec<Reference> = serde_json::from_str(json)
+        .map_err(|_| "Could not verify whether the release tag exists.")?;
+    let expected = format!("refs/tags/v{version}");
+    Ok(!refs.iter().any(|reference| reference.name == expected))
 }
 
 fn valid_version(version: &str) -> bool {
@@ -453,26 +689,76 @@ fn parse_latest_run(json: &str) -> Option<ReleaseRun> {
     })
 }
 
-fn release_status_for(root: &Path) -> Result<ReleaseStatus, String> {
-    let remote = remote_name(root);
-    let base = base_branch(root, remote.as_deref()).unwrap_or_else(|| "main".into());
-    let workflow = release_workflow(root);
-    let version = package_version(root);
-    let latest = gh(
-        root,
+fn release_status_using(
+    mut call: impl FnMut(&[&str], bool) -> Result<String, String>,
+) -> Result<ReleaseStatus, String> {
+    let base = call(
+        &["api", "repos/{owner}/{repo}", "--jq", ".default_branch"],
+        false,
+    )?;
+    if base.is_empty() || base == "null" {
+        return Err("Could not verify the remote default branch.".into());
+    }
+    let source_sha = call(
+        &[
+            "api",
+            &format!(
+                "repos/{{owner}}/{{repo}}/git/ref/heads/{}",
+                api_component(&base)
+            ),
+            "--jq",
+            ".object.sha",
+        ],
+        false,
+    )?;
+    if source_sha.len() != 40 || !valid_oid(&source_sha) {
+        return Err("Could not verify the remote release revision.".into());
+    }
+    let contents =
+        |path: &str| format!("repos/{{owner}}/{{repo}}/contents/{path}?ref={source_sha}");
+    let version = package_version(&call(
+        &[
+            "api",
+            &contents("package.json"),
+            "--header",
+            "Accept: application/vnd.github.raw+json",
+        ],
+        false,
+    )?);
+    let workflow_names = call(
+        &["api", &contents(".github/workflows"), "--jq", ".[].name"],
+        false,
+    )?;
+    let workflow = ["release.yml", "release.yaml"]
+        .into_iter()
+        .find(|name| workflow_names.lines().any(|candidate| candidate == *name));
+    let workflow_has_publish = if let Some(name) = workflow {
+        let text = call(
+            &[
+                "api",
+                &contents(&format!(".github/workflows/{name}")),
+                "--header",
+                "Accept: application/vnd.github.raw+json",
+            ],
+            false,
+        )?;
+        workflow_has_publish_input(&text)
+    } else {
+        false
+    };
+    let latest = call(
         &["release", "view", "--json", "tagName,name,url,publishedAt"],
         false,
     )
     .ok()
     .and_then(|json| parse_latest_release(&json));
     let unreleased = latest.as_ref().and_then(|release| {
-        gh(
-            root,
+        call(
             &[
                 "api",
                 &format!(
-                    "repos/{{owner}}/{{repo}}/compare/{}...{}",
-                    release.tag, base
+                    "repos/{{owner}}/{{repo}}/compare/{}...{source_sha}",
+                    api_component(&release.tag)
                 ),
                 "--jq",
                 ".ahead_by",
@@ -482,76 +768,125 @@ fn release_status_for(root: &Path) -> Result<ReleaseStatus, String> {
         .ok()
         .and_then(|count| count.trim().parse().ok())
     });
-    let version_unreleased = match &version {
-        Some(version) => gh(
-            root,
+    // A successful matching-refs response distinguishes a missing exact tag
+    // from authentication/network errors. Never turn arbitrary errors into ready.
+    let version_unreleased = if let Some(version) = &version {
+        let refs = call(
             &[
                 "api",
-                &format!("repos/{{owner}}/{{repo}}/git/ref/tags/v{version}"),
-                "--silent",
+                &format!(
+                    "repos/{{owner}}/{{repo}}/git/matching-refs/tags/v{}",
+                    api_component(version)
+                ),
             ],
             false,
-        )
-        .is_err(),
-        None => false,
+        )?;
+        tag_is_absent(&refs, version)?
+    } else {
+        false
     };
-    let run = workflow.as_ref().and_then(|(name, _)| {
-        gh(
-            root,
+    let run = if let Some(workflow) = workflow {
+        let json = call(
             &[
                 "run",
                 "list",
                 "--workflow",
-                name,
+                workflow,
+                "--branch",
+                &base,
                 "--limit",
                 "1",
                 "--json",
                 "status,conclusion,url,createdAt,headSha",
             ],
             false,
-        )
-        .ok()
-        .and_then(|json| parse_latest_run(&json))
-    });
+        )?;
+        let value: serde_json::Value =
+            serde_json::from_str(&json).map_err(|_| "Could not verify release workflow status.")?;
+        if !value.is_array() {
+            return Err("Could not verify release workflow status.".into());
+        }
+        let parsed = parse_latest_run(&json);
+        if value.as_array().is_some_and(|runs| !runs.is_empty()) && parsed.is_none() {
+            return Err("Could not verify release workflow status.".into());
+        }
+        parsed
+    } else {
+        None
+    };
     Ok(ReleaseStatus {
         base,
         latest,
         unreleased,
         version,
+        source_sha: Some(source_sha),
         version_unreleased,
-        workflow_has_publish: workflow.as_ref().is_some_and(|(_, publish)| *publish),
-        workflow: workflow.map(|(name, _)| name),
+        workflow_has_publish,
+        workflow: workflow.map(str::to_owned),
         run,
     })
 }
 
-fn release_start_for(root: &Path, version: &str) -> Result<(), String> {
-    let (workflow, has_publish) =
-        release_workflow(root).ok_or("This project has no release workflow to run.")?;
-    let status = release_status_for(root)?;
-    // The button shows a version; publish only if that is still what GitHub
-    // would build and it has not been released since the card was drawn.
-    if status.version.as_deref() != Some(version) || !status.version_unreleased {
+fn release_status_for(root: &Path) -> Result<ReleaseStatus, String> {
+    release_status_using(|args, write| gh(root, args, write))
+}
+
+fn release_start_using(
+    version: &str,
+    source_sha: &str,
+    mut call: impl FnMut(&[&str], bool) -> Result<String, String>,
+) -> Result<(), String> {
+    if source_sha.len() != 40 || !valid_oid(source_sha) || !valid_version(version) {
+        return Err("Refresh the release before publishing.".into());
+    }
+    let status = release_status_using(&mut call)?;
+    if status.version.as_deref() != Some(version)
+        || status.source_sha.as_deref() != Some(source_sha)
+        || !status.version_unreleased
+    {
         return Err(format!(
-            "Version {version} is no longer ready to publish. Refresh and check the version."
+            "Version {version} or its source revision changed. Refresh before publishing."
         ));
     }
-    if let Some(run) = &status.run {
-        if run.status != "completed" {
-            return Err("A release is already running.".into());
-        }
+    if !status.workflow_has_publish {
+        return Err(
+            "This remote release workflow does not accept version and source revision guards."
+                .into(),
+        );
     }
-    let mut args = vec![
-        "workflow",
-        "run",
-        workflow.as_str(),
-        "--ref",
-        status.base.as_str(),
-    ];
-    if has_publish {
-        args.extend(["-f", "publish=true"]);
+    if status
+        .run
+        .as_ref()
+        .is_some_and(|run| run.status != "completed")
+    {
+        return Err("A release is already running.".into());
     }
-    gh(root, &args, true).map(|_| ())
+    let workflow = status
+        .workflow
+        .ok_or("This project has no release workflow to run.")?;
+    // GitHub dispatch only accepts a branch/tag ref. The workflow must compare
+    // its checkout with these inputs before doing any build or publication.
+    call(
+        &[
+            "workflow",
+            "run",
+            &workflow,
+            "--ref",
+            &status.base,
+            "-f",
+            "publish=true",
+            "-f",
+            &format!("expected_version={version}"),
+            "-f",
+            &format!("expected_source_sha={source_sha}"),
+        ],
+        true,
+    )
+    .map(|_| ())
+}
+
+fn release_start_for(root: &Path, version: &str, source_sha: &str) -> Result<(), String> {
+    release_start_using(version, source_sha, |args, write| gh(root, args, write))
 }
 
 #[cfg(test)]
@@ -601,6 +936,8 @@ mod tests {
         let dir = Temp::new(name);
         let root = dir.path();
         run(root, &["init", "-q", "-b", "main"]);
+        run(root, &["config", "user.name", "Test"]);
+        run(root, &["config", "user.email", "test@example.com"]);
         write(root, "a.txt", "one\n");
         run(root, &["add", "."]);
         run(root, &["commit", "-qm", "start"]);
@@ -663,6 +1000,42 @@ mod tests {
     }
 
     #[test]
+    fn squash_cleanup_preserves_behavior_changing_indentation() {
+        let dir = repo("indentation");
+        let root = dir.path();
+        write(
+            root,
+            "example.py",
+            "def f():\n    if ready:\n        pass\n",
+        );
+        run(root, &["add", "."]);
+        run(root, &["commit", "-qm", "base code"]);
+        run(root, &["checkout", "-qb", "feature"]);
+        write(
+            root,
+            "example.py",
+            "def f():\n    if ready:\n        pass\n    return 1\n",
+        );
+        run(root, &["commit", "-qam", "return outside conditional"]);
+        run(root, &["checkout", "-q", "main"]);
+        write(
+            root,
+            "example.py",
+            "def f():\n    if ready:\n        pass\n        return 1\n",
+        );
+        run(root, &["commit", "-qam", "return inside conditional"]);
+        // The old patch-ID proof drops indentation and incorrectly calls these
+        // changes equivalent. Exact tree equality must preserve this branch.
+        assert!(git_text(root, &["cherry", "main", "feature"])
+            .unwrap()
+            .starts_with('-'));
+        assert!(!squash_merged(root, "main", "feature"));
+        let result = delete_merged_branches_for(root, &["feature".into()], &[]).unwrap();
+        assert_eq!(result.failed, vec!["feature"]);
+        assert!(git_text(root, &["rev-parse", "refs/heads/feature"]).is_some());
+    }
+
+    #[test]
     fn parses_release_and_run_json() {
         let release = parse_latest_release(
             r#"{"tagName":"v0.1.107","name":"Aven 0.1.107","url":"https://example.com/r","publishedAt":"2026-09-28T19:00:31Z"}"#,
@@ -680,21 +1053,322 @@ mod tests {
         assert!(parse_latest_run("[]").is_none());
     }
 
+    const SOURCE_SHA: &str = "1111111111111111111111111111111111111111";
+    const GUARDED_WORKFLOW: &str = "on:\n  workflow_dispatch:\n    inputs:\n      publish:\n        type: boolean\n      expected_version:\n        type: string\n      expected_source_sha:\n        type: string\n";
+
+    struct MockGh {
+        sha: String,
+        version: String,
+        workflow: String,
+        tags: Result<String, String>,
+        writes: Vec<Vec<String>>,
+        content_paths: Vec<String>,
+    }
+
+    impl MockGh {
+        fn new() -> Self {
+            Self {
+                sha: SOURCE_SHA.into(),
+                version: "0.1.108".into(),
+                workflow: GUARDED_WORKFLOW.into(),
+                tags: Ok("[]".into()),
+                writes: Vec::new(),
+                content_paths: Vec::new(),
+            }
+        }
+        fn call(&mut self, args: &[&str], write: bool) -> Result<String, String> {
+            if write {
+                self.writes
+                    .push(args.iter().map(|arg| arg.to_string()).collect());
+                return Ok(String::new());
+            }
+            match args[0] {
+                "release" => return Err("No release".into()),
+                "run" => return Ok("[]".into()),
+                "api" => {}
+                _ => panic!("Unexpected command: {args:?}"),
+            }
+            let path = args[1];
+            if path == "repos/{owner}/{repo}" {
+                return Ok("main".into());
+            }
+            if path.contains("/git/ref/heads/") {
+                return Ok(self.sha.clone());
+            }
+            if path.contains("/git/matching-refs/") {
+                return self.tags.clone();
+            }
+            if path.contains("/contents/") {
+                self.content_paths.push(path.into());
+                if path.contains("package.json?") {
+                    return Ok(format!(r#"{{"version":"{}"}}"#, self.version));
+                }
+                if path.contains("workflows?") {
+                    return Ok("release.yml".into());
+                }
+                if path.contains("release.yml?") {
+                    return Ok(self.workflow.clone());
+                }
+            }
+            panic!("Unexpected API path: {path}")
+        }
+    }
+
     #[test]
-    fn detects_publishable_workflows_and_versions() {
-        let dir = repo("workflow");
+    fn advanced_local_branch_and_metadata_survive_conditional_deletion() {
+        let dir = repo("advanced-local");
         let root = dir.path();
-        assert!(release_workflow(root).is_none());
-        std::fs::create_dir_all(root.join(".github/workflows")).unwrap();
-        write(
-            &root.join(".github/workflows"),
-            "release.yml",
-            "on:\n  workflow_dispatch:\n    inputs:\n      publish:\n        type: boolean\n",
+        run(root, &["branch", "feature"]);
+        run(
+            root,
+            &["config", "branch.feature.description", "keep this metadata"],
         );
-        assert_eq!(release_workflow(root), Some(("release.yml".into(), true)));
-        write(root, "package.json", r#"{"version":"0.1.108"}"#);
-        assert_eq!(package_version(root).as_deref(), Some("0.1.108"));
-        write(root, "package.json", r#"{"version":"1.0; rm -rf"}"#);
-        assert_eq!(package_version(root), None);
+        let snapshot = merged_branch_snapshot(root).unwrap();
+        run(root, &["checkout", "-q", "feature"]);
+        write(root, "new.txt", "unmerged work\n");
+        run(root, &["add", "."]);
+        run(root, &["commit", "-qm", "new work"]);
+        let advanced = git_text(root, &["rev-parse", "HEAD"]).unwrap();
+        run(root, &["checkout", "-q", "main"]);
+        let result = delete_from_snapshot(root, snapshot, &["feature".into()], &[], |_, _| {
+            panic!("no remote write")
+        })
+        .unwrap();
+        assert_eq!(result.failed, vec!["feature"]);
+        assert_eq!(
+            git_text(root, &["rev-parse", "refs/heads/feature"]).as_deref(),
+            Some(advanced.as_str())
+        );
+        assert_eq!(
+            git_text(root, &["config", "branch.feature.description"]).as_deref(),
+            Some("keep this metadata")
+        );
+    }
+
+    #[test]
+    fn successful_local_deletion_removes_branch_metadata() {
+        let dir = repo("metadata");
+        let root = dir.path();
+        run(root, &["branch", "feature"]);
+        run(
+            root,
+            &["config", "branch.feature.description", "old branch"],
+        );
+        let result = delete_merged_branches_for(root, &["feature".into()], &[]).unwrap();
+        assert_eq!(result.deleted_local, vec!["feature"]);
+        assert!(git_text(root, &["config", "branch.feature.description"]).is_none());
+    }
+
+    #[test]
+    fn branch_checked_out_after_snapshot_is_preserved() {
+        let dir = repo("new-worktree");
+        let root = dir.path();
+        run(root, &["branch", "feature"]);
+        let snapshot = merged_branch_snapshot(root).unwrap();
+        let other = Temp::new("new-owner");
+        run(
+            root,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                other.path().join("copy").to_str().unwrap(),
+                "feature",
+            ],
+        );
+        let result = delete_from_snapshot(root, snapshot, &["feature".into()], &[], |_, _| {
+            panic!("no remote write")
+        })
+        .unwrap();
+        assert_eq!(result.failed, vec!["feature"]);
+        assert!(git_text(root, &["rev-parse", "refs/heads/feature"]).is_some());
+        assert!(checked_out_branches(Temp::new("not-a-repo").path()).is_err());
+    }
+
+    #[test]
+    fn remote_lease_preserves_commits_added_after_last_fetch() {
+        let remote = repo("remote-advanced");
+        run(remote.path(), &["branch", "feature"]);
+        let local = Temp::new("local-clone");
+        run(
+            local.path(),
+            &["clone", "-q", remote.path().to_str().unwrap(), "copy"],
+        );
+        let root = local.path().join("copy");
+        let snapshot = merged_branch_snapshot(&root).unwrap();
+        assert!(snapshot
+            .remote_branches
+            .iter()
+            .any(|branch| branch.name == "feature"));
+        run(remote.path(), &["checkout", "-q", "feature"]);
+        write(remote.path(), "new.txt", "remote-only work\n");
+        run(remote.path(), &["add", "."]);
+        run(remote.path(), &["commit", "-qm", "new remote work"]);
+        let advanced = git_text(remote.path(), &["rev-parse", "HEAD"]).unwrap();
+        run(remote.path(), &["checkout", "-q", "main"]);
+        let result =
+            delete_from_snapshot(&root, snapshot, &[], &["feature".into()], |_, branches| {
+                let args = remote_delete_args(remote.path().to_str().unwrap(), branches);
+                git_checked(&root, &args.iter().map(String::as_str).collect::<Vec<_>>())
+            })
+            .unwrap();
+        assert_eq!(result.failed, vec!["origin/feature"]);
+        assert_eq!(
+            git_text(remote.path(), &["rev-parse", "refs/heads/feature"]).as_deref(),
+            Some(advanced.as_str())
+        );
+    }
+
+    #[test]
+    fn remote_lease_deletes_only_unchanged_merged_branch() {
+        let remote = repo("remote-unchanged");
+        run(remote.path(), &["branch", "feature"]);
+        let local = Temp::new("local-unchanged");
+        run(
+            local.path(),
+            &["clone", "-q", remote.path().to_str().unwrap(), "copy"],
+        );
+        let root = local.path().join("copy");
+        let result = delete_from_snapshot(
+            &root,
+            merged_branch_snapshot(&root).unwrap(),
+            &[],
+            &["feature".into()],
+            |_, branches| {
+                let args = remote_delete_args(remote.path().to_str().unwrap(), branches);
+                git_checked(&root, &args.iter().map(String::as_str).collect::<Vec<_>>())
+            },
+        )
+        .unwrap();
+        assert_eq!(result.deleted_remote, vec!["feature"]);
+        assert!(git_text(
+            remote.path(),
+            &["rev-parse", "--verify", "refs/heads/feature"]
+        )
+        .is_none());
+        assert!(git_text(
+            &root,
+            &["rev-parse", "--verify", "refs/remotes/origin/feature"]
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn successful_remote_cleanup_preserves_a_concurrently_refreshed_tracking_ref() {
+        let dir = repo("tracking-refresh");
+        let root = dir.path();
+        let original = git_text(root, &["rev-parse", "HEAD"]).unwrap();
+        run(
+            root,
+            &[
+                "remote",
+                "add",
+                "origin",
+                "https://example.invalid/repo.git",
+            ],
+        );
+        run(root, &["update-ref", "refs/remotes/origin/main", &original]);
+        run(
+            root,
+            &["update-ref", "refs/remotes/origin/feature", &original],
+        );
+        let snapshot = merged_branch_snapshot(root).unwrap();
+        write(root, "new.txt", "recreated branch\n");
+        run(root, &["add", "."]);
+        run(root, &["commit", "-qm", "new revision"]);
+        let recreated = git_text(root, &["rev-parse", "HEAD"]).unwrap();
+        let result = delete_from_snapshot(root, snapshot, &[], &["feature".into()], |_, _| {
+            // Model a fetch observing branch recreation after the server has
+            // accepted deletion, before local tracking-ref retirement.
+            git_checked(
+                root,
+                &["update-ref", "refs/remotes/origin/feature", &recreated],
+            )
+        })
+        .unwrap();
+        assert_eq!(result.deleted_remote, vec!["feature"]);
+        assert_eq!(
+            git_text(root, &["rev-parse", "refs/remotes/origin/feature"]).as_deref(),
+            Some(recreated.as_str())
+        );
+    }
+
+    #[test]
+    fn release_reads_version_and_workflow_at_same_remote_revision() {
+        let mut mock = MockGh::new();
+        let status = release_status_using(|args, write| mock.call(args, write)).unwrap();
+        assert_eq!(status.version.as_deref(), Some("0.1.108"));
+        assert_eq!(status.source_sha.as_deref(), Some(SOURCE_SHA));
+        assert!(mock
+            .content_paths
+            .iter()
+            .all(|path| path.ends_with(&format!("?ref={SOURCE_SHA}"))));
+        release_start_using("0.1.108", SOURCE_SHA, |args, write| mock.call(args, write)).unwrap();
+        assert_eq!(
+            mock.writes,
+            vec![vec![
+                "workflow",
+                "run",
+                "release.yml",
+                "--ref",
+                "main",
+                "-f",
+                "publish=true",
+                "-f",
+                "expected_version=0.1.108",
+                "-f",
+                &format!("expected_source_sha={SOURCE_SHA}")
+            ]]
+        );
+    }
+
+    #[test]
+    fn release_refuses_changed_source_version_and_unguarded_workflows() {
+        for condition in ["source", "version", "workflow"] {
+            let mut mock = MockGh::new();
+            match condition {
+                "source" => mock.sha = "2222222222222222222222222222222222222222".into(),
+                "version" => mock.version = "0.1.109".into(),
+                _ => mock.workflow = "on:\n  workflow_dispatch:\n    inputs:\n      publish:\n        type: boolean\n".into(),
+            }
+            assert!(
+                release_start_using("0.1.108", SOURCE_SHA, |args, write| mock.call(args, write))
+                    .is_err()
+            );
+            assert!(mock.writes.is_empty());
+        }
+    }
+
+    #[test]
+    fn tag_lookup_errors_and_existing_exact_tag_never_allow_publication() {
+        for response in [
+            Err("HTTP 401".into()),
+            Err("HTTP 500".into()),
+            Ok("not json".into()),
+            Ok(r#"[{"ref":"refs/tags/v0.1.108"}]"#.into()),
+        ] {
+            let mut mock = MockGh::new();
+            mock.tags = response;
+            assert!(
+                release_start_using("0.1.108", SOURCE_SHA, |args, write| mock.call(args, write))
+                    .is_err()
+            );
+            assert!(mock.writes.is_empty());
+        }
+        assert!(tag_is_absent(r#"[{"ref":"refs/tags/v0.1.108-test"}]"#, "0.1.108").unwrap());
+    }
+
+    #[test]
+    fn detects_guarded_publish_workflows_and_versions() {
+        assert!(workflow_has_publish_input(GUARDED_WORKFLOW));
+        assert!(!workflow_has_publish_input(
+            "on:\n  workflow_dispatch:\n    inputs:\n      publish:\n        type: boolean\n"
+        ));
+        assert!(!workflow_has_publish_input("on:\n  workflow_dispatch:\njobs:\n  publish:\n  expected_version:\n  expected_source_sha:\n"));
+        assert_eq!(
+            package_version(r#"{"version":"0.1.108"}"#).as_deref(),
+            Some("0.1.108")
+        );
+        assert_eq!(package_version(r#"{"version":"1.0; rm -rf"}"#), None);
     }
 }

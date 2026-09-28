@@ -33,8 +33,8 @@ export function GitHousekeeping({
   if (!enabled || !cwd || cwd === "~") return null;
   return (
     <>
-      <ReleaseCard cwd={cwd} />
-      <MergedBranchesCard cwd={cwd} />
+      <ReleaseCard key={`release:${cwd}`} cwd={cwd} />
+      <MergedBranchesCard key={`branches:${cwd}`} cwd={cwd} />
     </>
   );
 }
@@ -79,7 +79,8 @@ export function ReleaseCard({ cwd }: { cwd: string }) {
   const summary = summarizeRelease(status);
   const publish = async () => {
     const version = summary.publish;
-    if (!version || busy) return;
+    const sourceSha = status.sourceSha;
+    if (!version || !sourceSha || busy) return;
     const ok = await ask(
       `Publish version ${version}? GitHub builds what's on ${status.base} and releases it to everyone who uses this project's downloads and updates.`,
       { title: "Aven", kind: "warning", okLabel: "Publish" },
@@ -88,7 +89,7 @@ export function ReleaseCard({ cwd }: { cwd: string }) {
     setBusy(true);
     setError(null);
     try {
-      await gitReleaseStart(cwd, version);
+      await gitReleaseStart(cwd, version, sourceSha);
       // GitHub takes a moment to list a new run.
       window.setTimeout(load, 4_000);
     } catch (reason) {
