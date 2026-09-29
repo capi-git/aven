@@ -2,12 +2,33 @@
 #include <algorithm>
 #include <cmath>
 
+namespace {
+const SMBrowserDropPalette kLegacyPalette = {
+  {.72, .72, .72, 1}, {.5, .5, .5, .12}, {0, 0, 0, .35}
+};
+bool ValidPalette(const SMBrowserDropPalette& palette) {
+  for (const double *color : {palette.stroke, palette.fill, palette.halo})
+    for (int i = 0; i < 4; ++i)
+      if (!std::isfinite(color[i]) || color[i] < 0 || color[i] > 1) return false;
+  return true;
+}
+bool SamePalette(const SMBrowserDropPalette& a, const SMBrowserDropPalette& b) {
+  return std::equal(a.stroke, a.stroke + 4, b.stroke) &&
+      std::equal(a.fill, a.fill + 4, b.fill) &&
+      std::equal(a.halo, a.halo + 4, b.halo);
+}
+NSColor *DropColor(const double *rgba) {
+  return [NSColor colorWithSRGBRed:rgba[0] green:rgba[1] blue:rgba[2] alpha:rgba[3]];
+}
+}
+
 @implementation SMBrowserDropIndicator {
   BOOL _active;
   NSRect _normalizedTarget;
   NSString *_outcome;
   NSString *_moveLabel;
   NSString *_title;
+  SMBrowserDropPalette _palette;
 }
 @synthesize active = _active, normalizedTarget = _normalizedTarget;
 @synthesize outcome = _outcome, moveLabel = _moveLabel, title = _title;
@@ -49,6 +70,13 @@
 }
 - (BOOL)updateTarget:(NSRect)target edge:(NSString *)edge
                kind:(NSString *)kind title:(NSString *)title {
+  return [self updateTarget:target edge:edge kind:kind title:title palette:nullptr];
+}
+- (BOOL)updateTarget:(NSRect)target edge:(NSString *)edge
+               kind:(NSString *)kind title:(NSString *)title
+            palette:(const SMBrowserDropPalette *)palette {
+  const auto nextPalette = palette ? *palette : kLegacyPalette;
+  if (!ValidPalette(nextPalette)) return NO;
   const double x = target.origin.x, y = target.origin.y;
   const double width = target.size.width, height = target.size.height;
   NSString *outcome = nil;
@@ -75,11 +103,12 @@
       NSCharacterSet.controlCharacterSet] componentsJoinedByString:@" "];
   if (_active && NSEqualRects(_normalizedTarget, target) &&
       [_outcome isEqualToString:outcome] && [_moveLabel isEqualToString:moveLabel] &&
-      [_title isEqualToString:cleanTitle]) return YES;
+      [_title isEqualToString:cleanTitle] && SamePalette(_palette, nextPalette)) return YES;
   _normalizedTarget = target;
   _outcome = outcome;
   _moveLabel = moveLabel;
   _title = [cleanTitle copy];
+  _palette = nextPalette;
   _active = YES;
   self.hidden = NO;
   self.needsDisplay = YES;
@@ -105,16 +134,16 @@
   if (!_active) return;
   NSRect target = NSInsetRect(self.targetRect, 3, 3);
   if (target.size.width <= 0 || target.size.height <= 0) return;
-  // A plain grey outline, like window snapping: no label and no accent. The
-  // dark halo keeps it visible on white websites, the grey line on dark ones.
+  // Use the exact sRGB drop-region palette resolved by the workspace. The
+  // contrasting halo keeps the destination visible over arbitrary websites.
   NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:target xRadius:8 yRadius:8];
-  [[NSColor colorWithSRGBRed:.5 green:.5 blue:.5 alpha:.12] setFill];
+  [DropColor(_palette.fill) setFill];
   [path fill];
-  [[NSColor colorWithSRGBRed:0 green:0 blue:0 alpha:.35] setStroke];
-  path.lineWidth = 4;
-  [path stroke];
-  [[NSColor colorWithSRGBRed:.72 green:.72 blue:.72 alpha:1] setStroke];
+  [DropColor(_palette.halo) setStroke];
   path.lineWidth = 2;
+  [path stroke];
+  [DropColor(_palette.stroke) setStroke];
+  path.lineWidth = 1;
   [path stroke];
 }
 @end

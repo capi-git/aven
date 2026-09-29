@@ -435,10 +435,10 @@ function TitleTabItem({
       }}
     >
       {showStart ? (
-        <div className="pointer-events-none absolute inset-y-1.5 left-0 z-20 w-0.5 rounded-full bg-accent" />
+        <div className="personal-tab-insertion pointer-events-none absolute inset-y-1.5 left-0 z-20 rounded-full" />
       ) : null}
       {showEnd ? (
-        <div className="pointer-events-none absolute inset-y-1.5 right-0 z-20 w-0.5 rounded-full bg-accent" />
+        <div className="personal-tab-insertion pointer-events-none absolute inset-y-1.5 right-0 z-20 rounded-full" />
       ) : null}
       <div className="aven-tab-motion" data-sortable-motion>
         <button
@@ -647,10 +647,10 @@ function BrowserTitleTabItem({
       }}
     >
       {dropBefore ? (
-        <div className="pointer-events-none absolute inset-y-1.5 left-0 z-20 w-0.5 rounded-full bg-accent" />
+        <div className="personal-tab-insertion pointer-events-none absolute inset-y-1.5 left-0 z-20 rounded-full" />
       ) : null}
       {dropAfter ? (
-        <div className="pointer-events-none absolute inset-y-1.5 right-0 z-20 w-0.5 rounded-full bg-accent" />
+        <div className="personal-tab-insertion pointer-events-none absolute inset-y-1.5 right-0 z-20 rounded-full" />
       ) : null}
       <div className="aven-tab-motion" data-sortable-motion>
         <button
@@ -776,10 +776,10 @@ function TabGroupLabel({
       }}
     >
       {dropBefore ? (
-        <div className="pointer-events-none absolute inset-y-1.5 left-0 z-20 w-0.5 rounded-full bg-accent" />
+        <div className="personal-tab-insertion pointer-events-none absolute inset-y-1.5 left-0 z-20 rounded-full" />
       ) : null}
       {dropAfter ? (
-        <div className="pointer-events-none absolute inset-y-1.5 right-0 z-20 w-0.5 rounded-full bg-accent" />
+        <div className="personal-tab-insertion pointer-events-none absolute inset-y-1.5 right-0 z-20 rounded-full" />
       ) : null}
       <div className="aven-tab-motion" data-sortable-motion>
         {renaming ? (
@@ -2545,9 +2545,9 @@ function TitleBarComponent({
           side="bottom"
           align="start"
           gap={6}
-          width={280}
+          width={240}
           aria-label="Tab details"
-          className="personal-tab-card pointer-events-none flex flex-col gap-1.5 p-3 font-sans"
+          className="personal-tab-card pointer-events-none flex flex-col gap-1 p-2.5 font-sans"
         >
           {hoverCardContent}
         </Popover>

@@ -279,10 +279,10 @@ export function SurfaceTabs({
               }}
             >
               {showStart ? (
-                <div className="pointer-events-none absolute inset-y-0 left-0 z-20 w-0.5 bg-accent" />
+                <div className="personal-tab-insertion pointer-events-none absolute inset-y-1.5 left-0 z-20 rounded-full" />
               ) : null}
               {showEnd ? (
-                <div className="pointer-events-none absolute inset-y-0 right-0 z-20 w-0.5 bg-accent" />
+                <div className="personal-tab-insertion pointer-events-none absolute inset-y-1.5 right-0 z-20 rounded-full" />
               ) : null}
               <div className="aven-tab-motion" data-sortable-motion>
                 <button

@@ -753,6 +753,26 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     if (command->GetType("indicator")!=VTYPE_DICTIONARY) return false;
     auto indicator=command->GetDictionary("indicator");
     if (indicator->GetType("title")!=VTYPE_STRING) return false;
+    SMBrowserDropPalette palette;
+    const SMBrowserDropPalette *colors=nullptr;
+    if (indicator->HasKey("palette") && indicator->GetType("palette")!=VTYPE_NULL) {
+      if (indicator->GetType("palette")!=VTYPE_DICTIONARY) return false;
+      auto value=indicator->GetDictionary("palette");
+      const auto readColor=[&](const char *name, double *channels) {
+        if (value->GetType(name)!=VTYPE_LIST) return false;
+        auto list=value->GetList(name);
+        if (list->GetSize()!=4) return false;
+        for (size_t i=0;i<4;++i) {
+          if (list->GetType(i)==VTYPE_DOUBLE) channels[i]=list->GetDouble(i);
+          else if (list->GetType(i)==VTYPE_INT) channels[i]=list->GetInt(i);
+          else return false;
+        }
+        return true;
+      };
+      if (!readColor("stroke",palette.stroke) || !readColor("fill",palette.fill) ||
+          !readColor("halo",palette.halo)) return false;
+      colors=&palette;
+    }
     const double missing=std::numeric_limits<double>::quiet_NaN();
     NSRect target=NSMakeRect(Number(indicator,"x",missing),Number(indicator,"y",missing),
         Number(indicator,"width",missing),Number(indicator,"height",missing));
@@ -760,7 +780,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     if (!drop_indicator_) drop_indicator_=[[SMBrowserDropIndicator alloc] initWithFrame:view.frame];
     [drop_indicator_ placeAboveBrowser:view frame:view.frame];
     const BOOL accepted=[drop_indicator_ updateTarget:target edge:Ns(Text(indicator,"edge"))
-        kind:Ns(Text(indicator,"kind")) title:Ns(Text(indicator,"title"))];
+        kind:Ns(Text(indicator,"kind")) title:Ns(Text(indicator,"title")) palette:colors];
     if (!visible_ || clip_view_.hidden) [drop_indicator_ clear];
     return accepted;
   }

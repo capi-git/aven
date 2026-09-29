@@ -1,5 +1,6 @@
 //! Chromium pages are native child views. Only the trusted workspace can control
 //! them; remote documents never receive Tauri IPC or agent credentials.
+use crate::browser_drop_indicator::BrowserDropIndicator;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -1304,39 +1305,6 @@ pub async fn browser_action(caller: Webview, id: String, action: String) -> Resu
     page.command(request).await.map(|_| ())
 }
 
-#[derive(Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BrowserDropIndicator {
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
-    edge: String,
-    kind: String,
-    title: String,
-}
-
-impl BrowserDropIndicator {
-    fn validate(&self) -> Result<(), String> {
-        if [self.x, self.y, self.width, self.height]
-            .iter()
-            .any(|v| !v.is_finite())
-            || self.x < 0.0
-            || self.y < 0.0
-            || self.width <= 0.0
-            || self.height <= 0.0
-            || self.x + self.width > 1.000001
-            || self.y + self.height > 1.000001
-            || !matches!(self.edge.as_str(), "tab" | "left" | "right" | "up" | "down")
-            || !matches!(self.kind.as_str(), "tab" | "group")
-            || self.title.encode_utf16().count() > 160
-        {
-            return Err("Invalid browser drop indicator".into());
-        }
-        Ok(())
-    }
-}
-
 #[tauri::command]
 pub async fn browser_drop_indicator(
     caller: Webview,
@@ -2303,7 +2271,7 @@ async fn workspace_pages_condition(
 
 #[cfg(test)]
 mod tests {
-    use super::{update_block_reason, BrowserDropIndicator};
+    use super::update_block_reason;
 
     #[test]
     fn update_blockers_say_what_to_do() {
@@ -2321,34 +2289,6 @@ mod tests {
         assert!(reason(&["media-capture"]).contains("camera"));
         assert!(reason(&["complex-page"]).contains("Close the tab"));
         assert!(reason(&["probe-timeout"]).contains("Close the tab"));
-    }
-
-    #[test]
-    fn drop_indicator_rejects_invalid_geometry_and_unbounded_labels() {
-        let valid = BrowserDropIndicator {
-            x: 0.5,
-            y: 0.0,
-            width: 0.5,
-            height: 1.0,
-            edge: "right".into(),
-            kind: "tab".into(),
-            title: "Page".into(),
-        };
-        assert!(valid.validate().is_ok());
-        for value in [f64::NAN, f64::INFINITY, -0.1, 1.1] {
-            let mut invalid = valid.clone();
-            invalid.x = value;
-            assert!(invalid.validate().is_err());
-        }
-        let mut invalid = valid.clone();
-        invalid.edge = "execute".into();
-        assert!(invalid.validate().is_err());
-        invalid = valid.clone();
-        invalid.kind = "window".into();
-        assert!(invalid.validate().is_err());
-        invalid = valid.clone();
-        invalid.title = "🌊".repeat(81);
-        assert!(invalid.validate().is_err());
     }
 
     #[test]

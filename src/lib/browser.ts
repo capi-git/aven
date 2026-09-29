@@ -146,6 +146,14 @@ export type BrowserSleepResult = {
   slept: boolean;
 };
 
+/** Computed sRGB channels and opacity, each in the inclusive range 0..1. */
+export type BrowserDropColor = [number, number, number, number];
+export type BrowserDropPalette = {
+  stroke: BrowserDropColor;
+  fill: BrowserDropColor;
+  halo: BrowserDropColor;
+};
+
 export type BrowserDropIndicator = {
   x: number;
   y: number;
@@ -154,6 +162,8 @@ export type BrowserDropIndicator = {
   edge: "tab" | "left" | "right" | "up" | "down";
   kind: "tab" | "group";
   title: string;
+  /** Omitted by older callers; native keeps its neutral fallback. */
+  palette?: BrowserDropPalette;
 };
 
 export type BrowserMenuOptions = {

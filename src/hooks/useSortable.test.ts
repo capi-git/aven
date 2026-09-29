@@ -18,12 +18,15 @@ describe("useSortable external drops and cancellation", () => {
   let widths: Map<string, number>;
   let reducedMotion: boolean;
   let animationApiAvailable: boolean;
+  let geometryReads: Map<string, number>;
+  let renders: number;
   let animations: Map<
     string,
     { animate: ReturnType<typeof vi.fn>; cancel: ReturnType<typeof vi.fn> }
   >;
 
   function Harness() {
+    renders += 1;
     sortable = useSortable(ids, onReorder, options);
     return createElement(
       "div",
@@ -41,8 +44,9 @@ describe("useSortable external drops and cancellation", () => {
                 .slice(0, index)
                 .reduce((total, id) => total + (widths.get(id) ?? 100), 0);
               const size = widths.get(id) ?? 100;
-              element.getBoundingClientRect = () =>
-                options.axis === "y"
+              element.getBoundingClientRect = () => {
+                geometryReads.set(id, (geometryReads.get(id) ?? 0) + 1);
+                return options.axis === "y"
                   ? new DOMRect(
                       0,
                       start - (element.parentElement?.scrollTop ?? 0),
@@ -55,6 +59,7 @@ describe("useSortable external drops and cancellation", () => {
                       size,
                       30,
                     );
+              };
               element.setPointerCapture = vi.fn();
               element.releasePointerCapture = vi.fn();
               const visual = element.querySelector<HTMLElement>(
@@ -109,6 +114,8 @@ describe("useSortable external drops and cancellation", () => {
     widths = new Map();
     reducedMotion = false;
     animationApiAvailable = true;
+    geometryReads = new Map();
+    renders = 0;
     animations = new Map();
     vi.stubGlobal("matchMedia", () => ({ matches: reducedMotion }));
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -417,6 +424,90 @@ describe("useSortable external drops and cancellation", () => {
     expect(frames.size).toBe(0);
   });
 
+  it.each([false, true])(
+    "measures each scroll and item hit box once within a drag frame (animate=%s)",
+    async (animate) => {
+      withVisuals = animate;
+      options.animate = animate;
+      options.onDropOnItem = vi.fn();
+      await act(async () => root.render(createElement(Harness)));
+      const strip = container.firstElementChild as HTMLElement;
+      strip.setAttribute("data-sortable-scroll-container", "");
+      const stripBounds = vi.fn(() => new DOMRect(0, 0, 300, 30));
+      strip.getBoundingClientRect = stripBounds;
+      sortable.setContainerRef(strip);
+      const handle = strip.querySelector<HTMLButtonElement>(
+        '[data-id="browser-a"]',
+      )!;
+      await pointer(handle, "pointerdown", 150, 15);
+      await pointer(window, "pointermove", 260, 15);
+      geometryReads.clear();
+      stripBounds.mockClear();
+      await flushFrame();
+      expect(stripBounds).toHaveBeenCalledOnce();
+      expect(geometryReads).toEqual(
+        new Map(
+          ids
+            .filter((id) => animate || id !== "browser-a")
+            .map((id) => [id, 1]),
+        ),
+      );
+      expect(sortable.dropTarget).toEqual({
+        kind: "tab",
+        id: "session-b",
+        allowed: true,
+      });
+    },
+  );
+
+  it("keeps React idle within the same drop target but updates permission changes", async () => {
+    let allowed = true;
+    options.onDropOnItem = vi.fn();
+    options.canDropOn = () => allowed;
+    await act(async () => root.render(createElement(Harness)));
+    const handle = container.querySelector<HTMLButtonElement>(
+      '[data-id="browser-a"]',
+    )!;
+    await pointer(handle, "pointerdown", 150, 15);
+    await pointer(window, "pointermove", 260, 15);
+    await flushFrame();
+    const targetRenders = renders;
+    await pointer(window, "pointermove", 265, 15);
+    await flushFrame();
+    await pointer(window, "pointermove", 255, 15);
+    await flushFrame();
+    expect(renders).toBe(targetRenders);
+    expect(options.onDragMove).toHaveBeenCalledTimes(3);
+    allowed = false;
+    await pointer(window, "pointermove", 260, 15);
+    await flushFrame();
+    expect(renders).toBe(targetRenders + 1);
+    expect(sortable.dropTarget?.allowed).toBe(false);
+    await pointer(window, "pointerup", 260, 15);
+    expect(options.onDropOnItem).not.toHaveBeenCalled();
+    expect(onReorder).not.toHaveBeenCalled();
+  });
+
+  it("stops requesting frames when an edge scroll cannot move the container", async () => {
+    await act(async () => root.render(createElement(Harness)));
+    const strip = container.firstElementChild as HTMLElement;
+    strip.getBoundingClientRect = () => new DOMRect(0, 0, 300, 30);
+    Object.defineProperties(strip, {
+      scrollWidth: { value: 900 },
+      clientWidth: { value: 300 },
+      scrollLeft: { get: () => 0, set: () => {} },
+    });
+    sortable.setContainerRef(strip);
+    const handle = strip.querySelector<HTMLButtonElement>(
+      '[data-id="browser-a"]',
+    )!;
+    await pointer(handle, "pointerdown", 150, 15);
+    await pointer(window, "pointermove", 295, 15);
+    await flushFrame();
+    expect(options.onDragMove).toHaveBeenCalledOnce();
+    expect(frames.size).toBe(0);
+  });
+
   it("uses the release position even when no scheduled drag frame has painted", async () => {
     await start(false);
     await pointer(window, "pointermove", 250, 15);
@@ -449,6 +540,21 @@ describe("useSortable external drops and cancellation", () => {
     await pointer(window, "pointermove", x, 15);
     await flushFrame();
   }
+
+  it("reads external drop geometry before applying this frame's visual motion", async () => {
+    const paintedTransforms: string[] = [];
+    options.onDragMove = vi.fn(() => {
+      item().getBoundingClientRect();
+      paintedTransforms.push(visual().style.transform);
+    });
+    await startAnimated(220);
+    expect(paintedTransforms).toEqual([""]);
+    expect(visual().style.transform).toBe("translate3d(70px, 0, 0)");
+    await pointer(window, "pointermove", 270, 15);
+    await flushFrame();
+    expect(paintedTransforms).toEqual(["", "translate3d(70px, 0, 0)"]);
+    expect(visual().style.transform).toBe("translate3d(120px, 0, 0)");
+  });
 
   it("moves visual children without changing unequal-width insertion hit boxes", async () => {
     widths = new Map([
