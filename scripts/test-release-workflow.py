@@ -18,6 +18,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / '.github/workflows/release.yml'
+WINDOWS_WORKFLOW = ROOT / '.github/workflows/windows-candidate.yml'
 VERSION = '1.2.3'
 SOURCE_SHA = 'a' * 40
 
@@ -66,7 +67,9 @@ class WorkflowFixture(unittest.TestCase):
         (self.root / 'scripts/release-signing.json').write_text(json.dumps(self.policy))
         self.release = self.root / 'release' / ('v' + VERSION)
         self.release.mkdir(parents=True)
-        (self.release / 'latest.json').write_text(json.dumps({'version': VERSION}))
+        (self.release / 'latest.json').write_text(json.dumps({
+            'version': VERSION, 'platforms': {'darwin-aarch64': {
+                'url': 'https://example.invalid/macos.app.tar.gz', 'signature': 'fixture-only'}}}))
         (self.release / 'signing-verification.json').write_text(json.dumps({
             'status': 'verified', 'mode': 'developer-id', **self.policy,
             'strictSignatureVerification': 'passed'}))
@@ -145,7 +148,12 @@ class WindowsArtifactTests(WorkflowFixture):
             self.assertIsNotNone(shasum, 'A system SHA-256 checker is required')
             self.executable('sha256sum', '#!/bin/sh\nexec ' + shlex.quote(shasum) + ' -a 256 "$@"\n')
         self.assertIsNotNone(shutil.which('zip'), 'ZIP is needed to inspect the real packaged artifact')
-        self.windows = self.root / 'windows' / ('Aven-' + VERSION + '-windows-x64-test')
+        # Build the fixture with the producer's actual output directory, so a
+        # rename in one workflow cannot silently break its consuming release.
+        output = re.search(r'^\s+\$output = "target/releases/(.+)"$',
+                           WINDOWS_WORKFLOW.read_text(), re.M)
+        self.assertIsNotNone(output, 'Windows package output directory is missing')
+        self.windows = self.root / 'windows' / output.group(1).replace('$version', VERSION)
 
     def create_windows(self, crlf=False):
         self.windows.mkdir(parents=True)
@@ -156,7 +164,7 @@ class WindowsArtifactTests(WorkflowFixture):
         self.checksums(self.windows, crlf=crlf)
 
     def assert_refused(self, message):
-        result = self.run_step('Publish signed Aven release')
+        result = self.run_step('Publish Aven release')
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertIn(message, result.stderr + result.stdout)
         self.assertFalse((self.root / 'gh-called.json').exists(), 'Publishing client must not be invoked')
@@ -207,20 +215,71 @@ class WindowsArtifactTests(WorkflowFixture):
 
     def test_valid_windows_package_is_attached_and_zip_is_real(self):
         self.create_windows(crlf=True)
-        result = self.run_step('Publish signed Aven release')
+        update_bytes = (self.release / 'latest.json').read_bytes()
+        result = self.run_step('Publish Aven release')
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         arguments = json.loads((self.root / 'gh-called.json').read_text())
-        archive = self.release / ('Aven-' + VERSION + '-windows-x64-test.zip')
+        archive = self.release / ('Aven-' + VERSION + '-windows-x64.zip')
         installer = next(self.windows.glob('*-setup.exe'))
         self.assertIn(str(archive.relative_to(self.root)), arguments)
         self.assertIn(str((self.release / installer.name).relative_to(self.root)), arguments)
         with zipfile.ZipFile(archive) as zipped:
             self.assertEqual(zipped.read(self.windows.name + '/' + installer.name), installer.read_bytes())
         self.assertEqual((self.release / installer.name).read_bytes(), installer.read_bytes())
+        self.assertEqual(self.windows.name, 'Aven-' + VERSION + '-windows-x64')
+        self.assertEqual((self.release / 'latest.json').read_bytes(), update_bytes)
+        notes = arguments[arguments.index('--notes') + 1]
+        self.assertIn('Windows x64:', notes)
+        self.assertIn('regular release downloads', notes)
+        self.assertIn('Windows installer is unsigned', notes)
+        self.assertIn('manually', notes)
+        self.assertNotIn('test build', notes)
+        self.assertNotIn('test downloads', notes)
+        self.assertEqual(arguments[arguments.index('--target') + 1], SOURCE_SHA)
+
+    def test_legacy_test_directory_cannot_substitute_for_regular_release(self):
+        self.create_windows()
+        self.windows.rename(self.windows.with_name(self.windows.name + '-test'))
+        self.assert_refused('expected artifact directory is missing')
+
+    def test_windows_upload_and_release_download_use_the_same_regular_artifact(self):
+        producer = re.search(r'- name: Upload Windows package\n.*?\n\s+name: ([^\n]+)',
+                             WINDOWS_WORKFLOW.read_text(), re.S)
+        consumer = re.search(r'- uses: actions/download-artifact@v4\n\s+if: inputs.windows\n\s+with:\n\s+name: ([^\n]+)',
+                             WORKFLOW.read_text())
+        self.assertIsNotNone(producer)
+        self.assertIsNotNone(consumer)
+        self.assertEqual(producer.group(1), 'Aven-windows-x64')
+        self.assertEqual(producer.group(1), consumer.group(1))
+
+    def test_updater_stays_mac_only_and_matches_the_release_version(self):
+        self.environment['AVEN_INCLUDE_WINDOWS'] = 'false'
+        for update in (
+            {'version': VERSION, 'platforms': {'windows-x86_64': {}}},
+            {'version': VERSION, 'platforms': {'darwin-aarch64': {}, 'windows-x86_64': {}}},
+            {'version': VERSION, 'platforms': ['darwin-aarch64']},
+            {'version': '1.2.2', 'platforms': {'darwin-aarch64': {}}},
+        ):
+            with self.subTest(update=update):
+                (self.release / 'latest.json').write_text(json.dumps(update))
+                self.checksums(self.release)
+                self.assert_refused('unexpected updater version or platform')
+
+    def test_bad_mac_signing_report_still_blocks_both_platform_downloads(self):
+        self.create_windows()
+        report = self.release / 'signing-verification.json'
+        verified = json.loads(report.read_text())
+        for key, value in (('mode', 'ad-hoc'), ('teamId', 'OTHERTEAM'),
+                           ('bundleId', 'com.example.other'),
+                           ('strictSignatureVerification', 'failed')):
+            with self.subTest(key=key):
+                report.write_text(json.dumps({**verified, key: value}))
+                self.checksums(self.release)
+                self.assert_refused('unverified signing identity')
 
     def test_explicitly_disabled_windows_can_publish_without_its_artifact(self):
         self.environment['AVEN_INCLUDE_WINDOWS'] = 'false'
-        result = self.run_step('Publish signed Aven release')
+        result = self.run_step('Publish Aven release')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue((self.root / 'gh-called.json').is_file())
         self.assertFalse(list(self.release.glob('*windows*')))

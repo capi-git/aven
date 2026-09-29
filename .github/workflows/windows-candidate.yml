@@ -1,7 +1,7 @@
-name: Build Windows test installer
+name: Build Windows installer
 
-# Run on its own for a test installer, or from "Release Aven", which attaches
-# the same package to that version's release.
+# Run on its own for an unpublished candidate, or from "Release Aven", which
+# attaches the same installer to the regular macOS and Windows release.
 on:
   workflow_dispatch:
   workflow_call:
@@ -10,9 +10,9 @@ permissions:
   contents: read
 
 concurrency:
-  # A release call must not cancel, or be cancelled by, a standalone test run.
+  # A release call must not cancel, or be cancelled by, a standalone candidate run.
   group: windows-candidate-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.workflow == 'Build Windows test installer' }}
+  cancel-in-progress: ${{ github.workflow == 'Build Windows installer' }}
 
 jobs:
   frontend:
@@ -67,7 +67,7 @@ jobs:
             LICENSE
             NOTICE
             THIRD_PARTY_NOTICES.txt
-            docs/WINDOWS-TESTING.md
+            docs/WINDOWS.md
           if-no-files-found: error
           retention-days: 30
       - name: Install and launch on Windows
@@ -76,15 +76,15 @@ jobs:
           $installer = Get-ChildItem target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
           if (@($installer).Count -ne 1) { throw 'Expected exactly one Windows installer' }
           ./scripts/test-windows-install.ps1 -Installer $installer.FullName -OutputDir target/windows-smoke
-      - name: Prepare shareable test package
+      - name: Prepare Windows release package
         shell: pwsh
         run: |
           $version = (Get-Content package.json | ConvertFrom-Json).version
-          $output = "target/releases/Aven-$version-windows-x64-test"
+          $output = "target/releases/Aven-$version-windows-x64"
           New-Item -ItemType Directory -Force $output | Out-Null
           Copy-Item target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe $output
           Copy-Item LICENSE, NOTICE, THIRD_PARTY_NOTICES.txt $output
-          Copy-Item docs/WINDOWS-TESTING.md "$output/README.md"
+          Copy-Item docs/WINDOWS.md "$output/README.md"
           "Source commit: $env:GITHUB_SHA" | Add-Content "$output/README.md"
           Get-ChildItem -LiteralPath $output -File | Where-Object Name -ne SHA256SUMS | ForEach-Object {
             $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -96,11 +96,11 @@ jobs:
             $actual = (Get-FileHash (Join-Path $output $entry.Groups[2].Value) -Algorithm SHA256).Hash
             if ($actual -ine $entry.Groups[1].Value) { throw "Checksum mismatch: $_" }
           }
-      - name: Upload test installer
+      - name: Upload Windows package
         uses: actions/upload-artifact@v4
         with:
-          name: Aven-windows-x64-test
-          path: target/releases/Aven-*-windows-x64-test/
+          name: Aven-windows-x64
+          path: target/releases/Aven-*-windows-x64/
           if-no-files-found: error
           retention-days: 30
       - name: Upload startup evidence
