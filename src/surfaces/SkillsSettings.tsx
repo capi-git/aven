@@ -53,6 +53,9 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
   const [toolsError, setToolsError] = useState("");
   const [toolReload, setToolReload] = useState(0);
   const [desktopBusy, setDesktopBusy] = useState(false);
+  const desktopBusyRef = useRef(false);
+  const toolRequestId = useRef(0);
+  const refreshAfterDesktop = useRef(false);
   const [selected, setSelected] = useState<InspectableSkill | null>(null);
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState("");
@@ -91,23 +94,39 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
 
   useEffect(() => {
     let active = true;
-    setToolsLoading(true);
-    setToolsError("");
-    void getAgentToolStatus()
-      .then((value) => {
-        if (active) setTools(value);
-      })
-      .catch(() => {
-        if (active) {
-          setTools(null);
-          setToolsError("Tools could not be checked. Try again.");
-        }
-      })
-      .finally(() => {
-        if (active) setToolsLoading(false);
-      });
+    const refresh = () => {
+      if (desktopBusyRef.current) {
+        refreshAfterDesktop.current = true;
+        return;
+      }
+      const requestId = ++toolRequestId.current;
+      const isCurrent = () => active && requestId === toolRequestId.current;
+      setToolsLoading(true);
+      setToolsError("");
+      void getAgentToolStatus()
+        .then((value) => {
+          if (isCurrent()) setTools(value);
+        })
+        .catch(() => {
+          if (isCurrent()) {
+            setTools(null);
+            setToolsError("Tools could not be checked. Try again.");
+          }
+        })
+        .finally(() => {
+          if (isCurrent()) setToolsLoading(false);
+        });
+    };
+    const onReturn = () => {
+      if (document.visibilityState !== "hidden") refresh();
+    };
+    refresh();
+    window.addEventListener("focus", onReturn);
+    document.addEventListener("visibilitychange", onReturn);
     return () => {
       active = false;
+      window.removeEventListener("focus", onReturn);
+      document.removeEventListener("visibilitychange", onReturn);
     };
   }, [toolReload]);
 
@@ -126,6 +145,11 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
   const updateDesktop = async (
     action: () => Promise<DesktopControlStatus>,
   ) => {
+    if (desktopBusyRef.current) return;
+    desktopBusyRef.current = true;
+    // A read started before this user action must not restore an old switch.
+    ++toolRequestId.current;
+    setToolsLoading(false);
     setDesktopBusy(true);
     setToolsError("");
     try {
@@ -136,7 +160,12 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
     } catch (error) {
       setToolsError(error instanceof Error ? error.message : String(error));
     } finally {
+      desktopBusyRef.current = false;
       setDesktopBusy(false);
+      if (refreshAfterDesktop.current) {
+        refreshAfterDesktop.current = false;
+        setToolReload((value) => value + 1);
+      }
     }
   };
 
@@ -145,6 +174,9 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
         (permission) => permission.required && !permission.granted,
       )
     : [];
+  const canObserve = desktop?.enabled && desktop.permissions.some(
+    (permission) => permission.name === "Screen Recording" && permission.granted,
+  );
   const sourceCounts = {
     all: skills.length,
     project: skills.filter(
@@ -246,6 +278,12 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
                 .map((permission) => permission.name)
                 .join(" and ")}
               {" "}for Aven. Choose Allow to request each permission.
+            </p>
+          ) : null}
+          {canObserve && missingPermissions.some((permission) => permission.name === "Accessibility") ? (
+            <p className="skills-note">
+              Agents can already view windows and take screenshots. Allow Accessibility
+              to also click, type, and control apps.
             </p>
           ) : null}
           {missingPermissions.some((permission) => permission.name === "Screen Recording") ? (

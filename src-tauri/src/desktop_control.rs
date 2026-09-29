@@ -56,19 +56,34 @@ fn status_from(supported: bool, enabled: bool, screen: bool, accessibility: bool
     }
 }
 
-fn require_ready(status: &DesktopStatus) -> Result<(), String> {
-    match status.state {
-        "unsupported" => Err(UNSUPPORTED.into()),
-        "off" => Err(DISABLED.into()),
-        _ => {
-            for permission in &status.permissions {
-                if !permission.granted {
-                    return Err(format!("Aven needs {} permission; ask the user to allow Aven in Settings, Skills & tools.", permission.name));
-                }
-            }
-            Ok(())
+fn require_action_access(status: &DesktopStatus, request: &Request) -> Result<(), String> {
+    if status.state == "unsupported" {
+        return Err(UNSUPPORTED.into());
+    }
+    if matches!(request, Request::Status {}) {
+        return Ok(());
+    }
+    if !status.enabled {
+        return Err(DISABLED.into());
+    }
+    let (action, needs_accessibility) = match request {
+        Request::Windows {} => ("list windows", false),
+        Request::Screenshot { .. } => ("take a screenshot", false),
+        Request::Click { .. } => ("click", true),
+        Request::Type { .. } => ("type", true),
+        Request::Press { .. } => ("press a key", true),
+        Request::Scroll { .. } => ("scroll", true),
+        Request::Activate { .. } => ("activate an app", true),
+        Request::Status {} => return Ok(()),
+    };
+    // Observation only uses Screen Recording. Input keeps both grants so the
+    // agent can observe before acting and verify the result afterwards.
+    for permission in &status.permissions {
+        if !permission.granted && (permission.name == "Screen Recording" || needs_accessibility) {
+            return Err(format!("Aven needs {} permission to {action}; ask the user to allow Aven in Settings, Skills & tools.", permission.name));
         }
     }
+    Ok(())
 }
 
 #[derive(Default, Deserialize, Serialize)]
@@ -499,7 +514,8 @@ fn global_point(x: f64, y: f64, window: Option<Region>) -> Result<(f64, f64), St
 pub(crate) fn execute(app: &AppHandle, session: &str, request: Request) -> Result<Value, String> {
     let _guard = CONTROL_LOCK.try_lock().map_err(|_| "Desktop control is busy. Wait for the current action or Settings prompt to finish, then retry.")?;
     // Every request reads the native switch. Status only reports readiness;
-    // observation and input never reach the OS while access is off or missing.
+    // observation and input never reach the OS while access for that action is
+    // off or missing. Aggregate readiness also reports input permissions.
     let status = current_status(app)?;
     if status.state == "unsupported" {
         return Err(UNSUPPORTED.into());
@@ -508,7 +524,7 @@ pub(crate) fn execute(app: &AppHandle, session: &str, request: Request) -> Resul
     if matches!(request, Request::Status {}) {
         return serde_json::to_value(status).map_err(|error| error.to_string());
     }
-    require_ready(&status)?;
+    require_action_access(&status, &request)?;
     platform::execute(app, session, request)
 }
 
@@ -539,13 +555,20 @@ Usage: "$AVEN_BROWSER_EXECUTABLE" --aven-desktop '<JSON>'
   {"action":"activate","app":"TextEdit"}
 Uses this session's existing AVEN_BROWSER_SOCKET and AVEN_BROWSER_TOKEN grant
 (SUPERMONO aliases are supported). Never print or persist credentials.
-Desktop control must be enabled in Settings, Skills & tools, with Aven allowed
-in Screen Recording and Accessibility. Status reports the switch and permission
-state even while access is off. Agent actions never request permissions.
+Desktop control must be enabled in Settings, Skills & tools. Windows and
+screenshot require Screen Recording. Click, type, press, scroll and activate
+require both Screen Recording and Accessibility, so input can be observed and
+verified. Status reports enabled and both permission grants even while access
+is off. When state is permissionsRequired, observation is still available if
+enabled is true and Screen Recording is granted. Agent actions never request
+permissions.
 Windows lists on-screen, layer-0 windows: windowId, app, pid, title, x, y, width,
 height. Screenshot pixels equal points, with top-left origin. With windowId,
 click/scroll x,y are that window screenshot's pixel coordinates. Without windowId,
 use global points: originX + x, originY + y from the screenshot used.
+Window-targeted click and scroll refuse points covered by another window. A
+window screenshot can show a covered window; activate the app and inspect a
+fresh display/region screenshot to verify the intended window is in front.
 Observe a fresh screenshot before input. Window screenshots
 exclude shadows; region screenshots use global coordinates. Default capture is
 the main display. Screenshots return path, width, height, originX, originY at one
@@ -625,25 +648,63 @@ mod tests {
     }
 
     #[test]
-    fn disabled_unsupported_and_missing_permissions_fail_closed() {
-        assert_eq!(
-            require_ready(&status_from(false, false, false, false)).unwrap_err(),
-            UNSUPPORTED
-        );
-        assert_eq!(
-            require_ready(&status_from(true, false, true, true)).unwrap_err(),
-            DISABLED
-        );
-        for (screen, accessibility, missing) in [
-            (false, false, "Screen Recording"),
-            (false, true, "Screen Recording"),
-            (true, false, "Accessibility"),
-        ] {
-            let error = require_ready(&status_from(true, true, screen, accessibility)).unwrap_err();
-            assert!(error.contains(missing));
-            assert!(error.contains("Settings, Skills & tools"));
+    fn each_action_requires_its_permissions_and_enabled_native_switch() {
+        let actions = [
+            (json!({"action":"status"}), "status", false),
+            (json!({"action":"windows"}), "list windows", false),
+            (json!({"action":"screenshot"}), "take a screenshot", false),
+            (json!({"action":"click","x":0,"y":0}), "click", true),
+            (json!({"action":"type","text":"hello"}), "type", true),
+            (json!({"action":"press","key":"Enter"}), "press a key", true),
+            (
+                json!({"action":"scroll","x":0,"y":0,"deltaY":10}),
+                "scroll",
+                true,
+            ),
+            (
+                json!({"action":"activate","pid":1}),
+                "activate an app",
+                true,
+            ),
+        ];
+        for (value, action, needs_accessibility) in actions {
+            let request = parse(value).unwrap();
+            for supported in [false, true] {
+                for enabled in [false, true] {
+                    for screen in [false, true] {
+                        for accessibility in [false, true] {
+                            let status = status_from(supported, enabled, screen, accessibility);
+                            let result = require_action_access(&status, &request);
+                            let expected_error = if !supported {
+                                Some(UNSUPPORTED)
+                            } else if action == "status" {
+                                None
+                            } else if !enabled {
+                                Some(DISABLED)
+                            } else if !screen {
+                                Some("Screen Recording")
+                            } else if needs_accessibility && !accessibility {
+                                Some("Accessibility")
+                            } else {
+                                None
+                            };
+                            match expected_error {
+                                Some(expected) => {
+                                    let error = result.unwrap_err();
+                                    assert!(error.contains(expected), "{action}: {error}");
+                                    if expected == "Screen Recording" || expected == "Accessibility"
+                                    {
+                                        assert!(error.contains(&format!("to {action};")));
+                                        assert!(error.contains("Settings, Skills & tools"));
+                                    }
+                                }
+                                None => assert!(result.is_ok(), "{action}: {result:?}"),
+                            }
+                        }
+                    }
+                }
+            }
         }
-        assert!(require_ready(&status_from(true, true, true, true)).is_ok());
     }
 
     #[test]

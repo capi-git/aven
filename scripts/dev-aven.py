@@ -112,7 +112,6 @@ def launch():
                  if not key.startswith(('AVEN_BROWSER_', 'AVEN_CONTROL_', 'SUPERMONO_', 'MONOCODE_'))}
     child_env.pop('TAURI_CONFIG', None)
     child_env.pop('TAURI_DEV_HOST', None)
-    app = None
     with log_path.open('w') as log:
         server = subprocess.Popen(['npm', 'run', 'dev', '--', '--host', '127.0.0.1'],
                                   cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
@@ -128,18 +127,28 @@ def launch():
                     time.sleep(.1)
             else:
                 raise RuntimeError(f'Development server did not become ready; inspect {log_path}')
+            # Recheck immediately before -n so an app opened while the server
+            # was starting does not get a second instance.
+            ensure_not_running()
             print('Opening Aven Dev. Quit its window to stop this preview. Installed Aven stays running.', flush=True)
-            app = subprocess.Popen([str(APP / 'Contents/MacOS/aven')], cwd=ROOT, env=child_env,
-                                   start_new_session=True)
+            # A GUI app must enter through LaunchServices so privacy requests
+            # are attributed to Aven Dev instead of the app hosting this shell.
+            # start_new_session alone isolates signals, not TCC responsibility.
+            # An absolute bundle path also avoids resolving another checkout or
+            # the installed app by its shared executable name.
+            launcher = subprocess.Popen(['/usr/bin/open', '-W', '-n', '-a', str(APP)],
+                                        cwd=ROOT, env=child_env, start_new_session=True)
             # Control-C must not force-quit a desktop app that may contain work.
-            while app.poll() is None:
+            while launcher.poll() is None:
                 try:
-                    app.wait(timeout=.5)
+                    launcher.wait(timeout=.5)
                 except subprocess.TimeoutExpired:
                     pass
                 except KeyboardInterrupt:
                     print('Quit the Aven Dev window normally to finish this preview.', flush=True)
-            require(app.returncode == 0, f'Aven Dev exited with status {app.returncode}.')
+            # open reports launch/wait errors, not the app's process exit code.
+            require(launcher.returncode == 0,
+                    f'Could not open or wait for Aven Dev (status {launcher.returncode}).')
         finally:
             if server.poll() is None:
                 os.killpg(server.pid, signal.SIGTERM)

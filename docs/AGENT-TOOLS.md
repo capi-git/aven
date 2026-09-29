@@ -48,6 +48,10 @@ and Accessibility access, with Aven listed by name. You can turn desktop control
 off from the same switch at any time.
 
 The card shows **Ready**, **Permissions needed**, **Off**, or **Unsupported**.
+**Permissions needed** can still allow observation: with desktop control enabled
+and Screen Recording granted, agents can list windows and take screenshots even
+if Accessibility is missing. Clicking, typing, pressing keys, scrolling and
+activating apps require both permissions, so agents can observe and verify input.
 For a missing permission, choose **Allow** to request access, or **Open settings**
 to open its macOS pane. Use **Check again** after changing permissions. macOS may
 ask you to quit and reopen Aven after allowing Screen Recording; save your work
@@ -71,12 +75,17 @@ must open the PNG at `path` with an image or file reader before acting. A succes
 JSON response alone is not visual verification. It then uses `click`, `type`,
 `press`, `scroll`, or `activate` as needed and takes and opens a new screenshot to
 verify each result. Screenshot pixels equal points. With `windowId`, click and
-scroll `x,y` are that window screenshot's pixel coordinates. Without `windowId`,
+scroll `x,y` are that window screenshot's pixel coordinates. Window-targeted
+clicks and scrolling refuse points covered by another window. A window capture
+can still show a covered window: activate its app, then inspect a fresh display
+or region screenshot to confirm the intended window is in front. Without `windowId`,
 use global points: `originX + x, originY + y` from the screenshot used. The help command documents all fields,
 including optional screenshot regions.
 
-Agent actions never trigger permission prompts. If the switch is off or access is
-missing, the agent directs you to the Desktop control card. It must not change
+Agent actions never trigger permission prompts. Agents read the status's `enabled`
+flag and named permission grants before choosing an action; `permissionsRequired`
+does not by itself block observation. If the switch is off or access needed for
+that action is missing, the agent directs you to the Desktop control card. It must not change
 macOS settings or install other tools to bypass the missing access.
 
 Skills are instructions, not extra permissions or new tools. They do not bypass

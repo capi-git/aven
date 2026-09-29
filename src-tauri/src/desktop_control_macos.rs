@@ -16,7 +16,7 @@ type Cf = *const c_void;
 type Event = *mut c_void;
 
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Point {
     x: f64,
     y: f64,
@@ -278,9 +278,108 @@ fn window_bounds(id: u32) -> Result<Region, String> {
         })
 }
 
+const INPUT_WINDOW_UNAVAILABLE: &str =
+    "Could not verify the target window's visibility. Run windows and take a fresh screenshot before retrying; do not remove windowId to bypass this check.";
+const INPUT_WINDOW_OBSCURED: &str =
+    "Another window covers the target point. Bring the intended window forward, observe it again, and retry with its windowId; no input was sent.";
+
+#[derive(Clone, Copy)]
+struct InputWindow {
+    window_id: u32,
+    bounds: Region,
+}
+
+/// CoreGraphics returns OnScreenOnly windows from front to back. Include every
+/// layer and desktop element: menus, dialogs and system overlays can intercept
+/// input even though the agent-facing windows list only exposes ordinary apps.
+fn input_window_stack(target: u32) -> Result<Vec<InputWindow>, String> {
+    unsafe {
+        let list = OwnedCf::new(CGWindowListCopyWindowInfo(1, 0), INPUT_WINDOW_UNAVAILABLE)?;
+        let count = CFArrayGetCount(list.0);
+        if !(0..=10_000).contains(&count) {
+            return Err(INPUT_WINDOW_UNAVAILABLE.into());
+        }
+        let mut result = Vec::new();
+        for index in 0..count {
+            let item = CFArrayGetValueAtIndex(list.0, index);
+            if item.is_null() || CFGetTypeID(item) != CFDictionaryGetTypeID() {
+                return Err(INPUT_WINDOW_UNAVAILABLE.into());
+            }
+            let window_id = number(item, kCGWindowNumber)
+                .and_then(|value| u32::try_from(value).ok())
+                .filter(|id| *id != 0)
+                .ok_or(INPUT_WINDOW_UNAVAILABLE)?;
+            let dictionary = CFDictionaryGetValue(item, kCGWindowBounds);
+            if dictionary.is_null() || CFGetTypeID(dictionary) != CFDictionaryGetTypeID() {
+                return Err(INPUT_WINDOW_UNAVAILABLE.into());
+            }
+            let mut rect = Rect {
+                origin: Point { x: 0.0, y: 0.0 },
+                size: Size {
+                    width: 0.0,
+                    height: 0.0,
+                },
+            };
+            if !CGRectMakeWithDictionaryRepresentation(dictionary, &mut rect) {
+                return Err(INPUT_WINDOW_UNAVAILABLE.into());
+            }
+            let bounds = Region::from(rect);
+            // Empty windows cannot cover a point. All other unknown or invalid
+            // geometry fails closed rather than hiding a possible obstruction.
+            if bounds.width == 0.0 || bounds.height == 0.0 {
+                continue;
+            }
+            bounds.validate().map_err(|_| INPUT_WINDOW_UNAVAILABLE)?;
+            result.push(InputWindow { window_id, bounds });
+            // Windows behind the target cannot intercept this targeted point.
+            if window_id == target {
+                break;
+            }
+        }
+        Ok(result)
+    }
+}
+
+fn target_point_in_stack(
+    x: f64,
+    y: f64,
+    target: u32,
+    windows: &[InputWindow],
+) -> Result<Point, String> {
+    let bounds = windows
+        .iter()
+        .find(|window| window.window_id == target)
+        .map(|window| window.bounds)
+        .ok_or(INPUT_WINDOW_UNAVAILABLE)?;
+    let (x, y) = global_point(x, y, Some(bounds))?;
+    for window in windows {
+        window
+            .bounds
+            .validate()
+            .map_err(|_| INPUT_WINDOW_UNAVAILABLE)?;
+        let bounds = window.bounds;
+        if x >= bounds.x
+            && x < bounds.x + bounds.width
+            && y >= bounds.y
+            && y < bounds.y + bounds.height
+        {
+            return if window.window_id == target {
+                Ok(Point { x, y })
+            } else {
+                Err(INPUT_WINDOW_OBSCURED.into())
+            };
+        }
+    }
+    Err(INPUT_WINDOW_UNAVAILABLE.into())
+}
+
 fn event_point(x: f64, y: f64, window_id: Option<u32>) -> Result<Point, String> {
-    let bounds = window_id.map(window_bounds).transpose()?;
-    let (x, y) = global_point(x, y, bounds)?;
+    if let Some(id) = window_id {
+        // This is a conservative rectangular hit test, not atomic input routing.
+        // macOS can still change stacking order after this fresh observation.
+        return target_point_in_stack(x, y, id, &input_window_stack(id)?);
+    }
+    let (x, y) = global_point(x, y, None)?;
     Ok(Point { x, y })
 }
 
@@ -724,6 +823,73 @@ pub(super) fn execute(app: &AppHandle, session: &str, request: Request) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn input_window(id: u32, x: f64, y: f64, width: f64, height: f64) -> InputWindow {
+        InputWindow {
+            window_id: id,
+            bounds: Region {
+                x,
+                y,
+                width,
+                height,
+            },
+        }
+    }
+
+    #[test]
+    fn targeted_input_uses_frontmost_window_at_the_point_not_just_matching_bounds() {
+        let target = input_window(10, 100.0, 200.0, 300.0, 200.0);
+        let overlapping = input_window(20, 110.0, 205.0, 50.0, 50.0);
+        let point = target_point_in_stack(20.0, 10.0, 10, &[target, overlapping]).unwrap();
+        assert_eq!((point.x, point.y), (120.0, 210.0));
+        assert_eq!(
+            target_point_in_stack(20.0, 10.0, 10, &[overlapping, target]).unwrap_err(),
+            INPUT_WINDOW_OBSCURED,
+        );
+        // A partially covered window is still usable at its uncovered points.
+        let point = target_point_in_stack(200.0, 100.0, 10, &[overlapping, target]).unwrap();
+        assert_eq!((point.x, point.y), (300.0, 300.0));
+    }
+
+    #[test]
+    fn targeted_input_refuses_system_overlays_and_unknown_window_geometry() {
+        let target = input_window(10, 100.0, 200.0, 300.0, 200.0);
+        // The stack includes nonzero-layer windows such as menus and dialogs;
+        // there is deliberately no layer or application exemption in the guard.
+        let overlay = input_window(99, 0.0, 0.0, 1000.0, 1000.0);
+        assert_eq!(
+            target_point_in_stack(20.0, 10.0, 10, &[overlay, target]).unwrap_err(),
+            INPUT_WINDOW_OBSCURED,
+        );
+        let unknown = input_window(99, f64::NAN, 0.0, 1000.0, 1000.0);
+        assert_eq!(
+            target_point_in_stack(20.0, 10.0, 10, &[unknown, target]).unwrap_err(),
+            INPUT_WINDOW_UNAVAILABLE,
+        );
+        assert_eq!(
+            target_point_in_stack(20.0, 10.0, 10, &[overlay]).unwrap_err(),
+            INPUT_WINDOW_UNAVAILABLE,
+        );
+    }
+
+    #[test]
+    fn targeted_input_enforces_half_open_bounds_and_negative_display_origins() {
+        let target = input_window(10, -500.0, -100.0, 300.0, 200.0);
+        let point = target_point_in_stack(0.0, 0.0, 10, &[target]).unwrap();
+        assert_eq!((point.x, point.y), (-500.0, -100.0));
+        for (x, y) in [(-1.0, 0.0), (0.0, -1.0), (300.0, 0.0), (0.0, 200.0)] {
+            assert!(target_point_in_stack(x, y, 10, &[target]).is_err());
+        }
+        let overlay = input_window(20, -490.0, -90.0, 10.0, 10.0);
+        assert_eq!(
+            target_point_in_stack(10.0, 10.0, 10, &[overlay, target]).unwrap_err(),
+            INPUT_WINDOW_OBSCURED,
+        );
+        for (x, y) in [(20.0, 10.0), (10.0, 20.0)] {
+            assert!(target_point_in_stack(x, y, 10, &[overlay, target]).is_ok());
+        }
+    }
+
     #[test]
     fn removing_capture_directories_is_scoped_and_shutdown_removes_the_rest() {
         let first = capture_directory().unwrap();

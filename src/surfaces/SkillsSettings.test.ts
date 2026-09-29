@@ -242,6 +242,67 @@ describe("Skills & Tools settings", () => {
     expect(mocks.permissions).not.toHaveBeenCalled();
   });
 
+  it("refreshes read-only permission status on returning from macOS Settings", async () => {
+    mocks.status.mockResolvedValueOnce({ ...ready, desktop: permissionsRequired });
+    await render();
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    expect(mocks.status).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain("Ready");
+    expect(hasButton("Allow Accessibility")).toBe(false);
+    expect(mocks.requestPermission).not.toHaveBeenCalled();
+    expect(mocks.setEnabled).not.toHaveBeenCalled();
+    expect(mocks.permissions).not.toHaveBeenCalled();
+  });
+
+  it("ignores hidden visibility changes and refreshes when visible again", async () => {
+    await render();
+    const visibility = vi.spyOn(document, "visibilityState", "get");
+    try {
+      visibility.mockReturnValue("hidden");
+      await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+      expect(mocks.status).toHaveBeenCalledTimes(1);
+      visibility.mockReturnValue("visible");
+      mocks.status.mockResolvedValue({ ...ready, desktop: permissionsRequired });
+      await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+      expect(mocks.status).toHaveBeenCalledTimes(2);
+      expect(container.textContent).toContain("Permissions needed");
+    } finally {
+      visibility.mockRestore();
+    }
+  });
+
+  it("discards an older permission read that finishes after a newer one", async () => {
+    await render();
+    let resolveOld!: (status: AgentToolStatus) => void;
+    mocks.status.mockImplementationOnce(() => new Promise<AgentToolStatus>((resolve) => {
+      resolveOld = resolve;
+    }));
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    await act(async () => resolveOld(off));
+    expect(container.textContent).toContain("Ready");
+    expect(desktopSwitch().getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("defers focus refresh until an in-flight permission action finishes", async () => {
+    mocks.status.mockResolvedValueOnce(off);
+    let resolve!: (status: DesktopControlStatus) => void;
+    mocks.setEnabled.mockReturnValue(new Promise<DesktopControlStatus>((done) => {
+      resolve = done;
+    }));
+    await render();
+    await act(async () => desktopSwitch().click());
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    expect(mocks.status).toHaveBeenCalledTimes(1);
+    expect(desktopSwitch().disabled).toBe(true);
+    await act(async () => resolve(ready.desktop));
+    expect(mocks.status).toHaveBeenCalledTimes(2);
+    expect(desktopSwitch().disabled).toBe(false);
+    expect(desktopSwitch().getAttribute("aria-checked")).toBe("true");
+    expect(mocks.setEnabled).toHaveBeenCalledExactlyOnceWith(true);
+    expect(mocks.requestPermission).not.toHaveBeenCalled();
+  });
+
   it("disables the switch when native desktop control is unsupported", async () => {
     mocks.status.mockResolvedValue({
       browserAvailable: false,
@@ -373,6 +434,7 @@ describe("Skills & Tools settings", () => {
     expect(container.textContent).toContain(
       "macOS needs to allow Accessibility for Aven",
     );
+    expect(container.textContent).toContain("Agents can already view windows and take screenshots");
     expect(hasButton("Open Screen Recording settings")).toBe(false);
     expect(container.textContent).not.toContain("quit and reopen Aven");
     await click("Open Accessibility settings");
