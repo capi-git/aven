@@ -1,5 +1,12 @@
 # Aven changelog
 
+## [Unreleased]
+
+### Faster startup
+
+- Aven opens sooner. It reads your saved workspace while the interface loads instead of afterwards, and no longer rewrites every open conversation to disk before showing the window.
+- The opening screen uses your workspace's own background colour from the first frame, instead of briefly showing a default palette.
+
 ## [0.1.111] - 2026-09-29
 
 ### MonoCode-style tabs, one seamless workspace, and a crash fix

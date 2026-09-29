@@ -112,9 +112,35 @@ describe("safe workspace restoration", () => {
     const retried = await loadBootWorkspace();
     expect(retried.resumed?.sessions[0].blocks).toEqual(session.blocks);
     expect(mocks.getSession).toHaveBeenCalledTimes(2);
-    expect(mocks.upsertSession).toHaveBeenCalledWith(
-      expect.objectContaining({ id: session.id, blocks: session.blocks }),
+    // Nothing about it changed, so startup does not rewrite the transcript.
+    expect(mocks.upsertSession).not.toHaveBeenCalled();
+  });
+
+  it("saves only restored sessions whose stored details changed", async () => {
+    const unchanged = newSession("codex", "/project");
+    unchanged.blocks = [{ id: "u", role: "user", text: "Untouched" }];
+    const interrupted = newSession("claude", "/project");
+    interrupted.blocks = [{ id: "i", role: "user", text: "Was running" }];
+    const moved = newSession("codex", "/project");
+    moved.blocks = [{ id: "m", role: "user", text: "On a branch" }];
+    moved.branch = "feature";
+    savedWorkspace([unchanged, interrupted, moved]);
+    const records = new Map([unchanged, interrupted, moved].map((s) => [s.id, s]));
+    mocks.getSession.mockImplementation(async (id: string) => records.get(id) ?? null);
+    mocks.listInFlightSessions.mockResolvedValue([
+      { sessionId: interrupted.id } as never,
+    ]);
+    // Restoring drops a checkout the session can no longer use.
+    mocks.restoreSessionCheckout.mockImplementation(async (session: Session) =>
+      session.id === moved.id ? { ...session, branch: undefined } : session,
     );
+    const { loadResumedWorkspace } = await import("./appLifecycle");
+
+    await loadResumedWorkspace();
+    const saved = mocks.upsertSession.mock.calls.map(
+      ([session]) => (session as Session).id,
+    );
+    expect(saved.sort()).toEqual([interrupted.id, moved.id].sort());
   });
 
   it.each([
