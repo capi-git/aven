@@ -1,5 +1,12 @@
 # Aven changelog
 
+## [Unreleased]
+
+### Tabs stay with their pane
+
+- Tabs now always sit in their pane's own row, whether one pane fills the window or several share it, instead of moving up into the window's top bar when there is a single pane. The top bar keeps only navigation, Activity and window tools.
+- Activity (the task list and unread count) always sits on the left, next to the navigation buttons, including while Settings is open.
+
 ## [0.1.110] - 2026-09-29
 
 ### Lighter tabs and regular Windows releases

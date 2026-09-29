@@ -7,7 +7,6 @@ import {
   useState,
   type KeyboardEvent,
   type MouseEvent,
-  type ReactNode,
 } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ProviderMarks } from "./ProviderMarks";
@@ -104,8 +103,6 @@ export type WorkspaceStatusBarProps = {
   onOpenSettings?: () => void;
   /** Settings shares the window header instead of stacking a second toolbar. */
   settingsView?: { section: SettingsSectionId; onClose: () => void };
-  /** The workspace's existing task/browser tabs can share this window header. */
-  workspaceTabs?: ReactNode;
 };
 
 type QueueRow = {
@@ -448,7 +445,6 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
   inspectorOpen,
   onOpenSettings,
   settingsView,
-  workspaceTabs,
 }: WorkspaceStatusBarProps) {
   const summary = useMemo(() => workspaceQueueSummary(sessions), [sessions]);
   const activity = useActivity();
@@ -459,7 +455,6 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
   const [nativeMenuError, setNativeMenuError] = useState<string | null>(null);
   const [menu, setMenu] = useState<"queue" | "usage" | "open" | null>(null);
   const showingSettings = !!settingsView;
-  const hasWorkspaceTabs = workspaceTabs != null && workspaceTabs !== false;
   useEffect(() => {
     // The Activity anchor becomes compact when the header changes context.
     setMenu((current) => (current === "queue" ? null : current));
@@ -749,7 +744,7 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
     (action) => !!action.onSelect && !action.disabled,
   );
   const QueueIcon =
-    showingSettings || hasWorkspaceTabs || summary.rows.length
+    showingSettings || summary.rows.length
       ? ListBullet
       : Check;
 
@@ -757,7 +752,6 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
     <div
       className="workspace-status-bar"
       data-settings={showingSettings}
-      data-has-workspace-tabs={hasWorkspaceTabs}
       aria-label="Workspace status"
       data-tauri-drag-region="false"
       onMouseDown={dragStatusBar}
@@ -776,35 +770,7 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
           homeOpen={homeOpen}
         />
       ) : null}
-      {!navigationInSidebar && import.meta.env.DEV ? (
-        <div className="workspace-status-development">
-          <DevModeSlot />
-        </div>
-      ) : null}
-      {settingsView ? (
-        <div className="workspace-status-settings">
-          <button
-            type="button"
-            className="workspace-status-pill workspace-status-settings-back"
-            aria-label="Back to workspace"
-            title="Back to workspace"
-            data-tauri-drag-region="false"
-            onClick={settingsView.onClose}
-          >
-            <ChevronLeft size={14} aria-hidden />
-          </button>
-          <div className="workspace-status-settings-path">
-            <span>Settings</span>
-            <ChevronRight size={11} aria-hidden />
-            <strong>{settingsSectionLabel(settingsView.section)}</strong>
-          </div>
-        </div>
-      ) : null}
-      {hasWorkspaceTabs ? (
-        <div className="workspace-status-tabs" data-tauri-drag-region="false">
-          {workspaceTabs}
-        </div>
-      ) : null}
+      {/* Activity sits with navigation on the left in every layout. */}
       <button
         ref={queueAnchor}
         type="button"
@@ -816,7 +782,7 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
         aria-expanded={menu === "queue"}
         onClick={() => setMenu(menu === "queue" ? null : "queue")}
       >
-        {!showingSettings && !hasWorkspaceTabs ? (
+        {!showingSettings ? (
           <span className="workspace-status-context">
             <ProviderMarks
               harnesses={session ? [sessionModelIdentity(session).harness] : []}
@@ -841,6 +807,30 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
           </span>
         ) : null}
       </button>
+      {!navigationInSidebar && import.meta.env.DEV ? (
+        <div className="workspace-status-development">
+          <DevModeSlot />
+        </div>
+      ) : null}
+      {settingsView ? (
+        <div className="workspace-status-settings">
+          <button
+            type="button"
+            className="workspace-status-pill workspace-status-settings-back"
+            aria-label="Back to workspace"
+            title="Back to workspace"
+            data-tauri-drag-region="false"
+            onClick={settingsView.onClose}
+          >
+            <ChevronLeft size={14} aria-hidden />
+          </button>
+          <div className="workspace-status-settings-path">
+            <span>Settings</span>
+            <ChevronRight size={11} aria-hidden />
+            <strong>{settingsSectionLabel(settingsView.section)}</strong>
+          </div>
+        </div>
+      ) : null}
       <div
         className="workspace-status-controls"
         role="group"
