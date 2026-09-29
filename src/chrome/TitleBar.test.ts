@@ -4,7 +4,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetHarnessModelOverlays, setHarnessModels } from "../lib/models";
 import { saveTabGroupLabel } from "../lib/tabGroups";
-import { loadMinimizedTabs, saveMinimizedTabs } from "../lib/settings";
 import { projectKey } from "../lib/paths";
 import {
   TitleBar,
@@ -1044,116 +1043,67 @@ describe("browser tab integration", () => {
     });
   });
 
-  describe("minimized tabs", () => {
+  describe("persistent tab titles", () => {
     beforeEach(() => {
-      const values = new Map<string, string>();
+      const values = new Map([["aven.minimizedTabs", "1"]]);
       vi.stubGlobal("localStorage", {
         getItem: (key: string) => values.get(key) ?? null,
         setItem: (key: string, value: string) => void values.set(key, value),
         removeItem: (key: string) => void values.delete(key),
       });
     });
-    afterEach(() => {
-      saveMinimizedTabs(false);
-      vi.useRealTimers();
-    });
 
-    // Minimized tabs is a strip setting, so it lives on the empty-bar menu.
-    const openMenu = async () =>
-      act(async () =>
-        container.querySelector('[role="tablist"]')!.dispatchEvent(
-          new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true }),
-        ),
-      );
-    const minimizedItem = () =>
-      Array.from(
-        document.querySelectorAll<HTMLButtonElement>(
-          '[role="menuitemcheckbox"]',
-        ),
-      ).find((item) => item.textContent?.includes("Minimized tabs"));
+    it.each([false, true])(
+      "ignores the old minimized preference and retains titles and tooltips (hosted=%s)",
+      async (windowToolbar) => {
+        await render({
+          paneLocal: true,
+          windowToolbar,
+          browserTabs: [
+            { id: "web-a", title: "Preview", url: "http://localhost:5173/" },
+          ],
+          browserPreviewId: "web-a",
+          onKeepBrowser: vi.fn(),
+        });
+        for (const [id, title] of [
+          ["a", "First task"],
+          ["b", "Second task"],
+          ["web-a", "Preview"],
+        ]) {
+          const button = surfaceTabButton(id);
+          expect(
+            button.querySelector(".personal-title-tab-label")?.textContent,
+          ).toBe(title);
+          expect(button.title).toContain(title);
+        }
+        expect(container.querySelector("[data-minimized]")).toBeNull();
+        expect(
+          surfaceTabButton("web-a").getAttribute("aria-description"),
+        ).toContain("Preview tab");
+      },
+    );
 
-    it("turns the setting on and off from the tab bar menu", async () => {
-      await render({ paneLocal: true });
-      await openMenu();
-      expect(minimizedItem()?.getAttribute("aria-checked")).toBe("false");
-      await act(async () => minimizedItem()!.click());
-      expect(loadMinimizedTabs()).toBe(true);
-      await openMenu();
-      expect(minimizedItem()?.getAttribute("aria-checked")).toBe("true");
-      await act(async () => minimizedItem()!.click());
-      expect(loadMinimizedTabs()).toBe(false);
-    });
-
-    it("is also on each tab's own menu", async () => {
-      await render({ paneLocal: true });
-      await act(async () =>
-        container.querySelector('[role="tab"]')!.dispatchEvent(
-          new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true }),
-        ),
-      );
-      expect(minimizedItem()?.getAttribute("aria-checked")).toBe("false");
-      await act(async () => minimizedItem()!.click());
-      expect(loadMinimizedTabs()).toBe(true);
-    });
-
-    it("shows only the active tab's title and a hover card for the others", async () => {
-      vi.useFakeTimers();
-      await act(async () => saveMinimizedTabs(true));
+    it("omits the removed option from strip, task and browser menus", async () => {
       await render({
         paneLocal: true,
-        tabs: [
-          tab({ id: "a", title: "First task" }),
-          tab({
-            id: "b",
-            title: "Second task",
-            harnesses: ["codex"],
-            needsInput: true,
-          }),
+        browserTabs: [{ id: "web-a", title: "Preview" }],
+      });
+      const targets: Array<[HTMLElement, string]> = [
+        [
+          container.querySelector<HTMLElement>('[role="tablist"]')!,
+          "New session",
         ],
-        browserTabs: [
-          { id: "web-a", title: "Preview", url: "http://localhost:5173/" },
-        ],
-        surfaceOrder: ["a", "b", "web-a"],
-        describeTab: (id) => (id === "b" ? "Wants to run the tests" : undefined),
-      });
-      const surface = (id: string) =>
-        container.querySelector<HTMLElement>(`[data-surface-tab-id="${id}"]`)!;
-      expect(surface("a").dataset.minimized).toBeUndefined();
-      expect(surface("b").dataset.minimized).toBe("true");
-      // A lone strip keeps browser titles; split panes shrink them too.
-      expect(surface("web-a").dataset.minimized).toBeUndefined();
-      await render({ splitPanes: true });
-      expect(surface("web-a").dataset.minimized).toBe("true");
-      expect(
-        surface("b").querySelector('[role="tab"]')!.getAttribute("title"),
-      ).toBeNull();
-
-      const card = () =>
-        document.querySelector<HTMLElement>('[aria-label="Tab details"]');
-      await act(async () => {
-        surface("b").dispatchEvent(
-          new PointerEvent("pointerover", { bubbles: true }),
-        );
-      });
-      expect(card()).toBeNull();
-      await act(async () => vi.advanceTimersByTime(400));
-      expect(card()?.textContent).toContain("Second task");
-      expect(card()?.textContent).toContain("Needs your input");
-      expect(card()?.textContent).toContain("Wants to run the tests");
-
-      await act(async () => {
-        surface("b").dispatchEvent(
-          new PointerEvent("pointerout", { bubbles: true }),
-        );
-        surface("web-a").dispatchEvent(
-          new PointerEvent("pointerover", { bubbles: true }),
-        );
-      });
-      expect(card()?.textContent).toContain("localhost:5173");
-
-      await act(async () => saveMinimizedTabs(false));
-      expect(surface("b").dataset.minimized).toBeUndefined();
-      expect(card()).toBeNull();
+        [surfaceTabButton("a"), "Close tab"],
+        [surfaceTabButton("web-a"), "Close browser"],
+      ];
+      for (const [target, preservedAction] of targets) {
+        await keydown(target, "ContextMenu");
+        const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+        expect(menu).not.toBeNull();
+        expect(menu.textContent).toContain(preservedAction);
+        expect(menu.textContent).not.toContain("Minimized tabs");
+        await keydown(menu, "Escape");
+      }
     });
   });
 
