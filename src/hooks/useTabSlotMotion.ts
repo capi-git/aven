@@ -5,6 +5,7 @@ import {
   useState,
   type RefObject,
 } from "react";
+import { effectiveCssZoom } from "../lib/drag";
 
 /** MonoCode's tab motion: 180ms, eased out. Keep in step with TitleBar.css. */
 export const TAB_SLOT_MOTION_MS = 180;
@@ -39,11 +40,13 @@ export function useTabSlotMotion(
   const previous = useRef<readonly string[] | null>(null);
   const [opening, setOpening] = useState<ReadonlySet<string>>(() => new Set());
   const [ghosts, setGhosts] = useState<readonly TabSlotGhost[]>([]);
-  const timers = useRef(new Set<number>());
+  // Opening or closing the same ID supersedes its previous animation.
+  const timers = useRef(new Map<string, number>());
   const key = ids.join("\n");
   useEffect(
     () => () => {
-      for (const timer of timers.current) window.clearTimeout(timer);
+      for (const timer of timers.current.values()) window.clearTimeout(timer);
+      timers.current.clear();
     },
     [],
   );
@@ -53,7 +56,8 @@ export function useTabSlotMotion(
       "[data-motion-slot]",
     ) ?? []) {
       const id = node.dataset.motionSlot;
-      const width = node.getBoundingClientRect().width;
+      // Ghost widths are CSS pixels in this same subtree, not viewport pixels.
+      const width = node.getBoundingClientRect().width / effectiveCssZoom(node);
       if (id && width > 1) widths.current.set(id, width);
     }
   };
@@ -72,12 +76,19 @@ export function useTabSlotMotion(
     // Switching project or window replaces every tab: no motion for that.
     const replaced =
       before.length > 0 && ids.length > 0 && ids.every((id) => !was.has(id));
-    if (replaced || reducedMotion() || (!added.length && !removed.length)) {
+    if (replaced || reducedMotion()) {
+      for (const timer of timers.current.values()) window.clearTimeout(timer);
+      timers.current.clear();
+      setOpening((current) => (current.size ? new Set() : current));
+      setGhosts((current) => (current.length ? [] : current));
       for (const id of removed) widths.current.delete(id);
       return;
     }
-    if (added.length)
-      setOpening((current) => new Set([...current, ...added]));
+    if (!added.length && !removed.length) return;
+    setOpening(
+      (current) =>
+        new Set([...current].filter((id) => now.has(id)).concat(added)),
+    );
     // Read widths now: the updater runs later, after they are forgotten.
     const leaving = removed.map((id): TabSlotGhost => {
       const index = before.indexOf(id);
@@ -89,26 +100,29 @@ export function useTabSlotMotion(
         }
       return { id, after, width: widths.current.get(id) ?? 0 };
     });
-    if (leaving.length)
-      setGhosts((current) => [
-        ...current.filter((ghost) => !now.has(ghost.id)),
-        ...leaving,
-      ]);
+    setGhosts((current) => [
+      ...current.filter(
+        (ghost) => !now.has(ghost.id) && !removed.includes(ghost.id),
+      ),
+      ...leaving,
+    ]);
     for (const id of removed) widths.current.delete(id);
-    // Each change settles on its own; a quick second change must not strand
-    // the first one's ghost or opening state.
-    const timer = window.setTimeout(() => {
-      timers.current.delete(timer);
-      setOpening((current) => {
-        const next = new Set(current);
-        for (const id of added) next.delete(id);
-        return next;
-      });
-      setGhosts((current) =>
-        current.filter((ghost) => !removed.includes(ghost.id)),
-      );
-    }, TAB_SLOT_MOTION_MS);
-    timers.current.add(timer);
+    // Different tabs settle independently; a reopened tab gets a fresh timer
+    // so an earlier close cannot remove its next opening or closing motion.
+    for (const id of [...added, ...removed]) {
+      window.clearTimeout(timers.current.get(id));
+      const timer = window.setTimeout(() => {
+        if (timers.current.get(id) !== timer) return;
+        timers.current.delete(id);
+        setOpening((current) => {
+          const next = new Set(current);
+          next.delete(id);
+          return next;
+        });
+        setGhosts((current) => current.filter((ghost) => ghost.id !== id));
+      }, TAB_SLOT_MOTION_MS);
+      timers.current.set(id, timer);
+    }
     // `key` captures every change to `ids`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
