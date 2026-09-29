@@ -9,6 +9,11 @@
 //!
 //! Remote browser pages are unaffected: Chromium tabs use their own compositor,
 //! and WebKit previews keep WebKit's default behavior.
+//!
+//! The same configuration turns off macOS Writing Tools for Aven's documents.
+//! Its hover affordance over Aven's text fields hit an AppKit assertion
+//! (NSCampoLightweightUIController.m:1429) and terminated the app; the
+//! behavior can only be chosen before the WKWebView is created.
 
 use tauri::{webview::WebviewBuilder, AppHandle, Runtime, WebviewWindowBuilder};
 
@@ -21,7 +26,8 @@ const COMPOSITING_DEBUG_KEYS: [&str; 2] = [
 ];
 
 pub(crate) trait FullRefreshRate<R: Runtime>: Sized {
-    /// Request full-refresh rendering for a trusted Aven document.
+    /// Request full-refresh rendering, without Writing Tools, for a trusted
+    /// Aven document.
     fn full_refresh_rate(self, app: &AppHandle<R>) -> Self;
 }
 
@@ -82,12 +88,31 @@ mod mac {
 
     fn create(mtm: MainThreadMarker) -> Option<Retained<WKWebViewConfiguration>> {
         let configuration = unsafe { WKWebViewConfiguration::new(mtm) };
-        let disabled = objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe {
+        let paced = objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe {
             disable_60fps_preference(&configuration)
         }));
-        // A WebKit without this SPI keeps its default pacing and Tauri's own
-        // configuration rather than failing the window.
-        matches!(disabled, Ok(true)).then_some(configuration)
+        let quiet = objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe {
+            disable_writing_tools(&configuration)
+        }));
+        // A WebKit without either interface keeps Tauri's own configuration
+        // rather than failing the window.
+        (matches!(paced, Ok(true)) || matches!(quiet, Ok(true))).then_some(configuration)
+    }
+
+    /// NSWritingToolsBehaviorNone. Writing Tools' floating affordance crashed
+    /// Aven through an AppKit assertion, and offers nothing in its own fields.
+    const WRITING_TOOLS_NONE: isize = -1;
+
+    /// Public API from macOS 15. Returns false where it does not exist.
+    unsafe fn disable_writing_tools(configuration: &WKWebViewConfiguration) -> bool {
+        if !configuration.respondsToSelector(sel!(setWritingToolsBehavior:))
+            || !configuration.respondsToSelector(sel!(writingToolsBehavior))
+        {
+            return false;
+        }
+        let _: () = msg_send![configuration, setWritingToolsBehavior: WRITING_TOOLS_NONE];
+        let behavior: isize = msg_send![configuration, writingToolsBehavior];
+        behavior == WRITING_TOOLS_NONE
     }
 
     /// Uses WebKit's feature-flag SPI, the same interface as Safari's Feature
@@ -140,6 +165,14 @@ mod mac {
             assert!(class.metaclass().responds_to(sel!(_features)));
             assert!(class.responds_to(sel!(_setEnabled:forFeature:)));
             assert!(class.responds_to(sel!(_isEnabledForFeature:)));
+        }
+
+        #[test]
+        fn installed_webkit_can_turn_off_writing_tools() {
+            // macOS 15 and later; the release runners and supported Macs are.
+            let class = AnyClass::get(c"WKWebViewConfiguration").expect("WebKit is linked");
+            assert!(class.responds_to(sel!(setWritingToolsBehavior:)));
+            assert!(class.responds_to(sel!(writingToolsBehavior)));
         }
     }
 }
