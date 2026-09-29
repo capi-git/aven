@@ -886,7 +886,7 @@ describe("browser tab integration", () => {
       ).toBeUndefined();
     });
 
-    it("folds to the label with a count, keeping the active tab in view", async () => {
+    it("folds to just the label with a count and moves off a folding tab", async () => {
       await render({
         tabs: [tab({ id: "a" }), tab({ id: "b" }), tab({ id: "c" })],
         browserTabs: [{ id: "web-a", title: "Docs" }],
@@ -910,10 +910,62 @@ describe("browser tab integration", () => {
       await act(async () => label()!.click());
       expect(drawn()).toEqual(["a", "[Docs2]", "c"]);
       expect(label()!.getAttribute("aria-label")).toBe("Docs, 2 tabs, folded");
-      await render({ activeId: "b" });
-      expect(drawn()).toEqual(["a", "[Docs2]", "b", "c"]);
+      expect(props.onSelect).not.toHaveBeenCalled();
+
+      // Folding the group you are in selects the nearest visible tab.
       await act(async () => label()!.click());
+      await render({ activeId: "b" });
       expect(drawn()).toEqual(["a", "[Docs]", "b", "web-a", "c"]);
+      await act(async () => label()!.click());
+      expect(props.onSelect).toHaveBeenLastCalledWith("c");
+      await render({ activeId: "c" });
+      expect(drawn()).toEqual(["a", "[Docs2]", "c"]);
+
+      // Opening a folded tab from elsewhere unfolds its group.
+      await render({ activeId: "b" });
+      expect(drawn()).toEqual(["a", "[Docs]", "b", "web-a", "c"]);
+    });
+
+    it("folds from a real press, where pointer capture delivers the click to the label's slot", async () => {
+      await render({ tabs: [tab({ id: "a" }), tab({ id: "b" })], activeId: "a" });
+      await makeGroup("b", "QA");
+      const slot = label()!.closest<HTMLElement>(".personal-tab-group-slot")!;
+      slot.setPointerCapture = vi.fn();
+      slot.releasePointerCapture = vi.fn();
+      const pointer = (target: EventTarget, type: string) =>
+        act(async () =>
+          target.dispatchEvent(
+            new PointerEvent(type, {
+              bubbles: true,
+              pointerId: 1,
+              button: 0,
+              clientX: 10,
+              clientY: 10,
+            }),
+          ),
+        );
+      await pointer(label()!, "pointerdown");
+      expect(slot.setPointerCapture).toHaveBeenCalled();
+      await pointer(window, "pointerup");
+      // The browser targets the capturing slot, not the button inside it.
+      await act(async () =>
+        slot.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+      );
+      expect(drawn()).toEqual(["a", "[QA1]"]);
+      await act(async () =>
+        slot.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+      );
+      expect(drawn()).toEqual(["a", "[QA]", "b"]);
+    });
+
+    it("still folds when every tab in the strip belongs to the group", async () => {
+      await render({ tabs: [tab({ id: "a" }), tab({ id: "b" })], activeId: "a" });
+      await makeGroup("a", "All");
+      await openTabMenu("b");
+      await choose("Add to group", "All");
+      await act(async () => label()!.click());
+      expect(drawn()).toEqual(["[All2]"]);
+      expect(props.onSelect).not.toHaveBeenCalled();
     });
 
     it("preserves group controls and skips folded members during keyboard navigation", async () => {
@@ -1678,7 +1730,6 @@ describe("browser tab integration", () => {
     await render({
       paneLocal: true,
       groupId: "team",
-      groupLabel: "Team",
       onMoveGroupToWindow: vi.fn(),
       tabs: [
         tab({ id: "a", harnesses: ["codex"], busyHarnesses: ["codex"] }),
@@ -1713,7 +1764,6 @@ describe("browser tab integration", () => {
   it("offers precise tab and pane window destinations, returns, and history callbacks", async () => {
     await render({
       groupId: "group-owner",
-      groupLabel: "Research",
       windowTargets: [{ id: "window-2", label: "Work window" }],
       onMoveTabToWindow: vi.fn(),
       onMoveGroupToWindow: vi.fn(),
@@ -1766,50 +1816,6 @@ describe("browser tab integration", () => {
     expect(props.onUndoLayout).toHaveBeenCalledOnce();
     expect(props.onSelect).not.toHaveBeenCalled();
     expect(props.onClose).not.toHaveBeenCalled();
-  });
-
-  it.each([false, true])("moves the group owner from its handle without a single-tab drag (pane-local=%s)", async (paneLocal) => {
-    await render({
-      paneLocal,
-      groupId: "group-owner",
-      groupLabel: "Research",
-      onGroupDragMove: vi.fn(),
-      onGroupDragEnd: vi.fn(() => true),
-      onSurfaceDragEnd: vi.fn(),
-    });
-    const handle = container.querySelector<HTMLButtonElement>(
-      '[aria-label="Move group: Research (2 tabs)"]',
-    )!;
-    handle.setPointerCapture = vi.fn();
-    handle.releasePointerCapture = vi.fn();
-    const pointer = (target: EventTarget, type: string, x: number) =>
-      act(async () =>
-        target.dispatchEvent(
-          new PointerEvent(type, {
-            bubbles: true,
-            pointerId: 1,
-            button: 0,
-            clientX: x,
-            clientY: 15,
-            screenX: x + 1000,
-            screenY: 220,
-          }),
-        ),
-      );
-    await pointer(handle, "pointerdown", 20);
-    await mouseDown(handle);
-    await pointer(window, "pointermove", 200);
-    await pointer(window, "pointerup", 900);
-    expect(props.onGroupDragEnd).toHaveBeenCalledExactlyOnceWith(
-      "group-owner",
-      900,
-      15,
-      false,
-      { screenX: 1900, screenY: 220 },
-    );
-    expect(props.onSurfaceDragEnd).not.toHaveBeenCalled();
-    expect(props.onReorder).not.toHaveBeenCalled();
-    expect(nativeWindow.startDragging).not.toHaveBeenCalled();
   });
 
   it("keeps reopen and layout undo discoverable on an empty tab strip", async () => {

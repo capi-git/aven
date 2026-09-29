@@ -1371,20 +1371,6 @@ export default function App({
     ) => onDragEnd(id, x, y, cancelled, point),
     [onDragEnd],
   );
-  const onGroupDragMove = useCallback(
-    (id: string, x: number, y: number) => onDragMove(id, x, y, true),
-    [onDragMove],
-  );
-  const onGroupDragEnd = useCallback(
-    (
-      id: string,
-      x: number,
-      y: number,
-      cancelled: boolean,
-      point?: WorkspaceDropPoint,
-    ) => onDragEnd(id, x, y, cancelled, point, true),
-    [onDragEnd],
-  );
   const onNewBrowserTab = useCallback(() => {
     setHomeViewOpen(false);
     const id = crypto.randomUUID();
@@ -9347,16 +9333,6 @@ export default function App({
                                       void moveWindowRef.current(ids, target);
                                     }}
                                     groupId={owner}
-                                    onGroupDragMove={
-                                      visibleSurfaceIds.length > 1
-                                        ? onGroupDragMove
-                                        : undefined
-                                    }
-                                    onGroupDragEnd={
-                                      visibleSurfaceIds.length > 1
-                                        ? onGroupDragEnd
-                                        : undefined
-                                    }
                                     onReopenClosedTab={() => {
                                       void onReopenClosedTab();
                                     }}

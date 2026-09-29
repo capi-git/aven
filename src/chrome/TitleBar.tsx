@@ -5,7 +5,6 @@ import {
   ChevronRight,
   Flag,
   Globe,
-  GripVertical,
   Inbox,
   PanelLeft,
   PanelRight,
@@ -157,20 +156,6 @@ export type TitleBarProps = {
     pointer?: SortablePointerPosition,
   ) => void;
   groupId?: string;
-  groupLabel?: string;
-  onGroupDragMove?: (
-    groupId: string,
-    x: number,
-    y: number,
-    pointer?: SortablePointerPosition,
-  ) => void;
-  onGroupDragEnd?: (
-    groupId: string,
-    x: number,
-    y: number,
-    cancelled: boolean,
-    pointer?: SortablePointerPosition,
-  ) => boolean;
   windowTargets?: Array<{ id: string; label: string }>;
   onMoveTabToWindow?: (tabId: string, targetWindowId?: string) => void;
   onMoveGroupToWindow?: (groupId: string, targetWindowId?: string) => void;
@@ -779,6 +764,19 @@ function TabGroupLabel({
       onPointerDown={(event) => {
         if (canDrag && !renaming) sortable.onItemPointerDown(id, event);
       }}
+      // Pressing captures the pointer on this slot for dragging, so the click
+      // lands here rather than on the button inside; handle it here, as tab
+      // slots do. Keyboard activation of the button bubbles here too.
+      onClick={(event) => {
+        if (renaming || (event.target as HTMLElement).closest("input")) return;
+        if (sortable.consumeClick()) return;
+        onToggle();
+      }}
+      onDoubleClick={(event) => {
+        if (renaming) return;
+        event.stopPropagation();
+        onStartRename();
+      }}
     >
       {dropBefore ? (
         <div className="personal-tab-insertion pointer-events-none absolute inset-y-1.5 left-0 z-20 rounded-full" />
@@ -822,14 +820,6 @@ function TabGroupLabel({
             title={`${name} · ${tabs}. Click to ${
               group.collapsed ? "unfold" : "fold"
             }, double-click to rename`}
-            onClick={() => {
-              if (sortable.consumeClick()) return;
-              onToggle();
-            }}
-            onDoubleClick={(event) => {
-              event.stopPropagation();
-              onStartRename();
-            }}
             onContextMenu={(event) => {
               event.preventDefault();
               event.stopPropagation();
@@ -1056,9 +1046,6 @@ function TitleBarComponent({
   onSurfaceDragMove,
   onSurfaceDragEnd,
   groupId,
-  groupLabel,
-  onGroupDragMove,
-  onGroupDragEnd,
   windowTargets = [],
   onMoveTabToWindow,
   onMoveGroupToWindow,
@@ -1165,7 +1152,7 @@ function TitleBarComponent({
     loadSurfaceGroups,
     loadSurfaceGroups,
   );
-  const segments = stripSegments(orderedIds, groupState, focusedId);
+  const segments = stripSegments(orderedIds, groupState);
   // Labels sit in the sortable sequence so a group drags like a tab.
   const displayIds = stripDisplayIds(segments);
   const displayedTabIds = displayIds.filter((id) => !chipGroupId(id));
@@ -1175,6 +1162,45 @@ function TitleBarComponent({
   const stripGroups = segments.flatMap((segment) =>
     segment.kind === "group" ? [segment] : [],
   );
+  /**
+   * Fold or unfold groups as Brave does: a folded group shows only its label.
+   * If the tab you are on is folding away, move to the nearest tab that stays
+   * visible; with none, the group still folds and its page stays open.
+   */
+  const foldGroups = (ids: readonly string[], collapsed: boolean) => {
+    if (collapsed) {
+      const folding = new Set(ids);
+      const staysVisible = (id: string) => {
+        const group = groupState.groups[groupState.members[id] ?? ""];
+        return !group || (!folding.has(group.id) && !group.collapsed);
+      };
+      if (!staysVisible(focusedId)) {
+        const index = orderedIds.indexOf(focusedId);
+        const next =
+          orderedIds.slice(index + 1).find(staysVisible) ??
+          [...orderedIds.slice(0, Math.max(index, 0))]
+            .reverse()
+            .find(staysVisible);
+        if (next) {
+          if (browsers.has(next)) onSelectBrowser?.(unified ? next : undefined);
+          else onSelect(next);
+        }
+      }
+    }
+    setSurfaceGroupsCollapsed(ids, collapsed);
+  };
+  // Moving to a tab inside a folded group (from the sidebar, a shortcut or an
+  // agent) unfolds it, so the tab you are on is always shown in the strip.
+  const lastFocused = useRef(focusedId);
+  useEffect(() => {
+    if (lastFocused.current === focusedId) return;
+    lastFocused.current = focusedId;
+    const group = groupState.groups[groupState.members[focusedId] ?? ""];
+    if (group?.collapsed && orderedIds.includes(focusedId))
+      changeSurfaceGroup(group.id, { collapsed: false });
+    // Only a change of focus should unfold; the fold click itself does not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusedId]);
   const groupMembers = (id: string) =>
     stripGroups.find((segment) => segment.group.id === id)?.members ?? [];
   const sortable = useSortable(
@@ -1221,10 +1247,6 @@ function TitleBarComponent({
       },
     },
   );
-  const groupSortable = useSortable(groupId ? [groupId] : [], () => {}, {
-    onDragMove: onGroupDragMove,
-    onDragEnd: onGroupDragEnd,
-  });
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const tabStripRef = useRef<HTMLDivElement | null>(null);
   // Tabs grow in and closed tabs collapse, as in MonoCode.
@@ -1805,7 +1827,7 @@ function TitleBarComponent({
       return;
     }
     if (id === "fold-all" || id === "unfold-all") {
-      setSurfaceGroupsCollapsed(
+      foldGroups(
         stripGroups.map((segment) => segment.group.id),
         id === "fold-all",
       );
@@ -1840,8 +1862,7 @@ function TitleBarComponent({
         };
         if (group.collapsed) changeSurfaceGroup(group.id, { collapsed: false });
         onNew();
-      } else if (id === "group-fold")
-        changeSurfaceGroup(group.id, { collapsed: !group.collapsed });
+      } else if (id === "group-fold") foldGroups([group.id], !group.collapsed);
       else if (id === "group-move-new") onMoveTabsToWindow?.(menuGroup.members);
       else if (id.startsWith("group-move:")) {
         const target = id.slice("group-move:".length);
@@ -2018,9 +2039,10 @@ function TitleBarComponent({
                       tabMenu?.groupId === labelSegment.group.id
                     }
                     onToggle={() =>
-                      changeSurfaceGroup(labelSegment.group.id, {
-                        collapsed: !labelSegment.group.collapsed,
-                      })
+                      foldGroups(
+                        [labelSegment.group.id],
+                        !labelSegment.group.collapsed,
+                      )
                     }
                     onRename={(name) => {
                       setRenamingGroup(null);
@@ -2227,33 +2249,6 @@ function TitleBarComponent({
           showProjectButton ? " border-l border-content/10" : ""
         }`}
       >
-        {/* Keep the grip visible whenever these tabs can move together.
-            Moving a group to a window stays in the tab menu. */}
-        {groupId && orderedIds.length > 1 && onGroupDragEnd ? (
-          <button
-            type="button"
-            ref={(element) => groupSortable.setItemRef(groupId, element)}
-            className="personal-tab-group-handle"
-            data-tauri-drag-region="false"
-            data-dragging={groupSortable.draggingId === groupId || undefined}
-            aria-label={
-              groupLabel
-                ? `Move group: ${groupLabel} (${orderedIds.length} tabs)`
-                : `Move group (${orderedIds.length} tabs)`
-            }
-            title="Drag to move these tabs together"
-            onPointerDown={(event) =>
-              groupSortable.onItemPointerDown(groupId, event)
-            }
-            onClick={(event) => {
-              if (groupSortable.consumeClick()) return;
-              const rect = event.currentTarget.getBoundingClientRect();
-              openBarMenu(rect.left, rect.bottom, event.currentTarget);
-            }}
-          >
-            <GripVertical className="size-3" />
-          </button>
-        ) : null}
         <div
           className="relative h-full min-w-0 flex-1 overflow-hidden"
           onWheel={(event) => {

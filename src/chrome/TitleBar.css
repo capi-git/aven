@@ -231,38 +231,6 @@ html.theme-light .personal-shell {
   .personal-title-browser-plus {
   left: 18px;
 }
-.personal-tab-group-handle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 24px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: color-mix(in srgb, var(--color-content) 72%, transparent);
-  font-size: 11px;
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
-  /* Keep the dots visible so this space always reads as a control. */
-  transition:
-    color 120ms ease,
-    background-color 120ms ease;
-}
-.personal-tab-group-handle:hover {
-  color: var(--color-content);
-  background: color-mix(in srgb, var(--color-content) 8%, transparent);
-}
-.personal-tab-group-handle:focus-visible {
-  outline: 1px solid var(--aven-focus-ring, var(--color-accent));
-  outline-offset: -1px;
-}
-.personal-tab-group-handle[data-dragging="true"] {
-  cursor: grabbing;
-}
 
 /* File and terminal panes use the same compact rectangular tab treatment. */
 .personal-shell .aven-surface-tabs {
