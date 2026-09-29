@@ -51,15 +51,17 @@ pub struct PtyHost {
 }
 
 impl PtyHost {
-    pub(crate) fn ensure_update_idle(&self) -> Result<(), String> {
+    /// Inspect without closing terminals. A shell alone is not proof of
+    /// idleness: builtins and background jobs may still be doing useful work.
+    pub(crate) fn ensure_update_idle(&self, close_terminals: bool) -> Result<usize, String> {
         let sessions = self
             .sessions
             .lock()
             .map_err(|_| "Terminal activity could not be checked")?;
-        if !sessions.is_empty() {
-            return Err("Close active terminals before restarting to update. The update will stay downloaded and ready.".into());
+        if !sessions.is_empty() && !close_terminals {
+            return Err("Confirm closing open terminals before restarting to update. The update will stay downloaded and ready.".into());
         }
-        Ok(())
+        Ok(sessions.len())
     }
 
     pub fn new() -> Self {
@@ -843,7 +845,7 @@ mod tests {
     #[test]
     fn remove_if_pid_ignores_a_replaced_session() {
         let host = PtyHost::new();
-        assert!(host.ensure_update_idle().is_ok());
+        assert_eq!(host.ensure_update_idle(false).unwrap(), 0);
         host.insert(
             "term".into(),
             Arc::new(LivePty {
@@ -852,11 +854,47 @@ mod tests {
                 pid: 42,
             }),
         );
-        assert!(host.ensure_update_idle().is_err());
+        assert!(host.ensure_update_idle(false).is_err());
         assert!(host.remove_if_pid("term", 7).is_none());
         assert!(host.get("term").is_some());
         assert!(host.remove_if_pid("term", 42).is_some());
         assert!(host.get("term").is_none());
-        assert!(host.ensure_update_idle().is_ok());
+        assert_eq!(host.ensure_update_idle(false).unwrap(), 0);
+    }
+
+    #[test]
+    fn terminal_update_checks_require_consent_without_stopping_a_shell_builtin() {
+        let (master, slave) = open_pty(80, 24).unwrap();
+        let mut shell = std::process::Command::new("/bin/sh")
+            .args(["-c", "read -r ignored"])
+            .stdin(dup_stdio(slave.as_raw_fd()).unwrap())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let host = PtyHost::new();
+        let live = Arc::new(LivePty {
+            writer: Mutex::new(Box::new(std::fs::File::from(
+                dup_fd(master.as_raw_fd()).unwrap(),
+            ))),
+            master_fd: master,
+            pid: shell.id(),
+        });
+        host.insert("term".into(), live.clone());
+
+        // A builtin waiting for input looks like an idle shell to foreground
+        // process checks. Neither refusal nor consent may terminate it early.
+        assert!(host.ensure_update_idle(false).is_err());
+        assert!(Arc::ptr_eq(&host.get("term").unwrap(), &live));
+        assert!(shell.try_wait().unwrap().is_none());
+        assert_eq!(host.ensure_update_idle(true).unwrap(), 1);
+        assert!(Arc::ptr_eq(&host.get("term").unwrap(), &live));
+        assert!(shell.try_wait().unwrap().is_none());
+        // Consent is per check, not remembered by the terminal host itself.
+        assert!(host.ensure_update_idle(false).is_err());
+
+        host.remove("term");
+        shell.kill().unwrap();
+        shell.wait().unwrap();
     }
 }

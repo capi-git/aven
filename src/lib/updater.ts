@@ -281,7 +281,14 @@ export function installPendingUpdate(
     try {
       // Acquires the native restart guard and saves drafts/session state. It
       // refuses active tasks and extra windows, without stopping their work.
-      await prepareUpdateRestart();
+      if (!(await prepareUpdateRestart())) {
+        releaseInput();
+        return publish({
+          phase: "ready",
+          currentVersion,
+          availableVersion: update.version,
+        });
+      }
       if (!pendingInstalled) {
         await update.install();
         pendingInstalled = true;
