@@ -55,8 +55,8 @@ const SETTINGS_SEARCH_ENTRIES: readonly SearchEntry[] = [
   setting(
     "skills",
     "Desktop control",
-    "Check Peekaboo and macOS permissions for native computer use.",
-    "tools computer use accessibility screen recording permissions",
+    "Let agents see and use apps on this Mac with Aven's built-in desktop control.",
+    "tools native computer use macOS enable switch off allow accessibility screen recording permissions",
   ),
   setting(
     "connections",

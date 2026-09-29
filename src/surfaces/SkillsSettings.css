@@ -19,6 +19,16 @@
   flex-wrap: wrap;
   gap: 9px 16px;
 }
+.skills-desktop-switch {
+  align-items: center;
+  margin-top: 12px;
+  font-size: 12px;
+}
+.skills-permission-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
 .skills-tool h3 {
   font-size: 13px;
   font-weight: 600;
@@ -48,8 +58,7 @@
   border-color: color-mix(in srgb, var(--color-accent) 25%, transparent);
   color: var(--color-content);
 }
-.skills-status[data-state="permissionsRequired"],
-.skills-status[data-state="unverified"] {
+.skills-status[data-state="permissionsRequired"] {
   color: var(--color-content);
 }
 .skills-actions {

@@ -12,6 +12,9 @@ fn main() {
     if let Some(code) = aven_lib::run_browser_cli() {
         std::process::exit(code);
     }
+    if let Some(code) = aven_lib::run_desktop_cli() {
+        std::process::exit(code);
+    }
     #[cfg(all(debug_assertions, target_os = "macos"))]
     aven_lib::ensure_macos_dev_bundle();
     aven_lib::run()

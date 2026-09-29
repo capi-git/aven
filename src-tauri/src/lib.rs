@@ -13,7 +13,7 @@ mod browser_agent_dom;
 #[cfg(all(feature = "chromium", target_os = "macos"))]
 #[path = "browser_chromium_dom.rs"]
 mod browser_agent_dom;
-pub use browser_agent::run_browser_cli;
+pub use browser_agent::{run_browser_cli, run_desktop_cli};
 #[cfg(not(all(feature = "chromium", target_os = "macos")))]
 mod browser_dialogs;
 #[cfg(target_os = "macos")]
@@ -25,6 +25,7 @@ mod checkpoint;
 mod control;
 pub mod control_cli;
 mod cursor_store;
+mod desktop_control;
 mod display_rate;
 mod fs;
 mod git_housekeeping;
@@ -432,6 +433,9 @@ pub fn run() {
             fs::write_text_file,
             skills::list_skills,
             agent_tools::agent_tool_status,
+            desktop_control::desktop_control_status,
+            desktop_control::desktop_control_set_enabled,
+            desktop_control::desktop_control_request_permission,
             agent_tools::open_computer_use_settings,
             search::search_project,
             cursor_store::cursor_tool_calls,

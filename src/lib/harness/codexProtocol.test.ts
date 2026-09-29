@@ -177,6 +177,7 @@ describe("codexBrowserHostInstructionsFromConfig", () => {
       config: { developer_instructions: custom },
     });
     expect(merged).toBe(`${custom}\n\n${AVEN_BROWSER_HOST_POLICY}`);
+    expect(merged).toContain("Aven --aven-desktop command");
     expect(codexBrowserHostInstructionsFromConfig({
       config: { developer_instructions: merged },
     })).toBe(merged);

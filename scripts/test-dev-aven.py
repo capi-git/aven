@@ -189,6 +189,7 @@ class DevRunnerGuards(unittest.TestCase):
                                          'MONOCODE_CONTROL_TOKEN': 'fake-fixture-only',
                                          'TAURI_CONFIG': '{}', 'PATH': '/fixture/bin'}), \
              mock.patch.object(runner, 'port_is_available', return_value=True), \
+             mock.patch.object(runner, 'ensure_not_running') as not_running, \
              mock.patch.object(runner.subprocess, 'Popen', side_effect=[server, app]) as popen, \
              mock.patch.object(runner.urllib.request, 'urlopen', return_value=response), \
              mock.patch.object(runner.os, 'killpg') as killpg, \
@@ -202,9 +203,54 @@ class DevRunnerGuards(unittest.TestCase):
             self.assertNotIn('MONOCODE_CONTROL_TOKEN', env)
             self.assertNotIn('TAURI_CONFIG', env)
             self.assertEqual(env['PATH'], '/fixture/bin')
-        self.assertEqual(popen.call_args_list[1].args[0], [str(self.app / 'Contents/MacOS/aven')])
+        not_running.assert_called_once_with()
+        self.assertEqual(popen.call_args_list[1].args[0],
+                         ['/usr/bin/open', '-W', '-n', '-a', str(self.app)])
+        self.assertTrue(popen.call_args_list[1].kwargs['start_new_session'])
+        # The app itself is launched by LaunchServices; no app binary or
+        # process-name-based quit command is run by this runner.
+        self.assertEqual([call.args[0][0] for call in popen.call_args_list], ['npm', '/usr/bin/open'])
         app.terminate.assert_not_called()
         app.kill.assert_not_called()
+        killpg.assert_called_once_with(server.pid, runner.signal.SIGTERM)
+
+    def test_preview_opened_during_server_startup_blocks_launch_and_only_stops_own_server(self):
+        server = mock.Mock(pid=312345)
+        server.poll.return_value = None
+        response = mock.MagicMock()
+        response.__enter__.return_value.status = 200
+        with mock.patch.object(runner, 'port_is_available', return_value=True), \
+             mock.patch.object(runner.subprocess, 'check_output',
+                               return_value=str(self.app / 'Contents/MacOS/aven') + '\n'), \
+             mock.patch.object(runner.subprocess, 'Popen', return_value=server) as popen, \
+             mock.patch.object(runner.urllib.request, 'urlopen', return_value=response), \
+             mock.patch.object(runner.os, 'killpg') as killpg:
+            with self.assertRaisesRegex(RuntimeError, 'already running'):
+                runner.launch()
+        popen.assert_called_once()
+        self.assertEqual(popen.call_args.args[0][0], 'npm')
+        killpg.assert_called_once_with(server.pid, runner.signal.SIGTERM)
+
+    def test_launchservices_failure_cleans_own_server_without_quitting_apps(self):
+        server = mock.Mock(pid=312345)
+        server.poll.return_value = None
+        launcher = mock.Mock(pid=312346, returncode=1)
+        launcher.poll.return_value = 1
+        response = mock.MagicMock()
+        response.__enter__.return_value.status = 200
+        with mock.patch.object(runner, 'port_is_available', return_value=True), \
+             mock.patch.object(runner.subprocess, 'check_output',
+                               return_value='/Applications/Aven.app/Contents/MacOS/aven\n'), \
+             mock.patch.object(runner.subprocess, 'Popen', side_effect=[server, launcher]) as popen, \
+             mock.patch.object(runner.urllib.request, 'urlopen', return_value=response), \
+             mock.patch.object(runner.os, 'killpg') as killpg, \
+             contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(RuntimeError, 'Could not open or wait for Aven Dev'):
+                runner.launch()
+        self.assertEqual(popen.call_args_list[1].args[0],
+                         ['/usr/bin/open', '-W', '-n', '-a', str(self.app)])
+        launcher.terminate.assert_not_called()
+        launcher.kill.assert_not_called()
         killpg.assert_called_once_with(server.pid, runner.signal.SIGTERM)
 
     def test_failed_server_readiness_cleans_its_child_without_starting_app(self):

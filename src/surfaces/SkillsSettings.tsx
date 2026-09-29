@@ -18,20 +18,22 @@ import {
 import {
   getAgentToolStatus,
   openComputerUseSettings,
+  requestDesktopPermission,
+  setDesktopControlEnabled,
   type AgentToolStatus,
+  type DesktopControlStatus,
 } from "../lib/agentTools";
-import { Select, SettingsGroup } from "./SettingsControls";
+import { Select, SettingsGroup, Toggle } from "./SettingsControls";
 import "./SkillsSettings.css";
 
 type InspectableSkill = FileSkill | BuiltinSkill;
 const skillSourceLabel = (skill: InspectableSkill) =>
   skill.source === "monocode" ? "Aven" : skill.source;
 const DESKTOP_STATE = {
-  ready: "Permissions granted",
+  ready: "Ready",
   permissionsRequired: "Permissions needed",
-  missing: "Not installed",
-  unsupported: "macOS app required",
-  unverified: "Could not verify",
+  off: "Off",
+  unsupported: "Unsupported",
 };
 
 export function SkillsSettings({ cwd }: { cwd: string }) {
@@ -50,6 +52,10 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
   const [toolsLoading, setToolsLoading] = useState(true);
   const [toolsError, setToolsError] = useState("");
   const [toolReload, setToolReload] = useState(0);
+  const [desktopBusy, setDesktopBusy] = useState(false);
+  const desktopBusyRef = useRef(false);
+  const toolRequestId = useRef(0);
+  const refreshAfterDesktop = useRef(false);
   const [selected, setSelected] = useState<InspectableSkill | null>(null);
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState("");
@@ -88,23 +94,39 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
 
   useEffect(() => {
     let active = true;
-    setToolsLoading(true);
-    setToolsError("");
-    void getAgentToolStatus()
-      .then((value) => {
-        if (active) setTools(value);
-      })
-      .catch(() => {
-        if (active) {
-          setTools(null);
-          setToolsError("Tools could not be checked. Try again.");
-        }
-      })
-      .finally(() => {
-        if (active) setToolsLoading(false);
-      });
+    const refresh = () => {
+      if (desktopBusyRef.current) {
+        refreshAfterDesktop.current = true;
+        return;
+      }
+      const requestId = ++toolRequestId.current;
+      const isCurrent = () => active && requestId === toolRequestId.current;
+      setToolsLoading(true);
+      setToolsError("");
+      void getAgentToolStatus()
+        .then((value) => {
+          if (isCurrent()) setTools(value);
+        })
+        .catch(() => {
+          if (isCurrent()) {
+            setTools(null);
+            setToolsError("Tools could not be checked. Try again.");
+          }
+        })
+        .finally(() => {
+          if (isCurrent()) setToolsLoading(false);
+        });
+    };
+    const onReturn = () => {
+      if (document.visibilityState !== "hidden") refresh();
+    };
+    refresh();
+    window.addEventListener("focus", onReturn);
+    document.addEventListener("visibilitychange", onReturn);
     return () => {
       active = false;
+      window.removeEventListener("focus", onReturn);
+      document.removeEventListener("visibilitychange", onReturn);
     };
   }, [toolReload]);
 
@@ -120,10 +142,41 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
   const showError = (error: unknown) =>
     setNotice(error instanceof Error ? error.message : String(error));
 
-  const missingPermissions =
-    desktop?.permissions.filter(
-      (permission) => permission.required && !permission.granted,
-    ) ?? [];
+  const updateDesktop = async (
+    action: () => Promise<DesktopControlStatus>,
+  ) => {
+    if (desktopBusyRef.current) return;
+    desktopBusyRef.current = true;
+    // A read started before this user action must not restore an old switch.
+    ++toolRequestId.current;
+    setToolsLoading(false);
+    setDesktopBusy(true);
+    setToolsError("");
+    try {
+      const updated = await action();
+      setTools((current) =>
+        current ? { ...current, desktop: updated } : current,
+      );
+    } catch (error) {
+      setToolsError(error instanceof Error ? error.message : String(error));
+    } finally {
+      desktopBusyRef.current = false;
+      setDesktopBusy(false);
+      if (refreshAfterDesktop.current) {
+        refreshAfterDesktop.current = false;
+        setToolReload((value) => value + 1);
+      }
+    }
+  };
+
+  const missingPermissions = desktop?.enabled
+    ? desktop.permissions.filter(
+        (permission) => permission.required && !permission.granted,
+      )
+    : [];
+  const canObserve = desktop?.enabled && desktop.permissions.some(
+    (permission) => permission.name === "Screen Recording" && permission.granted,
+  );
   const sourceCounts = {
     all: skills.length,
     project: skills.filter(
@@ -195,30 +248,48 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
           </div>
           <p>
             Agents can see and operate Mac apps, including Aven, when you ask
-            them to. Powered by Peekaboo.
+            them to. Desktop control is built into Aven and off by default.
           </p>
-          {desktop?.state === "missing" ? (
-            <p className="skills-note">
-              Install it with Homebrew, then check again:{" "}
-              <code className="skills-command">
-                brew install openclaw/tap/peekaboo
-              </code>
-            </p>
-          ) : null}
+          <div className="skills-tool-heading skills-desktop-switch">
+            <span>Let agents see and use apps on this Mac</span>
+            <Toggle
+              label="Let agents see and use apps on this Mac"
+              on={desktop?.enabled ?? false}
+              disabled={
+                toolsLoading ||
+                desktopBusy ||
+                !desktop ||
+                desktop.state === "unsupported"
+              }
+              onChange={(enabled) =>
+                void updateDesktop(() => setDesktopControlEnabled(enabled))
+              }
+            />
+          </div>
+          <p className="skills-note">
+            {desktop?.state === "unsupported"
+              ? "Desktop control requires the Aven app on macOS."
+              : "Turn it on to let macOS ask for Screen Recording and Accessibility, with Aven listed by name."}
+          </p>
           {missingPermissions.length ? (
             <p className="skills-note">
               macOS needs to allow{" "}
               {missingPermissions
                 .map((permission) => permission.name)
                 .join(" and ")}
-              {desktop?.source === "bridge" ? " for the Peekaboo bridge" : ""}.
-              Aven never changes these for you.
+              {" "}for Aven. Choose Allow to request each permission.
             </p>
           ) : null}
-          {desktop?.state === "unverified" ? (
+          {canObserve && missingPermissions.some((permission) => permission.name === "Accessibility") ? (
             <p className="skills-note">
-              Peekaboo was found, but its status couldn’t be read. Check its
-              setup, then check again.
+              Agents can already view windows and take screenshots. Allow Accessibility
+              to also click, type, and control apps.
+            </p>
+          ) : null}
+          {missingPermissions.some((permission) => permission.name === "Screen Recording") ? (
+            <p className="skills-note">
+              macOS may ask you to quit and reopen Aven after allowing Screen
+              Recording.
             </p>
           ) : null}
           {toolsError ? (
@@ -227,13 +298,28 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
             </p>
           ) : null}
           <div className="skills-actions">
-            {missingPermissions.map((permission) =>
-              permission.name === "Screen Recording" ||
-              permission.name === "Accessibility" ? (
+            {missingPermissions.map((permission) => (
+              <div className="skills-permission-actions" key={permission.name}>
                 <button
-                  key={permission.name}
                   type="button"
                   className="settings-button"
+                  disabled={toolsLoading || desktopBusy}
+                  onClick={() =>
+                    void updateDesktop(() =>
+                      requestDesktopPermission(
+                        permission.name === "Accessibility"
+                          ? "accessibility"
+                          : "screenRecording",
+                      ),
+                    )
+                  }
+                >
+                  Allow {permission.name}
+                </button>
+                <button
+                  type="button"
+                  className="settings-button"
+                  disabled={toolsLoading || desktopBusy}
                   onClick={() =>
                     void openComputerUseSettings(
                       permission.name === "Accessibility"
@@ -244,12 +330,12 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
                 >
                   Open {permission.name} settings
                 </button>
-              ) : null,
-            )}
+              </div>
+            ))}
             <button
               type="button"
               className="settings-button"
-              disabled={toolsLoading}
+              disabled={toolsLoading || desktopBusy}
               onClick={() => setToolReload((value) => value + 1)}
             >
               <RefreshCw aria-hidden className="size-3.5" />

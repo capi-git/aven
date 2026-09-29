@@ -10,8 +10,9 @@ Usage: aven [COMMAND]
   -V, --version              Show the installed version
   control --help             Show orchestration control commands
   --aven-browser --help      Show in-app browser commands
+  --aven-desktop --help      Show native macOS desktop commands
 
-Browser and orchestration commands use the scoped connection supplied by Aven.
+Browser, desktop control, and orchestration commands use the scoped connection supplied by Aven.
 ";
 
 #[derive(Debug, PartialEq)]
@@ -19,6 +20,7 @@ enum Startup {
     Desktop,
     Control,
     Browser,
+    DesktopControl,
     Help,
     Version,
     Invalid,
@@ -35,6 +37,7 @@ fn classify(args: &[OsString], macos: bool) -> Startup {
     match first {
         "control" => Startup::Control,
         "--aven-browser" | "--supermono-browser" => Startup::Browser,
+        "--aven-desktop" => Startup::DesktopControl,
         "--help" | "-h" | "help" if args.len() == 1 => Startup::Help,
         "--version" | "-V" if args.len() == 1 => Startup::Version,
         // Older LaunchServices versions pass a process serial number when
@@ -63,7 +66,7 @@ pub fn run_startup_cli() -> Option<i32> {
         &std::env::args_os().skip(1).collect::<Vec<_>>(),
         cfg!(target_os = "macos"),
     ) {
-        Startup::Desktop | Startup::Control | Startup::Browser => None,
+        Startup::Desktop | Startup::Control | Startup::Browser | Startup::DesktopControl => None,
         Startup::Help => {
             print!("{HELP}");
             Some(0)
@@ -103,6 +106,10 @@ mod tests {
             let mut control = vec!["control"];
             control.extend(&args);
             assert_eq!(route(&control, true), Startup::Control);
+            let mut desktop = vec!["--aven-desktop"];
+            desktop.extend(&args);
+            assert_eq!(route(&desktop, true), Startup::DesktopControl);
+            assert_eq!(route(&desktop, false), Startup::DesktopControl);
             for flag in ["--aven-browser", "--supermono-browser"] {
                 let mut browser = vec![flag];
                 browser.extend(&args);
@@ -127,12 +134,18 @@ mod tests {
             vec!["--version", "list"],
             vec!["--supermono-browesr"],
             vec!["--aven-browesr"],
+            vec!["--aven-desktpo"],
             vec!["--type=renderer"],
             vec!["list"],
             vec![""],
         ] {
             assert_eq!(route(&args, true), Startup::Invalid, "{args:?}");
         }
+    }
+
+    #[test]
+    fn help_lists_desktop_control_without_launching_the_app() {
+        assert!(HELP.contains("--aven-desktop --help"));
     }
 
     #[cfg(unix)]

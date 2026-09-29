@@ -8,43 +8,55 @@ import {
 } from "./computerUseSkill";
 
 export type ToolPermission = {
-  name: string;
+  name: "Screen Recording" | "Accessibility";
   granted: boolean;
   required: boolean;
 };
+export type DesktopPermission = "screenRecording" | "accessibility";
+export type DesktopControlStatus = {
+  state: "ready" | "permissionsRequired" | "off" | "unsupported";
+  enabled: boolean;
+  permissions: ToolPermission[];
+};
 export type AgentToolStatus = {
   browserAvailable: boolean;
-  desktop: {
-    state:
-      | "ready"
-      | "permissionsRequired"
-      | "missing"
-      | "unsupported"
-      | "unverified";
-    executable: string | null;
-    version: string | null;
-    source: string | null;
-    permissions: ToolPermission[];
-  };
+  desktop: DesktopControlStatus;
 };
+
+const unsupportedDesktop = (): DesktopControlStatus => ({
+  state: "unsupported",
+  enabled: false,
+  permissions: [],
+});
 
 export function getAgentToolStatus(): Promise<AgentToolStatus> {
   if (!isTauri())
     return Promise.resolve({
       browserAvailable: false,
-      desktop: {
-        state: "unsupported",
-        executable: null,
-        version: null,
-        source: null,
-        permissions: [],
-      },
+      desktop: unsupportedDesktop(),
     });
   return invoke("agent_tool_status");
 }
 
+export function getDesktopControlStatus(): Promise<DesktopControlStatus> {
+  if (!isTauri()) return Promise.resolve(unsupportedDesktop());
+  return invoke("desktop_control_status");
+}
+
+export function setDesktopControlEnabled(
+  enabled: boolean,
+): Promise<DesktopControlStatus> {
+  return invoke("desktop_control_set_enabled", { enabled });
+}
+
+export function requestDesktopPermission(
+  permission: DesktopPermission,
+): Promise<DesktopControlStatus> {
+  return invoke("desktop_control_request_permission", { permission });
+}
+
 export function openComputerUseSettings(
-  permission: "screenRecording" | "accessibility",
+  permission: DesktopPermission,
 ): Promise<void> {
   return invoke("open_computer_use_settings", { permission });
 }

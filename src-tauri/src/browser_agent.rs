@@ -208,6 +208,9 @@ struct Envelope {
 #[derive(Clone, Deserialize)]
 #[serde(tag = "action", rename_all = "lowercase", deny_unknown_fields)]
 enum Request {
+    Desktop {
+        request: crate::desktop_control::Request,
+    },
     List {},
     Open {
         url: String,
@@ -260,7 +263,9 @@ enum Request {
 impl Request {
     fn id(&self) -> Option<&str> {
         match self {
-            Self::List {} | Self::Open { .. } | Self::OpenFile { .. } => None,
+            Self::List {} | Self::Open { .. } | Self::OpenFile { .. } | Self::Desktop { .. } => {
+                None
+            }
             Self::Navigate { id, .. }
             | Self::Snapshot { id }
             | Self::Click { id, .. }
@@ -277,6 +282,7 @@ impl Request {
             return Err("Invalid browser identifier".into());
         }
         match self {
+            Self::Desktop { request } => request.validate(),
             Self::OpenFile { path, line, column } => validate_file_request(path, *line, *column),
             Self::Open { url } | Self::Navigate { url, .. } if url.len() > 4096 => {
                 Err("Address is too long".into())
@@ -468,6 +474,7 @@ fn bind_scope(
             )
         }
     };
+    crate::desktop_control::bind_session(&session_id)?;
     let mut seen = HashSet::new();
     grants.insert(
         token,
@@ -491,7 +498,14 @@ pub fn browser_agent_revoke(caller: Webview, session_id: String) -> Result<(), S
             .grants
             .lock()
             .map_err(|_| "Browser access is unavailable")?
-            .retain(|_, grant| grant.owner != caller.label() || grant.session_id != session_id);
+            .retain(|_, grant| {
+                if grant.owner == caller.label() && grant.session_id == session_id {
+                    crate::desktop_control::remove_session_captures(&grant.session_id);
+                    false
+                } else {
+                    true
+                }
+            });
     }
     Ok(())
 }
@@ -585,7 +599,14 @@ fn validate_pending_file_reply(request: &PendingOpen, owner: &str) -> Result<(),
 pub(crate) fn window_destroyed(owner: &str) {
     if let Some(Ok(server)) = SERVER.get() {
         if let Ok(mut grants) = server.grants.lock() {
-            grants.retain(|_, grant| grant.owner != owner);
+            grants.retain(|_, grant| {
+                if grant.owner == owner {
+                    crate::desktop_control::remove_session_captures(&grant.session_id);
+                    false
+                } else {
+                    true
+                }
+            });
         }
         if let Ok(mut pending) = server.pending.lock() {
             pending.retain(|_, request| request.owner != owner);
@@ -595,12 +616,16 @@ pub(crate) fn window_destroyed(owner: &str) {
 
 pub(crate) fn shutdown() {
     if let Some(Ok(server)) = SERVER.get() {
+        if let Ok(mut grants) = server.grants.lock() {
+            grants.clear();
+        }
         let socket = std::path::Path::new(&server.socket_path);
         let _ = std::fs::remove_file(socket);
         if let Some(directory) = socket.parent() {
             let _ = std::fs::remove_dir(directory);
         }
     }
+    crate::desktop_control::shutdown();
 }
 
 /// Internal catalog/title/skill workers never operate the user's browser.
@@ -810,6 +835,9 @@ fn execute(server: &Arc<Server>, envelope: Envelope) -> Result<Value, String> {
         .get_webview(&grant.owner)
         .ok_or("The owning app window is closed")?;
     match envelope.request {
+        Request::Desktop { request } => {
+            crate::desktop_control::execute(&server.app, &grant.session_id, request)
+        }
         Request::List {} => {
             Ok(json!({"tabs": crate::browser::agent_tab_states(&caller, &grant.ids)}))
         }
@@ -992,34 +1020,79 @@ Do not print or persist AVEN_BROWSER_TOKEN or its legacy alias.
 
 /// Return None for a normal app launch, or the CLI exit code without booting UI.
 pub fn run_browser_cli() -> Option<i32> {
+    run_agent_cli(false)
+}
+
+pub fn run_desktop_cli() -> Option<i32> {
+    run_agent_cli(true)
+}
+
+fn run_agent_cli(desktop: bool) -> Option<i32> {
     let mut args = std::env::args().skip(1);
-    if !matches!(
-        args.next().as_deref(),
-        Some("--aven-browser" | "--supermono-browser")
-    ) {
+    let flag = args.next();
+    let matches = if desktop {
+        flag.as_deref() == Some("--aven-desktop")
+    } else {
+        matches!(
+            flag.as_deref(),
+            Some("--aven-browser" | "--supermono-browser")
+        )
+    };
+    if !matches {
         return None;
     }
     let input = args.next().unwrap_or_else(|| "--help".into());
-    if matches!(input.as_str(), "--help" | "help" | "-h") {
-        println!("{HELP}");
+    let result = if args.next().is_some() {
+        Err("Pass exactly one JSON action or --help.".into())
+    } else if matches!(input.as_str(), "--help" | "help" | "-h") {
+        println!(
+            "{}",
+            if desktop {
+                crate::desktop_control::HELP
+            } else {
+                HELP
+            }
+        );
         return Some(0);
+    } else {
+        browser_cli_request(&input, desktop)
+    };
+    let response = result.unwrap_or_else(|error: String| json!({"ok":false,"error":error}));
+    println!("{response}");
+    Some(
+        if response.get("ok").and_then(Value::as_bool) == Some(true) {
+            0
+        } else {
+            1
+        },
+    )
+}
+
+/// Keep desktop names in their own tagged namespace and validate before even
+/// opening the socket. The server repeats validation after token authorization.
+fn cli_request_value(input: &str, desktop: bool) -> Result<Value, String> {
+    if input.len() > MAX_REQUEST_BYTES - 256 {
+        return Err("Agent request is too large".into());
     }
-    let result = browser_cli_request(&input);
-    match result {
-        Ok(response) => {
-            println!("{response}");
-            Some(
-                if response.get("ok").and_then(Value::as_bool) == Some(true) {
-                    0
-                } else {
-                    1
-                },
-            )
+    let value: Value = serde_json::from_str(input)
+        .map_err(|_| "Pass a JSON action; use --help for examples".to_string())?;
+    if desktop {
+        let request: crate::desktop_control::Request =
+            serde_json::from_str(input).map_err(|_| {
+                "Invalid desktop action or fields; use --aven-desktop --help for examples"
+                    .to_string()
+            })?;
+        request.validate()?;
+        Ok(json!({"action":"desktop","request":value}))
+    } else {
+        let request: Request = serde_json::from_str(input).map_err(|_| {
+            "Invalid browser action or fields; use --aven-browser --help for examples".to_string()
+        })?;
+        if matches!(request, Request::Desktop { .. }) {
+            return Err("Use --aven-desktop for desktop actions".into());
         }
-        Err(error) => {
-            println!("{}", json!({"ok":false,"error":error}));
-            Some(1)
-        }
+        request.validate()?;
+        Ok(value)
     }
 }
 
@@ -1049,13 +1122,12 @@ fn browser_cli_connection(
 }
 
 #[cfg(unix)]
-fn browser_cli_request(input: &str) -> Result<Value, String> {
+fn browser_cli_request(input: &str, desktop: bool) -> Result<Value, String> {
     use std::{io::Write, os::unix::net::UnixStream};
-    if input.len() > MAX_REQUEST_BYTES - 256 {
-        return Err("Browser request is too large".into());
+    let request = cli_request_value(input, desktop)?;
+    if desktop && !cfg!(target_os = "macos") {
+        return Err("Desktop control is only available on macOS.".into());
     }
-    let request: Value = serde_json::from_str(input)
-        .map_err(|_| "Pass a JSON browser action; use --help for examples".to_string())?;
     let (path, token) = browser_cli_connection(|key| std::env::var_os(key))?;
     let mut stream = UnixStream::connect(path)
         .map_err(|_| "Aven's browser connection is unavailable; keep the app open".to_string())?;
@@ -1076,13 +1148,50 @@ fn browser_cli_request(input: &str) -> Result<Value, String> {
 }
 
 #[cfg(not(unix))]
-fn browser_cli_request(_input: &str) -> Result<Value, String> {
-    Err("Agent browser controls are currently available on macOS only".into())
+fn browser_cli_request(input: &str, desktop: bool) -> Result<Value, String> {
+    cli_request_value(input, desktop)?;
+    Err(if desktop {
+        "Desktop control is only available on macOS."
+    } else {
+        "Agent browser controls are currently available on macOS only"
+    }
+    .into())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn desktop_requests_share_the_grant_but_never_browser_action_names() {
+        let value = cli_request_value(r#"{"action":"click","x":10,"y":20}"#, true).unwrap();
+        assert_eq!(value["action"], "desktop");
+        let request: Request = serde_json::from_value(value).unwrap();
+        assert!(matches!(request, Request::Desktop { .. }));
+        assert!(request.id().is_none());
+        assert!(authorize(&grants(), "secret", &request).is_ok());
+        assert!(authorize(&grants(), "wrong", &request).is_err());
+        assert!(authorize(&HashMap::new(), "secret", &request).is_err());
+        assert!(cli_request_value(r#"{"action":"click","id":"tab-a","ref":"r1"}"#, true).is_err());
+        assert!(cli_request_value(r#"{"action":"click","x":10,"y":20}"#, false).is_err());
+        assert!(cli_request_value(
+            r#"{"action":"desktop","request":{"action":"status"}}"#,
+            false
+        )
+        .is_err());
+        for input in [
+            r#"{"action":"desktop","request":{"action":"status"},"enabled":true}"#,
+            r#"{"action":"desktop","request":{"action":"status","prompt":true}}"#,
+            r#"{"action":"desktop","request":{"action":"unknown"}}"#,
+        ] {
+            assert!(serde_json::from_str::<Request>(input).is_err());
+        }
+        let oversized = " ".repeat(MAX_REQUEST_BYTES);
+        assert!(cli_request_value(&oversized, true).is_err());
+        assert!(
+            cli_request_value(r#"{"action":"scroll","x":0,"y":0,"deltaY":2001}"#, true).is_err()
+        );
+    }
+
     #[test]
     fn browser_connection_prefers_aven_and_falls_back_only_to_a_complete_legacy_scope() {
         let legacy = [
