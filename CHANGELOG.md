@@ -1,5 +1,14 @@
 # Aven changelog
 
+## [0.1.110] - 2026-09-29
+
+### Lighter tabs and regular Windows releases
+
+- Tabs use flat surfaces without decorative outlines, and hover cards are smaller and borderless. Subtle 1px drop markers follow the workspace theme in both the app and native browser panes.
+- Dragging reuses layout measurements within each frame, avoids rewriting unchanged tab styles and destinations, and stops edge scrolling when it cannot move. Tab hitboxes, zoom behavior, keyboard focus, and reduced-motion support are preserved.
+- Compact Skills rows keep their controls aligned and allow long source names to wrap in narrow settings panels.
+- Windows x64 installers are now regular downloads on the main release, with no test suffix. They are built from the same source as macOS and checked for installation and startup on Windows. Windows installers remain unsigned and require manual updates; current platform limitations are documented in the Windows guide.
+
 ## [0.1.109] - 2026-09-28
 
 ### Desktop control, clearer Settings, and safer saves

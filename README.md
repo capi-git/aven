@@ -16,7 +16,7 @@ Aven brings agent conversations, your project, and a browser into one window. Us
 
 The app is Developer ID signed from 0.1.108 but not yet Apple-notarized, so macOS may require you to approve opening it in **System Settings → Privacy & Security**. Only approve a copy you downloaded from this repository's releases. Intel Mac and Linux release builds are not currently provided or verified.
 
-**Windows:** From the same [latest release](https://github.com/capi-git/aven/releases/latest), download `Aven-<version>-windows-x64-test.zip`, extract it, and run the `setup.exe` inside. This is an unsigned test build: Windows may show an unknown-publisher warning, and it does not update itself. Installation and startup are checked on a Windows runner; provider sign-in and authenticated chats still need tester verification. See the [Windows testing guide](docs/WINDOWS-TESTING.md) for setup and current limitations.
+**Windows:** From the same [latest release](https://github.com/capi-git/aven/releases/latest), download the Windows x64 setup `.exe`, or extract `Aven-<version>-windows-x64.zip` and run the installer inside. The regular Windows release is unsigned, so Windows may show an unknown-publisher warning. Updates are installed manually. Windows uses WebView2, and some browser and desktop-control features remain macOS-only. See [Aven for Windows](docs/WINDOWS.md) for setup, checksums, and platform limitations.
 
 On macOS, Aven 0.1.80 and later checks for updates from this repository and downloads signed updates in the background. Choose **Restart to update** when your work is ready; Aven does not interrupt running agents. Older versions need one manual replacement to enable this updater.
 
@@ -47,7 +47,7 @@ Agents can edit files and run commands according to the access mode you select. 
 
 ## Build and contribute
 
-Aven uses React, TypeScript, Rust, and Tauri. The macOS release also embeds Chromium. See the [Chromium build guide](docs/CHROMIUM.md) for prerequisites and build commands, and [release instructions](docs/RELEASING.md) for packaging. Windows builds use WebView2; see the [Windows build and testing guide](docs/WINDOWS-TESTING.md).
+Aven uses React, TypeScript, Rust, and Tauri. The macOS release also embeds Chromium. See the [Chromium build guide](docs/CHROMIUM.md) for prerequisites and build commands, and [release instructions](docs/RELEASING.md) for packaging. Windows builds use WebView2; see the [Windows build guide](docs/WINDOWS.md).
 
 To work on Aven inside Aven, open this repository and run `npm run dev:app` in its terminal. The complete **Aven Dev** preview uses separate chats, settings and browser data while your installed app stays open. See [Develop Aven inside Aven](docs/DEVELOPMENT.md) for setup and checks. **Settings → Skills & Tools** lists reusable skills and reports readiness for built-in browser tools and optional desktop computer use.
 
