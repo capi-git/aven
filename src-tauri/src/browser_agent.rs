@@ -474,7 +474,7 @@ fn bind_scope(
             )
         }
     };
-    crate::desktop_control::bind_session(&session_id)?;
+    crate::desktop_control::bind_session(&token)?;
     let mut seen = HashSet::new();
     grants.insert(
         token,
@@ -498,9 +498,9 @@ pub fn browser_agent_revoke(caller: Webview, session_id: String) -> Result<(), S
             .grants
             .lock()
             .map_err(|_| "Browser access is unavailable")?
-            .retain(|_, grant| {
+            .retain(|token, grant| {
                 if grant.owner == caller.label() && grant.session_id == session_id {
-                    crate::desktop_control::remove_session_captures(&grant.session_id);
+                    crate::desktop_control::remove_session_captures(token);
                     false
                 } else {
                     true
@@ -599,9 +599,9 @@ fn validate_pending_file_reply(request: &PendingOpen, owner: &str) -> Result<(),
 pub(crate) fn window_destroyed(owner: &str) {
     if let Some(Ok(server)) = SERVER.get() {
         if let Ok(mut grants) = server.grants.lock() {
-            grants.retain(|_, grant| {
+            grants.retain(|token, grant| {
                 if grant.owner == owner {
-                    crate::desktop_control::remove_session_captures(&grant.session_id);
+                    crate::desktop_control::remove_session_captures(token);
                     false
                 } else {
                     true
@@ -836,7 +836,7 @@ fn execute(server: &Arc<Server>, envelope: Envelope) -> Result<Value, String> {
         .ok_or("The owning app window is closed")?;
     match envelope.request {
         Request::Desktop { request } => {
-            crate::desktop_control::execute(&server.app, &grant.session_id, request)
+            crate::desktop_control::execute(&server.app, &envelope.token, request)
         }
         Request::List {} => {
             Ok(json!({"tabs": crate::browser::agent_tab_states(&caller, &grant.ids)}))

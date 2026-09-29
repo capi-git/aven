@@ -9,7 +9,8 @@ use std::collections::{HashMap, VecDeque};
 use std::ffi::c_void;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::process::{Command, Stdio};
-use std::sync::{mpsc, OnceLock};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 type Cf = *const c_void;
@@ -570,44 +571,151 @@ impl Captures {
         Ok(())
     }
 }
-// Register access before accepting captures. Removing an entry also prevents an
-// already-authorized request from recreating storage after its grant is revoked.
-static CAPTURES: OnceLock<Mutex<HashMap<String, Option<Captures>>>> = OnceLock::new();
+impl Drop for Captures {
+    fn drop(&mut self) {
+        if let Err(error) = std::fs::remove_dir_all(&self.directory) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                eprintln!("Could not remove desktop screenshots: {error}");
+            }
+        }
+    }
+}
 
-pub(super) fn bind_session(session: &str) -> Result<(), String> {
-    CAPTURES
-        .get_or_init(|| Mutex::new(HashMap::new()))
+#[derive(Default)]
+struct CaptureSession {
+    revoked: AtomicBool,
+    cleanup_finished: AtomicBool,
+    captures: Mutex<Option<Captures>>,
+}
+
+impl CaptureSession {
+    fn require_active(&self) -> Result<(), String> {
+        if self.revoked.load(Ordering::Acquire) {
+            Err("Desktop screenshot session is unavailable.".into())
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[derive(Default)]
+struct CaptureRegistry {
+    active: HashMap<String, Arc<CaptureSession>>,
+    // Keep revoked scopes reachable until cleanup completes, so normal app exit
+    // also drains a capture revoked just before shutdown began.
+    retired: Vec<Arc<CaptureSession>>,
+}
+
+impl CaptureRegistry {
+    fn prune_finished(&mut self) {
+        self.retired
+            .retain(|session| !session.cleanup_finished.load(Ordering::Acquire));
+    }
+}
+
+type CaptureSessions = Mutex<CaptureRegistry>;
+// Keys are opaque grant generations, not task IDs or filesystem names. A stale
+// request cannot acquire a later grant for the same task after revoke/rebind.
+static CAPTURES: OnceLock<CaptureSessions> = OnceLock::new();
+
+pub(super) fn bind_session(scope: &str) -> Result<(), String> {
+    let mut sessions = CAPTURES
+        .get_or_init(CaptureSessions::default)
         .lock()
-        .map_err(|_| "Desktop screenshot storage is unavailable.")?
-        .entry(session.into())
-        .or_insert(None);
+        .map_err(|_| "Desktop screenshot storage is unavailable.")?;
+    sessions.prune_finished();
+    sessions
+        .active
+        .entry(scope.into())
+        .or_insert_with(|| Arc::new(CaptureSession::default()));
     Ok(())
 }
 
-fn remove_capture_directories(
-    sessions: &mut HashMap<String, Option<Captures>>,
-    session: Option<&str>,
-) {
-    sessions.retain(|id, captures| {
-        if session.is_some_and(|session| session != id) {
+fn revoke_capture_sessions(
+    sessions: &mut CaptureRegistry,
+    scope: Option<&str>,
+) -> Vec<Arc<CaptureSession>> {
+    sessions.prune_finished();
+    let mut revoked = Vec::new();
+    sessions.active.retain(|id, session| {
+        if scope.is_some_and(|scope| scope != id) {
             return true;
         }
-        if let Some(captures) = captures {
-            if let Err(error) = std::fs::remove_dir_all(&captures.directory) {
-                if error.kind() != std::io::ErrorKind::NotFound {
-                    eprintln!("Could not remove desktop screenshots: {error}");
-                }
-            }
-        }
+        session.revoked.store(true, Ordering::Release);
+        revoked.push(Arc::clone(session));
         false
     });
+    if scope.is_none() {
+        revoked.append(&mut sessions.retired);
+    } else {
+        sessions.retired.extend(revoked.iter().cloned());
+    }
+    revoked
 }
 
-pub(super) fn remove_captures(session: Option<&str>) {
+pub(super) fn remove_captures(scope: Option<&str>) {
     if let Some(sessions) = CAPTURES.get() {
-        let mut sessions = sessions.lock().unwrap_or_else(|error| error.into_inner());
-        remove_capture_directories(&mut sessions, session);
+        let revoked = {
+            let mut sessions = sessions.lock().unwrap_or_else(|error| error.into_inner());
+            revoke_capture_sessions(&mut sessions, scope)
+        };
+        // Never wait for capture, scaling, or filesystem cleanup in a UI
+        // bind/revoke callback. An in-flight capture owns its directory until
+        // it finishes, rejects its revoked result, then removes its files.
+        if scope.is_none() {
+            // Process exit must finish cleanup before the runtime disappears.
+            // Capture commands have bounded deadlines. Wait only here, after
+            // releasing the registry; ordinary revoke never waits for them.
+            finish_capture_cleanup(revoked);
+        } else if !revoked.is_empty() {
+            tauri::async_runtime::spawn_blocking(move || finish_capture_cleanup(revoked));
+        }
     }
+}
+
+fn finish_capture_cleanup(revoked: Vec<Arc<CaptureSession>>) {
+    for session in revoked {
+        let mut captures = session
+            .captures
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        // Keep this per-scope guard through deletion. A simultaneous shutdown
+        // must wait for the worker's cleanup, not just for it to take ownership.
+        drop(captures.take());
+        session.cleanup_finished.store(true, Ordering::Release);
+    }
+}
+
+fn with_captures<T>(
+    sessions: &CaptureSessions,
+    scope: &str,
+    work: impl FnOnce(&mut Captures) -> Result<T, String>,
+) -> Result<T, String> {
+    let session = sessions
+        .lock()
+        .map_err(|_| "Desktop screenshot storage is unavailable.")?
+        .active
+        .get(scope)
+        .cloned()
+        .ok_or("Desktop screenshot session is unavailable.")?;
+    let mut captures = session
+        .captures
+        .lock()
+        .map_err(|_| "Desktop screenshot storage is unavailable.")?;
+    session.require_active()?;
+    if captures.is_none() {
+        *captures = Some(Captures {
+            directory: capture_directory()?,
+            files: VecDeque::new(),
+        });
+    }
+    let result = work(
+        captures
+            .as_mut()
+            .ok_or("Desktop screenshot storage is unavailable.")?,
+    );
+    session.require_active()?;
+    result
 }
 
 fn capture_directory() -> Result<PathBuf, String> {
@@ -683,7 +791,7 @@ fn validate_capture_scale(pixels: (u32, u32), points: (u32, u32)) -> Result<(), 
 }
 
 fn screenshot(
-    session: &str,
+    scope: &str,
     window_id: Option<u32>,
     region: Option<Region>,
 ) -> Result<Value, String> {
@@ -704,90 +812,85 @@ fn screenshot(
     }
     let width = bounds.width as u32;
     let height = bounds.height as u32;
-    let mut sessions = CAPTURES
-        .get_or_init(|| Mutex::new(HashMap::new()))
-        .lock()
-        .map_err(|_| "Desktop screenshot storage is unavailable.")?;
-    let captures = sessions
-        .get_mut(session)
-        .ok_or("Desktop screenshot session is unavailable.")?;
-    if captures.is_none() {
-        *captures = Some(Captures {
-            directory: capture_directory()?,
-            files: VecDeque::new(),
-        });
-    }
-    let captures = captures
-        .as_mut()
-        .ok_or("Desktop screenshot storage is unavailable.")?;
-    let path = captures
-        .directory
-        .join(format!("{}.png", uuid::Uuid::new_v4()));
-    std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&path)
-        .map_err(|_| "Could not create a private screenshot file.")?;
-    let result = (|| {
-        // Spawn directly from Aven, so the responsible process for TCC is Aven.
-        let mut command = Command::new("/usr/sbin/screencapture");
-        command.args(["-x", "-o", "-t", "png"]);
-        if let Some(id) = window_id {
-            command.arg("-l").arg(id.to_string());
-        } else if region.is_some() {
-            command
-                .arg("-R")
-                .arg(format!("{},{},{},{}", bounds.x, bounds.y, width, height));
-        } else {
-            command.arg("-m");
-        }
-        run_image_command(command.arg(&path), "Screen capture")?;
-        if let Some(id) = window_id {
-            let current = window_bounds(id)?;
-            if current.x != bounds.x
-                || current.y != bounds.y
-                || current.width != bounds.width
-                || current.height != bounds.height
-            {
-                return Err("The window moved during capture. Take a new screenshot.".into());
+    with_captures(
+        CAPTURES.get_or_init(CaptureSessions::default),
+        scope,
+        |captures| {
+            let path = captures
+                .directory
+                .join(format!("{}.png", uuid::Uuid::new_v4()));
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&path)
+                .map_err(|_| "Could not create a private screenshot file.")?;
+            let result = (|| {
+                // Spawn directly from Aven, so the responsible process for TCC is Aven.
+                let mut command = Command::new("/usr/sbin/screencapture");
+                command.args(["-x", "-o", "-t", "png"]);
+                if let Some(id) = window_id {
+                    command.arg("-l").arg(id.to_string());
+                } else if region.is_some() {
+                    command
+                        .arg("-R")
+                        .arg(format!("{},{},{},{}", bounds.x, bounds.y, width, height));
+                } else {
+                    command.arg("-m");
+                }
+                run_image_command(command.arg(&path), "Screen capture")?;
+                if let Some(id) = window_id {
+                    let current = window_bounds(id)?;
+                    if current.x != bounds.x
+                        || current.y != bounds.y
+                        || current.width != bounds.width
+                        || current.height != bounds.height
+                    {
+                        return Err(
+                            "The window moved during capture. Take a new screenshot.".into()
+                        );
+                    }
+                }
+                let native_dimensions = png_dimensions(&path)?;
+                validate_capture_scale(native_dimensions, (width, height))?;
+                if native_dimensions != (width, height) {
+                    run_image_command(
+                        Command::new("/usr/bin/sips")
+                            .arg("-z")
+                            .arg(height.to_string())
+                            .arg(width.to_string())
+                            .arg(&path),
+                        "Screenshot scaling",
+                    )?;
+                }
+                if png_dimensions(&path)? != (width, height) {
+                    return Err(
+                        "Screenshot scaling returned unexpected dimensions. Retry the screenshot."
+                            .into(),
+                    );
+                }
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+                    .map_err(|_| "Could not protect the screenshot file.")?;
+                captures.retain(&path)?;
+                Ok(
+                    json!({"path":path,"width":width,"height":height,"originX":bounds.x,"originY":bounds.y}),
+                )
+            })();
+            if result.is_err() {
+                let _ = std::fs::remove_file(&path);
             }
-        }
-        let native_dimensions = png_dimensions(&path)?;
-        validate_capture_scale(native_dimensions, (width, height))?;
-        if native_dimensions != (width, height) {
-            run_image_command(
-                Command::new("/usr/bin/sips")
-                    .arg("-z")
-                    .arg(height.to_string())
-                    .arg(width.to_string())
-                    .arg(&path),
-                "Screenshot scaling",
-            )?;
-        }
-        if png_dimensions(&path)? != (width, height) {
-            return Err(
-                "Screenshot scaling returned unexpected dimensions. Retry the screenshot.".into(),
-            );
-        }
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
-            .map_err(|_| "Could not protect the screenshot file.")?;
-        captures.retain(&path)?;
-        Ok(json!({"path":path,"width":width,"height":height,"originX":bounds.x,"originY":bounds.y}))
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&path);
-    }
-    result
+            result
+        },
+    )
 }
 
-pub(super) fn execute(app: &AppHandle, session: &str, request: Request) -> Result<Value, String> {
+pub(super) fn execute(app: &AppHandle, scope: &str, request: Request) -> Result<Value, String> {
     match request {
         Request::Status {} => {
             Err("Status must be checked through the desktop control gate.".into())
         }
         Request::Windows {} => Ok(json!({"windows":windows()?})),
-        Request::Screenshot { window_id, region } => screenshot(session, window_id, region),
+        Request::Screenshot { window_id, region } => screenshot(scope, window_id, region),
         Request::Click {
             x,
             y,
@@ -894,29 +997,136 @@ mod tests {
     fn removing_capture_directories_is_scoped_and_shutdown_removes_the_rest() {
         let first = capture_directory().unwrap();
         let second = capture_directory().unwrap();
-        let mut sessions = HashMap::new();
+        let mut sessions = CaptureRegistry::default();
         for (id, directory) in [("first", &first), ("second", &second)] {
             let path = directory.join("capture.png");
             std::fs::write(&path, b"test capture").unwrap();
-            sessions.insert(
+            sessions.active.insert(
                 id.into(),
-                Some(Captures {
-                    directory: directory.clone(),
-                    files: VecDeque::from([path]),
+                Arc::new(CaptureSession {
+                    revoked: AtomicBool::new(false),
+                    cleanup_finished: AtomicBool::new(false),
+                    captures: Mutex::new(Some(Captures {
+                        directory: directory.clone(),
+                        files: VecDeque::from([path]),
+                    })),
                 }),
             );
         }
-        sessions.insert("no-captures".into(), None);
-        remove_capture_directories(&mut sessions, Some("first"));
+        sessions
+            .active
+            .insert("no-captures".into(), Arc::new(CaptureSession::default()));
+        let removed = revoke_capture_sessions(&mut sessions, Some("first"));
+        assert!(
+            first.exists(),
+            "registry mutation must not perform filesystem cleanup"
+        );
+        assert!(!sessions.active.contains_key("first"));
+        finish_capture_cleanup(removed);
         assert!(!first.exists());
-        assert!(!sessions.contains_key("first"));
         assert!(second.join("capture.png").exists());
-        assert!(sessions.contains_key("no-captures"));
-        remove_capture_directories(&mut sessions, Some("first"));
-        remove_capture_directories(&mut sessions, None);
-        assert!(sessions.is_empty());
+        assert!(sessions.active.contains_key("no-captures"));
+        finish_capture_cleanup(revoke_capture_sessions(&mut sessions, Some("first")));
+        finish_capture_cleanup(revoke_capture_sessions(&mut sessions, None));
+        assert!(sessions.active.is_empty());
+        assert!(sessions.retired.is_empty());
         assert!(!second.exists());
     }
+
+    #[test]
+    fn blocked_capture_does_not_block_bind_or_revoke_and_cannot_publish_after_rebind() {
+        let sessions = Arc::new(Mutex::new(CaptureRegistry {
+            active: HashMap::from([("old-grant".into(), Arc::new(CaptureSession::default()))]),
+            ..CaptureRegistry::default()
+        }));
+        let (started_tx, started_rx) = mpsc::channel();
+        let (finish_tx, finish_rx) = mpsc::channel();
+        let capture_sessions = Arc::clone(&sessions);
+        let capture = std::thread::spawn(move || {
+            with_captures(&capture_sessions, "old-grant", |captures| {
+                let path = captures.directory.join("in-flight.png");
+                std::fs::write(&path, b"test capture").unwrap();
+                started_tx.send(path.clone()).unwrap();
+                finish_rx.recv().unwrap();
+                captures.retain(&path)?;
+                Ok(path)
+            })
+        });
+        let old_path = started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let (revoked_tx, revoked_rx) = mpsc::channel();
+        let revoke_sessions = Arc::clone(&sessions);
+        let revoke = std::thread::spawn(move || {
+            let removed = {
+                let mut sessions = revoke_sessions.lock().unwrap();
+                sessions
+                    .active
+                    .insert("other-task".into(), Arc::new(CaptureSession::default()));
+                let removed = revoke_capture_sessions(&mut sessions, Some("old-grant"));
+                sessions
+                    .active
+                    .insert("new-grant".into(), Arc::new(CaptureSession::default()));
+                removed
+            };
+            // Revocation finishes without waiting for this cleanup job.
+            revoked_tx.send(removed).unwrap();
+        });
+        let promptly_revoked = revoked_rx.recv_timeout(Duration::from_secs(2));
+        // Always release the fake slow command, including when this regression
+        // fails, so the test cannot leave a blocked worker behind.
+        finish_tx.send(()).unwrap();
+        let result = capture.join().unwrap();
+        revoke.join().unwrap();
+        let removed = promptly_revoked.expect("bind/revoke waited for the in-flight capture");
+        finish_capture_cleanup(removed);
+        assert!(result.unwrap_err().contains("session is unavailable"));
+        assert!(!old_path.parent().unwrap().exists());
+        assert!(with_captures(&sessions, "old-grant", |_| Ok(())).is_err());
+        let new_path = with_captures(&sessions, "new-grant", |captures| {
+            Ok(captures.directory.clone())
+        })
+        .unwrap();
+        assert!(new_path.exists());
+        assert_ne!(old_path.parent().unwrap(), new_path);
+        drop(sessions);
+        assert!(!new_path.exists());
+    }
+
+    #[test]
+    fn shutdown_drains_previously_revoked_in_flight_captures_even_before_cleanup_worker_starts() {
+        let sessions = Arc::new(Mutex::new(CaptureRegistry {
+            active: HashMap::from([("shutdown-grant".into(), Arc::new(CaptureSession::default()))]),
+            ..CaptureRegistry::default()
+        }));
+        let (started_tx, started_rx) = mpsc::channel();
+        let (finish_tx, finish_rx) = mpsc::channel();
+        let capture_sessions = Arc::clone(&sessions);
+        let capture = std::thread::spawn(move || {
+            with_captures(&capture_sessions, "shutdown-grant", |captures| {
+                let path = captures.directory.join("in-flight.png");
+                std::fs::write(&path, b"test capture").unwrap();
+                started_tx.send(path).unwrap();
+                finish_rx.recv().unwrap();
+                Ok(())
+            })
+        });
+        let path = started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let queued_cleanup =
+            revoke_capture_sessions(&mut sessions.lock().unwrap(), Some("shutdown-grant"));
+        // Simulate the blocking pool not starting the prior revoke's job yet.
+        assert_eq!(sessions.lock().unwrap().retired.len(), 1);
+        let revoked = revoke_capture_sessions(&mut sessions.lock().unwrap(), None);
+        assert!(sessions.lock().unwrap().active.is_empty());
+        assert!(sessions.lock().unwrap().retired.is_empty());
+        let shutdown = std::thread::spawn(move || finish_capture_cleanup(revoked));
+        finish_tx.send(()).unwrap();
+        shutdown.join().unwrap();
+        // Shutdown owns cleanup even if another Arc survives until this join.
+        assert!(!path.parent().unwrap().exists());
+        assert!(capture.join().unwrap().is_err());
+        finish_capture_cleanup(queued_cleanup);
+        assert!(!path.parent().unwrap().exists());
+    }
+
     #[test]
     fn unicode_chunks_preserve_surrogate_pairs_and_bound_event_payloads() {
         let text = format!("{}😀é{}", "x".repeat(19), "文".repeat(45));
