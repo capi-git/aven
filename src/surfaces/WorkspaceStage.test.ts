@@ -141,13 +141,13 @@ describe("workspace stage", () => {
 
     await render({ layout: columns() });
     expect(browserWrapper.hidden).toBe(false);
-    expect(surface("chat").style.width).toBe("calc(50% - 4px)");
+    expect(surface("chat").style.width).toBe("calc(50% - 2px)");
     expect(
       surface("chat").style.getPropertyValue("--workspace-background-left"),
     ).toBe("calc(0cqw - 1px)");
     expect(
       surface("browser").style.getPropertyValue("--workspace-background-left"),
-    ).toBe("calc(-50cqw - 5px)");
+    ).toBe("calc(-50cqw - 3px)");
     await render({
       layout: {
         type: "split",
@@ -157,10 +157,10 @@ describe("workspace stage", () => {
         sizes: [0.3, 0.7],
       },
     });
-    expect(surface("chat").style.top).toBe("calc(30% + 4px)");
+    expect(surface("chat").style.top).toBe("calc(30% + 2px)");
     expect(
       surface("chat").style.getPropertyValue("--workspace-background-top"),
-    ).toBe("calc(-30cqh - 5px - var(--workspace-background-header-offset))");
+    ).toBe("calc(-30cqh - 3px - var(--workspace-background-header-offset))");
     expect(surface("browser")).toBe(browserWrapper);
     await render({ layout: leaf("browser") });
     expect(surface("chat").hidden).toBe(true);
@@ -237,6 +237,29 @@ describe("workspace stage", () => {
       expect(surface("browser").hidden).toBe(true);
       expect(surface("browser").dataset.handoff).toBeUndefined();
     });
+  });
+
+  it("gives each pane header the same wallpaper slice as its pane", async () => {
+    await render({
+      layout: columns(),
+      headers: [
+        { id: "chat", content: "Chat tabs" },
+        { id: "browser", content: "Browser tabs" },
+      ],
+    });
+    const header = (id: string) =>
+      stage().querySelector<HTMLElement>(`[data-workspace-header="${id}"]`)!;
+    for (const id of ["chat", "browser"])
+      for (const name of [
+        "--workspace-background-left",
+        "--workspace-background-top",
+      ])
+        expect(header(id).style.getPropertyValue(name)).toBe(
+          surface(id).style.getPropertyValue(name),
+        );
+    expect(
+      header("browser").style.getPropertyValue("--workspace-background-left"),
+    ).toBe("calc(-50cqw - 3px)");
   });
 
   it("keeps visited workspace geometry, drafts and scroll positions warm across profile and home switches", async () => {
@@ -444,14 +467,14 @@ describe("workspace stage", () => {
     act(() => window.dispatchEvent(pointer("pointermove", 700)));
     act(() => window.dispatchEvent(pointer("pointermove", 750)));
     expect(frames.size).toBe(1);
-    expect(surface("chat").style.width).toBe("calc(50% - 4px)");
+    expect(surface("chat").style.width).toBe("calc(50% - 2px)");
     expect(props.onLayoutChange).not.toHaveBeenCalled();
     flushFrame();
-    expect(surface("chat").style.width).toBe("calc(65% - 4px)");
-    expect(surface("browser").style.left).toBe("calc(65% + 4px)");
+    expect(surface("chat").style.width).toBe("calc(65% - 2px)");
+    expect(surface("browser").style.left).toBe("calc(65% + 2px)");
     expect(
       surface("browser").style.getPropertyValue("--workspace-background-left"),
-    ).toBe("calc(-65cqw - 5px)");
+    ).toBe("calc(-65cqw - 3px)");
     expect(sash().getAttribute("aria-valuenow")).toBe("65");
     expect(rendered).not.toHaveBeenCalled();
     expect(measure).toHaveBeenCalledOnce();
@@ -490,10 +513,10 @@ describe("workspace stage", () => {
     act(() => window.dispatchEvent(pointer("pointermove", 600, 413)));
     act(() => window.dispatchEvent(pointer("pointermove", 600, 473)));
     act(() => vi.advanceTimersByTime(15));
-    expect(surface("chat").style.height).toBe("calc(50% - 4px)");
+    expect(surface("chat").style.height).toBe("calc(50% - 2px)");
     act(() => vi.advanceTimersByTime(1));
-    expect(surface("chat").style.height).toBe("calc(70% - 4px)");
-    expect(surface("browser").style.top).toBe("calc(70% + 4px)");
+    expect(surface("chat").style.height).toBe("calc(70% - 2px)");
+    expect(surface("browser").style.top).toBe("calc(70% + 2px)");
     expect(painted).toHaveBeenCalledOnce();
     expect(rendered).not.toHaveBeenCalled();
     expect(frames.size).toBe(0);
@@ -505,7 +528,7 @@ describe("workspace stage", () => {
     expect(props.onLayoutChange).toHaveBeenCalledExactlyOnceWith(
       rows([0.75, 0.25]),
     );
-    expect(surface("chat").style.height).toBe("calc(75% - 4px)");
+    expect(surface("chat").style.height).toBe("calc(75% - 2px)");
     expect(frames.size).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
     act(() => vi.advanceTimersByTime(100));
@@ -520,7 +543,7 @@ describe("workspace stage", () => {
     act(() => sash().dispatchEvent(pointer("pointerdown", 600)));
     act(() => window.dispatchEvent(pointer("pointermove", 700)));
     flushFrame();
-    expect(surface("chat").style.width).toBe("calc(60% - 4px)");
+    expect(surface("chat").style.width).toBe("calc(60% - 2px)");
     expect(vi.getTimerCount()).toBe(0);
     act(() => vi.advanceTimersByTime(100));
     expect(painted).toHaveBeenCalledOnce();
@@ -654,7 +677,7 @@ describe("workspace stage", () => {
       expect(moved).not.toHaveBeenCalled();
       flushFrame();
       expect(moved).toHaveBeenCalledOnce();
-      expect(surface("browser").style.width).toBe("calc(70% - 4px)");
+      expect(surface("browser").style.width).toBe("calc(70% - 2px)");
       act(() => window.dispatchEvent(pointer("pointerup", 800)));
       expect(moved).toHaveBeenCalledTimes(2);
     } finally {
@@ -662,7 +685,7 @@ describe("workspace stage", () => {
     }
   });
 
-  it("reserves a real eight-pixel internal gutter without insetting outside edges", async () => {
+  it("reserves a real four-pixel internal gutter without insetting outside edges", async () => {
     await render();
     expect(surface("chat").style.left).toBe("0%");
     expect(surface("chat").style.width).toBe("100%");
@@ -681,11 +704,11 @@ describe("workspace stage", () => {
       ],
     });
     expect(surface("chat").style.left).toBe("0%");
-    expect(surface("chat").style.width).toBe("calc(20% - 4px)");
-    expect(surface("browser").style.left).toBe("calc(20% + 4px)");
-    expect(surface("browser").style.width).toBe("calc(30% - 8px)");
-    expect(surface("third").style.left).toBe("calc(50% + 4px)");
-    expect(surface("third").style.width).toBe("calc(50% - 4px)");
+    expect(surface("chat").style.width).toBe("calc(20% - 2px)");
+    expect(surface("browser").style.left).toBe("calc(20% + 2px)");
+    expect(surface("browser").style.width).toBe("calc(30% - 4px)");
+    expect(surface("third").style.left).toBe("calc(50% + 2px)");
+    expect(surface("third").style.width).toBe("calc(50% - 2px)");
     expect(surface("browser").style.top).toBe("0%");
     expect(surface("browser").style.height).toBe("100%");
 
@@ -699,9 +722,9 @@ describe("workspace stage", () => {
       },
     });
     expect(surface("chat").style.top).toBe("0%");
-    expect(surface("chat").style.height).toBe("calc(50% - 4px)");
-    expect(surface("browser").style.top).toBe("calc(50% + 4px)");
-    expect(surface("browser").style.height).toBe("calc(50% - 4px)");
+    expect(surface("chat").style.height).toBe("calc(50% - 2px)");
+    expect(surface("browser").style.top).toBe("calc(50% + 2px)");
+    expect(surface("browser").style.height).toBe("calc(50% - 2px)");
     expect(surface("chat").style.width).toBe("100%");
     expect(surface("browser").style.width).toBe("100%");
   });
@@ -714,11 +737,11 @@ describe("workspace stage", () => {
     expect(frames.size).toBe(0);
     act(() => window.dispatchEvent(pointer("pointermove", 900)));
     flushFrame();
-    expect(surface("chat").style.width).toBe("calc(80% - 4px)");
+    expect(surface("chat").style.width).toBe("calc(80% - 2px)");
     act(() =>
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })),
     );
-    expect(surface("chat").style.width).toBe("calc(50% - 4px)");
+    expect(surface("chat").style.width).toBe("calc(50% - 2px)");
     expect(props.onLayoutChange).not.toHaveBeenCalled();
     act(() => window.dispatchEvent(pointer("pointerup", 900)));
     expect(props.onLayoutChange).not.toHaveBeenCalled();
@@ -740,7 +763,7 @@ describe("workspace stage", () => {
       );
       expect(frames.size).toBe(0);
       expect(props.onLayoutChange).toHaveBeenCalledOnce();
-      expect(surface("chat").style.width).toBe("calc(70% - 4px)");
+      expect(surface("chat").style.width).toBe("calc(70% - 2px)");
       expect(document.body.style.cursor).toBe("");
       expect(stage().hasAttribute("data-resizing")).toBe(false);
       expect(
@@ -760,7 +783,7 @@ describe("workspace stage", () => {
     expect(frames.size).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
     act(() => vi.advanceTimersByTime(100));
-    expect(surface("chat").style.width).toBe("calc(50% - 4px)");
+    expect(surface("chat").style.width).toBe("calc(50% - 2px)");
     expect(props.onLayoutChange).not.toHaveBeenCalled();
     expect(document.documentElement.classList.contains("is-reordering")).toBe(
       false,
@@ -787,8 +810,8 @@ describe("workspace stage", () => {
     act(() => sash().dispatchEvent(pointer("pointerdown", 600)));
     act(() => window.dispatchEvent(pointer("pointermove", 750)));
     flushFrame();
-    expect(surface("chat").style.width).toBe("calc(65% - 4px)");
-    expect(surface("browser").style.left).toBe("calc(65% + 4px)");
+    expect(surface("chat").style.width).toBe("calc(65% - 2px)");
+    expect(surface("browser").style.left).toBe("calc(65% + 2px)");
     act(() => window.dispatchEvent(pointer("pointermove", 800)));
 
     await render({ layout: leaf("personal"), focusedId: "personal" });

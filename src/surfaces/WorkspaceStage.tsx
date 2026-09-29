@@ -218,13 +218,15 @@ function applyGeometry(element: HTMLElement, values: CSSProperties) {
       element.style.setProperty(name, String(value));
   }
 }
-/** Native browser children need a real gutter; CSS stacking cannot cover them. */
+/** Half of the gap between panes. Native browser children need a real gutter;
+ * CSS stacking cannot cover them, so keep it small but present. */
+const GUTTER = 2;
 function surfaceStyle(rect: LayoutRect, inset = 0): CSSProperties {
   const epsilon = 0.000001;
-  const left = (rect.x > epsilon ? 4 : 0) + inset;
-  const top = (rect.y > epsilon ? 4 : 0) + inset;
-  const right = (rect.x + rect.w < 1 - epsilon ? 4 : 0) + inset;
-  const bottom = (rect.y + rect.h < 1 - epsilon ? 4 : 0) + inset;
+  const left = (rect.x > epsilon ? GUTTER : 0) + inset;
+  const top = (rect.y > epsilon ? GUTTER : 0) + inset;
+  const right = (rect.x + rect.w < 1 - epsilon ? GUTTER : 0) + inset;
+  const bottom = (rect.y + rect.h < 1 - epsilon ? GUTTER : 0) + inset;
   const position = (fraction: number, inset: number) =>
     inset ? `calc(${fraction * 100}% + ${inset}px)` : `${fraction * 100}%`;
   const size = (fraction: number, inset: number) =>
@@ -238,15 +240,18 @@ function surfaceStyle(rect: LayoutRect, inset = 0): CSSProperties {
 }
 /** A shared wallpaper canvas, clipped by each pane's existing bounds. */
 function surfaceBackgroundStyle(rect: LayoutRect) {
-  const left = (rect.x > 0.000001 ? 4 : 0) + 1;
-  const top = (rect.y > 0.000001 ? 4 : 0) + 1;
+  const left = (rect.x > 0.000001 ? GUTTER : 0) + 1;
+  const top = (rect.y > 0.000001 ? GUTTER : 0) + 1;
   return {
     "--workspace-background-left": `calc(${-rect.x * 100}cqw - ${left}px)`,
     "--workspace-background-top": `calc(${-rect.y * 100}cqh - ${top}px - var(--workspace-background-header-offset))`,
   };
 }
+/** A header starts where its pane's content box does, so it can show the same
+ * wallpaper slice with no header offset and read as part of the pane. */
 const headerStyle = (rect: LayoutRect): CSSProperties => ({
   ...surfaceStyle(rect, 1),
+  ...surfaceBackgroundStyle(rect),
   height: "32px",
 });
 const sashKey = (sash: LayoutSash) => `${sash.splitId}:${sash.index}`;
