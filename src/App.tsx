@@ -1515,10 +1515,6 @@ export default function App({
     !searchViewOpen &&
     !inboxViewOpen &&
     !notesViewOpen;
-  const [workspaceToolbarHost, setWorkspaceToolbarHost] =
-    useState<HTMLDivElement | null>(null);
-  const unifiedWorkspaceTabs =
-    workspaceVisible && visibleSurfaceIds.length === 1;
   // Rest on the edge briefly before revealing, so a pointer passing the edge
   // does not flash the sidebar; a short grace on leave absorbs the gap
   // between the edge strip and the panel without feeling laggy.
@@ -8865,14 +8861,6 @@ export default function App({
                 ? { section: settingsSection, onClose: onCloseSettings }
                 : undefined
             }
-            workspaceTabs={
-              unifiedWorkspaceTabs ? (
-                <div
-                  ref={setWorkspaceToolbarHost}
-                  className="personal-workspace-toolbar-host"
-                />
-              ) : undefined
-            }
             sessions={profileSessions}
             session={profileHome ? undefined : active}
             accessMode={
@@ -9211,10 +9199,9 @@ export default function App({
                           className="relative min-h-0 min-w-0"
                           style={{ gridArea: "main" }}
                         >
+                          {/* Tabs stay in each pane's own header, one pane or
+                              several, so the window toolbar stays clean. */}
                           <WorkspaceStage
-                            toolbarHost={
-                              unifiedWorkspaceTabs ? workspaceToolbarHost : null
-                            }
                             headers={visibleSurfaceIds.map((owner) => {
                               const members = view.groups[owner] ?? [owner];
                               return {
@@ -9230,7 +9217,6 @@ export default function App({
                                     onOpenRaceOverview={openRaceOverview}
                                     paneLocal
                                     splitPanes={visibleSurfaceIds.length > 1}
-                                    windowToolbar={unifiedWorkspaceTabs}
                                     paneFocused={owner === view.focusedId}
                                     activeId={owner}
                                     cwd={sidebarCwd}

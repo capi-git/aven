@@ -43,7 +43,6 @@ describe("workspace stage", () => {
   let props: WorkspaceStageProps;
   let frames: Map<number, FrameRequestCallback>;
   let nextFrame: number;
-  let externalNodes: HTMLElement[];
   const mounted = vi.fn();
   const unmounted = vi.fn();
   const rendered = vi.fn();
@@ -72,7 +71,6 @@ describe("workspace stage", () => {
     );
     frames = new Map();
     nextFrame = 1;
-    externalNodes = [];
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
       const id = nextFrame++;
       frames.set(id, callback);
@@ -100,7 +98,6 @@ describe("workspace stage", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
-    for (const element of externalNodes) element.remove();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.useRealTimers();
@@ -110,12 +107,6 @@ describe("workspace stage", () => {
     props = { ...props, ...patch };
     await act(async () => root.render(createElement(WorkspaceStage, props)));
   }
-  const externalContainer = () => {
-    const element = document.createElement("div");
-    document.body.append(element);
-    externalNodes.push(element);
-    return element;
-  };
   const stage = () =>
     container.querySelector<HTMLElement>("[data-workspace-stage]")!;
   const surface = (id: string) =>
@@ -150,13 +141,13 @@ describe("workspace stage", () => {
 
     await render({ layout: columns() });
     expect(browserWrapper.hidden).toBe(false);
-    expect(surface("chat").style.width).toBe("calc(50% - 4px)");
+    expect(surface("chat").style.width).toBe("calc(50% - 2px)");
     expect(
       surface("chat").style.getPropertyValue("--workspace-background-left"),
     ).toBe("calc(0cqw - 1px)");
     expect(
       surface("browser").style.getPropertyValue("--workspace-background-left"),
-    ).toBe("calc(-50cqw - 5px)");
+    ).toBe("calc(-50cqw - 3px)");
     await render({
       layout: {
         type: "split",
@@ -166,10 +157,10 @@ describe("workspace stage", () => {
         sizes: [0.3, 0.7],
       },
     });
-    expect(surface("chat").style.top).toBe("calc(30% + 4px)");
+    expect(surface("chat").style.top).toBe("calc(30% + 2px)");
     expect(
       surface("chat").style.getPropertyValue("--workspace-background-top"),
-    ).toBe("calc(-30cqh - 5px - var(--workspace-background-header-offset))");
+    ).toBe("calc(-30cqh - 3px - var(--workspace-background-header-offset))");
     expect(surface("browser")).toBe(browserWrapper);
     await render({ layout: leaf("browser") });
     expect(surface("chat").hidden).toBe(true);
@@ -248,280 +239,27 @@ describe("workspace stage", () => {
     });
   });
 
-  it("portals one unsplit header without duplicate chrome or local header padding", async () => {
-    const toolbar = externalContainer();
-    const content = createElement("input", { defaultValue: "Header state" });
+  it("gives each pane header the same wallpaper slice as its pane", async () => {
     await render({
-      toolbarHost: toolbar,
-      headers: [{ id: "chat", key: "chat,browser", content }],
-    });
-    const external = toolbar.querySelector<HTMLElement>(
-      "[data-workspace-header]",
-    )!;
-    const headerInput = external.querySelector("input")!;
-    headerInput.value = "Preserved header value";
-    const chat = input("chat");
-    expect(external.dataset.workspaceHeaderHosted).toBe("toolbar");
-    expect(header("chat")).toBeNull();
-    expect(surface("chat").dataset.hasHeader).toBe("false");
-    expect(external.style.top).toBe("");
-    expect(external.style.height).toBe("");
-    expect(document.querySelectorAll("[data-workspace-header]")).toHaveLength(
-      1,
-    );
-    await render({
-      layout: leaf("browser"),
-      focusedId: "browser",
-      headers: [{ id: "browser", key: "chat,browser", content }],
-    });
-    expect(toolbar.querySelector("[data-workspace-header]")).toBe(external);
-    expect(external.dataset.workspaceHeader).toBe("browser");
-    expect(external.querySelector("input")).toBe(headerInput);
-    expect(headerInput.value).toBe("Preserved header value");
-    expect(surface("browser").dataset.hasHeader).toBe("false");
-    expect(input("chat")).toBe(chat);
-    expect(unmounted).not.toHaveBeenCalled();
-  });
-
-  it("clears the toolbar while hidden and falls back to local headers for split layouts", async () => {
-    const toolbar = externalContainer();
-    await render({
-      toolbarHost: toolbar,
-      headers: [{ id: "chat", content: "Chat tabs" }],
-    });
-    const chat = input("chat");
-    chat.value = "Draft stays mounted";
-    await render({ visible: false });
-    expect(toolbar.querySelector("[data-workspace-header]")).toBeNull();
-    expect(stage().hidden).toBe(true);
-    expect(surface("chat").dataset.hasHeader).toBe("false");
-    await render({ visible: true, layout: columns() });
-    expect(toolbar.querySelector("[data-workspace-header]")).toBeNull();
-    expect(header("chat")?.style.height).toBe("32px");
-    expect(surface("chat").dataset.hasHeader).toBe("true");
-    await render({
+      layout: columns(),
       headers: [
         { id: "chat", content: "Chat tabs" },
         { id: "browser", content: "Browser tabs" },
       ],
     });
-    expect(header("browser")?.style.height).toBe("32px");
-    expect(surface("browser").dataset.hasHeader).toBe("true");
-    await render({
-      layout: leaf("chat"),
-      headers: [{ id: "chat", content: "Chat tabs" }],
-    });
-    expect(toolbar.querySelectorAll("[data-workspace-header]")).toHaveLength(1);
-    expect(surface("chat").dataset.hasHeader).toBe("false");
-    expect(input("chat")).toBe(chat);
-    expect(chat.value).toBe("Draft stays mounted");
-    expect(unmounted).not.toHaveBeenCalled();
-  });
-
-  it("uses the external header for same-group splits and insertion feedback", async () => {
-    const toolbar = externalContainer();
-    await render({
-      toolbarHost: toolbar,
-      headers: [
-        {
-          id: "chat",
-          content: createElement(
-            "div",
-            null,
-            createElement("button", { "data-surface-tab-id": "chat" }, "Chat"),
-            createElement(
-              "button",
-              { "data-surface-tab-id": "browser" },
-              "Browser",
-            ),
-          ),
-        },
-      ],
-    });
-    const external = toolbar.querySelector<HTMLElement>(
-      "[data-workspace-header]",
-    )!;
-    vi.spyOn(external, "getBoundingClientRect").mockReturnValue(
-      rectangle(100, 5, 500, 40),
-    );
-    const tabs = external.querySelectorAll<HTMLElement>(
-      "[data-surface-tab-id]",
-    );
-    for (const [index, tab] of [...tabs].entries())
-      vi.spyOn(tab, "getBoundingClientRect").mockReturnValue(
-        rectangle(100 + index * 100, 5, 100, 40),
-      );
-    vi.spyOn(body("chat"), "getBoundingClientRect").mockReturnValue(
-      rectangle(100, 50, 500, 600),
-    );
-    expect(workspaceSurfaceDropAt(stage(), 150, 20, "chat")).toBeNull();
-    expect(workspaceSurfaceDropAt(stage(), 102, 300, "chat")).toEqual({
-      id: "chat",
-      edge: "left",
-    });
-    expect(workspaceSurfaceDropAt(stage(), 350, 300, "chat")).toBeNull();
-    expect(workspaceSurfaceDropAt(stage(), 250, 20, "another")).toEqual({
-      id: "chat",
-      edge: "tab",
-      index: 2,
-    });
-    await render({
-      dragging: true,
-      dragTarget: { id: "chat", edge: "tab", index: 1 },
-    });
-    expect(toolbar.querySelector("[data-workspace-header]")).toBe(external);
-    expect(external.dataset.dropTarget).toBe("true");
-    expect(
-      external.querySelector<HTMLElement>("[data-drop-insertion]")?.style.left,
-    ).toBe("100px");
-    expect(external.style.height).toBe("");
-    toolbar.hidden = true;
-    expect(workspaceSurfaceDropAt(stage(), 102, 300, "chat")).toBeNull();
-    toolbar.hidden = false;
-    const oldStage = stage();
-    await act(async () => root.render(null));
-    expect(toolbar.querySelector("[data-workspace-header]")).toBeNull();
-    // A stale connected header cannot re-register itself after owner cleanup.
-    toolbar.append(external);
-    expect(workspaceSurfaceDropAt(oldStage, 102, 300, "chat")).toBeNull();
-  });
-
-  it.each([0.5, 2])(
-    "keeps hosted insertion feedback in local coordinates at CSS zoom %s",
-    async (zoom) => {
-      const toolbar = externalContainer();
-      toolbar.style.setProperty("zoom", String(zoom));
-      await render({
-        toolbarHost: toolbar,
-        headers: [
-          {
-            id: "chat",
-            content: createElement(
-              "div",
-              null,
-              createElement(
-                "button",
-                { "data-surface-tab-id": "chat" },
-                "Chat",
-              ),
-              createElement(
-                "button",
-                { "data-surface-tab-id": "browser" },
-                "Browser",
-              ),
-            ),
-          },
-        ],
-      });
-      const external = toolbar.querySelector<HTMLElement>(
-        "[data-workspace-header]",
-      )!;
-      vi.spyOn(external, "getBoundingClientRect").mockReturnValue(
-        rectangle(100, 5, 500 * zoom, 40 * zoom),
-      );
-      const tabs = [
-        ...external.querySelectorAll<HTMLElement>("[data-surface-tab-id]"),
-      ];
-      for (const [index, tab] of tabs.entries())
-        vi.spyOn(tab, "getBoundingClientRect").mockReturnValue(
-          rectangle(100 + index * 100 * zoom, 5, 100 * zoom, 40 * zoom),
+    const header = (id: string) =>
+      stage().querySelector<HTMLElement>(`[data-workspace-header="${id}"]`)!;
+    for (const id of ["chat", "browser"])
+      for (const name of [
+        "--workspace-background-left",
+        "--workspace-background-top",
+      ])
+        expect(header(id).style.getPropertyValue(name)).toBe(
+          surface(id).style.getPropertyValue(name),
         );
-
-      // Hit testing stays in viewport coordinates even though the marker is
-      // positioned in the counterzoomed header's own CSS coordinate space.
-      expect(
-        workspaceSurfaceDropAt(stage(), 100 + 90 * zoom, 10, "another"),
-      ).toEqual({
-        id: "chat",
-        edge: "tab",
-        index: 1,
-      });
-      await render({
-        dragging: true,
-        dragTarget: { id: "chat", edge: "tab", index: 1 },
-      });
-      const marker = external.querySelector<HTMLElement>(
-        "[data-drop-insertion]",
-      )!;
-      expect(marker.style.left).toBe("100px");
-
-      await render({ dragTarget: { id: "chat", edge: "tab", index: 0 } });
-      expect(marker.style.left).toBe("1px");
-      vi.mocked(tabs[1].getBoundingClientRect).mockReturnValue(
-        rectangle(100 + 500 * zoom, 5, 100 * zoom, 40 * zoom),
-      );
-      await render({ dragTarget: { id: "chat", edge: "tab", index: 2 } });
-      expect(marker.style.left).toBe("498px");
-    },
-  );
-
-  it("scopes external header membership to its stage and clears it when the host changes", async () => {
-    const toolbar = externalContainer();
-    const nextToolbar = externalContainer();
-    const otherContainer = externalContainer();
-    const otherRoot = createRoot(otherContainer);
-    const grouped = createElement(
-      "div",
-      null,
-      createElement("button", { "data-surface-tab-id": "chat" }, "Chat"),
-      createElement("button", { "data-surface-tab-id": "browser" }, "Browser"),
-    );
-    try {
-      await render({
-        toolbarHost: toolbar,
-        headers: [{ id: "chat", content: grouped }],
-      });
-      await act(async () =>
-        otherRoot.render(
-          createElement(WorkspaceStage, {
-            ...props,
-            surfaces: [{ id: "chat", content: "Other stage" }],
-            headers: [
-              {
-                id: "chat",
-                content: createElement(
-                  "button",
-                  { "data-surface-tab-id": "chat" },
-                  "Other chat",
-                ),
-              },
-            ],
-          }),
-        ),
-      );
-      const otherStage = otherContainer.querySelector<HTMLElement>(
-        "[data-workspace-stage]",
-      )!;
-      vi.spyOn(body("chat"), "getBoundingClientRect").mockReturnValue(
-        rectangle(100, 50, 500, 600),
-      );
-      vi.spyOn(
-        otherStage.querySelector<HTMLElement>("[data-workspace-body]")!,
-        "getBoundingClientRect",
-      ).mockReturnValue(rectangle(100, 50, 500, 600));
-      expect(workspaceSurfaceDropAt(stage(), 102, 300, "chat")).toEqual({
-        id: "chat",
-        edge: "left",
-      });
-      expect(workspaceSurfaceDropAt(otherStage, 102, 300, "chat")).toBeNull();
-      const oldHeader = toolbar.querySelector<HTMLElement>(
-        "[data-workspace-header]",
-      )!;
-      await render({ toolbarHost: nextToolbar });
-      expect(
-        nextToolbar.querySelectorAll("[data-workspace-header]"),
-      ).toHaveLength(1);
-      expect(toolbar.querySelectorAll("[data-workspace-header]")).toHaveLength(
-        1,
-      ); // Other stage only.
-      expect(oldHeader.isConnected).toBe(false);
-      await render({ toolbarHost: null });
-      expect(nextToolbar.querySelector("[data-workspace-header]")).toBeNull();
-      expect(header("chat")?.dataset.workspaceHeaderHosted).toBeUndefined();
-      expect(surface("chat").dataset.hasHeader).toBe("true");
-    } finally {
-      await act(async () => otherRoot.unmount());
-    }
+    expect(
+      header("browser").style.getPropertyValue("--workspace-background-left"),
+    ).toBe("calc(-50cqw - 3px)");
   });
 
   it("keeps visited workspace geometry, drafts and scroll positions warm across profile and home switches", async () => {
@@ -729,14 +467,14 @@ describe("workspace stage", () => {
     act(() => window.dispatchEvent(pointer("pointermove", 700)));
     act(() => window.dispatchEvent(pointer("pointermove", 750)));
     expect(frames.size).toBe(1);
-    expect(surface("chat").style.width).toBe("calc(50% - 4px)");
+    expect(surface("chat").style.width).toBe("calc(50% - 2px)");
     expect(props.onLayoutChange).not.toHaveBeenCalled();
     flushFrame();
-    expect(surface("chat").style.width).toBe("calc(65% - 4px)");
-    expect(surface("browser").style.left).toBe("calc(65% + 4px)");
+    expect(surface("chat").style.width).toBe("calc(65% - 2px)");
+    expect(surface("browser").style.left).toBe("calc(65% + 2px)");
     expect(
       surface("browser").style.getPropertyValue("--workspace-background-left"),
-    ).toBe("calc(-65cqw - 5px)");
+    ).toBe("calc(-65cqw - 3px)");
     expect(sash().getAttribute("aria-valuenow")).toBe("65");
     expect(rendered).not.toHaveBeenCalled();
     expect(measure).toHaveBeenCalledOnce();
@@ -775,10 +513,10 @@ describe("workspace stage", () => {
     act(() => window.dispatchEvent(pointer("pointermove", 600, 413)));
     act(() => window.dispatchEvent(pointer("pointermove", 600, 473)));
     act(() => vi.advanceTimersByTime(15));
-    expect(surface("chat").style.height).toBe("calc(50% - 4px)");
+    expect(surface("chat").style.height).toBe("calc(50% - 2px)");
     act(() => vi.advanceTimersByTime(1));
-    expect(surface("chat").style.height).toBe("calc(70% - 4px)");
-    expect(surface("browser").style.top).toBe("calc(70% + 4px)");
+    expect(surface("chat").style.height).toBe("calc(70% - 2px)");
+    expect(surface("browser").style.top).toBe("calc(70% + 2px)");
     expect(painted).toHaveBeenCalledOnce();
     expect(rendered).not.toHaveBeenCalled();
     expect(frames.size).toBe(0);
@@ -790,7 +528,7 @@ describe("workspace stage", () => {
     expect(props.onLayoutChange).toHaveBeenCalledExactlyOnceWith(
       rows([0.75, 0.25]),
     );
-    expect(surface("chat").style.height).toBe("calc(75% - 4px)");
+    expect(surface("chat").style.height).toBe("calc(75% - 2px)");
     expect(frames.size).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
     act(() => vi.advanceTimersByTime(100));
@@ -805,7 +543,7 @@ describe("workspace stage", () => {
     act(() => sash().dispatchEvent(pointer("pointerdown", 600)));
     act(() => window.dispatchEvent(pointer("pointermove", 700)));
     flushFrame();
-    expect(surface("chat").style.width).toBe("calc(60% - 4px)");
+    expect(surface("chat").style.width).toBe("calc(60% - 2px)");
     expect(vi.getTimerCount()).toBe(0);
     act(() => vi.advanceTimersByTime(100));
     expect(painted).toHaveBeenCalledOnce();
@@ -939,7 +677,7 @@ describe("workspace stage", () => {
       expect(moved).not.toHaveBeenCalled();
       flushFrame();
       expect(moved).toHaveBeenCalledOnce();
-      expect(surface("browser").style.width).toBe("calc(70% - 4px)");
+      expect(surface("browser").style.width).toBe("calc(70% - 2px)");
       act(() => window.dispatchEvent(pointer("pointerup", 800)));
       expect(moved).toHaveBeenCalledTimes(2);
     } finally {
@@ -947,7 +685,7 @@ describe("workspace stage", () => {
     }
   });
 
-  it("reserves a real eight-pixel internal gutter without insetting outside edges", async () => {
+  it("reserves a real four-pixel internal gutter without insetting outside edges", async () => {
     await render();
     expect(surface("chat").style.left).toBe("0%");
     expect(surface("chat").style.width).toBe("100%");
@@ -966,11 +704,11 @@ describe("workspace stage", () => {
       ],
     });
     expect(surface("chat").style.left).toBe("0%");
-    expect(surface("chat").style.width).toBe("calc(20% - 4px)");
-    expect(surface("browser").style.left).toBe("calc(20% + 4px)");
-    expect(surface("browser").style.width).toBe("calc(30% - 8px)");
-    expect(surface("third").style.left).toBe("calc(50% + 4px)");
-    expect(surface("third").style.width).toBe("calc(50% - 4px)");
+    expect(surface("chat").style.width).toBe("calc(20% - 2px)");
+    expect(surface("browser").style.left).toBe("calc(20% + 2px)");
+    expect(surface("browser").style.width).toBe("calc(30% - 4px)");
+    expect(surface("third").style.left).toBe("calc(50% + 2px)");
+    expect(surface("third").style.width).toBe("calc(50% - 2px)");
     expect(surface("browser").style.top).toBe("0%");
     expect(surface("browser").style.height).toBe("100%");
 
@@ -984,9 +722,9 @@ describe("workspace stage", () => {
       },
     });
     expect(surface("chat").style.top).toBe("0%");
-    expect(surface("chat").style.height).toBe("calc(50% - 4px)");
-    expect(surface("browser").style.top).toBe("calc(50% + 4px)");
-    expect(surface("browser").style.height).toBe("calc(50% - 4px)");
+    expect(surface("chat").style.height).toBe("calc(50% - 2px)");
+    expect(surface("browser").style.top).toBe("calc(50% + 2px)");
+    expect(surface("browser").style.height).toBe("calc(50% - 2px)");
     expect(surface("chat").style.width).toBe("100%");
     expect(surface("browser").style.width).toBe("100%");
   });
@@ -999,11 +737,11 @@ describe("workspace stage", () => {
     expect(frames.size).toBe(0);
     act(() => window.dispatchEvent(pointer("pointermove", 900)));
     flushFrame();
-    expect(surface("chat").style.width).toBe("calc(80% - 4px)");
+    expect(surface("chat").style.width).toBe("calc(80% - 2px)");
     act(() =>
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })),
     );
-    expect(surface("chat").style.width).toBe("calc(50% - 4px)");
+    expect(surface("chat").style.width).toBe("calc(50% - 2px)");
     expect(props.onLayoutChange).not.toHaveBeenCalled();
     act(() => window.dispatchEvent(pointer("pointerup", 900)));
     expect(props.onLayoutChange).not.toHaveBeenCalled();
@@ -1025,7 +763,7 @@ describe("workspace stage", () => {
       );
       expect(frames.size).toBe(0);
       expect(props.onLayoutChange).toHaveBeenCalledOnce();
-      expect(surface("chat").style.width).toBe("calc(70% - 4px)");
+      expect(surface("chat").style.width).toBe("calc(70% - 2px)");
       expect(document.body.style.cursor).toBe("");
       expect(stage().hasAttribute("data-resizing")).toBe(false);
       expect(
@@ -1045,7 +783,7 @@ describe("workspace stage", () => {
     expect(frames.size).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
     act(() => vi.advanceTimersByTime(100));
-    expect(surface("chat").style.width).toBe("calc(50% - 4px)");
+    expect(surface("chat").style.width).toBe("calc(50% - 2px)");
     expect(props.onLayoutChange).not.toHaveBeenCalled();
     expect(document.documentElement.classList.contains("is-reordering")).toBe(
       false,
@@ -1072,8 +810,8 @@ describe("workspace stage", () => {
     act(() => sash().dispatchEvent(pointer("pointerdown", 600)));
     act(() => window.dispatchEvent(pointer("pointermove", 750)));
     flushFrame();
-    expect(surface("chat").style.width).toBe("calc(65% - 4px)");
-    expect(surface("browser").style.left).toBe("calc(65% + 4px)");
+    expect(surface("chat").style.width).toBe("calc(65% - 2px)");
+    expect(surface("browser").style.left).toBe("calc(65% + 2px)");
     act(() => window.dispatchEvent(pointer("pointermove", 800)));
 
     await render({ layout: leaf("personal"), focusedId: "personal" });
@@ -1257,10 +995,9 @@ describe("workspace stage", () => {
     expect(browserHeader.dataset.dropTarget).toBeUndefined();
   });
 
-  it.each([false, true])(
-    "maps visible drop slots around hidden Recent tabs without moving the indicator (hosted: %s)",
-    async (hosted) => {
-      const toolbar = hosted ? externalContainer() : null;
+  it(
+    "maps visible drop slots around hidden Recent tabs without moving the indicator",
+    async () => {
       const visible = ["browser", "preview", "kept"];
       const order = [
         "hidden-first",
@@ -1273,7 +1010,6 @@ describe("workspace stage", () => {
       await render({
         layout: leaf("browser"),
         focusedId: "browser",
-        toolbarHost: toolbar,
         headers: [
           {
             id: "browser",
@@ -1296,7 +1032,7 @@ describe("workspace stage", () => {
           },
         ],
       });
-      const targetHeader = (toolbar ?? stage()).querySelector<HTMLElement>(
+      const targetHeader = stage().querySelector<HTMLElement>(
         '[data-workspace-header="browser"]',
       )!;
       vi.spyOn(targetHeader, "getBoundingClientRect").mockReturnValue(

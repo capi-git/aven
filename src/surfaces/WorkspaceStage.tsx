@@ -9,7 +9,6 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { createPortal } from "react-dom";
 import {
   layoutLeaves,
   layoutSashes,
@@ -49,8 +48,6 @@ export type WorkspaceStageProps = {
   visible: boolean;
   surfaces: Array<{ id: string; content: ReactNode }>;
   headers?: Array<{ id: string; key?: string; content: ReactNode }>;
-  /** The unified window toolbar can own a single unsplit workspace header. */
-  toolbarHost?: HTMLElement | null;
   onFocus: (id: string) => void;
   onLayoutChange: (layout: LayoutNode) => void;
   dragTarget: WorkspaceSurfaceDropTarget | null;
@@ -58,11 +55,6 @@ export type WorkspaceStageProps = {
   dragLabel?: string;
   dragKind?: "tab" | "group";
 };
-
-// Portaled headers live outside their stage's DOM subtree. Register only the
-// committed header nodes belonging to each exact stage, never query the window
-// globally by tab id (different retained workspaces can share those ids).
-const toolbarHeaders = new WeakMap<HTMLElement, Map<string, HTMLElement>>();
 
 /** Map a visible insertion boundary to retained membership without moving hidden pages. */
 function retainedDropIndex(
@@ -108,13 +100,6 @@ export function workspaceSurfaceDropAt(
       ),
     ].map((header) => [header.dataset.workspaceHeader, header]),
   );
-  for (const [id, header] of toolbarHeaders.get(container) ?? []) {
-    if (
-      header.isConnected &&
-      !header.closest('[hidden], [inert], [aria-hidden="true"]')
-    )
-      headers.set(id, header);
-  }
   for (const surface of container.querySelectorAll<HTMLElement>(
     "[data-workspace-surface]",
   )) {
@@ -233,13 +218,15 @@ function applyGeometry(element: HTMLElement, values: CSSProperties) {
       element.style.setProperty(name, String(value));
   }
 }
-/** Native browser children need a real gutter; CSS stacking cannot cover them. */
+/** Half of the gap between panes. Native browser children need a real gutter;
+ * CSS stacking cannot cover them, so keep it small but present. */
+const GUTTER = 2;
 function surfaceStyle(rect: LayoutRect, inset = 0): CSSProperties {
   const epsilon = 0.000001;
-  const left = (rect.x > epsilon ? 4 : 0) + inset;
-  const top = (rect.y > epsilon ? 4 : 0) + inset;
-  const right = (rect.x + rect.w < 1 - epsilon ? 4 : 0) + inset;
-  const bottom = (rect.y + rect.h < 1 - epsilon ? 4 : 0) + inset;
+  const left = (rect.x > epsilon ? GUTTER : 0) + inset;
+  const top = (rect.y > epsilon ? GUTTER : 0) + inset;
+  const right = (rect.x + rect.w < 1 - epsilon ? GUTTER : 0) + inset;
+  const bottom = (rect.y + rect.h < 1 - epsilon ? GUTTER : 0) + inset;
   const position = (fraction: number, inset: number) =>
     inset ? `calc(${fraction * 100}% + ${inset}px)` : `${fraction * 100}%`;
   const size = (fraction: number, inset: number) =>
@@ -253,15 +240,18 @@ function surfaceStyle(rect: LayoutRect, inset = 0): CSSProperties {
 }
 /** A shared wallpaper canvas, clipped by each pane's existing bounds. */
 function surfaceBackgroundStyle(rect: LayoutRect) {
-  const left = (rect.x > 0.000001 ? 4 : 0) + 1;
-  const top = (rect.y > 0.000001 ? 4 : 0) + 1;
+  const left = (rect.x > 0.000001 ? GUTTER : 0) + 1;
+  const top = (rect.y > 0.000001 ? GUTTER : 0) + 1;
   return {
     "--workspace-background-left": `calc(${-rect.x * 100}cqw - ${left}px)`,
     "--workspace-background-top": `calc(${-rect.y * 100}cqh - ${top}px - var(--workspace-background-header-offset))`,
   };
 }
+/** A header starts where its pane's content box does, so it can show the same
+ * wallpaper slice with no header offset and read as part of the pane. */
 const headerStyle = (rect: LayoutRect): CSSProperties => ({
   ...surfaceStyle(rect, 1),
+  ...surfaceBackgroundStyle(rect),
   height: "32px",
 });
 const sashKey = (sash: LayoutSash) => `${sash.splitId}:${sash.index}`;
@@ -301,7 +291,6 @@ export function WorkspaceStage({
   visible,
   surfaces,
   headers = [],
-  toolbarHost,
   onFocus,
   onLayoutChange,
   dragTarget,
@@ -341,24 +330,6 @@ export function WorkspaceStage({
   const headerNodes = useRef(new Map<string, HTMLDivElement>());
   const sashNodes = useRef(new Map<string, HTMLDivElement>());
   useLayoutEffect(() => {
-    const container = stage.current;
-    if (!container) return;
-    const external = new Map<string, HTMLElement>();
-    if (visible && toolbarHost)
-      for (const [id, node] of headerNodes.current) {
-        if (
-          node.dataset.workspaceHeaderHosted === "toolbar" &&
-          toolbarHost.contains(node)
-        )
-          external.set(id, node);
-      }
-    if (external.size) toolbarHeaders.set(container, external);
-    else toolbarHeaders.delete(container);
-    return () => {
-      toolbarHeaders.delete(container);
-    };
-  });
-  useLayoutEffect(() => {
     if (
       !dragging ||
       dragTarget?.edge !== "tab" ||
@@ -388,14 +359,6 @@ export function WorkspaceStage({
   const stopResize = useRef<((commit: boolean) => void) | null>(null);
   const leaves = layout ? layoutLeaves(layout) : [];
   const positions = new Map(leaves.map((leaf) => [leaf.id, leaf.rect]));
-  const toolbarHeaderId =
-    visible &&
-    toolbarHost &&
-    headers.length === 1 &&
-    leaves.length === 1 &&
-    positions.has(headers[0].id)
-      ? headers[0].id
-      : null;
   const headerContents = new Map(
     headers.map(({ id, content }) => [id, content]),
   );
@@ -416,7 +379,7 @@ export function WorkspaceStage({
       if (liveIds.has(id))
         retainedGeometry.current.set(id, {
           rect,
-          hasHeader: headerContents.has(id) && toolbarHeaderId !== id,
+          hasHeader: headerContents.has(id),
         });
     }
   });
@@ -558,7 +521,7 @@ export function WorkspaceStage({
       if (!visible || !positions.has(id)) paintSurface(id, rect);
     }
     if (visible && layout) paint(layout);
-  }, [layout, visible, headerIds, toolbarHost, toolbarHeaderId]);
+  }, [layout, visible, headerIds]);
   useEffect(() => () => stopResize.current?.(false), []);
 
   function startResize(
@@ -699,7 +662,7 @@ export function WorkspaceStage({
         const handoff = !shown && held.has(id) && !!retained;
         const rect = shown ? currentRect : (retained?.rect ?? currentRect);
         const hasHeader = shown
-          ? headerContents.has(id) && toolbarHeaderId !== id
+          ? headerContents.has(id)
           : (retained?.hasHeader ?? headerContents.has(id));
         return (
           <div
@@ -754,8 +717,7 @@ export function WorkspaceStage({
       {headers.map(({ id, key, content }) => {
         const rect = positions.get(id);
         if (!rect) return null;
-        const external = toolbarHeaderId === id && !!toolbarHost;
-        const header = (
+        return (
           <div
             key={`header:${key ?? id}`}
             ref={(element) => {
@@ -764,11 +726,10 @@ export function WorkspaceStage({
             }}
             className="workspace-stage-header"
             data-workspace-header={id}
-            data-workspace-header-hosted={external ? "toolbar" : undefined}
             data-drop-target={
               dragging && dragTarget?.id === id ? "true" : undefined
             }
-            style={external ? undefined : headerStyle(rect)}
+            style={headerStyle(rect)}
             onPointerDownCapture={() => {
               if (visible && focusedId !== id) current.current.onFocus(id);
             }}
@@ -789,9 +750,6 @@ export function WorkspaceStage({
             ) : null}
           </div>
         );
-        return external
-          ? createPortal(header, toolbarHost!, `header:${key ?? id}`)
-          : header;
       })}
       {sashes.map((sash) => (
         <div
