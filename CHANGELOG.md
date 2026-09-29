@@ -7,6 +7,10 @@
 - Aven opens sooner. It reads your saved workspace while the interface loads instead of afterwards, and no longer rewrites every open conversation to disk before showing the window.
 - The opening screen uses your workspace's own background colour from the first frame, instead of briefly showing a default palette.
 
+### Brave-style tab groups fold all the way
+
+- Clicking a group's label folds it down to just the label and its tab count, including the tab you were on; Aven moves to the nearest tab outside the group, as Brave does. Opening a tab from a folded group, for example from the sidebar, unfolds it again.
+
 ## [0.1.111] - 2026-09-29
 
 ### MonoCode-style tabs, one seamless workspace, and a crash fix

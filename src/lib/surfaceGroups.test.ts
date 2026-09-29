@@ -76,19 +76,14 @@ describe("surface group store", () => {
 
 describe("strip segments", () => {
   it("draws a group at its first member and gathers stray members", () => {
-    const segments = stripSegments(["a", "x", "b", "c"], state({ a: "g", c: "g" }), "b");
+    const segments = stripSegments(["a", "x", "b", "c"], state({ a: "g", c: "g" }));
     expect(stripDisplayIds(segments)).toEqual([groupChipId("g"), "a", "c", "x", "b"]);
   });
 
-  it("keeps only the active tab visible in a folded group", () => {
+  it("shows only the label of a folded group, as Brave does", () => {
     const folded = state({ a: "g", b: "g" }, ["g"]);
-    expect(stripDisplayIds(stripSegments(["a", "b", "x"], folded, "x"))).toEqual([
+    expect(stripDisplayIds(stripSegments(["a", "b", "x"], folded))).toEqual([
       groupChipId("g"),
-      "x",
-    ]);
-    expect(stripDisplayIds(stripSegments(["a", "b", "x"], folded, "b"))).toEqual([
-      groupChipId("g"),
-      "b",
       "x",
     ]);
   });

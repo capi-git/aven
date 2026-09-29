@@ -197,7 +197,10 @@ export function changeSurfaceGroup(
   });
 }
 
-export function setSurfaceGroupsCollapsed(ids: string[], collapsed: boolean) {
+export function setSurfaceGroupsCollapsed(
+  ids: readonly string[],
+  collapsed: boolean,
+) {
   update((state) => {
     const groups = { ...state.groups };
     for (const id of ids)
@@ -234,7 +237,7 @@ export type StripSegment =
       group: SurfaceGroup;
       /** Every member in this strip, in strip order. */
       members: string[];
-      /** Members drawn after the label: all of them, or only the active one when folded. */
+      /** Members drawn after the label: all of them, or none when folded. */
       shown: string[];
     };
 
@@ -245,7 +248,6 @@ export type StripSegment =
 export function stripSegments(
   orderedIds: string[],
   state: SurfaceGroupState,
-  focusedId: string,
 ): StripSegment[] {
   const byGroup = new Map<string, string[]>();
   for (const id of orderedIds) {
@@ -271,10 +273,8 @@ export function stripSegments(
       kind: "group",
       group,
       members,
-      // Folding never hides the tab you are looking at.
-      shown: group.collapsed
-        ? members.filter((member) => member === focusedId)
-        : members,
+      // Like Brave, a folded group is just its label.
+      shown: group.collapsed ? [] : members,
     });
   }
   return segments;

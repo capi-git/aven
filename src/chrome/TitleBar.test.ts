@@ -886,7 +886,7 @@ describe("browser tab integration", () => {
       ).toBeUndefined();
     });
 
-    it("folds to the label with a count, keeping the active tab in view", async () => {
+    it("folds to just the label with a count and moves off a folding tab", async () => {
       await render({
         tabs: [tab({ id: "a" }), tab({ id: "b" }), tab({ id: "c" })],
         browserTabs: [{ id: "web-a", title: "Docs" }],
@@ -910,10 +910,30 @@ describe("browser tab integration", () => {
       await act(async () => label()!.click());
       expect(drawn()).toEqual(["a", "[Docs2]", "c"]);
       expect(label()!.getAttribute("aria-label")).toBe("Docs, 2 tabs, folded");
-      await render({ activeId: "b" });
-      expect(drawn()).toEqual(["a", "[Docs2]", "b", "c"]);
+      expect(props.onSelect).not.toHaveBeenCalled();
+
+      // Folding the group you are in selects the nearest visible tab.
       await act(async () => label()!.click());
+      await render({ activeId: "b" });
       expect(drawn()).toEqual(["a", "[Docs]", "b", "web-a", "c"]);
+      await act(async () => label()!.click());
+      expect(props.onSelect).toHaveBeenLastCalledWith("c");
+      await render({ activeId: "c" });
+      expect(drawn()).toEqual(["a", "[Docs2]", "c"]);
+
+      // Opening a folded tab from elsewhere unfolds its group.
+      await render({ activeId: "b" });
+      expect(drawn()).toEqual(["a", "[Docs]", "b", "web-a", "c"]);
+    });
+
+    it("still folds when every tab in the strip belongs to the group", async () => {
+      await render({ tabs: [tab({ id: "a" }), tab({ id: "b" })], activeId: "a" });
+      await makeGroup("a", "All");
+      await openTabMenu("b");
+      await choose("Add to group", "All");
+      await act(async () => label()!.click());
+      expect(drawn()).toEqual(["[All2]"]);
+      expect(props.onSelect).not.toHaveBeenCalled();
     });
 
     it("preserves group controls and skips folded members during keyboard navigation", async () => {
