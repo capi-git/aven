@@ -13,8 +13,9 @@
 
 /* The chat background is painted once behind every pane, tab row, border
    and gutter, so panes read as one glass surface with no dark seams between
-   them. Chat panes skip their own copy of it below; a project's own
-   background, or "empty chats only", still paints per pane. */
+   them, and chat panes skip their own copy. "Empty chats only" and a visible
+   pane with its own project background keep per-pane painting instead, so a
+   project image never blends with the global one. */
 .workspace-stage::before {
   content: "";
   position: absolute;
@@ -24,11 +25,21 @@
   pointer-events: none;
 }
 html.has-chat-background:not(.chat-background-empty-only)
-  .workspace-stage::before {
+  .workspace-stage:not(
+    :has(
+      .workspace-stage-surface:not([hidden])
+        .chat-pane-background[data-project-chat-background="true"]
+    )
+  )::before {
   opacity: var(--chat-background-opacity);
 }
 html.has-chat-background:not(.chat-background-empty-only)
-  .workspace-stage
+  .workspace-stage:not(
+    :has(
+      .workspace-stage-surface:not([hidden])
+        .chat-pane-background[data-project-chat-background="true"]
+    )
+  )
   .chat-pane-background:not([data-project-chat-background="true"])::before {
   opacity: 0;
 }

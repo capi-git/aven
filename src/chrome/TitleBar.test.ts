@@ -802,8 +802,12 @@ describe("browser tab integration", () => {
       expect(root("a").dataset.active).toBe("true");
       expect(root("b").dataset.hasMeta).toBeUndefined();
       const label = root("a").querySelector(".personal-title-tab-label")!;
-      // Size comes from TitleBar.css, not utility classes that would override it.
-      expect(label.className).not.toMatch(/text-\[/);
+      // Two-line sizing comes from TitleBar.css; container-query utilities
+      // would fight it. The plain base size stays for detached windows.
+      expect(label.className).not.toMatch(/@min-/);
+      expect(
+        root("a").querySelector(".personal-title-tab-meta")?.className,
+      ).toContain("hidden");
     });
   });
 

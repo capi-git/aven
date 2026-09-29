@@ -506,9 +506,10 @@ function TitleTabItem({
           </span>
           <span className="personal-title-tab-text flex min-w-0 flex-1 flex-col justify-center gap-0.5">
             <span className="flex min-w-0 items-center gap-1">
-              {/* Size lives in TitleBar.css: one 13px line, or two small lines
-                  on the tab you're on once it is wide enough. */}
-              <span className="personal-title-tab-label min-w-0 truncate">
+              {/* Defaults suit detached windows; inside the main window
+                  TitleBar.css shows one 13px line, or two small lines on the
+                  tab you're on once it is wide enough. */}
+              <span className="personal-title-tab-label min-w-0 truncate text-[13px]">
                 {headline}
               </span>
               {visible && !active ? (
@@ -523,7 +524,7 @@ function TitleTabItem({
               ) : null}
             </span>
             {meta ? (
-              <span className="personal-title-tab-meta min-w-0 truncate">
+              <span className="personal-title-tab-meta hidden min-w-0 truncate text-[10px]">
                 {meta}
               </span>
             ) : null}

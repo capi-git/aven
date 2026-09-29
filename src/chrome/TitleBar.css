@@ -507,6 +507,8 @@ html.theme-light .personal-shell {
 .personal-shell .personal-tab-group-slot {
   flex: 0 0 auto;
   min-width: 0;
+  /* A bounded width lets the opening motion grow the label in. */
+  max-width: 160px;
 }
 .personal-shell .personal-tab-group-chip {
   display: inline-flex;
@@ -574,7 +576,8 @@ html.theme-light .personal-shell {
   content: "";
   position: absolute;
   left: 0;
-  right: 0;
+  /* Reach across the 2px strip gap to the next member. */
+  right: -2px;
   bottom: 2px;
   height: 2px;
   border-radius: 1px;
