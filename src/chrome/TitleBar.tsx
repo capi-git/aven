@@ -5,7 +5,6 @@ import {
   ChevronRight,
   Flag,
   Globe,
-  GripVertical,
   Inbox,
   PanelLeft,
   PanelRight,
@@ -157,20 +156,6 @@ export type TitleBarProps = {
     pointer?: SortablePointerPosition,
   ) => void;
   groupId?: string;
-  groupLabel?: string;
-  onGroupDragMove?: (
-    groupId: string,
-    x: number,
-    y: number,
-    pointer?: SortablePointerPosition,
-  ) => void;
-  onGroupDragEnd?: (
-    groupId: string,
-    x: number,
-    y: number,
-    cancelled: boolean,
-    pointer?: SortablePointerPosition,
-  ) => boolean;
   windowTargets?: Array<{ id: string; label: string }>;
   onMoveTabToWindow?: (tabId: string, targetWindowId?: string) => void;
   onMoveGroupToWindow?: (groupId: string, targetWindowId?: string) => void;
@@ -1061,9 +1046,6 @@ function TitleBarComponent({
   onSurfaceDragMove,
   onSurfaceDragEnd,
   groupId,
-  groupLabel,
-  onGroupDragMove,
-  onGroupDragEnd,
   windowTargets = [],
   onMoveTabToWindow,
   onMoveGroupToWindow,
@@ -1265,10 +1247,6 @@ function TitleBarComponent({
       },
     },
   );
-  const groupSortable = useSortable(groupId ? [groupId] : [], () => {}, {
-    onDragMove: onGroupDragMove,
-    onDragEnd: onGroupDragEnd,
-  });
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const tabStripRef = useRef<HTMLDivElement | null>(null);
   // Tabs grow in and closed tabs collapse, as in MonoCode.
@@ -2271,33 +2249,6 @@ function TitleBarComponent({
           showProjectButton ? " border-l border-content/10" : ""
         }`}
       >
-        {/* Keep the grip visible whenever these tabs can move together.
-            Moving a group to a window stays in the tab menu. */}
-        {groupId && orderedIds.length > 1 && onGroupDragEnd ? (
-          <button
-            type="button"
-            ref={(element) => groupSortable.setItemRef(groupId, element)}
-            className="personal-tab-group-handle"
-            data-tauri-drag-region="false"
-            data-dragging={groupSortable.draggingId === groupId || undefined}
-            aria-label={
-              groupLabel
-                ? `Move group: ${groupLabel} (${orderedIds.length} tabs)`
-                : `Move group (${orderedIds.length} tabs)`
-            }
-            title="Drag to move these tabs together"
-            onPointerDown={(event) =>
-              groupSortable.onItemPointerDown(groupId, event)
-            }
-            onClick={(event) => {
-              if (groupSortable.consumeClick()) return;
-              const rect = event.currentTarget.getBoundingClientRect();
-              openBarMenu(rect.left, rect.bottom, event.currentTarget);
-            }}
-          >
-            <GripVertical className="size-3" />
-          </button>
-        ) : null}
         <div
           className="relative h-full min-w-0 flex-1 overflow-hidden"
           onWheel={(event) => {

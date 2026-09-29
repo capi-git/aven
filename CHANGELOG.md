@@ -10,6 +10,7 @@
 ### Brave-style tab groups fold all the way
 
 - Clicking a group's label folds it down to just the label and its tab count, including the tab you were on; Aven moves to the nearest tab outside the group, as Brave does. Opening a tab from a folded group, for example from the sidebar, unfolds it again.
+- Remove the ⠿ grip beside each pane's tabs. Move a pane by dragging its tabs, or right-click the tab row for the pane's menu.
 
 ## [0.1.111] - 2026-09-29
 

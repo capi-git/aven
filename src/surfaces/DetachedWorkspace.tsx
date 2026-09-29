@@ -899,7 +899,6 @@ export function DetachedWorkspace() {
         surfaceOrder={members}
         visibleIds={active.size > 1 ? [id] : []}
         groupId={id}
-        groupLabel={state.title}
         onToggleSidebar={() => {}}
         onSelect={(selected) =>
           change((s) => ({ ...s, view: selectWorkspaceView(s.view, selected) }))

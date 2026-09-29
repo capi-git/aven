@@ -1730,7 +1730,6 @@ describe("browser tab integration", () => {
     await render({
       paneLocal: true,
       groupId: "team",
-      groupLabel: "Team",
       onMoveGroupToWindow: vi.fn(),
       tabs: [
         tab({ id: "a", harnesses: ["codex"], busyHarnesses: ["codex"] }),
@@ -1765,7 +1764,6 @@ describe("browser tab integration", () => {
   it("offers precise tab and pane window destinations, returns, and history callbacks", async () => {
     await render({
       groupId: "group-owner",
-      groupLabel: "Research",
       windowTargets: [{ id: "window-2", label: "Work window" }],
       onMoveTabToWindow: vi.fn(),
       onMoveGroupToWindow: vi.fn(),
@@ -1818,50 +1816,6 @@ describe("browser tab integration", () => {
     expect(props.onUndoLayout).toHaveBeenCalledOnce();
     expect(props.onSelect).not.toHaveBeenCalled();
     expect(props.onClose).not.toHaveBeenCalled();
-  });
-
-  it.each([false, true])("moves the group owner from its handle without a single-tab drag (pane-local=%s)", async (paneLocal) => {
-    await render({
-      paneLocal,
-      groupId: "group-owner",
-      groupLabel: "Research",
-      onGroupDragMove: vi.fn(),
-      onGroupDragEnd: vi.fn(() => true),
-      onSurfaceDragEnd: vi.fn(),
-    });
-    const handle = container.querySelector<HTMLButtonElement>(
-      '[aria-label="Move group: Research (2 tabs)"]',
-    )!;
-    handle.setPointerCapture = vi.fn();
-    handle.releasePointerCapture = vi.fn();
-    const pointer = (target: EventTarget, type: string, x: number) =>
-      act(async () =>
-        target.dispatchEvent(
-          new PointerEvent(type, {
-            bubbles: true,
-            pointerId: 1,
-            button: 0,
-            clientX: x,
-            clientY: 15,
-            screenX: x + 1000,
-            screenY: 220,
-          }),
-        ),
-      );
-    await pointer(handle, "pointerdown", 20);
-    await mouseDown(handle);
-    await pointer(window, "pointermove", 200);
-    await pointer(window, "pointerup", 900);
-    expect(props.onGroupDragEnd).toHaveBeenCalledExactlyOnceWith(
-      "group-owner",
-      900,
-      15,
-      false,
-      { screenX: 1900, screenY: 220 },
-    );
-    expect(props.onSurfaceDragEnd).not.toHaveBeenCalled();
-    expect(props.onReorder).not.toHaveBeenCalled();
-    expect(nativeWindow.startDragging).not.toHaveBeenCalled();
   });
 
   it("keeps reopen and layout undo discoverable on an empty tab strip", async () => {
