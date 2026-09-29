@@ -354,10 +354,25 @@ export function DetachedWorkspace() {
     },
     [change],
   );
+  // Opening a new page must not evict the old preview from this pane's strip.
+  // A conversation can have focus while its last browser preview still shows.
+  const retainCoveredBrowser = useCallback((state: DetachedWorkspaceState) => {
+    const members = state.view.groups[state.view.focusedId] ?? [];
+    const covered = state.browsers.some(
+      (browser) => browser.id === state.view.focusedId,
+    )
+      ? state.view.focusedId
+      : recentBrowserSelections.current.find((id) => members.includes(id));
+    return state.browsers.map((browser) =>
+      browser.id === covered && !browser.kept
+        ? { ...browser, kept: true }
+        : browser,
+    );
+  }, []);
   const openUrl = useCallback(
     (url: string) => {
       change((state) => {
-        const existing = state.browsers.find((b) => b.url === url);
+        const existing = url && state.browsers.find((b) => b.url === url);
         if (existing)
           return {
             ...state,
@@ -369,11 +384,12 @@ export function DetachedWorkspace() {
           tabId,
           url,
           project: state.cwd,
+          kept: true,
         };
         const ids = [...detachedSurfaceIds(state), browser.id];
         return {
           ...state,
-          browsers: [...state.browsers, browser],
+          browsers: [...retainCoveredBrowser(state), browser],
           view: selectWorkspaceView(
             resolveWorkspaceView(state.view, ids, state.view.focusedId),
             browser.id,
@@ -381,7 +397,7 @@ export function DetachedWorkspace() {
         };
       });
     },
-    [change],
+    [change, retainCoveredBrowser],
   );
   const openUrlRef = useRef(openUrl);
   openUrlRef.current = openUrl;
@@ -590,7 +606,7 @@ export function DetachedWorkspace() {
                 ? state.browsers.map((b) =>
                     b.id === browser.id ? { ...b, url: browser.url } : b,
                   )
-                : [...state.browsers, browser],
+                : [...retainCoveredBrowser(state), { ...browser, kept: true }],
               view: selectWorkspaceView(
                 resolveWorkspaceView(
                   state.view,
@@ -701,7 +717,15 @@ export function DetachedWorkspace() {
       clearTimeout(checkpointTimer.current);
       cleanup.forEach((fn) => fn());
     };
-  }, [leave, report, scheduleCheckpoint, change, checkpoint, collect]);
+  }, [
+    leave,
+    report,
+    scheduleCheckpoint,
+    change,
+    checkpoint,
+    collect,
+    retainCoveredBrowser,
+  ]);
   useEffect(() => {
     const state = envelope?.state;
     const token = state?.transferToken;
