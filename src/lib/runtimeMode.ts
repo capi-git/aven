@@ -10,6 +10,7 @@ export const RUNTIME_MODES: RuntimeMode[] = [
 
 export const DEFAULT_RUNTIME_MODE: RuntimeMode = "supervised";
 export const DEFAULT_RUNTIME_MODE_KEY = "monocode.defaultRuntimeMode";
+const DEFAULT_RUNTIME_MODE_CHANGE = "aven:default-runtime-mode-change";
 
 export const RUNTIME_MODE_LABEL: Record<RuntimeMode, string> = {
   supervised: "Supervised",
@@ -49,4 +50,21 @@ export function saveDefaultRuntimeMode(mode: RuntimeMode): void {
   } catch {
     // The current task can still use the selected mode if storage is unavailable.
   }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(DEFAULT_RUNTIME_MODE_CHANGE));
+  }
+}
+
+/** Keep Settings and every workspace header on the same saved preference. */
+export function subscribeDefaultRuntimeMode(listener: () => void): () => void {
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === DEFAULT_RUNTIME_MODE_KEY || event.key === null)
+      listener();
+  };
+  window.addEventListener(DEFAULT_RUNTIME_MODE_CHANGE, listener);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(DEFAULT_RUNTIME_MODE_CHANGE, listener);
+    window.removeEventListener("storage", onStorage);
+  };
 }

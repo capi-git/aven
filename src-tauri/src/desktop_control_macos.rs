@@ -9,7 +9,8 @@ use std::collections::{HashMap, VecDeque};
 use std::ffi::c_void;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::process::{Command, Stdio};
-use std::sync::{mpsc, OnceLock};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 type Cf = *const c_void;
@@ -81,11 +82,16 @@ unsafe extern "C" {
     fn AXIsProcessTrusted() -> u8;
     fn AXIsProcessTrustedWithOptions(options: Cf) -> u8;
     static kAXTrustedCheckOptionPrompt: Cf;
+    fn AXUIElementCreateApplication(pid: i32) -> Cf;
+    fn AXUIElementSetMessagingTimeout(element: Cf, seconds: f32) -> i32;
+    fn AXUIElementIsAttributeSettable(element: Cf, attribute: Cf, settable: *mut u8) -> i32;
+    fn AXUIElementSetAttributeValue(element: Cf, attribute: Cf, value: Cf) -> i32;
 }
 
 #[link(name = "CoreFoundation", kind = "framework")]
 unsafe extern "C" {
     fn CFRelease(value: Cf);
+    static kCFBooleanTrue: Cf;
     fn CFGetTypeID(value: Cf) -> usize;
     fn CFArrayGetCount(array: Cf) -> isize;
     fn CFArrayGetValueAtIndex(array: Cf, index: isize) -> Cf;
@@ -486,13 +492,19 @@ fn scroll(point: Point, delta_x: i32, delta_y: i32) -> Result<(), String> {
     Ok(())
 }
 
-fn activate(
+const ACTIVATION_TIMEOUT: &str = "App activation timed out. Observe the desktop before retrying.";
+const ACTIVATION_REFUSED: &str =
+    "macOS did not allow that app to take focus. Bring Aven to the foreground, observe the desktop, and retry.";
+
+fn activation_on_main<T: Send + 'static>(
     app_handle: &AppHandle,
-    pid: Option<i32>,
-    name: Option<String>,
-) -> Result<Value, String> {
+    deadline: Instant,
+    operation: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    if Instant::now() >= deadline {
+        return Err(ACTIVATION_TIMEOUT.into());
+    }
     let (sender, receiver) = mpsc::channel();
-    let deadline = Instant::now() + Duration::from_secs(3);
     app_handle
         .run_on_main_thread(move || {
             // A timed-out request must not activate an app later, after the
@@ -500,17 +512,151 @@ fn activate(
             if Instant::now() >= deadline {
                 return;
             }
-            let result =
-                objc2::rc::autoreleasepool(|_| unsafe { activate_on_main(pid, name.as_deref()) });
+            let result = objc2::rc::autoreleasepool(|_| operation());
             let _ = sender.send(result);
         })
         .map_err(|_| "Could not activate the app. Keep Aven open and retry.")?;
     receiver
-        .recv_timeout(Duration::from_secs(3))
-        .map_err(|_| "App activation timed out. Observe the desktop before retrying.".to_string())?
+        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        .map_err(|_| ACTIVATION_TIMEOUT.to_string())?
 }
 
-unsafe fn activate_on_main(pid: Option<i32>, name: Option<&str>) -> Result<Value, String> {
+fn confirm_activation(
+    pid: i32,
+    accepted: bool,
+    deadline: Instant,
+    mut frontmost: impl FnMut() -> Result<Option<i32>, String>,
+) -> Result<Value, String> {
+    loop {
+        if Instant::now() >= deadline {
+            return Err(ACTIVATION_TIMEOUT.into());
+        }
+        if frontmost()? == Some(pid) {
+            return Ok(json!({"activated":true,"pid":pid}));
+        }
+        if !accepted {
+            return Err(ACTIVATION_REFUSED.into());
+        }
+        // AppKit activation completes asynchronously. Sleep only on the socket
+        // worker; each observation is a later main-loop turn, never a busy wait
+        // on cached NSRunningApplication.isActive state.
+        std::thread::sleep(
+            Duration::from_millis(20).min(deadline.saturating_duration_since(Instant::now())),
+        );
+    }
+}
+
+fn activate(
+    app_handle: &AppHandle,
+    pid: Option<i32>,
+    name: Option<String>,
+) -> Result<Value, String> {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let mut attempt = activation_on_main(app_handle, deadline, move || unsafe {
+        activate_on_main(pid, name.as_deref())
+    })?;
+    if !attempt.accepted {
+        let frontmost =
+            activation_on_main(app_handle, deadline, || unsafe { frontmost_pid_on_main() })?;
+        if frontmost != Some(attempt.pid) {
+            // A background host cannot promise a cooperative focus handoff.
+            // Native automation already requires explicit Accessibility access;
+            // use its target-specific focus attribute, never a synthetic click
+            // or an application launch, then independently observe the result.
+            activate_with_accessibility(attempt.pid, deadline)?;
+        }
+        attempt.accepted = true;
+    }
+    confirm_activation(attempt.pid, attempt.accepted, deadline, || {
+        activation_on_main(app_handle, deadline, || unsafe { frontmost_pid_on_main() })
+    })
+}
+
+fn accessibility_activation_timeout(deadline: Instant) -> Result<f32, String> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        Err(ACTIVATION_TIMEOUT.into())
+    } else {
+        // This is per AX object, not a mutation of the process-wide timeout.
+        Ok(remaining.min(Duration::from_millis(500)).as_secs_f32())
+    }
+}
+
+fn accessibility_activation_steps(
+    deadline: Instant,
+    mut can_set_frontmost: impl FnMut(f32) -> Result<bool, String>,
+    mut set_frontmost: impl FnMut(f32) -> Result<(), String>,
+) -> Result<(), String> {
+    if !can_set_frontmost(accessibility_activation_timeout(deadline)?)? {
+        return Err("That app does not allow its Accessibility focus attribute to be changed. Bring it forward manually and observe it again.".into());
+    }
+    // Recheck after the query: a slow target cannot receive new input after the
+    // shared activation deadline has expired.
+    set_frontmost(accessibility_activation_timeout(deadline)?)
+}
+
+fn activation_ax_result(result: i32, operation: &str) -> Result<(), String> {
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(format!("macOS Accessibility could not {operation} (error {result}). Observe the desktop and retry."))
+    }
+}
+
+fn activate_with_accessibility(pid: i32, deadline: Instant) -> Result<(), String> {
+    // Runs on the socket worker while the desktop-control permission/execution
+    // gate is held. No AX round-trip can block the native UI thread.
+    objc2::rc::autoreleasepool(|_| unsafe {
+        let application = OwnedCf::new(
+            AXUIElementCreateApplication(pid),
+            "Could not access that running app through Accessibility.",
+        )?;
+        let attribute_name = NSString::from_str("AXFrontmost");
+        let attribute = Retained::as_ptr(&attribute_name).cast();
+        accessibility_activation_steps(
+            deadline,
+            |timeout| {
+                activation_ax_result(
+                    AXUIElementSetMessagingTimeout(application.0, timeout),
+                    "set the target app's focus timeout",
+                )?;
+                let mut settable = 0;
+                activation_ax_result(
+                    AXUIElementIsAttributeSettable(application.0, attribute, &mut settable),
+                    "check the target app's focus support",
+                )?;
+                Ok(settable != 0)
+            },
+            |timeout| {
+                activation_ax_result(
+                    AXUIElementSetMessagingTimeout(application.0, timeout),
+                    "set the target app's focus timeout",
+                )?;
+                activation_ax_result(
+                    AXUIElementSetAttributeValue(application.0, attribute, kCFBooleanTrue),
+                    "focus the target app",
+                )
+            },
+        )
+    })
+}
+
+unsafe fn frontmost_pid_on_main() -> Result<Option<i32>, String> {
+    let class = AnyClass::get(c"NSWorkspace").ok_or("macOS workspace is unavailable.")?;
+    let workspace: Retained<AnyObject> = msg_send![class, sharedWorkspace];
+    let frontmost: Option<Retained<AnyObject>> = msg_send![&*workspace, frontmostApplication];
+    Ok(frontmost.map(|application| msg_send![&*application, processIdentifier]))
+}
+
+struct ActivationAttempt {
+    pid: i32,
+    accepted: bool,
+}
+
+unsafe fn activate_on_main(
+    pid: Option<i32>,
+    name: Option<&str>,
+) -> Result<ActivationAttempt, String> {
     let class =
         AnyClass::get(c"NSRunningApplication").ok_or("macOS app activation is unavailable.")?;
     let application: Retained<AnyObject> = if let Some(pid) = pid {
@@ -541,11 +687,34 @@ unsafe fn activate_on_main(pid: Option<i32>, name: Option<&str>) -> Result<Value
             .ok_or("That app is not running. Open it first or use a pid from windows.")?
     };
     let pid: i32 = msg_send![&*application, processIdentifier];
-    let activated: Bool = msg_send![&*application, activateWithOptions: 2usize];
-    if !activated.as_bool() {
-        return Err("macOS could not activate that app. Observe the desktop and retry.".into());
+    let app_class =
+        AnyClass::get(c"NSApplication").ok_or("macOS app activation is unavailable.")?;
+    let host: Retained<AnyObject> = msg_send![app_class, sharedApplication];
+    let current: Retained<AnyObject> = msg_send![class, currentApplication];
+    if frontmost_pid_on_main()? == Some(pid) {
+        return Ok(ActivationAttempt {
+            pid,
+            accepted: true,
+        });
     }
-    Ok(json!({"activated":true,"pid":pid}))
+    // macOS 14+ ignores activateIgnoringOtherApps. Give AppKit an explicit
+    // cooperative handoff from this host to the exact existing target. Never
+    // launch an app or use an unrelated app as the source of activation.
+    let can_yield: Bool =
+        msg_send![&*host, respondsToSelector: objc2::sel!(yieldActivationToApplication:)];
+    let can_activate_from: Bool =
+        msg_send![&*application, respondsToSelector: objc2::sel!(activateFromApplication:options:)];
+    let accepted: Bool = if can_yield.as_bool() && can_activate_from.as_bool() {
+        let _: () = msg_send![&*host, yieldActivationToApplication: &*application];
+        msg_send![&*application, activateFromApplication: &*current, options: 0usize]
+    } else {
+        // Older macOS has no cooperative API; keep the target-only request.
+        msg_send![&*application, activateWithOptions: 2usize]
+    };
+    Ok(ActivationAttempt {
+        pid,
+        accepted: accepted.as_bool(),
+    })
 }
 
 struct Captures {
@@ -570,44 +739,151 @@ impl Captures {
         Ok(())
     }
 }
-// Register access before accepting captures. Removing an entry also prevents an
-// already-authorized request from recreating storage after its grant is revoked.
-static CAPTURES: OnceLock<Mutex<HashMap<String, Option<Captures>>>> = OnceLock::new();
+impl Drop for Captures {
+    fn drop(&mut self) {
+        if let Err(error) = std::fs::remove_dir_all(&self.directory) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                eprintln!("Could not remove desktop screenshots: {error}");
+            }
+        }
+    }
+}
 
-pub(super) fn bind_session(session: &str) -> Result<(), String> {
-    CAPTURES
-        .get_or_init(|| Mutex::new(HashMap::new()))
+#[derive(Default)]
+struct CaptureSession {
+    revoked: AtomicBool,
+    cleanup_finished: AtomicBool,
+    captures: Mutex<Option<Captures>>,
+}
+
+impl CaptureSession {
+    fn require_active(&self) -> Result<(), String> {
+        if self.revoked.load(Ordering::Acquire) {
+            Err("Desktop screenshot session is unavailable.".into())
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[derive(Default)]
+struct CaptureRegistry {
+    active: HashMap<String, Arc<CaptureSession>>,
+    // Keep revoked scopes reachable until cleanup completes, so normal app exit
+    // also drains a capture revoked just before shutdown began.
+    retired: Vec<Arc<CaptureSession>>,
+}
+
+impl CaptureRegistry {
+    fn prune_finished(&mut self) {
+        self.retired
+            .retain(|session| !session.cleanup_finished.load(Ordering::Acquire));
+    }
+}
+
+type CaptureSessions = Mutex<CaptureRegistry>;
+// Keys are opaque grant generations, not task IDs or filesystem names. A stale
+// request cannot acquire a later grant for the same task after revoke/rebind.
+static CAPTURES: OnceLock<CaptureSessions> = OnceLock::new();
+
+pub(super) fn bind_session(scope: &str) -> Result<(), String> {
+    let mut sessions = CAPTURES
+        .get_or_init(CaptureSessions::default)
         .lock()
-        .map_err(|_| "Desktop screenshot storage is unavailable.")?
-        .entry(session.into())
-        .or_insert(None);
+        .map_err(|_| "Desktop screenshot storage is unavailable.")?;
+    sessions.prune_finished();
+    sessions
+        .active
+        .entry(scope.into())
+        .or_insert_with(|| Arc::new(CaptureSession::default()));
     Ok(())
 }
 
-fn remove_capture_directories(
-    sessions: &mut HashMap<String, Option<Captures>>,
-    session: Option<&str>,
-) {
-    sessions.retain(|id, captures| {
-        if session.is_some_and(|session| session != id) {
+fn revoke_capture_sessions(
+    sessions: &mut CaptureRegistry,
+    scope: Option<&str>,
+) -> Vec<Arc<CaptureSession>> {
+    sessions.prune_finished();
+    let mut revoked = Vec::new();
+    sessions.active.retain(|id, session| {
+        if scope.is_some_and(|scope| scope != id) {
             return true;
         }
-        if let Some(captures) = captures {
-            if let Err(error) = std::fs::remove_dir_all(&captures.directory) {
-                if error.kind() != std::io::ErrorKind::NotFound {
-                    eprintln!("Could not remove desktop screenshots: {error}");
-                }
-            }
-        }
+        session.revoked.store(true, Ordering::Release);
+        revoked.push(Arc::clone(session));
         false
     });
+    if scope.is_none() {
+        revoked.append(&mut sessions.retired);
+    } else {
+        sessions.retired.extend(revoked.iter().cloned());
+    }
+    revoked
 }
 
-pub(super) fn remove_captures(session: Option<&str>) {
+pub(super) fn remove_captures(scope: Option<&str>) {
     if let Some(sessions) = CAPTURES.get() {
-        let mut sessions = sessions.lock().unwrap_or_else(|error| error.into_inner());
-        remove_capture_directories(&mut sessions, session);
+        let revoked = {
+            let mut sessions = sessions.lock().unwrap_or_else(|error| error.into_inner());
+            revoke_capture_sessions(&mut sessions, scope)
+        };
+        // Never wait for capture, scaling, or filesystem cleanup in a UI
+        // bind/revoke callback. An in-flight capture owns its directory until
+        // it finishes, rejects its revoked result, then removes its files.
+        if scope.is_none() {
+            // Process exit must finish cleanup before the runtime disappears.
+            // Capture commands have bounded deadlines. Wait only here, after
+            // releasing the registry; ordinary revoke never waits for them.
+            finish_capture_cleanup(revoked);
+        } else if !revoked.is_empty() {
+            tauri::async_runtime::spawn_blocking(move || finish_capture_cleanup(revoked));
+        }
     }
+}
+
+fn finish_capture_cleanup(revoked: Vec<Arc<CaptureSession>>) {
+    for session in revoked {
+        let mut captures = session
+            .captures
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        // Keep this per-scope guard through deletion. A simultaneous shutdown
+        // must wait for the worker's cleanup, not just for it to take ownership.
+        drop(captures.take());
+        session.cleanup_finished.store(true, Ordering::Release);
+    }
+}
+
+fn with_captures<T>(
+    sessions: &CaptureSessions,
+    scope: &str,
+    work: impl FnOnce(&mut Captures) -> Result<T, String>,
+) -> Result<T, String> {
+    let session = sessions
+        .lock()
+        .map_err(|_| "Desktop screenshot storage is unavailable.")?
+        .active
+        .get(scope)
+        .cloned()
+        .ok_or("Desktop screenshot session is unavailable.")?;
+    let mut captures = session
+        .captures
+        .lock()
+        .map_err(|_| "Desktop screenshot storage is unavailable.")?;
+    session.require_active()?;
+    if captures.is_none() {
+        *captures = Some(Captures {
+            directory: capture_directory()?,
+            files: VecDeque::new(),
+        });
+    }
+    let result = work(
+        captures
+            .as_mut()
+            .ok_or("Desktop screenshot storage is unavailable.")?,
+    );
+    session.require_active()?;
+    result
 }
 
 fn capture_directory() -> Result<PathBuf, String> {
@@ -683,7 +959,7 @@ fn validate_capture_scale(pixels: (u32, u32), points: (u32, u32)) -> Result<(), 
 }
 
 fn screenshot(
-    session: &str,
+    scope: &str,
     window_id: Option<u32>,
     region: Option<Region>,
 ) -> Result<Value, String> {
@@ -704,90 +980,85 @@ fn screenshot(
     }
     let width = bounds.width as u32;
     let height = bounds.height as u32;
-    let mut sessions = CAPTURES
-        .get_or_init(|| Mutex::new(HashMap::new()))
-        .lock()
-        .map_err(|_| "Desktop screenshot storage is unavailable.")?;
-    let captures = sessions
-        .get_mut(session)
-        .ok_or("Desktop screenshot session is unavailable.")?;
-    if captures.is_none() {
-        *captures = Some(Captures {
-            directory: capture_directory()?,
-            files: VecDeque::new(),
-        });
-    }
-    let captures = captures
-        .as_mut()
-        .ok_or("Desktop screenshot storage is unavailable.")?;
-    let path = captures
-        .directory
-        .join(format!("{}.png", uuid::Uuid::new_v4()));
-    std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&path)
-        .map_err(|_| "Could not create a private screenshot file.")?;
-    let result = (|| {
-        // Spawn directly from Aven, so the responsible process for TCC is Aven.
-        let mut command = Command::new("/usr/sbin/screencapture");
-        command.args(["-x", "-o", "-t", "png"]);
-        if let Some(id) = window_id {
-            command.arg("-l").arg(id.to_string());
-        } else if region.is_some() {
-            command
-                .arg("-R")
-                .arg(format!("{},{},{},{}", bounds.x, bounds.y, width, height));
-        } else {
-            command.arg("-m");
-        }
-        run_image_command(command.arg(&path), "Screen capture")?;
-        if let Some(id) = window_id {
-            let current = window_bounds(id)?;
-            if current.x != bounds.x
-                || current.y != bounds.y
-                || current.width != bounds.width
-                || current.height != bounds.height
-            {
-                return Err("The window moved during capture. Take a new screenshot.".into());
+    with_captures(
+        CAPTURES.get_or_init(CaptureSessions::default),
+        scope,
+        |captures| {
+            let path = captures
+                .directory
+                .join(format!("{}.png", uuid::Uuid::new_v4()));
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&path)
+                .map_err(|_| "Could not create a private screenshot file.")?;
+            let result = (|| {
+                // Spawn directly from Aven, so the responsible process for TCC is Aven.
+                let mut command = Command::new("/usr/sbin/screencapture");
+                command.args(["-x", "-o", "-t", "png"]);
+                if let Some(id) = window_id {
+                    command.arg("-l").arg(id.to_string());
+                } else if region.is_some() {
+                    command
+                        .arg("-R")
+                        .arg(format!("{},{},{},{}", bounds.x, bounds.y, width, height));
+                } else {
+                    command.arg("-m");
+                }
+                run_image_command(command.arg(&path), "Screen capture")?;
+                if let Some(id) = window_id {
+                    let current = window_bounds(id)?;
+                    if current.x != bounds.x
+                        || current.y != bounds.y
+                        || current.width != bounds.width
+                        || current.height != bounds.height
+                    {
+                        return Err(
+                            "The window moved during capture. Take a new screenshot.".into()
+                        );
+                    }
+                }
+                let native_dimensions = png_dimensions(&path)?;
+                validate_capture_scale(native_dimensions, (width, height))?;
+                if native_dimensions != (width, height) {
+                    run_image_command(
+                        Command::new("/usr/bin/sips")
+                            .arg("-z")
+                            .arg(height.to_string())
+                            .arg(width.to_string())
+                            .arg(&path),
+                        "Screenshot scaling",
+                    )?;
+                }
+                if png_dimensions(&path)? != (width, height) {
+                    return Err(
+                        "Screenshot scaling returned unexpected dimensions. Retry the screenshot."
+                            .into(),
+                    );
+                }
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+                    .map_err(|_| "Could not protect the screenshot file.")?;
+                captures.retain(&path)?;
+                Ok(
+                    json!({"path":path,"width":width,"height":height,"originX":bounds.x,"originY":bounds.y}),
+                )
+            })();
+            if result.is_err() {
+                let _ = std::fs::remove_file(&path);
             }
-        }
-        let native_dimensions = png_dimensions(&path)?;
-        validate_capture_scale(native_dimensions, (width, height))?;
-        if native_dimensions != (width, height) {
-            run_image_command(
-                Command::new("/usr/bin/sips")
-                    .arg("-z")
-                    .arg(height.to_string())
-                    .arg(width.to_string())
-                    .arg(&path),
-                "Screenshot scaling",
-            )?;
-        }
-        if png_dimensions(&path)? != (width, height) {
-            return Err(
-                "Screenshot scaling returned unexpected dimensions. Retry the screenshot.".into(),
-            );
-        }
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
-            .map_err(|_| "Could not protect the screenshot file.")?;
-        captures.retain(&path)?;
-        Ok(json!({"path":path,"width":width,"height":height,"originX":bounds.x,"originY":bounds.y}))
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&path);
-    }
-    result
+            result
+        },
+    )
 }
 
-pub(super) fn execute(app: &AppHandle, session: &str, request: Request) -> Result<Value, String> {
+pub(super) fn execute(app: &AppHandle, scope: &str, request: Request) -> Result<Value, String> {
     match request {
         Request::Status {} => {
             Err("Status must be checked through the desktop control gate.".into())
         }
         Request::Windows {} => Ok(json!({"windows":windows()?})),
-        Request::Screenshot { window_id, region } => screenshot(session, window_id, region),
+        Request::Screenshot { window_id, region } => screenshot(scope, window_id, region),
         Request::Click {
             x,
             y,
@@ -894,29 +1165,245 @@ mod tests {
     fn removing_capture_directories_is_scoped_and_shutdown_removes_the_rest() {
         let first = capture_directory().unwrap();
         let second = capture_directory().unwrap();
-        let mut sessions = HashMap::new();
+        let mut sessions = CaptureRegistry::default();
         for (id, directory) in [("first", &first), ("second", &second)] {
             let path = directory.join("capture.png");
             std::fs::write(&path, b"test capture").unwrap();
-            sessions.insert(
+            sessions.active.insert(
                 id.into(),
-                Some(Captures {
-                    directory: directory.clone(),
-                    files: VecDeque::from([path]),
+                Arc::new(CaptureSession {
+                    revoked: AtomicBool::new(false),
+                    cleanup_finished: AtomicBool::new(false),
+                    captures: Mutex::new(Some(Captures {
+                        directory: directory.clone(),
+                        files: VecDeque::from([path]),
+                    })),
                 }),
             );
         }
-        sessions.insert("no-captures".into(), None);
-        remove_capture_directories(&mut sessions, Some("first"));
+        sessions
+            .active
+            .insert("no-captures".into(), Arc::new(CaptureSession::default()));
+        let removed = revoke_capture_sessions(&mut sessions, Some("first"));
+        assert!(
+            first.exists(),
+            "registry mutation must not perform filesystem cleanup"
+        );
+        assert!(!sessions.active.contains_key("first"));
+        finish_capture_cleanup(removed);
         assert!(!first.exists());
-        assert!(!sessions.contains_key("first"));
         assert!(second.join("capture.png").exists());
-        assert!(sessions.contains_key("no-captures"));
-        remove_capture_directories(&mut sessions, Some("first"));
-        remove_capture_directories(&mut sessions, None);
-        assert!(sessions.is_empty());
+        assert!(sessions.active.contains_key("no-captures"));
+        finish_capture_cleanup(revoke_capture_sessions(&mut sessions, Some("first")));
+        finish_capture_cleanup(revoke_capture_sessions(&mut sessions, None));
+        assert!(sessions.active.is_empty());
+        assert!(sessions.retired.is_empty());
         assert!(!second.exists());
     }
+
+    #[test]
+    fn blocked_capture_does_not_block_bind_or_revoke_and_cannot_publish_after_rebind() {
+        let sessions = Arc::new(Mutex::new(CaptureRegistry {
+            active: HashMap::from([("old-grant".into(), Arc::new(CaptureSession::default()))]),
+            ..CaptureRegistry::default()
+        }));
+        let (started_tx, started_rx) = mpsc::channel();
+        let (finish_tx, finish_rx) = mpsc::channel();
+        let capture_sessions = Arc::clone(&sessions);
+        let capture = std::thread::spawn(move || {
+            with_captures(&capture_sessions, "old-grant", |captures| {
+                let path = captures.directory.join("in-flight.png");
+                std::fs::write(&path, b"test capture").unwrap();
+                started_tx.send(path.clone()).unwrap();
+                finish_rx.recv().unwrap();
+                captures.retain(&path)?;
+                Ok(path)
+            })
+        });
+        let old_path = started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let (revoked_tx, revoked_rx) = mpsc::channel();
+        let revoke_sessions = Arc::clone(&sessions);
+        let revoke = std::thread::spawn(move || {
+            let removed = {
+                let mut sessions = revoke_sessions.lock().unwrap();
+                sessions
+                    .active
+                    .insert("other-task".into(), Arc::new(CaptureSession::default()));
+                let removed = revoke_capture_sessions(&mut sessions, Some("old-grant"));
+                sessions
+                    .active
+                    .insert("new-grant".into(), Arc::new(CaptureSession::default()));
+                removed
+            };
+            // Revocation finishes without waiting for this cleanup job.
+            revoked_tx.send(removed).unwrap();
+        });
+        let promptly_revoked = revoked_rx.recv_timeout(Duration::from_secs(2));
+        // Always release the fake slow command, including when this regression
+        // fails, so the test cannot leave a blocked worker behind.
+        finish_tx.send(()).unwrap();
+        let result = capture.join().unwrap();
+        revoke.join().unwrap();
+        let removed = promptly_revoked.expect("bind/revoke waited for the in-flight capture");
+        finish_capture_cleanup(removed);
+        assert!(result.unwrap_err().contains("session is unavailable"));
+        assert!(!old_path.parent().unwrap().exists());
+        assert!(with_captures(&sessions, "old-grant", |_| Ok(())).is_err());
+        let new_path = with_captures(&sessions, "new-grant", |captures| {
+            Ok(captures.directory.clone())
+        })
+        .unwrap();
+        assert!(new_path.exists());
+        assert_ne!(old_path.parent().unwrap(), new_path);
+        drop(sessions);
+        assert!(!new_path.exists());
+    }
+
+    #[test]
+    fn shutdown_drains_previously_revoked_in_flight_captures_even_before_cleanup_worker_starts() {
+        let sessions = Arc::new(Mutex::new(CaptureRegistry {
+            active: HashMap::from([("shutdown-grant".into(), Arc::new(CaptureSession::default()))]),
+            ..CaptureRegistry::default()
+        }));
+        let (started_tx, started_rx) = mpsc::channel();
+        let (finish_tx, finish_rx) = mpsc::channel();
+        let capture_sessions = Arc::clone(&sessions);
+        let capture = std::thread::spawn(move || {
+            with_captures(&capture_sessions, "shutdown-grant", |captures| {
+                let path = captures.directory.join("in-flight.png");
+                std::fs::write(&path, b"test capture").unwrap();
+                started_tx.send(path).unwrap();
+                finish_rx.recv().unwrap();
+                Ok(())
+            })
+        });
+        let path = started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let queued_cleanup =
+            revoke_capture_sessions(&mut sessions.lock().unwrap(), Some("shutdown-grant"));
+        // Simulate the blocking pool not starting the prior revoke's job yet.
+        assert_eq!(sessions.lock().unwrap().retired.len(), 1);
+        let revoked = revoke_capture_sessions(&mut sessions.lock().unwrap(), None);
+        assert!(sessions.lock().unwrap().active.is_empty());
+        assert!(sessions.lock().unwrap().retired.is_empty());
+        let shutdown = std::thread::spawn(move || finish_capture_cleanup(revoked));
+        finish_tx.send(()).unwrap();
+        shutdown.join().unwrap();
+        // Shutdown owns cleanup even if another Arc survives until this join.
+        assert!(!path.parent().unwrap().exists());
+        assert!(capture.join().unwrap().is_err());
+        finish_capture_cleanup(queued_cleanup);
+        assert!(!path.parent().unwrap().exists());
+    }
+
+    #[test]
+    fn accessibility_focus_does_not_write_when_target_refuses_or_query_fails() {
+        for query in [Ok(false), Err("query failed".into())] {
+            let result = accessibility_activation_steps(
+                Instant::now() + Duration::from_secs(1),
+                |_| query.clone(),
+                |_| panic!("focus must not be written without target support"),
+            );
+            assert!(result.is_err());
+        }
+        let result = accessibility_activation_steps(
+            Instant::now() + Duration::from_secs(1),
+            |timeout| {
+                assert!(timeout > 0.0 && timeout <= 0.5);
+                Ok(true)
+            },
+            |timeout| {
+                assert!(timeout > 0.0 && timeout <= 0.5);
+                Err("focus denied".into())
+            },
+        );
+        assert_eq!(result.unwrap_err(), "focus denied");
+    }
+
+    #[test]
+    fn accessibility_focus_rechecks_deadline_before_writing() {
+        let result = accessibility_activation_steps(
+            Instant::now() + Duration::from_millis(10),
+            |_| {
+                std::thread::sleep(Duration::from_millis(20));
+                Ok(true)
+            },
+            |_| panic!("expired request must not change focus"),
+        );
+        assert_eq!(result.unwrap_err(), ACTIVATION_TIMEOUT);
+        assert_eq!(
+            accessibility_activation_steps(
+                Instant::now(),
+                |_| panic!("expired request must not query the target"),
+                |_| panic!("expired request must not change focus"),
+            )
+            .unwrap_err(),
+            ACTIVATION_TIMEOUT,
+        );
+    }
+
+    #[test]
+    fn accessibility_focus_success_still_requires_foreground_confirmation() {
+        accessibility_activation_steps(
+            Instant::now() + Duration::from_secs(1),
+            |_| Ok(true),
+            |_| Ok(()),
+        )
+        .unwrap();
+        let result =
+            confirm_activation(10, true, Instant::now() + Duration::from_millis(10), || {
+                Ok(Some(20))
+            });
+        assert_eq!(result.unwrap_err(), ACTIVATION_TIMEOUT);
+    }
+
+    #[test]
+    fn activation_success_requires_observed_foreground_not_an_accepted_request() {
+        let mut observations = VecDeque::from([Some(20), None, Some(10)]);
+        let result = confirm_activation(10, true, Instant::now() + Duration::from_secs(1), || {
+            Ok(observations
+                .pop_front()
+                .expect("unexpected extra observation"))
+        })
+        .unwrap();
+        assert!(observations.is_empty());
+        assert_eq!(result, json!({"activated":true,"pid":10}));
+    }
+
+    #[test]
+    fn activation_refusal_never_reports_success_for_the_wrong_app() {
+        let error = confirm_activation(10, false, Instant::now() + Duration::from_secs(1), || {
+            Ok(Some(20))
+        })
+        .unwrap_err();
+        assert_eq!(error, ACTIVATION_REFUSED);
+        // The requested app may already be active even when no new activation
+        // request was accepted; observed focus remains the success criterion.
+        assert!(
+            confirm_activation(10, false, Instant::now() + Duration::from_secs(1), || {
+                Ok(Some(10))
+            })
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn activation_deadline_stops_observing_and_propagates_observation_failure() {
+        assert_eq!(
+            confirm_activation(10, true, Instant::now(), || panic!(
+                "expired activation observed"
+            ))
+            .unwrap_err(),
+            ACTIVATION_TIMEOUT,
+        );
+        assert_eq!(
+            confirm_activation(10, true, Instant::now() + Duration::from_secs(1), || {
+                Err("native observation failed".into())
+            })
+            .unwrap_err(),
+            "native observation failed",
+        );
+    }
+
     #[test]
     fn unicode_chunks_preserve_surrogate_pairs_and_bound_event_payloads() {
         let text = format!("{}😀é{}", "x".repeat(19), "文".repeat(45));

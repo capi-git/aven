@@ -114,7 +114,6 @@ import {
   type DetachedWorkspaceState,
   type WorkspaceDropPoint,
 } from "./lib/detachedWorkspaces";
-import { flushWorkspaceDrafts } from "./lib/workspaceDraftFlush";
 import { useWorkspaceHeaderKeys } from "./hooks/useWorkspaceHeaderKeys";
 import { requestAddToChat } from "./lib/quoteDraft";
 import {
@@ -143,6 +142,7 @@ import {
 } from "./lib/personalWorkspace";
 import {
   loadDefaultRuntimeMode,
+  subscribeDefaultRuntimeMode,
   saveDefaultRuntimeMode,
 } from "./lib/runtimeMode";
 import { ApprovalToasts } from "./chrome/ApprovalToasts";
@@ -583,7 +583,6 @@ import {
   closeBusyWindow,
   hasInFlightSessions,
   hideCurrentWindow,
-  closeCurrentWindow,
   isAppQuitting,
   persistLiveTranscripts,
   persistQuitState,
@@ -892,7 +891,11 @@ export default function App({
     null,
   );
   const [prAnchor, setPrAnchor] = useState<HTMLButtonElement | null>(null);
-  const [defaultAccess, setDefaultAccess] = useState(loadDefaultRuntimeMode);
+  const defaultAccess = useSyncExternalStore(
+    subscribeDefaultRuntimeMode,
+    loadDefaultRuntimeMode,
+    loadDefaultRuntimeMode,
+  );
   const openWorkspaceAction = useCallback((kind: WorkspaceActionKind) => {
     const current = profilesRef.current;
     setAddProjectAnchor(null);
@@ -2177,20 +2180,9 @@ export default function App({
           void hideCurrentWindow();
           return;
         }
-        void flushWorkspaceDrafts()
-          .then(() =>
-            persistQuitState(
-              sessionsRef.current,
-              tabsRef.current,
-              activeTabIdRef.current,
-              projectCwdRef.current,
-              "unload",
-              projectTerminalsRef.current,
-            ),
-          )
-          .finally(() => {
-            void closeCurrentWindow();
-          });
+        // The red close button is an explicit, cancellable close, not a
+        // best-effort unload. Keep this renderer and its drafts if saving fails.
+        void closeBusyWindow();
       })
       .then((fn) => {
         unlistenClose = fn;
@@ -5430,7 +5422,6 @@ export default function App({
   const onRuntimeModeChange = useCallback(
     (sessionId: string, runtimeMode: RuntimeMode) => {
       saveDefaultRuntimeMode(runtimeMode);
-      setDefaultAccess(runtimeMode);
       setSessions((prev) =>
         prev.map((s) => (s.id === sessionId ? { ...s, runtimeMode } : s)),
       );
@@ -8868,7 +8859,6 @@ export default function App({
                 : (active?.runtimeMode ?? defaultAccess)
             }
             onAccessModeChange={(mode) => {
-              setDefaultAccess(mode);
               saveDefaultRuntimeMode(mode);
               if (!profileHome && active) onRuntimeModeChange(active.id, mode);
             }}

@@ -511,7 +511,9 @@ fn global_point(x: f64, y: f64, window: Option<Region>) -> Result<(f64, f64), St
     Ok((x, y))
 }
 
-pub(crate) fn execute(app: &AppHandle, session: &str, request: Request) -> Result<Value, String> {
+// The opaque scope identifies one authenticated grant generation. It must never
+// appear in diagnostics, responses, or screenshot paths.
+pub(crate) fn execute(app: &AppHandle, scope: &str, request: Request) -> Result<Value, String> {
     let _guard = CONTROL_LOCK.try_lock().map_err(|_| "Desktop control is busy. Wait for the current action or Settings prompt to finish, then retry.")?;
     // Every request reads the native switch. Status only reports readiness;
     // observation and input never reach the OS while access for that action is
@@ -525,15 +527,15 @@ pub(crate) fn execute(app: &AppHandle, session: &str, request: Request) -> Resul
         return serde_json::to_value(status).map_err(|error| error.to_string());
     }
     require_action_access(&status, &request)?;
-    platform::execute(app, session, request)
+    platform::execute(app, scope, request)
 }
 
-pub(crate) fn bind_session(session: &str) -> Result<(), String> {
-    platform::bind_session(session)
+pub(crate) fn bind_session(scope: &str) -> Result<(), String> {
+    platform::bind_session(scope)
 }
 
-pub(crate) fn remove_session_captures(session: &str) {
-    platform::remove_captures(Some(session));
+pub(crate) fn remove_session_captures(scope: &str) {
+    platform::remove_captures(Some(scope));
 }
 
 pub(crate) fn shutdown() {

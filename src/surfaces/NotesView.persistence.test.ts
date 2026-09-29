@@ -3,6 +3,8 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { NotesView } from "./NotesView";
+import { getNoteDraft } from "../lib/noteDrafts";
+import { flushWorkspaceDrafts } from "../lib/workspaceDraftFlush";
 
 const notesMock = vi.hoisted(() => ({
   loadNotes: vi.fn(),
@@ -48,6 +50,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await act(async () => root.unmount());
+  await getNoteDraft(note).remove(() => {});
   container.remove();
   vi.resetAllMocks();
   vi.unstubAllGlobals();
@@ -59,7 +62,7 @@ function deleteButton() {
   )!;
 }
 
-async function editTitle(value: string) {
+async function editTitle(value: string, blur = true) {
   const title = container.querySelector<HTMLInputElement>(
     'input[aria-label="Note title"]',
   )!;
@@ -71,8 +74,119 @@ async function editTitle(value: string) {
     )!.set!.call(title, value);
     title.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  await act(async () => title.blur());
+  if (blur) await act(async () => title.blur());
 }
+
+it("awaits an active note's last edit during the workspace shutdown flush", async () => {
+  let finish!: (value: typeof note) => void;
+  notesMock.upsertNote.mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  await editTitle("Last edit before quitting", false);
+  let finished = false;
+  let flushing!: Promise<void>;
+  await act(async () => {
+    flushing = flushWorkspaceDrafts().then(() => {
+      finished = true;
+    });
+  });
+  expect(notesMock.upsertNote).toHaveBeenCalledWith(
+    expect.objectContaining({ title: "Last edit before quitting" }),
+  );
+  expect(finished).toBe(false);
+  await act(async () => {
+    finish({ ...note, title: "Last edit before quitting" });
+    await flushing;
+  });
+  expect(finished).toBe(true);
+});
+
+it("shows save errors and rejects the shutdown flush until the note saves", async () => {
+  notesMock.upsertNote.mockRejectedValue(new Error("Disk unavailable"));
+  await editTitle("Keep this edit", false);
+  await act(async () => {
+    await expect(flushWorkspaceDrafts()).rejects.toThrow("Disk unavailable");
+  });
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+    "Disk unavailable",
+  );
+  notesMock.upsertNote.mockImplementation(async (value) => ({
+    ...note,
+    ...value,
+  }));
+  await act(async () => {
+    await flushWorkspaceDrafts();
+  });
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+});
+
+it("reopens a pending draft instead of the old parent value", async () => {
+  let finish!: (value: typeof note) => void;
+  notesMock.upsertNote.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  await editTitle("Newer title");
+  // Remount before the save completes; loadNotes still returns the old record.
+  await act(async () =>
+    root.render(
+      createElement(NotesView, { key: "reopened", onClose: vi.fn() }),
+    ),
+  );
+  expect(
+    container.querySelector<HTMLInputElement>('input[aria-label="Note title"]')
+      ?.value,
+  ).toBe("Newer title");
+  await act(async () => {
+    finish({ ...note, title: "Newer title" });
+  });
+  await act(async () => {
+    await flushWorkspaceDrafts();
+  });
+  expect(notesMock.upsertNote).toHaveBeenCalledTimes(1);
+  expect(
+    container.querySelector<HTMLInputElement>('input[aria-label="Note title"]')
+      ?.value,
+  ).toBe("Newer title");
+});
+
+it("updates the note list when a save finishes while another note is selected", async () => {
+  const second = { ...note, id: "second-note", title: "Second" };
+  notesMock.loadNotes.mockResolvedValue([note, second]);
+  await act(async () =>
+    root.render(
+      createElement(NotesView, { key: "two-notes", onClose: vi.fn() }),
+    ),
+  );
+  let finish!: (value: typeof note) => void;
+  notesMock.upsertNote.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  await editTitle("Saved in background");
+  await act(async () =>
+    container
+      .querySelector<HTMLButtonElement>('button[title="Second"]')!
+      .click(),
+  );
+  await act(async () => {
+    finish({ ...note, title: "Saved in background" });
+  });
+  await act(async () =>
+    container
+      .querySelector<HTMLButtonElement>('button[title="Saved in background"]')!
+      .click(),
+  );
+  expect(
+    container.querySelector<HTMLInputElement>('input[aria-label="Note title"]')
+      ?.value,
+  ).toBe("Saved in background");
+  expect(notesMock.upsertNote).toHaveBeenCalledTimes(1);
+});
 
 it("continues saving edits after a note deletion fails", async () => {
   notesMock.deleteNote.mockRejectedValue(new Error("Storage unavailable"));

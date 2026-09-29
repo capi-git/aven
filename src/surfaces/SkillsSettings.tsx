@@ -23,10 +23,11 @@ import {
   type AgentToolStatus,
   type DesktopControlStatus,
 } from "../lib/agentTools";
-import { Select, SettingsGroup, Toggle } from "./SettingsControls";
+import { Segmented, Select, SettingsGroup, Toggle } from "./SettingsControls";
 import "./SkillsSettings.css";
 
 type InspectableSkill = FileSkill | BuiltinSkill;
+type SkillSource = "all" | "project" | "personal" | "builtin";
 const skillSourceLabel = (skill: InspectableSkill) =>
   skill.source === "monocode" ? "Aven" : skill.source;
 const DESKTOP_STATE = {
@@ -45,9 +46,7 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
   const [skillsError, setSkillsError] = useState("");
   const [skillsLoading, setSkillsLoading] = useState(true);
   const [query, setQuery] = useState("");
-  const [source, setSource] = useState<
-    "all" | "project" | "personal" | "builtin"
-  >("all");
+  const [source, setSource] = useState<SkillSource>("all");
   const [tools, setTools] = useState<AgentToolStatus | null>(null);
   const [toolsLoading, setToolsLoading] = useState(true);
   const [toolsError, setToolsError] = useState("");
@@ -142,9 +141,7 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
   const showError = (error: unknown) =>
     setNotice(error instanceof Error ? error.message : String(error));
 
-  const updateDesktop = async (
-    action: () => Promise<DesktopControlStatus>,
-  ) => {
+  const updateDesktop = async (action: () => Promise<DesktopControlStatus>) => {
     if (desktopBusyRef.current) return;
     desktopBusyRef.current = true;
     // A read started before this user action must not restore an old switch.
@@ -174,9 +171,6 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
         (permission) => permission.required && !permission.granted,
       )
     : [];
-  const canObserve = desktop?.enabled && desktop.permissions.some(
-    (permission) => permission.name === "Screen Recording" && permission.granted,
-  );
   const sourceCounts = {
     all: skills.length,
     project: skills.filter(
@@ -187,13 +181,20 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
     ).length,
     builtin: skills.filter((skill) => skill.kind === "builtin").length,
   };
+  // A refreshed catalog can remove a source entirely. Never leave an invisible
+  // filter selected, hiding the remaining skills with no way to clear it.
+  const activeSource = sourceCounts[source] ? source : "all";
+  useEffect(() => {
+    if (!skillsLoading && catalog?.cwd === cwd && activeSource !== source)
+      setSource(activeSource);
+  }, [activeSource, source, skillsLoading, catalog?.cwd, cwd]);
   const visible = filtered.filter((skill) =>
-    source === "all"
+    activeSource === "all"
       ? true
-      : source === "builtin"
+      : activeSource === "builtin"
         ? skill.kind === "builtin"
         : skill.kind === "file" &&
-          (source === "personal") === (skill.scope === "user"),
+          (activeSource === "personal") === (skill.scope === "user"),
   );
   const projectName = cwd ? cwd.split("/").filter(Boolean).pop() : null;
 
@@ -233,25 +234,20 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
           id={settingSearchAnchor("Desktop control")}
           tabIndex={-1}
         >
-          <div className="skills-tool-heading">
-            <h3>Desktop control</h3>
-            <span
-              className="skills-status"
-              data-state={desktop?.state ?? "neutral"}
-            >
-              {toolsLoading
-                ? "Checking…"
-                : desktop
-                  ? DESKTOP_STATE[desktop.state]
-                  : "Not checked"}
-            </span>
-          </div>
-          <p>
-            Agents can see and operate Mac apps, including Aven, when you ask
-            them to. Desktop control is built into Aven and off by default.
-          </p>
-          <div className="skills-tool-heading skills-desktop-switch">
-            <span>Let agents see and use apps on this Mac</span>
+          <div className="skills-tool-heading skills-desktop-heading">
+            <div className="skills-desktop-title">
+              <h3>Desktop control</h3>
+              <span
+                className="skills-status"
+                data-state={desktop?.state ?? "neutral"}
+              >
+                {toolsLoading
+                  ? "Checking…"
+                  : desktop
+                    ? DESKTOP_STATE[desktop.state]
+                    : "Not checked"}
+              </span>
+            </div>
             <Toggle
               label="Let agents see and use apps on this Mac"
               on={desktop?.enabled ?? false}
@@ -266,27 +262,76 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
               }
             />
           </div>
-          <p className="skills-note">
+          <p>
             {desktop?.state === "unsupported"
               ? "Desktop control requires the Aven app on macOS."
-              : "Turn it on to let macOS ask for Screen Recording and Accessibility, with Aven listed by name."}
+              : "Let agents see and use apps on this Mac when you ask. Off by default."}
           </p>
           {missingPermissions.length ? (
             <p className="skills-note">
-              macOS needs to allow{" "}
-              {missingPermissions
-                .map((permission) => permission.name)
-                .join(" and ")}
-              {" "}for Aven. Choose Allow to request each permission.
+              Choose Allow to request macOS permissions, with Aven listed by
+              name.
             </p>
           ) : null}
-          {canObserve && missingPermissions.some((permission) => permission.name === "Accessibility") ? (
-            <p className="skills-note">
-              Agents can already view windows and take screenshots. Allow Accessibility
-              to also click, type, and control apps.
-            </p>
+          {desktop?.enabled && desktop.permissions.length ? (
+            <ul className="skills-permissions" aria-label="macOS permissions">
+              {desktop.permissions.map((permission) => (
+                <li key={permission.name}>
+                  <div className="skills-permission-copy">
+                    <strong>{permission.name}</strong>
+                    <span>
+                      {permission.name === "Accessibility"
+                        ? "Click, type, and control apps"
+                        : "View windows and take screenshots"}
+                    </span>
+                  </div>
+                  {permission.granted ? (
+                    <span className="skills-permission-granted">Granted</span>
+                  ) : permission.required ? (
+                    <div className="skills-permission-actions">
+                      <button
+                        type="button"
+                        className="settings-button"
+                        aria-label={`Allow ${permission.name}`}
+                        disabled={toolsLoading || desktopBusy}
+                        onClick={() =>
+                          void updateDesktop(() =>
+                            requestDesktopPermission(
+                              permission.name === "Accessibility"
+                                ? "accessibility"
+                                : "screenRecording",
+                            ),
+                          )
+                        }
+                      >
+                        Allow
+                      </button>
+                      <button
+                        type="button"
+                        className="settings-button"
+                        aria-label={`Open ${permission.name} settings`}
+                        disabled={toolsLoading || desktopBusy}
+                        onClick={() =>
+                          void openComputerUseSettings(
+                            permission.name === "Accessibility"
+                              ? "accessibility"
+                              : "screenRecording",
+                          ).catch(showError)
+                        }
+                      >
+                        Settings…
+                      </button>
+                    </div>
+                  ) : (
+                    <span>Optional</span>
+                  )}
+                </li>
+              ))}
+            </ul>
           ) : null}
-          {missingPermissions.some((permission) => permission.name === "Screen Recording") ? (
+          {missingPermissions.some(
+            (permission) => permission.name === "Screen Recording",
+          ) ? (
             <p className="skills-note">
               macOS may ask you to quit and reopen Aven after allowing Screen
               Recording.
@@ -298,40 +343,6 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
             </p>
           ) : null}
           <div className="skills-actions">
-            {missingPermissions.map((permission) => (
-              <div className="skills-permission-actions" key={permission.name}>
-                <button
-                  type="button"
-                  className="settings-button"
-                  disabled={toolsLoading || desktopBusy}
-                  onClick={() =>
-                    void updateDesktop(() =>
-                      requestDesktopPermission(
-                        permission.name === "Accessibility"
-                          ? "accessibility"
-                          : "screenRecording",
-                      ),
-                    )
-                  }
-                >
-                  Allow {permission.name}
-                </button>
-                <button
-                  type="button"
-                  className="settings-button"
-                  disabled={toolsLoading || desktopBusy}
-                  onClick={() =>
-                    void openComputerUseSettings(
-                      permission.name === "Accessibility"
-                        ? "accessibility"
-                        : "screenRecording",
-                    ).catch(showError)
-                  }
-                >
-                  Open {permission.name} settings
-                </button>
-              </div>
-            ))}
             <button
               type="button"
               className="settings-button"
@@ -391,33 +402,25 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
             New skill
           </button>
         </div>
-        <div
-          className="skills-filters"
-          role="radiogroup"
-          aria-label="Skill source"
-        >
-          {(
-            [
-              ["all", "All"],
-              ["project", "Project"],
-              ["personal", "Personal"],
-              ["builtin", "Built in"],
-            ] as const
-          ).map(([value, label]) =>
-            value === "all" || sourceCounts[value] ? (
-              <button
-                key={value}
-                type="button"
-                role="radio"
-                aria-checked={source === value}
-                className="skills-filter"
-                onClick={() => setSource(value)}
-              >
-                {label}
-                <span>{sourceCounts[value]}</span>
-              </button>
-            ) : null,
-          )}
+        <div className="skills-filters">
+          <Segmented<SkillSource>
+            label="Skill source"
+            value={activeSource}
+            onChange={setSource}
+            options={(
+              [
+                ["all", "All"],
+                ["project", "Project"],
+                ["personal", "Personal"],
+                ["builtin", "Built in"],
+              ] as const
+            )
+              .filter(([value]) => value === "all" || sourceCounts[value])
+              .map(([value, label]) => ({
+                value,
+                label: `${label} ${sourceCounts[value]}`,
+              }))}
+          />
         </div>
         {skillsError ? (
           <p className="skills-error" role="alert">

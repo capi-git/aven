@@ -41,7 +41,7 @@ import { AccessPicker } from "../chrome/AccessPicker";
 import {
   loadDefaultRuntimeMode,
   saveDefaultRuntimeMode,
-  type RuntimeMode,
+  subscribeDefaultRuntimeMode,
 } from "../lib/runtimeMode";
 import { InboxProviderMark } from "../chrome/InboxProviderMark";
 import { RemoveProjectDialog } from "../chrome/RemoveProjectDialog";
@@ -555,11 +555,11 @@ function PreferencesPage({
   page: PreferencesSection;
   onOpenWhatsNew: (version: string) => void;
 }) {
-  const [defaultAccess, setDefaultAccess] = useState(loadDefaultRuntimeMode);
-  const onDefaultAccess = (mode: RuntimeMode) => {
-    saveDefaultRuntimeMode(mode);
-    setDefaultAccess(mode);
-  };
+  const defaultAccess = useSyncExternalStore(
+    subscribeDefaultRuntimeMode,
+    loadDefaultRuntimeMode,
+    loadDefaultRuntimeMode,
+  );
   const [transcriptLayout, setTranscriptLayout] =
     useState<TranscriptLayout>(loadTranscriptLayout);
   const [transcriptAnchor, setTranscriptAnchor] =
@@ -888,7 +888,7 @@ function PreferencesPage({
           label="Default task access"
           description="Applies to new tasks. Existing tasks keep their own access setting."
         >
-          <AccessPicker value={defaultAccess} onChange={onDefaultAccess} />
+          <AccessPicker value={defaultAccess} onChange={saveDefaultRuntimeMode} />
         </Row>
         <Row
           label="Follow-up behavior"
