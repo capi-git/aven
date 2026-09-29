@@ -10,6 +10,8 @@ python3 -m http.server 4179 --directory docs/design/tab-workspace
 
 Then open `http://localhost:4179/` in Aven. The page works without dependencies or network assets.
 
+The selected implementation uses a compact shared strip with visible titles. Icon-only/minimized tabs remain an archived mock direction; that mode has been removed from the app.
+
 ## Directions
 
 | Mock | Placement idea | Main tradeoff |

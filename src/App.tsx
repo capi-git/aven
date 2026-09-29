@@ -578,7 +578,6 @@ import {
 } from "./lib/workspaceSnapshot";
 import { readComposerDraft, subscribeComposerDrafts } from "./lib/composerDrafts";
 import type { InstalledUpdate } from "./lib/updateNotice";
-import { previewLines } from "./lib/promptOutline";
 import {
   bindResumedSessions,
   closeBusyWindow,
@@ -7340,24 +7339,6 @@ export default function App({
     [onOpenApprovalSession],
   );
 
-  // Read on demand by a minimized tab's hover card, so streaming replies
-  // don't re-render the tab strip.
-  const describeTitleTab = useCallback((tabId: string) => {
-    const tab = tabsRef.current.find((entry) => entry.id === tabId);
-    if (!tab) return undefined;
-    const ids = leafIds(tab.layout);
-    const sessionId = ids.includes(tab.focusedId) ? tab.focusedId : ids[0];
-    const session = sessionsRef.current.find((entry) => entry.id === sessionId);
-    if (!session) return undefined;
-    for (let index = session.blocks.length - 1; index >= 0; index -= 1) {
-      const block = session.blocks[index];
-      if (block?.role !== "assistant") continue;
-      const lines = previewLines(block.text, 2);
-      if (lines.length > 0) return lines.join(" ");
-    }
-    return undefined;
-  }, []);
-
   const nextTitleTabs: TitleTab[] = deckProjectTabs.map((tab) =>
     toTitleTab(tab, sessions, dirtyFiles),
   );
@@ -9226,10 +9207,8 @@ export default function App({
                                       members.includes(tab.id),
                                     )}
                                     totalSessionTabs={titleTabs.length}
-                                    describeTab={describeTitleTab}
                                     onOpenRaceOverview={openRaceOverview}
                                     paneLocal
-                                    splitPanes={visibleSurfaceIds.length > 1}
                                     windowToolbar={unifiedWorkspaceTabs}
                                     paneFocused={owner === view.focusedId}
                                     activeId={owner}

@@ -444,61 +444,6 @@
   outline-offset: -2px;
 }
 
-.aven-popover-frame:has(> .personal-tab-card) {
-  border: 0;
-  border-radius: 8px;
-  box-shadow: 0 6px 18px #00000020;
-}
-.personal-tab-card-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11.5px;
-  color: color-mix(in srgb, var(--color-content) 80%, transparent);
-}
-.personal-tab-card-status::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: var(--color-accent);
-}
-.personal-tab-card-status[data-tone="attention"] {
-  color: var(--color-warning, #d99c45);
-}
-.personal-tab-card-status[data-tone="attention"]::before {
-  background: currentColor;
-}
-
-/* Minimized tabs: inactive tabs show only their icon. Last in the file so it
-   overrides the browser tab padding rules above. */
-.personal-shell .personal-title-tab-slot[data-minimized="true"],
-.personal-shell .personal-title-browser-tab[data-minimized="true"] {
-  flex: 0 0 30px;
-  width: 30px;
-  min-width: 30px;
-  max-width: 30px;
-}
-.personal-shell
-  :is(.personal-title-tab, .personal-title-browser-tab)[data-minimized="true"]
-  .personal-title-tab-button {
-  justify-content: center;
-  gap: 0;
-  padding-inline: 0;
-}
-.personal-shell
-  :is(.personal-title-tab, .personal-title-browser-tab)[data-minimized="true"]
-  :is(
-    .personal-title-tab-text,
-    .personal-title-tab-label,
-    .personal-title-tab-visible,
-    .personal-title-tab-close,
-    .personal-title-browser-menu
-  ) {
-  display: none;
-}
-
 /* User tab groups: a coloured label ahead of the group's tabs and a matching
    underline beneath them. The count shows only while the group is folded. */
 .personal-shell .personal-tab-group-slot {

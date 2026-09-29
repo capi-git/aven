@@ -309,47 +309,6 @@ export function subscribeBrowserMemorySaver(onChange: () => void) {
   };
 }
 
-const MINIMIZED_TABS_KEY = "aven.minimizedTabs";
-const MINIMIZED_TABS_CHANGE_EVENT = "aven:minimized-tabs-change";
-
-/** Show inactive workspace tabs as icons; the active tab keeps its title. */
-export const MINIMIZED_TABS_DEFAULT = false;
-
-export function loadMinimizedTabs(): boolean {
-  try {
-    const raw = localStorage.getItem(MINIMIZED_TABS_KEY);
-    if (raw === "1" || raw === "true") return true;
-    if (raw === "0" || raw === "false") return false;
-    return MINIMIZED_TABS_DEFAULT;
-  } catch {
-    return MINIMIZED_TABS_DEFAULT;
-  }
-}
-
-export function saveMinimizedTabs(value: boolean) {
-  try {
-    localStorage.setItem(MINIMIZED_TABS_KEY, value ? "1" : "0");
-  } catch {
-    // private mode / quota
-  }
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event(MINIMIZED_TABS_CHANGE_EVENT));
-  }
-}
-
-export function subscribeMinimizedTabs(onChange: () => void) {
-  if (typeof window === "undefined") return () => {};
-  const onStorage = (event: StorageEvent) => {
-    if (!event.key || event.key === MINIMIZED_TABS_KEY) onChange();
-  };
-  window.addEventListener(MINIMIZED_TABS_CHANGE_EVENT, onChange);
-  window.addEventListener("storage", onStorage);
-  return () => {
-    window.removeEventListener(MINIMIZED_TABS_CHANGE_EVENT, onChange);
-    window.removeEventListener("storage", onStorage);
-  };
-}
-
 const BROWSER_LOW_MEMORY_KEY = "aven.browserLowMemory";
 const BROWSER_LOW_MEMORY_CHANGE_EVENT = "aven:browser-low-memory-change";
 
