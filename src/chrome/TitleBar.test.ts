@@ -299,6 +299,26 @@ describe("browser tab integration", () => {
     await act(async () => button.click());
   }
 
+  const surfaceTabButton = (id: string) =>
+    container.querySelector<HTMLButtonElement>(
+      `[data-surface-tab-id="${id}"] [role="tab"]`,
+    )!;
+
+  async function keydown(
+    node: HTMLElement,
+    key: string,
+    options: KeyboardEventInit = {},
+  ) {
+    const event = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key,
+      ...options,
+    });
+    await act(async () => node.dispatchEvent(event));
+    return event;
+  }
+
   async function mouseDown(target: Element, button = 0, detail = 1) {
     const event = new MouseEvent("mousedown", {
       button,
@@ -906,6 +926,31 @@ describe("browser tab integration", () => {
       expect(drawn()).toEqual(["a", "[Docs]", "b", "web-a", "c"]);
     });
 
+    it("preserves group controls and skips folded members during keyboard navigation", async () => {
+      await render({
+        tabs: [tab({ id: "a" }), tab({ id: "b" }), tab({ id: "c" })],
+      });
+      await makeGroup("b", "Research");
+      label()!.focus();
+      expect((await keydown(label()!, "ArrowRight")).defaultPrevented).toBe(false);
+      expect(document.activeElement).toBe(label());
+      await keydown(label()!, "F2");
+      const input = container.querySelector<HTMLInputElement>(
+        '[aria-label="Group name"]',
+      )!;
+      expect(document.activeElement).toBe(input);
+      expect((await keydown(input, "Home")).defaultPrevented).toBe(false);
+      expect(document.activeElement).toBe(input);
+      await keydown(input, "Escape");
+      surfaceTabButton("b").focus();
+      await act(async () => label()!.click());
+      expect(surfaceTabButton("b")).toBeNull();
+      expect(document.activeElement).toBe(surfaceTabButton("a"));
+      await keydown(surfaceTabButton("a"), "ArrowRight");
+      expect(document.activeElement).toBe(surfaceTabButton("c"));
+      expect(props.onSelect).toHaveBeenCalledExactlyOnceWith("c");
+    });
+
     it("recolours, removes a member, and ungroups from the label menu", async () => {
       await render({
         tabs: [tab({ id: "a" }), tab({ id: "b" }), tab({ id: "c" })],
@@ -1362,6 +1407,166 @@ describe("browser tab integration", () => {
     expect(props.onSelectBrowser).toHaveBeenCalledOnce();
     expect(props.onReorder).not.toHaveBeenCalled();
   });
+
+  it("roves across mixed tabs in visual order and limits close and menu tab stops", async () => {
+    const select = (id?: string) => {
+      props = { ...props, activeId: id! };
+      root.render(createElement(TitleBar, props));
+    };
+    await render({
+      browserTabs: [{ id: "web-a", title: "Docs" }],
+      surfaceOrder: ["a", "web-a", "b"],
+      onSelect: vi.fn(select),
+      onSelectBrowser: vi.fn(select),
+    });
+    const buttons = () =>
+      Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+    expect(buttons().map((node) => node.tabIndex)).toEqual([0, -1, -1]);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="Close First task"]',
+      )!.tabIndex,
+    ).toBe(0);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="Close Second task"]',
+      )!.tabIndex,
+    ).toBe(-1);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="Close browser: Docs"]',
+      )!.tabIndex,
+    ).toBe(-1);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="Browser layout: Docs"]',
+      )!.tabIndex,
+    ).toBe(-1);
+
+    surfaceTabButton("a").focus();
+    expect(
+      (await keydown(surfaceTabButton("a"), "ArrowRight")).defaultPrevented,
+    ).toBe(true);
+    expect(document.activeElement).toBe(surfaceTabButton("web-a"));
+    expect(props.onSelectBrowser).toHaveBeenCalledExactlyOnceWith("web-a");
+    expect(buttons().map((node) => node.tabIndex)).toEqual([-1, 0, -1]);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="Close browser: Docs"]',
+      )!.tabIndex,
+    ).toBe(0);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="Browser layout: Docs"]',
+      )!.tabIndex,
+    ).toBe(0);
+    await keydown(surfaceTabButton("web-a"), "End");
+    expect(document.activeElement).toBe(surfaceTabButton("b"));
+    await keydown(surfaceTabButton("b"), "ArrowRight");
+    expect(document.activeElement).toBe(surfaceTabButton("a"));
+    await keydown(surfaceTabButton("a"), "ArrowLeft");
+    expect(document.activeElement).toBe(surfaceTabButton("b"));
+    await keydown(surfaceTabButton("b"), "Home");
+    expect(document.activeElement).toBe(surfaceTabButton("a"));
+    expect(props.onReorder).not.toHaveBeenCalled();
+  });
+
+  it("preserves modified shortcuts and arrow keys on close and layout controls", async () => {
+    await render({ browserTabs: [{ id: "web-a", title: "Docs" }] });
+    for (const modifier of ["altKey", "ctrlKey", "metaKey", "shiftKey"]) {
+      expect(
+        (await keydown(surfaceTabButton("a"), "End", { [modifier]: true }))
+          .defaultPrevented,
+      ).toBe(false);
+    }
+    for (const label of [
+      "Close First task",
+      "Close browser: Docs",
+      "Browser layout: Docs",
+    ]) {
+      const control = container.querySelector<HTMLButtonElement>(
+        `[aria-label="${label}"]`,
+      )!;
+      control.focus();
+      expect((await keydown(control, "ArrowLeft")).defaultPrevented).toBe(false);
+      expect(document.activeElement).toBe(control);
+    }
+    expect(props.onSelect).not.toHaveBeenCalled();
+    expect(props.onSelectBrowser).not.toHaveBeenCalled();
+  });
+
+  it("restores focus when a closed task or browser removes its focused control", async () => {
+    await render({ browserTabs: [{ id: "web-a", title: "Docs" }] });
+    const close = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Close First task"]',
+    )!;
+    close.focus();
+    await click('[aria-label="Close First task"]');
+    expect(props.onClose).toHaveBeenCalledExactlyOnceWith("a");
+    // The close callback may defer or decline removal.
+    await render();
+    expect(document.activeElement).toBe(close);
+    await render({
+      tabs: [tab({ id: "b", title: "Second task" })],
+      activeId: "web-a",
+    });
+    expect(document.activeElement).toBe(surfaceTabButton("web-a"));
+    container
+      .querySelector<HTMLButtonElement>('[aria-label="Close browser: Docs"]')!
+      .focus();
+    await click('[aria-label="Close browser: Docs"]');
+    await render({ browserTabs: [], activeId: "b" });
+    expect(document.activeElement).toBe(surfaceTabButton("b"));
+    expect(props.onSelect).not.toHaveBeenCalled();
+    expect(props.onSelectBrowser).not.toHaveBeenCalled();
+  });
+
+  it("restores focus when a preview is replaced without touching hidden recent pages", async () => {
+    await render({
+      browserTabs: [
+        { id: "web-a", title: "Docs" },
+        { id: "web-b", title: "Preview" },
+      ],
+      activeId: "web-a",
+      onKeepBrowser: vi.fn(),
+    });
+    surfaceTabButton("web-a").focus();
+    await render({ activeId: "web-b" });
+    expect(surfaceTabButton("web-a")).toBeNull();
+    expect(document.activeElement).toBe(surfaceTabButton("web-b"));
+    expect(props.onCloseBrowser).not.toHaveBeenCalled();
+    expect(props.onKeepBrowser).not.toHaveBeenCalled();
+  });
+
+  it("does not reclaim focus from an editor or after an intentional blur", async () => {
+    await render();
+    const input = document.createElement("input");
+    document.body.append(input);
+    try {
+      surfaceTabButton("a").focus();
+      input.focus();
+      await render({ tabs: [tab({ id: "b" })], activeId: "b" });
+      expect(document.activeElement).toBe(input);
+      surfaceTabButton("b").focus();
+      surfaceTabButton("b").blur();
+      await render({ tabs: [], activeId: "" });
+      expect(document.activeElement).toBe(document.body);
+    } finally {
+      input.remove();
+    }
+  });
+
+  it("keeps a fallback tab reachable and focuses the strip when the final tab closes", async () => {
+    await render({ activeId: "missing" });
+    expect(surfaceTabButton("a").tabIndex).toBe(0);
+    expect(surfaceTabButton("b").tabIndex).toBe(-1);
+    surfaceTabButton("a").focus();
+    await render({ tabs: [], activeId: "" });
+    const strip = container.querySelector<HTMLElement>('[role="tablist"]')!;
+    expect(document.activeElement).toBe(strip);
+    expect(strip.tabIndex).toBe(0);
+  });
+
   it("uses one saved order and distinguishes focused from visible split tabs", async () => {
     await render({
       browserTabs: [
@@ -1482,6 +1687,11 @@ describe("browser tab integration", () => {
     expect(props.onSelect).not.toHaveBeenCalled();
     await pointer(window, "pointermove", 10);
     await pointer(window, "pointerup", 10);
+    await keydown(
+      items[0].querySelector<HTMLButtonElement>('[role="tab"]')!,
+      "End",
+    );
+    expect(props.onSelect).toHaveBeenCalledExactlyOnceWith("b");
     await act(async () => browser.click());
     expect(props.onReorderSurfaces).toHaveBeenCalledExactlyOnceWith(
       ["web-a", "a", "b"],

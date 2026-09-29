@@ -14,21 +14,21 @@
   );
 }
 .personal-shell .personal-tab-strip {
-  gap: 6px;
-  padding-inline: 7px;
+  gap: 0;
+  padding-inline: 0;
 }
-/* Tabs size to their title: short titles stay short, long ones cap, and a
-   crowded strip shortens titles down to the minimum before it scrolls. */
+/* A single compact row: selection does not change tab width. Long titles
+   truncate before the strip scrolls; the full title stays in the tooltip. */
 .personal-shell .personal-title-tab-slot,
 .personal-shell .personal-title-browser-tab {
-  flex: 0 1 auto;
+  flex: 0 1 145px;
   width: auto;
-  min-width: 96px;
-  max-width: 172px;
+  min-width: 114px;
+  max-width: 205px;
 }
 .personal-shell .personal-title-tab-slot[data-active="true"],
 .personal-shell .personal-title-browser-tab[data-active="true"] {
-  max-width: 240px;
+  max-width: 205px;
 }
 /* Session tabs carry Tailwind's @container, whose inline-size containment
    hides the title from the slot and pins every chat tab at the minimum while
@@ -36,8 +36,20 @@
 .personal-shell .personal-title-tab-slot > .personal-title-tab {
   container-type: normal;
 }
-/* Tabs sit directly on the toolbar with no fill: the active tab is marked by
-   full-strength text and icon, the rest are dimmed. */
+/* Neutral Aven surfaces, rectangular tabs, and a fine active accent. Keep
+   fills on the visual child so the pickup can move without its hit box. */
+.personal-shell .personal-title-tab > .aven-tab-motion {
+  border-right: 1px solid var(--aven-line);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--color-content) 3%, transparent);
+}
+.personal-shell .personal-title-tab:hover > .aven-tab-motion {
+  background: var(--aven-hover);
+}
+.personal-shell .personal-title-tab[data-active="true"] > .aven-tab-motion {
+  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+  box-shadow: inset 0 -1px var(--color-accent);
+}
 .personal-shell .personal-title-tab-button,
 .personal-shell .personal-title-tab-button:hover,
 .personal-shell
@@ -47,16 +59,28 @@
   box-shadow: none;
 }
 .personal-shell .personal-title-tab-button {
-  align-self: center;
-  height: 24px;
-  min-height: 24px;
+  align-self: stretch;
+  height: 100%;
+  min-height: 0;
   gap: 7px;
-  padding-inline-start: 8px;
+  padding-inline-start: 10px;
   border: 0;
   outline: none;
-  border-radius: 7px;
-  color: color-mix(in srgb, var(--color-content) 55%, transparent);
-  transition: color 220ms var(--aven-tab-ease);
+  border-radius: 0;
+  color: color-mix(in srgb, var(--color-content) 60%, transparent);
+  transition: color 120ms var(--aven-tab-ease);
+}
+.personal-shell .personal-title-tab[data-draggable="true"],
+.personal-shell
+  .personal-title-tab[data-draggable="true"]
+  .personal-title-tab-button {
+  cursor: grab;
+}
+.personal-shell .personal-title-tab[data-sortable-moving="true"],
+.personal-shell
+  .personal-title-tab[data-sortable-moving="true"]
+  .personal-title-tab-button {
+  cursor: grabbing;
 }
 .personal-shell .personal-title-tab-button:hover {
   color: color-mix(in srgb, var(--color-content) 85%, transparent);
@@ -119,7 +143,7 @@
 }
 .personal-shell .personal-title-tab-close,
 .personal-shell .personal-title-browser-menu {
-  border-radius: 6px;
+  border-radius: 3px;
 }
 .personal-shell
   .personal-title-tab[data-active="true"]
@@ -180,8 +204,8 @@
 .personal-shell
   .personal-titlebar[data-pane-local="true"][data-pane-focused="false"]
   .personal-title-tab[data-active="true"]
-  .personal-title-tab-button {
-  background: color-mix(in srgb, var(--color-content) 7%, transparent);
+  > .aven-tab-motion {
+  background: color-mix(in srgb, var(--color-content) 5%, transparent);
   box-shadow: none;
 }
 .personal-shell .personal-title-session-new,
@@ -234,36 +258,37 @@
   opacity: 0.5;
 }
 
-/* Pane tabs stay flat so they do not compete with workspace destinations.
-   A multi-file pane still has an explicit persistent selected treatment. */
+/* File and terminal panes use the same compact rectangular tab treatment. */
 .personal-shell .aven-surface-tabs {
-  border-bottom-color: color-mix(in srgb, var(--color-content) 6%, transparent);
+  height: 32px;
+  border-bottom-color: var(--aven-line);
   background: transparent;
 }
 .personal-shell .aven-surface-tab-strip {
-  gap: 4px;
-  padding-inline: 7px;
+  gap: 0;
+  padding-inline: 0;
 }
 .personal-shell .aven-surface-tab-slot {
-  margin-block: 3px;
+  margin-block: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: 0;
   background: transparent;
 }
+.personal-shell .aven-surface-tab-slot > .aven-tab-motion {
+  border-right: 1px solid var(--aven-line);
+}
 .personal-shell .aven-surface-tab-slot:hover > .aven-tab-motion {
-  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+  background: var(--aven-hover);
 }
 .personal-shell .aven-surface-tab-slot[data-active="true"] {
   background: transparent;
   box-shadow: none;
 }
 .personal-shell
-  .aven-surface-tab-strip:has(.aven-surface-tab-slot + .aven-surface-tab-slot)
   .aven-surface-tab-slot[data-active="true"]
   > .aven-tab-motion:not([data-sortable-dragging="true"]) {
-  background: color-mix(in srgb, var(--color-content) 7%, transparent);
-  box-shadow: inset 0 -1px 0
-    color-mix(in srgb, var(--color-accent) 60%, transparent);
+  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+  box-shadow: inset 0 -1px var(--color-accent);
 }
 .personal-shell .aven-surface-tab-slot[data-active="true"]::after {
   content: none;
@@ -538,13 +563,12 @@
   font-size: 11.5px;
   font-weight: 600;
 }
-/* Each member's line runs under the following gap so the group reads as one
-   unbroken line at any interface zoom; the strip gap is at most 6px. */
+/* Group colour remains separate from the active-tab accent. */
 .personal-shell .personal-tab-strip [data-tab-group]::after {
   content: "";
   position: absolute;
   left: 0;
-  right: -6px;
+  right: 0;
   bottom: 2px;
   height: 2px;
   border-radius: 1px;

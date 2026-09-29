@@ -55,18 +55,73 @@ type MotionEntry = {
   transform: string;
   appliedTransform: string;
   transition: string;
+  opacity: string;
   zoom: number;
 };
 
-/** Owns only a dedicated visual child; registered outer nodes never transform. */
+/** Freeze the small tab visual before taking it out of its theme/zoom context. */
+function copyVisual(visual: HTMLElement): HTMLElement {
+  const copy = visual.cloneNode(true) as HTMLElement;
+  const originals = [visual, ...visual.querySelectorAll("*")];
+  const copies = [copy, ...copy.querySelectorAll("*")];
+  for (const [index, original] of originals.entries()) {
+    const clone = copies[index];
+    if (!(clone instanceof HTMLElement || clone instanceof SVGElement))
+      continue;
+    const computed = getComputedStyle(original);
+    for (let property = 0; property < computed.length; property += 1) {
+      const name = computed.item(property);
+      clone.style.setProperty(name, computed.getPropertyValue(name));
+    }
+    // A visual snapshot is neither a second drop target nor an accessible tab.
+    for (const attribute of [...clone.attributes]) {
+      if (
+        attribute.name.startsWith("data-") ||
+        attribute.name === "id" ||
+        attribute.name === "autofocus"
+      )
+        clone.removeAttribute(attribute.name);
+    }
+    clone.style.setProperty("pointer-events", "none", "important");
+    clone.style.setProperty("transition", "none", "important");
+    clone.style.setProperty("animation", "none", "important");
+    clone.style.setProperty("outline", "none", "important");
+  }
+  Object.assign(copy.style, {
+    position: "relative",
+    boxSizing: "border-box",
+    inset: "auto",
+    width: "100%",
+    height: "100%",
+    minWidth: "0",
+    maxWidth: "none",
+    minHeight: "0",
+    maxHeight: "none",
+    margin: "0",
+    transform: "none",
+    translate: "none",
+    rotate: "none",
+    scale: "none",
+    zoom: "1",
+    visibility: "visible",
+  });
+  return copy;
+}
+
+/** Moves a floating tab visual and sibling children; outer hit boxes stay put. */
 export class SortableMotion {
   private entries = new Map<string, MotionEntry>();
   private animations = new Set<Animation>();
   private source: {
     id: string;
     axis: Axis;
-    grab: number;
-    inset: number;
+    grab: Point;
+  } | null = null;
+  private preview: {
+    element: HTMLElement;
+    zoom: number;
+    left: number;
+    top: number;
   } | null = null;
 
   begin(
@@ -88,18 +143,71 @@ export class SortableMotion {
           transform: child.style.transform,
           appliedTransform: child.style.transform,
           transition: child.style.transition,
+          opacity: child.style.opacity,
           zoom: effectiveCssZoom(child),
         });
     }
-    const bounds = outer.getBoundingClientRect();
     const visualBounds = visual.getBoundingClientRect();
-    const start = axis === "x" ? visualBounds.left : visualBounds.top;
     this.source = {
       id,
       axis,
-      grab: (axis === "x" ? point.x : point.y) - start,
-      inset: start - (axis === "x" ? bounds.left : bounds.top),
+      grab: { x: point.x - visualBounds.left, y: point.y - visualBounds.top },
     };
+  }
+
+  /** Delay cloning until pickup, keeping ordinary tab clicks inexpensive. */
+  activate(point: Point) {
+    if (!this.source || this.preview) return;
+    const entry = this.entries.get(this.source.id);
+    if (!entry) return;
+    const { visual, zoom } = entry;
+    const bounds = visual.getBoundingClientRect();
+    const copy = copyVisual(visual);
+    const computed = getComputedStyle(visual);
+    const surface =
+      computed.getPropertyValue("--aven-tab-drag-surface").trim() ||
+      computed.getPropertyValue("--color-background-base").trim();
+    const element = document.createElement("div");
+    element.dataset.sortablePreview = this.source.id;
+    // Native Chromium paints above the app webview. Its existing overlay
+    // observer snapshots only intersecting pages and restores them on removal.
+    element.dataset.nativeBrowserOccluded = "true";
+    element.setAttribute("aria-hidden", "true");
+    element.inert = true;
+    Object.assign(element.style, {
+      position: "fixed",
+      left: "0",
+      top: "0",
+      width: `${bounds.width / zoom}px`,
+      height: `${bounds.height / zoom}px`,
+      margin: "0",
+      padding: "0",
+      border: "0",
+      borderRadius: computed.borderRadius,
+      background: surface || "transparent",
+      pointerEvents: "none",
+      userSelect: "none",
+      zIndex: "2147483647",
+      zoom: String(zoom / effectiveCssZoom(document.body)),
+      willChange: "transform",
+    });
+    element.append(copy);
+    this.preview = { element, zoom, left: NaN, top: NaN };
+    this.movePreview(point);
+    document.body.append(element);
+    // Keep the real focused tab mounted and focusable throughout pickup.
+    visual.style.opacity = "0";
+  }
+
+  private movePreview(point: Point) {
+    if (!this.source || !this.preview) return;
+    const { element, zoom } = this.preview;
+    const left = point.x - this.source.grab.x;
+    const top = point.y - this.source.grab.y;
+    if (this.preview.left === left && this.preview.top === top) return;
+    element.style.transform = `translate3d(${left / zoom}px, ${top / zoom}px, 0)`;
+    this.preview.left = left;
+    this.preview.top = top;
   }
 
   move(
@@ -128,7 +236,7 @@ export class SortableMotion {
     const offsets = inStrip
       ? sortableMotionOffsets(items, source.id, toIndex)
       : new Map<string, number>();
-    const sourceStart = items.find((item) => item.id === source.id)?.start;
+    this.movePreview(point);
     for (const [id, entry] of this.entries) {
       const dragged = id === source.id;
       if (dragged) {
@@ -138,6 +246,7 @@ export class SortableMotion {
           entry.visual.dataset.sortableDragging = "true";
         if (entry.visual.dataset.sortableInStrip !== String(inStrip))
           entry.visual.dataset.sortableInStrip = String(inStrip);
+        continue;
       }
       if (!inStrip) {
         if (entry.appliedTransform !== entry.transform) {
@@ -146,12 +255,7 @@ export class SortableMotion {
         }
         continue;
       }
-      const viewportOffset = dragged
-        ? (axis === "x" ? point.x : point.y) -
-          (sourceStart ?? 0) -
-          source.grab -
-          source.inset
-        : (offsets.get(id) ?? 0);
+      const viewportOffset = offsets.get(id) ?? 0;
       const offset = viewportOffset / entry.zoom;
       const transform =
         axis === "x"
@@ -170,6 +274,8 @@ export class SortableMotion {
   capture(): SortableMotionPositions {
     return new Map(
       [...this.entries].map(([id, { visual }]) => {
+        if (id === this.source?.id && this.preview)
+          return [id, { left: this.preview.left, top: this.preview.top }];
         const { left, top } = visual.getBoundingClientRect();
         return [id, { left, top }];
       }),
@@ -178,9 +284,12 @@ export class SortableMotion {
 
   /** Reset without starting CSS transitions before React commits the order. */
   reset() {
-    for (const { outer, visual, transform } of this.entries.values()) {
+    this.preview?.element.remove();
+    this.preview = null;
+    for (const { outer, visual, transform, opacity } of this.entries.values()) {
       visual.style.transition = "none";
       visual.style.transform = transform;
+      visual.style.opacity = opacity;
       delete outer.dataset.sortableMoving;
       delete visual.dataset.sortableDragging;
       delete visual.dataset.sortableInStrip;
@@ -215,6 +324,9 @@ export class SortableMotion {
           { duration: 200, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
         );
         this.animations.add(animation);
+        // Canceling a settling animation rejects its finished promise even
+        // though oncancel runs. A new gesture or unmount is normal cleanup.
+        void animation.finished?.catch(() => {});
         animation.onfinish = () => {
           this.animations.delete(animation);
           animation.cancel();

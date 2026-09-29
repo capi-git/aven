@@ -1,4 +1,5 @@
 import { listenerGroup } from "./listenerGroup";
+import { withNewDetachedCloses } from "./detachedWorkspaceClose";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -397,9 +398,11 @@ export function useDetachedWorkspaces(options: Options) {
       nativeWorkspaceWindow.listen<DetachedWorkspaceSnapshot>(
         "workspace-window-checkpoint",
         (entry) => {
-          if (!entries.current.has(entry.id)) return;
+          const previous = entries.current.get(entry.id);
+          if (!previous) return;
+          const update = withNewDetachedCloses(previous.state, entry.state);
           accept(entry);
-          latest.current.onCheckpoint?.(entry.state);
+          latest.current.onCheckpoint?.(update);
         },
       ),
       nativeWorkspaceWindow.listen<DetachedWorkspaceSnapshot>(
@@ -421,7 +424,12 @@ export function useDetachedWorkspaces(options: Options) {
                   ),
                 ),
               }));
-              await latest.current.onReturned(entry.state);
+              await latest.current.onReturned(
+                withNewDetachedCloses(
+                  entries.current.get(entry.id)?.state,
+                  entry.state,
+                ),
+              );
               if (entry.returnToken)
                 await nativeWorkspaceWindow.ack(entry.returnToken, entry.state);
               for (const b of entry.state.browsers)

@@ -144,7 +144,9 @@ export function SurfaceTabs({
   trailing,
 }: Props) {
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
-  const activeTabRef = useRef<HTMLDivElement | null>(null);
+  const tabStripRef = useRef<HTMLDivElement | null>(null);
+  const tabButtonsRef = useRef(new Map<string, HTMLButtonElement>());
+  const focusedTabControlRef = useRef<HTMLElement | null>(null);
   const [recentAnchor, setRecentAnchor] = useState<HTMLElement | null>(null);
   const fileIds = files.map((file) => file.id);
   const retainedIds = new Set(
@@ -163,6 +165,9 @@ export function SurfaceTabs({
   );
   const visibleIdSet = new Set(visibleIds);
   const visibleFiles = files.filter((file) => visibleIdSet.has(file.id));
+  const tabStopId = visibleIdSet.has(activeFileId)
+    ? activeFileId
+    : visibleIds[0];
   const hasPreviewFiles = files.some(isPreviewFileTab);
   const activePreview = previewId === activeFileId;
   const sortable = useSortable(
@@ -174,6 +179,7 @@ export function SurfaceTabs({
   );
   const setTabStripRef = useCallback(
     (element: HTMLDivElement | null) => {
+      tabStripRef.current = element;
       sortable.setContainerRef(element);
       lockOverscroll(element);
     },
@@ -198,11 +204,22 @@ export function SurfaceTabs({
 
   useLayoutEffect(() => {
     if (sortable.draggingId) return;
-    activeTabRef.current?.scrollIntoView({
+    tabButtonsRef.current.get(activeFileId)?.scrollIntoView({
       inline: "nearest",
       block: "nearest",
     });
   }, [activeFileId, sortable.draggingId]);
+
+  useLayoutEffect(() => {
+    const focusedControl = focusedTabControlRef.current;
+    if (!focusedControl || focusedControl.isConnected) return;
+    focusedTabControlRef.current = null;
+    // A close can be asynchronous (for example an unsaved-file dialog). Only
+    // recover focus when removing the control left it on the document itself.
+    if (document.activeElement !== document.body) return;
+    const next = tabStopId ? tabButtonsRef.current.get(tabStopId) : null;
+    (next ?? tabStripRef.current)?.focus();
+  });
 
   return (
     <div
@@ -212,8 +229,50 @@ export function SurfaceTabs({
         ref={setTabStripRef}
         data-sortable-scroll-container
         role="tablist"
+        tabIndex={visibleIds.length ? -1 : 0}
         aria-label={label}
+        aria-orientation="horizontal"
         className="aven-surface-tab-strip scrollbar-none flex min-w-0 flex-1 overflow-x-auto overscroll-none"
+        onBlurCapture={(event) => {
+          if (
+            !(event.relatedTarget instanceof Node) ||
+            !event.currentTarget.contains(event.relatedTarget)
+          ) {
+            focusedTabControlRef.current = null;
+          }
+        }}
+        onKeyDown={(event) => {
+          if (
+            event.defaultPrevented ||
+            event.altKey ||
+            event.ctrlKey ||
+            event.metaKey ||
+            event.shiftKey ||
+            !(event.target instanceof HTMLButtonElement) ||
+            event.target.getAttribute("role") !== "tab"
+          ) {
+            return;
+          }
+          const index = visibleIds.findIndex(
+            (id) => tabButtonsRef.current.get(id) === event.target,
+          );
+          if (index < 0) return;
+          const nextIndex =
+            event.key === "ArrowRight"
+              ? (index + 1) % visibleIds.length
+              : event.key === "ArrowLeft"
+                ? (index - 1 + visibleIds.length) % visibleIds.length
+                : event.key === "Home"
+                  ? 0
+                  : event.key === "End"
+                    ? visibleIds.length - 1
+                    : -1;
+          if (nextIndex < 0) return;
+          event.preventDefault();
+          const nextId = visibleIds[nextIndex];
+          tabButtonsRef.current.get(nextId)?.focus();
+          onSelectFile(nextId);
+        }}
       >
         {onPaneDragStart ? (
           <div
@@ -258,10 +317,12 @@ export function SurfaceTabs({
               key={file.id}
               ref={(el) => {
                 sortable.setItemRef(file.id, el);
-                if (el && file.id === activeFileId) activeTabRef.current = el;
               }}
               data-active={active}
               data-preview={preview || undefined}
+              onFocusCapture={(event) => {
+                focusedTabControlRef.current = event.target as HTMLElement;
+              }}
               className={`aven-surface-tab-slot group relative flex w-52 min-w-28 shrink touch-none items-stretch border-r border-content/10 ${
                 active ? "bg-content/8" : "hover:bg-content/5"
               } ${canDrag ? "cursor-grab active:cursor-grabbing" : ""}`}
@@ -286,8 +347,13 @@ export function SurfaceTabs({
               ) : null}
               <div className="aven-tab-motion" data-sortable-motion>
                 <button
+                  ref={(element) => {
+                    if (element) tabButtonsRef.current.set(file.id, element);
+                    else tabButtonsRef.current.delete(file.id);
+                  }}
                   type="button"
                   role="tab"
+                  tabIndex={file.id === tabStopId ? 0 : -1}
                   aria-selected={active}
                   title={appendProblems(tooltip, errors)}
                   onClick={() => {
@@ -347,6 +413,7 @@ export function SurfaceTabs({
                 </button>
                 <button
                   type="button"
+                  tabIndex={file.id === tabStopId ? 0 : -1}
                   title={`Close ${label}`}
                   aria-label={`Close ${label}`}
                   data-no-drag

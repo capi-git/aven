@@ -346,6 +346,7 @@ function TitleTabItem({
   projectless,
   index,
   active,
+  tabStop,
   visible,
   closable,
   canDrag,
@@ -361,6 +362,7 @@ function TitleTabItem({
   projectless: boolean;
   index: number;
   active: boolean;
+  tabStop: boolean;
   visible: boolean;
   closable: boolean;
   canDrag: boolean;
@@ -401,6 +403,7 @@ function TitleTabItem({
       data-minimized={minimized || undefined}
       data-surface-id={tab.id}
       data-surface-tab-id={tab.id}
+      data-draggable={canDrag || undefined}
       data-tauri-drag-region="false"
       onPointerEnter={(event) => onHover?.(tab.id, event.currentTarget)}
       onPointerLeave={() => onHover?.(tab.id, null)}
@@ -446,6 +449,7 @@ function TitleTabItem({
           title={minimized ? undefined : tooltip}
           aria-label={tooltip}
           role="tab"
+          tabIndex={tabStop ? 0 : -1}
           aria-selected={active}
           aria-description={visible && !active ? "Visible in split" : undefined}
           data-tauri-drag-region="false"
@@ -522,6 +526,7 @@ function TitleTabItem({
         {closable ? (
           <button
             type="button"
+            tabIndex={tabStop ? 0 : -1}
             title="Close Tab"
             aria-label={`Close ${headline}`}
             data-no-drag
@@ -547,6 +552,7 @@ function BrowserTitleTabItem({
   favicon,
   index,
   active,
+  tabStop,
   visible,
   legacy,
   canDrag,
@@ -569,6 +575,7 @@ function BrowserTitleTabItem({
   favicon?: string;
   index: number;
   active: boolean;
+  tabStop: boolean;
   visible: boolean;
   legacy: boolean;
   canDrag: boolean;
@@ -609,6 +616,7 @@ function BrowserTitleTabItem({
       data-visible={visible}
       data-surface-id={id}
       data-surface-tab-id={id}
+      data-draggable={canDrag || undefined}
       data-has-menu={Boolean(onMenu)}
       data-tab-group={groupRun}
       style={groupStyle}
@@ -656,6 +664,7 @@ function BrowserTitleTabItem({
         <button
           type="button"
           role="tab"
+          tabIndex={tabStop ? 0 : -1}
           aria-selected={active}
           aria-description={
             preview
@@ -679,6 +688,7 @@ function BrowserTitleTabItem({
         {onClose ? (
           <button
             type="button"
+            tabIndex={tabStop ? 0 : -1}
             title="Close browser"
             aria-label={legacy ? "Close browser" : `Close browser: ${label}`}
             data-no-drag
@@ -695,6 +705,7 @@ function BrowserTitleTabItem({
         {onMenu ? (
           <button
             type="button"
+            tabIndex={tabStop ? 0 : -1}
             title="Browser layout"
             aria-label={legacy ? "Browser layout" : `Browser layout: ${label}`}
             aria-haspopup="menu"
@@ -1196,6 +1207,10 @@ function TitleBarComponent({
   const segments = stripSegments(orderedIds, groupState, focusedId);
   // Labels sit in the sortable sequence so a group drags like a tab.
   const displayIds = stripDisplayIds(segments);
+  const displayedTabIds = displayIds.filter((id) => !chipGroupId(id));
+  const tabStopId = displayedTabIds.includes(focusedId)
+    ? focusedId
+    : displayedTabIds[0];
   const stripGroups = segments.flatMap((segment) =>
     segment.kind === "group" ? [segment] : [],
   );
@@ -1251,6 +1266,7 @@ function TitleBarComponent({
   });
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const tabStripRef = useRef<HTMLDivElement | null>(null);
+  const focusedTabControlRef = useRef<HTMLElement | null>(null);
   const setTabStripRef = useCallback(
     (el: HTMLDivElement | null) => {
       tabStripRef.current = el;
@@ -1370,6 +1386,20 @@ function TitleBarComponent({
       block: "nearest",
     });
   }, [focusedId, sortable.draggingId]);
+
+  useLayoutEffect(() => {
+    const focusedControl = focusedTabControlRef.current;
+    if (!focusedControl || focusedControl.isConnected) return;
+    focusedTabControlRef.current = null;
+    // Closing or folding a tab must not leave keyboard focus on the body.
+    // Respect focus moved into an editor, menu or confirmation dialog meanwhile.
+    if (document.activeElement !== document.body) return;
+    const strip = tabStripRef.current;
+    const next = strip?.querySelector<HTMLButtonElement>(
+      '[role="tab"][tabindex="0"]',
+    );
+    (next ?? strip)?.focus();
+  });
 
   useLayoutEffect(() => {
     const el = tabStripRef.current;
@@ -2215,11 +2245,26 @@ function TitleBarComponent({
           <div
             ref={setTabStripRef}
             role="tablist"
-            tabIndex={orderedIds.length ? -1 : 0}
+            tabIndex={displayedTabIds.length ? -1 : 0}
             data-sortable-scroll-container
             data-surface-order={JSON.stringify(allOrderedIds)}
             aria-label="Workspace tabs"
+            aria-orientation="horizontal"
             className="personal-tab-strip scrollbar-none flex h-full min-w-0 cursor-default items-center gap-0.5 overflow-x-auto overflow-y-hidden overscroll-none px-1.5"
+            onFocusCapture={(event) => {
+              const target = event.target as HTMLElement;
+              focusedTabControlRef.current = target.closest(
+                "[data-surface-tab-id]",
+              ) ? target : null;
+            }}
+            onBlurCapture={(event) => {
+              if (
+                !(event.relatedTarget instanceof Node) ||
+                !event.currentTarget.contains(event.relatedTarget)
+              ) {
+                focusedTabControlRef.current = null;
+              }
+            }}
             onKeyDown={(event) => {
               const target = event.target as HTMLElement;
               if (
@@ -2232,13 +2277,23 @@ function TitleBarComponent({
                 openBarMenu(rect.left, rect.bottom);
                 return;
               }
-              if (target.getAttribute("role") !== "tab") return;
+              if (
+                event.defaultPrevented ||
+                event.altKey ||
+                event.ctrlKey ||
+                event.metaKey ||
+                event.shiftKey ||
+                target.getAttribute("role") !== "tab"
+              ) {
+                return;
+              }
               const buttons = Array.from(
                 event.currentTarget.querySelectorAll<HTMLButtonElement>(
                   '[role="tab"]',
                 ),
               );
               const index = buttons.indexOf(target as HTMLButtonElement);
+              if (index < 0) return;
               const next =
                 event.key === "ArrowRight"
                   ? (index + 1) % buttons.length
@@ -2251,8 +2306,14 @@ function TitleBarComponent({
                         : -1;
               if (next < 0) return;
               event.preventDefault();
-              buttons[next]?.focus();
-              buttons[next]?.click();
+              const nextButton = buttons[next];
+              const id = nextButton?.closest<HTMLElement>(
+                "[data-surface-tab-id]",
+              )?.dataset.surfaceTabId;
+              nextButton?.focus();
+              if (id && sessionTabs.has(id)) onSelect(id);
+              else if (id && browsers.has(id))
+                onSelectBrowser?.(unified ? id : undefined);
             }}
           >
             {displayIds.map((id, index) => {
@@ -2344,6 +2405,7 @@ function TitleBarComponent({
                       projectless={projectlessWorkspace}
                       index={index}
                       active={id === focusedId}
+                      tabStop={id === tabStopId}
                       visible={shown.has(id)}
                       closable={titleTabClosable(tab, sessionTabCount)}
                       canDrag={canDrag}
@@ -2368,6 +2430,7 @@ function TitleBarComponent({
                   favicon={browser.favicon}
                   index={index}
                   active={id === focusedId}
+                  tabStop={id === tabStopId}
                   visible={shown.has(id)}
                   legacy={!unified}
                   canDrag={

@@ -57,6 +57,7 @@ describe("detached workspace transactions", () => {
     returned: (state: DetachedWorkspaceState) => void | Promise<void>;
   const recents: [] = [];
   const onError = vi.fn();
+  const checkpointed = vi.fn();
   const pageCleanups: Array<() => void> = [];
   const retainedIds = [
     "native-live-group",
@@ -68,6 +69,7 @@ describe("detached workspace transactions", () => {
       sessions,
       sessionProps: { recents, onSubmit: () => {} },
       onReturned: (state) => returned(state),
+      onCheckpoint: checkpointed,
       onError,
     });
     return null;
@@ -165,6 +167,7 @@ describe("detached workspace transactions", () => {
     sessions = [session("a"), session("b")];
     returned = vi.fn();
     onError.mockClear();
+    checkpointed.mockClear();
     vi.spyOn(nativeWorkspaceWindow, "listen").mockImplementation(
       async (name, fn) => {
         listeners.set(name, fn);
@@ -416,6 +419,52 @@ describe("detached workspace transactions", () => {
       entry.state,
     );
     expect(api.detachedSurfaceIds.has("tab-a")).toBe(false);
+  });
+  it("applies a detached close once across checkpoints and return without changing native snapshots", async () => {
+    const initial = state("a");
+    initial.browsers = [
+      { id: "browser-a", tabId: "page-a", url: "https://example.test" },
+    ];
+    await render();
+    await act(async () => {
+      await api.open(initial);
+    });
+    const closed = {
+      ...initial,
+      tabs: [],
+      browsers: [],
+      closedSurfaceIds: ["tab-a", "browser-a"],
+    };
+    const entry = { id: "window-a", state: closed, pinned: false };
+    await act(async () => {
+      listeners.get("workspace-window-checkpoint")!(entry);
+    });
+    expect(checkpointed.mock.calls[0][0].closedSurfaceIds).toEqual([
+      "tab-a",
+      "browser-a",
+    ]);
+    await act(async () => {
+      listeners.get("workspace-window-checkpoint")!(entry);
+    });
+    expect(checkpointed.mock.calls[1][0].closedSurfaceIds).toEqual([]);
+    expect(api.states.get("window-a")?.closedSurfaceIds).toEqual([
+      "tab-a",
+      "browser-a",
+    ]);
+    await act(async () => {
+      listeners.get("workspace-window-returned")!({
+        ...entry,
+        returnToken: "return-closed",
+      });
+    });
+    expect(returned).toHaveBeenCalledExactlyOnceWith({
+      ...closed,
+      closedSurfaceIds: [],
+    });
+    expect(nativeWorkspaceWindow.ack).toHaveBeenCalledWith(
+      "return-closed",
+      closed,
+    );
   });
   it("freezes and reads the destination's final checkpoint before appending, rejects overlapping moves", async () => {
     await render();
