@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.112] - 2026-09-29
+
 ### Faster startup
 
 - Aven opens sooner. It reads your saved workspace while the interface loads instead of afterwards, and no longer rewrites every open conversation to disk before showing the window.
