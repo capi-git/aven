@@ -114,7 +114,6 @@ import {
   type DetachedWorkspaceState,
   type WorkspaceDropPoint,
 } from "./lib/detachedWorkspaces";
-import { flushWorkspaceDrafts } from "./lib/workspaceDraftFlush";
 import { useWorkspaceHeaderKeys } from "./hooks/useWorkspaceHeaderKeys";
 import { requestAddToChat } from "./lib/quoteDraft";
 import {
@@ -584,7 +583,6 @@ import {
   closeBusyWindow,
   hasInFlightSessions,
   hideCurrentWindow,
-  closeCurrentWindow,
   isAppQuitting,
   persistLiveTranscripts,
   persistQuitState,
@@ -2182,20 +2180,9 @@ export default function App({
           void hideCurrentWindow();
           return;
         }
-        void flushWorkspaceDrafts()
-          .then(() =>
-            persistQuitState(
-              sessionsRef.current,
-              tabsRef.current,
-              activeTabIdRef.current,
-              projectCwdRef.current,
-              "unload",
-              projectTerminalsRef.current,
-            ),
-          )
-          .finally(() => {
-            void closeCurrentWindow();
-          });
+        // The red close button is an explicit, cancellable close, not a
+        // best-effort unload. Keep this renderer and its drafts if saving fails.
+        void closeBusyWindow();
       })
       .then((fn) => {
         unlistenClose = fn;

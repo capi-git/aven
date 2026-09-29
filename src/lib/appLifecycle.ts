@@ -186,7 +186,7 @@ export async function handleQuitRequested(): Promise<void> {
   await invoke("confirm_quit");
 }
 
-/** Confirm and stop this window's work without terminating other windows. */
+/** Save an explicit window close, confirming active work when necessary. */
 export async function closeBusyWindow(): Promise<void> {
   if (!liveWorkspace) return;
   liveWorkspace.flush();
