@@ -2198,9 +2198,8 @@ function TitleBarComponent({
           showProjectButton ? " border-l border-content/10" : ""
         }`}
       >
-        {/* The grip is hidden until hover but still takes width, so only
-            reserve it when a group can be dragged. Moving a group to a
-            window stays in the tab menu. */}
+        {/* Keep the grip visible whenever these tabs can move together.
+            Moving a group to a window stays in the tab menu. */}
         {groupId && orderedIds.length > 1 && onGroupDragEnd ? (
           <button
             type="button"
