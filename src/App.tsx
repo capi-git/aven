@@ -143,6 +143,7 @@ import {
 } from "./lib/personalWorkspace";
 import {
   loadDefaultRuntimeMode,
+  subscribeDefaultRuntimeMode,
   saveDefaultRuntimeMode,
 } from "./lib/runtimeMode";
 import { ApprovalToasts } from "./chrome/ApprovalToasts";
@@ -892,7 +893,11 @@ export default function App({
     null,
   );
   const [prAnchor, setPrAnchor] = useState<HTMLButtonElement | null>(null);
-  const [defaultAccess, setDefaultAccess] = useState(loadDefaultRuntimeMode);
+  const defaultAccess = useSyncExternalStore(
+    subscribeDefaultRuntimeMode,
+    loadDefaultRuntimeMode,
+    loadDefaultRuntimeMode,
+  );
   const openWorkspaceAction = useCallback((kind: WorkspaceActionKind) => {
     const current = profilesRef.current;
     setAddProjectAnchor(null);
@@ -5430,7 +5435,6 @@ export default function App({
   const onRuntimeModeChange = useCallback(
     (sessionId: string, runtimeMode: RuntimeMode) => {
       saveDefaultRuntimeMode(runtimeMode);
-      setDefaultAccess(runtimeMode);
       setSessions((prev) =>
         prev.map((s) => (s.id === sessionId ? { ...s, runtimeMode } : s)),
       );
@@ -8868,7 +8872,6 @@ export default function App({
                 : (active?.runtimeMode ?? defaultAccess)
             }
             onAccessModeChange={(mode) => {
-              setDefaultAccess(mode);
               saveDefaultRuntimeMode(mode);
               if (!profileHome && active) onRuntimeModeChange(active.id, mode);
             }}

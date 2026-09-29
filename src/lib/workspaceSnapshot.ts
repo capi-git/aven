@@ -191,7 +191,9 @@ export function workspaceSnapshotKey(snapshot: WorkspaceSnapshot): string {
 
 /**
  * Reopen the saved tabs/panes. Transcripts come from `loaded` when the
- * session was persisted; blank tabs fall back to the stub.
+ * session was persisted; confirmed missing records (blank tabs) fall back to
+ * the stub. Callers must propagate read errors before hydration, never treat
+ * an unread transcript as missing: a writable stub retains the original ID.
  */
 export function hydrateWorkspaceSnapshot(
   snapshot: WorkspaceSnapshot,

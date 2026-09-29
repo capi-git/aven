@@ -3,7 +3,7 @@ import { flushSync } from "react-dom";
 import type { BrowserState } from "./browser";
 import { applyBrowserUpdateStates } from "./browserUpdateState";
 import { flushWorkspaceDrafts } from "./workspaceDraftFlush";
-import { ask } from "@tauri-apps/plugin-dialog";
+import { ask, message } from "@tauri-apps/plugin-dialog";
 import {
   bindHarnessSession,
   forgetHarnessSession,
@@ -67,6 +67,7 @@ let resumedPromise: Promise<ResumedWorkspace | null> | null = null;
 let bootPromise: Promise<BootWorkspace> | null = null;
 let quitting = false;
 let quitDialogOpen = false;
+let quitSaveFailureOpen = false;
 let bootingResumed: ResumedWorkspace | null = null;
 let liveWorkspace: {
   sessions: () => Session[];
@@ -161,15 +162,24 @@ export async function handleQuitRequested(): Promise<void> {
     );
     return;
   }
-  const { resumed } = await loadBootWorkspace();
+  let resumed: ResumedWorkspace | null;
+  try {
+    ({ resumed } = await loadBootWorkspace());
+  } catch {
+    // Startup failed before an editable workspace mounted. Nothing in memory
+    // may replace the unread saved data; quitting here needs no save attempt.
+    await invoke("confirm_quit");
+    return;
+  }
   const pending = resumed ?? bootingResumed;
   if (pending) {
     quitting = true;
     try {
       await persistBootingResume(pending);
       await invoke("confirm_quit");
-    } catch {
+    } catch (error) {
       quitting = false;
+      await showQuitSaveFailure(error);
     }
     return;
   }
@@ -191,7 +201,12 @@ export async function closeBusyWindow(): Promise<void> {
 }
 
 export function loadResumedWorkspace(): Promise<ResumedWorkspace | null> {
-  if (!resumedPromise) resumedPromise = loadResumedWorkspaceOnce();
+  if (!resumedPromise) {
+    resumedPromise = loadResumedWorkspaceOnce().catch((error) => {
+      resumedPromise = null;
+      throw error;
+    });
+  }
   return resumedPromise;
 }
 
@@ -230,7 +245,10 @@ export function loadBootWorkspace(): Promise<BootWorkspace> {
         history: listed?.rows ?? [],
         historyCwd: listed?.cwd ?? null,
       };
-    })();
+    })().catch((error) => {
+      bootPromise = null;
+      throw error;
+    });
   }
   return bootPromise;
 }
@@ -259,8 +277,12 @@ async function historyForCwd(
 
 async function loadResumedWorkspaceOnce(): Promise<ResumedWorkspace | null> {
   const [snapshotRaw, refs] = await Promise.all([
-    loadWorkspaceSnapshot().catch(() => null),
-    listInFlightSessions().catch(() => []),
+    loadWorkspaceSnapshot().catch((error) => {
+      throw workspaceReadFailure("workspace layout", error);
+    }),
+    listInFlightSessions().catch((error) => {
+      throw workspaceReadFailure("unfinished tasks", error);
+    }),
   ]);
   const interrupted = new Set(refs.map((ref) => ref.sessionId));
   const snapshot = parseWorkspaceSnapshot(snapshotRaw);
@@ -269,7 +291,12 @@ async function loadResumedWorkspaceOnce(): Promise<ResumedWorkspace | null> {
   if (snapshot) {
     for (const stub of snapshot.sessions) ids.add(stub.id);
     for (const tab of snapshot.tabs) {
-      for (const id of leafIds(tab.layout)) ids.add(id);
+      const nonSessionPanes = new Set(
+        [...tab.editorPanes, ...(tab.terminalPanes ?? [])].map((pane) => pane.id),
+      );
+      for (const id of leafIds(tab.layout)) {
+        if (!nonSessionPanes.has(id)) ids.add(id);
+      }
     }
   }
   for (const ref of refs) ids.add(ref.sessionId);
@@ -277,7 +304,12 @@ async function loadResumedWorkspaceOnce(): Promise<ResumedWorkspace | null> {
   const loaded = new Map<string, Session>();
   await Promise.all(
     [...ids].map(async (id) => {
-      const record = await getSession(id).catch(() => null);
+      // Only a successful null result means this was a blank, unsaved tab.
+      // A failed read must reach the startup recovery screen before hydration
+      // creates an editable session with the original transcript's identity.
+      const record = await getSession(id).catch((error) => {
+        throw workspaceReadFailure(`conversation ${id}`, error);
+      });
       if (record) loaded.set(id, record);
     }),
   );
@@ -313,6 +345,33 @@ async function loadResumedWorkspaceOnce(): Promise<ResumedWorkspace | null> {
     );
   }
   return workspace;
+}
+
+function workspaceReadFailure(subject: string, error: unknown): Error {
+  const detail = error instanceof Error ? error.message : String(error);
+  return new Error(
+    `Aven couldn't read your saved ${subject}. Reload the interface to try again. Your saved conversations have not been replaced.\n\n${detail}`,
+  );
+}
+
+async function showQuitSaveFailure(
+  error: unknown,
+  closeWindow = false,
+): Promise<void> {
+  if (quitSaveFailureOpen) return;
+  quitSaveFailureOpen = true;
+  const detail = error instanceof Error ? error.message : String(error);
+  try {
+    await message(
+      `Aven couldn't save your workspace. This window will stay open so you can retry.\n\n${detail}`,
+      {
+        title: closeWindow ? "Could not close window" : "Could not quit Aven",
+        kind: "error",
+      },
+    ).catch(() => undefined);
+  } finally {
+    quitSaveFailureOpen = false;
+  }
 }
 
 export function bindResumedSessions(sessions: Session[]): void {
@@ -376,7 +435,7 @@ export async function persistQuitState(
         ? markTurnInterrupted(session)
         : session;
       await upsertSession(payload).catch((error) => {
-        if (mode === "update") throw error;
+        if (mode !== "unload") throw error;
         return null;
       });
     }),
@@ -390,13 +449,13 @@ export async function persistQuitState(
       projectTerminals,
     ),
   ).catch((error) => {
-    if (mode === "update") throw error;
+    if (mode !== "unload") throw error;
   });
   // Vite/webview reload must not wipe a restored snapshot: those chats are idle
   // in this process until Continue runs.
   if (mode !== "unload" || refs.length > 0) {
     await replaceInFlightSessions(refs).catch((error) => {
-      if (mode === "update") throw error;
+      if (mode !== "unload") throw error;
     });
   }
 }
@@ -407,7 +466,7 @@ async function persistBootingResume(
   await Promise.all(
     workspace.sessions
       .filter(shouldPersistSession)
-      .map((session) => upsertSession(session).catch(() => null)),
+      .map((session) => upsertSession(session)),
   );
   await saveWorkspaceSnapshot(
     collectWorkspaceSnapshot(
@@ -417,13 +476,13 @@ async function persistBootingResume(
       workspace.projectCwd,
       workspace.projectTerminals ?? [],
     ),
-  ).catch(() => undefined);
+  );
   await replaceInFlightSessions(
     workspace.sessions.filter(wasTurnInterrupted).map((session) => ({
       sessionId: session.id,
       cwd: session.cwd,
     })),
-  ).catch(() => undefined);
+  );
 }
 
 async function confirmQuitAndExit(
@@ -467,8 +526,9 @@ async function confirmQuitAndExit(
       } else {
         await invoke("confirm_quit");
       }
-    } catch {
+    } catch (error) {
       quitting = false;
+      await showQuitSaveFailure(error, closeWindow);
     }
   } finally {
     quitDialogOpen = false;

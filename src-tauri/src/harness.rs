@@ -6,9 +6,7 @@ use std::process::{ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex, Weak};
 use std::thread;
-use std::time::Duration;
-#[cfg(not(windows))]
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -67,6 +65,7 @@ pub struct CursorBinary {
 
 struct LiveChild {
     stdin: Mutex<ChildStdin>,
+    input_stopped: Arc<AtomicBool>,
     pid: u32,
 }
 
@@ -142,6 +141,7 @@ impl HarnessHost {
             inner.stopping.get(session_id).cloned().unwrap_or_default()
         };
         for child in children {
+            child.input_stopped.store(true, Ordering::SeqCst);
             terminate_confirmed(child.pid)?;
             let mut inner = self.lock_inner();
             if let Some(stopping) = inner.stopping.get_mut(session_id) {
@@ -234,6 +234,9 @@ impl HarnessHost {
         };
         self.stop_all_sse();
         let pids: Vec<u32> = kids.iter().map(|live| live.pid).collect();
+        for child in &kids {
+            child.input_stopped.store(true, Ordering::SeqCst);
+        }
         // Drop stdin before signaling so ACP CLIs that watch the pipe can exit.
         drop(kids);
         terminate_all(&pids);
@@ -443,8 +446,10 @@ pub fn harness_spawn(
 
     let live = Arc::new(LiveChild {
         stdin: Mutex::new(stdin),
+        input_stopped: Arc::new(AtomicBool::new(false)),
         pid,
     });
+    let wait_input = live.input_stopped.clone();
     if let Some(rejected) = host.install_spawn(session_id.clone(), epoch, kill_all, live) {
         // A kill, or a newer spawn, won the race while this one was forking.
         // Returning `Ok` here would hand the caller a dead pid to store as the
@@ -457,11 +462,14 @@ pub fn harness_spawn(
         return Err(SPAWN_CANCELLED.to_string());
     }
 
+    let (output_done, output_drained) = mpsc::channel();
+    let output_open = Arc::new(Mutex::new(true));
+    let stdout_done = output_done.clone();
+    let stdout_open = output_open.clone();
     let stdout_app = app.clone();
     let stdout_id = session_id.clone();
     thread::spawn(move || {
-        for line in BufReader::new(stdout).lines() {
-            let Ok(line) = line else { break };
+        forward_harness_output(stdout, &stdout_open, |line| {
             let _ = stdout_app.emit(
                 STDOUT_EVENT,
                 HarnessLine {
@@ -469,14 +477,15 @@ pub fn harness_spawn(
                     line,
                 },
             );
-        }
+        });
+        let _ = stdout_done.send(());
     });
 
     let stderr_app = app.clone();
     let stderr_id = session_id.clone();
+    let stderr_open = output_open.clone();
     thread::spawn(move || {
-        for line in BufReader::new(stderr).lines() {
-            let Ok(line) = line else { break };
+        forward_harness_output(stderr, &stderr_open, |line| {
             let _ = stderr_app.emit(
                 STDERR_EVENT,
                 HarnessLine {
@@ -484,7 +493,8 @@ pub fn harness_spawn(
                     line,
                 },
             );
-        }
+        });
+        let _ = output_done.send(());
     });
 
     let wait_app = app.clone();
@@ -492,11 +502,16 @@ pub fn harness_spawn(
     let wait_pid = pid;
     thread::spawn(move || {
         let code = child.wait().ok().and_then(|status| status.code());
-        if let Some(host) = wait_app.try_state::<HarnessHost>() {
-            if host.remove_if_pid(&wait_id, wait_pid).is_some() {
-                host.stop_sse(&wait_id);
-            }
-        }
+        wait_input.store(true, Ordering::SeqCst);
+        let host = wait_app.try_state::<HarnessHost>();
+        finish_child_output(
+            host.as_deref(),
+            &wait_id,
+            wait_pid,
+            &output_drained,
+            &output_open,
+            OUTPUT_DRAIN_TIMEOUT,
+        );
         let _ = wait_app.emit(
             EXIT_EVENT,
             HarnessExit {
@@ -508,6 +523,56 @@ pub fn harness_spawn(
     });
 
     Ok(pid)
+}
+
+const OUTPUT_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+
+fn finish_child_output(
+    host: Option<&HarnessHost>,
+    session_id: &str,
+    pid: u32,
+    drained: &mpsc::Receiver<()>,
+    open: &Mutex<bool>,
+    timeout: Duration,
+) {
+    // Retire the reaped child immediately. During output drain, Stop/restart
+    // must not try taskkill on an already-exited Windows PID and leave an
+    // impossible-to-stop entry blocking the next spawn.
+    if let Some(host) = host {
+        if host.remove_if_pid(session_id, pid).is_some() {
+            host.stop_sse(session_id);
+        }
+    }
+    // The exited child can still have its final result buffered in either
+    // pipe. Deliver it before EXIT retires the frontend protocol handler.
+    // A descendant may retain a pipe, so never wait for EOF indefinitely.
+    finish_harness_output(drained, open, timeout);
+}
+
+fn forward_harness_output(reader: impl Read, open: &Mutex<bool>, mut emit: impl FnMut(String)) {
+    for line in BufReader::new(reader).lines() {
+        let Ok(line) = line else { break };
+        // Serialize closing the output gate with delivery. After a bounded
+        // drain expires, an inherited pipe must not emit after the exit event.
+        let open = open.lock().unwrap_or_else(|error| error.into_inner());
+        if !*open {
+            break;
+        }
+        emit(line);
+    }
+}
+
+fn finish_harness_output(drained: &mpsc::Receiver<()>, open: &Mutex<bool>, timeout: Duration) {
+    let deadline = Instant::now() + timeout;
+    for _ in 0..2 {
+        if drained
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .is_err()
+        {
+            break;
+        }
+    }
+    *open.lock().unwrap_or_else(|error| error.into_inner()) = false;
 }
 
 /// Browser setup cannot block ordinary agent work. Failure grants no browser
@@ -526,22 +591,122 @@ fn configure_browser_environment(
 }
 
 #[tauri::command]
-pub fn harness_write(
+pub async fn harness_write(
     app: AppHandle,
-    host: State<HarnessHost>,
+    host: State<'_, HarnessHost>,
     session_id: String,
     line: String,
 ) -> Result<(), String> {
-    let _work = crate::window::begin_runtime_work(&app)?;
+    let work = crate::window::begin_runtime_work(&app)?;
     let live = host
         .get(&session_id)
         .ok_or_else(|| "Harness process is not running".to_string())?;
-    let mut stdin = live.stdin.lock().unwrap_or_else(|e| e.into_inner());
-    stdin
-        .write_all(line.as_bytes())
-        .and_then(|_| stdin.write_all(b"\n"))
-        .and_then(|_| stdin.flush())
-        .map_err(|e| format!("Failed to write to harness: {e}"))
+    tauri::async_runtime::spawn_blocking(move || {
+        let _work = work;
+        write_child_line(live, line, INPUT_WRITE_TIMEOUT)
+    })
+    .await
+    .map_err(|error| format!("Failed to write to harness: {error}"))?
+}
+
+const INPUT_WRITE_TIMEOUT: Duration = Duration::from_secs(15);
+const INPUT_POLL_INTERVAL: Duration = Duration::from_millis(10);
+
+fn input_ready(live: &LiveChild, deadline: Instant) -> std::io::Result<()> {
+    if live.input_stopped.load(Ordering::SeqCst) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Interrupted,
+            "Harness input was cancelled",
+        ));
+    }
+    if Instant::now() >= deadline {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "Harness stopped accepting input",
+        ));
+    }
+    Ok(())
+}
+
+fn write_stdin_frame(live: &LiveChild, frame: &[u8], deadline: Instant) -> std::io::Result<()> {
+    let mut stdin = loop {
+        input_ready(live, deadline)?;
+        match live.stdin.try_lock() {
+            Ok(stdin) => break stdin,
+            Err(std::sync::TryLockError::Poisoned(error)) => break error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => thread::sleep(INPUT_POLL_INTERVAL),
+        }
+    };
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsRawFd;
+        // Only the parent's write end is changed. Its nonblocking writes let
+        // Stop and the deadline interrupt backpressure without leaving a
+        // worker stuck inside write_all or waiting forever for the mutex.
+        let fd = stdin.as_raw_fd();
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+    let mut remaining = frame;
+    while !remaining.is_empty() {
+        input_ready(live, deadline)?;
+        match stdin.write(remaining) {
+            Ok(0) => return Err(std::io::ErrorKind::WriteZero.into()),
+            Ok(written) => remaining = &remaining[written..],
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => (),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(INPUT_POLL_INTERVAL);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    // ChildStdin is unbuffered; the newline is already part of the frame.
+    Ok(())
+}
+
+fn write_child_line(
+    live: Arc<LiveChild>,
+    mut line: String,
+    timeout: Duration,
+) -> Result<(), String> {
+    line.push('\n');
+    let deadline = Instant::now() + timeout;
+    #[cfg(unix)]
+    let result = write_stdin_frame(&live, line.as_bytes(), deadline);
+    #[cfg(not(unix))]
+    let result = {
+        // Anonymous Windows pipes use synchronous WriteFile. Keep the wait
+        // bounded and stop the captured process tree on timeout; never look
+        // up a replacement child by session ID when cancelling this write.
+        let (sender, receiver) = mpsc::channel();
+        let writing = live.clone();
+        thread::spawn(move || {
+            let _ = sender.send(write_stdin_frame(&writing, line.as_bytes(), deadline));
+        });
+        loop {
+            if let Err(error) = input_ready(&live, deadline) {
+                break Err(error);
+            }
+            match receiver.recv_timeout(INPUT_POLL_INTERVAL) {
+                Ok(result) => break result,
+                Err(mpsc::RecvTimeoutError::Timeout) => (),
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    break Err(std::io::ErrorKind::BrokenPipe.into());
+                }
+            }
+        }
+    };
+    if result
+        .as_ref()
+        .is_err_and(|error| error.kind() == std::io::ErrorKind::TimedOut)
+    {
+        // A partial JSON frame cannot safely be followed by another message.
+        live.input_stopped.store(true, Ordering::SeqCst);
+        terminate(live.pid);
+    }
+    result.map_err(|error| format!("Failed to write to harness: {error}"))
 }
 
 #[tauri::command(async)]
@@ -2322,6 +2487,7 @@ mod tests {
         (
             Arc::new(LiveChild {
                 stdin: Mutex::new(stdin),
+                input_stopped: Arc::new(AtomicBool::new(false)),
                 pid,
             }),
             child,
@@ -2331,6 +2497,207 @@ mod tests {
     fn reap(mut child: std::process::Child) {
         let _ = child.kill();
         let _ = child.wait();
+    }
+
+    #[test]
+    fn harness_input_preserves_the_line_frame() {
+        let mut child = Command::new("sh")
+            .args(["-c", "IFS= read -r line; printf '%s' \"$line\""])
+            .process_group(0)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let live = Arc::new(LiveChild {
+            stdin: Mutex::new(child.stdin.take().unwrap()),
+            input_stopped: Arc::new(AtomicBool::new(false)),
+            pid: child.id(),
+        });
+        let frame = r#"{"id":1,"text":"hello \\ world"}"#;
+        let result = write_child_line(live, frame.into(), Duration::from_secs(2));
+        if result.is_err() {
+            reap(child);
+            panic!("input failed: {result:?}");
+        }
+        let output = child.wait_with_output().unwrap();
+        assert_eq!(output.stdout, frame.as_bytes());
+    }
+
+    #[test]
+    fn harness_input_backpressure_times_out_and_stops_only_its_child() {
+        let (live, mut child) = live_group("exec sleep 30");
+        let (other_live, other_child) = live_child();
+        let started = Instant::now();
+        let result = write_child_line(
+            live.clone(),
+            "x".repeat(1_000_000),
+            Duration::from_millis(100),
+        );
+        let elapsed = started.elapsed();
+        let stopped = wait_dead(live.pid, &mut child);
+        let other_alive = process_alive(other_live.pid);
+        reap(child);
+        reap(other_child);
+        assert!(result.unwrap_err().contains("stopped accepting input"));
+        assert!(elapsed < Duration::from_secs(2));
+        assert!(stopped, "timed-out writer's process survived");
+        assert!(other_alive, "writer timeout stopped an unrelated child");
+        assert!(live.input_stopped.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn harness_input_mutex_wait_is_cancellable_without_releasing_the_lock() {
+        let (live, child) = live_child();
+        let held = live.stdin.lock().unwrap();
+        let writing = live.clone();
+        let (sender, receiver) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = sender.send(write_stdin_frame(
+                &writing,
+                b"pending\n",
+                Instant::now() + Duration::from_secs(10),
+            ));
+        });
+        live.input_stopped.store(true, Ordering::SeqCst);
+        let result = receiver.recv_timeout(Duration::from_secs(1));
+        drop(held);
+        reap(child);
+        assert_eq!(
+            result.unwrap().unwrap_err().kind(),
+            std::io::ErrorKind::Interrupted
+        );
+    }
+
+    #[test]
+    fn harness_input_mutex_wait_uses_the_same_deadline_as_the_pipe() {
+        let (live, child) = live_child();
+        let held = live.stdin.lock().unwrap();
+        let started = Instant::now();
+        let result = write_stdin_frame(&live, b"pending\n", started + Duration::from_millis(50));
+        drop(held);
+        reap(child);
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::TimedOut);
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn harness_exit_waits_for_final_output_after_the_process_exits() {
+        let mut child = Command::new("sh")
+            .args([
+                "-c",
+                "printf 'final result\\n'; printf 'final diagnostic\\n' >&2",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let stderr = child.stderr.take().unwrap();
+        assert!(child.wait().unwrap().success());
+        let open = Arc::new(Mutex::new(true));
+        let messages = Arc::new(Mutex::new(Vec::new()));
+        let (done, drained) = mpsc::channel();
+        let (release, start) = mpsc::channel();
+        let stdout_open = open.clone();
+        let stdout_messages = messages.clone();
+        let stdout_done = done.clone();
+        thread::spawn(move || {
+            start.recv().unwrap();
+            forward_harness_output(stdout, &stdout_open, |line| {
+                stdout_messages.lock().unwrap().push(line)
+            });
+            stdout_done.send(()).unwrap();
+        });
+        let stderr_open = open.clone();
+        let stderr_messages = messages.clone();
+        thread::spawn(move || {
+            forward_harness_output(stderr, &stderr_open, |line| {
+                stderr_messages.lock().unwrap().push(line)
+            });
+            done.send(()).unwrap();
+        });
+        let finish_open = open.clone();
+        let finish_messages = messages.clone();
+        let (finished, completion) = mpsc::channel();
+        thread::spawn(move || {
+            finish_harness_output(&drained, &finish_open, Duration::from_secs(2));
+            finish_messages.lock().unwrap().push("exit".into());
+            finished.send(()).unwrap();
+        });
+        assert!(matches!(
+            completion.recv_timeout(Duration::from_millis(50)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+        release.send(()).unwrap();
+        completion.recv_timeout(Duration::from_secs(2)).unwrap();
+        let messages = messages.lock().unwrap();
+        assert_eq!(messages.last().map(String::as_str), Some("exit"));
+        assert!(messages.iter().any(|line| line == "final result"));
+        assert!(messages.iter().any(|line| line == "final diagnostic"));
+    }
+
+    #[test]
+    fn harness_reaped_child_is_retired_before_waiting_for_output() {
+        let host = Arc::new(HarnessHost::new());
+        let (live, mut child) = live_group("exit 0");
+        let pid = live.pid;
+        let (epoch, generation, _) = host.begin_spawn("draining");
+        assert!(host
+            .install_spawn("draining".into(), epoch, generation, live)
+            .is_none());
+        assert!(child.wait().unwrap().success());
+        let (done, drained) = mpsc::channel();
+        let (finished, completion) = mpsc::channel();
+        let finishing = host.clone();
+        thread::spawn(move || {
+            finish_child_output(
+                Some(&finishing),
+                "draining",
+                pid,
+                &drained,
+                &Mutex::new(true),
+                Duration::from_secs(2),
+            );
+            let _ = finished.send(());
+        });
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while host.get("draining").is_some() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        let retired_during_drain = host.get("draining").is_none();
+        let still_draining = matches!(completion.try_recv(), Err(mpsc::TryRecvError::Empty));
+        let stop_result = if retired_during_drain {
+            Some(host.stop_session("draining"))
+        } else {
+            None
+        };
+        // Release both reader completions before asserting, including failure
+        // paths, so this regression never leaves a background test worker.
+        let _ = done.send(());
+        let _ = done.send(());
+        completion.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(
+            retired_during_drain,
+            "Stop could still target the already-reaped child"
+        );
+        assert!(still_draining);
+        assert!(stop_result.unwrap().is_ok());
+        assert!(!host.lock_inner().stopping.contains_key("draining"));
+    }
+
+    #[test]
+    fn harness_output_drain_is_bounded_and_rejects_late_lines() {
+        let (done, drained) = mpsc::channel();
+        let open = Mutex::new(true);
+        let started = Instant::now();
+        finish_harness_output(&drained, &open, Duration::from_millis(50));
+        assert!(started.elapsed() < Duration::from_secs(1));
+        let mut late = Vec::new();
+        forward_harness_output(std::io::Cursor::new(b"late result\n"), &open, |line| {
+            late.push(line)
+        });
+        assert!(late.is_empty());
+        drop(done);
     }
 
     #[test]
@@ -2504,6 +2871,7 @@ mod tests {
         (
             Arc::new(LiveChild {
                 stdin: Mutex::new(stdin),
+                input_stopped: Arc::new(AtomicBool::new(false)),
                 pid,
             }),
             child,

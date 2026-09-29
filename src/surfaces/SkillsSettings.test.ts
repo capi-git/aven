@@ -101,13 +101,15 @@ async function render(cwd = "/repo") {
 function button(text: string) {
   const found = [
     ...document.querySelectorAll<HTMLButtonElement>("button"),
-  ].find((item) => item.textContent?.includes(text));
+  ].find((item) =>
+    (item.getAttribute("aria-label") ?? item.textContent)?.includes(text),
+  );
   if (!found) throw new Error(`No button: ${text}`);
   return found;
 }
 function hasButton(text: string) {
   return [...document.querySelectorAll("button")].some((item) =>
-    item.textContent?.includes(text),
+    (item.getAttribute("aria-label") ?? item.textContent)?.includes(text),
   );
 }
 async function click(text: string) {
@@ -151,7 +153,9 @@ describe("Skills & Tools settings", () => {
     expect(hasButton("Allow Screen Recording")).toBe(true);
     expect(hasButton("Allow Accessibility")).toBe(true);
     expect(container.textContent).toContain("Aven listed by name");
-    expect(container.textContent).toContain("quit and reopen Aven after allowing Screen Recording");
+    expect(container.textContent).toContain(
+      "quit and reopen Aven after allowing Screen Recording",
+    );
   });
 
   it("turns desktop control off using the native command", async () => {
@@ -179,7 +183,10 @@ describe("Skills & Tools settings", () => {
     await render();
     expect(mocks.requestPermission).not.toHaveBeenCalled();
     await click("Allow Screen Recording");
-    expect(mocks.requestPermission).toHaveBeenNthCalledWith(1, "screenRecording");
+    expect(mocks.requestPermission).toHaveBeenNthCalledWith(
+      1,
+      "screenRecording",
+    );
     expect(hasButton("Allow Screen Recording")).toBe(false);
     expect(hasButton("Open Screen Recording settings")).toBe(false);
     expect(container.textContent).not.toContain("quit and reopen Aven");
@@ -195,9 +202,11 @@ describe("Skills & Tools settings", () => {
   it("prevents overlapping status and permission requests while enabling", async () => {
     mocks.status.mockResolvedValue(off);
     let resolve!: (status: DesktopControlStatus) => void;
-    mocks.setEnabled.mockReturnValue(new Promise<DesktopControlStatus>((done) => {
-      resolve = done;
-    }));
+    mocks.setEnabled.mockReturnValue(
+      new Promise<DesktopControlStatus>((done) => {
+        resolve = done;
+      }),
+    );
     await render();
     await act(async () => desktopSwitch().click());
     expect(desktopSwitch().disabled).toBe(true);
@@ -212,26 +221,37 @@ describe("Skills & Tools settings", () => {
 
   it("retains the confirmed switch state and reports an enable failure", async () => {
     mocks.status.mockResolvedValue(off);
-    mocks.setEnabled.mockRejectedValue(new Error("Desktop control could not be enabled"));
+    mocks.setEnabled.mockRejectedValue(
+      new Error("Desktop control could not be enabled"),
+    );
     await render();
     await act(async () => desktopSwitch().click());
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain("could not be enabled");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "could not be enabled",
+    );
     expect(desktopSwitch().getAttribute("aria-checked")).toBe("false");
     expect(desktopSwitch().disabled).toBe(false);
   });
 
   it("keeps a missing permission visible after a request fails", async () => {
     mocks.status.mockResolvedValue({ ...ready, desktop: permissionsRequired });
-    mocks.requestPermission.mockRejectedValue(new Error("Could not request access"));
+    mocks.requestPermission.mockRejectedValue(
+      new Error("Could not request access"),
+    );
     await render();
     await click("Allow Accessibility");
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Could not request access");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Could not request access",
+    );
     expect(button("Allow Accessibility").disabled).toBe(false);
     expect(container.textContent).toContain("Permissions needed");
   });
 
   it("checks permissions again without requesting them", async () => {
-    mocks.status.mockResolvedValueOnce({ ...ready, desktop: permissionsRequired });
+    mocks.status.mockResolvedValueOnce({
+      ...ready,
+      desktop: permissionsRequired,
+    });
     await render();
     await click("Check again");
     expect(mocks.status).toHaveBeenCalledTimes(2);
@@ -243,7 +263,10 @@ describe("Skills & Tools settings", () => {
   });
 
   it("refreshes read-only permission status on returning from macOS Settings", async () => {
-    mocks.status.mockResolvedValueOnce({ ...ready, desktop: permissionsRequired });
+    mocks.status.mockResolvedValueOnce({
+      ...ready,
+      desktop: permissionsRequired,
+    });
     await render();
     await act(async () => window.dispatchEvent(new Event("focus")));
     expect(mocks.status).toHaveBeenCalledTimes(2);
@@ -259,11 +282,18 @@ describe("Skills & Tools settings", () => {
     const visibility = vi.spyOn(document, "visibilityState", "get");
     try {
       visibility.mockReturnValue("hidden");
-      await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+      await act(async () =>
+        document.dispatchEvent(new Event("visibilitychange")),
+      );
       expect(mocks.status).toHaveBeenCalledTimes(1);
       visibility.mockReturnValue("visible");
-      mocks.status.mockResolvedValue({ ...ready, desktop: permissionsRequired });
-      await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+      mocks.status.mockResolvedValue({
+        ...ready,
+        desktop: permissionsRequired,
+      });
+      await act(async () =>
+        document.dispatchEvent(new Event("visibilitychange")),
+      );
       expect(mocks.status).toHaveBeenCalledTimes(2);
       expect(container.textContent).toContain("Permissions needed");
     } finally {
@@ -274,9 +304,12 @@ describe("Skills & Tools settings", () => {
   it("discards an older permission read that finishes after a newer one", async () => {
     await render();
     let resolveOld!: (status: AgentToolStatus) => void;
-    mocks.status.mockImplementationOnce(() => new Promise<AgentToolStatus>((resolve) => {
-      resolveOld = resolve;
-    }));
+    mocks.status.mockImplementationOnce(
+      () =>
+        new Promise<AgentToolStatus>((resolve) => {
+          resolveOld = resolve;
+        }),
+    );
     await act(async () => window.dispatchEvent(new Event("focus")));
     await act(async () => window.dispatchEvent(new Event("focus")));
     await act(async () => resolveOld(off));
@@ -287,9 +320,11 @@ describe("Skills & Tools settings", () => {
   it("defers focus refresh until an in-flight permission action finishes", async () => {
     mocks.status.mockResolvedValueOnce(off);
     let resolve!: (status: DesktopControlStatus) => void;
-    mocks.setEnabled.mockReturnValue(new Promise<DesktopControlStatus>((done) => {
-      resolve = done;
-    }));
+    mocks.setEnabled.mockReturnValue(
+      new Promise<DesktopControlStatus>((done) => {
+        resolve = done;
+      }),
+    );
     await render();
     await act(async () => desktopSwitch().click());
     await act(async () => window.dispatchEvent(new Event("focus")));
@@ -332,7 +367,9 @@ describe("Skills & Tools settings", () => {
     ).toBe(true);
     expect(dialog.querySelector("ol li")).not.toBeNull();
     expect(dialog.textContent).not.toContain("name: aven-computer-use");
-    expect(dialog.textContent).toContain('--aven-desktop \'{"action":"status"}\'');
+    expect(dialog.textContent).toContain(
+      '--aven-desktop \'{"action":"status"}\'',
+    );
     expect(dialog.textContent).toContain(
       "Do not close, replace, or restart the Aven instance",
     );
@@ -431,10 +468,14 @@ describe("Skills & Tools settings", () => {
       },
     });
     await render();
-    expect(container.textContent).toContain(
-      "macOS needs to allow Accessibility for Aven",
+    const permissions = container.querySelector(
+      '[aria-label="macOS permissions"]',
+    )!;
+    expect(permissions.querySelector("li")?.textContent).toContain("Granted");
+    expect(permissions.textContent).toContain(
+      "View windows and take screenshots",
     );
-    expect(container.textContent).toContain("Agents can already view windows and take screenshots");
+    expect(hasButton("Allow Accessibility")).toBe(true);
     expect(hasButton("Open Screen Recording settings")).toBe(false);
     expect(container.textContent).not.toContain("quit and reopen Aven");
     await click("Open Accessibility settings");
@@ -453,12 +494,46 @@ describe("Skills & Tools settings", () => {
     ]);
     await render();
     expect(hasButton("/review-changes")).toBe(true);
-    await click("Personal1");
+    await click("Personal 1");
     expect(hasButton("/mine")).toBe(true);
     expect(hasButton("/review-changes")).toBe(false);
-    await click("Project1");
+    await click("Project 1");
     expect(hasButton("/review-changes")).toBe(true);
     expect(hasButton("/mine")).toBe(false);
+  });
+
+  it("returns to all skills when a refreshed catalog no longer has the selected source", async () => {
+    await render();
+    await click("Project 1");
+    expect(hasButton("/review-changes")).toBe(true);
+    mocks.listSkills.mockResolvedValue([]);
+    await click("Refresh skills");
+    const selected = container.querySelector(
+      '[aria-label="Skill source"] [aria-checked="true"]',
+    )!;
+    expect(selected.textContent).toMatch(/^All /);
+    expect(hasButton("/aven-computer-use")).toBe(true);
+    expect(container.textContent).not.toContain("No skills match");
+  });
+
+  it("moves source selection and keyboard focus together", async () => {
+    await render();
+    const group = container.querySelector('[aria-label="Skill source"]')!;
+    const radios = [
+      ...group.querySelectorAll<HTMLButtonElement>('[role="radio"]'),
+    ];
+    expect(radios.map((radio) => radio.tabIndex)).toEqual([0, -1, -1]);
+    await act(async () => {
+      radios[0].focus();
+      radios[0].dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      );
+    });
+    expect(document.activeElement).toBe(radios[1]);
+    expect(radios[1].getAttribute("aria-checked")).toBe("true");
+    expect(radios.map((radio) => radio.tabIndex)).toEqual([-1, 0, -1]);
+    expect(hasButton("/review-changes")).toBe(true);
+    expect(hasButton("/aven-computer-use")).toBe(false);
   });
 
   it.each(["off", "permissionsRequired", "unsupported"] as const)(
@@ -466,7 +541,12 @@ describe("Skills & Tools settings", () => {
     async (state) => {
       mocks.status.mockResolvedValue({
         browserAvailable: true,
-        desktop: { ...ready.desktop, state, enabled: state === "permissionsRequired", permissions: [] },
+        desktop: {
+          ...ready.desktop,
+          state,
+          enabled: state === "permissionsRequired",
+          permissions: [],
+        },
       });
       await render();
       expect(

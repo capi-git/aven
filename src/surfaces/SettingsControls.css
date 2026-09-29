@@ -3,7 +3,7 @@
 }
 .settings-page-header h1 {
   margin: 0;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 600;
   line-height: 1.25;
   letter-spacing: -0.025em;
@@ -38,7 +38,7 @@
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 8px;
-  padding: 0 12px;
+  padding: 0 2px;
 }
 .settings-group-intro {
   min-width: 0;
@@ -57,9 +57,7 @@
 }
 .settings-group-scope {
   flex: 0 1 auto;
-  padding: 2px 6px;
-  border-radius: 5px;
-  background: var(--aven-hover);
+  padding: 2px 0;
   color: var(--aven-muted);
   font-size: 10px;
   font-weight: 550;
@@ -71,8 +69,11 @@
   padding: 0 14px;
   border: 1px solid var(--aven-line);
   border-radius: 10px;
-  background: var(--aven-grouped-surface, var(--aven-raised));
-  box-shadow: 0 1px 2px #00000005;
+  background: color-mix(
+    in srgb,
+    var(--color-content) 3%,
+    var(--aven-grouped-surface, var(--aven-raised))
+  );
 }
 .settings-row {
   display: grid;
@@ -98,7 +99,7 @@
 }
 .settings-row-description {
   margin: 3px 0 0;
-  max-width: 55ch;
+  max-width: 68ch;
   color: var(--aven-muted);
   font-size: 11px;
   line-height: 1.5;
@@ -119,6 +120,9 @@
 }
 .settings-row:has(> .settings-row-copy:only-child) {
   grid-template-columns: minmax(0, 1fr);
+}
+.settings-row:has(> .settings-row-control > .settings-toggle:only-child) {
+  grid-template-columns: minmax(0, 1fr) 36px;
 }
 .settings-segmented {
   display: inline-grid;

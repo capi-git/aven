@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
@@ -27,10 +28,10 @@ import {
   notePreview,
   noteSourceProject,
   noteTitle,
-  upsertNote,
   requestAddNoteToChat,
   type Note,
 } from "../lib/notes";
+import { getNoteDraft, subscribeSavedNoteDrafts } from "../lib/noteDrafts";
 import {
   insertNoteImagesMarkdown,
   saveNoteImagesFromFiles,
@@ -188,7 +189,7 @@ export function NotesView({
     }
   };
 
-  const onSaved = (note: Note) => {
+  const onSaved = useCallback((note: Note) => {
     setNotes((current) => {
       const next = current.map((item) => (item.id === note.id ? note : item));
       next.sort(
@@ -196,7 +197,9 @@ export function NotesView({
       );
       return next;
     });
-  };
+  }, []);
+
+  useEffect(() => subscribeSavedNoteDrafts(onSaved), [onSaved]);
 
   const onDelete = async (id: string) => {
     // Only the mutation decides success. A separate list-read failure must not
@@ -529,24 +532,28 @@ function NoteEditor({
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const blank = !note.body.trim() && note.title === "Untitled";
   const [mode, setMode] = useMarkdownMode(note.id);
-  const [title, setTitle] = useState(note.title);
-  const [body, setBody] = useState(note.body);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [store] = useState(() => getNoteDraft(note));
+  const {
+    title,
+    body,
+    saved,
+    error: saveError,
+    deleting,
+  } = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const [imageError, setImageError] = useState<string | null>(null);
   const [imageDrag, setImageDrag] = useState(false);
   const [imageBusy, setImageBusy] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const titleRef = useRef(title);
-  const bodyRef = useRef(body);
-  const noteRef = useRef(note);
   const sourceFieldRef = useRef<HTMLTextAreaElement>(null);
-  const skipSave = useRef(false);
-  const saveTimer = useRef<number | null>(null);
-  const saveQueue = useRef(Promise.resolve());
   const onSavedRef = useRef(onSaved);
-  titleRef.current = title;
-  bodyRef.current = body;
-  noteRef.current = note;
   onSavedRef.current = onSaved;
+
+  useEffect(() => {
+    onSavedRef.current(saved);
+  }, [saved]);
+
+  const setTitle = (value: string) => store.edit({ title: value });
+  const setBody = (value: string) => store.edit({ body: value });
+  const flushSave = store.flush;
   const project = noteSourceProject(note.sourceCwd);
   const time = formatRelativeTime(new Date(note.updatedAt).toISOString());
 
@@ -556,81 +563,21 @@ function NoteEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const persist = useCallback(async () => {
-    if (skipSave.current) return;
-    const current = noteRef.current;
-    const nextTitle = titleRef.current.trim() || noteTitle(bodyRef.current);
-    const nextBody = bodyRef.current;
-    if (nextTitle === current.title && nextBody === current.body) return;
-    try {
-      const saved = await upsertNote({
-        id: current.id,
-        title: nextTitle,
-        body: nextBody,
-      });
-      setSaveError(null);
-      if (
-        titleRef.current.trim() === "" ||
-        titleRef.current === current.title
-      ) {
-        setTitle(saved.title);
-      }
-      onSavedRef.current(saved);
-    } catch (err: unknown) {
-      setSaveError(err instanceof Error ? err.message : String(err));
-    }
-  }, []);
-
-  const queueSave = useCallback(() => {
-    saveQueue.current = saveQueue.current.then(persist, persist);
-    return saveQueue.current;
-  }, [persist]);
-
-  const scheduleSave = useCallback(() => {
-    if (saveTimer.current != null) window.clearTimeout(saveTimer.current);
-    saveTimer.current = window.setTimeout(() => {
-      saveTimer.current = null;
-      void queueSave();
-    }, 400);
-  }, [queueSave]);
-
-  const flushSave = useCallback(() => {
-    if (saveTimer.current != null) window.clearTimeout(saveTimer.current);
-    saveTimer.current = null;
-    return queueSave();
-  }, [queueSave]);
-
-  const remove = async () => {
-    // A ref also covers two clicks before React commits the disabled button.
-    if (skipSave.current) return;
-    skipSave.current = true;
-    setDeleting(true);
-    if (saveTimer.current != null) window.clearTimeout(saveTimer.current);
-    saveTimer.current = null;
-    try {
-      await saveQueue.current;
-      await onDelete(note.id);
-    } catch (err: unknown) {
-      skipSave.current = false;
-      setDeleting(false);
-      setSaveError(err instanceof Error ? err.message : String(err));
-      // Include edits made while deletion was pending, even if this editor was
-      // closed in the meantime and its unmount flush was suppressed.
-      scheduleSave();
-    }
+  const remove = () => {
+    void store.remove(() => onDelete(note.id)).catch(() => undefined);
   };
 
   const insertionRange = useCallback(() => {
     const field = sourceFieldRef.current;
     if (!field) {
-      const end = bodyRef.current.length;
+      const end = store.getSnapshot().body.length;
       return { start: end, end };
     }
     return {
       start: field.selectionStart,
       end: field.selectionEnd,
     };
-  }, []);
+  }, [store]);
 
   const addDroppedImages = useCallback(
     async (
@@ -642,15 +589,13 @@ function NoteEditor({
       try {
         const images = await load();
         const inserted = insertNoteImagesMarkdown(
-          bodyRef.current,
+          store.getSnapshot().body,
           range.start,
           range.end,
           images,
         );
-        bodyRef.current = inserted.value;
-        setBody(inserted.value);
-        setSaveError(null);
-        scheduleSave();
+        store.edit({ body: inserted.value });
+        setImageError(null);
         window.requestAnimationFrame(() => {
           const field = sourceFieldRef.current;
           if (!field) return;
@@ -658,19 +603,13 @@ function NoteEditor({
           field.setSelectionRange(inserted.cursor, inserted.cursor);
         });
       } catch (err: unknown) {
-        setSaveError(err instanceof Error ? err.message : String(err));
+        setImageError(err instanceof Error ? err.message : String(err));
       } finally {
         setImageBusy(false);
       }
     },
-    [scheduleSave],
+    [store],
   );
-
-  useEffect(() => {
-    return () => {
-      void flushSave();
-    };
-  }, [flushSave]);
 
   const onTitleKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Enter") return;
@@ -712,12 +651,11 @@ function NoteEditor({
             value={title}
             onChange={(event) => {
               setTitle(event.target.value);
-              scheduleSave();
             }}
             onBlur={() => {
               const next = title.trim() || noteTitle(body);
               if (next !== title) setTitle(next);
-              void flushSave();
+              void flushSave().catch(() => undefined);
             }}
             onKeyDown={onTitleKeyDown}
             aria-label="Note title"
@@ -746,8 +684,10 @@ function NoteEditor({
               Delete
             </button>
           </div>
-          {saveError ? (
-            <p className="text-[12px] text-red-400/90">{saveError}</p>
+          {saveError || imageError ? (
+            <p role="alert" className="text-[12px] text-red-400/90">
+              {saveError || imageError}
+            </p>
           ) : null}
         </header>
         <div
@@ -807,7 +747,6 @@ function NoteEditor({
               value={body}
               onChange={(next) => {
                 setBody(next);
-                scheduleSave();
               }}
             />
           ) : body.trim() ? (
