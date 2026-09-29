@@ -4,6 +4,7 @@
 
 ### Tabs stay with their pane
 
+- Fix Aven quitting unexpectedly when macOS Writing Tools appeared over a text box, such as the message box. Writing Tools is turned off inside Aven's own windows; websites in the browser are unchanged.
 - Tabs now always sit in their pane's own row, whether one pane fills the window or several share it, instead of moving up into the window's top bar when there is a single pane. The top bar keeps only navigation, Activity and window tools.
 - Activity (the task list and unread count) always sits on the left, next to the navigation buttons, including while Settings is open.
 - Split panes sit closer together. The gap between them is half as wide, and each pane's tab row now shows the same chat background as the pane below it instead of a dark band.
