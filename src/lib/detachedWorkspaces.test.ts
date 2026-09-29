@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement, StrictMode } from "react";
+import { act, createElement, StrictMode, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { leaf, leafIds, type WorkspaceTab } from "./layout";
@@ -279,6 +279,51 @@ describe("detached workspace transactions", () => {
       api.openForSession("a", "https://example.com/mock"),
     ).resolves.toBe(browser.id);
     expect(focus).toHaveBeenCalledTimes(2);
+  });
+  it("commits the owner's browser scope before a checkpoint-confirmed open resolves", async () => {
+    const entry = { id: "window-a", state: state("a"), pinned: false };
+    vi.mocked(nativeWorkspaceWindow.list).mockResolvedValue([entry]);
+    const focus = vi
+      .spyOn(nativeWorkspaceWindow, "focus")
+      .mockResolvedValue(undefined);
+    let readScope!: () => string[];
+    function ScopedOwner() {
+      const [browserIds, setBrowserIds] = useState<string[]>([]);
+      const browserIdsRef = useRef(browserIds);
+      browserIdsRef.current = browserIds;
+      readScope = () => browserIdsRef.current;
+      api = useDetachedWorkspaces({
+        sessions,
+        sessionProps: { recents, onSubmit: () => {} },
+        onCheckpoint: (checkpoint) => {
+          // The owner publishes its scope from a functional state update,
+          // just as App merges detached browser checkpoints into its workspace.
+          setBrowserIds(() => {
+            const next = checkpoint.browsers.map((browser) => browser.id);
+            browserIdsRef.current = next;
+            return next;
+          });
+        },
+        onReturned: (snapshot) => returned(snapshot),
+      });
+      return null;
+    }
+    await act(async () => root.render(createElement(ScopedOwner)));
+    let opening!: Promise<string | null>;
+    await act(async () => {
+      opening = api.openForSession("a", "https://example.com/mock");
+    });
+    const browser = focus.mock.calls[0][3]!;
+    await act(async () => {
+      listeners.get("workspace-window-checkpoint")!({
+        ...entry,
+        state: { ...entry.state, browsers: [browser] },
+      });
+      // The browser host checks ownership immediately after open resolves,
+      // before an ordinary batched React render can publish the new scope.
+      const surfaceId = await opening;
+      expect(readScope()).toContain(surfaceId);
+    });
   });
   it("creates separate tabs when newTab is requested and preserves distinct URL destinations", async () => {
     const entry = { id: "window-a", state: state("a"), pinned: false };

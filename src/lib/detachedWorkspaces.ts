@@ -1,5 +1,6 @@
 import { listenerGroup } from "./listenerGroup";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { WorkspaceTab } from "./layout";
@@ -433,7 +434,9 @@ export function useDetachedWorkspaces(options: Options) {
         (entry) => {
           if (!entries.current.has(entry.id)) return;
           accept(entry);
-          latest.current.onCheckpoint?.(entry.state);
+          // Confirmed opens resume in a microtask and immediately check the
+          // owner's browser scope. Publish that scope before they can resume.
+          flushSync(() => latest.current.onCheckpoint?.(entry.state));
         },
       ),
       nativeWorkspaceWindow.listen<DetachedWorkspaceSnapshot>(
