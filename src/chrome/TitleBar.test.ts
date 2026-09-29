@@ -926,6 +926,38 @@ describe("browser tab integration", () => {
       expect(drawn()).toEqual(["a", "[Docs]", "b", "web-a", "c"]);
     });
 
+    it("folds from a real press, where pointer capture delivers the click to the label's slot", async () => {
+      await render({ tabs: [tab({ id: "a" }), tab({ id: "b" })], activeId: "a" });
+      await makeGroup("b", "QA");
+      const slot = label()!.closest<HTMLElement>(".personal-tab-group-slot")!;
+      slot.setPointerCapture = vi.fn();
+      slot.releasePointerCapture = vi.fn();
+      const pointer = (target: EventTarget, type: string) =>
+        act(async () =>
+          target.dispatchEvent(
+            new PointerEvent(type, {
+              bubbles: true,
+              pointerId: 1,
+              button: 0,
+              clientX: 10,
+              clientY: 10,
+            }),
+          ),
+        );
+      await pointer(label()!, "pointerdown");
+      expect(slot.setPointerCapture).toHaveBeenCalled();
+      await pointer(window, "pointerup");
+      // The browser targets the capturing slot, not the button inside it.
+      await act(async () =>
+        slot.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+      );
+      expect(drawn()).toEqual(["a", "[QA1]"]);
+      await act(async () =>
+        slot.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+      );
+      expect(drawn()).toEqual(["a", "[QA]", "b"]);
+    });
+
     it("still folds when every tab in the strip belongs to the group", async () => {
       await render({ tabs: [tab({ id: "a" }), tab({ id: "b" })], activeId: "a" });
       await makeGroup("a", "All");

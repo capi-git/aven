@@ -779,6 +779,19 @@ function TabGroupLabel({
       onPointerDown={(event) => {
         if (canDrag && !renaming) sortable.onItemPointerDown(id, event);
       }}
+      // Pressing captures the pointer on this slot for dragging, so the click
+      // lands here rather than on the button inside; handle it here, as tab
+      // slots do. Keyboard activation of the button bubbles here too.
+      onClick={(event) => {
+        if (renaming || (event.target as HTMLElement).closest("input")) return;
+        if (sortable.consumeClick()) return;
+        onToggle();
+      }}
+      onDoubleClick={(event) => {
+        if (renaming) return;
+        event.stopPropagation();
+        onStartRename();
+      }}
     >
       {dropBefore ? (
         <div className="personal-tab-insertion pointer-events-none absolute inset-y-1.5 left-0 z-20 rounded-full" />
@@ -822,14 +835,6 @@ function TabGroupLabel({
             title={`${name} · ${tabs}. Click to ${
               group.collapsed ? "unfold" : "fold"
             }, double-click to rename`}
-            onClick={() => {
-              if (sortable.consumeClick()) return;
-              onToggle();
-            }}
-            onDoubleClick={(event) => {
-              event.stopPropagation();
-              onStartRename();
-            }}
             onContextMenu={(event) => {
               event.preventDefault();
               event.stopPropagation();
