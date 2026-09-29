@@ -12,10 +12,11 @@ import * as workspaceStage from "./WorkspaceStage";
 const previews = vi.hoisted(() => ({ filePane: vi.fn(), titleBar: vi.fn() }));
 
 vi.mock("./BrowserPane", () => ({
-  BrowserPane: ({ id, visible }: { id: string; visible: boolean }) =>
+  BrowserPane: ({ id, visible, initialUrl }: { id: string; visible: boolean; initialUrl: string }) =>
     createElement("div", {
       "data-test-browser": id,
       "data-presented": String(visible),
+      "data-url": initialUrl,
     }),
 }));
 vi.mock("./SessionPane", () => ({ SessionPane: () => null }));
@@ -94,6 +95,20 @@ beforeEach(() => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
+});
+
+it("focuses an existing browser without restoring a stale checkpoint address", async () => {
+  await act(async () => root.render(createElement(DetachedWorkspace)));
+  await act(async () => listeners.get("workspace-window-focus")!({
+    browser: { id: "background", url: "https://old-preview.example/", title: "Stale title" },
+  }));
+  const browser = host.querySelector('[data-test-browser="background"]');
+  expect(browser?.getAttribute("data-presented")).toBe("true");
+  expect(browser?.getAttribute("data-url")).toBe("https://example.org");
+  await act(async () => vi.advanceTimersByTime(150));
+  expect(nativeWorkspaceWindow.checkpoint).toHaveBeenLastCalledWith(expect.objectContaining({
+    browsers: expect.arrayContaining([expect.objectContaining({ id: "background", url: "https://example.org", title: "Background" })]),
+  }));
 });
 
 it("keeps edited detached files after saving and checkpoints their complete preview history", async () => {

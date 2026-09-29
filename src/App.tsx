@@ -141,6 +141,10 @@ import {
   patchBrowserWorkspace,
 } from "./lib/personalWorkspace";
 import {
+  openAgentBrowserTab,
+  type AgentBrowserOpenOptions,
+} from "./lib/agentBrowserOpen";
+import {
   loadDefaultRuntimeMode,
   subscribeDefaultRuntimeMode,
   saveDefaultRuntimeMode,
@@ -966,8 +970,15 @@ export default function App({
     () => new Set(),
   );
   const detachedBrowserBridge = useRef<
-    (sessionId: string, url: string) => Promise<string | null>
+    (
+      sessionId: string,
+      url: string,
+      options?: AgentBrowserOpenOptions,
+    ) => Promise<string | null>
   >(async () => null);
+  const detachedFocusBrowser = useRef<
+    (surfaceId: string) => Promise<boolean>
+  >(async () => false);
   const agentFileBridge = useRef<
     (
       sessionId: string,
@@ -1007,7 +1018,7 @@ export default function App({
             ? workspace.tabs.map((tab) => browserIdForTab(session.cwd, tab.id))
             : [];
         },
-        async open({ sessionId, cwd }, url) {
+        async open({ sessionId, cwd }, url, options) {
           const session = sessionsRef.current.find(
             (item) => item.id === sessionId,
           );
@@ -1016,11 +1027,36 @@ export default function App({
           const detachedSurface = await detachedBrowserBridge.current(
             sessionId,
             url,
+            options,
           );
           if (detachedSurface) return detachedSurface;
+          const currentSession = sessionsRef.current.find(
+            (item) => item.id === sessionId,
+          );
+          if (
+            !currentSession ||
+            currentSession.cwd !== session.cwd ||
+            !sameProjectPath(sessionWorkCwd(currentSession), cwd)
+          )
+            throw new Error("The task is no longer available.");
           const project = session.cwd;
-          const id = crypto.randomUUID();
+          // No await between selecting and committing: overlapping opens see the
+          // committed tab and return the same surface instead of creating copies.
+          const {
+            tab: { id },
+            workspace,
+          } = openAgentBrowserTab(
+            browserWorkspacesRef.current[project] ?? EMPTY_BROWSER,
+            url,
+            options,
+          );
           const surfaceId = browserIdForTab(project, id);
+          if (detachedIdsRef.current.has(surfaceId)) {
+            // A browser can be detached without its chat. Select it in that
+            // window; never add its unavailable surface to the main layout.
+            if (await detachedFocusBrowser.current(surfaceId)) return surfaceId;
+            throw new Error("The browser tab moved. Try opening it again.");
+          }
           // Commit the tab first so the workspace view knows the new surface.
           flushSync(() => {
             setAgentBrowserSurfaces(
@@ -1028,10 +1064,7 @@ export default function App({
             );
             setBrowserWorkspaces((all) => ({
               ...all,
-              [project]: addRetainedBrowserTab(
-                { ...(all[project] ?? EMPTY_BROWSER), mode: "tab" },
-                { id, url },
-              ),
+              [project]: workspace,
             }));
           });
           // Show a requested page in the active project without switching
@@ -8260,6 +8293,7 @@ export default function App({
     },
   });
   detachedBrowserBridge.current = detached.openForSession;
+  detachedFocusBrowser.current = detached.focusBrowser;
   externallyRenderedSessionIds.current = new Set(detached.detachedSessionIds);
   detachedFileBridge.current = detached.openFileForSession;
   detachedShowSurface.current = async (surfaceId, paneId) => {
