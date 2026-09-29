@@ -1782,6 +1782,8 @@ function BrowserPaneSession({
       className="browser-pane"
       aria-label="Browser preview"
       data-browser-pane={id}
+      // No page yet: the pane shows the workspace background like other panes.
+      data-blank={(!url && !error && !sleeping) || undefined}
       onKeyDown={(event) => {
         if ((event.metaKey || event.ctrlKey) && !event.altKey) {
           if (event.key.toLowerCase() === "f" && readyId) {
