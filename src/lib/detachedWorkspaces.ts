@@ -1,6 +1,7 @@
 import { listenerGroup } from "./listenerGroup";
 import { withNewDetachedCloses } from "./detachedWorkspaceClose";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { WorkspaceTab } from "./layout";
@@ -43,6 +44,10 @@ import { allModels, getModelSnapshot } from "./models";
 import { registerWorkspaceDraftFlusher } from "./workspaceDraftFlush";
 import { sessionWorkCwd, type Session } from "./session";
 import type { EditorNavigation } from "./search";
+import {
+  matchingAgentBrowserTab,
+  type AgentBrowserOpenOptions,
+} from "./agentBrowserOpen";
 
 export type DetachedFileRequest = {
   path: string;
@@ -301,6 +306,21 @@ export function useDetachedWorkspaces(options: Options) {
       }
     >(),
   );
+  // Native focus returns after emitting the request, before the detached view's
+  // checkpoint. Keep new opens reserved until that checkpoint confirms the tab.
+  const pendingBrowserOpens = useRef(
+    new Map<
+      string,
+      {
+        windowId: string;
+        sessionId: string;
+        browser: DetachedBrowser;
+        promise: Promise<string>;
+        confirm: () => void;
+        fail: (reason: Error) => void;
+      }
+    >(),
+  );
   const ready = useRef<Promise<unknown>>(Promise.resolve());
   const report = useCallback(
     (reason: unknown) =>
@@ -368,6 +388,21 @@ export function useDetachedWorkspaces(options: Options) {
       for (const b of entry.state.browsers)
         if (b.nativeId) registerAgentBrowserPage(b.id, b.nativeId);
       entries.current.set(entry.id, entry);
+      for (const request of pendingBrowserOpens.current.values()) {
+        if (request.windowId !== entry.id) continue;
+        if (!detachedSessionIds(entry.state).includes(request.sessionId))
+          request.fail(new Error("The task is no longer in this window."));
+        else if (entry.state.closedSurfaceIds?.includes(request.browser.id))
+          request.fail(
+            new Error("The browser tab closed before opening completed."),
+          );
+        else if (
+          entry.state.browsers.some(
+            (browser) => browser.id === request.browser.id,
+          )
+        )
+          request.confirm();
+      }
       publish();
     };
     const listeners = listenerGroup([
@@ -402,12 +437,19 @@ export function useDetachedWorkspaces(options: Options) {
           if (!previous) return;
           const update = withNewDetachedCloses(previous.state, entry.state);
           accept(entry);
-          latest.current.onCheckpoint?.(update);
+          // Confirmed opens resume in a microtask and immediately check the
+          // owner's browser scope. Publish that scope before they can resume.
+          flushSync(() => latest.current.onCheckpoint?.(update));
         },
       ),
       nativeWorkspaceWindow.listen<DetachedWorkspaceSnapshot>(
         "workspace-window-returned",
         (entry) => {
+          for (const request of pendingBrowserOpens.current.values())
+            if (request.windowId === entry.id)
+              request.fail(
+                new Error("The task window returned before opening completed."),
+              );
           void (async () => {
             try {
               restoreEditorDrafts(entry.state.editorDrafts);
@@ -533,6 +575,12 @@ export function useDetachedWorkspaces(options: Options) {
         );
       }
       pending.current.clear();
+      for (const request of pendingBrowserOpens.current.values())
+        request.fail(
+          new Error(
+            "The workspace owner was disposed before opening completed.",
+          ),
+        );
       cleanups.forEach((fn) => fn());
     };
   }, [report, returnWindow]);
@@ -655,24 +703,142 @@ export function useDetachedWorkspaces(options: Options) {
     await nativeWorkspaceWindow.focus(entry.id, id);
     return true;
   }, []);
+  const focusBrowser = useCallback(
+    async (surfaceId: string): Promise<boolean> => {
+      await ready.current;
+      const entry = [...entries.current.values()].find((entry) =>
+        entry.state.browsers.some((browser) => browser.id === surfaceId),
+      );
+      if (!entry) return false;
+      if (busyTargets.current.has(entry.id) || pending.current.has(entry.id))
+        throw new Error(
+          "This browser is moving between windows. Try opening it again in a moment.",
+        );
+      const browser = entry.state.browsers.find(
+        (browser) => browser.id === surfaceId,
+      )!;
+      await nativeWorkspaceWindow.focus(
+        entry.id,
+        undefined,
+        undefined,
+        browser,
+      );
+      return true;
+    },
+    [],
+  );
   const openForSession = useCallback(
-    async (id: string, url: string): Promise<string | null> => {
+    async (
+      id: string,
+      url: string,
+      options?: AgentBrowserOpenOptions,
+    ): Promise<string | null> => {
+      await ready.current;
       const entry = [...entries.current.values()].find((e) =>
         detachedSessionIds(e.state).includes(id),
       );
       if (!entry) return null;
-      let browser = entry.state.browsers.find((b) => b.url === url);
-      if (!browser) {
-        const tabId = crypto.randomUUID();
-        browser = {
-          id: browserIdForTab(entry.state.cwd, tabId),
-          tabId,
+      const project = entry.state.sessions.find((s) => s.session.id === id)!
+        .session.cwd;
+      if (busyTargets.current.has(entry.id) || pending.current.has(entry.id))
+        throw new Error(
+          "This task is moving between windows. Try opening the browser again in a moment.",
+        );
+      if (!options?.newTab) {
+        const reserved = matchingAgentBrowserTab(
+          [...pendingBrowserOpens.current.values()]
+            .filter(
+              (request) =>
+                request.windowId === entry.id &&
+                request.browser.project === project,
+            )
+            .map((request) => request.browser),
           url,
-          project: entry.state.cwd,
-        };
+        );
+        if (reserved)
+          return pendingBrowserOpens.current.get(reserved.id)!.promise;
+        const existing = matchingAgentBrowserTab(
+          entry.state.browsers.filter(
+            (browser) => (browser.project ?? entry.state.cwd) === project,
+          ),
+          url,
+          entry.state.view.focusedId,
+        );
+        if (existing) {
+          await nativeWorkspaceWindow.focus(entry.id, id, undefined, existing);
+          return existing.id;
+        }
       }
-      await nativeWorkspaceWindow.focus(entry.id, id, undefined, browser);
-      return browser.id;
+      const tabId = crypto.randomUUID();
+      const browser: DetachedBrowser = {
+        id: browserIdForTab(project, tabId),
+        tabId,
+        url,
+        project,
+      };
+      let resolve!: (id: string) => void;
+      let reject!: (reason: Error) => void;
+      const promise = new Promise<string>((yes, no) => {
+        resolve = yes;
+        reject = no;
+      });
+      let focused = false;
+      let confirmed = false;
+      let settled = false;
+      const finish = (reason?: Error) => {
+        if (settled || (!reason && (!focused || !confirmed))) return;
+        settled = true;
+        clearTimeout(timer);
+        pendingBrowserOpens.current.delete(browser.id);
+        if (reason) reject(reason);
+        else resolve(browser.id);
+      };
+      const timer = setTimeout(
+        () =>
+          finish(
+            new Error(
+              "The task window did not confirm the browser tab. Try opening it again.",
+            ),
+          ),
+        8000,
+      );
+      pendingBrowserOpens.current.set(browser.id, {
+        windowId: entry.id,
+        sessionId: id,
+        browser,
+        promise,
+        confirm: () => {
+          confirmed = true;
+          finish();
+        },
+        fail: finish,
+      });
+      void Promise.resolve()
+        .then(() => {
+          if (settled) return;
+          const current = entries.current.get(entry.id);
+          if (!current || !detachedSessionIds(current.state).includes(id))
+            throw new Error("The task is no longer in this window.");
+          if (
+            busyTargets.current.has(entry.id) ||
+            pending.current.has(entry.id)
+          )
+            throw new Error(
+              "This task is moving between windows. Try opening the browser again in a moment.",
+            );
+          return nativeWorkspaceWindow.focus(entry.id, id, undefined, browser);
+        })
+        .then(
+          () => {
+            focused = true;
+            finish();
+          },
+          (reason) =>
+            finish(
+              reason instanceof Error ? reason : new Error(String(reason)),
+            ),
+        );
+      return promise;
     },
     [],
   );
@@ -713,6 +879,7 @@ export function useDetachedWorkspaces(options: Options) {
   return {
     openFileForSession,
     openBrowserForSession,
+    focusBrowser,
     states: new Map(snapshots.map((s) => [s.id, s.state])),
     activeVisibleSessionIds: new Set(Object.values(visibility).flat()),
     focusedSessionIds: new Set(Object.values(visibility).flat()),

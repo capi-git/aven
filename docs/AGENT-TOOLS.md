@@ -11,8 +11,13 @@ with a connection scoped to the requesting task. No browser extension, MCP serve
 or change to the Mac's default browser is required.
 
 Agents should start development servers without auto-opening a browser. They then
-use the supplied command to open the URL, inspect a snapshot, and interact with
-elements from that snapshot. If the connection fails, the agent reports the error
+list pages first and reuse the matching page ID to inspect or reload the preview.
+The `open` action reuses an exact matching URL within the task's workspace, including
+when requests overlap. It preserves live page state; sleeping tabs wake as needed.
+Different query strings and fragments remain separate addresses. Pass `"newTab":true`
+only when a separate copy is intentional, such as preserving a user draft while
+testing. Use `reload` to refresh the existing page after an edit, rather than
+opening another copy. Agents inspect a snapshot and interact with elements from it. If the connection fails, the agent reports the error
 instead of switching to another browser. Explicit requests for a different browser,
 configured browser tests, and provider sign-in flows retain their normal behavior.
 

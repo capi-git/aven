@@ -623,9 +623,9 @@ export function DetachedWorkspace() {
             return {
               ...state,
               browsers: exists
-                ? state.browsers.map((b) =>
-                    b.id === browser.id ? { ...b, url: browser.url } : b,
-                  )
+                // The owner's checkpoint may precede a navigation in this
+                // window. Focusing an existing tab must not restore that URL.
+                ? state.browsers
                 : [...retainCoveredBrowser(state), { ...browser, kept: true }],
               view: selectWorkspaceView(
                 resolveWorkspaceView(
