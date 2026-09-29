@@ -24,12 +24,12 @@ function Strip({ ids }: { ids: string[] }) {
   );
 }
 
-async function render(ids: string[]) {
+async function render(ids: string[], zoom = 1) {
   await act(async () => root.render(createElement(Strip, { ids })));
   for (const node of container.querySelectorAll<HTMLElement>(
     "[data-motion-slot]",
   ))
-    node.getBoundingClientRect = () => new DOMRect(0, 0, 224, 32);
+    node.getBoundingClientRect = () => new DOMRect(0, 0, 224 * zoom, 32 * zoom);
 }
 
 beforeEach(() => {
@@ -73,6 +73,17 @@ describe("tab slot motion", () => {
     expect(seen.ghosts.map((ghost) => ghost.after)).toEqual([null]);
   });
 
+  it.each([0.5, 1.25, 2])(
+    "keeps ghost widths in CSS pixels at zoom %s",
+    async (zoom) => {
+      container.style.zoom = String(zoom);
+      await render(["a", "b"], zoom);
+      await render(["a", "b"], zoom);
+      await render(["a"], zoom);
+      expect(seen.ghosts).toEqual([{ id: "b", after: "a", width: 224 }]);
+    },
+  );
+
   it("skips motion when every tab is replaced or motion is reduced", async () => {
     await render(["a", "b"]);
     await render(["x", "y"]);
@@ -93,4 +104,58 @@ describe("tab slot motion", () => {
     await act(async () => vi.advanceTimersByTime(TAB_SLOT_MOTION_MS));
     expect(seen.ghosts).toEqual([]);
   });
+
+  it("removes a reopened tab's ghost and gives its next close a full lifetime", async () => {
+    const step = TAB_SLOT_MOTION_MS / 3;
+    await render(["a", "b"]);
+    await render(["a"]);
+    await act(async () => vi.advanceTimersByTime(step));
+    await render(["a", "b"]);
+    expect(seen.ghosts).toEqual([]);
+    expect([...seen.opening]).toEqual(["b"]);
+
+    await act(async () => vi.advanceTimersByTime(step));
+    await render(["a"]);
+    expect([...seen.opening]).toEqual([]);
+    expect(seen.ghosts.map((ghost) => ghost.id)).toEqual(["b"]);
+    // Neither the first close nor the intervening open may expire this close.
+    await act(async () => vi.advanceTimersByTime(2 * step));
+    expect(seen.ghosts.map((ghost) => ghost.id)).toEqual(["b"]);
+    await act(async () => vi.advanceTimersByTime(step));
+    expect(seen.ghosts).toEqual([]);
+  });
+
+  it("does not let an earlier opening expire a reopened tab", async () => {
+    const step = TAB_SLOT_MOTION_MS / 3;
+    await render(["a"]);
+    await render(["a", "b"]);
+    await act(async () => vi.advanceTimersByTime(step));
+    await render(["a"]);
+    await act(async () => vi.advanceTimersByTime(step));
+    await render(["a", "b"]);
+    await act(async () => vi.advanceTimersByTime(2 * step));
+    expect([...seen.opening]).toEqual(["b"]);
+    expect(seen.ghosts).toEqual([]);
+    await act(async () => vi.advanceTimersByTime(step));
+    expect([...seen.opening]).toEqual([]);
+  });
+
+  it.each(["whole strip", "reduced motion"])(
+    "clears in-flight motion when skipping for %s",
+    async (reason) => {
+      await render(["a", "b"]);
+      await render(["a", "c"]);
+      expect([...seen.opening]).toEqual(["c"]);
+      expect(seen.ghosts.map((ghost) => ghost.id)).toEqual(["b"]);
+      if (reason === "reduced motion") {
+        vi.stubGlobal("matchMedia", () => ({ matches: true }));
+        await render(["a", "d"]);
+      } else {
+        await render(["x", "y"]);
+      }
+      expect([...seen.opening]).toEqual([]);
+      expect(seen.ghosts).toEqual([]);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
 });

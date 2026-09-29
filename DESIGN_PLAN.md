@@ -36,6 +36,7 @@ Selected direction: Compact, one shared row for conversations, files, and browse
 ## Implementation
 
 - [x] Use flat rectangular tabs with stable widths and a fine active accent; preserve the native 32px pane-header geometry.
+- [x] Remove the minimized-tabs mode, its menu/settings controls, and hover-card-only code. Keep compact titles visible even when an older saved preference enabled icon-only tabs.
 - [x] Float an exact-size visual under the pointer in both axes; keep original hitboxes stationary and animate neighbouring tabs into the landing position.
 - [x] Preserve source focus, reduced-motion preferences, zoom, cancellation, and cleanup. Keep the preview out of keyboard navigation and drop-target discovery.
 - [x] Use the existing native-browser occlusion path where the floating preview intersects an embedded browser.
