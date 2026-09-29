@@ -4,7 +4,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetHarnessModelOverlays, setHarnessModels } from "../lib/models";
 import { saveTabGroupLabel } from "../lib/tabGroups";
-import { loadMinimizedTabs, saveMinimizedTabs } from "../lib/settings";
 import { projectKey } from "../lib/paths";
 import {
   TitleBar,
@@ -299,6 +298,26 @@ describe("browser tab integration", () => {
     await act(async () => button.click());
   }
 
+  const surfaceTabButton = (id: string) =>
+    container.querySelector<HTMLButtonElement>(
+      `[data-surface-tab-id="${id}"] [role="tab"]`,
+    )!;
+
+  async function keydown(
+    node: HTMLElement,
+    key: string,
+    options: KeyboardEventInit = {},
+  ) {
+    const event = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key,
+      ...options,
+    });
+    await act(async () => node.dispatchEvent(event));
+    return event;
+  }
+
   async function mouseDown(target: Element, button = 0, detail = 1) {
     const event = new MouseEvent("mousedown", {
       button,
@@ -544,67 +563,6 @@ describe("browser tab integration", () => {
     expect(props.onNewBrowser).toHaveBeenCalledOnce();
   });
 
-  it("drags the hosted header's blank areas and maximizes on a double click only", async () => {
-    await render({ paneLocal: true, windowToolbar: true });
-    const header = container.querySelector("header")!;
-    const strip = container.querySelector('[role="tablist"]')!;
-    expect(header.getAttribute("data-tauri-drag-region")).toBe("false");
-    expect((await mouseDown(header)).defaultPrevented).toBe(true);
-    expect((await mouseDown(strip)).defaultPrevented).toBe(true);
-    expect((await mouseDown(strip.parentElement!)).defaultPrevented).toBe(true);
-    expect(nativeWindow.startDragging).toHaveBeenCalledTimes(3);
-    expect(nativeWindow.toggleMaximize).not.toHaveBeenCalled();
-    expect((await mouseDown(strip, 0, 2)).defaultPrevented).toBe(true);
-    expect(nativeWindow.toggleMaximize).toHaveBeenCalledOnce();
-    expect((await mouseDown(strip, 2)).defaultPrevented).toBe(false);
-    expect((await mouseDown(header, 1)).defaultPrevented).toBe(false);
-    expect(nativeWindow.startDragging).toHaveBeenCalledTimes(3);
-  });
-
-  it.each([
-    { paneLocal: true, windowToolbar: false },
-    { paneLocal: false, windowToolbar: true },
-  ])("keeps explicit window gestures limited to hosted pane-local bars: %o", async (mode) => {
-    await render(mode);
-    const strip = container.querySelector('[role="tablist"]')!;
-    expect((await mouseDown(strip)).defaultPrevented).toBe(false);
-    expect((await mouseDown(strip, 0, 2)).defaultPrevented).toBe(false);
-    expect(nativeWindow.startDragging).not.toHaveBeenCalled();
-    expect(nativeWindow.toggleMaximize).not.toHaveBeenCalled();
-  });
-
-  it("keeps hosted tabs, group handles and other controls outside window gestures", async () => {
-    await render({
-      paneLocal: true,
-      windowToolbar: true,
-      browserTabs: [{ id: "web-a", title: "Preview" }],
-      onNewBrowser: vi.fn(),
-      groupId: "team",
-      groupLabel: "Team",
-      onMoveGroupToWindow: vi.fn(),
-    });
-    const header = container.querySelector("header")!;
-    const controls = document.createElement("div");
-    controls.innerHTML = '<input /><textarea></textarea><select></select><a href="#">Link</a><span contenteditable="true">Editable</span><div data-no-drag><span>No drag</span></div>';
-    header.append(controls);
-    const targets = [
-      ...header.querySelectorAll('[data-surface-tab-id], [role="tab"], button, button svg, .personal-title-tab-label'),
-      ...controls.querySelectorAll("*"),
-    ];
-    for (const target of targets) {
-      expect((await mouseDown(target)).defaultPrevented).toBe(false);
-      expect((await mouseDown(target, 0, 2)).defaultPrevented).toBe(false);
-    }
-    expect(nativeWindow.startDragging).not.toHaveBeenCalled();
-    expect(nativeWindow.toggleMaximize).not.toHaveBeenCalled();
-    await click('[data-surface-tab-id="b"] [role="tab"]');
-    await click('[aria-label="New session"]');
-    await click('[aria-label="New browser"]');
-    expect(props.onSelect).toHaveBeenCalledExactlyOnceWith("b");
-    expect(props.onNew).toHaveBeenCalledOnce();
-    expect(props.onNewBrowser).toHaveBeenCalledOnce();
-  });
-
   it("only lets the focused local pane write the native window title", async () => {
     document.title = "Focused view title";
     await render({ paneLocal: true, paneFocused: false });
@@ -800,6 +758,58 @@ describe("browser tab integration", () => {
     expect(labels.some((label) => label?.startsWith("Combine"))).toBe(false);
   });
 
+  describe("MonoCode-style tabs", () => {
+    const aux = (target: Element, button: number) =>
+      act(async () => {
+        target.dispatchEvent(
+          new MouseEvent("auxclick", { button, bubbles: true, cancelable: true }),
+        );
+      });
+
+    it("closes a session or browser tab with a middle click, but not a lone blank session", async () => {
+      await render({
+        browserTabs: [{ id: "web-a", title: "Preview" }],
+        onCloseBrowser: vi.fn(),
+      });
+      await aux(container.querySelector('[data-surface-tab-id="b"]')!, 1);
+      expect(props.onClose).toHaveBeenCalledExactlyOnceWith("b");
+      await aux(container.querySelector('[data-surface-tab-id="web-a"]')!, 1);
+      expect(props.onCloseBrowser).toHaveBeenCalledOnce();
+      // Other auxiliary buttons do nothing.
+      await aux(container.querySelector('[data-surface-tab-id="a"]')!, 2);
+      expect(props.onClose).toHaveBeenCalledOnce();
+
+      await render({
+        tabs: [tab({ id: "only", blank: true })],
+        activeId: "only",
+        browserTabs: [],
+      });
+      await aux(container.querySelector('[data-surface-tab-id="only"]')!, 1);
+      expect(props.onClose).toHaveBeenCalledOnce();
+    });
+
+    it("marks tabs that have a second line for the active tab to show", async () => {
+      await render({
+        tabs: [
+          tab({ id: "a", title: "Busy task", models: [{ harness: "claude", model: "claude-opus-5-5" }] as never }),
+          tab({ id: "b", title: "Plain task" }),
+        ],
+        activeId: "a",
+      });
+      const root = (id: string) =>
+        container.querySelector<HTMLElement>(`[data-surface-tab-id="${id}"]`)!;
+      expect(root("a").dataset.active).toBe("true");
+      expect(root("b").dataset.hasMeta).toBeUndefined();
+      const label = root("a").querySelector(".personal-title-tab-label")!;
+      // Two-line sizing comes from TitleBar.css; container-query utilities
+      // would fight it. The plain base size stays for detached windows.
+      expect(label.className).not.toMatch(/@min-/);
+      expect(
+        root("a").querySelector(".personal-title-tab-meta")?.className,
+      ).toContain("hidden");
+    });
+  });
+
   describe("user tab groups", () => {
     beforeEach(() => {
       const values = new Map<string, string>();
@@ -906,6 +916,31 @@ describe("browser tab integration", () => {
       expect(drawn()).toEqual(["a", "[Docs]", "b", "web-a", "c"]);
     });
 
+    it("preserves group controls and skips folded members during keyboard navigation", async () => {
+      await render({
+        tabs: [tab({ id: "a" }), tab({ id: "b" }), tab({ id: "c" })],
+      });
+      await makeGroup("b", "Research");
+      label()!.focus();
+      expect((await keydown(label()!, "ArrowRight")).defaultPrevented).toBe(false);
+      expect(document.activeElement).toBe(label());
+      await keydown(label()!, "F2");
+      const input = container.querySelector<HTMLInputElement>(
+        '[aria-label="Group name"]',
+      )!;
+      expect(document.activeElement).toBe(input);
+      expect((await keydown(input, "Home")).defaultPrevented).toBe(false);
+      expect(document.activeElement).toBe(input);
+      await keydown(input, "Escape");
+      surfaceTabButton("b").focus();
+      await act(async () => label()!.click());
+      expect(surfaceTabButton("b")).toBeNull();
+      expect(document.activeElement).toBe(surfaceTabButton("a"));
+      await keydown(surfaceTabButton("a"), "ArrowRight");
+      expect(document.activeElement).toBe(surfaceTabButton("c"));
+      expect(props.onSelect).toHaveBeenCalledExactlyOnceWith("c");
+    });
+
     it("recolours, removes a member, and ungroups from the label menu", async () => {
       await render({
         tabs: [tab({ id: "a" }), tab({ id: "b" }), tab({ id: "c" })],
@@ -1008,116 +1043,66 @@ describe("browser tab integration", () => {
     });
   });
 
-  describe("minimized tabs", () => {
+  describe("persistent tab titles", () => {
     beforeEach(() => {
-      const values = new Map<string, string>();
+      const values = new Map([["aven.minimizedTabs", "1"]]);
       vi.stubGlobal("localStorage", {
         getItem: (key: string) => values.get(key) ?? null,
         setItem: (key: string, value: string) => void values.set(key, value),
         removeItem: (key: string) => void values.delete(key),
       });
     });
-    afterEach(() => {
-      saveMinimizedTabs(false);
-      vi.useRealTimers();
-    });
 
-    // Minimized tabs is a strip setting, so it lives on the empty-bar menu.
-    const openMenu = async () =>
-      act(async () =>
-        container.querySelector('[role="tablist"]')!.dispatchEvent(
-          new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true }),
-        ),
-      );
-    const minimizedItem = () =>
-      Array.from(
-        document.querySelectorAll<HTMLButtonElement>(
-          '[role="menuitemcheckbox"]',
-        ),
-      ).find((item) => item.textContent?.includes("Minimized tabs"));
+    it.each([false, true])(
+      "ignores the old minimized preference and retains titles and tooltips (pane-local=%s)",
+      async (paneLocal) => {
+        await render({
+          paneLocal,
+          browserTabs: [
+            { id: "web-a", title: "Preview", url: "http://localhost:5173/" },
+          ],
+          browserPreviewId: "web-a",
+          onKeepBrowser: vi.fn(),
+        });
+        for (const [id, title] of [
+          ["a", "First task"],
+          ["b", "Second task"],
+          ["web-a", "Preview"],
+        ]) {
+          const button = surfaceTabButton(id);
+          expect(
+            button.querySelector(".personal-title-tab-label")?.textContent,
+          ).toBe(title);
+          expect(button.title).toContain(title);
+        }
+        expect(container.querySelector("[data-minimized]")).toBeNull();
+        expect(
+          surfaceTabButton("web-a").getAttribute("aria-description"),
+        ).toContain("Preview tab");
+      },
+    );
 
-    it("turns the setting on and off from the tab bar menu", async () => {
-      await render({ paneLocal: true });
-      await openMenu();
-      expect(minimizedItem()?.getAttribute("aria-checked")).toBe("false");
-      await act(async () => minimizedItem()!.click());
-      expect(loadMinimizedTabs()).toBe(true);
-      await openMenu();
-      expect(minimizedItem()?.getAttribute("aria-checked")).toBe("true");
-      await act(async () => minimizedItem()!.click());
-      expect(loadMinimizedTabs()).toBe(false);
-    });
-
-    it("is also on each tab's own menu", async () => {
-      await render({ paneLocal: true });
-      await act(async () =>
-        container.querySelector('[role="tab"]')!.dispatchEvent(
-          new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true }),
-        ),
-      );
-      expect(minimizedItem()?.getAttribute("aria-checked")).toBe("false");
-      await act(async () => minimizedItem()!.click());
-      expect(loadMinimizedTabs()).toBe(true);
-    });
-
-    it("shows only the active tab's title and a hover card for the others", async () => {
-      vi.useFakeTimers();
-      await act(async () => saveMinimizedTabs(true));
+    it("omits the removed option from strip, task and browser menus", async () => {
       await render({
         paneLocal: true,
-        tabs: [
-          tab({ id: "a", title: "First task" }),
-          tab({
-            id: "b",
-            title: "Second task",
-            harnesses: ["codex"],
-            needsInput: true,
-          }),
+        browserTabs: [{ id: "web-a", title: "Preview" }],
+      });
+      const targets: Array<[HTMLElement, string]> = [
+        [
+          container.querySelector<HTMLElement>('[role="tablist"]')!,
+          "New session",
         ],
-        browserTabs: [
-          { id: "web-a", title: "Preview", url: "http://localhost:5173/" },
-        ],
-        surfaceOrder: ["a", "b", "web-a"],
-        describeTab: (id) => (id === "b" ? "Wants to run the tests" : undefined),
-      });
-      const surface = (id: string) =>
-        container.querySelector<HTMLElement>(`[data-surface-tab-id="${id}"]`)!;
-      expect(surface("a").dataset.minimized).toBeUndefined();
-      expect(surface("b").dataset.minimized).toBe("true");
-      // A lone strip keeps browser titles; split panes shrink them too.
-      expect(surface("web-a").dataset.minimized).toBeUndefined();
-      await render({ splitPanes: true });
-      expect(surface("web-a").dataset.minimized).toBe("true");
-      expect(
-        surface("b").querySelector('[role="tab"]')!.getAttribute("title"),
-      ).toBeNull();
-
-      const card = () =>
-        document.querySelector<HTMLElement>('[aria-label="Tab details"]');
-      await act(async () => {
-        surface("b").dispatchEvent(
-          new PointerEvent("pointerover", { bubbles: true }),
-        );
-      });
-      expect(card()).toBeNull();
-      await act(async () => vi.advanceTimersByTime(400));
-      expect(card()?.textContent).toContain("Second task");
-      expect(card()?.textContent).toContain("Needs your input");
-      expect(card()?.textContent).toContain("Wants to run the tests");
-
-      await act(async () => {
-        surface("b").dispatchEvent(
-          new PointerEvent("pointerout", { bubbles: true }),
-        );
-        surface("web-a").dispatchEvent(
-          new PointerEvent("pointerover", { bubbles: true }),
-        );
-      });
-      expect(card()?.textContent).toContain("localhost:5173");
-
-      await act(async () => saveMinimizedTabs(false));
-      expect(surface("b").dataset.minimized).toBeUndefined();
-      expect(card()).toBeNull();
+        [surfaceTabButton("a"), "Close tab"],
+        [surfaceTabButton("web-a"), "Close browser"],
+      ];
+      for (const [target, preservedAction] of targets) {
+        await keydown(target, "ContextMenu");
+        const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+        expect(menu).not.toBeNull();
+        expect(menu.textContent).toContain(preservedAction);
+        expect(menu.textContent).not.toContain("Minimized tabs");
+        await keydown(menu, "Escape");
+      }
     });
   });
 
@@ -1362,6 +1347,166 @@ describe("browser tab integration", () => {
     expect(props.onSelectBrowser).toHaveBeenCalledOnce();
     expect(props.onReorder).not.toHaveBeenCalled();
   });
+
+  it("roves across mixed tabs in visual order and limits close and menu tab stops", async () => {
+    const select = (id?: string) => {
+      props = { ...props, activeId: id! };
+      root.render(createElement(TitleBar, props));
+    };
+    await render({
+      browserTabs: [{ id: "web-a", title: "Docs" }],
+      surfaceOrder: ["a", "web-a", "b"],
+      onSelect: vi.fn(select),
+      onSelectBrowser: vi.fn(select),
+    });
+    const buttons = () =>
+      Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+    expect(buttons().map((node) => node.tabIndex)).toEqual([0, -1, -1]);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="Close First task"]',
+      )!.tabIndex,
+    ).toBe(0);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="Close Second task"]',
+      )!.tabIndex,
+    ).toBe(-1);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="Close browser: Docs"]',
+      )!.tabIndex,
+    ).toBe(-1);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="Browser layout: Docs"]',
+      )!.tabIndex,
+    ).toBe(-1);
+
+    surfaceTabButton("a").focus();
+    expect(
+      (await keydown(surfaceTabButton("a"), "ArrowRight")).defaultPrevented,
+    ).toBe(true);
+    expect(document.activeElement).toBe(surfaceTabButton("web-a"));
+    expect(props.onSelectBrowser).toHaveBeenCalledExactlyOnceWith("web-a");
+    expect(buttons().map((node) => node.tabIndex)).toEqual([-1, 0, -1]);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="Close browser: Docs"]',
+      )!.tabIndex,
+    ).toBe(0);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="Browser layout: Docs"]',
+      )!.tabIndex,
+    ).toBe(0);
+    await keydown(surfaceTabButton("web-a"), "End");
+    expect(document.activeElement).toBe(surfaceTabButton("b"));
+    await keydown(surfaceTabButton("b"), "ArrowRight");
+    expect(document.activeElement).toBe(surfaceTabButton("a"));
+    await keydown(surfaceTabButton("a"), "ArrowLeft");
+    expect(document.activeElement).toBe(surfaceTabButton("b"));
+    await keydown(surfaceTabButton("b"), "Home");
+    expect(document.activeElement).toBe(surfaceTabButton("a"));
+    expect(props.onReorder).not.toHaveBeenCalled();
+  });
+
+  it("preserves modified shortcuts and arrow keys on close and layout controls", async () => {
+    await render({ browserTabs: [{ id: "web-a", title: "Docs" }] });
+    for (const modifier of ["altKey", "ctrlKey", "metaKey", "shiftKey"]) {
+      expect(
+        (await keydown(surfaceTabButton("a"), "End", { [modifier]: true }))
+          .defaultPrevented,
+      ).toBe(false);
+    }
+    for (const label of [
+      "Close First task",
+      "Close browser: Docs",
+      "Browser layout: Docs",
+    ]) {
+      const control = container.querySelector<HTMLButtonElement>(
+        `[aria-label="${label}"]`,
+      )!;
+      control.focus();
+      expect((await keydown(control, "ArrowLeft")).defaultPrevented).toBe(false);
+      expect(document.activeElement).toBe(control);
+    }
+    expect(props.onSelect).not.toHaveBeenCalled();
+    expect(props.onSelectBrowser).not.toHaveBeenCalled();
+  });
+
+  it("restores focus when a closed task or browser removes its focused control", async () => {
+    await render({ browserTabs: [{ id: "web-a", title: "Docs" }] });
+    const close = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Close First task"]',
+    )!;
+    close.focus();
+    await click('[aria-label="Close First task"]');
+    expect(props.onClose).toHaveBeenCalledExactlyOnceWith("a");
+    // The close callback may defer or decline removal.
+    await render();
+    expect(document.activeElement).toBe(close);
+    await render({
+      tabs: [tab({ id: "b", title: "Second task" })],
+      activeId: "web-a",
+    });
+    expect(document.activeElement).toBe(surfaceTabButton("web-a"));
+    container
+      .querySelector<HTMLButtonElement>('[aria-label="Close browser: Docs"]')!
+      .focus();
+    await click('[aria-label="Close browser: Docs"]');
+    await render({ browserTabs: [], activeId: "b" });
+    expect(document.activeElement).toBe(surfaceTabButton("b"));
+    expect(props.onSelect).not.toHaveBeenCalled();
+    expect(props.onSelectBrowser).not.toHaveBeenCalled();
+  });
+
+  it("restores focus when a preview is replaced without touching hidden recent pages", async () => {
+    await render({
+      browserTabs: [
+        { id: "web-a", title: "Docs" },
+        { id: "web-b", title: "Preview" },
+      ],
+      activeId: "web-a",
+      onKeepBrowser: vi.fn(),
+    });
+    surfaceTabButton("web-a").focus();
+    await render({ activeId: "web-b" });
+    expect(surfaceTabButton("web-a")).toBeNull();
+    expect(document.activeElement).toBe(surfaceTabButton("web-b"));
+    expect(props.onCloseBrowser).not.toHaveBeenCalled();
+    expect(props.onKeepBrowser).not.toHaveBeenCalled();
+  });
+
+  it("does not reclaim focus from an editor or after an intentional blur", async () => {
+    await render();
+    const input = document.createElement("input");
+    document.body.append(input);
+    try {
+      surfaceTabButton("a").focus();
+      input.focus();
+      await render({ tabs: [tab({ id: "b" })], activeId: "b" });
+      expect(document.activeElement).toBe(input);
+      surfaceTabButton("b").focus();
+      surfaceTabButton("b").blur();
+      await render({ tabs: [], activeId: "" });
+      expect(document.activeElement).toBe(document.body);
+    } finally {
+      input.remove();
+    }
+  });
+
+  it("keeps a fallback tab reachable and focuses the strip when the final tab closes", async () => {
+    await render({ activeId: "missing" });
+    expect(surfaceTabButton("a").tabIndex).toBe(0);
+    expect(surfaceTabButton("b").tabIndex).toBe(-1);
+    surfaceTabButton("a").focus();
+    await render({ tabs: [], activeId: "" });
+    const strip = container.querySelector<HTMLElement>('[role="tablist"]')!;
+    expect(document.activeElement).toBe(strip);
+    expect(strip.tabIndex).toBe(0);
+  });
+
   it("uses one saved order and distinguishes focused from visible split tabs", async () => {
     await render({
       browserTabs: [
@@ -1444,10 +1589,9 @@ describe("browser tab integration", () => {
     expect(props.onSelectBrowser).not.toHaveBeenCalled();
   });
 
-  it.each([false, true])("reorders an inactive browser without selecting it or consuming the split target (hosted=%s)", async (windowToolbar) => {
+  it.each([false, true])("reorders an inactive browser without selecting it or consuming the split target (pane-local=%s)", async (paneLocal) => {
     await render({
-      paneLocal: windowToolbar,
-      windowToolbar,
+      paneLocal,
       browserTabs: [{ id: "web-a", title: "Preview" }],
       surfaceOrder: ["a", "web-a", "b"],
       onReorderSurfaces: vi.fn(),
@@ -1482,6 +1626,11 @@ describe("browser tab integration", () => {
     expect(props.onSelect).not.toHaveBeenCalled();
     await pointer(window, "pointermove", 10);
     await pointer(window, "pointerup", 10);
+    await keydown(
+      items[0].querySelector<HTMLButtonElement>('[role="tab"]')!,
+      "End",
+    );
+    expect(props.onSelect).toHaveBeenCalledExactlyOnceWith("b");
     await act(async () => browser.click());
     expect(props.onReorderSurfaces).toHaveBeenCalledExactlyOnceWith(
       ["web-a", "a", "b"],
@@ -1619,10 +1768,9 @@ describe("browser tab integration", () => {
     expect(props.onClose).not.toHaveBeenCalled();
   });
 
-  it.each([false, true])("moves the group owner from its handle without a single-tab drag (hosted=%s)", async (windowToolbar) => {
+  it.each([false, true])("moves the group owner from its handle without a single-tab drag (pane-local=%s)", async (paneLocal) => {
     await render({
-      paneLocal: windowToolbar,
-      windowToolbar,
+      paneLocal,
       groupId: "group-owner",
       groupLabel: "Research",
       onGroupDragMove: vi.fn(),

@@ -10,6 +10,14 @@
   background: var(--color-background-base);
   color: var(--color-content);
 }
+/* Until an address loads there is nothing to cover, so the pane and its
+   toolbar let the workspace background show, matching chat panes. */
+.browser-pane[data-blank] {
+  background: transparent;
+}
+.browser-pane[data-blank] .browser-toolbar {
+  background: transparent;
+}
 .browser-toolbar {
   position: relative;
   display: flex;

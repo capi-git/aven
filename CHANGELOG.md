@@ -6,8 +6,14 @@
 
 - Fix Aven quitting unexpectedly when macOS Writing Tools appeared over a text box, such as the message box. Writing Tools is turned off inside Aven's own windows; websites in the browser are unchanged.
 - Tabs now always sit in their pane's own row, whether one pane fills the window or several share it, instead of moving up into the window's top bar when there is a single pane. The top bar keeps only navigation, Activity and window tools.
+- A new browser tab shows your background like the other panes until you open an address, instead of a solid black page.
+- The top bar now uses the same surface as the sidebar, so the two read as one frame around your work instead of a dark bar above a lighter panel.
 - Activity (the task list and unread count) always sits on the left, next to the navigation buttons, including while Settings is open.
-- Split panes sit closer together. The gap between them is half as wide, and each pane's tab row now shows the same chat background as the pane below it instead of a dark band.
+- Tabs take MonoCode's look: equal-width, rounded tabs in one light row, with a soft fill on the tab you're on. That tab adds a second line saying what it's working on, such as the model, once it's wide enough; other tabs keep a single line.
+- New tabs grow into place and closed tabs collapse smoothly, so the tabs beside them slide instead of jumping. Middle-click closes a tab.
+- Picking up a tab to drag it is smoother and follows the pointer.
+- Tab titles stay visible as the row gets crowded. The minimized-tabs option is removed, and the group drag dots stay visible.
+- Split panes sit closer together, and the chat background now runs unbroken behind every pane, tab row and gap, so panes are separated by a single faint line instead of dark bands and hairlines. A project's own background, or showing it only in empty chats, still applies per pane.
 
 ## [0.1.110] - 2026-09-29
 

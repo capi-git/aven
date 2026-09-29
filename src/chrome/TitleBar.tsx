@@ -50,6 +50,7 @@ import {
   useSortable,
   type SortablePointerPosition,
 } from "../hooks/useSortable";
+import { useTabSlotMotion } from "../hooks/useTabSlotMotion";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { ProviderMarks } from "./ProviderMarks";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -59,13 +60,6 @@ import { IS_MAC, MOD, SHIFT } from "../lib/platform";
 import type { RecentProject } from "../lib/recents";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 import { mergePreviewTabOrder, previewTabIds } from "../lib/previewTabs";
-import {
-  MINIMIZED_TABS_DEFAULT,
-  loadMinimizedTabs,
-  saveMinimizedTabs,
-  subscribeMinimizedTabs,
-} from "../lib/settings";
-import { Popover } from "./Popover";
 import {
   SURFACE_GROUP_COLORS,
   changeSurfaceGroup,
@@ -122,10 +116,6 @@ export type Tab = {
 
 export type TitleBarProps = {
   paneLocal?: boolean;
-  /** Other panes' tab strips share the window, so space is tight. */
-  splitPanes?: boolean;
-  /** This pane-local strip is hosted in the window's unified toolbar. */
-  windowToolbar?: boolean;
   paneFocused?: boolean;
   onNewView?: (id: string) => void;
   combineTargets?: Array<{ id: string; label: string }>;
@@ -217,8 +207,6 @@ export type TitleBarProps = {
   onCloseMany: (ids: string[], fallbackId: string) => void;
   onReorder: (ids: string[], movedId?: string) => void;
   onGoToFile?: () => void;
-  /** Short preview of a tab's latest reply, read when its hover card opens. */
-  describeTab?: (id: string) => string | undefined;
   onOpenRaceOverview?: (id: string) => void;
   recents?: RecentProject[];
   onSelectProject?: (path: string) => void;
@@ -335,10 +323,6 @@ export function titleTabContextCloseIds(
 
 type SortableApi = ReturnType<typeof useSortable>;
 
-/** Hover intent before a minimized tab's card opens. */
-const HOVER_CARD_DELAY_MS = 300;
-/** Moving between minimized tabs soon after a card closes skips the delay. */
-const HOVER_CARD_WARM_MS = 400;
 type MenuPoint = Pick<ReactMouseEvent, "clientX" | "clientY">;
 
 function TitleTabItem({
@@ -346,6 +330,7 @@ function TitleTabItem({
   projectless,
   index,
   active,
+  tabStop,
   visible,
   closable,
   canDrag,
@@ -353,14 +338,13 @@ function TitleTabItem({
   onSelect,
   onClose,
   onContextMenu,
-  minimized = false,
-  onHover,
   itemRef,
 }: {
   tab: Tab;
   projectless: boolean;
   index: number;
   active: boolean;
+  tabStop: boolean;
   visible: boolean;
   closable: boolean;
   canDrag: boolean;
@@ -368,9 +352,6 @@ function TitleTabItem({
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onContextMenu: (id: string, event: MenuPoint) => void;
-  /** Icon-only; the hover card replaces the native tooltip. */
-  minimized?: boolean;
-  onHover?: (id: string, element: HTMLElement | null) => void;
   itemRef?: (el: HTMLDivElement | null) => void;
 }) {
   const { headline, meta, tooltip } = tabCopy(tab, projectless);
@@ -398,12 +379,11 @@ function TitleTabItem({
       data-active={active}
       data-visible={visible}
       data-has-models={Boolean(tab.models?.length)}
-      data-minimized={minimized || undefined}
+      data-has-meta={Boolean(meta) || undefined}
       data-surface-id={tab.id}
       data-surface-tab-id={tab.id}
+      data-draggable={canDrag || undefined}
       data-tauri-drag-region="false"
-      onPointerEnter={(event) => onHover?.(tab.id, event.currentTarget)}
-      onPointerLeave={() => onHover?.(tab.id, null)}
       onContextMenu={(event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -421,6 +401,16 @@ function TitleTabItem({
         event.stopPropagation();
         const rect = event.currentTarget.getBoundingClientRect();
         onContextMenu(tab.id, { clientX: rect.left, clientY: rect.bottom });
+      }}
+      onMouseDownCapture={(event) => {
+        // Keep the middle button from starting autoscroll.
+        if (event.button === 1) event.preventDefault();
+      }}
+      onAuxClick={(event) => {
+        if (event.button !== 1 || !closable) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onClose(tab.id);
       }}
       onPointerDown={(event) => {
         if (event.button !== 0) return;
@@ -443,9 +433,10 @@ function TitleTabItem({
       <div className="aven-tab-motion" data-sortable-motion>
         <button
           type="button"
-          title={minimized ? undefined : tooltip}
+          title={tooltip}
           aria-label={tooltip}
           role="tab"
+          tabIndex={tabStop ? 0 : -1}
           aria-selected={active}
           aria-description={visible && !active ? "Visible in split" : undefined}
           data-tauri-drag-region="false"
@@ -492,13 +483,10 @@ function TitleTabItem({
           </span>
           <span className="personal-title-tab-text flex min-w-0 flex-1 flex-col justify-center gap-0.5">
             <span className="flex min-w-0 items-center gap-1">
-              <span
-                className={`personal-title-tab-label min-w-0 truncate leading-none ${
-                  meta
-                    ? "text-[13px] @min-[11rem]:text-[10px] @min-[11rem]:font-medium"
-                    : "text-[13px]"
-                }`}
-              >
+              {/* Defaults suit detached windows; inside the main window
+                  TitleBar.css shows one 13px line, or two small lines on the
+                  tab you're on once it is wide enough. */}
+              <span className="personal-title-tab-label min-w-0 truncate text-[13px]">
                 {headline}
               </span>
               {visible && !active ? (
@@ -513,7 +501,7 @@ function TitleTabItem({
               ) : null}
             </span>
             {meta ? (
-              <span className="personal-title-tab-meta hidden min-w-0 truncate text-[10px] leading-none text-content/45 @min-[11rem]:block">
+              <span className="personal-title-tab-meta hidden min-w-0 truncate text-[10px]">
                 {meta}
               </span>
             ) : null}
@@ -522,6 +510,7 @@ function TitleTabItem({
         {closable ? (
           <button
             type="button"
+            tabIndex={tabStop ? 0 : -1}
             title="Close Tab"
             aria-label={`Close ${headline}`}
             data-no-drag
@@ -547,6 +536,7 @@ function BrowserTitleTabItem({
   favicon,
   index,
   active,
+  tabStop,
   visible,
   legacy,
   canDrag,
@@ -560,8 +550,7 @@ function BrowserTitleTabItem({
   onKeep,
   groupStyle,
   groupRun,
-  minimized = false,
-  onHover,
+  opening = false,
   itemRef,
 }: {
   id: string;
@@ -569,6 +558,7 @@ function BrowserTitleTabItem({
   favicon?: string;
   index: number;
   active: boolean;
+  tabStop: boolean;
   visible: boolean;
   legacy: boolean;
   canDrag: boolean;
@@ -584,8 +574,7 @@ function BrowserTitleTabItem({
   groupStyle?: CSSProperties;
   /** "run" continues the group underline to the next tab; "end" stops it. */
   groupRun?: "run" | "end";
-  minimized?: boolean;
-  onHover?: (id: string, element: HTMLElement | null) => void;
+  opening?: boolean;
   itemRef?: (element: HTMLDivElement | null) => void;
 }) {
   const label = title.trim() || "Browser";
@@ -609,13 +598,22 @@ function BrowserTitleTabItem({
       data-visible={visible}
       data-surface-id={id}
       data-surface-tab-id={id}
+      data-draggable={canDrag || undefined}
       data-has-menu={Boolean(onMenu)}
       data-tab-group={groupRun}
       style={groupStyle}
-      data-minimized={minimized || undefined}
+      data-motion-slot={id}
+      data-tab-opening={opening || undefined}
       data-tauri-drag-region="false"
-      onPointerEnter={(event) => onHover?.(id, event.currentTarget)}
-      onPointerLeave={() => onHover?.(id, null)}
+      onMouseDownCapture={(event) => {
+        if (event.button === 1) event.preventDefault();
+      }}
+      onAuxClick={(event) => {
+        if (event.button !== 1 || !onClose) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+      }}
       onPointerDown={(event) => {
         if (canDrag) sortable.onItemPointerDown(id, event);
       }}
@@ -656,6 +654,7 @@ function BrowserTitleTabItem({
         <button
           type="button"
           role="tab"
+          tabIndex={tabStop ? 0 : -1}
           aria-selected={active}
           aria-description={
             preview
@@ -665,7 +664,7 @@ function BrowserTitleTabItem({
                 : undefined
           }
           aria-label={label === "Browser" ? "Browser" : `Browser: ${label}`}
-          title={minimized ? undefined : label}
+          title={label}
           className="personal-title-tab-button personal-title-browser-button flex min-w-0 flex-1 items-center px-2.5"
         >
           <BrowserTabIcon favicon={favicon} />
@@ -679,6 +678,7 @@ function BrowserTitleTabItem({
         {onClose ? (
           <button
             type="button"
+            tabIndex={tabStop ? 0 : -1}
             title="Close browser"
             aria-label={legacy ? "Close browser" : `Close browser: ${label}`}
             data-no-drag
@@ -695,6 +695,7 @@ function BrowserTitleTabItem({
         {onMenu ? (
           <button
             type="button"
+            tabIndex={tabStop ? 0 : -1}
             title="Browser layout"
             aria-label={legacy ? "Browser layout" : `Browser layout: ${label}`}
             aria-haspopup="menu"
@@ -729,6 +730,7 @@ function TabGroupLabel({
   onRename,
   onStartRename,
   onMenu,
+  opening = false,
 }: {
   id: string;
   group: SurfaceGroup;
@@ -743,6 +745,7 @@ function TabGroupLabel({
   onRename: (name: string | null) => void;
   onStartRename: () => void;
   onMenu: (x: number, y: number, anchor?: HTMLElement) => void;
+  opening?: boolean;
 }) {
   const finished = useRef(false);
   useEffect(() => {
@@ -768,6 +771,8 @@ function TabGroupLabel({
     <div
       ref={(element) => sortable.setItemRef(id, element)}
       className="personal-tab-group-slot relative flex h-full shrink-0 touch-none items-center"
+      data-motion-slot={id}
+      data-tab-opening={opening || undefined}
       style={{ "--tab-group-color": surfaceGroupColor(group) } as CSSProperties}
       data-collapsed={group.collapsed}
       data-tauri-drag-region="false"
@@ -1024,32 +1029,8 @@ export function OverlayNav({
   );
 }
 
-function dragWindowToolbar(event: ReactMouseEvent<HTMLElement>) {
-  if (event.button !== 0 || event.defaultPrevented) return;
-  const target = event.target;
-  if (!(target instanceof Element) || !event.currentTarget.contains(target))
-    return;
-  const control = target.closest(
-    'button, input, textarea, select, a, [role="button"], [role="tab"], [role="menuitem"], [role="combobox"], [contenteditable]:not([contenteditable="false"]), [data-surface-tab-id], [data-no-drag], [data-tauri-drag-region="false"]',
-  );
-  // The header itself stays outside Tauri's deep drag region so native and
-  // React handling cannot both start a gesture. Its interactive descendants
-  // keep their own tab sorting, selection, menus and pointer behavior.
-  if (control && control !== event.currentTarget) return;
-  event.preventDefault();
-  event.stopPropagation();
-  const currentWindow = getCurrentWindow();
-  const action =
-    event.detail === 2
-      ? currentWindow.toggleMaximize()
-      : currentWindow.startDragging();
-  void action.catch((error) => console.warn("Window gesture failed", error));
-}
-
 function TitleBarComponent({
   paneLocal = false,
-  splitPanes = false,
-  windowToolbar = false,
   paneFocused = true,
   onNewView,
   combineTargets,
@@ -1106,20 +1087,11 @@ function TitleBarComponent({
   onCloseMany,
   onReorder,
   onGoToFile,
-  describeTab,
   onOpenRaceOverview,
   recents = [],
   onSelectProject,
 }: TitleBarProps) {
   useSyncExternalStore(subscribeModels, getModelSnapshot, getModelSnapshot);
-  const minimizedTabs = useSyncExternalStore(
-    subscribeMinimizedTabs,
-    loadMinimizedTabs,
-    () => MINIMIZED_TABS_DEFAULT,
-  );
-  // A favicon alone rarely says which page a tab holds, so browser tabs keep
-  // their titles. Split panes share the window and still shrink them.
-  const minimizedBrowserTabs = minimizedTabs && splitPanes;
   const projectLabels = useProjectLabels();
   const tabs = useMemo(
     () =>
@@ -1196,6 +1168,10 @@ function TitleBarComponent({
   const segments = stripSegments(orderedIds, groupState, focusedId);
   // Labels sit in the sortable sequence so a group drags like a tab.
   const displayIds = stripDisplayIds(segments);
+  const displayedTabIds = displayIds.filter((id) => !chipGroupId(id));
+  const tabStopId = displayedTabIds.includes(focusedId)
+    ? focusedId
+    : displayedTabIds[0];
   const stripGroups = segments.flatMap((segment) =>
     segment.kind === "group" ? [segment] : [],
   );
@@ -1251,6 +1227,9 @@ function TitleBarComponent({
   });
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const tabStripRef = useRef<HTMLDivElement | null>(null);
+  // Tabs grow in and closed tabs collapse, as in MonoCode.
+  const slotMotion = useTabSlotMotion(displayIds, tabStripRef);
+  const focusedTabControlRef = useRef<HTMLElement | null>(null);
   const setTabStripRef = useCallback(
     (el: HTMLDivElement | null) => {
       tabStripRef.current = el;
@@ -1332,33 +1311,6 @@ function TitleBarComponent({
   }, []);
   const activeTabRef = useRef<HTMLDivElement | null>(null);
   const canDrag = displayIds.length > 1 || Boolean(onSurfaceDragEnd);
-  const [hoverCard, setHoverCard] = useState<{
-    id: string;
-    element: HTMLElement;
-  } | null>(null);
-  const hoverTimer = useRef<number | undefined>(undefined);
-  const hoverShownId = useRef<string | null>(null);
-  const hoverWarmUntil = useRef(0);
-  const hoverTab = useCallback(
-    (id: string, element: HTMLElement | null) => {
-      window.clearTimeout(hoverTimer.current);
-      if (!element || element.dataset.minimized !== "true") {
-        if (hoverShownId.current === id)
-          hoverWarmUntil.current = Date.now() + HOVER_CARD_WARM_MS;
-        hoverShownId.current = null;
-        setHoverCard(null);
-        return;
-      }
-      const show = () => {
-        hoverShownId.current = id;
-        setHoverCard({ id, element });
-      };
-      if (Date.now() < hoverWarmUntil.current) show();
-      else hoverTimer.current = window.setTimeout(show, HOVER_CARD_DELAY_MS);
-    },
-    [],
-  );
-  useEffect(() => () => window.clearTimeout(hoverTimer.current), []);
   const previousSelectedId = useRef<string | null>(null);
 
   useEffect(() => {
@@ -1370,6 +1322,20 @@ function TitleBarComponent({
       block: "nearest",
     });
   }, [focusedId, sortable.draggingId]);
+
+  useLayoutEffect(() => {
+    const focusedControl = focusedTabControlRef.current;
+    if (!focusedControl || focusedControl.isConnected) return;
+    focusedTabControlRef.current = null;
+    // Closing or folding a tab must not leave keyboard focus on the body.
+    // Respect focus moved into an editor, menu or confirmation dialog meanwhile.
+    if (document.activeElement !== document.body) return;
+    const strip = tabStripRef.current;
+    const next = strip?.querySelector<HTMLButtonElement>(
+      '[role="tab"][tabindex="0"]',
+    );
+    (next ?? strip)?.focus();
+  });
 
   useLayoutEffect(() => {
     const el = tabStripRef.current;
@@ -1646,13 +1612,6 @@ function TitleBarComponent({
         id: "race-overview",
         label: "Open race overview",
       });
-    // Also on the empty-strip menu, but people look for it on a tab.
-    tabRootItems.push({
-      kind: "item",
-      id: "minimized-tabs",
-      label: "Minimized tabs",
-      checked: minimizedTabs,
-    });
     tabRootItems.push(
       { kind: "sep" },
       {
@@ -1733,7 +1692,7 @@ function TitleBarComponent({
       ]
     : [];
 
-  // Empty strip space: settings for the whole strip.
+  // Empty strip space: actions for the whole strip.
   const barItems: ExplorerMenuItem[] = [];
   barItems.push({ kind: "item", id: "bar-new-session", label: "New session" });
   if (onNewBrowser)
@@ -1742,15 +1701,7 @@ function TitleBarComponent({
       id: "bar-new-browser",
       label: "New browser tab",
     });
-  barItems.push(
-    { kind: "sep" },
-    {
-      kind: "item",
-      id: "minimized-tabs",
-      label: "Minimized tabs",
-      checked: minimizedTabs,
-    },
-  );
+  if (stripGroups.length) barItems.push({ kind: "sep" });
   if (stripGroups.some((segment) => !segment.group.collapsed))
     barItems.push({ kind: "item", id: "fold-all", label: "Fold all groups" });
   if (stripGroups.some((segment) => segment.group.collapsed))
@@ -1837,10 +1788,6 @@ function TitleBarComponent({
       return;
     }
     setTabMenu(null);
-    if (id === "minimized-tabs") {
-      saveMinimizedTabs(!minimizedTabs);
-      return;
-    }
     if (id === "reopen-tab") {
       if (canReopenClosedTab) onReopenClosedTab?.();
       return;
@@ -1979,80 +1926,6 @@ function TitleBarComponent({
     setTabMenu(null);
   };
 
-  const hoverCardContent = (() => {
-    if (
-      !hoverCard ||
-      !minimizedTabs ||
-      tabMenu ||
-      sortable.draggingId ||
-      hoverCard.id === focusedId ||
-      !hoverCard.element.isConnected
-    )
-      return null;
-    const tab = sessionTabs.get(hoverCard.id);
-    if (tab) {
-      const { headline, meta } = tabCopy(tab, projectlessWorkspace);
-      const details = [projectlessWorkspace ? "" : tab.project, meta]
-        .filter(Boolean)
-        .join(" · ");
-      const status = tab.needsInput
-        ? "Needs your input"
-        : tab.busyHarnesses.length > 0
-          ? "Working"
-          : "";
-      const reply = describeTab?.(tab.id);
-      return (
-        <>
-          <div className="flex min-w-0 items-center gap-2">
-            {tab.harnesses.length > 0 ? (
-              <ProviderMarks
-                harnesses={tab.harnesses}
-                busyHarnesses={tab.busyHarnesses}
-              />
-            ) : (
-              <Terminal className="size-3.5 shrink-0" strokeWidth={1.75} />
-            )}
-            <span className="min-w-0 truncate text-[12.5px] font-medium text-content">
-              {headline}
-            </span>
-          </div>
-          {details ? (
-            <p className="truncate text-[11px] text-content/55">{details}</p>
-          ) : null}
-          {status ? (
-            <p
-              className="personal-tab-card-status"
-              data-tone={tab.needsInput ? "attention" : "working"}
-            >
-              {status}
-            </p>
-          ) : null}
-          {reply ? (
-            <p className="line-clamp-2 text-[11.5px] leading-snug text-content/70">
-              {reply}
-            </p>
-          ) : null}
-        </>
-      );
-    }
-    const browser = browsers.get(hoverCard.id);
-    if (!browser) return null;
-    const url = "url" in browser ? browser.url : undefined;
-    return (
-      <>
-        <div className="flex min-w-0 items-center gap-2">
-          <BrowserTabIcon favicon={browser.favicon} />
-          <span className="min-w-0 truncate text-[12.5px] font-medium text-content">
-            {browser.title.trim() || "Browser"}
-          </span>
-        </div>
-        {url ? (
-          <p className="truncate text-[11px] text-content/55">{url}</p>
-        ) : null}
-      </>
-    );
-  })();
-
   const railClosed = !sidebarOpen;
   const showCurrentProject = looksLikeProject(cwd);
   // Until a project is picked, the rail and the sidebar hide, so nothing
@@ -2124,138 +1997,7 @@ function TitleBarComponent({
   // "deep" drags from anywhere in the subtree. The bare attribute only drags
   // on a direct hit, which left every label and spacer dead. Tauri still
   // exempts buttons, links and inputs on its own.
-  return (
-    <header
-      className="personal-titlebar flex h-10 shrink-0 select-none items-stretch border-b border-content/10"
-      data-pane-local={paneLocal || undefined}
-      data-pane-focused={paneFocused}
-      data-tauri-drag-region={paneLocal ? "false" : "deep"}
-      onMouseDown={paneLocal && windowToolbar ? dragWindowToolbar : undefined}
-      onContextMenu={(event) => {
-        event.preventDefault();
-        openBarMenu(event.clientX, event.clientY);
-      }}
-    >
-      {!paneLocal && !sidebarOpen && IS_MAC ? (
-        <div className="w-[78px] shrink-0" />
-      ) : null}
-      {!paneLocal ? (
-        <div className="flex shrink-0 items-center px-1.5">
-          <IconButton
-            label={`Toggle Sidebar (${MOD}B)`}
-            active={sidebarOpen}
-            onClick={onToggleSidebar}
-          >
-            <PanelLeft className="size-3.5" strokeWidth={1.75} />
-          </IconButton>
-        </div>
-      ) : null}
-      {!sidebarOpen && showProjectButton && onSelectProject ? (
-        <CwdPicker
-          cwd={cwd}
-          recents={recents}
-          placement="below"
-          onCwdChange={onSelectProject}
-          onNewTerminal={onNewTerminal}
-          buttonClassName="flex h-full min-w-0 max-w-64 shrink items-center gap-2 px-6 text-left text-sm font-medium leading-tight"
-        >
-          <span className="min-w-0 truncate text-content/50">No project</span>
-        </CwdPicker>
-      ) : null}
-
-      <div
-        className={`flex min-w-0 flex-1 items-stretch${
-          showProjectButton ? " border-l border-content/10" : ""
-        }`}
-      >
-        {/* The grip is hidden until hover but still takes width, so only
-            reserve it when a group can be dragged. Moving a group to a
-            window stays in the tab menu. */}
-        {groupId && orderedIds.length > 1 && onGroupDragEnd ? (
-          <button
-            type="button"
-            ref={(element) => groupSortable.setItemRef(groupId, element)}
-            className="personal-tab-group-handle"
-            data-tauri-drag-region="false"
-            data-dragging={groupSortable.draggingId === groupId || undefined}
-            aria-label={
-              groupLabel
-                ? `Move group: ${groupLabel} (${orderedIds.length} tabs)`
-                : `Move group (${orderedIds.length} tabs)`
-            }
-            title="Drag to move these tabs together"
-            onPointerDown={(event) =>
-              groupSortable.onItemPointerDown(groupId, event)
-            }
-            onClick={(event) => {
-              if (groupSortable.consumeClick()) return;
-              const rect = event.currentTarget.getBoundingClientRect();
-              openBarMenu(rect.left, rect.bottom, event.currentTarget);
-            }}
-          >
-            <GripVertical className="size-3" />
-          </button>
-        ) : null}
-        <div
-          className="relative h-full min-w-0 flex-1 overflow-hidden"
-          onWheel={(event) => {
-            const el = tabStripRef.current;
-            if (!el || el.scrollWidth <= el.clientWidth) return;
-            if (event.deltaX === 0 && event.deltaY !== 0) {
-              el.scrollLeft += event.deltaY;
-            }
-          }}
-        >
-          {tabOverflow.left ? (
-            <TabStripChevron side="left" onClick={() => scrollTabsBy(-1)} />
-          ) : null}
-          {tabOverflow.right ? (
-            <TabStripChevron side="right" onClick={() => scrollTabsBy(1)} />
-          ) : null}
-          <div
-            ref={setTabStripRef}
-            role="tablist"
-            tabIndex={orderedIds.length ? -1 : 0}
-            data-sortable-scroll-container
-            data-surface-order={JSON.stringify(allOrderedIds)}
-            aria-label="Workspace tabs"
-            className="personal-tab-strip scrollbar-none flex h-full min-w-0 cursor-default items-center gap-0.5 overflow-x-auto overflow-y-hidden overscroll-none px-1.5"
-            onKeyDown={(event) => {
-              const target = event.target as HTMLElement;
-              if (
-                target === event.currentTarget &&
-                (event.key === "ContextMenu" ||
-                  (event.shiftKey && event.key === "F10"))
-              ) {
-                event.preventDefault();
-                const rect = event.currentTarget.getBoundingClientRect();
-                openBarMenu(rect.left, rect.bottom);
-                return;
-              }
-              if (target.getAttribute("role") !== "tab") return;
-              const buttons = Array.from(
-                event.currentTarget.querySelectorAll<HTMLButtonElement>(
-                  '[role="tab"]',
-                ),
-              );
-              const index = buttons.indexOf(target as HTMLButtonElement);
-              const next =
-                event.key === "ArrowRight"
-                  ? (index + 1) % buttons.length
-                  : event.key === "ArrowLeft"
-                    ? (index - 1 + buttons.length) % buttons.length
-                    : event.key === "Home"
-                      ? 0
-                      : event.key === "End"
-                        ? buttons.length - 1
-                        : -1;
-              if (next < 0) return;
-              event.preventDefault();
-              buttons[next]?.focus();
-              buttons[next]?.click();
-            }}
-          >
-            {displayIds.map((id, index) => {
+  const stripItem = (id: string, index: number) => {
               const labelGroup = chipGroupId(id);
               const labelSegment = labelGroup
                 ? stripGroups.find((segment) => segment.group.id === labelGroup)
@@ -2286,6 +2028,7 @@ function TitleBarComponent({
                         changeSurfaceGroup(labelSegment.group.id, { name });
                     }}
                     onStartRename={() => setRenamingGroup(labelSegment.group.id)}
+                    opening={slotMotion.opening.has(id)}
                     onMenu={(x, y, anchor) =>
                       openGroupMenu(labelSegment.group.id, x, y, anchor)
                     }
@@ -2333,10 +2076,11 @@ function TitleBarComponent({
                   <div
                     key={id}
                     className="personal-title-tab-slot relative flex h-full shrink cursor-default items-center"
+                    data-motion-slot={id}
+                    data-tab-opening={slotMotion.opening.has(id) || undefined}
                     data-tab-group={groupRun}
                     style={groupStyle}
                     data-active={id === focusedId}
-                    data-minimized={minimizedTabs && id !== focusedId}
                     data-tauri-drag-region="false"
                   >
                     <TitleTabItem
@@ -2344,6 +2088,7 @@ function TitleBarComponent({
                       projectless={projectlessWorkspace}
                       index={index}
                       active={id === focusedId}
+                      tabStop={id === tabStopId}
                       visible={shown.has(id)}
                       closable={titleTabClosable(tab, sessionTabCount)}
                       canDrag={canDrag}
@@ -2353,8 +2098,6 @@ function TitleBarComponent({
                       onContextMenu={(_id, event) =>
                         openMenu(event.clientX, event.clientY)
                       }
-                      minimized={minimizedTabs && id !== focusedId}
-                      onHover={hoverTab}
                       itemRef={itemRef}
                     />
                   </div>
@@ -2368,6 +2111,7 @@ function TitleBarComponent({
                   favicon={browser.favicon}
                   index={index}
                   active={id === focusedId}
+                  tabStop={id === tabStopId}
                   visible={shown.has(id)}
                   legacy={!unified}
                   canDrag={
@@ -2419,12 +2163,192 @@ function TitleBarComponent({
                   onKeep={onKeepBrowser ? () => onKeepBrowser(id) : undefined}
                   groupStyle={groupStyle}
                   groupRun={groupRun}
-                  minimized={minimizedBrowserTabs && id !== focusedId}
-                  onHover={hoverTab}
+                  opening={slotMotion.opening.has(id)}
                   itemRef={itemRef}
                 />
               );
-            })}
+            };
+  const slotGhosts = (after: string | null) =>
+    slotMotion.ghosts
+      .filter((ghost) =>
+        after === null
+          ? ghost.after === null || !displayIds.includes(ghost.after)
+          : ghost.after === after,
+      )
+      .map((ghost) => (
+        <div
+          key={`ghost:${ghost.id}`}
+          className="personal-tab-ghost"
+          style={{ "--tab-ghost-width": `${ghost.width}px` } as CSSProperties}
+          aria-hidden
+        />
+      ));
+
+  return (
+    <header
+      className="personal-titlebar flex h-10 shrink-0 select-none items-stretch border-b border-content/10"
+      data-pane-local={paneLocal || undefined}
+      data-pane-focused={paneFocused}
+      data-tauri-drag-region={paneLocal ? "false" : "deep"}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        openBarMenu(event.clientX, event.clientY);
+      }}
+    >
+      {!paneLocal && !sidebarOpen && IS_MAC ? (
+        <div className="w-[78px] shrink-0" />
+      ) : null}
+      {!paneLocal ? (
+        <div className="flex shrink-0 items-center px-1.5">
+          <IconButton
+            label={`Toggle Sidebar (${MOD}B)`}
+            active={sidebarOpen}
+            onClick={onToggleSidebar}
+          >
+            <PanelLeft className="size-3.5" strokeWidth={1.75} />
+          </IconButton>
+        </div>
+      ) : null}
+      {!sidebarOpen && showProjectButton && onSelectProject ? (
+        <CwdPicker
+          cwd={cwd}
+          recents={recents}
+          placement="below"
+          onCwdChange={onSelectProject}
+          onNewTerminal={onNewTerminal}
+          buttonClassName="flex h-full min-w-0 max-w-64 shrink items-center gap-2 px-6 text-left text-sm font-medium leading-tight"
+        >
+          <span className="min-w-0 truncate text-content/50">No project</span>
+        </CwdPicker>
+      ) : null}
+
+      <div
+        className={`flex min-w-0 flex-1 items-stretch${
+          showProjectButton ? " border-l border-content/10" : ""
+        }`}
+      >
+        {/* Keep the grip visible whenever these tabs can move together.
+            Moving a group to a window stays in the tab menu. */}
+        {groupId && orderedIds.length > 1 && onGroupDragEnd ? (
+          <button
+            type="button"
+            ref={(element) => groupSortable.setItemRef(groupId, element)}
+            className="personal-tab-group-handle"
+            data-tauri-drag-region="false"
+            data-dragging={groupSortable.draggingId === groupId || undefined}
+            aria-label={
+              groupLabel
+                ? `Move group: ${groupLabel} (${orderedIds.length} tabs)`
+                : `Move group (${orderedIds.length} tabs)`
+            }
+            title="Drag to move these tabs together"
+            onPointerDown={(event) =>
+              groupSortable.onItemPointerDown(groupId, event)
+            }
+            onClick={(event) => {
+              if (groupSortable.consumeClick()) return;
+              const rect = event.currentTarget.getBoundingClientRect();
+              openBarMenu(rect.left, rect.bottom, event.currentTarget);
+            }}
+          >
+            <GripVertical className="size-3" />
+          </button>
+        ) : null}
+        <div
+          className="relative h-full min-w-0 flex-1 overflow-hidden"
+          onWheel={(event) => {
+            const el = tabStripRef.current;
+            if (!el || el.scrollWidth <= el.clientWidth) return;
+            if (event.deltaX === 0 && event.deltaY !== 0) {
+              el.scrollLeft += event.deltaY;
+            }
+          }}
+        >
+          {tabOverflow.left ? (
+            <TabStripChevron side="left" onClick={() => scrollTabsBy(-1)} />
+          ) : null}
+          {tabOverflow.right ? (
+            <TabStripChevron side="right" onClick={() => scrollTabsBy(1)} />
+          ) : null}
+          <div
+            ref={setTabStripRef}
+            role="tablist"
+            tabIndex={displayedTabIds.length ? -1 : 0}
+            data-sortable-scroll-container
+            data-surface-order={JSON.stringify(allOrderedIds)}
+            aria-label="Workspace tabs"
+            aria-orientation="horizontal"
+            className="personal-tab-strip scrollbar-none flex h-full min-w-0 cursor-default items-center gap-0.5 overflow-x-auto overflow-y-hidden overscroll-none px-1.5"
+            onFocusCapture={(event) => {
+              const target = event.target as HTMLElement;
+              focusedTabControlRef.current = target.closest(
+                "[data-surface-tab-id]",
+              ) ? target : null;
+            }}
+            onBlurCapture={(event) => {
+              if (
+                !(event.relatedTarget instanceof Node) ||
+                !event.currentTarget.contains(event.relatedTarget)
+              ) {
+                focusedTabControlRef.current = null;
+              }
+            }}
+            onKeyDown={(event) => {
+              const target = event.target as HTMLElement;
+              if (
+                target === event.currentTarget &&
+                (event.key === "ContextMenu" ||
+                  (event.shiftKey && event.key === "F10"))
+              ) {
+                event.preventDefault();
+                const rect = event.currentTarget.getBoundingClientRect();
+                openBarMenu(rect.left, rect.bottom);
+                return;
+              }
+              if (
+                event.defaultPrevented ||
+                event.altKey ||
+                event.ctrlKey ||
+                event.metaKey ||
+                event.shiftKey ||
+                target.getAttribute("role") !== "tab"
+              ) {
+                return;
+              }
+              const buttons = Array.from(
+                event.currentTarget.querySelectorAll<HTMLButtonElement>(
+                  '[role="tab"]',
+                ),
+              );
+              const index = buttons.indexOf(target as HTMLButtonElement);
+              if (index < 0) return;
+              const next =
+                event.key === "ArrowRight"
+                  ? (index + 1) % buttons.length
+                  : event.key === "ArrowLeft"
+                    ? (index - 1 + buttons.length) % buttons.length
+                    : event.key === "Home"
+                      ? 0
+                      : event.key === "End"
+                        ? buttons.length - 1
+                        : -1;
+              if (next < 0) return;
+              event.preventDefault();
+              const nextButton = buttons[next];
+              const id = nextButton?.closest<HTMLElement>(
+                "[data-surface-tab-id]",
+              )?.dataset.surfaceTabId;
+              nextButton?.focus();
+              if (id && sessionTabs.has(id)) onSelect(id);
+              else if (id && browsers.has(id))
+                onSelectBrowser?.(unified ? id : undefined);
+            }}
+          >
+            {slotGhosts(null)}
+            {displayIds.flatMap((id, index) => [
+              stripItem(id, index),
+              ...slotGhosts(id),
+            ])}
             {paneLocal ? (
               <button
                 type="button"
@@ -2538,19 +2462,6 @@ function TitleBarComponent({
           }}
           onClose={() => setRecentMenu(null)}
         />
-      ) : null}
-      {hoverCardContent ? (
-        <Popover
-          anchor={hoverCard?.element ?? null}
-          side="bottom"
-          align="start"
-          gap={6}
-          width={240}
-          aria-label="Tab details"
-          className="personal-tab-card pointer-events-none flex flex-col gap-1 p-2.5 font-sans"
-        >
-          {hoverCardContent}
-        </Popover>
       ) : null}
       {tabMenu && contextMenuItems.length ? (
         <ExplorerMenu

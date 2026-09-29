@@ -3,6 +3,16 @@
 .personal-shell {
   --aven-tab-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --aven-tab-drag-surface: var(--aven-raised, var(--aven-control-bg));
+  --aven-tab-divider: color-mix(in srgb, var(--aven-line) 65%, transparent);
+  --aven-tab-active-line: color-mix(
+    in srgb,
+    var(--color-accent) 45%,
+    transparent
+  );
+  --aven-tab-selected: color-mix(in srgb, var(--color-content) 10%, transparent);
+}
+html.theme-light .personal-shell {
+  --aven-tab-selected: color-mix(in srgb, var(--color-content) 6%, transparent);
 }
 /* Flat workspace tabs, quiet pane headers. Keep the native 32px geometry:
    WorkspaceStage and Chromium place their content below this exact height. */
@@ -14,57 +24,64 @@
   );
 }
 .personal-shell .personal-tab-strip {
-  gap: 6px;
-  padding-inline: 7px;
+  gap: 2px;
+  padding-inline: 6px 10px;
 }
-/* Tabs size to their title: short titles stay short, long ones cap, and a
-   crowded strip shortens titles down to the minimum before it scrolls. */
+/* MonoCode's session tabs: equal widths that shrink together as the strip
+   fills, so selecting a tab never moves its neighbours. */
 .personal-shell .personal-title-tab-slot,
 .personal-shell .personal-title-browser-tab {
-  flex: 0 1 auto;
-  width: auto;
-  min-width: 96px;
-  max-width: 172px;
+  flex: 0 1 224px;
+  width: 224px;
+  min-width: 112px;
+  max-width: 224px;
 }
-.personal-shell .personal-title-tab-slot[data-active="true"],
-.personal-shell .personal-title-browser-tab[data-active="true"] {
-  max-width: 240px;
-}
-/* Session tabs carry Tailwind's @container, whose inline-size containment
-   hides the title from the slot and pins every chat tab at the minimum while
-   browser tabs grow. This shell hides the container-query meta line anyway. */
-.personal-shell .personal-title-tab-slot > .personal-title-tab {
-  container-type: normal;
-}
-/* Tabs sit directly on the toolbar with no fill: the active tab is marked by
-   full-strength text and icon, the rest are dimmed. */
-.personal-shell .personal-title-tab-button,
-.personal-shell .personal-title-tab-button:hover,
-.personal-shell
-  .personal-title-tab[data-active="true"]
-  .personal-title-tab-button {
+/* Quiet, rounded tabs: a soft fill marks the one you're on. Fills live on the
+   button so the pickup motion can move it without its hit box. */
+.personal-shell .personal-title-tab > .aven-tab-motion {
+  align-items: center;
+  border: 0;
+  border-radius: 0;
   background: transparent;
-  box-shadow: none;
 }
 .personal-shell .personal-title-tab-button {
   align-self: center;
-  height: 24px;
-  min-height: 24px;
-  gap: 7px;
-  padding-inline-start: 8px;
+  height: 30px;
+  min-height: 30px;
+  gap: 6px;
+  padding-inline: 8px 10px;
   border: 0;
   outline: none;
-  border-radius: 7px;
-  color: color-mix(in srgb, var(--color-content) 55%, transparent);
-  transition: color 220ms var(--aven-tab-ease);
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+  transition:
+    background-color 120ms var(--aven-tab-ease),
+    color 120ms var(--aven-tab-ease);
 }
 .personal-shell .personal-title-tab-button:hover {
-  color: color-mix(in srgb, var(--color-content) 85%, transparent);
+  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+  color: var(--color-content);
 }
 .personal-shell
   .personal-title-tab[data-active="true"]
   .personal-title-tab-button {
+  background: var(--aven-tab-selected);
+  box-shadow: none;
   color: var(--color-content);
+}
+.personal-shell .personal-title-tab[data-draggable="true"],
+.personal-shell
+  .personal-title-tab[data-draggable="true"]
+  .personal-title-tab-button {
+  cursor: grab;
+}
+.personal-shell .personal-title-tab[data-sortable-moving="true"],
+.personal-shell
+  .personal-title-tab[data-sortable-moving="true"]
+  .personal-title-tab-button {
+  cursor: grabbing;
 }
 .personal-shell .personal-title-tab[data-active="true"]::after {
   content: none;
@@ -75,10 +92,12 @@
   color: color-mix(in srgb, var(--color-content) 80%, transparent);
 }
 /* Smaller provider badges in tabs; the sidebar keeps its larger marks. */
+/* MonoCode-sized marks: a 16px badge keeps the logo legible without
+   outweighing the title. */
 .personal-shell .personal-title-tab-identity .provider-mark {
-  width: 18px;
-  height: 18px;
-  padding: 1.5px;
+  width: 16px;
+  height: 16px;
+  padding: 1px;
 }
 .personal-shell
   .personal-title-tab-identity
@@ -89,8 +108,8 @@
   margin-left: -4px;
 }
 .personal-shell .personal-title-tab-identity .provider-mark-art {
-  width: 13px;
-  height: 13px;
+  width: 12px;
+  height: 12px;
 }
 .personal-shell .personal-title-tab-identity .provider-marks {
   transition: opacity 220ms var(--aven-tab-ease);
@@ -106,20 +125,36 @@
   display: none;
 }
 .personal-shell .personal-title-tab-label {
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 16px;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.25;
+}
+.personal-shell .personal-title-tab-meta {
+  display: none;
+  font-size: 10px;
+  line-height: 1.25;
+  color: color-mix(in srgb, var(--color-content) 45%, transparent);
+}
+@container (min-width: 11rem) {
+  .personal-shell
+    .personal-title-tab[data-active="true"][data-has-meta="true"]
+    .personal-title-tab-label {
+    font-size: 10px;
+    font-weight: 500;
+  }
+  .personal-shell
+    .personal-title-tab[data-active="true"]
+    .personal-title-tab-meta {
+    display: block;
+  }
 }
 .personal-shell .personal-title-tab-identity {
   display: inline-flex;
   flex-shrink: 0;
 }
-.personal-shell .personal-title-tab-meta {
-  display: none;
-}
 .personal-shell .personal-title-tab-close,
 .personal-shell .personal-title-browser-menu {
-  border-radius: 6px;
+  border-radius: 4px;
 }
 .personal-shell
   .personal-title-tab[data-active="true"]
@@ -181,8 +216,7 @@
   .personal-titlebar[data-pane-local="true"][data-pane-focused="false"]
   .personal-title-tab[data-active="true"]
   .personal-title-tab-button {
-  background: color-mix(in srgb, var(--color-content) 7%, transparent);
-  box-shadow: none;
+  background: color-mix(in srgb, var(--color-content) 5%, transparent);
 }
 .personal-shell .personal-title-session-new,
 .personal-shell
@@ -200,70 +234,67 @@
 .personal-tab-group-handle {
   display: flex;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
   flex-shrink: 0;
-  max-width: 132px;
-  margin: 4px 0 4px 5px;
-  padding: 3px 6px;
+  width: 24px;
+  margin: 0;
+  padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 0;
   background: transparent;
   color: color-mix(in srgb, var(--color-content) 72%, transparent);
   font-size: 11px;
   cursor: grab;
   touch-action: none;
   user-select: none;
-  /* The tabs already show who is in the group; the grip appears on demand. */
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-.personal-titlebar:hover .personal-tab-group-handle,
-.personal-tab-group-handle:focus-visible {
-  opacity: 1;
+  /* Keep the dots visible so this space always reads as a control. */
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
 }
 .personal-tab-group-handle:hover {
   color: var(--color-content);
   background: color-mix(in srgb, var(--color-content) 8%, transparent);
 }
 .personal-tab-group-handle:focus-visible {
-  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
-  outline-offset: -2px;
+  outline: 1px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: -1px;
 }
 .personal-tab-group-handle[data-dragging="true"] {
   cursor: grabbing;
-  opacity: 0.5;
 }
 
-/* Pane tabs stay flat so they do not compete with workspace destinations.
-   A multi-file pane still has an explicit persistent selected treatment. */
+/* File and terminal panes use the same compact rectangular tab treatment. */
 .personal-shell .aven-surface-tabs {
-  border-bottom-color: color-mix(in srgb, var(--color-content) 6%, transparent);
+  height: 32px;
+  border-bottom-color: var(--aven-line);
   background: transparent;
 }
 .personal-shell .aven-surface-tab-strip {
-  gap: 4px;
-  padding-inline: 7px;
+  gap: 0;
+  padding-inline: 0;
 }
 .personal-shell .aven-surface-tab-slot {
-  margin-block: 3px;
+  margin-block: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: 0;
   background: transparent;
 }
+.personal-shell .aven-surface-tab-slot > .aven-tab-motion {
+  border-right: 1px solid var(--aven-tab-divider);
+}
 .personal-shell .aven-surface-tab-slot:hover > .aven-tab-motion {
-  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+  background: var(--aven-hover);
 }
 .personal-shell .aven-surface-tab-slot[data-active="true"] {
   background: transparent;
   box-shadow: none;
 }
 .personal-shell
-  .aven-surface-tab-strip:has(.aven-surface-tab-slot + .aven-surface-tab-slot)
   .aven-surface-tab-slot[data-active="true"]
   > .aven-tab-motion:not([data-sortable-dragging="true"]) {
-  background: color-mix(in srgb, var(--color-content) 7%, transparent);
-  box-shadow: inset 0 -1px 0
-    color-mix(in srgb, var(--color-accent) 60%, transparent);
+  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+  box-shadow: inset 0 -1px var(--aven-tab-active-line);
 }
 .personal-shell .aven-surface-tab-slot[data-active="true"]::after {
   content: none;
@@ -416,66 +447,13 @@
   outline-offset: -2px;
 }
 
-.aven-popover-frame:has(> .personal-tab-card) {
-  border: 0;
-  border-radius: 8px;
-  box-shadow: 0 6px 18px #00000020;
-}
-.personal-tab-card-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11.5px;
-  color: color-mix(in srgb, var(--color-content) 80%, transparent);
-}
-.personal-tab-card-status::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: var(--color-accent);
-}
-.personal-tab-card-status[data-tone="attention"] {
-  color: var(--color-warning, #d99c45);
-}
-.personal-tab-card-status[data-tone="attention"]::before {
-  background: currentColor;
-}
-
-/* Minimized tabs: inactive tabs show only their icon. Last in the file so it
-   overrides the browser tab padding rules above. */
-.personal-shell .personal-title-tab-slot[data-minimized="true"],
-.personal-shell .personal-title-browser-tab[data-minimized="true"] {
-  flex: 0 0 30px;
-  width: 30px;
-  min-width: 30px;
-  max-width: 30px;
-}
-.personal-shell
-  :is(.personal-title-tab, .personal-title-browser-tab)[data-minimized="true"]
-  .personal-title-tab-button {
-  justify-content: center;
-  gap: 0;
-  padding-inline: 0;
-}
-.personal-shell
-  :is(.personal-title-tab, .personal-title-browser-tab)[data-minimized="true"]
-  :is(
-    .personal-title-tab-text,
-    .personal-title-tab-label,
-    .personal-title-tab-visible,
-    .personal-title-tab-close,
-    .personal-title-browser-menu
-  ) {
-  display: none;
-}
-
 /* User tab groups: a coloured label ahead of the group's tabs and a matching
    underline beneath them. The count shows only while the group is folded. */
 .personal-shell .personal-tab-group-slot {
   flex: 0 0 auto;
   min-width: 0;
+  /* A bounded width lets the opening motion grow the label in. */
+  max-width: 160px;
 }
 .personal-shell .personal-tab-group-chip {
   display: inline-flex;
@@ -538,13 +516,13 @@
   font-size: 11.5px;
   font-weight: 600;
 }
-/* Each member's line runs under the following gap so the group reads as one
-   unbroken line at any interface zoom; the strip gap is at most 6px. */
+/* Group colour remains separate from the active-tab accent. */
 .personal-shell .personal-tab-strip [data-tab-group]::after {
   content: "";
   position: absolute;
   left: 0;
-  right: -6px;
+  /* Reach across the 2px strip gap to the next member. */
+  right: -2px;
   bottom: 2px;
   height: 2px;
   border-radius: 1px;
@@ -557,5 +535,43 @@
 @media (prefers-reduced-motion: reduce) {
   .personal-shell .personal-tab-group-chip {
     transition: none;
+  }
+}
+
+/* Tabs grow in and closed tabs collapse, after MonoCode's TabWidthMotion:
+   180ms, eased out. See useTabSlotMotion. */
+.personal-shell [data-tab-opening] {
+  overflow: hidden;
+  animation: aven-tab-open 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes aven-tab-open {
+  from {
+    max-width: 0;
+    min-width: 0;
+    opacity: 0.35;
+  }
+}
+.personal-tab-ghost {
+  flex: 0 0 auto;
+  align-self: stretch;
+  width: 0;
+  min-width: 0;
+  margin-right: -2px;
+  pointer-events: none;
+  animation: aven-tab-ghost 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes aven-tab-ghost {
+  from {
+    width: var(--tab-ghost-width, 0);
+    margin-right: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .personal-shell [data-tab-opening],
+  .personal-tab-ghost {
+    animation: none;
+  }
+  .personal-tab-ghost {
+    display: none;
   }
 }

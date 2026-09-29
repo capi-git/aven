@@ -249,12 +249,16 @@ describe("useSortable external drops and cancellation", () => {
   );
 
   it("does not report a drag or consume a click below the activation threshold", async () => {
+    withVisuals = true;
+    options.animate = true;
     await act(async () => root.render(createElement(Harness)));
     const handle = container.querySelector<HTMLButtonElement>(
       '[data-id="browser-a"]',
     )!;
     await pointer(handle, "pointerdown", 150, 15);
     await pointer(window, "pointermove", 152, 15);
+    expect(preview()).toBeNull();
+    expect(visual().style.opacity).toBe("");
     await pointer(window, "pointerup", 152, 15);
     expect(options.onDragMove).not.toHaveBeenCalled();
     expect(options.onDragEnd).not.toHaveBeenCalled();
@@ -532,6 +536,8 @@ describe("useSortable external drops and cancellation", () => {
     container.querySelector<HTMLElement>(`[data-id="${id}"]`)!;
   const visual = (id = "browser-a") =>
     item(id).querySelector<HTMLElement>("[data-sortable-motion]")!;
+  const preview = () =>
+    document.querySelector<HTMLElement>("[data-sortable-preview]");
   async function startAnimated(x = 220) {
     withVisuals = true;
     options.animate = true;
@@ -545,15 +551,18 @@ describe("useSortable external drops and cancellation", () => {
     const paintedTransforms: string[] = [];
     options.onDragMove = vi.fn(() => {
       item().getBoundingClientRect();
-      paintedTransforms.push(visual().style.transform);
+      paintedTransforms.push(preview()?.style.transform ?? "");
     });
     await startAnimated(220);
-    expect(paintedTransforms).toEqual([""]);
-    expect(visual().style.transform).toBe("translate3d(70px, 0, 0)");
+    expect(paintedTransforms).toEqual(["translate3d(170px, 0px, 0)"]);
+    expect(preview()?.style.transform).toBe("translate3d(170px, 0px, 0)");
     await pointer(window, "pointermove", 270, 15);
     await flushFrame();
-    expect(paintedTransforms).toEqual(["", "translate3d(70px, 0, 0)"]);
-    expect(visual().style.transform).toBe("translate3d(120px, 0, 0)");
+    expect(paintedTransforms).toEqual([
+      "translate3d(170px, 0px, 0)",
+      "translate3d(170px, 0px, 0)",
+    ]);
+    expect(preview()?.style.transform).toBe("translate3d(220px, 0px, 0)");
   });
 
   it("moves visual children without changing unequal-width insertion hit boxes", async () => {
@@ -571,7 +580,9 @@ describe("useSortable external drops and cancellation", () => {
     expect(sortable.toIndex).toBe(2);
     expect(item().style.transform).toBe("");
     expect(item().getBoundingClientRect().left).toBe(80);
-    expect(visual().style.transform).toBe("translate3d(190px, 0, 0)");
+    expect(visual().style.transform).toBe("");
+    expect(visual().style.opacity).toBe("0");
+    expect(preview()?.style.transform).toBe("translate3d(270px, 0px, 0)");
     expect(visual("session-b").style.transform).toBe(
       "translate3d(-140px, 0, 0)",
     );
@@ -583,25 +594,72 @@ describe("useSortable external drops and cancellation", () => {
     expect(visual("session-b").style.transform).toBe("translate3d(0px, 0, 0)");
   });
 
-  it("retains the grab offset when the strip scrolls and removes offsets outside the strip", async () => {
+  it("keeps the floating tab at the grab offset during scrolling and outside the strip", async () => {
     await startAnimated();
     const strip = item().parentElement!;
     strip.getBoundingClientRect = () => new DOMRect(0, 0, 300, 30);
     sortable.setContainerRef(strip);
-    expect(visual().style.transform).toBe("translate3d(70px, 0, 0)");
+    expect(preview()?.style.transform).toBe("translate3d(170px, 0px, 0)");
     strip.scrollLeft = 40;
     await pointer(window, "pointermove", 220, 15);
     await flushFrame();
-    expect(visual().style.transform).toBe("translate3d(110px, 0, 0)");
+    expect(preview()?.style.transform).toBe("translate3d(170px, 0px, 0)");
     await pointer(window, "pointermove", 220, 90);
     await flushFrame();
     expect(visual().style.transform).toBe("");
     expect(visual("session-b").style.transform).toBe("");
     expect(visual().dataset.sortableInStrip).toBe("false");
+    expect(preview()?.style.transform).toBe("translate3d(170px, 75px, 0)");
+    expect(preview()?.parentElement).toBe(document.body);
     await pointer(window, "pointerup", 220, 90);
     expect(animations.get("browser-a")!.animate).not.toHaveBeenCalled();
     expect(onReorder).not.toHaveBeenCalled();
+    expect(preview()).toBeNull();
+    expect(visual().style.opacity).toBe("");
   });
+
+  it("updates stationary-pointer drop geometry after a strip scroll", async () => {
+    await startAnimated(220);
+    expect(sortable.toIndex).toBe(1);
+    const strip = item().parentElement!;
+    strip.getBoundingClientRect = () => new DOMRect(0, 0, 300, 30);
+    sortable.setContainerRef(strip);
+    strip.scrollLeft = 50;
+    await act(async () => strip.dispatchEvent(new Event("scroll")));
+    expect(frames.size).toBe(1);
+    await flushFrame();
+    expect(sortable.toIndex).toBe(2);
+    expect(preview()?.style.transform).toBe("translate3d(170px, 0px, 0)");
+    await pointer(window, "pointerup", 220, 15);
+    expect(onReorder).toHaveBeenCalledExactlyOnceWith(
+      ["session-a", "session-b", "browser-a"],
+      "browser-a",
+    );
+    await act(async () => strip.dispatchEvent(new Event("scroll")));
+    expect(frames.size).toBe(0);
+  });
+
+  it.each(["pointercancel", "blur", "lostpointercapture", "Escape", "unmount"])(
+    "removes the picked-up copy and restores the original on %s",
+    async (reason) => {
+      await startAnimated(270);
+      const handle = item();
+      const original = visual();
+      expect(preview()?.parentElement).toBe(document.body);
+      expect(original.style.opacity).toBe("0");
+      await act(async () => {
+        if (reason === "unmount") root.render(null);
+        else if (reason === "Escape")
+          window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+        else if (reason === "lostpointercapture")
+          handle.dispatchEvent(new Event(reason));
+        else window.dispatchEvent(new Event(reason));
+      });
+      expect(preview()).toBeNull();
+      expect(original.style.opacity).toBe("");
+      expect(onReorder).not.toHaveBeenCalled();
+    },
+  );
 
   it("captures the painted drag before reordering and settles against the committed layout", async () => {
     onReorder.mockImplementation((next) => {
@@ -626,6 +684,8 @@ describe("useSortable external drops and cancellation", () => {
     expect(item().hasAttribute("data-sortable-moving")).toBe(false);
     expect(visual().hasAttribute("data-sortable-dragging")).toBe(false);
     expect(visual().hasAttribute("data-sortable-in-strip")).toBe(false);
+    expect(visual().style.opacity).toBe("");
+    expect(preview()).toBeNull();
     // Even a new click below the threshold cancels a previous settling effect.
     await pointer(item("session-a"), "pointerdown", 50, 15);
     expect(animations.get("browser-a")!.cancel).toHaveBeenCalledOnce();
@@ -662,7 +722,7 @@ describe("useSortable external drops and cancellation", () => {
   it("follows the pointer with reduced motion but does not start timed settling", async () => {
     reducedMotion = true;
     await startAnimated(270);
-    expect(visual().style.transform).toBe("translate3d(120px, 0, 0)");
+    expect(preview()?.style.transform).toBe("translate3d(220px, 0px, 0)");
     await pointer(window, "pointerup", 270, 15);
     expect(onReorder).toHaveBeenCalledOnce();
     expect(visual().style.transform).toBe("");
@@ -724,8 +784,12 @@ describe("useSortable external drops and cancellation", () => {
   it.each(["pointercancel", "blur", "lostpointercapture", "Escape", "unmount"])(
     "clears an unpainted drag frame on %s",
     async (reason) => {
+      withVisuals = true;
+      options.animate = true;
       const handle = await start(false);
+      const original = visual();
       expect(frames.size).toBe(1);
+      expect(preview()).not.toBeNull();
       await act(async () => {
         if (reason === "unmount") root.render(null);
         else if (reason === "Escape")
@@ -735,6 +799,8 @@ describe("useSortable external drops and cancellation", () => {
         else window.dispatchEvent(new Event(reason));
       });
       expect(frames.size).toBe(0);
+      expect(preview()).toBeNull();
+      expect(original.style.opacity).toBe("");
       await flushFrame();
       expect(options.onDragMove).not.toHaveBeenCalled();
       expect(onReorder).not.toHaveBeenCalled();

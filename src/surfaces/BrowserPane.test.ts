@@ -260,6 +260,24 @@ describe("native preview lifecycle", () => {
     expect(mocks.create).not.toHaveBeenCalled();
     expect(container.querySelector("iframe")).toBeNull();
     expect(container.textContent).toContain("Enter an address");
+    // Nothing to cover yet, so the pane shows the workspace background.
+    expect(
+      container.querySelector<HTMLElement>(".browser-pane")?.dataset.blank,
+    ).toBe("true");
+  });
+
+  it("drops the see-through blank look once a page is set", async () => {
+    await act(async () =>
+      root.render(
+        createElement(BrowserPane, {
+          id: "page",
+          initialUrl: "https://example.com/",
+        }),
+      ),
+    );
+    expect(
+      container.querySelector<HTMLElement>(".browser-pane")?.dataset.blank,
+    ).toBeUndefined();
   });
 
   it("acknowledges an attached page in a hidden window without waiting for paint", async () => {

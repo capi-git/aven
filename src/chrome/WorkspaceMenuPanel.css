@@ -86,13 +86,30 @@ html.workspace-menu-panel-window #root {
   padding: 6px;
   border-bottom: 1px solid var(--toolbar-panel-line);
 }
+.workspace-menu-panel-compact {
+  border-radius: 8px;
+  font-size: 12px;
+}
 .workspace-menu-panel-compact .workspace-menu-panel-items {
   padding: 6px;
 }
 .workspace-menu-panel-compact .workspace-menu-panel-item {
   min-height: 30px;
   padding: 6px 9px;
+  border-radius: 4px;
   line-height: 18px;
+}
+.workspace-menu-panel-compact .workspace-menu-panel-item[aria-checked="true"] {
+  /* The check conveys the setting; only the current target is highlighted. */
+  background: transparent;
+}
+.workspace-menu-panel-compact .workspace-menu-panel-item:hover:not(:disabled),
+.workspace-menu-panel-compact .workspace-menu-panel-item:focus-visible {
+  background: var(--toolbar-panel-hover);
+}
+.workspace-menu-panel-compact .workspace-menu-panel-item:focus-visible {
+  outline: 1px solid var(--toolbar-panel-accent);
+  outline-offset: -1px;
 }
 
 .workspace-menu-panel-compact .workspace-menu-panel-item-label {

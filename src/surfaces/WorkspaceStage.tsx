@@ -247,11 +247,8 @@ function surfaceBackgroundStyle(rect: LayoutRect) {
     "--workspace-background-top": `calc(${-rect.y * 100}cqh - ${top}px - var(--workspace-background-header-offset))`,
   };
 }
-/** A header starts where its pane's content box does, so it can show the same
- * wallpaper slice with no header offset and read as part of the pane. */
 const headerStyle = (rect: LayoutRect): CSSProperties => ({
   ...surfaceStyle(rect, 1),
-  ...surfaceBackgroundStyle(rect),
   height: "32px",
 });
 const sashKey = (sash: LayoutSash) => `${sash.splitId}:${sash.index}`;

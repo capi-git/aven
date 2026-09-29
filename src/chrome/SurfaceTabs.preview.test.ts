@@ -64,6 +64,29 @@ const render = async (patch: Partial<Props> = {}) => {
   await act(async () => root.render(createElement(SurfaceTabs, props)));
 };
 const click = async (node: HTMLElement) => act(async () => node.click());
+const tab = (label: string) =>
+  Array.from(host.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find(
+    (node) =>
+      node.querySelector(".aven-preview-tab-label")?.textContent === label,
+  )!;
+const keydown = async (
+  node: HTMLElement,
+  key: string,
+  options: KeyboardEventInit = {},
+) => {
+  const event = new KeyboardEvent("keydown", {
+    bubbles: true,
+    cancelable: true,
+    key,
+    ...options,
+  });
+  await act(async () => node.dispatchEvent(event));
+  return event;
+};
+const selectOnRender = (id: string) => {
+  props = { ...props, activeFileId: id };
+  root.render(createElement(SurfaceTabs, props));
+};
 const openRecent = async () => {
   await click(button("Recent files"));
   return mocks.panel.mock.calls.at(-1)![0] as Panel;
@@ -166,4 +189,152 @@ it("disambiguates matching names in Recent by their full paths", async () => {
     other.path,
     a.path,
   ]);
+});
+
+it("uses one tab stop and activates visible tabs with arrows, Home and End", async () => {
+  await render({
+    files: [a, b, c].map((file) => ({ ...file, kept: true })),
+    activeFileId: b.id,
+    onSelectFile: vi.fn(selectOnRender),
+  });
+  expect([
+    tab("a.md").tabIndex,
+    tab("b.md").tabIndex,
+    tab("c.md").tabIndex,
+  ]).toEqual([-1, 0, -1]);
+  expect(button("Close a.md").tabIndex).toBe(-1);
+  expect(button("Close b.md").tabIndex).toBe(0);
+  tab("b.md").focus();
+  expect((await keydown(tab("b.md"), "ArrowRight")).defaultPrevented).toBe(
+    true,
+  );
+  expect(document.activeElement).toBe(tab("c.md"));
+  expect(props.activeFileId).toBe(c.id);
+  expect(tab("c.md").tabIndex).toBe(0);
+
+  await keydown(tab("c.md"), "ArrowRight");
+  expect(document.activeElement).toBe(tab("a.md"));
+  await keydown(tab("a.md"), "ArrowLeft");
+  expect(document.activeElement).toBe(tab("c.md"));
+  await keydown(tab("c.md"), "Home");
+  expect(document.activeElement).toBe(tab("a.md"));
+  await keydown(tab("a.md"), "End");
+  expect(document.activeElement).toBe(tab("c.md"));
+  expect(props.onSelectFile).toHaveBeenCalledTimes(5);
+});
+
+it("navigates retained files and terminals without selecting hidden recent previews", async () => {
+  const terminal = newTerminalFile("/repo", "Console");
+  await render({
+    files: [a, b, c, terminal],
+    dirtyFileIds: new Set([a.id]),
+    onSelectFile: vi.fn(selectOnRender),
+  });
+  expect(tabLabels()).toEqual(["a.md", "c.md", "Console"]);
+  tab("c.md").focus();
+  await keydown(tab("c.md"), "ArrowRight");
+  expect(document.activeElement).toBe(tab("Console"));
+  expect(tabLabels()).toEqual(["a.md", "Console"]);
+  await keydown(tab("Console"), "ArrowLeft");
+  expect(document.activeElement).toBe(tab("a.md"));
+  expect(props.onSelectFile).toHaveBeenNthCalledWith(1, terminal.id);
+  expect(props.onSelectFile).toHaveBeenNthCalledWith(2, a.id);
+  expect(props.onKeepFile).not.toHaveBeenCalled();
+  expect(props.onCloseFile).not.toHaveBeenCalled();
+  expect(props.onReorder).not.toHaveBeenCalled();
+  expect(props.files.map((file) => file.id)).toEqual([
+    a.id,
+    b.id,
+    c.id,
+    terminal.id,
+  ]);
+});
+
+it("leaves close controls, actions, text fields and modified navigation keys alone", async () => {
+  await render({
+    files: [{ ...a, kept: true }, b, c],
+    trailing: createElement("input", { "aria-label": "Rename terminal" }),
+  });
+  for (const node of [
+    button("Close c.md"),
+    button("Keep open"),
+    button("Recent files"),
+    host.querySelector("input")!,
+  ]) {
+    node.focus();
+    expect((await keydown(node, "ArrowLeft")).defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(node);
+  }
+  for (const modifier of ["altKey", "ctrlKey", "metaKey", "shiftKey"]) {
+    expect(
+      (await keydown(tab("c.md"), "Home", { [modifier]: true }))
+        .defaultPrevented,
+    ).toBe(false);
+  }
+  expect((await keydown(tab("c.md"), "ArrowDown")).defaultPrevented).toBe(
+    false,
+  );
+  expect(props.onSelectFile).not.toHaveBeenCalled();
+});
+
+it("restores focus after a focused close control is removed", async () => {
+  await render({ files: [{ ...a, kept: true }, b, c] });
+  button("Close c.md").focus();
+  await click(button("Close c.md"));
+  expect(props.onCloseFile).toHaveBeenCalledExactlyOnceWith(c.id);
+  // The parent can defer the close while it confirms unsaved changes.
+  await render();
+  expect(document.activeElement).toBe(button("Close c.md"));
+  await render({ files: [{ ...a, kept: true }, b], activeFileId: b.id });
+  expect(document.activeElement).toBe(tab("b.md"));
+  expect(props.onSelectFile).not.toHaveBeenCalled();
+});
+
+it("recovers focus when an active preview disappears and when the list becomes empty", async () => {
+  await render({ files: [{ ...a, kept: true }, b, c] });
+  tab("c.md").focus();
+  await render({ activeFileId: a.id });
+  expect(tabLabels()).toEqual(["a.md"]);
+  expect(document.activeElement).toBe(tab("a.md"));
+  await render({ files: [], activeFileId: "" });
+  const tablist = host.querySelector<HTMLElement>('[role="tablist"]')!;
+  expect(document.activeElement).toBe(tablist);
+  expect(tablist.tabIndex).toBe(0);
+});
+
+it("keeps focus outside the tabs when a deferred close finishes", async () => {
+  await render({ files: [{ ...a, kept: true }, b, c] });
+  button("Close c.md").focus();
+  await click(button("Close c.md"));
+  const dialogInput = document.createElement("input");
+  document.body.append(dialogInput);
+  try {
+    dialogInput.focus();
+    await render({ files: [{ ...a, kept: true }, b], activeFileId: b.id });
+    expect(document.activeElement).toBe(dialogInput);
+  } finally {
+    dialogInput.remove();
+  }
+});
+
+it("does not recover a tab control that the user already blurred", async () => {
+  await render({ files: [{ ...a, kept: true }, b, c] });
+  tab("c.md").focus();
+  tab("c.md").blur();
+  await render({ files: [{ ...a, kept: true }, b], activeFileId: b.id });
+  expect(document.activeElement).toBe(document.body);
+});
+
+it("keeps the first visible tab reachable while the active identity is unavailable", async () => {
+  await render({
+    files: [{ ...a, kept: true }, { ...b, kept: true }, c],
+    activeFileId: "missing",
+    onSelectFile: vi.fn(selectOnRender),
+  });
+  expect(tabLabels()).toEqual(["a.md", "b.md"]);
+  expect(tab("a.md").tabIndex).toBe(0);
+  expect(tab("b.md").tabIndex).toBe(-1);
+  await keydown(tab("a.md"), "End");
+  expect(document.activeElement).toBe(tab("b.md"));
+  expect(props.activeFileId).toBe(b.id);
 });

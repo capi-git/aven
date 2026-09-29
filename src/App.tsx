@@ -140,6 +140,7 @@ import {
   browserIdForTab,
   patchBrowserWorkspace,
 } from "./lib/personalWorkspace";
+import { resolveBrowserTabTarget } from "./lib/browserTabTarget";
 import {
   openAgentBrowserTab,
   type AgentBrowserOpenOptions,
@@ -581,7 +582,6 @@ import {
 } from "./lib/workspaceSnapshot";
 import { readComposerDraft, subscribeComposerDrafts } from "./lib/composerDrafts";
 import type { InstalledUpdate } from "./lib/updateNotice";
-import { previewLines } from "./lib/promptOutline";
 import {
   bindResumedSessions,
   closeBusyWindow,
@@ -1404,16 +1404,13 @@ export default function App({
         void detachedShowSurface.current(surfaceId);
         return;
       }
-      setHomeViewOpen(false);
       const current = browserState;
-      const target =
-        current.tabs.find(
-          (tab) => browserIdForTab(projectCwd, tab.id) === surfaceId,
-        ) ?? current.tabs.find((tab) => tab.id === current.activeTabId);
+      const target = resolveBrowserTabTarget(current, projectCwd, surfaceId);
       if (!target) {
-        onNewBrowserTab();
+        if (surfaceId === undefined) onNewBrowserTab();
         return;
       }
+      setHomeViewOpen(false);
       setBrowserWorkspaces((all) => {
         const current = all[projectCwd];
         if (current?.activeTabId === target.id && current.expanded) return all;
@@ -1435,10 +1432,7 @@ export default function App({
   const onCloseBrowserTab = useCallback(
     (surfaceId?: string) => {
       const current = browserState;
-      const target =
-        current.tabs.find(
-          (tab) => browserIdForTab(projectCwd, tab.id) === surfaceId,
-        ) ?? current.tabs.find((tab) => tab.id === current.activeTabId);
+      const target = resolveBrowserTabTarget(current, projectCwd, surfaceId);
       if (!target) return;
       rememberClosed({
         kind: "browser",
@@ -7374,24 +7368,6 @@ export default function App({
     [onOpenApprovalSession],
   );
 
-  // Read on demand by a minimized tab's hover card, so streaming replies
-  // don't re-render the tab strip.
-  const describeTitleTab = useCallback((tabId: string) => {
-    const tab = tabsRef.current.find((entry) => entry.id === tabId);
-    if (!tab) return undefined;
-    const ids = leafIds(tab.layout);
-    const sessionId = ids.includes(tab.focusedId) ? tab.focusedId : ids[0];
-    const session = sessionsRef.current.find((entry) => entry.id === sessionId);
-    if (!session) return undefined;
-    for (let index = session.blocks.length - 1; index >= 0; index -= 1) {
-      const block = session.blocks[index];
-      if (block?.role !== "assistant") continue;
-      const lines = previewLines(block.text, 2);
-      if (lines.length > 0) return lines.join(" ");
-    }
-    return undefined;
-  }, []);
-
   const nextTitleTabs: TitleTab[] = deckProjectTabs.map((tab) =>
     toTitleTab(tab, sessions, dirtyFiles),
   );
@@ -8168,6 +8144,32 @@ export default function App({
         ],
       );
       const closed = new Set(state.closedSurfaceIds ?? []);
+      const closedFileIds = new Set<string>();
+      // Detached close prompts have already completed. Keep the last known
+      // descriptors before removing them, just like closes in the main window.
+      for (const tab of tabsRef.current) {
+        if (!closed.has(tab.id)) continue;
+        rememberClosed({
+          kind: "tab",
+          cwd: workspaceTabCwd(tab, sessionsRef.current) || state.cwd,
+          closedAt: Date.now(),
+          tab,
+          sessionStubs: collectWorkspaceSnapshot(
+            [tab],
+            sessionsRef.current,
+            tab.id,
+            state.cwd,
+          ).sessions.map(({ draft: _draft, ...stub }) => stub),
+        });
+        for (const pane of [...tab.editorPanes, ...tab.terminalPanes])
+          for (const file of pane.files) closedFileIds.add(file.id);
+      }
+      for (const [cwd, value] of Object.entries(browserWorkspacesRef.current)) {
+        for (const browser of normalizeBrowserWorkspace(value).tabs) {
+          if (!closed.has(browserIdForTab(cwd, browser.id))) continue;
+          rememberClosed({ kind: "browser", cwd, closedAt: Date.now(), browser });
+        }
+      }
       const incoming = new Map(state.tabs.map((tab) => [tab.id, tab]));
       const nextTabs = tabsRef.current.flatMap((tab) => {
         if (closed.has(tab.id)) return [];
@@ -8211,6 +8213,7 @@ export default function App({
       });
       setDirtyFiles((current) => {
         const next = new Set(current);
+        for (const id of closedFileIds) next.delete(id);
         const fileIds = new Set(
           state.tabs.flatMap((tab) =>
             [...tab.editorPanes, ...tab.terminalPanes].flatMap((pane) =>
@@ -9225,10 +9228,8 @@ export default function App({
                                       members.includes(tab.id),
                                     )}
                                     totalSessionTabs={titleTabs.length}
-                                    describeTab={describeTitleTab}
                                     onOpenRaceOverview={openRaceOverview}
                                     paneLocal
-                                    splitPanes={visibleSurfaceIds.length > 1}
                                     paneFocused={owner === view.focusedId}
                                     activeId={owner}
                                     cwd={sidebarCwd}

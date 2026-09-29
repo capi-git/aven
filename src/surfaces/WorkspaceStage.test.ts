@@ -239,29 +239,6 @@ describe("workspace stage", () => {
     });
   });
 
-  it("gives each pane header the same wallpaper slice as its pane", async () => {
-    await render({
-      layout: columns(),
-      headers: [
-        { id: "chat", content: "Chat tabs" },
-        { id: "browser", content: "Browser tabs" },
-      ],
-    });
-    const header = (id: string) =>
-      stage().querySelector<HTMLElement>(`[data-workspace-header="${id}"]`)!;
-    for (const id of ["chat", "browser"])
-      for (const name of [
-        "--workspace-background-left",
-        "--workspace-background-top",
-      ])
-        expect(header(id).style.getPropertyValue(name)).toBe(
-          surface(id).style.getPropertyValue(name),
-        );
-    expect(
-      header("browser").style.getPropertyValue("--workspace-background-left"),
-    ).toBe("calc(-50cqw - 3px)");
-  });
-
   it("keeps visited workspace geometry, drafts and scroll positions warm across profile and home switches", async () => {
     const workHeaders = ["chat", "browser"].map((id) => ({
       id,

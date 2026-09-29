@@ -29,7 +29,7 @@ export type SortableDropTarget = {
 
 export type SortableOptions = {
   axis?: "x" | "y";
-  /** Move direct [data-sortable-motion] children, preserving outer hit boxes. */
+  /** Pick up the visual and shift siblings, preserving outer hit boxes. */
   animate?: boolean;
   /** Called once the pointer crosses the drag threshold. */
   onActivate?: (id: string) => void;
@@ -431,12 +431,16 @@ export function useSortable(
             return;
           }
           current.active = true;
+          if (animate) motion.current.activate(current);
           setGrabbing(true);
           setDraggingId(id);
           setToIndex(from);
           onActivateRef.current?.(id);
         }
         scheduleDragFrame();
+      };
+      const onScroll = () => {
+        if (drag.current?.active) scheduleDragFrame();
       };
 
       const onUp = (ev: PointerEvent) => {
@@ -474,6 +478,7 @@ export function useSortable(
         window.removeEventListener("pointercancel", onCancel);
         window.removeEventListener("keydown", onKey);
         window.removeEventListener("blur", onCancel);
+        window.removeEventListener("scroll", onScroll, true);
         handle.removeEventListener("lostpointercapture", onCancel);
         cleanupDrag.current = null;
         if (scrollFrame !== null) cancelAnimationFrame(scrollFrame);
@@ -543,6 +548,10 @@ export function useSortable(
       window.addEventListener("pointercancel", onCancel);
       window.addEventListener("keydown", onKey);
       window.addEventListener("blur", onCancel);
+      window.addEventListener("scroll", onScroll, {
+        capture: true,
+        passive: true,
+      });
       handle.addEventListener("lostpointercapture", onCancel);
       cleanupDrag.current = onCancel;
     },
