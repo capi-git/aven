@@ -82,11 +82,16 @@ unsafe extern "C" {
     fn AXIsProcessTrusted() -> u8;
     fn AXIsProcessTrustedWithOptions(options: Cf) -> u8;
     static kAXTrustedCheckOptionPrompt: Cf;
+    fn AXUIElementCreateApplication(pid: i32) -> Cf;
+    fn AXUIElementSetMessagingTimeout(element: Cf, seconds: f32) -> i32;
+    fn AXUIElementIsAttributeSettable(element: Cf, attribute: Cf, settable: *mut u8) -> i32;
+    fn AXUIElementSetAttributeValue(element: Cf, attribute: Cf, value: Cf) -> i32;
 }
 
 #[link(name = "CoreFoundation", kind = "framework")]
 unsafe extern "C" {
     fn CFRelease(value: Cf);
+    static kCFBooleanTrue: Cf;
     fn CFGetTypeID(value: Cf) -> usize;
     fn CFArrayGetCount(array: Cf) -> isize;
     fn CFArrayGetValueAtIndex(array: Cf, index: isize) -> Cf;
@@ -547,11 +552,92 @@ fn activate(
     name: Option<String>,
 ) -> Result<Value, String> {
     let deadline = Instant::now() + Duration::from_secs(3);
-    let (pid, accepted) = activation_on_main(app_handle, deadline, move || unsafe {
+    let mut attempt = activation_on_main(app_handle, deadline, move || unsafe {
         activate_on_main(pid, name.as_deref())
     })?;
-    confirm_activation(pid, accepted, deadline, || {
+    if !attempt.accepted {
+        let frontmost =
+            activation_on_main(app_handle, deadline, || unsafe { frontmost_pid_on_main() })?;
+        if frontmost != Some(attempt.pid) {
+            // A background host cannot promise a cooperative focus handoff.
+            // Native automation already requires explicit Accessibility access;
+            // use its target-specific focus attribute, never a synthetic click
+            // or an application launch, then independently observe the result.
+            activate_with_accessibility(attempt.pid, deadline)?;
+        }
+        attempt.accepted = true;
+    }
+    confirm_activation(attempt.pid, attempt.accepted, deadline, || {
         activation_on_main(app_handle, deadline, || unsafe { frontmost_pid_on_main() })
+    })
+}
+
+fn accessibility_activation_timeout(deadline: Instant) -> Result<f32, String> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        Err(ACTIVATION_TIMEOUT.into())
+    } else {
+        // This is per AX object, not a mutation of the process-wide timeout.
+        Ok(remaining.min(Duration::from_millis(500)).as_secs_f32())
+    }
+}
+
+fn accessibility_activation_steps(
+    deadline: Instant,
+    mut can_set_frontmost: impl FnMut(f32) -> Result<bool, String>,
+    mut set_frontmost: impl FnMut(f32) -> Result<(), String>,
+) -> Result<(), String> {
+    if !can_set_frontmost(accessibility_activation_timeout(deadline)?)? {
+        return Err("That app does not allow its Accessibility focus attribute to be changed. Bring it forward manually and observe it again.".into());
+    }
+    // Recheck after the query: a slow target cannot receive new input after the
+    // shared activation deadline has expired.
+    set_frontmost(accessibility_activation_timeout(deadline)?)
+}
+
+fn activation_ax_result(result: i32, operation: &str) -> Result<(), String> {
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(format!("macOS Accessibility could not {operation} (error {result}). Observe the desktop and retry."))
+    }
+}
+
+fn activate_with_accessibility(pid: i32, deadline: Instant) -> Result<(), String> {
+    // Runs on the socket worker while the desktop-control permission/execution
+    // gate is held. No AX round-trip can block the native UI thread.
+    objc2::rc::autoreleasepool(|_| unsafe {
+        let application = OwnedCf::new(
+            AXUIElementCreateApplication(pid),
+            "Could not access that running app through Accessibility.",
+        )?;
+        let attribute_name = NSString::from_str("AXFrontmost");
+        let attribute = Retained::as_ptr(&attribute_name).cast();
+        accessibility_activation_steps(
+            deadline,
+            |timeout| {
+                activation_ax_result(
+                    AXUIElementSetMessagingTimeout(application.0, timeout),
+                    "set the target app's focus timeout",
+                )?;
+                let mut settable = 0;
+                activation_ax_result(
+                    AXUIElementIsAttributeSettable(application.0, attribute, &mut settable),
+                    "check the target app's focus support",
+                )?;
+                Ok(settable != 0)
+            },
+            |timeout| {
+                activation_ax_result(
+                    AXUIElementSetMessagingTimeout(application.0, timeout),
+                    "set the target app's focus timeout",
+                )?;
+                activation_ax_result(
+                    AXUIElementSetAttributeValue(application.0, attribute, kCFBooleanTrue),
+                    "focus the target app",
+                )
+            },
+        )
     })
 }
 
@@ -562,7 +648,15 @@ unsafe fn frontmost_pid_on_main() -> Result<Option<i32>, String> {
     Ok(frontmost.map(|application| msg_send![&*application, processIdentifier]))
 }
 
-unsafe fn activate_on_main(pid: Option<i32>, name: Option<&str>) -> Result<(i32, bool), String> {
+struct ActivationAttempt {
+    pid: i32,
+    accepted: bool,
+}
+
+unsafe fn activate_on_main(
+    pid: Option<i32>,
+    name: Option<&str>,
+) -> Result<ActivationAttempt, String> {
     let class =
         AnyClass::get(c"NSRunningApplication").ok_or("macOS app activation is unavailable.")?;
     let application: Retained<AnyObject> = if let Some(pid) = pid {
@@ -593,28 +687,34 @@ unsafe fn activate_on_main(pid: Option<i32>, name: Option<&str>) -> Result<(i32,
             .ok_or("That app is not running. Open it first or use a pid from windows.")?
     };
     let pid: i32 = msg_send![&*application, processIdentifier];
+    let app_class =
+        AnyClass::get(c"NSApplication").ok_or("macOS app activation is unavailable.")?;
+    let host: Retained<AnyObject> = msg_send![app_class, sharedApplication];
+    let current: Retained<AnyObject> = msg_send![class, currentApplication];
     if frontmost_pid_on_main()? == Some(pid) {
-        return Ok((pid, true));
+        return Ok(ActivationAttempt {
+            pid,
+            accepted: true,
+        });
     }
     // macOS 14+ ignores activateIgnoringOtherApps. Give AppKit an explicit
     // cooperative handoff from this host to the exact existing target. Never
     // launch an app or use an unrelated app as the source of activation.
-    let app_class =
-        AnyClass::get(c"NSApplication").ok_or("macOS app activation is unavailable.")?;
-    let host: Retained<AnyObject> = msg_send![app_class, sharedApplication];
     let can_yield: Bool =
         msg_send![&*host, respondsToSelector: objc2::sel!(yieldActivationToApplication:)];
     let can_activate_from: Bool =
         msg_send![&*application, respondsToSelector: objc2::sel!(activateFromApplication:options:)];
     let accepted: Bool = if can_yield.as_bool() && can_activate_from.as_bool() {
-        let current: Retained<AnyObject> = msg_send![class, currentApplication];
         let _: () = msg_send![&*host, yieldActivationToApplication: &*application];
         msg_send![&*application, activateFromApplication: &*current, options: 0usize]
     } else {
         // Older macOS has no cooperative API; keep the target-only request.
         msg_send![&*application, activateWithOptions: 2usize]
     };
-    Ok((pid, accepted.as_bool()))
+    Ok(ActivationAttempt {
+        pid,
+        accepted: accepted.as_bool(),
+    })
 }
 
 struct Captures {
@@ -1193,6 +1293,67 @@ mod tests {
         assert!(capture.join().unwrap().is_err());
         finish_capture_cleanup(queued_cleanup);
         assert!(!path.parent().unwrap().exists());
+    }
+
+    #[test]
+    fn accessibility_focus_does_not_write_when_target_refuses_or_query_fails() {
+        for query in [Ok(false), Err("query failed".into())] {
+            let result = accessibility_activation_steps(
+                Instant::now() + Duration::from_secs(1),
+                |_| query.clone(),
+                |_| panic!("focus must not be written without target support"),
+            );
+            assert!(result.is_err());
+        }
+        let result = accessibility_activation_steps(
+            Instant::now() + Duration::from_secs(1),
+            |timeout| {
+                assert!(timeout > 0.0 && timeout <= 0.5);
+                Ok(true)
+            },
+            |timeout| {
+                assert!(timeout > 0.0 && timeout <= 0.5);
+                Err("focus denied".into())
+            },
+        );
+        assert_eq!(result.unwrap_err(), "focus denied");
+    }
+
+    #[test]
+    fn accessibility_focus_rechecks_deadline_before_writing() {
+        let result = accessibility_activation_steps(
+            Instant::now() + Duration::from_millis(10),
+            |_| {
+                std::thread::sleep(Duration::from_millis(20));
+                Ok(true)
+            },
+            |_| panic!("expired request must not change focus"),
+        );
+        assert_eq!(result.unwrap_err(), ACTIVATION_TIMEOUT);
+        assert_eq!(
+            accessibility_activation_steps(
+                Instant::now(),
+                |_| panic!("expired request must not query the target"),
+                |_| panic!("expired request must not change focus"),
+            )
+            .unwrap_err(),
+            ACTIVATION_TIMEOUT,
+        );
+    }
+
+    #[test]
+    fn accessibility_focus_success_still_requires_foreground_confirmation() {
+        accessibility_activation_steps(
+            Instant::now() + Duration::from_secs(1),
+            |_| Ok(true),
+            |_| Ok(()),
+        )
+        .unwrap();
+        let result =
+            confirm_activation(10, true, Instant::now() + Duration::from_millis(10), || {
+                Ok(Some(20))
+            });
+        assert_eq!(result.unwrap_err(), ACTIVATION_TIMEOUT);
     }
 
     #[test]

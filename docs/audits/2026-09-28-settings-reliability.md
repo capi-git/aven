@@ -16,6 +16,7 @@ All edits and builds use the isolated `fix/settings-audit` worktree. Rendered ch
 | P1 | Synchronous stdin writes could block native dispatch if a live provider stopped reading a large prompt. | Writes run off the UI thread with a shared 15-second lock/write deadline and cancellation. A timed-out incomplete protocol frame retires only its captured child. |
 | P2 | Process exit could arrive before buffered stdout/stderr, retiring frontend protocol handlers before the final result. | Drain both readers before EXIT, capped at two seconds for inherited pipes, then suppress late output. Retire the reaped process registration before draining so Stop does not strand an exited Windows PID. |
 | P2 | A desktop capture held the shared registry lock while capture/scaling commands ran, blocking task bind/revoke callbacks. | Capture work uses separate ownership for each grant. Revocation stays brief, rejects revoked results, and queues cleanup. Exit drains active and retired captures after releasing the registry lock. |
+| P2 | macOS could refuse an activation request from a background Aven host, preventing an agent from bringing its observed target forward. | Try cooperative AppKit activation, then use the exact target's Accessibility focus attribute if refused. Bound the target calls and confirm the actual foreground PID before reporting success. Covered-window input protections remain in place. |
 | P2 | Settings and the home toolbar kept separate default-access state. The label could disagree with the preference used for new tasks. | Both subscribe to the same stored preference, including same-window and storage events. Existing tasks retain their explicit access mode. |
 | P2 | A Skills source filter could remain selected after its source disappeared, hiding other available skills. | Return to All when the selected source no longer exists. |
 | P3 | Skills source radios lacked arrow navigation and roving focus. | Reuse the shared segmented control; keyboard selection and focus move together. |
@@ -35,12 +36,12 @@ These checks establish visible layout and the named interactions, not full acces
 
 Checks ran sequentially on the candidate source:
 
-- `npm run check:web`: 3,593 tests in 324 files, plus TypeScript.
+- `npm run check:web`: 3,602 tests in 324 files, plus TypeScript.
 - `npm run check:tooling`: packaging, signing, release, development-runner, update, versioning, and browser fixture checks passed.
 - `npm run build`: production frontend built.
 - `./scripts/with-dev-env.sh cargo fmt --check`: passed.
 - `./scripts/with-dev-env.sh cargo clippy --workspace --all-targets -- -D warnings`: passed.
-- `./scripts/with-dev-env.sh cargo test --locked -p aven --lib`: 439 tests passed, including seven new native lifecycle regressions.
+- `./scripts/with-dev-env.sh cargo test --locked -p aven --lib`: 450 tests passed, including native lifecycle, capture revocation/concurrency, and activation failure/deadline regressions.
 - `npm run dev:doctor` and `npm run dev:app`: complete Chromium development bundle built, strict signature verification passed, and the exact worktree bundle launched through LaunchServices.
 - `git diff --check`: passed.
 
@@ -51,5 +52,5 @@ Existing diagnostics remain visible: Node's experimental localStorage warning, V
 - **Release review corrections:** fixed the remaining idle red-button close path, which used best-effort unload saving and closed even on failure. Added save-failure/retry regressions. The capture-registry contention above is also fixed, with deterministic blocked-capture, revoke/rebind, and revoke-before-shutdown regressions.
 - **Provider replacement generations:** stdout/stderr still identify a session rather than a particular process generation. Late output during replacement needs a separate end-to-end protocol change and regression coverage. The drain fix addresses final output before exit, not all replacement races.
 - **Notes across windows:** draft coordination is within one renderer. Simultaneously editing the same note in multiple windows still needs conflict/version handling.
-- **Native desktop-control QA:** the current LaunchServices Dev instance reports Accessibility granted and Screen Recording missing. Positive capture/input testing with Dev's own grants remains pending; the UI review does not claim that permission-dependent feature is fully verified.
+- **Native desktop-control QA:** the signed LaunchServices Dev instance retains its own Accessibility and Screen Recording grants across relaunches. Missing-permission refusal, exact Finder-window capture, and activation of the observed Finder PID were verified. Input correctly refused a covered target; the window stack independently confirmed another app covered the tested point. Positive click/type/press/scroll and native-off verification remain pending a stable foreground fixture. Window-only captures do not establish physical foreground or unobstructed input.
 - Windows-specific behavior received source review and shared lifecycle regression coverage on macOS, not an actual Windows runtime test. No production update/restart or multi-provider end-to-end session was performed.
