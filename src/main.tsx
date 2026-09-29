@@ -89,17 +89,23 @@ if (new URLSearchParams(window.location.search).has("workspaceMenuPanel")) {
   initAppearance();
   initSounds();
   syncBrowserEngineOptions();
-  void Promise.all([import("./App"), import("./lib/appLifecycle")])
+  // Read the saved workspace while the interface bundle downloads and
+  // parses; both used to run one after the other before the first paint.
+  const lifecycle = import("./lib/appLifecycle");
+  const bootWorkspace = lifecycle.then(({ loadBootWorkspace }) =>
+    loadBootWorkspace(),
+  );
+  // A read failure is reported by the render path below; mark it handled so
+  // an early rejection is not also logged as unhandled.
+  bootWorkspace.catch(() => {});
+  void Promise.all([import("./App"), lifecycle])
     .then(
-      async ([
-        { default: App },
-        { handleQuitRequested, loadBootWorkspace },
-      ]) => {
+      async ([{ default: App }, { handleQuitRequested }]) => {
         void listen("quit_requested", () => {
           void handleQuitRequested();
         });
         const { windowTransfer, resumed, history, historyCwd } =
-          await loadBootWorkspace();
+          await bootWorkspace;
         const installedUpdate = windowTransfer
           ? null
           : consumeInstalledUpdate();

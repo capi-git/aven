@@ -33,7 +33,37 @@
           if (scheme === "light") {
             root.classList.add("theme-light");
           }
-          var bodyGlass = localStorage.getItem("monocode.bodyGlass");
+          // Paint the first frame in the active workspace's own theme, so
+          // startup never flashes a default or older palette first. A corrupt
+          // store must not skip the platform classes below.
+          try {
+            var themes = JSON.parse(
+              localStorage.getItem("monocode.personal.workspaceThemes.v1") ||
+                "null",
+            );
+            var profiles = JSON.parse(
+              localStorage.getItem("monocode.workspaceProfiles.v1") || "null",
+            );
+            var theme =
+              themes &&
+              ((profiles &&
+                themes.themes &&
+                themes.themes[profiles.activeProfileId]) ||
+                themes.fallback);
+            if (theme && typeof theme === "object") {
+              var light =
+                theme.preference === "light" ||
+                (theme.preference === "system" &&
+                  window.matchMedia("(prefers-color-scheme: light)").matches);
+              root.classList.toggle("theme-light", !!light);
+              var colors =
+                theme.colors && theme.colors[light ? "light" : "dark"];
+              var background = colors && colors.background;
+              if (/^#[0-9a-fA-F]{6}$/.test(background || "")) {
+                root.style.setProperty("--boot-background", background);
+              }
+            }
+          } catch (_) {}          var bodyGlass = localStorage.getItem("monocode.bodyGlass");
           if (bodyGlass === "1" || bodyGlass === "true") {
             root.classList.add("glass-body");
           }
@@ -67,7 +97,7 @@
       body,
       #boot-splash {
         margin: 0;
-        background: var(--color-background-base);
+        background: var(--boot-background);
       }
 
       /* Opaque cover until React paints. The logo is in HTML so it is

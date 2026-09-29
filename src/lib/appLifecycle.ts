@@ -38,6 +38,7 @@ import {
   shouldPersistSession,
   upsertSession,
   type SessionSummary,
+  persistedMetadataKey,
 } from "./sessionStore";
 import {
   collectWorkspaceSnapshot,
@@ -45,6 +46,7 @@ import {
   parseWorkspaceSnapshot,
 } from "./workspaceSnapshot";
 import { loadWindowTransfer } from "./windowTransferBootstrap";
+import { registerBuiltinHarnesses } from "./harness/register";
 import type { WindowTransferPayload } from "./windowTransfer";
 import {
   lastProjectPath,
@@ -239,6 +241,9 @@ export function loadResumedWorkspace(): Promise<ResumedWorkspace | null> {
 export function loadBootWorkspace(): Promise<BootWorkspace> {
   if (!bootPromise) {
     bootPromise = (async () => {
+      // Startup reads the workspace while the interface bundle still loads,
+      // so providers must be known before sessions are restored.
+      registerBuiltinHarnesses();
       const hintedCwd = lastProjectPath();
       const historyHint = listProjectHistory(hintedCwd);
       const windowTransfer = await loadWindowTransfer();
@@ -363,9 +368,20 @@ async function loadResumedWorkspaceOnce(): Promise<ResumedWorkspace | null> {
 
   bootingResumed = workspace;
   if (workspace) {
+    // Rewriting every restored transcript at startup sent megabytes back to
+    // the store before the first paint. Save only what restoring changed:
+    // new sessions, interrupted turns, and moved checkouts or queues.
     await Promise.all(
       workspace.sessions
         .filter(shouldPersistSession)
+        .filter((session) => {
+          const record = loaded.get(session.id);
+          return (
+            !record ||
+            interrupted.has(session.id) ||
+            persistedMetadataKey(session) !== persistedMetadataKey(record)
+          );
+        })
         .map((session) => upsertSession(session).catch(() => null)),
     );
   }

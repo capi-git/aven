@@ -116,6 +116,14 @@ function persistableMeta(
   };
 }
 
+/**
+ * What the store keeps beside the transcript, in a fixed order. Startup only
+ * rewrites a restored session when this, or its interrupted turn, changed.
+ */
+export function persistedMetadataKey(session: Session): string {
+  return JSON.stringify(persistableMeta(session));
+}
+
 export function sanitizeSessionForPersist(
   session: Session,
 ): SessionUpsertPayload {
