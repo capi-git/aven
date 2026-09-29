@@ -246,19 +246,6 @@
   flex: 0 0 auto;
   min-width: 0;
 }
-.workspace-status-tabs {
-  display: flex;
-  align-items: stretch;
-  align-self: stretch;
-  flex: 1 1 0;
-  min-width: 0;
-  overflow: hidden;
-  cursor: default;
-}
-.workspace-status-tabs > * {
-  flex: 1 1 auto;
-  min-width: 0;
-}
 
 /* Settings lives in the same window bar as every other workspace surface. */
 .workspace-status-settings {
@@ -295,18 +282,12 @@
   color: var(--color-content);
   font-weight: 600;
 }
-.workspace-status-bar[data-settings="true"] .workspace-status-task,
-.workspace-status-bar[data-has-workspace-tabs="true"] .workspace-status-task {
+.workspace-status-bar[data-settings="true"] .workspace-status-task {
   flex: 0 0 auto;
   width: auto;
   min-width: 26px;
   max-width: none;
   padding-inline: 6px;
-  margin-left: auto;
-}
-.workspace-status-bar[data-settings="true"] .workspace-status-controls,
-.workspace-status-bar[data-has-workspace-tabs="true"] .workspace-status-controls {
-  margin-left: 0;
 }
 .workspace-status-nav-group,
 .workspace-status-controls {

@@ -194,7 +194,7 @@ describe("workspace status data and actions", () => {
         view === "settings"
           ? { settingsView: { section: "appearance", onClose: vi.fn() } }
           : view === "workspace"
-            ? { workspaceTabs: createElement("div", null, "Session tabs") }
+            ? { session: task() }
             : {},
       );
       await click("Minimize window");
@@ -341,9 +341,9 @@ describe("workspace status data and actions", () => {
     expect(nativeWindow.startDragging).not.toHaveBeenCalled();
   });
 
-  it("hosts workspace tabs between navigation and compact Activity without losing unread status", async () => {
+  it("keeps Activity beside navigation on the left, with or without Settings", async () => {
     recordActivity({
-      id: "tab-slot-result",
+      id: "left-activity",
       sessionId: "task-1",
       title: "First task",
       outcome: "completed",
@@ -352,98 +352,31 @@ describe("workspace status data and actions", () => {
       harness: "codex",
       model: "model",
     });
-    const selectTab = vi.fn();
-    await render({
-      session: task(),
-      onToggleSidebar: vi.fn(),
-      workspaceTabs: createElement(
-        "div",
-        { role: "tablist", "aria-label": "Workspace tabs" },
-        createElement(
-          "button",
-          { type: "button", role: "tab", onClick: selectTab },
-          "Current task",
-        ),
-      ),
-    });
+    await render({ session: task(), onToggleSidebar: vi.fn() });
     const bar = container.querySelector<HTMLElement>(".workspace-status-bar")!;
-    const slot = bar.querySelector(".workspace-status-tabs")!;
+    const children = () => [...bar.children];
     const trigger = button("Activity: Queue is clear · 1 unread");
     const navigation = bar.querySelector(".workspace-navigation")!;
-    const children = [...bar.children];
-    expect(bar.dataset.hasWorkspaceTabs).toBe("true");
-    expect(slot.querySelector('[role="tablist"]')).not.toBeNull();
-    expect(children.indexOf(navigation)).toBeLessThan(children.indexOf(slot));
-    expect(slot.nextElementSibling).toBe(trigger);
+    const controls = bar.querySelector(".workspace-status-controls")!;
+    expect(bar.querySelector(".workspace-status-tabs")).toBeNull();
+    expect(children().indexOf(trigger)).toBe(children().indexOf(navigation) + 1);
+    expect(children().indexOf(trigger)).toBeLessThan(children().indexOf(controls));
     expect(
-      trigger.nextElementSibling?.classList.contains(
-        "workspace-status-controls",
-      ),
-    ).toBe(true);
-    expect(trigger.querySelector(".workspace-status-context")).toBeNull();
+      trigger.querySelector(".workspace-status-context")?.textContent,
+    ).toBe("model");
     expect(trigger.querySelector(".workspace-status-unread")?.textContent).toBe(
       "1",
     );
-    expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
-    expect(
-      bar.querySelector(
-        '.workspace-status-development [title="Development build"]',
-      ),
-    ).not.toBeNull();
 
-    await act(async () => {
-      const tab = button("Current task");
-      tab.dispatchEvent(
-        new MouseEvent("mousedown", { button: 0, bubbles: true }),
-      );
-      tab.click();
-      trigger.dispatchEvent(
-        new MouseEvent("mousedown", { button: 0, bubbles: true }),
-      );
-      trigger.click();
-    });
-    expect(selectTab).toHaveBeenCalledOnce();
-    expect(nativeWindow.startDragging).not.toHaveBeenCalled();
-    expect(trigger.getAttribute("aria-expanded")).toBe("true");
-    expect(
-      container.querySelector('[role="dialog"][aria-label="Activity"]'),
-    ).not.toBeNull();
-  });
-
-  it("keeps Activity mounted when a tab slot appears and restores the model label when it leaves", async () => {
-    await render({ session: task() });
-    const trigger = button("Activity: Queue is clear");
-    expect(
-      trigger.querySelector(".workspace-status-context")?.textContent,
-    ).toBe("model");
-    expect(
-      container.querySelector<HTMLElement>(".workspace-status-bar")?.dataset
-        .hasWorkspaceTabs,
-    ).toBe("false");
-    await click("Activity: Queue is clear");
-    const activity = container.querySelector(
-      '[role="dialog"][aria-label="Activity"]',
-    );
     await render({
-      workspaceTabs: createElement("div", null, "Workspace tabs"),
+      settingsView: { section: "appearance", onClose: vi.fn() },
     });
-    expect(button("Activity: Queue is clear")).toBe(trigger);
+    expect(button("Activity: Queue is clear · 1 unread")).toBe(trigger);
+    expect(children().indexOf(trigger)).toBe(children().indexOf(navigation) + 1);
+    expect(
+      children().indexOf(bar.querySelector(".workspace-status-settings")!),
+    ).toBeGreaterThan(children().indexOf(trigger));
     expect(trigger.querySelector(".workspace-status-context")).toBeNull();
-    expect(
-      container.querySelector('[role="dialog"][aria-label="Activity"]'),
-    ).toBe(activity);
-
-    await render({ workspaceTabs: null });
-    expect(container.querySelector(".workspace-status-tabs")).toBeNull();
-    expect(
-      trigger.querySelector(".workspace-status-context")?.textContent,
-    ).toBe("model");
-    expect(trigger.querySelectorAll(".provider-mark")).toHaveLength(1);
-    expect(trigger.getAttribute("aria-expanded")).toBe("true");
-    await click("Activity: Queue is clear");
-    expect(
-      container.querySelector('[role="dialog"][aria-label="Activity"]'),
-    ).toBeNull();
   });
 
   it("replaces the task label with the current settings section and keeps exit controls out of window dragging", async () => {
@@ -988,7 +921,7 @@ describe("on-demand provider usage", () => {
     expect(api.codex).toHaveBeenCalledTimes(2);
   });
 
-  it("preserves an open usage panel and its fetched snapshot while toolbar tabs change", async () => {
+  it("preserves an open usage panel and its fetched snapshot while the focused task changes", async () => {
     await render({ usageProviders: ["codex"] });
     const trigger = button("Context and provider usage");
     await click("Context and provider usage");
@@ -998,11 +931,8 @@ describe("on-demand provider usage", () => {
     expect(api.codex).toHaveBeenCalledOnce();
     expect(panel?.textContent).toContain("5-hour77% left");
 
-    for (const workspaceTabs of [
-      createElement("div", null, "Tabs"),
-      undefined,
-    ]) {
-      await render({ workspaceTabs });
+    for (const session of [task(), undefined]) {
+      await render({ session });
       expect(button("Context and provider usage")).toBe(trigger);
       expect(trigger.getAttribute("aria-expanded")).toBe("true");
       expect(
