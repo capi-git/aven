@@ -16,6 +16,8 @@ npm run dev:app
 
 The runner builds the native app and its complete Chromium runtime, verifies the package, starts its own frontend server, and opens **Aven Dev**. Frontend edits refresh there. Quit **Aven Dev** normally before rerunning for Rust/native changes. The runner stops only its own frontend server when the preview closes. It refuses an occupied port or a second preview rather than killing another process. The installed Aven can stay open for your coding task throughout.
 
+For small CSS and React changes, keep this preview running and edit the source in the checkout that owns it. Vite refreshes those edits in place; do not rerun `dev:app`, bump the version, or publish a release for each adjustment. Check the rendered result at narrow and wide pane sizes, then batch the finished changes into the next release. The installed public app uses bundled UI assets and does not receive these development edits.
+
 `npm run dev:app -- --build-only` prepares the isolated bundle without opening it. `npm run dev` alone is a frontend preview and does not supply native APIs. A raw `tauri dev` run has isolated data but does not package Chromium; use `dev:app` for browser testing.
 
 ## Machine setup

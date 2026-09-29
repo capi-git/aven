@@ -203,6 +203,7 @@
 }
 .skills-item-copy {
   display: grid;
+  flex: 1;
   gap: 3px;
   min-width: 0;
 }
@@ -224,8 +225,12 @@
 }
 .skills-item-source {
   flex-shrink: 0;
+  max-width: 40%;
   color: var(--aven-muted);
   font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  text-align: right;
 }
 .skills-empty {
   padding: 22px 10px;
@@ -294,10 +299,12 @@
   }
   .skills-item {
     flex-direction: column;
-    gap: 6px;
+    align-items: stretch;
+    gap: 3px;
   }
   .skills-item-source {
-    font-size: 11px;
+    max-width: none;
+    text-align: left;
   }
   .skills-list {
     max-height: 360px;
