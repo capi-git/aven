@@ -171,8 +171,8 @@ export function keepBrowserTab(
 }
 
 /**
- * A browser tab the user opened on purpose is retained, and so is the page it
- * would otherwise push out of the shared preview slot.
+ * A newly opened browser tab is retained, and so is the page it would otherwise
+ * push out of the shared preview slot. Older hidden history stays in Recent.
  */
 export function addRetainedBrowserTab(
   state: BrowserWorkspace,

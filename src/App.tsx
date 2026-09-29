@@ -1028,7 +1028,7 @@ export default function App({
             );
             setBrowserWorkspaces((all) => ({
               ...all,
-              [project]: addBrowserTab(
+              [project]: addRetainedBrowserTab(
                 { ...(all[project] ?? EMPTY_BROWSER), mode: "tab" },
                 { id, url },
               ),
@@ -2686,7 +2686,7 @@ export default function App({
           return {
             ...all,
             [cwd]: pageId
-              ? addBrowserTab(
+              ? addRetainedBrowserTab(
                   { ...current, mode: "tab" },
                   { id: pageId, url: browserUrl! },
                 )
@@ -5158,7 +5158,7 @@ export default function App({
               mode: "tab",
               expanded: true,
             }
-          : addBrowserTab(
+          : addRetainedBrowserTab(
               { ...(all[cwd] ?? EMPTY_BROWSER), mode: "tab" },
               { id, url },
             ),
