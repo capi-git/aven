@@ -1054,11 +1054,10 @@ describe("browser tab integration", () => {
     });
 
     it.each([false, true])(
-      "ignores the old minimized preference and retains titles and tooltips (hosted=%s)",
-      async (windowToolbar) => {
+      "ignores the old minimized preference and retains titles and tooltips (pane-local=%s)",
+      async (paneLocal) => {
         await render({
-          paneLocal: true,
-          windowToolbar,
+          paneLocal,
           browserTabs: [
             { id: "web-a", title: "Preview", url: "http://localhost:5173/" },
           ],
