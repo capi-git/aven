@@ -4,12 +4,17 @@
 
 ### Desktop control, clearer Settings, and safer saves
 
-- Optional desktop control lets agents observe and use Mac apps from Aven without an extra install. It starts off; enable it in **Settings → Skills & tools**. The permission card shows what is missing and provides **Allow** and **Open settings** actions. Screenshots need Screen Recording access, and input also needs Accessibility access.
+- Optional desktop control is available as a preview, letting agents observe and use Mac apps from Aven without an extra install. It starts off; enable it in **Settings → Skills & tools**. The permission card shows what is missing and provides **Allow** and **Open settings** actions. Screenshots need Screen Recording access, and input also needs Accessibility access.
 - Settings has tighter spacing, consistent controls, a more compact color picker, and clearer permission status. Skills source filters support keyboard navigation, and the default access setting stays in sync with the home toolbar.
 - Failed conversation reads no longer restore writable blank replacements. Notes keep pending edits across navigation, and failed saves keep the window open for retry instead of discarding unsaved work when closing or quitting.
 - Provider input no longer blocks the interface when a process stops reading. Aven waits for buffered provider output before reporting that its process has exited, with a bounded wait so an inherited pipe cannot leave the task stuck.
 - **Restart to update** can close terminals after an explicit **Close terminals and restart** confirmation. **Keep working** leaves the downloaded update ready. Terminal tabs and working directories reopen with fresh shells after updating; running commands, terminal output, and unfinished terminal input do not carry over.
 - Pages opened by agents or links now keep separate visible tabs beside the page already open, including in detached windows. Older hidden pages remain in Recent, and opening an existing address selects its tab.
+
+### Desktop control preview limitations
+
+- Capture, permission revocation, app activation, and keyboard input were verified in the signed Aven Dev build. Positive click and scroll verification remains incomplete: the conservative visibility check refused targeted input during testing. The check remains enabled and can also refuse transparent overlays.
+- Some floating dialogs need a screenshot of their screen region instead of a window-only capture. Desktop control remains off until explicitly enabled and macOS permissions are granted.
 
 ## [0.1.108] - 2026-09-28
 
