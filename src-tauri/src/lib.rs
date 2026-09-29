@@ -13,6 +13,8 @@ mod browser_agent_dom;
 #[cfg(all(feature = "chromium", target_os = "macos"))]
 #[path = "browser_chromium_dom.rs"]
 mod browser_agent_dom;
+#[cfg(any(test, all(feature = "chromium", target_os = "macos")))]
+mod browser_drop_indicator;
 pub use browser_agent::{run_browser_cli, run_desktop_cli};
 #[cfg(not(all(feature = "chromium", target_os = "macos")))]
 mod browser_dialogs;

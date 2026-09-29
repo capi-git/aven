@@ -4,15 +4,49 @@ import {
   nativeBrowser,
   type BrowserBounds,
   type BrowserDropIndicator,
+  type BrowserDropColor,
+  type BrowserDropPalette,
 } from "../lib/browser";
 
 export const WORKSPACE_DROP_FEEDBACK = "supermono:workspace-drop-feedback";
+
+/** The hint forces color-mix(in srgb), so WebKit resolves these to either
+ * color(srgb ...) or legacy rgb/rgba. No arbitrary CSS crosses native IPC. */
+export function parseDropColor(value: string): BrowserDropColor | null {
+  const match = /^(color\(srgb\s+|rgba?\()(.*)\)$/i.exec(value.trim());
+  if (!match) return null;
+  const srgb = match[1].toLowerCase().startsWith("color");
+  const parts = match[2].trim().split(/[\s,/]+/);
+  if (parts.length !== 3 && parts.length !== 4) return null;
+  const channels = parts.map((part, index) => {
+    if (!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?%?$/i.test(part)) return NaN;
+    const percentage = part.endsWith("%");
+    const number = Number(percentage ? part.slice(0, -1) : part);
+    return number / (percentage ? 100 : index < 3 && !srgb ? 255 : 1);
+  });
+  if (!channels.every(Number.isFinite)) return null;
+  if (channels.length === 3) channels.push(1);
+  // CSS permits out-of-gamut colors. Clip when converting to the sRGB native view.
+  return channels.map((channel) =>
+    Math.max(0, Math.min(1, channel)),
+  ) as BrowserDropColor;
+}
+
+export function readDropPalette(
+  hint: HTMLElement,
+): BrowserDropPalette | undefined {
+  const style = getComputedStyle(hint);
+  const stroke = parseDropColor(style.borderTopColor);
+  const fill = parseDropColor(style.backgroundColor);
+  const halo = parseDropColor(style.outlineColor);
+  return stroke && fill && halo ? { stroke, fill, halo } : undefined;
+}
 
 /** Fractions of the full native viewport; no Retina/UI-zoom conversion needed. */
 export function normalizeDropIndicator(
   viewport: BrowserBounds,
   rect: Pick<DOMRect, "left" | "top" | "right" | "bottom">,
-  details: Pick<BrowserDropIndicator, "edge" | "kind" | "title">,
+  details: Pick<BrowserDropIndicator, "edge" | "kind" | "title" | "palette">,
 ): BrowserDropIndicator | null {
   if (
     ![
@@ -146,10 +180,13 @@ export function useBrowserDropIndicator(
       (value) => nativeBrowser.dropIndicator(id, value),
       id,
     );
+    let palette: BrowserDropPalette | undefined;
+    let paletteDirty = true;
     const refresh = (event?: Event) => {
       if (event?.type === WORKSPACE_DROP_FEEDBACK && event.target !== stage)
         return;
       if (event instanceof CustomEvent && event.detail?.clear) {
+        paletteDirty = true;
         presenter.update(null);
         return;
       }
@@ -163,17 +200,37 @@ export function useBrowserDropIndicator(
         !bounds ||
         viewport.closest('[hidden], [inert], [aria-hidden="true"]')
       ) {
+        paletteDirty = true;
         presenter.update(null);
         return;
+      }
+      if (paletteDirty) {
+        palette = readDropPalette(hint);
+        paletteDirty = false;
       }
       presenter.update(
         normalizeDropIndicator(bounds, hint.getBoundingClientRect(), {
           edge: hint.dataset.dropEdge as BrowserDropIndicator["edge"],
           kind: hint.dataset.dropKind as BrowserDropIndicator["kind"],
           title: hint.dataset.dropTitle ?? "",
+          ...(palette ? { palette } : {}),
         }),
       );
     };
+    // Palette reads are independent of pointer/destination changes. A theme
+    // edit during a drag repaints even when the target geometry is unchanged.
+    const themeChanged = () => {
+      paletteDirty = true;
+      refresh();
+    };
+    const observer = new MutationObserver(themeChanged);
+    const attributes = {
+      attributes: true,
+      attributeFilter: ["class", "style"],
+    };
+    observer.observe(document.documentElement, attributes);
+    const shell = viewport.closest(".personal-shell");
+    if (shell) observer.observe(shell, attributes);
     window.addEventListener(WORKSPACE_DROP_FEEDBACK, refresh);
     window.addEventListener("supermono:workspace-layout", refresh);
     window.addEventListener("resize", refresh);
@@ -184,6 +241,7 @@ export function useBrowserDropIndicator(
       window.removeEventListener("supermono:workspace-layout", refresh);
       window.removeEventListener("resize", refresh);
       window.removeEventListener("monocode:uiscalechange", refresh);
+      observer.disconnect();
       presenter.dispose();
     };
   }, [host, id, enabled]);

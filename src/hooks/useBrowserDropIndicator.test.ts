@@ -1,8 +1,22 @@
+// @vitest-environment happy-dom
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 import {
   createDropIndicatorPresenter,
   normalizeDropIndicator,
+  parseDropColor,
+  useBrowserDropIndicator,
+  WORKSPACE_DROP_FEEDBACK,
 } from "./useBrowserDropIndicator";
+
+const native = vi.hoisted(() => ({
+  present: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("../lib/browser", () => ({
+  nativeBrowser: { dropIndicator: native.present },
+  browserBounds: () => ({ x: 200, y: 100, width: 600, height: 400, scale: 2 }),
+}));
 
 const details = { edge: "tab", kind: "tab", title: "Browser" } as const;
 const viewport = { x: 200, y: 100, width: 600, height: 400, scale: 2 };
@@ -13,6 +27,104 @@ const tick = async () => {
 };
 
 describe("native drop feedback", () => {
+  it("normalizes computed legacy and sRGB colors without forwarding CSS expressions", () => {
+    expect(parseDropColor("rgb(51, 102, 153)")).toEqual([0.2, 0.4, 0.6, 1]);
+    expect(parseDropColor("rgba(51, 102, 153, 0.1)")).toEqual([
+      0.2, 0.4, 0.6, 0.1,
+    ]);
+    expect(parseDropColor("rgb(20% 40% 60% / 55%)")).toEqual([
+      0.2, 0.4, 0.6, 0.55,
+    ]);
+    expect(parseDropColor("color(srgb 0.2 0.4 0.6 / .9)")).toEqual([
+      0.2, 0.4, 0.6, 0.9,
+    ]);
+    expect(parseDropColor("color(srgb -.1 1.1 0.5)")).toEqual([0, 1, 0.5, 1]);
+    for (const value of [
+      "var(--accent)",
+      "url(test)",
+      "color(display-p3 1 0 0)",
+      "rgb(NaN 0 1)",
+      "rgb(1 2 3 4 5)",
+    ])
+      expect(parseDropColor(value)).toBeNull();
+  });
+
+  it("sends the resolved theme once and repaints palette changes without resampling pointer moves", async () => {
+    native.present.mockClear();
+    const shell = document.createElement("div");
+    shell.className = "personal-shell";
+    shell.innerHTML =
+      '<div data-workspace-stage><div data-workspace-body><div data-browser></div><div data-workspace-drop-hint data-drop-edge="tab" data-drop-kind="tab" data-drop-title="Browser"></div></div></div>';
+    document.body.append(shell);
+    const stage = shell.querySelector<HTMLElement>("[data-workspace-stage]")!;
+    const hint = shell.querySelector<HTMLElement>(
+      "[data-workspace-drop-hint]",
+    )!;
+    hint.getBoundingClientRect = () => new DOMRect(260, 120, 480, 340);
+    const host = {
+      current: shell.querySelector<HTMLElement>("[data-browser]")!,
+    };
+    let colors = {
+      borderTopColor: "color(srgb .2 .4 .6)",
+      backgroundColor: "color(srgb .2 .4 .6 / .1)",
+      outlineColor: "rgba(10, 20, 30, 0.9)",
+    };
+    const realStyle = globalThis.getComputedStyle;
+    let paletteReads = 0;
+    const style = vi
+      .spyOn(globalThis, "getComputedStyle")
+      .mockImplementation((element) => {
+        if (element !== hint) return realStyle(element);
+        paletteReads++;
+        return colors as CSSStyleDeclaration;
+      });
+    const mount = document.createElement("div");
+    document.body.append(mount);
+    const root = createRoot(mount);
+    function Harness() {
+      useBrowserDropIndicator(host, "themed-browser", true);
+      return null;
+    }
+    try {
+      await act(async () => root.render(createElement(Harness)));
+      expect(paletteReads).toBe(1);
+      expect(native.present).toHaveBeenCalledTimes(1);
+      expect(native.present.mock.calls[0][1].palette).toEqual({
+        stroke: [0.2, 0.4, 0.6, 1],
+        fill: [0.2, 0.4, 0.6, 0.1],
+        halo: [10 / 255, 20 / 255, 30 / 255, 0.9],
+      });
+      for (let i = 0; i < 1000; i++)
+        stage.dispatchEvent(
+          new Event(WORKSPACE_DROP_FEEDBACK, { bubbles: true }),
+        );
+      expect(paletteReads).toBe(1);
+      expect(native.present).toHaveBeenCalledTimes(1);
+      colors = { ...colors, borderTopColor: "color(srgb .3 .7 .4)" };
+      await act(async () => {
+        shell.style.setProperty("--theme-accent-color", "#33aa44");
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(paletteReads).toBe(2);
+      expect(native.present).toHaveBeenCalledTimes(2);
+      expect(native.present.mock.calls[1][1].palette.stroke).toEqual([
+        0.3, 0.7, 0.4, 1,
+      ]);
+      // An unrelated root class can invalidate the cache but not cause IPC.
+      await act(async () => {
+        shell.classList.add("same-palette");
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(native.present).toHaveBeenCalledTimes(2);
+    } finally {
+      await act(async () => root.unmount());
+      style.mockRestore();
+      mount.remove();
+      shell.remove();
+    }
+    expect(native.present).toHaveBeenLastCalledWith("themed-browser", null);
+  });
+
   it("clips the target to its native viewport without depending on pixel scale", () => {
     const expected = { ...details, x: 0.1, y: 0.05, width: 0.8, height: 0.85 };
     expect(normalizeDropIndicator(viewport, area, details)).toEqual(expected);

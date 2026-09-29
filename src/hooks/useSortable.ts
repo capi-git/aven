@@ -71,6 +71,33 @@ type DragState = {
   dropTarget: SortableDropTarget | null;
 };
 
+type ReadBounds = (element: HTMLElement) => DOMRect;
+
+/** Reuse geometry within one update, never across scroll or layout changes. */
+function measureBounds(): ReadBounds {
+  const bounds = new Map<HTMLElement, DOMRect>();
+  return (element) => {
+    let rect = bounds.get(element);
+    if (!rect) {
+      rect = element.getBoundingClientRect();
+      bounds.set(element, rect);
+    }
+    return rect;
+  };
+}
+
+function sameDropTarget(
+  previous: SortableDropTarget | null,
+  next: SortableDropTarget | null,
+): boolean {
+  return (
+    previous === next ||
+    (previous?.id === next?.id &&
+      previous?.kind === next?.kind &&
+      previous?.allowed === next?.allowed)
+  );
+}
+
 function optionsOf(
   axisOrOptions: "x" | "y" | SortableOptions | undefined,
 ): SortableOptions {
@@ -136,20 +163,23 @@ export function useSortable(
     container.current = element;
   }, []);
 
-  const inStrip = useCallback((x: number, y: number) => {
-    const bounds = container.current
-      ? [container.current.getBoundingClientRect()]
-      : [...nodes.current.values()].map((node) => node.getBoundingClientRect());
-    return bounds.some(
-      (rect) =>
-        rect.width > 0 &&
-        rect.height > 0 &&
-        x >= rect.left &&
-        x <= rect.right &&
-        y >= rect.top &&
-        y <= rect.bottom,
-    );
-  }, []);
+  const inStrip = useCallback(
+    (x: number, y: number, readBounds: ReadBounds) => {
+      const bounds = container.current
+        ? [readBounds(container.current)]
+        : [...nodes.current.values()].map(readBounds);
+      return bounds.some(
+        (rect) =>
+          rect.width > 0 &&
+          rect.height > 0 &&
+          x >= rect.left &&
+          x <= rect.right &&
+          y >= rect.top &&
+          y <= rect.bottom,
+      );
+    },
+    [],
+  );
 
   const setItemRef = useCallback((id: string, el: HTMLElement | null) => {
     if (el) nodes.current.set(id, el);
@@ -162,15 +192,16 @@ export function useSortable(
   }, []);
 
   const indexAt = useCallback(
-    (draggedId: string, x: number, y: number) => {
+    (draggedId: string, x: number, y: number, readBounds: ReadBounds) => {
       const pos = axis === "x" ? x : y;
       let next = 0;
       // The destination is an insertion slot after removing the source. Its
       // own midpoint must not advance a rightward drag into its neighbor.
       for (const id of idsRef.current) {
         if (id === draggedId) continue;
-        const rect = nodes.current.get(id)?.getBoundingClientRect();
-        if (!rect) continue;
+        const node = nodes.current.get(id);
+        if (!node) continue;
+        const rect = readBounds(node);
         const mid =
           axis === "x"
             ? rect.left + rect.width / 2
@@ -184,7 +215,12 @@ export function useSortable(
   );
 
   const dropTargetAt = useCallback(
-    (draggedId: string, x: number, y: number): SortableDropTarget | null => {
+    (
+      draggedId: string,
+      x: number,
+      y: number,
+      readBounds: ReadBounds,
+    ): SortableDropTarget | null => {
       const target = (
         kind: "tab" | "group",
         id: string,
@@ -194,7 +230,7 @@ export function useSortable(
         allowed: canDropOnRef.current?.(draggedId, kind, id) ?? true,
       });
       for (const [groupId, el] of groupNodes.current) {
-        const rect = el.getBoundingClientRect();
+        const rect = readBounds(el);
         if (
           x >= rect.left &&
           x <= rect.right &&
@@ -207,8 +243,9 @@ export function useSortable(
       if (!onDropOnItemRef.current) return null;
       for (const id of idsRef.current) {
         if (id === draggedId) continue;
-        const rect = nodes.current.get(id)?.getBoundingClientRect();
-        if (!rect) continue;
+        const node = nodes.current.get(id);
+        if (!node) continue;
+        const rect = readBounds(node);
         const inset =
           axis === "x"
             ? rect.width * DROP_ON_INSET
@@ -273,27 +310,36 @@ export function useSortable(
       const restoreSelection = suppressTextSelection();
 
       let scrollFrame: number | null = null;
-      const updateTarget = () => {
+      const updateTarget = (readBounds: ReadBounds) => {
         const current = drag.current;
         if (!current?.active) return;
-        current.inStrip = inStrip(current.x, current.y);
-        current.toIndex = indexAt(id, current.x, current.y);
-        current.dropTarget = dropTargetAt(id, current.x, current.y);
+        const previousIndex = current.inStrip ? current.toIndex : null;
+        const previousTarget = current.dropTarget;
+        current.inStrip = inStrip(current.x, current.y, readBounds);
+        current.toIndex = indexAt(id, current.x, current.y, readBounds);
+        current.dropTarget = dropTargetAt(id, current.x, current.y, readBounds);
+        // Workspace drop callbacks read stationary pane/header geometry. Run
+        // them before transform writes so that hit testing stays one read phase.
+        onDragMoveRef.current?.(id, current.x, current.y, {
+          screenX: current.screenX,
+          screenY: current.screenY,
+        });
         if (animate)
           motion.current.move(
             idsRef.current,
             current,
             current.dropTarget ? from : current.toIndex,
             current.inStrip,
+            readBounds,
           );
-        setToIndex(current.inStrip ? current.toIndex : null);
-        setDropTarget(current.dropTarget);
-        onDragMoveRef.current?.(id, current.x, current.y, {
-          screenX: current.screenX,
-          screenY: current.screenY,
-        });
+        const nextIndex = current.inStrip ? current.toIndex : null;
+        if (nextIndex !== previousIndex) setToIndex(nextIndex);
+        // Pointer motion inside the same target only moves visual children;
+        // it must not re-render every tab and its contents each display frame.
+        if (!sameDropTarget(previousTarget, current.dropTarget))
+          setDropTarget(current.dropTarget);
       };
-      const scrollContainerAt = () => {
+      const scrollContainerAt = (readBounds: ReadBounds) => {
         const current = drag.current;
         if (!current) return null;
         const candidates = [
@@ -303,25 +349,23 @@ export function useSortable(
         ];
         if (container.current && !candidates.includes(container.current))
           candidates.push(container.current);
-        return (
-          candidates.find((element) => {
-            const rect = element.getBoundingClientRect();
-            return (
-              rect.width > 0 &&
-              rect.height > 0 &&
-              current.x >= rect.left &&
-              current.x <= rect.right &&
-              current.y >= rect.top &&
-              current.y <= rect.bottom
-            );
-          }) ?? null
-        );
+        for (const element of candidates) {
+          const rect = readBounds(element);
+          if (
+            rect.width > 0 &&
+            rect.height > 0 &&
+            current.x >= rect.left &&
+            current.x <= rect.right &&
+            current.y >= rect.top &&
+            current.y <= rect.bottom
+          )
+            return { element, rect };
+        }
+        return null;
       };
-      const scrollSpeed = () => {
-        const element = scrollContainerAt();
+      const scrollSpeed = (element: HTMLElement, rect: DOMRect) => {
         const current = drag.current;
-        if (!element || !current?.active) return 0;
-        const rect = element.getBoundingClientRect();
+        if (!current?.active) return 0;
         const cross = axis === "x" ? current.y : current.x;
         if (
           cross < (axis === "x" ? rect.top : rect.left) ||
@@ -349,14 +393,24 @@ export function useSortable(
         if (scrollFrame !== null) return;
         scrollFrame = requestAnimationFrame(() => {
           scrollFrame = null;
-          const element = scrollContainerAt();
-          const speed = scrollSpeed();
-          if (element && speed) {
+          const readBounds = measureBounds();
+          const scroll = scrollContainerAt(readBounds);
+          const speed = scroll ? scrollSpeed(scroll.element, scroll.rect) : 0;
+          let scrolled = false;
+          if (scroll && speed) {
+            const { element } = scroll;
+            const previous =
+              axis === "x" ? element.scrollLeft : element.scrollTop;
             if (axis === "x") element.scrollLeft += speed;
             else element.scrollTop += speed;
+            scrolled =
+              previous !==
+              (axis === "x" ? element.scrollLeft : element.scrollTop);
           }
-          updateTarget();
-          if (element && speed) scheduleDragFrame();
+          updateTarget(scrolled ? measureBounds() : readBounds);
+          // Scroll snapping, rounding or a changed overflow boundary can
+          // prevent movement. Do not leave an idle drag in a permanent loop.
+          if (scrolled) scheduleDragFrame();
         });
       };
       const onMove = (ev: PointerEvent) => {
@@ -392,9 +446,10 @@ export function useSortable(
         current.y = ev.clientY;
         current.screenX = ev.screenX;
         current.screenY = ev.screenY;
-        current.inStrip = inStrip(current.x, current.y);
-        current.toIndex = indexAt(id, current.x, current.y);
-        current.dropTarget = dropTargetAt(id, current.x, current.y);
+        const readBounds = measureBounds();
+        current.inStrip = inStrip(current.x, current.y, readBounds);
+        current.toIndex = indexAt(id, current.x, current.y, readBounds);
+        current.dropTarget = dropTargetAt(id, current.x, current.y, readBounds);
         stop(true);
       };
       const onCancel = (event?: Event) => {

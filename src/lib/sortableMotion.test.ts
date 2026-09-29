@@ -137,4 +137,89 @@ describe("sortable motion in a CSS-zoomed titlebar", () => {
     preview.style.zoom = "1";
     expect(effectiveCssZoom(visual)).toBe(2);
   });
+
+  it("moves the dragged tab without rewriting unchanged siblings or drag attributes", () => {
+    const nodes = new Map<string, HTMLElement>();
+    const visuals = new Map<string, HTMLElement>();
+    for (const [index, id] of ["first", "second", "third"].entries()) {
+      const outer = document.createElement("div");
+      const visual = document.createElement("div");
+      visual.dataset.sortableMotion = "";
+      outer.append(visual);
+      document.body.append(outer);
+      const bounds = () => new DOMRect(index * 100, 0, 100, 30);
+      outer.getBoundingClientRect = bounds;
+      visual.getBoundingClientRect = bounds;
+      nodes.set(id, outer);
+      visuals.set(id, visual);
+    }
+    const motion = new SortableMotion();
+    motion.begin(nodes, "first", { x: 50, y: 15 }, "x");
+    motion.move([...nodes.keys()], { x: 160, y: 15 }, 1, true);
+    const observer = new MutationObserver(() => {});
+    observer.observe(document.body, { attributes: true, subtree: true });
+
+    motion.move([...nodes.keys()], { x: 170, y: 15 }, 1, true);
+
+    const mutations = observer.takeRecords();
+    expect(mutations.length).toBeGreaterThan(0);
+    expect(
+      mutations.every(
+        (record) =>
+          record.target === visuals.get("first") &&
+          record.attributeName === "style",
+      ),
+    ).toBe(true);
+    expect(visuals.get("first")!.style.transform).toBe(
+      "translate3d(120px, 0, 0)",
+    );
+    expect(visuals.get("second")!.style.transform).toBe(
+      "translate3d(-100px, 0, 0)",
+    );
+    motion.move([...nodes.keys()], { x: 170, y: 15 }, 1, true);
+    expect(observer.takeRecords()).toEqual([]);
+
+    observer.disconnect();
+    motion.cancel();
+    expect(visuals.get("first")!.style.transform).toBe("");
+    expect(nodes.get("first")!.hasAttribute("data-sortable-moving")).toBe(
+      false,
+    );
+  });
+
+  it("measures all destination tabs before starting settle animations", () => {
+    const events: string[] = [];
+    const nodes = new Map<string, HTMLElement>();
+    for (const [index, id] of ["first", "second"].entries()) {
+      const outer = document.createElement("div");
+      const visual = document.createElement("div");
+      visual.dataset.sortableMotion = "";
+      outer.append(visual);
+      document.body.append(outer);
+      visual.getBoundingClientRect = () => {
+        events.push(`read ${id}`);
+        return new DOMRect(index * 100, 0, 100, 30);
+      };
+      visual.animate = vi.fn(() => {
+        events.push(`animate ${id}`);
+        return { cancel: vi.fn(), onfinish: null, oncancel: null };
+      }) as unknown as HTMLElement["animate"];
+      nodes.set(id, outer);
+    }
+    const motion = new SortableMotion();
+    motion.settle(
+      new Map([
+        ["first", { left: 100, top: 0 }],
+        ["second", { left: 0, top: 0 }],
+      ]),
+      nodes,
+    );
+    expect(events).toEqual([
+      "read first",
+      "read second",
+      "animate first",
+      "animate second",
+    ]);
+    motion.cancel();
+  });
 });

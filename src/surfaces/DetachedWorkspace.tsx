@@ -84,6 +84,26 @@ import {
 import "./DetachedWorkspace.css";
 import type { EditorNavigation, EditorNavigationTarget } from "../lib/search";
 
+function sameDropTarget(
+  previous: WorkspaceSurfaceDropTarget | null,
+  next: WorkspaceSurfaceDropTarget | null,
+): boolean {
+  if (previous === next) return true;
+  if (
+    !previous ||
+    !next ||
+    previous.id !== next.id ||
+    previous.edge !== next.edge
+  )
+    return false;
+  return (
+    previous.edge !== "tab" ||
+    (next.edge === "tab" &&
+      previous.index === next.index &&
+      previous.orderIndex === next.orderIndex)
+  );
+}
+
 /** A renderer, never an App: every agent action returns to the one owner. */
 export function DetachedWorkspace() {
   const [envelope, setEnvelope] = useState<DetachedWorkspaceSnapshot | null>(
@@ -825,8 +845,11 @@ export function DetachedWorkspace() {
     const target = stage
       ? workspaceSurfaceDropAt(stage, x, y, id, dragRef.current?.target)
       : null;
-    dragRef.current = { id, target };
-    setDrag({ id, target });
+    const previous = dragRef.current;
+    if (previous?.id === id && sameDropTarget(previous.target, target)) return;
+    const next = { id, target };
+    dragRef.current = next;
+    setDrag(next);
   };
   const dragEnd = (id: string, _x: number, _y: number, cancelled: boolean) => {
     const target = dragRef.current?.target;

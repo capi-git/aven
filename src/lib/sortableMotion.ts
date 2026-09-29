@@ -53,6 +53,7 @@ type MotionEntry = {
   outer: HTMLElement;
   visual: HTMLElement;
   transform: string;
+  appliedTransform: string;
   transition: string;
   zoom: number;
 };
@@ -85,6 +86,7 @@ export class SortableMotion {
           outer: node,
           visual: child,
           transform: child.style.transform,
+          appliedTransform: child.style.transform,
           transition: child.style.transition,
           zoom: effectiveCssZoom(child),
         });
@@ -105,6 +107,8 @@ export class SortableMotion {
     point: Point,
     toIndex: number,
     inStrip: boolean,
+    readBounds: (element: HTMLElement) => DOMRect = (element) =>
+      element.getBoundingClientRect(),
   ) {
     const source = this.source;
     if (!source) return;
@@ -112,7 +116,7 @@ export class SortableMotion {
     const items = ids.flatMap((id) => {
       const entry = this.entries.get(id);
       if (!entry) return [];
-      const bounds = entry.outer.getBoundingClientRect();
+      const bounds = readBounds(entry.outer);
       return [
         {
           id,
@@ -128,12 +132,18 @@ export class SortableMotion {
     for (const [id, entry] of this.entries) {
       const dragged = id === source.id;
       if (dragged) {
-        entry.outer.dataset.sortableMoving = "true";
-        entry.visual.dataset.sortableDragging = "true";
-        entry.visual.dataset.sortableInStrip = String(inStrip);
+        if (entry.outer.dataset.sortableMoving !== "true")
+          entry.outer.dataset.sortableMoving = "true";
+        if (entry.visual.dataset.sortableDragging !== "true")
+          entry.visual.dataset.sortableDragging = "true";
+        if (entry.visual.dataset.sortableInStrip !== String(inStrip))
+          entry.visual.dataset.sortableInStrip = String(inStrip);
       }
       if (!inStrip) {
-        entry.visual.style.transform = entry.transform;
+        if (entry.appliedTransform !== entry.transform) {
+          entry.visual.style.transform = entry.transform;
+          entry.appliedTransform = entry.transform;
+        }
         continue;
       }
       const viewportOffset = dragged
@@ -143,10 +153,17 @@ export class SortableMotion {
           source.inset
         : (offsets.get(id) ?? 0);
       const offset = viewportOffset / entry.zoom;
-      entry.visual.style.transform =
+      const transform =
         axis === "x"
           ? `translate3d(${offset}px, 0, 0)`
           : `translate3d(0, ${offset}px, 0)`;
+      // Only the dragged visual changes on most frames. Rewriting every
+      // sibling's identical style still invalidates style in the webview.
+      // Track the assigned value: browsers normalize CSS lengths on readback.
+      if (entry.appliedTransform !== transform) {
+        entry.visual.style.transform = transform;
+        entry.appliedTransform = transform;
+      }
     }
   }
 
@@ -176,16 +193,20 @@ export class SortableMotion {
     nodes: ReadonlyMap<string, HTMLElement>,
   ) {
     if (!reducedMotion()) {
-      for (const [id, previous] of positions) {
+      // Read the new layout as one batch before animations write transforms.
+      const pending = [...positions].flatMap(([id, previous]) => {
         const visual = visualOf(nodes.get(id));
-        if (!visual || typeof visual.animate !== "function") continue;
+        if (!visual || typeof visual.animate !== "function") return [];
         const bounds = visual.getBoundingClientRect();
         const viewportX = previous.left - bounds.left;
         const viewportY = previous.top - bounds.top;
-        if (Math.abs(viewportX) < 0.5 && Math.abs(viewportY) < 0.5) continue;
+        if (Math.abs(viewportX) < 0.5 && Math.abs(viewportY) < 0.5) return [];
         const zoom = effectiveCssZoom(visual);
         const x = viewportX / zoom;
         const y = viewportY / zoom;
+        return [{ visual, x, y }];
+      });
+      for (const { visual, x, y } of pending) {
         const animation = visual.animate(
           [
             { transform: `translate3d(${x}px, ${y}px, 0)` },

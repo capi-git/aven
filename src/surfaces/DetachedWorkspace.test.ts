@@ -7,6 +7,7 @@ import { nativeWorkspaceWindow } from "../lib/detachedWorkspaces";
 import { leaf, newTab, splitPane } from "../lib/layout";
 import { resolveWorkspaceView } from "../lib/workspaceViews";
 import { installInAppLinks } from "../lib/inAppLinks";
+import * as workspaceStage from "./WorkspaceStage";
 
 const previews = vi.hoisted(() => ({ filePane: vi.fn(), titleBar: vi.fn() }));
 
@@ -135,6 +136,55 @@ it("keeps detached browser previews and remembers their slot when returning to a
   expect(header().browserPreviewId).toBe("selected");
   await act(async () => header().onKeepBrowser("selected"));
   expect(header().browserTabs.find((browser: { id: string }) => browser.id === "selected").kept).toBe(true);
+});
+
+it("renders detached drag feedback only when the dragged tab or destination changes", async () => {
+  const hitTest = vi.spyOn(workspaceStage, "workspaceSurfaceDropAt");
+  await act(async () => root.render(createElement(DetachedWorkspace)));
+  const header = () => previews.titleBar.mock.calls.at(-1)![0];
+  const move = async (
+    id: string,
+    target: workspaceStage.WorkspaceSurfaceDropTarget | null,
+  ) => {
+    hitTest.mockReturnValue(target);
+    await act(async () => header().onSurfaceDragMove(id, 260, 15));
+  };
+  const target = {
+    id: "background",
+    edge: "tab" as const,
+    index: 0,
+    orderIndex: 1,
+  };
+  await move("selected", target);
+  const renders = previews.titleBar.mock.calls.length;
+  await move("selected", { ...target });
+  await move("selected", { ...target });
+  expect(previews.titleBar).toHaveBeenCalledTimes(renders);
+
+  const changes: Array<[
+    string,
+    workspaceStage.WorkspaceSurfaceDropTarget | null,
+  ]> = [
+    ["selected", { ...target, index: 1 }],
+    ["selected", { ...target, index: 1, orderIndex: 2 }],
+    [
+      "selected",
+      { ...target, id: "selected", index: 1, orderIndex: 2 },
+    ],
+    ["selected", { id: "selected", edge: "right" }],
+    ["background", { id: "selected", edge: "right" }],
+    ["background", null],
+  ];
+  for (const [index, [id, next]] of changes.entries()) {
+    await move(id, next);
+    expect(previews.titleBar).toHaveBeenCalledTimes(renders + index + 1);
+  }
+  await move("background", null);
+  expect(previews.titleBar).toHaveBeenCalledTimes(renders + changes.length);
+  await act(async () =>
+    header().onSurfaceDragEnd("background", 260, 15, true),
+  );
+  expect(previews.titleBar).toHaveBeenCalledTimes(renders + changes.length + 1);
 });
 
 it("combines the two visible browser owners without promoting hidden Recent pages", async () => {

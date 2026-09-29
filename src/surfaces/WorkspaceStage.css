@@ -31,10 +31,29 @@
 
 /* Retain layout and component state for instant switching, but stop decorative
    spinners and pulses from scheduling animation work in invisible workspaces. */
-:where(.workspace-stage[hidden][data-retained="true"], .workspace-stage-surface[hidden][data-retained="true"], .personal-workspace-content[hidden]),
-:where(.workspace-stage[hidden][data-retained="true"], .workspace-stage-surface[hidden][data-retained="true"], .personal-workspace-content[hidden]) *,
-:where(.workspace-stage[hidden][data-retained="true"], .workspace-stage-surface[hidden][data-retained="true"], .personal-workspace-content[hidden]) *::before,
-:where(.workspace-stage[hidden][data-retained="true"], .workspace-stage-surface[hidden][data-retained="true"], .personal-workspace-content[hidden]) *::after {
+:where(
+  .workspace-stage[hidden][data-retained="true"],
+  .workspace-stage-surface[hidden][data-retained="true"],
+  .personal-workspace-content[hidden]
+),
+:where(
+    .workspace-stage[hidden][data-retained="true"],
+    .workspace-stage-surface[hidden][data-retained="true"],
+    .personal-workspace-content[hidden]
+  )
+  *,
+:where(
+    .workspace-stage[hidden][data-retained="true"],
+    .workspace-stage-surface[hidden][data-retained="true"],
+    .personal-workspace-content[hidden]
+  )
+  *::before,
+:where(
+    .workspace-stage[hidden][data-retained="true"],
+    .workspace-stage-surface[hidden][data-retained="true"],
+    .personal-workspace-content[hidden]
+  )
+  *::after {
   animation-play-state: paused !important;
 }
 
@@ -100,8 +119,9 @@
   inset: 0;
   z-index: 40;
   pointer-events: none;
-  border-bottom: 2px solid var(--color-accent);
-  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--color-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 6%, transparent);
 }
 .workspace-stage-body {
   position: relative;
@@ -154,25 +174,26 @@
   background: var(--color-accent);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 25%, transparent);
 }
-/* Drop previews are a plain grey outline, like window snapping: no labels
-   and no accent colour. The dark halo keeps it visible on light content. */
+/* Native browser feedback samples these resolved sRGB colors once per drag.
+   The workspace palette supplies both the line and its contrasting halo. */
 .workspace-stage-drop-hint {
   position: absolute;
   z-index: 41;
   pointer-events: none;
-  border: 2px solid color-mix(in srgb, var(--color-content) 55%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
   border-radius: 8px;
-  box-shadow: 0 0 0 1px #0000004d;
-  background: color-mix(in srgb, var(--color-content) 7%, transparent);
+  outline: 0.5px solid
+    color-mix(in srgb, var(--color-background-base) 90%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 6%, transparent);
 }
 
 .workspace-stage-insertion {
   position: absolute;
   top: 4px;
   bottom: 4px;
-  width: 2px;
+  width: 1px;
   z-index: 42;
-  background: color-mix(in srgb, var(--color-content) 55%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 55%, transparent);
   border-radius: 2px;
   pointer-events: none;
 }
