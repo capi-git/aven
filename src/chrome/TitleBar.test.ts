@@ -564,67 +564,6 @@ describe("browser tab integration", () => {
     expect(props.onNewBrowser).toHaveBeenCalledOnce();
   });
 
-  it("drags the hosted header's blank areas and maximizes on a double click only", async () => {
-    await render({ paneLocal: true, windowToolbar: true });
-    const header = container.querySelector("header")!;
-    const strip = container.querySelector('[role="tablist"]')!;
-    expect(header.getAttribute("data-tauri-drag-region")).toBe("false");
-    expect((await mouseDown(header)).defaultPrevented).toBe(true);
-    expect((await mouseDown(strip)).defaultPrevented).toBe(true);
-    expect((await mouseDown(strip.parentElement!)).defaultPrevented).toBe(true);
-    expect(nativeWindow.startDragging).toHaveBeenCalledTimes(3);
-    expect(nativeWindow.toggleMaximize).not.toHaveBeenCalled();
-    expect((await mouseDown(strip, 0, 2)).defaultPrevented).toBe(true);
-    expect(nativeWindow.toggleMaximize).toHaveBeenCalledOnce();
-    expect((await mouseDown(strip, 2)).defaultPrevented).toBe(false);
-    expect((await mouseDown(header, 1)).defaultPrevented).toBe(false);
-    expect(nativeWindow.startDragging).toHaveBeenCalledTimes(3);
-  });
-
-  it.each([
-    { paneLocal: true, windowToolbar: false },
-    { paneLocal: false, windowToolbar: true },
-  ])("keeps explicit window gestures limited to hosted pane-local bars: %o", async (mode) => {
-    await render(mode);
-    const strip = container.querySelector('[role="tablist"]')!;
-    expect((await mouseDown(strip)).defaultPrevented).toBe(false);
-    expect((await mouseDown(strip, 0, 2)).defaultPrevented).toBe(false);
-    expect(nativeWindow.startDragging).not.toHaveBeenCalled();
-    expect(nativeWindow.toggleMaximize).not.toHaveBeenCalled();
-  });
-
-  it("keeps hosted tabs, group handles and other controls outside window gestures", async () => {
-    await render({
-      paneLocal: true,
-      windowToolbar: true,
-      browserTabs: [{ id: "web-a", title: "Preview" }],
-      onNewBrowser: vi.fn(),
-      groupId: "team",
-      groupLabel: "Team",
-      onMoveGroupToWindow: vi.fn(),
-    });
-    const header = container.querySelector("header")!;
-    const controls = document.createElement("div");
-    controls.innerHTML = '<input /><textarea></textarea><select></select><a href="#">Link</a><span contenteditable="true">Editable</span><div data-no-drag><span>No drag</span></div>';
-    header.append(controls);
-    const targets = [
-      ...header.querySelectorAll('[data-surface-tab-id], [role="tab"], button, button svg, .personal-title-tab-label'),
-      ...controls.querySelectorAll("*"),
-    ];
-    for (const target of targets) {
-      expect((await mouseDown(target)).defaultPrevented).toBe(false);
-      expect((await mouseDown(target, 0, 2)).defaultPrevented).toBe(false);
-    }
-    expect(nativeWindow.startDragging).not.toHaveBeenCalled();
-    expect(nativeWindow.toggleMaximize).not.toHaveBeenCalled();
-    await click('[data-surface-tab-id="b"] [role="tab"]');
-    await click('[aria-label="New session"]');
-    await click('[aria-label="New browser"]');
-    expect(props.onSelect).toHaveBeenCalledExactlyOnceWith("b");
-    expect(props.onNew).toHaveBeenCalledOnce();
-    expect(props.onNewBrowser).toHaveBeenCalledOnce();
-  });
-
   it("only lets the focused local pane write the native window title", async () => {
     document.title = "Focused view title";
     await render({ paneLocal: true, paneFocused: false });
@@ -818,6 +757,54 @@ describe("browser tab integration", () => {
       document.querySelectorAll('[role="menuitem"]'),
     ).map((item) => item.textContent);
     expect(labels.some((label) => label?.startsWith("Combine"))).toBe(false);
+  });
+
+  describe("MonoCode-style tabs", () => {
+    const aux = (target: Element, button: number) =>
+      act(async () => {
+        target.dispatchEvent(
+          new MouseEvent("auxclick", { button, bubbles: true, cancelable: true }),
+        );
+      });
+
+    it("closes a session or browser tab with a middle click, but not a lone blank session", async () => {
+      await render({
+        browserTabs: [{ id: "web-a", title: "Preview" }],
+        onCloseBrowser: vi.fn(),
+      });
+      await aux(container.querySelector('[data-surface-tab-id="b"]')!, 1);
+      expect(props.onClose).toHaveBeenCalledExactlyOnceWith("b");
+      await aux(container.querySelector('[data-surface-tab-id="web-a"]')!, 1);
+      expect(props.onCloseBrowser).toHaveBeenCalledOnce();
+      // Other auxiliary buttons do nothing.
+      await aux(container.querySelector('[data-surface-tab-id="a"]')!, 2);
+      expect(props.onClose).toHaveBeenCalledOnce();
+
+      await render({
+        tabs: [tab({ id: "only", blank: true })],
+        activeId: "only",
+        browserTabs: [],
+      });
+      await aux(container.querySelector('[data-surface-tab-id="only"]')!, 1);
+      expect(props.onClose).toHaveBeenCalledOnce();
+    });
+
+    it("marks tabs that have a second line for the active tab to show", async () => {
+      await render({
+        tabs: [
+          tab({ id: "a", title: "Busy task", models: [{ harness: "claude", model: "claude-opus-5-5" }] as never }),
+          tab({ id: "b", title: "Plain task" }),
+        ],
+        activeId: "a",
+      });
+      const root = (id: string) =>
+        container.querySelector<HTMLElement>(`[data-surface-tab-id="${id}"]`)!;
+      expect(root("a").dataset.active).toBe("true");
+      expect(root("b").dataset.hasMeta).toBeUndefined();
+      const label = root("a").querySelector(".personal-title-tab-label")!;
+      // Size comes from TitleBar.css, not utility classes that would override it.
+      expect(label.className).not.toMatch(/text-\[/);
+    });
   });
 
   describe("user tab groups", () => {
@@ -1649,10 +1636,9 @@ describe("browser tab integration", () => {
     expect(props.onSelectBrowser).not.toHaveBeenCalled();
   });
 
-  it.each([false, true])("reorders an inactive browser without selecting it or consuming the split target (hosted=%s)", async (windowToolbar) => {
+  it.each([false, true])("reorders an inactive browser without selecting it or consuming the split target (pane-local=%s)", async (paneLocal) => {
     await render({
-      paneLocal: windowToolbar,
-      windowToolbar,
+      paneLocal,
       browserTabs: [{ id: "web-a", title: "Preview" }],
       surfaceOrder: ["a", "web-a", "b"],
       onReorderSurfaces: vi.fn(),
@@ -1829,10 +1815,9 @@ describe("browser tab integration", () => {
     expect(props.onClose).not.toHaveBeenCalled();
   });
 
-  it.each([false, true])("moves the group owner from its handle without a single-tab drag (hosted=%s)", async (windowToolbar) => {
+  it.each([false, true])("moves the group owner from its handle without a single-tab drag (pane-local=%s)", async (paneLocal) => {
     await render({
-      paneLocal: windowToolbar,
-      windowToolbar,
+      paneLocal,
       groupId: "group-owner",
       groupLabel: "Research",
       onGroupDragMove: vi.fn(),

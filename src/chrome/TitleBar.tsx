@@ -50,6 +50,7 @@ import {
   useSortable,
   type SortablePointerPosition,
 } from "../hooks/useSortable";
+import { useTabSlotMotion } from "../hooks/useTabSlotMotion";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { ProviderMarks } from "./ProviderMarks";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -124,8 +125,6 @@ export type TitleBarProps = {
   paneLocal?: boolean;
   /** Other panes' tab strips share the window, so space is tight. */
   splitPanes?: boolean;
-  /** This pane-local strip is hosted in the window's unified toolbar. */
-  windowToolbar?: boolean;
   paneFocused?: boolean;
   onNewView?: (id: string) => void;
   combineTargets?: Array<{ id: string; label: string }>;
@@ -400,6 +399,7 @@ function TitleTabItem({
       data-active={active}
       data-visible={visible}
       data-has-models={Boolean(tab.models?.length)}
+      data-has-meta={Boolean(meta) || undefined}
       data-minimized={minimized || undefined}
       data-surface-id={tab.id}
       data-surface-tab-id={tab.id}
@@ -424,6 +424,16 @@ function TitleTabItem({
         event.stopPropagation();
         const rect = event.currentTarget.getBoundingClientRect();
         onContextMenu(tab.id, { clientX: rect.left, clientY: rect.bottom });
+      }}
+      onMouseDownCapture={(event) => {
+        // Keep the middle button from starting autoscroll.
+        if (event.button === 1) event.preventDefault();
+      }}
+      onAuxClick={(event) => {
+        if (event.button !== 1 || !closable) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onClose(tab.id);
       }}
       onPointerDown={(event) => {
         if (event.button !== 0) return;
@@ -496,13 +506,9 @@ function TitleTabItem({
           </span>
           <span className="personal-title-tab-text flex min-w-0 flex-1 flex-col justify-center gap-0.5">
             <span className="flex min-w-0 items-center gap-1">
-              <span
-                className={`personal-title-tab-label min-w-0 truncate leading-none ${
-                  meta
-                    ? "text-[13px] @min-[11rem]:text-[10px] @min-[11rem]:font-medium"
-                    : "text-[13px]"
-                }`}
-              >
+              {/* Size lives in TitleBar.css: one 13px line, or two small lines
+                  on the tab you're on once it is wide enough. */}
+              <span className="personal-title-tab-label min-w-0 truncate">
                 {headline}
               </span>
               {visible && !active ? (
@@ -517,7 +523,7 @@ function TitleTabItem({
               ) : null}
             </span>
             {meta ? (
-              <span className="personal-title-tab-meta hidden min-w-0 truncate text-[10px] leading-none text-content/45 @min-[11rem]:block">
+              <span className="personal-title-tab-meta min-w-0 truncate">
                 {meta}
               </span>
             ) : null}
@@ -566,6 +572,7 @@ function BrowserTitleTabItem({
   onKeep,
   groupStyle,
   groupRun,
+  opening = false,
   minimized = false,
   onHover,
   itemRef,
@@ -591,6 +598,7 @@ function BrowserTitleTabItem({
   groupStyle?: CSSProperties;
   /** "run" continues the group underline to the next tab; "end" stops it. */
   groupRun?: "run" | "end";
+  opening?: boolean;
   minimized?: boolean;
   onHover?: (id: string, element: HTMLElement | null) => void;
   itemRef?: (element: HTMLDivElement | null) => void;
@@ -620,10 +628,21 @@ function BrowserTitleTabItem({
       data-has-menu={Boolean(onMenu)}
       data-tab-group={groupRun}
       style={groupStyle}
+      data-motion-slot={id}
+      data-tab-opening={opening || undefined}
       data-minimized={minimized || undefined}
       data-tauri-drag-region="false"
       onPointerEnter={(event) => onHover?.(id, event.currentTarget)}
       onPointerLeave={() => onHover?.(id, null)}
+      onMouseDownCapture={(event) => {
+        if (event.button === 1) event.preventDefault();
+      }}
+      onAuxClick={(event) => {
+        if (event.button !== 1 || !onClose) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+      }}
       onPointerDown={(event) => {
         if (canDrag) sortable.onItemPointerDown(id, event);
       }}
@@ -740,6 +759,7 @@ function TabGroupLabel({
   onRename,
   onStartRename,
   onMenu,
+  opening = false,
 }: {
   id: string;
   group: SurfaceGroup;
@@ -754,6 +774,7 @@ function TabGroupLabel({
   onRename: (name: string | null) => void;
   onStartRename: () => void;
   onMenu: (x: number, y: number, anchor?: HTMLElement) => void;
+  opening?: boolean;
 }) {
   const finished = useRef(false);
   useEffect(() => {
@@ -779,6 +800,8 @@ function TabGroupLabel({
     <div
       ref={(element) => sortable.setItemRef(id, element)}
       className="personal-tab-group-slot relative flex h-full shrink-0 touch-none items-center"
+      data-motion-slot={id}
+      data-tab-opening={opening || undefined}
       style={{ "--tab-group-color": surfaceGroupColor(group) } as CSSProperties}
       data-collapsed={group.collapsed}
       data-tauri-drag-region="false"
@@ -1035,32 +1058,9 @@ export function OverlayNav({
   );
 }
 
-function dragWindowToolbar(event: ReactMouseEvent<HTMLElement>) {
-  if (event.button !== 0 || event.defaultPrevented) return;
-  const target = event.target;
-  if (!(target instanceof Element) || !event.currentTarget.contains(target))
-    return;
-  const control = target.closest(
-    'button, input, textarea, select, a, [role="button"], [role="tab"], [role="menuitem"], [role="combobox"], [contenteditable]:not([contenteditable="false"]), [data-surface-tab-id], [data-no-drag], [data-tauri-drag-region="false"]',
-  );
-  // The header itself stays outside Tauri's deep drag region so native and
-  // React handling cannot both start a gesture. Its interactive descendants
-  // keep their own tab sorting, selection, menus and pointer behavior.
-  if (control && control !== event.currentTarget) return;
-  event.preventDefault();
-  event.stopPropagation();
-  const currentWindow = getCurrentWindow();
-  const action =
-    event.detail === 2
-      ? currentWindow.toggleMaximize()
-      : currentWindow.startDragging();
-  void action.catch((error) => console.warn("Window gesture failed", error));
-}
-
 function TitleBarComponent({
   paneLocal = false,
   splitPanes = false,
-  windowToolbar = false,
   paneFocused = true,
   onNewView,
   combineTargets,
@@ -1266,6 +1266,8 @@ function TitleBarComponent({
   });
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const tabStripRef = useRef<HTMLDivElement | null>(null);
+  // Tabs grow in and closed tabs collapse, as in MonoCode.
+  const slotMotion = useTabSlotMotion(displayIds, tabStripRef);
   const focusedTabControlRef = useRef<HTMLElement | null>(null);
   const setTabStripRef = useCallback(
     (el: HTMLDivElement | null) => {
@@ -2154,13 +2156,204 @@ function TitleBarComponent({
   // "deep" drags from anywhere in the subtree. The bare attribute only drags
   // on a direct hit, which left every label and spacer dead. Tauri still
   // exempts buttons, links and inputs on its own.
+  const stripItem = (id: string, index: number) => {
+              const labelGroup = chipGroupId(id);
+              const labelSegment = labelGroup
+                ? stripGroups.find((segment) => segment.group.id === labelGroup)
+                : undefined;
+              if (labelSegment)
+                return (
+                  <TabGroupLabel
+                    key={id}
+                    id={id}
+                    group={labelSegment.group}
+                    count={labelSegment.members.length}
+                    index={index}
+                    canDrag={canDrag}
+                    sortable={sortable}
+                    renaming={renamingGroup === labelSegment.group.id}
+                    menuOpen={
+                      menuKind === "group" &&
+                      tabMenu?.groupId === labelSegment.group.id
+                    }
+                    onToggle={() =>
+                      changeSurfaceGroup(labelSegment.group.id, {
+                        collapsed: !labelSegment.group.collapsed,
+                      })
+                    }
+                    onRename={(name) => {
+                      setRenamingGroup(null);
+                      if (name !== null)
+                        changeSurfaceGroup(labelSegment.group.id, { name });
+                    }}
+                    onStartRename={() => setRenamingGroup(labelSegment.group.id)}
+                    opening={slotMotion.opening.has(id)}
+                    onMenu={(x, y, anchor) =>
+                      openGroupMenu(labelSegment.group.id, x, y, anchor)
+                    }
+                  />
+                );
+              const tab = sessionTabs.get(id);
+              const browser = browsers.get(id);
+              const memberOf = groupState.members[id];
+              const memberGroup = stripGroups.find(
+                (segment) => segment.group.id === memberOf,
+              )?.group;
+              // The underline bridges the gap to the next member; the last one stops flush.
+              const nextId = displayIds[index + 1];
+              const groupRun = memberGroup
+                ? nextId && groupState.members[nextId] === memberOf
+                  ? "run"
+                  : "end"
+                : undefined;
+              const groupStyle = memberGroup
+                ? ({
+                    "--tab-group-color": surfaceGroupColor(memberGroup),
+                  } as CSSProperties)
+                : undefined;
+              const itemRef =
+                id === focusedId
+                  ? (element: HTMLDivElement | null) => {
+                      activeTabRef.current = element;
+                    }
+                  : undefined;
+              // Anchor to the tab itself so the menu drops from it, not from
+              // wherever the pointer happened to be.
+              const openMenu = (x: number, y: number, anchor?: HTMLElement) => {
+                const element =
+                  anchor ??
+                  Array.from(
+                    tabStripRef.current?.querySelectorAll<HTMLElement>(
+                      "[data-surface-tab-id]",
+                    ) ?? [],
+                  ).find((node) => node.dataset.surfaceTabId === id);
+                setBrowserMenu(null);
+                setTabMenu({ tabId: id, x, y, anchor: element });
+              };
+              if (tab)
+                return (
+                  <div
+                    key={id}
+                    className="personal-title-tab-slot relative flex h-full shrink cursor-default items-center"
+                    data-motion-slot={id}
+                    data-tab-opening={slotMotion.opening.has(id) || undefined}
+                    data-tab-group={groupRun}
+                    style={groupStyle}
+                    data-active={id === focusedId}
+                    data-minimized={minimizedTabs && id !== focusedId}
+                    data-tauri-drag-region="false"
+                  >
+                    <TitleTabItem
+                      tab={tab}
+                      projectless={projectlessWorkspace}
+                      index={index}
+                      active={id === focusedId}
+                      tabStop={id === tabStopId}
+                      visible={shown.has(id)}
+                      closable={titleTabClosable(tab, sessionTabCount)}
+                      canDrag={canDrag}
+                      sortable={sortable}
+                      onSelect={onSelect}
+                      onClose={onClose}
+                      onContextMenu={(_id, event) =>
+                        openMenu(event.clientX, event.clientY)
+                      }
+                      minimized={minimizedTabs && id !== focusedId}
+                      onHover={hoverTab}
+                      itemRef={itemRef}
+                    />
+                  </div>
+                );
+              if (!browser) return null;
+              return (
+                <BrowserTitleTabItem
+                  key={id}
+                  id={id}
+                  title={browser.title}
+                  favicon={browser.favicon}
+                  index={index}
+                  active={id === focusedId}
+                  tabStop={id === tabStopId}
+                  visible={shown.has(id)}
+                  legacy={!unified}
+                  canDrag={
+                    canDrag &&
+                    (unified ||
+                      Boolean(onReorderSurfaces) ||
+                      Boolean(onSurfaceDragEnd))
+                  }
+                  sortable={sortable}
+                  onSelect={() => onSelectBrowser?.(unified ? id : undefined)}
+                  onClose={
+                    onCloseBrowser
+                      ? () => {
+                          setBrowserMenu(null);
+                          setTabMenu(null);
+                          onCloseBrowser(unified ? id : undefined);
+                        }
+                      : undefined
+                  }
+                  onContextMenu={(event) =>
+                    openMenu(event.clientX, event.clientY)
+                  }
+                  onMenu={
+                    hasSurfaceMenu || onBrowserModeChange
+                      ? (button) => {
+                          const rect = button.getBoundingClientRect();
+                          if (hasSurfaceMenu) {
+                            if (tabMenu?.tabId === id) setTabMenu(null);
+                            else openMenu(rect.left, rect.bottom + 4, button);
+                          } else {
+                            setTabMenu(null);
+                            setBrowserMenu(
+                              browserMenu
+                                ? null
+                                : {
+                                    x: rect.left,
+                                    y: rect.bottom + 4,
+                                    anchor: button,
+                                  },
+                            );
+                          }
+                        }
+                      : undefined
+                  }
+                  menuOpen={
+                    tabMenu?.tabId === id || (!unified && Boolean(browserMenu))
+                  }
+                  preview={previewEnabled && preview.previewId === id}
+                  onKeep={onKeepBrowser ? () => onKeepBrowser(id) : undefined}
+                  groupStyle={groupStyle}
+                  groupRun={groupRun}
+                  opening={slotMotion.opening.has(id)}
+                  minimized={minimizedBrowserTabs && id !== focusedId}
+                  onHover={hoverTab}
+                  itemRef={itemRef}
+                />
+              );
+            };
+  const slotGhosts = (after: string | null) =>
+    slotMotion.ghosts
+      .filter((ghost) =>
+        after === null
+          ? ghost.after === null || !displayIds.includes(ghost.after)
+          : ghost.after === after,
+      )
+      .map((ghost) => (
+        <div
+          key={`ghost:${ghost.id}`}
+          className="personal-tab-ghost"
+          style={{ "--tab-ghost-width": `${ghost.width}px` } as CSSProperties}
+          aria-hidden
+        />
+      ));
+
   return (
     <header
       className="personal-titlebar flex h-10 shrink-0 select-none items-stretch border-b border-content/10"
       data-pane-local={paneLocal || undefined}
       data-pane-focused={paneFocused}
       data-tauri-drag-region={paneLocal ? "false" : "deep"}
-      onMouseDown={paneLocal && windowToolbar ? dragWindowToolbar : undefined}
       onContextMenu={(event) => {
         event.preventDefault();
         openBarMenu(event.clientX, event.clientY);
@@ -2315,178 +2508,11 @@ function TitleBarComponent({
                 onSelectBrowser?.(unified ? id : undefined);
             }}
           >
-            {displayIds.map((id, index) => {
-              const labelGroup = chipGroupId(id);
-              const labelSegment = labelGroup
-                ? stripGroups.find((segment) => segment.group.id === labelGroup)
-                : undefined;
-              if (labelSegment)
-                return (
-                  <TabGroupLabel
-                    key={id}
-                    id={id}
-                    group={labelSegment.group}
-                    count={labelSegment.members.length}
-                    index={index}
-                    canDrag={canDrag}
-                    sortable={sortable}
-                    renaming={renamingGroup === labelSegment.group.id}
-                    menuOpen={
-                      menuKind === "group" &&
-                      tabMenu?.groupId === labelSegment.group.id
-                    }
-                    onToggle={() =>
-                      changeSurfaceGroup(labelSegment.group.id, {
-                        collapsed: !labelSegment.group.collapsed,
-                      })
-                    }
-                    onRename={(name) => {
-                      setRenamingGroup(null);
-                      if (name !== null)
-                        changeSurfaceGroup(labelSegment.group.id, { name });
-                    }}
-                    onStartRename={() => setRenamingGroup(labelSegment.group.id)}
-                    onMenu={(x, y, anchor) =>
-                      openGroupMenu(labelSegment.group.id, x, y, anchor)
-                    }
-                  />
-                );
-              const tab = sessionTabs.get(id);
-              const browser = browsers.get(id);
-              const memberOf = groupState.members[id];
-              const memberGroup = stripGroups.find(
-                (segment) => segment.group.id === memberOf,
-              )?.group;
-              // The underline bridges the gap to the next member; the last one stops flush.
-              const nextId = displayIds[index + 1];
-              const groupRun = memberGroup
-                ? nextId && groupState.members[nextId] === memberOf
-                  ? "run"
-                  : "end"
-                : undefined;
-              const groupStyle = memberGroup
-                ? ({
-                    "--tab-group-color": surfaceGroupColor(memberGroup),
-                  } as CSSProperties)
-                : undefined;
-              const itemRef =
-                id === focusedId
-                  ? (element: HTMLDivElement | null) => {
-                      activeTabRef.current = element;
-                    }
-                  : undefined;
-              // Anchor to the tab itself so the menu drops from it, not from
-              // wherever the pointer happened to be.
-              const openMenu = (x: number, y: number, anchor?: HTMLElement) => {
-                const element =
-                  anchor ??
-                  Array.from(
-                    tabStripRef.current?.querySelectorAll<HTMLElement>(
-                      "[data-surface-tab-id]",
-                    ) ?? [],
-                  ).find((node) => node.dataset.surfaceTabId === id);
-                setBrowserMenu(null);
-                setTabMenu({ tabId: id, x, y, anchor: element });
-              };
-              if (tab)
-                return (
-                  <div
-                    key={id}
-                    className="personal-title-tab-slot relative flex h-full shrink cursor-default items-center"
-                    data-tab-group={groupRun}
-                    style={groupStyle}
-                    data-active={id === focusedId}
-                    data-minimized={minimizedTabs && id !== focusedId}
-                    data-tauri-drag-region="false"
-                  >
-                    <TitleTabItem
-                      tab={tab}
-                      projectless={projectlessWorkspace}
-                      index={index}
-                      active={id === focusedId}
-                      tabStop={id === tabStopId}
-                      visible={shown.has(id)}
-                      closable={titleTabClosable(tab, sessionTabCount)}
-                      canDrag={canDrag}
-                      sortable={sortable}
-                      onSelect={onSelect}
-                      onClose={onClose}
-                      onContextMenu={(_id, event) =>
-                        openMenu(event.clientX, event.clientY)
-                      }
-                      minimized={minimizedTabs && id !== focusedId}
-                      onHover={hoverTab}
-                      itemRef={itemRef}
-                    />
-                  </div>
-                );
-              if (!browser) return null;
-              return (
-                <BrowserTitleTabItem
-                  key={id}
-                  id={id}
-                  title={browser.title}
-                  favicon={browser.favicon}
-                  index={index}
-                  active={id === focusedId}
-                  tabStop={id === tabStopId}
-                  visible={shown.has(id)}
-                  legacy={!unified}
-                  canDrag={
-                    canDrag &&
-                    (unified ||
-                      Boolean(onReorderSurfaces) ||
-                      Boolean(onSurfaceDragEnd))
-                  }
-                  sortable={sortable}
-                  onSelect={() => onSelectBrowser?.(unified ? id : undefined)}
-                  onClose={
-                    onCloseBrowser
-                      ? () => {
-                          setBrowserMenu(null);
-                          setTabMenu(null);
-                          onCloseBrowser(unified ? id : undefined);
-                        }
-                      : undefined
-                  }
-                  onContextMenu={(event) =>
-                    openMenu(event.clientX, event.clientY)
-                  }
-                  onMenu={
-                    hasSurfaceMenu || onBrowserModeChange
-                      ? (button) => {
-                          const rect = button.getBoundingClientRect();
-                          if (hasSurfaceMenu) {
-                            if (tabMenu?.tabId === id) setTabMenu(null);
-                            else openMenu(rect.left, rect.bottom + 4, button);
-                          } else {
-                            setTabMenu(null);
-                            setBrowserMenu(
-                              browserMenu
-                                ? null
-                                : {
-                                    x: rect.left,
-                                    y: rect.bottom + 4,
-                                    anchor: button,
-                                  },
-                            );
-                          }
-                        }
-                      : undefined
-                  }
-                  menuOpen={
-                    tabMenu?.tabId === id || (!unified && Boolean(browserMenu))
-                  }
-                  preview={previewEnabled && preview.previewId === id}
-                  onKeep={onKeepBrowser ? () => onKeepBrowser(id) : undefined}
-                  groupStyle={groupStyle}
-                  groupRun={groupRun}
-                  minimized={minimizedBrowserTabs && id !== focusedId}
-                  onHover={hoverTab}
-                  itemRef={itemRef}
-                />
-              );
-            })}
+            {slotGhosts(null)}
+            {displayIds.flatMap((id, index) => [
+              stripItem(id, index),
+              ...slotGhosts(id),
+            ])}
             {paneLocal ? (
               <button
                 type="button"
