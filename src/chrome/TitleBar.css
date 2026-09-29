@@ -3,6 +3,12 @@
 .personal-shell {
   --aven-tab-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --aven-tab-drag-surface: var(--aven-raised, var(--aven-control-bg));
+  --aven-tab-divider: color-mix(in srgb, var(--aven-line) 65%, transparent);
+  --aven-tab-active-line: color-mix(
+    in srgb,
+    var(--color-accent) 45%,
+    transparent
+  );
 }
 /* Flat workspace tabs, quiet pane headers. Keep the native 32px geometry:
    WorkspaceStage and Chromium place their content below this exact height. */
@@ -39,7 +45,7 @@
 /* Neutral Aven surfaces, rectangular tabs, and a fine active accent. Keep
    fills on the visual child so the pickup can move without its hit box. */
 .personal-shell .personal-title-tab > .aven-tab-motion {
-  border-right: 1px solid var(--aven-line);
+  border-right: 1px solid var(--aven-tab-divider);
   border-radius: 0;
   background: color-mix(in srgb, var(--color-content) 3%, transparent);
 }
@@ -48,7 +54,7 @@
 }
 .personal-shell .personal-title-tab[data-active="true"] > .aven-tab-motion {
   background: color-mix(in srgb, var(--color-content) 8%, transparent);
-  box-shadow: inset 0 -1px var(--color-accent);
+  box-shadow: inset 0 -1px var(--aven-tab-active-line);
 }
 .personal-shell .personal-title-tab-button,
 .personal-shell .personal-title-tab-button:hover,
@@ -230,7 +236,7 @@
   margin: 0;
   padding: 0;
   border: 0;
-  border-right: 1px solid var(--aven-line);
+  border-right: 1px solid var(--aven-tab-divider);
   border-radius: 0;
   background: transparent;
   color: color-mix(in srgb, var(--color-content) 72%, transparent);
@@ -272,7 +278,7 @@
   background: transparent;
 }
 .personal-shell .aven-surface-tab-slot > .aven-tab-motion {
-  border-right: 1px solid var(--aven-line);
+  border-right: 1px solid var(--aven-tab-divider);
 }
 .personal-shell .aven-surface-tab-slot:hover > .aven-tab-motion {
   background: var(--aven-hover);
@@ -285,7 +291,7 @@
   .aven-surface-tab-slot[data-active="true"]
   > .aven-tab-motion:not([data-sortable-dragging="true"]) {
   background: color-mix(in srgb, var(--color-content) 8%, transparent);
-  box-shadow: inset 0 -1px var(--color-accent);
+  box-shadow: inset 0 -1px var(--aven-tab-active-line);
 }
 .personal-shell .aven-surface-tab-slot[data-active="true"]::after {
   content: none;

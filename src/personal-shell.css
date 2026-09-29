@@ -813,13 +813,6 @@ html .personal-shell[data-unified-toolbar] .workspace-stage-header,
 .personal-shell[data-unified-toolbar] .personal-titlebar {
   background: transparent;
 }
-.personal-shell[data-unified-toolbar] .personal-tab-strip {
-  gap: 4px;
-  padding-inline: 4px;
-}
-.personal-shell[data-unified-toolbar] .personal-title-tab-button {
-  border-radius: 8px;
-}
 .personal-shell[data-unified-toolbar] .personal-composer [data-composer-box] {
   border-radius: 18px;
 }
