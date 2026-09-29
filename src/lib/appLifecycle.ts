@@ -107,8 +107,13 @@ export function setQuitWorkspace(
   };
 }
 
-/** Save an idle workspace before installing an explicitly requested update. */
-export async function prepareUpdateRestart(): Promise<void> {
+type UpdateRestartPreparation = {
+  browserStates: BrowserState[];
+  openTerminals: number;
+};
+
+/** Save the workspace before installing; false means the user cancelled. */
+export async function prepareUpdateRestart(): Promise<boolean> {
   const workspace = liveWorkspace;
   if (!workspace)
     throw new Error("Wait for Aven to finish opening before restarting.");
@@ -118,9 +123,28 @@ export async function prepareUpdateRestart(): Promise<void> {
       "Your tasks are still working or waiting for input. Finish them before restarting to update.",
     );
   }
-  const browserStates = await invoke<BrowserState[]>("prepare_update_restart");
+  const preparation = await invoke<UpdateRestartPreparation>(
+    "prepare_update_restart",
+  );
   try {
-    flushSync(() => applyBrowserUpdateStates(browserStates ?? []));
+    const { browserStates, openTerminals } = preparation;
+    flushSync(() => applyBrowserUpdateStates(browserStates));
+    let closeTerminals = false;
+    if (openTerminals > 0) {
+      closeTerminals = await ask(
+        `Restarting will close ${openTerminals === 1 ? "your open terminal" : `your ${openTerminals} open terminals`} and stop any commands running in them. Terminal tabs will reopen with fresh shells; terminal output and unfinished input will not be restored.\n\nContinue restarting to update?`,
+        {
+          title: "Close terminals and restart?",
+          kind: "warning",
+          okLabel: "Close terminals and restart",
+          cancelLabel: "Keep working",
+        },
+      );
+      if (!closeTerminals) {
+        await invoke("cancel_update_restart");
+        return false;
+      }
+    }
     await flushWorkspaceDrafts();
     workspace.flush();
     if (
@@ -143,7 +167,8 @@ export async function prepareUpdateRestart(): Promise<void> {
       throw new Error("A task started. Finish it before restarting to update.");
     }
     workspace.saveBrowserState();
-    await invoke("finish_update_restart_preparation");
+    await invoke("finish_update_restart_preparation", { closeTerminals });
+    return true;
   } catch (error) {
     await invoke("cancel_update_restart").catch(() => undefined);
     throw error;

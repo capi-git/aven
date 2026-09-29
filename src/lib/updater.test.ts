@@ -35,7 +35,7 @@ beforeEach(() => {
   mocks.invoke.mockResolvedValue(undefined);
   mocks.download.mockResolvedValue(undefined);
   mocks.install.mockResolvedValue(undefined);
-  mocks.prepare.mockResolvedValue(undefined);
+  mocks.prepare.mockResolvedValue(true);
   mocks.lockInput.mockReturnValue(mocks.releaseInput);
 });
 afterEach(() => vi.useRealTimers());
@@ -201,6 +201,23 @@ describe("automatic signed update staging", () => {
 });
 
 describe("explicit restart", () => {
+  it("keeps the downloaded update ready without an error when terminal closing is cancelled", async () => {
+    const updater = await ready();
+    mocks.prepare.mockResolvedValueOnce(false);
+    await expect(updater.installPendingUpdate()).resolves.toMatchObject({
+      phase: "ready",
+      availableVersion: "0.1.80",
+    });
+    expect(updater.getUpdaterSnapshot().error).toBeUndefined();
+    expect(updater.getUpdateNotice()).toBeNull();
+    expect(mocks.install).not.toHaveBeenCalled();
+    expect(mocks.remember).not.toHaveBeenCalled();
+    expect(mocks.invoke).not.toHaveBeenCalledWith("relaunch_after_update");
+    expect(mocks.releaseInput).toHaveBeenCalledOnce();
+    await updater.installPendingUpdate();
+    expect(mocks.download).toHaveBeenCalledOnce();
+    expect(mocks.install).toHaveBeenCalledOnce();
+  });
   it("persists and acquires the native guard before install, then safely relaunches", async () => {
     const updater = await ready();
     await updater.installPendingUpdate();
@@ -283,10 +300,10 @@ describe("explicit restart", () => {
 
   it("coalesces duplicate restart clicks and foreground checks during installation", async () => {
     const updater = await ready();
-    let finish!: () => void;
+    let finish!: (ready: boolean) => void;
     mocks.prepare.mockImplementation(
       () =>
-        new Promise<void>((resolve) => {
+        new Promise<boolean>((resolve) => {
           finish = resolve;
         }),
     );
@@ -294,7 +311,7 @@ describe("explicit restart", () => {
     const second = updater.installPendingUpdate();
     const check = updater.runUpdateFlow(false);
     await vi.waitFor(() => expect(mocks.prepare).toHaveBeenCalledOnce());
-    finish();
+    finish(true);
     await Promise.all([first, second, check]);
     expect(mocks.install).toHaveBeenCalledOnce();
     expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith(
