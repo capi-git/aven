@@ -487,13 +487,19 @@ fn scroll(point: Point, delta_x: i32, delta_y: i32) -> Result<(), String> {
     Ok(())
 }
 
-fn activate(
+const ACTIVATION_TIMEOUT: &str = "App activation timed out. Observe the desktop before retrying.";
+const ACTIVATION_REFUSED: &str =
+    "macOS did not allow that app to take focus. Bring Aven to the foreground, observe the desktop, and retry.";
+
+fn activation_on_main<T: Send + 'static>(
     app_handle: &AppHandle,
-    pid: Option<i32>,
-    name: Option<String>,
-) -> Result<Value, String> {
+    deadline: Instant,
+    operation: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    if Instant::now() >= deadline {
+        return Err(ACTIVATION_TIMEOUT.into());
+    }
     let (sender, receiver) = mpsc::channel();
-    let deadline = Instant::now() + Duration::from_secs(3);
     app_handle
         .run_on_main_thread(move || {
             // A timed-out request must not activate an app later, after the
@@ -501,17 +507,62 @@ fn activate(
             if Instant::now() >= deadline {
                 return;
             }
-            let result =
-                objc2::rc::autoreleasepool(|_| unsafe { activate_on_main(pid, name.as_deref()) });
+            let result = objc2::rc::autoreleasepool(|_| operation());
             let _ = sender.send(result);
         })
         .map_err(|_| "Could not activate the app. Keep Aven open and retry.")?;
     receiver
-        .recv_timeout(Duration::from_secs(3))
-        .map_err(|_| "App activation timed out. Observe the desktop before retrying.".to_string())?
+        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        .map_err(|_| ACTIVATION_TIMEOUT.to_string())?
 }
 
-unsafe fn activate_on_main(pid: Option<i32>, name: Option<&str>) -> Result<Value, String> {
+fn confirm_activation(
+    pid: i32,
+    accepted: bool,
+    deadline: Instant,
+    mut frontmost: impl FnMut() -> Result<Option<i32>, String>,
+) -> Result<Value, String> {
+    loop {
+        if Instant::now() >= deadline {
+            return Err(ACTIVATION_TIMEOUT.into());
+        }
+        if frontmost()? == Some(pid) {
+            return Ok(json!({"activated":true,"pid":pid}));
+        }
+        if !accepted {
+            return Err(ACTIVATION_REFUSED.into());
+        }
+        // AppKit activation completes asynchronously. Sleep only on the socket
+        // worker; each observation is a later main-loop turn, never a busy wait
+        // on cached NSRunningApplication.isActive state.
+        std::thread::sleep(
+            Duration::from_millis(20).min(deadline.saturating_duration_since(Instant::now())),
+        );
+    }
+}
+
+fn activate(
+    app_handle: &AppHandle,
+    pid: Option<i32>,
+    name: Option<String>,
+) -> Result<Value, String> {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let (pid, accepted) = activation_on_main(app_handle, deadline, move || unsafe {
+        activate_on_main(pid, name.as_deref())
+    })?;
+    confirm_activation(pid, accepted, deadline, || {
+        activation_on_main(app_handle, deadline, || unsafe { frontmost_pid_on_main() })
+    })
+}
+
+unsafe fn frontmost_pid_on_main() -> Result<Option<i32>, String> {
+    let class = AnyClass::get(c"NSWorkspace").ok_or("macOS workspace is unavailable.")?;
+    let workspace: Retained<AnyObject> = msg_send![class, sharedWorkspace];
+    let frontmost: Option<Retained<AnyObject>> = msg_send![&*workspace, frontmostApplication];
+    Ok(frontmost.map(|application| msg_send![&*application, processIdentifier]))
+}
+
+unsafe fn activate_on_main(pid: Option<i32>, name: Option<&str>) -> Result<(i32, bool), String> {
     let class =
         AnyClass::get(c"NSRunningApplication").ok_or("macOS app activation is unavailable.")?;
     let application: Retained<AnyObject> = if let Some(pid) = pid {
@@ -542,11 +593,28 @@ unsafe fn activate_on_main(pid: Option<i32>, name: Option<&str>) -> Result<Value
             .ok_or("That app is not running. Open it first or use a pid from windows.")?
     };
     let pid: i32 = msg_send![&*application, processIdentifier];
-    let activated: Bool = msg_send![&*application, activateWithOptions: 2usize];
-    if !activated.as_bool() {
-        return Err("macOS could not activate that app. Observe the desktop and retry.".into());
+    if frontmost_pid_on_main()? == Some(pid) {
+        return Ok((pid, true));
     }
-    Ok(json!({"activated":true,"pid":pid}))
+    // macOS 14+ ignores activateIgnoringOtherApps. Give AppKit an explicit
+    // cooperative handoff from this host to the exact existing target. Never
+    // launch an app or use an unrelated app as the source of activation.
+    let app_class =
+        AnyClass::get(c"NSApplication").ok_or("macOS app activation is unavailable.")?;
+    let host: Retained<AnyObject> = msg_send![app_class, sharedApplication];
+    let can_yield: Bool =
+        msg_send![&*host, respondsToSelector: objc2::sel!(yieldActivationToApplication:)];
+    let can_activate_from: Bool =
+        msg_send![&*application, respondsToSelector: objc2::sel!(activateFromApplication:options:)];
+    let accepted: Bool = if can_yield.as_bool() && can_activate_from.as_bool() {
+        let current: Retained<AnyObject> = msg_send![class, currentApplication];
+        let _: () = msg_send![&*host, yieldActivationToApplication: &*application];
+        msg_send![&*application, activateFromApplication: &*current, options: 0usize]
+    } else {
+        // Older macOS has no cooperative API; keep the target-only request.
+        msg_send![&*application, activateWithOptions: 2usize]
+    };
+    Ok((pid, accepted.as_bool()))
 }
 
 struct Captures {
@@ -1125,6 +1193,54 @@ mod tests {
         assert!(capture.join().unwrap().is_err());
         finish_capture_cleanup(queued_cleanup);
         assert!(!path.parent().unwrap().exists());
+    }
+
+    #[test]
+    fn activation_success_requires_observed_foreground_not_an_accepted_request() {
+        let mut observations = VecDeque::from([Some(20), None, Some(10)]);
+        let result = confirm_activation(10, true, Instant::now() + Duration::from_secs(1), || {
+            Ok(observations
+                .pop_front()
+                .expect("unexpected extra observation"))
+        })
+        .unwrap();
+        assert!(observations.is_empty());
+        assert_eq!(result, json!({"activated":true,"pid":10}));
+    }
+
+    #[test]
+    fn activation_refusal_never_reports_success_for_the_wrong_app() {
+        let error = confirm_activation(10, false, Instant::now() + Duration::from_secs(1), || {
+            Ok(Some(20))
+        })
+        .unwrap_err();
+        assert_eq!(error, ACTIVATION_REFUSED);
+        // The requested app may already be active even when no new activation
+        // request was accepted; observed focus remains the success criterion.
+        assert!(
+            confirm_activation(10, false, Instant::now() + Duration::from_secs(1), || {
+                Ok(Some(10))
+            })
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn activation_deadline_stops_observing_and_propagates_observation_failure() {
+        assert_eq!(
+            confirm_activation(10, true, Instant::now(), || panic!(
+                "expired activation observed"
+            ))
+            .unwrap_err(),
+            ACTIVATION_TIMEOUT,
+        );
+        assert_eq!(
+            confirm_activation(10, true, Instant::now() + Duration::from_secs(1), || {
+                Err("native observation failed".into())
+            })
+            .unwrap_err(),
+            "native observation failed",
+        );
     }
 
     #[test]
