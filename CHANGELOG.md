@@ -1,8 +1,8 @@
 # Aven changelog
 
-## [Unreleased]
+## [0.1.111] - 2026-09-29
 
-### Tabs stay with their pane
+### MonoCode-style tabs, one seamless workspace, and a crash fix
 
 - Fix Aven quitting unexpectedly when macOS Writing Tools appeared over a text box, such as the message box. Writing Tools is turned off inside Aven's own windows; websites in the browser are unchanged.
 - Tabs now always sit in their pane's own row, whether one pane fills the window or several share it, instead of moving up into the window's top bar when there is a single pane. The top bar keeps only navigation, Activity and window tools.
@@ -13,6 +13,7 @@
 - New tabs grow into place and closed tabs collapse smoothly, so the tabs beside them slide instead of jumping. Middle-click closes a tab.
 - Picking up a tab to drag it is smoother and follows the pointer.
 - Tab titles stay visible as the row gets crowded. The minimized-tabs option is removed, and the group drag dots stay visible.
+- When an agent opens a page that is already open in the project, Aven switches to that tab instead of opening a duplicate, keeping the page as it was. Agents can still ask for a separate copy.
 - Split panes sit closer together, and the chat background now runs unbroken behind every pane, tab row and gap, so panes are separated by a single faint line instead of dark bands and hairlines. A project's own background, or showing it only in empty chats, still applies per pane.
 
 ## [0.1.110] - 2026-09-29
