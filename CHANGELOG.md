@@ -5,6 +5,7 @@
 ### Tabs stay with their pane
 
 - Tabs now always sit in their pane's own row, whether one pane fills the window or several share it, instead of moving up into the window's top bar when there is a single pane. The top bar keeps only navigation, Activity and window tools.
+- The top bar now uses the same surface as the sidebar, so the two read as one frame around your work instead of a dark bar above a lighter panel.
 - Activity (the task list and unread count) always sits on the left, next to the navigation buttons, including while Settings is open.
 - Tabs take MonoCode's look: equal-width, rounded tabs in one light row, with a soft fill on the tab you're on. That tab adds a second line saying what it's working on, such as the model, once it's wide enough; other tabs keep a single line.
 - New tabs grow into place and closed tabs collapse smoothly, so the tabs beside them slide instead of jumping. Middle-click closes a tab.

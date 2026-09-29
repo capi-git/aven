@@ -96,6 +96,18 @@ html.has-native-glass:not(.theme-light) .personal-shell {
   --personal-window-opacity: var(--sidebar-opacity, 1);
 }
 
+/* The window toolbar and the pinned sidebar share one surface, so they read
+   as a single frame around the workspace instead of two stacked bars. */
+.personal-shell {
+  --personal-chrome-surface: var(--personal-navigation-surface);
+}
+html.has-native-glass:not(.theme-light) .personal-shell {
+  --personal-chrome-surface: var(
+    --personal-docked-panel-surface,
+    var(--personal-sidebar-glass-surface)
+  );
+}
+
 html.match-workspace-panels .personal-shell {
   --personal-sidebar-surface: var(--personal-main-surface);
   --personal-navigation-surface: var(--personal-main-surface);
@@ -766,7 +778,7 @@ html .personal-shell[data-unified-toolbar] > .workspace-status-bar {
   min-height: 40px;
   padding: 4px 12px;
   border-bottom: 0;
-  background: var(--aven-toolbar-surface, var(--personal-frame));
+  background: var(--personal-chrome-surface);
 }
 html.is-mac .personal-shell[data-unified-toolbar] > .workspace-status-bar {
   /* The native buttons remain 14pt centered in a 40pt titlebar. Keep this
