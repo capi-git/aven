@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { leaf, leafIds, type WorkspaceTab } from "./layout";
 import { resolveWorkspaceView } from "./workspaceViews";
+import { browserIdForTab } from "./personalWorkspace";
 import { captureWorkspaceReturnPlacement } from "./workspaceArrangement";
 import {
   mergeDetachedWorkspaces,
@@ -106,6 +107,359 @@ describe("detached workspace transactions", () => {
       api.openFileForSession("a", "/project/readme.md"),
     ).rejects.toThrow("Workspace window closed");
   });
+  it("reuses the detached window's matching browser without changing its URL or native identity", async () => {
+    const entry = { id: "window-a", state: state("a"), pinned: false };
+    const existing = {
+      id: "browser-existing",
+      tabId: "existing",
+      url: "https://EXAMPLE.com:443/mock?layout=wide#review",
+      nativeId: "native-existing",
+    };
+    entry.state.browsers = [existing];
+    const other = { id: "window-b", state: state("b"), pinned: false };
+    other.state.browsers = [{ ...existing, id: "other-window-browser" }];
+    vi.mocked(nativeWorkspaceWindow.list).mockResolvedValue([other, entry]);
+    const focus = vi
+      .spyOn(nativeWorkspaceWindow, "focus")
+      .mockResolvedValue(undefined);
+    await render();
+
+    await expect(
+      api.openForSession("a", "https://example.com/mock?layout=wide#review"),
+    ).resolves.toBe(existing.id);
+    expect(focus).toHaveBeenCalledExactlyOnceWith(
+      "window-a",
+      "a",
+      undefined,
+      existing,
+    );
+    await expect(
+      api.openForSession("parent-owned", existing.url),
+    ).resolves.toBeNull();
+    expect(focus).toHaveBeenCalledOnce();
+  });
+  it("keeps URL reuse and pending opens within each task's project in a mixed detached window", async () => {
+    const mixed = mergeDetachedWorkspaces(state("a"), state("b"));
+    mixed.sessions[1].session.cwd = "/another-project";
+    const local = {
+      id: "local-browser",
+      tabId: "local",
+      url: "https://example.com/mock",
+    };
+    const other = {
+      ...local,
+      id: "other-browser",
+      tabId: "other",
+      project: "/another-project",
+    };
+    mixed.browsers = [other, local];
+    const entry = { id: "mixed-window", state: mixed, pinned: false };
+    vi.mocked(nativeWorkspaceWindow.list).mockResolvedValue([entry]);
+    const focus = vi
+      .spyOn(nativeWorkspaceWindow, "focus")
+      .mockResolvedValue(undefined);
+    await render();
+    await expect(api.openForSession("a", local.url)).resolves.toBe(local.id);
+    await expect(api.openForSession("b", local.url)).resolves.toBe(other.id);
+    expect(focus.mock.calls.map((call) => call[3]?.id)).toEqual([
+      local.id,
+      other.id,
+    ]);
+    let first!: Promise<string | null>,
+      second!: Promise<string | null>,
+      repeated!: Promise<string | null>;
+    await act(async () => {
+      first = api.openForSession("a", "https://example.com/new");
+      second = api.openForSession("b", "https://example.com/new");
+      repeated = api.openForSession("b", "https://example.com/new");
+    });
+    const browsers = focus.mock.calls.slice(2).map((call) => call[3]!);
+    expect(browsers).toHaveLength(2);
+    expect(browsers.map((browser) => browser.project)).toEqual([
+      "/project",
+      "/another-project",
+    ]);
+    for (const browser of browsers)
+      expect(browser.id).toBe(browserIdForTab(browser.project!, browser.tabId));
+    await act(async () =>
+      listeners.get("workspace-window-checkpoint")!({
+        ...entry,
+        state: { ...mixed, browsers: [...mixed.browsers, ...browsers] },
+      }),
+    );
+    await expect(Promise.all([first, second, repeated])).resolves.toEqual([
+      browsers[0].id,
+      browsers[1].id,
+      browsers[1].id,
+    ]);
+  });
+  it("focuses an exact browser-only detached surface without choosing another tab with the same URL", async () => {
+    const first = {
+      id: "browser-first",
+      tabId: "first",
+      url: "https://example.com/mock",
+      nativeId: "native-first",
+    };
+    const second = {
+      ...first,
+      id: "browser-second",
+      tabId: "second",
+      nativeId: "native-second",
+    };
+    const entry = {
+      id: "browser-only",
+      state: {
+        ...state("a"),
+        sessions: [],
+        tabs: [],
+        browsers: [first, second],
+      },
+      pinned: false,
+    };
+    vi.mocked(nativeWorkspaceWindow.list).mockResolvedValue([entry]);
+    const focus = vi
+      .spyOn(nativeWorkspaceWindow, "focus")
+      .mockResolvedValue(undefined);
+    await render();
+    await expect(api.focusBrowser(second.id)).resolves.toBe(true);
+    expect(focus).toHaveBeenCalledExactlyOnceWith(
+      entry.id,
+      undefined,
+      undefined,
+      second,
+    );
+    await expect(api.focusBrowser("missing-browser")).resolves.toBe(false);
+    expect(focus).toHaveBeenCalledOnce();
+    const returning = api.returnWindow(entry.id);
+    await expect(api.focusBrowser(second.id)).rejects.toThrow(
+      "moving between windows",
+    );
+    expect(focus).toHaveBeenCalledOnce();
+    await act(async () => listeners.get("workspace-window-returned")!(entry));
+    await returning;
+    await expect(api.focusBrowser(second.id)).resolves.toBe(false);
+  });
+  it("coalesces browser opens until a checkpoint confirms the new tab", async () => {
+    const entry = { id: "window-a", state: state("a"), pinned: false };
+    vi.mocked(nativeWorkspaceWindow.list).mockResolvedValue([entry]);
+    const focus = vi
+      .spyOn(nativeWorkspaceWindow, "focus")
+      .mockResolvedValue(undefined);
+    await render();
+    let first!: Promise<string | null>,
+      second!: Promise<string | null>,
+      later!: Promise<string | null>;
+    const finished = vi.fn();
+    await act(async () => {
+      first = api.openForSession("a", "https://EXAMPLE.com:443/mock");
+      second = api.openForSession("a", "https://example.com/mock");
+      void first.then(finished);
+    });
+    expect(focus).toHaveBeenCalledOnce();
+    expect(finished).not.toHaveBeenCalled();
+    const browser = focus.mock.calls[0][3]!;
+    await act(async () => {
+      // An unrelated, older checkpoint must not release a still-opening URL.
+      listeners.get("workspace-window-checkpoint")!(entry);
+      later = api.openForSession("a", "https://example.com/mock");
+    });
+    expect(focus).toHaveBeenCalledOnce();
+    await act(async () =>
+      listeners.get("workspace-window-checkpoint")!({
+        ...entry,
+        state: { ...entry.state, browsers: [browser] },
+      }),
+    );
+    await expect(Promise.all([first, second, later])).resolves.toEqual([
+      browser.id,
+      browser.id,
+      browser.id,
+    ]);
+    await expect(
+      api.openForSession("a", "https://example.com/mock"),
+    ).resolves.toBe(browser.id);
+    expect(focus).toHaveBeenCalledTimes(2);
+  });
+  it("creates separate tabs when newTab is requested and preserves distinct URL destinations", async () => {
+    const entry = { id: "window-a", state: state("a"), pinned: false };
+    vi.mocked(nativeWorkspaceWindow.list).mockResolvedValue([entry]);
+    const focus = vi
+      .spyOn(nativeWorkspaceWindow, "focus")
+      .mockResolvedValue(undefined);
+    await render();
+    let opens!: Array<Promise<string | null>>;
+    await act(async () => {
+      opens = [
+        api.openForSession("a", "https://example.com/mock?view=one"),
+        api.openForSession("a", "https://example.com/mock?view=one", {
+          newTab: true,
+        }),
+        api.openForSession("a", "https://example.com/mock?view=two"),
+        api.openForSession("a", "https://example.com/mock?view=one#details"),
+      ];
+    });
+    const browsers = focus.mock.calls.map((call) => call[3]!);
+    expect(browsers).toHaveLength(4);
+    expect(new Set(browsers.map((browser) => browser.id)).size).toBe(4);
+    await act(async () =>
+      listeners.get("workspace-window-checkpoint")!({
+        ...entry,
+        state: { ...entry.state, browsers },
+      }),
+    );
+    await expect(Promise.all(opens)).resolves.toEqual(
+      browsers.map((browser) => browser.id),
+    );
+  });
+  it("releases failed and timed-out opens so retries do not reuse stale IDs", async () => {
+    const entry = { id: "window-a", state: state("a"), pinned: false };
+    vi.mocked(nativeWorkspaceWindow.list).mockResolvedValue([entry]);
+    const focus = vi
+      .spyOn(nativeWorkspaceWindow, "focus")
+      .mockRejectedValueOnce(new Error("Window unavailable"))
+      .mockResolvedValue(undefined);
+    await render();
+    await expect(
+      api.openForSession("a", "https://example.com/mock"),
+    ).rejects.toThrow("Window unavailable");
+    let retry!: Promise<string | null>;
+    await act(async () => {
+      retry = api.openForSession("a", "https://example.com/mock");
+    });
+    const timedOut = expect(retry).rejects.toThrow(
+      "did not confirm the browser tab",
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(8000));
+    await timedOut;
+    let successful!: Promise<string | null>;
+    await act(async () => {
+      successful = api.openForSession("a", "https://example.com/mock");
+    });
+    const browsers = focus.mock.calls.map((call) => call[3]!);
+    expect(new Set(browsers.map((browser) => browser.id)).size).toBe(3);
+    await act(async () =>
+      listeners.get("workspace-window-checkpoint")!({
+        ...entry,
+        state: { ...entry.state, browsers: [browsers[2]] },
+      }),
+    );
+    await expect(successful).resolves.toBe(browsers[2].id);
+  });
+  it("forgets closed browser tabs and cancels a close before the opening checkpoint", async () => {
+    const entry = { id: "window-a", state: state("a"), pinned: false };
+    const existing = {
+      id: "browser-closed",
+      tabId: "closed",
+      url: "https://example.com/mock",
+    };
+    entry.state.browsers = [existing];
+    vi.mocked(nativeWorkspaceWindow.list).mockResolvedValue([entry]);
+    const focus = vi
+      .spyOn(nativeWorkspaceWindow, "focus")
+      .mockResolvedValue(undefined);
+    await render();
+    await expect(api.openForSession("a", existing.url)).resolves.toBe(
+      existing.id,
+    );
+    await act(async () =>
+      listeners.get("workspace-window-checkpoint")!({
+        ...entry,
+        state: {
+          ...entry.state,
+          browsers: [],
+          closedSurfaceIds: [existing.id],
+        },
+      }),
+    );
+    let reopened!: Promise<string | null>;
+    await act(async () => {
+      reopened = api.openForSession("a", existing.url);
+    });
+    const browser = focus.mock.calls[1][3]!;
+    expect(browser.id).not.toBe(existing.id);
+    const closed = expect(reopened).rejects.toThrow("browser tab closed");
+    await act(async () =>
+      listeners.get("workspace-window-checkpoint")!({
+        ...entry,
+        state: {
+          ...entry.state,
+          browsers: [],
+          closedSurfaceIds: [existing.id, browser.id],
+        },
+      }),
+    );
+    await closed;
+    let retry!: Promise<string | null>;
+    await act(async () => {
+      retry = api.openForSession("a", existing.url);
+    });
+    const latest = focus.mock.calls[2][3]!;
+    expect(latest.id).not.toBe(browser.id);
+    await act(async () =>
+      listeners.get("workspace-window-checkpoint")!({
+        ...entry,
+        state: { ...entry.state, browsers: [latest] },
+      }),
+    );
+    await expect(retry).resolves.toBe(latest.id);
+  });
+  it("requires native focus success even if the browser checkpoint arrives first", async () => {
+    const entry = { id: "window-a", state: state("a"), pinned: false };
+    vi.mocked(nativeWorkspaceWindow.list).mockResolvedValue([entry]);
+    let rejectFocus!: (reason: Error) => void;
+    const focus = vi.spyOn(nativeWorkspaceWindow, "focus").mockImplementation(
+      () =>
+        new Promise((_, reject) => {
+          rejectFocus = reject;
+        }),
+    );
+    await render();
+    let opening!: Promise<string | null>;
+    await act(async () => {
+      opening = api.openForSession("a", "https://example.com/mock");
+    });
+    const browser = focus.mock.calls[0][3]!;
+    const failure = expect(opening).rejects.toThrow("Window closed");
+    await act(async () => {
+      listeners.get("workspace-window-checkpoint")!({
+        ...entry,
+        state: { ...entry.state, browsers: [browser] },
+      });
+      rejectFocus(new Error("Window closed"));
+    });
+    await failure;
+  });
+  it("cancels unconfirmed opens when their detached window returns", async () => {
+    const entry = { id: "window-a", state: state("a"), pinned: false };
+    vi.mocked(nativeWorkspaceWindow.list).mockResolvedValue([entry]);
+    vi.spyOn(nativeWorkspaceWindow, "focus").mockResolvedValue(undefined);
+    await render();
+    let opening!: Promise<string | null>;
+    await act(async () => {
+      opening = api.openForSession("a", "https://example.com/mock");
+    });
+    const failure = expect(opening).rejects.toThrow("task window returned");
+    await act(async () => listeners.get("workspace-window-returned")!(entry));
+    await failure;
+    await expect(
+      api.openForSession("a", "https://example.com/mock"),
+    ).resolves.toBeNull();
+  });
+  it("rejects browser opens while the detached window is returning", async () => {
+    const entry = { id: "window-a", state: state("a"), pinned: false };
+    vi.mocked(nativeWorkspaceWindow.list).mockResolvedValue([entry]);
+    const focus = vi
+      .spyOn(nativeWorkspaceWindow, "focus")
+      .mockResolvedValue(undefined);
+    await render();
+    const returning = api.returnWindow(entry.id);
+    await expect(
+      api.openForSession("a", "https://example.com/mock"),
+    ).rejects.toThrow("moving between windows");
+    expect(focus).not.toHaveBeenCalled();
+    await act(async () => listeners.get("workspace-window-returned")!(entry));
+    await returning;
+  });
   it("opens beside the requesting task and reuses its existing editor with drafts preserved", () => {
     const a = state("a"),
       b = state("b");
@@ -150,6 +504,12 @@ describe("detached workspace transactions", () => {
       );
     await render();
     await expect(api.open(state("a"))).rejects.toThrow("listener setup failed");
+    await expect(
+      api.openForSession("a", "https://example.com"),
+    ).rejects.toThrow("listener setup failed");
+    await expect(api.focusBrowser("browser")).rejects.toThrow(
+      "listener setup failed",
+    );
     expect(onError).toHaveBeenCalledExactlyOnceWith("listener setup failed");
     expect(nativeWorkspaceWindow.open).not.toHaveBeenCalled();
     expect(cleanup).toHaveBeenCalledTimes(1);
