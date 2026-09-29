@@ -4,6 +4,7 @@
 
 ### Tabs stay with their pane
 
+- Fix Aven quitting unexpectedly when macOS Writing Tools appeared over a text box, such as the message box. Writing Tools is turned off inside Aven's own windows; websites in the browser are unchanged.
 - Tabs now always sit in their pane's own row, whether one pane fills the window or several share it, instead of moving up into the window's top bar when there is a single pane. The top bar keeps only navigation, Activity and window tools.
 - A new browser tab shows your background like the other panes until you open an address, instead of a solid black page.
 - The top bar now uses the same surface as the sidebar, so the two read as one frame around your work instead of a dark bar above a lighter panel.
