@@ -240,7 +240,6 @@ html.theme-light .personal-shell {
   margin: 0;
   padding: 0;
   border: 0;
-  border-right: 1px solid var(--aven-tab-divider);
   border-radius: 0;
   background: transparent;
   color: color-mix(in srgb, var(--color-content) 72%, transparent);

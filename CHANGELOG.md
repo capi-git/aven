@@ -9,7 +9,7 @@
 - Tabs take MonoCode's look: equal-width, rounded tabs in one light row, with a soft fill on the tab you're on. That tab adds a second line saying what it's working on, such as the model, once it's wide enough; other tabs keep a single line.
 - New tabs grow into place and closed tabs collapse smoothly, so the tabs beside them slide instead of jumping. Middle-click closes a tab.
 - Picking up a tab to drag it is smoother and follows the pointer.
-- Split panes sit closer together. The gap between them is half as wide, and each pane's tab row now shows the same chat background as the pane below it instead of a dark band.
+- Split panes sit closer together, and the chat background now runs unbroken behind every pane, tab row and gap, so panes are separated by a single faint line instead of dark bands and hairlines. A project's own background, or showing it only in empty chats, still applies per pane.
 
 ## [0.1.110] - 2026-09-29
 
