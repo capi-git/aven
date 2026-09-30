@@ -11,6 +11,7 @@ import {
   savePersonalSidebar,
   addBrowserTab,
   addRetainedBrowserTab,
+  addBackgroundBrowserTab,
   selectBrowserTab,
   updateBrowserTab,
   keepBrowserTab,
@@ -137,6 +138,24 @@ describe("personal panel persistence", () => {
 });
 
 describe("multiple browser tabs", () => {
+  it("opens a background tab without leaving the current page", () => {
+    const docs = addBrowserTab(EMPTY_BROWSER, {
+      id: "docs",
+      url: "https://docs.example",
+    });
+    const next = addBackgroundBrowserTab(docs, {
+      id: "pdf",
+      url: "https://docs.example/guide.pdf",
+    });
+    expect(next.tabs.map((tab) => [tab.id, tab.kept])).toEqual([
+      ["docs", undefined],
+      ["pdf", true],
+    ]);
+    expect(next.activeTabId).toBe("docs");
+    expect(next.url).toBe("https://docs.example");
+    expect(addBackgroundBrowserTab(next, { id: "pdf", url: "" })).toEqual(next);
+  });
+
   it("keeps the covered page when the user opens a new browser tab", () => {
     const preview = addBrowserTab(EMPTY_BROWSER, {
       id: "docs",

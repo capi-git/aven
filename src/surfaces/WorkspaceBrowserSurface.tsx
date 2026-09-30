@@ -12,6 +12,7 @@ export type BrowserSurfaceActions = {
     patch: { url?: string; title?: string; favicon?: string },
   ): void;
   addToChat(text: string, attachments?: Attachment[]): void;
+  openTab(project: string, id: string, url: string, background: boolean): void;
 };
 
 /** Keep unrelated agent updates out of both visible and retained native pages. */
@@ -60,6 +61,11 @@ export const WorkspaceBrowserSurface = memo(function WorkspaceBrowserSurface({
     (favicon: string) => actions.current.update(project, tabId, { favicon }),
     [actions, project, tabId],
   );
+  const onOpenTab = useCallback(
+    (url: string, background: boolean) =>
+      actions.current.openTab(project, id, url, background),
+    [actions, project, id],
+  );
   const onAddToChat = useCallback(
     (text: string, attachments?: Attachment[]) =>
       attachments
@@ -81,6 +87,7 @@ export const WorkspaceBrowserSurface = memo(function WorkspaceBrowserSurface({
       onUrlChange={onUrlChange}
       onTitleChange={onTitleChange}
       onFaviconChange={onFaviconChange}
+      onOpenTab={onOpenTab}
       onAddToChat={onAddToChat}
     />
   );

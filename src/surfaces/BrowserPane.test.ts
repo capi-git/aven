@@ -59,6 +59,8 @@ const mocks = vi.hoisted(() => ({
   listenDownloads: vi.fn(),
   stopDownloads: vi.fn(),
   listenToolbar: vi.fn(),
+  listenOpenTab: vi.fn(),
+  stopOpenTab: vi.fn(),
   listenEditing: vi.fn(),
   stopEditing: vi.fn(),
   stopToolbar: vi.fn(),
@@ -116,6 +118,7 @@ vi.mock("../lib/browser", async (original) => ({
     downloadAction: mocks.downloadAction,
     listenDownloads: mocks.listenDownloads,
     listenToolbar: mocks.listenToolbar,
+    listenOpenTab: mocks.listenOpenTab,
     listenEditing: mocks.listenEditing,
     snapshot: mocks.snapshot,
   },
@@ -181,6 +184,7 @@ describe("native preview lifecycle", () => {
     mocks.downloads.mockResolvedValue([]);
     mocks.listenDownloads.mockResolvedValue(mocks.stopDownloads);
     mocks.listenToolbar.mockResolvedValue(mocks.stopToolbar);
+    mocks.listenOpenTab.mockResolvedValue(mocks.stopOpenTab);
     mocks.listenEditing.mockResolvedValue(mocks.stopEditing);
     mocks.ownerUnminimize.mockResolvedValue(undefined);
     mocks.ownerShow.mockResolvedValue(undefined);
@@ -2209,6 +2213,25 @@ describe("native preview lifecycle", () => {
     );
     await act(async () => root.render(null));
     expect(mocks.stopToolbar).toHaveBeenCalledOnce();
+  });
+
+  it("hands a page's new-tab links to its workspace, or opens them in place", async () => {
+    const onOpenTab = vi.fn();
+    const id = await openPane({ onOpenTab });
+    const request = mocks.listenOpenTab.mock.calls.at(-1)![0];
+    const url = "https://example.com/protocol.pdf";
+    await act(async () => request({ id: "another", url, background: false }));
+    expect(onOpenTab).not.toHaveBeenCalled();
+    await act(async () => request({ id, url, background: true }));
+    expect(onOpenTab).toHaveBeenCalledExactlyOnceWith(url, true);
+    expect(mocks.navigate).not.toHaveBeenCalledWith(id, url);
+
+    // A host without tabs (a detached window's dock) follows the link here.
+    await openPane({ onOpenTab: undefined });
+    await act(async () => request({ id, url, background: false }));
+    expect(mocks.navigate).toHaveBeenCalledWith(id, url);
+    await act(async () => root.render(null));
+    expect(mocks.stopOpenTab).toHaveBeenCalled();
   });
 
   it("selects a stale DOM address when the pointer returns from native Chromium", async () => {

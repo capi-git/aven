@@ -12,6 +12,7 @@ const native = vi.hoisted(() => ({
   navigate: vi.fn(),
   listen: vi.fn(),
   listenToolbar: vi.fn().mockResolvedValue(() => {}),
+  listenOpenTab: vi.fn().mockResolvedValue(() => {}),
   listenEditing: vi.fn().mockResolvedValue(() => {}),
   edit: vi.fn().mockResolvedValue(undefined),
   unlisten: vi.fn(),
@@ -37,6 +38,7 @@ describe("browser workspace presentation lifecycle", () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     native.listenToolbar.mockResolvedValue(() => {});
+    native.listenOpenTab.mockResolvedValue(() => {});
     native.listenEditing.mockResolvedValue(() => {});
     native.edit.mockResolvedValue(undefined);
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);

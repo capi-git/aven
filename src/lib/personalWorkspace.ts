@@ -185,6 +185,17 @@ export function addRetainedBrowserTab(
   return addBrowserTab(kept, { ...value, kept: true });
 }
 
+/** A tab opened behind the current page, as Command-click does in Chrome. */
+export function addBackgroundBrowserTab(
+  state: BrowserWorkspace,
+  value: BrowserTab,
+): NormalizedBrowserWorkspace {
+  const current = normalizeBrowserWorkspace(state);
+  const tab = validTab({ ...value, kept: true });
+  if (!tab || current.tabs.some((item) => item.id === tab.id)) return current;
+  return { ...current, tabs: [...current.tabs, tab], open: true };
+}
+
 export function closeBrowserTab(
   state: BrowserWorkspace,
   id: string,
