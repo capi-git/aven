@@ -34,7 +34,6 @@ import { installInAppLinks } from "../lib/inAppLinks";
 import {
   leaf,
   leafIds,
-  keepFileTab,
   newFileTab,
   placePane,
   removePane,
@@ -1127,10 +1126,6 @@ export function DetachedWorkspace() {
               onCloseFile: (_, fileId) => {
                 void closeFile(tab.id, id, fileId).catch(report);
               },
-              onKeepFile: (_, fileId) =>
-                updateTab(tab.id, (current) =>
-                  keepFileTab(current, fileId, id),
-                ),
               onReorderFiles: (_, ids) =>
                 updateFilePane(tab, id, (p) => ({
                   ...p,
@@ -1139,9 +1134,6 @@ export function DetachedWorkspace() {
               onDirtyChange: (fileId, dirty) =>
                 change((s) => ({
                   ...s,
-                  tabs: dirty
-                    ? s.tabs.map((current) => keepFileTab(current, fileId))
-                    : s.tabs,
                   dirtyFileIds: dirty
                     ? [...new Set([...(s.dirtyFileIds ?? []), fileId])]
                     : (s.dirtyFileIds ?? []).filter((id) => id !== fileId),

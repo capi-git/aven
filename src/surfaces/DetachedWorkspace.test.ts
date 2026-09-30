@@ -111,7 +111,7 @@ it("focuses an existing browser without restoring a stale checkpoint address", a
   }));
 });
 
-it("keeps edited detached files after saving and checkpoints their complete preview history", async () => {
+it("keeps all detached file tabs after editing and saving and checkpoints their identities", async () => {
   const initial = await nativeWorkspaceWindow.getState();
   const files = ["a", "b", "c"].map((id) => ({ id, path: `/project/${id}.md`, cwd: "/project" }));
   const tab = {
@@ -125,15 +125,14 @@ it("keeps edited detached files after saving and checkpoints their complete prev
   await act(async () => root.render(createElement(DetachedWorkspace)));
   const pane = () => previews.filePane.mock.calls.at(-1)![0];
   await act(async () => pane().onDirtyChange("a", true));
-  expect(pane().pane.files[0].kept).toBe(true);
+  expect(pane().pane.files).toEqual(files);
   expect(pane().dirtyFileIds.has("a")).toBe(true);
   await act(async () => pane().onDirtyChange("a", false));
-  expect(pane().pane.files[0].kept).toBe(true);
+  expect(pane().pane.files).toEqual(files);
   expect(pane().dirtyFileIds.has("a")).toBe(false);
-  await act(async () => pane().onKeepFile("editor", "c"));
   await act(async () => vi.advanceTimersByTime(150));
   expect(nativeWorkspaceWindow.checkpoint).toHaveBeenLastCalledWith(expect.objectContaining({
-    tabs: [expect.objectContaining({ editorPanes: [{ id: "editor", activeFileId: "c", files: [{ ...files[0], kept: true }, files[1], { ...files[2], kept: true }] }] })],
+    tabs: [expect.objectContaining({ editorPanes: [{ id: "editor", activeFileId: "c", files }] })],
   }));
 });
 

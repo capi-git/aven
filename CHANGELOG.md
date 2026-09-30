@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Every open file has its own visible tab beside the others. File tabs no longer use a preview slot, pinning, or a hidden Recent list.
+
 ## [0.1.112] - 2026-09-29
 
 ### Faster startup

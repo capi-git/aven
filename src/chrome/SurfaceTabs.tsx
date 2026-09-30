@@ -1,20 +1,12 @@
-import {
-  ChevronDown,
-  GitCompare,
-  GripVertical,
-  Pin,
-  Terminal,
-  X,
-} from "./icons";
+import { GitCompare, GripVertical, Terminal, X } from "./icons";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef } from "react";
 import { basename } from "../lib/fs";
 import {
   isAgentTab,
   isChangesTab,
   isCommitTab,
   isPlanTab,
-  isPreviewFileTab,
   isReleaseNotesTab,
   isReviewTab,
   isSessionChangesTab,
@@ -27,9 +19,6 @@ import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useSortable } from "../hooks/useSortable";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { HarnessIcon } from "./HarnessIcon";
-import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
-import { mergePreviewTabOrder, previewTabIds } from "../lib/previewTabs";
-import "./PreviewTabs.css";
 
 type Props = {
   files: FilePaneTab[];
@@ -38,7 +27,6 @@ type Props = {
   fileErrorCounts: Map<string, number>;
   onSelectFile: (fileId: string) => void;
   onCloseFile: (fileId: string) => void;
-  onKeepFile?: (fileId: string) => void;
   onReorder: (ids: string[]) => void;
   onPaneDragStart?: (event: ReactPointerEvent<HTMLElement>) => void;
   label?: string;
@@ -137,7 +125,6 @@ export function SurfaceTabs({
   fileErrorCounts,
   onSelectFile,
   onCloseFile,
-  onKeepFile,
   onReorder,
   onPaneDragStart,
   label = "Open files",
@@ -147,36 +134,12 @@ export function SurfaceTabs({
   const tabStripRef = useRef<HTMLDivElement | null>(null);
   const tabButtonsRef = useRef(new Map<string, HTMLButtonElement>());
   const focusedTabControlRef = useRef<HTMLElement | null>(null);
-  const [recentAnchor, setRecentAnchor] = useState<HTMLElement | null>(null);
-  const fileIds = files.map((file) => file.id);
-  const retainedIds = new Set(
-    files
-      .filter(
-        (file) =>
-          file.kept || dirtyFileIds.has(file.id) || !isPreviewFileTab(file),
-      )
-      .map((file) => file.id),
-  );
-  const { visibleIds, previewId } = previewTabIds(
-    fileIds,
-    retainedIds,
-    activeFileId,
-    null,
-  );
-  const visibleIdSet = new Set(visibleIds);
-  const visibleFiles = files.filter((file) => visibleIdSet.has(file.id));
-  const tabStopId = visibleIdSet.has(activeFileId)
+  const visibleIds = files.map((file) => file.id);
+  const tabStopId = visibleIds.includes(activeFileId)
     ? activeFileId
     : visibleIds[0];
-  const hasPreviewFiles = files.some(isPreviewFileTab);
-  const activePreview = previewId === activeFileId;
-  const sortable = useSortable(
-    visibleIds,
-    (ids) => {
-      onReorder(mergePreviewTabOrder(fileIds, ids));
-    },
-    { animate: true },
-  );
+  // Every open file keeps its own tab; there is no replaceable preview.
+  const sortable = useSortable(visibleIds, onReorder, { animate: true });
   const setTabStripRef = useCallback(
     (element: HTMLDivElement | null) => {
       tabStripRef.current = element;
@@ -185,23 +148,7 @@ export function SurfaceTabs({
     },
     [sortable.setContainerRef, lockOverscroll],
   );
-  const canDrag = visibleFiles.length > 1;
-  const recentItems: ExplorerMenuItem[] = [...files].reverse().map((file) => {
-    const { label, tooltip } = surfaceTabPresentation(file);
-    return {
-      kind: "item",
-      id: file.id,
-      label,
-      description: isPreviewFileTab(file) ? tooltip : undefined,
-      checked: file.id === activeFileId,
-      shortcut: dirtyFileIds.has(file.id)
-        ? "Edited"
-        : file.kept
-          ? "Kept"
-          : undefined,
-    };
-  });
-
+  const canDrag = files.length > 1;
   useLayoutEffect(() => {
     if (sortable.draggingId) return;
     tabButtonsRef.current.get(activeFileId)?.scrollIntoView({
@@ -222,9 +169,7 @@ export function SurfaceTabs({
   });
 
   return (
-    <div
-      className={`aven-surface-tabs flex h-9 min-w-0 shrink-0 border-b border-content/10 bg-content/2${hasPreviewFiles ? " aven-preview-tabs" : ""}`}
-    >
+    <div className="aven-surface-tabs flex h-9 min-w-0 shrink-0 border-b border-content/10 bg-content/2">
       <div
         ref={setTabStripRef}
         data-sortable-scroll-container
@@ -291,9 +236,8 @@ export function SurfaceTabs({
             <GripVertical className="size-3.5" strokeWidth={1.75} />
           </div>
         ) : null}
-        {visibleFiles.map((file, index) => {
+        {files.map((file, index) => {
           const active = file.id === activeFileId;
-          const preview = file.id === previewId;
           const dirty = dirtyFileIds.has(file.id);
           const errors = fileErrorCounts.get(file.id) ?? 0;
           const changes = isChangesTab(file);
@@ -319,7 +263,6 @@ export function SurfaceTabs({
                 sortable.setItemRef(file.id, el);
               }}
               data-active={active}
-              data-preview={preview || undefined}
               onFocusCapture={(event) => {
                 focusedTabControlRef.current = event.target as HTMLElement;
               }}
@@ -360,9 +303,6 @@ export function SurfaceTabs({
                     if (sortable.consumeClick()) return;
                     onSelectFile(file.id);
                   }}
-                  onDoubleClick={() => {
-                    if (isPreviewFileTab(file)) onKeepFile?.(file.id);
-                  }}
                   className={`aven-surface-tab-button flex min-w-0 flex-1 items-center gap-1.5 px-3 pr-8 text-left text-[12px] ${
                     canDrag ? "cursor-grab active:cursor-grabbing" : ""
                   } ${
@@ -390,7 +330,7 @@ export function SurfaceTabs({
                     <FileTypeIcon name={iconName} isDir={false} size={15} />
                   )}
                   <span
-                    className={`aven-preview-tab-label min-w-0 flex-1 truncate ${review || preview ? "italic" : ""} ${
+                    className={`aven-surface-tab-label min-w-0 flex-1 truncate ${review ? "italic" : ""} ${
                       errors
                         ? active
                           ? "text-red-400"
@@ -400,9 +340,6 @@ export function SurfaceTabs({
                   >
                     {label}
                   </span>
-                  {preview ? (
-                    <span className="aven-preview-badge">Preview</span>
-                  ) : null}
                   {dirty ? (
                     <span
                       className="size-1.5 shrink-0 rounded-full bg-content/75"
@@ -443,52 +380,7 @@ export function SurfaceTabs({
           />
         ) : null}
       </div>
-      {activePreview && onKeepFile ? (
-        <button
-          type="button"
-          className="aven-preview-action"
-          title="Keep this file open"
-          onClick={() => onKeepFile(activeFileId)}
-        >
-          <Pin className="size-3" />
-          <span>Keep open</span>
-        </button>
-      ) : null}
-      {hasPreviewFiles && files.length > 1 ? (
-        <button
-          type="button"
-          className="aven-preview-recent"
-          aria-label="Recent files"
-          aria-haspopup="menu"
-          aria-expanded={recentAnchor != null}
-          onClick={(event) =>
-            setRecentAnchor(recentAnchor ? null : event.currentTarget)
-          }
-        >
-          Recent <span>{files.length}</span>
-          <ChevronDown className="size-3" />
-        </button>
-      ) : null}
       {trailing}
-      {recentAnchor ? (
-        <ExplorerMenu
-          x={0}
-          y={0}
-          anchor={recentAnchor}
-          align="end"
-          gap={4}
-          width={320}
-          native
-          searchable
-          ariaLabel="Recent files"
-          items={recentItems}
-          onPick={(id) => {
-            onSelectFile(id);
-            setRecentAnchor(null);
-          }}
-          onClose={() => setRecentAnchor(null)}
-        />
-      ) : null}
     </div>
   );
 }
