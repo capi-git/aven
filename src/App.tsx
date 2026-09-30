@@ -252,7 +252,6 @@ import {
   isFilesystemTab,
   isCommitTab,
   isTerminalTab,
-  keepFileTab,
   leaf,
   newRaceWorkspaceTab,
   leafIds,
@@ -5324,8 +5323,6 @@ export default function App({
   );
 
   const onFileDirtyChange = useCallback((fileId: string, dirty: boolean) => {
-    // An edit promotes its preview permanently, even after a save clears dirty.
-    if (dirty) setTabs((prev) => prev.map((tab) => keepFileTab(tab, fileId)));
     setDirtyFiles((prev) => {
       if (prev.has(fileId) === dirty) return prev;
       const next = new Set(prev);
@@ -5333,10 +5330,6 @@ export default function App({
       else next.delete(fileId);
       return next;
     });
-  }, []);
-
-  const onKeepFile = useCallback((paneId: string, fileId: string) => {
-    setTabs((prev) => prev.map((tab) => keepFileTab(tab, fileId, paneId)));
   }, []);
 
   /** The editor reports 0 as it unmounts, so closed tabs drop out on their own. */
@@ -9473,7 +9466,6 @@ export default function App({
                                         !projectTerminalFocused
                                       }
                                       onSelectFile={onSelectFileSurface}
-                                      onKeepFile={onKeepFile}
                                       onCloseFile={onCloseFile}
                                       onReorderFiles={onReorderFiles}
                                       onFileDirtyChange={onFileDirtyChange}

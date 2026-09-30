@@ -5,8 +5,6 @@ import {
   isChangesTab,
   isCommitTab,
   isFilesystemTab,
-  isPreviewFileTab,
-  keepFileTab,
   isReleaseNotesTab,
   isReviewTab,
   isSessionChangesTab,
@@ -38,37 +36,17 @@ import {
   updateTerminalTab,
 } from "./layout";
 
-describe("file previews", () => {
-  it("keeps a file without changing selection, dropping older files, or reopening its editor", () => {
+describe("open files", () => {
+  it("opens different documents side by side and reselects an existing file without replacing its identity", () => {
     const first = newFileTab("/repo/first.md", "/repo");
-    const second = newFileTab("/repo/second.md", "/repo");
+    const second = newFileTab("/repo/second.json", "/repo");
     const tab = openEditorTab(openEditorTab(newTab("session"), first), second);
     const pane = tab.editorPanes[0];
-    const kept = keepFileTab(tab, first.id, pane.id);
-    expect(kept.editorPanes[0].activeFileId).toBe(second.id);
-    expect(kept.editorPanes[0].files).toEqual([{ ...first, kept: true }, second]);
-    expect(tab.editorPanes[0].files[0].kept).toBeUndefined();
-    expect(keepFileTab(kept, first.id)).toBe(kept);
-    expect(keepFileTab(tab, first.id, "another-pane")).toBe(tab);
-    const reopened = openEditorTab(kept, newFileTab(first.path, first.cwd));
-    expect(reopened.editorPanes[0].files[0]).toEqual({ ...first, kept: true });
-    expect(reopened.editorPanes[0].files).toHaveLength(2);
-  });
-
-  it("limits previews to ordinary files while retaining special surfaces", () => {
-    expect(isPreviewFileTab(newFileTab("/repo/guide.md", "/repo"))).toBe(true);
-    const special = [
-      newFileTab("/repo/a.ts", "/repo", true),
-      newPlanTab("session", "block", "Plan", "/repo"),
-      newChangesTab("/repo"),
-      newSessionChangesTab("/repo", "session"),
-      newTerminalFile("/repo"),
-    ];
-    for (const file of special) {
-      expect(isPreviewFileTab(file)).toBe(false);
-      const tab = openEditorTab(newTab("session"), file);
-      expect(keepFileTab(tab, file.id)).toBe(tab);
-    }
+    expect(pane.files).toEqual([first, second]);
+    expect(pane.activeFileId).toBe(second.id);
+    const reopened = openEditorTab(tab, newFileTab(first.path, first.cwd));
+    expect(reopened.editorPanes[0].files).toEqual([first, second]);
+    expect(reopened.editorPanes[0].activeFileId).toBe(first.id);
   });
 });
 
@@ -218,9 +196,9 @@ describe("openChangesTab", () => {
     );
     const next = openChangesTab(withReview, cwd, "/repo/b.ts");
     const files = next.editorPanes[0]?.files ?? [];
-    expect(files.some((file) => editorTabKey(file) === `review:${cwd}/a.ts`)).toBe(
-      false,
-    );
+    expect(
+      files.some((file) => editorTabKey(file) === `review:${cwd}/a.ts`),
+    ).toBe(false);
     expect(files.filter(isChangesTab)).toHaveLength(1);
   });
 

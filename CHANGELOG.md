@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 - Desktop control shows a monochrome cursor with a compact **Aven** badge, smooth movement and brief click or scroll feedback. It fades when idle and stays out of agent screenshots. Agents can also use `move` to hover over a target.
+- Every open file has its own visible tab beside the others. File tabs no longer use a preview slot, pinning, or a hidden Recent list.
 
 ## [0.1.112] - 2026-09-29
 
