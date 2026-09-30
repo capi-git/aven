@@ -119,6 +119,10 @@ bool AllowedUrl(const std::string& url, bool navigation = false, bool download =
   return (scheme=="http" || scheme=="https") && !host.empty() && host!="tauri.localhost" && host!="asset.localhost" &&
     host!="ipc.localhost" && !parsed.user.length && !parsed.password.length && (dev_origin.empty() || Origin(parsed)!=dev_origin);
 }
+// Chromium's built-in PDF viewer renders inside its own extension frame.
+bool PdfViewerUrl(const std::string& url) {
+  return url.rfind("chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/",0)==0;
+}
 bool Geometry(double x,double y,double w,double h) {
   return std::isfinite(x)&&std::isfinite(y)&&std::isfinite(w)&&std::isfinite(h)&&w>=0&&h>=0&&w<=32768&&h<=32768;
 }
@@ -384,6 +388,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     sleep_.Invalidate();
     const auto destination=target_url.empty() ? "about:blank" : target_url.ToString();
     if (!AllowedUrl(destination,true)) { Notice("This popup address is not available in the browser"); return true; }
+    if (OpenTab(destination,disposition,user_gesture)) return true;
     // Real Chromium popup windows preserve opener/postMessage and form POST for
     // authentication. They share this page's request context, never Tauri IPC.
     client=this;
@@ -397,7 +402,8 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     // Data subdocuments remain in Chromium's opaque origin and sandbox. They
     // have no app bridge; user-entered main-frame addresses remain HTTP(S).
     const bool data_subframe=!frame->IsMain() && url.rfind("data:",0)==0;
-    if (!AllowedUrl(url,true) && !data_subframe) {
+    const bool pdf_viewer=!frame->IsMain() && PdfViewerUrl(url);
+    if (!AllowedUrl(url,true) && !data_subframe && !pdf_viewer) {
       Notice("This address cannot be opened inside the browser"); return true;
     }
     if (frame->IsMain()) DismissPrompts(browser->GetIdentifier());
@@ -406,7 +412,16 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   bool OnOpenURLFromTab(CefRefPtr<CefBrowser> browser,CefRefPtr<CefFrame> frame,
       const CefString& url,WindowOpenDisposition disposition,bool user_gesture) override {
     if (!AllowedUrl(url.ToString(),true)) { Notice("This address cannot be opened inside the browser"); return true; }
-    return false;
+    return OpenTab(url.ToString(),disposition,user_gesture);
+  }
+  // Links that ask for a new tab (target="_blank", Command-click) open as an
+  // Aven browser tab. Sized popups keep a real window for sign-in openers.
+  bool OpenTab(const std::string& url,WindowOpenDisposition disposition,bool user_gesture) {
+    if (!user_gesture || (disposition!=CEF_WOD_NEW_FOREGROUND_TAB && disposition!=CEF_WOD_NEW_BACKGROUND_TAB)) return false;
+    if (!AllowedUrl(url)) return false;
+    auto d=Object(); d->SetString("type","openTab"); d->SetString("url",url);
+    d->SetBool("background",disposition==CEF_WOD_NEW_BACKGROUND_TAB);
+    Emit(id_,d); return true;
   }
   void OnAddressChange(CefRefPtr<CefBrowser> browser,CefRefPtr<CefFrame> frame,const CefString& url) override {
     if (Main(browser) && frame->IsMain()) {

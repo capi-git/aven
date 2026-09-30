@@ -116,6 +116,13 @@ export type BrowserToolbarCommand = {
   action: "find" | "address";
 };
 
+/** A link on the page asked for a new tab; the address is already vetted. */
+export type BrowserOpenTabRequest = {
+  id: string;
+  url: string;
+  background: boolean;
+};
+
 export type BrowserState = {
   id: string;
   url: string;
@@ -340,6 +347,11 @@ export const nativeBrowser = {
   listenToolbar: (callback: (event: BrowserToolbarCommand) => void) =>
     getCurrentWebview().listen<BrowserToolbarCommand>(
       "browser-toolbar-command",
+      ({ payload }) => callback(payload),
+    ),
+  listenOpenTab: (callback: (event: BrowserOpenTabRequest) => void) =>
+    getCurrentWebview().listen<BrowserOpenTabRequest>(
+      "browser-open-tab",
       ({ payload }) => callback(payload),
     ),
   layout: (id: string, bounds: BrowserBounds, visible: boolean) =>

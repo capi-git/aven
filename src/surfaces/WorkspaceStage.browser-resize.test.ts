@@ -12,6 +12,7 @@ const native = vi.hoisted(() => ({
   navigate: vi.fn(),
   listen: vi.fn(),
   listenToolbar: vi.fn().mockResolvedValue(() => {}),
+  listenOpenTab: vi.fn().mockResolvedValue(() => {}),
   action: vi.fn(),
   snapshot: vi.fn(),
   bounds: vi.fn(),
@@ -75,6 +76,7 @@ describe("workspace divider and native page presentation", () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     native.listenToolbar.mockResolvedValue(() => {});
+    native.listenOpenTab.mockResolvedValue(() => {});
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     for (const name of ["create", "close", "layout", "navigate", "action"])
       native[name as keyof typeof native].mockResolvedValue(undefined);

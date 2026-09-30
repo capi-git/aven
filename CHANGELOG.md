@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Links open in a new tab, and PDFs show
+
+- A link that opens in a new tab, such as one with an external-link icon, now opens as a new tab in Aven's browser beside the page, instead of an empty window with no address bar. Command-click opens it behind the current page. Sign-in pop-ups that ask for their own window still get one.
+- PDFs open in Aven's browser using Chromium's own viewer, instead of a blank page saying the address cannot be opened.
+
 ## [0.1.113] - 2026-09-30
 
 - Desktop control shows a monochrome cursor with a compact **Aven** badge, smooth movement and brief click or scroll feedback. It fades when idle and stays out of agent screenshots. Agents can also use `move` to hover over a target.

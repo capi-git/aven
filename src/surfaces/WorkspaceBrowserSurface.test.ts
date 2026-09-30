@@ -33,6 +33,7 @@ function freshActions(): BrowserSurfaceActions {
     expand: vi.fn(),
     update: vi.fn(),
     addToChat: vi.fn(),
+    openTab: vi.fn(),
   };
 }
 
@@ -112,6 +113,7 @@ describe("workspace browser surface memo boundary", () => {
     first.onUrlChange!("http://localhost:3000/next");
     first.onTitleChange!("Next page");
     first.onAddToChat!("Page context");
+    first.onOpenTab!("https://example.com/opened", true);
     expect(generations[1].focus).toHaveBeenCalledExactlyOnceWith(
       props.project,
       props.id,
@@ -121,6 +123,12 @@ describe("workspace browser surface memo boundary", () => {
       props.id,
     );
     expect(generations[1].expand).toHaveBeenCalledExactlyOnceWith(props.id);
+    expect(generations[1].openTab).toHaveBeenCalledExactlyOnceWith(
+      props.project,
+      props.id,
+      "https://example.com/opened",
+      true,
+    );
     expect(generations[1].update).toHaveBeenNthCalledWith(
       1,
       props.project,
@@ -161,6 +169,7 @@ describe("workspace browser surface memo boundary", () => {
       "onUrlChange",
       "onTitleChange",
       "onAddToChat",
+      "onOpenTab",
     ] as const)
       expect(hidden[callback]).toBe(first[callback]);
     parentUpdate();

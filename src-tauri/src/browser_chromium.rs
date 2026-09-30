@@ -697,6 +697,17 @@ fn edit_screenshot_payload(value: &Value) -> Option<Value> {
     Some(json!({"dataUrl":data_url,"width":width,"height":height}))
 }
 
+/// A page's "open in new tab" request, limited to addresses a browser tab may load.
+fn open_tab_payload(id: &str, event: &Value, dev: Option<&Url>) -> Option<Value> {
+    let url = event.get("url")?.as_str()?;
+    if url.len() > 16384 {
+        return None;
+    }
+    let url = Url::parse(url).ok().filter(|url| allowed_url(url, dev))?;
+    let background = event.get("background").and_then(Value::as_bool) == Some(true);
+    Some(json!({"id": id, "url": url.as_str(), "background": background}))
+}
+
 fn edit_event_payload(id: &str, event: &Value) -> Option<Value> {
     let active = event.get("active")?.as_bool()?;
     let token = event.get("token")?.as_str()?;
@@ -859,6 +870,23 @@ fn handle_event(native_id: &str, event: Value) {
                 }
             }
             emit_state(&context);
+        }
+        "openTab" => {
+            let id = context.state.lock().ok().map(|state| state.id.clone());
+            let dev = context.caller.app_handle().config().build.dev_url.clone();
+            if let Some(payload) = id.and_then(|id| open_tab_payload(&id, &event, dev.as_ref())) {
+                let label = context
+                    .delegate
+                    .lock()
+                    .ok()
+                    .and_then(|d| d.clone())
+                    .unwrap_or_else(|| context.caller.label().into());
+                let _ = context.caller.emit_to(
+                    EventTarget::webview(label),
+                    "browser-open-tab",
+                    payload,
+                );
+            }
         }
         "toolbar" => {
             if let Some(action @ ("find" | "address")) = event.get("action").and_then(Value::as_str)
@@ -2553,6 +2581,32 @@ mod tests {
         ] {
             assert!(allowed_url(&Url::parse(url).unwrap(), Some(&dev)));
         }
+    }
+    #[test]
+    fn new_tab_requests_carry_only_web_addresses() {
+        let dev = Url::parse("http://localhost:1420").unwrap();
+        let open = |event: Value| open_tab_payload("page", &event, Some(&dev));
+        assert_eq!(
+            open(json!({"url": "https://example.com/doc.pdf", "background": true})),
+            Some(json!({"id": "page", "url": "https://example.com/doc.pdf", "background": true}))
+        );
+        assert_eq!(
+            open(json!({"url": "http://127.0.0.1:5176/#/protocols"})),
+            Some(
+                json!({"id": "page", "url": "http://127.0.0.1:5176/#/protocols", "background": false})
+            )
+        );
+        for url in [
+            "file:///etc/passwd",
+            "chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/index.html",
+            "http://localhost:1420/",
+            "about:blank",
+        ] {
+            assert_eq!(open(json!({"url": url})), None, "{url}");
+        }
+        assert_eq!(open(json!({})), None);
+        let long = format!("https://example.com/{}", "a".repeat(16384));
+        assert_eq!(open(json!({"url": long})), None);
     }
     #[test]
     fn download_events_cannot_expose_native_paths_to_ui() {

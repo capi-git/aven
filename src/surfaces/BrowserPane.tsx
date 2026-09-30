@@ -79,6 +79,8 @@ export type BrowserPaneProps = {
   onTitleChange?: (title: string) => void;
   onFaviconChange?: (favicon: string) => void;
   onFocus?: () => void;
+  /** Open a page's new-tab link beside this one. Without it the link opens here. */
+  onOpenTab?: (url: string, background: boolean) => void;
   expanded?: boolean;
   onToggleExpand?: () => void;
 };
@@ -301,6 +303,7 @@ function BrowserPaneSession({
   onTitleChange,
   onFaviconChange,
   onFocus,
+  onOpenTab,
   attachedNativeId,
   onNativeReady,
   expanded = false,
@@ -406,6 +409,7 @@ function BrowserPaneSession({
     onFaviconChange,
     onAddToChat,
     onFocus,
+    onOpenTab,
   });
   callbacks.current = {
     onNativeReady,
@@ -414,6 +418,7 @@ function BrowserPaneSession({
     onFaviconChange,
     onAddToChat,
     onFocus,
+    onOpenTab,
   };
   const toolbarFocusGeneration = useRef(0);
   const toolbarFocusTarget = useRef<HTMLInputElement | null>(null);
@@ -1566,6 +1571,34 @@ function BrowserPaneSession({
         // A workspace-window return may dock this page before the owning
         // workspace becomes visible. Preserve its shortcut until that handshake finishes.
         setPendingToolbar({ action: command.action });
+      })
+      .then((stop) => {
+        if (disposed) stop();
+        else unlisten = stop;
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [readyId]);
+
+  useEffect(() => {
+    if (!readyId) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void nativeBrowser
+      .listenOpenTab((request) => {
+        if (disposed || request.id !== readyId) return;
+        const openTab = callbacks.current.onOpenTab;
+        if (openTab) {
+          openTab(request.url, request.background);
+          return;
+        }
+        void nativeBrowser.navigate(readyId, request.url).catch((reason) => {
+          if (!disposed)
+            setNotice(`Could not open the link: ${errorMessage(reason)}`);
+        });
       })
       .then((stop) => {
         if (disposed) stop();

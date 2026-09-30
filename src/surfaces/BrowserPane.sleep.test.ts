@@ -10,7 +10,7 @@ import type { BrowserState } from "../lib/browser";
 
 const native = vi.hoisted(() => ({
   create: vi.fn(), attach: vi.fn(), close: vi.fn(), sleep: vi.fn(), layout: vi.fn(),
-  listen: vi.fn(), listenToolbar: vi.fn(),
+  listen: vi.fn(), listenToolbar: vi.fn(), listenOpenTab: vi.fn(),
   handlers: new Set<(state: BrowserState) => void>(),
 }));
 vi.mock("@tauri-apps/api/core", () => ({ isTauri: () => true }));
@@ -45,6 +45,7 @@ describe("sleeping retained browser tabs", () => {
       return () => native.handlers.delete(callback);
     });
     native.listenToolbar.mockResolvedValue(() => {});
+    native.listenOpenTab.mockResolvedValue(() => {});
     native.close.mockResolvedValue(undefined);
     native.layout.mockResolvedValue(undefined);
     native.create.mockImplementation(async (id: string, url: string) => {

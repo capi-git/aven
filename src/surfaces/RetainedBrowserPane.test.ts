@@ -15,6 +15,7 @@ const native = vi.hoisted(() => ({
   navigate: vi.fn(),
   listen: vi.fn(),
   listenToolbar: vi.fn().mockResolvedValue(() => {}),
+  listenOpenTab: vi.fn().mockResolvedValue(() => {}),
   unlisten: vi.fn(),
 }));
 vi.mock("@tauri-apps/api/core", () => ({ isTauri: () => true }));
@@ -42,6 +43,7 @@ describe("retained browser pages in the workspace stage", () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     native.listenToolbar.mockResolvedValue(() => {});
+    native.listenOpenTab.mockResolvedValue(() => {});
     native.attach.mockResolvedValue({
       id: "returning-native",
       url: "https://example.com/docs",

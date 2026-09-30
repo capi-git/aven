@@ -133,6 +133,7 @@ import {
   normalizeBrowserWorkspace,
   addBrowserTab,
   addRetainedBrowserTab,
+  addBackgroundBrowserTab,
   selectBrowserTab,
   closeBrowserTab,
   keepBrowserTab,
@@ -8535,6 +8536,22 @@ export default function App({
           return all;
         return { ...all, [project]: updateBrowserTab(current, tabId, patch) };
       }),
+    openTab: (project, id, url, background) => {
+      if (project !== projectCwd) return;
+      const tab = { id: crypto.randomUUID(), url };
+      // Like the pane's own new-tab button: the link's page owns the new tab.
+      workspaceViews.change((view) => selectWorkspaceView(view, id));
+      if (!background) setHomeViewOpen(false);
+      setBrowserWorkspaces((all) => {
+        const current = all[project] ?? EMPTY_BROWSER;
+        return {
+          ...all,
+          [project]: background
+            ? addBackgroundBrowserTab(current, tab)
+            : addRetainedBrowserTab({ ...current, mode: "tab" }, tab),
+        };
+      });
+    },
     addToChat: (text, attachments) => {
       workspaceViews.change((view) => selectWorkspaceView(view, activeTabId));
       activateTab(activeTabId);
