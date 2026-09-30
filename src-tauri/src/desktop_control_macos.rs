@@ -13,11 +13,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, OnceLock};
 use std::time::{Duration, Instant};
 
+#[path = "desktop_cursor_macos.rs"]
+mod agent_cursor;
+
 type Cf = *const c_void;
 type Event = *mut c_void;
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Point {
     x: f64,
     y: f64,
@@ -346,11 +349,22 @@ fn input_window_stack(target: u32) -> Result<Vec<InputWindow>, String> {
     }
 }
 
+#[cfg(test)]
 fn target_point_in_stack(
     x: f64,
     y: f64,
     target: u32,
     windows: &[InputWindow],
+) -> Result<Point, String> {
+    target_point_ignoring_cursor(x, y, target, windows, None)
+}
+
+fn target_point_ignoring_cursor(
+    x: f64,
+    y: f64,
+    target: u32,
+    windows: &[InputWindow],
+    cursor_window: Option<u32>,
 ) -> Result<Point, String> {
     let bounds = windows
         .iter()
@@ -359,6 +373,11 @@ fn target_point_in_stack(
         .ok_or(INPUT_WINDOW_UNAVAILABLE)?;
     let (x, y) = global_point(x, y, Some(bounds))?;
     for window in windows {
+        // Only this exact mouse-transparent visualization is exempt. Dialogs,
+        // menus and every other host-owned window still block targeted input.
+        if cursor_window == Some(window.window_id) {
+            continue;
+        }
         window
             .bounds
             .validate()
@@ -379,14 +398,29 @@ fn target_point_in_stack(
     Err(INPUT_WINDOW_UNAVAILABLE.into())
 }
 
-fn event_point(x: f64, y: f64, window_id: Option<u32>) -> Result<Point, String> {
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct InputTarget {
+    point: Point,
+    bounds: Option<Region>,
+}
+
+fn event_target(x: f64, y: f64, window_id: Option<u32>) -> Result<InputTarget, String> {
     if let Some(id) = window_id {
         // This is a conservative rectangular hit test, not atomic input routing.
         // macOS can still change stacking order after this fresh observation.
-        return target_point_in_stack(x, y, id, &input_window_stack(id)?);
+        let stack = input_window_stack(id)?;
+        let point = target_point_ignoring_cursor(x, y, id, &stack, agent_cursor::window_id())?;
+        let bounds = stack
+            .iter()
+            .find(|window| window.window_id == id)
+            .map(|window| window.bounds);
+        return Ok(InputTarget { point, bounds });
     }
     let (x, y) = global_point(x, y, None)?;
-    Ok(Point { x, y })
+    Ok(InputTarget {
+        point: Point { x, y },
+        bounds: None,
+    })
 }
 
 fn mouse_event(kind: u32, point: Point, button: u32) -> Result<OwnedCf, String> {
@@ -396,6 +430,56 @@ fn mouse_event(kind: u32, point: Point, button: u32) -> Result<OwnedCf, String> 
     )
 }
 
+fn move_pointer(point: Point) -> Result<(), String> {
+    let moved = mouse_event(5, point, 0)?;
+    unsafe {
+        CGEventSetFlags(moved.event(), 0);
+        CGEventPost(0, moved.event());
+    }
+    Ok(())
+}
+
+fn cursor_target(
+    app: &AppHandle,
+    scope: &str,
+    session: &CaptureSession,
+    x: f64,
+    y: f64,
+    window_id: Option<u32>,
+    feedback: agent_cursor::Feedback,
+) -> Result<Point, String> {
+    session.require_active()?;
+    let target = event_target(x, y, window_id)?;
+    agent_cursor::move_to(
+        app,
+        scope,
+        target.point.x,
+        target.point.y,
+        feedback,
+        Arc::clone(&session.revoked),
+    )?;
+    // Animation gives the desktop time to change. Recheck the window and any
+    // covering menus immediately before emitting the actual native input.
+    session.require_active()?;
+    let latest = event_target(x, y, window_id);
+    let result = unchanged_target(target, latest);
+    if result.is_err() {
+        agent_cursor::hide(app);
+    }
+    result
+}
+
+fn unchanged_target(
+    target: InputTarget,
+    latest: Result<InputTarget, String>,
+) -> Result<Point, String> {
+    let latest = latest?;
+    if latest != target {
+        return Err("The target window moved or resized. Take a fresh screenshot and retry; no input was sent.".into());
+    }
+    Ok(latest.point)
+}
+
 fn keyboard_event(code: u16, down: bool) -> Result<OwnedCf, String> {
     OwnedCf::new(
         unsafe { CGEventCreateKeyboardEvent(std::ptr::null(), code, down) },
@@ -403,7 +487,7 @@ fn keyboard_event(code: u16, down: bool) -> Result<OwnedCf, String> {
     )
 }
 
-fn click(point: Point, button: Button, count: u8) -> Result<(), String> {
+fn click(session: &CaptureSession, point: Point, button: Button, count: u8) -> Result<(), String> {
     let (down_kind, up_kind, button) = match button {
         Button::Left => (1, 2, 0),
         Button::Right => (3, 4, 1),
@@ -413,10 +497,14 @@ fn click(point: Point, button: Button, count: u8) -> Result<(), String> {
     let down = mouse_event(down_kind, point, button)?;
     let up = mouse_event(up_kind, point, button)?;
     let moved = mouse_event(5, point, 0)?;
+    session.require_active()?;
     unsafe {
         CGEventSetFlags(moved.event(), 0);
         CGEventPost(0, moved.event());
         for click in 1..=count {
+            // Finish a posted down/up pair even if the scope ends during it,
+            // then refuse any subsequent pair without leaving a button held.
+            session.require_active()?;
             for event in [&down, &up] {
                 CGEventSetFlags(event.event(), 0);
                 CGEventSetIntegerValueField(event.event(), 1, i64::from(click));
@@ -459,10 +547,11 @@ fn unicode_chunks(text: &str) -> Vec<Vec<u16>> {
     result
 }
 
-fn type_text(text: &str) -> Result<(), String> {
+fn type_text(session: &CaptureSession, text: &str) -> Result<(), String> {
     let down = keyboard_event(0, true)?;
     let up = keyboard_event(0, false)?;
     for chunk in unicode_chunks(text) {
+        session.require_active()?;
         unsafe {
             for event in [&down, &up] {
                 CGEventSetFlags(event.event(), 0);
@@ -548,11 +637,14 @@ fn confirm_activation(
 
 fn activate(
     app_handle: &AppHandle,
+    session: Arc<CaptureSession>,
     pid: Option<i32>,
     name: Option<String>,
 ) -> Result<Value, String> {
     let deadline = Instant::now() + Duration::from_secs(3);
+    let activation_session = Arc::clone(&session);
     let mut attempt = activation_on_main(app_handle, deadline, move || unsafe {
+        activation_session.require_active()?;
         activate_on_main(pid, name.as_deref())
     })?;
     if !attempt.accepted {
@@ -563,11 +655,12 @@ fn activate(
             // Native automation already requires explicit Accessibility access;
             // use its target-specific focus attribute, never a synthetic click
             // or an application launch, then independently observe the result.
-            activate_with_accessibility(attempt.pid, deadline)?;
+            activate_with_accessibility(&session, attempt.pid, deadline)?;
         }
         attempt.accepted = true;
     }
     confirm_activation(attempt.pid, attempt.accepted, deadline, || {
+        session.require_active()?;
         activation_on_main(app_handle, deadline, || unsafe { frontmost_pid_on_main() })
     })
 }
@@ -603,7 +696,11 @@ fn activation_ax_result(result: i32, operation: &str) -> Result<(), String> {
     }
 }
 
-fn activate_with_accessibility(pid: i32, deadline: Instant) -> Result<(), String> {
+fn activate_with_accessibility(
+    session: &CaptureSession,
+    pid: i32,
+    deadline: Instant,
+) -> Result<(), String> {
     // Runs on the socket worker while the desktop-control permission/execution
     // gate is held. No AX round-trip can block the native UI thread.
     objc2::rc::autoreleasepool(|_| unsafe {
@@ -616,6 +713,7 @@ fn activate_with_accessibility(pid: i32, deadline: Instant) -> Result<(), String
         accessibility_activation_steps(
             deadline,
             |timeout| {
+                session.require_active()?;
                 activation_ax_result(
                     AXUIElementSetMessagingTimeout(application.0, timeout),
                     "set the target app's focus timeout",
@@ -633,7 +731,11 @@ fn activate_with_accessibility(pid: i32, deadline: Instant) -> Result<(), String
                     "set the target app's focus timeout",
                 )?;
                 activation_ax_result(
-                    AXUIElementSetAttributeValue(application.0, attribute, kCFBooleanTrue),
+                    // The scope can end during the preceding AX query.
+                    {
+                        session.require_active()?;
+                        AXUIElementSetAttributeValue(application.0, attribute, kCFBooleanTrue)
+                    },
                     "focus the target app",
                 )
             },
@@ -751,7 +853,7 @@ impl Drop for Captures {
 
 #[derive(Default)]
 struct CaptureSession {
-    revoked: AtomicBool,
+    revoked: Arc<AtomicBool>,
     cleanup_finished: AtomicBool,
     captures: Mutex<Option<Captures>>,
 }
@@ -759,7 +861,7 @@ struct CaptureSession {
 impl CaptureSession {
     fn require_active(&self) -> Result<(), String> {
         if self.revoked.load(Ordering::Acquire) {
-            Err("Desktop screenshot session is unavailable.".into())
+            Err("Desktop control session is unavailable.".into())
         } else {
             Ok(())
         }
@@ -827,6 +929,7 @@ pub(super) fn remove_captures(scope: Option<&str>) {
             let mut sessions = sessions.lock().unwrap_or_else(|error| error.into_inner());
             revoke_capture_sessions(&mut sessions, scope)
         };
+        agent_cursor::clear_scope(scope);
         // Never wait for capture, scaling, or filesystem cleanup in a UI
         // bind/revoke callback. An in-flight capture owns its directory until
         // it finishes, rejects its revoked result, then removes its files.
@@ -838,6 +941,8 @@ pub(super) fn remove_captures(scope: Option<&str>) {
         } else if !revoked.is_empty() {
             tauri::async_runtime::spawn_blocking(move || finish_capture_cleanup(revoked));
         }
+    } else {
+        agent_cursor::clear_scope(scope);
     }
 }
 
@@ -854,18 +959,24 @@ fn finish_capture_cleanup(revoked: Vec<Arc<CaptureSession>>) {
     }
 }
 
+fn active_session(sessions: &CaptureSessions, scope: &str) -> Result<Arc<CaptureSession>, String> {
+    let session = sessions
+        .lock()
+        .map_err(|_| "Desktop control session is unavailable.")?
+        .active
+        .get(scope)
+        .cloned()
+        .ok_or("Desktop control session is unavailable.")?;
+    session.require_active()?;
+    Ok(session)
+}
+
 fn with_captures<T>(
     sessions: &CaptureSessions,
     scope: &str,
     work: impl FnOnce(&mut Captures) -> Result<T, String>,
 ) -> Result<T, String> {
-    let session = sessions
-        .lock()
-        .map_err(|_| "Desktop screenshot storage is unavailable.")?
-        .active
-        .get(scope)
-        .cloned()
-        .ok_or("Desktop screenshot session is unavailable.")?;
+    let session = active_session(sessions, scope)?;
     let mut captures = session
         .captures
         .lock()
@@ -1053,12 +1164,35 @@ fn screenshot(
 }
 
 pub(super) fn execute(app: &AppHandle, scope: &str, request: Request) -> Result<Value, String> {
+    let session = active_session(CAPTURES.get_or_init(CaptureSessions::default), scope)?;
     match request {
         Request::Status {} => {
             Err("Status must be checked through the desktop control gate.".into())
         }
         Request::Windows {} => Ok(json!({"windows":windows()?})),
-        Request::Screenshot { window_id, region } => screenshot(scope, window_id, region),
+        Request::Screenshot { window_id, region } => {
+            agent_cursor::suspend(app)?;
+            let _suppression = CursorSuppression(app);
+            screenshot(scope, window_id, region)
+        }
+        Request::Move { x, y, window_id } => {
+            scoped_input(
+                &session,
+                || {
+                    cursor_target(
+                        app,
+                        scope,
+                        &session,
+                        x,
+                        y,
+                        window_id,
+                        agent_cursor::Feedback::Move,
+                    )
+                },
+                move_pointer,
+            )?;
+            Ok(json!({"moved":true}))
+        }
         Request::Click {
             x,
             y,
@@ -1066,15 +1200,37 @@ pub(super) fn execute(app: &AppHandle, scope: &str, request: Request) -> Result<
             button,
             count,
         } => {
-            click(event_point(x, y, window_id)?, button, count)?;
+            scoped_input(
+                &session,
+                || {
+                    cursor_target(
+                        app,
+                        scope,
+                        &session,
+                        x,
+                        y,
+                        window_id,
+                        agent_cursor::Feedback::Click,
+                    )
+                },
+                |point| click(&session, point, button, count),
+            )?;
             Ok(json!({"clicked":true}))
         }
         Request::Type { text } => {
-            type_text(&text)?;
+            scoped_input(
+                &session,
+                || agent_cursor::activity(app, scope, Arc::clone(&session.revoked)),
+                |()| type_text(&session, &text),
+            )?;
             Ok(json!({"typed":true}))
         }
         Request::Press { key, modifiers } => {
-            press(&key, &modifiers)?;
+            scoped_input(
+                &session,
+                || agent_cursor::activity(app, scope, Arc::clone(&session.revoked)),
+                |()| press(&key, &modifiers),
+            )?;
             Ok(json!({"pressed":true}))
         }
         Request::Scroll {
@@ -1084,16 +1240,155 @@ pub(super) fn execute(app: &AppHandle, scope: &str, request: Request) -> Result<
             delta_x,
             delta_y,
         } => {
-            scroll(event_point(x, y, window_id)?, delta_x, delta_y)?;
+            scoped_input(
+                &session,
+                || {
+                    cursor_target(
+                        app,
+                        scope,
+                        &session,
+                        x,
+                        y,
+                        window_id,
+                        agent_cursor::Feedback::Scroll,
+                    )
+                },
+                |point| scroll(point, delta_x, delta_y),
+            )?;
             Ok(json!({"scrolled":true}))
         }
-        Request::Activate { pid, app: name } => activate(app, pid, name),
+        Request::Activate { pid, app: name } => activate(app, session, pid, name),
     }
+}
+
+// Scope revocation can happen while a worker animates the visualization. Hold
+// the original generation and recheck it immediately before posting OS input.
+fn scoped_input<T>(
+    session: &CaptureSession,
+    prepare: impl FnOnce() -> Result<T, String>,
+    send: impl FnOnce(T) -> Result<(), String>,
+) -> Result<(), String> {
+    session.require_active()?;
+    let ready = prepare()?;
+    session.require_active()?;
+    send(ready)
+}
+
+struct CursorSuppression<'a>(&'a AppHandle);
+
+impl Drop for CursorSuppression<'_> {
+    fn drop(&mut self) {
+        agent_cursor::resume(self.0);
+    }
+}
+
+pub(super) fn hide_cursor(app: &AppHandle) {
+    agent_cursor::hide(app);
+}
+
+#[cfg(debug_assertions)]
+pub(super) fn preview_cursor(app: &AppHandle) {
+    // Wait for the Dev window's launch and saved geometry to settle. This
+    // controlled visualization never posts native mouse or keyboard events.
+    std::thread::sleep(Duration::from_secs(3));
+    let Ok(visible) = windows() else {
+        return;
+    };
+    let Some(bounds) = visible
+        .iter()
+        .filter(|window| window.pid == std::process::id() as i32)
+        .max_by(|a, b| (a.width * a.height).total_cmp(&(b.width * b.height)))
+        .map(DesktopWindow::bounds)
+    else {
+        return;
+    };
+    let targets = [
+        (0.42, 0.35, agent_cursor::Feedback::Move),
+        (0.60, 0.50, agent_cursor::Feedback::Click),
+        (0.48, 0.64, agent_cursor::Feedback::Scroll),
+    ];
+    let revoked = Arc::new(AtomicBool::new(false));
+    for _ in 0..18 {
+        for (x, y, feedback) in targets {
+            if agent_cursor::move_to(
+                app,
+                "aven-dev-visual-preview",
+                bounds.x + bounds.width * x,
+                bounds.y + bounds.height * y,
+                feedback,
+                Arc::clone(&revoked),
+            )
+            .is_err()
+            {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(900));
+        }
+    }
+    // The final marker fades through the same idle lifecycle as real actions.
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn input_is_not_posted_when_scope_is_revoked_during_cursor_animation() {
+        let sessions = Mutex::new(CaptureRegistry {
+            active: HashMap::from([("old".into(), Arc::new(CaptureSession::default()))]),
+            ..CaptureRegistry::default()
+        });
+        let session = active_session(&sessions, "old").unwrap();
+        let result = scoped_input(
+            &session,
+            || {
+                let mut sessions = sessions.lock().unwrap();
+                revoke_capture_sessions(&mut sessions, Some("old"));
+                sessions
+                    .active
+                    .insert("new".into(), Arc::new(CaptureSession::default()));
+                Ok(())
+            },
+            |()| panic!("revoked input must never be sent"),
+        );
+        assert!(result.unwrap_err().contains("session is unavailable"));
+        assert!(active_session(&sessions, "old").is_err());
+        assert!(active_session(&sessions, "new").is_ok());
+        assert!(scoped_input(
+            &session,
+            || panic!("stale session must never animate"),
+            |()| Ok(())
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn post_animation_target_check_rejects_resize_and_new_obstruction() {
+        let target = InputTarget {
+            point: Point { x: 120.0, y: 210.0 },
+            bounds: Some(Region {
+                x: 100.0,
+                y: 200.0,
+                width: 300.0,
+                height: 200.0,
+            }),
+        };
+        assert_eq!(unchanged_target(target, Ok(target)).unwrap(), target.point);
+        let resized = InputTarget {
+            bounds: Some(Region {
+                width: 500.0,
+                ..target.bounds.unwrap()
+            }),
+            ..target
+        };
+        assert!(unchanged_target(target, Ok(resized))
+            .unwrap_err()
+            .contains("resized"));
+        assert_eq!(
+            unchanged_target(target, Err(INPUT_WINDOW_OBSCURED.into())).unwrap_err(),
+            INPUT_WINDOW_OBSCURED
+        );
+    }
 
     fn input_window(id: u32, x: f64, y: f64, width: f64, height: f64) -> InputWindow {
         InputWindow {
@@ -1144,6 +1439,26 @@ mod tests {
     }
 
     #[test]
+    fn only_the_exact_agent_cursor_is_exempt_from_target_obstructions() {
+        let target = input_window(10, 100.0, 200.0, 300.0, 200.0);
+        let cursor = input_window(99, 110.0, 205.0, 80.0, 50.0);
+        let menu = input_window(100, 110.0, 205.0, 80.0, 50.0);
+        let point =
+            target_point_ignoring_cursor(20.0, 10.0, 10, &[cursor, target], Some(99)).unwrap();
+        assert_eq!((point.x, point.y), (120.0, 210.0));
+        for stack in [vec![cursor, menu, target], vec![menu, cursor, target]] {
+            assert_eq!(
+                target_point_ignoring_cursor(20.0, 10.0, 10, &stack, Some(99)).unwrap_err(),
+                INPUT_WINDOW_OBSCURED,
+            );
+        }
+        assert_eq!(
+            target_point_ignoring_cursor(20.0, 10.0, 10, &[cursor, target], Some(98)).unwrap_err(),
+            INPUT_WINDOW_OBSCURED,
+        );
+    }
+
+    #[test]
     fn targeted_input_enforces_half_open_bounds_and_negative_display_origins() {
         let target = input_window(10, -500.0, -100.0, 300.0, 200.0);
         let point = target_point_in_stack(0.0, 0.0, 10, &[target]).unwrap();
@@ -1172,7 +1487,7 @@ mod tests {
             sessions.active.insert(
                 id.into(),
                 Arc::new(CaptureSession {
-                    revoked: AtomicBool::new(false),
+                    revoked: Arc::new(AtomicBool::new(false)),
                     cleanup_finished: AtomicBool::new(false),
                     captures: Mutex::new(Some(Captures {
                         directory: directory.clone(),

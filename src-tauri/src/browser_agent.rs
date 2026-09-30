@@ -1178,6 +1178,13 @@ mod tests {
         assert!(authorize(&grants(), "secret", &request).is_ok());
         assert!(authorize(&grants(), "wrong", &request).is_err());
         assert!(authorize(&HashMap::new(), "secret", &request).is_err());
+        let value =
+            cli_request_value(r#"{"action":"move","x":10,"y":20,"windowId":123}"#, true).unwrap();
+        let request: Request = serde_json::from_value(value).unwrap();
+        assert!(authorize(&grants(), "secret", &request).is_ok());
+        assert!(authorize(&grants(), "wrong", &request).is_err());
+        assert!(authorize(&HashMap::new(), "secret", &request).is_err());
+        assert!(cli_request_value(r#"{"action":"move","x":10,"y":20}"#, false).is_err());
         assert!(cli_request_value(r#"{"action":"click","id":"tab-a","ref":"r1"}"#, true).is_err());
         assert!(cli_request_value(r#"{"action":"click","x":10,"y":20}"#, false).is_err());
         assert!(cli_request_value(

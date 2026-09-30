@@ -271,6 +271,8 @@ pub fn run() {
                 if let Some(window) = app.get_window("main") {
                     macos::install(&window);
                 }
+                #[cfg(debug_assertions)]
+                desktop_control::preview_cursor(app.handle());
             }
             #[cfg(not(target_os = "macos"))]
             {
