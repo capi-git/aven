@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.114] - 2026-09-30
+
 ### Links open in a new tab, and PDFs show
 
 - A link that opens in a new tab, such as one with an external-link icon, now opens as a new tab in Aven's browser beside the page, instead of an empty window with no address bar. Command-click opens it behind the current page. Sign-in pop-ups that ask for their own window still get one.
