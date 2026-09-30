@@ -8,22 +8,9 @@ import {
   newPlanTab,
   newTerminalFile,
 } from "../lib/layout";
-import type { WorkspaceMenuPanelSnapshot } from "../lib/workspaceMenuPanel";
 import { SurfaceTabs } from "./SurfaceTabs";
 
-const mocks = vi.hoisted(() => ({ panel: vi.fn(), sortable: vi.fn() }));
-vi.mock("@tauri-apps/api/core", () => ({ isTauri: () => true }));
-vi.mock("../hooks/useWorkspaceMenuPanel", () => ({
-  useWorkspaceMenuPanel: mocks.panel,
-}));
-vi.mock("../lib/usagePanel", () => ({
-  useUsagePanelTheme: () => ({
-    mode: "dark",
-    background: "#222",
-    text: "#fff",
-    accent: "#aaa",
-  }),
-}));
+const mocks = vi.hoisted(() => ({ sortable: vi.fn() }));
 vi.mock("../hooks/useSortable", () => ({
   useSortable: (ids: string[], onReorder: (ids: string[]) => void) => {
     mocks.sortable(ids, onReorder);
@@ -40,10 +27,6 @@ vi.mock("../hooks/useSortable", () => ({
 }));
 
 type Props = ComponentProps<typeof SurfaceTabs>;
-type Panel = {
-  snapshot: WorkspaceMenuPanelSnapshot;
-  onSelect: (id: string) => void;
-};
 let root: Root;
 let host: HTMLElement;
 let props: Props;
@@ -51,8 +34,8 @@ const a = newFileTab("/repo/a.md", "/repo");
 const b = newFileTab("/repo/b.md", "/repo");
 const c = newFileTab("/repo/c.md", "/repo");
 const tabLabels = () =>
-  Array.from(host.querySelectorAll('[role="tab"] .aven-preview-tab-label')).map(
-    (tab) => tab.textContent,
+  Array.from(host.querySelectorAll('[role="tab"]')).map((node) =>
+    node.textContent?.trim(),
   );
 const button = (label: string) =>
   Array.from(host.querySelectorAll("button")).find(
@@ -66,8 +49,7 @@ const render = async (patch: Partial<Props> = {}) => {
 const click = async (node: HTMLElement) => act(async () => node.click());
 const tab = (label: string) =>
   Array.from(host.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find(
-    (node) =>
-      node.querySelector(".aven-preview-tab-label")?.textContent === label,
+    (node) => node.textContent?.trim() === label,
   )!;
 const keydown = async (
   node: HTMLElement,
@@ -87,14 +69,9 @@ const selectOnRender = (id: string) => {
   props = { ...props, activeFileId: id };
   root.render(createElement(SurfaceTabs, props));
 };
-const openRecent = async () => {
-  await click(button("Recent files"));
-  return mocks.panel.mock.calls.at(-1)![0] as Panel;
-};
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  mocks.panel.mockClear();
   mocks.sortable.mockClear();
   host = document.createElement("div");
   document.body.append(host);
@@ -106,7 +83,6 @@ beforeEach(() => {
     fileErrorCounts: new Map(),
     onSelectFile: vi.fn(),
     onCloseFile: vi.fn(),
-    onKeepFile: vi.fn(),
     onReorder: vi.fn(),
   };
 });
@@ -116,42 +92,36 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-it("shows one preview and can recover every older file from searchable Recent", async () => {
-  await render();
-  expect(tabLabels()).toEqual(["c.md"]);
-  expect(host.querySelectorAll(".aven-preview-badge")).toHaveLength(1);
-  const recent = await openRecent();
-  expect(recent.snapshot.searchable).toBe(true);
-  expect(recent.snapshot.items.map((item) => item.label)).toEqual([
-    "c.md",
-    "b.md",
-    "a.md",
-  ]);
-  await act(async () => recent.onSelect("menu-item-2"));
+it("keeps each newly opened file visible beside earlier files", async () => {
+  await render({ files: [a], activeFileId: a.id });
+  expect(tabLabels()).toEqual(["a.md"]);
+  await render({ files: [a, b], activeFileId: b.id });
+  expect(tabLabels()).toEqual(["a.md", "b.md"]);
+  await render({ files: [a, b, c], activeFileId: c.id });
+  expect(tabLabels()).toEqual(["a.md", "b.md", "c.md"]);
+  await click(tab("a.md"));
   expect(props.onSelectFile).toHaveBeenCalledExactlyOnceWith(a.id);
   await render({ activeFileId: a.id });
-  expect(tabLabels()).toEqual(["a.md"]);
-  expect(props.files).toEqual([a, b, c]);
+  expect(tabLabels()).toEqual(["a.md", "b.md", "c.md"]);
+  expect(props.onCloseFile).not.toHaveBeenCalled();
 });
 
-it("keeps previews through either action without resurfacing older hidden tabs", async () => {
-  await render();
-  await click(button("Keep open"));
-  expect(props.onKeepFile).toHaveBeenCalledExactlyOnceWith(c.id);
-  await render({ files: [a, b, { ...c, kept: true }] });
-  expect(tabLabels()).toEqual(["c.md"]);
+it("shows files with mixed legacy retention metadata without pin or preview controls", async () => {
+  await render({ files: [{ ...a, kept: true }, b, { ...c, kept: false }] });
+  expect(tabLabels()).toEqual(["a.md", "b.md", "c.md"]);
+  expect(host.querySelector('[title="Keep this file open"]')).toBeNull();
+  expect(host.querySelector('[aria-label="Recent files"]')).toBeNull();
   expect(host.querySelector(".aven-preview-badge")).toBeNull();
-  await render({ activeFileId: b.id });
-  expect(tabLabels()).toEqual(["b.md", "c.md"]);
+  expect(host.querySelector("[data-preview]")).toBeNull();
   await act(async () =>
-    host
-      .querySelector('[role="tab"]')!
-      .dispatchEvent(new MouseEvent("dblclick", { bubbles: true })),
+    tab("b.md").dispatchEvent(new MouseEvent("dblclick", { bubbles: true })),
   );
-  expect(props.onKeepFile).toHaveBeenLastCalledWith(b.id);
+  expect(tabLabels()).toEqual(["a.md", "b.md", "c.md"]);
+  expect(props.onCloseFile).not.toHaveBeenCalled();
+  expect(props.onReorder).not.toHaveBeenCalled();
 });
 
-it("retains dirty, kept and special surfaces beside the single ordinary preview", async () => {
+it("shows ordinary files and special surfaces while dirty state changes", async () => {
   const plan = newPlanTab("session", "block", "Plan", "/repo");
   const changes = newChangesTab("/repo");
   const terminal = newTerminalFile("/repo");
@@ -159,44 +129,50 @@ it("retains dirty, kept and special surfaces beside the single ordinary preview"
     files: [a, b, c, plan, changes, terminal],
     dirtyFileIds: new Set([a.id]),
   });
-  expect(tabLabels()).toEqual(["a.md", "c.md", "Plan", "Changes", "repo"]);
+  expect(tabLabels()).toEqual([
+    "a.md",
+    "b.md",
+    "c.md",
+    "Plan",
+    "Changes",
+    "repo",
+  ]);
   expect(host.querySelector('[aria-label="Unsaved changes"]')).not.toBeNull();
-  await render({
-    files: [{ ...a, kept: true }, b, c, plan, changes, terminal],
-    dirtyFileIds: new Set(),
-  });
-  expect(tabLabels()).toEqual(["a.md", "c.md", "Plan", "Changes", "repo"]);
+  await render({ dirtyFileIds: new Set() });
+  expect(tabLabels()).toEqual([
+    "a.md",
+    "b.md",
+    "c.md",
+    "Plan",
+    "Changes",
+    "repo",
+  ]);
   expect(host.querySelector('[aria-label="Unsaved changes"]')).toBeNull();
 });
 
-it("reorders visible tabs with the complete original identity list", async () => {
+it("reorders every open file identity regardless of legacy retention metadata", async () => {
   await render({ files: [{ ...a, kept: true }, b, c] });
-  const [visible, reorder] = mocks.sortable.mock.calls.at(-1)!;
-  expect(visible).toEqual([a.id, c.id]);
-  reorder([c.id, a.id]);
-  expect(props.onReorder).toHaveBeenCalledExactlyOnceWith([c.id, b.id, a.id]);
+  const [ids, reorder] = mocks.sortable.mock.calls.at(-1)!;
+  expect(ids).toEqual([a.id, b.id, c.id]);
+  reorder([c.id, a.id, b.id]);
+  expect(props.onReorder).toHaveBeenCalledExactlyOnceWith([c.id, a.id, b.id]);
 });
 
-it("disambiguates matching names in Recent by their full paths", async () => {
+it("disambiguates files with matching names using their full path tooltips", async () => {
   const other = newFileTab("/repo/docs/a.md", "/repo");
   await render({ files: [a, other], activeFileId: other.id });
-  const recent = await openRecent();
-  expect(recent.snapshot.items.map((item) => item.label)).toEqual([
-    "a.md",
-    "a.md",
-  ]);
-  expect(recent.snapshot.items.map((item) => item.description)).toEqual([
-    other.path,
-    a.path,
-  ]);
+  expect(tabLabels()).toEqual(["a.md", "a.md"]);
+  expect(
+    Array.from(host.querySelectorAll('[role="tab"]')).map((node) =>
+      node.getAttribute("title"),
+    ),
+  ).toEqual([a.path, other.path]);
+  await click(host.querySelectorAll<HTMLButtonElement>('[role="tab"]')[0]);
+  expect(props.onSelectFile).toHaveBeenCalledExactlyOnceWith(a.id);
 });
 
-it("uses one tab stop and activates visible tabs with arrows, Home and End", async () => {
-  await render({
-    files: [a, b, c].map((file) => ({ ...file, kept: true })),
-    activeFileId: b.id,
-    onSelectFile: vi.fn(selectOnRender),
-  });
+it("uses one tab stop and activates files with arrows, Home and End", async () => {
+  await render({ activeFileId: b.id, onSelectFile: vi.fn(selectOnRender) });
   expect([
     tab("a.md").tabIndex,
     tab("b.md").tabIndex,
@@ -211,7 +187,6 @@ it("uses one tab stop and activates visible tabs with arrows, Home and End", asy
   expect(document.activeElement).toBe(tab("c.md"));
   expect(props.activeFileId).toBe(c.id);
   expect(tab("c.md").tabIndex).toBe(0);
-
   await keydown(tab("c.md"), "ArrowRight");
   expect(document.activeElement).toBe(tab("a.md"));
   await keydown(tab("a.md"), "ArrowLeft");
@@ -223,42 +198,40 @@ it("uses one tab stop and activates visible tabs with arrows, Home and End", asy
   expect(props.onSelectFile).toHaveBeenCalledTimes(5);
 });
 
-it("navigates retained files and terminals without selecting hidden recent previews", async () => {
+it("navigates every ordinary file beside a terminal without changing membership", async () => {
   const terminal = newTerminalFile("/repo", "Console");
   await render({
     files: [a, b, c, terminal],
     dirtyFileIds: new Set([a.id]),
     onSelectFile: vi.fn(selectOnRender),
   });
-  expect(tabLabels()).toEqual(["a.md", "c.md", "Console"]);
-  tab("c.md").focus();
-  await keydown(tab("c.md"), "ArrowRight");
+  tab("a.md").focus();
+  await keydown(tab("a.md"), "ArrowRight");
+  expect(document.activeElement).toBe(tab("b.md"));
+  await keydown(tab("b.md"), "End");
   expect(document.activeElement).toBe(tab("Console"));
-  expect(tabLabels()).toEqual(["a.md", "Console"]);
   await keydown(tab("Console"), "ArrowLeft");
-  expect(document.activeElement).toBe(tab("a.md"));
-  expect(props.onSelectFile).toHaveBeenNthCalledWith(1, terminal.id);
-  expect(props.onSelectFile).toHaveBeenNthCalledWith(2, a.id);
-  expect(props.onKeepFile).not.toHaveBeenCalled();
+  expect(document.activeElement).toBe(tab("c.md"));
+  expect(tabLabels()).toEqual(["a.md", "b.md", "c.md", "Console"]);
+  expect(props.onSelectFile).toHaveBeenNthCalledWith(1, b.id);
+  expect(props.onSelectFile).toHaveBeenNthCalledWith(2, terminal.id);
+  expect(props.onSelectFile).toHaveBeenNthCalledWith(3, c.id);
   expect(props.onCloseFile).not.toHaveBeenCalled();
   expect(props.onReorder).not.toHaveBeenCalled();
-  expect(props.files.map((file) => file.id)).toEqual([
-    a.id,
-    b.id,
-    c.id,
-    terminal.id,
-  ]);
 });
 
-it("leaves close controls, actions, text fields and modified navigation keys alone", async () => {
+it("leaves close controls, trailing actions, text fields and modified keys alone", async () => {
   await render({
-    files: [{ ...a, kept: true }, b, c],
-    trailing: createElement("input", { "aria-label": "Rename terminal" }),
+    trailing: createElement(
+      "div",
+      null,
+      createElement("button", { "aria-label": "Trailing action" }, "Action"),
+      createElement("input", { "aria-label": "Rename terminal" }),
+    ),
   });
   for (const node of [
     button("Close c.md"),
-    button("Keep open"),
-    button("Recent files"),
+    button("Trailing action"),
     host.querySelector("input")!,
   ]) {
     node.focus();
@@ -278,23 +251,23 @@ it("leaves close controls, actions, text fields and modified navigation keys alo
 });
 
 it("restores focus after a focused close control is removed", async () => {
-  await render({ files: [{ ...a, kept: true }, b, c] });
+  await render();
   button("Close c.md").focus();
   await click(button("Close c.md"));
   expect(props.onCloseFile).toHaveBeenCalledExactlyOnceWith(c.id);
   // The parent can defer the close while it confirms unsaved changes.
   await render();
   expect(document.activeElement).toBe(button("Close c.md"));
-  await render({ files: [{ ...a, kept: true }, b], activeFileId: b.id });
+  await render({ files: [a, b], activeFileId: b.id });
   expect(document.activeElement).toBe(tab("b.md"));
   expect(props.onSelectFile).not.toHaveBeenCalled();
 });
 
-it("recovers focus when an active preview disappears and when the list becomes empty", async () => {
-  await render({ files: [{ ...a, kept: true }, b, c] });
+it("recovers focus when the focused file closes and when the list becomes empty", async () => {
+  await render();
   tab("c.md").focus();
-  await render({ activeFileId: a.id });
-  expect(tabLabels()).toEqual(["a.md"]);
+  await render({ files: [a, b], activeFileId: a.id });
+  expect(tabLabels()).toEqual(["a.md", "b.md"]);
   expect(document.activeElement).toBe(tab("a.md"));
   await render({ files: [], activeFileId: "" });
   const tablist = host.querySelector<HTMLElement>('[role="tablist"]')!;
@@ -303,14 +276,14 @@ it("recovers focus when an active preview disappears and when the list becomes e
 });
 
 it("keeps focus outside the tabs when a deferred close finishes", async () => {
-  await render({ files: [{ ...a, kept: true }, b, c] });
+  await render();
   button("Close c.md").focus();
   await click(button("Close c.md"));
   const dialogInput = document.createElement("input");
   document.body.append(dialogInput);
   try {
     dialogInput.focus();
-    await render({ files: [{ ...a, kept: true }, b], activeFileId: b.id });
+    await render({ files: [a, b], activeFileId: b.id });
     expect(document.activeElement).toBe(dialogInput);
   } finally {
     dialogInput.remove();
@@ -318,23 +291,23 @@ it("keeps focus outside the tabs when a deferred close finishes", async () => {
 });
 
 it("does not recover a tab control that the user already blurred", async () => {
-  await render({ files: [{ ...a, kept: true }, b, c] });
+  await render();
   tab("c.md").focus();
   tab("c.md").blur();
-  await render({ files: [{ ...a, kept: true }, b], activeFileId: b.id });
+  await render({ files: [a, b], activeFileId: b.id });
   expect(document.activeElement).toBe(document.body);
 });
 
-it("keeps the first visible tab reachable while the active identity is unavailable", async () => {
+it("keeps all files reachable while the active identity is unavailable", async () => {
   await render({
     files: [{ ...a, kept: true }, { ...b, kept: true }, c],
     activeFileId: "missing",
     onSelectFile: vi.fn(selectOnRender),
   });
-  expect(tabLabels()).toEqual(["a.md", "b.md"]);
+  expect(tabLabels()).toEqual(["a.md", "b.md", "c.md"]);
   expect(tab("a.md").tabIndex).toBe(0);
   expect(tab("b.md").tabIndex).toBe(-1);
   await keydown(tab("a.md"), "End");
-  expect(document.activeElement).toBe(tab("b.md"));
-  expect(props.activeFileId).toBe(b.id);
+  expect(document.activeElement).toBe(tab("c.md"));
+  expect(props.activeFileId).toBe(c.id);
 });
