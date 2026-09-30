@@ -89,8 +89,8 @@ or region screenshot to confirm the intended window is in front. Without `window
 use global points: `originX + x, originY + y` from the screenshot used. The help command documents all fields,
 including optional screenshot regions.
 
-A coloured cursor labeled **Aven** animates between move, click and scroll targets,
-shows brief click or scroll feedback, and fades when idle. It ignores input and
+A monochrome cursor with a compact **Aven** badge animates between move, click and
+scroll targets, shows brief click or scroll feedback, and fades when idle. It ignores input and
 focus and is excluded from agent screenshots and window lists. The cursor is a
 visible activity cue; native input still uses the macOS pointer.
 

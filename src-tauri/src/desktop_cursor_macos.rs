@@ -5,8 +5,9 @@ use super::{CGDisplayBounds, CGMainDisplayID, OwnedCf, Point};
 use dispatch2::{DispatchQueue, DispatchTime};
 use objc2::{define_class, msg_send, rc::Retained, DefinedClass, MainThreadOnly};
 use objc2_app_kit::{
-    NSBackingStoreType, NSBezierPath, NSColor, NSFont, NSPanel, NSStatusWindowLevel, NSTextField,
-    NSView, NSWindowCollectionBehavior, NSWindowSharingType, NSWindowStyleMask,
+    NSBackingStoreType, NSBezierPath, NSColor, NSFont, NSGraphicsContext, NSLineCapStyle,
+    NSLineJoinStyle, NSPanel, NSShadow, NSStatusWindowLevel, NSTextField, NSView,
+    NSWindowCollectionBehavior, NSWindowSharingType, NSWindowStyleMask,
 };
 use objc2_foundation::{MainThreadMarker, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString};
 use std::cell::{Cell, RefCell};
@@ -19,7 +20,7 @@ use std::time::{Duration, Instant};
 use tauri::AppHandle;
 
 const WIDTH: f64 = 112.0;
-const HEIGHT: f64 = 72.0;
+const HEIGHT: f64 = 66.0;
 const TIP_X: f64 = 18.0;
 const TIP_Y: f64 = 18.0;
 const TRAVEL: Duration = Duration::from_millis(190);
@@ -149,42 +150,78 @@ define_class!(
 
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, _dirty: NSRect) {
-            let blue = NSColor::colorWithSRGBRed_green_blue_alpha(0.18, 0.47, 1.0, 1.0);
+            let ink = NSColor::colorWithSRGBRed_green_blue_alpha(0.07, 0.07, 0.08, 1.0);
+            let paper = NSColor::colorWithSRGBRed_green_blue_alpha(0.98, 0.98, 0.99, 1.0);
             let progress = self.ivars().pulse.get();
-            if self.ivars().feedback.get() != Feedback::Move && progress < 1.0 {
-                let radius = 5.0 + 11.0 * progress;
-                NSColor::colorWithSRGBRed_green_blue_alpha(0.18, 0.47, 1.0, 0.75 * (1.0 - progress)).setStroke();
+            if self.ivars().feedback.get() == Feedback::Click && progress < 1.0 {
+                let radius = 3.0 + 11.0 * progress;
                 let ring = NSBezierPath::bezierPathWithOvalInRect(rect(TIP_X - radius, TIP_Y - radius, radius * 2.0, radius * 2.0));
-                ring.setLineWidth(2.5);
+                // A fine light line inside a dark halo stays legible on both
+                // black glass and white documents, without a coloured flash.
+                NSColor::colorWithSRGBRed_green_blue_alpha(0.0, 0.0, 0.0, 0.35 * (1.0 - progress)).setStroke();
+                ring.setLineWidth(3.0);
+                ring.stroke();
+                NSColor::colorWithSRGBRed_green_blue_alpha(1.0, 1.0, 1.0, 0.9 * (1.0 - progress)).setStroke();
+                ring.setLineWidth(1.1);
                 ring.stroke();
             }
 
-            // Keep the arrow's hotspot at exactly (TIP_X, TIP_Y). All global
-            // coordinate conversion refers to this point, not the panel edge.
+            // The compact pointer keeps its exact hotspot. A soft shadow and
+            // charcoal edge separate the white face from any app underneath.
             let arrow = NSBezierPath::bezierPath();
             arrow.moveToPoint(NSPoint::new(TIP_X, TIP_Y));
-            for (x, y) in [(18.0, 43.0), (25.0, 37.0), (31.0, 49.0), (37.0, 46.0), (31.0, 34.0), (41.0, 34.0)] {
+            for (x, y) in [(18.0, 40.0), (23.2, 35.5), (27.7, 44.5), (31.3, 42.6), (26.8, 33.8), (36.0, 33.7)] {
                 arrow.lineToPoint(NSPoint::new(x, y));
             }
             arrow.closePath();
-            blue.setFill();
+            arrow.setLineJoinStyle(NSLineJoinStyle::Round);
+            NSGraphicsContext::saveGraphicsState_class();
+            let shadow = NSShadow::new();
+            shadow.setShadowOffset(NSSize::new(0.0, -1.0));
+            shadow.setShadowBlurRadius(2.5);
+            shadow.setShadowColor(Some(&NSColor::colorWithSRGBRed_green_blue_alpha(0.0, 0.0, 0.0, 0.3)));
+            shadow.set();
+            paper.setFill();
             arrow.fill();
-            NSColor::whiteColor().setStroke();
-            arrow.setLineWidth(1.8);
+            ink.setStroke();
+            arrow.setLineWidth(1.15);
             arrow.stroke();
 
-            blue.setFill();
-            NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(rect(44.0, 34.0, 53.0, 25.0), 8.0, 8.0).fill();
+            let badge = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(rect(42.0, 39.0, 57.0, 20.0), 10.0, 10.0);
+            NSColor::colorWithSRGBRed_green_blue_alpha(0.08, 0.08, 0.09, 0.96).setFill();
+            badge.fill();
+            NSGraphicsContext::restoreGraphicsState_class();
+            NSColor::colorWithSRGBRed_green_blue_alpha(1.0, 1.0, 1.0, 0.24).setStroke();
+            badge.setLineWidth(0.65);
+            badge.stroke();
+
+            // Aven's actual asymmetric left-facing mark, scaled from its
+            // 24-unit brand artwork into a 12-point glyph box.
+            let mark = NSBezierPath::bezierPath();
+            mark.moveToPoint(NSPoint::new(55.3, 45.3));
+            mark.lineToPoint(NSPoint::new(50.7, 49.0));
+            mark.lineToPoint(NSPoint::new(54.8, 52.5));
+            mark.setLineCapStyle(NSLineCapStyle::Round);
+            mark.setLineJoinStyle(NSLineJoinStyle::Round);
+            mark.setLineWidth(1.5);
+            paper.setStroke();
+            mark.stroke();
+
             if self.ivars().feedback.get() == Feedback::Scroll && progress < 1.0 {
-                NSColor::whiteColor().setStroke();
                 let arrows = NSBezierPath::bezierPath();
-                arrows.moveToPoint(NSPoint::new(103.0, 34.0));
-                arrows.lineToPoint(NSPoint::new(106.0, 30.0));
-                arrows.lineToPoint(NSPoint::new(109.0, 34.0));
-                arrows.moveToPoint(NSPoint::new(103.0, 43.0));
-                arrows.lineToPoint(NSPoint::new(106.0, 47.0));
-                arrows.lineToPoint(NSPoint::new(109.0, 43.0));
-                arrows.setLineWidth(1.8);
+                arrows.moveToPoint(NSPoint::new(102.0, 44.0));
+                arrows.lineToPoint(NSPoint::new(105.0, 41.0));
+                arrows.lineToPoint(NSPoint::new(108.0, 44.0));
+                arrows.moveToPoint(NSPoint::new(102.0, 51.0));
+                arrows.lineToPoint(NSPoint::new(105.0, 54.0));
+                arrows.lineToPoint(NSPoint::new(108.0, 51.0));
+                arrows.setLineCapStyle(NSLineCapStyle::Round);
+                arrows.setLineJoinStyle(NSLineJoinStyle::Round);
+                NSColor::colorWithSRGBRed_green_blue_alpha(0.0, 0.0, 0.0, 0.4 * (1.0 - progress)).setStroke();
+                arrows.setLineWidth(3.0);
+                arrows.stroke();
+                NSColor::colorWithSRGBRed_green_blue_alpha(1.0, 1.0, 1.0, 1.0 - progress).setStroke();
+                arrows.setLineWidth(1.2);
                 arrows.stroke();
             }
         }
@@ -281,8 +318,8 @@ fn create(mtm: MainThreadMarker) -> Overlay {
     let view: Retained<CursorView> =
         unsafe { msg_send![super(view), initWithFrame: rect(0.0, 0.0, WIDTH, HEIGHT)] };
     let label = NSTextField::labelWithString(&NSString::from_str("Aven"), mtm);
-    label.setFrame(rect(52.0, 38.0, 39.0, 18.0));
-    label.setFont(Some(&NSFont::systemFontOfSize_weight(12.0, 0.5)));
+    label.setFrame(rect(60.0, 40.0, 34.0, 17.0));
+    label.setFont(Some(&NSFont::systemFontOfSize_weight(11.0, 0.5)));
     label.setTextColor(Some(&NSColor::whiteColor()));
     label.setSelectable(false);
     view.addSubview(&label);
