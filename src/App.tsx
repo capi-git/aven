@@ -61,6 +61,7 @@ import {
 import { PersonalInspectorDock } from "./chrome/PersonalInspectorDock";
 import { WorkspaceHome } from "./surfaces/WorkspaceHome";
 import { useHoverRevealPanel } from "./hooks/useHoverRevealPanel";
+import { nativeBrowserPointer } from "./lib/nativePointer";
 import { useWorkspaceSnapshotPersistence } from "./hooks/useWorkspaceSnapshotPersistence";
 import { useRecentProjects } from "./hooks/useRecentProjects";
 import { Sidebar } from "./chrome/Sidebar";
@@ -1540,6 +1541,7 @@ export default function App({
     pinned: sidebarOpen,
     enterDelay: 150,
     leaveDelay: 90,
+    pointerProbe: nativeBrowserPointer,
   });
   const inspectorVisible = workspaceVisible && inspector.open;
   useLayoutEffect(() => {
@@ -8896,6 +8898,10 @@ export default function App({
                 type="button"
                 className="personal-panel-edge personal-panel-edge-left"
                 aria-label="Show workspace sidebar"
+                // A web page drawn over this strip would swallow the hover
+                // that opens the sidebar, so pages leave it uncovered.
+                data-native-browser-occluded="true"
+                data-native-browser-edge="left"
                 {...sidebarHover.edgeHandlers}
                 onClick={onToggleSidebar}
               />

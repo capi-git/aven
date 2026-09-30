@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Hover sidebar works beside web pages
+
+- The sidebar that opens when you hover the window's left edge now closes when you move onto a web page, instead of staying stuck open. Web pages no longer cover the edge you hover to open it.
+
 ## [0.1.112] - 2026-09-29
 
 ### Faster startup

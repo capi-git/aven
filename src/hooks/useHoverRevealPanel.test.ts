@@ -559,4 +559,44 @@ describe("temporary hover panels", () => {
     await act(async () => root.render(null));
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it("closes when the pointer leaves onto a native page that swallows pointer events", async () => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        return this.matches("[data-panel]")
+          ? new DOMRect(0, 0, 200, 600)
+          : this.matches("[data-edge]")
+            ? new DOMRect(0, 0, 6, 600)
+            : new DOMRect(0, 0, 0, 0);
+      },
+    );
+    let point: { x: number; y: number } | null = { x: 100, y: 300 };
+    const pointerProbe = vi.fn(async () => point);
+    await render({ pointerProbe });
+    expect(pointerProbe).not.toHaveBeenCalled();
+    await reveal();
+    enter("[data-panel]");
+    // The page never sees a leave; only the sampled pointer shows it moved on.
+    await advance(600);
+    expect(pointerProbe).toHaveBeenCalled();
+    expect(latest.visible).toBe(true);
+    point = { x: 500, y: 300 };
+    await advance(150);
+    await advance(180);
+    expect(latest.visible).toBe(false);
+    pointerProbe.mockClear();
+    await advance(1000);
+    expect(pointerProbe).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("keeps a peek open when the pointer position is unknown", async () => {
+    const pointerProbe = vi.fn(async () => null);
+    await render({ pointerProbe });
+    await reveal();
+    enter("[data-panel]");
+    await advance(1000);
+    expect(pointerProbe).toHaveBeenCalled();
+    expect(latest.visible).toBe(true);
+  });
 });

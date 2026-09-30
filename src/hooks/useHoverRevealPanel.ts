@@ -21,6 +21,12 @@ export type HoverRevealPanelOptions = {
   enabled?: boolean;
   enterDelay?: number;
   leaveDelay?: number;
+  /**
+   * The pointer position in CSS pixels when it is over a native child that
+   * swallows pointer events (a browser page), otherwise null. While a peek is
+   * open this is sampled to notice the pointer leaving onto one.
+   */
+  pointerProbe?: () => Promise<{ x: number; y: number } | null>;
 };
 
 const INTERACTIONS =
@@ -33,6 +39,7 @@ function interactionOpen() {
       getComputedStyle(element).visibility !== "hidden",
   );
 }
+const POINTER_SAMPLE_MS = 150;
 function delay(value: number) {
   return Number.isFinite(value) ? Math.max(0, Math.min(1000, value)) : 0;
 }
@@ -43,10 +50,17 @@ export function useHoverRevealPanel({
   enabled = true,
   enterDelay = 90,
   leaveDelay = 180,
+  pointerProbe,
 }: HoverRevealPanelOptions) {
   const [temporary, setTemporary] = useState(false);
-  const options = useRef({ pinned, enabled, enterDelay, leaveDelay });
-  options.current = { pinned, enabled, enterDelay, leaveDelay };
+  const options = useRef({
+    pinned,
+    enabled,
+    enterDelay,
+    leaveDelay,
+    pointerProbe,
+  });
+  options.current = { pinned, enabled, enterDelay, leaveDelay, pointerProbe };
   const shown = useRef(false);
   const enterTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
@@ -336,6 +350,47 @@ export function useHoverRevealPanel({
       document.removeEventListener("pointerout", pointerOut, true);
     };
   }, [temporary, enabled, pinned, cancelEnter, dismiss, scheduleClose]);
+
+  const probing = Boolean(pointerProbe);
+  useEffect(() => {
+    if (!temporary || !enabled || pinned || !probing) return;
+    // A pointer that moves from the panel onto a native browser child produces
+    // no leave event in the page, which left the peek stuck open. Sample the
+    // real pointer only while a peek is open and treat it as having left.
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const inside = (node: HTMLElement | null, x: number, y: number) => {
+      const rect = node?.getBoundingClientRect();
+      return (
+        !!rect &&
+        x >= rect.left &&
+        x < rect.right &&
+        y >= rect.top &&
+        y < rect.bottom
+      );
+    };
+    const sample = async () => {
+      timer = undefined;
+      const point = await options.current.pointerProbe?.();
+      if (stopped) return;
+      if (
+        point &&
+        (pointer.current.edge || pointer.current.panel) &&
+        !inside(edge.current, point.x, point.y) &&
+        !inside(panel.current, point.x, point.y)
+      ) {
+        pointer.current = { edge: false, panel: false };
+        cancelEnter();
+        scheduleClose();
+      }
+      if (!stopped) timer = setTimeout(sample, POINTER_SAMPLE_MS);
+    };
+    timer = setTimeout(sample, POINTER_SAMPLE_MS);
+    return () => {
+      stopped = true;
+      if (timer !== undefined) clearTimeout(timer);
+    };
+  }, [temporary, enabled, pinned, probing, cancelEnter, scheduleClose]);
 
   return {
     visible,
