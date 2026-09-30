@@ -112,6 +112,7 @@ def launch():
                  if not key.startswith(('AVEN_BROWSER_', 'AVEN_CONTROL_', 'SUPERMONO_', 'MONOCODE_'))}
     child_env.pop('TAURI_CONFIG', None)
     child_env.pop('TAURI_DEV_HOST', None)
+    cursor_preview = child_env.pop('AVEN_DEV_CURSOR_PREVIEW', None) == '1'
     with log_path.open('w') as log:
         server = subprocess.Popen(['npm', 'run', 'dev', '--', '--host', '127.0.0.1'],
                                   cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
@@ -136,7 +137,13 @@ def launch():
             # start_new_session alone isolates signals, not TCC responsibility.
             # An absolute bundle path also avoids resolving another checkout or
             # the installed app by its shared executable name.
-            launcher = subprocess.Popen(['/usr/bin/open', '-W', '-n', '-a', str(APP)],
+            launch_args = ['/usr/bin/open', '-W', '-n']
+            # LaunchServices does not inherit this shell's opt-in. Forward only
+            # the exact visual-only preview flag, never host control credentials.
+            if cursor_preview:
+                launch_args.extend(['--env', 'AVEN_DEV_CURSOR_PREVIEW=1'])
+            launch_args.extend(['-a', str(APP)])
+            launcher = subprocess.Popen(launch_args,
                                         cwd=ROOT, env=child_env, start_new_session=True)
             # Control-C must not force-quit a desktop app that may contain work.
             while launcher.poll() is None:

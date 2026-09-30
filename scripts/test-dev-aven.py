@@ -231,6 +231,47 @@ class DevRunnerGuards(unittest.TestCase):
         self.assertEqual(popen.call_args.args[0][0], 'npm')
         killpg.assert_called_once_with(server.pid, runner.signal.SIGTERM)
 
+    def test_cursor_preview_is_forwarded_to_launchservices_only_with_exact_opt_in(self):
+        for value in (None, '', '0', 'true', '01', '1 ', '1\n', '1'):
+            with self.subTest(value=value):
+                server = mock.Mock(pid=312345)
+                server.poll.return_value = None
+                launcher = mock.Mock(pid=312346, returncode=0)
+                launcher.poll.return_value = 0
+                response = mock.MagicMock()
+                response.__enter__.return_value.status = 200
+                environment = {
+                    'AVEN_BROWSER_TOKEN': 'fake-fixture-only',
+                    'AVEN_CONTROL_TOKEN': 'fake-fixture-only',
+                    'SUPERMONO_BROWSER_TOKEN': 'fake-fixture-only',
+                    'MONOCODE_CONTROL_TOKEN': 'fake-fixture-only',
+                }
+                if value is not None:
+                    environment['AVEN_DEV_CURSOR_PREVIEW'] = value
+                with mock.patch.dict(os.environ, environment), \
+                     mock.patch.object(runner, 'port_is_available', return_value=True), \
+                     mock.patch.object(runner, 'ensure_not_running'), \
+                     mock.patch.object(runner.subprocess, 'Popen', side_effect=[server, launcher]) as popen, \
+                     mock.patch.object(runner.urllib.request, 'urlopen', return_value=response), \
+                     mock.patch.object(runner.os, 'killpg') as killpg, \
+                     contextlib.redirect_stdout(io.StringIO()):
+                    runner.launch()
+                expected = ['/usr/bin/open', '-W', '-n']
+                if value == '1':
+                    expected.extend(['--env', 'AVEN_DEV_CURSOR_PREVIEW=1'])
+                expected.extend(['-a', str(self.app)])
+                self.assertEqual(popen.call_args_list[1].args[0], expected)
+                for call in popen.call_args_list:
+                    child_environment = call.kwargs['env']
+                    self.assertNotIn('AVEN_DEV_CURSOR_PREVIEW', child_environment)
+                    self.assertFalse(any(key.startswith(('AVEN_BROWSER_', 'AVEN_CONTROL_',
+                                                        'SUPERMONO_', 'MONOCODE_'))
+                                         for key in child_environment))
+                self.assertEqual([call.args[0][0] for call in popen.call_args_list], ['npm', '/usr/bin/open'])
+                launcher.terminate.assert_not_called()
+                launcher.kill.assert_not_called()
+                killpg.assert_called_once_with(server.pid, runner.signal.SIGTERM)
+
     def test_launchservices_failure_cleans_own_server_without_quitting_apps(self):
         server = mock.Mock(pid=312345)
         server.poll.return_value = None

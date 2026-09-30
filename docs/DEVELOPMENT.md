@@ -20,6 +20,8 @@ For small CSS and React changes, keep this preview running and edit the source i
 
 `npm run dev:app -- --build-only` prepares the isolated bundle without opening it. `npm run dev` alone is a frontend preview and does not supply native APIs. A raw `tauri dev` run has isolated data but does not package Chromium; use `dev:app` for browser testing.
 
+For a visual check of the native agent cursor, run `AVEN_DEV_CURSOR_PREVIEW=1 npm run dev:app`. The debug build animates the cursor over its own Dev window for about a minute, then fades it. This preview only draws the marker; it sends no mouse or keyboard input and changes no permissions. It also permits another host to capture the marker for visual QA; normal builds retain the window-sharing exclusion, and authenticated desktop screenshots always suppress the marker. Real desktop actions still require an enabled, authenticated task and the applicable macOS grants.
+
 ## Machine setup
 
 Install the prerequisites and verified SDK in [CHROMIUM.md](CHROMIUM.md). Standard tools on `PATH` work. Optional machine-specific paths belong in `~/.config/aven/development.env`, outside the checkout:

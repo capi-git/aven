@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Desktop control shows a coloured cursor labeled **Aven**, with smooth movement and brief click or scroll feedback. It fades when idle and stays out of agent screenshots. Agents can also use `move` to hover over a target.
+
 ## [0.1.112] - 2026-09-29
 
 ### Faster startup
