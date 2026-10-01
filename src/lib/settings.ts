@@ -10,11 +10,17 @@ export type SettingsSectionId =
   | "providers"
   | "tasks"
   | "skills"
+  | "git"
   | "connections"
   | "browser"
   | "archive";
 
-export type SettingsSectionGroup = "App" | "Agents" | "Data";
+export type SettingsSectionGroup =
+  | "Personal"
+  | "Agents"
+  | "Coding"
+  | "Integrations"
+  | "Archived";
 
 /** Navigation order. Each group starts where its first section appears. */
 export const SETTINGS_SECTIONS: {
@@ -25,26 +31,26 @@ export const SETTINGS_SECTIONS: {
 }[] = [
   {
     id: "general",
-    group: "App",
+    group: "Personal",
     label: "General",
     description: "Updates, the project rail, and small extras.",
   },
   {
     id: "appearance",
-    group: "App",
+    group: "Personal",
     label: "Appearance",
     description: "Colors, transparency, and display preferences.",
   },
   {
     id: "notifications",
-    group: "App",
+    group: "Personal",
     label: "Notifications",
     description: "Decide when and how Aven gets your attention.",
   },
   {
     id: "keybindings",
-    group: "App",
-    label: "Keyboard",
+    group: "Personal",
+    label: "Keyboard shortcuts",
     description: "Find keyboard shortcuts and where they work.",
   },
   {
@@ -67,20 +73,26 @@ export const SETTINGS_SECTIONS: {
       "Reusable instructions, browser tools, and optional desktop control.",
   },
   {
+    id: "git",
+    group: "Coding",
+    label: "Git",
+    description: "What agents do with their changes when they finish.",
+  },
+  {
     id: "connections",
-    group: "Agents",
+    group: "Integrations",
     label: "Connections",
     description: "Services Aven connects to on your behalf.",
   },
   {
     id: "browser",
-    group: "Data",
+    group: "Integrations",
     label: "Browser",
     description: "Keep browser tabs ready while managing memory.",
   },
   {
     id: "archive",
-    group: "Data",
+    group: "Archived",
     label: "Archive",
     description: "Find and restore archived projects and conversations.",
   },
