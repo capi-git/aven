@@ -1,5 +1,5 @@
-/* A quiet writing surface. Opacity comes from the surface, never the text;
-   the native browser and scrolling transcript do not need a blur layer. */
+/* A frosted writing surface. Opacity comes from the surface, never the text;
+   the blur keeps the transcript or wallpaper behind it soft and legible. */
 .personal-shell .personal-composer {
   /* Lift the writing surface away from the workspace, including custom greys.
      Field backgrounds are intentionally too quiet for this primary control. */
@@ -9,7 +9,7 @@
     var(--color-content)
   );
   --composer-control: var(--aven-control-bg, var(--aven-hover));
-  --composer-glass-opacity: 94%;
+  --composer-glass-opacity: 64%;
   --composer-edge: var(--aven-control-border, var(--aven-line));
   --composer-shadow: 0 8px 24px #00000018;
   width: 100%;
@@ -30,8 +30,8 @@
   box-shadow:
     var(--composer-shadow),
     inset 0 1px 0 color-mix(in srgb, var(--color-content) 5%, transparent);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  backdrop-filter: var(--aven-glass-blur, none);
+  -webkit-backdrop-filter: var(--aven-glass-blur, none);
 }
 .personal-shell .personal-composer [data-composer-box]:focus-within {
   border-color: color-mix(in srgb, var(--personal-accent) 55%, transparent);
@@ -282,7 +282,20 @@ html.theme-light
   [data-mode="full-access"] {
   color: #a54d1f;
 }
-@media (prefers-reduced-transparency: reduce) {
+html.theme-light .personal-shell .personal-composer {
+  --composer-glass-opacity: 94%;
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .personal-shell .personal-composer,
+  html.theme-light .personal-shell .personal-composer {
+    --composer-glass-opacity: 100%;
+  }
+}
+
+@supports not (
+  (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
+) {
   .personal-shell .personal-composer,
   html.theme-light .personal-shell .personal-composer {
     --composer-glass-opacity: 100%;

@@ -52,7 +52,9 @@
   margin-inline: 16px;
   padding: 10px 12px;
   border-radius: 8px;
-  background: var(--aven-grouped-surface, var(--aven-hover));
+  background: var(--aven-glass-surface, var(--aven-hover));
+  -webkit-backdrop-filter: var(--aven-glass-blur, none);
+  backdrop-filter: var(--aven-glass-blur, none);
   font-size: 12px;
   line-height: 19px;
   color: color-mix(in srgb, var(--color-content) 66%, transparent);
@@ -68,14 +70,16 @@
   padding-left: 64px;
 }
 .personal-shell .personal-user-bubble {
-  border: 1px solid var(--aven-line);
+  border: 1px solid var(--aven-glass-edge, var(--aven-line));
   border-radius: 12px;
   padding: 11px 15px;
   background: color-mix(
     in srgb,
-    var(--personal-accent) 5%,
-    color-mix(in srgb, var(--personal-main-surface) 88%, transparent)
+    var(--personal-accent) 6%,
+    var(--aven-glass-surface, var(--personal-main-surface))
   );
+  -webkit-backdrop-filter: var(--aven-glass-blur, none);
+  backdrop-filter: var(--aven-glass-blur, none);
   box-shadow: none;
 }
 .personal-shell
@@ -251,7 +255,7 @@ html.theme-light .personal-shell .personal-user-bubble {
   background: color-mix(
     in srgb,
     var(--personal-accent) 6%,
-    var(--personal-main-surface)
+    var(--aven-glass-surface, var(--personal-main-surface))
   );
 }
 @container personal-transcript (max-width: 480px) {
