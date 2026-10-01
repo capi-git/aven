@@ -24,11 +24,11 @@ Model lists refresh automatically from your installed providers. New models appe
 
 ## Get started
 
-1. Install and sign in to a supported agent CLI, such as [Claude Code](https://claude.com/product/claude-code) or [Codex](https://developers.openai.com/codex/cli).
-2. Open Aven and choose a project folder.
-3. Select an available provider and model, choose an access mode, and start a task.
+1. Open Aven and choose the providers you want to connect in the first-launch setup, or open **Settings → Provider setup** later. Nothing is preselected or automatically installed.
+2. For [Claude Code](https://claude.com/product/claude-code) or [Codex](https://developers.openai.com/codex/cli), review and explicitly run the installation or sign-in step. Other providers link to their official guides. You can defer setup and return later.
+3. Check the connection, choose a project folder, select a provider and model, choose an access mode, and start a task. See [Connect your providers](docs/PROVIDER-SETUP.md) for the difference between installation, sign-in and a successful response.
 
-Aven does not include model access or sell tokens. Provider subscriptions, API charges, authentication, and usage limits remain with the provider. Adapters are included for Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, and fx; available features depend on the installed CLI and its version.
+Aven does not require an Aven account, include model access or sell tokens. Provider subscriptions, API charges, authentication, and usage limits remain with the provider. Adapters are included for Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, and fx; available features depend on the installed CLI and its version.
 
 ## What you can do
 

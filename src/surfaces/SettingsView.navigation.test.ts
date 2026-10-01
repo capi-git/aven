@@ -320,6 +320,7 @@ describe("settings navigation", () => {
       "Appearance",
       "Notifications",
       "Keyboard shortcuts",
+      "Provider setup",
       "Providers & models",
       "Tasks & review",
       "Skills & tools",

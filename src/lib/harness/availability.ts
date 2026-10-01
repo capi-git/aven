@@ -45,6 +45,9 @@ let availability: HarnessAvailability = {
 let version = 0;
 let inflight: Promise<void> | null = null;
 let probedAt = 0;
+// A selected-provider setup check is newer evidence than a full probe that
+// started before it. Revisions keep that older probe from undoing the result.
+const observations = new Map<HarnessId, number>();
 const listeners = new Set<() => void>();
 
 /**
@@ -81,6 +84,18 @@ export function isHarnessAvailable(id: HarnessId): boolean {
   return availability[id];
 }
 
+/** Record binary presence discovered by a selected-provider setup check.
+ * This neither probes other providers nor makes the full-store cache fresh. */
+export function recordHarnessAvailability(
+  id: HarnessId,
+  available: boolean,
+): void {
+  observations.set(id, (observations.get(id) ?? 0) + 1);
+  if (availability[id] === available) return;
+  availability = { ...availability, [id]: available };
+  emit();
+}
+
 export function harnessUnavailableHint(id: HarnessId): string {
   const { name, install } = CLI[id];
   const how = install ? ` (\`${install}\`)` : "";
@@ -94,6 +109,7 @@ export function probeHarnessAvailability(options?: {
   if (!options?.force && probedAt > 0 && Date.now() - probedAt < PROBE_TTL_MS) {
     return Promise.resolve();
   }
+  const startingObservations = new Map(observations);
   inflight = Promise.all(
     HARNESSES.map(async (id) => {
       if (!isLiveHarness(id)) return [id, false] as const;
@@ -166,7 +182,10 @@ export function probeHarnessAvailability(options?: {
   )
     .then((entries) => {
       const next = { ...availability };
-      for (const [id, ok] of entries) next[id] = ok;
+      for (const [id, ok] of entries) {
+        if ((observations.get(id) ?? 0) === (startingObservations.get(id) ?? 0))
+          next[id] = ok;
+      }
       availability = next;
       emit();
     })

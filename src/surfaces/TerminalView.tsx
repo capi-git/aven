@@ -35,6 +35,10 @@ type Props = {
   active: boolean;
   presented?: boolean;
   onMetaChange?: (patch: TerminalMetaPatch) => void;
+  /** Setup sessions never participate in workspace transfer or screen capture. */
+  ephemeral?: boolean;
+  /** A command from an explicit setup action; never queued or replayed. */
+  setupCommand?: string;
 };
 
 function cssColor(
@@ -160,7 +164,15 @@ function oscColors(parent: HTMLElement) {
   };
 }
 
-export function TerminalView({ id, cwd, active, presented = true, onMetaChange }: Props) {
+export function TerminalView({
+  id,
+  cwd,
+  active,
+  presented = true,
+  onMetaChange,
+  ephemeral = false,
+  setupCommand,
+}: Props) {
   const outerRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -174,6 +186,9 @@ export function TerminalView({ id, cwd, active, presented = true, onMetaChange }
     const outer = outerRef.current;
     const host = hostRef.current;
     if (!outer || !host) return;
+    // StrictMode replays effects. A setup effect owns its own native shell, so
+    // an old spawn/cleanup cannot execute in or kill the replay's live shell.
+    const ptyId = ephemeral ? `${id}-setup-${crypto.randomUUID()}` : id;
 
     const term = new Terminal({
       cursorBlink: true,
@@ -190,7 +205,7 @@ export function TerminalView({ id, cwd, active, presented = true, onMetaChange }
     });
     term.open(host);
     termRef.current = term;
-    const transferredScreen = readTerminalScreen(id);
+    const transferredScreen = ephemeral ? undefined : readTerminalScreen(id);
     if (transferredScreen && terminalIsTransferred(id))
       term.write(transferredScreen);
     const captureScreen = () => {
@@ -200,7 +215,8 @@ export function TerminalView({ id, cwd, active, presented = true, onMetaChange }
         lines.push(buffer.getLine(i)?.translateToString(true) ?? "");
       rememberTerminalScreen(id, lines.join("\r\n"));
     };
-    window.addEventListener("workspace-transfer-capture", captureScreen);
+    if (!ephemeral)
+      window.addEventListener("workspace-transfer-capture", captureScreen);
     let closed = false;
 
     const onCopy = (event: ClipboardEvent) => {
@@ -234,7 +250,7 @@ export function TerminalView({ id, cwd, active, presented = true, onMetaChange }
     let oscBuffer = "";
 
     const unsubscribe = subscribePty(
-      id,
+      ptyId,
       (data) => {
         const onMeta = onMetaChangeRef.current;
         if (onMeta) {
@@ -258,13 +274,19 @@ export function TerminalView({ id, cwd, active, presented = true, onMetaChange }
       },
     );
 
-    const starting = spawnPty(id, cwd, term.cols, term.rows)
-      .then(() => {
-        if (!closed) spawned.current = true;
+    const starting = spawnPty(ptyId, cwd, term.cols, term.rows)
+      .then(async () => {
+        if (closed) return;
+        spawned.current = true;
+        if (setupCommand !== undefined) {
+          if (!ephemeral || !setupCommand.trim() || setupCommand.includes("\0"))
+            throw new Error("Enter a valid setup command.");
+          await writePty(ptyId, setupCommand.replace(/\r?\n/g, "\r") + "\r");
+        }
       })
       .catch((error) => {
-        spawned.current = false;
         if (!closed) {
+          spawned.current = false;
           const message =
             error instanceof Error ? error.message : String(error);
           term.writeln(`\x1b[31m${message}\x1b[0m`);
@@ -275,7 +297,7 @@ export function TerminalView({ id, cwd, active, presented = true, onMetaChange }
 
     const dataSub = term.onData((data) => {
       void starting
-        .then(() => (closed ? undefined : writePty(id, data)))
+        .then(() => (closed ? undefined : writePty(ptyId, data)))
         .catch(() => undefined);
     });
 
@@ -283,7 +305,7 @@ export function TerminalView({ id, cwd, active, presented = true, onMetaChange }
       const reply = oscColorReply(code, hex);
       if (reply) {
         void starting
-          .then(() => (closed ? undefined : writePty(id, reply)))
+          .then(() => (closed ? undefined : writePty(ptyId, reply)))
           .catch(() => undefined);
       }
       return true;
@@ -336,7 +358,7 @@ export function TerminalView({ id, cwd, active, presented = true, onMetaChange }
       lastCols = cols;
       lastRows = rows;
       void starting
-        .then(() => (closed ? undefined : resizePty(id, cols, rows)))
+        .then(() => (closed ? undefined : resizePty(ptyId, cols, rows)))
         .catch(() => {
           lastCols = 0;
           lastRows = 0;
@@ -362,8 +384,10 @@ export function TerminalView({ id, cwd, active, presented = true, onMetaChange }
     observer.observe(host);
 
     return () => {
-      captureScreen();
-      window.removeEventListener("workspace-transfer-capture", captureScreen);
+      if (!ephemeral) {
+        captureScreen();
+        window.removeEventListener("workspace-transfer-capture", captureScreen);
+      }
       closed = true;
       cancelAnimationFrame(frame);
       if (raf) cancelAnimationFrame(raf);
@@ -382,19 +406,28 @@ export function TerminalView({ id, cwd, active, presented = true, onMetaChange }
       unsubscribe();
       void starting
         .catch(() => undefined)
-        .then(() => (terminalIsTransferred(id) ? undefined : killPty(id)));
+        .then(() =>
+          !ephemeral && terminalIsTransferred(id) ? undefined : killPty(ptyId),
+        );
       term.dispose();
       termRef.current = null;
       spawned.current = false;
     };
-  }, [id]);
+  }, [id, ephemeral, setupCommand]);
 
-  useTerminalStatus(id, presented && !!onMetaChange, spawned, (foreground) => {
-    runningProcessRef.current = foreground;
-    onMetaChangeRef.current?.(foreground
-      ? { title: foreground, foreground }
-      : { title: defaultTerminalTitle(cwd), foreground: null });
-  });
+  useTerminalStatus(
+    id,
+    !ephemeral && presented && !!onMetaChange,
+    spawned,
+    (foreground) => {
+      runningProcessRef.current = foreground;
+      onMetaChangeRef.current?.(
+        foreground
+          ? { title: foreground, foreground }
+          : { title: defaultTerminalTitle(cwd), foreground: null },
+      );
+    },
+  );
 
   useEffect(() => {
     if (!active) return;

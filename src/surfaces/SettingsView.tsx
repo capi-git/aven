@@ -231,6 +231,7 @@ import {
 import { SkillsSettings } from "./SkillsSettings";
 import { SettingsColorPicker } from "./SettingsColorPicker";
 import { ProviderConnections } from "./ProviderConnections";
+import { ProviderSetup } from "./ProviderSetup";
 
 type Props = {
   section: SettingsSectionId;
@@ -429,6 +430,11 @@ export function SettingsView({
             {section === "keybindings" ? <KeybindingsPage /> : null}
             {section === "git" ? <GitPage /> : null}
             {section === "providers" ? <ProvidersPage /> : null}
+            {section === "provider-setup" ? (
+              <div id="setting-provider-setup" tabIndex={-1}>
+                <ProviderSetup />
+              </div>
+            ) : null}
             {section === "skills" ? <SkillsSettings cwd={cwd} /> : null}
             {section === "connections" ? <ConnectionsPage cwd={cwd} /> : null}
             {section === "archive" ? (

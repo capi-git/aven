@@ -41,6 +41,12 @@ function setting(
 // Index actual controls and stable page/card anchors, never hidden child controls.
 const SETTINGS_SEARCH_ENTRIES: readonly SearchEntry[] = [
   setting(
+    "provider-setup",
+    "Provider setup",
+    "Choose providers, install their CLIs, sign in, and check your connections.",
+    "onboarding first launch getting started cli installation login authentication Windows macOS PATH Claude Codex",
+  ),
+  setting(
     "git",
     "When an agent finishes",
     "Leave changes for you, commit them, or open a pull request.",

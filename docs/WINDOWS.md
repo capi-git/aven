@@ -6,8 +6,9 @@ The Windows x64 installer is part of the regular [Aven release](https://github.c
 
 1. Download the `Aven_<version>_x64-setup.exe` installer from the release, or download `Aven-<version>-windows-x64.zip` and extract it. The ZIP includes the same installer, licenses, and package checksums.
 2. Run the installer. It installs for your Windows user.
-3. Install and sign in to a Windows-compatible provider CLI, then restart Aven so it sees any PATH changes. Available providers and features depend on the CLI. Aven does not include provider subscriptions.
-4. Open Aven, choose a project folder, select your provider, and start a task.
+3. Open Aven and choose which providers you want to connect in the first-launch setup. Nothing is preselected or automatically installed. You can also open **Settings → Provider setup** later.
+4. For Claude Code or Codex, review and explicitly run the offered installation or sign-in step, then complete the provider's prompts. Other providers link to their official guides. Select **Check again** after installation; reopen Aven if a custom PATH change is still not detected.
+5. Choose a project folder, select a provider and model, and start a task. Aven does not include provider subscriptions. Local sign-in checks and an actual provider response are separate; see [Connect your providers](PROVIDER-SETUP.md).
 
 The Windows installer is **unsigned**: it does not have an Authenticode publisher certificate. Windows may show an unknown-publisher warning. Download only from this repository's releases and compare the file's SHA-256 with the release's `SHA256SUMS`. For example:
 
@@ -28,6 +29,8 @@ Windows includes agent conversations, projects and workspaces, the file editor, 
 Agent browser automation, browser screenshots and page annotation, grouped Picture in Picture, and built-in desktop computer use currently require macOS. Windows does not bundle Aven's macOS Chromium runtime. Windows ARM64, Linux, and Intel Mac release packages are not currently provided or verified.
 
 Each Windows release goes through frontend checks, native Windows tests, installer creation, installation, and an app startup check on a Windows runner. Those automated checks do not establish that every provider sign-in, authenticated chat, or interactive browsing flow has been tested on a personal Windows computer.
+
+The guided setup adds explicit provider selection, installation and sign-in actions. Its status checks do not establish that interactive provider installation, browser sign-in and a first authenticated task have been verified on a fresh Windows computer.
 
 For a useful bug report, include the Aven version, Windows version, provider and CLI version, exact steps, and any error text. Do not include access tokens or private conversation contents.
 
