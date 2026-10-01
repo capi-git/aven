@@ -109,6 +109,22 @@ or region screenshot to confirm the intended window is in front. Without `window
 use global points: `originX + x, originY + y` from the screenshot used. The help command documents all fields,
 including optional screenshot regions.
 
+When a targeted action is refused, its error identifies the first blocking
+WindowServer rectangle with bounded diagnostic metadata: window ID, owning
+process/app, layer, opacity and bounds, plus the target's local/global point.
+The normal `windows` list exposes only ordinary layer-0 windows; a menu or
+utility overlay can therefore block input without appearing in that list.
+These diagnostics contain no window titles or page content. Opacity is only
+diagnostic: a transparent window can still intercept input.
+
+Use the blocker information to resolve the actual obstruction, then activate the
+intended app and inspect a fresh display/region screenshot before retrying with
+the same observed `windowId`. Do not remove `windowId`, switch to untargeted input,
+or dismiss an unrelated app's window to bypass a refusal. If the reported blocker
+is visually absent or appears mouse-transparent, report its bounded metadata for
+investigation rather than assuming it is safe to ignore. Source changes to these
+diagnostics take effect only in a rebuilt development host or installed release.
+
 A monochrome cursor with a compact **Aven** badge animates between move, click and
 scroll targets, shows brief click or scroll feedback, and fades when idle. It ignores input and
 focus and is excluded from agent screenshots and window lists. The cursor is a

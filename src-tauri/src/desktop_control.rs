@@ -604,6 +604,10 @@ use global points: originX + x, originY + y from the screenshot used.
 Window-targeted move, click and scroll refuse covered points. A
 window screenshot can show a covered window; activate the app and inspect a
 fresh display/region screenshot to verify the intended window is in front.
+Refusals identify the first blocking window's ID, owner, layer, opacity and
+bounds. Utility overlays may be absent from the layer-0 windows list. Opacity
+does not establish click-through behavior. Keep windowId when retrying; do not
+switch to untargeted input to bypass a refusal.
 Observe a fresh screenshot before input. Window screenshots
 exclude shadows; region screenshots use global coordinates. Default capture is
 the main display. Screenshots return path, width, height, originX, originY at one
