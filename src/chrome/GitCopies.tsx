@@ -30,7 +30,9 @@ export type CopySummary = {
 };
 
 /** Other checkouts of this repository, most in need of attention first. */
-export function summarizeCopies(worktrees: readonly GitWorktree[]): CopySummary[] {
+export function summarizeCopies(
+  worktrees: readonly GitWorktree[],
+): CopySummary[] {
   return worktrees
     .filter((worktree) => !worktree.current)
     .map((worktree) => {
@@ -104,7 +106,9 @@ function firstLine(text: string): string {
 }
 
 /** "fix/race-safety" → "Race safety"; falls back to the folder name. */
-export function copyName(worktree: Pick<GitWorktree, "branch" | "path">): string {
+export function copyName(
+  worktree: Pick<GitWorktree, "branch" | "path">,
+): string {
   const branch = worktree.branch ?? "";
   if (branch.startsWith("aven/race/")) return "Race copy";
   const leaf = (branch.split("/").pop() || basename(worktree.path))
@@ -187,12 +191,11 @@ export function GitCopies({ cwd, enabled }: { cwd: string; enabled: boolean }) {
     }
   };
   if (copies.length === 0) return null;
-  const waiting = copies.filter((copy) => !copy.finished).length;
   return (
     <section className="git-copies" aria-label="Other copies of this project">
       <h3 className="git-copies-title">
         Other copies
-        <span>{waiting > 0 ? `${waiting} with work` : "All finished"}</span>
+        <span>{`${copies.length} ${copies.length === 1 ? "copy" : "copies"}`}</span>
       </h3>
       {copies.map((copy) => {
         const { worktree } = copy;
@@ -223,13 +226,24 @@ export function GitCopies({ cwd, enabled }: { cwd: string; enabled: boolean }) {
               <span className="git-copy-name">{copy.name}</span>
               <span
                 className="git-copy-pill"
-                data-tone={copy.finished ? "ok" : files > 0 ? "warn" : undefined}
+                data-tone={
+                  copy.finished ? "ok" : files > 0 ? "warn" : undefined
+                }
+                title={
+                  !copy.finished && files === 0 && worktree.aheadOfDefault > 0
+                    ? "Commit history differs from the default branch. Changes may already be merged."
+                    : undefined
+                }
               >
                 {copy.finished
                   ? "Merged"
                   : files > 0
                     ? `${files} unsaved`
-                    : `${worktree.aheadOfDefault} to merge`}
+                    : worktree.aheadOfDefault > 0
+                      ? `${worktree.aheadOfDefault} ${worktree.aheadOfDefault === 1 ? "commit" : "commits"}`
+                      : worktree.behindDefault > 0
+                        ? "Behind"
+                        : "Up to date"}
               </span>
             </button>
             <p className="git-copy-detail">
@@ -258,12 +272,16 @@ export function GitCopies({ cwd, enabled }: { cwd: string; enabled: boolean }) {
                       <span className="git-copy-added">+{file.additions}</span>
                     ) : null}
                     {file.deletions > 0 ? (
-                      <span className="git-copy-deleted">−{file.deletions}</span>
+                      <span className="git-copy-deleted">
+                        −{file.deletions}
+                      </span>
                     ) : null}
                   </p>
                 ))}
                 {files > FILES_SHOWN ? (
-                  <p className="text-content/45">+ {files - FILES_SHOWN} more</p>
+                  <p className="text-content/45">
+                    + {files - FILES_SHOWN} more
+                  </p>
                 ) : null}
                 {copy.finished ? (
                   <p className="text-content/45">
