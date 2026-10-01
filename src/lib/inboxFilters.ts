@@ -57,7 +57,8 @@ export const DEFAULT_INBOX_FILTERS: InboxFilters = {
   status: DEFAULT_INBOX_STATUS_FILTER,
 };
 
-export type InboxSource = InboxProvider;
+/** "scheduled" lists Aven's own scheduled agent runs, not a remote provider. */
+export type InboxSource = InboxProvider | "scheduled";
 
 const FILTERS_KEY = "monocode.inboxFilters";
 const SOURCE_KEY = "monocode.inboxSource";
@@ -65,7 +66,7 @@ const SOURCE_KEY = "monocode.inboxSource";
 export function loadInboxSource(): InboxSource {
   try {
     const raw = localStorage.getItem(SOURCE_KEY);
-    return raw === "linear" ? "linear" : "github";
+    return raw === "linear" || raw === "scheduled" ? raw : "github";
   } catch {
     return "github";
   }

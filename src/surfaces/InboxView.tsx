@@ -4,6 +4,7 @@ import {
   CheckCheck,
   ChevronDown,
   CircleDot,
+  Clock,
   CircleX,
   ExternalLink,
   GitCompare,
@@ -119,6 +120,14 @@ import {
   type InboxSessionPortal,
 } from "./InboxDiscussionPanel";
 import { inboxAskKey } from "../lib/inboxAsk";
+import type { ScheduledAgent } from "../lib/scheduledAgents";
+import {
+  resolveScheduledSelection,
+  ScheduledDetail,
+  ScheduledRunList,
+  useScheduledInbox,
+  useScheduledRuns,
+} from "./ScheduledInbox";
 
 const MIN_WIDTH = 240;
 const MAX_WIDTH = 420;
@@ -213,7 +222,12 @@ function InboxSourceTab({
   selected: boolean;
   onSelect: (source: InboxSource) => void;
 }) {
-  const label = source === "linear" ? "Linear" : "GitHub";
+  const label =
+    source === "linear"
+      ? "Linear"
+      : source === "scheduled"
+        ? "Scheduled"
+        : "GitHub";
   return (
     <button
       type="button"
@@ -226,12 +240,16 @@ function InboxSourceTab({
           : "text-content/50 hover:bg-content/5 hover:text-content"
       }`}
     >
-      <span className="flex items-center gap-1.5">
-        <InboxProviderMark
-          provider={source}
-          className="block size-3.5 shrink-0"
-        />
-        <span className="leading-none">{label}</span>
+      <span className="flex min-w-0 items-center gap-1.5">
+        {source === "scheduled" ? (
+          <Clock className="block size-3.5 shrink-0" strokeWidth={1.75} />
+        ) : (
+          <InboxProviderMark
+            provider={source}
+            className="block size-3.5 shrink-0"
+          />
+        )}
+        <span className="min-w-0 truncate leading-none">{label}</span>
       </span>
     </button>
   );
@@ -274,6 +292,9 @@ type Props = {
   onClose?: () => void;
   onToggleSidebar?: () => void;
   onStart?: (item: InboxItem, body?: string) => void | Promise<void>;
+  /** Starts a scheduled agent now, through the same path as a due run. */
+  onRunScheduledAgent?: (agent: ScheduledAgent) => void;
+  onOpenScheduledChat?: (sessionId: string) => unknown;
 };
 
 export function InboxView({
@@ -286,6 +307,8 @@ export function InboxView({
   onClose,
   onToggleSidebar,
   onStart,
+  onRunScheduledAgent,
+  onOpenScheduledChat,
 }: Props) {
   const [discussionOpen, setDiscussionOpen] = useState(false);
   const listLock = useLockOverscroll<HTMLDivElement>();
@@ -320,6 +343,12 @@ export function InboxView({
   );
   const [linearTeams, setLinearTeams] = useState<LinearTeam[]>([]);
   const prevRefresh = useRef(refresh);
+  const scheduled = useScheduledInbox(() => onSourceChange("scheduled"));
+  const scheduledRuns = useScheduledRuns();
+  const scheduledSelection = resolveScheduledSelection(
+    scheduled.selected,
+    scheduledRuns,
+  );
 
   const projects = useMemo(
     () => inboxProjectsForRail(recents, cwd),
@@ -370,6 +399,12 @@ export function InboxView({
       // The project picker owns Escape while its list is open. Its listener is
       // registered after this view's capture listener, so check the DOM first.
       if (document.querySelector("[data-inbox-project-menu]")) return;
+      // Open selects and the schedule editor take Escape for themselves.
+      if (
+        document.querySelector('.settings-select[aria-expanded="true"]') ||
+        document.activeElement?.closest("[data-scheduled-editor]")
+      )
+        return;
       event.preventDefault();
       event.stopPropagation();
       if (filterMenu) {
@@ -474,7 +509,8 @@ export function InboxView({
 
   const searchNarrowed = searchInput.trim().length > 0;
   const narrowedByUser = searchNarrowed || filtersActive;
-  const sourceError = providerErrors[source] ?? null;
+  const sourceError =
+    source === "scheduled" ? null : (providerErrors[source] ?? null);
 
   const selected =
     visibleItems.find((item) => inboxItemKey(item) === selectedKey) ??
@@ -536,117 +572,141 @@ export function InboxView({
           selected={source === "linear"}
           onSelect={onSourceChange}
         />
+        <InboxSourceTab
+          source="scheduled"
+          selected={source === "scheduled"}
+          onSelect={onSourceChange}
+        />
       </div>
-      <div className="flex h-9 shrink-0 items-center gap-1 border-b border-content/10 px-2">
-        <div className="relative flex h-7 min-w-0 flex-1 items-center">
-          <Search className="pointer-events-none absolute left-2 size-3 shrink-0 opacity-50" />
-          <input
-            value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
-            placeholder="Filter inbox"
-            aria-label="Filter inbox"
-            spellCheck={false}
-            autoComplete="off"
-            className="h-7 w-full rounded-md bg-transparent pl-7 pr-2 text-[12px] text-content outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
-          />
-        </div>
-        <button
-          type="button"
-          title="Filter inbox"
-          aria-label="Filter inbox"
-          aria-expanded={!!filterMenu}
-          aria-haspopup="menu"
-          onClick={onFilterButtonClick}
-          className={`grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content ${
-            filterMenu || filtersActive ? "bg-content/10 text-content" : ""
-          }`}
-        >
-          <ListFilter className="size-3" strokeWidth={1.75} />
-        </button>
-        <button
-          type="button"
-          title="Mark all as read"
-          aria-label="Mark all as read"
-          disabled={!sourceHasUnseen}
-          onClick={() => markInboxItemsSeen(sourceEntries)}
-          className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-content/45"
-        >
-          <CheckCheck className="size-3.5" strokeWidth={1.75} />
-        </button>
-        <button
-          type="button"
-          aria-label="Refresh"
-          onClick={() => setRefresh((value) => value + 1)}
-          className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content"
-        >
-          {loading || revalidating ? (
-            <LoaderCircle
-              className="size-3.5 animate-spin"
-              strokeWidth={1.75}
-            />
-          ) : (
-            <RefreshCw className="size-3.5" strokeWidth={1.75} />
-          )}
-        </button>
-      </div>
-      <div
-        ref={listLock}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-none"
-      >
-        {sourceError && visibleItems.length === 0 ? (
-          <p className="px-3 py-2 text-[12px] text-content/50">{sourceError}</p>
-        ) : loading && items.length === 0 ? (
-          <div className="flex justify-center py-10 text-content/40">
-            <LoaderCircle className="size-4 animate-spin" strokeWidth={1.75} />
+      {source === "scheduled" ? (
+        <ScheduledRunList
+          selected={scheduledSelection}
+          onSelect={scheduled.setSelected}
+        />
+      ) : (
+        <>
+          <div className="flex h-9 shrink-0 items-center gap-1 border-b border-content/10 px-2">
+            <div className="relative flex h-7 min-w-0 flex-1 items-center">
+              <Search className="pointer-events-none absolute left-2 size-3 shrink-0 opacity-50" />
+              <input
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
+                placeholder="Filter inbox"
+                aria-label="Filter inbox"
+                spellCheck={false}
+                autoComplete="off"
+                className="h-7 w-full rounded-md bg-transparent pl-7 pr-2 text-[12px] text-content outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+              />
+            </div>
+            <button
+              type="button"
+              title="Filter inbox"
+              aria-label="Filter inbox"
+              aria-expanded={!!filterMenu}
+              aria-haspopup="menu"
+              onClick={onFilterButtonClick}
+              className={`grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content ${
+                filterMenu || filtersActive ? "bg-content/10 text-content" : ""
+              }`}
+            >
+              <ListFilter className="size-3" strokeWidth={1.75} />
+            </button>
+            <button
+              type="button"
+              title="Mark all as read"
+              aria-label="Mark all as read"
+              disabled={!sourceHasUnseen}
+              onClick={() => markInboxItemsSeen(sourceEntries)}
+              className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-content/45"
+            >
+              <CheckCheck className="size-3.5" strokeWidth={1.75} />
+            </button>
+            <button
+              type="button"
+              aria-label="Refresh"
+              onClick={() => setRefresh((value) => value + 1)}
+              className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content"
+            >
+              {loading || revalidating ? (
+                <LoaderCircle
+                  className="size-3.5 animate-spin"
+                  strokeWidth={1.75}
+                />
+              ) : (
+                <RefreshCw className="size-3.5" strokeWidth={1.75} />
+              )}
+            </button>
           </div>
-        ) : visibleItems.length === 0 ? (
-          <p className="px-3 py-2 text-[12px] text-content/50">
-            {narrowedByUser
-              ? searchNarrowed
-                ? source === "linear"
-                  ? "No matching Linear issues"
-                  : "No matching issues or pull requests"
-                : source === "linear"
-                  ? "No Linear issues match these filters"
-                  : "No issues or pull requests match these filters"
-              : source === "linear"
-                ? "No Linear issues"
-                : projects.length === 0
-                  ? "Open a project to fill the inbox"
-                  : "No matching issues or pull requests"}
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-0.5 p-1.5">
-            {visibleItems.map((item) => {
-              const key = inboxItemKey(item);
-              const projectId = projectKey(item.projectPath);
-              return (
-                <li key={key}>
-                  <InboxCard
-                    item={item}
-                    active={selected != null && key === inboxItemKey(selected)}
-                    logoPath={resolveTabGroupLogo(projectId, logos)}
-                    mascotName={resolveTabGroupMascot(projectId, groupMascots)}
-                    mascotColor={resolveTabGroupColor(
-                      projectId,
-                      groupColors,
-                      groupCustomColors,
-                      projectName(item.projectPath),
-                    )}
-                    onSelect={() => {
-                      markInboxItemSeen({
-                        key,
-                        updatedAt: item.updatedAt,
-                      });
-                      setSelectedKey(key);
-                    }}
-                  />
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
+          <div
+            ref={listLock}
+            className="min-h-0 flex-1 overflow-y-auto overscroll-none"
+          >
+            {sourceError && visibleItems.length === 0 ? (
+              <p className="px-3 py-2 text-[12px] text-content/50">
+                {sourceError}
+              </p>
+            ) : loading && items.length === 0 ? (
+              <div className="flex justify-center py-10 text-content/40">
+                <LoaderCircle
+                  className="size-4 animate-spin"
+                  strokeWidth={1.75}
+                />
+              </div>
+            ) : visibleItems.length === 0 ? (
+              <p className="px-3 py-2 text-[12px] text-content/50">
+                {narrowedByUser
+                  ? searchNarrowed
+                    ? source === "linear"
+                      ? "No matching Linear issues"
+                      : "No matching issues or pull requests"
+                    : source === "linear"
+                      ? "No Linear issues match these filters"
+                      : "No issues or pull requests match these filters"
+                  : source === "linear"
+                    ? "No Linear issues"
+                    : projects.length === 0
+                      ? "Open a project to fill the inbox"
+                      : "No matching issues or pull requests"}
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-0.5 p-1.5">
+                {visibleItems.map((item) => {
+                  const key = inboxItemKey(item);
+                  const projectId = projectKey(item.projectPath);
+                  return (
+                    <li key={key}>
+                      <InboxCard
+                        item={item}
+                        active={
+                          selected != null && key === inboxItemKey(selected)
+                        }
+                        logoPath={resolveTabGroupLogo(projectId, logos)}
+                        mascotName={resolveTabGroupMascot(
+                          projectId,
+                          groupMascots,
+                        )}
+                        mascotColor={resolveTabGroupColor(
+                          projectId,
+                          groupColors,
+                          groupCustomColors,
+                          projectName(item.projectPath),
+                        )}
+                        onSelect={() => {
+                          markInboxItemSeen({
+                            key,
+                            updatedAt: item.updatedAt,
+                          });
+                          setSelectedKey(key);
+                        }}
+                      />
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </>
+      )}
       <div
         role="separator"
         aria-orientation="vertical"
@@ -695,7 +755,11 @@ export function InboxView({
             strokeWidth={1.75}
           />
           <span className="min-w-0 truncate text-content">Inbox</span>
-          <span className="truncate text-[11px] text-content/45">Issues &amp; pull requests</span>
+          <span className="truncate text-[11px] text-content/45">
+            {source === "scheduled"
+              ? "Scheduled agents"
+              : "Issues & pull requests"}
+          </span>
         </div>
         {IS_MAC ? null : <WindowControls />}
       </div>
@@ -707,16 +771,28 @@ export function InboxView({
             ref={detailLock}
             className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none"
           >
-            <InboxDetailBody
-              item={selected}
-              cwd={cwd}
-              projects={projectOptions}
-              revision={refresh}
-              onDiscuss={() => setDiscussionOpen(true)}
-              onStart={onStart}
-            />
+            {source === "scheduled" ? (
+              <ScheduledDetail
+                selected={scheduledSelection}
+                projects={projectOptions}
+                cwd={cwd}
+                editor={scheduled.editor}
+                onEditorChange={scheduled.setEditor}
+                onRunNow={onRunScheduledAgent}
+                onOpenChat={onOpenScheduledChat}
+              />
+            ) : (
+              <InboxDetailBody
+                item={selected}
+                cwd={cwd}
+                projects={projectOptions}
+                revision={refresh}
+                onDiscuss={() => setDiscussionOpen(true)}
+                onStart={onStart}
+              />
+            )}
           </div>
-          {discussionOpen && selected ? (
+          {discussionOpen && selected && source !== "scheduled" ? (
             <InboxDiscussionPanel
               onOpen={onAsk}
               onRestart={onAskRestart}

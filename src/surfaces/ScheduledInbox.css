@@ -1,0 +1,124 @@
+/* Schedule editor in the Inbox's Scheduled tab. Controls come from
+   SettingsControls; these rules only lay out the fields around them. */
+.scheduled-editor {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--aven-line);
+  border-radius: 10px;
+  background: color-mix(
+    in srgb,
+    var(--color-content) 3%,
+    var(--aven-grouped-surface, var(--aven-raised))
+  );
+}
+.scheduled-editor h2 {
+  margin: 0 0 2px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.scheduled-field {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+}
+.scheduled-field > span:first-child {
+  align-self: start;
+  padding-top: 5px;
+  color: var(--aven-muted);
+}
+.scheduled-field input,
+.scheduled-field textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--aven-line);
+  border-radius: 6px;
+  background: var(--aven-field-bg, var(--aven-hover));
+  color: var(--color-content);
+  font-size: 12px;
+  line-height: 1.5;
+  outline: none;
+}
+.scheduled-field textarea {
+  resize: vertical;
+}
+.scheduled-field input[type="time"] {
+  width: auto;
+  justify-self: start;
+}
+.scheduled-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.scheduled-days {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--aven-line);
+  border-radius: 7px;
+  background: var(--aven-field-bg, var(--aven-hover));
+}
+.scheduled-days button,
+.scheduled-preset {
+  min-height: 24px;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--aven-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.scheduled-days button:hover,
+.scheduled-preset:hover {
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+.scheduled-days button[aria-pressed="true"] {
+  border-color: var(--aven-control-border, var(--aven-line));
+  background: var(--aven-control-bg, var(--aven-raised));
+  box-shadow: var(--aven-control-shadow, 0 1px 3px #0000001a);
+  color: var(--color-content);
+  font-weight: 550;
+}
+.scheduled-preset[aria-pressed="true"] {
+  color: var(--color-content);
+}
+.scheduled-warning {
+  margin: 0 0 0 96px;
+  color: color-mix(in srgb, #f59e0b 80%, var(--color-content));
+  font-size: 11px;
+  line-height: 1.5;
+}
+.scheduled-hint {
+  color: var(--aven-muted);
+  font-size: 11px;
+}
+.scheduled-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 4px;
+}
+.scheduled-footer .scheduled-hint {
+  flex: 1;
+  min-width: 0;
+}
+@container (max-width: 560px) {
+  .scheduled-field {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .scheduled-field > span:first-child {
+    padding-top: 0;
+  }
+  .scheduled-warning {
+    margin-left: 0;
+  }
+}

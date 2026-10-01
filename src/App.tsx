@@ -63,6 +63,7 @@ import { WorkspaceHome } from "./surfaces/WorkspaceHome";
 import { useHoverRevealPanel } from "./hooks/useHoverRevealPanel";
 import { useWorkspaceSnapshotPersistence } from "./hooks/useWorkspaceSnapshotPersistence";
 import { useRecentProjects } from "./hooks/useRecentProjects";
+import { useScheduledAgents } from "./hooks/useScheduledAgents";
 import { Sidebar } from "./chrome/Sidebar";
 import type { WorkspaceProfilePreviewData } from "./chrome/ProfileCarouselPreview";
 import { projectDisplayName } from "./hooks/useProjectLabels";
@@ -173,6 +174,17 @@ import {
   type RaceBase,
   type RaceWorkspace,
 } from "./lib/race";
+import { saveInboxSource } from "./lib/inboxFilters";
+import {
+  finalAssistantText,
+  getScheduledRun,
+  requestScheduleEditor,
+  runSummary,
+  saveScheduledRun,
+  scheduledAgentProblem,
+  updateScheduledRun,
+  type ScheduledAgent,
+} from "./lib/scheduledAgents";
 import {
   PALETTE_COMMANDS,
   type PaletteAgent,
@@ -925,6 +937,10 @@ export default function App({
   const startRaceRef = useRef<
     (request: PaletteRaceRequest) => Promise<boolean>
   >(async () => false);
+  const startScheduledAgentRef = useRef<(agent: ScheduledAgent) => void>(
+    () => {},
+  );
+  useScheduledAgents((agent) => startScheduledAgentRef.current(agent));
   const onRaceFromChat = useCallback(
     (
       sessionId: string,
@@ -8594,6 +8610,11 @@ export default function App({
       reopen_closed_tab: run.onReopenClosedTab,
       close_pane: run.onClosePane,
       open_inbox: run.onOpenInbox,
+      new_scheduled_agent: () => {
+        saveInboxSource("scheduled");
+        requestScheduleEditor();
+        run.onOpenInbox();
+      },
       open_notes: run.onOpenNotes,
       add_project: () => void run.pickProject(),
       open_settings: () => run.openSettings(),
@@ -8709,6 +8730,57 @@ export default function App({
     return true;
   };
   startRaceRef.current = startRace;
+  /** Opens behind the user: no tab, project or focus change. */
+  const startScheduledAgent = async (agent: ScheduledAgent) => {
+    const run = {
+      id: crypto.randomUUID(),
+      scheduleId: agent.id,
+      name: agent.name,
+      project: agent.project,
+      summary: "",
+      startedAt: Date.now(),
+    };
+    const problem = await scheduledAgentProblem(agent);
+    if (problem) {
+      saveScheduledRun({
+        ...run,
+        status: "failed",
+        error: problem,
+        finishedAt: Date.now(),
+      });
+      return;
+    }
+    const session: Session = {
+      ...newSession(
+        agent.harness,
+        agent.project,
+        agent.model,
+        agent.runtimeMode,
+      ),
+      title: `Scheduled · ${agent.name}`,
+    };
+    setSessions((previous) => [...previous, session]);
+    appendTab(newTab(session.id), agent.project);
+    saveScheduledRun({ ...run, sessionId: session.id, status: "running" });
+    submitManagedTurn(
+      (settle) => onSubmit(session.id, agent.prompt, [], { onSettled: settle }),
+      (outcome) => {
+        if (!getScheduledRun(run.id)) return;
+        const finished = sessionsRef.current.find(
+          (item) => item.id === session.id,
+        );
+        updateScheduledRun(run.id, {
+          status: outcome.status,
+          summary: runSummary(
+            finalAssistantText(finished?.blocks ?? []) || outcome.text,
+          ),
+          error: outcome.error,
+          finishedAt: Date.now(),
+        });
+      },
+    );
+  };
+  startScheduledAgentRef.current = (agent) => void startScheduledAgent(agent);
   const openRaceOverview = (tabId: string) => {
     const tab = tabsRef.current.find((entry) => entry.id === tabId);
     const race = tab
@@ -9605,6 +9677,10 @@ export default function App({
                       onAsk={onAskInboxItem}
                       onAskRestart={onRestartInboxAsk}
                       onAskMount={setInboxAskPortal}
+                      onRunScheduledAgent={(agent) =>
+                        startScheduledAgentRef.current(agent)
+                      }
+                      onOpenScheduledChat={onOpenApprovalSession}
                     />
                   ) : null}
                   {notesViewOpen ? (

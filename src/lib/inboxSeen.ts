@@ -103,6 +103,11 @@ export function isInboxEntryUnseen(entry: InboxSeenEntry): boolean {
   return entryIsUnseen(entry, store.items);
 }
 
+/** For items Aven creates itself: new until opened, even before seeding. */
+export function isInboxEntryUnread(entry: InboxSeenEntry): boolean {
+  return entryIsUnseen(entry, loadInboxSeenStore().items);
+}
+
 export function markInboxItemSeen(entry: InboxSeenEntry) {
   const store = loadInboxSeenStore();
   saveInboxSeenStore({
