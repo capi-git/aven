@@ -262,10 +262,30 @@ pub fn session_search(
 }
 
 #[tauri::command(async)]
-pub fn session_delete(store: State<'_, SessionStore>, session_id: String) -> Result<(), String> {
-    validate_id(&session_id, "session")?;
+pub fn session_delete(
+    app: AppHandle,
+    store: State<'_, SessionStore>,
+    session_id: String,
+) -> Result<(), String> {
+    let app_data = app.path().app_data_dir().ok();
+    delete_session_and_assets(&store, app_data.as_deref(), &session_id)
+}
+
+fn delete_session_and_assets(
+    store: &SessionStore,
+    app_data: Option<&std::path::Path>,
+    session_id: &str,
+) -> Result<(), String> {
+    validate_id(session_id, "session")?;
     let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
-    delete_session(&conn, &session_id).map_err(|e| e.to_string())
+    delete_session(&conn, session_id).map_err(|e| e.to_string())?;
+    drop(conn);
+    // The transcript deletion is authoritative. Its page screenshots are
+    // unreachable afterward, so a cleanup failure must not resurrect the task.
+    if let Some(app_data) = app_data {
+        let _ = crate::turn_shots::remove_session(app_data, session_id);
+    }
+    Ok(())
 }
 
 #[tauri::command(async)]
@@ -2109,6 +2129,32 @@ mod tests {
             list_project_ids(&conn, "/tmp/b").unwrap(),
             ["other-project"]
         );
+    }
+
+    #[test]
+    fn delete_removes_the_sessions_page_screenshots() {
+        use crate::turn_shots::tests::{png, TemporaryDirectory};
+        let root = TemporaryDirectory::new();
+        let store = SessionStore::open_in_memory().unwrap();
+        {
+            let conn = store.conn.lock().unwrap();
+            upsert_session(&conn, &sample("s1", "/tmp/a", "First")).unwrap();
+            upsert_session(&conn, &sample("s2", "/tmp/a", "Second")).unwrap();
+        }
+        for id in ["s1", "s2"] {
+            crate::turn_shots::store(&root.0, id, Some("before"), &png(1, 1), 1).unwrap();
+        }
+        delete_session_and_assets(&store, Some(&root.0), "s1").unwrap();
+        assert!(get_session(&store.conn.lock().unwrap(), "s1")
+            .unwrap()
+            .is_none());
+        assert!(!root.0.join("turn-shots/s1").exists());
+        assert!(root.0.join("turn-shots/s2/1-before.png").is_file());
+        // A task without screenshots, or without a resolvable app data folder,
+        // still deletes normally.
+        delete_session_and_assets(&store, Some(&root.0), "s2").unwrap();
+        delete_session_and_assets(&store, None, "missing").unwrap();
+        assert!(delete_session_and_assets(&store, Some(&root.0), "../s2").is_err());
     }
 
     #[test]

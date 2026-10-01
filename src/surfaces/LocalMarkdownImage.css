@@ -50,3 +50,30 @@
   text-decoration: underline;
   cursor: pointer;
 }
+/* A Before/After pair reads as one comparison: side by side when the
+   transcript is wide enough, stacked when it is narrow. */
+.markdown-before-after {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 12px;
+  margin-block: 10px;
+}
+.markdown-before-after-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+}
+.markdown-before-after-item figcaption {
+  font-size: 12px;
+  font-weight: 500;
+  opacity: 0.65;
+}
+.markdown-before-after .markdown-local-image {
+  margin-block: 0;
+}
+.markdown-before-after .markdown-local-image img {
+  max-height: 360px;
+  border: 1px solid color-mix(in srgb, var(--color-content) 12%, transparent);
+}

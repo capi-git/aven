@@ -862,6 +862,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       if (!DropIndicator(cmd)) { Result(id_,request,false,Error("Invalid browser drop indicator")); return; }
     }
     else if (action=="snapshot") { Screenshot(request); return; }
+    else if (action=="agent-screenshot") { PageScreenshot(request); return; }
     else if (action=="dom") { Dom(request,cmd->GetDictionary("request")); return; }
     else if (action=="press") { user_input_=true; Press(request,Text(cmd,"key")); return; }
     else if (action=="scroll") { Scroll(request,Number(cmd,"deltaX"),Number(cmd,"deltaY")); return; }
@@ -1328,6 +1329,50 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     CaptureScreenshot(params,[self,request](bool ok,Dict result) {
       if (ok) { if (Text(result,"data").size()>10*1024*1024) { Result(self->id_,request,false,Error("Screenshot exceeded its limit")); return; } result->SetString("mimeType","image/png"); }
       Result(self->id_,request,ok,result);
+    });
+  }
+  // An agent's page image must not change what the user sees. A shown page is
+  // copied from its existing view, like element capture, and cropped to the
+  // exposed area. A hidden page has nothing on screen to copy; only then use
+  // the compositor surface, whose temporary emulation and resize are not visible.
+  void PageScreenshot(const std::string& request) {
+    if (screenshot_running_ || zoom_.pending()) { Result(id_,request,false,Error("The browser is finishing another image or zoom change. Retry shortly.")); return; }
+    if (!browser_ || closing_) { Result(id_,request,false,Error("Browser is closed")); return; }
+    if (browser_->IsLoading()) { Result(id_,request,false,Error("The page is still loading. Retry the screenshot after it finishes.")); return; }
+    NSView *view=(__bridge NSView*)browser_->GetHost()->GetWindowHandle();
+    NSWindow *window=view.window;
+    const auto exposed=supermono::PageCaptureTarget(w_,clip_left_,clip_right_,auto_resize_);
+    const bool shown=visible_ && !update_prepared_ && exposed && window && !clip_view_.hidden &&
+      (window.occlusionState & NSWindowOcclusionStateVisible);
+    const auto target=shown ? *exposed : supermono::BrowserRect{0,0,1,1};
+    auto params=Object(); params->SetString("format","png"); params->SetBool("captureBeyondViewport",false);
+    if (shown) params->SetBool("fromSurface",false);
+    CefRefPtr<Page> self=this;
+    NSView *parent=parent_;
+    const NSRect view_frame=view.frame,clip_frame=clip_view_.frame;
+    const double width=w_,height=h_,left=clip_left_,right=clip_right_;
+    const auto current=[self,shown,parent,view,view_frame,clip_frame,window,width,height,left,right]() {
+      if (self->closing_ || !self->browser_) return false;
+      return !shown || (self->visible_ && self->parent_==parent && view.window==window &&
+        self->w_==width && self->h_==height && self->clip_left_==left && self->clip_right_==right &&
+        NSEqualRects(view.frame,view_frame) && NSEqualRects(self->clip_view_.frame,clip_frame));
+    };
+    CaptureScreenshot(params,[self,request,target,shown,current](bool ok,Dict result) {
+      if (!ok) { Result(self->id_,request,false,result); return; }
+      if (!current()) { Result(self->id_,request,false,Error("The page moved or closed while capturing. Retry the screenshot.")); return; }
+      const auto data=Text(result,"data");
+      if (data.empty() || data.size()>supermono::kEditViewportMaxBase64) {
+        Result(self->id_,request,false,Error("Could not capture this page within the image limit. Make the browser pane smaller and retry.")); return;
+      }
+      NSData *source=[[NSData alloc] initWithBase64EncodedString:Ns(data) options:0];
+      uint32_t width=0,height=0;
+      // Re-encoding drops source metadata and bounds the stored image size.
+      NSData *png=supermono::CropBrowserEditImage(source,target,width,height);
+      if (!png) { Result(self->id_,request,false,Error("Could not prepare the page image. Make the browser pane smaller and retry.")); return; }
+      auto shot=Object(); shot->SetString("data",Str([png base64EncodedStringWithOptions:0]));
+      shot->SetString("mimeType","image/png"); shot->SetInt("width",width); shot->SetInt("height",height);
+      shot->SetBool("visible",shown);
+      Result(self->id_,request,true,shot);
     });
   }
   void CaptureScreenshot(Dict params,Completion callback) {

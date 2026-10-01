@@ -21,6 +21,26 @@ opening another copy. Agents inspect a snapshot and interact with elements from 
 instead of switching to another browser. Explicit requests for a different browser,
 configured browser tests, and provider sign-in flows retain their normal behavior.
 
+## Before and after screenshots
+
+When a task changes how a page looks, the agent captures the preview before
+editing and again after the change has reloaded, then shows both images in its
+reply:
+
+```sh
+"$AVEN_BROWSER_EXECUTABLE" --aven-browser \
+  '{"action":"screenshot","id":"PAGE_ID","label":"before"}'
+```
+
+The result is `{path,width,height,markdown}`. `markdown` is a ready-to-paste image
+reference; the label is optional. A pair of images labelled **Before** and
+**After** appears side by side with captions, stacked when the conversation is
+narrow. Click either image to open it larger.
+
+A page on screen is captured as you see it, without changing its size or zoom.
+A background tab is captured at its current size. Screenshots are kept in Aven's
+app data folder under `turn-shots` and deleted with their task.
+
 ## Markdown and code
 
 Ask to open a local file. The agent uses the scoped `openfile` action:

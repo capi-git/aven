@@ -62,6 +62,17 @@ inline std::optional<BrowserEditCapture> ElementCaptureClip(
   return BrowserEditCapture{clip, scale, target};
 }
 
+// Agent page screenshots crop a captured view to the part the user can see.
+// Sidebar clips are points of the full native view; floating pages ignore them.
+inline std::optional<BrowserRect> PageCaptureTarget(double width, double clip_left,
+                                                    double clip_right, bool floating) {
+  if (floating) return BrowserRect{0, 0, 1, 1};
+  if (!std::isfinite(width) || !std::isfinite(clip_left) || !std::isfinite(clip_right) ||
+      width <= 0 || clip_left < 0 || clip_right < 0 || clip_left + clip_right >= width)
+    return std::nullopt;
+  return BrowserRect{clip_left / width, 0, (width - clip_left - clip_right) / width, 1};
+}
+
 // Read actual PNG dimensions rather than predicting Chromium's pixel rounding.
 inline bool EditCapturePngDimensions(const unsigned char* bytes, size_t size,
                                      uint32_t& width, uint32_t& height) {
