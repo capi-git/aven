@@ -76,9 +76,18 @@ describe("other copy status and removal", () => {
     expect(container.textContent).not.toContain("with work");
   });
 
-  it("does not call the up-to-date main copy zero commits to merge", async () => {
+  it.each([
+    { behindDefault: 0, label: "Up to date" },
+    { behindDefault: 3, label: "Behind" },
+  ])("reports the main copy as $label", async ({ behindDefault, label }) => {
     worktrees = [
-      { ...finished, path: "/repo", branch: "main", primary: true },
+      {
+        ...finished,
+        path: "/repo",
+        branch: "main",
+        primary: true,
+        behindDefault,
+      },
       { ...finished, current: true },
     ];
     await act(async () =>
@@ -86,9 +95,7 @@ describe("other copy status and removal", () => {
         createElement(GitCopies, { cwd: "/copies/done", enabled: true }),
       ),
     );
-    expect(container.querySelector(".git-copy-pill")?.textContent).toBe(
-      "Up to date",
-    );
+    expect(container.querySelector(".git-copy-pill")?.textContent).toBe(label);
   });
 
   it("asks first, then removes the copy and refreshes the list", async () => {

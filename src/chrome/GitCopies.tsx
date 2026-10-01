@@ -231,7 +231,7 @@ export function GitCopies({ cwd, enabled }: { cwd: string; enabled: boolean }) {
                 }
                 title={
                   !copy.finished && files === 0 && worktree.aheadOfDefault > 0
-                    ? "Commit history differs from main. Changes may already be merged."
+                    ? "Commit history differs from the default branch. Changes may already be merged."
                     : undefined
                 }
               >
@@ -241,7 +241,9 @@ export function GitCopies({ cwd, enabled }: { cwd: string; enabled: boolean }) {
                     ? `${files} unsaved`
                     : worktree.aheadOfDefault > 0
                       ? `${worktree.aheadOfDefault} ${worktree.aheadOfDefault === 1 ? "commit" : "commits"}`
-                      : "Up to date"}
+                      : worktree.behindDefault > 0
+                        ? "Behind"
+                        : "Up to date"}
               </span>
             </button>
             <p className="git-copy-detail">
