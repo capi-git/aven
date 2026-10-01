@@ -68,6 +68,12 @@ describe("agent browser session connection", () => {
     );
     expect(text).not.toContain("supermono-browser");
     expect(text).toContain('"action":"snapshot"');
+    expect(text).toContain(
+      '{"action":"screenshot","id":"PAGE_ID","label":"before"} before editing and again with "label":"after" once the change has reloaded',
+    );
+    expect(text).toContain(
+      "Markdown images labelled Before and After on consecutive lines",
+    );
     expect(text).toContain("find pages first");
     expect(text).toContain('"newTab":true');
     expect(text).toContain('"action":"openfile"');

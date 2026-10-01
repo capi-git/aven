@@ -113,3 +113,65 @@ describe("AgentMarkdown note images", () => {
     expect(markup).toContain('alt="Diagram"');
   });
 });
+
+describe("AgentMarkdown before and after screenshots", () => {
+  const dir =
+    "/Users/test/Library/Application Support/com.capi.aven.dev/turn-shots/s1";
+  const before = `${dir}/1-before.png`;
+  const after = `${dir}/2-after.png`;
+  const render = (text: string) =>
+    renderToStaticMarkup(createElement(AgentMarkdown, { text }));
+  const pair = (markup: string) =>
+    markup.match(/<div class="markdown-before-after">.*?<\/figure><\/figure>/s);
+
+  it.each([
+    ["consecutive lines", `![Before](<${before}>)\n![After](<${after}>)`],
+    ["separate paragraphs", `![Before](<${before}>)\n\n![After](<${after}>)`],
+  ])("shows a pair on %s side by side with captions", (_, images) => {
+    const markup = render(`Updated the header.\n\n${images}\n\nDone.`);
+    expect(markup.match(/markdown-before-after"/g)).toHaveLength(1);
+    expect(markup).toMatch(
+      /<div class="markdown-before-after"><figure class="markdown-before-after-item"><figcaption>Before<\/figcaption><span class="markdown-local-image" data-local-image="[^"]*1-before\.png">.*?<\/figure><figure class="markdown-before-after-item"><figcaption>After<\/figcaption><span class="markdown-local-image" data-local-image="[^"]*2-after\.png">/s,
+    );
+    expect(markup).toContain(`data-local-image="${before}"`);
+    expect(markup).toContain(`data-local-image="${after}"`);
+    expect(markup).toContain("Updated the header.");
+    expect(markup).toContain("Done.");
+  });
+
+  it("keeps descriptive labels as captions", () => {
+    const markup = render(
+      `![Before: dark header](<${before}>)\n![After: light header](<${after}>)`,
+    );
+    expect(markup).toContain("<figcaption>Before: dark header</figcaption>");
+    expect(markup).toContain("<figcaption>After: light header</figcaption>");
+  });
+
+  it("leaves single images and other image pairs unchanged", () => {
+    for (const text of [
+      `![Before](<${before}>)`,
+      `![After](<${after}>)\n![Before](<${before}>)`,
+      `![Mockup](/project/a.png)\n![Other](/project/b.png)`,
+      `![Before](<${before}>) compared with ![After](<${after}>)`,
+      `![Before](<${before}>)\n\nSome text\n\n![After](<${after}>)`,
+      `\`\`\`md\n![Before](<${before}>)\n\n![After](<${after}>)\n\`\`\``,
+    ]) {
+      const markup = render(text);
+      expect(pair(markup), text).toBeNull();
+      expect(markup).not.toContain("figcaption");
+    }
+    expect(render(`![Before](<${before}>)`)).toContain(
+      `data-local-image="${before}"`,
+    );
+  });
+
+  it("does not pair remote inbox media", () => {
+    const markup = renderToStaticMarkup(
+      createElement(AgentMarkdown, {
+        text: `![Before](<${before}>)\n![After](<${after}>)`,
+        allowRemoteMedia: true,
+      }),
+    );
+    expect(markup).not.toContain("markdown-before-after");
+  });
+});

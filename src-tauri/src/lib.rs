@@ -57,6 +57,7 @@ mod shell_navigation;
 mod skills;
 mod startup_cli;
 pub use startup_cli::run_startup_cli;
+mod turn_shots;
 mod usage_panel;
 mod window;
 mod window_transfer;

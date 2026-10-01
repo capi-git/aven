@@ -69,6 +69,16 @@ int main() {
   CHECK(!ElementCaptureClip({900, 0, 100, 50}, {0, 0, 800, 500}, 0, 0, 2));
   CHECK(!ElementCaptureClip({0, 0, .1, 50}, {0, 0, 800, 500}, 0, 0, 2));
   CHECK(!ElementCaptureClip({0, 0, 100, 50}, {0, 0, 800, 500}, 0, 0, 2, .5, .5));
+  using supermono::PageCaptureTarget;
+  auto page = PageCaptureTarget(800, 200, 100, false);
+  CHECK(page && page->x == .25 && page->y == 0 && page->width == .625 && page->height == 1);
+  auto floating = PageCaptureTarget(800, 200, 100, true);
+  CHECK(floating && floating->x == 0 && floating->width == 1);
+  CHECK(PageCaptureTarget(800, 0, 0, false)->width == 1);
+  CHECK(!PageCaptureTarget(800, 400, 400, false));
+  CHECK(!PageCaptureTarget(0, 0, 0, false));
+  CHECK(!PageCaptureTarget(800, -1, 0, false));
+  CHECK(!PageCaptureTarget(std::numeric_limits<double>::quiet_NaN(), 0, 0, false));
   unsigned char header[]{137,80,78,71,13,10,26,10,0,0,0,13,'I','H','D','R',0,0,0,240,0,0,0,81};
   uint32_t width = 0, height = 0;
   CHECK(supermono::EditCapturePngDimensions(header, sizeof(header), width, height));
@@ -78,5 +88,5 @@ int main() {
   header[16] = 0; header[0] = 0;
   CHECK(!supermono::EditCapturePngDimensions(header, sizeof(header), width, height));
   CHECK(!supermono::EditCapturePngDimensions(header, 20, width, height));
-  std::cout << "Element screenshot geometry, bounds and PNG dimensions passed\n";
+  std::cout << "Element and page screenshot geometry, bounds and PNG dimensions passed\n";
 }
