@@ -21,6 +21,26 @@ opening another copy. Agents inspect a snapshot and interact with elements from 
 instead of switching to another browser. Explicit requests for a different browser,
 configured browser tests, and provider sign-in flows retain their normal behavior.
 
+## Before and after screenshots
+
+When a task changes how a page looks, the agent captures the preview before
+editing and again after the change has reloaded, then shows both images in its
+reply:
+
+```sh
+"$AVEN_BROWSER_EXECUTABLE" --aven-browser \
+  '{"action":"screenshot","id":"PAGE_ID","label":"before"}'
+```
+
+The result is `{path,width,height,markdown}`. `markdown` is a ready-to-paste image
+reference; the label is optional. A pair of images labelled **Before** and
+**After** appears side by side with captions, stacked when the conversation is
+narrow. Click either image to open it larger.
+
+A page on screen is captured as you see it, without changing its size or zoom.
+A background tab is captured at its current size. Screenshots are kept in Aven's
+app data folder under `turn-shots` and deleted with their task.
+
 ## Markdown and code
 
 Ask to open a local file. The agent uses the scoped `openfile` action:
@@ -88,6 +108,22 @@ capture can still show a covered window: activate its app, then inspect a fresh 
 or region screenshot to confirm the intended window is in front. Without `windowId`,
 use global points: `originX + x, originY + y` from the screenshot used. The help command documents all fields,
 including optional screenshot regions.
+
+When a targeted action is refused, its error identifies the first blocking
+WindowServer rectangle with bounded diagnostic metadata: window ID, owning
+process/app, layer, opacity and bounds, plus the target's local/global point.
+The normal `windows` list exposes only ordinary layer-0 windows; a menu or
+utility overlay can therefore block input without appearing in that list.
+These diagnostics contain no window titles or page content. Opacity is only
+diagnostic: a transparent window can still intercept input.
+
+Use the blocker information to resolve the actual obstruction, then activate the
+intended app and inspect a fresh display/region screenshot before retrying with
+the same observed `windowId`. Do not remove `windowId`, switch to untargeted input,
+or dismiss an unrelated app's window to bypass a refusal. If the reported blocker
+is visually absent or appears mouse-transparent, report its bounded metadata for
+investigation rather than assuming it is safe to ignore. Source changes to these
+diagnostics take effect only in a rebuilt development host or installed release.
 
 A monochrome cursor with a compact **Aven** badge animates between move, click and
 scroll targets, shows brief click or scroll feedback, and fades when idle. It ignores input and

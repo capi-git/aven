@@ -2,7 +2,7 @@
    workspace's custom palette remains the source of every control color. */
 :root,
 .personal-shell {
-  --aven-control-bg: color-mix(
+  --aven-control-solid: color-mix(
     in srgb,
     var(--color-background-base) 90%,
     var(--color-content)
@@ -13,17 +13,49 @@
     transparent
   );
   --aven-control-shadow: 0 1px 2px #0002, inset 0 1px 0 #ffffff08;
-  --aven-toolbar-surface: color-mix(
+  --aven-toolbar-solid: color-mix(
     in srgb,
     var(--color-background-base) 95%,
     var(--color-content)
   );
-  --aven-grouped-surface: color-mix(
+  --aven-grouped-solid: color-mix(
     in srgb,
     var(--color-background-base) 96%,
     var(--color-content)
   );
-  --aven-field-bg: color-mix(in srgb, var(--color-background-base) 92%, black);
+  --aven-field-solid: color-mix(
+    in srgb,
+    var(--color-background-base) 92%,
+    black
+  );
+  /* Frosted glass for panels that sit over the workspace or its wallpaper:
+     a light tint of the theme with the scene behind it blurred, instead of a
+     near-opaque block. */
+  --aven-glass-surface: color-mix(
+    in srgb,
+    var(--aven-grouped-solid) 56%,
+    transparent
+  );
+  --aven-glass-edge: color-mix(in srgb, var(--color-content) 10%, transparent);
+  --aven-glass-overlay-opacity: 76%;
+  --aven-glass-overlay: color-mix(
+    in srgb,
+    var(--aven-popup) var(--aven-glass-overlay-opacity),
+    transparent
+  );
+  --aven-glass-blur: blur(40px) saturate(125%);
+  --aven-control-bg: color-mix(
+    in srgb,
+    var(--aven-control-solid) 64%,
+    transparent
+  );
+  --aven-toolbar-surface: color-mix(
+    in srgb,
+    var(--aven-toolbar-solid) 36%,
+    transparent
+  );
+  --aven-grouped-surface: var(--aven-glass-surface);
+  --aven-field-bg: color-mix(in srgb, var(--aven-field-solid) 64%, transparent);
   --aven-focus-ring: color-mix(
     in srgb,
     var(--color-accent) 85%,
@@ -34,24 +66,33 @@
 
 html.theme-light,
 html.theme-light .personal-shell {
-  --aven-control-bg: var(--color-background-base);
+  --aven-control-solid: var(--color-background-base);
+  --aven-control-bg: var(--aven-control-solid);
   --aven-control-border: color-mix(
     in srgb,
     var(--color-content) 14%,
     transparent
   );
   --aven-control-shadow: 0 1px 2px #00000012, inset 0 1px 0 #ffffff70;
-  --aven-toolbar-surface: color-mix(
+  --aven-toolbar-solid: color-mix(
     in srgb,
     var(--color-background-base) 97%,
     var(--color-content)
   );
-  --aven-grouped-surface: color-mix(
+  --aven-toolbar-surface: var(--aven-toolbar-solid);
+  --aven-grouped-solid: color-mix(
     in srgb,
     var(--color-background-base) 96%,
     var(--color-content)
   );
-  --aven-field-bg: var(--color-background-base);
+  --aven-grouped-surface: var(--aven-grouped-solid);
+  --aven-field-solid: var(--color-background-base);
+  --aven-field-bg: var(--aven-field-solid);
+  --aven-glass-surface: var(--aven-grouped-solid);
+  --aven-glass-overlay: var(--aven-popup);
+  --aven-glass-overlay-opacity: 100%;
+  --aven-glass-blur: none;
+  --aven-glass-edge: color-mix(in srgb, var(--color-content) 12%, transparent);
   --aven-shadow: 0 16px 48px #0000001a, 0 2px 8px #00000012;
 }
 
@@ -78,6 +119,155 @@ textarea {
   accent-color: var(--color-accent);
 }
 
+/* Frost whole surfaces, rather than adding a compositor layer for every
+   button or row. Their controls inherit the same translucent material. */
+html:not(.theme-light)
+  :is(.personal-shell, .detached-workspace)
+  :is(
+    .settings-group-surface,
+    .settings-provider-card,
+    .settings-shortcuts-table,
+    .personal-activity-phase,
+    [data-streamdown="code-block"],
+    [data-streamdown="table-wrapper"],
+    .settings-toolbar,
+    .workspace-inspector-header,
+    .workspace-footer,
+    .browser-toolbar,
+    .browser-downloads,
+    .directory-view-header,
+    .directory-view-footer,
+    .file-editor-status,
+    .pdf-viewer-toolbar
+  ) {
+  -webkit-backdrop-filter: var(--aven-glass-blur);
+  backdrop-filter: var(--aven-glass-blur);
+}
+
+/* Native web content paints inside its own host, leaving Aven's toolbar on
+   the workspace material rather than on an opaque full-pane rectangle. */
+html:not(.theme-light) :is(.personal-shell, .detached-workspace) .browser-pane {
+  background: transparent;
+}
+
+html:not(.theme-light) .detached-workspace {
+  background: var(--aven-glass-surface);
+}
+
+html:not(.theme-light)
+  .detached-workspace
+  :is(.detached-workspace-toolbar, .detached-workspace-tabs) {
+  background: var(--aven-toolbar-surface);
+  -webkit-backdrop-filter: var(--aven-glass-blur);
+  backdrop-filter: var(--aven-glass-blur);
+}
+
+html:not(.theme-light)
+  .detached-workspace
+  :is(
+    .personal-user-bubble,
+    .personal-transcript-notice,
+    .personal-composer [data-composer-box]
+  ) {
+  background: var(--aven-glass-surface);
+  border-color: var(--aven-glass-edge);
+  -webkit-backdrop-filter: var(--aven-glass-blur);
+  backdrop-filter: var(--aven-glass-blur);
+}
+
+/* Expanded tool cards already own the frost; their code and tables only
+   add a tint, rather than a second filter over the scrolling transcript. */
+html:not(.theme-light)
+  :is(.personal-shell, .detached-workspace)
+  .personal-activity-phase
+  :is([data-streamdown="code-block"], [data-streamdown="table-wrapper"]) {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+html:not(.theme-light)
+  .personal-shell
+  .personal-inspector-slot[data-floating="true"]
+  .workspace-inspector-header {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+html:not(.theme-light)
+  .personal-shell
+  .personal-inspector-slot[data-floating="true"]
+  > .personal-inspector-dock {
+  background: transparent;
+}
+
+html:not(.theme-light)
+  :is(.personal-shell, .detached-workspace)
+  :is(.cm-tooltip, .cm-panel.cm-find) {
+  background: var(--aven-glass-overlay);
+  -webkit-backdrop-filter: var(--aven-glass-blur);
+  backdrop-filter: var(--aven-glass-blur);
+}
+
+/* A floating sidebar/inspector sits above the workspace. Pinned panels keep
+   using the window's native glass and the user's opacity preference. */
+html:not(.theme-light)
+  .personal-shell
+  .personal-sidebar-slot[data-floating="true"]
+  > .personal-sidebar.sidebar-glass,
+html:not(.theme-light)
+  .personal-shell
+  .personal-inspector-slot[data-floating="true"]
+  .workspace-inspector {
+  background: var(--aven-glass-overlay);
+  border-radius: inherit;
+  -webkit-backdrop-filter: var(--aven-glass-blur);
+  backdrop-filter: var(--aven-glass-blur);
+}
+
+/* DOM menus share the frost. Separate native menu windows carry an opaque
+   workspace palette: a CSS filter cannot sample the window underneath them. */
+html:not(.theme-light)
+  :is(
+    .popover-backdrop,
+    .modal-panel[role="dialog"],
+    .workspace-action-dialog,
+    .settings-search-results,
+    .workspace-theme-popover
+  ) {
+  background: var(--aven-glass-overlay);
+  -webkit-backdrop-filter: var(--aven-glass-blur);
+  backdrop-filter: var(--aven-glass-blur);
+}
+
+/* Browser menu content already contains a ToolbarPanel; only that card owns
+   the material, avoiding two stacked tints and two backdrop filters. */
+html:not(.theme-light) .aven-popover-panel-content.browser-actions-menu {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+html:not(.theme-light):not(.access-panel-window):not(.usage-panel-window):not(
+    .workspace-menu-panel-window
+  )
+  .toolbar-panel:not([data-theme="light"]) {
+  background: color-mix(
+    in srgb,
+    var(--toolbar-panel-bg) var(--aven-glass-overlay-opacity),
+    transparent
+  );
+  -webkit-backdrop-filter: var(--aven-glass-blur);
+  backdrop-filter: var(--aven-glass-blur);
+}
+
+html:not(.theme-light)
+  .personal-shell
+  :is([data-app-notes], [data-app-search], [data-app-inbox])
+  > [data-tauri-drag-region] {
+  -webkit-backdrop-filter: var(--aven-glass-blur);
+  backdrop-filter: var(--aven-glass-blur);
+}
+
 @media (prefers-contrast: more) {
   :root,
   .personal-shell,
@@ -93,10 +283,25 @@ textarea {
     --personal-line: var(--aven-line);
     --personal-sidebar-edge: var(--aven-line);
     --personal-muted: var(--aven-muted);
+    --aven-glass-edge: var(--aven-line);
   }
 }
 
-@media (prefers-reduced-transparency: reduce) {
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root,
+  .personal-shell,
+  html.theme-light,
+  html.theme-light .personal-shell {
+    --aven-control-bg: var(--aven-control-solid);
+    --aven-toolbar-surface: var(--aven-toolbar-solid);
+    --aven-grouped-surface: var(--aven-grouped-solid);
+    --aven-field-bg: var(--aven-field-solid);
+    --aven-glass-surface: var(--aven-grouped-solid);
+    --aven-glass-overlay: var(--aven-popup);
+    --aven-glass-overlay-opacity: 100%;
+    --aven-glass-blur: none;
+  }
+
   html.has-native-glass:not(.theme-light),
   html.has-native-glass:not(.theme-light) body,
   html.has-native-glass:not(.theme-light) #root {
@@ -132,8 +337,25 @@ textarea {
 
   .popover-backdrop,
   .modal-panel,
-  .personal-composer {
+  .personal-composer,
+  .personal-composer [data-composer-box] {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
+  }
+}
+
+@supports not (
+  (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
+) {
+  :root,
+  .personal-shell {
+    --aven-control-bg: var(--aven-control-solid);
+    --aven-toolbar-surface: var(--aven-toolbar-solid);
+    --aven-grouped-surface: var(--aven-grouped-solid);
+    --aven-field-bg: var(--aven-field-solid);
+    --aven-glass-surface: var(--aven-grouped-solid);
+    --aven-glass-overlay: var(--aven-popup);
+    --aven-glass-overlay-opacity: 100%;
+    --aven-glass-blur: none;
   }
 }

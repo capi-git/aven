@@ -62,6 +62,7 @@ unsafe extern "C" {
     static kCGWindowOwnerPID: Cf;
     static kCGWindowName: Cf;
     static kCGWindowLayer: Cf;
+    static kCGWindowAlpha: Cf;
     static kCGWindowBounds: Cf;
     fn CGEventCreateMouseEvent(source: Cf, kind: u32, position: Point, button: u32) -> Event;
     fn CGEventCreateKeyboardEvent(source: Cf, key: u16, down: bool) -> Event;
@@ -102,7 +103,7 @@ unsafe extern "C" {
     fn CFNumberGetTypeID() -> usize;
     fn CFStringGetTypeID() -> usize;
     fn CFDictionaryGetTypeID() -> usize;
-    fn CFNumberGetValue(number: Cf, kind: isize, output: *mut i64) -> bool;
+    fn CFNumberGetValue(number: Cf, kind: isize, output: *mut c_void) -> bool;
 }
 
 #[link(name = "AppKit", kind = "framework")]
@@ -188,7 +189,19 @@ unsafe fn number(dictionary: Cf, key: Cf) -> Option<i64> {
     }
     let mut output = 0;
     // kCFNumberSInt64Type = 4. The destination matches its exact C width.
-    CFNumberGetValue(value, 4, &mut output).then_some(output)
+    CFNumberGetValue(value, 4, std::ptr::from_mut(&mut output).cast()).then_some(output)
+}
+
+unsafe fn floating_number(dictionary: Cf, key: Cf) -> Option<f64> {
+    let value = CFDictionaryGetValue(dictionary, key);
+    if value.is_null() || CFGetTypeID(value) != CFNumberGetTypeID() {
+        return None;
+    }
+    let mut output = 0.0_f64;
+    // kCFNumberDoubleType = 13. The destination matches its exact C width.
+    CFNumberGetValue(value, 13, std::ptr::from_mut(&mut output).cast())
+        .then_some(output)
+        .filter(|value| value.is_finite())
 }
 
 unsafe fn text(dictionary: Cf, key: Cf, max: usize) -> String {
@@ -291,11 +304,61 @@ const INPUT_WINDOW_UNAVAILABLE: &str =
     "Could not verify the target window's visibility. Run windows and take a fresh screenshot before retrying; do not remove windowId to bypass this check.";
 const INPUT_WINDOW_OBSCURED: &str =
     "Another window covers the target point. Bring the intended window forward, observe it again, and retry with its windowId; no input was sent.";
+const INPUT_APP_NAME_LIMIT: usize = 160;
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct InputWindow {
     window_id: u32,
     bounds: Region,
+    // Diagnostic metadata is optional and never decides whether input is safe.
+    // In particular, alpha 0, another window in the same app, and utility layers
+    // still obstruct input. Window titles and contents are deliberately absent.
+    pid: Option<i32>,
+    app: String,
+    layer: Option<i32>,
+    alpha: Option<f64>,
+}
+
+fn input_app_name(value: &str) -> String {
+    value
+        .chars()
+        .filter(|character| {
+            !character.is_control()
+                && !matches!(
+                    character,
+                    '\u{061c}' | '\u{200b}'..='\u{200f}' | '\u{2028}'..='\u{202e}'
+                        | '\u{2060}'..='\u{206f}' | '\u{feff}'
+                )
+        })
+        .take(INPUT_APP_NAME_LIMIT)
+        .collect()
+}
+
+fn obscured_input_error(target: u32, local: Point, global: Point, blocker: &InputWindow) -> String {
+    // A compact, bounded snapshot identifies the first actual blocker. Unknown
+    // metadata stays null; metadata must never hide an obstruction. JSON quotes
+    // the app label, and sanitizing it again keeps future callers bounded too.
+    let details = json!({
+        "target": {
+            "windowId": target,
+            "localPoint": {"x": local.x, "y": local.y},
+            "globalPoint": {"x": global.x, "y": global.y},
+        },
+        "blocker": {
+            "windowId": blocker.window_id,
+            "pid": blocker.pid,
+            "app": input_app_name(&blocker.app),
+            "layer": blocker.layer,
+            "alpha": blocker.alpha.filter(|value| value.is_finite()),
+            "bounds": {
+                "x": blocker.bounds.x,
+                "y": blocker.bounds.y,
+                "width": blocker.bounds.width,
+                "height": blocker.bounds.height,
+            },
+        },
+    });
+    format!("{INPUT_WINDOW_OBSCURED} Obstruction: {details}")
 }
 
 /// CoreGraphics returns OnScreenOnly windows from front to back. Include every
@@ -339,7 +402,16 @@ fn input_window_stack(target: u32) -> Result<Vec<InputWindow>, String> {
                 continue;
             }
             bounds.validate().map_err(|_| INPUT_WINDOW_UNAVAILABLE)?;
-            result.push(InputWindow { window_id, bounds });
+            result.push(InputWindow {
+                window_id,
+                bounds,
+                pid: number(item, kCGWindowOwnerPID)
+                    .and_then(|value| i32::try_from(value).ok())
+                    .filter(|pid| *pid > 0),
+                app: input_app_name(&text(item, kCGWindowOwnerName, INPUT_APP_NAME_LIMIT)),
+                layer: number(item, kCGWindowLayer).and_then(|value| i32::try_from(value).ok()),
+                alpha: floating_number(item, kCGWindowAlpha),
+            });
             // Windows behind the target cannot intercept this targeted point.
             if window_id == target {
                 break;
@@ -371,6 +443,7 @@ fn target_point_ignoring_cursor(
         .find(|window| window.window_id == target)
         .map(|window| window.bounds)
         .ok_or(INPUT_WINDOW_UNAVAILABLE)?;
+    let local = Point { x, y };
     let (x, y) = global_point(x, y, Some(bounds))?;
     for window in windows {
         // Only this exact mouse-transparent visualization is exempt. Dialogs,
@@ -391,7 +464,7 @@ fn target_point_ignoring_cursor(
             return if window.window_id == target {
                 Ok(Point { x, y })
             } else {
-                Err(INPUT_WINDOW_OBSCURED.into())
+                Err(obscured_input_error(target, local, Point { x, y }, window))
             };
         }
     }
@@ -1399,19 +1472,53 @@ mod tests {
                 width,
                 height,
             },
+            pid: Some(1000),
+            app: "Example app".into(),
+            layer: Some(0),
+            alpha: Some(1.0),
         }
+    }
+
+    fn obstruction_details(error: &str) -> serde_json::Value {
+        let details = error
+            .strip_prefix(&format!("{INPUT_WINDOW_OBSCURED} Obstruction: "))
+            .expect("the existing safe recovery guidance must precede diagnostics");
+        serde_json::from_str(details).expect("obstruction diagnostics must be valid compact JSON")
+    }
+
+    #[test]
+    fn obstruction_alpha_parser_retains_real_core_foundation_fractional_values() {
+        objc2::rc::autoreleasepool(|_| unsafe {
+            let alpha_key = &*kCGWindowAlpha.cast::<NSString>();
+            let layer_key = &*kCGWindowLayer.cast::<NSString>();
+            let alpha = NSNumber::numberWithDouble(0.375);
+            let layer = NSNumber::numberWithInt(24);
+            let dictionary =
+                NSDictionary::from_slices(&[alpha_key, layer_key], &[&*alpha, &*layer]);
+            let dictionary = Retained::as_ptr(&dictionary).cast();
+            assert_eq!(floating_number(dictionary, kCGWindowAlpha), Some(0.375));
+            assert_eq!(number(dictionary, kCGWindowLayer), Some(24));
+            assert_eq!(floating_number(dictionary, kCGWindowOwnerPID), None);
+
+            let invalid = NSNumber::numberWithDouble(f64::NAN);
+            let dictionary = NSDictionary::from_slices(&[alpha_key], &[&*invalid]);
+            assert_eq!(
+                floating_number(Retained::as_ptr(&dictionary).cast(), kCGWindowAlpha),
+                None
+            );
+        });
     }
 
     #[test]
     fn targeted_input_uses_frontmost_window_at_the_point_not_just_matching_bounds() {
         let target = input_window(10, 100.0, 200.0, 300.0, 200.0);
         let overlapping = input_window(20, 110.0, 205.0, 50.0, 50.0);
-        let point = target_point_in_stack(20.0, 10.0, 10, &[target, overlapping]).unwrap();
+        let point =
+            target_point_in_stack(20.0, 10.0, 10, &[target.clone(), overlapping.clone()]).unwrap();
         assert_eq!((point.x, point.y), (120.0, 210.0));
-        assert_eq!(
-            target_point_in_stack(20.0, 10.0, 10, &[overlapping, target]).unwrap_err(),
-            INPUT_WINDOW_OBSCURED,
-        );
+        let error = target_point_in_stack(20.0, 10.0, 10, &[overlapping.clone(), target.clone()])
+            .unwrap_err();
+        assert_eq!(obstruction_details(&error)["blocker"]["windowId"], 20);
         // A partially covered window is still usable at its uncovered points.
         let point = target_point_in_stack(200.0, 100.0, 10, &[overlapping, target]).unwrap();
         assert_eq!((point.x, point.y), (300.0, 300.0));
@@ -1423,10 +1530,9 @@ mod tests {
         // The stack includes nonzero-layer windows such as menus and dialogs;
         // there is deliberately no layer or application exemption in the guard.
         let overlay = input_window(99, 0.0, 0.0, 1000.0, 1000.0);
-        assert_eq!(
-            target_point_in_stack(20.0, 10.0, 10, &[overlay, target]).unwrap_err(),
-            INPUT_WINDOW_OBSCURED,
-        );
+        let error =
+            target_point_in_stack(20.0, 10.0, 10, &[overlay.clone(), target.clone()]).unwrap_err();
+        assert_eq!(obstruction_details(&error)["blocker"]["windowId"], 99);
         let unknown = input_window(99, f64::NAN, 0.0, 1000.0, 1000.0);
         assert_eq!(
             target_point_in_stack(20.0, 10.0, 10, &[unknown, target]).unwrap_err(),
@@ -1443,37 +1549,136 @@ mod tests {
         let target = input_window(10, 100.0, 200.0, 300.0, 200.0);
         let cursor = input_window(99, 110.0, 205.0, 80.0, 50.0);
         let menu = input_window(100, 110.0, 205.0, 80.0, 50.0);
-        let point =
-            target_point_ignoring_cursor(20.0, 10.0, 10, &[cursor, target], Some(99)).unwrap();
+        let point = target_point_ignoring_cursor(
+            20.0,
+            10.0,
+            10,
+            &[cursor.clone(), target.clone()],
+            Some(99),
+        )
+        .unwrap();
         assert_eq!((point.x, point.y), (120.0, 210.0));
-        for stack in [vec![cursor, menu, target], vec![menu, cursor, target]] {
-            assert_eq!(
-                target_point_ignoring_cursor(20.0, 10.0, 10, &stack, Some(99)).unwrap_err(),
-                INPUT_WINDOW_OBSCURED,
-            );
+        for stack in [
+            vec![cursor.clone(), menu.clone(), target.clone()],
+            vec![menu, cursor.clone(), target.clone()],
+        ] {
+            let error = target_point_ignoring_cursor(20.0, 10.0, 10, &stack, Some(99)).unwrap_err();
+            assert_eq!(obstruction_details(&error)["blocker"]["windowId"], 100);
         }
-        assert_eq!(
-            target_point_ignoring_cursor(20.0, 10.0, 10, &[cursor, target], Some(98)).unwrap_err(),
-            INPUT_WINDOW_OBSCURED,
-        );
+        let error =
+            target_point_ignoring_cursor(20.0, 10.0, 10, &[cursor, target], Some(98)).unwrap_err();
+        assert_eq!(obstruction_details(&error)["blocker"]["windowId"], 99);
     }
 
     #[test]
     fn targeted_input_enforces_half_open_bounds_and_negative_display_origins() {
         let target = input_window(10, -500.0, -100.0, 300.0, 200.0);
-        let point = target_point_in_stack(0.0, 0.0, 10, &[target]).unwrap();
+        let point = target_point_in_stack(0.0, 0.0, 10, std::slice::from_ref(&target)).unwrap();
         assert_eq!((point.x, point.y), (-500.0, -100.0));
         for (x, y) in [(-1.0, 0.0), (0.0, -1.0), (300.0, 0.0), (0.0, 200.0)] {
-            assert!(target_point_in_stack(x, y, 10, &[target]).is_err());
+            assert!(target_point_in_stack(x, y, 10, std::slice::from_ref(&target)).is_err());
         }
         let overlay = input_window(20, -490.0, -90.0, 10.0, 10.0);
-        assert_eq!(
-            target_point_in_stack(10.0, 10.0, 10, &[overlay, target]).unwrap_err(),
-            INPUT_WINDOW_OBSCURED,
-        );
+        let error =
+            target_point_in_stack(10.0, 10.0, 10, &[overlay.clone(), target.clone()]).unwrap_err();
+        assert_eq!(obstruction_details(&error)["blocker"]["windowId"], 20);
         for (x, y) in [(20.0, 10.0), (10.0, 20.0)] {
-            assert!(target_point_in_stack(x, y, 10, &[overlay, target]).is_ok());
+            assert!(target_point_in_stack(x, y, 10, &[overlay.clone(), target.clone()]).is_ok());
         }
+    }
+
+    #[test]
+    fn obstruction_reports_first_covering_window_and_local_global_coordinates() {
+        let target = input_window(10, -500.0, 200.0, 300.0, 200.0);
+        let unrelated = input_window(80, 0.0, 0.0, 20.0, 20.0);
+        let first = InputWindow {
+            pid: Some(456),
+            app: "System Utility".into(),
+            layer: Some(24),
+            alpha: Some(0.375),
+            ..input_window(90, -490.0, 205.0, 80.0, 50.0)
+        };
+        let later = input_window(91, -490.0, 205.0, 80.0, 50.0);
+        let error =
+            target_point_in_stack(20.0, 10.0, 10, &[unrelated, first, later, target]).unwrap_err();
+        let details = obstruction_details(&error);
+        assert_eq!(
+            details["target"],
+            json!({"windowId": 10, "localPoint": {"x": 20.0, "y": 10.0}, "globalPoint": {"x": -480.0, "y": 210.0}})
+        );
+        assert_eq!(
+            details["blocker"],
+            json!({"windowId": 90, "pid": 456, "app": "System Utility", "layer": 24, "alpha": 0.375, "bounds": {"x": -490.0, "y": 205.0, "width": 80.0, "height": 50.0}})
+        );
+        assert!(
+            !error.contains("91"),
+            "later windows must not replace the first blocker"
+        );
+        assert!(!error.contains("title") && !error.contains("content"));
+    }
+
+    #[test]
+    fn transparent_same_app_and_utility_windows_still_obstruct_input() {
+        let target = input_window(10, 100.0, 200.0, 300.0, 200.0);
+        for (layer, alpha) in [(0, 0.0), (24, 0.05), (-1, 1.0)] {
+            let blocker = InputWindow {
+                layer: Some(layer),
+                alpha: Some(alpha),
+                ..input_window(20, 110.0, 205.0, 50.0, 50.0)
+            };
+            assert_eq!(blocker.pid, target.pid);
+            assert_eq!(blocker.app, target.app);
+            let error =
+                target_point_in_stack(20.0, 10.0, 10, &[blocker, target.clone()]).unwrap_err();
+            let details = obstruction_details(&error);
+            assert_eq!(details["blocker"]["windowId"], 20);
+            assert_eq!(details["blocker"]["layer"], layer);
+            assert_eq!(details["blocker"]["alpha"], alpha);
+        }
+    }
+
+    #[test]
+    fn obstruction_labels_are_bounded_sanitized_and_unknown_metadata_stays_null() {
+        let target = input_window(10, 100.0, 200.0, 300.0, 200.0);
+        let blocker = InputWindow {
+            pid: None,
+            app: format!(
+                "Aven\n\t\0\u{061c}\u{202e}\u{2066}\u{feff}{}",
+                "😀".repeat(1000)
+            ),
+            layer: None,
+            alpha: Some(f64::NAN),
+            ..input_window(20, 110.0, 205.0, 50.0, 50.0)
+        };
+        let error = target_point_in_stack(20.0, 10.0, 10, &[blocker, target]).unwrap_err();
+        let details = obstruction_details(&error);
+        let app = details["blocker"]["app"].as_str().unwrap();
+        assert!(app.starts_with("Aven"));
+        assert_eq!(app.chars().count(), INPUT_APP_NAME_LIMIT);
+        assert!(app.chars().all(|character| !character.is_control()));
+        assert!(!app.contains('\u{202e}') && !app.contains('\u{2066}'));
+        assert!(!app.contains('\u{061c}') && !app.contains('\u{feff}'));
+        assert!(details["blocker"]["pid"].is_null());
+        assert!(details["blocker"]["layer"].is_null());
+        assert!(details["blocker"]["alpha"].is_null());
+        assert!(error.len() < 2048, "error metadata must remain bounded");
+    }
+
+    #[test]
+    fn post_animation_recheck_preserves_the_new_obstruction_diagnostics() {
+        let window = input_window(10, 100.0, 200.0, 300.0, 200.0);
+        let point = target_point_in_stack(20.0, 10.0, 10, std::slice::from_ref(&window)).unwrap();
+        let before = InputTarget {
+            point,
+            bounds: Some(window.bounds),
+        };
+        let blocker = input_window(20, 110.0, 205.0, 50.0, 50.0);
+        let error = target_point_in_stack(20.0, 10.0, 10, &[blocker, window]).unwrap_err();
+        assert_eq!(
+            unchanged_target(before, Err(error.clone())).unwrap_err(),
+            error
+        );
+        assert_eq!(obstruction_details(&error)["blocker"]["windowId"], 20);
     }
 
     #[test]

@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
-import { act, createElement, useState } from "react";
+import { act, createElement, Fragment, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsView } from "./SettingsView";
+import { SettingsNav } from "../chrome/SettingsRail";
 import {
   loadFollowUpBehavior,
   loadNotesEnabled,
@@ -11,6 +12,7 @@ import {
   subscribeBrowserMemorySaver,
   type SettingsSectionId,
 } from "../lib/settings";
+import { loadGitFinishBehavior } from "../lib/gitPreference";
 import {
   loadWorkspaceTheme,
   saveWorkspaceTheme,
@@ -68,13 +70,14 @@ function ControlledSettings({
   const [section, setSection] = useState(initial);
   externalSelectSection = setSection;
   useActivateWorkspaceTheme("work");
-  return createElement(SettingsView, {
+  const onSelect = (next: SettingsSectionId) => {
+    onSection(next);
+    setSection(next);
+  };
+  const view = createElement(SettingsView, {
     section,
     workspaceName: "Work",
-    onSelectSection: (next) => {
-      onSection(next);
-      setSection(next);
-    },
+    onSelectSection: onSelect,
     cwd: "/fixture/project",
     sessions: [],
     besideRail,
@@ -85,6 +88,23 @@ function ControlledSettings({
     onDeleteSession: noop,
     onOpenWhatsNew: noop,
   });
+  if (!besideRail) return view;
+  // Beside the rail, the app's project rail hosts the navigation and search,
+  // wired to the same section callback as the settings page.
+  return createElement(
+    Fragment,
+    null,
+    createElement(
+      "aside",
+      { "data-testid": "project-rail" },
+      createElement(SettingsNav, {
+        section,
+        onSelect,
+        onClose: () => onClose(),
+      }),
+    ),
+    view,
+  );
 }
 
 beforeEach(() => {
@@ -121,16 +141,21 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function mount(initial: SettingsSectionId = "general") {
+async function mount(
+  initial: SettingsSectionId = "general",
+  besideRail = false,
+) {
   await act(async () =>
-    root.render(createElement(ControlledSettings, { initial })),
+    root.render(createElement(ControlledSettings, { initial, besideRail })),
   );
 }
 
 function searchInput() {
-  return container.querySelector<HTMLInputElement>(
+  const inputs = container.querySelectorAll<HTMLInputElement>(
     'input[aria-label="Search settings"]',
-  )!;
+  );
+  expect(inputs).toHaveLength(1);
+  return inputs[0];
 }
 
 async function search(value: string) {
@@ -166,10 +191,22 @@ async function click(target: HTMLElement) {
   });
 }
 
+function sectionList() {
+  return container.querySelector<HTMLElement>(
+    'nav[aria-label="Settings sections"]',
+  );
+}
+
+function resultList() {
+  return container.querySelector<HTMLElement>(
+    'nav[aria-label="Settings search results"]',
+  );
+}
+
 async function section(name: string) {
   await click(
-    container.querySelector<HTMLButtonElement>(
-      `nav[aria-label="Settings sections"] button[aria-label="${name}"]`,
+    sectionList()!.querySelector<HTMLButtonElement>(
+      `button[aria-label="${name}"]`,
     )!,
   );
 }
@@ -177,9 +214,19 @@ async function section(name: string) {
 function result(label: string) {
   return [
     ...container.querySelectorAll<HTMLButtonElement>(
-      '[aria-label="Settings search results"] button',
+      'nav[aria-label="Settings search results"] button',
     ),
-  ].find((button) => button.querySelector("strong")?.textContent === label)!;
+  ].find(
+    (button) =>
+      button.querySelector(".settings-nav__label")?.textContent === label,
+  )!;
+}
+
+function focusIsWithin(element: HTMLElement) {
+  return (
+    document.activeElement === element ||
+    element.contains(document.activeElement)
+  );
 }
 
 describe("settings navigation", () => {
@@ -218,14 +265,24 @@ describe("settings navigation", () => {
         container.querySelector('[role="region"][aria-label="Settings"]'),
       ).not.toBeNull();
       expect(container.querySelector("h1")?.textContent).toBe("General");
+      // Exactly one navigation: the page's own, or the rail's beside it.
+      expect(
+        container.querySelectorAll('nav[aria-label="Settings sections"]'),
+      ).toHaveLength(1);
+      expect(
+        container.querySelector(
+          '[role="region"][aria-label="Settings"] nav[aria-label="Settings sections"]',
+        ) === null,
+      ).toBe(besideRail);
 
-      if (besideRail) {
-        await act(async () => externalSelectSection("appearance"));
-      } else {
-        await section("Appearance");
-        expect(onSection).toHaveBeenLastCalledWith("appearance");
-      }
+      await section("Appearance");
+      expect(onSection).toHaveBeenLastCalledWith("appearance");
       expect(container.querySelector("h1")?.textContent).toBe("Appearance");
+      expect(
+        sectionList()
+          ?.querySelector('[aria-current="page"]')
+          ?.getAttribute("aria-label"),
+      ).toBe("Appearance");
       await key(searchInput(), "Escape");
       expect(onClose).toHaveBeenCalledOnce();
     },
@@ -246,40 +303,103 @@ describe("settings navigation", () => {
       idleUpdate.developmentBuild = false;
     }
   });
-  it("opens a searched category and places keyboard focus at the requested setting", async () => {
+
+  it("groups the sections under five labels in order", async () => {
     await mount();
-    await search("match sidebars");
-    await click(result("Match sidebars to workspace"));
-    expect(onSection).toHaveBeenLastCalledWith("appearance");
-    expect(container.querySelector("h1")?.textContent).toBe("Appearance");
-    expect(searchInput().value).toBe("");
     expect(
-      container.querySelector('[aria-label="Settings search results"]'),
-    ).toBeNull();
-    const destination = container.querySelector<HTMLElement>(
-      "#setting-match-sidebars-to-workspace",
-    )!;
-    expect(destination).not.toBeNull();
-    expect(
-      document.activeElement === destination ||
-        destination.contains(document.activeElement),
-    ).toBe(true);
-    // happy-dom permits focus on an ordinary div; real browsers require a
-    // focusable element or an explicit programmatic tabindex destination.
-    expect(
-      document.activeElement?.matches(
-        "button, input, select, textarea, a[href], [tabindex]",
+      [...sectionList()!.querySelectorAll(".settings-nav__group")].map(
+        (group) => group.textContent,
       ),
-    ).toBe(true);
-    expect(destination.dataset.searchMatch).toBe("true");
-    expect(onClose).not.toHaveBeenCalled();
+    ).toEqual(["Personal", "Agents", "Coding", "Integrations", "Archived"]);
+    expect(
+      [...sectionList()!.querySelectorAll("button")].map((button) =>
+        button.getAttribute("aria-label"),
+      ),
+    ).toEqual([
+      "General",
+      "Appearance",
+      "Notifications",
+      "Keyboard shortcuts",
+      "Provider setup",
+      "Providers & models",
+      "Tasks & review",
+      "Skills & tools",
+      "Git",
+      "Connections",
+      "Browser",
+      "Archive",
+    ]);
+  });
+
+  it.each([false, true])(
+    "opens a searched category and places keyboard focus at the requested setting with besideRail=%s",
+    async (besideRail) => {
+      await mount("general", besideRail);
+      await search("match sidebars");
+      await click(result("Match sidebars to workspace"));
+      expect(onSection).toHaveBeenLastCalledWith("appearance");
+      expect(container.querySelector("h1")?.textContent).toBe("Appearance");
+      expect(searchInput().value).toBe("");
+      expect(resultList()).toBeNull();
+      expect(sectionList()).not.toBeNull();
+      const destination = container.querySelector<HTMLElement>(
+        "#setting-match-sidebars-to-workspace",
+      )!;
+      expect(destination).not.toBeNull();
+      expect(focusIsWithin(destination)).toBe(true);
+      // happy-dom permits focus on an ordinary div; real browsers require a
+      // focusable element or an explicit programmatic tabindex destination.
+      expect(
+        document.activeElement?.matches(
+          "button, input, select, textarea, a[href], [tabindex]",
+        ),
+      ).toBe(true);
+      expect(destination.dataset.searchMatch).toBe("true");
+      expect(onClose).not.toHaveBeenCalled();
+    },
+  );
+
+  it("finds the Git setting for a pull request search and focuses its row", async () => {
+    await mount();
+    await search("pull request");
+    const git = result("When an agent finishes");
+    expect(git).toBeDefined();
+    expect(git.querySelector("small")?.textContent).toBe("Git");
+    await click(git);
+    expect(onSection).toHaveBeenLastCalledWith("git");
+    expect(container.querySelector("h1")?.textContent).toBe("Git");
+    const row = container.querySelector<HTMLElement>(
+      "#setting-when-an-agent-finishes",
+    )!;
+    expect(row).not.toBeNull();
+    expect(focusIsWithin(row)).toBe(true);
+    expect(row.dataset.searchMatch).toBe("true");
+
+    const select = () =>
+      container.querySelector<HTMLButtonElement>(
+        '#setting-when-an-agent-finishes [role="combobox"][aria-label="When an agent finishes"]',
+      )!;
+    expect(select().textContent).toBe("Follow the project");
+    await key(select(), "End");
+    await key(select(), "Enter");
+    expect(loadGitFinishBehavior()).toBe("pr");
+    expect(localStorage.getItem("aven.gitFinishBehavior")).toBe("pr");
+    await section("General");
+    await section("Git");
+    expect(select().textContent).toBe("Open a pull request");
+    await key(select(), "Home");
+    await key(select(), "Enter");
+    expect(localStorage.getItem("aven.gitFinishBehavior")).toBeNull();
+    expect(select().textContent).toBe("Follow the project");
   });
 
   it("resets category scrolling but preserves the current position while editing search", async () => {
     await mount();
     const scroll = container.querySelector<HTMLElement>(".settings-scroll")!;
     scroll.scrollTop = 650;
-    await search("color");
+    const input = await search("color");
+    expect(scroll.scrollTop).toBe(650);
+    await key(input, "Escape");
     expect(scroll.scrollTop).toBe(650);
     await section("Appearance");
     expect(scroll.scrollTop).toBe(0);
@@ -289,25 +409,14 @@ describe("settings navigation", () => {
     expect(container.querySelector("h1")?.textContent).toBe("General");
   });
 
-  it("dismisses search when the external sidebar changes category without reviving an old focus destination", async () => {
+  it("keeps an unpicked search when the external sidebar changes category without reviving an old focus destination", async () => {
     await mount();
-    await search("match sidebars");
-    await act(async () => externalSelectSection("appearance"));
-    expect(container.querySelector("h1")?.textContent).toBe("Appearance");
-    expect(searchInput().value).toBe("");
-    expect(
-      container.querySelector('[aria-label="Settings search results"]'),
-    ).toBeNull();
-
     await search("follow-up behavior");
     await click(result("Follow-up behavior"));
     const destination = container.querySelector<HTMLElement>(
       "#setting-follow-up-behavior",
     )!;
-    expect(
-      document.activeElement === destination ||
-        destination.contains(document.activeElement),
-    ).toBe(true);
+    expect(focusIsWithin(destination)).toBe(true);
     expect(destination.dataset.searchMatch).toBe("true");
 
     await act(async () => externalSelectSection("appearance"));
@@ -316,13 +425,23 @@ describe("settings navigation", () => {
       "#setting-follow-up-behavior",
     )!;
     expect(revisited.dataset.searchMatch).toBeUndefined();
-    expect(
-      document.activeElement === revisited ||
-        revisited.contains(document.activeElement),
-    ).toBe(false);
+    expect(focusIsWithin(revisited)).toBe(false);
     expect(
       container.querySelector<HTMLElement>(".settings-scroll")?.scrollTop,
     ).toBe(0);
+
+    // An unpicked query stays put across an external change and names no
+    // destination until a result is picked.
+    await search("match sidebars");
+    await act(async () => externalSelectSection("appearance"));
+    expect(container.querySelector("h1")?.textContent).toBe("Appearance");
+    expect(searchInput().value).toBe("match sidebars");
+    expect(resultList()).not.toBeNull();
+    const unpicked = container.querySelector<HTMLElement>(
+      "#setting-match-sidebars-to-workspace",
+    )!;
+    expect(unpicked.dataset.searchMatch).toBeUndefined();
+    expect(focusIsWithin(unpicked)).toBe(false);
     expect(onClose).not.toHaveBeenCalled();
   });
 
@@ -335,8 +454,9 @@ describe("settings navigation", () => {
       ["Agent connections", "Connections", "setting-agent-connections"],
       ["Workspace colors", "Appearance", "setting-workspace-colors"],
       ["Chat background", "Appearance", "setting-chat-background"],
-      ["Keybindings", "Keyboard", "setting-keybindings"],
+      ["Keybindings", "Keyboard shortcuts", "setting-keybindings"],
       ["Providers", "Providers & models", "setting-providers"],
+      ["When an agent finishes", "Git", "setting-when-an-agent-finishes"],
       ["Archived projects", "Archive", "setting-archived-projects"],
       ["Archived conversations", "Archive", "setting-archived-conversations"],
     ]) {
@@ -345,11 +465,7 @@ describe("settings navigation", () => {
       expect(container.querySelector("h1")?.textContent, label).toBe(category);
       const destination = container.querySelector<HTMLElement>(`#${id}`)!;
       expect(destination, label).not.toBeNull();
-      expect(
-        document.activeElement === destination ||
-          destination.contains(document.activeElement),
-        label,
-      ).toBe(true);
+      expect(focusIsWithin(destination), label).toBe(true);
       expect(
         document.activeElement?.matches(
           "button, input, select, textarea, a[href], [tabindex]",
@@ -360,48 +476,86 @@ describe("settings navigation", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it("refocuses a setting picked again from a new search", async () => {
+    await mount();
+    await search("follow-up behavior");
+    await click(result("Follow-up behavior"));
+    const destination = () =>
+      container.querySelector<HTMLElement>("#setting-follow-up-behavior")!;
+    expect(focusIsWithin(destination())).toBe(true);
+
+    await search("follow-up behavior");
+    expect(focusIsWithin(destination())).toBe(false);
+    await click(result("Follow-up behavior"));
+    expect(focusIsWithin(destination())).toBe(true);
+    expect(destination().dataset.searchMatch).toBe("true");
+  });
+
   it("moves down into search results and uses Escape to clear search before closing", async () => {
     await mount();
     const input = await search("theme");
     await key(input, "ArrowDown");
     const first = container.querySelector<HTMLButtonElement>(
-      '[aria-label="Settings search results"] button',
+      'nav[aria-label="Settings search results"] button',
     )!;
     expect(document.activeElement).toBe(first);
     await key(first, "Escape");
     expect(searchInput().value).toBe("");
+    expect(resultList()).toBeNull();
     expect(document.activeElement).toBe(input);
     expect(onClose).not.toHaveBeenCalled();
     await key(input, "Escape");
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it("dismisses search on an outside pointer click while leaving Settings and the category open", async () => {
-    await mount();
-    await search("theme");
+  it("replaces the section list with results until the query is cleared, without outside-click dismissal", async () => {
+    await mount("appearance");
+    const input = await search("theme");
+    expect(sectionList()).toBeNull();
+    const results = resultList()!;
+    expect(results).not.toBeNull();
+    const buttons = results.querySelectorAll("button");
+    expect(buttons.length).toBeGreaterThan(0);
+    expect(results.querySelector('[role="status"]')?.textContent).toBe(
+      `${buttons.length} ${buttons.length === 1 ? "setting" : "settings"}`,
+    );
+
+    // Pointer presses elsewhere no longer dismiss the results.
     const heading = container.querySelector<HTMLElement>("h1")!;
     await click(heading);
-    expect(searchInput().value).toBe("");
+    expect(input.value).toBe("theme");
+    expect(resultList()).not.toBeNull();
+    expect(heading.textContent).toBe("Appearance");
+
+    await search("");
+    expect(resultList()).toBeNull();
     expect(
-      container.querySelector('[aria-label="Settings search results"]'),
-    ).toBeNull();
-    expect(heading.textContent).toBe("General");
+      sectionList()
+        ?.querySelector('[aria-current="page"]')
+        ?.getAttribute("aria-label"),
+    ).toBe("Appearance");
     expect(onSection).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("dismisses search before Settings when keyboard focus has moved outside the results", async () => {
-    await mount();
-    await search("theme");
-    const setting = container.querySelector<HTMLButtonElement>(
-      '[role="switch"][aria-label="Notes"]',
-    )!;
-    // Moving with the keyboard does not fire an outside pointer event.
-    setting.focus();
-    await key(setting, "Escape");
-    expect(searchInput().value).toBe("");
-    expect(document.activeElement).toBe(searchInput());
+  it("clears rail search results with Escape before the hosted Settings closes", async () => {
+    await mount("general", true);
+    const input = await search("theme");
+    await key(input, "ArrowDown");
+    const first = resultList()!.querySelector<HTMLButtonElement>("button")!;
+    expect(document.activeElement).toBe(first);
+    await key(first, "Escape");
+    expect(input.value).toBe("");
+    expect(document.activeElement).toBe(input);
     expect(onClose).not.toHaveBeenCalled();
+
+    await search("theme");
+    await key(input, "Escape");
+    expect(input.value).toBe("");
+    expect(sectionList()).not.toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    await key(input, "Escape");
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it("keeps focus in search when dismissing a new query after opening an earlier result", async () => {
@@ -417,8 +571,23 @@ describe("settings navigation", () => {
     await key(input, "Escape");
     expect(input.value).toBe("");
     expect(document.activeElement).toBe(input);
-    expect(earlierDestination.dataset.searchMatch).toBeUndefined();
+    expect(container.querySelector("h1")?.textContent).toBe("Tasks & review");
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("clears open search results before closing when Escape comes from the page", async () => {
+    await mount("tasks", true);
+    await search("theme");
+    const row = container.querySelector<HTMLElement>(
+      "#setting-follow-up-behavior",
+    )!;
+    row.focus();
+    await key(row, "Escape");
+    expect(searchInput().value).toBe("");
+    expect(sectionList()).not.toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    await key(row, "Escape");
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it("leaves Escape to an open dialog before dismissing Settings", async () => {
@@ -451,7 +620,7 @@ describe("settings navigation", () => {
     );
     expect(
       container.querySelectorAll(
-        '[aria-label="Settings search results"] button',
+        'nav[aria-label="Settings search results"] button',
       ),
     ).toHaveLength(0);
     expect(container.querySelector("h1")?.textContent).toBe("General");
@@ -484,7 +653,8 @@ describe("settings navigation", () => {
     const appearance = loadWorkspaceTheme("work");
     expect(appearance.matchPanels).toBe(true);
     expect(appearance.colors?.dark?.background).toBe("#112233");
-    await section("Keyboard");
+    await section("Keyboard shortcuts");
+    await section("Git");
     await section("General");
     expect(
       container

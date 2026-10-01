@@ -18,11 +18,12 @@ import {
   CodeBlock,
   Streamdown,
   defaultRehypePlugins,
+  parseMarkdownIntoBlocks,
   useIsCodeFenceIncomplete,
   type Components,
 } from "streamdown";
 import type { PluggableList } from "unified";
-import type { Root, RootContent } from "hast";
+import type { Element, ElementContent, Root, RootContent } from "hast";
 import { FileTypeIcon } from "../chrome/FileTypeIcon";
 import { createLazyMermaidPlugin } from "./mermaidPlugin";
 import { resolveWorkspacePath } from "../lib/paths";
@@ -106,6 +107,90 @@ function localFileLinks({ cwd }: { cwd?: string }) {
       }
       if (node.type === "root" || node.type === "element")
         node.children.forEach(visit);
+    };
+    visit(tree);
+  };
+}
+
+const COMPARISON_IMAGE_BLOCK =
+  /^!\[\s*(before|after)\b[^\]\n]*\]\((?:<[^>\n]+>|[^\s)]+)(?:\s+"[^"\n]*")?\)$/i;
+
+function comparisonImage(block: string): "before" | "after" | undefined {
+  const kind = COMPARISON_IMAGE_BLOCK.exec(block.trim())?.[1]?.toLowerCase();
+  return kind === "before" || kind === "after" ? kind : undefined;
+}
+
+/** Streamdown renders blocks separately; keep a Before/After image pair in one. */
+export function comparisonMarkdownBlocks(markdown: string): string[] {
+  const blocks = parseMarkdownIntoBlocks(markdown);
+  const merged: string[] = [];
+  for (let index = 0; index < blocks.length; index++) {
+    const block = blocks[index];
+    let next = index + 1;
+    while (next < blocks.length && !blocks[next].trim()) next++;
+    if (
+      comparisonImage(block) === "before" &&
+      next < blocks.length &&
+      comparisonImage(blocks[next]) === "after"
+    ) {
+      merged.push(`${block.trim()}\n${blocks[next].trim()}`);
+      index = next;
+    } else {
+      merged.push(block);
+    }
+  }
+  return merged;
+}
+
+function imageAlt(node: ElementContent): string | undefined {
+  if (node.type !== "element" || node.tagName !== "img") return undefined;
+  const alt = node.properties.alt;
+  return typeof alt === "string" ? alt.trim() : undefined;
+}
+
+/** Present a paragraph holding only Before and After images as one comparison. */
+function beforeAfterImages() {
+  return (tree: Root) => {
+    const visit = (node: Root | Element) => {
+      node.children.forEach((child, index) => {
+        if (child.type !== "element") return;
+        const images = child.children.filter(
+          (item) =>
+            !(item.type === "text" && !item.value.trim()) &&
+            !(item.type === "element" && item.tagName === "br"),
+        );
+        const [before, after] = images.map(imageAlt);
+        if (
+          child.tagName !== "p" ||
+          images.length !== 2 ||
+          !before ||
+          !after ||
+          !/^before\b/i.test(before) ||
+          !/^after\b/i.test(after)
+        ) {
+          visit(child);
+          return;
+        }
+        node.children[index] = {
+          type: "element",
+          tagName: "div",
+          properties: { className: ["markdown-before-after"] },
+          children: images.map((image, item) => ({
+            type: "element",
+            tagName: "figure",
+            properties: { className: ["markdown-before-after-item"] },
+            children: [
+              {
+                type: "element",
+                tagName: "figcaption",
+                properties: {},
+                children: [{ type: "text", value: item ? after : before }],
+              },
+              image,
+            ],
+          })),
+        };
+      });
     };
     visit(tree);
   };
@@ -491,6 +576,7 @@ export const AgentMarkdown = memo(function AgentMarkdown({
             [localImagePaths, { cwd }],
             [localFileLinks, { cwd }],
             ...MARKDOWN_REHYPE_PLUGINS.slice(1),
+            beforeAfterImages,
           ],
     [remoteMedia, cwd],
   );
@@ -503,6 +589,9 @@ export const AgentMarkdown = memo(function AgentMarkdown({
           controls={false}
           dir="auto"
           isAnimating={!!streaming}
+          parseMarkdownIntoBlocksFn={
+            remoteMedia ? undefined : comparisonMarkdownBlocks
+          }
           plugins={MARKDOWN_PLUGINS}
           rehypePlugins={rehypePlugins}
         >

@@ -19,7 +19,7 @@ const finished = {
   behindDefault: 0,
 };
 
-describe("removing another copy", () => {
+describe("other copy status and removal", () => {
   let container: HTMLDivElement;
   let root: Root;
   let worktrees: (typeof finished)[];
@@ -60,6 +60,43 @@ describe("removing another copy", () => {
     [...container.querySelectorAll("button")].find((item) =>
       item.textContent?.includes(label),
     );
+
+  it("does not call different commit history unmerged work", async () => {
+    worktrees[1] = { ...finished, aheadOfDefault: 2, behindDefault: 20 };
+    await act(async () =>
+      root.render(createElement(GitCopies, { cwd: "/repo", enabled: true })),
+    );
+    const pill = container.querySelector<HTMLElement>(".git-copy-pill")!;
+    expect(pill.textContent).toBe("2 commits");
+    expect(pill.title).toContain("Changes may already be merged");
+    expect(container.querySelector(".git-copies-title span")?.textContent).toBe(
+      "1 copy",
+    );
+    expect(container.textContent).not.toContain("to merge");
+    expect(container.textContent).not.toContain("with work");
+  });
+
+  it.each([
+    { behindDefault: 0, label: "Up to date" },
+    { behindDefault: 3, label: "Behind" },
+  ])("reports the main copy as $label", async ({ behindDefault, label }) => {
+    worktrees = [
+      {
+        ...finished,
+        path: "/repo",
+        branch: "main",
+        primary: true,
+        behindDefault,
+      },
+      { ...finished, current: true },
+    ];
+    await act(async () =>
+      root.render(
+        createElement(GitCopies, { cwd: "/copies/done", enabled: true }),
+      ),
+    );
+    expect(container.querySelector(".git-copy-pill")?.textContent).toBe(label);
+  });
 
   it("asks first, then removes the copy and refreshes the list", async () => {
     await act(async () =>
