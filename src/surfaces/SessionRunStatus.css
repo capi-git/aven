@@ -9,20 +9,30 @@
   padding: 6px 10px;
   border-radius: 8px;
   color: var(--color-content);
-  background: var(--aven-grouped-surface, var(--aven-hover));
+  background: var(--aven-glass-surface, var(--aven-hover));
+  -webkit-backdrop-filter: var(--aven-glass-blur, none);
+  backdrop-filter: var(--aven-glass-blur, none);
   font-family: var(--font-sans);
   font-size: 12px;
   line-height: 17px;
   container: session-run / inline-size;
 }
 .session-run-status[data-run-state="working"] {
-  background: color-mix(in srgb, var(--color-accent) 7%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--color-accent) 7%,
+    var(--aven-glass-surface)
+  );
 }
 .session-run-status[data-run-state="waiting"] {
-  background: color-mix(in srgb, var(--color-skill) 7%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--color-skill) 7%,
+    var(--aven-glass-surface)
+  );
 }
 .session-run-status[data-run-state="failed"] {
-  background: color-mix(in srgb, #e58686 7%, transparent);
+  background: color-mix(in srgb, #e58686 7%, var(--aven-glass-surface));
 }
 .session-run-mark {
   display: grid;
@@ -136,12 +146,23 @@ html.theme-light
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.session-run-agent-copy strong { font-weight: 500; }
+.session-run-agent-copy strong {
+  font-weight: 500;
+}
 .session-run-agent-copy > span,
-.session-run-agent-label { color: var(--aven-muted); font-size: 11px; }
-.session-run-agent-label { flex-shrink: 0; }
-.session-run-agent-list [data-agent-state="running"] > span:first-child { color: var(--color-accent); }
-.session-run-agent-list [data-agent-state="failed"] > span:first-child { color: #e58686; }
+.session-run-agent-label {
+  color: var(--aven-muted);
+  font-size: 11px;
+}
+.session-run-agent-label {
+  flex-shrink: 0;
+}
+.session-run-agent-list [data-agent-state="running"] > span:first-child {
+  color: var(--color-accent);
+}
+.session-run-agent-list [data-agent-state="failed"] > span:first-child {
+  color: #e58686;
+}
 .session-run-queued {
   border-radius: 5px;
   padding: 2px 6px;
