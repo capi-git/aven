@@ -4,6 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { ProviderSetup } from "./ProviderSetup";
+import { recordHarnessAvailability } from "../lib/harness/availability";
+import { refreshHarnessCatalogs } from "../lib/harness/registry";
 import {
   loadProviderSetup,
   saveProviderSetup,
@@ -13,6 +15,12 @@ import {
 
 const platform = vi.hoisted(() => ({ IS_MAC: true, IS_WIN: false }));
 vi.mock("../lib/platform", () => platform);
+vi.mock("../lib/harness/availability", () => ({
+  recordHarnessAvailability: vi.fn(),
+}));
+vi.mock("../lib/harness/registry", () => ({
+  refreshHarnessCatalogs: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("./TerminalView", () => ({
   TerminalView: (props: { setupCommand?: string; ephemeral?: boolean }) =>
@@ -62,6 +70,8 @@ beforeEach(() => {
   });
   platform.IS_MAC = true;
   platform.IS_WIN = false;
+  vi.mocked(recordHarnessAvailability).mockClear();
+  vi.mocked(refreshHarnessCatalogs).mockReset().mockResolvedValue(undefined);
   vi.mocked(invoke)
     .mockReset()
     .mockImplementation(async (command) =>
@@ -114,6 +124,8 @@ describe("chosen-provider setup", () => {
       ),
     ).toBe(true);
     expect(invoke).not.toHaveBeenCalled();
+    expect(recordHarnessAvailability).not.toHaveBeenCalled();
+    expect(refreshHarnessCatalogs).not.toHaveBeenCalled();
     await click("Connect Codex");
     expect(loadProviderSetup().selected).toEqual(["codex"]);
     expect(invoke).not.toHaveBeenCalled();
@@ -233,6 +245,30 @@ describe("chosen-provider setup", () => {
     expect(container.textContent).not.toContain("Send test message");
     expect(container.textContent).toContain("Start your first task in Aven");
     expect(invoke).toHaveBeenCalledTimes(1);
+    expect(recordHarnessAvailability).toHaveBeenCalledExactlyOnceWith(
+      "codex",
+      true,
+    );
+    expect(refreshHarnessCatalogs).toHaveBeenCalledExactlyOnceWith(["codex"], {
+      force: true,
+    });
+  });
+
+  it("keeps authentication status usable when model discovery fails and does not enable another provider", async () => {
+    vi.mocked(invoke).mockResolvedValue(ready);
+    vi.mocked(refreshHarnessCatalogs).mockRejectedValueOnce(
+      new Error("Offline catalog"),
+    );
+    await render();
+    await chooseCodex();
+    expect(container.textContent).toContain("Signed in");
+    expect(recordHarnessAvailability).toHaveBeenCalledExactlyOnceWith(
+      "codex",
+      true,
+    );
+    expect(refreshHarnessCatalogs).toHaveBeenCalledExactlyOnceWith(["codex"], {
+      force: true,
+    });
   });
   it("offers deferral and keeps user choices for later", async () => {
     await render();

@@ -9841,7 +9841,9 @@ export default function App({
                   ),
                 );
                 void probeHarnessAvailability({ force: true });
-                void refreshHarnessCatalogs([harness], { force: true });
+                void refreshHarnessCatalogs([harness], { force: true }).catch(
+                  () => undefined,
+                );
               }}
               onChooseFolder={() => void pickProject()}
             />

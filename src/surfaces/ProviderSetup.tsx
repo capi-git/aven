@@ -5,6 +5,8 @@ import { Check, ChevronRight, Loader, RefreshCw } from "../chrome/icons";
 import { Modal } from "../chrome/Modal";
 import { openInAppUrl } from "../lib/inAppLinks";
 import { IS_MAC, IS_WIN } from "../lib/platform";
+import { recordHarnessAvailability } from "../lib/harness/availability";
+import { refreshHarnessCatalogs } from "../lib/harness/registry";
 import {
   loadProviderSetup,
   saveProviderSetup,
@@ -99,6 +101,18 @@ export function ProviderSetup({ onDone, onChooseFolder }: Props) {
       );
       if (!mounted.current || requests.current.get(harness) !== request) return;
       setChecks((previous) => ({ ...previous, [harness]: result }));
+      if (result.status === "missing")
+        recordHarnessAvailability(harness, false);
+      else if (result.status !== "error" || result.version) {
+        recordHarnessAvailability(harness, true);
+      }
+      if (result.status === "ready" && !verify) {
+        // Connecting from Settings must also make the chosen provider's model
+        // picker usable. Model discovery is read-only and never installs tools.
+        void refreshHarnessCatalogs([harness], { force: true }).catch(
+          () => undefined,
+        );
+      }
       setTested((previous) => ({
         ...previous,
         [harness]: verify && result.status === "ready",
@@ -540,7 +554,7 @@ export function ProviderSetup({ onDone, onChooseFolder }: Props) {
                 <button
                   className="provider-setup-secondary"
                   onClick={() => {
-                  onDone?.(usable[0]);
+                    onDone?.(usable[0]);
                     onChooseFolder();
                   }}
                 >
@@ -550,7 +564,7 @@ export function ProviderSetup({ onDone, onChooseFolder }: Props) {
               {onDone ? (
                 <button
                   className="provider-setup-primary"
-                onClick={() => onDone(usable[0])}
+                  onClick={() => onDone(usable[0])}
                 >
                   Open Aven
                 </button>
