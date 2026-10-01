@@ -47,6 +47,7 @@ export type PaletteCommandId =
   | "reopen_closed_tab"
   | "close_pane"
   | "open_inbox"
+  | "new_scheduled_agent"
   | "open_notes"
   | "add_project"
   | "open_settings";
@@ -137,6 +138,11 @@ export const PALETTE_COMMANDS: readonly PaletteCommand[] = [
     id: "open_inbox",
     label: "Open Inbox",
     keywords: "github linear issues pull requests",
+  },
+  {
+    id: "new_scheduled_agent",
+    label: "New scheduled agent",
+    keywords: "schedule timer recurring daily cron automation",
   },
   { id: "open_notes", label: "Open Notes", keywords: "notebook" },
   {
