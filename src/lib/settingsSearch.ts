@@ -41,6 +41,12 @@ function setting(
 // Index actual controls and stable page/card anchors, never hidden child controls.
 const SETTINGS_SEARCH_ENTRIES: readonly SearchEntry[] = [
   setting(
+    "git",
+    "When an agent finishes",
+    "Leave changes for you, commit them, or open a pull request.",
+    "pull request pr commit push branch finish done review automatic turn off",
+  ),
+  setting(
     "skills",
     "Installed skills",
     "Find reusable instructions from this project and your personal skills.",
@@ -319,4 +325,19 @@ export function searchSettings(query: string): SettingsSearchResult[] {
         b.score - a.score || a.result.label.localeCompare(b.result.label),
     )
     .map(({ result }) => result);
+}
+
+type AnchorListener = (id: string, section: SettingsSectionId) => void;
+const anchorListeners = new Set<AnchorListener>();
+
+/** The sidebar search asks the open settings page to reveal a result. */
+export function requestSettingsAnchor(id: string, section: SettingsSectionId) {
+  for (const listener of anchorListeners) listener(id, section);
+}
+
+export function subscribeSettingsAnchor(listener: AnchorListener) {
+  anchorListeners.add(listener);
+  return () => {
+    anchorListeners.delete(listener);
+  };
 }

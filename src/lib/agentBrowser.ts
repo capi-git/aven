@@ -5,6 +5,7 @@ import { COMPUTER_USE_TASK_GUIDANCE } from "./computerUseSkill";
 import { listenerGroup } from "./listenerGroup";
 import type { EditorNavigation } from "./search";
 import type { AgentBrowserOpenOptions } from "./agentBrowserOpen";
+import { agentGitInstructions } from "./gitPreference";
 
 export type AgentBrowserContext = { sessionId: string; cwd: string };
 export type AgentBrowserHost = {
@@ -372,6 +373,15 @@ export function agentBrowserInstructions(executablePath: string): string {
 }
 
 export async function prepareAgentBrowserPrompt(
+  text: string,
+  context: AgentBrowserContext,
+): Promise<string> {
+  // The Git preference applies even when browser tools are unavailable.
+  const git = agentGitInstructions();
+  return withBrowserGuidance(git ? `${git}\n\n${text}` : text, context);
+}
+
+async function withBrowserGuidance(
   text: string,
   context: AgentBrowserContext,
 ): Promise<string> {

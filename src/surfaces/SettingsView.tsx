@@ -18,7 +18,18 @@ import {
   useSyncExternalStore,
 } from "react";
 import { SettingsNav } from "../chrome/SettingsRail";
-import { settingSearchAnchor, searchSettings } from "../lib/settingsSearch";
+import {
+  settingSearchAnchor,
+  subscribeSettingsAnchor,
+} from "../lib/settingsSearch";
+import {
+  GIT_FINISH_BEHAVIOR_DEFAULT,
+  GIT_FINISH_BEHAVIOR_OPTIONS,
+  loadGitFinishBehavior,
+  saveGitFinishBehavior,
+  subscribeGitFinishBehavior,
+  type GitFinishBehavior,
+} from "../lib/gitPreference";
 import {
   PageHeader,
   Heading,
@@ -268,41 +279,35 @@ export function SettingsView({
   );
   const [localSection, setLocalSection] = useState(requestedSection);
   const section = onSelectSection ? requestedSection : localSection;
-  const [query, setQuery] = useState("");
-  const [pendingAnchor, setPendingAnchor] = useState<string | null>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
-  const resultsRef = useRef<HTMLDivElement>(null);
-  const searchContainerRef = useRef<HTMLDivElement>(null);
+  // A fresh object per pick, so choosing the same result again still reveals it.
+  const [pendingAnchor, setPendingAnchor] = useState<{ id: string } | null>(
+    null,
+  );
   const searchDestination = useRef<SettingsSectionId | null>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const appearance = useAppearanceSettings();
-  const results = useMemo(() => searchSettings(query), [query]);
-  const searching = query.trim().length > 0;
   useEffect(() => {
     setLocalSection(requestedSection);
-    setQuery("");
     if (searchDestination.current !== requestedSection) setPendingAnchor(null);
     searchDestination.current = null;
   }, [requestedSection]);
 
-  useEffect(() => {
-    if (!searching) return;
-    const dismiss = (event: PointerEvent) => {
-      if (
-        event.target instanceof Node &&
-        !searchContainerRef.current?.contains(event.target)
-      ) {
-        setQuery("");
-      }
-    };
-    document.addEventListener("pointerdown", dismiss);
-    return () => document.removeEventListener("pointerdown", dismiss);
-  }, [searching]);
+  // The sidebar search names the setting to reveal once its page is open.
+  useEffect(
+    () =>
+      subscribeSettingsAnchor((id, destination) => {
+        searchDestination.current = destination;
+        setPendingAnchor({ id });
+      }),
+    [],
+  );
   const selectSection = (next: SettingsSectionId) => {
-    searchDestination.current = null;
-    setQuery("");
-    setPendingAnchor(null);
+    // A search pick has already named its anchor; plain navigation clears it.
+    if (searchDestination.current !== next) {
+      searchDestination.current = null;
+      setPendingAnchor(null);
+    }
     if (onSelectSection) onSelectSection(next);
     else setLocalSection(next);
   };
@@ -312,9 +317,10 @@ export function SettingsView({
   }, [section]);
 
   useEffect(() => {
-    if (!pendingAnchor || searching) return;
-    const target = document.getElementById(pendingAnchor);
+    if (!pendingAnchor) return;
+    const target = document.getElementById(pendingAnchor.id);
     if (!target) return;
+    searchDestination.current = null;
     target.scrollIntoView?.({ block: "center" });
     target.focus({ preventScroll: true });
     target.dataset.searchMatch = "true";
@@ -326,7 +332,7 @@ export function SettingsView({
       window.clearTimeout(timer);
       delete target.dataset.searchMatch;
     };
-  }, [pendingAnchor, section, searching]);
+  }, [pendingAnchor, section]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -339,14 +345,11 @@ export function SettingsView({
       )
         return;
       event.preventDefault();
-      if (searching) {
-        setQuery("");
-        searchRef.current?.focus();
-      } else onCloseRef.current();
+      onCloseRef.current();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [searching]);
+  }, []);
 
   return (
     <div
@@ -401,88 +404,6 @@ export function SettingsView({
                 title={settingsSectionLabel(section)}
                 description={settingsSectionDescription(section)}
               />
-              <div
-                ref={searchContainerRef}
-                className="settings-search"
-                onKeyDown={(event) => {
-                  if (event.key === "Escape" && query) {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    setQuery("");
-                    searchRef.current?.focus();
-                  } else if (
-                    event.key === "ArrowDown" &&
-                    event.target === searchRef.current &&
-                    searching
-                  ) {
-                    event.preventDefault();
-                    resultsRef.current
-                      ?.querySelector<HTMLButtonElement>("button")
-                      ?.focus();
-                  }
-                }}
-              >
-                <label className="settings-search-field">
-                  <Search className="size-4" aria-hidden />
-                  <input
-                    ref={searchRef}
-                    value={query}
-                    onChange={(event) => {
-                      setPendingAnchor(null);
-                      searchDestination.current = null;
-                      setQuery(event.target.value);
-                    }}
-                    type="search"
-                    aria-label="Search settings"
-                    placeholder="Search settings…"
-                    autoComplete="off"
-                    spellCheck={false}
-                    aria-controls={
-                      searching ? "settings-search-results" : undefined
-                    }
-                  />
-                </label>
-                {searching ? (
-                  <div
-                    id="settings-search-results"
-                    ref={resultsRef}
-                    className="settings-search-results"
-                    role="region"
-                    aria-label="Settings search results"
-                  >
-                    <p className="settings-search-count" role="status">
-                      {results.length
-                        ? `${results.length} ${results.length === 1 ? "setting" : "settings"} found`
-                        : "No matching settings"}
-                    </p>
-                    {results.map((result) => (
-                      <button
-                        type="button"
-                        key={result.id}
-                        onClick={() => {
-                          selectSection(result.section);
-                          searchDestination.current = result.section;
-                          setPendingAnchor(result.id);
-                        }}
-                      >
-                        <span>
-                          <strong>{result.label}</strong>
-                          <small>{result.description}</small>
-                        </span>
-                        <span className="settings-result-category">
-                          {settingsSectionLabel(result.section)}
-                          <ChevronRight className="size-3" aria-hidden />
-                        </span>
-                      </button>
-                    ))}
-                    {!results.length ? (
-                      <p className="settings-search-empty">
-                        Try “theme”, “models”, “notifications”, or “updates”.
-                      </p>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
             </div>
             <div className="settings-scope-line">
               <span className="settings-scope-dot" aria-hidden />
@@ -506,6 +427,7 @@ export function SettingsView({
               <AppearancePage appearance={appearance} />
             ) : null}
             {section === "keybindings" ? <KeybindingsPage /> : null}
+            {section === "git" ? <GitPage /> : null}
             {section === "providers" ? <ProvidersPage /> : null}
             {section === "skills" ? <SkillsSettings cwd={cwd} /> : null}
             {section === "connections" ? <ConnectionsPage cwd={cwd} /> : null}
@@ -540,6 +462,39 @@ function isPreferencesSection(
     section === "notifications" ||
     section === "tasks" ||
     section === "browser"
+  );
+}
+
+/** What agents do with their work once they finish, in every project. */
+function GitPage() {
+  const behavior = useSyncExternalStore(
+    subscribeGitFinishBehavior,
+    loadGitFinishBehavior,
+    () => GIT_FINISH_BEHAVIOR_DEFAULT,
+  );
+  const selected = GIT_FINISH_BEHAVIOR_OPTIONS.find(
+    (option) => option.value === behavior,
+  );
+  return (
+    <SettingsGroup
+      title="Agents and Git"
+      description="Applies to every agent in every project from its next turn. Asking for something different in a chat still wins."
+      scope="Device"
+    >
+      <Row label="When an agent finishes" description={selected?.description}>
+        <Select
+          label="When an agent finishes"
+          value={behavior}
+          options={GIT_FINISH_BEHAVIOR_OPTIONS.map(({ value, label }) => ({
+            value,
+            label,
+          }))}
+          onChange={(value) =>
+            saveGitFinishBehavior(value as GitFinishBehavior)
+          }
+        />
+      </Row>
+    </SettingsGroup>
   );
 }
 
