@@ -46,6 +46,7 @@ mod personal_project;
 mod pip_group;
 mod project_logo;
 mod projectless;
+mod provider_setup;
 mod provider_updates;
 mod pty;
 mod race;
@@ -460,6 +461,9 @@ pub fn run() {
             harness::harness_sse_open,
             harness::harness_sse_close,
             harness::harness_exec,
+            provider_setup::provider_setup_check,
+            provider_setup::provider_setup_plan,
+            provider_setup::provider_setup_verify,
             mcp_manage::provider_mcp,
             rate_limits::fetch_claude_usage,
             pty::pty_spawn,

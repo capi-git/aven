@@ -8,6 +8,7 @@ export type SettingsSectionId =
   | "notifications"
   | "keybindings"
   | "providers"
+  | "provider-setup"
   | "tasks"
   | "skills"
   | "connections"
@@ -46,6 +47,12 @@ export const SETTINGS_SECTIONS: {
     group: "App",
     label: "Keyboard",
     description: "Find keyboard shortcuts and where they work.",
+  },
+  {
+    id: "provider-setup",
+    group: "Agents",
+    label: "Provider setup",
+    description: "Choose providers, install their CLIs, and connect your accounts.",
   },
   {
     id: "providers",

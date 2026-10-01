@@ -384,7 +384,9 @@ import {
 import {
   mergeModelSettings,
   preferredModelSettings,
+  preferredModelId,
   resolveModel,
+  saveLastModelChoice,
   saveLastModelSettings,
 } from "./lib/models";
 import {
@@ -538,6 +540,8 @@ import { SessionSurface } from "./surfaces/SessionSurface";
 import { ProjectTerminalDock } from "./surfaces/ProjectTerminalDock";
 import { SearchView } from "./surfaces/SearchView";
 import { SettingsView } from "./surfaces/SettingsView";
+import { ProviderSetupDialog } from "./surfaces/ProviderSetup";
+import { shouldOfferProviderSetup } from "./lib/providerSetup";
 import { InboxView } from "./surfaces/InboxView";
 import type { InboxSessionPortal } from "./surfaces/InboxDiscussionPanel";
 import { inboxAskKey, inboxAskPrompt } from "./lib/inboxAsk";
@@ -813,6 +817,17 @@ export default function App({
     const tab = newTab(session.id);
     return { session, tab };
   });
+  const [providerSetupOpen, setProviderSetupOpen] = useState(() =>
+    shouldOfferProviderSetup(
+      Boolean(
+        windowTransfer ||
+        lastProjectPath() ||
+        recents.length ||
+        bootHistory.length ||
+        resumed?.sessions.some((session) => session.blocks.length > 0),
+      ),
+    ),
+  );
   const [sessions, setCommittedSessions] = useState<Session[]>(
     () => windowTransfer?.sessions ?? resumed?.sessions ?? [seed.session],
   );
@@ -9803,6 +9818,34 @@ export default function App({
             />
           ) : null}
           <UpdateNoticeDialog />
+          {providerSetupOpen ? (
+            <ProviderSetupDialog
+              onDone={(harness) => {
+                setProviderSetupOpen(false);
+                if (!harness) return;
+                saveLastModelChoice(harness, preferredModelId(harness));
+                // The fresh welcome task was seeded before setup. Keep it on
+                // the provider chosen here; never alter an existing task.
+                setSessions((previous) =>
+                  previous.map((session) =>
+                    session.id === seed.session.id && session.blocks.length === 0
+                      ? {
+                          ...session,
+                          harness,
+                          model: preferredModelId(harness),
+                          modelSettings: preferredModelSettings(
+                            resolveModel(harness, preferredModelId(harness)),
+                          ),
+                        }
+                      : session,
+                  ),
+                );
+                void probeHarnessAvailability({ force: true });
+                void refreshHarnessCatalogs([harness], { force: true });
+              }}
+              onChooseFolder={() => void pickProject()}
+            />
+          ) : null}
           <CommandPalette
             open={paletteOpen}
             initialQuery={paletteQuery}

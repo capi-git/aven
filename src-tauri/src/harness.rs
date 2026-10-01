@@ -1104,7 +1104,7 @@ fn isolate_child(cmd: &mut Command) {
     }
 }
 
-fn spawn_managed(cmd: &mut Command) -> std::io::Result<std::process::Child> {
+pub(crate) fn spawn_managed(cmd: &mut Command) -> std::io::Result<std::process::Child> {
     #[cfg(windows)]
     {
         crate::windows::spawn_managed(cmd)
@@ -1613,6 +1613,12 @@ fn resolve_codex() -> Option<PathBuf> {
         candidates.push(home.join(".cargo/bin/codex"));
         candidates.push(home.join("n/bin/codex"));
     }
+    #[cfg(windows)]
+    candidates.extend(
+        codex_windows_install_dirs()
+            .into_iter()
+            .map(|dir| dir.join("codex.exe")),
+    );
     candidates.push(PathBuf::from("/opt/homebrew/bin/codex"));
     candidates.push(PathBuf::from("/usr/local/bin/codex"));
     candidates.push(PathBuf::from("/usr/bin/codex"));
@@ -1632,6 +1638,54 @@ fn resolve_codex() -> Option<PathBuf> {
     ));
 
     first_binary(candidates)
+}
+
+/// The official standalone Windows installer does not use npm's directory.
+/// Search its stable launcher afresh so a setup install can be checked without
+/// reloading the cached login environment or restarting the running app.
+#[cfg(windows)]
+fn codex_windows_install_dirs() -> Vec<PathBuf> {
+    codex_windows_install_dirs_from(
+        std::env::var_os("LOCALAPPDATA"),
+        std::env::var_os("CODEX_INSTALL_DIR"),
+    )
+}
+
+#[cfg(any(windows, test))]
+fn codex_windows_install_dirs_from(
+    local_app_data: Option<std::ffi::OsString>,
+    override_dir: Option<std::ffi::OsString>,
+) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(path) = override_dir.filter(|path| !path.is_empty()) {
+        dirs.push(PathBuf::from(path));
+    }
+    if let Some(path) = local_app_data.filter(|path| !path.is_empty()) {
+        dirs.push(
+            PathBuf::from(path)
+                .join("Programs")
+                .join("OpenAI")
+                .join("Codex")
+                .join("bin"),
+        );
+    }
+    dirs
+}
+
+/// Setup uses the same identity checks as normal task launches. In particular
+/// `agent`, `pi`, and `fx` must not resolve to an unrelated tool with that name.
+pub(crate) fn resolved_setup_binary(name: &str) -> Option<PathBuf> {
+    match name {
+        "claude" => resolve_claude(),
+        "codex" => resolve_codex(),
+        "cursor" => resolve_cursor_agent(),
+        "opencode" => resolve_opencode(),
+        "grok" => resolve_grok(),
+        "pi" => resolve_pi(),
+        "omp" => resolve_omp(),
+        "fx" => resolve_fx(),
+        _ => None,
+    }
 }
 
 fn resolve_opencode() -> Option<PathBuf> {
@@ -2188,6 +2242,7 @@ fn gui_search_path_from(
     parts.push("/snap/bin".into());
     #[cfg(windows)]
     {
+        parts.extend(codex_windows_install_dirs());
         parts.push(r"C:\Program Files\Git\cmd".into());
         parts.push(r"C:\Program Files\nodejs".into());
     }
@@ -2244,7 +2299,7 @@ pub(crate) fn clear_scoped_capabilities(cmd: &mut Command) {
     }
 }
 
-fn prepare_child(cmd: &mut Command, command: &str) {
+pub(crate) fn prepare_child(cmd: &mut Command, command: &str) {
     apply_gui_env(cmd);
     clear_scoped_capabilities(cmd);
     if command_basename(command) == "fx" {
@@ -3361,6 +3416,24 @@ mod reap_logic_tests {
             42,
             |_| false,
         ));
+    }
+
+    #[test]
+    fn windows_codex_standalone_dirs_include_custom_and_default_launchers() {
+        let dirs = codex_windows_install_dirs_from(
+            Some(std::ffi::OsString::from("local-app-data")),
+            Some(std::ffi::OsString::from("chosen-install-dir")),
+        );
+        assert_eq!(dirs[0], PathBuf::from("chosen-install-dir"));
+        assert_eq!(
+            dirs[1],
+            PathBuf::from("local-app-data")
+                .join("Programs")
+                .join("OpenAI")
+                .join("Codex")
+                .join("bin")
+        );
+        assert!(codex_windows_install_dirs_from(Some("".into()), Some("".into())).is_empty());
     }
 
     #[test]
