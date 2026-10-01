@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+## [0.1.115] - 2026-10-01
+
+### Scheduled agents
+
+- Inbox has a new **Scheduled** tab. Create a schedule with a prompt, project, agent, model and access mode, and choose set days at a time (Every day and Weekdays presets) or every 1–24 hours. While Aven is open, a due schedule starts a normal chat in the background, and its result appears unread in the tab with a summary and **Open chat**.
+- Missed times run once instead of catching up, and only one window starts each run. A schedule whose agent, model or project is gone records a failed run with the reason instead of starting. **New scheduled agent** is also in the command palette.
+
+### Before and after screenshots
+
+- Agents can take a screenshot of a page in Aven's browser. When they change something visible, they capture the page before and after and show both in their reply, side by side, so you can review the change without opening anything. Click either image to see it larger. Screenshots are deleted with their chat.
+
+### Settings
+
+- Search sits at the top of the Settings sidebar and filters it to matching settings; picking one opens its page and highlights the setting. Escape clears the search before closing Settings.
+- Settings are grouped as Personal, Agents, Coding, Integrations and Archived. "Keyboard" is now "Keyboard shortcuts".
+- New **Coding → Git** page: choose what agents do when they finish — follow each project's instructions (default), leave changes for you, commit on a branch without pushing, or open a pull request.
+- New **Provider setup** page and first-launch setup on Mac and Windows: choose providers, install their command-line tools, sign in, and test the connection. Every install, sign-in and test needs your go-ahead.
+
+### Look and feel
+
+- Dark workspace surfaces such as chat bubbles, the composer, tool cards, menus and Settings now use frosted glass over your background. Light mode, Reduce transparency and Increase contrast keep solid surfaces.
+- Other copies in the Changes panel no longer call work "to merge" just because its commit history differs after a squash merge; counts are neutral and a main copy reports Up to date or Behind accurately.
+
+### Fixes
+
+- When desktop control refuses to click because another window is in the way, the error now names that window so agents can work around it.
+- Remove leftover unused interface code and an unused macOS icon catalog.
+
 ## [0.1.114] - 2026-09-30
 
 ### Links open in a new tab, and PDFs show
