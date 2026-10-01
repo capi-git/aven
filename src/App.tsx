@@ -9832,6 +9832,7 @@ export default function App({
                       ? {
                           ...session,
                           harness,
+                          title: HARNESS_LABEL[harness],
                           model: preferredModelId(harness),
                           modelSettings: preferredModelSettings(
                             resolveModel(harness, preferredModelId(harness)),
