@@ -992,9 +992,10 @@ function handleResult(live: Live, rec: Record<string, unknown>): void {
   if (live.activeTurn && live.awaitingEcho) {
     // Claude finished something else first, such as the turn it runs when a
     // background task reports back. The user's prompt is still queued.
-    armEchoFallback(live, live.awaitingEcho);
+    armEchoFallback(live, live.awaitingEcho, result.status);
     return;
   }
+  reportTurnInterruption(live, result.status);
   live.turnResultSeen = true;
   maybeFinishTurn(live);
 }
@@ -1002,15 +1003,40 @@ function handleResult(live: Live, rec: Record<string, unknown>): void {
 /** Without an echo (an older CLI), fall back to ending on the last result. */
 const ECHO_FALLBACK_MS = 5_000;
 
-function armEchoFallback(live: Live, uuid: string): void {
+function armEchoFallback(
+  live: Live,
+  uuid: string,
+  status: ReturnType<typeof turnStatusFromResult>["status"],
+): void {
   clearEchoFallback(live);
   live.echoFallback = setTimeout(() => {
     live.echoFallback = null;
     if (live.awaitingEcho !== uuid) return;
     live.awaitingEcho = null;
+    reportTurnInterruption(live, status);
     live.turnResultSeen = true;
     maybeFinishTurn(live);
   }, ECHO_FALLBACK_MS);
+}
+
+function reportTurnInterruption(
+  live: Live,
+  status: ReturnType<typeof turnStatusFromResult>["status"],
+): void {
+  if (
+    !live.activeTurn ||
+    live.turnResultSeen ||
+    live.cancelled ||
+    live.apiErrorReported
+  )
+    return;
+  const message =
+    status === "interrupted"
+      ? "Claude stopped before this turn finished. Send another message to continue."
+      : status === "cancelled"
+        ? "Claude cancelled this turn before it finished. Send another message to continue."
+        : undefined;
+  if (message) live.onEvent({ type: "session.error", message });
 }
 
 function clearEchoFallback(live: Live): void {
