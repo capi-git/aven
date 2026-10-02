@@ -141,8 +141,8 @@ describe("Aven appearance defaults", () => {
     expect(loadThemeHue()).toBe(207);
     expect(loadThemeSaturation()).toBe(0);
     expect(loadThemePreference()).toBe("system");
-    expect(loadSidebarOpacity()).toBe(0.66);
-    expect(loadSidebarBlur()).toBe(54);
+    expect(loadSidebarOpacity()).toBe(0.52);
+    expect(loadSidebarBlur()).toBe(16);
     expect(loadBodyGlass()).toBe(true);
     expect(hasLegacyAppearancePreferences()).toBe(false);
     expect(localStorage.length).toBe(0);

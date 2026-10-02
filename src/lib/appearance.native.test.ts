@@ -55,7 +55,7 @@ describe("native workspace transparency", () => {
     expect(style.getPropertyValue("--theme-content-color")).toBe("#ffffff");
     expect(style.getPropertyValue("--theme-accent-color")).toBe("#57b5ff");
     expect(style.getPropertyValue("--theme-highlight-color")).toBe("#57b5ff");
-    expect(style.getPropertyValue("--sidebar-opacity")).toBe("0.66");
+    expect(style.getPropertyValue("--sidebar-opacity")).toBe("0.52");
     expect(document.documentElement.classList.contains("glass-body")).toBe(
       true,
     );
@@ -64,7 +64,7 @@ describe("native workspace transparency", () => {
     );
     // The window stays opaque until the first frame is ready.
     expect(vi.mocked(invoke).mock.calls).toEqual([
-      ["set_window_background_blur", { radius: 54 }],
+      ["set_window_background_blur", { radius: 16 }],
     ]);
     appearance.activateWindowAppearance();
     await Promise.resolve();
@@ -207,8 +207,8 @@ describe("native workspace transparency", () => {
   });
 
   it("defaults to glass blur and only sends native blur when its value changes", () => {
-    expect(appearance.loadSidebarBlur()).toBe(54);
-    expect(appearance.loadSidebarOpacity()).toBe(0.66);
+    expect(appearance.loadSidebarBlur()).toBe(16);
+    expect(appearance.loadSidebarOpacity()).toBe(0.52);
     expect(appearance.loadBodyGlass()).toBe(true);
     appearance.applySidebarBlur(appearance.loadSidebarBlur());
     appearance.applySidebarBlur(appearance.loadSidebarBlur());
@@ -218,7 +218,7 @@ describe("native workspace transparency", () => {
     appearance.applySidebarBlur(0);
     appearance.applySidebarBlur(0);
     expect(vi.mocked(invoke).mock.calls).toEqual([
-      ["set_window_background_blur", { radius: 54 }],
+      ["set_window_background_blur", { radius: 16 }],
       ["set_window_background_blur", { radius: 12 }],
       ["set_window_background_blur", { radius: 0 }],
     ]);

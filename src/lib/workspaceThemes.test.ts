@@ -33,7 +33,7 @@ vi.mock("@tauri-apps/api/window", () => ({
 let root: Root;
 let container: HTMLDivElement;
 let activeSettings: ReturnType<typeof useActiveWorkspaceTheme>;
-const defaultGlass = { opacity: 0.66, blur: 54, bodyGlass: true, matchPanels: false };
+const defaultGlass = { opacity: 0.52, blur: 16, bodyGlass: true, matchPanels: false };
 /** Fresh workspaces follow the system; pin it so each test controls the mode. */
 function systemScheme(scheme: "dark" | "light") {
   vi.spyOn(window, "matchMedia").mockReturnValue({
@@ -102,8 +102,8 @@ describe("workspace appearance migration and persistence", () => {
       hue: 207,
       saturation: 0,
       preference: "system",
-      opacity: 0.66,
-      blur: 54,
+      opacity: 0.52,
+      blur: 16,
       bodyGlass: true,
       matchPanels: false,
       colors: {
