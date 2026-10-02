@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  AUTOSAVE_DEFAULT,
+  loadAutosave,
+  saveAutosave,
   COMPOSER_RUNNER_DEFAULT,
   BROWSER_MEMORY_SAVER_DEFAULT,
   DIFF_VIEWER_DEFAULT,
@@ -269,5 +272,19 @@ describe("diff viewer setting", () => {
   it("ignores unknown stored values", () => {
     localStorage.setItem(DIFF_VIEWER_KEY, "split");
     expect(loadDiffViewer()).toBe("editor");
+  });
+});
+
+describe("file editor autosave setting", () => {
+  beforeEach(mockLocalStorage);
+
+  it("defaults to off and persists changes", () => {
+    expect(AUTOSAVE_DEFAULT).toBe(false);
+    expect(loadAutosave()).toBe(false);
+    expect(saveAutosave(true)).toBe(true);
+    expect(localStorage.getItem("aven.fileEditorAutosave")).toBe("1");
+    expect(loadAutosave()).toBe(true);
+    expect(saveAutosave(false)).toBe(false);
+    expect(loadAutosave()).toBe(false);
   });
 });

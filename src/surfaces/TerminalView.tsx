@@ -14,6 +14,7 @@ import {
   writePty,
 } from "../lib/pty";
 import { isOscColorQuery, oscColorReply } from "../lib/terminalChrome";
+import { macTerminalShortcutData } from "../lib/terminalKeys";
 import {
   defaultTerminalTitle,
   scanOscCwd,
@@ -140,6 +141,13 @@ function monoFont(): string {
   return fromCss || "ui-monospace, SFMono-Regular, Menlo, Monaco, monospace";
 }
 
+/**
+ * Teardown still in flight per PTY id. A view that mounts with an id another
+ * view (or a StrictMode replay of itself) is still stopping must wait, or the
+ * late kill lands on the replacement shell and drops its data handler.
+ */
+const stoppingPtys = new Map<string, Promise<void>>();
+
 // Resolve each query against the current workspace palette, including changes
 // made while a CLI is already running. OSC needs an opaque RGB background even
 // though xterm itself stays transparent over the app's terminal surface.
@@ -235,6 +243,16 @@ export function TerminalView({
     host.addEventListener("paste", onPaste);
 
     term.attachCustomKeyEventHandler((event) => {
+      const shortcutData = IS_MAC ? macTerminalShortcutData(event) : null;
+      if (shortcutData) {
+        if (event.type === "keydown") {
+          event.preventDefault();
+          event.stopPropagation();
+          term.input(shortcutData);
+        }
+        return false;
+      }
+
       const mod = event.metaKey || event.ctrlKey;
       if (!mod || event.altKey) return true;
       const key = event.key.toLowerCase();
@@ -249,32 +267,41 @@ export function TerminalView({
 
     let oscBuffer = "";
 
-    const unsubscribe = subscribePty(
-      ptyId,
-      (data) => {
-        const onMeta = onMetaChangeRef.current;
-        if (onMeta) {
-          const text = new TextDecoder().decode(data);
-          const scanned = scanOscCwd(text, oscBuffer);
-          oscBuffer = scanned.rest;
-          if (scanned.cwd) {
-            const patch: TerminalMetaPatch = { cwd: scanned.cwd };
-            if (!runningProcessRef.current) {
-              patch.title = defaultTerminalTitle(scanned.cwd);
+    let unsubscribe = () => {};
+    let didStart = false;
+    const start = () => {
+      if (closed) return;
+      unsubscribe = subscribePty(
+        ptyId,
+        (data) => {
+          if (closed) return;
+          const onMeta = onMetaChangeRef.current;
+          if (onMeta) {
+            const text = new TextDecoder().decode(data);
+            const scanned = scanOscCwd(text, oscBuffer);
+            oscBuffer = scanned.rest;
+            if (scanned.cwd) {
+              const patch: TerminalMetaPatch = { cwd: scanned.cwd };
+              if (!runningProcessRef.current) {
+                patch.title = defaultTerminalTitle(scanned.cwd);
+              }
+              onMeta(patch);
             }
-            onMeta(patch);
           }
-        }
-        term.write(data);
-      },
-      (code) => {
-        if (closed) return;
-        const status = code == null ? "" : ` (${code})`;
-        term.writeln(`\r\n[process exited${status}]`);
-      },
-    );
+          term.write(data);
+        },
+        (code) => {
+          if (closed) return;
+          const status = code == null ? "" : ` (${code})`;
+          term.writeln(`\r\n[process exited${status}]`);
+        },
+      );
+      didStart = true;
+      return spawnPty(ptyId, cwd, term.cols, term.rows);
+    };
 
-    const starting = spawnPty(ptyId, cwd, term.cols, term.rows)
+    const starting = (stoppingPtys.get(ptyId) ?? Promise.resolve())
+      .then(start)
       .then(async () => {
         if (closed) return;
         spawned.current = true;
@@ -403,12 +430,21 @@ export function TerminalView({
       oscCursor.dispose();
       renderSub.dispose();
       bufferSub.dispose();
-      unsubscribe();
-      void starting
+      // Kill only after this view's spawn settles, and make a remount with the
+      // same id wait for it so the late kill never reaches the new shell.
+      const stopping = starting
         .catch(() => undefined)
-        .then(() =>
-          !ephemeral && terminalIsTransferred(id) ? undefined : killPty(ptyId),
-        );
+        .then(() => {
+          unsubscribe();
+          if (!didStart) return;
+          return !ephemeral && terminalIsTransferred(id)
+            ? undefined
+            : killPty(ptyId);
+        })
+        .finally(() => {
+          if (stoppingPtys.get(ptyId) === stopping) stoppingPtys.delete(ptyId);
+        });
+      stoppingPtys.set(ptyId, stopping);
       term.dispose();
       termRef.current = null;
       spawned.current = false;

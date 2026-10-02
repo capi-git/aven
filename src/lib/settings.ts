@@ -450,6 +450,48 @@ export function subscribeDiffViewer(onStoreChange: () => void) {
     window.removeEventListener(DIFF_VIEWER_CHANGE_EVENT, onStoreChange);
 }
 
+const AUTOSAVE_KEY = "aven.fileEditorAutosave";
+const AUTOSAVE_CHANGE_EVENT = "aven:file-editor-autosave-change";
+
+/** Save edited files shortly after typing stops. Off unless chosen. */
+export const AUTOSAVE_DEFAULT = false;
+
+export function loadAutosave(): boolean {
+  try {
+    const raw = localStorage.getItem(AUTOSAVE_KEY);
+    if (raw === "1" || raw === "true") return true;
+    if (raw === "0" || raw === "false") return false;
+    return AUTOSAVE_DEFAULT;
+  } catch {
+    return AUTOSAVE_DEFAULT;
+  }
+}
+
+export function saveAutosave(value: boolean): boolean {
+  try {
+    localStorage.setItem(AUTOSAVE_KEY, value ? "1" : "0");
+  } catch {
+    // private mode / quota
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(AUTOSAVE_CHANGE_EVENT));
+  }
+  return loadAutosave();
+}
+
+export function subscribeAutosave(onChange: () => void) {
+  if (typeof window === "undefined") return () => {};
+  const onStorage = (event: StorageEvent) => {
+    if (!event.key || event.key === AUTOSAVE_KEY) onChange();
+  };
+  window.addEventListener(AUTOSAVE_CHANGE_EVENT, onChange);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(AUTOSAVE_CHANGE_EVENT, onChange);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
 const CLAUDE_HOOKS_KEY = "monocode.claudeHooks";
 
 export const CLAUDE_HOOKS_DEFAULT = true;

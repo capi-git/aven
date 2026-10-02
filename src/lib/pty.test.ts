@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  decodePtyChunk,
   killAllPtys,
   killPty,
   queueTerminalCommand,
@@ -12,6 +13,20 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
 const KB = 1024;
+
+describe("decodePtyChunk", () => {
+  it("decodes a valid base64 payload", () => {
+    // "hi" in base64
+    const chunk = decodePtyChunk("aGk=");
+    expect(chunk).not.toBeNull();
+    expect(Array.from(chunk!)).toEqual([104, 105]);
+  });
+
+  it("returns null instead of throwing on a malformed payload", () => {
+    expect(() => decodePtyChunk("not valid base64!!!")).not.toThrow();
+    expect(decodePtyChunk("not valid base64!!!")).toBeNull();
+  });
+});
 
 describe("trimReplay", () => {
   it("keeps a small buffer whole", () => {

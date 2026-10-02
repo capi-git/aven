@@ -13,8 +13,14 @@ import { runGrokTextPrompt } from "./grokText";
 
 const GIT_TIMEOUT_MS = 60_000;
 
-export async function generateGrokCommitMessage(cwd: string): Promise<string> {
+export async function generateGrokCommitMessage(
+  cwd: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  signal?.throwIfAborted();
   const context = await gitStagedContext(cwd);
+  // The text runner cannot be interrupted, so don't start it after a cancel.
+  signal?.throwIfAborted();
   const output = await runGrokTextPrompt({
     cwd,
     prompt: buildCommitMessagePrompt({

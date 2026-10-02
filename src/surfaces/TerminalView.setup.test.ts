@@ -80,7 +80,7 @@ const setup = (command?: string) =>
     setupCommand: command,
   });
 
-it("executes an explicit setup command once under StrictMode and kills only its own shells", async () => {
+it("executes an explicit setup command once under StrictMode and kills only its own shell", async () => {
   const ready: (() => void)[] = [];
   vi.mocked(spawnPty).mockImplementation(
     () =>
@@ -91,25 +91,21 @@ it("executes an explicit setup command once under StrictMode and kills only its 
   await act(async () =>
     root.render(createElement(StrictMode, null, setup("codex login"))),
   );
-  expect(spawnPty).toHaveBeenCalledTimes(2);
-  const [discarded, live] = vi.mocked(spawnPty).mock.calls.map(([id]) => id);
-  expect(discarded).not.toBe(live);
-  expect(discarded).not.toBe("provider-action");
+  // StrictMode's discarded effect closes before its deferred start runs, so
+  // it never opens (or later kills) a shell of its own.
+  expect(spawnPty).toHaveBeenCalledTimes(1);
+  const [live] = vi.mocked(spawnPty).mock.calls[0];
+  expect(live).not.toBe("provider-action");
+  expect(live).toMatch(/^provider-action-setup-/);
   expect(writePty).not.toHaveBeenCalled();
 
-  // The replay shell can become ready before the discarded spawn returns.
-  await act(async () => ready[1]());
-  expect(writePty).toHaveBeenCalledExactlyOnceWith(live, "codex login\r");
-  expect(killPty).not.toHaveBeenCalledWith(live);
   await act(async () => ready[0]());
-  expect(writePty).toHaveBeenCalledTimes(1);
-  expect(killPty).toHaveBeenCalledExactlyOnceWith(discarded);
+  expect(writePty).toHaveBeenCalledExactlyOnceWith(live, "codex login\r");
+  expect(killPty).not.toHaveBeenCalled();
 
   await act(async () => root.unmount());
-  expect(vi.mocked(killPty).mock.calls.map(([id]) => id)).toEqual([
-    discarded,
-    live,
-  ]);
+  expect(writePty).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(killPty).mock.calls.map(([id]) => id)).toEqual([live]);
 });
 
 it("never launches an action after its terminal closes during a pending spawn", async () => {

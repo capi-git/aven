@@ -22,7 +22,7 @@ export type WorkspaceInspectorProps = {
   onFileMoved?: (from: string, to: string) => void;
   onFileDeleted?: (path: string) => void;
   onOpenDiff: (path: string, kind?: GitFileDiffKind) => void;
-  onOpenAllChanges: () => void;
+  onOpenAllChanges: (kind: GitFileDiffKind) => void;
   onOpenCommit: (commit: GitHistoryCommit) => void;
   selectedDiffPath?: string;
   selectedDiffKind?: GitFileDiffKind;
@@ -40,7 +40,6 @@ type FilesProps = Pick<
 > & {
   enabled: boolean;
   onSearch: () => void;
-  onShowSourceControl: () => void;
 };
 
 // Both the tree and its Git subscription load only when Files is visible.
@@ -217,7 +216,6 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
                 onFileMoved={props.onFileMoved}
                 onFileDeleted={props.onFileDeleted}
                 onSearch={openSearch}
-                onShowSourceControl={() => props.onTabChange("changes")}
               />
             )}
           </Suspense>

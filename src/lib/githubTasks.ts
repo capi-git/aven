@@ -33,6 +33,8 @@ export type GithubWorkItem = {
   title: string;
   url: string;
   state: string;
+  /** GitHub issue closure reason, such as `completed` or `not_planned`. */
+  stateReason?: string;
   updatedAt: string;
   labels: GithubLabel[];
   assignees: GithubAssignee[];

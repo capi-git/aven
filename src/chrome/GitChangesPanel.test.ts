@@ -3,7 +3,13 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GitChangesPanel, gitStatusSummary } from "./GitChangesPanel";
-import { notifyGitChanged, type GitDiffIndex, type GitPr } from "../lib/fs";
+import {
+  notifyGitChanged,
+  type GitChangedFile,
+  type GitDiffIndex,
+  type GitPr,
+} from "../lib/fs";
+import { generateCommitMessage } from "../lib/harness";
 
 const mocks = vi.hoisted(() => ({
   diffIndex: vi.fn(),
@@ -90,19 +96,91 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function render(enabled = true) {
+async function render(enabled = true, onOpenAllChanges = vi.fn()) {
   await act(async () =>
     root.render(
       createElement(GitChangesPanel, {
         cwd,
         enabled,
         onOpenFile: vi.fn(),
-        onOpenAllChanges: vi.fn(),
+        onOpenAllChanges,
         onOpenCommit: vi.fn(),
       }),
     ),
   );
 }
+
+function changed(
+  relative: string,
+  staged: boolean,
+  unstaged: boolean,
+): GitChangedFile {
+  return {
+    path: `${cwd}/${relative}`,
+    relative,
+    status: "modified",
+    additions: 1,
+    deletions: 0,
+    staged,
+    unstaged,
+  };
+}
+
+function button(label: string) {
+  return container.querySelector<HTMLButtonElement>(
+    `[aria-label="${label}"]`,
+  );
+}
+
+describe("GitChangesPanel commit message generation", () => {
+  it("cancels promptly and ignores a late result after a retry", async () => {
+    index.files = [changed("change.ts", true, false)];
+    let resolveFirst!: (message: string) => void;
+    vi.mocked(generateCommitMessage)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockResolvedValueOnce("New message");
+    await render();
+
+    await act(async () => button("Generate commit message")!.click());
+    const signal = vi.mocked(generateCommitMessage).mock.calls[0]?.[2];
+    expect(signal?.aborted).toBe(false);
+
+    await act(async () =>
+      button("Cancel commit message generation")!.click(),
+    );
+    expect(signal?.aborted).toBe(true);
+    expect(button("Generate commit message")?.disabled).toBe(false);
+    expect(container.querySelector("textarea")?.disabled).toBe(false);
+
+    await act(async () => button("Generate commit message")!.click());
+    expect(container.querySelector("textarea")?.value).toBe("New message");
+
+    await act(async () => resolveFirst("Old message"));
+    expect(container.querySelector("textarea")?.value).toBe("New message");
+  });
+});
+
+describe("GitChangesPanel Open All Changes", () => {
+  it("scopes the review to the section it was opened from", async () => {
+    index.files = [changed("a.ts", true, true), changed("b.ts", false, true)];
+    const onOpenAllChanges = vi.fn();
+    await render(true, onOpenAllChanges);
+    const opens = [
+      ...container.querySelectorAll<HTMLButtonElement>(
+        '[title="Open All Changes"]',
+      ),
+    ];
+    expect(opens).toHaveLength(2);
+    await act(async () => opens[0].click());
+    await act(async () => opens[1].click());
+    expect(onOpenAllChanges.mock.calls).toEqual([["staged"], ["unstaged"]]);
+  });
+});
 
 async function visibility(value: boolean) {
   hidden = value;
