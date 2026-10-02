@@ -517,6 +517,36 @@ pub(super) fn move_to(
     result
 }
 
+/// Follows a native drag. It never waits for AppKit, so a busy main thread
+/// cannot stretch how long the mouse button is held. Each call takes a new
+/// generation: queued older frames and earlier fade timers become no-ops, so
+/// the marker cannot fade or jump back during a long drag. While pressed, the
+/// click ring stays small at the hotspot; the release plays the click pulse
+/// and then the normal idle fade.
+pub(super) fn follow(scope: &str, point: Point, released: bool, revoked: Arc<AtomicBool>) {
+    let Ok(mut gate) = GATE.lock() else {
+        return;
+    };
+    let Ok((generation, _)) = gate.start(scope, revoked, Instant::now()) else {
+        return;
+    };
+    drop(gate);
+    DispatchQueue::main().exec_async(move || {
+        objc2::rc::autoreleasepool(|_| {
+            if paint(generation, point, Feedback::Click, 0.0).is_err() || !released {
+                return;
+            }
+            let mut gate = GATE.lock().unwrap_or_else(|error| error.into_inner());
+            if !gate.visible(generation, Instant::now()) {
+                return;
+            }
+            gate.expires = Some(Instant::now() + LINGER);
+            drop(gate);
+            schedule_feedback(generation, point, Feedback::Click);
+        });
+    });
+}
+
 pub(super) fn window_id() -> Option<u32> {
     let id = WINDOW_ID.load(Ordering::Acquire);
     (id != 0).then_some(id)
