@@ -3,6 +3,60 @@ use tauri::menu::{AboutMetadata, Menu, MenuItemBuilder, SubmenuBuilder};
 #[cfg(target_os = "macos")]
 use tauri::Wry;
 use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_opener::OpenerExt;
+
+const GITHUB_URL: &str = "https://github.com/capi-git/aven";
+const REPORT_BUG_URL: &str = "https://github.com/capi-git/aven/issues/new?template=bug_report.yml";
+const REQUEST_FEATURE_URL: &str =
+    "https://github.com/capi-git/aven/issues/new?template=feature_request.yml";
+
+/// External page opened by a Help menu item, if `id` is one.
+fn help_url(id: &str) -> Option<&'static str> {
+    match id {
+        "help_github" => Some(GITHUB_URL),
+        "help_report_bug" => Some(REPORT_BUG_URL),
+        "help_request_feature" => Some(REQUEST_FEATURE_URL),
+        _ => None,
+    }
+}
+
+/// Picks the window a single-window menu command belongs to: the focused one,
+/// else the first visible one, else any. Labels are sorted for stability.
+fn single_target(windows: &[(String, bool, bool)]) -> Option<&str> {
+    let mut sorted: Vec<_> = windows.iter().collect();
+    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+    sorted
+        .iter()
+        .find(|(_, focused, _)| *focused)
+        .or_else(|| sorted.iter().find(|(_, _, visible)| *visible))
+        .or(sorted.first())
+        .map(|(label, _, _)| label.as_str())
+}
+
+/// Emits to one window only: a broadcast would make every window act on a
+/// single menu click (each would toggle its sidebar, or bump the shared
+/// interface scale again).
+fn emit_to_one_window(app: &AppHandle, id: &str) {
+    let windows: Vec<_> = app
+        .windows()
+        .into_values()
+        .map(|window| {
+            (
+                window.label().to_string(),
+                window.is_focused().unwrap_or(false),
+                window.is_visible().unwrap_or(false),
+            )
+        })
+        .collect();
+    match single_target(&windows) {
+        Some(label) => {
+            let _ = app.emit_to(label, id, ());
+        }
+        None => {
+            let _ = app.emit(id, ());
+        }
+    }
+}
 
 pub fn install(app: &AppHandle) -> tauri::Result<()> {
     #[cfg(target_os = "macos")]
@@ -12,6 +66,11 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
 }
 
 pub fn dispatch(app: &AppHandle, id: &str) {
+    // Help links leave the app, so no window or floating browser owns them.
+    if let Some(url) = help_url(id) {
+        let _ = app.opener().open_url(url, None::<&str>);
+        return;
+    }
     #[cfg(all(feature = "chromium", target_os = "macos"))]
     if crate::browser::dispatch_native_menu(id) {
         return;
@@ -48,34 +107,14 @@ pub fn dispatch(app: &AppHandle, id: &str) {
         "quit" => crate::window::request_quit(app),
         "new_tab" | "close_tab" | "close_other_tabs" | "next_tab" | "prev_tab" | "back_tab"
         | "forward_tab" | "split_right" | "split_down" | "focus_left" | "focus_right"
-        | "focus_up" | "focus_down" | "toggle_sidebar" | "toggle_inspector" | "sidebar_opacity"
-        | "open_project" | "go_to_file" | "open_palette" | "open_search" | "open_inbox"
-        | "open_notes" | "find_in_project" | "find" | "new_terminal" | "new_terminal_tab"
-        | "toggle_terminal" | "open_model_picker" | "open_settings" | "check_for_updates" => {
+        | "focus_up" | "focus_down" | "sidebar_opacity" | "open_project" | "go_to_file"
+        | "open_palette" | "open_search" | "open_inbox" | "open_notes" | "find_in_project"
+        | "find" | "new_terminal" | "new_terminal_tab" | "toggle_terminal"
+        | "open_model_picker" | "open_settings" | "check_for_updates" => {
             let _ = app.emit(id, ());
         }
-        "zoom_in" | "zoom_out" | "zoom_reset" => {
-            // Zoom targets one window: a broadcast would make every window
-            // increment the shared scale setting on a single menu click.
-            let mut windows: Vec<_> = app.windows().into_values().collect();
-            windows.sort_by(|a, b| a.label().cmp(b.label()));
-            let target = windows
-                .iter()
-                .find(|window| window.is_focused().unwrap_or(false))
-                .or_else(|| {
-                    windows
-                        .iter()
-                        .find(|window| window.is_visible().unwrap_or(false))
-                })
-                .or(windows.first());
-            match target {
-                Some(window) => {
-                    let _ = app.emit_to(window.label(), id, ());
-                }
-                None => {
-                    let _ = app.emit(id, ());
-                }
-            }
+        "toggle_sidebar" | "toggle_inspector" | "zoom_in" | "zoom_out" | "zoom_reset" => {
+            emit_to_one_window(app, id);
         }
         _ => {}
     }
@@ -251,11 +290,76 @@ fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             .separator()
             .item(&quit)
             .build()?;
-        let window_menu =
-            SubmenuBuilder::with_id(app, tauri::menu::WINDOW_SUBMENU_ID, "Window").build()?;
-        return Menu::with_items(app, &[&app_menu, &file, &edit, &view, &window_menu]);
+        // Tauri registers this submenu via NSApp.setWindowsMenu:, which throws
+        // on macOS 12 when the menu is empty and aborts the app at launch.
+        let window_menu = SubmenuBuilder::with_id(app, tauri::menu::WINDOW_SUBMENU_ID, "Window")
+            .minimize()
+            .maximize()
+            .build()?;
+        let github = MenuItemBuilder::with_id("help_github", "View on GitHub").build(app)?;
+        let report_bug = MenuItemBuilder::with_id("help_report_bug", "Report a Bug…").build(app)?;
+        let request_feature =
+            MenuItemBuilder::with_id("help_request_feature", "Request a Feature…").build(app)?;
+        let help = SubmenuBuilder::with_id(app, tauri::menu::HELP_SUBMENU_ID, "Help")
+            .item(&github)
+            .separator()
+            .item(&report_bug)
+            .item(&request_feature)
+            .build()?;
+        return Menu::with_items(app, &[&app_menu, &file, &edit, &view, &window_menu, &help]);
     }
 
     #[allow(unreachable_code)]
     Menu::with_items(app, &[&file, &edit, &view])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn help_links_open_aven_pages_only() {
+        assert_eq!(
+            help_url("help_github"),
+            Some("https://github.com/capi-git/aven")
+        );
+        assert_eq!(
+            help_url("help_report_bug"),
+            Some("https://github.com/capi-git/aven/issues/new?template=bug_report.yml")
+        );
+        assert_eq!(
+            help_url("help_request_feature"),
+            Some("https://github.com/capi-git/aven/issues/new?template=feature_request.yml")
+        );
+        assert_eq!(help_url("toggle_sidebar"), None);
+        for url in [GITHUB_URL, REPORT_BUG_URL, REQUEST_FEATURE_URL] {
+            assert!(url.starts_with("https://github.com/capi-git/aven"));
+            assert!(!url.to_lowercase().contains("monocode"));
+            assert!(!url.contains("usemono"));
+        }
+    }
+
+    #[test]
+    fn single_window_commands_prefer_focused_then_visible_window() {
+        let window = |label: &str, focused, visible| (label.to_string(), focused, visible);
+        assert_eq!(
+            single_target(&[window("main", false, true), window("window-2", true, true),]),
+            Some("window-2")
+        );
+        assert_eq!(
+            single_target(&[
+                window("window-2", false, true),
+                window("main", false, false),
+            ]),
+            Some("window-2")
+        );
+        assert_eq!(
+            single_target(&[
+                window("window-2", false, false),
+                window("main", false, false),
+            ]),
+            Some("main")
+        );
+        assert_eq!(single_target(&[]), None);
+    }
 }

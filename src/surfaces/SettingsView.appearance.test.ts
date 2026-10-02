@@ -207,4 +207,29 @@ describe("workspace appearance settings", () => {
     await clickText("Restore defaults");
     expect(loadWorkspaceTheme("work")).toEqual(defaultWorkspaceTheme());
   });
+
+  it("sets interface scale from a menu instead of a live slider", async () => {
+    await act(async () => root.render(createElement(Harness)));
+    expect(
+      container.querySelector(
+        'input[type="range"][aria-label="Interface scale"]',
+      ),
+    ).toBeNull();
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-haspopup="listbox"][aria-label="Interface scale"]',
+    )!;
+    expect(trigger.textContent).toContain("100%");
+    await act(async () => trigger.click());
+    const options = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    );
+    expect(options.map((option) => option.textContent)).toEqual(
+      expect.arrayContaining(["50%", "100%", "150%", "200%"]),
+    );
+    const option = options.find((node) => node.textContent === "150%")!;
+    await act(async () => option.click());
+    expect(localStorage.getItem("monocode.uiScale")).toBe("1.5");
+    expect(trigger.textContent).toContain("150%");
+    document.documentElement.style.removeProperty("zoom");
+  });
 });

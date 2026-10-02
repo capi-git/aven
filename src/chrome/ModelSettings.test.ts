@@ -122,6 +122,63 @@ describe("model setting controls", () => {
     expect(document.activeElement).toBe(composer);
   });
 
+  it("shimmers only the max and ultra reasoning levels with effort tiles", async () => {
+    await render();
+    // The old pixel meter is gone from both the trigger and the menu.
+    expect(host.querySelector(".model-strength-pixels")).toBeNull();
+    expect(trigger().querySelector("svg")).not.toBeNull();
+    await open();
+    expect(menu()!.querySelector(".model-strength-pixels")).toBeNull();
+    const options = Array.from(
+      menu()!.querySelectorAll<HTMLButtonElement>('[role="option"]'),
+    );
+    const tones = Object.fromEntries(
+      options.map((option) => [
+        option.textContent,
+        option.getAttribute("data-effort-tone"),
+      ]),
+    );
+    expect(tones).toEqual({
+      Low: null,
+      Medium: null,
+      High: null,
+      "Extra High": null,
+      Max: "max",
+      Ultracode: "ultra",
+      Ultrathink: "ultra",
+    });
+    const max = options.find((option) => option.textContent === "Max")!;
+    expect(max.classList.contains("model-effort-option")).toBe(true);
+    expect(max.querySelectorAll(".model-effort-tile")).toHaveLength(160);
+    const filled = max.querySelectorAll(".model-effort-tile-filled").length;
+    expect(filled).toBeGreaterThanOrEqual(96);
+    expect(filled).toBeLessThanOrEqual(112);
+    expect(
+      max.querySelector(".model-effort-tiles")?.getAttribute("aria-hidden"),
+    ).toBe("true");
+    const high = options.find((option) => option.textContent === "High")!;
+    expect(high.classList.contains("model-effort-option")).toBe(false);
+    expect(high.querySelector(".model-effort-tile")).toBeNull();
+
+    // Keyboard highlight drives the shimmer; it follows the active row only.
+    expect(max.hasAttribute("data-effort-active")).toBe(false);
+    for (let step = 0; step < 3; step += 1) await key("ArrowDown");
+    expect(max.hasAttribute("data-effort-active")).toBe(true);
+    await key("ArrowDown");
+    expect(max.hasAttribute("data-effort-active")).toBe(false);
+    expect(
+      options
+        .find((option) => option.textContent === "Ultracode")!
+        .hasAttribute("data-effort-active"),
+    ).toBe(true);
+    await key("Enter");
+    expect(onChange).toHaveBeenCalledExactlyOnceWith({
+      effort: "ultracode",
+      fast: "false",
+    });
+    expect(document.activeElement).toBe(composer);
+  });
+
   it("dismisses Escape without committing the highlighted level and restores composer focus", async () => {
     await render();
     await open();

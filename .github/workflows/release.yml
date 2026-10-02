@@ -35,7 +35,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # These jobs never talk to GitHub through git, so the checkout token is
+      # not left in .git/config for later steps (MonoCode f8769ee1).
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Validate requested release source
         env:
           AVEN_EXPECTED_VERSION: ${{ inputs.expected_version }}
@@ -66,6 +70,8 @@ jobs:
       CEF_BUILD_DIR: ${{ github.workspace }}/target/chromium
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Confirm native Apple Silicon runner
         run: test "$(uname -m)" = arm64
       - uses: actions/setup-node@v4

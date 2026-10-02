@@ -135,6 +135,10 @@ import type { PaletteAgent } from "../lib/commandPalette";
 import { RACE_MIN_LANES } from "../lib/race";
 import { useRaceAgents } from "./useRaceAgents";
 import { consumePlanCommand, PLAN_COMMAND } from "../lib/plan";
+import {
+  consumeOrchestratorCommand,
+  ORCHESTRATOR_COMMAND,
+} from "../lib/orchestratorCommand";
 import { COMPACT_COMMAND, isCompactCommand } from "../lib/compact";
 
 type Props = {
@@ -539,16 +543,20 @@ function ComposerComponent({
     () => "queue" as const,
   );
   const draftPlanning = consumePlanCommand(draft).planning;
+  // A typed /orchestrator works like choosing Orchestrator, where it exists.
+  const draftOrchestrating =
+    !hideTopBar && !draftPlanning && consumeOrchestratorCommand(draft).matched;
   // Plan mode and Orchestrator are exclusive with Race; a typed /plan wins.
   const raceActive =
     raceOn &&
     raceReady &&
     !draftPlanning &&
+    !draftOrchestrating &&
     !planSelected &&
     !orchestrationSelected;
   const queueSubmission = shouldEnqueueSubmission(
     { harness, busy: Boolean(busy), queuedMessages },
-    planSelected || orchestrationSelected || draftPlanning
+    planSelected || orchestrationSelected || draftPlanning || draftOrchestrating
       ? "queue"
       : followUpBehavior,
   );
@@ -587,15 +595,18 @@ function ComposerComponent({
   const slashItems = useMemo(
     () => [
       PLAN_COMMAND,
+      // Orchestrator mode is only offered where its + menu toggle is.
+      ...(hideTopBar ? [] : [ORCHESTRATOR_COMMAND]),
       ...(compactSupported ? [COMPACT_COMMAND] : []),
       ...skills.filter(
         (skill) =>
           skill.kind === "native" ||
           (skill.name !== PLAN_COMMAND.name &&
-            skill.name !== COMPACT_COMMAND.name),
+            skill.name !== COMPACT_COMMAND.name &&
+            (hideTopBar || skill.name !== ORCHESTRATOR_COMMAND.name)),
       ),
     ],
-    [compactSupported, skills],
+    [compactSupported, hideTopBar, skills],
   );
   const skillLimit = hasNativeCommands(harness)
     ? Number.POSITIVE_INFINITY
@@ -879,14 +890,18 @@ function ComposerComponent({
       }
       const planCommand =
         skill.kind === "builtin" && skill.name === PLAN_COMMAND.name;
-      const next = planCommand
+      const orchestratorCommand =
+        skill.kind === "builtin" && skill.name === ORCHESTRATOR_COMMAND.name;
+      // Mode commands switch the mode and leave only the request in the field.
+      const modeCommand = planCommand || orchestratorCommand;
+      const next = modeCommand
         ? `${el.value.slice(0, token.start)}${el.value
             .slice(token.end)
             .replace(/^\s/, "")}`
         : replaceSlashToken(el.value, token, skill.invocation);
       el.value = next;
       resizeTextarea(el);
-      let cursor = planCommand
+      let cursor = modeCommand
         ? token.start
         : token.start + skill.invocation.length + 1;
       if (next[cursor] === " ") cursor += 1;
@@ -898,6 +913,11 @@ function ComposerComponent({
       if (planCommand) {
         setPlanSelected(true);
         setOrchestrationSelected(false);
+      }
+      if (orchestratorCommand) {
+        setOrchestrationSelected(true);
+        setPlanSelected(false);
+        setRaceOn(false);
       }
       el.focus();
     },
@@ -1037,12 +1057,23 @@ function ComposerComponent({
     }
 
     const command = consumePlanCommand(value);
-    const text = isNativeCommandPrompt(command.text, harness)
-      ? command.text
-      : composeInboxMessage(inboxCard, command.text);
+    const orchestratorCommand =
+      !hideTopBar && !command.planning
+        ? consumeOrchestratorCommand(command.text)
+        : { text: command.text, matched: false };
+    const orchestrating = orchestrationSelected || orchestratorCommand.matched;
+    const text = isNativeCommandPrompt(orchestratorCommand.text, harness)
+      ? orchestratorCommand.text
+      : composeInboxMessage(inboxCard, orchestratorCommand.text);
     const files = attachments;
     if (!text && files.length === 0 && !noteCard && !handoffCard) return;
-    if (raceActive && onRace && !command.planning && text) {
+    if (
+      raceActive &&
+      onRace &&
+      !command.planning &&
+      !orchestratorCommand.matched &&
+      text
+    ) {
       setRaceOn(false);
       setPlusOpen(false);
       setSlash(null);
@@ -1066,13 +1097,13 @@ function ComposerComponent({
       intent:
         planSelected || command.planning
           ? "plan"
-          : orchestrationSelected
+          : orchestrating
             ? "orchestrate"
             : "default",
       ...(busy || queuedMessages.length
         ? {
             followUpBehavior:
-              planSelected || orchestrationSelected || command.planning
+              planSelected || orchestrating || command.planning
                 ? "queue"
                 : followUpBehavior,
           }

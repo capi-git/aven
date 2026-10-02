@@ -199,3 +199,55 @@ it("works the + menu from the keyboard", async () => {
   expect(document.body.querySelector("[data-composer-plus]")).toBeNull();
   expect(document.activeElement).toBe(field());
 });
+
+it("sends a typed /orchestrator request as an orchestrated turn", async () => {
+  props.hideTopBar = false;
+  await render();
+  await type("/orchestrator Ship the release");
+  await press("Enter");
+  expect(props.onSubmit).toHaveBeenCalledExactlyOnceWith(
+    "Ship the release",
+    [],
+    expect.objectContaining({ intent: "orchestrate" }),
+  );
+});
+
+it("turns on Orchestrator mode when /orchestrator is picked from the slash menu", async () => {
+  props.hideTopBar = false;
+  await render();
+  await type("/orch");
+  const command = [...document.body.querySelectorAll("button")].find((item) =>
+    item.textContent?.includes("/orchestrator"),
+  )!;
+  expect(command).toBeTruthy();
+  await act(async () => command.click());
+  expect(field().value).toBe("");
+  expect(
+    container.querySelector('[aria-label="Turn off Orchestrator mode"]'),
+  ).not.toBeNull();
+  expect(document.activeElement).toBe(field());
+  await type("Coordinate the fix");
+  await press("Enter");
+  expect(props.onSubmit).toHaveBeenCalledExactlyOnceWith(
+    "Coordinate the fix",
+    [],
+    expect.objectContaining({ intent: "orchestrate" }),
+  );
+});
+
+it("leaves /orchestrator text alone where Orchestrator mode is unavailable", async () => {
+  await render();
+  await type("/orch");
+  expect(
+    [...document.body.querySelectorAll("button")].some((item) =>
+      item.textContent?.includes("/orchestrator"),
+    ),
+  ).toBe(false);
+  await type("/orchestrator Ship the release");
+  await press("Enter");
+  expect(props.onSubmit).toHaveBeenCalledExactlyOnceWith(
+    "/orchestrator Ship the release",
+    [],
+    expect.objectContaining({ intent: "default" }),
+  );
+});

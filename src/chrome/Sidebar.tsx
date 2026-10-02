@@ -35,7 +35,8 @@ import {
 } from "../lib/fs";
 import { IS_MAC, MOD } from "../lib/platform";
 import { resolveModel } from "../lib/models";
-import { sessionDisplayTitle } from "../lib/session";
+import { HARNESS_TITLE, sessionDisplayTitle } from "../lib/session";
+import { copyText } from "../lib/clipboard";
 import { nextUnseenFinishedSessions } from "../lib/sessionDone";
 import {
   orderedSessionActionIds,
@@ -780,6 +781,24 @@ function SidebarComponent({
           },
         ]
       : []),
+    // Copy either identifier for one session (MonoCode 16e9fea6). The
+    // provider's own ID only exists once its first turn has bound one.
+    ...(!multipleMenuSessions && menuSessions[0]
+      ? [
+          { kind: "sep" as const },
+          {
+            kind: "item" as const,
+            id: "copy-provider-session-id",
+            label: `Copy ${HARNESS_TITLE[menuSessions[0].harness] ?? "provider"} session ID`,
+            disabled: !menuSessions[0].providerSessionId,
+          },
+          {
+            kind: "item" as const,
+            id: "copy-aven-session-id",
+            label: "Copy Aven session ID",
+          },
+        ]
+      : []),
     { kind: "sep" as const },
     { kind: "item" as const, id: "folder-new", label: "New folder" },
     ...(sessionFolders.length > 0 ? [{ kind: "sep" as const }] : []),
@@ -873,7 +892,17 @@ function SidebarComponent({
     const sessionIds = menuSessionIds;
     const archived = allMenuSessionsArchived;
     const pinned = allMenuSessionsPinned;
+    const providerSessionId = menuSessions[0]?.providerSessionId;
     closeSessionMenu();
+    if (id === "copy-provider-session-id" || id === "copy-aven-session-id") {
+      const value =
+        id === "copy-provider-session-id" ? providerSessionId : sessionId;
+      if (value)
+        void copyText(value).catch((error) => {
+          console.error("Failed to copy session ID:", error);
+        });
+      return;
+    }
     if (id === "pin") {
       if (sessionIds.length > 1 && onPinSessions) {
         onPinSessions(sessionIds, !pinned);

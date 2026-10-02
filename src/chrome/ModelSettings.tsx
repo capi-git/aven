@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { Popover } from "./Popover";
@@ -26,63 +27,46 @@ type Props = {
 
 const MENU_WIDTH = 220;
 
-// Decorative intensity only. Provider option order is not a strength ranking
-// (Grok, for example, lists the highest effort first). Keep raw values intact.
-const STRENGTH_PIXELS: Record<string, number> = {
-  off: 0,
-  none: 0,
-  minimal: 2,
-  low: 4,
-  medium: 8,
-  high: 11,
-  xhigh: 13,
-  max: 16,
-  ultra: 16,
-  ultracode: 16,
-  ultrathink: 16,
-};
+// Ported from MonoCode 43aac9d2 / 1e97594d: the strongest reasoning levels
+// shimmer with a field of tiles while highlighted. Provider option order is not
+// a strength ranking (Grok lists the highest first), so match exact values and
+// keep raw provider values intact.
+type EffortTone = "ultra" | "max";
 
-function StrengthPixels({
-  value,
-  pulse = false,
-  compact = false,
-}: {
-  value: string;
-  pulse?: boolean;
-  compact?: boolean;
-}) {
-  const count = Object.prototype.hasOwnProperty.call(STRENGTH_PIXELS, value)
-    ? STRENGTH_PIXELS[value]
-    : undefined;
-  // Future provider modes (such as adaptive) have no known intensity. Retain
-  // their neutral icon rather than making them look like disabled reasoning.
-  if (count === undefined) {
-    return (
-      <Gauge
-        aria-hidden="true"
-        className={`${compact ? "size-3.5" : "ml-3 size-4.5"} shrink-0 text-content/50`}
-        strokeWidth={1.75}
-      />
-    );
-  }
+function effortTileTone(value: string): EffortTone | undefined {
+  const normalized = value.toLowerCase();
+  if (normalized === "max") return "max";
+  if (normalized.startsWith("ultra")) return "ultra";
+  return undefined;
+}
+
+const EFFORT_TILE_COLUMNS = 32;
+const EFFORT_TILE_ROWS = 5;
+
+function EffortTileShimmer() {
+  const centerColumn = (EFFORT_TILE_COLUMNS - 1) / 2;
+  const centerRow = (EFFORT_TILE_ROWS - 1) / 2;
   return (
-    <span
-      aria-hidden="true"
-      className={`model-strength-pixels ${compact ? "model-strength-pixels-compact" : ""}`}
-      data-pulse={pulse || undefined}
-    >
-      {Array.from({ length: 16 }, (_, index) => {
-        const row = Math.floor(index / 4);
-        const column = index % 4;
-        const order = (3 - row) * 4 + column;
-        return (
-          <span
-            key={index}
-            className={`model-strength-pixel ${order < count ? "model-strength-pixel-lit" : ""}`}
-            style={{ animationDelay: `${(3 - row) * 35 + column * 22}ms` }}
-          />
-        );
-      })}
+    <span className="model-effort-tiles" aria-hidden="true">
+      {Array.from(
+        { length: EFFORT_TILE_COLUMNS * EFFORT_TILE_ROWS },
+        (_, index) => {
+          const column = index % EFFORT_TILE_COLUMNS;
+          const row = Math.floor(index / EFFORT_TILE_COLUMNS);
+          const distance = Math.hypot(
+            (column - centerColumn) / centerColumn,
+            (row - centerRow) / centerRow,
+          );
+          const filled = (index * 73 + index * index * 19 + 23) % 101 < 65;
+          return (
+            <span
+              key={index}
+              className={`model-effort-tile${filled ? " model-effort-tile-filled" : ""}`}
+              style={{ "--tile-distance": distance } as CSSProperties}
+            />
+          );
+        },
+      )}
     </span>
   );
 }
@@ -198,7 +182,6 @@ function SelectSetting({
   onClose?: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [selectionPulse, setSelectionPulse] = useState(0);
   const [active, setActive] = useState(() =>
     Math.max(
       0,
@@ -212,7 +195,7 @@ function SelectSetting({
     setting.options.find((option) => option.value === value) ??
     setting.options[0];
   const Icon = setting.id === "context" ? Maximize2 : Gauge;
-  const strength = [
+  const effort = [
     "effort",
     "reasoning",
     "reasoningEffort",
@@ -235,7 +218,6 @@ function SelectSetting({
   }, [open, setting.options, value]);
 
   const pick = (next: string) => {
-    if (strength) setSelectionPulse((pulse) => pulse + 1);
     onChange(next);
     dismiss(true);
   };
@@ -280,16 +262,7 @@ function SelectSetting({
             : "bg-content/10 text-content hover:bg-content/15"
         }`}
       >
-        {strength ? (
-          <StrengthPixels
-            key={`${value}:${selectionPulse}`}
-            value={current?.value ?? value}
-            pulse={selectionPulse > 0}
-            compact
-          />
-        ) : (
-          <Icon className="size-3.5 shrink-0" strokeWidth={1.75} />
-        )}
+        <Icon className="size-3.5 shrink-0" strokeWidth={1.75} />
         <span
           key={value}
           className="model-control-value min-w-0 truncate text-[11px]"
@@ -318,15 +291,15 @@ function SelectSetting({
           {setting.options.map((option, index) => {
             const selected = option.value === value;
             const highlighted = index === active;
+            const tileTone = effort ? effortTileTone(option.value) : undefined;
             return (
               <button
                 key={option.value}
                 type="button"
                 role="option"
                 aria-selected={selected}
-                data-strength-active={
-                  strength && highlighted ? true : undefined
-                }
+                data-effort-tone={tileTone}
+                data-effort-active={tileTone && highlighted ? true : undefined}
                 onMouseDown={(e) => e.preventDefault()}
                 onMouseEnter={() => setActive(index)}
                 onClick={() => pick(option.value)}
@@ -334,12 +307,10 @@ function SelectSetting({
                   highlighted || selected
                     ? "bg-content/10 text-content"
                     : "text-content hover:bg-content/5"
-                }`}
+                }${tileTone ? " model-effort-option" : ""}`}
               >
+                {tileTone ? <EffortTileShimmer /> : null}
                 <span className="min-w-0 flex-1">{option.label}</span>
-                {strength ? (
-                  <StrengthPixels value={option.value} pulse={highlighted} />
-                ) : null}
               </button>
             );
           })}

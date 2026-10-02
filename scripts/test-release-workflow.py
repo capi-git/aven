@@ -297,5 +297,39 @@ class WindowsArtifactTests(WorkflowFixture):
                 self.assert_refused(message)
 
 
+
+class CheckoutCredentialTests(unittest.TestCase):
+    def checkout_options(self):
+        """Map each job to the `with:` lines of its checkout step."""
+        jobs = {}
+        job = None
+        lines = WORKFLOW.read_text().splitlines()
+        for index, line in enumerate(lines):
+            match = re.fullmatch(r'  ([a-z0-9-]+):', line)
+            if match:
+                job = match.group(1)
+            if line.strip() == '- uses: actions/checkout@v4':
+                options = []
+                for nested in lines[index + 1:]:
+                    if nested.strip() in ('', 'with:'):
+                        continue
+                    if not nested.startswith(' ' * 10):
+                        break
+                    options.append(nested.strip())
+                jobs[job] = options
+        return jobs
+
+    def test_build_jobs_do_not_persist_the_checkout_token(self):
+        jobs = self.checkout_options()
+        self.assertEqual(jobs['validate-source'], ['persist-credentials: false'])
+        self.assertEqual(jobs['macos-arm64'], ['persist-credentials: false'])
+
+    def test_publish_keeps_git_credentials_for_its_tag_lookup(self):
+        # `git ls-remote origin` authenticates with the checkout token; gh uses
+        # GH_TOKEN. Dropping it could block a release of a private repository.
+        self.assertEqual(self.checkout_options()['publish'], [])
+        self.assertIn('git ls-remote --exit-code --tags origin', step_script('Publish Aven release'))
+
+
 if __name__ == '__main__':
     unittest.main()
