@@ -27,14 +27,21 @@ type Props = {
 
 const MENU_WIDTH = 220;
 
-// Ported from MonoCode 43aac9d2 / 1e97594d: the strongest reasoning levels
-// shimmer with a field of tiles while highlighted. Provider option order is not
-// a strength ranking (Grok lists the highest first), so match exact values and
-// keep raw provider values intact.
-type EffortTone = "ultra" | "max";
+// Tile shimmer ported from MonoCode 43aac9d2 / 1e97594d, extended to the
+// standard effort levels. Provider order is not a strength ranking (Grok lists
+// the highest first), so match values without changing what the provider gets.
+type EffortTone = "low" | "medium" | "high" | "xhigh" | "ultra" | "max";
 
 function effortTileTone(value: string): EffortTone | undefined {
   const normalized = value.toLowerCase();
+  if (
+    normalized === "low" ||
+    normalized === "medium" ||
+    normalized === "high"
+  ) {
+    return normalized;
+  }
+  if (normalized === "xhigh" || normalized === "extra-high") return "xhigh";
   if (normalized === "max") return "max";
   if (normalized.startsWith("ultra")) return "ultra";
   return undefined;
@@ -309,7 +316,7 @@ function SelectSetting({
                     : "text-content hover:bg-content/5"
                 }${tileTone ? " model-effort-option" : ""}`}
               >
-                {tileTone ? <EffortTileShimmer /> : null}
+                {tileTone && highlighted ? <EffortTileShimmer /> : null}
                 <span className="min-w-0 flex-1">{option.label}</span>
               </button>
             );

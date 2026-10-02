@@ -122,7 +122,7 @@ describe("model setting controls", () => {
     expect(document.activeElement).toBe(composer);
   });
 
-  it("shimmers only the max and ultra reasoning levels with effort tiles", async () => {
+  it("colors every standard effort level and mounts tiles only for the active row", async () => {
     await render();
     // The old pixel meter is gone from both the trigger and the menu.
     expect(host.querySelector(".model-strength-pixels")).toBeNull();
@@ -139,16 +139,25 @@ describe("model setting controls", () => {
       ]),
     );
     expect(tones).toEqual({
-      Low: null,
-      Medium: null,
-      High: null,
-      "Extra High": null,
+      Low: "low",
+      Medium: "medium",
+      High: "high",
+      "Extra High": "xhigh",
       Max: "max",
       Ultracode: "ultra",
       Ultrathink: "ultra",
     });
     const max = options.find((option) => option.textContent === "Max")!;
     expect(max.classList.contains("model-effort-option")).toBe(true);
+    expect(max.querySelector(".model-effort-tiles")).toBeNull();
+    expect(menu()!.querySelectorAll(".model-effort-tiles")).toHaveLength(1);
+    expect(menu()!.querySelector("[data-effort-active]")?.textContent).toBe(
+      "Medium",
+    );
+
+    // Keyboard highlight drives the shimmer; it follows the active row only.
+    for (let step = 0; step < 3; step += 1) await key("ArrowDown");
+    expect(max.hasAttribute("data-effort-active")).toBe(true);
     expect(max.querySelectorAll(".model-effort-tile")).toHaveLength(160);
     const filled = max.querySelectorAll(".model-effort-tile-filled").length;
     expect(filled).toBeGreaterThanOrEqual(96);
@@ -157,15 +166,12 @@ describe("model setting controls", () => {
       max.querySelector(".model-effort-tiles")?.getAttribute("aria-hidden"),
     ).toBe("true");
     const high = options.find((option) => option.textContent === "High")!;
-    expect(high.classList.contains("model-effort-option")).toBe(false);
+    expect(high.classList.contains("model-effort-option")).toBe(true);
     expect(high.querySelector(".model-effort-tile")).toBeNull();
-
-    // Keyboard highlight drives the shimmer; it follows the active row only.
-    expect(max.hasAttribute("data-effort-active")).toBe(false);
-    for (let step = 0; step < 3; step += 1) await key("ArrowDown");
-    expect(max.hasAttribute("data-effort-active")).toBe(true);
     await key("ArrowDown");
     expect(max.hasAttribute("data-effort-active")).toBe(false);
+    expect(max.querySelector(".model-effort-tiles")).toBeNull();
+    expect(menu()!.querySelectorAll(".model-effort-tiles")).toHaveLength(1);
     expect(
       options
         .find((option) => option.textContent === "Ultracode")!
@@ -178,6 +184,58 @@ describe("model setting controls", () => {
     });
     expect(document.activeElement).toBe(composer);
   });
+
+  it.each([
+    ["codex", "reasoningEffort", "xhigh"],
+    ["cursor", "effort", "extra-high"],
+  ] as const)(
+    "colors %s effort choices without changing provider values",
+    async (harness, settingId, extraHigh) => {
+      const options = [
+        { value: "low", label: "Low" },
+        { value: "medium", label: "Medium" },
+        { value: "high", label: "High" },
+        { value: extraHigh, label: "Extra High" },
+      ];
+      const id = `${harness}:effort-colors-test`;
+      setHarnessModels(harness, [
+        {
+          id,
+          harness,
+          name: "Effort colors test",
+          settings: [
+            {
+              id: settingId,
+              label: "Reasoning",
+              kind: "select",
+              value: "low",
+              options,
+            },
+          ],
+        },
+      ]);
+      const values = { [settingId]: "low", serviceTier: "fast" };
+      await renderModel(harness, id, values);
+      await open();
+      expect(
+        Array.from(menu()!.querySelectorAll('[role="option"]')).map((option) =>
+          option.getAttribute("data-effort-tone"),
+        ),
+      ).toEqual(["low", "medium", "high", "xhigh"]);
+      for (let step = 0; step < 3; step += 1) await key("ArrowDown");
+      expect(menu()!.querySelectorAll(".model-effort-tile")).toHaveLength(160);
+      expect(menu()!.querySelector("[data-effort-active]")?.textContent).toBe(
+        "Extra High",
+      );
+      await key("Enter");
+      expect(onChange).toHaveBeenCalledExactlyOnceWith({
+        ...values,
+        [settingId]: extraHigh,
+      });
+      expect(document.querySelector(".model-effort-tiles")).toBeNull();
+      expect(document.activeElement).toBe(composer);
+    },
+  );
 
   it("dismisses Escape without committing the highlighted level and restores composer focus", async () => {
     await render();
