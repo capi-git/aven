@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [0.1.116] - 2026-10-02
+
+### Smoother resizing
+
+- Resizing a sidebar, the inspector, the browser split, the divider between panes or the window no longer makes the conversation slide up or down. While you're scrolled up, the line at the top of your view stays in place as the text rewraps; file and plan previews behave the same way.
+- Dragging dividers is smoother. The browser split updates once per frame instead of recalculating the whole workspace on every mouse movement, a visible browser page checks for overlapping menus less often, and frosted glass pauses its blur until the drag or window resize ends.
+
+### Glass, model controls and chat navigation
+
+- The message box and floating panels show more of your background through the glass, while their text stays solid and readable.
+- Choosing a model or reasoning strength responds with brief motion, and reasoning strength shows as a small pixel meter. Reduce motion turns the animation off.
+- The prompt rail beside a chat can now be dragged, scrolled with the mouse wheel or trackpad, and used from the keyboard to move through the conversation, as well as clicked to jump to a prompt.
+- Chat tabs keep a steady single-line title, and floating sidebar corners share one rounded outline without a stray divider line.
+
 ## [0.1.115] - 2026-10-01
 
 ### Scheduled agents
