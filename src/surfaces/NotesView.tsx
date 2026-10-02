@@ -25,13 +25,18 @@ import {
   createNote,
   deleteNote,
   loadNotes,
+  peekNotes,
   notePreview,
   noteSourceProject,
   noteTitle,
   requestAddNoteToChat,
   type Note,
 } from "../lib/notes";
-import { getNoteDraft, subscribeSavedNoteDrafts } from "../lib/noteDrafts";
+import {
+  adoptStoredNote,
+  getNoteDraft,
+  subscribeSavedNoteDrafts,
+} from "../lib/noteDrafts";
 import {
   insertNoteImagesMarkdown,
   saveNoteImagesFromFiles,
@@ -82,11 +87,19 @@ export function NotesView({
       rememberedWidth = width;
     },
   });
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Paint notes already loaded elsewhere at once; refresh still runs below.
+  const [notes, setNotes] = useState<Note[]>(() => peekNotes() ?? []);
+  const [loading, setLoading] = useState(() => peekNotes() === null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(rememberedNoteId);
+  const [selectedId, setSelectedId] = useState<string | null>(() => {
+    const cached = peekNotes();
+    return (
+      cached?.find((note) => note.id === rememberedNoteId)?.id ??
+      cached?.[0]?.id ??
+      rememberedNoteId
+    );
+  });
   const [creating, setCreating] = useState(false);
   const logos = useTabGroupLogos();
   const [groupMascots] = useState(loadTabGroupMascots);
@@ -98,6 +111,7 @@ export function NotesView({
     try {
       const next = await loadNotes(true);
       setNotes(next);
+      for (const note of next) adoptStoredNote(note);
       setError(null);
       setSelectedId((current) => {
         const preferred = current ?? rememberedNoteId;
@@ -750,7 +764,7 @@ function NoteEditor({
               }}
             />
           ) : body.trim() ? (
-            <AgentMarkdown text={body} cwd={note.sourceCwd} />
+            <AgentMarkdown text={body} cwd={note.sourceCwd} hardBreaks />
           ) : (
             <p className="text-[13px] text-content/45">No description</p>
           )}

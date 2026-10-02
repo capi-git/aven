@@ -1,5 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
-import { invoke } from "@tauri-apps/api/core";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   INBOX_MEDIA_PREFIXES,
   isInboxMediaUrl,
@@ -7,7 +6,8 @@ import {
   fetchInboxMedia,
 } from "./inboxMedia";
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+const invoke = vi.hoisted(() => vi.fn());
+vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
 describe("fetchInboxMedia account context", () => {
   it("deduplicates within one project and separates the same image across accounts", async () => {
@@ -129,5 +129,101 @@ describe("sniffInboxMedia", () => {
     expect(
       sniffInboxMedia(new TextEncoder().encode("<html><script>x()</script>")),
     ).toBeNull();
+  });
+});
+
+describe("fetchInboxMedia cache budget", () => {
+  const MB = 1024 * 1024;
+  const url = (i: number) =>
+    `https://github.com/user-attachments/assets/cache-${i}`;
+  let fetchMedia: typeof fetchInboxMedia;
+
+  beforeEach(async () => {
+    invoke.mockReset();
+    vi.resetModules();
+    ({ fetchInboxMedia: fetchMedia } = await import("./inboxMedia"));
+  });
+
+  it("shares a request in flight and serves repeats from cache", async () => {
+    invoke.mockResolvedValue(new ArrayBuffer(16));
+    const [first, second] = await Promise.all([
+      fetchMedia(url(100)),
+      fetchMedia(url(100)),
+    ]);
+    expect(first).toBe(second);
+    expect(await fetchMedia(url(100))).toBe(first);
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps cached bytes under a total budget", async () => {
+    invoke.mockImplementation(async () => new ArrayBuffer(10 * MB));
+    for (let i = 0; i < 6; i += 1) await fetchMedia(url(i));
+    expect(invoke).toHaveBeenCalledTimes(6);
+
+    // The newest files are still cached; the oldest were dropped.
+    await fetchMedia(url(5));
+    expect(invoke).toHaveBeenCalledTimes(6);
+    await fetchMedia(url(0));
+    expect(invoke).toHaveBeenCalledTimes(7);
+  });
+
+  it("refreshes recency on cache hits before evicting", async () => {
+    invoke.mockImplementation(async () => new ArrayBuffer(10 * MB));
+    const first = await fetchMedia(url(0));
+    const second = await fetchMedia(url(1));
+    const third = await fetchMedia(url(2));
+
+    // Compare identities as booleans so Vitest never deep-compares large arrays.
+    expect((await fetchMedia(url(0))) === first).toBe(true);
+    const fourth = await fetchMedia(url(3));
+
+    expect((await fetchMedia(url(0))) === first).toBe(true);
+    expect((await fetchMedia(url(2))) === third).toBe(true);
+    expect((await fetchMedia(url(3))) === fourth).toBe(true);
+    expect(invoke).toHaveBeenCalledTimes(4);
+    expect((await fetchMedia(url(1))) === second).toBe(false);
+    expect(invoke).toHaveBeenCalledTimes(5);
+  });
+
+  it("evicts when one new byte exceeds the exact budget", async () => {
+    invoke.mockImplementation(async () => new ArrayBuffer(16 * MB));
+    const first = await fetchMedia(url(0));
+    const second = await fetchMedia(url(1));
+    expect(invoke).toHaveBeenCalledTimes(2);
+
+    invoke.mockResolvedValueOnce(new ArrayBuffer(1));
+    const tiny = await fetchMedia(url(2));
+    expect((await fetchMedia(url(1))) === second).toBe(true);
+    expect((await fetchMedia(url(2))) === tiny).toBe(true);
+    expect(invoke).toHaveBeenCalledTimes(3);
+    expect((await fetchMedia(url(0))) === first).toBe(false);
+    expect(invoke).toHaveBeenCalledTimes(4);
+  });
+
+  it("returns oversized responses without caching or evicting existing entries", async () => {
+    invoke.mockResolvedValueOnce(new ArrayBuffer(16 * MB));
+    invoke.mockImplementation(async () => new ArrayBuffer(32 * MB + 1));
+    const cached = await fetchMedia(url(0));
+    const oversized = await fetchMedia(url(1));
+
+    expect(oversized.byteLength).toBe(32 * MB + 1);
+    expect((await fetchMedia(url(0))) === cached).toBe(true);
+    expect(invoke).toHaveBeenCalledTimes(2);
+    const repeat = await fetchMedia(url(1));
+    expect(repeat === oversized).toBe(false);
+    expect((await fetchMedia(url(0))) === cached).toBe(true);
+    expect(invoke).toHaveBeenCalledTimes(3);
+  });
+
+  it("caches the same URL separately per account context", async () => {
+    invoke.mockImplementation(async () => new ArrayBuffer(8));
+    const personal = await fetchMedia(url(7), "/personal/repo");
+    const work = await fetchMedia(url(7), "/work/repo");
+    expect(personal === work).toBe(false);
+    expect((await fetchMedia(url(7), "/personal/repo")) === personal).toBe(
+      true,
+    );
+    expect((await fetchMedia(url(7), "/work/repo")) === work).toBe(true);
+    expect(invoke).toHaveBeenCalledTimes(2);
   });
 });

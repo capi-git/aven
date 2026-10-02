@@ -69,3 +69,40 @@ describe("markdown code block geometry", () => {
     );
   });
 });
+
+describe("markdown block wrappers", () => {
+  it("puts each block's direction on a real block box with no margin of its own", () => {
+    // Tailwind's compiled `space-y-4` on Streamdown's root, which would
+    // otherwise space every wrapper (index.css imports Tailwind at build time).
+    const spacing = document.createElement("style");
+    spacing.textContent =
+      ":where(.space-y-4 > :not(:last-child)) { margin-block-end: 1rem; margin-bottom: 1rem; }";
+    document.head.prepend(spacing);
+    try {
+      host.innerHTML = renderToStaticMarkup(
+        createElement(AgentMarkdown, {
+          text: "First paragraph.\n\nSecond paragraph.\n\n```ts\nconst a = 1;\n```\n\nLast.",
+        }),
+      );
+      const root = host.querySelector<HTMLElement>(".agent-markdown")!;
+      const wrappers = [...root.children] as HTMLElement[];
+      const filled = wrappers.filter((wrapper) => wrapper.childElementCount);
+      expect(filled).toHaveLength(4);
+      for (const wrapper of wrappers) {
+        // A display:contents wrapper lets WebKit's triple-click run past the
+        // block to the end of the reply.
+        expect(wrapper.getAttribute("style") ?? "").not.toContain("contents");
+        expect(wrapper.className).toBe("agent-markdown-block");
+        expect(wrapper.getAttribute("dir")).toBe("ltr");
+        const computed = getComputedStyle(wrapper);
+        expect(computed.display).toBe("block");
+        expect(computed.marginTop).toBe("0px");
+        expect(computed.marginBottom).toBe("0px");
+      }
+      expect(filled[0]!.firstElementChild!.tagName).toBe("P");
+      expect(filled[2]!.querySelector(".markdown-code-shell")).not.toBeNull();
+    } finally {
+      spacing.remove();
+    }
+  });
+});

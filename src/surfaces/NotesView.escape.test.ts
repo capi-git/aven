@@ -15,6 +15,7 @@ vi.mock("../lib/platform", async (original) => ({
 }));
 vi.mock("../lib/notes", () => ({
   loadNotes: notesMock.loadNotes,
+  peekNotes: () => null,
   createNote: vi.fn(),
   deleteNote: vi.fn(),
   notePreview: vi.fn(),

@@ -460,6 +460,7 @@ export function FileEditor({
                 text={draft}
                 cwd={parentPath(path)}
                 onOpenFile={onOpenFile}
+                hardBreaks
               />
             ) : (
               <SvgPreview source={draft} />

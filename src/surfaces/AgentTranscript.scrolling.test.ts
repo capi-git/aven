@@ -140,6 +140,66 @@ describe("transcript native scrolling", () => {
     expect(el.scrollTop).toBe(1100);
   });
 
+  it("lets a small wheel up inside the bottom margin leave a streaming reply", async () => {
+    const answer = (text: string): Block[] => [
+      prompt,
+      { id: "answer", role: "assistant", text },
+    ];
+    const el = await render(answer("One"));
+    const metrics = scrollMetrics(el, 400, 1000);
+    await markAtBottom(el);
+    expect(el.scrollTop).toBe(600);
+
+    // A trackpad's first ticks move only a few pixels, still near the end.
+    await wheel(el, -4);
+    el.scrollTop = 596;
+    await act(async () => {
+      el.dispatchEvent(new Event("scroll"));
+    });
+    expect(showJump).toHaveBeenLastCalledWith(true);
+    metrics.grow(40);
+    await render(answer("One\n\nTwo"));
+    expect(el.scrollTop).toBe(596);
+
+    // Scrolling back down to the end follows the stream again.
+    await markAtBottom(el);
+    expect(showJump).toHaveBeenLastCalledWith(false);
+    metrics.grow(40);
+    await render(answer("One\n\nTwo\n\nThree"));
+    expect(el.scrollTop).toBe(680);
+  });
+
+  it("keeps a live tool trail unpinned after a small wheel up near its end", async () => {
+    const tool = (id: string): Block => ({
+      id,
+      role: "tool",
+      text: `Inspect ${id}`,
+      tool: { kind: "shell", status: "running" },
+    });
+    const blocks = [prompt, tool("one"), tool("two")];
+    const el = await render(blocks);
+    scrollMetrics(el, 400, 1200);
+    await markAtBottom(el);
+    const trail = container.querySelector<HTMLElement>(".zen-phase-live")!;
+    const trailMetrics = scrollMetrics(trail, 100, 500);
+    await markAtBottom(trail);
+    expect(trail.scrollTop).toBe(400);
+
+    await wheel(trail, -4);
+    trail.scrollTop = 396;
+    await act(async () => {
+      trail.dispatchEvent(new Event("scroll"));
+    });
+    trailMetrics.grow(50);
+    await render([...blocks, tool("three")]);
+    expect(trail.scrollTop).toBe(396);
+
+    await markAtBottom(trail);
+    trailMetrics.grow(50);
+    await render([...blocks, tool("three"), tool("four")]);
+    expect(trail.scrollTop).toBe(500);
+  });
+
   it("lets a live tool trail consume upward input until its edge without canceling native scroll", async () => {
     const tool = (id: string): Block => ({
       id,

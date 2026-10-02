@@ -29,6 +29,14 @@ export function getNoteDraft(note: Note): NoteDraft {
   return draft;
 }
 
+/**
+ * Notes can paint from a cached list before the fresh read returns. Let an
+ * open, unedited draft take the newer stored version once it arrives.
+ */
+export function adoptStoredNote(note: Note) {
+  drafts.get(note.id)?.adopt(note);
+}
+
 class NoteDraft {
   private snapshot: NoteDraftSnapshot;
   private listeners = new Set<() => void>();
@@ -99,6 +107,13 @@ class NoteDraft {
       }
     });
   }
+
+  adopt = (note: Note) => {
+    if (this.deleted || this.deletion || this.writing || this.timer !== null)
+      return;
+    if (this.dirty() || note.updatedAt <= this.snapshot.saved.updatedAt) return;
+    this.publish({ saved: note, title: note.title, body: note.body });
+  };
 
   edit = (patch: Partial<Pick<NoteDraftSnapshot, "title" | "body">>) => {
     if (this.deleted) return;

@@ -3,6 +3,8 @@ import {
   backgroundWorkerIdsForStop,
   formatLiveElapsed,
   isCurrentSessionAgentSource,
+  isLiveAgentSession,
+  keepsUnseenFinished,
   liveAgentsFromSessions,
   workerAgentsByLead,
 } from "./liveAgents";
@@ -369,5 +371,32 @@ describe("formatLiveElapsed", () => {
     expect(formatLiveElapsed(0, 120_000)).toBe("2m");
     expect(formatLiveElapsed(0, 3_600_000)).toBe("1h");
     expect(formatLiveElapsed(0, 3_720_000)).toBe("1h 2m");
+  });
+});
+
+describe("unseen finished sessions the user can look at", () => {
+  it("only treats ordinary chats as live agent sessions", () => {
+    expect(isLiveAgentSession(chat("/tmp/lead"))).toBe(true);
+    expect(
+      isLiveAgentSession(chat("/tmp/w", { orchestrationLeadId: "lead" })),
+    ).toBe(false);
+    expect(
+      isLiveAgentSession(
+        chat("/tmp/i", { inboxAsk: {} as NonNullable<Session["inboxAsk"]> }),
+      ),
+    ).toBe(false);
+  });
+
+  it("lets a finished orchestration worker detach even while marked unseen", () => {
+    // An unseen session stays loaded until it is focused; a worker never is.
+    const lead = chat("/tmp/lead");
+    const worker = chat("/tmp/lead", { orchestrationLeadId: lead.id });
+    const unseen = new Set([lead.id, worker.id]);
+    expect(keepsUnseenFinished(lead, unseen)).toBe(true);
+    expect(keepsUnseenFinished(worker, unseen)).toBe(false);
+    expect(keepsUnseenFinished(lead, new Set())).toBe(false);
+    expect(
+      liveAgentsFromSessions([lead, worker], unseen).map((agent) => agent.id),
+    ).toEqual([lead.id]);
   });
 });
