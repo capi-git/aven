@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [0.1.117] - 2026-10-02
+
+### Smoother glass and model controls
+
+- Fix bottom-edge flicker around the message box, run status, and footer on macOS while retaining the native glass and workspace colors.
+- Low, Medium, High, and Extra High reasoning options now ripple in green, blue, orange, and pink. Only the highlighted row animates, and Reduce motion shows a still pattern. Max stays gold and Ultra stays purple.
+- Toolbar popups use the workspace's frosted glass and accent. New installations use lighter glass defaults; saved appearance settings stay unchanged.
+
+### Rendering and agent reliability
+
+- Reduce background rendering work and bound highlighting and media caches. Scrolling upward no longer pulls the conversation back to the bottom.
+- Improve Claude task lists, subagent completion tracking, provider discovery, and streaming updates.
+- Improve focused-window shortcuts, interface scaling, returning from Settings, and second opinions using another model from the same provider.
+
+### Coding and desktop control
+
+- Add optional editor autosave, preserve Windows line endings, improve JSONC highlighting, and fix Git and terminal handling.
+- Group finished working copies under a collapsed section and provide cleanup that rechecks active or unfinished work before removing a copy.
+- Add native desktop dragging and fix false input refusals caused by the Dock's invisible window.
+
 ## [0.1.116] - 2026-10-02
 
 ### Smoother resizing
