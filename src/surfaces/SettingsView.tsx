@@ -98,8 +98,7 @@ import {
   saveUiScale,
   subscribeUiScale,
   UI_SCALE_DEFAULT,
-  UI_SCALE_MAX,
-  UI_SCALE_MIN,
+  UI_SCALE_PERCENTS,
 } from "../lib/uiScale";
 import {
   getHarnessAvailabilitySnapshot,
@@ -1482,14 +1481,16 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
           label="Interface scale"
           description="Resize the whole interface. Use Cmd +/− and Cmd 0 on Mac, or Ctrl on Windows and Linux."
         >
-          <Slider
+          {/* A menu, not a live slider: rescaling the page while dragging
+              moves the control out from under the pointer (MonoCode b4f5befb). */}
+          <Select
             label="Interface scale"
-            value={Math.round(appearance.uiScale * 100)}
-            display={`${Math.round(appearance.uiScale * 100)}%`}
-            min={Math.round(UI_SCALE_MIN * 100)}
-            max={Math.round(UI_SCALE_MAX * 100)}
-            step={10}
-            onChange={appearance.onUiScale}
+            value={String(Math.round(appearance.uiScale * 100))}
+            options={UI_SCALE_PERCENTS.map((percent) => ({
+              value: String(percent),
+              label: `${percent}%`,
+            }))}
+            onChange={(value) => appearance.onUiScale(Number(value))}
           />
         </Row>
       </SettingsGroup>

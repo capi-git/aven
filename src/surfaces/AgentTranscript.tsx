@@ -762,7 +762,12 @@ function TurnDuration({
           <HandoffButton from={fromHarness} onPick={onHandoff} />
         ) : null}
         {fromHarness && onSecondOpinion ? (
-          <SecondOpinionButton from={fromHarness} onPick={onSecondOpinion} />
+          <SecondOpinionButton
+            from={fromHarness}
+            onPick={onSecondOpinion}
+            includeCurrent
+            excludeModelName={modelName}
+          />
         ) : null}
       </span>
 

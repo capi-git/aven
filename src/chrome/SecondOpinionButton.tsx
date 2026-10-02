@@ -26,6 +26,7 @@ import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import {
   getModelSnapshot,
   getPickerVisibilitySnapshot,
+  hasLiveCatalog,
   isPickerProviderVisible,
   pickerModelsFor,
   findModel,
@@ -50,6 +51,12 @@ type Props = {
   description?: string;
   menuLabel?: string;
   includeCurrent?: boolean;
+  /**
+   * Display name of the model that wrote this turn. It is hidden from its own
+   * provider's list, so a same-provider second opinion always comes from a
+   * different model (MonoCode 90c5a655).
+   */
+  excludeModelName?: string;
   disabled?: boolean;
   triggerClassName?: string;
 };
@@ -113,10 +120,11 @@ export function SecondOpinionButton({
   onPick,
   icon: Icon = MessageMultiple,
   title = "Second opinion",
-  disabledTitle = "Enable another installed provider in Settings for a second opinion",
+  disabledTitle = "No different model available for a second opinion",
   description = "Send this turn to another agent to review the work.",
   menuLabel = "Send this turn to another agent",
   includeCurrent = false,
+  excludeModelName,
   disabled: disabledByCaller = false,
   triggerClassName,
 }: Props) {
@@ -155,21 +163,43 @@ export function SecondOpinionButton({
     });
   }, [from, includeCurrent, probed, availabilityVersion, visibilityVersion]);
 
+  // The model that answered is not a second opinion on itself.
+  const modelsOf = (harness: HarnessId) => {
+    const list = pickerModelsFor(harness);
+    return excludeModelName && harness === from
+      ? list.filter((model) => model.name !== excludeModelName)
+      : list;
+  };
   const activeHarness = targets[active];
   const models = useMemo(() => {
     void catalogVersion;
     void visibilityVersion;
-    return activeHarness ? pickerModelsFor(activeHarness) : [];
-  }, [activeHarness, catalogVersion, visibilityVersion]);
+    if (!activeHarness) return [];
+    const list = pickerModelsFor(activeHarness);
+    return excludeModelName && activeHarness === from
+      ? list.filter((model) => model.name !== excludeModelName)
+      : list;
+  }, [
+    activeHarness,
+    catalogVersion,
+    visibilityVersion,
+    from,
+    excludeModelName,
+  ]);
   const currentModel = fromModel ? findModel(fromModel) : undefined;
   const useCurrentModel =
     currentModel != null && isPickerModelVisible(currentModel);
+  const preferredFor = (harness: HarnessId): string | undefined => {
+    if (harness === from && useCurrentModel && fromModel) return fromModel;
+    const preferredId = preferredModelId(harness);
+    if (!excludeModelName || harness !== from) return preferredId;
+    const list = modelsOf(harness);
+    return list.some((model) => model.id === preferredId)
+      ? preferredId
+      : list[0]?.id;
+  };
   const preferred =
-    activeHarness != null
-      ? activeHarness === from && useCurrentModel && fromModel
-        ? fromModel
-        : preferredModelId(activeHarness)
-      : undefined;
+    activeHarness != null ? preferredFor(activeHarness) : undefined;
 
   useEffect(() => {
     if (!open) return;
@@ -207,7 +237,15 @@ export function SecondOpinionButton({
     if (restoreFocus) button.current?.focus();
   };
 
-  const noTargets = targets.length === 0;
+  // With the answering model hidden, a provider only counts if it still has a
+  // model to offer. One whose live catalog has not loaded yet cannot be
+  // confirmed empty, so it keeps the button enabled until the menu loads it.
+  const hasSelectableModel =
+    !excludeModelName ||
+    targets.some(
+      (harness) => !hasLiveCatalog(harness) || modelsOf(harness).length > 0,
+    );
+  const noTargets = targets.length === 0 || !hasSelectableModel;
   const disabled = disabledByCaller || noTargets;
   const label = noTargets ? disabledTitle : title;
 
@@ -223,12 +261,8 @@ export function SecondOpinionButton({
   };
 
   const pickPreferred = (harness: HarnessId) => {
-    pick(
-      harness,
-      harness === from && useCurrentModel && fromModel
-        ? fromModel
-        : preferredModelId(harness),
-    );
+    const model = preferredFor(harness);
+    if (model) pick(harness, model);
   };
 
   const moveHarness = (dir: 1 | -1) => {
@@ -349,7 +383,7 @@ export function SecondOpinionButton({
                     type="button"
                     role="menuitem"
                     aria-haspopup={
-                      pickerModelsFor(harness).length > 0 ? "menu" : undefined
+                      modelsOf(harness).length > 0 ? "menu" : undefined
                     }
                     aria-expanded={highlighted && showSubmenu}
                     disabled={!available && probed}
@@ -374,7 +408,7 @@ export function SecondOpinionButton({
                     <span className="min-w-0 flex-1 truncate">
                       {HARNESS_TITLE[harness]}
                     </span>
-                    {pickerModelsFor(harness).length > 0 ? (
+                    {modelsOf(harness).length > 0 ? (
                       <ChevronRight
                         className="size-3.5 shrink-0 text-content/40"
                         strokeWidth={1.75}

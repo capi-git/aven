@@ -46,6 +46,12 @@ import {
 import { UpdateNoticeDialog } from "./chrome/UpdateNoticeDialog";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listenInThisWindow } from "./lib/windowMenuEvents";
+import {
+  captureSettingsReturnView,
+  resolveSettingsReturnView,
+  type SettingsReturnView,
+} from "./lib/settingsReturnView";
 import { ask, message } from "@tauri-apps/plugin-dialog";
 import {
   useCallback,
@@ -1667,6 +1673,7 @@ export default function App({
   notesViewOpenRef.current = notesViewOpen;
   const settingsOpenRef = useRef(settingsOpen);
   settingsOpenRef.current = settingsOpen;
+  const settingsReturnViewRef = useRef<SettingsReturnView>(null);
   const sessionNavigationIdsRef = useRef<readonly string[]>([]);
   const filePickerOpenRef = useRef(filePickerOpen);
   filePickerOpenRef.current = filePickerOpen;
@@ -7542,6 +7549,12 @@ export default function App({
 
   const openSettings = useCallback(
     (section?: SettingsSectionId) => {
+      if (!settingsOpenRef.current)
+        settingsReturnViewRef.current = captureSettingsReturnView({
+          search: searchViewOpenRef.current,
+          inbox: inboxViewOpenRef.current,
+          notes: notesViewOpenRef.current,
+        });
       captureUtilityFocus();
       setFilePickerOpen(false);
       setSearchViewOpen(false);
@@ -7569,7 +7582,20 @@ export default function App({
   }, [clearReturnFocus]);
 
   const onCloseSettings = useCallback(() => {
+    const returnView = resolveSettingsReturnView(
+      settingsReturnViewRef.current,
+      loadNotesEnabled(),
+    );
+    settingsReturnViewRef.current = null;
     setSettingsOpen(false);
+    // Return to the utility Settings replaced. It keeps the workspace opener,
+    // so focus goes back there only once that utility is left too.
+    if (returnView) {
+      setSearchViewOpen(returnView === "search");
+      setInboxViewOpen(returnView === "inbox");
+      setNotesViewOpen(returnView === "notes");
+      return;
+    }
     restoreReturnFocus();
   }, [restoreReturnFocus]);
 
@@ -8005,10 +8031,10 @@ export default function App({
       listen("focus_down", () =>
         run("focus-down", () => actions.current.onFocusDir("down")),
       ),
-      listen("toggle_sidebar", () =>
+      listenInThisWindow("toggle_sidebar", () =>
         run("toggle_sidebar", actions.current.onToggleSidebar),
       ),
-      listen("toggle_inspector", () =>
+      listenInThisWindow("toggle_inspector", () =>
         run("toggle_inspector", actions.current.onToggleInspector),
       ),
       listen("open_project", () => {
@@ -8063,17 +8089,17 @@ export default function App({
         }, 200);
         notificationRouteTimers.current.add(timer);
       }),
-      listen("zoom_in", () => {
+      listenInThisWindow("zoom_in", () => {
         const next = zoomInUiScale(loadUiScale());
         saveUiScale(next);
         void applyUiScale(next);
       }),
-      listen("zoom_out", () => {
+      listenInThisWindow("zoom_out", () => {
         const next = zoomOutUiScale(loadUiScale());
         saveUiScale(next);
         void applyUiScale(next);
       }),
-      listen("zoom_reset", () => {
+      listenInThisWindow("zoom_reset", () => {
         saveUiScale(UI_SCALE_DEFAULT);
         void applyUiScale(UI_SCALE_DEFAULT);
       }),

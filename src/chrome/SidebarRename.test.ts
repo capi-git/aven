@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { formatSessionTitle } from "../lib/session";
 import { resolveModel } from "../lib/models";
 import { Sidebar } from "./Sidebar";
+import { copyText } from "../lib/clipboard";
 
 // Keep native services out of these menu/input interaction tests.
 vi.mock("../hooks/useProjectDiffStats", () => ({
@@ -15,6 +16,9 @@ vi.mock("../hooks/useGitFileStatuses", () => ({
 }));
 vi.mock("./SidebarUpdate", () => ({ SidebarUpdateFooter: () => null }));
 vi.mock("./FileTree", () => ({ FileTree: () => null }));
+vi.mock("../lib/clipboard", () => ({
+  copyText: vi.fn().mockResolvedValue(undefined),
+}));
 
 let container: HTMLDivElement;
 let root: Root;
@@ -40,6 +44,7 @@ function pressKey(target: HTMLElement, key: string) {
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.mocked(copyText).mockReset().mockResolvedValue(undefined);
   const stored = new Map<string, string>();
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => stored.get(key) ?? null,
@@ -96,6 +101,62 @@ afterEach(() => {
   localStorage.clear();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+describe("sidebar session IDs", () => {
+  function openSessionMenu(sessionId: string) {
+    act(() => {
+      container
+        .querySelector(`[data-session-card="${sessionId}"]`)!
+        .dispatchEvent(
+          new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
+        );
+    });
+    const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+    expect(menu).not.toBeNull();
+    return (label: string) =>
+      Array.from(menu.querySelectorAll<HTMLButtonElement>("button")).find(
+        (item) => item.textContent?.includes(label),
+      )!;
+  }
+
+  it("copies the provider or Aven ID of the right-clicked session", async () => {
+    props.sessions = [
+      { ...props.sessions[0], providerSessionId: "codex-thread-1" },
+      {
+        ...props.sessions[0],
+        id: "session-2",
+        harness: "claude",
+        providerSessionId: "claude-session-2",
+        updatedAt: props.sessions[0].updatedAt - 1,
+      },
+    ];
+    act(() => render());
+    let item = openSessionMenu("session-2");
+    const provider = item("Copy Claude Code session ID");
+    expect(provider.disabled).toBe(false);
+    expect(item("Copy Codex session ID")).toBeUndefined();
+    await act(async () => provider.click());
+    expect(copyText).toHaveBeenNthCalledWith(1, "claude-session-2");
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+
+    item = openSessionMenu("session-2");
+    await act(async () => item("Copy Aven session ID").click());
+    expect(copyText).toHaveBeenNthCalledWith(2, "session-2");
+  });
+
+  it("keeps the Aven ID available before the provider binds its own ID", async () => {
+    act(() => render());
+    const item = openSessionMenu("session-1");
+    const provider = item("Copy Codex session ID");
+    expect(provider.disabled).toBe(true);
+    await act(async () => provider.click());
+    expect(copyText).not.toHaveBeenCalled();
+    const aven = openSessionMenu("session-1")("Copy Aven session ID");
+    expect(aven.disabled).toBe(false);
+    await act(async () => aven.click());
+    expect(copyText).toHaveBeenCalledExactlyOnceWith("session-1");
+  });
 });
 
 describe("sidebar orchestration card", () => {
