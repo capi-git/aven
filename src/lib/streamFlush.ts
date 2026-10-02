@@ -1,4 +1,9 @@
-export type ScheduledFlush = { kind: "raf" | "timeout"; id: number };
+export type ScheduledFlush = {
+  kind: "raf" | "timeout";
+  id: number;
+  /** Paced for output nobody is looking at; visible output may preempt it. */
+  background?: boolean;
+};
 
 /**
  * Streamed text reads smoothly at about 30 updates per second. Each flush
@@ -7,6 +12,13 @@ export type ScheduledFlush = { kind: "raf" | "timeout"; id: number };
  * still run at the full refresh rate.
  */
 export const STREAM_FLUSH_INTERVAL_MS = 32;
+
+/**
+ * Output for sessions that are not on screen still has to advance (badges,
+ * turn completion, persistence), but not by re-rendering the workspace at the
+ * foreground rate.
+ */
+export const BACKGROUND_STREAM_FLUSH_INTERVAL_MS = 100;
 
 export function cancelScheduledFlush(handle: ScheduledFlush | null) {
   if (!handle) return;
@@ -19,7 +31,15 @@ export function scheduleStreamFlush(
   run: () => void,
   lastFlushAt: number,
   now = performance.now(),
+  foreground = true,
 ): ScheduledFlush {
+  if (!foreground) {
+    return {
+      kind: "timeout",
+      id: window.setTimeout(run, BACKGROUND_STREAM_FLUSH_INTERVAL_MS),
+      background: true,
+    };
+  }
   if (document.hidden) {
     return {
       kind: "timeout",

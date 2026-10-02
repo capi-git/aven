@@ -12,13 +12,15 @@ import { refreshHarnessCatalogs, registerHarness } from "./registry";
 const mocks = vi.hoisted(() => ({
   request: vi.fn(),
   exec: vi.fn(),
+  spawn: vi.fn(async (_id: string) => undefined),
+  kill: vi.fn(async (_id: string) => undefined),
 }));
 
 vi.mock("../fs", () => ({ homeDir: async () => "/home/test" }));
 vi.mock("./child", () => ({
   resolveGrokBinary: async () => ({ path: "/fake/grok" }),
-  spawnChild: async () => undefined,
-  killChild: async () => undefined,
+  spawnChild: mocks.spawn,
+  killChild: mocks.kill,
   unwatchChild: () => undefined,
   watchChild: () => undefined,
   execChild: mocks.exec,
@@ -36,6 +38,8 @@ beforeEach(() => {
   resetHarnessModelOverlays();
   mocks.request.mockReset().mockRejectedValue(new Error("ACP unavailable"));
   mocks.exec.mockReset().mockRejectedValue(new Error("CLI unavailable"));
+  mocks.spawn.mockClear();
+  mocks.kill.mockClear();
   vi.spyOn(console, "debug").mockImplementation(() => {});
   registerHarness({
     id: "grok",
@@ -108,5 +112,17 @@ describe("Grok catalog refresh", () => {
       "new-grok-model",
     ]);
     expect(mocks.exec).not.toHaveBeenCalled();
+  });
+
+  it("spawns each ACP probe under its own child id", async () => {
+    await refreshGrokCatalog();
+    await refreshGrokCatalog();
+    const spawned = mocks.spawn.mock.calls.map(([id]) => id);
+    expect(spawned).toHaveLength(2);
+    expect(spawned[0]).toMatch(/^aven-grok-probe-[0-9a-f-]{36}$/);
+    expect(spawned[0]).not.toBe(spawned[1]);
+    expect(mocks.kill.mock.calls.map(([id]) => id)).toEqual(
+      expect.arrayContaining(spawned),
+    );
   });
 });

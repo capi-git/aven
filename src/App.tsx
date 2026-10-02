@@ -336,6 +336,7 @@ import {
 import { terminalTabLabel, type TerminalMetaPatch } from "./lib/terminalTab";
 import {
   applyHarnessEvent,
+  applyHarnessEvents,
   appendUser,
   appendSteerUser,
   bindHarnessSession,
@@ -411,6 +412,7 @@ import {
   buildPlanPrompt,
   isProviderFailureText,
   planTitle,
+  planTurnKey,
   planTurnPrompt,
 } from "./lib/plan";
 import {
@@ -1669,6 +1671,15 @@ export default function App({
   searchViewOpenRef.current = searchViewOpen;
   const inboxViewOpenRef = useRef(inboxViewOpen);
   inboxViewOpenRef.current = inboxViewOpen;
+  // Session surfaces outside the workspace tab tree, for stream flush pacing.
+  const streamSurfacesRef = useRef<{
+    inboxSessionId?: string;
+    inspectedWorkerId?: string | null;
+  }>({});
+  streamSurfacesRef.current = {
+    inboxSessionId: inboxViewOpen ? inboxAskPortal?.sessionId : undefined,
+    inspectedWorkerId,
+  };
   const notesViewOpenRef = useRef(notesViewOpen);
   notesViewOpenRef.current = notesViewOpen;
   const settingsOpenRef = useRef(settingsOpen);
@@ -1747,7 +1758,7 @@ export default function App({
     const prev = sessionsRef.current;
     const next = prev.map((session) => {
       const events = batches.get(session.id);
-      return events ? events.reduce(applyHarnessEvent, session) : session;
+      return events ? applyHarnessEvents(session, events) : session;
     });
     if (!next.some((session, index) => session !== prev[index])) return;
     syncDockBadge(next);
@@ -1811,6 +1822,22 @@ export default function App({
     [flushHarnessEvents],
   );
 
+  /** Sessions on screen in this or a detached window flush at full rate. */
+  const isStreamForeground = useCallback((sessionId: string) => {
+    if (externallyRenderedSessionIds.current.has(sessionId)) return true;
+    if (document.hidden) return false;
+    const surfaces = streamSurfacesRef.current;
+    if (
+      surfaces.inboxSessionId === sessionId ||
+      surfaces.inspectedWorkerId === sessionId
+    )
+      return true;
+    const tab = tabsRef.current.find(
+      (entry) => entry.id === activeTabIdRef.current,
+    );
+    return !!tab && leafIds(tab.layout).includes(sessionId);
+  }, []);
+
   const applyApprovalEvent = useCallback(
     (sessionId: string, event: HarnessEvent) => {
       const queued = harnessQueued.current.get(sessionId) ?? [];
@@ -1819,7 +1846,7 @@ export default function App({
       const prev = sessionsRef.current;
       const next = prev.map((session) =>
         session.id === sessionId
-          ? events.reduce(applyHarnessEvent, session)
+          ? applyHarnessEvents(session, events)
           : session,
       );
       if (!next.some((session, index) => session !== prev[index])) return;
@@ -1845,14 +1872,22 @@ export default function App({
       const events = queued.get(sessionId);
       if (events) events.push(event);
       else queued.set(sessionId, [event]);
+      const foreground = isStreamForeground(sessionId);
+      // A visible stream must not wait for a background-only timer.
+      if (foreground && harnessFlush.current?.background) {
+        cancelScheduledFlush(harnessFlush.current);
+        harnessFlush.current = null;
+      }
       if (!harnessFlush.current) {
         harnessFlush.current = scheduleStreamFlush(
           flushHarnessEvents,
           lastHarnessFlushAt.current,
+          undefined,
+          foreground,
         );
       }
     },
-    [applyApprovalEvent, flushHarnessEvents],
+    [applyApprovalEvent, flushHarnessEvents, isStreamForeground],
   );
 
   useEffect(() => {
@@ -4035,6 +4070,7 @@ export default function App({
           restored.id,
           restored.providerSessionId,
           sessionWorkCwd(restored),
+          restored.blocks,
         );
       }
       lastPersisted.current.set(restored.id, persistFingerprint(restored));
@@ -5987,7 +6023,7 @@ export default function App({
           );
         };
 
-        const planEventKey = `turn:${gen}`;
+        const planEventKey = planTurnKey(gen);
         let nativePlanSeen = false;
         let providerFailureSeen = false;
         let failureSummary: string | undefined;
@@ -7058,6 +7094,7 @@ export default function App({
             worker.id,
             worker.providerSessionId,
             worker.cwd,
+            worker.blocks,
           );
         await upsertSession(worker);
         const next = [...sessionsRef.current, worker];

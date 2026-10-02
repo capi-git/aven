@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { newSession } from "../session";
+import { newSession, type Session } from "../session";
+import { planTurnKey } from "../plan";
+import { sanitizeSessionForPersist } from "../sessionStore";
 import {
   appendUser,
   applyHarnessEvent,
@@ -309,6 +311,66 @@ describe("status blocks", () => {
 });
 
 describe("task list updates", () => {
+  it("keeps a keyed task list from another provider conversation", () => {
+    let session = appendUser(newSession("claude", "/tmp"), "first");
+    session = applyHarnessEvent(session, {
+      type: "tasks.updated",
+      key: "claude-tasks",
+      providerSessionId: "sess_1",
+      authoritative: true,
+      items: [{ id: "1", text: "Old task", status: "completed" }],
+    });
+    session = appendUser(session, "second");
+    session = applyHarnessEvent(session, {
+      type: "tasks.updated",
+      key: "claude-tasks",
+      providerSessionId: "sess_2",
+      authoritative: true,
+      items: [{ id: "1", text: "New task", status: "pending" }],
+    });
+    session = applyHarnessEvent(session, {
+      type: "tasks.updated",
+      key: "claude-tasks",
+      providerSessionId: "sess_2",
+      authoritative: true,
+      items: [{ id: "1", text: "New task", status: "completed" }],
+    });
+
+    const lists = session.blocks
+      .filter((block) => block.role === "tasks")
+      .map((block) => block.taskList);
+    expect(lists).toEqual([
+      {
+        key: "claude-tasks",
+        providerSessionId: "sess_1",
+        items: [{ id: "1", text: "Old task", status: "completed" }],
+      },
+      {
+        key: "claude-tasks",
+        providerSessionId: "sess_2",
+        items: [{ id: "1", text: "New task", status: "completed" }],
+      },
+    ]);
+  });
+
+  it("applies an authoritative rename instead of keeping the old label", () => {
+    let session = appendUser(newSession("claude", "/tmp"), "go");
+    session = applyHarnessEvent(session, {
+      type: "tasks.updated",
+      key: "claude-tasks",
+      items: [{ id: "1", text: "Write tests", status: "pending" }],
+    });
+    session = applyHarnessEvent(session, {
+      type: "tasks.updated",
+      key: "claude-tasks",
+      authoritative: true,
+      items: [{ id: "1", text: "Write parser tests", status: "in_progress" }],
+    });
+    expect(
+      session.blocks.find((block) => block.role === "tasks")?.taskList?.items,
+    ).toEqual([{ id: "1", text: "Write parser tests", status: "in_progress" }]);
+  });
+
   it("updates one structured checklist instead of appending plan cards", () => {
     let session = appendUser(newSession("codex", "/tmp"), "fix it");
     session = applyHarnessEvent(session, {
@@ -599,6 +661,51 @@ describe("applyHarnessEvent context", () => {
 });
 
 describe("tool enrichment", () => {
+  it("keeps a long shell command instead of the earlier Shell placeholder", () => {
+    const command = `npm run check:web 2>&1 | grep -E "${"test output".repeat(28)}"`;
+    expect(command.length).toBeGreaterThan(240);
+    let session = applyHarnessEvent(newSession("claude", "/repo"), {
+      type: "tool.started",
+      callId: "call_1",
+      title: "Shell",
+      kind: "execute",
+      status: "pending",
+    });
+    session = applyHarnessEvent(session, {
+      type: "tool.updated",
+      callId: "call_1",
+      title: command,
+      kind: "execute",
+      status: "pending",
+    });
+    session = applyHarnessEvent(session, {
+      type: "tool.updated",
+      callId: "call_1",
+      status: "completed",
+    });
+    expect(session.blocks[0].text).toBe(command);
+    expect(session.blocks[0].tool?.status).toBe("completed");
+  });
+
+  it("keeps a multi-line shell command instead of the Shell placeholder", () => {
+    const command = "cd src\nnpm test";
+    let session = applyHarnessEvent(newSession("claude", "/repo"), {
+      type: "tool.started",
+      callId: "call_1",
+      title: "Shell",
+      kind: "execute",
+      status: "pending",
+    });
+    session = applyHarnessEvent(session, {
+      type: "tool.updated",
+      callId: "call_1",
+      title: command,
+      kind: "execute",
+      status: "completed",
+    });
+    expect(session.blocks[0].text).toBe(command);
+  });
+
   it("fills in a bare Read row when approval carries the path", () => {
     let session = newSession("cursor", "/repo");
     session = applyHarnessEvent(session, {
@@ -700,5 +807,59 @@ describe("clarifying questions", () => {
     });
     session = stopStreaming(session);
     expect(session.pendingQuestion).toBeUndefined();
+  });
+});
+
+describe("plan keys", () => {
+  it("reaches this turn's plan block past a mid-turn follow-up", () => {
+    const key = planTurnKey(1);
+    let session = appendUser(newSession("claude", "/repo"), "plan it");
+    session = applyHarnessEvent(session, {
+      type: "plan",
+      key,
+      text: "# Approach",
+      streaming: true,
+    });
+    session = appendSteerUser(session, "also cover the tests");
+    session = applyHarnessEvent(session, {
+      type: "plan",
+      key,
+      text: "# Approach\n\nCover the tests too.",
+    });
+
+    const plans = session.blocks.filter((block) => block.role === "plan");
+    expect(plans).toHaveLength(1);
+    expect(plans[0].text).toBe("# Approach\n\nCover the tests too.");
+  });
+
+  it("does not adopt a saved plan block when the turn counter starts over", () => {
+    let session = appendUser(newSession("claude", "/repo"), "plan the refactor");
+    session = applyHarnessEvent(session, {
+      type: "plan",
+      key: planTurnKey(1),
+      text: "# Old plan",
+    });
+
+    // The key is saved with the transcript, so it survives a restart.
+    const saved = sanitizeSessionForPersist(session);
+    expect(saved.blocks.find((block) => block.role === "plan")?.plan?.key).toBe(
+      session.blocks.find((block) => block.role === "plan")?.plan?.key,
+    );
+
+    // After a restart the counter is back to 1 and the user plans again.
+    let reopened: Session = { ...session, blocks: saved.blocks };
+    reopened = appendUser(reopened, "plan the follow-up");
+    reopened = applyHarnessEvent(reopened, {
+      type: "plan",
+      key: planTurnKey(1),
+      text: "# New plan",
+    });
+
+    const plans = reopened.blocks.filter((block) => block.role === "plan");
+    expect(plans.map((block) => block.text)).toEqual([
+      "# Old plan",
+      "# New plan",
+    ]);
+    expect(reopened.blocks.at(-1)?.text).toBe("# New plan");
   });
 });

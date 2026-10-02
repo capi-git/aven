@@ -244,6 +244,7 @@ async function discoverViaListModels(): Promise<AgentModel[]> {
   const { path } = await resolveClaudeBinary();
   const cwd = await homeDir();
   const sessionId = crypto.randomUUID();
+  const probeId = `${PROBE_ID}-${crypto.randomUUID()}`;
 
   let listed: ((models: AgentModel[]) => void) | null = null;
   let failed: ((error: Error) => void) | null = null;
@@ -257,7 +258,7 @@ async function discoverViaListModels(): Promise<AgentModel[]> {
     if (asked) return;
     asked = true;
     void writeChild(
-      PROBE_ID,
+      probeId,
       JSON.stringify(
         buildControlRequest(LIST_MODELS_REQUEST_ID, { subtype: "list_models" }),
       ),
@@ -267,12 +268,12 @@ async function discoverViaListModels(): Promise<AgentModel[]> {
   };
 
   const stop = async () => {
-    unwatchChild(PROBE_ID);
-    await killChild(PROBE_ID).catch(() => undefined);
+    unwatchChild(probeId);
+    await killChild(probeId).catch(() => undefined);
   };
 
   watchChild(
-    PROBE_ID,
+    probeId,
     (line) => {
       const rec = parseJsonLine(line);
       if (!rec) return;
@@ -287,13 +288,13 @@ async function discoverViaListModels(): Promise<AgentModel[]> {
 
   try {
     await spawnChild(
-      PROBE_ID,
+      probeId,
       path,
       buildClaudeSpawnArgs({ isolated: true, sessionId }),
       cwd,
     );
     await writeChild(
-      PROBE_ID,
+      probeId,
       JSON.stringify(
         buildControlRequest(INIT_REQUEST_ID, { subtype: "initialize" }),
       ),
@@ -359,7 +360,7 @@ function modelFromListRow(raw: unknown): AgentModel | null {
   const resolved = stringField(rec, "resolvedModel") ?? "";
   const fromValue = splitClaudeModelValue(value);
   const fromResolved = splitClaudeModelValue(resolved);
-  const nativeId = fromValue.id || fromResolved.id;
+  const nativeId = claudeLaunchId(fromValue.id, fromResolved.id);
   if (!nativeId) return null;
 
   const displayName = stringField(rec, "displayName") ?? "";
@@ -475,6 +476,25 @@ function splitClaudeModelValue(value: string): { id: string; context1m: boolean 
   const match = /^(.*)\[1m\]$/i.exec(value.trim());
   if (match?.[1]?.trim()) return { id: match[1].trim(), context1m: true };
   return { id: value.trim(), context1m: false };
+}
+
+/**
+ * `--model` argument for a `list_models` row.
+ *
+ * Claude advertises family aliases (`opus`) that must stay bare, and concrete
+ * ids that need the `claude-` prefix. A versioned `value` of `opus-5-5` is not
+ * a valid CLI model name; prefer `resolvedModel` when it is the full id,
+ * otherwise restore the prefix for a recognised Claude family. Other names
+ * (for example a custom endpoint's models) are passed through unchanged.
+ */
+function claudeLaunchId(valueId: string, resolvedId: string): string {
+  const nativeId = valueId || resolvedId;
+  if (!nativeId) return "";
+  if (nativeId.startsWith("claude-") || !/\d/.test(nativeId)) return nativeId;
+  if (resolvedId.startsWith("claude-")) return resolvedId;
+  return /^(opus|sonnet|haiku|fable)-\d/.test(nativeId)
+    ? `claude-${nativeId}`
+    : nativeId;
 }
 
 function claudeCatalogId(nativeId: string): string {

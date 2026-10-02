@@ -41,14 +41,17 @@ vi.mock("./child", () => ({
 }));
 
 const {
+  bindClaudeSession,
   compactClaudeContext,
   cancelClaudeTurn,
   sendClaudeTurn,
   stopClaudeSession,
+  restoreClaudeTaskLists,
   __claudeTestReset,
 } = await import("./claude");
 import type { HarnessEvent } from "./types";
-import type { RuntimeMode, TurnIntent } from "../session";
+import { newSession, type RuntimeMode, type TurnIntent } from "../session";
+import { applyHarnessEvent } from "./apply";
 
 function parse() {
   return sent.map((line) => JSON.parse(line) as Record<string, unknown>);
@@ -760,6 +763,222 @@ describe("claude subagents", () => {
     await second.turn;
   });
 
+  it.each([
+    {
+      scenario: "different descriptions",
+      descriptions: ["Explore the auth module", "Review the tests"],
+    },
+    {
+      scenario: "identical descriptions",
+      descriptions: ["Explore the auth module", "Explore the auth module"],
+    },
+  ])(
+    "shows one row per background subagent when the task list comes first ($scenario)",
+    async ({ descriptions }) => {
+      const { events, turn } = await startTurn("s1");
+      const agents = [
+        { id: "toolu_a", task: "t1", description: descriptions[0] },
+        { id: "toolu_b", task: "t2", description: descriptions[1] },
+      ];
+
+      emit({
+        type: "assistant",
+        session_id: "sess_1",
+        message: {
+          content: agents.map((agent) => ({
+            type: "tool_use",
+            id: agent.id,
+            name: "Agent",
+            input: {
+              description: agent.description,
+              subagent_type: "explore",
+              run_in_background: true,
+            },
+          })),
+        },
+      });
+      // Claude lists the tasks, with no tool_use_id, before it announces them.
+      emit({
+        type: "system",
+        subtype: "background_tasks_changed",
+        tasks: agents.map((agent) => ({
+          task_id: agent.task,
+          task_type: "local_agent",
+          description: agent.description,
+        })),
+      });
+      expect(
+        new Set(
+          events.flatMap((event) =>
+            event.type === "tool.updated" ? [event.callId] : [],
+          ),
+        ),
+      ).toEqual(new Set(["toolu_a", "toolu_b"]));
+      for (const agent of agents) {
+        emit({
+          type: "system",
+          subtype: "task_started",
+          task_id: agent.task,
+          tool_use_id: agent.id,
+          description: agent.description,
+          task_type: "local_agent",
+          is_backgrounded: true,
+        });
+      }
+      const rows = events.flatMap((event) =>
+        event.type === "tool.started" && event.kind === "agent"
+          ? [event.callId]
+          : [],
+      );
+      expect(rows).toEqual(["toolu_a", "toolu_b"]);
+
+      emit({
+        type: "system",
+        subtype: "task_notification",
+        task_id: "t1",
+        tool_use_id: "toolu_a",
+        status: "completed",
+        summary: "First agent finished",
+      });
+      const session = events.reduce(
+        applyHarnessEvent,
+        newSession("claude", "/repo"),
+      );
+      expect(
+        session.blocks.filter((block) => block.tool?.kind === "agent"),
+      ).toHaveLength(2);
+      expect(
+        session.blocks.find((block) => block.tool?.callId === "toolu_a")?.tool,
+      ).toMatchObject({ status: "completed", detail: "First agent finished" });
+      expect(
+        session.blocks.find((block) => block.tool?.callId === "toolu_b")?.tool,
+      ).toMatchObject({ status: "in_progress" });
+      emit({
+        type: "system",
+        subtype: "task_notification",
+        task_id: "t2",
+        tool_use_id: "toolu_b",
+        status: "completed",
+        summary: "Second agent finished",
+      });
+      emit({ type: "result", subtype: "success", session_id: "sess_1" });
+      await turn;
+    },
+  );
+
+  it("does not match a listed subagent to an Agent call that already finished", async () => {
+    const { events, turn } = await startTurn("s1");
+    const description = "Explore the auth module";
+    emit({
+      type: "assistant",
+      session_id: "sess_1",
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_done",
+            name: "Agent",
+            input: { description, subagent_type: "explore" },
+          },
+        ],
+      },
+    });
+    emit({
+      type: "user",
+      session_id: "sess_1",
+      message: {
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_done",
+            content: "Finished inline.",
+          },
+        ],
+      },
+    });
+    emit({
+      type: "system",
+      subtype: "background_tasks_changed",
+      tasks: [{ task_id: "t9", task_type: "local_agent", description }],
+    });
+    expect(
+      events.some(
+        (event) => event.type === "tool.started" && event.callId === "agent:t9",
+      ),
+    ).toBe(true);
+    emit({
+      type: "system",
+      subtype: "task_notification",
+      task_id: "t9",
+      status: "completed",
+      summary: "Done",
+    });
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+  });
+
+  it("keeps an unmatched background subagent visible until it finishes", async () => {
+    const { events, turn } = await startTurn("s1");
+    const description = "Explore the auth module";
+    const task = {
+      task_id: "t1",
+      task_type: "local_agent",
+      description,
+    };
+    // A task can be listed without an Agent call in the parent transcript.
+    for (let i = 0; i < 2; i++) {
+      emit({
+        type: "system",
+        subtype: "background_tasks_changed",
+        tasks: [task],
+      });
+    }
+    emit({
+      type: "system",
+      subtype: "task_progress",
+      task_id: "t1",
+      description,
+      summary: "Reading the auth module",
+    });
+    const session = events.reduce(
+      applyHarnessEvent,
+      newSession("claude", "/repo"),
+    );
+    expect(
+      session.blocks.filter((block) => block.tool?.kind === "agent"),
+    ).toHaveLength(1);
+    expect(
+      session.blocks.find((block) => block.tool?.callId === "agent:t1")?.tool,
+    ).toMatchObject({
+      status: "in_progress",
+      detail: "Reading the auth module",
+    });
+
+    emit({
+      type: "system",
+      subtype: "task_notification",
+      task_id: "t1",
+      status: "completed",
+      summary: "Found the auth entry points",
+    });
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+
+    const finished = events.reduce(
+      applyHarnessEvent,
+      newSession("claude", "/repo"),
+    );
+    expect(
+      finished.blocks.filter((block) => block.tool?.kind === "agent"),
+    ).toHaveLength(1);
+    expect(
+      finished.blocks.find((block) => block.tool?.callId === "agent:t1")?.tool,
+    ).toMatchObject({
+      status: "completed",
+      detail: "Found the auth entry points",
+    });
+  });
+
   it("stays busy after a parent result while a background subagent is running", async () => {
     const { events, turn } = await startTurn("s1");
     let settled = false;
@@ -910,6 +1129,367 @@ describe("claude subagents", () => {
           event.text.includes("I will grep for tokens"),
       ),
     ).toBe(false);
+  });
+});
+
+describe("claude task tools", () => {
+  function emitTaskTool(
+    id: string,
+    name: string,
+    input: Record<string, unknown>,
+    result: string,
+    providerSessionId = "sess_1",
+  ) {
+    emit({
+      type: "assistant",
+      session_id: providerSessionId,
+      message: { content: [{ type: "tool_use", id, name, input }] },
+    });
+    emit({
+      type: "user",
+      session_id: providerSessionId,
+      message: {
+        content: [{ type: "tool_result", tool_use_id: id, content: result }],
+      },
+    });
+  }
+
+  function lastTaskItems(events: HarnessEvent[]) {
+    const session = events.reduce(
+      applyHarnessEvent,
+      newSession("claude", "/repo"),
+    );
+    return session.blocks.filter((block) => block.role === "tasks").at(-1)
+      ?.taskList?.items;
+  }
+
+  async function conversationWithTasks() {
+    const first = await startTurn("s1");
+    emitTaskTool(
+      "toolu_c1",
+      "TaskCreate",
+      { subject: "Write tests" },
+      "Task #1 created successfully: Write tests",
+    );
+    emitTaskTool(
+      "toolu_c2",
+      "TaskCreate",
+      { subject: "Ship it" },
+      "Task #2 created successfully: Ship it",
+    );
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await first.turn;
+    return first.events.reduce(
+      applyHarnessEvent,
+      newSession("claude", "/repo"),
+    );
+  }
+
+  it("builds the task list from TaskCreate and TaskUpdate, not subagent rows", async () => {
+    const { events, turn } = await startTurn("s1");
+    emitTaskTool(
+      "toolu_c1",
+      "TaskCreate",
+      { subject: "Write tests", description: "Cover the parser" },
+      "Task #1 created successfully: Write tests",
+    );
+    emitTaskTool(
+      "toolu_c2",
+      "TaskCreate",
+      { subject: "Ship it", description: "Open the PR" },
+      "Task #2 created successfully: Ship it",
+    );
+    emitTaskTool(
+      "toolu_u1",
+      "TaskUpdate",
+      { taskId: "1", status: "in_progress" },
+      "Updated task #1 status",
+    );
+    emitTaskTool(
+      "toolu_u2",
+      "TaskUpdate",
+      { taskId: "1", status: "completed" },
+      "Updated task #1 status",
+    );
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+
+    const session = events.reduce(
+      applyHarnessEvent,
+      newSession("claude", "/repo"),
+    );
+    const lists = session.blocks.filter((block) => block.role === "tasks");
+    expect(lists).toHaveLength(1);
+    expect(lists[0].taskList?.items).toEqual([
+      { id: "1", text: "Write tests", status: "completed" },
+      { id: "2", text: "Ship it", status: "pending" },
+    ]);
+    expect(lists[0].taskList?.providerSessionId).toBe("sess_1");
+    expect(
+      session.blocks.some((block) => block.tool?.kind === "agent"),
+    ).toBe(false);
+    expect(session.liveAgents ?? []).toEqual([]);
+  });
+
+  it("shows a TaskUpdate subject rename in the panel", async () => {
+    const { events, turn } = await startTurn("s1");
+    emitTaskTool(
+      "toolu_c1",
+      "TaskCreate",
+      { subject: "Write tests" },
+      "Task #1 created successfully: Write tests",
+    );
+    emitTaskTool(
+      "toolu_u1",
+      "TaskUpdate",
+      { taskId: "1", subject: "Write parser tests", status: "in_progress" },
+      "Updated task #1 subject, status",
+    );
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+
+    expect(lastTaskItems(events)).toEqual([
+      { id: "1", text: "Write parser tests", status: "in_progress" },
+    ]);
+  });
+
+  it("keeps earlier tasks updatable after a relaunch resumes the conversation", async () => {
+    const first = await startTurn("s1");
+    emitTaskTool(
+      "toolu_c1",
+      "TaskCreate",
+      { subject: "Write tests" },
+      "Task #1 created successfully: Write tests",
+    );
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await first.turn;
+
+    sent.length = 0;
+    const second = await startTurn("s1", { runtimeMode: "full-access" });
+    expect(spawned).toHaveLength(2);
+    const args = spawned.at(-1)!;
+    expect(args[args.indexOf("--resume") + 1]).toBe("sess_1");
+    emitTaskTool(
+      "toolu_u1",
+      "TaskUpdate",
+      { taskId: "1", status: "completed" },
+      "Updated task #1 status",
+    );
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await second.turn;
+
+    expect(lastTaskItems([...first.events, ...second.events])).toEqual([
+      { id: "1", text: "Write tests", status: "completed" },
+    ]);
+  });
+
+  it("rehydrates tasks from the persisted panel after an app restart", async () => {
+    const restored = await conversationWithTasks();
+
+    // App restart: module state is gone; only the saved transcript remains.
+    await stopClaudeSession("s1");
+    __claudeTestReset();
+    bindClaudeSession("s1", "sess_1", "/repo");
+    restoreClaudeTaskLists("s1", [
+      ...restored.blocks.flatMap((block) =>
+        block.taskList ? [block.taskList] : [],
+      ),
+      // A later panel from another conversation must not replace this one.
+      {
+        key: "claude-tasks",
+        providerSessionId: "sess_2",
+        items: [{ id: "1", text: "Other conversation", status: "pending" }],
+      },
+    ]);
+
+    sent.length = 0;
+    const { events, turn } = await startTurn("s1");
+    const args = spawned.at(-1)!;
+    expect(args[args.indexOf("--resume") + 1]).toBe("sess_1");
+    emitTaskTool(
+      "toolu_u1",
+      "TaskUpdate",
+      { taskId: "1", status: "completed" },
+      "Updated task #1 status",
+    );
+    emitTaskTool(
+      "toolu_c3",
+      "TaskCreate",
+      { subject: "Tag release" },
+      "Task #3 created successfully: Tag release",
+    );
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+
+    expect(lastTaskItems(events)).toEqual([
+      { id: "1", text: "Write tests", status: "completed" },
+      { id: "2", text: "Ship it", status: "pending" },
+      { id: "3", text: "Tag release", status: "pending" },
+    ]);
+  });
+
+  it("does not carry tasks to another conversation bound to the same thread", async () => {
+    const restored = await conversationWithTasks();
+
+    await stopClaudeSession("s1");
+    bindClaudeSession("s1", "sess_2", "/repo");
+    restoreClaudeTaskLists(
+      "s1",
+      restored.blocks.flatMap((block) =>
+        block.taskList ? [block.taskList] : [],
+      ),
+    );
+
+    sent.length = 0;
+    const { events, turn } = await startTurn("s1");
+    const args = spawned.at(-1)!;
+    expect(args[args.indexOf("--resume") + 1]).toBe("sess_2");
+    emitTaskTool(
+      "toolu_u1",
+      "TaskUpdate",
+      { taskId: "1", status: "completed" },
+      "Updated task #1 status",
+      "sess_2",
+    );
+    emitTaskTool(
+      "toolu_c3",
+      "TaskCreate",
+      { subject: "Fresh task" },
+      "Task #1 created successfully: Fresh task",
+      "sess_2",
+    );
+    emit({ type: "result", subtype: "success", session_id: "sess_2" });
+    await turn;
+
+    expect(events.filter((event) => event.type === "tasks.updated")).toEqual([
+      expect.objectContaining({
+        providerSessionId: "sess_2",
+        items: [{ id: "1", text: "Fresh task", status: "pending" }],
+      }),
+    ]);
+  });
+
+  it("ignores failed task tool results", async () => {
+    const { events, turn } = await startTurn("s1");
+    emit({
+      type: "assistant",
+      session_id: "sess_1",
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_c1",
+            name: "TaskCreate",
+            input: { subject: "Write tests" },
+          },
+        ],
+      },
+    });
+    emit({
+      type: "user",
+      session_id: "sess_1",
+      message: {
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_c1",
+            is_error: true,
+            content: "Task #1 could not be created",
+          },
+        ],
+      },
+    });
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+    expect(events.some((event) => event.type === "tasks.updated")).toBe(false);
+  });
+});
+
+/** A subagent Claude ran inline: its report comes back on the parent's stream. */
+function emitInlineSubagent(taskId = "t1", backgrounded = false) {
+  emit({
+    type: "assistant",
+    session_id: "sess_1",
+    message: {
+      content: [
+        {
+          type: "tool_use",
+          id: "toolu_agent",
+          name: "Task",
+          input: {
+            description: "Explore the auth module",
+            subagent_type: "explore",
+          },
+        },
+      ],
+    },
+  });
+  emit({
+    type: "system",
+    subtype: "task_started",
+    task_id: taskId,
+    tool_use_id: "toolu_agent",
+    description: "Explore the auth module",
+    task_type: "local_agent",
+    ...(backgrounded ? { is_backgrounded: true } : {}),
+  });
+  emit({
+    type: "user",
+    session_id: "sess_1",
+    message: {
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "toolu_agent",
+          content: backgrounded ? "Backgrounded" : "Auth lives in src/auth.",
+        },
+      ],
+    },
+  });
+}
+
+describe("claude inline subagents", () => {
+  it("ends the turn once a subagent has reported back inline", async () => {
+    const { events, turn } = await startTurn("s1");
+    let settled = false;
+    void turn.then(() => {
+      settled = true;
+    });
+
+    emitInlineSubagent();
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+
+    await turn;
+    expect(settled).toBe(true);
+    expect(
+      events.filter((event) => event.type === "agent.updated").at(-1),
+    ).toMatchObject({ agentId: "t1", status: "completed" });
+  });
+
+  it("keeps the turn open while a backgrounded subagent is still running", async () => {
+    const { events, turn } = await startTurn("s1");
+    let settled = false;
+    void turn.then(() => {
+      settled = true;
+    });
+
+    emitInlineSubagent("bg", true);
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(settled).toBe(false);
+    expect(events.some((event) => event.type === "message.completed")).toBe(
+      false,
+    );
+
+    emit({
+      type: "system",
+      subtype: "task_notification",
+      task_id: "bg",
+      status: "completed",
+      summary: "Done",
+    });
+    await turn;
+    expect(settled).toBe(true);
   });
 });
 

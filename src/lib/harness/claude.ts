@@ -1,5 +1,5 @@
 import { nativeModelId } from "../models";
-import type { RuntimeMode } from "../session";
+import type { RuntimeMode, TaskListItem, TaskListMeta } from "../session";
 import { loadClaudeHooks } from "../settings";
 import {
   killChild,
@@ -30,6 +30,7 @@ import {
   isSubagentMessage,
   isTerminalAgentTaskStatus,
   isTodoTool,
+  applyClaudeTaskTool,
   normalizeClaudeCliEffort,
   parseBackgroundAgentTasks,
   parseControlCancelId,
@@ -100,6 +101,8 @@ type InFlightTool = {
   input: Record<string, unknown>;
   partialJson: string;
   title: string;
+  /** An Agent call whose subagent has already reported back or finished. */
+  settled?: boolean;
 };
 
 type LiveAgentTask = {
@@ -126,6 +129,8 @@ type Live = {
   toolsById: Map<string, InFlightTool>;
   agentTasks: Map<string, LiveAgentTask>;
   inactiveTaskIds: Set<string>;
+  /** TaskCreate/TaskUpdate items, keyed by Claude's task id. */
+  claudeTasks: Map<string, TaskListItem>;
   turnResultSeen: boolean;
   /** The last prompt sent this turn, until Claude echoes that it started on it. */
   awaitingEcho: string | null;
@@ -160,6 +165,17 @@ const INIT_TIMEOUT_MS = 8_000;
 
 const liveByThread = new Map<string, Live>();
 const resumeByThread = new Map<string, Resume>();
+/**
+ * Claude task lists outlive a Live: a restart that resumes the conversation
+ * keeps its task ids, so later TaskUpdate calls must find earlier tasks. Task
+ * ids belong to one Claude conversation, so each map records which one.
+ */
+const tasksByThread = new Map<
+  string,
+  { providerSessionId: string; tasks: Map<string, TaskListItem> }
+>();
+/** Task-list block key for TaskCreate/TaskUpdate items. */
+const CLAUDE_TASKS_KEY = "claude-tasks";
 const stoppingByThread = new Map<string, Promise<void>>();
 const cancelledThreads = new Set<string>();
 
@@ -356,6 +372,7 @@ export async function stopClaudeSession(sessionId: string): Promise<void> {
 
 export async function forgetClaudeSession(sessionId: string): Promise<void> {
   resumeByThread.delete(sessionId);
+  tasksByThread.delete(sessionId);
   await stopClaudeSession(sessionId);
 }
 
@@ -367,6 +384,36 @@ export function bindClaudeSession(
   const sessionId = providerSessionId.trim();
   if (!threadId || !sessionId || !cwd.trim()) return;
   resumeByThread.set(threadId, { sessionId, cwd });
+  // Task ids from another conversation mean nothing in this one.
+  if (tasksByThread.get(threadId)?.providerSessionId !== sessionId) {
+    tasksByThread.delete(threadId);
+  }
+}
+
+/**
+ * Seed the task map from a restored session's persisted panel. After an app
+ * restart only the transcript survives, and a resumed conversation still
+ * refers to its earlier task ids.
+ */
+export function restoreClaudeTaskLists(
+  threadId: string,
+  lists: TaskListMeta[],
+): void {
+  if (!threadId || tasksByThread.has(threadId)) return;
+  // Only a list produced by the conversation bound to this thread applies.
+  const providerSessionId = resumeByThread.get(threadId)?.sessionId;
+  if (!providerSessionId) return;
+  let items: TaskListItem[] = [];
+  for (const entry of lists) {
+    if (entry.key !== CLAUDE_TASKS_KEY) continue;
+    if (entry.providerSessionId !== providerSessionId) continue;
+    items = entry.items.filter((item) => item.id);
+  }
+  if (items.length === 0) return;
+  tasksByThread.set(threadId, {
+    providerSessionId,
+    tasks: new Map(items.map((item) => [item.id!, { ...item }])),
+  });
 }
 
 async function ensureLive(input: HarnessSessionInput): Promise<Live> {
@@ -406,6 +453,15 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
   const liveRef: { current: Live | null } = { current: null };
   const claudeSessionId =
     canResume && resume ? resume.sessionId : crypto.randomUUID();
+  const retained = tasksByThread.get(input.sessionId);
+  const claudeTasks =
+    retained?.providerSessionId === claudeSessionId
+      ? retained.tasks
+      : new Map<string, TaskListItem>();
+  tasksByThread.set(input.sessionId, {
+    providerSessionId: claudeSessionId,
+    tasks: claudeTasks,
+  });
   const launch = launchOptions(
     input,
     canResume ? resume?.sessionId : undefined,
@@ -427,6 +483,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     toolsById: new Map(),
     agentTasks: new Map(),
     inactiveTaskIds: new Set(),
+    claudeTasks,
     turnResultSeen: false,
     awaitingEcho: null,
     echoFallback: null,
@@ -627,6 +684,12 @@ function handleLine(sessionId: string, live: Live, line: string): void {
   const sessionIdFromLine = sessionIdFromMessage(rec);
   if (sessionIdFromLine && sessionIdFromLine !== live.claudeSessionId) {
     live.claudeSessionId = sessionIdFromLine;
+    // A different conversation starts with its own task ids.
+    live.claudeTasks = new Map();
+    tasksByThread.set(sessionId, {
+      providerSessionId: sessionIdFromLine,
+      tasks: live.claudeTasks,
+    });
     resumeByThread.set(sessionId, {
       sessionId: sessionIdFromLine,
       cwd: live.cwd,
@@ -854,7 +917,57 @@ function handleUser(live: Live, rec: Record<string, unknown>): void {
       detail: result.text || undefined,
       preview: previewFromTool(tool.name, tool.input, result.text),
     });
+    if (
+      !result.isError &&
+      applyClaudeTaskTool(live.claudeTasks, tool.name, tool.input, result.text)
+    ) {
+      live.onEvent({
+        type: "tasks.updated",
+        key: CLAUDE_TASKS_KEY,
+        // The map is the source of truth, so a TaskUpdate subject is a rename.
+        authoritative: true,
+        providerSessionId: live.claudeSessionId,
+        items: [...live.claudeTasks.values()],
+      });
+    }
+    if (isAgentToolName(tool.name)) {
+      tool.settled = true;
+      settleInlineAgentTask(
+        live,
+        tool.id,
+        result.isError ? "failed" : "completed",
+      );
+    }
   }
+}
+
+/**
+ * A subagent that was never backgrounded reports back on the parent's own tool
+ * result, and Claude sends no task record for one that ended inline. Without
+ * this its task would keep the turn open for good: the reply reads as finished
+ * while the composer and the plan's Build control stay disabled until restart.
+ * Backgrounded subagents are skipped before this point and keep running.
+ */
+function settleInlineAgentTask(
+  live: Live,
+  toolUseId: string,
+  status: "completed" | "failed",
+): void {
+  let settled = false;
+  for (const [taskId, task] of [...live.agentTasks]) {
+    if (task.toolUseId !== toolUseId || task.backgrounded) continue;
+    live.agentTasks.delete(taskId);
+    live.inactiveTaskIds.add(taskId);
+    live.onEvent({
+      type: "agent.updated",
+      agentId: taskId,
+      callId: task.callId,
+      title: task.description,
+      status,
+    });
+    settled = true;
+  }
+  if (settled) maybeFinishTurn(live);
 }
 
 function handleResult(live: Live, rec: Record<string, unknown>): void {
@@ -1262,10 +1375,15 @@ function handleAgentLifecycle(
   for (const row of liveTasks) {
     live.inactiveTaskIds.delete(row.taskId);
     const existing = live.agentTasks.get(row.taskId);
+    // The list carries no tool_use_id and often lands before task_started, so
+    // find the Agent call that spawned it rather than opening a second row.
+    const toolUseId = existing
+      ? existing.toolUseId
+      : unclaimedAgentCall(live, row.description);
     const task: LiveAgentTask = {
       taskId: row.taskId,
-      toolUseId: existing?.toolUseId,
-      callId: existing?.callId ?? `agent:${row.taskId}`,
+      toolUseId,
+      callId: existing?.callId ?? toolUseId ?? `agent:${row.taskId}`,
       description: row.description,
       backgrounded: true,
       status: existing?.status === "waiting" ? "waiting" : "running",
@@ -1344,6 +1462,28 @@ function isBackgroundedAgentTool(live: Live, toolUseId: string): boolean {
       return true;
   }
   return false;
+}
+
+/**
+ * The earliest still-running Agent call with this description that no task
+ * has claimed yet. Aven keeps a task's first row identity, so matching in
+ * spawn order keeps identically described subagents on their own calls.
+ */
+function unclaimedAgentCall(
+  live: Live,
+  description: string,
+): string | undefined {
+  const claimed = new Set<string>();
+  for (const task of live.agentTasks.values()) {
+    claimed.add(task.callId);
+    if (task.toolUseId) claimed.add(task.toolUseId);
+  }
+  for (const tool of live.toolsById.values()) {
+    if (!isAgentToolName(tool.name) || tool.settled || claimed.has(tool.id))
+      continue;
+    if (stringField(tool.input, "description") === description) return tool.id;
+  }
+  return undefined;
 }
 
 function updateAgentTask(
@@ -1443,6 +1583,10 @@ function completeAgentTask(
   live.agentTasks.delete(taskId);
   live.inactiveTaskIds.add(taskId);
   if (task) {
+    for (const id of [task.callId, task.toolUseId]) {
+      const call = id ? live.toolsById.get(id) : undefined;
+      if (call) call.settled = true;
+    }
     live.onEvent({
       type: "agent.updated",
       agentId: taskId,
@@ -1577,6 +1721,7 @@ function launchOptions(
 export function __claudeTestReset(): void {
   liveByThread.clear();
   resumeByThread.clear();
+  tasksByThread.clear();
   stoppingByThread.clear();
   cancelledThreads.clear();
 }

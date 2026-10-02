@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { HarnessId } from "./session";
+import { newSession, type HarnessId } from "./session";
 import {
   CLAUDE_OPUS_5_5_MODEL,
+  MODELS,
+  encodeModelLaunchId,
   coerceModelPickerTab,
   defaultModelSettings,
   defaultModelId,
@@ -570,6 +572,166 @@ describe("picker preferences across catalog aliases", () => {
 describe("live catalog overlays", () => {
   afterEach(() => {
     resetHarnessModelOverlays();
+  });
+
+  it("keeps Opus 5.5 when the live catalog drops it", () => {
+    // `opus-5-5` prefix-matches both `opus` and `opus-5`; it must not settle
+    // for the alias or the older generation.
+    setHarnessModels("claude", [
+      { id: "claude:opus", harness: "claude", name: "Opus", nativeId: "opus" },
+      {
+        id: "claude:opus-5",
+        harness: "claude",
+        name: "Opus 5",
+        nativeId: "claude-opus-5",
+      },
+      {
+        id: "claude:sonnet",
+        harness: "claude",
+        name: "Sonnet",
+        nativeId: "sonnet",
+      },
+    ]);
+
+    const saved = resolveModel("claude", "claude:opus-5-5");
+    expect(saved).toBe(CLAUDE_OPUS_5_5_MODEL);
+    expect(nativeModelId(saved)).toBe("claude-opus-5-5");
+    expect(resolveModel("claude", "claude:opus-5.5")).toBe(
+      CLAUDE_OPUS_5_5_MODEL,
+    );
+    expect(nativeModelId("claude:opus-5-5")).toBe("claude-opus-5-5");
+    expect(encodeModelLaunchId("claude:opus-5.5")).toBe(
+      "claude-opus-5-5[effort=medium,fast=false]",
+    );
+    expect(resolveModel("claude", "claude:opus-5").id).toBe("claude:opus-5");
+  });
+
+  it("prefers the bundled versioned model over a singleton fuzzy match", () => {
+    setHarnessModels("claude", [
+      {
+        id: "claude:opus-5",
+        harness: "claude",
+        name: "Opus 5",
+        nativeId: "claude-opus-5",
+      },
+    ]);
+    expect(resolveModel("claude", "claude:opus-4.6")).toMatchObject({
+      id: "claude:opus-4.6",
+      nativeId: "claude-opus-4-6",
+    });
+    expect(nativeModelId("claude:opus-4.6")).toBe("claude-opus-4-6");
+  });
+
+  it("does not rank a dated snapshot above another generation", () => {
+    setHarnessModels("claude", [
+      {
+        id: "claude:opus-5-20260101",
+        harness: "claude",
+        name: "Opus 5",
+        nativeId: "claude-opus-5-20260101",
+      },
+    ]);
+    expect(resolveModel("claude", "claude:opus-5-5").id).toBe(
+      CLAUDE_OPUS_5_5_MODEL.id,
+    );
+  });
+
+  it("matches a live versioned row across prefix and dotted spellings", () => {
+    const live: AgentModel = {
+      id: "claude:opus-4-6",
+      harness: "claude",
+      name: "Opus 4.6",
+      nativeId: "claude-opus-4-6",
+    };
+    setHarnessModels("claude", [live]);
+    expect(resolveModel("claude", "claude-opus-4-6")).toBe(live);
+    expect(resolveModel("claude", "claude:opus-4.6")).toBe(live);
+  });
+
+  it("prefixes a short live-catalog native id before launching", () => {
+    const live: AgentModel = {
+      id: "claude:opus-5-5",
+      harness: "claude",
+      name: "Opus 5.5",
+      nativeId: "opus-5-5",
+    };
+    setHarnessModels("claude", [live]);
+    expect(nativeModelId(live)).toBe("claude-opus-5-5");
+    expect(nativeModelId("claude:sonnet-4-6")).toBe("claude-sonnet-4-6");
+  });
+
+  it("keeps a saved Claude version missing from both catalogs", () => {
+    setHarnessModels("claude", [
+      {
+        id: "claude:sonnet",
+        harness: "claude",
+        name: "Sonnet",
+        nativeId: "sonnet",
+      },
+      {
+        id: "claude:opus-5",
+        harness: "claude",
+        name: "Opus 5",
+        nativeId: "claude-opus-5",
+      },
+    ]);
+
+    const model = resolveModel("claude", "claude:opus-5-6");
+    expect(model).toMatchObject({
+      id: "claude:opus-5-6",
+      harness: "claude",
+      nativeId: "claude-opus-5-6",
+    });
+    expect(newSession("claude", "/repo", "claude:opus-5-6").model).toBe(
+      "claude:opus-5-6",
+    );
+    expect(nativeModelId(model)).toBe("claude-opus-5-6");
+
+    expect(resolveModel("claude", "claude:opus-4.8")).toMatchObject({
+      id: "claude:opus-4.8",
+      nativeId: "claude-opus-4-8",
+    });
+    expect(nativeModelId("claude:opus-4.8")).toBe("claude-opus-4-8");
+  });
+
+  it("rebuilds only Claude family ids for a key no list knows", () => {
+    expect(nativeModelId("claude:opus-4-8")).toBe("claude-opus-4-8");
+    expect(nativeModelId("claude:haiku-4-5")).toBe("claude-haiku-4-5");
+    expect(nativeModelId("claude:opus-6")).toBe("claude-opus-6");
+    expect(nativeModelId("claude:opus")).toBe("opus");
+    expect(nativeModelId("claude:sonnet")).toBe("sonnet");
+    expect(nativeModelId("claude:glm-4.6")).toBe("glm-4.6");
+    expect(nativeModelId("codex:gpt-5.6-unreleased")).toBe(
+      "gpt-5.6-unreleased",
+    );
+  });
+
+  it("resolves every bundled model to its own native id with a stale overlay", () => {
+    const byHarness = new Map<HarnessId, AgentModel[]>();
+    for (const model of MODELS) {
+      byHarness.set(model.harness, [
+        ...(byHarness.get(model.harness) ?? []),
+        model,
+      ]);
+    }
+    const wrong: string[] = [];
+    for (const [harness, models] of byHarness) {
+      for (const overlay of [false, true]) {
+        if (overlay) setHarnessModels(harness, [models[0]]);
+        for (const model of models) {
+          const want =
+            model.nativeId ?? model.id.slice(model.id.indexOf(":") + 1);
+          const got = nativeModelId(model.id);
+          if (got !== want) wrong.push(`${model.id} want ${want} got ${got}`);
+          const resolved = resolveModel(harness, model.id);
+          if (resolved.harness !== harness) {
+            wrong.push(`${model.id} resolved to ${resolved.id}`);
+          }
+        }
+        resetHarnessModelOverlays();
+      }
+    }
+    expect(wrong).toEqual([]);
   });
 
   it("is empty until a CLI catalog replaces the fallback list", () => {

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { formatTokens } from "../lib/contextUsage";
 import {
   formatResetCountdown,
+  hasRateLimitWindows,
   type ProviderRateLimits,
   type RateLimitWindow,
 } from "../lib/rateLimits";
@@ -128,7 +129,7 @@ function ProviderUsage({
   now: number;
 }) {
   const name = limits.provider === "claude" ? "Claude Code" : "Codex";
-  const cached = Boolean(limits.session || limits.weekly);
+  const cached = hasRateLimitWindows(limits);
   const failed = limits.status === "error" || limits.status === "unavailable";
   const status =
     limits.status === "fetching"
@@ -172,6 +173,15 @@ function ProviderUsage({
         status={limits.status}
         now={now}
       />
+      {limits.monthly && (
+        <RateWindow
+          provider={name}
+          label="Monthly"
+          window={limits.monthly}
+          status={limits.status}
+          now={now}
+        />
+      )}
       {failed && limits.error && (
         <p className="usage-panel-error" role="status" title={limits.error}>
           {limits.error}
