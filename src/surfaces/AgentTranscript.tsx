@@ -67,6 +67,11 @@ import {
 import { HarnessIcon } from "../chrome/HarnessIcon";
 import { useTranscriptLayout } from "../hooks/useTranscriptLayout";
 import { useTranscriptAnchor } from "../hooks/useTranscriptAnchor";
+import {
+  captureScrollAnchor,
+  restoreScrollAnchor,
+  type ScrollAnchor,
+} from "../lib/scrollAnchor";
 import { useTranscriptSelection } from "../hooks/useTranscriptSelection";
 import type { TranscriptLayout } from "../lib/appearance";
 import { AgentMarkdown } from "./AgentMarkdown";
@@ -159,6 +164,9 @@ function AgentTranscriptComponent({
   const showJumpRef = useRef(false);
   const distanceFromBottom = useRef(0);
   const prependHeight = useRef<number | null>(null);
+  // What the reader sees at the top edge while scrolled up. WebKit has no CSS
+  // scroll anchoring, so a rewrap would otherwise slide it away.
+  const readingAnchor = useRef<ScrollAnchor | null>(null);
   const wasVisible = useRef(false);
   const [scrollerEl, setScrollerEl] = useState<HTMLDivElement | null>(null);
   const [visibleTurnCount, setVisibleTurnCount] = useState(INITIAL_TURNS);
@@ -222,6 +230,18 @@ function AgentTranscriptComponent({
     [setShowJump],
   );
 
+  const rememberReadingPosition = useCallback((el: HTMLElement) => {
+    if (stickToBottom.current) {
+      readingAnchor.current = null;
+      return;
+    }
+    const anchor = readingAnchor.current;
+    // The scroll event that follows our own restore describes the same view.
+    if (anchor?.scrollTop === el.scrollTop && anchor.element.isConnected)
+      return;
+    readingAnchor.current = captureScrollAnchor(el);
+  }, []);
+
   const jumpToBottom = useCallback(() => {
     stickToBottom.current = true;
     distanceFromBottom.current = 0;
@@ -243,7 +263,11 @@ function AgentTranscriptComponent({
   useEffect(() => {
     if (!visible || !scrollerEl) return;
     syncPinned(scrollerEl);
-    const onScroll = () => syncPinned(scrollerEl);
+    rememberReadingPosition(scrollerEl);
+    const onScroll = () => {
+      syncPinned(scrollerEl);
+      rememberReadingPosition(scrollerEl);
+    };
     const onWheel = (e: WheelEvent) => {
       if (e.deltaY < 0) {
         stickToBottom.current = false;
@@ -256,7 +280,7 @@ function AgentTranscriptComponent({
       scrollerEl.removeEventListener("scroll", onScroll);
       scrollerEl.removeEventListener("wheel", onWheel);
     };
-  }, [scrollerEl, setShowJump, syncPinned, visible]);
+  }, [rememberReadingPosition, scrollerEl, setShowJump, syncPinned, visible]);
 
   useLayoutEffect(() => {
     stickToBottom.current = true;
@@ -293,15 +317,20 @@ function AgentTranscriptComponent({
     const el = scrollerEl;
     const inner = el?.firstElementChild;
     if (!visible || !el || !inner) return;
+    // Runs after layout and before paint, so a rewrap from a window, sidebar
+    // or pane resize is corrected in the frame that produced it.
     const onResize = () => {
       syncTranscriptViewport(el);
-      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
       if (stickToBottom.current) {
         pinToBottom(el);
         distanceFromBottom.current = 0;
         return;
       }
-      distanceFromBottom.current = distance;
+      const anchor = readingAnchor.current;
+      if (!anchor || !restoreScrollAnchor(el, anchor))
+        readingAnchor.current = captureScrollAnchor(el);
+      distanceFromBottom.current =
+        el.scrollHeight - el.scrollTop - el.clientHeight;
       setShowJump(!isNearBottom(el));
     };
     const observer = new ResizeObserver(onResize);
@@ -327,6 +356,8 @@ function AgentTranscriptComponent({
     el.scrollTop += el.scrollHeight - previousHeight;
     distanceFromBottom.current =
       el.scrollHeight - el.scrollTop - el.clientHeight;
+    // The earlier anchor may sit above the inserted turns now.
+    readingAnchor.current = captureScrollAnchor(el);
   }, [visibleTurnCount]);
 
   const prepareToPrepend = useCallback(() => {

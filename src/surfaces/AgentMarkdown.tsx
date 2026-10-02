@@ -4,6 +4,7 @@ import {
   createContext,
   isValidElement,
   memo,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -37,6 +38,7 @@ import type { OpenFileFn } from "../lib/search";
 import { isAtxHeadingLine } from "../lib/markdownSource";
 import { useColorScheme } from "../hooks/useColorScheme";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
+import { useRewrapAnchor } from "../hooks/useRewrapAnchor";
 import { copyText } from "../lib/clipboard";
 import { INBOX_MEDIA_PREFIXES, isInboxMediaUrl } from "../lib/inboxMedia";
 import { isNoteImagePath } from "../lib/noteImages";
@@ -602,6 +604,18 @@ export const AgentMarkdown = memo(function AgentMarkdown({
   );
 });
 
+function usePreviewScroller() {
+  const lockOverscroll = useLockOverscroll<HTMLDivElement>();
+  const rewrapAnchor = useRewrapAnchor<HTMLDivElement>();
+  return useCallback(
+    (el: HTMLDivElement | null) => {
+      lockOverscroll(el);
+      rewrapAnchor(el);
+    },
+    [lockOverscroll, rewrapAnchor],
+  );
+}
+
 export const MarkdownPreview = memo(function MarkdownPreview({
   text,
   streaming,
@@ -613,11 +627,11 @@ export const MarkdownPreview = memo(function MarkdownPreview({
   cwd?: string;
   onOpenFile?: OpenFileFn;
 }) {
-  const lockOverscroll = useLockOverscroll<HTMLDivElement>();
+  const scroller = usePreviewScroller();
 
   return (
     <div
-      ref={lockOverscroll}
+      ref={scroller}
       className="markdown-preview h-full overflow-y-auto overscroll-none [overflow-anchor:none]"
     >
       <div className="px-6 py-8">
@@ -637,11 +651,11 @@ export const MarkdownSource = memo(function MarkdownSource({
 }: {
   text: string;
 }) {
-  const lockOverscroll = useLockOverscroll<HTMLDivElement>();
+  const scroller = usePreviewScroller();
 
   return (
     <div
-      ref={lockOverscroll}
+      ref={scroller}
       className="markdown-preview h-full overflow-y-auto overscroll-none [overflow-anchor:none]"
     >
       <pre className="min-h-full min-w-0 whitespace-pre-wrap wrap-break-word px-4 py-3 font-mono text-[13px] leading-5 text-content/85">

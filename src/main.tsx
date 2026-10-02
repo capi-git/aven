@@ -8,6 +8,7 @@ import { syncBrowserEngineOptions } from "./lib/browserEngine";
 import { consumeInstalledUpdate } from "./lib/updateNotice";
 import { showRenderFailure } from "./lib/renderFailure";
 import { preventFileDropNavigation } from "./lib/attachments";
+import { watchWindowResize } from "./lib/windowResizeFlag";
 import "./index.css";
 import "./personal-shell.css";
 import "./macos-theme.css";
@@ -16,9 +17,11 @@ import "./macos-theme.css";
 // Keep an unhandled file drop from navigating away from Aven.
 window.addEventListener("dragover", preventFileDropNavigation);
 window.addEventListener("drop", preventFileDropNavigation);
+const stopWatchingWindowResize = watchWindowResize();
 import.meta.hot?.dispose(() => {
   window.removeEventListener("dragover", preventFileDropNavigation);
   window.removeEventListener("drop", preventFileDropNavigation);
+  stopWatchingWindowResize();
 });
 
 const rootOptions = {

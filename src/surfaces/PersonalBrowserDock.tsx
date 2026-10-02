@@ -6,6 +6,8 @@ import {
   type BrowserWorkspace,
 } from "../lib/personalWorkspace";
 
+const DRAG_FRAME_DEADLINE_MS = 16;
+
 type Props = {
   project: string;
   state: BrowserWorkspace;
@@ -34,27 +36,65 @@ export function PersonalBrowserDock({
     event.currentTarget.focus({ preventScroll: true });
     cleanup.current?.();
     let next = state.ratio;
+    let painted = el.style.width;
+    // The split's own width does not change while its divider moves. Measure
+    // once: reading layout after each width write forces a synchronous reflow
+    // of the whole workspace on every pointer event.
+    const bounds = parent.getBoundingClientRect();
     const originalCursor = document.body.style.cursor;
     document.body.style.cursor = "col-resize";
     document.body.dataset.personalResizing = "true";
+    document.documentElement.classList.add("is-resizing");
+    let frame: number | null = null;
+    let fallback: number | null = null;
+    const cancelPaint = () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+      if (fallback !== null) window.clearTimeout(fallback);
+      frame = null;
+      fallback = null;
+    };
+    // One width write per frame, however many pointer events arrive.
+    const paint = () => {
+      cancelPaint();
+      const width = `${next * 100}%`;
+      if (width === painted) return;
+      painted = width;
+      el.style.width = width;
+      // The native page follows now; its ResizeObserver/RAF path can be
+      // throttled while the native view covers WebKit.
+      window.dispatchEvent(new Event("supermono:workspace-layout"));
+    };
+    const read = (e: globalThis.PointerEvent) => {
+      if (bounds.width > 0)
+        next = clamp((bounds.right - e.clientX) / bounds.width);
+    };
     const move = (e: globalThis.PointerEvent) => {
-      const bounds = parent.getBoundingClientRect();
-      next = clamp((bounds.right - e.clientX) / bounds.width);
-      el.style.width = `${next * 100}%`;
+      read(e);
+      if (frame !== null || fallback !== null) return;
+      frame = requestAnimationFrame(paint);
+      fallback = window.setTimeout(paint, DRAG_FRAME_DEADLINE_MS);
     };
     const finish = () => {
+      cancelPaint();
       document.body.style.cursor = originalCursor;
       delete document.body.dataset.personalResizing;
+      document.documentElement.classList.remove("is-resizing");
       window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", finish);
       window.removeEventListener("blur", finish);
       cleanup.current = null;
+      paint();
       onChange({ ratio: next });
+    };
+    // Release may carry a final move the OS coalesced into it.
+    const up = (e: globalThis.PointerEvent) => {
+      read(e);
+      finish();
     };
     cleanup.current = finish;
     window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", finish, { once: true });
+    window.addEventListener("pointerup", up, { once: true });
     window.addEventListener("pointercancel", finish, { once: true });
     window.addEventListener("blur", finish, { once: true });
   };
