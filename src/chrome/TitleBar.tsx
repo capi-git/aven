@@ -339,7 +339,7 @@ function TitleTabItem({
   onContextMenu: (id: string, event: MenuPoint) => void;
   itemRef?: (el: HTMLDivElement | null) => void;
 }) {
-  const { headline, meta, tooltip } = tabCopy(tab, projectless);
+  const { headline, tooltip } = tabCopy(tab, projectless);
   const fileIcon = tab.files[0];
   const showStart =
     canDrag &&
@@ -360,11 +360,10 @@ function TitleTabItem({
         sortable.setItemRef(tab.id, el);
         itemRef?.(el);
       }}
-      className="personal-title-tab group @container relative flex h-full cursor-default touch-none items-center self-stretch min-w-0 w-full"
+      className="personal-title-tab group relative flex h-full cursor-default touch-none items-center self-stretch min-w-0 w-full"
       data-active={active}
       data-visible={visible}
       data-has-models={Boolean(tab.models?.length)}
-      data-has-meta={Boolean(meta) || undefined}
       data-surface-id={tab.id}
       data-surface-tab-id={tab.id}
       data-draggable={canDrag || undefined}
@@ -466,11 +465,10 @@ function TitleTabItem({
               </span>
             )}
           </span>
-          <span className="personal-title-tab-text flex min-w-0 flex-1 flex-col justify-center gap-0.5">
+          <span className="personal-title-tab-text flex min-w-0 flex-1 items-center">
             <span className="flex min-w-0 items-center gap-1">
-              {/* Defaults suit detached windows; inside the main window
-                  TitleBar.css shows one 13px line, or two small lines on the
-                  tab you're on once it is wide enough. */}
+              {/* Keep the task name on one line; model details remain in the
+                  tooltip and the composer's model picker. */}
               <span className="personal-title-tab-label min-w-0 truncate text-[13px]">
                 {headline}
               </span>
@@ -485,11 +483,6 @@ function TitleTabItem({
                 />
               ) : null}
             </span>
-            {meta ? (
-              <span className="personal-title-tab-meta hidden min-w-0 truncate text-[10px]">
-                {meta}
-              </span>
-            ) : null}
           </span>
         </button>
         {closable ? (

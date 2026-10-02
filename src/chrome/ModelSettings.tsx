@@ -1,4 +1,5 @@
 import { AiIdea, ChevronDown, Gauge, Maximize2, Zap } from "./icons";
+import "./ModelControls.css";
 import {
   useEffect,
   useMemo,
@@ -110,14 +111,16 @@ function ToggleSetting({
       aria-pressed={on}
       onMouseDown={(e) => e.preventDefault()}
       onClick={() => onChange(on ? "false" : "true")}
-      className={`flex h-6.5 items-center gap-1 rounded-md px-1.5 ${
+      className={`model-control flex h-6.5 items-center gap-1 rounded-md px-1.5 ${
         on
           ? "bg-content/20 text-content"
           : "bg-content/10 text-content/50 hover:bg-content/15 hover:text-content"
       }`}
     >
       <Icon className="size-3.5 shrink-0" strokeWidth={1.75} />
-      <span className="text-[11px]">{setting.label}</span>
+      <span key={value} className="model-control-value text-[11px]">
+        {setting.label}
+      </span>
     </button>
   );
 }
@@ -202,18 +205,21 @@ function SelectSetting({
           }
           setOpen(true);
         }}
-        className={`flex h-6.5 max-w-36 items-center gap-1 rounded-md px-1.5 ${
+        className={`model-control flex h-6.5 max-w-36 items-center gap-1 rounded-md px-1.5 ${
           open
             ? "bg-content/10 text-content"
             : "bg-content/10 text-content hover:bg-content/15"
         }`}
       >
         <Icon className="size-3.5 shrink-0" strokeWidth={1.75} />
-        <span className="min-w-0 truncate text-[11px]">
+        <span
+          key={value}
+          className="model-control-value min-w-0 truncate text-[11px]"
+        >
           {current?.label ?? setting.label}
         </span>
         <ChevronDown
-          className={`size-3 shrink-0 text-content/50 ${open ? "rotate-180" : ""}`}
+          className={`model-control-chevron size-3 shrink-0 text-content/50 ${open ? "rotate-180" : ""}`}
           strokeWidth={1.75}
         />
       </button>
@@ -243,7 +249,7 @@ function SelectSetting({
                 onMouseDown={(e) => e.preventDefault()}
                 onMouseEnter={() => setActive(index)}
                 onClick={() => pick(option.value)}
-                className={`flex w-full items-center rounded-lg px-2 py-1.5 text-left text-[13px] ${
+                className={`model-control-option flex w-full items-center rounded-lg px-2 py-1.5 text-left text-[13px] ${
                   highlighted || selected
                     ? "bg-content/10 text-content"
                     : "text-content hover:bg-content/5"

@@ -1,15 +1,15 @@
 /* A frosted writing surface. Opacity comes from the surface, never the text;
    the blur keeps the transcript or wallpaper behind it soft and legible. */
 .personal-shell .personal-composer {
-  /* Lift the writing surface away from the workspace, including custom greys.
-     Field backgrounds are intentionally too quiet for this primary control. */
+  /* Keep the theme tint quiet so the frost carries the surface; foreground
+     text stays fully opaque, including custom palettes. */
   --composer-surface: color-mix(
     in srgb,
-    var(--personal-main-surface) 88%,
+    var(--personal-main-surface) 95%,
     var(--color-content)
   );
-  --composer-control: var(--aven-control-bg, var(--aven-hover));
-  --composer-glass-opacity: 64%;
+  --composer-control: color-mix(in srgb, var(--color-content) 4%, transparent);
+  --composer-glass-opacity: 48%;
   --composer-edge: var(--aven-control-border, var(--aven-line));
   --composer-shadow: 0 8px 24px #00000018;
   width: 100%;
@@ -32,6 +32,9 @@
     inset 0 1px 0 color-mix(in srgb, var(--color-content) 5%, transparent);
   backdrop-filter: var(--aven-glass-blur, none);
   -webkit-backdrop-filter: var(--aven-glass-blur, none);
+  transition:
+    border-color 180ms ease-out,
+    box-shadow 180ms ease-out;
 }
 .personal-shell .personal-composer [data-composer-box]:focus-within {
   border-color: color-mix(in srgb, var(--personal-accent) 55%, transparent);
@@ -274,6 +277,7 @@
 }
 html.theme-light .personal-shell .personal-composer {
   --composer-surface: var(--aven-field-bg, var(--personal-main-surface));
+  --composer-control: var(--aven-control-bg, var(--aven-hover));
   --composer-shadow: 0 8px 24px #1730420d;
 }
 html.theme-light
@@ -299,6 +303,11 @@ html.theme-light .personal-shell .personal-composer {
   .personal-shell .personal-composer,
   html.theme-light .personal-shell .personal-composer {
     --composer-glass-opacity: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .personal-shell .personal-composer [data-composer-box] {
+    transition: none;
   }
 }
 @container (max-width: 440px) {

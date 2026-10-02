@@ -1,0 +1,62 @@
+/* Animate the control and its selected value, never the glass panel or its
+   focus target. Keyed values can enter without replacing the button. */
+.model-control {
+  transition:
+    background-color 160ms ease-out,
+    color 160ms ease-out,
+    transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.model-control:hover {
+  transform: translateY(-1px);
+}
+.model-control:active {
+  transform: translateY(0) scale(0.96);
+}
+.model-control-chevron {
+  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.model-control-value {
+  animation: aven-model-value-enter 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.model-control-option {
+  transition:
+    background-color 140ms ease-out,
+    color 140ms ease-out;
+}
+.model-provider-indicator {
+  transform-origin: center;
+  animation: aven-model-provider-enter 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes aven-model-value-enter {
+  from {
+    transform: translateY(3px);
+    opacity: 0.6;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+@keyframes aven-model-provider-enter {
+  from {
+    transform: scaleX(0.3);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .model-control,
+  .model-control-chevron,
+  .model-control-option {
+    transition: none;
+  }
+  .model-control:hover,
+  .model-control:active {
+    transform: none;
+  }
+  .model-control-value,
+  .model-provider-indicator {
+    animation: none;
+  }
+}

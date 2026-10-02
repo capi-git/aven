@@ -1,4 +1,5 @@
 import { ChevronDown, Search, Star } from "./icons";
+import "./ModelControls.css";
 import {
   useEffect,
   useMemo,
@@ -321,16 +322,21 @@ export function ModelPicker({
           }
           openPicker();
         }}
-        className={`flex h-6.5 max-w-52 items-center gap-1 rounded-md px-1.5 ${
+        className={`model-control flex h-6.5 max-w-52 items-center gap-1 rounded-md px-1.5 ${
           open
             ? "bg-content/10 text-content"
             : "bg-content/10 text-content hover:bg-content/15"
         }`}
       >
         <HarnessIcon harness={current.harness} className="size-4 shrink-0" />
-        <span className="min-w-0 truncate text-[11px]">{current.name}</span>
+        <span
+          key={current.id}
+          className="model-control-value min-w-0 truncate text-[11px]"
+        >
+          {current.name}
+        </span>
         <ChevronDown
-          className={`size-3 shrink-0 text-content/50 ${open ? "rotate-180" : ""}`}
+          className={`model-control-chevron size-3 shrink-0 text-content/50 ${open ? "rotate-180" : ""}`}
           strokeWidth={1.75}
         />
       </button>
@@ -447,7 +453,7 @@ function ProviderTabButton({
         if (disabled) return;
         onSelect();
       }}
-      className={`relative flex min-w-0 flex-1 items-center justify-center gap-1 px-2 py-3 text-[11px] leading-4 ${
+      className={`model-control-option relative flex min-w-0 flex-1 items-center justify-center gap-1 px-2 py-3 text-[11px] leading-4 ${
         disabled
           ? "cursor-not-allowed text-content/25"
           : selected
@@ -457,7 +463,7 @@ function ProviderTabButton({
     >
       <span className="shrink-0">{children}</span>
       {selected && !disabled ? (
-        <span className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-content" />
+        <span className="model-provider-indicator absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-content" />
       ) : null}
     </button>
   );

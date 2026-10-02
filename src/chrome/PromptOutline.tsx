@@ -7,6 +7,7 @@ import {
   useState,
   type FocusEvent as ReactFocusEvent,
   type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from "react";
 import {
@@ -22,7 +23,10 @@ import {
   type OutlineBand,
 } from "../lib/promptOutline";
 import type { Block } from "../lib/session";
+import { effectiveCssZoom } from "../lib/drag";
+import { setTranscriptScrollDragging } from "../lib/transcriptScrollIntent";
 import { Popover } from "./Popover";
+import "./PromptOutline.css";
 
 const OPEN_DELAY_MS = 25;
 const SCROLL_INSET_PX = 8;
@@ -41,8 +45,21 @@ const BAR_STACK_PANE_SHARE = 0.75;
 const SCROLLER = ".agent-transcript";
 const TURN = ".transcript-turn";
 const ANCHOR = "[data-prompt-anchor]";
+const DRAG_THRESHOLD_PX = 4;
+const MIN_THUMB_PX = 24;
 
 type Hover = { id: string; el: HTMLElement };
+type ScrollPosition = { top: number; max: number; share: number; id: string };
+type Drag = {
+  pointerId: number;
+  startY: number;
+  startTop: number;
+  max: number;
+  travel: number;
+  rail: HTMLElement;
+  scroller: HTMLElement;
+  active: boolean;
+};
 
 type Props = {
   blocks: Block[];
@@ -64,6 +81,16 @@ export function PromptOutline({
   const [hover, setHover] = useState<Hover | null>(null);
   const [open, setOpen] = useState(false);
   const [focusId, setFocusId] = useState<string | null>(null);
+  const [scrollPosition, setScrollPosition] = useState<ScrollPosition>({
+    top: 0,
+    max: 0,
+    share: 1,
+    id: "",
+  });
+  const [dragging, setDragging] = useState(false);
+  const hasRail = prompts.length >= MIN_PROMPTS || scrollPosition.max > 0;
+  const drag = useRef<Drag | null>(null);
+  const suppressClick = useRef(false);
   const rail = useRef<HTMLDivElement>(null);
   const frame = useRef<number | null>(null);
   const alignmentFrame = useRef<number | null>(null);
@@ -87,9 +114,28 @@ export function PromptOutline({
     }
   }, []);
 
+  const finishDrag = useCallback(() => {
+    const gesture = drag.current;
+    drag.current = null;
+    if (!gesture) return;
+    if (gesture.active) {
+      suppressClick.current = true;
+      setTranscriptScrollDragging(gesture.scroller, false);
+      if (!pointerInside.current && !keyboardFocused(gesture.rail)) {
+        setHover(null);
+        setOpen(false);
+      }
+    }
+    if (gesture.rail.hasPointerCapture?.(gesture.pointerId)) {
+      gesture.rail.releasePointerCapture(gesture.pointerId);
+    }
+    setDragging(false);
+  }, []);
+
   useLayoutEffect(() => {
     visibleRef.current = visible;
     if (!visible) {
+      finishDrag();
       pointerInside.current = false;
       setHover(null);
       setOpen(false);
@@ -100,8 +146,9 @@ export function PromptOutline({
       visibleRef.current = false;
       cancelFrames();
       cancelOpen();
+      finishDrag();
     };
-  }, [visible, cancelFrames, cancelOpen]);
+  }, [visible, cancelFrames, cancelOpen, finishDrag]);
 
   const measure = useCallback(() => {
     if (!visibleRef.current) return;
@@ -113,10 +160,28 @@ export function PromptOutline({
     const viewport = scroller.getBoundingClientRect();
     // A hidden tab has zero-size boxes. The rule would then select the last prompt.
     if (viewport.height === 0) return;
+    const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    const nextPosition = {
+      top: Math.max(0, Math.min(max, scroller.scrollTop)),
+      max,
+      share: Math.min(
+        1,
+        scroller.clientHeight / Math.max(1, scroller.scrollHeight),
+      ),
+      id: scroller.id,
+    };
+    setScrollPosition((previous) =>
+      previous.top === nextPosition.top &&
+      previous.max === nextPosition.max &&
+      previous.share === nextPosition.share &&
+      previous.id === nextPosition.id
+        ? previous
+        : nextPosition,
+    );
     setStackBudget(
       Math.min(
         BAR_STACK_MAX_PX,
-        Math.floor(viewport.height * BAR_STACK_PANE_SHARE),
+        Math.floor(scroller.clientHeight * BAR_STACK_PANE_SHARE),
       ),
     );
     // Streaming re-measures on every frame, and it almost always lands here:
@@ -180,10 +245,164 @@ export function PromptOutline({
     schedule();
   }, [schedule, blocks, visible]);
 
+  useEffect(() => {
+    const control = rail.current;
+    if (!visible || !hasRail || !control) return;
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey) return;
+      const mode = event.deltaMode;
+      const deltaY = event.deltaY;
+      if (
+        !Number.isFinite(deltaY) ||
+        deltaY === 0 ||
+        Math.abs(event.deltaX) >= Math.abs(deltaY)
+      )
+        return;
+      const scroller = scope.current?.querySelector<HTMLElement>(SCROLLER);
+      if (!scroller) return;
+      const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+      if (max <= 0) return;
+      const lineHeight = Number.parseFloat(
+        getComputedStyle(scroller).lineHeight,
+      );
+      const unit =
+        mode === 1
+          ? Number.isFinite(lineHeight) && lineHeight > 0
+            ? lineHeight
+            : 16
+          : mode === 2
+            ? scroller.clientHeight
+            : 1 / effectiveCssZoom(scroller);
+      const delta = deltaY * unit;
+      event.preventDefault();
+      // The outline sits beside, rather than inside, the transcript. Forward
+      // only its vertical wheel input; the transcript owns native wheel input
+      // everywhere else and its normal upward gesture releases the bottom pin.
+      if (delta < 0)
+        scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: delta }));
+      scroller.scrollTop = Math.max(
+        0,
+        Math.min(max, scroller.scrollTop + delta),
+      );
+      schedule();
+    };
+    control.addEventListener("wheel", onWheel, { passive: false });
+    return () => control.removeEventListener("wheel", onWheel);
+  }, [hasRail, schedule, scope, visible]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const move = (event: PointerEvent) => {
+      const gesture = drag.current;
+      if (!gesture || gesture.pointerId !== event.pointerId) return;
+      const delta = event.clientY - gesture.startY;
+      if (!gesture.active && Math.abs(delta) < DRAG_THRESHOLD_PX) return;
+      if (!gesture.active) {
+        gesture.active = true;
+        cancelOpen();
+        setOpen(false);
+        setDragging(true);
+        setTranscriptScrollDragging(gesture.scroller, true);
+        // A pointer cancelled by the OS may already be inactive by this point.
+        try {
+          gesture.rail.setPointerCapture?.(event.pointerId);
+        } catch {
+          finishDrag();
+          return;
+        }
+      }
+      event.preventDefault();
+      const max = Math.max(
+        0,
+        gesture.scroller.scrollHeight - gesture.scroller.clientHeight,
+      );
+      gesture.scroller.scrollTop = Math.max(
+        0,
+        Math.min(
+          max,
+          gesture.startTop + (delta / gesture.travel) * gesture.max,
+        ),
+      );
+      // Capture keeps the gesture alive outside the rail. Keep its ripple
+      // following the nearest mark without opening a card while dragging.
+      let nearest: HTMLElement | null = null;
+      let distance = Number.POSITIVE_INFINITY;
+      for (const bar of gesture.rail.querySelectorAll<HTMLElement>(
+        "[data-prompt-bar]",
+      )) {
+        const box = bar.getBoundingClientRect();
+        const away = Math.abs(event.clientY - (box.top + box.height / 2));
+        if (away < distance) {
+          nearest = bar;
+          distance = away;
+        }
+      }
+      if (nearest?.dataset.promptBar) {
+        const el = nearest;
+        const id = nearest.dataset.promptBar;
+        setHover((previous) => (previous?.id === id ? previous : { id, el }));
+      }
+      schedule();
+    };
+    const release = (event: PointerEvent) => {
+      if (drag.current?.pointerId === event.pointerId) finishDrag();
+    };
+    const blur = () => {
+      pointerInside.current = false;
+      finishDrag();
+    };
+    window.addEventListener("pointermove", move, { passive: false });
+    window.addEventListener("pointerup", release);
+    window.addEventListener("pointercancel", release);
+    window.addEventListener("blur", blur);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", release);
+      window.removeEventListener("pointercancel", release);
+      window.removeEventListener("blur", blur);
+      finishDrag();
+    };
+  }, [visible, cancelOpen, finishDrag, schedule]);
+
+  const startDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (
+      event.button !== 0 ||
+      !event.isPrimary ||
+      !visibleRef.current ||
+      drag.current
+    )
+      return;
+    suppressClick.current = false;
+    const scroller = scope.current?.querySelector<HTMLElement>(SCROLLER);
+    if (!scroller) return;
+    const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    if (max <= 0) return;
+    const height = event.currentTarget.getBoundingClientRect().height;
+    if (height <= 0) return;
+    const share = scroller.clientHeight / Math.max(1, scroller.scrollHeight);
+    // Pointer distances use the painted track, including CSS zoom.
+    const scale = effectiveCssZoom(event.currentTarget);
+    const thumb = Math.min(
+      height,
+      Math.max(MIN_THUMB_PX * scale, height * share),
+    );
+    drag.current = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      startTop: scroller.scrollTop,
+      max,
+      travel: Math.max(1, height - thumb),
+      rail: event.currentTarget,
+      scroller,
+      active: false,
+    };
+  };
+
   /** The ripple follows the pointer at once. The card waits out a pass-through. */
   const hoverBar = (id: string, el: HTMLElement) => {
     if (!visibleRef.current) return;
     setHover({ id, el });
+    if (drag.current?.active) return;
     if (open || openTimer.current != null) return;
     openTimer.current = window.setTimeout(() => {
       openTimer.current = null;
@@ -204,6 +423,7 @@ export function PromptOutline({
 
   const leaveRail = () => {
     pointerInside.current = false;
+    if (drag.current?.active) return;
     // Keyboard focus holds the card open after the pointer moves away.
     if (keyboardFocused(rail.current)) return;
     close();
@@ -256,7 +476,7 @@ export function PromptOutline({
     });
   };
 
-  if (!visible || prompts.length < MIN_PROMPTS) return null;
+  if (!visible || !hasRail) return null;
 
   const activeIndex = prompts.findIndex((prompt) => prompt.id === activeId);
   const stack = barStack(
@@ -266,10 +486,44 @@ export function PromptOutline({
   );
   const bars = prompts.slice(stack.start, stack.end);
   const hoverIndex = hover ? bars.findIndex((bar) => bar.id === hover.id) : -1;
-  // One tab stop for the whole rail. Arrow keys walk it from there.
+  // One tab stop for prompt marks; the scroll thumb has its own.
   const tabId =
     [focusId, activeId].find((id) => bars.some((bar) => bar.id === id)) ??
-    bars[0].id;
+    bars[0]?.id;
+
+  const thumbHeight = Math.min(
+    stackBudget,
+    Math.max(MIN_THUMB_PX, stackBudget * scrollPosition.share),
+  );
+  const thumbTop =
+    scrollPosition.max > 0
+      ? (scrollPosition.top / scrollPosition.max) *
+        Math.max(0, stackBudget - thumbHeight)
+      : 0;
+
+  const scrollByKey = (event: ReactKeyboardEvent<HTMLSpanElement>) => {
+    const scroller = scope.current?.querySelector<HTMLElement>(SCROLLER);
+    if (!scroller) return;
+    const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    const step = Math.max(40, scroller.clientHeight * 0.1);
+    const page = scroller.clientHeight * 0.9;
+    const destinations: Partial<Record<string, number>> = {
+      ArrowUp: scroller.scrollTop - step,
+      ArrowDown: scroller.scrollTop + step,
+      PageUp: scroller.scrollTop - page,
+      PageDown: scroller.scrollTop + page,
+      Home: 0,
+      End: max,
+    };
+    const next = destinations[event.key];
+    if (next == null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setTranscriptScrollDragging(scroller, true);
+    scroller.scrollTop = Math.max(0, Math.min(max, next));
+    setTranscriptScrollDragging(scroller, false);
+    schedule();
+  };
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const step =
@@ -291,15 +545,41 @@ export function PromptOutline({
       role="toolbar"
       aria-label="Prompts"
       aria-orientation="vertical"
-      style={{ width: BAR_WIDTH_LIFTED_PX }}
+      data-dragging={dragging || undefined}
+      style={{ width: BAR_WIDTH_LIFTED_PX, height: stackBudget }}
+      onPointerDown={startDrag}
+      onLostPointerCapture={finishDrag}
+      onClickCapture={(event) => {
+        if (!suppressClick.current || event.detail === 0) return;
+        suppressClick.current = false;
+        event.preventDefault();
+        event.stopPropagation();
+      }}
       onMouseEnter={() => {
         pointerInside.current = true;
       }}
       onMouseLeave={leaveRail}
       onBlur={blurRail}
       onKeyDown={onKeyDown}
-      className="absolute top-1/2 right-4 z-30 flex -translate-y-1/2 flex-col items-end @max-[58rem]:hidden"
+      className="prompt-outline absolute top-1/2 right-1 z-30 flex -translate-y-1/2 flex-col items-end justify-center"
     >
+      {scrollPosition.max > 0 ? (
+        <span
+          role="scrollbar"
+          tabIndex={0}
+          aria-label="Scroll chat"
+          aria-controls={scrollPosition.id || undefined}
+          aria-orientation="vertical"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(
+            (scrollPosition.top / scrollPosition.max) * 100,
+          )}
+          onKeyDown={scrollByKey}
+          style={{ top: thumbTop, height: thumbHeight }}
+          className="prompt-outline-scrollbar"
+        />
+      ) : null}
       {bars.map((prompt, index) => {
         const lift = barLift(index, hoverIndex);
         const distance = hoverIndex < 0 ? 0 : Math.abs(index - hoverIndex);
@@ -338,7 +618,7 @@ export function PromptOutline({
                 // The wave reaches the outer bars a beat after the hovered one.
                 transitionDelay: `${Math.min(distance, RIPPLE_SPAN) * RIPPLE_STEP_MS}ms`,
               }}
-              className="rounded-full bg-content transition-[width,opacity] duration-200 ease-out"
+              className="prompt-outline-bar rounded-full bg-content transition-[width,opacity] duration-200 ease-out"
             />
           </button>
         );

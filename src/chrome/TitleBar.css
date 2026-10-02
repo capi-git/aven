@@ -129,25 +129,6 @@ html.theme-light .personal-shell {
   font-weight: 400;
   line-height: 1.25;
 }
-.personal-shell .personal-title-tab-meta {
-  display: none;
-  font-size: 10px;
-  line-height: 1.25;
-  color: color-mix(in srgb, var(--color-content) 45%, transparent);
-}
-@container (min-width: 11rem) {
-  .personal-shell
-    .personal-title-tab[data-active="true"][data-has-meta="true"]
-    .personal-title-tab-label {
-    font-size: 10px;
-    font-weight: 500;
-  }
-  .personal-shell
-    .personal-title-tab[data-active="true"]
-    .personal-title-tab-meta {
-    display: block;
-  }
-}
 .personal-shell .personal-title-tab-identity {
   display: inline-flex;
   flex-shrink: 0;

@@ -16,6 +16,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -73,6 +74,7 @@ import {
   type ScrollAnchor,
 } from "../lib/scrollAnchor";
 import { useTranscriptSelection } from "../hooks/useTranscriptSelection";
+import { TRANSCRIPT_SCROLL_DRAG_EVENT } from "../lib/transcriptScrollIntent";
 import type { TranscriptLayout } from "../lib/appearance";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { TranscriptSelectionMenu } from "./TranscriptSelectionMenu";
@@ -159,7 +161,9 @@ function AgentTranscriptComponent({
   visible = true,
   managed = false,
 }: Props) {
+  const scrollerId = useId();
   const scroller = useRef<HTMLDivElement>(null);
+  const scrollbarDragging = useRef(false);
   const stickToBottom = useRef(true);
   const showJumpRef = useRef(false);
   const distanceFromBottom = useRef(0);
@@ -222,7 +226,7 @@ function AgentTranscriptComponent({
   const syncPinned = useCallback(
     (el: HTMLElement) => {
       const near = isNearBottom(el);
-      stickToBottom.current = near;
+      stickToBottom.current = near && !scrollbarDragging.current;
       distanceFromBottom.current =
         el.scrollHeight - el.scrollTop - el.clientHeight;
       setShowJump(!near);
@@ -268,6 +272,11 @@ function AgentTranscriptComponent({
       syncPinned(scrollerEl);
       rememberReadingPosition(scrollerEl);
     };
+    const onScrollbarDrag = (event: Event) => {
+      scrollbarDragging.current = (event as CustomEvent<boolean>).detail;
+      syncPinned(scrollerEl);
+      rememberReadingPosition(scrollerEl);
+    };
     const onWheel = (e: WheelEvent) => {
       if (e.deltaY < 0) {
         stickToBottom.current = false;
@@ -276,9 +285,15 @@ function AgentTranscriptComponent({
     };
     scrollerEl.addEventListener("scroll", onScroll, { passive: true });
     scrollerEl.addEventListener("wheel", onWheel, { passive: true });
+    scrollerEl.addEventListener(TRANSCRIPT_SCROLL_DRAG_EVENT, onScrollbarDrag);
     return () => {
       scrollerEl.removeEventListener("scroll", onScroll);
       scrollerEl.removeEventListener("wheel", onWheel);
+      scrollerEl.removeEventListener(
+        TRANSCRIPT_SCROLL_DRAG_EVENT,
+        onScrollbarDrag,
+      );
+      scrollbarDragging.current = false;
     };
   }, [rememberReadingPosition, scrollerEl, setShowJump, syncPinned, visible]);
 
@@ -327,7 +342,13 @@ function AgentTranscriptComponent({
         return;
       }
       const anchor = readingAnchor.current;
-      if (!anchor || !restoreScrollAnchor(el, anchor))
+      // A gesture owns scrollTop until it ends. Growth or rewrap must not
+      // restore an anchor captured before the latest pointer movement.
+      if (
+        scrollbarDragging.current ||
+        !anchor ||
+        !restoreScrollAnchor(el, anchor)
+      )
         readingAnchor.current = captureScrollAnchor(el);
       distanceFromBottom.current =
         el.scrollHeight - el.scrollTop - el.clientHeight;
@@ -396,6 +417,7 @@ function AgentTranscriptComponent({
 
   return (
     <div
+      id={scrollerId}
       ref={setScroller}
       data-transcript-layout={transcriptLayout}
       className="agent-transcript h-full overflow-y-auto overscroll-none [overflow-anchor:none] font-mono text-[13px] leading-5"

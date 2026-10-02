@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Block } from "../lib/session";
 import { AgentTranscript } from "./AgentTranscript";
+import { setTranscriptScrollDragging } from "../lib/transcriptScrollIntent";
 
 vi.mock("./AgentMarkdown", () => ({
   AgentMarkdown: ({ text }: { text: string }) =>
@@ -168,5 +169,33 @@ describe("transcript native scrolling", () => {
     outerMetrics.grow(100);
     await render([...blocks, tool("three"), tool("four")]);
     expect(el.scrollTop).toBe(900);
+  });
+
+  it("keeps streaming updates from repinning an active scrollbar drag and follows after release at the end", async () => {
+    const answer = (text: string): Block[] => [
+      prompt,
+      { id: "answer", role: "assistant", text },
+    ];
+    const el = await render(answer("Starting the review."));
+    const metrics = scrollMetrics(el, 400, 1200);
+    await markAtBottom(el);
+    await act(async () => setTranscriptScrollDragging(el, true));
+    // Even a scroll event at the end cannot restore following mid-gesture.
+    await markAtBottom(el);
+    metrics.grow(200);
+    await render(answer("More output during the drag."));
+    expect(el.scrollTop).toBe(800);
+    await act(async () => setTranscriptScrollDragging(el, false));
+    expect(showJump).toHaveBeenLastCalledWith(true);
+    metrics.grow(100);
+    await render(answer("Still reading earlier output after release."));
+    expect(el.scrollTop).toBe(800);
+    await act(async () => setTranscriptScrollDragging(el, true));
+    await markAtBottom(el);
+    await act(async () => setTranscriptScrollDragging(el, false));
+    expect(showJump).toHaveBeenLastCalledWith(false);
+    metrics.grow(100);
+    await render(answer("Following is restored at the bottom."));
+    expect(el.scrollTop).toBe(1200);
   });
 });
