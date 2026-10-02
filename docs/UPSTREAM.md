@@ -2,6 +2,32 @@
 
 Aven is maintained independently. Its version numbers do not imply feature parity with MonoCode, and its updater uses Aven releases only. Compatible upstream changes are reviewed and adapted with their attribution intact.
 
+## Aven 0.1.117 — review to MonoCode main, 2 October 2026
+
+Reviewed the [106 commits after the previous review point](https://github.com/hardbeat920/monocode/compare/0d3db9c26a460f1354dcf350969d87a6896b8bf0...5f950ec4), through MonoCode main `5f950ec4` (after MonoCode 0.6.0). Each candidate bug was confirmed in Aven's own code before porting, and every change was adapted rather than copied, since MonoCode reorganized its source tree.
+
+Adapted changes, by Aven pull request:
+
+| Aven PR | Upstream commits | Integration |
+| --- | --- | --- |
+| #46 rendering, scrolling and memory | cfb79a6d, a6554257, d7d7d915, 93810716, 9eebd894 (partial), 6c4b1c66, af4c01df, a67e614f, 4e876a88 (partial), ba4e0cca | Bounded code-highlight and inbox-media caches, cheaper composer and diff-stat measurement, no re-pinning while scrolling up (Aven's reading anchor kept), paragraph-scoped triple-click, hard line breaks for notes, skills and Markdown previews only, immediate Notes paint, and detaching finished orchestration workers. |
+| #47 effort animations, menus and settings | 43aac9d2, 1e97594d, a28a9985, dad02c13, 413d699a, b4f5befb, 8fae5666, 16e9fea6, 90c5a655, ed696cc3, e833e83d (partial), f8769ee1 (partial) | MonoCode's effort tiles replace Aven's strength meter at the user's request (purple Ultra, gold Max). Help menu with Aven links only, Window menu items, focused-window menu events, a scale menu instead of a live slider, returning to the previous view after Settings, session ID copying, same-provider second opinions, `/orchestrator`, and `persist-credentials: false` where the token is unused. |
+| #48 Git, editor and terminal | 4f6c17ea, e3220ca6, 7aa645db, 5f8d29dc, c43c209d, 3fb4c113, 1ce9057c, ec59d92e, da554f57, d6546d0d, 84633406, ed3c44c6, fea2c0a5, 5c00fe2a, a7e1f3df, 71fd1b54, 0f719180 | Login-shell PATH for networked Git and signing, `--relative` nested diffs, Windows reveal quoting, completed-issue status, CRLF preservation, `.jsonc`, explorer shortcuts, PTY teardown ordering and chunk guards, macOS terminal editing keys, section-scoped and line-level change review, cancelable commit messages, and optional autosave (off by default). |
+| #49 agents, providers and streaming | d2a625e4, f028d9e6, 6b313ab9, 877ab2c9, 2cfc1788, 6b8376f9, 79ca3747, d7212c2c, 3b52f30a, f140b02e, 76465752 (partial), 22358b5e (partial), 1a3215d8 (partial) | Shell-first Claude resolution, readable shell command rows, inline subagents ending their turn, one row per background subagent, Claude task lists in the todo panel, exact Claude model versions (Opus 5.5 handling unchanged), OpenCode stream cleanup, window-owned output buffering, Codex monthly windows, unique catalog probe IDs, and batched streaming updates. |
+
+Not imported:
+
+- **Already in Aven:** rate-limit caching, polling constants, remaining-usage meters, reader-place holding during resize, provider CLI updates, and project-picker truncation.
+- **Separate product decisions, not ported in this review:** remote SSH sessions and the host service, provider-wide MCP settings, customizable keybindings, configurable CLI paths, pasting files and screenshots from the system pasteboard, multi-folder project opening, bounded search, Pi usage and Codex image assets.
+- **Skipped as upstream-only:**
+  - MonoCode release, packaging and updater work, including Fedora and Linux glass.
+  - Its compact rail, icons, celebrations and automation card.
+  - Its BTW, Operator and app-CLI actions, and email masking.
+  - Its harness update notices.
+  - Changes that depend on any of these.
+
+Aven keeps its own interface, persistent state, provider support, branding and release feed. Validation per pull request was source and headless: frontend and Rust test suites, TypeScript, fmt and clippy. The effort animations were also checked in Aven Dev. Packaged-app checks follow the 0.1.117 release.
+
 ## Aven 0.1.100 — project navigation review, 25 September 2026
 
 Reviewed current MonoCode main at [`0d3db9c26a460f1354dcf350969d87a6896b8bf0`](https://github.com/hardbeat920/monocode/tree/0d3db9c26a460f1354dcf350969d87a6896b8bf0), including its project registry, rail ordering, remembered project panes, and per-project sidebar tab selection.
