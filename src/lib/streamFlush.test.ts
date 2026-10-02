@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
+  BACKGROUND_STREAM_FLUSH_INTERVAL_MS,
   STREAM_FLUSH_INTERVAL_MS,
   cancelScheduledFlush,
   scheduleStreamFlush,
@@ -39,4 +40,27 @@ it("uses a timer while the document is hidden and can be cancelled", () => {
   cancelScheduledFlush(handle);
   vi.advanceTimersByTime(STREAM_FLUSH_INTERVAL_MS * 2);
   expect(run).not.toHaveBeenCalled();
+});
+
+it("paces background-only output on a slower timer", () => {
+  const raf = vi.spyOn(window, "requestAnimationFrame");
+  const run = vi.fn();
+  const handle = scheduleStreamFlush(run, 0, 1000, false);
+  expect(handle).toMatchObject({ kind: "timeout", background: true });
+  expect(raf).not.toHaveBeenCalled();
+  vi.advanceTimersByTime(BACKGROUND_STREAM_FLUSH_INTERVAL_MS - 1);
+  expect(run).not.toHaveBeenCalled();
+  vi.advanceTimersByTime(1);
+  expect(run).toHaveBeenCalledOnce();
+});
+
+it("marks only background flushes as preemptible", () => {
+  vi.spyOn(window, "requestAnimationFrame").mockReturnValue(3);
+  expect(scheduleStreamFlush(() => {}, 0, 1000).background).toBeUndefined();
+  expect(
+    scheduleStreamFlush(() => {}, 1000, 1008).background,
+  ).toBeUndefined();
+  const background = scheduleStreamFlush(() => {}, 0, 1000, false);
+  expect(background.background).toBe(true);
+  cancelScheduledFlush(background);
 });

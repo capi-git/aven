@@ -64,7 +64,8 @@ async function discoverGrokModels() {
 async function discoverViaAcp() {
   const { path } = await resolveGrokBinary();
   const cwd = await homeDir();
-  const acp = new AcpClient(PROBE_ID, {
+  const probeId = `${PROBE_ID}-${crypto.randomUUID()}`;
+  const acp = new AcpClient(probeId, {
     onRequest: (id) => {
       void acp.respond(id, {}).catch(() => undefined);
     },
@@ -72,18 +73,18 @@ async function discoverViaAcp() {
 
   const stop = async () => {
     acp.close();
-    unwatchChild(PROBE_ID);
-    await killChild(PROBE_ID).catch(() => undefined);
+    unwatchChild(probeId);
+    await killChild(probeId).catch(() => undefined);
   };
 
   watchChild(
-    PROBE_ID,
+    probeId,
     (line) => acp.pushLine(line),
     () => acp.close(new Error("Grok Build probe exited")),
   );
 
   try {
-    await spawnChild(PROBE_ID, path, grokSpawnArgs({ model: "" }), cwd);
+    await spawnChild(probeId, path, grokSpawnArgs({ model: "" }), cwd);
     return await withTimeout(DISCOVERY_TIMEOUT_MS, async () => {
       const init = await acp.request(
         "initialize",

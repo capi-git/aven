@@ -57,7 +57,8 @@ async function discoverCursorModels(): Promise<AgentModel[]> {
 async function discoverViaAcp(): Promise<AgentModel[]> {
   const { path } = await resolveCursorBinary();
   const cwd = await homeDir();
-  const acp = new AcpClient(PROBE_ID, {
+  const probeId = `${PROBE_ID}-${crypto.randomUUID()}`;
+  const acp = new AcpClient(probeId, {
     onRequest: (id) => {
       void acp.respond(id, {}).catch(() => undefined);
     },
@@ -65,18 +66,18 @@ async function discoverViaAcp(): Promise<AgentModel[]> {
 
   const stop = async () => {
     acp.close();
-    unwatchChild(PROBE_ID);
-    await killChild(PROBE_ID).catch(() => undefined);
+    unwatchChild(probeId);
+    await killChild(probeId).catch(() => undefined);
   };
 
   watchChild(
-    PROBE_ID,
+    probeId,
     (line) => acp.pushLine(line),
     () => acp.close(new Error("Cursor probe exited")),
   );
 
   try {
-    await spawnChild(PROBE_ID, path, ["acp"], cwd);
+    await spawnChild(probeId, path, ["acp"], cwd);
     return await withTimeout(DISCOVERY_TIMEOUT_MS, async () => {
       await acp.request(
         "initialize",

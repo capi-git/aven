@@ -1109,10 +1109,35 @@ pub(crate) fn spawn_managed(cmd: &mut Command) -> std::io::Result<std::process::
     {
         crate::windows::spawn_managed(cmd)
     }
-    #[cfg(not(windows))]
+    #[cfg(unix)]
+    {
+        spawn_retrying_text_file_busy(cmd)
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         cmd.spawn()
     }
+}
+
+/// Linux refuses to `execve` a file that any process holds open for writing,
+/// and a sibling thread's spawn can briefly inherit our write handles. A binary
+/// written moments ago (a CLI mid-upgrade, or a `--version` probe of a path the
+/// user just chose) can therefore be momentarily unrunnable rather than wrong.
+#[cfg(unix)]
+fn spawn_retrying_text_file_busy(cmd: &mut Command) -> std::io::Result<std::process::Child> {
+    const ATTEMPTS: u32 = 4;
+    for attempt in 1..ATTEMPTS {
+        match cmd.spawn() {
+            Err(e) if is_text_file_busy(&e) => thread::sleep(Duration::from_millis(20) * attempt),
+            settled => return settled,
+        }
+    }
+    cmd.spawn()
+}
+
+#[cfg(unix)]
+fn is_text_file_busy(error: &std::io::Error) -> bool {
+    error.raw_os_error() == Some(libc::ETXTBSY)
 }
 
 /// A per-session cancellation promise is a write-ownership boundary.
@@ -1710,10 +1735,18 @@ fn resolve_opencode() -> Option<PathBuf> {
     first_binary(candidates)
 }
 
+/// Prefers whatever `claude` the user's own shell resolves.
+///
+/// The fixed paths are a fallback for a GUI launch that never sees the shell.
+/// Trying them first lets an abandoned `~/.local/bin/claude` silently win over
+/// the one on the user's PATH, so Aven would run an older CLI than the terminal.
 fn resolve_claude() -> Option<PathBuf> {
     let home = dirs_home().map(PathBuf::from);
     let mut candidates: Vec<PathBuf> = Vec::new();
 
+    if let Some(from_shell) = which_via_login_shell("claude") {
+        candidates.push(from_shell);
+    }
     if let Some(home) = &home {
         candidates.push(home.join(".local/bin/claude"));
         candidates.push(home.join(".claude/local/claude"));
@@ -1726,9 +1759,6 @@ fn resolve_claude() -> Option<PathBuf> {
     candidates.push(PathBuf::from("/usr/local/bin/claude"));
     candidates.push(PathBuf::from("/usr/bin/claude"));
     candidates.push(PathBuf::from("/snap/bin/claude"));
-    if let Some(from_shell) = which_via_login_shell("claude") {
-        candidates.push(from_shell);
-    }
 
     first_binary(candidates)
 }
@@ -2218,9 +2248,15 @@ fn gui_search_path_from(
 ) -> String {
     let mut parts: Vec<PathBuf> = Vec::new();
     // Login-shell PATH first so Homebrew, mise, nvm, and custom dirs match
-    // the user's terminal. The fixed list is a fallback when that read fails.
+    // the user's terminal. Our own PATH next: that read can fail or time out,
+    // and an app started from a terminal still inherits the real thing. The
+    // fixed dirs come last; they are all a Finder launch has, and preferring
+    // them over an inherited PATH lets an abandoned `~/.local/bin` install win.
     if let Some(path) = login_path {
         parts.extend(std::env::split_paths(&path));
+    }
+    if let Some(existing) = existing {
+        parts.extend(std::env::split_paths(&existing));
     }
     if let Some(home) = home {
         parts.push(format!("{home}/.local/bin").into());
@@ -2245,9 +2281,6 @@ fn gui_search_path_from(
         parts.extend(codex_windows_install_dirs());
         parts.push(r"C:\Program Files\Git\cmd".into());
         parts.push(r"C:\Program Files\nodejs".into());
-    }
-    if let Some(existing) = existing {
-        parts.extend(std::env::split_paths(&existing));
     }
     std::env::join_paths(parts)
         .unwrap_or_default()
@@ -3107,15 +3140,45 @@ mod tests {
         let path = gui_search_path_from(
             Some("/custom/gh-dir:/usr/bin".into()),
             Some("/tmp/home".into()),
-            Some("/bin".into()),
+            Some("/inherited/bin".into()),
         );
         let parts: Vec<&str> = path.split(':').collect();
+        let at = |dir: &str| parts.iter().position(|part| *part == dir).unwrap();
         assert_eq!(parts[0], "/custom/gh-dir");
-        assert!(parts.contains(&"/tmp/home/.local/bin"));
         assert!(parts.contains(&"/tmp/home/.grok/bin"));
-        assert!(parts.contains(&"/opt/homebrew/bin"));
         assert!(parts.contains(&"/usr/local/bin"));
-        assert_eq!(*parts.last().unwrap(), "/bin");
+        assert!(at("/custom/gh-dir") < at("/inherited/bin"));
+        assert!(at("/inherited/bin") < at("/tmp/home/.local/bin"));
+        assert!(at("/tmp/home/.local/bin") < at("/opt/homebrew/bin"));
+    }
+
+    /// The login read can fail or time out, and the fixed dirs are guesses: a
+    /// `claude` on the PATH Aven was launched with must beat an abandoned
+    /// `~/.local/bin` one.
+    #[test]
+    fn inherited_path_beats_fixed_dirs_when_the_login_read_fails() {
+        let path = gui_search_path_from(
+            None,
+            Some("/tmp/home".into()),
+            Some("/opt/mise/shims:/usr/bin".into()),
+        );
+        let parts: Vec<&str> = path.split(':').collect();
+        let at = |dir: &str| parts.iter().position(|part| *part == dir).unwrap();
+        assert_eq!(parts[0], "/opt/mise/shims");
+        assert!(at("/opt/mise/shims") < at("/tmp/home/.local/bin"));
+        assert!(at("/tmp/home/.local/bin") < at("/opt/homebrew/bin"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn only_text_file_busy_is_worth_respawning_for() {
+        assert!(is_text_file_busy(&std::io::Error::from_raw_os_error(
+            libc::ETXTBSY
+        )));
+        assert!(!is_text_file_busy(&std::io::Error::from_raw_os_error(
+            libc::ENOENT
+        )));
+        assert!(!is_text_file_busy(&std::io::Error::other("no errno")));
     }
 
     #[test]

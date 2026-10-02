@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { forgetAgentBrowser } from "../agentBrowser";
-import type { HarnessId } from "../session";
+import type { Block, HarnessId, TaskListMeta } from "../session";
 import type { PrContent } from "../gitText";
 import { hasLiveCatalog, modelsFor } from "../models";
 import type { UserQuestionReply } from "../userQuestion";
@@ -51,6 +51,8 @@ export type HarnessAdapter = {
   forgetSession(sessionId: string): Promise<void>;
   /** Seed resume state from a restored Aven session. */
   bindSession(threadId: string, providerSessionId: string, cwd: string): void;
+  /** Seed provider task state from a restored session's persisted panels. */
+  restoreTaskLists?(threadId: string, lists: TaskListMeta[]): void;
   /** Refresh the model catalog overlay when supported. */
   refreshCatalog?(): Promise<void>;
   /** Optional LLM tab title for the first turn. */
@@ -329,8 +331,16 @@ export function bindHarnessSession(
   threadId: string,
   providerSessionId: string,
   cwd: string,
+  /** Restored transcript, so the adapter can reseed its task state. */
+  blocks?: Block[],
 ): void {
-  getHarness(harness)?.bindSession(threadId, providerSessionId, cwd);
+  const adapter = getHarness(harness);
+  adapter?.bindSession(threadId, providerSessionId, cwd);
+  if (!blocks || !adapter?.restoreTaskLists) return;
+  const lists = blocks.flatMap((block) =>
+    block.role === "tasks" && block.taskList ? [block.taskList] : [],
+  );
+  if (lists.length > 0) adapter.restoreTaskLists(threadId, lists);
 }
 
 /**

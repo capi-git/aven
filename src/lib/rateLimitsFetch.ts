@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { homeDir } from "./fs";
 import {
   errorRateLimits,
+  hasRateLimitWindows,
   parseClaudeOAuthUsage,
   parseCodexRateLimits,
   unavailableRateLimits,
@@ -32,7 +33,7 @@ export async function fetchClaudeRateLimits(): Promise<ProviderRateLimits> {
     const result = await invoke<ClaudeUsageFetch>("fetch_claude_usage");
     if (result.status === "ok" && result.body) {
       const parsed = parseClaudeOAuthUsage(result.body);
-      if (parsed.session || parsed.weekly) return parsed;
+      if (hasRateLimitWindows(parsed)) return parsed;
       return {
         ...parsed,
         status: parsed.status === "ok" ? "ok" : parsed.status,
@@ -115,9 +116,9 @@ export async function fetchCodexRateLimits(): Promise<ProviderRateLimits> {
           REQUEST_TIMEOUT_MS,
         );
         const parsed = parseCodexRateLimits(result);
-        if (parsed.session || parsed.weekly) return parsed;
+        if (hasRateLimitWindows(parsed)) return parsed;
         const rec = asRecord(result);
-        if (rec && !parsed.session && !parsed.weekly) {
+        if (rec) {
           return unavailableRateLimits("codex", "No Codex usage data");
         }
         return parsed;

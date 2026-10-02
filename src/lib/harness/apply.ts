@@ -20,6 +20,42 @@ import { isReviewablePlan } from "../plan";
 import { isActiveSessionAgent } from "../sessionAgents";
 import type { HarnessEvent } from "./types";
 
+/**
+ * Apply one delivery batch without copying the transcript for every token.
+ * Runs of consecutive deltas for the same stream are folded in one patch; the
+ * result matches applying each event in order with `applyHarnessEvent`.
+ */
+export function applyHarnessEvents(
+  session: Session,
+  events: readonly HarnessEvent[],
+): Session {
+  let next = session;
+  for (let index = 0; index < events.length; index++) {
+    const event = events[index];
+    if (event.type !== "message.delta" && event.type !== "reasoning.delta") {
+      next = applyHarnessEvent(next, event);
+      continue;
+    }
+    const key = event.type === "message.delta" ? event.key : undefined;
+    const texts = [event.text];
+    while (index + 1 < events.length) {
+      const following = events[index + 1];
+      if (following.type !== event.type) break;
+      if (following.type === "message.delta" && following.key !== key) break;
+      texts.push(following.text);
+      index++;
+    }
+    next = patchStreaming(
+      next,
+      event.type === "message.delta" ? "assistant" : "reasoning",
+      texts,
+      true,
+      key,
+    );
+  }
+  return next;
+}
+
 export function applyHarnessEvent(
   session: Session,
   event: HarnessEvent,
@@ -201,7 +237,14 @@ function upsertTaskList(
   );
   const existing = lastMatchingBlock(session.blocks, (block, index) => {
     if (block.role !== "tasks") return false;
-    if (key) return block.taskList?.key === key;
+    if (key) {
+      if (block.taskList?.key !== key) return false;
+      // A list from another provider conversation stays as history.
+      return (
+        !event.providerSessionId ||
+        block.taskList?.providerSessionId === event.providerSessionId
+      );
+    }
     return index > lastUser;
   });
   const previousItems =
@@ -209,7 +252,9 @@ function upsertTaskList(
   const items = previousItems
     ? event.merge
       ? mergeTaskListItems(previousItems, event.items)
-      : preserveTaskListLabels(previousItems, event.items)
+      : event.authoritative
+        ? event.items
+        : preserveTaskListLabels(previousItems, event.items)
     : event.items;
 
   if (items.length === 0) {
@@ -222,6 +267,9 @@ function upsertTaskList(
 
   const taskList = {
     ...(key ? { key } : {}),
+    ...(event.providerSessionId
+      ? { providerSessionId: event.providerSessionId }
+      : {}),
     ...(event.explanation?.trim()
       ? { explanation: event.explanation.trim() }
       : {}),
@@ -542,11 +590,21 @@ function appendBlock(session: Session, block: Block): Session {
 function patchStreaming(
   session: Session,
   role: "assistant" | "reasoning",
-  text: string,
+  input: string | readonly string[],
   streaming: boolean,
   key?: string,
 ): Session {
-  if (!text && role === "reasoning") return session;
+  let texts = typeof input === "string" ? [input] : input;
+  // Empty reasoning deltas are no-ops; dropping them keeps a batch equivalent.
+  if (role === "reasoning") texts = texts.filter((text) => text);
+  if (texts.length === 0) return session;
+  // Fold in arrival order: providers mix tokens and full snapshots, so the
+  // incoming chunks must not be concatenated before joining.
+  const fold = (start: string) =>
+    texts.reduce(
+      (current, text) => (key ? current + text : joinStreamText(current, text)),
+      start,
+    );
   let index = session.blocks.length - 1;
   if (key) {
     while (
@@ -560,7 +618,7 @@ function patchStreaming(
   }
   const last = session.blocks[index];
   if (last?.role === role) {
-    const nextText = key ? last.text + text : joinStreamText(last.text, text);
+    const nextText = fold(last.text);
     if (nextText === last.text && last.streaming === streaming) return session;
     const blocks = session.blocks.slice();
     blocks[index] = {
@@ -574,7 +632,7 @@ function patchStreaming(
   blocks.push({
     id: crypto.randomUUID(),
     role,
-    text,
+    text: fold(""),
     streaming,
     ...(key ? { messageKey: key } : {}),
   });
@@ -863,10 +921,12 @@ function preferLabel(...parts: (string | undefined)[]): string {
     .filter((part): part is string => !!part?.trim())
     .map((part) => part.trim())
     .filter((part) => !isCallId(part));
-  const strong = filled.filter(
-    (part) => !isWeakToolTitle(part) && compactLabel(part) === part,
-  );
-  strong.sort((a, b) => b.length - a.length);
+  const strong = filled.filter((part) => !isWeakToolTitle(part));
+  const compactStrong = strong.filter((part) => compactLabel(part) === part);
+  compactStrong.sort((a, b) => b.length - a.length);
+  if (compactStrong[0]) return compactStrong[0];
+  // A long or multi-line command is still more useful than an earlier
+  // "Shell" placeholder.
   if (strong[0]) return strong[0];
   const compact = filled.filter((part) => compactLabel(part) === part);
   compact.sort((a, b) => b.length - a.length);

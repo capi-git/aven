@@ -9,6 +9,7 @@ import {
   HARNESS_IDLE_PARK_MS,
   HARNESS_CATALOG_TTL_MS,
   HARNESS_CATALOG_RETRY_MS,
+  bindHarnessSession,
   canCompactHarnessContext,
   compactHarnessContext,
   isLiveHarness,
@@ -544,5 +545,25 @@ describe("harness registry", () => {
     expect(onEvent).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(HARNESS_IDLE_PARK_MS);
     expect(stopSession).toHaveBeenCalledTimes(2);
+  });
+  it("binds a restored session and forwards its task panels", () => {
+    const bindSession = vi.fn();
+    const restoreTaskLists = vi.fn();
+    registerHarness(stub("claude", { bindSession, restoreTaskLists }));
+    const taskList = {
+      key: "claude-tasks",
+      items: [{ id: "1", text: "Write tests", status: "pending" as const }],
+    };
+
+    bindHarnessSession("claude", "s1", "sess_1", "/repo", [
+      { id: "b1", role: "user", text: "go" },
+      { id: "b2", role: "tasks", text: "Write tests", taskList },
+    ]);
+    bindHarnessSession("claude", "s2", "sess_2", "/repo");
+
+    expect(bindSession).toHaveBeenCalledWith("s1", "sess_1", "/repo");
+    expect(bindSession).toHaveBeenCalledWith("s2", "sess_2", "/repo");
+    expect(restoreTaskLists).toHaveBeenCalledTimes(1);
+    expect(restoreTaskLists).toHaveBeenCalledWith("s1", [taskList]);
   });
 });

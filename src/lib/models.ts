@@ -341,6 +341,38 @@ export function findModel(id: string): AgentModel | undefined {
   return indexById.get(id);
 }
 
+/** The bundled list never changes, so index it once for `lookupModel`. */
+const bundledById = new Map(MODELS.map((model) => [model.id, model]));
+
+/**
+ * Catalog entry for a saved model id, live list first and bundled list second.
+ *
+ * A live overlay replaces the bundled list rather than adding to it, so a
+ * model the CLI stops advertising misses `findModel` entirely. Falling back to
+ * the bundle keeps the full native id (`claude:opus-4.6` → `claude-opus-4-6`)
+ * instead of re-deriving one from the key, which strips the provider prefix
+ * and hands the CLI an id it rejects.
+ */
+function lookupModel(id: string): AgentModel | undefined {
+  return findModel(id) ?? bundledById.get(id);
+}
+
+/** Bundled entry for a saved id, including explicit picker aliases. */
+function bundledModelFor(
+  harness: HarnessId,
+  id: string,
+): AgentModel | undefined {
+  const direct = bundledById.get(id);
+  if (direct?.harness === harness) return direct;
+  return MODELS.find(
+    (model) =>
+      model.harness === harness && pickerIdentities(model).includes(id),
+  );
+}
+
+/** Concrete Claude family slugs such as `opus-5-5` or `haiku-4.5`. */
+const CLAUDE_VERSIONED_SLUG = /^(opus|sonnet|haiku|fable)-\d/;
+
 export function resolveModel(harness: HarnessId, id?: string): AgentModel {
   const available = modelsFor(harness);
   if (id) {
@@ -353,11 +385,16 @@ export function resolveModel(harness: HarnessId, id?: string): AgentModel {
       (model) => (model.nativeId ?? nativeIdFrom(model.id)) === slug,
     );
     if (byNative) return byNative;
-    const prefix = available.find((model) => {
-      const native = model.nativeId ?? nativeIdFrom(model.id);
-      return native.startsWith(slug) || slug.startsWith(native);
-    });
-    if (prefix) return prefix;
+    if (harness === "claude") {
+      const claude = resolveClaudeModel(available, id, slug);
+      if (claude) return claude;
+    } else {
+      const prefix = available.find((model) => {
+        const native = model.nativeId ?? nativeIdFrom(model.id);
+        return native.startsWith(slug) || slug.startsWith(native);
+      });
+      if (prefix) return prefix;
+    }
   }
   const fallbackId = defaultModelId(harness);
   return (
@@ -368,6 +405,54 @@ export function resolveModel(harness: HarnessId, id?: string): AgentModel {
   );
 }
 
+/**
+ * Claude ids differ by the `claude-` provider prefix and by dotted versus
+ * hyphenated versions. A versioned id must never settle on a moving alias or
+ * another generation (`opus-5-5` prefix-matches both `opus` and `opus-5`).
+ */
+function resolveClaudeModel(
+  available: AgentModel[],
+  id: string,
+  slug: string,
+): AgentModel | undefined {
+  const comparableSlug = comparableClaudeId(slug);
+  const hits = available.filter((model) => {
+    const native = comparableClaudeId(model.nativeId ?? nativeIdFrom(model.id));
+    return (
+      native.startsWith(comparableSlug) || comparableSlug.startsWith(native)
+    );
+  });
+  if (/\d/.test(comparableSlug)) {
+    const same = hits.find(
+      (model) =>
+        comparableClaudeId(model.nativeId ?? nativeIdFrom(model.id)) ===
+        comparableSlug,
+    );
+    if (same) return same;
+  } else if (hits[0]) {
+    return hits[0];
+  }
+  const bundled = bundledModelFor("claude", id);
+  if (bundled) return bundled;
+
+  // A saved concrete Claude version may be absent from both catalogs. Keep
+  // the requested id so a new session does not silently switch models.
+  const requested = id.trim();
+  if (/^claude:[a-z][a-z0-9-]*-\d/.test(requested)) {
+    const nativeId = nativeIdForUnknownKey(requested);
+    return { id: requested, harness: "claude", name: nativeId, nativeId };
+  }
+  return undefined;
+}
+
+/** Match Claude ids with and without the provider prefix or dotted versions. */
+function comparableClaudeId(id: string): string {
+  return id
+    .replace(/^claude-/, "")
+    .replace(/\[[^\]]*\]$/, "")
+    .replace(/\.(?=\d)/g, "-");
+}
+
 /** Catalog-reported context window for a model id, when known. */
 export function modelContextWindow(id: string): number | undefined {
   const window = findModel(id)?.contextWindow;
@@ -376,12 +461,51 @@ export function modelContextWindow(id: string): number | undefined {
 
 export function nativeModelId(model: AgentModel | string): string {
   if (typeof model !== "string") {
-    return model.nativeId ?? nativeIdFrom(model.id);
+    return claudeNativeId(
+      model.harness,
+      model.nativeId ?? nativeIdFrom(model.id),
+    );
   }
   if (model === "claude:opus-5.5" || model === "claude:opus-5-5") {
     return "claude-opus-5-5";
   }
-  return findModel(model)?.nativeId ?? nativeIdFrom(model);
+  const found = lookupModel(model);
+  if (found) {
+    return claudeNativeId(
+      found.harness,
+      found.nativeId ?? nativeIdFrom(found.id),
+    );
+  }
+  return nativeIdForUnknownKey(model);
+}
+
+/**
+ * Last-resort native id for a saved key no catalog knows.
+ *
+ * Concrete Claude models are `claude-` plus a versioned family slug
+ * (`claude:opus-5-5` → `claude-opus-5-5`); only family aliases (`opus`,
+ * `sonnet`) reach the CLI bare. Picker keys can use dotted versions
+ * (`opus-4.8`), while Claude's CLI expects hyphenated ids (`claude-opus-4-8`).
+ */
+function nativeIdForUnknownKey(id: string): string {
+  const trimmed = id.trim();
+  const slug = nativeIdFrom(trimmed);
+  const colon = trimmed.indexOf(":");
+  const harness = colon >= 0 ? trimmed.slice(0, colon).toLowerCase() : "";
+  if (harness !== "claude" || !CLAUDE_VERSIONED_SLUG.test(slug)) return slug;
+  return claudeNativeId("claude", slug.replace(/\.(?=\d)/g, "-"));
+}
+
+/**
+ * Claude's CLI rejects versioned family slugs without the `claude-` prefix
+ * (`opus-5-5` is invalid; `claude-opus-5-5` and the alias `opus` both work).
+ * Other ids, such as a custom endpoint's model names, are left untouched.
+ */
+function claudeNativeId(harness: HarnessId, native: string): string {
+  if (harness !== "claude" || !CLAUDE_VERSIONED_SLUG.test(native)) {
+    return native;
+  }
+  return `claude-${native}`;
 }
 
 export function defaultModelSettings(
@@ -448,7 +572,7 @@ export function encodeModelLaunchId(
   modelId: string,
   settings?: Record<string, string>,
 ): string {
-  const model = findModel(modelId);
+  const model = lookupModel(modelId);
   const native = nativeModelId(model ?? modelId);
   const defs = model?.settings ?? [];
   if (!native || defs.length === 0) return native;

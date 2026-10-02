@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   clampUsedPercent,
+  errorRateLimits,
+  fetchingRateLimits,
   formatRateLimitWindowChipLabel,
   formatResetCountdown,
   formatResetDuration,
   formatUsagePercent,
   formatWindowLabel,
+  hasRateLimitWindows,
   idleRateLimits,
   isRateLimitSnapshotStale,
   mapUsageWindow,
@@ -168,6 +171,32 @@ describe("parseCodexRateLimits", () => {
     expect(limits.session?.windowMinutes).toBe(300);
     expect(limits.weekly?.usedPercent).toBe(37);
     expect(limits.weekly?.windowMinutes).toBe(10_080);
+  });
+
+  it("maps a free plan's lone 30-day primary window to monthly", () => {
+    const limits = parseCodexRateLimits({
+      rateLimits: {
+        primary: {
+          usedPercent: 4,
+          windowDurationMins: 43_200,
+          resetsAt: 1_792_550_273,
+        },
+        secondary: null,
+      },
+    });
+    expect(limits.session).toBeNull();
+    expect(limits.weekly).toBeNull();
+    expect(limits.monthly).toEqual({
+      usedPercent: 4,
+      windowMinutes: 43_200,
+      resetsAt: 1_792_550_273_000,
+    });
+    expect(hasRateLimitWindows(limits)).toBe(true);
+    // A refresh or failure keeps the monthly-only snapshot as last known usage.
+    expect(fetchingRateLimits("codex", limits).monthly).toEqual(limits.monthly);
+    expect(errorRateLimits("codex", "offline", limits).monthly).toEqual(
+      limits.monthly,
+    );
   });
 
   it("falls back to primary=session when durations are unknown", () => {

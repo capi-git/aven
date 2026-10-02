@@ -277,6 +277,7 @@ describe("sanitizeSessionForPersist", () => {
         text: "[x] Inspect\n[~] Implement",
         taskList: {
           key: "turn_1",
+          providerSessionId: "sess_1",
           explanation: "Inspection complete.",
           items: [
             { id: "1", text: "Inspect", status: "completed" },
