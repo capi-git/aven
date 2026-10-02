@@ -304,7 +304,10 @@ pub(crate) fn git_worktrees_for(root: &Path) -> Vec<GitWorktree> {
             let merged_into_default = changes.files.is_empty()
                 && match (base.as_deref(), base_tree.as_deref()) {
                     (Some(_), _) if ahead_of_default == 0 => true,
-                    (Some(base), Some(tree)) => git_merges_cleanly_into(&dir, base, tree),
+                    (Some(base), Some(tree)) => {
+                        git_merges_cleanly_into(&dir, base, tree)
+                            || git_landed_as_one_commit(&dir, base)
+                    }
                     _ => false,
                 };
             Some(GitWorktree {
@@ -331,6 +334,78 @@ pub(crate) fn git_worktrees_for(root: &Path) -> Vec<GitWorktree> {
 fn git_merges_cleanly_into(dir: &Path, base: &str, base_tree: &str) -> bool {
     git_stdout(dir, &["merge-tree", "--write-tree", base, "HEAD"])
         .is_some_and(|text| text.lines().next() == Some(base_tree))
+}
+
+/// Commits on `base` searched for a squash of this copy's work.
+const SQUASH_SEARCH_LIMIT: &str = "--max-count=400";
+
+/// Whether this copy's combined changes landed on `base` as one commit, as a
+/// squash-merged pull request does. Later commits that change the same lines
+/// make the merge-tree check conflict, but the squash commit's patch id still
+/// matches the copy's combined diff.
+fn git_landed_as_one_commit(dir: &Path, base: &str) -> bool {
+    let Some(fork) = git_stdout(dir, &["merge-base", base, "HEAD"]) else {
+        return false;
+    };
+    let Some(diff) = git_output(dir, &["diff", "--binary", &fork, "HEAD"]) else {
+        return false;
+    };
+    let Some(copy_id) = git_patch_ids(dir, &diff).into_iter().next() else {
+        return false;
+    };
+    let range = format!("{fork}..{base}");
+    let Some(log) = git_output(
+        dir,
+        &[
+            "log",
+            "-p",
+            "--binary",
+            "--no-merges",
+            SQUASH_SEARCH_LIMIT,
+            "--format=commit %H",
+            &range,
+        ],
+    ) else {
+        return false;
+    };
+    git_patch_ids(dir, &log).contains(&copy_id)
+}
+
+/// Stable patch ids for each patch in `input`, in order.
+fn git_patch_ids(dir: &Path, input: &[u8]) -> Vec<String> {
+    if input.is_empty() {
+        return Vec::new();
+    }
+    let Ok(mut child) = git_cmd()
+        .arg("-C")
+        .arg(dir)
+        .args(["patch-id", "--stable"])
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return Vec::new();
+    };
+    // Feed stdin from a thread so a large patch can't deadlock on a full pipe.
+    let writer = child.stdin.take().map(|mut stdin| {
+        let input = input.to_vec();
+        std::thread::spawn(move || {
+            let _ = stdin.write_all(&input);
+        })
+    });
+    let output = child.wait_with_output();
+    if let Some(writer) = writer {
+        let _ = writer.join();
+    }
+    let Ok(output) = output else {
+        return Vec::new();
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.split_whitespace().next().map(str::to_string))
+        .collect()
 }
 
 /// Remove another checkout of this repository that is no longer needed. Its
@@ -4632,6 +4707,15 @@ mod tests {
         commit(&conflict, "a.txt", "copy\n");
         commit(&repo, "a.txt", "main\n");
 
+        // Squash-merged, then main edits the same lines again: merging the
+        // copy now conflicts, but its work landed as the squash commit.
+        let reworked = add("reworked");
+        commit(&reworked, "r.txt", "copy line\n");
+        commit(&reworked, "r2.txt", "second file\n");
+        assert!(git(&repo, &["merge", "-q", "--squash", "reworked"]));
+        assert!(git(&repo, &["commit", "-q", "-m", "squash reworked"]));
+        commit(&repo, "r.txt", "main rewrote it\n");
+
         // A squash-merged checkout with an unsaved file still holds work.
         let dirty = dir.0.join("dirty");
         assert!(git(
@@ -4664,6 +4748,7 @@ mod tests {
         assert_eq!(state(&partial), (2, false));
         assert_eq!(state(&conflict), (1, false));
         assert_eq!(state(&dirty), (2, false));
+        assert_eq!(state(&reworked), (2, true));
         // Checking never moves a branch or touches a checkout.
         assert!(git_diff_files_for(&squash).files.is_empty());
         assert_eq!(
