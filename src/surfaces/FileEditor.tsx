@@ -45,8 +45,10 @@ import { useColorScheme } from "../hooks/useColorScheme";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { isLightScheme } from "../lib/appearance";
 import { formatText } from "../lib/format";
+import { loadAutosave } from "../lib/settings";
 import {
   basename,
+  gitDiffFiles,
   gitFileDiff,
   gitStageContents,
   homeDir,
@@ -55,6 +57,7 @@ import {
   readTextFile,
   subscribeGitChanged,
   writeTextFile,
+  type GitFileDiffKind,
 } from "../lib/fs";
 import { syncWatchedMtime, watchFile } from "../lib/fileWatch";
 import { displayPath, joinPath, parentPath } from "../lib/paths";
@@ -67,7 +70,14 @@ import {
 } from "./DiffCommentComposer";
 import { editorAutocomplete } from "./editorAutocomplete";
 import { languageForPath, schemeExtensions } from "./editorChrome";
-import { preserveEditorViewport, replaceEditorDoc } from "./editorDoc";
+import {
+  detectLineEnding,
+  type LineEnding,
+  normalizeLineBreaks,
+  preserveEditorViewport,
+  replaceEditorDoc,
+  restoreLineEnding,
+} from "./editorDoc";
 import { editorMatching, editorTyping, tryExpandEmmet } from "./editorEditing";
 import {
   diffActiveChunkIndex,
@@ -84,7 +94,10 @@ import { DirectoryView } from "./DirectoryView";
 
 type EditorNavigationRequest = EditorNavigation & { token: number };
 
+export const FILE_EDITOR_AUTOSAVE_DELAY_MS = 1_000;
+
 const editorScheme = new Compartment();
+const editorGitConfig = new Compartment();
 
 type Props = {
   path: string;
@@ -123,8 +136,11 @@ export function FileEditor({
   const [draft, setDraft] = useState("");
   const [gitBase, setGitBase] = useState<{
     path: string;
-    original: string | null;
-  }>({ path, original: null });
+    original: string;
+    kind: GitFileDiffKind;
+    lineEnding: LineEnding;
+    eolOnly: boolean;
+  } | null>(null);
   const markdown = isMarkdownPath(path);
   const svg = isSvgPath(path);
   const [mode, setMode] = useMarkdownMode(path);
@@ -148,10 +164,16 @@ export function FileEditor({
   const loadGeneration = useRef(0);
   const dirtyRef = useRef(false);
   const pendingDiskRef = useRef(false);
+  const eolRef = useRef<LineEnding>("\n");
   const onDirtyChangeRef = useRef(onDirtyChange);
   onDirtyChangeRef.current = onDirtyChange;
 
-  const applyDiskContent = useCallback((content: string) => {
+  const applyDiskContent = useCallback((raw: string) => {
+    // CodeMirror documents are LF-only; keep the editor in that convention
+    // and restore the file's own line endings on save. Feeding CRLF text
+    // into the LF document doubles every line (see editorDoc.ts).
+    eolRef.current = detectLineEnding(raw);
+    const content = normalizeLineBreaks(raw);
     setLoadState((current) => {
       if (current.status === "ready" && current.content === content) {
         return current;
@@ -200,8 +222,10 @@ export function FileEditor({
     setSaveState({ status: "idle" });
     const generation = ++loadGeneration.current;
     void readTextFile(path)
-      .then((content) => {
+      .then((raw) => {
         if (cancelled || generation !== loadGeneration.current) return;
+        eolRef.current = detectLineEnding(raw);
+        const content = normalizeLineBreaks(raw);
         setLoadState({ status: "ready", content });
         setDraft(readEditorDraft(path)?.text ?? content);
       })
@@ -250,39 +274,49 @@ export function FileEditor({
 
   useEffect(() => {
     if (!showDiff || loadState.status !== "ready") {
-      setGitBase({ path, original: null });
+      setGitBase(null);
       return;
     }
     const relative = displayPath(path, cwd);
     if (!cwd || cwd === "~" || !relative || relative === path) {
-      setGitBase({ path, original: null });
+      setGitBase(null);
       return;
     }
     let cancelled = false;
-    setGitBase({ path, original: null });
+    let generation = 0;
+    setGitBase(null);
 
     const load = () => {
+      const request = ++generation;
       void (async () => {
-        let diff = await gitFileDiff(cwd, relative, "unstaged");
-        // A review tab opened from a clean staged file has no index-to-disk
-        // delta. Fall back to HEAD-to-index so the staged patch is still
-        // visible in the editor-style diff view.
-        if (!diff.binary && !diff.tooLarge && diff.original === diff.current) {
-          diff = await gitFileDiff(cwd, relative, "staged");
+        const { files } = await gitDiffFiles(cwd);
+        const file = files.find((entry) => entry.relative === relative);
+        // A review tab opened from a staged-only file has no index-to-disk
+        // delta, so show HEAD-to-index instead. Use Git's file status rather
+        // than comparing contents: under core.autocrlf the raw sides differ
+        // even when the normalized text is identical.
+        const kind: GitFileDiffKind =
+          file?.staged && !file.unstaged ? "staged" : "unstaged";
+        const diff = await gitFileDiff(cwd, relative, kind);
+        if (cancelled || request !== generation) return;
+        if (diff.binary || diff.tooLarge) {
+          setGitBase(null);
+          return;
         }
-        return diff;
-      })()
-        .then((diff) => {
-          if (cancelled) return;
-          if (diff.binary || diff.tooLarge) {
-            setGitBase({ path, original: null });
-            return;
-          }
-          setGitBase({ path, original: diff.original });
-        })
-        .catch(() => {
-          if (!cancelled) setGitBase({ path, original: null });
+        const original = normalizeLineBreaks(diff.original);
+        setGitBase({
+          path,
+          original,
+          kind,
+          lineEnding: detectLineEnding(diff.original || diff.current),
+          eolOnly:
+            !!(file?.staged || file?.unstaged) &&
+            diff.original !== diff.current &&
+            original === normalizeLineBreaks(diff.current),
         });
+      })().catch(() => {
+        if (!cancelled && request === generation) setGitBase(null);
+      });
     };
 
     load();
@@ -314,7 +348,8 @@ export function FileEditor({
     };
   }, [cwd, path, reloadFromDisk, showDiff, loadState.status]);
 
-  const gitOriginal = gitBase.path === path ? gitBase.original : null;
+  const gitDiff = gitBase?.path === path ? gitBase : null;
+  const gitOriginal = gitDiff?.original ?? null;
 
   useEffect(() => {
     if (loadState.status !== "ready") return;
@@ -339,8 +374,10 @@ export function FileEditor({
     async (content: string) => {
       const generation = ++saveGeneration.current;
       setSaveState({ status: "saving" });
+      // Capture the file's convention now, before the save is queued.
+      const serializedContent = restoreLineEnding(content, eolRef.current);
       const operation = saveQueue.current.then(() =>
-        writeTextFile(path, content),
+        writeTextFile(path, serializedContent),
       );
       saveQueue.current = operation.catch(() => {});
       try {
@@ -367,8 +404,16 @@ export function FileEditor({
       if (!cwd || cwd === "~" || !relative || relative === path) {
         throw new Error("Can't stage this file");
       }
+      if (!gitDiff || gitDiff.kind !== "unstaged") {
+        throw new Error("Only unstaged changes can be staged");
+      }
       try {
-        await gitStageContents(cwd, relative, contents);
+        // Keep the index convention outside the selected text hunk.
+        await gitStageContents(
+          cwd,
+          relative,
+          restoreLineEnding(contents, gitDiff.lineEnding),
+        );
         notifyGitChanged();
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -376,8 +421,12 @@ export function FileEditor({
         throw error;
       }
     },
-    [cwd, path],
+    [cwd, path, gitDiff],
   );
+
+  const canStageGit = showDiff && gitDiff?.kind === "unstaged";
+  // Never autosave over a disk change that arrived while the editor was dirty.
+  const canAutosave = useCallback(() => !pendingDiskRef.current, []);
 
   const dirtyChange = useCallback(
     (dirty: boolean) => {
@@ -450,6 +499,15 @@ export function FileEditor({
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
+      {showDiff && gitDiff?.eolOnly ? (
+        <p
+          role="status"
+          className="shrink-0 border-b border-content/10 px-3 py-1 text-[12px] text-content/60"
+        >
+          {gitDiff.kind === "staged" ? "Staged" : "Unstaged"} line-ending
+          changes. Line breaks are normalized in this view.
+        </p>
+      ) : null}
       {markdown || svg ? (
         <MarkdownViewShell
           mode={mode}
@@ -480,7 +538,8 @@ export function FileEditor({
                 onDirtyChange={dirtyChange}
                 onErrorCountChange={errorCountChange}
                 onSave={save}
-                onStageGit={showDiff ? stageGit : undefined}
+                canAutosave={canAutosave}
+                onStageGit={canStageGit ? stageGit : undefined}
                 onDocChange={setDraft}
               />
             </div>
@@ -499,7 +558,8 @@ export function FileEditor({
           onDirtyChange={dirtyChange}
           onErrorCountChange={errorCountChange}
           onSave={save}
-          onStageGit={showDiff ? stageGit : undefined}
+          canAutosave={canAutosave}
+          onStageGit={canStageGit ? stageGit : undefined}
         />
       )}
       <footer className="file-editor-status flex h-6 shrink-0 items-center border-t border-content/10 px-2.5 font-mono text-[10.5px] text-content/40">
@@ -534,6 +594,7 @@ function CodeMirrorEditor({
   onDirtyChange,
   onErrorCountChange,
   onSave,
+  canAutosave,
   onStageGit,
   onDocChange,
 }: {
@@ -547,6 +608,7 @@ function CodeMirrorEditor({
   onDirtyChange: (dirty: boolean) => void;
   onErrorCountChange: (count: number) => void;
   onSave: (content: string) => Promise<void>;
+  canAutosave: () => boolean;
   onStageGit?: (contents: string) => Promise<void>;
   onDocChange?: (content: string) => void;
 }) {
@@ -558,7 +620,9 @@ function CodeMirrorEditor({
   const onDirtyChangeRef = useRef(onDirtyChange);
   const onErrorCountChangeRef = useRef(onErrorCountChange);
   const onSaveRef = useRef(onSave);
+  const canAutosaveRef = useRef(canAutosave);
   const onStageGitRef = useRef(onStageGit);
+  const canStage = onStageGit !== undefined;
   const onDocChangeRef = useRef(onDocChange);
   const valueRef = useRef(value);
   const gitOriginalRef = useRef(gitOriginal);
@@ -573,10 +637,17 @@ function CodeMirrorEditor({
   } | null>(null);
   const [commentTarget, setCommentTarget] =
     useState<DiffCommentComposerTarget | null>(null);
+  const gitOptions = {
+    onStage: canStage
+      ? (contents: string) => onStageGitRef.current?.(contents)
+      : undefined,
+    onComment: setCommentTarget,
+  };
   activeRef.current = active;
   onDirtyChangeRef.current = onDirtyChange;
   onErrorCountChangeRef.current = onErrorCountChange;
   onSaveRef.current = onSave;
+  canAutosaveRef.current = canAutosave;
   onStageGitRef.current = onStageGit;
   onDocChangeRef.current = onDocChange;
   valueRef.current = value;
@@ -659,6 +730,7 @@ function CodeMirrorEditor({
     const language = new Compartment();
     let disposed = false;
     let saveGeneration = 0;
+    let autosaveTimer = 0;
     let view: EditorView;
 
     const markDirty = () => {
@@ -671,7 +743,10 @@ function CodeMirrorEditor({
       );
     };
 
-    const save = () => {
+    const save = (automatic = false) => {
+      const retryPendingAutosave = autosaveTimer !== 0 && loadAutosave();
+      window.clearTimeout(autosaveTimer);
+      autosaveTimer = 0;
       const generation = ++saveGeneration;
       void (async () => {
         const before = view.state.doc.toString();
@@ -698,9 +773,19 @@ function CodeMirrorEditor({
         }
 
         const document = view.state.doc;
+        // A disk change may have arrived while formatting.
+        if (automatic && !canAutosaveRef.current()) return;
         try {
           await onSaveRef.current(document.toString());
         } catch {
+          if (
+            retryPendingAutosave &&
+            !disposed &&
+            generation === saveGeneration &&
+            dirtyRef.current
+          ) {
+            scheduleAutosave();
+          }
           return;
         }
         if (disposed || generation !== saveGeneration) return;
@@ -709,6 +794,18 @@ function CodeMirrorEditor({
       })();
       return true;
     };
+
+    function scheduleAutosave() {
+      window.clearTimeout(autosaveTimer);
+      autosaveTimer = 0;
+      if (!loadAutosave()) return;
+      autosaveTimer = window.setTimeout(() => {
+        autosaveTimer = 0;
+        if (dirtyRef.current && loadAutosave() && canAutosaveRef.current()) {
+          save(true);
+        }
+      }, FILE_EDITOR_AUTOSAVE_DELAY_MS);
+    }
 
     const transferred = readEditorDraft(path);
     const initialDraft =
@@ -720,14 +817,7 @@ function CodeMirrorEditor({
       parent: host,
       extensions: [
         minimalSetup,
-        showDiff
-          ? editorGit({
-              onStage: onStageGit
-                ? (contents) => onStageGitRef.current?.(contents)
-                : undefined,
-              onComment: setCommentTarget,
-            })
-          : [],
+        showDiff ? editorGitConfig.of(editorGit(gitOptions)) : [],
         lineNumbers(),
         foldGutter(),
         highlightActiveLine(),
@@ -744,7 +834,7 @@ function CodeMirrorEditor({
         Prec.high(
           keymap.of([
             ...foldKeymap,
-            { key: "Mod-s", run: save, preventDefault: true },
+            { key: "Mod-s", run: () => save(), preventDefault: true },
             {
               key: "Tab",
               run: (view) => {
@@ -768,6 +858,7 @@ function CodeMirrorEditor({
             return;
           }
           markDirty();
+          scheduleAutosave();
         }),
         showDiff
           ? EditorView.updateListener.of((update) => {
@@ -808,6 +899,7 @@ function CodeMirrorEditor({
 
     return () => {
       disposed = true;
+      window.clearTimeout(autosaveTimer);
       onErrorCountChangeRef.current(0);
       lockOverscroll(null);
       viewRef.current = null;
@@ -825,6 +917,15 @@ function CodeMirrorEditor({
       effects: editorScheme.reconfigure(schemeExtensions(colorScheme)),
     });
   }, [colorScheme]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || !showDiff) return;
+    view.dispatch({
+      effects: editorGitConfig.reconfigure(editorGit(gitOptions)),
+    });
+    // gitOptions only changes meaningfully with canStage; handlers read refs.
+  }, [canStage, showDiff]);
 
   useEffect(() => {
     const view = viewRef.current;

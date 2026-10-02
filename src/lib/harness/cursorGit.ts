@@ -17,8 +17,14 @@ export function stopCursorGitText(): Promise<void> {
   return stopCursorTextPrompt();
 }
 
-export async function generateCursorCommitMessage(cwd: string): Promise<string> {
+export async function generateCursorCommitMessage(
+  cwd: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  signal?.throwIfAborted();
   const context = await gitStagedContext(cwd);
+  // The text runner cannot be interrupted, so don't start it after a cancel.
+  signal?.throwIfAborted();
   const output = await runCursorTextPrompt({
     cwd,
     prompt: buildCommitMessagePrompt({

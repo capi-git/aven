@@ -96,6 +96,12 @@ const SETTINGS_SEARCH_ENTRIES: readonly SearchEntry[] = [
   ),
   setting(
     "tasks",
+    "Autosave files",
+    "Save edited files shortly after you stop typing.",
+    "editor auto save automatic write disk",
+  ),
+  setting(
+    "tasks",
     "Follow-up behavior",
     "Queue messages until a turn finishes, or steer it immediately.",
     "followup queued send busy running",

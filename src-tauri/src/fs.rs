@@ -723,6 +723,8 @@ pub struct GitHubWorkItem {
     pub title: String,
     pub url: String,
     pub state: String,
+    /// Issue closure reason such as `completed` or `not_planned`; empty otherwise.
+    pub state_reason: String,
     pub updated_at: String,
     pub labels: Vec<GitHubLabel>,
     pub assignees: Vec<GitHubAssignee>,
@@ -936,16 +938,42 @@ fn git_diff_stats_for(root: &Path) -> GitDiffStats {
     let mut files: HashMap<String, FileAcc> = HashMap::new();
     if let Some(text) = git_run(
         root,
-        &["diff", "--no-ext-diff", "--numstat", "HEAD", "--", "."],
+        &[
+            "diff",
+            "--relative",
+            "--no-ext-diff",
+            "--numstat",
+            "HEAD",
+            "--",
+            ".",
+        ],
     ) {
         add_numstat_map(&text, &mut files);
     } else {
-        if let Some(text) = git_run(root, &["diff", "--no-ext-diff", "--numstat", "--", "."]) {
+        if let Some(text) = git_run(
+            root,
+            &[
+                "diff",
+                "--relative",
+                "--no-ext-diff",
+                "--numstat",
+                "--",
+                ".",
+            ],
+        ) {
             add_numstat_map(&text, &mut files);
         }
         if let Some(text) = git_run(
             root,
-            &["diff", "--no-ext-diff", "--cached", "--numstat", "--", "."],
+            &[
+                "diff",
+                "--relative",
+                "--no-ext-diff",
+                "--cached",
+                "--numstat",
+                "--",
+                ".",
+            ],
         ) {
             add_numstat_map(&text, &mut files);
         }
@@ -988,13 +1016,22 @@ fn git_diff_index_with(root: &Path, include_sync: bool) -> GitDiffIndex {
 
     if let Some(text) = git_run(
         root,
-        &["diff", "--no-ext-diff", "--numstat", "HEAD", "--", "."],
+        &[
+            "diff",
+            "--relative",
+            "--no-ext-diff",
+            "--numstat",
+            "HEAD",
+            "--",
+            ".",
+        ],
     ) {
         add_numstat_map(&text, &mut files);
         if let Some(names) = git_run(
             root,
             &[
                 "diff",
+                "--relative",
                 "--no-ext-diff",
                 "--name-status",
                 "--no-renames",
@@ -1006,12 +1043,30 @@ fn git_diff_index_with(root: &Path, include_sync: bool) -> GitDiffIndex {
             add_name_status(&names, &mut statuses);
         }
     } else {
-        if let Some(text) = git_run(root, &["diff", "--no-ext-diff", "--numstat", "--", "."]) {
+        if let Some(text) = git_run(
+            root,
+            &[
+                "diff",
+                "--relative",
+                "--no-ext-diff",
+                "--numstat",
+                "--",
+                ".",
+            ],
+        ) {
             add_numstat_map(&text, &mut files);
         }
         if let Some(text) = git_run(
             root,
-            &["diff", "--no-ext-diff", "--cached", "--numstat", "--", "."],
+            &[
+                "diff",
+                "--relative",
+                "--no-ext-diff",
+                "--cached",
+                "--numstat",
+                "--",
+                ".",
+            ],
         ) {
             add_numstat_map(&text, &mut files);
         }
@@ -1019,6 +1074,7 @@ fn git_diff_index_with(root: &Path, include_sync: bool) -> GitDiffIndex {
             root,
             &[
                 "diff",
+                "--relative",
                 "--no-ext-diff",
                 "--name-status",
                 "--no-renames",
@@ -1032,6 +1088,7 @@ fn git_diff_index_with(root: &Path, include_sync: bool) -> GitDiffIndex {
             root,
             &[
                 "diff",
+                "--relative",
                 "--no-ext-diff",
                 "--cached",
                 "--name-status",
@@ -1191,7 +1248,15 @@ fn text_line_count(path: &Path) -> i64 {
 fn mark_cached_and_unstaged(root: &Path, files: &mut HashMap<String, FileAcc>) {
     if let Some(names) = git_run(
         root,
-        &["diff", "--cached", "--name-only", "--no-renames", "--", "."],
+        &[
+            "diff",
+            "--relative",
+            "--cached",
+            "--name-only",
+            "--no-renames",
+            "--",
+            ".",
+        ],
     ) {
         for line in names.lines() {
             let relative = normalize_diff_path(line);
@@ -1200,7 +1265,17 @@ fn mark_cached_and_unstaged(root: &Path, files: &mut HashMap<String, FileAcc>) {
             }
         }
     }
-    if let Some(names) = git_run(root, &["diff", "--name-only", "--no-renames", "--", "."]) {
+    if let Some(names) = git_run(
+        root,
+        &[
+            "diff",
+            "--relative",
+            "--name-only",
+            "--no-renames",
+            "--",
+            ".",
+        ],
+    ) {
         for line in names.lines() {
             let relative = normalize_diff_path(line);
             if !relative.is_empty() {
@@ -1701,7 +1776,18 @@ fn git_commit_for(root: &Path, message: &str) -> Result<(), String> {
     if message.is_empty() {
         return Err("Commit message cannot be empty".into());
     }
-    git_checked(root, &["commit", "--cleanup=strip", "-m", message])
+    git_checked(root, &["commit", "--cleanup=strip", "-m", message]).map_err(with_signing_hint)
+}
+
+/// Explain why signing fails here when the same commit works in a terminal.
+fn with_signing_hint(error: String) -> String {
+    if !error.contains("failed to sign") && !error.contains("ssh-keygen") {
+        return error;
+    }
+    format!(
+        "{error}\n\nGit couldn't sign this commit. Aven runs git without a terminal, \
+         so your signer needs a GUI passphrase prompt (e.g. pinentry-mac) or an unlocked agent."
+    )
 }
 
 fn git_push_for(root: &Path) -> Result<(), String> {
@@ -1714,7 +1800,7 @@ fn git_push_for(root: &Path) -> Result<(), String> {
 
 fn git_sync_changes_for(root: &Path) -> Result<(), String> {
     if git_stdout(root, &["rev-parse", "--abbrev-ref", "@{upstream}"]).is_some() {
-        git_checked(root, &["pull", "--no-edit", "--ff"])?;
+        git_checked(root, &["pull", "--no-edit", "--ff"]).map_err(with_signing_hint)?;
         return git_checked(root, &["push"]);
     }
     git_push_for(root)
@@ -1813,7 +1899,7 @@ fn git_github_work_items_for(
     let fields = if kind == "pr" {
         "number,title,url,state,updatedAt,labels,assignees,isDraft"
     } else {
-        "number,title,url,state,updatedAt,labels,assignees"
+        "number,title,url,state,stateReason,updatedAt,labels,assignees"
     };
     let mut args = vec![
         kind.to_string(),
@@ -2571,6 +2657,8 @@ fn parse_github_work_items(
         url: String,
         state: String,
         #[serde(default)]
+        state_reason: Option<String>,
+        #[serde(default)]
         updated_at: String,
         #[serde(default)]
         labels: Vec<RowLabel>,
@@ -2588,6 +2676,7 @@ fn parse_github_work_items(
             title: row.title,
             url: row.url,
             state: row.state.to_lowercase(),
+            state_reason: row.state_reason.unwrap_or_default().to_lowercase(),
             updated_at: row.updated_at,
             labels: row
                 .labels
@@ -2769,8 +2858,26 @@ fn git_cmd() -> Command {
     cmd
 }
 
+/// Finder and Dock launches inherit launchd's bare PATH. Commands that can run
+/// signers, hooks, credential helpers, or git-lfs get the login-shell PATH;
+/// read-only commands skip it so they never wait on the login shell.
+fn git_cmd_for_args_with_path(args: &[&str], gui_path: impl FnOnce() -> String) -> Command {
+    let mut cmd = git_cmd();
+    if matches!(
+        args.first().copied(),
+        Some("commit" | "push" | "pull" | "fetch" | "clone")
+    ) {
+        cmd.env("PATH", gui_path());
+    }
+    cmd
+}
+
+fn git_cmd_for_args(args: &[&str]) -> Command {
+    git_cmd_for_args_with_path(args, crate::harness::gui_search_path)
+}
+
 pub(crate) fn git_checked(root: &Path, args: &[&str]) -> Result<(), String> {
-    let output = git_cmd()
+    let output = git_cmd_for_args(args)
         .arg("--no-pager")
         .arg("-C")
         .arg(root)
@@ -2804,7 +2911,7 @@ fn git_run(root: &Path, args: &[&str]) -> Option<String> {
 }
 
 fn git_output(root: &Path, args: &[&str]) -> Option<Vec<u8>> {
-    let output = git_cmd()
+    let output = git_cmd_for_args(args)
         .arg("--no-pager")
         .arg("-C")
         .arg(root)
@@ -3473,7 +3580,7 @@ fn clone_repo_sync(url: &str, parent: &str) -> Result<String, String> {
         return Err(format!("{} already exists", dest.display()));
     }
     let dest_str = dest.to_str().ok_or("Invalid destination path")?;
-    let output = git_cmd()
+    let output = git_cmd_for_args(&["clone"])
         .args(["clone", "--", url, dest_str])
         .output()
         .map_err(|e| {
@@ -4063,10 +4170,14 @@ pub fn reveal_path(path: String) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
         // explorer.exe returns 1 even when it opened the folder.
         let path_str = path.to_string_lossy().replace('/', "\\");
+        // `.arg` would wrap the whole `/select,...` switch in quotes when the
+        // path has spaces; explorer ignores a quoted switch and opens its
+        // default folder instead. Only the path itself may be quoted.
         Command::new("explorer")
-            .arg(format!("/select,{path_str}"))
+            .raw_arg(format!("/select,\"{path_str}\""))
             .spawn()
             .map_err(|e| e.to_string())?;
         Ok(())
@@ -4639,6 +4750,54 @@ mod tests {
     }
 
     #[test]
+    fn read_only_git_never_resolves_login_shell_path() {
+        for action in ["status", "diff", "rev-parse", "ls-files", "cat-file"] {
+            let cmd = git_cmd_for_args_with_path(&[action], || {
+                panic!("read-only git must not resolve the login-shell PATH")
+            });
+            assert!(!cmd
+                .get_envs()
+                .any(|(key, _)| key == std::ffi::OsStr::new("PATH")));
+        }
+    }
+
+    #[test]
+    fn git_actions_that_need_helpers_use_login_shell_path() {
+        for action in ["commit", "push", "pull", "fetch", "clone"] {
+            let cmd = git_cmd_for_args_with_path(&[action], || "gui-git-path".into());
+            assert!(cmd.get_envs().any(|(key, value)| {
+                key == std::ffi::OsStr::new("PATH")
+                    && value == Some(std::ffi::OsStr::new("gui-git-path"))
+            }));
+        }
+    }
+
+    #[test]
+    fn signing_hint_ignores_other_errors() {
+        let error = "nothing to commit, working tree clean".to_string();
+        assert_eq!(with_signing_hint(error.clone()), error);
+    }
+
+    #[test]
+    fn git_commit_reports_signing_failure_with_hint() {
+        let dir = tmp("git-commit-signing");
+        if !init_git_commit(&dir.0, &[("a.txt", "a\n")]) {
+            return;
+        }
+        std::fs::write(dir.0.join("a.txt"), "b\n").unwrap();
+        for args in [
+            ["config", "commit.gpgsign", "true"],
+            ["config", "gpg.format", "openpgp"],
+            ["config", "gpg.program", "/nonexistent/aven-gpg"],
+        ] {
+            assert!(git(&dir.0, &args));
+        }
+        assert!(git(&dir.0, &["add", "."]));
+        let error = git_commit_for(&dir.0, "signed").unwrap_err();
+        assert!(error.contains("Git couldn't sign this commit"), "{error}");
+    }
+
+    #[test]
     fn git_diff_stats_are_zero_outside_a_repo() {
         let dir = tmp("git-diff-none");
         std::fs::write(dir.0.join("notes.txt"), "hello\n").unwrap();
@@ -4716,6 +4875,44 @@ mod tests {
         assert_eq!(untracked.status, "untracked");
         assert_eq!(untracked.additions, 2);
         assert_eq!(untracked.deletions, 0);
+    }
+
+    #[test]
+    fn git_diff_files_keep_paths_relative_to_nested_workspace() {
+        let dir = tmp("git-diff-nested-workspace");
+        let workspace = dir.0.join("sub");
+        std::fs::create_dir_all(workspace.join("sub")).unwrap();
+        if !init_git_commit(
+            &dir.0,
+            &[("sub/file.txt", "original\n"), ("sub/second.txt", "old\n")],
+        ) {
+            return;
+        }
+        std::fs::write(workspace.join("file.txt"), "staged\n").unwrap();
+        assert!(git(&dir.0, &["add", "--", "sub/file.txt"]));
+        std::fs::write(workspace.join("second.txt"), "unstaged\n").unwrap();
+        // Without --relative this collides with the tracked sub/file.txt key.
+        std::fs::write(workspace.join("sub/file.txt"), "untracked\n").unwrap();
+
+        let changes = git_diff_files_for(&workspace);
+        assert_eq!(changes.files.len(), 3);
+        for (relative, staged, unstaged) in [
+            ("file.txt", true, false),
+            ("second.txt", false, true),
+            ("sub/file.txt", false, true),
+        ] {
+            let file = changes
+                .files
+                .iter()
+                .find(|file| file.relative == relative)
+                .unwrap();
+            assert_eq!(file.path, path_to_js(&workspace.join(relative)));
+            assert_eq!((file.staged, file.unstaged), (staged, unstaged));
+        }
+        assert_eq!(git_diff_stats_for(&workspace).files, 3);
+        let staged = git_file_diff_for(&workspace, "file.txt", true).unwrap();
+        assert_eq!(staged.original, "original\n");
+        assert_eq!(staged.current, "staged\n");
     }
 
     #[test]
@@ -5362,6 +5559,31 @@ mod tests {
             "https://avatars.githubusercontent.com/maya?s=64"
         );
         assert!(!items[0].draft);
+    }
+
+    #[test]
+    fn parse_github_work_items_reads_issue_state_reason() {
+        let json = r#"[{
+            "number": 42,
+            "title": "Ship the fix",
+            "url": "https://github.com/acme/web/issues/42",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED"
+        }, {
+            "number": 43,
+            "title": "Open issue",
+            "url": "https://github.com/acme/web/issues/43",
+            "state": "OPEN",
+            "stateReason": null
+        }]"#;
+        let items = parse_github_work_items(json, "issue", "acme/web").unwrap();
+        assert_eq!(items[0].state, "closed");
+        assert_eq!(items[0].state_reason, "completed");
+        assert_eq!(
+            serde_json::to_value(&items[0]).unwrap()["stateReason"],
+            "completed"
+        );
+        assert_eq!(items[1].state_reason, "");
     }
 
     #[test]

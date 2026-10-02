@@ -18,6 +18,7 @@ import {
   RefreshCw,
   Undo2,
   WandSparkles,
+  X,
 } from "./icons";
 import {
   useCallback,
@@ -101,7 +102,7 @@ type Props = {
   selectedKind?: GitFileDiffKind;
   selectedSha?: string;
   onOpenFile: (path: string, kind: GitFileDiffKind) => void;
-  onOpenAllChanges: () => void;
+  onOpenAllChanges: (kind: GitFileDiffKind) => void;
   onOpenCommit: (commit: GitHistoryCommit) => void;
 };
 
@@ -247,12 +248,13 @@ function ChangedFiles({
   enabled: boolean;
   fill: boolean;
   onOpenFile: (path: string, kind: GitFileDiffKind) => void;
-  onOpenAllChanges: () => void;
+  onOpenAllChanges: (kind: GitFileDiffKind) => void;
   onMutated: (paths?: string[]) => void;
 }) {
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const menuRef = useRef<HTMLDivElement>(null);
   const messageRef = useRef<HTMLTextAreaElement>(null);
+  const generateAbortRef = useRef<AbortController | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -291,6 +293,19 @@ function ChangedFiles({
   const canCommitPush = canCommit && hasRemote && !diverged;
   const canCommitPushPr = canCommitPush && !hasOpenPr && !onDefault;
   const canEditMessage = staged.length > 0 && !busy;
+
+  // Abandon an in-flight generation when the project changes or the panel
+  // unmounts, so a late result never lands in another project's message.
+  useEffect(
+    () => () => {
+      if (generateAbortRef.current) {
+        generateAbortRef.current.abort();
+        generateAbortRef.current = null;
+        setBusy(null);
+      }
+    },
+    [cwd],
+  );
 
   useEffect(() => {
     if (!enabled) return;
@@ -395,15 +410,31 @@ function ChangedFiles({
   };
 
   const generate = async () => {
-    if (!canGenerate) return;
+    if (!canGenerate || generateAbortRef.current) return;
+    const controller = new AbortController();
+    generateAbortRef.current = controller;
     setBusy("generate");
     try {
-      setMessage(await generateCommitMessage(cwd, textHarness));
+      const generated = await generateCommitMessage(
+        cwd,
+        textHarness,
+        controller.signal,
+      );
+      if (!controller.signal.aborted) setMessage(generated);
     } catch (error) {
-      fail(error);
+      if (!controller.signal.aborted) fail(error);
     } finally {
-      setBusy(null);
+      if (generateAbortRef.current === controller) {
+        generateAbortRef.current = null;
+        setBusy(null);
+      }
     }
+  };
+
+  const cancelGenerate = () => {
+    generateAbortRef.current?.abort();
+    generateAbortRef.current = null;
+    setBusy(null);
   };
 
   const commit = async (push: boolean, createPr = false) => {
@@ -527,14 +558,33 @@ function ChangedFiles({
           />
           <button
             type="button"
-            title="Generate commit message"
-            aria-label="Generate commit message"
-            disabled={!canGenerate}
-            onClick={() => void generate()}
-            className="absolute top-1 right-1 grid size-5 place-items-center rounded-md text-content bg-content/10 hover:bg-content/20 hover:text-content disabled:opacity-40"
+            title={
+              busy === "generate"
+                ? "Cancel commit message generation"
+                : "Generate commit message"
+            }
+            aria-label={
+              busy === "generate"
+                ? "Cancel commit message generation"
+                : "Generate commit message"
+            }
+            disabled={busy !== "generate" && !canGenerate}
+            onClick={() =>
+              busy === "generate" ? cancelGenerate() : void generate()
+            }
+            className="group absolute top-1 right-1 grid size-5 place-items-center rounded-md text-content bg-content/10 hover:bg-content/20 hover:text-content disabled:opacity-40"
           >
             {busy === "generate" ? (
-              <Loader className="size-3.5 animate-spin" strokeWidth={1.75} />
+              <>
+                <Loader
+                  className="size-3.5 animate-spin group-hover:hidden group-focus-visible:hidden"
+                  strokeWidth={1.75}
+                />
+                <X
+                  className="hidden size-3.5 group-hover:block group-focus-visible:block"
+                  strokeWidth={1.75}
+                />
+              </>
             ) : (
               <WandSparkles className="size-3" strokeWidth={1} />
             )}
@@ -635,7 +685,7 @@ function ChangedFiles({
                   {
                     title: "Open All Changes",
                     icon: <FileDiff className="size-3.5" strokeWidth={1.75} />,
-                    onClick: onOpenAllChanges,
+                    onClick: () => onOpenAllChanges("staged"),
                   },
                   {
                     title: "Unstage All Changes",
@@ -671,7 +721,7 @@ function ChangedFiles({
                   {
                     title: "Open All Changes",
                     icon: <FileDiff className="size-3.5" strokeWidth={1.75} />,
-                    onClick: onOpenAllChanges,
+                    onClick: () => onOpenAllChanges("unstaged"),
                   },
                   {
                     title: "Discard All Changes",

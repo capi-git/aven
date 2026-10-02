@@ -539,13 +539,14 @@ export function openChangesTab(
   const existingFile = existingPane?.files.find(isChangesTab);
 
   if (existingPane && existingFile) {
-    const updated = focusPath
-      ? {
-          ...existingFile,
-          path: focusPath,
-          changeKind: focusKind,
-        }
-      : existingFile;
+    // Opening from one sidebar section scopes the review to that side; opening
+    // without a kind shows both again.
+    const { changeKind: _previousKind, ...rest } = existingFile;
+    const updated: FilePaneTab = {
+      ...rest,
+      ...(focusPath ? { path: focusPath } : {}),
+      ...(focusKind ? { changeKind: focusKind } : {}),
+    };
     return {
       ...tab,
       focusedId: existingPane.id,

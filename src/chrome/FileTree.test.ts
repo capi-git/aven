@@ -20,8 +20,6 @@ const { iconRender, directories, pendingDirectories } = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/core", () => ({
   isTauri: () => false,
   invoke: vi.fn(async (command: string, args: { path: string }) => {
-    if (command === "git_diff_stats")
-      return { files: 1, additions: 2, deletions: 0 };
     if (command !== "list_dir")
       throw new Error(`Unexpected command: ${command}`);
     return (
@@ -83,13 +81,13 @@ afterEach(() => {
 });
 
 describe("FileTree render isolation", () => {
-  it("does not read directories or Git stats when initially disabled", async () => {
+  it("does not read directories when initially disabled", async () => {
     const folder = { ...file("src"), isDir: true };
     directories.set(cwd, [folder]);
     notifyDirsChanged();
     await listCachedDir(cwd);
     saveExpanded(cwd, new Set([cwd, folder.path]));
-    props = { ...props, enabled: false, onShowSourceControl: vi.fn() };
+    props = { ...props, enabled: false };
     vi.mocked(invoke).mockClear();
 
     await act(async () => render());
@@ -104,7 +102,6 @@ describe("FileTree render isolation", () => {
     directories.set(folder.path, [file("src/old.ts")]);
     notifyDirsChanged();
     saveExpanded(cwd, new Set([cwd, folder.path]));
-    props = { ...props, onShowSourceControl: vi.fn() };
     await act(async () => render());
     const original = row("first.ts");
     expect(row("src/old.ts")).not.toBeNull();
@@ -127,9 +124,6 @@ describe("FileTree render isolation", () => {
     expect(original.className).toContain("bg-content/10");
     expect(row("src/old.ts")).not.toBeNull();
     expect(scroll.scrollTop).toBe(80);
-    expect(
-      container.querySelector('[aria-label="1 file changed +2"]'),
-    ).not.toBeNull();
 
     let finishRoot!: (entries: FsEntry[]) => void;
     let finishFolder!: (entries: FsEntry[]) => void;
@@ -152,7 +146,8 @@ describe("FileTree render isolation", () => {
     expect(scroll.scrollTop).toBe(80);
     expect(invoke).toHaveBeenCalledWith("list_dir", { path: cwd });
     expect(invoke).toHaveBeenCalledWith("list_dir", { path: folder.path });
-    expect(invoke).toHaveBeenCalledWith("git_diff_stats", { cwd });
+    // The Explorer no longer polls Git stats; the inspector's Changes tab owns them.
+    expect(invoke).not.toHaveBeenCalledWith("git_diff_stats", { cwd });
 
     await act(async () => {
       finishRoot([folder, file("first.ts"), file("added.ts")]);
@@ -213,5 +208,57 @@ describe("FileTree render isolation", () => {
     });
     expect(row("added.ts")).not.toBeNull();
     expect(row("first.ts")).toBeNull();
+  });
+});
+
+describe("FileTree copies paths", () => {
+  function press(el: HTMLElement, init: KeyboardEventInit) {
+    return act(async () => {
+      el.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, ...init }),
+      );
+    });
+  }
+
+  beforeEach(async () => {
+    await navigator.clipboard.writeText("before");
+    await act(async () => render());
+    await act(async () => row("first.ts").click());
+  });
+
+  it("copies the selected path on Mod+Shift+C", async () => {
+    await press(row("first.ts"), { key: "C", metaKey: true, shiftKey: true });
+    expect(await navigator.clipboard.readText()).toBe(`${cwd}/first.ts`);
+  });
+
+  it("copies the project root path from the root row", async () => {
+    const rootRow = container.querySelector<HTMLButtonElement>(
+      "[data-explorer-root]",
+    );
+    if (!rootRow) throw new Error("Root row not rendered");
+    await act(async () => rootRow.click());
+    await press(rootRow, { key: "C", metaKey: true, shiftKey: true });
+    expect(await navigator.clipboard.readText()).toBe(cwd);
+  });
+
+  it("copies the selected path on a non-Latin layout", async () => {
+    await press(row("first.ts"), {
+      key: "С",
+      code: "KeyC",
+      metaKey: true,
+      shiftKey: true,
+    });
+    expect(await navigator.clipboard.readText()).toBe(`${cwd}/first.ts`);
+  });
+
+  it("matches the typed Latin letter, not the physical key", async () => {
+    // Dvorak types "j" on the physical C key.
+    await press(row("first.ts"), {
+      key: "J",
+      code: "KeyC",
+      metaKey: true,
+      shiftKey: true,
+    });
+    expect(await navigator.clipboard.readText()).toBe("before");
   });
 });

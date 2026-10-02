@@ -13,8 +13,14 @@ import { runOpenCodeTextPrompt } from "./opencodeText";
 
 const GIT_TIMEOUT_MS = 90_000;
 
-export async function generateOpenCodeCommitMessage(cwd: string): Promise<string> {
+export async function generateOpenCodeCommitMessage(
+  cwd: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  signal?.throwIfAborted();
   const context = await gitStagedContext(cwd);
+  // The text runner cannot be interrupted, so don't start it after a cancel.
+  signal?.throwIfAborted();
   const output = await runOpenCodeTextPrompt({
     cwd,
     prompt: buildCommitMessagePrompt({

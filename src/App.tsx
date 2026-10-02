@@ -3849,13 +3849,13 @@ export default function App({
     [onOpenDiff],
   );
 
-  /** Stack every working-tree change in one review, whatever the diff-view setting. */
-  const onOpenAllChanges = useCallback(() => {
+  /** Stack one section's working-tree changes in one review, whatever the diff-view setting. */
+  const onOpenAllChanges = useCallback((kind: GitFileDiffKind) => {
     leaveExpandedPreview();
     setTabs((prev) =>
       prev.map((tab) =>
         tab.id === activeTabId
-          ? openChangesTab(tab, sidebarCwdRef.current)
+          ? openChangesTab(tab, sidebarCwdRef.current, undefined, kind)
           : tab,
       ),
     );

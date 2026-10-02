@@ -42,6 +42,12 @@ import {
   SettingsGroup,
 } from "./SettingsControls";
 import "./SettingsView.css";
+import {
+  AUTOSAVE_DEFAULT,
+  loadAutosave,
+  saveAutosave,
+  subscribeAutosave,
+} from "../lib/settings";
 import { HarnessIcon } from "../chrome/HarnessIcon";
 import { OverlayNav } from "../chrome/TitleBar";
 import {
@@ -899,8 +905,29 @@ function PreferencesPage({
             onChange={onDiffViewer}
           />
         </Row>
+        <AutosaveRow />
       </SettingsGroup>
     </>
+  );
+}
+
+function AutosaveRow() {
+  const autosave = useSyncExternalStore(
+    subscribeAutosave,
+    loadAutosave,
+    () => AUTOSAVE_DEFAULT,
+  );
+  return (
+    <Row
+      label="Autosave files"
+      description="Save edited files shortly after you stop typing."
+    >
+      <Toggle
+        label="Autosave files"
+        on={autosave}
+        onChange={(next) => void saveAutosave(next)}
+      />
+    </Row>
   );
 }
 

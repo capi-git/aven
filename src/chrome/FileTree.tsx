@@ -4,7 +4,6 @@ import {
   FilePlus,
   FolderPlus,
   FoldVertical,
-  GitCompare,
   Search,
 } from "./icons";
 import {
@@ -51,9 +50,8 @@ import {
   type FsEntry,
 } from "../lib/fs";
 import { displayPath, parentPath, rebasePath } from "../lib/paths";
-import { IS_MAC, IS_WIN, MOD } from "../lib/platform";
+import { IS_MAC, IS_WIN, MOD, SHIFT } from "../lib/platform";
 import type { GitStatusMap } from "../hooks/useGitFileStatuses";
-import { useProjectDiffStats } from "../hooks/useProjectDiffStats";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 import { FileTypeIcon } from "./FileTypeIcon";
 
@@ -74,8 +72,6 @@ type Props = {
   onFileDeleted?: (path: string) => void;
   onSearch?: () => void;
   gitStatuses?: GitStatusMap;
-  onShowSourceControl?: () => void;
-  sourceControlActive?: boolean;
 };
 
 type Creating = { id: number; parent: string; isDir: boolean };
@@ -125,6 +121,13 @@ function isDirAt(cwd: string, path: string): boolean {
     peekDir(parentPath(path))?.find((entry) => entry.path === path)?.isDir ??
     peekDir(path) != null
   );
+}
+
+/** Non-Latin layouts put the local letter in `key`, so fall back to the physical key. */
+function shortcutLetter(e: ReactKeyboardEvent): string {
+  const key = e.key.toLowerCase();
+  if (/^[a-z]$/.test(key)) return key;
+  return /^Key[A-Z]$/.test(e.code) ? e.code.slice(3).toLowerCase() : key;
 }
 
 async function copyText(text: string) {
@@ -184,7 +187,12 @@ function explorerItems(
       disabled: target.isRoot,
     },
     { kind: "sep" },
-    { kind: "item", id: "copy-path", label: "Copy Path" },
+    {
+      kind: "item",
+      id: "copy-path",
+      label: "Copy Path",
+      shortcut: `${MOD}${SHIFT}C`,
+    },
     { kind: "item", id: "copy-relative-path", label: "Copy Relative Path" },
     { kind: "sep" },
     {
@@ -227,8 +235,6 @@ export const FileTree = memo(function FileTree({
   onFileDeleted,
   onSearch,
   gitStatuses,
-  sourceControlActive = false,
-  onShowSourceControl,
 }: Props) {
   const [expanded, setExpanded] = useState(() => loadExpanded(cwd));
   const [selectedPath, setSelectedPath] = useState(() => loadSelected(cwd));
@@ -507,7 +513,9 @@ export const FileTree = memo(function FileTree({
     if ((e.target as HTMLElement).closest("input")) return;
     if (
       (e.target as HTMLElement).closest("button") &&
-      !(e.target as HTMLElement).closest("[role='treeitem']")
+      !(e.target as HTMLElement).closest(
+        "[role='treeitem'], [data-explorer-root]",
+      )
     ) {
       return;
     }
@@ -515,7 +523,12 @@ export const FileTree = memo(function FileTree({
     const isRoot = path === cwd;
     const isDir = isDirAt(cwd, path);
     const mod = e.metaKey || e.ctrlKey;
-    const key = e.key.toLowerCase();
+    const key = shortcutLetter(e);
+    if (mod && !e.altKey && e.shiftKey && key === "c") {
+      e.preventDefault();
+      void copyText(path);
+      return;
+    }
     if (mod && !e.altKey && !e.shiftKey && key === "c") {
       if (isRoot) return;
       e.preventDefault();
@@ -661,18 +674,11 @@ export const FileTree = memo(function FileTree({
               <Search className="size-3.5" strokeWidth={1.75} />
             </HeaderIcon>
           ) : null}
-          {onShowSourceControl ? (
-            <FileTreeDiffButton
-              cwd={cwd}
-              enabled={enabled}
-              active={sourceControlActive}
-              onClick={onShowSourceControl}
-            />
-          ) : null}
         </div>
         <div className="flex h-8 shrink-0 items-center">
           <button
             type="button"
+            data-explorer-root
             aria-expanded={rootOpen}
             title={cwd}
             onClick={() => {
@@ -767,67 +773,6 @@ function HeaderIcon({
       }`}
     >
       {children}
-    </button>
-  );
-}
-
-function FileTreeDiffButton({
-  cwd,
-  enabled,
-  active,
-  onClick,
-}: {
-  cwd: string;
-  enabled: boolean;
-  active: boolean;
-  onClick: () => void;
-}) {
-  const currentStats = useProjectDiffStats(
-    cwd,
-    enabled && Boolean(cwd) && cwd !== "~",
-  );
-  const lastStats = useRef(currentStats);
-  if (enabled) lastStats.current = currentStats;
-  const stats = enabled ? currentStats : lastStats.current;
-  const files = stats?.files ?? 0;
-  const additions = stats?.additions ?? 0;
-  const deletions = stats?.deletions ?? 0;
-  const empty = files <= 0 && additions <= 0 && deletions <= 0;
-  const label = empty
-    ? active
-      ? "Hide changes"
-      : "Show changes"
-    : [
-        `${files} ${files === 1 ? "file" : "files"} changed`,
-        additions > 0 ? `+${additions}` : "",
-        deletions > 0 ? `-${deletions}` : "",
-      ]
-        .filter(Boolean)
-        .join(" ");
-  const badge = files > 99 ? "99+" : String(files);
-
-  return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      aria-pressed={active}
-      onMouseDown={(event) => event.preventDefault()}
-      onClick={onClick}
-      className={`relative flex h-6 min-w-0 flex-1 items-center justify-center self-center rounded-md ${
-        active
-          ? "bg-content/10 text-content"
-          : "text-content/50 hover:bg-content/5 hover:text-content"
-      }`}
-    >
-      <span className="relative">
-        <GitCompare className="size-3.5" strokeWidth={1.75} />
-        {files > 0 ? (
-          <span className="pointer-events-none absolute -top-1.5 -right-2 grid min-h-3.5 min-w-3.5 place-items-center rounded-full bg-accent px-0.5 text-[7px] font-semibold leading-none text-background-base tabular-nums">
-            {badge}
-          </span>
-        ) : null}
-      </span>
     </button>
   );
 }

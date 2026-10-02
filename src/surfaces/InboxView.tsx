@@ -2,6 +2,7 @@ import "./UtilityViews.css";
 import { openInAppUrl } from "../lib/inAppLinks";
 import {
   CheckCheck,
+  CheckCircle,
   ChevronDown,
   CircleDot,
   Clock,
@@ -854,7 +855,7 @@ type InboxStatusMark = {
 };
 
 /** Status reads from the glyph first and the color second, so it survives color blindness. */
-function inboxStatusMark(item: InboxItem): InboxStatusMark {
+export function inboxStatusMark(item: InboxItem): InboxStatusMark {
   const label = inboxItemStatus(item);
   const pr = item.kind === "pr";
   if (label === "Draft") {
@@ -868,6 +869,14 @@ function inboxStatusMark(item: InboxItem): InboxStatusMark {
     return { Icon: GitMerge, className: "text-violet-400/90", label };
   }
   if (label === "Closed") {
+    // GitHub marks issues closed as completed with a purple check, not a red cross.
+    if (
+      item.provider === "github" &&
+      item.kind === "issue" &&
+      item.stateReason?.trim().toLowerCase() === "completed"
+    ) {
+      return { Icon: CheckCircle, className: "text-violet-400/90", label };
+    }
     return {
       Icon: pr ? GitPullRequestClosed : CircleX,
       className: "text-rose-400/90",

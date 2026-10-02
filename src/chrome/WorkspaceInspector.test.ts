@@ -28,10 +28,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("./FileTree", () => {
   mocks.loadFiles();
   return {
-    FileTree: (props: {
-      onSearch: () => void;
-      onShowSourceControl: () => void;
-    }) => {
+    FileTree: (props: { onSearch: () => void }) => {
       mocks.files(props);
       useEffect(() => {
         mocks.mountFiles();
@@ -41,11 +38,6 @@ vi.mock("./FileTree", () => {
         "div",
         { "data-content": "files" },
         createElement("button", { onClick: props.onSearch }, "Search files"),
-        createElement(
-          "button",
-          { onClick: props.onShowSourceControl },
-          "Show source control",
-        ),
       );
     },
   };

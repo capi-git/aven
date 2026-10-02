@@ -31,6 +31,17 @@ describe("surfaceTabPresentation", () => {
     });
   });
 
+  it("labels a review opened from Staged Changes", () => {
+    expect(
+      surfaceTabPresentation(newChangesTab("/repo", undefined, "staged")),
+    ).toEqual({
+      name: "Staged Changes",
+      label: "Staged Changes",
+      iconName: "CHANGES",
+      tooltip: "Staged changes",
+    });
+  });
+
   it("labels a session-scoped review distinctly", () => {
     expect(
       surfaceTabPresentation(

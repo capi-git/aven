@@ -13,8 +13,14 @@ import { runClaudeTextPrompt } from "./claudeText";
 
 const GIT_TIMEOUT_MS = 90_000;
 
-export async function generateClaudeCommitMessage(cwd: string): Promise<string> {
+export async function generateClaudeCommitMessage(
+  cwd: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  signal?.throwIfAborted();
   const context = await gitStagedContext(cwd);
+  // The text runner cannot be interrupted, so don't start it after a cancel.
+  signal?.throwIfAborted();
   const output = await runClaudeTextPrompt({
     cwd,
     prompt: buildCommitMessagePrompt({
