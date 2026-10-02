@@ -2,12 +2,14 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
 import {
   nativeWorkspaceMenuPanel,
   type WorkspaceMenuPanelState,
 } from "../lib/workspaceMenuPanel";
 import { WorkspaceMenuPanelWindow } from "./WorkspaceMenuPanelWindow";
 
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("../lib/workspaceMenuPanel", () => ({
   nativeWorkspaceMenuPanel: {
     listen: vi.fn(),
@@ -237,4 +239,51 @@ it("ignores stale ready replies and becomes idle when the host clears its state"
   vi.mocked(nativeWorkspaceMenuPanel.action).mockClear();
   await escape();
   expect(nativeWorkspaceMenuPanel.action).not.toHaveBeenCalled();
+});
+
+it("waits for native frost before showing a glass menu and re-measures each presentation", async () => {
+  const rect = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockReturnValue({ x: 0, y: 0, width: 280, height: 120 } as DOMRect);
+  const order: string[] = [];
+  vi.mocked(invoke).mockImplementation(async (_command, args) => {
+    const frame = (args as { frame: { height: number } | null }).frame;
+    order.push(frame ? `frost:${frame.height}` : "clear");
+    return frame != null;
+  });
+  vi.mocked(nativeWorkspaceMenuPanel.ready).mockImplementation(
+    async (presentation) => {
+      order.push(`ready:${presentation}`);
+      expect(document.documentElement.classList.contains("popup-glass")).toBe(
+        true,
+      );
+      return true;
+    },
+  );
+  const glass = {
+    ...initial.snapshot,
+    theme: { ...initial.snapshot.theme, glass: true, opacity: 0.52 },
+  };
+  vi.mocked(nativeWorkspaceMenuPanel.getState).mockResolvedValue({
+    presentation: "open-1",
+    snapshot: glass,
+  });
+  try {
+    await render();
+    rect.mockReturnValue({ x: 0, y: 0, width: 280, height: 64 } as DOMRect);
+    await act(async () => receive({ presentation: "open-2", snapshot: glass }));
+    expect(order).toEqual([
+      "frost:120",
+      "ready:open-1",
+      "frost:64",
+      "ready:open-2",
+    ]);
+    await act(async () => receive(null));
+    expect(document.documentElement.classList.contains("popup-glass")).toBe(
+      false,
+    );
+    expect(order.at(-1)).toBe("clear");
+  } finally {
+    rect.mockRestore();
+  }
 });
