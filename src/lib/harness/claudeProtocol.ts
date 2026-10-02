@@ -503,11 +503,6 @@ export function turnStatusFromResult(rec: Record<string, unknown>): {
   error?: string;
 } {
   const subtype = stringField(rec, "subtype") ?? "";
-  // `success` means the CLI completed its run, not that the API request
-  // succeeded. SDKResultSuccess can still carry `is_error: true`.
-  if (subtype === "success" && rec.is_error !== true) {
-    return { status: "completed" };
-  }
   const errors = Array.isArray(rec.errors)
     ? rec.errors.filter((item): item is string => typeof item === "string")
     : [];
@@ -521,6 +516,11 @@ export function turnStatusFromResult(rec: Record<string, unknown>): {
     return { status: "interrupted" };
   }
   if (joined.includes("cancel")) return { status: "cancelled" };
+  // An explicit abort can accompany `success`; the subtype only means the
+  // CLI completed its run. It can also carry an API error via `is_error`.
+  if (subtype === "success" && rec.is_error !== true) {
+    return { status: "completed" };
+  }
   const error =
     errors.find((item) => item.trim() && !item.startsWith("[ede_diagnostic]")) ??
     (rec.is_error === true ? stringField(rec, "result") : undefined);

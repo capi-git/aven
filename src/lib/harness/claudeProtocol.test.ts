@@ -413,6 +413,45 @@ describe("turnStatusFromResult", () => {
       turnStatusFromResult({ type: "result", subtype: "success" }).status,
     ).toBe("completed");
   });
+
+  it.each(["aborted_tools", "aborted_streaming"])(
+    "honors the %s terminal reason even when the result reports success",
+    (terminalReason) => {
+      expect(
+        turnStatusFromResult({
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          terminal_reason: terminalReason,
+        }),
+      ).toEqual({ status: "interrupted" });
+    },
+  );
+
+  it.each([
+    ["The turn was interrupted", "interrupted"],
+    ["The request was cancelled", "cancelled"],
+  ])("honors explicit result errors: %s", (error, status) => {
+    expect(
+      turnStatusFromResult({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        errors: [null, error, 123],
+      }),
+    ).toEqual({ status });
+  });
+
+  it("does not infer interruption from successful assistant text", () => {
+    expect(
+      turnStatusFromResult({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "The cancelled jobs and interrupted downloads were cleaned up.",
+      }),
+    ).toEqual({ status: "completed" });
+  });
 });
 
 describe("assistantErrorFromMessage", () => {
