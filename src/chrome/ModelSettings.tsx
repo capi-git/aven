@@ -1,4 +1,5 @@
 import { AiIdea, ChevronDown, Gauge, Maximize2, Zap } from "./icons";
+import "./ModelControls.css";
 import {
   useEffect,
   useMemo,
@@ -24,6 +25,67 @@ type Props = {
 };
 
 const MENU_WIDTH = 220;
+
+// Decorative intensity only. Provider option order is not a strength ranking
+// (Grok, for example, lists the highest effort first). Keep raw values intact.
+const STRENGTH_PIXELS: Record<string, number> = {
+  off: 0,
+  none: 0,
+  minimal: 2,
+  low: 4,
+  medium: 8,
+  high: 11,
+  xhigh: 13,
+  max: 16,
+  ultra: 16,
+  ultracode: 16,
+  ultrathink: 16,
+};
+
+function StrengthPixels({
+  value,
+  pulse = false,
+  compact = false,
+}: {
+  value: string;
+  pulse?: boolean;
+  compact?: boolean;
+}) {
+  const count = Object.prototype.hasOwnProperty.call(STRENGTH_PIXELS, value)
+    ? STRENGTH_PIXELS[value]
+    : undefined;
+  // Future provider modes (such as adaptive) have no known intensity. Retain
+  // their neutral icon rather than making them look like disabled reasoning.
+  if (count === undefined) {
+    return (
+      <Gauge
+        aria-hidden="true"
+        className={`${compact ? "size-3.5" : "ml-3 size-4.5"} shrink-0 text-content/50`}
+        strokeWidth={1.75}
+      />
+    );
+  }
+  return (
+    <span
+      aria-hidden="true"
+      className={`model-strength-pixels ${compact ? "model-strength-pixels-compact" : ""}`}
+      data-pulse={pulse || undefined}
+    >
+      {Array.from({ length: 16 }, (_, index) => {
+        const row = Math.floor(index / 4);
+        const column = index % 4;
+        const order = (3 - row) * 4 + column;
+        return (
+          <span
+            key={index}
+            className={`model-strength-pixel ${order < count ? "model-strength-pixel-lit" : ""}`}
+            style={{ animationDelay: `${(3 - row) * 35 + column * 22}ms` }}
+          />
+        );
+      })}
+    </span>
+  );
+}
 
 export function ModelSettings({
   harness,
@@ -110,14 +172,16 @@ function ToggleSetting({
       aria-pressed={on}
       onMouseDown={(e) => e.preventDefault()}
       onClick={() => onChange(on ? "false" : "true")}
-      className={`flex h-6.5 items-center gap-1 rounded-md px-1.5 ${
+      className={`model-control flex h-6.5 items-center gap-1 rounded-md px-1.5 ${
         on
           ? "bg-content/20 text-content"
           : "bg-content/10 text-content/50 hover:bg-content/15 hover:text-content"
       }`}
     >
       <Icon className="size-3.5 shrink-0" strokeWidth={1.75} />
-      <span className="text-[11px]">{setting.label}</span>
+      <span key={value} className="model-control-value text-[11px]">
+        {setting.label}
+      </span>
     </button>
   );
 }
@@ -134,6 +198,7 @@ function SelectSetting({
   onClose?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [selectionPulse, setSelectionPulse] = useState(0);
   const [active, setActive] = useState(() =>
     Math.max(
       0,
@@ -147,6 +212,12 @@ function SelectSetting({
     setting.options.find((option) => option.value === value) ??
     setting.options[0];
   const Icon = setting.id === "context" ? Maximize2 : Gauge;
+  const strength = [
+    "effort",
+    "reasoning",
+    "reasoningEffort",
+    "thinking",
+  ].includes(setting.id);
 
   const dismiss = (restore: boolean) => {
     setOpen(false);
@@ -164,6 +235,7 @@ function SelectSetting({
   }, [open, setting.options, value]);
 
   const pick = (next: string) => {
+    if (strength) setSelectionPulse((pulse) => pulse + 1);
     onChange(next);
     dismiss(true);
   };
@@ -202,18 +274,30 @@ function SelectSetting({
           }
           setOpen(true);
         }}
-        className={`flex h-6.5 max-w-36 items-center gap-1 rounded-md px-1.5 ${
+        className={`model-control flex h-6.5 max-w-36 items-center gap-1 rounded-md px-1.5 ${
           open
             ? "bg-content/10 text-content"
             : "bg-content/10 text-content hover:bg-content/15"
         }`}
       >
-        <Icon className="size-3.5 shrink-0" strokeWidth={1.75} />
-        <span className="min-w-0 truncate text-[11px]">
+        {strength ? (
+          <StrengthPixels
+            key={`${value}:${selectionPulse}`}
+            value={current?.value ?? value}
+            pulse={selectionPulse > 0}
+            compact
+          />
+        ) : (
+          <Icon className="size-3.5 shrink-0" strokeWidth={1.75} />
+        )}
+        <span
+          key={value}
+          className="model-control-value min-w-0 truncate text-[11px]"
+        >
           {current?.label ?? setting.label}
         </span>
         <ChevronDown
-          className={`size-3 shrink-0 text-content/50 ${open ? "rotate-180" : ""}`}
+          className={`model-control-chevron size-3 shrink-0 text-content/50 ${open ? "rotate-180" : ""}`}
           strokeWidth={1.75}
         />
       </button>
@@ -240,16 +324,22 @@ function SelectSetting({
                 type="button"
                 role="option"
                 aria-selected={selected}
+                data-strength-active={
+                  strength && highlighted ? true : undefined
+                }
                 onMouseDown={(e) => e.preventDefault()}
                 onMouseEnter={() => setActive(index)}
                 onClick={() => pick(option.value)}
-                className={`flex w-full items-center rounded-lg px-2 py-1.5 text-left text-[13px] ${
+                className={`model-control-option flex w-full items-center rounded-lg px-2 py-1.5 text-left text-[13px] ${
                   highlighted || selected
                     ? "bg-content/10 text-content"
                     : "text-content hover:bg-content/5"
                 }`}
               >
-                {option.label}
+                <span className="min-w-0 flex-1">{option.label}</span>
+                {strength ? (
+                  <StrengthPixels value={option.value} pulse={highlighted} />
+                ) : null}
               </button>
             );
           })}

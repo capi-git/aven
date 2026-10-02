@@ -1,0 +1,119 @@
+/* Animate the control and its selected value, never the glass panel or its
+   focus target. Keyed values can enter without replacing the button. */
+.model-control {
+  transition:
+    background-color 160ms ease-out,
+    color 160ms ease-out,
+    transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.model-control:hover {
+  transform: translateY(-1px);
+}
+.model-control:active {
+  transform: translateY(0) scale(0.96);
+}
+.model-control-chevron {
+  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.model-control-value {
+  animation: aven-model-value-enter 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.model-control-option {
+  transition:
+    background-color 140ms ease-out,
+    color 140ms ease-out;
+}
+.model-provider-indicator {
+  transform-origin: center;
+  animation: aven-model-provider-enter 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* A tiny pixel meter: fixed dimensions keep the control and menu steady.
+   Only the lit cells animate, once per hover/keyboard highlight or selection. */
+.model-strength-pixels {
+  --model-pixel-accent: var(
+    --personal-accent,
+    var(--theme-accent-color, hsl(var(--theme-hue, 218) 38% 66%))
+  );
+  --model-pixel-size: 3px;
+  --model-pixel-gap: 2px;
+  display: inline-grid;
+  grid-template-columns: repeat(4, var(--model-pixel-size));
+  grid-template-rows: repeat(4, var(--model-pixel-size));
+  gap: var(--model-pixel-gap);
+  flex-shrink: 0;
+  margin-left: 12px;
+  color: color-mix(in srgb, var(--color-content) 48%, transparent);
+  pointer-events: none;
+}
+.model-strength-pixels-compact {
+  --model-pixel-size: 2px;
+  --model-pixel-gap: 1px;
+  margin: 0;
+  padding: 1.5px;
+  color: var(--model-pixel-accent);
+}
+.model-strength-pixel {
+  background: color-mix(in srgb, var(--color-content) 12%, transparent);
+}
+.model-strength-pixel-lit {
+  background: currentColor;
+}
+.model-control-option[data-strength-active] .model-strength-pixels,
+.model-control-option[aria-selected="true"] .model-strength-pixels {
+  color: var(--model-pixel-accent);
+}
+.model-strength-pixels[data-pulse] .model-strength-pixel-lit {
+  animation: aven-strength-pixel-charge 420ms steps(3, end) both;
+}
+@keyframes aven-strength-pixel-charge {
+  0% {
+    opacity: 0.25;
+    transform: translateY(2px) scale(0.6);
+    box-shadow: none;
+  }
+  45% {
+    opacity: 1;
+    transform: translateY(-1px) scale(1.15);
+    box-shadow: 0 0 4px currentColor;
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+    box-shadow: none;
+  }
+}
+@keyframes aven-model-value-enter {
+  from {
+    transform: translateY(3px);
+    opacity: 0.6;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+@keyframes aven-model-provider-enter {
+  from {
+    transform: scaleX(0.3);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .model-control,
+  .model-control-chevron,
+  .model-control-option {
+    transition: none;
+  }
+  .model-control:hover,
+  .model-control:active {
+    transform: none;
+  }
+  .model-control-value,
+  .model-provider-indicator,
+  .model-strength-pixels[data-pulse] .model-strength-pixel-lit {
+    animation: none;
+  }
+}

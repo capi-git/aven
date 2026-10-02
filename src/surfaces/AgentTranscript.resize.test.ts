@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Block } from "../lib/session";
 import { AgentTranscript } from "./AgentTranscript";
+import { setTranscriptScrollDragging } from "../lib/transcriptScrollIntent";
 
 vi.mock("./AgentMarkdown", () => ({
   AgentMarkdown: ({ text }: { text: string }) =>
@@ -201,6 +202,37 @@ describe("transcript reading position across resizes", () => {
     await layout({ width: 900, height: 450 });
     expect(view.scrollTop).toBe(boxes().total - 450);
     expect(showJump).not.toHaveBeenCalledWith(true);
+  });
+
+  it("lets an active scrollbar gesture own growth and rewrap before scroll delivery, then resumes anchoring on release", async () => {
+    measure(await render(turnBlocks(3)));
+    await scrollTo(700);
+    await act(async () => setTranscriptScrollDragging(scroller, true));
+
+    // A scrollbar updates scrollTop immediately. A resize may arrive before
+    // the browser delivers the corresponding native scroll event.
+    scroller.scrollTop = 1050;
+    await layout({ width: 500 });
+    expect(view.scrollTop).toBe(1050);
+
+    // Growth above and below the viewport also cannot rewind the gesture.
+    base = (index) => (index === 0 ? 700 : index === 2 ? 900 : 600);
+    await layout();
+    expect(view.scrollTop).toBe(1050);
+    scroller.scrollTop = 1300;
+    await layout({ width: 640 });
+    expect(view.scrollTop).toBe(1300);
+
+    // The last pointer movement still has no scroll event. Release captures
+    // that new reading position, rather than the preceding resize's anchor.
+    scroller.scrollTop = 1450;
+    await act(async () => setTranscriptScrollDragging(scroller, false));
+    await layout({ width: 800 });
+    // At 640px the first turn is 875px tall; 575/750 of the next turn is
+    // above the edge. At 800px that same line is 700 + (575/750)*600.
+    expect(view.scrollTop).toBe(1160);
+    expect(turn(1).getBoundingClientRect().top).toBe(-460);
+    expect(showJump).toHaveBeenLastCalledWith(true);
   });
 
   it("keeps a just-sent prompt at the top in the frame the pane resizes", async () => {

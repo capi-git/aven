@@ -27,6 +27,8 @@ describe("retained prompt outline", () => {
   let frames: Map<number, FrameRequestCallback>;
   let frameId: number;
   let firstTop: number;
+  let totalHeight: number;
+  let viewportHeight: number;
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -35,6 +37,8 @@ describe("retained prompt outline", () => {
     frames = new Map();
     frameId = 0;
     firstTop = 0;
+    totalHeight = 800;
+    viewportHeight = 400;
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
       frames.set(++frameId, callback);
       return frameId;
@@ -53,6 +57,7 @@ describe("retained prompt outline", () => {
     const pane = document.createElement("section");
     scroller = document.createElement("div");
     scroller.className = "agent-transcript";
+    scroller.id = "chat-transcript";
     content = document.createElement("div");
     scroller.append(content);
     container = document.createElement("div");
@@ -60,12 +65,12 @@ describe("retained prompt outline", () => {
     document.body.append(pane);
     scope = { current: pane };
     Object.defineProperties(scroller, {
-      scrollHeight: { configurable: true, value: 800 },
-      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, get: () => totalHeight },
+      clientHeight: { configurable: true, get: () => viewportHeight },
     });
     scroller.scrollTop = 400;
     vi.spyOn(scroller, "getBoundingClientRect").mockImplementation(
-      () => new DOMRect(0, 100, 600, 400),
+      () => new DOMRect(0, 100, 600, viewportHeight),
     );
     for (const [index, id] of ["first", "second"].entries()) {
       const turn = document.createElement("div");
@@ -120,6 +125,58 @@ describe("retained prompt outline", () => {
     observers.filter((observer) =>
       observer.observe.mock.calls.some(([target]) => target === scroller),
     );
+
+  const scrollbar = () =>
+    container.querySelector<HTMLElement>("[role=scrollbar]");
+  function dragTrack() {
+    const rail = container.querySelector<HTMLElement>(".prompt-outline")!;
+    vi.spyOn(rail, "getBoundingClientRect").mockImplementation(
+      () => new DOMRect(576, 150, 24, 300),
+    );
+    Object.defineProperty(rail, "clientHeight", {
+      configurable: true,
+      value: 300,
+    });
+    const captured = new Set<number>();
+    rail.setPointerCapture = vi.fn((id: number) => captured.add(id));
+    rail.hasPointerCapture = vi.fn((id: number) => captured.has(id));
+    rail.releasePointerCapture = vi.fn((id: number) => captured.delete(id));
+    return rail;
+  }
+  async function pointer(
+    target: EventTarget,
+    type: string,
+    y: number,
+    pointerId = 1,
+    button = 0,
+  ) {
+    const event = new PointerEvent(type, {
+      clientY: y,
+      clientX: 590,
+      pointerId,
+      button,
+      isPrimary: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => target.dispatchEvent(event));
+    return event;
+  }
+
+  async function wheel(target: EventTarget, init: WheelEventInit) {
+    const event = new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      ...init,
+    });
+    // happy-dom's WheelEvent omits MouseEvent's modifier properties.
+    Object.defineProperties(event, {
+      ctrlKey: { value: init.ctrlKey ?? false },
+      metaKey: { value: init.metaKey ?? false },
+    });
+    await act(async () => target.dispatchEvent(event));
+    return event;
+  }
 
   async function hover(id: string) {
     await act(async () =>
@@ -261,6 +318,365 @@ describe("retained prompt outline", () => {
     expect(frames.size).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
     for (const observer of outlineObservers()) observer.callback();
+    expect(frames.size).toBe(0);
+  });
+
+  it("keeps click navigation and hover ripples while ignoring sub-threshold pointer movement", async () => {
+    firstTop = 80;
+    await render(true);
+    await frame();
+    const rail = dragTrack();
+    const intent = vi.fn();
+    scroller.addEventListener("aven-transcript-scroll-drag", intent);
+    await hover("first");
+    await act(async () => vi.advanceTimersByTime(30));
+    expect(preview()).not.toBeNull();
+    expect(bar("first").firstElementChild?.getAttribute("style")).toContain(
+      "width: 24px",
+    );
+    await pointer(bar("first"), "pointerdown", 200);
+    expect((await pointer(window, "pointermove", 198)).defaultPrevented).toBe(
+      false,
+    );
+    await pointer(window, "pointerup", 198);
+    expect(intent).not.toHaveBeenCalled();
+    expect(rail.setPointerCapture).not.toHaveBeenCalled();
+    await act(async () => bar("first").click());
+    expect(scroller.scrollTop).toBe(72);
+  });
+
+  it("drags smoothly outside the rail, suppresses the release click, and keeps wheel defaults", async () => {
+    await render(true);
+    await frame();
+    const rail = dragTrack();
+    const intents: boolean[] = [];
+    scroller.addEventListener("aven-transcript-scroll-drag", (event) =>
+      intents.push((event as CustomEvent<boolean>).detail),
+    );
+    await hover("first");
+    await act(async () => vi.advanceTimersByTime(30));
+    await pointer(bar("first"), "pointerdown", 250);
+    const movement = await pointer(window, "pointermove", 175);
+    expect(movement.defaultPrevented).toBe(true);
+    expect(scroller.scrollTop).toBe(200);
+    expect(rail.dataset.dragging).toBe("true");
+    expect(rail.setPointerCapture).toHaveBeenCalledWith(1);
+    expect(preview()).toBeNull();
+    const wheel = new WheelEvent("wheel", {
+      deltaY: -50,
+      bubbles: true,
+      cancelable: true,
+    });
+    scroller.dispatchEvent(wheel);
+    expect(wheel.defaultPrevented).toBe(false);
+    await frame();
+    expect(scrollbar()?.getAttribute("aria-valuenow")).toBe("50");
+    await pointer(window, "pointerup", 175);
+    expect(intents).toEqual([true, false]);
+    expect(rail.releasePointerCapture).toHaveBeenCalledWith(1);
+    const click = new MouseEvent("click", {
+      detail: 1,
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => bar("first").dispatchEvent(click));
+    expect(click.defaultPrevented).toBe(true);
+    expect(scroller.scrollTop).toBe(200);
+    expect(rail.dataset.dragging).toBeUndefined();
+  });
+
+  it("ignores other pointers and non-primary buttons and clamps overscroll", async () => {
+    await render(true);
+    await frame();
+    const rail = dragTrack();
+    await pointer(rail, "pointerdown", 200, 1, 2);
+    await pointer(window, "pointermove", 0);
+    expect(scroller.scrollTop).toBe(400);
+    await pointer(bar("second"), "pointerdown", 200);
+    await pointer(window, "pointermove", 100, 2);
+    expect(scroller.scrollTop).toBe(400);
+    await pointer(window, "pointermove", -1000);
+    expect(scroller.scrollTop).toBe(0);
+    await pointer(window, "pointermove", 1000);
+    expect(scroller.scrollTop).toBe(400);
+  });
+
+  it.each(["pointercancel", "lostpointercapture"])(
+    "cleans up %s and stops moving after cancellation",
+    async (type) => {
+      await render(true);
+      await frame();
+      const rail = dragTrack();
+      const intent = vi.fn();
+      scroller.addEventListener("aven-transcript-scroll-drag", intent);
+      await pointer(bar("first"), "pointerdown", 200);
+      await pointer(window, "pointermove", 125);
+      await pointer(type === "lostpointercapture" ? rail : window, type, 125);
+      const stopped = scroller.scrollTop;
+      await pointer(window, "pointermove", 0);
+      expect(scroller.scrollTop).toBe(stopped);
+      expect(rail.dataset.dragging).toBeUndefined();
+      expect(intent.mock.calls.map(([event]) => event.detail)).toEqual([
+        true,
+        false,
+      ]);
+    },
+  );
+
+  it("ends dragging and releases capture when the retained chat hides", async () => {
+    await render(true);
+    await frame();
+    const rail = dragTrack();
+    const intent = vi.fn();
+    scroller.addEventListener("aven-transcript-scroll-drag", intent);
+    await pointer(bar("first"), "pointerdown", 200);
+    await pointer(window, "pointermove", 125);
+    await render(false);
+    const stopped = scroller.scrollTop;
+    await pointer(window, "pointermove", 0);
+    expect(scroller.scrollTop).toBe(stopped);
+    expect(rail.releasePointerCapture).toHaveBeenCalledWith(1);
+    expect(intent.mock.calls.map(([event]) => event.detail)).toEqual([
+      true,
+      false,
+    ]);
+    expect(frames.size).toBe(0);
+  });
+
+  it("shows a real scroll control for overflowing chats with zero or one prompt", async () => {
+    await render(true, [blocks[0], blocks[1]]);
+    await frame();
+    expect(scrollbar()?.getAttribute("aria-controls")).toBe("chat-transcript");
+    expect(scrollbar()?.getAttribute("aria-valuenow")).toBe("100");
+    expect(scrollbar()?.style.height).toBe("150px");
+    await render(true, [blocks[1]]);
+    await frame();
+    expect(scrollbar()).not.toBeNull();
+    expect(container.querySelectorAll("[data-prompt-bar]")).toHaveLength(0);
+    totalHeight = viewportHeight;
+    scroller.scrollTop = 0;
+    outlineObservers()[0].callback();
+    await frame();
+    expect(scrollbar()).toBeNull();
+    expect(container.childElementCount).toBe(0);
+  });
+
+  it("recomputes position and thumb size after content growth and viewport resize", async () => {
+    await render(true);
+    await frame();
+    totalHeight = 1600;
+    outlineObservers()[0].callback();
+    await frame();
+    expect(scrollbar()?.style.height).toBe("75px");
+    expect(scrollbar()?.getAttribute("aria-valuenow")).toBe("33");
+    viewportHeight = 200;
+    outlineObservers()[0].callback();
+    await frame();
+    expect(scrollbar()?.style.height).toBe("24px");
+    expect(
+      container.querySelector<HTMLElement>(".prompt-outline")?.style.height,
+    ).toBe("150px");
+    scroller.scrollTop = 1400;
+    scroller.dispatchEvent(new Event("scroll"));
+    await frame();
+    expect(scrollbar()?.getAttribute("aria-valuenow")).toBe("100");
+    expect(scrollbar()?.style.top).toBe("126px");
+  });
+
+  it("uses logical height for its track and painted pointer distances at CSS zoom", async () => {
+    vi.mocked(scroller.getBoundingClientRect).mockImplementation(
+      () => new DOMRect(0, 100, 900, viewportHeight * 1.5),
+    );
+    await render(true);
+    await frame();
+    const rail = dragTrack();
+    rail.style.zoom = "1.5";
+    vi.mocked(rail.getBoundingClientRect).mockImplementation(
+      () => new DOMRect(876, 150, 36, 450),
+    );
+    expect(rail.style.height).toBe("300px");
+    expect(scrollbar()?.style.height).toBe("150px");
+    await pointer(bar("first"), "pointerdown", 300);
+    await pointer(window, "pointermove", 187.5);
+    expect(scroller.scrollTop).toBe(200);
+    await pointer(window, "pointerup", 187.5);
+  });
+
+  it("keeps a gesture stable as live content grows and remeasures its thumb", async () => {
+    await render(true);
+    await frame();
+    dragTrack();
+    await pointer(bar("first"), "pointerdown", 250);
+    await pointer(window, "pointermove", 212.5);
+    expect(scroller.scrollTop).toBe(300);
+    totalHeight = 1600;
+    outlineObservers()[0].callback();
+    await frame();
+    expect(scrollbar()?.style.height).toBe("75px");
+    await pointer(window, "pointermove", 175);
+    // Appended output cannot change the pointer-to-scroll ratio mid-gesture.
+    expect(scroller.scrollTop).toBe(200);
+    await pointer(window, "pointerup", 175);
+  });
+
+  it("clears the hover ripple after releasing a drag outside the rail", async () => {
+    await render(true);
+    await frame();
+    const rail = dragTrack();
+    await hover("first");
+    await pointer(bar("first"), "pointerdown", 200);
+    await pointer(window, "pointermove", 125);
+    await act(async () =>
+      rail.dispatchEvent(
+        new MouseEvent("mouseout", {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+      ),
+    );
+    await pointer(window, "pointerup", 125);
+    expect(bar("first").firstElementChild?.getAttribute("style")).toContain(
+      "width: 11px",
+    );
+    expect(bar("second").firstElementChild?.getAttribute("style")).toContain(
+      "width: 11px",
+    );
+    expect(preview()).toBeNull();
+  });
+
+  it("cancels a drag on window blur and prevents a new pointer from taking it over", async () => {
+    await render(true);
+    await frame();
+    const rail = dragTrack();
+    await pointer(bar("first"), "pointerdown", 200);
+    await pointer(rail, "pointerdown", 300, 2);
+    await pointer(window, "pointermove", 225, 2);
+    expect(scroller.scrollTop).toBe(400);
+    await pointer(window, "pointermove", 125);
+    expect(scroller.scrollTop).toBe(200);
+    await act(async () => window.dispatchEvent(new Event("blur")));
+    await pointer(window, "pointermove", 0);
+    expect(scroller.scrollTop).toBe(200);
+    expect(rail.dataset.dragging).toBeUndefined();
+  });
+
+  it("supports scrollbar arrow, page, Home and End keys without changing prompt roving focus", async () => {
+    await render(true);
+    await frame();
+    const intents: boolean[] = [];
+    scroller.addEventListener("aven-transcript-scroll-drag", (event) =>
+      intents.push((event as CustomEvent<boolean>).detail),
+    );
+    for (const [key, expected] of [
+      ["Home", 0],
+      ["ArrowDown", 40],
+      ["PageDown", 400],
+      ["ArrowUp", 360],
+      ["PageUp", 0],
+      ["End", 400],
+    ] as const) {
+      const event = new KeyboardEvent("keydown", {
+        key,
+        bubbles: true,
+        cancelable: true,
+      });
+      await act(async () => scrollbar()!.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(true);
+      expect(scroller.scrollTop).toBe(expected);
+    }
+    expect(intents).toEqual(Array(6).fill([true, false]).flat());
+    expect(bar("second").tabIndex).toBe(0);
+  });
+
+  it("forwards vertical wheel only over the rail and notifies the chat before scrolling upward", async () => {
+    await render(true);
+    await frame();
+    const rail = container.querySelector<HTMLElement>(".prompt-outline")!;
+    const positions: number[] = [];
+    const deltas: number[] = [];
+    const dragIntent = vi.fn();
+    scroller.addEventListener("aven-transcript-scroll-drag", dragIntent);
+    scroller.addEventListener("wheel", (event) => {
+      positions.push(scroller.scrollTop);
+      deltas.push((event as WheelEvent).deltaY);
+    });
+    expect((await wheel(rail, { deltaY: -60 })).defaultPrevented).toBe(true);
+    expect(scroller.scrollTop).toBe(340);
+    expect(positions).toEqual([400]);
+    expect(deltas).toEqual([-60]);
+    await frame();
+    expect(scrollbar()?.getAttribute("aria-valuenow")).toBe("85");
+    expect((await wheel(rail, { deltaY: 1000 })).defaultPrevented).toBe(true);
+    expect(scroller.scrollTop).toBe(400);
+    expect((await wheel(rail, { deltaY: -1000 })).defaultPrevented).toBe(true);
+    expect(scroller.scrollTop).toBe(0);
+    expect(dragIntent).not.toHaveBeenCalled();
+    expect((await wheel(scroller, { deltaY: -20 })).defaultPrevented).toBe(
+      false,
+    );
+  });
+
+  it("converts line, page, and painted pixel deltas and clamps at the chat edges", async () => {
+    await render(true);
+    await frame();
+    const rail = container.querySelector<HTMLElement>(".prompt-outline")!;
+    scroller.style.lineHeight = "23px";
+    await wheel(rail, { deltaY: -2, deltaMode: 1 });
+    expect(scroller.scrollTop).toBe(354);
+    await wheel(rail, { deltaY: -1, deltaMode: 2 });
+    expect(scroller.scrollTop).toBe(0);
+    await wheel(rail, { deltaY: 1, deltaMode: 2 });
+    expect(scroller.scrollTop).toBe(400);
+    scroller.style.zoom = "1.5";
+    await wheel(rail, { deltaY: -60 });
+    expect(scroller.scrollTop).toBe(360);
+    scroller.style.lineHeight = "normal";
+    await wheel(rail, { deltaY: -2, deltaMode: 1 });
+    expect(scroller.scrollTop).toBe(328);
+  });
+
+  it("leaves zoom shortcuts and horizontal wheel input untouched", async () => {
+    await render(true);
+    await frame();
+    const rail = container.querySelector<HTMLElement>(".prompt-outline")!;
+    const notification = vi.fn();
+    scroller.addEventListener("wheel", notification);
+    for (const init of [
+      { deltaY: -40, ctrlKey: true },
+      { deltaY: -40, metaKey: true },
+      { deltaX: -40 },
+      { deltaX: 80, deltaY: -40 },
+    ]) {
+      expect((await wheel(rail, init)).defaultPrevented).toBe(false);
+    }
+    expect(scroller.scrollTop).toBe(400);
+    expect(notification).not.toHaveBeenCalled();
+  });
+
+  it("removes wheel forwarding when hidden or unmounted and attaches for a newly overflowing one-prompt chat", async () => {
+    totalHeight = viewportHeight;
+    scroller.scrollTop = 0;
+    await render(true, [blocks[0]]);
+    await frame();
+    expect(container.querySelector(".prompt-outline")).toBeNull();
+    totalHeight = 800;
+    scroller.scrollTop = 200;
+    outlineObservers()[0].callback();
+    await frame();
+    const rail = container.querySelector<HTMLElement>(".prompt-outline")!;
+    expect((await wheel(rail, { deltaY: -20 })).defaultPrevented).toBe(true);
+    expect(scroller.scrollTop).toBe(180);
+    await render(false, [blocks[0]]);
+    expect((await wheel(rail, { deltaY: -20 })).defaultPrevented).toBe(false);
+    expect(scroller.scrollTop).toBe(180);
+    await render(true, [blocks[0]]);
+    await frame();
+    const restored = container.querySelector<HTMLElement>(".prompt-outline")!;
+    await act(async () => root.render(null));
+    expect((await wheel(restored, { deltaY: -20 })).defaultPrevented).toBe(
+      false,
+    );
+    expect(scroller.scrollTop).toBe(180);
     expect(frames.size).toBe(0);
   });
 });

@@ -391,6 +391,9 @@ html.has-native-glass.glass-body:not(.theme-light)
 }
 .personal-shell .personal-sidebar-slot[data-floating="true"] {
   width: var(--nav-width, 216px);
+  /* The glass panel inherits its radius from this slot. Keep the material
+     and outer outline on the same curve without clipping the resize handle. */
+  border-radius: 12px;
 }
 .personal-shell .personal-inspector-slot[data-floating="true"] {
   width: var(--inspector-width, 280px);
@@ -738,6 +741,21 @@ html.theme-light.is-mac
   width: 1px;
   background: var(--personal-sidebar-edge);
   pointer-events: none;
+}
+.personal-shell
+  .personal-sidebar-slot[data-floating="true"]
+  .personal-sidebar-divider::after {
+  top: 12px;
+  bottom: 12px;
+}
+/* Floating panels already own an outer border. Paint the divider only while
+   resizing or targeting it, rather than adding a second straight outline. */
+.personal-shell
+  .personal-sidebar-slot[data-floating="true"]
+  .personal-sidebar-divider:not(:hover):not(:focus-visible):not(
+    [data-resizing="true"]
+  )::after {
+  background: transparent;
 }
 .personal-shell .personal-panel-resizer:hover::after,
 .personal-shell .personal-panel-resizer:focus-visible::after,

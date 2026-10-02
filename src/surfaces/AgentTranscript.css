@@ -5,6 +5,8 @@
   font-family: var(--font-sans);
   font-size: 14px;
   line-height: 23px;
+  /* The chat outline remains usable in a narrow split without covering prose. */
+  padding-inline-end: 24px;
 }
 .personal-shell .personal-transcript-content {
   max-width: 800px;

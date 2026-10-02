@@ -453,7 +453,7 @@ describe("browser tab integration", () => {
     expect(container.querySelector('[data-surface-id="web-1"]')).not.toBeNull();
   });
 
-  it("updates both untitled labels and titled model metadata when the live model catalog arrives", async () => {
+  it("updates untitled labels and titled model tooltips when the live model catalog arrives", async () => {
     const models = [{ harness: "codex" as const, model: "codex:qa-model" }];
     await render({
       paneLocal: true,
@@ -478,8 +478,9 @@ describe("browser tab integration", () => {
     expect(first.querySelector(".personal-title-tab-label")?.textContent).toBe(
       "QA Model 2",
     );
-    expect(second.querySelector(".personal-title-tab-meta")?.textContent).toBe(
-      "QA Model 2",
+    expect(second.querySelector(".personal-title-tab-meta")).toBeNull();
+    expect(second.querySelector('[role="tab"]')?.getAttribute("title")).toContain(
+      "Repair tabs · QA Model 2",
     );
     expect(
       second.querySelector('[role="tab"]')?.getAttribute("aria-label"),
@@ -788,7 +789,7 @@ describe("browser tab integration", () => {
       expect(props.onClose).toHaveBeenCalledOnce();
     });
 
-    it("marks tabs that have a second line for the active tab to show", async () => {
+    it("keeps active session titles on one line with model details in the tooltip", async () => {
       await render({
         tabs: [
           tab({ id: "a", title: "Busy task", models: [{ harness: "claude", model: "claude-opus-5-5" }] as never }),
@@ -799,14 +800,19 @@ describe("browser tab integration", () => {
       const root = (id: string) =>
         container.querySelector<HTMLElement>(`[data-surface-tab-id="${id}"]`)!;
       expect(root("a").dataset.active).toBe("true");
+      expect(root("a").dataset.hasMeta).toBeUndefined();
       expect(root("b").dataset.hasMeta).toBeUndefined();
       const label = root("a").querySelector(".personal-title-tab-label")!;
-      // Two-line sizing comes from TitleBar.css; container-query utilities
-      // would fight it. The plain base size stays for detached windows.
+      expect(label.textContent).toBe("Busy task");
+      // The base title size remains stable when a tab is selected or resized.
+      expect(label.className).toContain("text-[13px]");
       expect(label.className).not.toMatch(/@min-/);
-      expect(
-        root("a").querySelector(".personal-title-tab-meta")?.className,
-      ).toContain("hidden");
+      expect(root("a").querySelector(".personal-title-tab-meta")).toBeNull();
+      const control = root("a").querySelector('[role="tab"]')!;
+      expect(control.getAttribute("title")).toContain("Claude Opus 5.5");
+      expect(control.getAttribute("aria-label")).toBe(
+        control.getAttribute("title"),
+      );
     });
   });
 
