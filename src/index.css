@@ -264,6 +264,15 @@ html.is-resizing * {
   user-select: none !important;
 }
 
+/* Frosted surfaces re-blur what is behind them on every frame of a resize.
+   Pause the blur until the drag or window resize ends; tints stay as they are. */
+html:is(.is-resizing, .is-window-resizing) *,
+body[data-personal-resizing] *,
+[data-workspace-stage][data-resizing="true"] * {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
 .composer-toolbar {
   overflow-x: auto;
   overflow-y: hidden;

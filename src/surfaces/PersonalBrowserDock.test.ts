@@ -159,4 +159,68 @@ describe("browser workspace presentation lifecycle", () => {
     expect(native.close).toHaveBeenCalledExactlyOnceWith(nativeId);
     expect(native.unlisten).toHaveBeenCalledOnce();
   });
+
+  it("paints divider drags once per frame without reading layout per move and commits once on release", async () => {
+    await render({ mode: "split", expanded: false });
+    const dock = container.querySelector<HTMLDivElement>(
+      ".personal-browser-dock",
+    )!;
+    const divider = container.querySelector<HTMLElement>(
+      '[aria-label="Resize browser split"]',
+    )!;
+    const bounds = vi
+      .spyOn(container, "getBoundingClientRect")
+      .mockReturnValue(new DOMRect(0, 0, 1000, 600));
+    const published = vi.fn();
+    window.addEventListener("supermono:workspace-layout", published);
+    const pointer = (type: string, clientX: number) =>
+      new PointerEvent(type, { bubbles: true, button: 0, clientX });
+    const percent = (x: number) => `${((1000 - x) / 1000) * 100}%`;
+
+    await act(async () => divider.dispatchEvent(pointer("pointerdown", 390)));
+    expect(document.documentElement.classList.contains("is-resizing")).toBe(
+      true,
+    );
+    act(() => {
+      for (let x = 400; x < 430; x++)
+        window.dispatchEvent(pointer("pointermove", x));
+    });
+    expect(dock.style.width).toBe("61%");
+    expect(published).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(16));
+    expect(dock.style.width).toBe(percent(429));
+    expect(published).toHaveBeenCalledOnce();
+    expect(bounds).toHaveBeenCalledOnce();
+    expect(onChange).not.toHaveBeenCalled();
+
+    act(() => window.dispatchEvent(pointer("pointermove", 440)));
+    await act(async () => window.dispatchEvent(pointer("pointerup", 450)));
+    expect(dock.style.width).toBe(percent(450));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith({ ratio: 0.55 });
+    expect(published).toHaveBeenCalledTimes(2);
+    expect(document.documentElement.classList.contains("is-resizing")).toBe(
+      false,
+    );
+    act(() => vi.advanceTimersByTime(100));
+    expect(published).toHaveBeenCalledTimes(2);
+    expect(bounds).toHaveBeenCalledOnce();
+    window.removeEventListener("supermono:workspace-layout", published);
+  });
+
+  it("searches a restyled subtree for overlays once per batch of style writes", async () => {
+    await render({ mode: "split", expanded: false });
+    const pane = document.createElement("div");
+    for (let index = 0; index < 20; index++)
+      pane.append(document.createElement("p"));
+    document.body.append(pane);
+    await act(async () => {});
+    const search = vi.spyOn(pane, "querySelector");
+    await act(async () => {
+      pane.style.setProperty("left", "10%");
+      pane.style.setProperty("width", "40%");
+      pane.style.setProperty("--workspace-background-left", "-10cqw");
+    });
+    expect(search).toHaveBeenCalledOnce();
+    pane.remove();
+  });
 });

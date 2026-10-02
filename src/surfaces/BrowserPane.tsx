@@ -1326,22 +1326,32 @@ function BrowserPaneSession({
       (node.matches(OVERLAYS) || node.querySelector(OVERLAYS));
     const overlays = new MutationObserver((records) => {
       if (lastLayout === "hidden" && isPaused()) return;
+      // A pane or panel drag writes several style properties on the same
+      // elements every frame. Search each changed subtree for overlays once.
+      const styled = new Set<Node>();
       if (
-        records.some((record) =>
-          record.type === "attributes"
-            ? // A retained floating panel may remove its occlusion marker.
-              // Its new selector state alone cannot tell us to restore the page.
-              [
-                "aria-modal",
-                "role",
-                "open",
-                "hidden",
-                "data-native-browser-occluded",
-                "data-native-browser-edge",
-              ].includes(record.attributeName ?? "") ||
-              overlayNode(record.target)
-            : [...record.addedNodes, ...record.removedNodes].some(overlayNode),
-        )
+        records.some((record) => {
+          if (record.type !== "attributes")
+            return [...record.addedNodes, ...record.removedNodes].some(
+              overlayNode,
+            );
+          // A retained floating panel may remove its occlusion marker.
+          // Its new selector state alone cannot tell us to restore the page.
+          if (
+            [
+              "aria-modal",
+              "role",
+              "open",
+              "hidden",
+              "data-native-browser-occluded",
+              "data-native-browser-edge",
+            ].includes(record.attributeName ?? "")
+          )
+            return true;
+          if (styled.has(record.target)) return false;
+          styled.add(record.target);
+          return overlayNode(record.target);
+        })
       )
         present();
     });
