@@ -75,8 +75,8 @@ off from the same switch at any time.
 The card shows **Ready**, **Permissions needed**, **Off**, or **Unsupported**.
 **Permissions needed** can still allow observation: with desktop control enabled
 and Screen Recording granted, agents can list windows and take screenshots even
-if Accessibility is missing. Moving the pointer, clicking, typing, pressing keys,
-scrolling and activating apps require both permissions, so agents can observe and
+if Accessibility is missing. Moving the pointer, clicking, dragging, typing,
+pressing keys, scrolling and activating apps require both permissions, so agents can observe and
 verify input.
 For a missing permission, choose **Allow** to request access, or **Open settings**
 to open its macOS pane. Use **Check again** after changing permissions. macOS may
@@ -98,16 +98,33 @@ task's scoped in-app browser connection:
 The agent checks status once, selects an observed window, and takes a `screenshot`
 with its `windowId`. The result is `{path,width,height,originX,originY}`; the agent
 must open the PNG at `path` with an image or file reader before acting. A successful
-JSON response alone is not visual verification. It then uses `move`, `click`, `type`,
-`press`, `scroll`, or `activate` as needed and takes and opens a new screenshot to
+JSON response alone is not visual verification. It then uses `move`, `click`,
+`drag`, `type`, `press`, `scroll`, or `activate` as needed and takes and opens a new screenshot to
 verify each result. Use `move` with `x,y` and an optional `windowId` for an
 authorized hover. Screenshot pixels equal points. With `windowId`, move, click and
-scroll `x,y` are that window screenshot's pixel coordinates. Window-targeted
-moves, clicks and scrolling refuse points covered by another window. A window
+scroll `x,y` and drag `from`/`to` are that window screenshot's pixel coordinates.
+Window-targeted moves, clicks, drags and scrolling refuse points covered by
+another window. A window
 capture can still show a covered window: activate its app, then inspect a fresh display
 or region screenshot to confirm the intended window is in front. Without `windowId`,
 use global points: `originX + x, originY + y` from the screenshot used. The help command documents all fields,
 including optional screenshot regions.
+
+Use `drag` to grab and move UI such as pane dividers, sidebars, window edges,
+sliders and tabs, for example to check that resizing is smooth:
+
+```sh
+"$AVEN_BROWSER_EXECUTABLE" --aven-desktop \
+  '{"action":"drag","windowId":123,"from":{"x":300,"y":200},"to":{"x":420,"y":200},"durationMs":600}'
+```
+
+It presses at `from`, sends steady mouse-dragged events (100 per second by
+default; `steps` can lower that, up to 125 per second) over `durationMs` (50 to
+5000, default 500), pauses briefly and releases at `to`. `button` is `left` or
+`right`. With `windowId`, both endpoints must lie inside that window and be
+uncovered, and the window must not move before the press. The button is always
+released, including when the task's access ends mid-drag. The result is
+`{dragged,from,to,steps,durationMs}`.
 
 When a targeted action is refused, its error identifies the first blocking
 WindowServer rectangle with bounded diagnostic metadata: window ID, owning
@@ -117,6 +134,13 @@ utility overlay can therefore block input without appearing in that list.
 These diagnostics contain no window titles or page content. Opacity is only
 diagnostic: a transparent window can still intercept input.
 
+One system window has a narrow, verified exception. Current macOS draws the Dock
+inside a window that spans the whole display, transparent and click-through
+outside the Dock bar. It is ignored only when it belongs to the system Dock, the
+Dock has no other window in front of the target, Accessibility reports just the
+Dock bar (no Mission Control or App Exposé), and the point is clear of the bar.
+The Dock bar itself, and every other window, still blocks input.
+
 Use the blocker information to resolve the actual obstruction, then activate the
 intended app and inspect a fresh display/region screenshot before retrying with
 the same observed `windowId`. Do not remove `windowId`, switch to untargeted input,
@@ -125,8 +149,9 @@ is visually absent or appears mouse-transparent, report its bounded metadata for
 investigation rather than assuming it is safe to ignore. Source changes to these
 diagnostics take effect only in a rebuilt development host or installed release.
 
-A monochrome cursor with a compact **Aven** badge animates between move, click and
-scroll targets, shows brief click or scroll feedback, and fades when idle. It ignores input and
+A monochrome cursor with a compact **Aven** badge animates between move, click,
+drag and scroll targets, shows brief click or scroll feedback, follows a drag
+with a small pressed ring, and fades when idle. It ignores input and
 focus and is excluded from agent screenshots and window lists. The cursor is a
 visible activity cue; native input still uses the macOS pointer.
 

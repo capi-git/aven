@@ -57,6 +57,7 @@ unsafe extern "C" {
     fn CGRectMakeWithDictionaryRepresentation(dictionary: Cf, rect: *mut Rect) -> bool;
     fn CGMainDisplayID() -> u32;
     fn CGDisplayBounds(display: u32) -> Rect;
+    fn CGGetActiveDisplayList(max: u32, displays: *mut u32, count: *mut u32) -> i32;
     static kCGWindowNumber: Cf;
     static kCGWindowOwnerName: Cf;
     static kCGWindowOwnerPID: Cf;
@@ -90,6 +91,10 @@ unsafe extern "C" {
     fn AXUIElementSetMessagingTimeout(element: Cf, seconds: f32) -> i32;
     fn AXUIElementIsAttributeSettable(element: Cf, attribute: Cf, settable: *mut u8) -> i32;
     fn AXUIElementSetAttributeValue(element: Cf, attribute: Cf, value: Cf) -> i32;
+    fn AXUIElementCopyAttributeValue(element: Cf, attribute: Cf, value: *mut Cf) -> i32;
+    fn AXUIElementGetTypeID() -> usize;
+    fn AXValueGetTypeID() -> usize;
+    fn AXValueGetValue(value: Cf, kind: u32, output: *mut c_void) -> bool;
 }
 
 #[link(name = "CoreFoundation", kind = "framework")]
@@ -103,6 +108,7 @@ unsafe extern "C" {
     fn CFNumberGetTypeID() -> usize;
     fn CFStringGetTypeID() -> usize;
     fn CFDictionaryGetTypeID() -> usize;
+    fn CFArrayGetTypeID() -> usize;
     fn CFNumberGetValue(number: Cf, kind: isize, output: *mut c_void) -> bool;
 }
 
@@ -421,6 +427,93 @@ fn input_window_stack(target: u32) -> Result<Vec<InputWindow>, String> {
     }
 }
 
+/// The Dock's window level (kCGDockWindowLevel / NSDockWindowLevel).
+const DOCK_WINDOW_LAYER: i32 = 20;
+/// Extra room around each Dock bar for its rounded platter and the gap to the
+/// display edge. Magnification and labels only follow a pointer that is over
+/// the bar itself, and targeted input first moves the pointer away from it.
+const DOCK_BAR_MARGIN: f64 = 16.0;
+const SYSTEM_DOCK_PATH: &[u8] = b"/System/Library/CoreServices/Dock.app/Contents/MacOS/Dock";
+
+/// A fresh, read-only observation of the system Dock, gathered only when the
+/// stack contains a Dock-level window covering a whole display.
+#[derive(Clone, Debug)]
+struct DockSnapshot {
+    /// The process verified to be /System/Library/CoreServices/Dock.app.
+    pid: i32,
+    /// Bounds of every active display, in global top-left points.
+    displays: Vec<Region>,
+    /// Accessibility frames of the Dock's AXList children (the visible bar).
+    bars: Vec<Region>,
+    /// The Dock exposed any other top-level Accessibility element, such as the
+    /// Mission Control / App Exposé group, or more than the bounded count.
+    overlay: bool,
+}
+
+/// Exact, individually verified exceptions to the coverage guard. Never widen
+/// these to an app name, owner PID, window layer or opacity on their own.
+#[derive(Clone, Debug, Default)]
+struct Exemptions {
+    cursor_window: Option<u32>,
+    dock: Option<DockSnapshot>,
+}
+
+fn contains(bounds: Region, point: Point) -> bool {
+    point.x >= bounds.x
+        && point.x < bounds.x + bounds.width
+        && point.y >= bounds.y
+        && point.y < bounds.y + bounds.height
+}
+
+/// On current macOS (observed on 27.0) the Dock draws its bar inside one window at the Dock level
+/// that spans the whole display (observed: a single Dock-owned window, layer
+/// 20, bounds equal to the display, alpha 1, name "Dock", no separate bar
+/// window). Outside the bar that window is transparent and passes clicks
+/// through, but a rectangular hit test reports it over every point. Nothing in
+/// its window-list entry (alpha, sharing state, store type, on-screen flag)
+/// distinguishes the idle state, and Mission Control and App Exposé are drawn
+/// by the same process. So the exemption combines independent, fail-closed
+/// observations and applies to one point at a time:
+///
+/// - the window belongs to the process verified to be the system Dock binary,
+///   sits exactly at the Dock level, and its bounds equal an active display;
+/// - it is the only Dock-owned window in front of the target, so Dock menus,
+///   stacks and any extra overlay window keep the whole guard in force;
+/// - the Dock's Accessibility tree was read successfully and contains only its
+///   bar list(s): Mission Control, App Exposé and other Dock overlays expose an
+///   additional top-level element, which disables the exemption entirely;
+/// - the point lies outside every bar frame, expanded by a safety margin.
+///
+/// Any missing or failed observation keeps the window as an obstruction.
+fn idle_dock_backdrop(
+    window: &InputWindow,
+    point: Point,
+    in_front: &[InputWindow],
+    dock: &DockSnapshot,
+) -> bool {
+    !dock.overlay
+        && !dock.bars.is_empty()
+        && window.pid == Some(dock.pid)
+        && window.layer == Some(DOCK_WINDOW_LAYER)
+        && dock.displays.contains(&window.bounds)
+        && in_front
+            .iter()
+            .filter(|other| other.pid == Some(dock.pid))
+            .count()
+            == 1
+        && dock.bars.iter().all(|bar| {
+            !contains(
+                Region {
+                    x: bar.x - DOCK_BAR_MARGIN,
+                    y: bar.y - DOCK_BAR_MARGIN,
+                    width: bar.width + DOCK_BAR_MARGIN * 2.0,
+                    height: bar.height + DOCK_BAR_MARGIN * 2.0,
+                },
+                point,
+            )
+        })
+}
+
 #[cfg(test)]
 fn target_point_in_stack(
     x: f64,
@@ -428,47 +521,185 @@ fn target_point_in_stack(
     target: u32,
     windows: &[InputWindow],
 ) -> Result<Point, String> {
-    target_point_ignoring_cursor(x, y, target, windows, None)
+    target_point_with_exemptions(x, y, target, windows, &Exemptions::default())
 }
 
-fn target_point_ignoring_cursor(
+fn target_point_with_exemptions(
     x: f64,
     y: f64,
     target: u32,
     windows: &[InputWindow],
-    cursor_window: Option<u32>,
+    exemptions: &Exemptions,
 ) -> Result<Point, String> {
-    let bounds = windows
+    let target_index = windows
         .iter()
-        .find(|window| window.window_id == target)
-        .map(|window| window.bounds)
+        .position(|window| window.window_id == target)
         .ok_or(INPUT_WINDOW_UNAVAILABLE)?;
+    let bounds = windows[target_index].bounds;
+    let in_front = &windows[..target_index];
     let local = Point { x, y };
     let (x, y) = global_point(x, y, Some(bounds))?;
+    let point = Point { x, y };
     for window in windows {
         // Only this exact mouse-transparent visualization is exempt. Dialogs,
         // menus and every other host-owned window still block targeted input.
-        if cursor_window == Some(window.window_id) {
+        if exemptions.cursor_window == Some(window.window_id) {
             continue;
         }
         window
             .bounds
             .validate()
             .map_err(|_| INPUT_WINDOW_UNAVAILABLE)?;
-        let bounds = window.bounds;
-        if x >= bounds.x
-            && x < bounds.x + bounds.width
-            && y >= bounds.y
-            && y < bounds.y + bounds.height
-        {
-            return if window.window_id == target {
-                Ok(Point { x, y })
-            } else {
-                Err(obscured_input_error(target, local, Point { x, y }, window))
-            };
+        if contains(window.bounds, point) {
+            if window.window_id == target {
+                return Ok(point);
+            }
+            if exemptions
+                .dock
+                .as_ref()
+                .is_some_and(|dock| idle_dock_backdrop(window, point, in_front, dock))
+            {
+                continue;
+            }
+            return Err(obscured_input_error(target, local, point, window));
         }
     }
     Err(INPUT_WINDOW_UNAVAILABLE.into())
+}
+
+/// Every point is checked against one window-list snapshot, so a drag's two
+/// endpoints are judged against the same stacking order.
+fn targets_in_stack(
+    points: &[(f64, f64)],
+    target: u32,
+    windows: &[InputWindow],
+    exemptions: &Exemptions,
+) -> Result<Vec<Point>, String> {
+    points
+        .iter()
+        .map(|&(x, y)| target_point_with_exemptions(x, y, target, windows, exemptions))
+        .collect()
+}
+
+fn active_displays() -> Vec<Region> {
+    let mut ids = [0_u32; 32];
+    let mut count = 0_u32;
+    if unsafe { CGGetActiveDisplayList(32, ids.as_mut_ptr(), &mut count) } != 0 {
+        return Vec::new();
+    }
+    ids.iter()
+        .take(count.min(32) as usize)
+        .map(|id| Region::from(unsafe { CGDisplayBounds(*id) }))
+        .filter(|bounds| bounds.validate().is_ok())
+        .collect()
+}
+
+fn is_system_dock(pid: i32) -> bool {
+    let mut path = [0_u8; 4096];
+    let length = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), 4096) };
+    usize::try_from(length).is_ok_and(|length| path.get(..length) == Some(SYSTEM_DOCK_PATH))
+}
+
+/// Copies one Accessibility attribute, honouring the shared deadline.
+unsafe fn ax_attribute(element: Cf, name: &str, deadline: Instant) -> Option<OwnedCf> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero()
+        || AXUIElementSetMessagingTimeout(element, remaining.as_secs_f32().min(0.25)) != 0
+    {
+        return None;
+    }
+    let attribute = NSString::from_str(name);
+    let mut value: Cf = std::ptr::null();
+    let result =
+        AXUIElementCopyAttributeValue(element, Retained::as_ptr(&attribute).cast(), &mut value);
+    let value = OwnedCf::new(value, "").ok()?;
+    (result == 0).then_some(value)
+}
+
+unsafe fn ax_geometry<T: Copy>(
+    element: Cf,
+    name: &str,
+    kind: u32,
+    deadline: Instant,
+    empty: T,
+) -> Option<T> {
+    let value = ax_attribute(element, name, deadline)?;
+    if CFGetTypeID(value.0) != AXValueGetTypeID() {
+        return None;
+    }
+    let mut output = empty;
+    AXValueGetValue(value.0, kind, std::ptr::from_mut(&mut output).cast()).then_some(output)
+}
+
+/// Reads the Dock's top-level Accessibility children: frames of its bar
+/// lists, and whether anything else (Mission Control, App Exposé) is present.
+/// Any error returns None, which keeps the Dock window an obstruction.
+fn dock_accessibility(pid: i32) -> Option<(Vec<Region>, bool)> {
+    let deadline = Instant::now() + Duration::from_millis(400);
+    objc2::rc::autoreleasepool(|_| unsafe {
+        let application = OwnedCf::new(AXUIElementCreateApplication(pid), "").ok()?;
+        let children = ax_attribute(application.0, "AXChildren", deadline)?;
+        if CFGetTypeID(children.0) != CFArrayGetTypeID() {
+            return None;
+        }
+        let count = CFArrayGetCount(children.0);
+        if !(0..=8).contains(&count) {
+            return Some((Vec::new(), true));
+        }
+        let mut bars = Vec::new();
+        let mut overlay = false;
+        for index in 0..count {
+            let child = CFArrayGetValueAtIndex(children.0, index);
+            if child.is_null() || CFGetTypeID(child) != AXUIElementGetTypeID() {
+                return None;
+            }
+            let role = ax_attribute(child, "AXRole", deadline)?;
+            if CFGetTypeID(role.0) != CFStringGetTypeID() {
+                return None;
+            }
+            if (&*role.0.cast::<NSString>()).to_string() != "AXList" {
+                overlay = true;
+                continue;
+            }
+            // kAXValueCGPointType = 1, kAXValueCGSizeType = 2.
+            let origin = ax_geometry(child, "AXPosition", 1, deadline, Point { x: 0.0, y: 0.0 })?;
+            let size = ax_geometry(
+                child,
+                "AXSize",
+                2,
+                deadline,
+                Size {
+                    width: 0.0,
+                    height: 0.0,
+                },
+            )?;
+            let bar = Region::from(Rect { origin, size });
+            bar.validate().ok()?;
+            bars.push(bar);
+        }
+        Some((bars, overlay))
+    })
+}
+
+/// Gathers Dock facts only when a Dock-level window covers a whole display.
+fn dock_snapshot(stack: &[InputWindow]) -> Option<DockSnapshot> {
+    let displays = active_displays();
+    let pid = stack
+        .iter()
+        .find(|window| {
+            window.layer == Some(DOCK_WINDOW_LAYER) && displays.contains(&window.bounds)
+        })?
+        .pid?;
+    if !is_system_dock(pid) {
+        return None;
+    }
+    let (bars, overlay) = dock_accessibility(pid)?;
+    Some(DockSnapshot {
+        pid,
+        displays,
+        bars,
+        overlay,
+    })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -477,23 +708,43 @@ struct InputTarget {
     bounds: Option<Region>,
 }
 
-fn event_target(x: f64, y: f64, window_id: Option<u32>) -> Result<InputTarget, String> {
+fn event_targets(
+    points: &[(f64, f64)],
+    window_id: Option<u32>,
+) -> Result<Vec<InputTarget>, String> {
     if let Some(id) = window_id {
         // This is a conservative rectangular hit test, not atomic input routing.
         // macOS can still change stacking order after this fresh observation.
         let stack = input_window_stack(id)?;
-        let point = target_point_ignoring_cursor(x, y, id, &stack, agent_cursor::window_id())?;
+        let exemptions = Exemptions {
+            cursor_window: agent_cursor::window_id(),
+            dock: dock_snapshot(&stack),
+        };
         let bounds = stack
             .iter()
             .find(|window| window.window_id == id)
             .map(|window| window.bounds);
-        return Ok(InputTarget { point, bounds });
+        return Ok(targets_in_stack(points, id, &stack, &exemptions)?
+            .into_iter()
+            .map(|point| InputTarget { point, bounds })
+            .collect());
     }
-    let (x, y) = global_point(x, y, None)?;
-    Ok(InputTarget {
-        point: Point { x, y },
-        bounds: None,
-    })
+    points
+        .iter()
+        .map(|&(x, y)| {
+            let (x, y) = global_point(x, y, None)?;
+            Ok(InputTarget {
+                point: Point { x, y },
+                bounds: None,
+            })
+        })
+        .collect()
+}
+
+fn event_target(x: f64, y: f64, window_id: Option<u32>) -> Result<InputTarget, String> {
+    event_targets(&[(x, y)], window_id)?
+        .pop()
+        .ok_or_else(|| INPUT_WINDOW_UNAVAILABLE.into())
 }
 
 fn mouse_event(kind: u32, point: Point, button: u32) -> Result<OwnedCf, String> {
@@ -587,6 +838,142 @@ fn click(session: &CaptureSession, point: Point, button: Button, count: u8) -> R
         }
     }
     Ok(())
+}
+
+/// Resolves both drag endpoints against one window-list snapshot, animates the
+/// Aven cursor to the start, then rechecks both before any button is pressed.
+fn drag_targets(
+    app: &AppHandle,
+    scope: &str,
+    session: &CaptureSession,
+    from: DragPoint,
+    to: DragPoint,
+    window_id: Option<u32>,
+) -> Result<(Point, Point), String> {
+    let points = [(from.x, from.y), (to.x, to.y)];
+    session.require_active()?;
+    let targets = event_targets(&points, window_id)?;
+    let [start, end] = targets[..] else {
+        return Err(INPUT_WINDOW_UNAVAILABLE.into());
+    };
+    agent_cursor::move_to(
+        app,
+        scope,
+        start.point.x,
+        start.point.y,
+        agent_cursor::Feedback::Move,
+        Arc::clone(&session.revoked),
+    )?;
+    session.require_active()?;
+    let result = event_targets(&points, window_id).and_then(|latest| match latest[..] {
+        [latest_start, latest_end] => Ok((
+            unchanged_target(start, Ok(latest_start))?,
+            unchanged_target(end, Ok(latest_end))?,
+        )),
+        _ => Err(INPUT_WINDOW_UNAVAILABLE.into()),
+    });
+    if result.is_err() {
+        agent_cursor::hide(app);
+    }
+    result
+}
+
+/// A short pause after pressing and before releasing, so apps that debounce a
+/// press or read the final position see a deliberate drag rather than a flick.
+const DRAG_HOLD: Duration = Duration::from_millis(40);
+/// Scheduling slack before an unexpectedly stalled drag is abandoned.
+const DRAG_SLACK: Duration = Duration::from_secs(1);
+
+/// Releases a pressed button wherever the drag currently is, on every exit
+/// path: success, revoked scope, stall timeout, or an unwinding panic.
+struct HeldButton<'a> {
+    up: &'a OwnedCf,
+    at: Point,
+}
+
+impl Drop for HeldButton<'_> {
+    fn drop(&mut self) {
+        unsafe {
+            CGEventSetLocation(self.up.event(), self.at);
+            CGEventSetFlags(self.up.event(), 0);
+            CGEventSetIntegerValueField(self.up.event(), 1, 1);
+            CGEventPost(0, self.up.event());
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn drag(
+    app: &AppHandle,
+    scope: &str,
+    session: &CaptureSession,
+    from: Point,
+    to: Point,
+    button: Button,
+    duration_ms: u32,
+    steps: u32,
+) -> Result<(), String> {
+    // kCGEventLeftMouseDown/Dragged/Up and their right-button equivalents.
+    let (down_kind, drag_kind, up_kind, button) = match button {
+        Button::Left => (1, 6, 2, 0),
+        Button::Right => (3, 7, 4, 1),
+    };
+    let path = drag_path((from.x, from.y), (to.x, to.y), steps);
+    let schedule = drag_schedule(duration_ms, steps);
+    // Allocate every event before pressing, so no allocation can fail while
+    // the button is held. One dragged event is moved along the path.
+    let moved = mouse_event(5, from, 0)?;
+    let down = mouse_event(down_kind, from, button)?;
+    let dragged = mouse_event(drag_kind, from, button)?;
+    let up = mouse_event(up_kind, to, button)?;
+    session.require_active()?;
+    let result = (|| {
+        unsafe {
+            CGEventSetFlags(moved.event(), 0);
+            CGEventPost(0, moved.event());
+            CGEventSetFlags(down.event(), 0);
+            // kCGMouseEventClickState: a single press, kept for the whole drag.
+            CGEventSetIntegerValueField(down.event(), 1, 1);
+            CGEventPost(0, down.event());
+        }
+        let mut held = HeldButton { up: &up, at: from };
+        let revoked = Arc::clone(&session.revoked);
+        agent_cursor::follow(scope, from, false, Arc::clone(&revoked));
+        std::thread::sleep(DRAG_HOLD);
+        let started = Instant::now();
+        let limit = Duration::from_millis(u64::from(duration_ms)) + DRAG_SLACK;
+        let mut previous = from;
+        for ((x, y), due) in path.into_iter().zip(schedule) {
+            std::thread::sleep(due.saturating_sub(started.elapsed()));
+            if started.elapsed() > limit {
+                return Err("The drag stalled and was released early. Take a fresh screenshot before retrying.".into());
+            }
+            // A revoked scope stops moving at once; the guard still releases.
+            session.require_active()?;
+            let point = Point { x, y };
+            unsafe {
+                CGEventSetLocation(dragged.event(), point);
+                CGEventSetFlags(dragged.event(), 0);
+                CGEventSetIntegerValueField(dragged.event(), 1, 1);
+                // kCGMouseEventDeltaX/Y (4, 5) for apps that track relative motion.
+                CGEventSetIntegerValueField(dragged.event(), 4, (x - previous.x).round() as i64);
+                CGEventSetIntegerValueField(dragged.event(), 5, (y - previous.y).round() as i64);
+                CGEventPost(0, dragged.event());
+            }
+            held.at = point;
+            previous = point;
+            agent_cursor::follow(scope, point, false, Arc::clone(&revoked));
+        }
+        std::thread::sleep(DRAG_HOLD);
+        held.at = to;
+        drop(held);
+        agent_cursor::follow(scope, to, true, revoked);
+        Ok(())
+    })();
+    if result.is_err() {
+        agent_cursor::hide(app);
+    }
+    result
 }
 
 fn press(key: &str, modifiers: &[Modifier]) -> Result<(), String> {
@@ -1330,6 +1717,28 @@ pub(super) fn execute(app: &AppHandle, scope: &str, request: Request) -> Result<
             )?;
             Ok(json!({"scrolled":true}))
         }
+        Request::Drag {
+            from,
+            to,
+            window_id,
+            duration_ms,
+            steps,
+            button,
+        } => {
+            let steps = drag_steps(duration_ms, steps)?;
+            scoped_input(
+                &session,
+                || drag_targets(app, scope, &session, from, to, window_id),
+                |(start, end)| drag(app, scope, &session, start, end, button, duration_ms, steps),
+            )?;
+            Ok(json!({
+                "dragged": true,
+                "from": {"x": from.x, "y": from.y},
+                "to": {"x": to.x, "y": to.y},
+                "steps": steps,
+                "durationMs": duration_ms,
+            }))
+        }
         Request::Activate { pid, app: name } => activate(app, session, pid, name),
     }
 }
@@ -1544,30 +1953,315 @@ mod tests {
         );
     }
 
+    fn ignoring_cursor(
+        x: f64,
+        y: f64,
+        target: u32,
+        windows: &[InputWindow],
+        cursor_window: Option<u32>,
+    ) -> Result<Point, String> {
+        let exemptions = Exemptions {
+            cursor_window,
+            ..Exemptions::default()
+        };
+        target_point_with_exemptions(x, y, target, windows, &exemptions)
+    }
+
     #[test]
     fn only_the_exact_agent_cursor_is_exempt_from_target_obstructions() {
         let target = input_window(10, 100.0, 200.0, 300.0, 200.0);
         let cursor = input_window(99, 110.0, 205.0, 80.0, 50.0);
         let menu = input_window(100, 110.0, 205.0, 80.0, 50.0);
-        let point = target_point_ignoring_cursor(
-            20.0,
-            10.0,
-            10,
-            &[cursor.clone(), target.clone()],
-            Some(99),
-        )
-        .unwrap();
+        let point =
+            ignoring_cursor(20.0, 10.0, 10, &[cursor.clone(), target.clone()], Some(99)).unwrap();
         assert_eq!((point.x, point.y), (120.0, 210.0));
         for stack in [
             vec![cursor.clone(), menu.clone(), target.clone()],
             vec![menu, cursor.clone(), target.clone()],
         ] {
-            let error = target_point_ignoring_cursor(20.0, 10.0, 10, &stack, Some(99)).unwrap_err();
+            let error = ignoring_cursor(20.0, 10.0, 10, &stack, Some(99)).unwrap_err();
             assert_eq!(obstruction_details(&error)["blocker"]["windowId"], 100);
         }
-        let error =
-            target_point_ignoring_cursor(20.0, 10.0, 10, &[cursor, target], Some(98)).unwrap_err();
+        let error = ignoring_cursor(20.0, 10.0, 10, &[cursor, target], Some(98)).unwrap_err();
         assert_eq!(obstruction_details(&error)["blocker"]["windowId"], 99);
+    }
+
+    const DOCK_PID: i32 = 760;
+    const DISPLAY: Region = Region {
+        x: 0.0,
+        y: 0.0,
+        width: 1512.0,
+        height: 982.0,
+    };
+
+    /// The window list observed on macOS 27: one Dock-owned, layer-20 window
+    /// spanning the display, with the visible bar drawn inside it.
+    fn dock_backdrop() -> InputWindow {
+        InputWindow {
+            pid: Some(DOCK_PID),
+            app: "Dock".into(),
+            layer: Some(DOCK_WINDOW_LAYER),
+            ..input_window(27, 0.0, 0.0, 1512.0, 982.0)
+        }
+    }
+
+    fn idle_dock() -> Exemptions {
+        Exemptions {
+            cursor_window: None,
+            dock: Some(DockSnapshot {
+                pid: DOCK_PID,
+                displays: vec![
+                    DISPLAY,
+                    Region {
+                        x: -1920.0,
+                        y: -200.0,
+                        width: 1920.0,
+                        height: 1080.0,
+                    },
+                ],
+                // The AXList frame observed for a bottom Dock.
+                bars: vec![Region {
+                    x: 513.0,
+                    y: 914.0,
+                    width: 486.0,
+                    height: 58.0,
+                }],
+                overlay: false,
+            }),
+        }
+    }
+
+    fn app_window() -> InputWindow {
+        input_window(10, 0.0, 33.0, 1512.0, 949.0)
+    }
+
+    fn dock_blocks(stack: &[InputWindow], x: f64, y: f64, exemptions: &Exemptions) {
+        let error = target_point_with_exemptions(x, y, 10, stack, exemptions).unwrap_err();
+        assert_eq!(obstruction_details(&error)["blocker"]["windowId"], 27);
+    }
+
+    #[test]
+    fn invisible_full_display_dock_window_does_not_block_points_away_from_the_bar() {
+        let stack = [dock_backdrop(), app_window()];
+        let point = target_point_with_exemptions(756.0, 400.0, 10, &stack, &idle_dock()).unwrap();
+        assert_eq!((point.x, point.y), (756.0, 433.0));
+        // Beside the bar, at the same height, is also only the backdrop.
+        assert!(target_point_with_exemptions(100.0, 900.0, 10, &stack, &idle_dock()).is_ok());
+        // Without a Dock observation the same window list is still refused.
+        dock_blocks(&stack, 756.0, 400.0, &Exemptions::default());
+    }
+
+    #[test]
+    fn the_visible_dock_bar_and_its_margin_still_block() {
+        let stack = [dock_backdrop(), app_window()];
+        let exemptions = idle_dock();
+        // Inside the bar, then inside each side of its safety margin.
+        for (x, y) in [
+            (756.0, 910.0),
+            (513.0, 881.0),
+            (998.0, 938.0),
+            (756.0, 914.0 - 33.0 - DOCK_BAR_MARGIN),
+            (513.0 - DOCK_BAR_MARGIN, 900.0),
+            (999.0 + DOCK_BAR_MARGIN - 0.5, 900.0),
+        ] {
+            dock_blocks(&stack, x, y, &exemptions);
+        }
+        // Just outside the margin is clear.
+        for (x, y) in [
+            (756.0, 914.0 - 33.0 - DOCK_BAR_MARGIN - 1.0),
+            (513.0 - DOCK_BAR_MARGIN - 1.0, 900.0),
+            (999.0 + DOCK_BAR_MARGIN, 900.0),
+        ] {
+            assert!(
+                target_point_with_exemptions(x, y, 10, &stack, &exemptions).is_ok(),
+                "{x},{y}"
+            );
+        }
+    }
+
+    #[test]
+    fn mission_control_and_other_dock_overlays_keep_the_full_display_window_blocking() {
+        let stack = [dock_backdrop(), app_window()];
+        // Mission Control / App Exposé add a non-list Accessibility element.
+        let mut overlay = idle_dock();
+        overlay.dock.as_mut().unwrap().overlay = true;
+        dock_blocks(&stack, 756.0, 400.0, &overlay);
+        // A Dock that exposes no bar at all is not the known idle state.
+        let mut no_bar = idle_dock();
+        no_bar.dock.as_mut().unwrap().bars.clear();
+        dock_blocks(&stack, 756.0, 400.0, &no_bar);
+        // A second Dock-owned window in front (an overlay, stack or menu)
+        // disables the exemption, whichever of the two is frontmost.
+        let extra = InputWindow {
+            pid: Some(DOCK_PID),
+            app: "Dock".into(),
+            layer: Some(18),
+            ..input_window(30, 0.0, 0.0, 1512.0, 982.0)
+        };
+        let error = target_point_with_exemptions(
+            756.0,
+            400.0,
+            10,
+            &[extra.clone(), dock_backdrop(), app_window()],
+            &idle_dock(),
+        )
+        .unwrap_err();
+        assert_eq!(obstruction_details(&error)["blocker"]["windowId"], 30);
+        dock_blocks(
+            &[dock_backdrop(), extra, app_window()],
+            756.0,
+            400.0,
+            &idle_dock(),
+        );
+        // Dock windows behind the target do not matter.
+        let behind = InputWindow {
+            pid: Some(DOCK_PID),
+            ..input_window(31, 0.0, 0.0, 10.0, 10.0)
+        };
+        assert!(target_point_with_exemptions(
+            756.0,
+            400.0,
+            10,
+            &[dock_backdrop(), app_window(), behind],
+            &idle_dock(),
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn dock_exemption_requires_the_exact_dock_window_signature() {
+        let exemptions = idle_dock();
+        let variants = [
+            // Another process, even one named Dock.
+            InputWindow {
+                pid: Some(999),
+                ..dock_backdrop()
+            },
+            InputWindow {
+                pid: None,
+                ..dock_backdrop()
+            },
+            // Another level: e.g. a full-screen utility or alert overlay.
+            InputWindow {
+                layer: Some(24),
+                ..dock_backdrop()
+            },
+            InputWindow {
+                layer: None,
+                ..dock_backdrop()
+            },
+            // Not exactly a display: a large Dock-owned panel.
+            InputWindow {
+                bounds: Region {
+                    height: 900.0,
+                    ..DISPLAY
+                },
+                ..dock_backdrop()
+            },
+        ];
+        for blocker in variants {
+            dock_blocks(&[blocker, app_window()], 756.0, 400.0, &exemptions);
+        }
+        // A genuinely visible window above the Dock still blocks.
+        let alert = input_window(40, 600.0, 300.0, 300.0, 200.0);
+        let error = target_point_with_exemptions(
+            756.0,
+            400.0,
+            10,
+            &[alert, dock_backdrop(), app_window()],
+            &exemptions,
+        )
+        .unwrap_err();
+        assert_eq!(obstruction_details(&error)["blocker"]["windowId"], 40);
+        // The Dock on a secondary display with a negative origin is matched.
+        let secondary = InputWindow {
+            bounds: Region {
+                x: -1920.0,
+                y: -200.0,
+                width: 1920.0,
+                height: 1080.0,
+            },
+            ..dock_backdrop()
+        };
+        let target = input_window(10, -1800.0, -100.0, 800.0, 600.0);
+        assert!(
+            target_point_with_exemptions(100.0, 100.0, 10, &[secondary, target], &exemptions)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn drag_checks_coverage_at_both_endpoints_against_one_stack() {
+        let target = input_window(10, 100.0, 200.0, 300.0, 200.0);
+        let none = Exemptions::default();
+        let points = targets_in_stack(
+            &[(20.0, 10.0), (280.0, 190.0)],
+            10,
+            std::slice::from_ref(&target),
+            &none,
+        )
+        .unwrap();
+        assert_eq!(
+            points,
+            vec![Point { x: 120.0, y: 210.0 }, Point { x: 380.0, y: 390.0 }]
+        );
+        let near_start = input_window(20, 110.0, 205.0, 20.0, 20.0);
+        let near_end = input_window(21, 370.0, 380.0, 20.0, 20.0);
+        for (blocker, id) in [(near_start, 20), (near_end, 21)] {
+            let error = targets_in_stack(
+                &[(20.0, 10.0), (280.0, 190.0)],
+                10,
+                &[blocker, target.clone()],
+                &none,
+            )
+            .unwrap_err();
+            assert_eq!(obstruction_details(&error)["blocker"]["windowId"], id);
+        }
+        // Either endpoint outside the window is refused, not clamped.
+        for points in [[(-1.0, 10.0), (20.0, 10.0)], [(20.0, 10.0), (300.0, 10.0)]] {
+            assert!(
+                targets_in_stack(&points, 10, std::slice::from_ref(&target), &none)
+                    .unwrap_err()
+                    .contains("outside the window")
+            );
+        }
+        // The idle Dock exemption applies to each endpoint independently.
+        let stack = [dock_backdrop(), app_window()];
+        assert!(
+            targets_in_stack(&[(100.0, 400.0), (900.0, 400.0)], 10, &stack, &idle_dock()).is_ok()
+        );
+        let error = targets_in_stack(&[(100.0, 400.0), (756.0, 900.0)], 10, &stack, &idle_dock())
+            .unwrap_err();
+        assert_eq!(obstruction_details(&error)["blocker"]["windowId"], 27);
+    }
+
+    #[test]
+    fn post_animation_drag_check_refuses_a_moved_window() {
+        let before = InputTarget {
+            point: Point { x: 120.0, y: 210.0 },
+            bounds: Some(Region {
+                x: 100.0,
+                y: 200.0,
+                width: 300.0,
+                height: 200.0,
+            }),
+        };
+        let moved = InputTarget {
+            point: Point { x: 140.0, y: 210.0 },
+            bounds: Some(Region {
+                x: 120.0,
+                ..before.bounds.unwrap()
+            }),
+        };
+        assert!(unchanged_target(before, Ok(moved))
+            .unwrap_err()
+            .contains("moved"));
+    }
+
+    #[test]
+    fn dock_identity_is_the_system_binary_not_an_app_name() {
+        assert!(!is_system_dock(std::process::id() as i32));
+        assert!(!is_system_dock(-1));
     }
 
     #[test]

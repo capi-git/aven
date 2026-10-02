@@ -10,7 +10,7 @@ describe("desktop control permission guidance", () => {
       "windows and screenshot need desktop control enabled and Screen Recording granted",
     );
     expect(COMPUTER_USE_TASK_GUIDANCE).toContain(
-      "move, click, type, press, scroll and activate need both Screen Recording and Accessibility granted",
+      "move, click, drag, type, press, scroll and activate need both Screen Recording and Accessibility granted",
     );
     expect(COMPUTER_USE_TASK_GUIDANCE).toContain(
       "Observation is available with Screen Recording alone even when state is permissionsRequired",
@@ -19,7 +19,7 @@ describe("desktop control permission guidance", () => {
       "With `enabled: true` and Screen Recording granted, use `windows` and `screenshot`",
     );
     expect(COMPUTER_USE_SKILL_BODY).toContain(
-      "Use `move`, `click`, `type`, `press`, `scroll`, and `activate` only when both Screen Recording and Accessibility are granted and desktop control is enabled",
+      "Use `move`, `click`, `drag`, `type`, `press`, `scroll`, and `activate` only when both Screen Recording and Accessibility are granted and desktop control is enabled",
     );
     expect(COMPUTER_USE_SKILL_BODY).toContain(
       "If `enabled` is false or `state` is `off`, do not observe or send input",
@@ -29,6 +29,8 @@ describe("desktop control permission guidance", () => {
         "Continue authorized observation while Accessibility is missing, but do not send input",
       );
       expect(instructions).toContain("Agent actions never trigger permission prompts");
+      expect(instructions).toContain("drag");
+      expect(instructions).toContain("durationMs");
       expect(instructions).not.toContain("Proceed only when `state` is `ready`");
     }
   });

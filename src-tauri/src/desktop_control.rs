@@ -74,6 +74,7 @@ fn require_action_access(status: &DesktopStatus, request: &Request) -> Result<()
         Request::Type { .. } => ("type", true),
         Request::Press { .. } => ("press a key", true),
         Request::Scroll { .. } => ("scroll", true),
+        Request::Drag { .. } => ("drag", true),
         Request::Activate { .. } => ("activate an app", true),
         Request::Status {} => return Ok(()),
     };
@@ -364,6 +365,24 @@ fn one() -> u8 {
     1
 }
 
+const DRAG_DEFAULT_MS: u32 = 500;
+const DRAG_DURATION_MS: std::ops::RangeInclusive<u32> = 50..=5000;
+/// Default drag events are 10 ms apart (100 Hz); explicit steps stay at most
+/// 125 Hz, so apps see a steady stream rather than a burst of coalesced moves.
+const DRAG_DEFAULT_INTERVAL_MS: u32 = 10;
+const DRAG_MIN_INTERVAL_MS: u32 = 8;
+
+fn drag_default_ms() -> u32 {
+    DRAG_DEFAULT_MS
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct DragPoint {
+    x: f64,
+    y: f64,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "action", rename_all = "lowercase", deny_unknown_fields)]
 pub(crate) enum Request {
@@ -408,6 +427,17 @@ pub(crate) enum Request {
         #[serde(rename = "deltaY")]
         delta_y: i32,
     },
+    Drag {
+        from: DragPoint,
+        to: DragPoint,
+        #[serde(rename = "windowId")]
+        window_id: Option<u32>,
+        #[serde(rename = "durationMs", default = "drag_default_ms")]
+        duration_ms: u32,
+        steps: Option<u32>,
+        #[serde(default)]
+        button: Button,
+    },
     Activate {
         pid: Option<i32>,
         app: Option<String>,
@@ -429,6 +459,49 @@ fn validate_window_id(id: Option<u32>) -> Result<(), String> {
         return Err("Use a nonzero windowId from the windows action.".into());
     }
     Ok(())
+}
+
+/// The number of intermediate drag events. Each one is a mouse-dragged event;
+/// the last lands exactly on `to` before the button is released.
+fn drag_steps(duration_ms: u32, steps: Option<u32>) -> Result<u32, String> {
+    if !DRAG_DURATION_MS.contains(&duration_ms) {
+        return Err("Drag durationMs must be between 50 and 5000.".into());
+    }
+    let most = duration_ms / DRAG_MIN_INTERVAL_MS;
+    match steps {
+        None => Ok((duration_ms / DRAG_DEFAULT_INTERVAL_MS).max(1)),
+        Some(steps) if (1..=most).contains(&steps) => Ok(steps),
+        Some(_) => Err(format!(
+            "Drag steps must be between 1 and {most} (at most one per {DRAG_MIN_INTERVAL_MS} ms of durationMs)."
+        )),
+    }
+}
+
+/// Evenly spaced points after `from`, ending exactly at `to`. A constant speed
+/// keeps resize and slider feedback predictable; there is no easing here.
+#[cfg(any(target_os = "macos", test))]
+fn drag_path(from: (f64, f64), to: (f64, f64), steps: u32) -> Vec<(f64, f64)> {
+    (1..=steps)
+        .map(|step| {
+            if step == steps {
+                return to;
+            }
+            let fraction = f64::from(step) / f64::from(steps);
+            (
+                from.0 + (to.0 - from.0) * fraction,
+                from.1 + (to.1 - from.1) * fraction,
+            )
+        })
+        .collect()
+}
+
+/// When each drag step is due, measured from the first step's schedule start.
+#[cfg(any(target_os = "macos", test))]
+fn drag_schedule(duration_ms: u32, steps: u32) -> Vec<std::time::Duration> {
+    let total = u64::from(duration_ms) * 1000;
+    (1..=u64::from(steps))
+        .map(|step| std::time::Duration::from_micros(total * step / u64::from(steps)))
+        .collect()
 }
 
 impl Request {
@@ -488,6 +561,20 @@ impl Request {
                 if !(-2000..=2000).contains(delta_x) || !(-2000..=2000).contains(delta_y) {
                     return Err("Scroll distance must be between -2000 and 2000 points.".into());
                 }
+                Ok(())
+            }
+            Self::Drag {
+                from,
+                to,
+                window_id,
+                duration_ms,
+                steps,
+                ..
+            } => {
+                validate_point(from.x, from.y)?;
+                validate_point(to.x, to.y)?;
+                validate_window_id(*window_id)?;
+                drag_steps(*duration_ms, *steps)?;
                 Ok(())
             }
             Self::Activate { pid, app } => {
@@ -586,22 +673,24 @@ Usage: "$AVEN_BROWSER_EXECUTABLE" --aven-desktop '<JSON>'
   {"action":"type","text":"Hello"}
   {"action":"press","key":"a","modifiers":["cmd"]}
   {"action":"scroll","windowId":123,"x":120,"y":80,"deltaX":0,"deltaY":600}
+  {"action":"drag","windowId":123,"from":{"x":300,"y":200},"to":{"x":420,"y":200},"durationMs":600}
   {"action":"activate","pid":1234}
   {"action":"activate","app":"TextEdit"}
 Uses this session's existing AVEN_BROWSER_SOCKET and AVEN_BROWSER_TOKEN grant
 (SUPERMONO aliases are supported). Never print or persist credentials.
 Desktop control must be enabled in Settings, Skills & tools. Windows and
-screenshot require Screen Recording. Click, type, press, scroll and activate
-require both Screen Recording and Accessibility, so input can be observed and
-verified. Status reports enabled and both permission grants even while access
+screenshot require Screen Recording. Move, click, drag, type, press, scroll and
+activate require both Screen Recording and Accessibility, so input can be
+observed and verified. Status reports enabled and both permission grants even while access
 is off. When state is permissionsRequired, observation is still available if
 enabled is true and Screen Recording is granted. Agent actions never request
 permissions.
 Windows lists on-screen, layer-0 windows: windowId, app, pid, title, x, y, width,
 height. Screenshot pixels equal points, with top-left origin. With windowId,
-move/click/scroll x,y are that window screenshot's pixel coordinates. Without windowId,
-use global points: originX + x, originY + y from the screenshot used.
-Window-targeted move, click and scroll refuse covered points. A
+move/click/scroll x,y and drag from/to are that window screenshot's pixel
+coordinates. Without windowId, use global points: originX + x, originY + y
+from the screenshot used.
+Window-targeted move, click, drag and scroll refuse covered points. A
 window screenshot can show a covered window; activate the app and inspect a
 fresh display/region screenshot to verify the intended window is in front.
 Refusals identify the first blocking window's ID, owner, layer, opacity and
@@ -614,10 +703,15 @@ the main display. Screenshots return path, width, height, originX, originY at on
 image pixel per point, never base64. Only the latest 20 per session are retained;
 they are removed when task access ends, its window closes, or Aven exits.
 Move hovers without clicking. A separate Aven cursor animates between movement,
-click and scroll targets and fades when idle. It never intercepts input or takes
-focus and is hidden from agent screenshots and window listings. Native input
+click, drag and scroll targets and fades when idle. It never intercepts input
+or takes focus and is hidden from agent screenshots and window listings. Native input
 still uses the macOS pointer.
-Click supports left/right and count 1/2. Type accepts at most 4000 characters.
+Click supports left/right and count 1/2. Drag presses button (default left) at
+from, sends steady mouse-dragged events to to over durationMs (50-5000, default
+500), then releases; steps defaults to one per 10 ms (at most one per 8 ms).
+With windowId both endpoints must be inside that window and uncovered, and the
+window must not move before the press. The button is always released.
+Type accepts at most 4000 characters.
 Press supports Enter, Tab, Escape, Backspace, Delete, ArrowUp/Down/Left/Right,
 Home, End, PageUp, PageDown, Space, letters and digits (US physical keys).
 Modifiers: cmd, shift, option, control. Use type for literal Unicode text.
@@ -711,6 +805,11 @@ mod tests {
                 true,
             ),
             (
+                json!({"action":"drag","from":{"x":0,"y":0},"to":{"x":10,"y":0}}),
+                "drag",
+                true,
+            ),
+            (
                 json!({"action":"activate","pid":1}),
                 "activate an app",
                 true,
@@ -770,6 +869,8 @@ mod tests {
             json!({"action":"type","text":"hello 😀"}),
             json!({"action":"press","key":"a","modifiers":["cmd","shift"]}),
             json!({"action":"scroll","x":0,"y":42,"deltaX":-2000,"deltaY":2000,"windowId":10}),
+            json!({"action":"drag","from":{"x":1,"y":2},"to":{"x":3,"y":4}}),
+            json!({"action":"drag","windowId":10,"from":{"x":-1500.5,"y":2},"to":{"x":3,"y":4},"durationMs":5000,"steps":625,"button":"right"}),
             json!({"action":"activate","pid":42}),
             json!({"action":"activate","app":"TextEdit"}),
         ] {
@@ -802,6 +903,14 @@ mod tests {
             json!({"action":"type","text":"ok","execute":true}),
             json!({"action":"scroll","x":0,"y":0,"deltaY":1,"id":"tab-a"}),
             json!({"action":"activate","app":"TextEdit","launch":true}),
+            json!({"action":"drag","from":{"x":0,"y":0},"to":{"x":1,"y":1},"hold":true}),
+            json!({"action":"drag","from":{"x":0,"y":0,"z":1},"to":{"x":1,"y":1}}),
+            json!({"action":"drag","from":{"x":0,"y":0},"to":{"x":1,"y":1},"button":"middle"}),
+            json!({"action":"drag","from":{"x":0,"y":0},"to":{"x":1,"y":1},"duration_ms":500}),
+            json!({"action":"drag","from":{"x":0,"y":0}}),
+            json!({"action":"drag","to":{"x":1,"y":1}}),
+            json!({"action":"drag","x":0,"y":0,"to":{"x":1,"y":1}}),
+            json!({"action":"drag","from":{"x":0},"to":{"x":1,"y":1}}),
         ] {
             assert!(parse(value.clone()).is_err(), "{value}");
         }
@@ -834,6 +943,16 @@ mod tests {
             json!({"action":"activate","app":"  "}),
             json!({"action":"activate","pid":42,"app":"TextEdit"}),
             json!({"action":"activate","app":"x".repeat(257)}),
+            json!({"action":"drag","from":{"x":100001,"y":0},"to":{"x":0,"y":0}}),
+            json!({"action":"drag","from":{"x":0,"y":0},"to":{"x":0,"y":-100001}}),
+            json!({"action":"drag","from":{"x":0,"y":0},"to":{"x":1,"y":0},"windowId":0}),
+            json!({"action":"drag","from":{"x":0,"y":0},"to":{"x":1,"y":0},"durationMs":49}),
+            json!({"action":"drag","from":{"x":0,"y":0},"to":{"x":1,"y":0},"durationMs":5001}),
+            json!({"action":"drag","from":{"x":0,"y":0},"to":{"x":1,"y":0},"durationMs":-1}),
+            json!({"action":"drag","from":{"x":0,"y":0},"to":{"x":1,"y":0},"durationMs":500.5}),
+            json!({"action":"drag","from":{"x":0,"y":0},"to":{"x":1,"y":0},"steps":0}),
+            json!({"action":"drag","from":{"x":0,"y":0},"to":{"x":1,"y":0},"steps":63}),
+            json!({"action":"drag","from":{"x":0,"y":0},"to":{"x":1,"y":0},"durationMs":50,"steps":7}),
         ] {
             assert!(parse(value.clone()).is_err(), "{value}");
         }
@@ -913,6 +1032,101 @@ mod tests {
         assert!(serde_json::from_str::<Permission>("\"screenRecording\"").is_ok());
         assert!(serde_json::from_str::<Permission>("\"accessibility\"").is_ok());
         assert!(serde_json::from_str::<Permission>("\"Screen Recording\"").is_err());
+    }
+
+    #[test]
+    fn drag_defaults_and_non_finite_endpoints_are_strict() {
+        let request =
+            parse(json!({"action":"drag","from":{"x":0,"y":0},"to":{"x":5,"y":0}})).unwrap();
+        assert!(matches!(
+            request,
+            Request::Drag {
+                button: Button::Left,
+                duration_ms: 500,
+                steps: None,
+                window_id: None,
+                ..
+            }
+        ));
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let point = DragPoint { x: value, y: 0.0 };
+            let ok = DragPoint { x: 0.0, y: 0.0 };
+            for (from, to) in [(point, ok), (ok, point)] {
+                let request = Request::Drag {
+                    from,
+                    to,
+                    window_id: None,
+                    duration_ms: 500,
+                    steps: None,
+                    button: Button::Left,
+                };
+                assert!(request.validate().is_err());
+            }
+        }
+        assert!(serde_json::from_str::<Request>(
+            r#"{"action":"drag","from":{"x":0,"y":0},"from":{"x":1,"y":1},"to":{"x":1,"y":1}}"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn drag_steps_default_to_100_hz_and_never_exceed_125_hz() {
+        assert_eq!(drag_steps(500, None).unwrap(), 50);
+        assert_eq!(drag_steps(50, None).unwrap(), 5);
+        assert_eq!(drag_steps(5000, None).unwrap(), 500);
+        assert_eq!(drag_steps(55, None).unwrap(), 5);
+        assert_eq!(drag_steps(600, Some(1)).unwrap(), 1);
+        assert_eq!(drag_steps(600, Some(75)).unwrap(), 75);
+        assert!(drag_steps(600, Some(76)).is_err());
+        assert!(drag_steps(600, Some(0)).is_err());
+        assert!(drag_steps(49, None).is_err());
+        assert!(drag_steps(5001, Some(1)).is_err());
+        for duration in [50, 51, 333, 999, 5000] {
+            let steps = drag_steps(duration, None).unwrap();
+            assert!(steps >= 1 && duration / steps >= DRAG_MIN_INTERVAL_MS);
+        }
+    }
+
+    #[test]
+    fn drag_path_is_evenly_spaced_bounded_and_ends_exactly_at_the_target() {
+        let from = (-120.5, 300.0);
+        let to = (379.5, 100.0);
+        let path = drag_path(from, to, 50);
+        assert_eq!(path.len(), 50);
+        assert_eq!(*path.last().unwrap(), to);
+        let mut previous = from;
+        for point in &path {
+            assert!((point.0 - previous.0 - 10.0).abs() < 1e-9, "{point:?}");
+            assert!((point.1 - previous.1 + 4.0).abs() < 1e-9, "{point:?}");
+            assert!((from.0..=to.0).contains(&point.0));
+            assert!((to.1..=from.1).contains(&point.1));
+            previous = *point;
+        }
+        assert_eq!(drag_path(from, to, 1), vec![to]);
+        assert!(drag_path(from, from, 4).iter().all(|point| *point == from));
+    }
+
+    #[test]
+    fn drag_schedule_spreads_steps_evenly_over_the_requested_duration() {
+        let schedule = drag_schedule(600, 60);
+        assert_eq!(schedule.len(), 60);
+        assert_eq!(schedule[0], std::time::Duration::from_millis(10));
+        assert_eq!(
+            *schedule.last().unwrap(),
+            std::time::Duration::from_millis(600)
+        );
+        assert!(schedule
+            .windows(2)
+            .all(|pair| pair[1] - pair[0] == std::time::Duration::from_millis(10)));
+        let uneven = drag_schedule(50, 3);
+        assert_eq!(
+            uneven,
+            [16_666, 33_333, 50_000].map(std::time::Duration::from_micros)
+        );
+        assert_eq!(
+            drag_schedule(5000, 1),
+            vec![std::time::Duration::from_secs(5)]
+        );
     }
 
     #[test]
