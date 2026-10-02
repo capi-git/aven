@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CLAUDE_OPUS_5_5_MODEL,
   resetHarnessModelOverlays,
+  setHarnessModels,
 } from "../lib/models";
+import { parseCodexModelList } from "../lib/harness/codexCatalog";
+import type { HarnessId } from "../lib/session";
 import { ModelSettings } from "./ModelSettings";
 
 describe("model setting controls", () => {
@@ -46,11 +49,19 @@ describe("model setting controls", () => {
   });
 
   async function render(values = initialValues) {
+    await renderModel("claude", CLAUDE_OPUS_5_5_MODEL.id, values);
+  }
+
+  async function renderModel(
+    harness: HarnessId,
+    model: string,
+    values: Record<string, string>,
+  ) {
     await act(async () =>
       root.render(
         createElement(ModelSettings, {
-          harness: "claude",
-          model: CLAUDE_OPUS_5_5_MODEL.id,
+          harness,
+          model,
           values,
           onChange,
           onClose,
@@ -183,6 +194,93 @@ describe("model setting controls", () => {
       fast: "false",
     });
     expect(onClose).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(composer);
+  });
+
+  it("preserves Grok's descending choices and commits the exact low value without replacing the control", async () => {
+    const values = { effort: "high", fast: "false" };
+    await renderModel("grok", "grok:grok-4.6", values);
+    const original = trigger();
+    expect(original.getAttribute("aria-label")).toBe("Reasoning: High");
+    await open();
+    const options = Array.from(
+      menu()!.querySelectorAll<HTMLButtonElement>('[role="option"]'),
+    );
+    expect(options.map((option) => option.textContent)).toEqual([
+      "Extra High",
+      "High",
+      "Medium",
+      "Low",
+    ]);
+    const low = options[3];
+    const press = new MouseEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => {
+      low.dispatchEvent(press);
+      low.click();
+    });
+    expect(press.defaultPrevented).toBe(true);
+    expect(onChange).toHaveBeenCalledExactlyOnceWith({
+      effort: "low",
+      fast: "false",
+    });
+    expect(menu()).toBeNull();
+    expect(document.activeElement).toBe(composer);
+    await renderModel("grok", "grok:grok-4.6", onChange.mock.calls[0][0]);
+    expect(trigger()).toBe(original);
+    expect(trigger().getAttribute("aria-label")).toBe("Reasoning: Low");
+    expect(document.activeElement).toBe(composer);
+  });
+
+  it("keeps a future Codex reasoning value exact while preserving service tier and focus", async () => {
+    const [future] = parseCodexModelList([
+      {
+        model: "future-provider-model",
+        displayName: "Future provider model",
+        defaultReasoningEffort: "low",
+        supportedReasoningEfforts: [
+          { reasoningEffort: "low", label: "Low" },
+          { reasoningEffort: "adaptive", label: "Adaptive" },
+        ],
+        additionalSpeedTiers: ["fast"],
+      },
+    ]);
+    setHarnessModels("codex", [future]);
+    const values = { reasoningEffort: "low", serviceTier: "fast" };
+    await renderModel("codex", future.id, values);
+    const original = trigger();
+    expect(original.getAttribute("aria-label")).toBe("Reasoning: Low");
+    await open();
+    expect(
+      Array.from(menu()!.querySelectorAll('[role="option"]')).map(
+        (option) => option.textContent,
+      ),
+    ).toEqual(["Low", "Adaptive"]);
+    await key("ArrowDown");
+    expect(onChange).not.toHaveBeenCalled();
+    await key("Enter");
+    expect(onChange).toHaveBeenCalledExactlyOnceWith({
+      reasoningEffort: "adaptive",
+      serviceTier: "fast",
+    });
+    expect(menu()).toBeNull();
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(document.activeElement).toBe(composer);
+    await renderModel("codex", future.id, onChange.mock.calls[0][0]);
+    expect(trigger()).toBe(original);
+    expect(trigger().getAttribute("aria-label")).toBe("Reasoning: Adaptive");
+    expect(
+      host.querySelector('[aria-label="Service Tier: Fast"]'),
+    ).not.toBeNull();
+    expect(document.activeElement).toBe(composer);
+    await open();
+    expect(menu()!.querySelector('[aria-selected="true"]')?.textContent).toBe(
+      "Adaptive",
+    );
+    await key("Escape");
+    expect(onChange).toHaveBeenCalledTimes(1);
     expect(document.activeElement).toBe(composer);
   });
 });
