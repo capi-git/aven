@@ -264,10 +264,10 @@ pub(crate) mod tests {
             png(2, 3)
         );
         let unlabeled = store(&root.0, "session-a", None, &png(1, 1), 1800).unwrap();
-        assert!(unlabeled["path"]
-            .as_str()
-            .unwrap()
-            .ends_with("/1800-page.png"));
+        assert_eq!(
+            unlabeled["path"],
+            dir.join("1800-page.png").to_string_lossy().as_ref()
+        );
         assert!(unlabeled["markdown"]
             .as_str()
             .unwrap()
