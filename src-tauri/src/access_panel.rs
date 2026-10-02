@@ -80,6 +80,7 @@ fn validate_snapshot(snapshot: &Value) -> Result<(), String> {
                 .as_str()
                 .is_some_and(|color| !color.is_empty() && color.len() <= 1024)
         })
+        || !crate::popup_glass::valid_theme_glass(&snapshot["theme"])
     {
         return Err("Invalid access display data".into());
     }
@@ -624,6 +625,12 @@ mod tests {
             "color-mix(in srgb, #0b121a 90%, #6cabdd)".repeat(4)
         ));
         assert!(validate_snapshot(&nested_colors).is_ok());
+        let mut glass = snapshot.clone();
+        glass["theme"]["glass"] = json!(true);
+        glass["theme"]["opacity"] = json!(0.52);
+        assert!(validate_snapshot(&glass).is_ok());
+        glass["theme"]["opacity"] = json!(2);
+        assert!(validate_snapshot(&glass).is_err());
     }
     #[test]
     fn only_known_permission_choices_or_close_are_actions() {

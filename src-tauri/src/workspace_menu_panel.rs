@@ -97,6 +97,7 @@ fn validate_snapshot(snapshot: &Value) -> Result<(), String> {
             || !valid_text(&snapshot["title"], 120)
             || !matches!(snapshot["theme"]["mode"].as_str(), Some("dark" | "light"))
             || !valid_text(&snapshot["theme"]["accent"], 1024)
+            || !crate::popup_glass::valid_theme_glass(&snapshot["theme"])
             || (!snapshot["compact"].is_null() && !snapshot["compact"].is_boolean())
             || (!snapshot["searchable"].is_null() && !snapshot["searchable"].is_boolean())
             || (!snapshot["align"].is_null()
@@ -898,11 +899,22 @@ mod tests {
                 json!([{"id":"a", "label":"One", "description":"x".repeat(513)}]),
             ),
             ("theme", json!({"mode":"unknown", "accent":"#fff"})),
+            (
+                "theme",
+                json!({"mode":"dark", "accent":"#fff", "glass":"true"}),
+            ),
+            (
+                "theme",
+                json!({"mode":"dark", "accent":"#fff", "glass":true, "opacity":1.2}),
+            ),
         ] {
             let mut invalid = snapshot();
             invalid[key] = value;
             assert!(validate_snapshot(&invalid).is_err(), "{invalid}");
         }
+        let mut glass = snapshot();
+        glass["theme"] = json!({"mode":"dark", "accent":"#fff", "glass":true, "opacity":0.52});
+        assert!(validate_snapshot(&glass).is_ok());
         let mut too_many = snapshot();
         too_many["items"] = Value::Array(
             (0..25)

@@ -546,6 +546,122 @@ fn dlsym_fn<T>(symbol: &[u8]) -> Option<T> {
     }
 }
 
+/// Identifies the popup's own material among its content view's subviews.
+const POPUP_GLASS_ID: &str = "aven-popup-glass";
+
+/// Popup glass: a dark, always-active visual-effect view clipped to the
+/// panel's rounded rectangle, below the transparent webview. Toolbar popups
+/// are utility windows that rarely become key, so the material must not follow
+/// the window's active state. The main window's WindowServer blur cannot be
+/// used here: it blurs the whole rectangular window, including the corners
+/// outside a rounded panel.
+pub fn set_popup_glass(
+    window: &Window,
+    frame: Option<crate::popup_glass::PopupGlassFrame>,
+) -> Result<bool, String> {
+    use objc2_app_kit::{
+        NSAppearance, NSAppearanceCustomization, NSAppearanceNameDarkAqua,
+        NSAutoresizingMaskOptions, NSUserInterfaceItemIdentification, NSView,
+        NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState,
+        NSVisualEffectView, NSWindowOrderingMode,
+    };
+    use objc2_foundation::{NSPoint, NSRect, NSSize};
+
+    let mtm = MainThreadMarker::new().ok_or("Popup glass requires the main thread")?;
+    let ns_window = ns_window(window).ok_or("The popup window is unavailable")?;
+    let view = content_view(window).ok_or("The popup window is unavailable")?;
+    let identifier = NSString::from_str(POPUP_GLASS_ID);
+    let existing = view.subviews().iter().find(|subview| {
+        subview
+            .identifier()
+            .is_some_and(|id| id.isEqualToString(&identifier))
+    });
+    let Some(frame) = frame else {
+        if let Some(effect) = existing {
+            effect.removeFromSuperview();
+            ns_window.invalidateShadow();
+        }
+        return Ok(false);
+    };
+    let bounds = view.bounds();
+    let flipped = view.isFlipped();
+    let rect = frame.effect_rect(bounds.size.width, bounds.size.height, flipped)?;
+    let native = NSRect::new(
+        NSPoint::new(rect.x, rect.y),
+        NSSize::new(rect.width, rect.height),
+    );
+    let effect = match existing.and_then(|view| view.downcast::<NSVisualEffectView>().ok()) {
+        Some(effect) => effect,
+        None => {
+            let effect = NSVisualEffectView::initWithFrame(NSVisualEffectView::alloc(mtm), native);
+            effect.setMaterial(NSVisualEffectMaterial::HUDWindow);
+            effect.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+            effect.setState(NSVisualEffectState::Active);
+            // Glass is only offered in dark appearance, which may differ from
+            // the system's. Scope that to the material, not the whole app.
+            let dark = NSAppearance::appearanceNamed(unsafe { NSAppearanceNameDarkAqua });
+            effect.setAppearance(dark.as_deref());
+            effect.setIdentifier(Some(&identifier));
+            // Panels are top-aligned; keep the material pinned to the top-left.
+            effect.setAutoresizingMask(
+                NSAutoresizingMaskOptions::ViewMaxXMargin
+                    | if flipped {
+                        NSAutoresizingMaskOptions::ViewMaxYMargin
+                    } else {
+                        NSAutoresizingMaskOptions::ViewMinYMargin
+                    },
+            );
+            view.addSubview_positioned_relativeTo(
+                &effect,
+                NSWindowOrderingMode::Below,
+                None::<&NSView>,
+            );
+            effect
+        }
+    };
+    effect.setFrame(native);
+    effect.setMaskImage(Some(&rounded_mask(rect.radius)));
+    ns_window.invalidateShadow();
+    Ok(true)
+}
+
+/// The view that hosts the window's webviews (Tao's content view).
+fn content_view(window: &Window) -> Option<Retained<objc2_app_kit::NSView>> {
+    let handle = window.window_handle().ok()?;
+    let RawWindowHandle::AppKit(appkit) = handle.as_raw() else {
+        return None;
+    };
+    let view: *mut objc2_app_kit::NSView = appkit.ns_view.as_ptr().cast();
+    unsafe { Retained::retain(view) }
+}
+
+/// A stretchable rounded-rectangle mask, Apple's supported way to shape a
+/// behind-window visual-effect view.
+fn rounded_mask(radius: f64) -> Retained<objc2_app_kit::NSImage> {
+    use objc2::runtime::Bool;
+    use objc2_app_kit::{NSBezierPath, NSImage, NSImageResizingMode};
+    use objc2_foundation::{NSEdgeInsets, NSRect, NSSize};
+
+    let radius = radius.max(0.0);
+    let edge = radius * 2.0 + 1.0;
+    let draw = block2::RcBlock::new(move |rect: NSRect| -> Bool {
+        NSColor::blackColor().set();
+        NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(rect, radius, radius).fill();
+        Bool::YES
+    });
+    let image =
+        NSImage::imageWithSize_flipped_drawingHandler(NSSize::new(edge, edge), false, &draw);
+    image.setCapInsets(NSEdgeInsets {
+        top: radius,
+        left: radius,
+        bottom: radius,
+        right: radius,
+    });
+    // NSImageResizingModeStretch: scale the 1pt center, keep the corners.
+    image.setResizingMode(NSImageResizingMode(1));
+    image
+}
+
 struct DockMenuTargetIvars {
     app: AppHandle,
 }

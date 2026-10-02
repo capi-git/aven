@@ -65,6 +65,23 @@
   color-scheme: light;
 }
 
+/* A separate native popup window with native frost behind it (popupGlass.ts):
+   tint with the workspace background at the workspace opacity, as the main
+   window does. Text, tracks and accents keep their opaque palette colors. */
+html.popup-glass .toolbar-panel {
+  background: color-mix(
+    in srgb,
+    var(--toolbar-panel-bg) var(--popup-glass-opacity, 100%),
+    transparent
+  );
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  html.popup-glass .toolbar-panel {
+    background: var(--toolbar-panel-bg);
+  }
+}
+
 .toolbar-panel-header {
   display: flex;
   flex: 0 0 auto;

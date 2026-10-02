@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { WorkspaceMenuPanelContent } from "../chrome/WorkspaceMenuPanel";
+import { afterPopupGlass, usePopupGlass } from "../lib/popupGlass";
 import {
   nativeWorkspaceMenuPanel,
   type WorkspaceMenuPanelState,
@@ -70,6 +71,7 @@ export function WorkspaceMenuPanelWindow() {
       window.removeEventListener("keydown", key);
     };
   }, []);
+  usePopupGlass(state?.snapshot.theme, state?.presentation);
   useLayoutEffect(() => {
     document.documentElement.classList.add("workspace-menu-panel-window");
     document.getElementById("boot-splash")?.remove();
@@ -78,19 +80,24 @@ export function WorkspaceMenuPanelWindow() {
     let disposed = false;
     const presentation = state.presentation;
     // A hidden WKWebView can throttle animation frames and passive effects.
-    // Acknowledge directly after DOM/palette commit so warm menus open promptly.
-    void nativeWorkspaceMenuPanel
-      .ready(presentation)
-      .then((shown) => {
-        if (disposed || current.current?.presentation !== presentation) return;
-        // Updates also get fresh tokens, but must preserve the user's active row.
-        // Only a newly shown native window resets content focus for a fresh open.
-        if (shown) setFocusPresentation(presentation);
-      })
-      .catch(() => {
-        if (!disposed && current.current?.presentation === presentation)
-          setError("Could not show workspace actions.");
-      });
+    // Acknowledge directly after DOM/palette commit so warm menus open promptly
+    // (a glass menu first awaits only its native frost).
+    afterPopupGlass(() => {
+      if (disposed) return;
+      void nativeWorkspaceMenuPanel
+        .ready(presentation)
+        .then((shown) => {
+          if (disposed || current.current?.presentation !== presentation)
+            return;
+          // Updates also get fresh tokens, but must preserve the user's active row.
+          // Only a newly shown native window resets content focus for a fresh open.
+          if (shown) setFocusPresentation(presentation);
+        })
+        .catch(() => {
+          if (!disposed && current.current?.presentation === presentation)
+            setError("Could not show workspace actions.");
+        });
+    });
     return () => {
       disposed = true;
     };

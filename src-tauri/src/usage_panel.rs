@@ -65,7 +65,10 @@ fn with_panels<T>(
 }
 
 fn validate_snapshot(snapshot: &Value) -> Result<(), String> {
-    if !snapshot.is_object() || snapshot.to_string().len() > 128_000 {
+    if !snapshot.is_object()
+        || snapshot.to_string().len() > 128_000
+        || !crate::popup_glass::valid_theme_glass(&snapshot["theme"])
+    {
         return Err("Invalid usage display data".into());
     }
     Ok(())
@@ -102,7 +105,7 @@ impl Panel {
 
 // Serialize native visibility and state on the event thread: a late ready,
 // update or cleanup from the preceding opening cannot affect its replacement.
-async fn on_main<T: Send + 'static>(
+pub(crate) async fn on_main<T: Send + 'static>(
     app: &AppHandle,
     operation: impl FnOnce() -> Result<T, String> + Send + 'static,
 ) -> Result<T, String> {
@@ -531,6 +534,11 @@ mod tests {
         assert!(validate_snapshot(&json!({"providers": []})).is_ok());
         assert!(validate_snapshot(&json!("text")).is_err());
         assert!(validate_snapshot(&json!({"text": "x".repeat(128_000)})).is_err());
+        assert!(validate_snapshot(
+            &json!({"providers": [], "theme": {"mode": "dark", "glass": true, "opacity": 0.52}})
+        )
+        .is_ok());
+        assert!(validate_snapshot(&json!({"theme": {"glass": "yes"}})).is_err());
     }
     #[test]
     fn panel_navigation_cannot_escape_its_entrypoint() {

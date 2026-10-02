@@ -2,6 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
 import {
   nativeUsagePanel,
   type UsagePanelSnapshot,
@@ -9,6 +10,7 @@ import {
 } from "../lib/usagePanel";
 import { UsagePanelWindow } from "./UsagePanelWindow";
 
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("../lib/usagePanel", () => ({
   nativeUsagePanel: {
     listen: vi.fn(),
@@ -115,4 +117,76 @@ it("paints the native panel backdrop from the owner palette before showing, and 
     host.remove();
   }
   expect(stop).toHaveBeenCalledOnce();
+});
+
+it("frosts a dark glass workspace natively before showing, and turns opaque for light", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const rect = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockReturnValue({ x: 0, y: 0, width: 360, height: 560 } as DOMRect);
+  const order: string[] = [];
+  const translucent = () =>
+    document.documentElement.classList.contains("popup-glass");
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    const frame = (args as { frame: unknown }).frame;
+    order.push(`${command}:${frame ? "frost" : "clear"}`);
+    return frame != null;
+  });
+  let receive: (value: UsagePanelState) => void = () => {};
+  vi.mocked(nativeUsagePanel.listen).mockImplementation(
+    async (_event, callback) => {
+      receive = callback as typeof receive;
+      return () => {};
+    },
+  );
+  const glass: UsagePanelSnapshot = {
+    context: null,
+    costUsd: null,
+    providers: [],
+    theme: {
+      mode: "dark",
+      accent: "#57b5ff",
+      background: "#0f0f0f",
+      text: "#ffffff",
+      glass: true,
+      opacity: 0.52,
+    },
+  };
+  vi.mocked(nativeUsagePanel.getState).mockResolvedValue({
+    snapshot: glass,
+    openId: "open-1",
+    revision: 1,
+  });
+  vi.mocked(nativeUsagePanel.ready).mockImplementation(
+    async (_openId, revision) => {
+      order.push(`ready:${revision}`);
+      expect(translucent()).toBe(revision === 1);
+    },
+  );
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(createElement(UsagePanelWindow)));
+    expect(order).toEqual(["popup_glass_set:frost", "ready:1"]);
+    expect(
+      document.documentElement.style.getPropertyValue("--popup-glass-opacity"),
+    ).toBe("52%");
+    await act(async () =>
+      receive({
+        openId: "open-1",
+        revision: 2,
+        snapshot: {
+          ...glass,
+          theme: { mode: "light", accent: "#157d82", glass: false },
+        },
+      }),
+    );
+    expect(order.slice(2)).toEqual(["popup_glass_set:clear", "ready:2"]);
+    expect(translucent()).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    rect.mockRestore();
+  }
 });

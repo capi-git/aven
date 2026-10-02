@@ -44,6 +44,7 @@ mod notes;
 mod notifications;
 mod personal_project;
 mod pip_group;
+mod popup_glass;
 mod project_logo;
 mod projectless;
 mod provider_setup;
@@ -308,6 +309,7 @@ pub fn run() {
             usage_panel::usage_panel_ready,
             usage_panel::usage_panel_action,
             usage_panel::usage_panel_close,
+            popup_glass::popup_glass_set,
             browser_agent::browser_agent_bind,
             browser_agent::browser_agent_revoke,
             browser_agent::browser_agent_open_result,

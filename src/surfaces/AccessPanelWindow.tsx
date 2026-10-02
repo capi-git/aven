@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ToolbarPanel, ToolbarPanelHeader } from "../chrome/ToolbarPanel";
 import { AccessPanelContent } from "../chrome/AccessPanel";
+import { afterPopupGlass, usePopupGlass } from "../lib/popupGlass";
 import { nativeAccessPanel, type AccessPanelState } from "../lib/accessPanel";
 import type { RuntimeMode } from "../lib/session";
 
@@ -71,15 +72,20 @@ export function AccessPanelWindow() {
     document.documentElement.classList.add("access-panel-window");
     document.getElementById("boot-splash")?.remove();
   }, [snapshot?.theme.background, snapshot?.theme.mode]);
+  usePopupGlass(snapshot?.theme, state && `${state.openId}:${state.revision}`);
   useLayoutEffect(() => {
     if (!state) return;
     // Reopening waits only for this fresh snapshot to commit, never a new
     // renderer. The host ignores stale acknowledgements and live updates
     // cannot focus a panel that was already visible or has been dismissed.
+    // A glass panel also waits for its native frost.
     const { openId, revision } = state;
-    void nativeAccessPanel.ready(openId, revision).catch(() => {
-      if (current.current?.openId === openId)
-        setError("Could not show access panel.");
+    afterPopupGlass(() => {
+      if (current.current?.openId !== openId) return;
+      void nativeAccessPanel.ready(openId, revision).catch(() => {
+        if (current.current?.openId === openId)
+          setError("Could not show access panel.");
+      });
     });
   }, [state?.openId, state?.revision]);
   if (!state || !snapshot)
