@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { getNoteDraft } from "./noteDrafts";
+import { adoptStoredNote, getNoteDraft } from "./noteDrafts";
 import { upsertNote, type Note, type NoteUpsert } from "./notes";
 import { flushWorkspaceDrafts } from "./workspaceDraftFlush";
 
@@ -151,4 +151,23 @@ it("keeps edits made during a failed deletion available to the next flush", asyn
   expect(draft.getSnapshot().saved.body).toBe(
     "Typed while deletion was pending",
   );
+});
+
+it("lets a clean draft adopt a newer stored note but never overwrites edits", async () => {
+  const draft = getNoteDraft(note);
+  adoptStoredNote({ ...note, title: "Stale", updatedAt: 0 });
+  expect(draft.getSnapshot().title).toBe("Original");
+
+  const newer = { ...note, title: "From disk", body: "Fresh", updatedAt: 2 };
+  adoptStoredNote(newer);
+  expect(draft.getSnapshot()).toMatchObject({
+    title: "From disk",
+    body: "Fresh",
+    saved: newer,
+  });
+
+  vi.mocked(upsertNote).mockReturnValue(new Promise<Note>(() => {}));
+  draft.edit({ body: "Unsaved edit" });
+  adoptStoredNote({ ...note, title: "Later", body: "Later", updatedAt: 3 });
+  expect(draft.getSnapshot().body).toBe("Unsaved edit");
 });

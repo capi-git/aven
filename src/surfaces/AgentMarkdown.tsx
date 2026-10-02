@@ -1,4 +1,3 @@
-import { code } from "@streamdown/code";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import {
   createContext,
@@ -16,16 +15,20 @@ import {
 } from "react";
 import { harden } from "rehype-harden";
 import {
+  Block,
   CodeBlock,
   Streamdown,
   defaultRehypePlugins,
   parseMarkdownIntoBlocks,
   useIsCodeFenceIncomplete,
+  type BlockProps,
   type Components,
 } from "streamdown";
 import type { PluggableList } from "unified";
 import type { Element, ElementContent, Root, RootContent } from "hast";
 import { FileTypeIcon } from "../chrome/FileTypeIcon";
+import { boundedCode } from "./codeHighlightPlugin";
+import { rehypeHardBreaks } from "./hardBreaks";
 import { createLazyMermaidPlugin } from "./mermaidPlugin";
 import { resolveWorkspacePath } from "../lib/paths";
 import {
@@ -58,7 +61,7 @@ const mermaid = createLazyMermaidPlugin({
   },
 });
 
-const MARKDOWN_PLUGINS = { code, mermaid };
+const MARKDOWN_PLUGINS = { code: boundedCode, mermaid };
 
 /** Resolve image-only file references before URL hardening normalizes relative URLs. */
 function localImagePaths({ cwd }: { cwd?: string }) {
@@ -552,6 +555,25 @@ const MARKDOWN_COMPONENTS = {
   img: MarkdownImage,
 } satisfies Components;
 
+/**
+ * With dir="auto" Streamdown wraps each block in
+ * `<div dir="..." style="display: contents">`. WebKit's triple-click then runs
+ * past the block to the end of the reply, because a contents box gives the
+ * selection no block boundary to stop at. Keep the per-block direction but put
+ * it on a real block box; index.css zeroes its margins so spacing still comes
+ * from the block inside it.
+ */
+function DirectionalBlock({ dir, ...props }: BlockProps) {
+  const block = <Block {...props} />;
+  return dir ? (
+    <div dir={dir} className="agent-markdown-block">
+      {block}
+    </div>
+  ) : (
+    block
+  );
+}
+
 export const AgentMarkdown = memo(function AgentMarkdown({
   text,
   streaming,
@@ -559,6 +581,7 @@ export const AgentMarkdown = memo(function AgentMarkdown({
   cwd,
   onOpenFile,
   allowRemoteMedia,
+  hardBreaks,
 }: {
   text: string;
   streaming?: boolean;
@@ -566,26 +589,29 @@ export const AgentMarkdown = memo(function AgentMarkdown({
   cwd?: string;
   onOpenFile?: OpenFileFn;
   allowRemoteMedia?: boolean;
+  /** Show a newline inside a block as a line break, as a document does. */
+  hardBreaks?: boolean;
 }) {
   const fileOpen = useMemo(() => ({ cwd, onOpenFile }), [cwd, onOpenFile]);
   const remoteMedia = !!allowRemoteMedia;
-  const rehypePlugins = useMemo<PluggableList>(
-    () =>
-      remoteMedia
-        ? INBOX_MEDIA_REHYPE_PLUGINS
-        : [
-            defaultRehypePlugins.raw,
-            [localImagePaths, { cwd }],
-            [localFileLinks, { cwd }],
-            ...MARKDOWN_REHYPE_PLUGINS.slice(1),
-            beforeAfterImages,
-          ],
-    [remoteMedia, cwd],
-  );
+  const rehypePlugins = useMemo<PluggableList>(() => {
+    const base: PluggableList = remoteMedia
+      ? INBOX_MEDIA_REHYPE_PLUGINS
+      : [
+          defaultRehypePlugins.raw,
+          [localImagePaths, { cwd }],
+          [localFileLinks, { cwd }],
+          ...MARKDOWN_REHYPE_PLUGINS.slice(1),
+          beforeAfterImages,
+        ];
+    // Hard breaks go last, so nothing after them undoes them.
+    return hardBreaks ? [...base, rehypeHardBreaks] : base;
+  }, [remoteMedia, cwd, hardBreaks]);
   return (
     <RemoteMediaContext.Provider value={remoteMedia}>
       <FileOpenContext.Provider value={fileOpen}>
         <Streamdown
+          BlockComponent={DirectionalBlock}
           className={`agent-markdown min-w-0 font-sans text-sm leading-6 ${className ?? ""}`}
           components={MARKDOWN_COMPONENTS}
           controls={false}
@@ -621,11 +647,13 @@ export const MarkdownPreview = memo(function MarkdownPreview({
   streaming,
   cwd,
   onOpenFile,
+  hardBreaks,
 }: {
   text: string;
   streaming?: boolean;
   cwd?: string;
   onOpenFile?: OpenFileFn;
+  hardBreaks?: boolean;
 }) {
   const scroller = usePreviewScroller();
 
@@ -640,6 +668,7 @@ export const MarkdownPreview = memo(function MarkdownPreview({
           streaming={streaming}
           cwd={cwd}
           onOpenFile={onOpenFile}
+          hardBreaks={hardBreaks}
         />
       </div>
     </div>

@@ -81,6 +81,27 @@ export function workerAgentsByLead(
   return next;
 }
 
+/**
+ * Inbox discussions and orchestration workers have their own panels and never
+ * appear as live agents, so the user cannot look at them to clear "done".
+ */
+export function isLiveAgentSession(
+  session: Pick<Session, "inboxAsk" | "orchestrationLeadId">,
+): boolean {
+  return !session.inboxAsk && !session.orchestrationLeadId;
+}
+
+/**
+ * Whether an unseen finished session should stay loaded until it is looked
+ * at. Sessions the user cannot look at would otherwise stay in memory for good.
+ */
+export function keepsUnseenFinished(
+  session: Pick<Session, "id" | "inboxAsk" | "orchestrationLeadId">,
+  unseenFinishedIds: ReadonlySet<string>,
+): boolean {
+  return isLiveAgentSession(session) && unseenFinishedIds.has(session.id);
+}
+
 export function liveAgentsFromSessions(
   sessions: Session[],
   unseenFinishedIds: ReadonlySet<string> = new Set(),
@@ -95,8 +116,7 @@ export function liveAgentsFromSessions(
   return sessions
     .filter(
       (session) =>
-        !session.inboxAsk &&
-        !session.orchestrationLeadId &&
+        isLiveAgentSession(session) &&
         (hasLiveWork(session, workers.get(session.id)) ||
           unseenFinishedIds.has(session.id)),
     )

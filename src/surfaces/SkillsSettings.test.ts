@@ -392,6 +392,17 @@ describe("Skills & Tools settings", () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
+  it("keeps a skill document's consecutive lines on their own lines", async () => {
+    mocks.readTextFile.mockResolvedValue(
+      "---\nname: review\n---\nFirst step\nSecond step",
+    );
+    await render();
+    await click("/review-changes");
+    expect(
+      document.querySelector('[aria-label="Skill instructions"] p')?.innerHTML,
+    ).toBe("First step<br>Second step");
+  });
+
   it("labels and finds legacy app skills as Aven while preserving their file path", async () => {
     const legacySkill = { ...file, source: "monocode" as const };
     mocks.listSkills.mockResolvedValue([

@@ -142,3 +142,67 @@ for (const [name, hook, read, response] of [
     });
   });
 }
+
+describe("diff stats resume freshness", () => {
+  let cwd: string;
+  let now: number;
+  function Probe({ enabled = true }: { enabled?: boolean }) {
+    useProjectDiffStats(cwd, enabled);
+    return null;
+  }
+  beforeEach(() => {
+    cwd = `/maintenance-${++project}`;
+    now = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+  });
+
+  it("reuses fresh stats on focus and visibility but reloads them once stale", async () => {
+    await act(async () => root.render(createElement(Probe)));
+    expect(mocks.stats).toHaveBeenCalledTimes(1);
+
+    now += 29_000;
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(mocks.stats).toHaveBeenCalledTimes(1);
+
+    now += 1_000;
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    expect(mocks.stats).toHaveBeenCalledTimes(2);
+  });
+
+  it("always reloads when git reports a change", async () => {
+    await act(async () => root.render(createElement(Probe)));
+    await act(async () => {
+      for (const listener of mocks.gitListeners) listener();
+    });
+    expect(mocks.stats).toHaveBeenCalledTimes(2);
+  });
+
+  it("reloads when a panel reopens, since git changes went unwatched while closed", async () => {
+    await act(async () => root.render(createElement(Probe)));
+    await act(async () =>
+      root.render(createElement(Probe, { enabled: false })),
+    );
+    now += 5_000;
+    await act(async () => root.render(createElement(Probe)));
+    expect(mocks.stats).toHaveBeenCalledTimes(2);
+  });
+
+  it("reloads on resume after a git change arrived while hidden", async () => {
+    await act(async () => root.render(createElement(Probe)));
+    hidden = true;
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      for (const listener of mocks.gitListeners) listener();
+    });
+    expect(mocks.stats).toHaveBeenCalledTimes(1);
+    hidden = false;
+    now += 1_000;
+    await act(async () =>
+      document.dispatchEvent(new Event("visibilitychange")),
+    );
+    expect(mocks.stats).toHaveBeenCalledTimes(2);
+  });
+});

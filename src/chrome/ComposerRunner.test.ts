@@ -175,6 +175,31 @@ describe("composer mascot presentation", () => {
     expect(frames.size).toBe(0);
   });
 
+  it("keeps animating through transcript changes without measuring layout each frame", async () => {
+    await render(true);
+    const reads = () => vi.mocked(box.getBoundingClientRect).mock.calls.length;
+    const initial = reads();
+    for (let i = 1; i <= 5; i++) {
+      box.append(document.createElement("span"));
+      await frame(i * 16);
+    }
+    expect(reads()).toBe(initial);
+    const position = x();
+    await frame(100);
+    expect(reads()).toBe(initial + 1);
+    expect(x()).not.toBe(position);
+  });
+
+  it("measures again as soon as a parked workspace returns", async () => {
+    await render(true);
+    await frame(16);
+    await render(false);
+    const reads = vi.mocked(box.getBoundingClientRect).mock.calls.length;
+    now = 40;
+    await render(true);
+    expect(box.getBoundingClientRect).toHaveBeenCalledTimes(reads + 1);
+  });
+
   it("leaves one loop and one star set after Strict Mode setup replay", async () => {
     await render(true, true, true);
     expect(frames.size).toBe(1);

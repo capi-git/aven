@@ -215,6 +215,15 @@ input,
   margin-bottom: 0;
 }
 
+/* AgentMarkdown puts each block's direction on a real block box (not
+   Streamdown's display:contents wrapper) so triple-click stops at the block.
+   The wrapper carries no margin of its own: Streamdown's `space-y-4` on the
+   root would otherwise space every wrapper, including empty ones. Margins on
+   the block inside collapse through the wrapper, so spacing is unchanged. */
+.agent-markdown > .agent-markdown-block {
+  margin: 0;
+}
+
 .agent-markdown [data-streamdown="blockquote"] {
   padding-left: 0;
   padding-inline-start: 1rem;

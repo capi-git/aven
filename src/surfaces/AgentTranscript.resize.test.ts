@@ -204,6 +204,24 @@ describe("transcript reading position across resizes", () => {
     expect(showJump).not.toHaveBeenCalledWith(true);
   });
 
+  it("holds a reader who just left the bottom margin while the last turn grows", async () => {
+    measure(await render(turnBlocks(3)));
+    await scrollTo(1400);
+    await act(async () => {
+      scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -4 }));
+    });
+    await scrollTo(1396);
+    base = (index) => (index === 2 ? 640 : 600);
+    await layout();
+    expect(view.scrollTop).toBe(1396);
+    expect(showJump).toHaveBeenLastCalledWith(true);
+
+    await scrollTo(boxes().total - 400);
+    base = (index) => (index === 2 ? 680 : 600);
+    await layout();
+    expect(view.scrollTop).toBe(boxes().total - 400);
+  });
+
   it("lets an active scrollbar gesture own growth and rewrap before scroll delivery, then resumes anchoring on release", async () => {
     measure(await render(turnBlocks(3)));
     await scrollTo(700);

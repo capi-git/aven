@@ -12,11 +12,16 @@ type Entry = {
   inFlight: boolean;
   pending: boolean;
   epoch: number;
+  /** When stats were last published; 0 means they must be reloaded on resume. */
+  loadedAt: number;
   unsubscribeGit: (() => void) | null;
   onResume: (() => void) | null;
+  onGitChanged: (() => void) | null;
 };
 
 const entries = new Map<string, Entry>();
+/** Focus and visibility changes reuse stats this fresh instead of rerunning git. */
+const RESUME_TTL_MS = 30_000;
 
 function entryFor(cwd: string): Entry {
   const existing = entries.get(cwd);
@@ -28,8 +33,10 @@ function entryFor(cwd: string): Entry {
     inFlight: false,
     pending: false,
     epoch: 0,
+    loadedAt: 0,
     unsubscribeGit: null,
     onResume: null,
+    onGitChanged: null,
   };
   entries.set(cwd, entry);
   return entry;
@@ -48,7 +55,11 @@ function publish(entry: Entry, stats: GitDiffStats | null) {
 }
 
 async function load(entry: Entry) {
-  if (entry.listeners.size === 0 || document.hidden) return;
+  if (entry.listeners.size === 0 || document.hidden) {
+    // A change seen while hidden must be picked up on the next resume.
+    entry.loadedAt = 0;
+    return;
+  }
   if (entry.inFlight) {
     entry.pending = true;
     return;
@@ -57,11 +68,9 @@ async function load(entry: Entry) {
   const epoch = entry.epoch;
   try {
     const stats = await gitDiffStats(entry.cwd);
-    if (epoch === entry.epoch && entry.listeners.size > 0 && !document.hidden)
-      publish(entry, stats);
+    settle(entry, epoch, stats);
   } catch {
-    if (epoch === entry.epoch && entry.listeners.size > 0 && !document.hidden)
-      publish(entry, null);
+    settle(entry, epoch, null);
   } finally {
     entry.inFlight = false;
     if (entry.pending) {
@@ -71,33 +80,56 @@ async function load(entry: Entry) {
   }
 }
 
+function settle(entry: Entry, epoch: number, stats: GitDiffStats | null) {
+  if (epoch !== entry.epoch) return;
+  if (entry.listeners.size === 0 || document.hidden) {
+    entry.loadedAt = 0;
+    return;
+  }
+  entry.loadedAt = Date.now();
+  publish(entry, stats);
+}
+
+function stale(entry: Entry) {
+  return Date.now() - entry.loadedAt >= RESUME_TTL_MS;
+}
+
 /** Push stats from a fuller git index (diff pane) so the title-bar badge cannot lag behind. */
 export function applyProjectDiffStats(cwd: string, stats: GitDiffStats) {
   if (!cwd || cwd === "~") return;
   const entry = entryFor(cwd);
   entry.epoch += 1;
+  entry.loadedAt = Date.now();
   publish(entry, stats);
 }
 
 function start(entry: Entry) {
   if (entry.onResume) return;
-  void load(entry);
+  if (!entry.inFlight && stale(entry)) void load(entry);
+  // Focus and visibility only refresh stale stats; git changes always reload.
   entry.onResume = () => {
+    if (!document.hidden && !entry.inFlight && stale(entry)) void load(entry);
+  };
+  entry.onGitChanged = () => {
     void load(entry);
   };
   window.addEventListener("focus", entry.onResume);
   document.addEventListener("visibilitychange", entry.onResume);
-  entry.unsubscribeGit = subscribeGitChanged(entry.onResume);
+  entry.unsubscribeGit = subscribeGitChanged(entry.onGitChanged);
 }
 
 function stop(entry: Entry) {
   entry.pending = false;
+  // Git changes are not watched while nothing is subscribed, so a reopened
+  // panel must not trust stats from before it closed.
+  entry.loadedAt = 0;
   if (entry.onResume) {
     window.removeEventListener("focus", entry.onResume);
     document.removeEventListener("visibilitychange", entry.onResume);
   }
   entry.unsubscribeGit?.();
   entry.onResume = null;
+  entry.onGitChanged = null;
   entry.unsubscribeGit = null;
 }
 

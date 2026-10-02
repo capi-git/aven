@@ -543,6 +543,7 @@ function SkillInspector({
               openInAppFile(path, navigation);
               onClose();
             }}
+            hardBreaks
           />
         </section>
       )}

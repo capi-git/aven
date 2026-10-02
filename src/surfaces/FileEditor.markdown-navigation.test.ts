@@ -11,8 +11,18 @@ vi.mock("../lib/fs", async (original) => ({
 }));
 vi.mock("../lib/fileWatch", () => ({ watchFile: () => () => {} }));
 vi.mock("./AgentMarkdown", () => ({
-  MarkdownPreview: ({ text }: { text: string }) =>
-    createElement("article", null, text),
+  MarkdownPreview: ({
+    text,
+    hardBreaks,
+  }: {
+    text: string;
+    hardBreaks?: boolean;
+  }) =>
+    createElement(
+      "article",
+      { "data-hard-breaks": hardBreaks ? "true" : undefined },
+      text,
+    ),
 }));
 vi.mock("./editorChrome", async (original) => ({
   ...(await original<typeof import("./editorChrome")>()),
@@ -75,6 +85,8 @@ describe("Markdown file navigation", () => {
   it("keeps ordinary Markdown opens in Preview", async () => {
     await render("/project/default-preview.md");
     expect(selected()).toBe("Preview");
+    // A document keeps each written line on its own line.
+    expect(host.querySelector("article")?.dataset.hardBreaks).toBe("true");
   });
 
   it("shows Source for an explicit location and honors the line and column", async () => {

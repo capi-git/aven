@@ -32,6 +32,8 @@ import {
   stunShake,
   stunStars,
   type Coin,
+  type Obstacle,
+  type RunnerTrack,
 } from "../lib/composerRunner";
 import { projectKey, projectName } from "../lib/paths";
 import {
@@ -58,6 +60,7 @@ type LiveCoin = Coin & {
 
 const COIN_SVG = `<svg viewBox="0 0 8 8" width="${COIN_SIZE}" height="${COIN_SIZE}" shape-rendering="crispEdges" fill="#e8b923" aria-hidden="true"><path class="composer-coin-face" d="${COIN_FACE_PATH}"/><path class="composer-coin-edge" d="${COIN_EDGE_PATH}"/></svg>`;
 const STAR_SVG = `<svg viewBox="0 0 8 8" width="${STAR_SIZE}" height="${STAR_SIZE}" shape-rendering="crispEdges" fill="#f4e27a" aria-hidden="true"><path class="composer-coin-face" d="${STAR_FACE_PATH}"/><path class="composer-coin-edge" d="${STAR_EDGE_PATH}"/></svg>`;
+const GEOMETRY_SAMPLE_MS = 100;
 
 /** Project pixel mascot running the composer's top ledge while a turn is live. */
 export function ComposerRunner({
@@ -116,6 +119,10 @@ export function ComposerRunner({
     let stunAt = 0;
     let hitAlong = 0;
     let hitFacing: 1 | -1 = 1;
+    let geometryAt = -Infinity;
+    let geometryBox: HTMLElement | null = null;
+    let cachedTrack: RunnerTrack | null = null;
+    let cachedObstacle: Obstacle | null = null;
     const coins: LiveCoin[] = [];
     const reduced = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
@@ -227,14 +234,35 @@ export function ComposerRunner({
         return;
       }
 
-      const shell = box.closest("[data-composer]");
-      const review = shell?.querySelector("[data-session-review]");
-      const queue = shell?.querySelector("[data-message-queue-card]");
-      const ledge = review ?? queue;
-      const track = runnerTrack(
-        box.getBoundingClientRect(),
-        ledge?.getBoundingClientRect() ?? null,
-      );
+      // Reading layout every animation frame forces WebKit to flush changes
+      // when a new transcript block arrives. The runner can animate from the
+      // last measured track while geometry is refreshed at a lower rate.
+      if (box !== geometryBox || now - geometryAt >= GEOMETRY_SAMPLE_MS) {
+        const shell = box.closest("[data-composer]");
+        const review = shell?.querySelector("[data-session-review]");
+        const queue = shell?.querySelector("[data-message-queue-card]");
+        const ledge = review ?? queue;
+        cachedTrack = runnerTrack(
+          box.getBoundingClientRect(),
+          ledge?.getBoundingClientRect() ?? null,
+        );
+        const pane = box.closest("[data-session-drop]");
+        const button = pane?.querySelector("[data-jump-to-bottom]");
+        cachedObstacle = obstacleFromRects(
+          {
+            left: cachedTrack.left,
+            right: cachedTrack.left + cachedTrack.width,
+            top: cachedTrack.top,
+            bottom: cachedTrack.top + 8,
+            width: cachedTrack.width,
+          },
+          button?.getBoundingClientRect() ?? null,
+        );
+        geometryBox = box;
+        geometryAt = now;
+      }
+      const track = cachedTrack;
+      if (!track) return;
       if (track.width <= 0) {
         showLayer(false);
         return;
@@ -297,18 +325,7 @@ export function ComposerRunner({
         return;
       }
 
-      const pane = box.closest("[data-session-drop]");
-      const button = pane?.querySelector("[data-jump-to-bottom]");
-      const obstacle = obstacleFromRects(
-        {
-          left: track.left,
-          right: track.left + track.width,
-          top: track.top,
-          bottom: track.top + 8,
-          width: track.width,
-        },
-        button?.getBoundingClientRect() ?? null,
-      );
+      const obstacle = cachedObstacle;
       if (stunning) {
         along = recoilAlong(hitAlong, hitFacing, now - stunAt, insetTrack);
         facing = hitFacing;
@@ -440,6 +457,8 @@ export function ComposerRunner({
       // Retain the current run rather than recreating it when its workspace
       // returns. Hidden time must not advance the mascot across the track.
       last = performance.now();
+      // Layout may have changed while parked, so measure on the first frame.
+      geometryAt = -Infinity;
       apply(last);
       if (canAnimate()) raf = requestAnimationFrame(tick);
     };

@@ -485,6 +485,7 @@ import { syncDockBadge } from "./lib/dockBadge";
 import {
   backgroundWorkerIdsForStop,
   isCurrentSessionAgentSource,
+  keepsUnseenFinished,
   liveAgentsFromSessions,
   workerAgentsByLead,
 } from "./lib/liveAgents";
@@ -2531,7 +2532,9 @@ export default function App({
         !visibleIds.has(session.id) &&
         !isInFlightSession(session) &&
         !uncertainSessionAgents(session).length &&
-        !(keepUnseen && unseenFinishedRef.current.has(session.id)),
+        !(
+          keepUnseen && keepsUnseenFinished(session, unseenFinishedRef.current)
+        ),
     );
     if (idleDetached.length === 0) return;
     for (const session of idleDetached) {
@@ -2547,7 +2550,8 @@ export default function App({
           visibleIds.has(session.id) ||
           isInFlightSession(session) ||
           uncertainSessionAgents(session).length > 0 ||
-          (keepUnseen && unseenFinishedRef.current.has(session.id)) ||
+          (keepUnseen &&
+            keepsUnseenFinished(session, unseenFinishedRef.current)) ||
           skipForgetSessionIds.current.has(session.id),
       ),
     );
