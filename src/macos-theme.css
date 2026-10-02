@@ -175,6 +175,19 @@ html:not(.theme-light)
   backdrop-filter: var(--aven-glass-blur);
 }
 
+/* The native Mac window supplies the glass behind these bottom surfaces.
+   A second WebKit backdrop pass here can flicker as the composer repaints.
+   Keep the translucent tints, edges and focus feedback without that pass. */
+html.is-mac
+  :is(.personal-shell, .detached-workspace)
+  .personal-composer
+  [data-composer-box],
+html.is-mac :is(.personal-shell, .detached-workspace) .session-run-status,
+html.is-mac :is(.personal-shell, .detached-workspace) .workspace-footer {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 /* Expanded tool cards already own the frost; their code and tables only
    add a tint, rather than a second filter over the scrolling transcript. */
 html:not(.theme-light)

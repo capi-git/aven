@@ -28,10 +28,9 @@
   animation: aven-model-provider-enter 200ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Effort tiles, ported from MonoCode 43aac9d2 and 1e97594d. The strongest
-   reasoning levels shimmer with a field of tiles that ripple out from the
-   centre, then clear; a masked inset glow pulses at the row's soft edges.
-   MonoCode's colours: purple for Ultra, gold for Max. */
+/* Effort tiles, ported from MonoCode 43aac9d2 and 1e97594d. Highlighted
+   reasoning levels ripple out from the centre, then settle. Standard levels
+   have distinct colours; keep the original purple Ultra and gold Max. */
 .model-effort-option {
   position: relative;
   isolation: isolate;
@@ -39,6 +38,18 @@
 }
 .model-effort-option[data-effort-tone="ultra"] {
   --model-effort-color: #a855f7;
+}
+.model-effort-option[data-effort-tone="low"] {
+  --model-effort-color: #53c69a;
+}
+.model-effort-option[data-effort-tone="medium"] {
+  --model-effort-color: #5ca8f4;
+}
+.model-effort-option[data-effort-tone="high"] {
+  --model-effort-color: #f08a58;
+}
+.model-effort-option[data-effort-tone="xhigh"] {
+  --model-effort-color: #ef6fa9;
 }
 .model-effort-option[data-effort-tone="max"] {
   --model-effort-color: #f4b942;
