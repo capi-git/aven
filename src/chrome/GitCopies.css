@@ -165,6 +165,41 @@
   margin-top: 6px;
   color: var(--color-danger, #ff6b6b);
 }
+/* Collapsed row holding copies whose changes are already on main. */
+.git-copies-group {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 8px;
+  padding: 4px 6px 4px 8px;
+  border-radius: 9px;
+}
+.git-copies-group:hover {
+  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+}
+.git-copies-group .git-copy-head {
+  flex: 1;
+  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+}
+.git-copies-group .git-copy-name {
+  font-weight: 500;
+}
+.git-copies-group .git-copy-action {
+  height: 20px;
+  margin-top: 0;
+}
+.git-copies-cleanup {
+  margin: 0 16px 6px;
+  font-size: 11.5px;
+}
+.git-copies-cleanup > p {
+  margin: 0 0 4px;
+  color: color-mix(in srgb, var(--color-content) 70%, transparent);
+}
+.git-copies-cleanup .git-copy-error {
+  margin: 0 0 4px;
+}
 
 /* Status card shown instead of the commit box when nothing is uncommitted. */
 .git-status-card {

@@ -98,6 +98,11 @@ export type GitWorktree = {
   aheadOfDefault: number;
   /** Default-branch commits this checkout does not have yet. */
   behindDefault: number;
+  /**
+   * No uncommitted files, and merging this checkout into the default branch
+   * would change nothing, even when a squash merge left different commits.
+   */
+  mergedIntoDefault: boolean;
 };
 
 /** Every checkout of the repository containing `cwd`, with its uncommitted work. */

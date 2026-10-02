@@ -258,6 +258,10 @@ pub struct GitWorktree {
     pub ahead_of_default: i64,
     /// Default-branch commits this checkout does not have yet.
     pub behind_default: i64,
+    /// No uncommitted files, and merging this checkout into the default
+    /// branch would change nothing. True after a squash merge too, when the
+    /// commits themselves differ from the default branch's.
+    pub merged_into_default: bool,
 }
 
 /// Every checkout of the repository containing `cwd`, with its uncommitted
@@ -281,6 +285,9 @@ pub(crate) fn git_worktrees_for(root: &Path) -> Vec<GitWorktree> {
         }
         _ => branch,
     });
+    let base_tree = base
+        .as_deref()
+        .and_then(|base| git_stdout(root, &["rev-parse", &format!("{base}^{{tree}}")]));
     parse_worktree_list(&text)
         .into_iter()
         .enumerate()
@@ -294,6 +301,15 @@ pub(crate) fn git_worktrees_for(root: &Path) -> Vec<GitWorktree> {
                 .as_deref()
                 .map(|base| git_ahead_behind(&dir, base))
                 .unwrap_or((0, 0));
+            let merged_into_default = changes.files.is_empty()
+                && match (base.as_deref(), base_tree.as_deref()) {
+                    (Some(_), _) if ahead_of_default == 0 => true,
+                    (Some(base), Some(tree)) => {
+                        git_merges_cleanly_into(&dir, base, tree)
+                            || git_landed_as_one_commit(&dir, base)
+                    }
+                    _ => false,
+                };
             Some(GitWorktree {
                 current: current
                     .as_deref()
@@ -306,8 +322,89 @@ pub(crate) fn git_worktrees_for(root: &Path) -> Vec<GitWorktree> {
                 deletions: changes.deletions,
                 ahead_of_default,
                 behind_default,
+                merged_into_default,
             })
         })
+        .collect()
+}
+
+/// Whether merging `HEAD` of `dir` into `base` would leave `base_tree`
+/// unchanged, i.e. its changes already landed, e.g. through a squash merge.
+/// A failed or conflicting merge counts as not merged.
+fn git_merges_cleanly_into(dir: &Path, base: &str, base_tree: &str) -> bool {
+    git_stdout(dir, &["merge-tree", "--write-tree", base, "HEAD"])
+        .is_some_and(|text| text.lines().next() == Some(base_tree))
+}
+
+/// Commits on `base` searched for a squash of this copy's work.
+const SQUASH_SEARCH_LIMIT: &str = "--max-count=400";
+
+/// Whether this copy's combined changes landed on `base` as one commit, as a
+/// squash-merged pull request does. Later commits that change the same lines
+/// make the merge-tree check conflict, but the squash commit's patch id still
+/// matches the copy's combined diff.
+fn git_landed_as_one_commit(dir: &Path, base: &str) -> bool {
+    let Some(fork) = git_stdout(dir, &["merge-base", base, "HEAD"]) else {
+        return false;
+    };
+    let Some(diff) = git_output(dir, &["diff", "--binary", &fork, "HEAD"]) else {
+        return false;
+    };
+    let Some(copy_id) = git_patch_ids(dir, &diff).into_iter().next() else {
+        return false;
+    };
+    let range = format!("{fork}..{base}");
+    let Some(log) = git_output(
+        dir,
+        &[
+            "log",
+            "-p",
+            "--binary",
+            "--no-merges",
+            SQUASH_SEARCH_LIMIT,
+            "--format=commit %H",
+            &range,
+        ],
+    ) else {
+        return false;
+    };
+    git_patch_ids(dir, &log).contains(&copy_id)
+}
+
+/// Stable patch ids for each patch in `input`, in order.
+fn git_patch_ids(dir: &Path, input: &[u8]) -> Vec<String> {
+    if input.is_empty() {
+        return Vec::new();
+    }
+    let Ok(mut child) = git_cmd()
+        .arg("-C")
+        .arg(dir)
+        .args(["patch-id", "--stable"])
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return Vec::new();
+    };
+    // Feed stdin from a thread so a large patch can't deadlock on a full pipe.
+    let writer = child.stdin.take().map(|mut stdin| {
+        let input = input.to_vec();
+        std::thread::spawn(move || {
+            let _ = stdin.write_all(&input);
+        })
+    });
+    let output = child.wait_with_output();
+    if let Some(writer) = writer {
+        let _ = writer.join();
+    }
+    let Ok(output) = output else {
+        return Vec::new();
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.split_whitespace().next().map(str::to_string))
         .collect()
 }
 
@@ -4562,6 +4659,101 @@ mod tests {
         assert_eq!(
             (copies[1].ahead_of_default, copies[1].behind_default),
             (0, 0)
+        );
+    }
+
+    #[test]
+    fn detects_copies_whose_changes_already_landed_on_main() {
+        let dir = tmp("git-worktrees-merged");
+        let repo = dir.0.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        assert!(init_git_commit(&repo, &[("a.txt", "one\n")]));
+        let add = |name: &str| {
+            let copy = dir.0.join(name);
+            assert!(git(
+                &repo,
+                &["worktree", "add", "-q", "-b", name, copy.to_str().unwrap()]
+            ));
+            copy
+        };
+        let commit = |copy: &Path, file: &str, text: &str| {
+            std::fs::write(copy.join(file), text).unwrap();
+            assert!(git(copy, &["add", "."]));
+            assert!(git(copy, &["commit", "-q", "-m", file]));
+        };
+
+        let idle = add("idle");
+        let plain = add("plain");
+        commit(&plain, "plain.txt", "plain\n");
+        assert!(git(
+            &repo,
+            &["merge", "-q", "--no-ff", "-m", "merge", "plain"]
+        ));
+
+        let squash = add("squash");
+        commit(&squash, "s1.txt", "first\n");
+        commit(&squash, "s2.txt", "second\n");
+        assert!(git(&repo, &["merge", "-q", "--squash", "squash"]));
+        assert!(git(&repo, &["commit", "-q", "-m", "squash"]));
+
+        let partial = add("partial");
+        commit(&partial, "p1.txt", "kept\n");
+        let first = git_stdout(&partial, &["rev-parse", "HEAD"]).unwrap();
+        commit(&partial, "p2.txt", "left out\n");
+        commit(&repo, "between.txt", "between\n");
+        assert!(git(&repo, &["cherry-pick", &first]));
+
+        let conflict = add("conflict");
+        commit(&conflict, "a.txt", "copy\n");
+        commit(&repo, "a.txt", "main\n");
+
+        // Squash-merged, then main edits the same lines again: merging the
+        // copy now conflicts, but its work landed as the squash commit.
+        let reworked = add("reworked");
+        commit(&reworked, "r.txt", "copy line\n");
+        commit(&reworked, "r2.txt", "second file\n");
+        assert!(git(&repo, &["merge", "-q", "--squash", "reworked"]));
+        assert!(git(&repo, &["commit", "-q", "-m", "squash reworked"]));
+        commit(&repo, "r.txt", "main rewrote it\n");
+
+        // A squash-merged checkout with an unsaved file still holds work.
+        let dirty = dir.0.join("dirty");
+        assert!(git(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "--detach",
+                dirty.to_str().unwrap(),
+                "squash"
+            ]
+        ));
+        std::fs::write(dirty.join("draft.txt"), "draft\n").unwrap();
+        // Main moves on after the squash merge; that alone changes nothing.
+        commit(&repo, "later.txt", "later\n");
+
+        let copies = git_worktrees_for(&repo);
+        let state = |path: &Path| {
+            let copy = copies
+                .iter()
+                .find(|copy| same_entry(Path::new(&copy.path), path))
+                .unwrap();
+            (copy.ahead_of_default, copy.merged_into_default)
+        };
+        assert_eq!(state(&repo), (0, true));
+        assert_eq!(state(&idle), (0, true));
+        assert_eq!(state(&plain), (0, true));
+        assert_eq!(state(&squash), (2, true));
+        assert_eq!(state(&partial), (2, false));
+        assert_eq!(state(&conflict), (1, false));
+        assert_eq!(state(&dirty), (2, false));
+        assert_eq!(state(&reworked), (2, true));
+        // Checking never moves a branch or touches a checkout.
+        assert!(git_diff_files_for(&squash).files.is_empty());
+        assert_eq!(
+            git_stdout(&repo, &["symbolic-ref", "--short", "HEAD"]).as_deref(),
+            Some("main")
         );
     }
 
