@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.1.118] - 2026-10-03
+
+### Clearer agent status and tabs
+
+- Show a clear message when Claude unexpectedly interrupts or cancels a turn, instead of marking it Finished. Preserve explicit user stops, background agents, and the conversation when continuing.
 - Shorten tab fills so a tab group's coloured underline sits below the fill instead of cutting into it.
 
 ## [0.1.117] - 2026-10-02
