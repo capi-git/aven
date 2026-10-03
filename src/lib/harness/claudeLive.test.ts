@@ -188,6 +188,160 @@ describe("turn boundaries", () => {
   });
 });
 
+describe("claude interrupted turns", () => {
+  it.each(["aborted_tools", "aborted_streaming"])(
+    "reports %s once and settles without killing the conversation",
+    async (terminalReason) => {
+      const { events, turn } = await startTurn("s1");
+      const result = {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        terminal_reason: terminalReason,
+        session_id: "sess_1",
+      };
+      emit(result);
+      emit(result);
+      await turn;
+
+      const errors = events.filter((event) => event.type === "session.error");
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toMatchObject({
+        message: expect.stringMatching(/interrupt|stopped/i),
+      });
+      expect(events.some((event) => event.type === "message.completed")).toBe(
+        true,
+      );
+      expect(killed).toEqual([]);
+
+      const nextEvents: HarnessEvent[] = [];
+      const next = sendClaudeTurn({
+        sessionId: "s1",
+        cwd: "/repo",
+        model: "claude:claude-sonnet-5",
+        modelSettings: {},
+        runtimeMode: "supervised",
+        text: "continue",
+        attachments: [],
+        onEvent: (event) => nextEvents.push(event),
+      });
+      await waitFor(
+        () => parse().filter((m) => m.type === "user").length === 2,
+        "continuation prompt",
+      );
+      emit({ type: "result", subtype: "success", session_id: "sess_1" });
+      await next;
+      expect(spawned).toHaveLength(1);
+      expect(nextEvents.some((event) => event.type === "session.error")).toBe(
+        false,
+      );
+    },
+  );
+
+  it("reports an unsolicited cancelled result", async () => {
+    const { events, turn } = await startTurn("s1");
+    emit({
+      type: "result",
+      subtype: "error_during_execution",
+      errors: ["Request cancelled"],
+      session_id: "sess_1",
+    });
+    await turn;
+    expect(events.filter((event) => event.type === "session.error")).toEqual([
+      { type: "session.error", message: expect.stringMatching(/cancelled/i) },
+    ]);
+    expect(killed).toEqual([]);
+  });
+
+  it("keeps an explicit Stop quiet when Claude sends its late abort result", async () => {
+    const { events, turn } = await startTurn("s1");
+    await cancelClaudeTurn("s1");
+    await turn;
+    emit({
+      type: "result",
+      subtype: "error_during_execution",
+      terminal_reason: "aborted_streaming",
+      errors: ["Interrupted by user"],
+      session_id: "sess_1",
+    });
+    expect(events.some((event) => event.type === "session.error")).toBe(false);
+    expect(killed).toEqual([]);
+  });
+
+  it("ignores a late interruption after a completed turn", async () => {
+    const { events, turn } = await startTurn("s1");
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+    emit({
+      type: "result",
+      subtype: "success",
+      terminal_reason: "aborted_tools",
+      session_id: "sess_1",
+    });
+    expect(events.some((event) => event.type === "session.error")).toBe(false);
+  });
+
+  it("does not fail or settle the parent on a subagent interruption", async () => {
+    const { events, turn } = await startTurn("s1");
+    let done = false;
+    void turn.then(() => (done = true));
+    emit({
+      type: "result",
+      subtype: "error_during_execution",
+      terminal_reason: "aborted_tools",
+      parent_tool_use_id: "toolu_agent",
+      session_id: "sess_1",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(done).toBe(false);
+    expect(events.some((event) => event.type === "session.error")).toBe(false);
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+  });
+
+  it("discards a background interruption when the queued prompt starts", async () => {
+    echoPrompts = false;
+    const { events, turn } = await startTurn("s1");
+    const prompt = parse().find((m) => m.type === "user")!;
+    emit({
+      type: "result",
+      subtype: "success",
+      terminal_reason: "aborted_streaming",
+      session_id: "sess_1",
+    });
+    expect(events.some((event) => event.type === "session.error")).toBe(false);
+    emit({ ...prompt, isReplay: true });
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+    expect(events.some((event) => event.type === "session.error")).toBe(false);
+  });
+
+  it("reports interruption through the older CLI's missing-echo fallback", async () => {
+    echoPrompts = false;
+    const { events, turn } = await startTurn("s1");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      emit({
+        type: "result",
+        subtype: "success",
+        terminal_reason: "aborted_streaming",
+        session_id: "sess_1",
+      });
+      expect(events.some((event) => event.type === "session.error")).toBe(
+        false,
+      );
+      await vi.advanceTimersByTimeAsync(5_000);
+    } finally {
+      vi.useRealTimers();
+    }
+    await turn;
+    expect(
+      events.filter((event) => event.type === "session.error"),
+    ).toHaveLength(1);
+    expect(killed).toEqual([]);
+  });
+});
+
 describe("claude access changes", () => {
   it("relaunches with the selected permissions while preserving the conversation", async () => {
     const modes: Array<[RuntimeMode, string]> = [
