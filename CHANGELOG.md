@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Shorten tab fills so a tab group's coloured underline sits below the fill instead of cutting into it.
+
 ## [0.1.117] - 2026-10-02
 
 ### Smoother glass and model controls

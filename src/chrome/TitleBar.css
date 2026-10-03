@@ -46,8 +46,8 @@ html.theme-light .personal-shell {
 }
 .personal-shell .personal-title-tab-button {
   align-self: center;
-  height: 30px;
-  min-height: 30px;
+  height: 26px;
+  min-height: 26px;
   gap: 6px;
   padding-inline: 8px 10px;
   border: 0;
@@ -472,7 +472,7 @@ html.theme-light .personal-shell {
   left: 0;
   /* Reach across the 2px strip gap to the next member. */
   right: -2px;
-  bottom: 2px;
+  bottom: 0;
   height: 2px;
   border-radius: 1px;
   background: var(--tab-group-color);
