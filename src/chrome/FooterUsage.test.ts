@@ -86,16 +86,21 @@ const button = (label: RegExp) => {
 };
 
 describe("footer usage", () => {
-  it("summarizes the open task's account with used share and reset time", async () => {
-    await render({ providers: ["codex", "claude"], primary: "claude" });
+  it("shows Claude and Codex side by side in a fixed order", async () => {
+    await render({ providers: ["codex", "claude"] });
     expect(api.claude).toHaveBeenCalledOnce();
-    // Other accounts wait until the details are opened.
-    expect(api.codex).not.toHaveBeenCalled();
-    expect(container.textContent).toContain("2% 3h 57m · 15% 4d 17h");
+    expect(api.codex).toHaveBeenCalledOnce();
+    const accounts = [
+      ...container.querySelectorAll(".footer-usage-account"),
+    ].map((node) => node.textContent);
+    expect(accounts).toEqual(["2% 3h 57m · 15% 4d 17h", "4%"]);
+    expect(button(/Show usage details/).getAttribute("aria-label")).toBe(
+      "Claude Code usage 2% 3h 57m, 15% 4d 17h · Codex usage 4%. Show usage details",
+    );
   });
 
-  it("loads every account for the details panel and refreshes on demand", async () => {
-    await render({ providers: ["codex", "claude"], primary: "claude" });
+  it("opens the details panel and refreshes every account on demand", async () => {
+    await render({ providers: ["codex", "claude"] });
     await act(async () => button(/Show usage details/).click());
     await act(async () => {
       for (let i = 0; i < 5; i++) await Promise.resolve();
@@ -103,9 +108,9 @@ describe("footer usage", () => {
     expect(
       container.querySelector('[aria-label="Task and provider usage"]'),
     ).not.toBeNull();
-    expect(api.codex).toHaveBeenCalledOnce();
-    // A fresh snapshot is reused; the refresh button forces a reload.
+    // Fresh snapshots are reused; the refresh button forces a reload.
     expect(api.claude).toHaveBeenCalledOnce();
+    expect(api.codex).toHaveBeenCalledOnce();
     await act(async () => button(/^Refresh usage$/).click());
     await act(async () => {
       for (let i = 0; i < 5; i++) await Promise.resolve();
@@ -117,7 +122,6 @@ describe("footer usage", () => {
   it("shows the task context beside the account usage", async () => {
     await render({
       providers: ["claude"],
-      primary: "claude",
       context: { used: 50_000, window: 200_000 },
     });
     expect(container.textContent).toContain("Context 25%");
@@ -126,7 +130,7 @@ describe("footer usage", () => {
     );
   });
 
-  it("summarizes the first account that reports usage when no task is open", async () => {
+  it("leaves out an account that is not installed or signed in", async () => {
     api.codex.mockResolvedValueOnce({
       provider: "codex",
       session: null,
@@ -135,24 +139,23 @@ describe("footer usage", () => {
       error: "Codex CLI not found",
       status: "unavailable",
     });
-    await render({ providers: ["codex", "claude"], primary: null });
-    expect(api.codex).toHaveBeenCalledOnce();
-    expect(api.claude).toHaveBeenCalledOnce();
+    await render({ providers: ["codex", "claude"] });
+    expect(container.querySelectorAll(".footer-usage-account")).toHaveLength(1);
     expect(container.textContent).toContain("2% 3h 57m · 15% 4d 17h");
   });
 
   it("does not start a provider check while the window is hidden", async () => {
     hidden = true;
-    await render({ providers: ["codex"], primary: "codex" });
+    await render({ providers: ["codex"] });
     expect(api.codex).not.toHaveBeenCalled();
     expect(container.textContent).toContain("Checking usage…");
   });
 
   it("keeps an error out of the way and renders nothing without data", async () => {
     api.claude.mockRejectedValueOnce(new Error("offline"));
-    await render({ providers: ["claude"], primary: "claude" });
+    await render({ providers: ["claude"] });
     expect(container.textContent).toContain("Usage unavailable");
-    await render({ providers: [], primary: null, context: null });
+    await render({ providers: [], context: null });
     expect(container.textContent).toBe("");
   });
 });

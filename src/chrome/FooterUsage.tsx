@@ -18,11 +18,8 @@ import { UsagePanelContent } from "./UsagePanel";
 import "./FooterUsage.css";
 
 export type FooterUsageProps = {
-  /** Accounts that can report usage; the panel lists each of them. */
+  /** Accounts that can report usage; the footer and panel show each one. */
   providers: readonly RateLimitProvider[];
-  /** The open task's account. Without one, the first account that reports
-   *  usage is summarized. */
-  primary: RateLimitProvider | null;
   /** The open task's reported context, if any. */
   context?: { used: number; window?: number | null } | null;
 };
@@ -57,21 +54,19 @@ function validContext(context: FooterUsageProps["context"]) {
   return { used: context.used, window };
 }
 
+/** A fixed order, so the footer does not reshuffle as tasks change. */
+const FOOTER_ORDER: readonly RateLimitProvider[] = ["claude", "codex"];
+
+function meterFill(limits: ProviderRateLimits) {
+  const window = limits.session ?? limits.monthly ?? limits.weekly;
+  return window
+    ? Math.round(Math.min(100, Math.max(0, window.usedPercent)))
+    : null;
+}
+
 /** Account usage in the footer: one quiet line, with details on click. */
-export function FooterUsage({ providers, primary, context }: FooterUsageProps) {
-  const watched = useMemo(
-    () => (primary ? [primary] : providers),
-    [primary, providers],
-  );
-  const { limits, request } = useProviderUsage(watched);
-  const shown =
-    primary ??
-    providers.find((provider) => {
-      const known = limits[provider];
-      return !!(known?.session || known?.weekly || known?.monthly);
-    }) ??
-    providers[0] ??
-    null;
+export function FooterUsage({ providers, context }: FooterUsageProps) {
+  const { limits, request } = useProviderUsage(providers);
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
   const [now, setNow] = useState(Date.now);
@@ -101,11 +96,13 @@ export function FooterUsage({ providers, primary, context }: FooterUsageProps) {
     [taskContext?.used, taskContext?.window, limits, providers, theme],
   );
 
-  const current = shown ? (limits[shown] ?? idleRateLimits(shown)) : null;
-  const windowUsed = current?.session ?? current?.monthly ?? current?.weekly;
-  const fill = windowUsed
-    ? Math.round(Math.min(100, Math.max(0, windowUsed.usedPercent)))
-    : null;
+  // An account that is not installed or signed in stays out of the footer;
+  // the details panel still explains it.
+  const accounts = FOOTER_ORDER.filter((provider) =>
+    providers.includes(provider),
+  )
+    .map((provider) => limits[provider] ?? idleRateLimits(provider))
+    .filter((account) => account.status !== "unavailable");
   const contextShare = contextPercent(taskContext ?? undefined);
   const contextLabel = taskContext
     ? contextShare != null
@@ -115,13 +112,13 @@ export function FooterUsage({ providers, primary, context }: FooterUsageProps) {
   const refreshing = providers.some(
     (provider) => limits[provider]?.status === "fetching",
   );
-  if (!current && !contextLabel) return null;
-  const parts = current ? summary(current, now) : [];
+  if (!accounts.length && !contextLabel) return null;
   const label = [
     contextLabel ? `Context ${contextLabel}` : null,
-    current
-      ? `${HARNESS_TITLE[current.provider]} usage ${parts.join(", ")}`
-      : null,
+    ...accounts.map(
+      (account) =>
+        `${HARNESS_TITLE[account.provider]} usage ${summary(account, now).join(", ")}`,
+    ),
   ]
     .filter(Boolean)
     .join(" · ");
@@ -143,34 +140,37 @@ export function FooterUsage({ providers, primary, context }: FooterUsageProps) {
             <span className="footer-usage-muted">Context</span> {contextLabel}
           </span>
         ) : null}
-        {contextLabel && current ? (
-          <span className="footer-usage-divider" aria-hidden />
-        ) : null}
-        {current ? (
-          <>
-            <ProviderMarks harnesses={[current.provider]} />
-            <span
-              className="footer-usage-meter"
-              data-unknown={fill == null || undefined}
-              data-high={(fill != null && fill >= 80) || undefined}
-              aria-hidden
-            >
-              <span style={{ width: `${Math.max(fill ?? 0, 4)}%` }} />
+        {accounts.map((account, index) => {
+          const fill = meterFill(account);
+          return (
+            <span className="footer-usage-account" key={account.provider}>
+              {index > 0 || contextLabel ? (
+                <span className="footer-usage-divider" aria-hidden />
+              ) : null}
+              <ProviderMarks harnesses={[account.provider]} />
+              <span
+                className="footer-usage-meter"
+                data-unknown={fill == null || undefined}
+                data-high={(fill != null && fill >= 80) || undefined}
+                aria-hidden
+              >
+                <span style={{ width: `${Math.max(fill ?? 0, 4)}%` }} />
+              </span>
+              <span className="footer-usage-windows">
+                {summary(account, now).map((part, partIndex) => (
+                  <span key={partIndex} className="footer-usage-part">
+                    {partIndex > 0 ? (
+                      <span className="footer-usage-muted"> · </span>
+                    ) : null}
+                    {part}
+                  </span>
+                ))}
+              </span>
             </span>
-            <span className="footer-usage-windows">
-              {parts.map((part, index) => (
-                <span key={index}>
-                  {index > 0 ? (
-                    <span className="footer-usage-muted"> · </span>
-                  ) : null}
-                  {part}
-                </span>
-              ))}
-            </span>
-          </>
-        ) : null}
+          );
+        })}
       </button>
-      {current ? (
+      {accounts.length ? (
         <button
           type="button"
           className="footer-usage-refresh"
@@ -179,8 +179,7 @@ export function FooterUsage({ providers, primary, context }: FooterUsageProps) {
           disabled={refreshing}
           data-spinning={refreshing || undefined}
           onClick={() => {
-            for (const provider of open ? providers : [current.provider])
-              void request(provider, true);
+            for (const provider of providers) void request(provider, true);
           }}
         >
           <RefreshCw size={11} aria-hidden />

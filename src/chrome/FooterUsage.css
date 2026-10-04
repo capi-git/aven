@@ -1,10 +1,8 @@
 .footer-usage {
   display: flex;
   align-items: center;
-  flex: 0 1 auto;
-  /* Never clip the account mark or the refresh button. */
-  min-width: 64px;
-  overflow: hidden;
+  /* Sized by the width steps below rather than squeezed mid-number. */
+  flex: 0 0 auto;
   gap: 2px;
   margin-left: auto;
 }
@@ -34,6 +32,17 @@
   background: color-mix(in srgb, var(--color-content) 8%, transparent);
 }
 
+.footer-usage-account {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.footer-usage-account .footer-usage-divider {
+  margin-right: 2px;
+}
+
 .footer-usage-muted {
   color: color-mix(in srgb, var(--color-content) 50%, transparent);
 }
@@ -44,10 +53,10 @@
   background: color-mix(in srgb, var(--color-content) 14%, transparent);
 }
 
+/* Whole readings or nothing: the footer drops parts instead of cutting a
+   number in half. */
 .footer-usage-windows {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex-shrink: 0;
 }
 
 .footer-usage-meter {
@@ -115,16 +124,35 @@
   }
 }
 
-/* Narrow panes keep the mark and meter; details stay one click away. */
-@container workspace-footer (max-width: 560px) {
+/* Narrower footers shed detail in steps: context, then weekly and later
+   windows, then the numbers. Everything stays in the details panel. */
+@container workspace-footer (max-width: 960px) {
   .footer-usage-context,
-  .footer-usage-divider {
+  .footer-usage-context + .footer-usage-account > .footer-usage-divider {
     display: none;
   }
 }
-@container workspace-footer (max-width: 440px) {
-  .footer-usage-windows,
+@container workspace-footer (max-width: 860px) {
+  .footer-usage-part + .footer-usage-part {
+    display: none;
+  }
   .footer-usage-meter {
+    width: 30px;
+  }
+}
+@container workspace-footer (max-width: 640px) {
+  .footer-usage-windows {
+    display: none;
+  }
+}
+@container workspace-footer (max-width: 480px) {
+  .footer-usage-meter,
+  .footer-usage-refresh {
+    display: none;
+  }
+}
+@container workspace-footer (max-width: 400px) {
+  .footer-usage {
     display: none;
   }
 }

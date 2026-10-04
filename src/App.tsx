@@ -7476,10 +7476,6 @@ export default function App({
   );
   // Installed accounts stay visible across projects, tabs, and workspaces.
   const usageProviders = useAccountUsageProviders(sessions);
-  // The footer summarizes the open task's account when it reports usage.
-  const footerHarness = profileHome ? undefined : active?.harness;
-  const footerUsageProvider =
-    usageProviders.find((provider) => provider === footerHarness) ?? null;
   useAutomaticModelCatalogs(sessions);
 
   const onToggleSidebar = useCallback(() => {
@@ -9820,7 +9816,6 @@ export default function App({
                 usage={
                   <FooterUsage
                     providers={usageProviders}
-                    primary={footerUsageProvider}
                     context={profileHome ? null : active?.context}
                   />
                 }

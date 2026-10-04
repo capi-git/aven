@@ -18,8 +18,8 @@
 .workspace-footer-project {
   display: flex;
   align-items: center;
-  /* Git controls keep their size; account usage gives way first. */
-  flex: 1 0 auto;
+  /* A long branch name shortens first; usage sheds detail by width. */
+  flex: 1 1 auto;
   gap: 10px;
   min-width: 0;
 }
