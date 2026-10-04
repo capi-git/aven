@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.1.121] - 2026-10-04
+
+### Opens normally on Mac
+
+- The Mac app is now notarized by Apple as well as Developer ID signed, so it opens after download without a warning or a trip to **Privacy & Security**.
+
 ### Automatic updates on Windows
 
 - Aven for Windows now downloads signed updates in the background, like the Mac app, and installs them when you choose **Restart to update**. It never interrupts running agents. This version must be installed manually once; later versions update themselves. The installer is still not Authenticode-signed, so Windows may warn on that first install.

@@ -12,9 +12,9 @@ Aven brings agent conversations, your project, and a browser into one window. Us
 
 ## Download
 
-**macOS:** Get the build for Apple Silicon Macs running macOS 13 or later from the [latest Aven release](https://github.com/capi-git/aven/releases/latest). Download the macOS ZIP, extract it, and move **Aven.app** to Applications.
+**macOS:** Download the [Mac app](https://github.com/capi-git/aven/releases/latest/download/Aven-macos-arm64.zip) for Apple Silicon Macs running macOS 13 or later, extract it, and move **Aven.app** to Applications. Or download it from the website, [aven-desktop.vercel.app](https://aven-desktop.vercel.app).
 
-The app is Developer ID signed from 0.1.108. Each release's notes say whether that Mac build is also notarized by Apple. A notarized release opens normally. Until notarization is in place, macOS may ask you to approve opening the app in **System Settings → Privacy & Security**. Only approve a copy you downloaded from this repository's releases. Intel Mac and Linux release builds are not currently provided or verified.
+From 0.1.121 the Mac app is Developer ID signed and notarized by Apple, so it opens normally after download. Each release's notes confirm its notarization. Earlier builds may ask you to approve opening the app in **System Settings → Privacy & Security**. Intel Mac and Linux release builds are not currently provided or verified.
 
 **Windows:** Download the [Windows x64 installer](https://github.com/capi-git/aven/releases/latest/download/Aven-windows-x64-setup.exe) from the same [latest release](https://github.com/capi-git/aven/releases/latest), or extract `Aven-<version>-windows-x64.zip` and run the installer inside. The installer is not Authenticode-signed, so Windows may show an unknown-publisher warning when you first install it. After that, Aven for Windows downloads signed updates in the background and installs them when you choose **Restart to update**; versions from before Windows updates need one manual update. Windows uses WebView2, and some browser and desktop-control features remain macOS-only. See [Aven for Windows](docs/WINDOWS.md) for setup, checksums, and platform limitations.
 

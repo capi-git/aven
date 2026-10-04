@@ -130,7 +130,7 @@ The packager adds the complete CEF framework, helper applications, CEF licenses 
 
 Release signing uses the configured Apple Developer Team ID and stable designated requirements. Explicit local-only ad-hoc signing has no Apple Developer Team ID and uses a scoped library-validation exception for its bundled framework; Developer ID builds omit that exception. Neither mode changes global macOS security settings. Renderer and GPU helpers receive the JIT entitlement required by Chromium. The CEF sandbox remains enabled. No remote-debugging, mock-keychain, or no-sandbox workaround is part of the build.
 
-Notarization is a separate process and is not performed by these scripts. See [RELEASING.md](RELEASING.md) for the Developer ID setup and remaining public-distribution checks.
+The release script notarizes and staples the final app when App Store Connect API credentials are supplied. See [RELEASING.md](RELEASING.md#notarization) for the Developer ID and notarization setup.
 
 ## Browser data and maintenance
 
