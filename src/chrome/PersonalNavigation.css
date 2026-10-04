@@ -580,6 +580,22 @@ html:not(.theme-light)
   backdrop-filter: var(--personal-navigation-blur);
 }
 
+/* WebKit on macOS drops a CSS backdrop blur for a frame whenever the
+   panel's own text repaints (hovering a row, scrolling), so the transcript
+   behind flashes through. As with the bottom surfaces, skip that second
+   blur pass on Mac and float on a near-opaque tint instead. */
+html.is-mac:not(.theme-light)
+  .personal-shell
+  .personal-sidebar-slot[data-floating="true"]
+  > .personal-sidebar.sidebar-glass.personal-navigation {
+  --personal-navigation-overlay: color-mix(
+    in srgb,
+    var(--aven-popup) 94%,
+    transparent
+  );
+  --personal-navigation-blur: none;
+}
+
 html
   .personal-shell
   .personal-sidebar-slot[data-floating="true"][data-open="false"]
