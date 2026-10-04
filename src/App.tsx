@@ -9010,7 +9010,6 @@ export default function App({
             homeOpen={homeViewOpen || profileHome}
             onToggleInspector={onToggleInspector}
             inspectorOpen={inspector.open}
-            onOpenSettings={onOpenSettings}
           />
           <div className="personal-shell-body">
             {!sidebarOpen ? (

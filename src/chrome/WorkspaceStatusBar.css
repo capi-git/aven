@@ -355,10 +355,13 @@
 }
 .workspace-status-layout {
   position: relative;
+}
+/* Divide the layout buttons only from other header controls before them. */
+.workspace-status-layout:not(:first-child) {
   margin-left: 3px;
   padding-left: 8px;
 }
-.workspace-status-layout:has(button)::before {
+.workspace-status-layout:not(:first-child):has(button)::before {
   content: "";
   position: absolute;
   left: 0;

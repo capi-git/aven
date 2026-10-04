@@ -649,7 +649,7 @@ describe("workspace status data and actions", () => {
     expect(container.querySelector('[role="menu"]')).toBeNull();
   });
 
-  it("keeps usage, access and external-open controls out of the header", async () => {
+  it("keeps usage, access, external-open and settings controls out of the header", async () => {
     await render({ session: task({ context: { used: 101_000 } }) });
     const labels = [...container.querySelectorAll("button")].map((node) =>
       node.getAttribute("aria-label"),
@@ -657,6 +657,8 @@ describe("workspace status data and actions", () => {
     expect(labels).not.toContain("Context and provider usage");
     expect(labels).not.toContain("Task cost and usage");
     expect(labels).not.toContain("Open workspace externally");
+    // Settings opens from the sidebar, the menu bar and ⌘, instead.
+    expect(labels).not.toContain("Settings");
     expect(container.textContent).not.toContain("101K");
   });
 });

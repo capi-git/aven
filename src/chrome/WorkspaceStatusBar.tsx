@@ -29,7 +29,6 @@ import {
   PanelLeft,
   PanelRight,
   Search,
-  Settings,
   X,
 } from "./icons";
 import {
@@ -58,7 +57,6 @@ export type WorkspaceStatusBarProps = {
   homeOpen?: boolean;
   onToggleInspector?: () => void;
   inspectorOpen?: boolean;
-  onOpenSettings?: () => void;
   /** Settings shares the window header instead of stacking a second toolbar. */
   settingsView?: { section: SettingsSectionId; onClose: () => void };
 };
@@ -384,7 +382,6 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
   homeOpen,
   onToggleInspector,
   inspectorOpen,
-  onOpenSettings,
   settingsView,
 }: WorkspaceStatusBarProps) {
   const summary = useMemo(() => workspaceQueueSummary(sessions), [sessions]);
@@ -511,15 +508,6 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
               data-tauri-drag-region="false"
             >
               <X size={14} aria-hidden />
-            </button>
-          ) : onOpenSettings ? (
-            <button
-              type="button"
-              aria-label="Settings"
-              title="Settings"
-              onClick={onOpenSettings}
-            >
-              <Settings size={14} />
             </button>
           ) : null}
           {onToggleInspector ? (
