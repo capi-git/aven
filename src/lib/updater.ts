@@ -8,8 +8,12 @@ import {
 import { prepareUpdateRestart } from "./appLifecycle";
 import { lockUpdateInput } from "./updateInputLock";
 import { announceUpdateAvailable } from "./sounds";
-import { rememberInstalledUpdate } from "./updateNotice";
+import { forgetInstalledUpdate, rememberInstalledUpdate } from "./updateNotice";
 import { IS_PERSONAL_BUILD, PERSONAL_UPDATE_MESSAGE } from "./personalBuild";
+import { IS_WIN } from "./platform";
+
+/** Windows installs by running the NSIS installer, which ends this process. */
+const INSTALLER_EXITS_APP = IS_WIN;
 
 export type UpdateNotice = { title: string; text: string };
 
@@ -57,6 +61,9 @@ export type UpdaterSnapshot = {
 
 export const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 export const UPDATE_FOCUS_THROTTLE_MS = 15 * 60 * 1000;
+/** tauri-plugin-updater's TargetNotFound / TargetsNotFound messages. */
+const PLATFORM_MISSING_FROM_FEED =
+  /(?:was not found|were found) in the response `?platforms`? object/i;
 const DEVELOPMENT_UPDATE_MESSAGE =
   "Aven Dev runs from your source checkout. Rebuild and restart the development preview to use your latest changes.";
 let snapshot: UpdaterSnapshot = { phase: "idle", currentVersion: "…" };
@@ -170,6 +177,11 @@ async function checkAndDownload(): Promise<UpdaterSnapshot> {
     if (/updater does not have any endpoints set/i.test(errorText(error))) {
       return publish({ phase: "idle", currentVersion });
     }
+    // A release can ship for macOS alone. Its feed then has no entry for this
+    // platform, which means there is nothing newer to install here.
+    if (!pendingUpdate && PLATFORM_MISSING_FROM_FEED.test(errorText(error))) {
+      return publish({ phase: "current", currentVersion });
+    }
     const availableVersion = pendingUpdate?.version;
     // Re-read the signed feed on retry; a broken or revoked release can be
     // corrected upstream without pinning this process to its old metadata.
@@ -278,6 +290,7 @@ export function installPendingUpdate(
       availableVersion: update.version,
     });
     let installed = pendingInstalled;
+    let installerPrepared = false;
     try {
       // Acquires the native restart guard and saves drafts/session state. It
       // refuses active tasks and extra windows, without stopping their work.
@@ -289,6 +302,16 @@ export function installPendingUpdate(
           availableVersion: update.version,
         });
       }
+      if (INSTALLER_EXITS_APP) {
+        // Windows: the updater starts the signed NSIS installer and exits Aven
+        // at once; the installer reopens Aven when it finishes. The native
+        // final idle checks therefore run before the installer starts.
+        await invoke("prepare_update_install");
+        installerPrepared = true;
+        rememberInstalledUpdate(update.version);
+        await update.install();
+        throw new Error("The update installer didn't start. Try again.");
+      }
       if (!pendingInstalled) {
         await update.install();
         pendingInstalled = true;
@@ -299,6 +322,10 @@ export function installPendingUpdate(
       await invoke("relaunch_after_update");
       return snapshot;
     } catch (error) {
+      if (installerPrepared) {
+        forgetInstalledUpdate(update.version);
+        await invoke("abandon_update_install").catch(() => undefined);
+      }
       await invoke("cancel_update_restart").catch(() => undefined);
       releaseInput();
       const detail = installed

@@ -523,6 +523,8 @@ pub fn run() {
             window::finish_update_restart_preparation,
             window::cancel_update_restart,
             window::relaunch_after_update,
+            window::prepare_update_install,
+            window::abandon_update_install,
             provider_updates::provider_refresh_cli,
             window::set_window_glass_enabled,
             window_transfer::stage_window_transfer,
@@ -666,5 +668,101 @@ mod development_identity_tests {
 
         assert_eq!(config.identifier, DEV_BUNDLE_ID);
         assert_eq!(config.product_name.as_deref(), Some(DEV_PRODUCT_NAME));
+    }
+
+    #[test]
+    fn debug_builds_on_windows_still_drop_the_updater() {
+        let config = platform_config::windows_config();
+        assert!(config["plugins"]["updater"]["endpoints"]
+            .as_array()
+            .is_some_and(|endpoints| !endpoints.is_empty()));
+        let mut config: tauri::Config = serde_json::from_value(config).unwrap();
+
+        configure_development(&mut config);
+
+        assert_eq!(config.identifier, DEV_BUNDLE_ID);
+        assert!(!config.plugins.0.contains_key("updater"));
+    }
+}
+
+/// Tauri applies `tauri.<platform>.conf.json` to the base file as a JSON Merge
+/// Patch (RFC 7396). These tests apply it the same way.
+#[cfg(test)]
+mod platform_config {
+    use serde_json::Value;
+
+    fn merge_patch(target: &mut Value, patch: &Value) {
+        let Value::Object(patch) = patch else {
+            *target = patch.clone();
+            return;
+        };
+        if !target.is_object() {
+            *target = Value::Object(Default::default());
+        }
+        let target = target.as_object_mut().expect("object");
+        for (key, value) in patch {
+            if value.is_null() {
+                target.remove(key);
+            } else {
+                merge_patch(target.entry(key.clone()).or_insert(Value::Null), value);
+            }
+        }
+    }
+
+    pub(super) fn base_config() -> Value {
+        serde_json::from_str(include_str!("../tauri.conf.json")).unwrap()
+    }
+
+    pub(super) fn windows_config() -> Value {
+        let mut config = base_config();
+        let overlay: Value =
+            serde_json::from_str(include_str!("../tauri.windows.conf.json")).unwrap();
+        merge_patch(&mut config, &overlay);
+        config
+    }
+
+    #[test]
+    fn windows_release_uses_the_mac_update_feed_and_key() {
+        let base = base_config();
+        let windows = windows_config();
+        let mac_updater = &base["plugins"]["updater"];
+        let updater = &windows["plugins"]["updater"];
+        assert_eq!(
+            updater["endpoints"],
+            serde_json::json!([
+                "https://github.com/capi-git/aven/releases/latest/download/latest.json"
+            ])
+        );
+        assert_eq!(updater["endpoints"], mac_updater["endpoints"]);
+        assert_eq!(updater["pubkey"], mac_updater["pubkey"]);
+        // Passive NSIS mode shows only a progress bar and reopens Aven (/P /R).
+        assert_eq!(updater["windows"]["installMode"], "passive");
+        let parsed: tauri_plugin_updater::Config =
+            serde_json::from_value(updater.clone()).expect("valid updater config");
+        assert_eq!(parsed.endpoints.len(), 1);
+        assert!(!parsed.pubkey.is_empty());
+    }
+
+    #[test]
+    fn windows_updater_config_leaves_the_mac_build_unchanged() {
+        let base = base_config();
+        let updater = base["plugins"]["updater"].as_object().unwrap();
+        let mut keys: Vec<_> = updater.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["endpoints", "pubkey"]);
+        assert_eq!(base["bundle"]["createUpdaterArtifacts"], false);
+    }
+
+    #[test]
+    fn windows_build_signs_the_final_installer_instead_of_bundler_artifacts() {
+        // Release CI signs the exact NSIS installer after the build, so an
+        // unpublished candidate never needs the private updater key.
+        let windows = windows_config();
+        assert_eq!(windows["bundle"]["createUpdaterArtifacts"], false);
+        assert_eq!(windows["bundle"]["targets"], serde_json::json!(["nsis"]));
+        assert_eq!(
+            windows["bundle"]["windows"]["nsis"]["installMode"],
+            "currentUser"
+        );
     }
 }

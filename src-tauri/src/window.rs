@@ -275,8 +275,7 @@ pub async fn relaunch_after_update(caller: Webview) -> Result<(), String> {
     let state = app.state::<UpdateRestartState>();
     let close_terminals = state.start_restart(owner)?;
     let result = async {
-        check_update_idle(app, owner, close_terminals).await?;
-        crate::browser::ensure_update_idle(app).await?;
+        ensure_restart_idle(app, owner, close_terminals).await?;
         #[cfg(all(feature = "chromium", target_os = "macos"))]
         crate::browser::prepare_shutdown(app).await?;
         Ok::<(), String>(())
@@ -291,6 +290,48 @@ pub async fn relaunch_after_update(caller: Webview) -> Result<(), String> {
     // after Chromium shutdown and lets Tauri own the one replacement process.
     app.request_restart();
     Ok(())
+}
+
+async fn ensure_restart_idle(
+    app: &AppHandle,
+    owner: &str,
+    close_terminals: bool,
+) -> Result<(), String> {
+    check_update_idle(app, owner, close_terminals).await?;
+    crate::browser::ensure_update_idle(app).await
+}
+
+/// Windows installs through the NSIS installer: Tauri's updater starts it and
+/// exits Aven at once, then the installer reopens Aven. The final idle checks a
+/// macOS restart makes therefore run here, before the installer is started.
+/// Agent and terminal processes belong to Aven's kill-on-close job object, so
+/// the process exit stops them without a separate shutdown pass.
+#[tauri::command]
+pub async fn prepare_update_install(caller: Webview) -> Result<(), String> {
+    let owner = update_caller(&caller)?;
+    let app = caller.app_handle();
+    let state = app.state::<UpdateRestartState>();
+    let close_terminals = state.start_restart(owner)?;
+    if let Err(error) = ensure_restart_idle(app, owner, close_terminals).await {
+        state.restart_failed(owner);
+        return Err(error);
+    }
+    Ok(())
+}
+
+/// Leave update mode when the Windows installer could not be started, so new
+/// work is accepted again and the downloaded update stays ready to retry.
+#[tauri::command]
+pub async fn abandon_update_install(caller: Webview) -> Result<(), String> {
+    let owner = update_caller(&caller)?;
+    let app = caller.app_handle();
+    let state = app.state::<UpdateRestartState>();
+    if !state.owns(owner) {
+        return Ok(());
+    }
+    let restored = crate::browser::cancel_update_restart(app).await;
+    state.restart_failed(owner);
+    restored
 }
 
 pub fn is_workspace_label(label: &str) -> bool {
@@ -609,6 +650,25 @@ mod tests {
         assert!(guard.begin_work().is_err());
         guard.restart_failed("main");
         assert!(guard.begin_work().is_ok());
+    }
+
+    #[test]
+    fn abandoned_installer_start_returns_to_normal_work_and_must_prepare_again() {
+        // Windows: prepare_update_install starts the restart, then a failed
+        // installer launch abandons it. Ordinary cancel cannot undo a started
+        // restart, so the dedicated abandon path must release the guard.
+        let guard = UpdateRestartState::default();
+        guard.reserve("main").unwrap();
+        guard.ready("main", true).unwrap();
+        assert!(guard.start_restart("main").unwrap());
+        assert!(guard.begin_work().is_err());
+        assert!(guard.cancel("main").is_err());
+        assert!(guard.owns("main"));
+        guard.restart_failed("main");
+        assert!(!guard.owns("main"));
+        assert!(guard.begin_work().is_ok());
+        guard.reserve("main").unwrap();
+        assert!(guard.start_restart("main").is_err());
     }
 
     #[test]
