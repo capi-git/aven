@@ -1,6 +1,20 @@
 #!/usr/bin/env bash
-# Build a Developer ID-signed Aven release. Never installs or publishes it.
+# Build a Developer ID-signed Aven release, notarized when Apple notarization
+# credentials are supplied. Never installs or publishes it.
 set -euo pipefail
+
+# Optional App Store Connect API key for notarization. Keep it out of the
+# exported environment so dependency installs, tests and compilation never see
+# it; only the notarization helper receives it. AVEN_NOTARY_KEYCHAIN_PROFILE
+# names a Keychain item and is not secret.
+task_notary_p8="${APPLE_API_KEY_P8_BASE64:-}"
+task_notary_key_id="${APPLE_API_KEY_ID:-}"
+task_notary_issuer="${APPLE_API_ISSUER_ID:-}"
+unset APPLE_API_KEY_P8_BASE64 APPLE_API_KEY_ID APPLE_API_ISSUER_ID
+task_with_notary_env() {
+  APPLE_API_KEY_P8_BASE64="$task_notary_p8" APPLE_API_KEY_ID="$task_notary_key_id" \
+    APPLE_API_ISSUER_ID="$task_notary_issuer" "$@"
+}
 
 task_repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$task_repo_root"
@@ -14,6 +28,7 @@ if [[ $# == 1 && "$1" == --ad-hoc ]]; then
   task_signing_args+=(--ad-hoc)
 elif (( $# != 0 )); then
   echo 'Usage: CEF_ROOT=/path/to/verified/cef ./scripts/build-release.sh [--ad-hoc]' >&2
+  echo 'Notarize with APPLE_API_KEY_P8_BASE64, APPLE_API_KEY_ID and APPLE_API_ISSUER_ID, or AVEN_NOTARY_KEYCHAIN_PROFILE.' >&2
   exit 1
 fi
 : "${CEF_ROOT:?Set CEF_ROOT to the verified pinned macOS arm64 CEF distribution; see docs/CHROMIUM.md}"
@@ -34,7 +49,14 @@ xcrun --find clang >/dev/null
 
 # Fail before dependency installation, engine verification, tests, or compilation.
 # Only the public signing fingerprint is returned; no private key is exported.
-task_signing_identity="$(python3 -B scripts/release-signing.py "${task_signing_args[@]}")"
+# Ad-hoc preflight refuses notarization credentials: --ad-hoc never notarizes.
+task_signing_identity="$(task_with_notary_env python3 -B scripts/release-signing.py "${task_signing_args[@]}")"
+task_notary_mode=not-applicable
+if [[ "$task_signing_identity" != - ]]; then
+  # Reject partial or malformed credentials now, not after an hour of building.
+  task_notary_mode="$(task_with_notary_env python3 -B scripts/notarize-release.py check)"
+  printf 'Notarization: %s\n' "$task_notary_mode" >&2
+fi
 task_package_signing_args=(--identity "$task_signing_identity")
 if [[ -n "${AVEN_RELEASE_KEYCHAIN:-}" ]]; then
   task_package_signing_args+=(--keychain "$AVEN_RELEASE_KEYCHAIN")
@@ -122,6 +144,13 @@ if [[ "$task_signing_identity" == - ]]; then
   task_verification_args+=(--ad-hoc)
 fi
 python3 -B scripts/release-signing.py "${task_verification_args[@]}"
+# Notarize and staple before any distributable or updater archive is created,
+# so both carry the ticket. Without credentials this records "not notarized".
+task_notarization=not-notarized
+if [[ "$task_signing_identity" != - ]]; then
+  task_notarization="$(task_with_notary_env python3 -B scripts/notarize-release.py notarize \
+    --app "$task_app" --report "$task_stage/signing-verification.json")"
+fi
 task_archive="Aven-$task_version-macos-arm64.zip"
 ditto -c -k --norsrc --noextattr --keepParent "$task_app" "$task_stage/$task_archive"
 unzip -tq "$task_stage/$task_archive"
@@ -148,7 +177,9 @@ done
 printf 'Built Aven %s: %s\n' "$task_version" "$task_release_dir/$task_archive"
 if [[ "$task_signing_identity" == - ]]; then
   printf '%s\n' 'Ad-hoc signed local test only; not notarized and unsuitable for distribution or automatic updates.'
+elif [[ "$task_notarization" == notarized ]]; then
+  printf '%s\n' 'Developer ID signed, notarized by Apple and stapled. Complete native interaction checks before public distribution.'
 else
-  printf '%s\n' 'Developer ID signed; not notarized. Complete native interaction checks and notarization before public distribution.'
+  printf '%s\n' 'Developer ID signed; not notarized because no notarization credentials were supplied. Complete native interaction checks and notarization before public distribution.'
 fi
 printf '%s\n' 'Nothing was installed or published.'

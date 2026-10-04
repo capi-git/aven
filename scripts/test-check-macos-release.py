@@ -33,7 +33,8 @@ class ReleaseReadinessTests(unittest.TestCase):
         for patcher in (mock.patch.object(checker, 'ROOT', self.root),
                         mock.patch.object(checker.release_signing, 'preflight', return_value='A' * 40),
                         mock.patch.object(checker.release_signing, 'verify', return_value={'status': 'verified'}),
-                        mock.patch.object(checker.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0))):
+                        mock.patch.object(checker.subprocess, 'run', return_value=subprocess.CompletedProcess(
+                            [], 0, '', self.app.name + ': accepted\nsource=Notarized Developer ID\n'))):
             patcher.start()
             self.addCleanup(patcher.stop)
 
@@ -62,6 +63,20 @@ class ReleaseReadinessTests(unittest.TestCase):
         self.assertFalse(self.checks(report)['Stapled notarization ticket']['passed'])
         self.assertFalse(report['configuration_ready'])
 
+    def test_final_app_must_pass_staple_validation_and_gatekeeper_assessment(self):
+        report = checker.check_release(self.config, self.app)
+        commands = [call.args[0] for call in checker.subprocess.run.call_args_list]
+        self.assertIn(['xcrun', 'stapler', 'validate', str(self.app)], commands)
+        self.assertIn(['spctl', '-a', '-vvv', '-t', 'exec', str(self.app)], commands)
+        self.assertTrue(self.checks(report)['Gatekeeper accepts notarized app']['passed'])
+
+    def test_signed_but_unnotarized_gatekeeper_source_is_not_ready(self):
+        checker.subprocess.run.return_value = subprocess.CompletedProcess(
+            [], 0, '', 'Aven.app: accepted\nsource=Developer ID\n')
+        report = checker.check_release(self.config, self.app)
+        self.assertFalse(self.checks(report)['Gatekeeper accepts notarized app']['passed'])
+        self.assertFalse(report['configuration_ready'])
+
     def test_unexpected_team_or_requirement_cannot_pass_with_valid_ticket(self):
         checker.release_signing.verify.side_effect = RuntimeError('Unexpected signing team')
         report = checker.check_release(self.config, self.app)
@@ -80,6 +95,7 @@ class ReleaseReadinessTests(unittest.TestCase):
         checker.subprocess.run.side_effect = FileNotFoundError('xcrun unavailable')
         report = checker.check_release(self.config, self.app)
         self.assertFalse(self.checks(report)['Stapled notarization ticket']['passed'])
+        self.assertFalse(self.checks(report)['Gatekeeper accepts notarized app']['passed'])
         self.assertFalse(report['configuration_ready'])
 
 

@@ -65,7 +65,7 @@ jobs:
   macos-arm64:
     needs: validate-source
     runs-on: macos-15
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       CEF_BUILD_DIR: ${{ github.workspace }}/target/chromium
     steps:
@@ -102,7 +102,15 @@ jobs:
             "$task_cef_archive" | shasum -a 256 -c -
           tar -xjf "$task_cef_archive" -C "$RUNNER_TEMP"
           printf 'CEF_ROOT=%s\n' "$RUNNER_TEMP/$task_cef_name" >> "$GITHUB_ENV"
-      - name: Test, build, and package candidate
+      # Notarizes and staples before the ZIP is made when all three App Store
+      # Connect secrets exist. Without them the candidate stays signed only and
+      # signing-verification.json says so. build-release.sh hides these values
+      # from dependency installs and compilation.
+      - name: Test, build, notarize, and package candidate
+        env:
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
         run: ./scripts/build-release.sh
       - name: Sign final Chromium update archive
         if: inputs.publish
@@ -113,6 +121,11 @@ jobs:
           set -euo pipefail
           task_version="$(node -p "require('./package.json').version")"
           python3 -B scripts/release-signing.py verify --app target/release/bundle/macos/Aven.app
+          # A notarized build's update archive must contain the stapled ticket.
+          task_notarized="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("notarization", {}).get("notarized") is True)' "target/releases/v$task_version/signing-verification.json")"
+          if [[ "$task_notarized" == True ]]; then
+            xcrun stapler validate target/release/bundle/macos/Aven.app
+          fi
           python3 scripts/package-update.py --app target/release/bundle/macos/Aven.app --out "target/releases/v$task_version"
           cd "target/releases/v$task_version"
           shasum -a 256 "Aven-$task_version-macos-arm64.app.tar.gz" "Aven-$task_version-macos-arm64.app.tar.gz.sig" latest.json >> SHA256SUMS
@@ -127,7 +140,12 @@ jobs:
           retention-days: 14
       - name: Remove temporary signing material
         if: ${{ always() }}
-        run: python3 -B scripts/ci-signing-keychain.py --cleanup
+        run: |
+          set -uo pipefail
+          task_status=0
+          python3 -B scripts/notarize-release.py cleanup || task_status=$?
+          python3 -B scripts/ci-signing-keychain.py --cleanup || task_status=$?
+          exit "$task_status"
 
   windows:
     needs: validate-source
@@ -204,7 +222,23 @@ jobs:
               exit 1
               ;;
           esac
-          task_notes="Aven $task_version. macOS Apple Silicon: the app is Developer ID signed, and macOS updates are signed by Aven. The Mac build is not Apple-notarized. See CHANGELOG.md for changes."
+          # Describe notarization only as the macOS job recorded it.
+          task_macos_notes="$(python3 - "$task_release_dir/signing-verification.json" <<'PY'
+          import json, re, sys
+          from pathlib import Path
+          notarization = json.loads(Path(sys.argv[1]).read_text()).get('notarization')
+          notarization = notarization if isinstance(notarization, dict) else {}
+          if notarization.get('notarized') is True:
+              if not (notarization.get('stapled') is True and notarization.get('gatekeeper') == 'accepted'
+                      and re.fullmatch(r'[0-9a-fA-F-]{36}', str(notarization.get('submissionId', '')))):
+                  raise SystemExit('Refusing to publish an incomplete notarization record.')
+              print('macOS Apple Silicon: the app is Developer ID signed and notarized by Apple, so it opens normally after download. macOS updates are signed by Aven.')
+          else:
+              print('::warning title=Not notarized::Publishing a macOS build that is Developer ID signed but not Apple-notarized.', file=sys.stderr)
+              print('macOS Apple Silicon: the app is Developer ID signed, and macOS updates are signed by Aven. This Mac build is not Apple-notarized, so macOS may ask you to approve opening it in System Settings > Privacy & Security.')
+          PY
+          )"
+          task_notes="Aven $task_version. $task_macos_notes See CHANGELOG.md for changes."
           task_windows_dir="windows/Aven-$task_version-windows-x64"
           if [[ "$AVEN_INCLUDE_WINDOWS" == true ]]; then
             # The package keeps its own checksums; the release list covers the

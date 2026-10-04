@@ -80,13 +80,20 @@ def check_release(config, app=None):
                        "Passed." if result.returncode == 0 else "Notarization ticket validation did not pass; Developer ID signing alone is insufficient.")
             except OSError:
                 record("Stapled notarization ticket", False, "The macOS stapler tool is unavailable.")
+            try:
+                result = subprocess.run(["spctl", "-a", "-vvv", "-t", "exec", str(app)], capture_output=True, text=True)
+                accepted = result.returncode == 0 and "source=Notarized Developer ID" in (result.stdout or "") + (result.stderr or "")
+                record("Gatekeeper accepts notarized app", accepted,
+                       "Passed." if accepted else "Gatekeeper did not report a notarized Developer ID app; downloads would show the unverified-developer warning.")
+            except OSError:
+                record("Gatekeeper accepts notarized app", False, "The macOS Gatekeeper assessment tool is unavailable.")
             record("Bundled Chromium runtime", (app / "Contents/Frameworks/Chromium Embedded Framework.framework").exists(),
                    "A plain Tauri bundle does not include Aven's browser runtime.")
     else:
         record("Final packaged app verified", False, "Pass --app after packaging and notarization.")
     ready = all(check["passed"] for check in checks)
     return {"configuration_ready": ready, "checks": checks,
-            "scope": "Configuration, signing identity, and notarization ticket only; does not certify crash-free operation, update delivery, or website compatibility."}
+            "scope": "Configuration, signing identity, notarization ticket, and Gatekeeper assessment only; does not certify crash-free operation, update delivery, or website compatibility."}
 
 
 def main():
