@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Remove the extra scrollbar thumb over the chat's prompt marks. The marks keep drag-to-scroll, hover previews, click navigation, wheel scrolling, and keyboard controls.
+
 ## [0.1.118] - 2026-10-03
 
 ### Clearer agent status and tabs
