@@ -94,8 +94,10 @@ export function WorkspaceHome({
           </section>
         ) : null}
         <div className="workspace-home-columns">
-          <div>
-            <h2>Recent sessions</h2>
+          <div className="workspace-home-panel">
+            <div className="workspace-home-section-heading">
+              <h2>Recent sessions</h2>
+            </div>
             {sessions.length ? (
               sessions.slice(0, 8).map((row) => (
                 <button
@@ -129,7 +131,7 @@ export function WorkspaceHome({
               </p>
             )}
           </div>
-          <div>
+          <div className="workspace-home-panel">
             <div className="workspace-home-section-heading">
               <h2>Projects</h2>
               <button onClick={onAddProject} aria-label="Add project">

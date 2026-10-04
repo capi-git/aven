@@ -2,9 +2,9 @@
   padding: 12px;
   color: var(--color-content);
   background: var(--color-background-base);
-  border: 1px solid color-mix(in srgb, var(--color-content) 10%, transparent);
+  border: 1px solid var(--aven-glass-overlay-edge);
   border-radius: 12px;
-  box-shadow: 0 12px 36px #00000038;
+  box-shadow: var(--aven-glass-sheen), var(--aven-shadow);
   overflow-y: auto;
 }
 /* Editing window glass must not also composite a blurred, animated popup.

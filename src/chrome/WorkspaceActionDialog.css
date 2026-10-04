@@ -10,8 +10,8 @@
   width: min(460px, calc(100vw - 40px));
   max-height: calc(100vh - 60px);
   overflow: auto;
-  border: 1px solid var(--aven-control-border);
-  border-radius: 14px;
+  border: 1px solid var(--aven-glass-overlay-edge);
+  border-radius: var(--aven-radius-overlay);
   background: var(--aven-popup);
   box-shadow: var(--aven-shadow);
   padding: 20px;

@@ -13,11 +13,13 @@
   flex-shrink: 0;
   align-items: center;
   gap: 7px;
-  height: 30px;
+  height: 32px;
   margin: 0 2px 8px;
   padding: 0 10px;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--color-content) 6%, transparent);
+  border: 1px solid var(--aven-glass-card-edge, transparent);
+  border-radius: 10px;
+  background: var(--aven-control-bg);
+  box-shadow: var(--aven-glass-sheen, none);
   color: var(--personal-muted, var(--aven-muted));
   cursor: text;
 }
@@ -98,13 +100,16 @@
   flex-shrink: 0;
   align-items: center;
   gap: 8px;
-  border: 0;
-  border-radius: 8px;
+  border: 1px solid transparent;
+  border-radius: 9px;
   padding: 5px 8px;
   background: transparent;
   color: var(--color-content);
   text-align: left;
   cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
 }
 
 .settings-nav__item:hover {
@@ -113,8 +118,23 @@
 }
 
 .settings-nav__item[aria-current="page"] {
-  background: var(--personal-selected, var(--aven-selected));
+  border-color: var(--aven-glass-card-edge, transparent);
+  background: var(--aven-control-hover, var(--aven-selected));
+  box-shadow: var(--aven-glass-sheen, none);
   color: var(--color-content);
+}
+/* A short accent bar marks the open page. */
+.settings-nav__item[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: 50%;
+  width: 3px;
+  height: 14px;
+  border-radius: 0 3px 3px 0;
+  background: var(--color-accent);
+  box-shadow: 0 0 8px var(--color-accent);
+  transform: translateY(-50%);
 }
 
 .settings-nav__item:focus-visible {
@@ -170,7 +190,15 @@
 }
 
 .settings-nav__item[aria-current="page"] .settings-nav__label {
-  font-weight: 500;
+  font-weight: 550;
+}
+.settings-nav__item[aria-current="page"] .settings-nav__icon-tile {
+  color: var(--color-accent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-nav__item {
+    transition: none;
+  }
 }
 
 @container settings-shell (max-width: 760px) {

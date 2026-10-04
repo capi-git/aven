@@ -557,12 +557,8 @@ html:not(.theme-light)
   .personal-shell
   .personal-sidebar-slot[data-floating="true"]
   > .personal-sidebar.sidebar-glass.personal-navigation {
-  --personal-navigation-overlay: color-mix(
-    in srgb,
-    var(--aven-popup) 62%,
-    transparent
-  );
-  --personal-navigation-blur: blur(48px) saturate(115%);
+  --personal-navigation-overlay: var(--aven-glass-overlay);
+  --personal-navigation-blur: var(--aven-glass-blur);
   isolation: isolate;
   background: transparent;
   -webkit-backdrop-filter: none;

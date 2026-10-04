@@ -1,9 +1,9 @@
 /* Shared sheets remain opaque over native browser views. Only their content
    animates, so opening a menu does not expose or repaint the page underneath. */
 .aven-popover-frame {
-  border-color: var(--aven-line);
+  border-color: var(--aven-glass-overlay-edge);
   border-radius: 12px;
-  box-shadow: var(--aven-shadow);
+  box-shadow: var(--aven-glass-sheen), var(--aven-shadow);
 }
 .aven-popover-frame .popover-backdrop {
   background: var(--aven-popup);
@@ -14,10 +14,10 @@
 }
 .modal-panel[role="dialog"] {
   max-height: min(76vh, 800px);
-  border: 1px solid var(--aven-line);
-  border-radius: 14px;
+  border: 1px solid var(--aven-glass-overlay-edge);
+  border-radius: var(--aven-radius-overlay);
   background: var(--aven-popup);
-  box-shadow: var(--aven-shadow);
+  box-shadow: var(--aven-glass-sheen), var(--aven-shadow);
 }
 .modal-panel[role="dialog"] > header {
   padding: 18px 20px 14px;

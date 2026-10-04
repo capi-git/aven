@@ -1603,7 +1603,7 @@ function InboxProjectPicker({
           ref={menu}
           role="listbox"
           data-inbox-project-menu
-          className="absolute left-0 top-full z-30 mt-1 max-h-64 min-w-full max-w-64 overflow-y-auto rounded-lg border border-content/10 bg-content/10 p-1 shadow-xl backdrop-blur-xl outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+          className="absolute left-0 top-full z-30 mt-1 max-h-64 min-w-full max-w-64 overflow-y-auto aven-glass-overlay [--aven-radius-overlay:12px] p-1 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
         >
           {projects.map((project) => {
             const active = selected

@@ -779,6 +779,12 @@ button.chat-reference:hover,
   animation: approval-toast-in 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* A waiting approval keeps its dashed edge on the shared glass. */
+.approval-toast.aven-glass-overlay {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--color-content) 20%, transparent);
+}
+
 .shimmer-text {
   background-image:
     linear-gradient(

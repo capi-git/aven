@@ -387,7 +387,7 @@ function CommandPaletteBody({
         aria-label="Command palette"
         data-command-palette
         onMouseDown={(event) => event.stopPropagation()}
-        className="absolute left-1/2 top-[11%] flex max-h-[min(560px,76vh)] w-[min(640px,calc(100vw-24px))] -translate-x-1/2 flex-col overflow-hidden rounded-[14px] border border-content/15 bg-[color-mix(in_srgb,var(--color-content)_5%,var(--color-background-base))] shadow-2xl"
+        className="absolute left-1/2 top-[11%] flex max-h-[min(560px,76vh)] w-[min(640px,calc(100vw-24px))] -translate-x-1/2 flex-col overflow-hidden aven-glass-overlay"
       >
         <label className="flex items-center gap-2.5 border-b border-content/10 px-4 py-3 text-content/50">
           <Search className="size-4 shrink-0" strokeWidth={1.75} />

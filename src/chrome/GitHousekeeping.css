@@ -24,9 +24,9 @@
   --git-house-tone: color-mix(in srgb, var(--color-content) 45%, transparent);
   margin: 4px 8px;
   padding: 8px 9px 9px;
-  border: 1px solid color-mix(in srgb, var(--color-content) 8%, transparent);
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+  border: 1px solid var(--aven-glass-card-edge);
+  border-radius: 10px;
+  background: var(--aven-inset-card);
 }
 .git-house-card[data-tone="ok"] {
   --git-house-tone: #4ade80;

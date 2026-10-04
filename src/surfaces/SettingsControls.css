@@ -3,16 +3,16 @@
 }
 .settings-page-header h1 {
   margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-  line-height: 1.25;
-  letter-spacing: -0.025em;
+  font-size: 26px;
+  font-weight: 650;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
 }
 .settings-page-header p {
-  max-width: 54ch;
-  margin: 6px 0 0;
+  max-width: 60ch;
+  margin: 8px 0 0;
   color: var(--aven-muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.5;
 }
 .settings-heading {
@@ -26,7 +26,7 @@
 }
 .settings-group {
   min-width: 0;
-  margin-bottom: 22px;
+  margin-bottom: 28px;
   scroll-margin-top: 24px;
 }
 .settings-group:last-child {
@@ -34,11 +34,11 @@
 }
 .settings-group-header {
   display: flex;
-  align-items: start;
+  align-items: end;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 8px;
-  padding: 0 2px;
+  margin-bottom: 10px;
+  padding: 0 4px;
 }
 .settings-group-intro {
   min-width: 0;
@@ -52,36 +52,49 @@
 .settings-group-header p {
   margin: 3px 0 0;
   color: var(--aven-muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
 }
+/* Where a group's choices are saved, as a quiet pill beside its title. */
 .settings-group-scope {
-  flex: 0 1 auto;
-  padding: 2px 0;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px 2px 7px;
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: 999px;
+  background: var(--aven-control-bg);
   color: var(--aven-muted);
-  font-size: 10px;
+  font-size: 10.5px;
   font-weight: 550;
-  line-height: 1.5;
-  text-align: right;
+  line-height: 16px;
+  white-space: nowrap;
+}
+.settings-group-scope::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-accent) 80%, transparent);
 }
 .settings-group-surface {
   min-width: 0;
-  padding: 0 14px;
-  border: 1px solid var(--aven-line);
-  border-radius: 10px;
-  background: color-mix(
-    in srgb,
-    var(--color-content) 3%,
-    var(--aven-grouped-surface, var(--aven-raised))
-  );
+  padding: 0 16px;
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: var(--aven-radius-card, 12px);
+  background: var(--aven-glass-card, var(--aven-raised));
+  box-shadow:
+    var(--aven-glass-sheen, none), var(--aven-glass-card-shadow, none);
 }
 .settings-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 44%);
   align-items: center;
-  gap: 20px;
+  gap: 24px;
   min-width: 0;
-  padding: 12px 0;
+  min-height: 60px;
+  padding: 14px 0;
   scroll-margin-top: 24px;
 }
 .settings-row + .settings-row {
@@ -101,7 +114,7 @@
   margin: 3px 0 0;
   max-width: 68ch;
   color: var(--aven-muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -122,26 +135,26 @@
   grid-template-columns: minmax(0, 1fr);
 }
 .settings-row:has(> .settings-row-control > .settings-toggle:only-child) {
-  grid-template-columns: minmax(0, 1fr) 36px;
+  grid-template-columns: minmax(0, 1fr) 42px;
 }
 .settings-segmented {
   display: inline-grid;
   align-items: stretch;
   min-width: 0;
   max-width: 100%;
-  gap: 1px;
-  padding: 2px;
-  border: 1px solid var(--aven-line);
-  border-radius: 7px;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: 10px;
   background: var(--aven-field-bg, var(--aven-hover));
   font-size: 12px;
 }
 .settings-segmented button {
   min-width: 0;
-  min-height: 24px;
-  padding: 3px 10px;
+  min-height: 26px;
+  padding: 3px 12px;
   border: 1px solid transparent;
-  border-radius: 5px;
+  border-radius: 7px;
   background: transparent;
   color: var(--aven-muted);
   line-height: 1.4;
@@ -155,11 +168,13 @@
   background: var(--aven-hover);
 }
 .settings-segmented button[aria-checked="true"] {
-  background: var(--aven-control-bg, var(--aven-raised));
-  border-color: var(--aven-control-border, var(--aven-line));
+  background: var(--aven-control-hover, var(--aven-raised));
+  border-color: var(--aven-glass-card-edge, var(--aven-line));
   font-weight: 550;
   color: var(--color-content);
-  box-shadow: var(--aven-control-shadow, 0 1px 3px #0000001a);
+  box-shadow:
+    var(--aven-glass-sheen, none),
+    0 1px 3px #00000026;
 }
 .settings-slider {
   display: flex;
@@ -202,15 +217,24 @@
   );
 }
 .settings-slider input::-webkit-slider-thumb {
-  margin-top: -6px;
+  margin-top: -7px;
   appearance: none;
   -webkit-appearance: none;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   border: 1px solid #00000020;
   background: #fff;
-  box-shadow: 0 1px 3px #00000030;
+  box-shadow:
+    0 1px 3px #00000040,
+    0 0 0 4px color-mix(in srgb, var(--color-accent) 0%, transparent);
+  transition: box-shadow 160ms ease;
+}
+.settings-slider
+  input:is(:hover, :active):not(:disabled)::-webkit-slider-thumb {
+  box-shadow:
+    0 1px 3px #00000040,
+    0 0 0 5px color-mix(in srgb, var(--color-accent) 24%, transparent);
 }
 .settings-slider input::-moz-range-thumb {
   width: 16px;
@@ -238,55 +262,77 @@
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  width: 36px;
+  width: 42px;
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: 999px;
   background: transparent;
   cursor: pointer;
 }
 .settings-toggle-track {
+  --settings-toggle-knob: 18px;
   display: block;
   position: relative;
-  width: 32px;
-  height: 18px;
+  width: 38px;
+  height: 22px;
   border-radius: 99px;
-  background: color-mix(in srgb, var(--color-content) 22%, transparent);
+  background: color-mix(in srgb, var(--color-content) 16%, transparent);
   box-shadow: inset 0 0 0 1px
-    color-mix(in srgb, var(--color-content) 6%, transparent);
-  transition: background-color 120ms ease;
+    color-mix(in srgb, var(--color-content) 8%, transparent);
+  transition:
+    background-color 180ms ease,
+    box-shadow 180ms ease;
 }
 .settings-toggle-track > span {
   display: block;
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
+  width: var(--settings-toggle-knob);
+  height: 18px;
+  border-radius: 99px;
   background: #fff;
-  box-shadow: 0 1px 2px #00000020;
-  transition: transform 120ms ease;
+  box-shadow:
+    0 1px 2px #00000033,
+    0 2px 6px #0000001f;
+  transition:
+    transform 260ms cubic-bezier(0.34, 1.4, 0.5, 1),
+    width 160ms ease;
+}
+/* The knob stretches while pressed, as a physical switch gives. */
+.settings-toggle:active:not(:disabled) .settings-toggle-track {
+  --settings-toggle-knob: 22px;
 }
 .settings-toggle[aria-checked="true"] .settings-toggle-track {
   background: var(--color-accent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, #fff 14%, transparent),
+    0 0 14px -2px color-mix(in srgb, var(--color-accent) 55%, transparent);
 }
 .settings-toggle[aria-checked="true"] .settings-toggle-track > span {
-  transform: translateX(14px);
+  transform: translateX(calc(34px - var(--settings-toggle-knob)));
 }
 .settings-select,
 .settings-button {
   min-width: 0;
   max-width: 100%;
-  min-height: 28px;
-  border: 1px solid var(--aven-control-border, var(--aven-line));
-  border-radius: 6px;
+  min-height: 30px;
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: var(--aven-radius-control, 8px);
   background: var(--aven-control-bg, var(--aven-raised));
-  box-shadow: var(--aven-control-shadow, 0 1px 2px #00000014);
+  box-shadow: var(--aven-glass-sheen, none);
   color: var(--color-content);
   font-size: 12px;
+  font-weight: 500;
   line-height: 1.4;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    transform 120ms ease;
+}
+.settings-button:active:not(:disabled) {
+  transform: scale(0.97);
 }
 .settings-select {
   width: auto;
@@ -304,21 +350,19 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 4px 10px;
+  padding: 4px 12px;
   text-align: center;
 }
 .settings-select:not(:disabled):hover,
 .settings-button:not(:disabled):hover {
-  background: color-mix(
-    in srgb,
-    var(--color-content) 5%,
-    var(--aven-control-bg, var(--aven-raised))
-  );
+  background: var(--aven-control-hover, var(--aven-hover));
+  border-color: color-mix(in srgb, var(--color-content) 16%, transparent);
   color: var(--color-content);
 }
 .settings-button-danger {
-  color: color-mix(in srgb, #dc3545 75%, var(--color-content));
-  background: color-mix(in srgb, #ef4444 7%, transparent);
+  color: color-mix(in srgb, #ef4444 70%, var(--color-content));
+  background: color-mix(in srgb, #ef4444 10%, transparent);
+  border-color: color-mix(in srgb, #ef4444 24%, transparent);
 }
 .settings-button-danger:not(:disabled):hover {
   color: color-mix(in srgb, #dc3545 65%, var(--color-content));
@@ -346,6 +390,9 @@
     padding: 0 14px;
   }
   .settings-row {
+    min-height: 0;
+  }
+  .settings-row {
     grid-template-columns: minmax(0, 1fr);
     gap: 10px;
     padding: 12px 0;
@@ -358,7 +405,7 @@
     max-width: none;
   }
   .settings-row:has(> .settings-row-control > .settings-toggle:only-child) {
-    grid-template-columns: minmax(0, 1fr) 36px;
+    grid-template-columns: minmax(0, 1fr) 42px;
     gap: 16px;
   }
   .settings-row:has(> .settings-row-control > .settings-toggle:only-child)
@@ -375,8 +422,13 @@
 @media (prefers-reduced-motion: reduce) {
   .settings-toggle-track,
   .settings-toggle-track > span,
-  .settings-segmented button {
+  .settings-segmented button,
+  .settings-select,
+  .settings-button {
     transition: none;
+  }
+  .settings-button:active:not(:disabled) {
+    transform: none;
   }
 }
 

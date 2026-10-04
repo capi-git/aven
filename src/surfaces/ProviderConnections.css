@@ -2,17 +2,64 @@
   align-items: center;
 }
 .provider-connections strong {
+  display: inline-flex;
   flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px 2px 8px;
+  border: 1px solid var(--provider-state-edge, var(--aven-line));
+  border-radius: 999px;
+  background: var(--provider-state-fill, transparent);
+  color: var(--color-content);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
   text-align: right;
 }
-.provider-connections li[data-state="needs-sign-in"] strong,
-.provider-connections li[data-state="failed"] strong {
-  color: var(--color-accent);
+/* Each state gets a colored dot; the label stays in the content color. */
+.provider-connections strong::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--provider-state-dot, var(--aven-muted));
+}
+.provider-connections li[data-state="ready"] {
+  --provider-state-dot: #34c759;
+}
+.provider-connections li[data-state="needs-sign-in"] {
+  --provider-state-dot: #ffb340;
+  --provider-state-fill: color-mix(in srgb, #ffb340 12%, transparent);
+  --provider-state-edge: color-mix(in srgb, #ffb340 30%, transparent);
+}
+.provider-connections li[data-state="failed"] {
+  --provider-state-dot: #ff5f57;
+  --provider-state-fill: color-mix(in srgb, #ff5f57 12%, transparent);
+  --provider-state-edge: color-mix(in srgb, #ff5f57 30%, transparent);
+}
+.provider-connections li[data-state="starting"] strong::before {
+  animation: provider-state-pulse 1.2s ease-in-out infinite;
+}
+@keyframes provider-state-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .provider-connections li[data-state="starting"] strong::before {
+    animation: none;
+  }
 }
 .provider-connection-name {
   min-width: 0;
   flex: 1;
   color: var(--color-content);
+  font-size: 12px;
+  font-weight: 500;
+}
+.provider-connection-source {
+  font-weight: 400;
 }
 .provider-connection-source {
   color: var(--aven-muted);
@@ -36,7 +83,7 @@
 }
 .provider-connections-heading .settings-button,
 .provider-row-action {
-  min-height: 24px;
+  min-height: 26px;
   padding-block: 2px;
   font-size: 11px;
 }
@@ -45,9 +92,9 @@
 }
 .skills-tool p.provider-connection-notice {
   margin-top: 10px;
-  padding: 6px 8px;
+  padding: 8px 10px;
   border: 1px solid var(--aven-line);
-  border-radius: 6px;
+  border-radius: 10px;
   background: var(--aven-field-bg);
   color: var(--color-content);
 }
@@ -73,9 +120,9 @@
 .provider-field textarea {
   width: 100%;
   min-width: 0;
-  padding: 5px 8px;
-  border: 1px solid var(--aven-line);
-  border-radius: 6px;
+  padding: 6px 9px;
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: var(--aven-radius-control, 8px);
   background: var(--aven-field-bg);
   color: var(--color-content);
   font-family: var(--font-mono, ui-monospace, monospace);

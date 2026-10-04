@@ -108,12 +108,8 @@ html:not(.theme-light)
   .personal-inspector-slot[data-floating="true"]
   > .personal-inspector-dock
   .workspace-inspector {
-  --personal-inspector-overlay: color-mix(
-    in srgb,
-    var(--aven-popup) 62%,
-    transparent
-  );
-  --personal-inspector-blur: blur(48px) saturate(115%);
+  --personal-inspector-overlay: var(--aven-glass-overlay);
+  --personal-inspector-blur: var(--aven-glass-blur);
   position: relative;
   isolation: isolate;
   background: transparent;

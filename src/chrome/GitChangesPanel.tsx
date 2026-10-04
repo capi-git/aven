@@ -615,7 +615,7 @@ function ChangedFiles({
             <ChevronDown className="size-3.5" strokeWidth={2} />
           </button>
           {enabled && menuOpen ? (
-            <div className="absolute top-full right-0 z-30 mt-1 min-w-48 rounded-md border border-content/10 bg-background-base py-1 shadow-lg">
+            <div className="absolute top-full right-0 z-30 mt-1 min-w-48 aven-glass-overlay [--aven-radius-overlay:12px] py-1">
               <button
                 type="button"
                 disabled={!canCommitPush}

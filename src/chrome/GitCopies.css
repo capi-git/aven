@@ -22,12 +22,12 @@
 .git-copy {
   margin: 4px 8px;
   padding: 6px 8px 7px;
-  border: 1px solid transparent;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+  border: 1px solid var(--aven-glass-card-edge);
+  border-radius: 10px;
+  background: var(--aven-inset-card);
 }
 .git-copy:hover {
-  border-color: color-mix(in srgb, var(--color-content) 12%, transparent);
+  border-color: color-mix(in srgb, var(--color-content) 16%, transparent);
 }
 .git-copy[data-finished] {
   opacity: 0.7;
@@ -207,9 +207,9 @@
   align-items: flex-start;
   gap: 9px;
   padding: 10px 11px;
-  border: 1px solid color-mix(in srgb, var(--color-content) 10%, transparent);
+  border: 1px solid var(--aven-glass-card-edge);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  background: var(--aven-inset-card);
 }
 .git-status-card[data-tone="ok"] {
   border-color: color-mix(in srgb, #4ade80 22%, transparent);

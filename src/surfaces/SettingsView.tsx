@@ -404,7 +404,7 @@ export function SettingsView({
           </aside>
         ) : null}
         <div ref={setScrollRef} className="settings-scroll">
-          <div className="settings-content">
+          <div key={section} className="settings-content">
             <div className="settings-page-top">
               <PageHeader
                 title={settingsSectionLabel(section)}
@@ -1913,17 +1913,17 @@ function ProviderRow({
       aria-label={`${HARNESS_TITLE[harness]} choices`}
     >
       <div className="settings-provider-heading">
-        <HarnessIcon harness={harness} className="size-6 shrink-0" />
+        <span className="settings-provider-mark" aria-hidden>
+          <HarnessIcon harness={harness} className="size-5 shrink-0" />
+        </span>
         <div className="min-w-0 flex-1">
-          <span className="text-[13px] font-medium">
+          <span className="text-[14px] font-semibold tracking-[-0.01em]">
             {HARNESS_TITLE[harness]}
           </span>
           {isDefault ? (
-            <span className="ml-2 rounded-full bg-content/10 px-1.5 py-0.5 text-[10px] font-medium text-content/60">
-              Default
-            </span>
+            <span className="settings-provider-badge">Default</span>
           ) : null}
-          <p className="mt-1 text-[12px] leading-relaxed text-content/65">
+          <p className="mt-0.5 text-[12px] leading-relaxed text-content/60">
             {available
               ? `${shownModels.length} of ${models.length} models shown`
               : harnessUnavailableHint(harness)}
@@ -1985,7 +1985,7 @@ function ProviderRow({
       {refreshState !== "idle" ? (
         <p
           role={refreshState === "failed" ? "alert" : "status"}
-          className={`mt-2 pl-7 text-[12px] ${refreshState === "failed" ? "text-red-400" : "text-content/55"}`}
+          className={`mt-2 pl-12 text-[12px] ${refreshState === "failed" ? "text-red-400" : "text-content/55"}`}
         >
           {refreshState === "pending"
             ? "Checking for available models…"
@@ -1996,7 +1996,7 @@ function ProviderRow({
       ) : null}
       {models.length > 0 ? (
         <details
-          className="mt-2 pl-7 text-[12px]"
+          className="mt-2 text-[12px]"
           onToggle={(event) => {
             setExpanded(event.currentTarget.open);
             if (event.currentTarget.open && available)
@@ -2007,7 +2007,7 @@ function ProviderRow({
             Models · {shownModels.length} shown
           </summary>
           {expanded ? (
-            <div className="mt-2 rounded-md border border-content/10">
+            <div className="mt-2 overflow-hidden rounded-[10px] border border-content/10 bg-(--aven-field-bg)">
               <div className="flex items-center gap-2 border-b border-content/10 px-2 py-1.5">
                 <Search className="size-3.5 shrink-0 text-content/45" />
                 <input
@@ -2122,20 +2122,17 @@ function ArchivePage({
 
   return (
     <>
-      <div id="setting-archived-projects" tabIndex={-1}>
-        <Heading title="Archived projects" first />
-      </div>
-      {archivedProjects.length === 0 ? (
-        <p className="py-3 text-[12px] text-content/45">
-          Archive a project from the rail to keep its chats without listing it
-          in the sidebar.
-        </p>
-      ) : (
-        <div className="overflow-hidden rounded-lg border border-content/10">
-          {archivedProjects.map((project) => (
+      <SettingsGroup title="Archived projects" id="setting-archived-projects">
+        {archivedProjects.length === 0 ? (
+          <p className="py-4 text-[12px] text-content/50">
+            Archive a project from the rail to keep its chats without listing it
+            in the sidebar.
+          </p>
+        ) : (
+          archivedProjects.map((project) => (
             <div
               key={project.path}
-              className="flex items-center gap-3 border-b border-content/5 px-3 py-2 last:border-b-0"
+              className="flex min-h-14 items-center gap-3 border-b border-content/8 py-2.5 last:border-b-0"
             >
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[13px]">
@@ -2156,45 +2153,44 @@ function ArchivePage({
                 </SecondaryButton>
               ) : null}
             </div>
-          ))}
-        </div>
-      )}
+          ))
+        )}
+      </SettingsGroup>
 
-      <Row
-        label="Show archived in the sidebar"
-        description="Keep archived conversations listed alongside the active ones."
-      >
-        <Toggle
+      <SettingsGroup title="Sidebar">
+        <Row
           label="Show archived in the sidebar"
-          on={filters.showArchived}
-          onChange={onShowArchived}
-        />
-      </Row>
+          description="Keep archived conversations listed alongside the active ones."
+        >
+          <Toggle
+            label="Show archived in the sidebar"
+            on={filters.showArchived}
+            onChange={onShowArchived}
+          />
+        </Row>
+      </SettingsGroup>
 
-      <div id="setting-archived-conversations" tabIndex={-1}>
-        <Heading
-          title={
-            looksLikeProject(cwd)
-              ? `Archived in ${projectName(cwd)}`
-              : "Archived conversations"
-          }
-        />
-      </div>
-
-      {!looksLikeProject(cwd) ? (
-        <p className="py-3 text-[12px] text-content/45">
-          Open a project to see its archived conversations.
-        </p>
-      ) : archived.length === 0 ? (
-        <p className="py-3 text-[12px] text-content/45">
-          No archived conversations in this project.
-        </p>
-      ) : (
-        <div className="overflow-hidden rounded-lg border border-content/10">
-          {archived.map((session) => (
+      <SettingsGroup
+        title={
+          looksLikeProject(cwd)
+            ? `Archived in ${projectName(cwd)}`
+            : "Archived conversations"
+        }
+        id="setting-archived-conversations"
+      >
+        {!looksLikeProject(cwd) ? (
+          <p className="py-4 text-[12px] text-content/50">
+            Open a project to see its archived conversations.
+          </p>
+        ) : archived.length === 0 ? (
+          <p className="py-4 text-[12px] text-content/50">
+            No archived conversations in this project.
+          </p>
+        ) : (
+          archived.map((session) => (
             <div
               key={session.id}
-              className="flex items-center gap-3 border-b border-content/5 px-3 py-2 last:border-b-0"
+              className="flex min-h-12 items-center gap-3 border-b border-content/8 py-2.5 last:border-b-0"
             >
               <HarnessIcon
                 harness={session.harness}
@@ -2222,9 +2218,9 @@ function ArchivePage({
                 Delete
               </SecondaryButton>
             </div>
-          ))}
-        </div>
-      )}
+          ))
+        )}
+      </SettingsGroup>
 
       {deleting ? (
         <RemoveProjectDialog

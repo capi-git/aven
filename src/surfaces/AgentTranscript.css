@@ -149,8 +149,10 @@
 }
 .personal-shell .personal-activity-phase {
   padding: 6px 10px;
-  border-radius: 8px;
-  background: var(--aven-grouped-surface, var(--aven-hover));
+  border: 1px solid var(--aven-glass-card-edge, transparent);
+  border-radius: 10px;
+  background: var(--aven-glass-card, var(--aven-hover));
+  box-shadow: var(--aven-glass-sheen, none);
 }
 .personal-shell .personal-activity-phase > button {
   min-height: 30px;
@@ -180,7 +182,7 @@
 .personal-shell .personal-tool-call > pre {
   margin-block: 6px;
   padding: 9px 11px;
-  border-radius: 7px;
+  border-radius: 8px;
   background: var(--aven-field-bg, var(--aven-hover));
   color: color-mix(in srgb, var(--color-content) 75%, transparent);
   font-size: 12px;
@@ -235,7 +237,8 @@
   .agent-markdown
   [data-streamdown="code-block-header"] {
   min-height: 32px;
-  background: var(--aven-toolbar-surface, var(--aven-hover));
+  border-bottom: 1px solid var(--aven-line);
+  background: color-mix(in srgb, var(--color-content) 3%, transparent);
   color: color-mix(in srgb, var(--color-content) 68%, transparent);
 }
 .personal-shell
@@ -277,4 +280,12 @@ html.theme-light .personal-shell .personal-user-bubble {
       var(--personal-main-surface)
     );
   }
+}
+
+/* Output inside a tool card is a faint inset, not a second glass layer. */
+.personal-shell
+  .agent-transcript
+  .personal-activity-phase
+  :is([data-streamdown="code-block"], [data-streamdown="table-wrapper"]) {
+  background: color-mix(in srgb, var(--color-content) 3%, transparent);
 }
