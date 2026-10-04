@@ -12,4 +12,4 @@ Security fixes target the latest Aven release. Older releases are not maintained
 
 Aven runs locally installed agent CLIs. Those processes can read or modify project files and run commands according to their configuration and the selected access mode. A workspace profile is an organizational feature, not a sandbox or a separate credential store. Provider authentication, network requests, and billing are handled by the corresponding provider and CLI.
 
-The initial macOS release is ad-hoc signed and is not Apple-notarized. Download builds only from this repository's releases, or build the source yourself. Do not submit secrets, private conversations, or unredacted environment files with a bug report.
+macOS releases are Developer ID signed and, from 0.1.121, notarized by Apple; each release's notes state its notarization. Windows installers are not Authenticode-signed; their automatic updates are verified with Aven's updater signature. Download builds only from this repository's releases or the Aven website, or build the source yourself. Do not submit secrets, private conversations, or unredacted environment files with a bug report.
