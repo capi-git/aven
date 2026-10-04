@@ -43,6 +43,26 @@ def step_script(name):
     raise AssertionError('Missing literal run block for ' + name)
 
 
+def step_block(name):
+    """Return a step's YAML lines, from its name to the next step."""
+    lines = WORKFLOW.read_text().splitlines()
+    start = next(index for index, line in enumerate(lines) if line.strip() == '- name: ' + name)
+    indentation = len(lines[start]) - len(lines[start].lstrip())
+    block = [lines[start]]
+    for line in lines[start + 1:]:
+        if line.strip() and len(line) - len(line.lstrip()) <= indentation:
+            break
+        block.append(line)
+    return '\n'.join(block)
+
+
+NOTARY_SECRETS = ('APPLE_API_KEY_P8_BASE64', 'APPLE_API_KEY_ID', 'APPLE_API_ISSUER_ID')
+NOTARIZED = {'notarized': True, 'status': 'accepted', 'submissionId': '11111111-2222-3333-4444-555555555555',
+             'stapled': True, 'stapleValidation': 'passed', 'gatekeeper': 'accepted',
+             'gatekeeperSource': 'Notarized Developer ID', 'credential': 'app-store-connect-api-key'}
+SKIPPED = {'notarized': False, 'status': 'skipped', 'reason': 'No notarization credentials were supplied.'}
+
+
 class WorkflowFixture(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix='aven-release-workflow-test-')
@@ -284,6 +304,46 @@ class WindowsArtifactTests(WorkflowFixture):
         self.assertTrue((self.root / 'gh-called.json').is_file())
         self.assertFalse(list(self.release.glob('*windows*')))
 
+    def set_notarization(self, notarization):
+        report = self.release / 'signing-verification.json'
+        report.write_text(json.dumps({**json.loads(report.read_text()), 'notarization': notarization}))
+        self.checksums(self.release)
+
+    def published_notes(self):
+        self.environment['AVEN_INCLUDE_WINDOWS'] = 'false'
+        result = self.run_step('Publish Aven release')
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        arguments = json.loads((self.root / 'gh-called.json').read_text())
+        return arguments[arguments.index('--notes') + 1], result.stderr
+
+    def test_notarized_build_is_described_as_notarized(self):
+        self.set_notarization(NOTARIZED)
+        notes, log = self.published_notes()
+        self.assertIn('notarized by Apple', notes)
+        self.assertIn('opens normally', notes)
+        self.assertNotIn('not Apple-notarized', notes)
+        self.assertNotIn('Privacy & Security', notes)
+        self.assertNotIn('::warning', log)
+
+    def test_unnotarized_build_can_publish_but_says_so(self):
+        for notarization in (SKIPPED, 'not checked', None):
+            with self.subTest(notarization=notarization):
+                (self.root / 'gh-called.json').unlink(missing_ok=True)
+                self.set_notarization(notarization)
+                notes, log = self.published_notes()
+                self.assertIn('Developer ID signed', notes)
+                self.assertIn('not Apple-notarized', notes)
+                self.assertIn('Privacy & Security', notes)
+                self.assertNotIn('notarized by Apple', notes)
+                self.assertIn('::warning title=Not notarized::', log)
+
+    def test_incomplete_notarization_record_blocks_publishing(self):
+        self.environment['AVEN_INCLUDE_WINDOWS'] = 'false'
+        for key, value in (('stapled', False), ('gatekeeper', 'rejected'), ('submissionId', '')):
+            with self.subTest(key=key):
+                self.set_notarization({**NOTARIZED, key: value})
+                self.assert_refused('incomplete notarization record')
+
     def test_invalid_windows_selection_is_rejected(self):
         self.environment['AVEN_INCLUDE_WINDOWS'] = 'yes'
         self.assert_refused('must be true or false')
@@ -296,6 +356,98 @@ class WindowsArtifactTests(WorkflowFixture):
                 self.executable('git', '#!/bin/sh\n[ "$1" = ls-remote ] || exit 97\nexit ' + str(status) + '\n')
                 self.assert_refused(message)
 
+
+class MacosNotarizationTests(WorkflowFixture):
+    def setUp(self):
+        super().setUp()
+        self.calls = self.root / 'calls.log'
+        self.environment['AVEN_TEST_CALLS'] = str(self.calls)
+        self.environment['RUNNER_TEMP'] = str(self.root / 'runner-temp')
+        (self.root / 'runner-temp').mkdir()
+        record = '#!' + sys.executable + '\nimport os, sys\nopen(os.environ["AVEN_TEST_CALLS"], "a").write(" ".join(sys.argv) + "\\n")\n'
+        self.executable('xcrun', record + 'sys.exit(int(os.environ.get("AVEN_TEST_STAPLER_STATUS", "0")))\n')
+        self.executable('node', '#!' + sys.executable + '\nimport json, pathlib\n'
+                        'print(json.loads(pathlib.Path("package.json").read_text())["version"])\n')
+        if not shutil.which('shasum'):
+            self.executable('shasum', '#!/bin/sh\nshift 2\nexec sha256sum "$@"\n')
+        (self.root / 'scripts/release-signing.py').write_text(record.split('\n', 1)[1])
+        (self.root / 'scripts/ci-signing-keychain.py').write_text(record.split('\n', 1)[1])
+        (self.root / 'scripts/package-update.py').write_text(record.split('\n', 1)[1] + (
+            'from pathlib import Path\nout = Path(sys.argv[sys.argv.index("--out") + 1])\n'
+            'for name in ("Aven-1.2.3-macos-arm64.app.tar.gz", "Aven-1.2.3-macos-arm64.app.tar.gz.sig", "latest.json"):\n'
+            '    (out / name).write_text("fixture")\n'))
+        shutil.copy(ROOT / 'scripts/notarize-release.py', self.root / 'scripts/notarize-release.py')
+        self.candidate = self.root / 'target/releases' / ('v' + VERSION)
+        self.candidate.mkdir(parents=True)
+        (self.release / 'latest.json').unlink()
+        for path in self.release.iterdir():
+            shutil.copy(path, self.candidate / path.name)
+
+    def write_report(self, notarization):
+        report = self.candidate / 'signing-verification.json'
+        report.write_text(json.dumps({**json.loads(report.read_text()), 'notarization': notarization}))
+        self.checksums(self.candidate)
+
+    def logged(self):
+        return self.calls.read_text().splitlines() if self.calls.exists() else []
+
+    def test_notary_secrets_reach_only_the_build_step_which_runs_before_update_signing(self):
+        build = step_block('Test, build, notarize, and package candidate')
+        for name in NOTARY_SECRETS:
+            self.assertIn(name + ': ${{ secrets.' + name + ' }}', build)
+        self.assertIn('run: ./scripts/build-release.sh', build)
+        self.assertNotIn('TAURI_SIGNING', build)
+        workflow = WORKFLOW.read_text()
+        for name in NOTARY_SECRETS:
+            self.assertEqual(workflow.count('secrets.' + name), 1, name + ' must not reach other steps')
+        self.assertLess(workflow.index('- name: Test, build, notarize, and package candidate'),
+                        workflow.index('- name: Sign final Chromium update archive'))
+        self.assertLess(workflow.index('- name: Sign final Chromium update archive'),
+                        workflow.index('- name: Upload candidate for manual review'))
+
+    def test_notarized_update_archive_requires_the_stapled_ticket_first(self):
+        self.write_report(NOTARIZED)
+        result = self.run_step('Sign final Chromium update archive')
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        calls = self.logged()
+        validate = next(index for index, line in enumerate(calls) if line.endswith('stapler validate target/release/bundle/macos/Aven.app'))
+        package = next(index for index, line in enumerate(calls) if 'package-update.py' in line)
+        self.assertLess(validate, package)
+
+    def test_missing_ticket_on_notarized_build_blocks_update_signing(self):
+        self.write_report(NOTARIZED)
+        self.environment['AVEN_TEST_STAPLER_STATUS'] = '65'
+        result = self.run_step('Sign final Chromium update archive')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any('package-update.py' in line for line in self.logged()))
+
+    def test_unnotarized_build_still_signs_updates_without_claiming_a_ticket(self):
+        self.write_report(SKIPPED)
+        result = self.run_step('Sign final Chromium update archive')
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertFalse(any('stapler' in line for line in self.logged()))
+        self.assertTrue(any('package-update.py' in line for line in self.logged()))
+
+    def test_always_run_cleanup_removes_the_notary_key_and_the_keychain(self):
+        self.assertIn('if: ${{ always() }}', step_block('Remove temporary signing material'))
+        key_directory = self.root / 'runner-temp/aven-notary-key'
+        key_directory.mkdir(mode=0o700)
+        (key_directory / 'AuthKey_ABC123DEFG.p8').write_text('fixture key')
+        result = self.run_step('Remove temporary signing material')
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertFalse(key_directory.exists())
+        self.assertTrue(any('ci-signing-keychain.py --cleanup' in line for line in self.logged()))
+
+    def test_failed_key_cleanup_still_runs_keychain_cleanup_and_fails(self):
+        (self.root / 'scripts/notarize-release.py').write_text('raise SystemExit(3)\n')
+        result = self.run_step('Remove temporary signing material')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(any('ci-signing-keychain.py --cleanup' in line for line in self.logged()))
+
+    def test_candidate_artifact_cannot_contain_the_runner_key_directory(self):
+        upload = step_block('Upload candidate for manual review')
+        self.assertIn('path: target/releases/v*/', upload)
+        self.assertNotIn('RUNNER_TEMP', upload)
 
 
 class CheckoutCredentialTests(unittest.TestCase):

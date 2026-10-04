@@ -14,7 +14,7 @@ Aven brings agent conversations, your project, and a browser into one window. Us
 
 **macOS:** Get the build for Apple Silicon Macs running macOS 13 or later from the [latest Aven release](https://github.com/capi-git/aven/releases/latest). Download the macOS ZIP, extract it, and move **Aven.app** to Applications.
 
-The app is Developer ID signed from 0.1.108 but not yet Apple-notarized, so macOS may require you to approve opening it in **System Settings → Privacy & Security**. Only approve a copy you downloaded from this repository's releases. Intel Mac and Linux release builds are not currently provided or verified.
+The app is Developer ID signed from 0.1.108. Each release's notes say whether that Mac build is also notarized by Apple. A notarized release opens normally. Until notarization is in place, macOS may ask you to approve opening the app in **System Settings → Privacy & Security**. Only approve a copy you downloaded from this repository's releases. Intel Mac and Linux release builds are not currently provided or verified.
 
 **Windows:** From the same [latest release](https://github.com/capi-git/aven/releases/latest), download the Windows x64 setup `.exe`, or extract `Aven-<version>-windows-x64.zip` and run the installer inside. The regular Windows release is unsigned, so Windows may show an unknown-publisher warning. Updates are installed manually. Windows uses WebView2, and some browser and desktop-control features remain macOS-only. See [Aven for Windows](docs/WINDOWS.md) for setup, checksums, and platform limitations.
 

@@ -3,7 +3,8 @@
 
 Developer ID releases must keep the public team and bundle contract in
 release-signing.json. Ad-hoc builds are explicitly local tests, never updates.
-No keychain modification, app launch, installation, or notarization is performed.
+No keychain modification, app launch, installation, or notarization is performed;
+scripts/notarize-release.py notarizes and records the result in the report.
 """
 import argparse
 import json
@@ -20,6 +21,8 @@ HELPERS = [('', ''), (' (Alerts)', '.alerts'), (' (GPU)', '.gpu'),
            (' (Plugin)', '.plugin'), (' (Renderer)', '.renderer')]
 UPDATER_ENV = ('TAURI_SIGNING_PRIVATE_KEY', 'TAURI_SIGNING_PRIVATE_KEY_PATH',
                'TAURI_SIGNING_PRIVATE_KEY_PASSWORD')
+NOTARY_ENV = ('APPLE_API_KEY_P8_BASE64', 'APPLE_API_KEY_ID', 'APPLE_API_ISSUER_ID',
+              'AVEN_NOTARY_KEYCHAIN_PROFILE')
 
 
 def require(condition, message):
@@ -73,6 +76,9 @@ def preflight(ad_hoc=False, environment=None):
     if ad_hoc:
         require(not any(environment.get(name) for name in UPDATER_ENV),
                 'Ad-hoc local tests cannot use updater signing credentials; unset TAURI_SIGNING_* variables.')
+        require(not any(environment.get(name) for name in NOTARY_ENV),
+                'Ad-hoc local tests cannot be notarized; unset the APPLE_API_* and '
+                'AVEN_NOTARY_KEYCHAIN_PROFILE variables.')
         require(not environment.get('AVEN_RELEASE_SIGNING_IDENTITY')
                 and not environment.get('AVEN_RELEASE_KEYCHAIN'),
                 'Ad-hoc local tests cannot specify a Developer ID identity or keychain.')
@@ -166,7 +172,10 @@ def verify(app, ad_hoc=False):
     return {'status': 'verified', 'mode': 'ad-hoc-local-test' if ad_hoc else 'developer-id',
             'app': app.name, 'teamId': None if ad_hoc else contract['teamId'],
             'bundleId': contract['bundleId'], 'strictSignatureVerification': 'passed',
-            'notarization': 'not checked', 'signatures': signatures,
+            'notarization': ({'notarized': False, 'status': 'not-applicable',
+                              'reason': 'Ad-hoc local test builds are never notarized.'} if ad_hoc
+                             else {'notarized': False, 'status': 'not-submitted'}),
+            'signatures': signatures,
             'scope': 'Signature identity and bundle integrity; does not grant or verify macOS permissions.'}
 
 
