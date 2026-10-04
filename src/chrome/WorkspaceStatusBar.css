@@ -86,10 +86,6 @@
 .workspace-status-access [data-mode="auto"] > svg {
   color: inherit;
 }
-.workspace-status-open {
-  padding-inline: 6px 4px;
-  gap: 4px;
-}
 .workspace-status-pill:not(:disabled):hover,
 .workspace-status-access > div > button:hover {
   background: color-mix(in srgb, var(--color-content) 8%, transparent);
@@ -98,10 +94,6 @@
 .workspace-status-pill:disabled {
   opacity: 0.4;
   cursor: default;
-}
-.workspace-status-metric {
-  min-width: 39px;
-  font-variant-numeric: tabular-nums;
 }
 .workspace-status-bar button:focus-visible {
   outline: 2px solid var(--aven-focus-ring, var(--color-accent));
@@ -404,15 +396,6 @@
   background: var(--color-accent);
   color: var(--color-background-base);
   font-variant-numeric: tabular-nums;
-}
-
-.workspace-status-menu-error {
-  max-width: 160px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--color-content);
-  font-size: 10px;
 }
 
 /* The shell owns title-bar height and traffic-light clearance. */

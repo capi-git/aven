@@ -4,11 +4,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "../lib/session";
 import { getActivitySnapshot, recordActivity } from "../lib/activity";
-import type { ProviderRateLimits } from "../lib/rateLimits";
 import {
   WorkspaceStatusBar,
   WorkspaceNavigation,
-  reportedCostLabel,
   workspaceQueueSummary,
   type WorkspaceStatusBarProps,
 } from "./WorkspaceStatusBar";
@@ -21,54 +19,9 @@ vi.mock("../lib/platform", async (original) => ({
   },
 }));
 
-const nativeMenu = vi.hoisted(() => ({
-  supported: vi.fn(() => false),
-  show: vi.fn(),
-}));
-vi.mock("../lib/workspaceNativeMenu", () => ({
-  supportsWorkspaceNativeMenu: nativeMenu.supported,
-  showWorkspaceNativeMenu: nativeMenu.show,
-}));
-const nativePanel = vi.hoisted(() => ({
-  open: vi.fn(),
-  update: vi.fn(),
-  close: vi.fn(),
-  callbacks: new Map<string, (value: unknown) => void>(),
-}));
 vi.mock("../lib/usagePanel", () => ({
   useUsagePanelTheme: () => ({ mode: "dark", accent: "#5ed9d0" }),
-  nativeUsagePanel: {
-    open: nativePanel.open,
-    update: nativePanel.update,
-    close: nativePanel.close,
-    listen: vi.fn(async (name: string, callback: (value: unknown) => void) => {
-      nativePanel.callbacks.set(name, callback);
-      return () => {
-        if (nativePanel.callbacks.get(name) === callback)
-          nativePanel.callbacks.delete(name);
-      };
-    }),
-  },
 }));
-const openPanel = vi.hoisted(() => ({
-  open: vi.fn(),
-  update: vi.fn(),
-  close: vi.fn(),
-  callbacks: new Map<string, (value: unknown) => void>(),
-}));
-vi.mock("../lib/workspaceMenuPanel", () => ({
-  nativeWorkspaceMenuPanel: {
-    ...openPanel,
-    listen: vi.fn(async (name: string, callback: (value: unknown) => void) => {
-      openPanel.callbacks.set(name, callback);
-      return () => {
-        if (openPanel.callbacks.get(name) === callback)
-          openPanel.callbacks.delete(name);
-      };
-    }),
-  },
-}));
-const api = vi.hoisted(() => ({ claude: vi.fn(), codex: vi.fn() }));
 const nativeWindow = vi.hoisted(() => ({
   startDragging: vi.fn().mockResolvedValue(undefined),
   toggleMaximize: vi.fn().mockResolvedValue(undefined),
@@ -79,10 +32,6 @@ const nativeWindow = vi.hoisted(() => ({
 }));
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => nativeWindow,
-}));
-vi.mock("../lib/rateLimitsFetch", () => ({
-  fetchClaudeRateLimits: api.claude,
-  fetchCodexRateLimits: api.codex,
 }));
 vi.mock("./Popover", () => ({
   Popover: ({
@@ -116,22 +65,6 @@ let props: WorkspaceStatusBarProps;
 beforeEach(() => {
   vi.clearAllMocks();
   platform.isMac = true;
-  nativeMenu.supported.mockReturnValue(false);
-  nativeMenu.show.mockResolvedValue(null);
-  nativePanel.open.mockResolvedValue("usage-panel-test");
-  nativePanel.update.mockResolvedValue(undefined);
-  nativePanel.close.mockResolvedValue(undefined);
-  nativePanel.callbacks.clear();
-  openPanel.open.mockResolvedValue({
-    label: "workspace-menu-panel-test",
-    presentation: "open-1",
-  });
-  openPanel.update.mockResolvedValue({
-    label: "workspace-menu-panel-test",
-    presentation: "open-1",
-  });
-  openPanel.close.mockResolvedValue(undefined);
-  openPanel.callbacks.clear();
   const storage = new Map<string, string>();
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => storage.get(key) ?? null,
@@ -147,18 +80,8 @@ beforeEach(() => {
   root = createRoot(container);
   props = {
     sessions: [],
-    accessMode: "supervised",
-    onAccessModeChange: vi.fn(),
     onSelectSession: vi.fn().mockResolvedValue(true),
   };
-  api.codex.mockImplementation(async (): Promise<ProviderRateLimits> => ({
-    provider: "codex",
-    session: { usedPercent: 23, windowMinutes: 300, resetsAt: null },
-    weekly: null,
-    updatedAt: Date.now(),
-    error: null,
-    status: "ok",
-  }));
 });
 afterEach(async () => {
   await act(async () => root.unmount());
@@ -726,421 +649,14 @@ describe("workspace status data and actions", () => {
     expect(container.querySelector('[role="menu"]')).toBeNull();
   });
 
-  it("omits unknown metrics and displays only reported cost and context", async () => {
-    expect([undefined, null, NaN, Infinity, -1].map(reportedCostLabel)).toEqual(
-      [null, null, null, null, null],
+  it("keeps usage, access and external-open controls out of the header", async () => {
+    await render({ session: task({ context: { used: 101_000 } }) });
+    const labels = [...container.querySelectorAll("button")].map((node) =>
+      node.getAttribute("aria-label"),
     );
-    expect(reportedCostLabel(0)).toBe("$0.00");
-    expect(reportedCostLabel(0.004)).toBe("<$0.01");
-    await render();
-    expect(
-      container.querySelector('[aria-label="Task cost and usage"]'),
-    ).toBeNull();
-    expect(
-      container.querySelector('[aria-label="Context and provider usage"]'),
-    ).toBeNull();
-    await render({
-      session: task({ context: { used: 50_000, window: 100_000 } }),
-      costUsd: 1.25,
-    });
-    expect(button("Context and provider usage").textContent).toBe("50%");
-    expect(button("Task cost and usage").textContent).toBe("$1.25");
-  });
-
-  it("keeps reported tokens useful when a provider omits the model window", async () => {
-    await render({ session: task({ context: { used: 50_000 } }) });
-    expect(button("Context and provider usage").textContent).toBe("50K");
-    await click("Context and provider usage");
-    expect(container.textContent).toContain("50K tokens");
-    expect(api.codex).not.toHaveBeenCalled();
-    expect(api.claude).not.toHaveBeenCalled();
-    await render({
-      session: task({ context: { used: 50_000, window: Infinity } }),
-    });
-    expect(button("Context and provider usage").textContent).toBe("50K");
-  });
-
-  it("does not carry a previous task's metrics into an unreported task", async () => {
-    await render({
-      session: task({ context: { used: 50_000, window: 100_000 } }),
-      costUsd: 1.25,
-    });
-    await click("Task cost and usage");
-    await render({ session: task({ id: "task-2" }), costUsd: undefined });
-    expect(
-      container.querySelector('[aria-label="Task cost and usage"]'),
-    ).toBeNull();
-    expect(
-      container.querySelector('[aria-label="Context and provider usage"]'),
-    ).toBeNull();
-    expect(container.querySelector('[role="dialog"]')).toBeNull();
-    await render({ usageProviders: ["codex"] });
-    expect(button("Context and provider usage").textContent).toBe("Usage");
-    expect(button("Context and provider usage").title).toBe(
-      "View Codex account usage",
-    );
-  });
-
-  it("opens only the external action clicked and omits Run controls", async () => {
-    const reveal = vi.fn();
-    await render({
-      openActions: [
-        { id: "reveal", label: "Reveal in Finder", onSelect: reveal },
-        { id: "preview", label: "Open preview", disabled: true },
-      ],
-    });
-    expect(container.querySelector('[aria-label="Run actions"]')).toBeNull();
-    expect(container.textContent).not.toContain("Add run script");
-    expect(reveal).not.toHaveBeenCalled();
-    await click("Open workspace externally");
-    expect(button("Open preview").disabled).toBe(true);
-    await click("Reveal in Finder");
-    expect(reveal).toHaveBeenCalledOnce();
-  });
-
-  it("disables unavailable external actions", async () => {
-    const reveal = vi.fn();
-    await render({
-      openActions: [
-        {
-          id: "finder",
-          label: "Reveal project in Finder",
-          onSelect: reveal,
-          disabled: true,
-        },
-      ],
-    });
-    expect(button("Open workspace externally").disabled).toBe(true);
-    await click("Open workspace externally");
-    expect(reveal).not.toHaveBeenCalled();
-    expect(container.querySelector('[role="menu"]')).toBeNull();
-  });
-
-  it("uses the existing access picker and only changes access after selection", async () => {
-    await render();
-    const trigger = container.querySelector<HTMLButtonElement>(
-      "[data-access-trigger]",
-    )!;
-    await act(async () => trigger.click());
-    expect(props.onAccessModeChange).not.toHaveBeenCalled();
-    const options = container.querySelectorAll<HTMLButtonElement>(
-      '[role="menuitemradio"]',
-    );
-    await act(async () => options[3]!.click());
-    expect(props.onAccessModeChange).toHaveBeenCalledExactlyOnceWith(
-      "full-access",
-    );
-    expect(document.activeElement).toBe(trigger);
-  });
-
-  it("keeps the next-turn qualifier out of the visible compact control", async () => {
-    await render({
-      accessMode: "full-access",
-      session: task({ busy: true, runtimeMode: "full-access" }),
-    });
-    const trigger = button("Full access · next turn");
-    expect(trigger.title).toContain(
-      "The current turn keeps its starting access",
-    );
-    const visibleLabels = [...trigger.querySelectorAll("span")].filter(
-      (node) => !node.classList.contains("sr-only"),
-    );
-    expect(visibleLabels).toEqual([]);
-    await act(async () => trigger.click());
-    const selected = container.querySelector(
-      '[role="menuitemradio"][aria-checked="true"]',
-    );
-    expect(selected?.textContent).toContain("Full access");
-    expect(props.onAccessModeChange).not.toHaveBeenCalled();
-  });
-});
-
-describe("on-demand provider usage", () => {
-  it("keeps both workspace providers visible when focus moves between agents", async () => {
-    api.claude.mockResolvedValue({
-      provider: "claude",
-      session: { usedPercent: 14, windowMinutes: 300, resetsAt: null },
-      weekly: { usedPercent: 1, windowMinutes: 10_080, resetsAt: null },
-      updatedAt: Date.now(),
-      error: null,
-      status: "ok",
-    });
-    await render({ session: task(), usageProviders: ["codex", "claude"] });
-    await click("Context and provider usage");
-    expect(container.textContent).toContain("Claude Code");
-    expect(container.textContent).toContain("5-hour86% left");
-    expect(container.textContent).toContain("Weekly99% left");
-    expect(container.textContent).toContain("5-hour77% left");
-    await render({ session: task({ id: "claude-task", harness: "claude" }) });
-    expect(container.textContent).toContain("5-hour86% left");
-    expect(container.textContent).toContain("5-hour77% left");
-    expect(api.claude).toHaveBeenCalledOnce();
-    expect(api.codex).toHaveBeenCalledOnce();
-  });
-  it("keeps Claude visible when its usage request fails", async () => {
-    api.claude.mockRejectedValueOnce(new Error("Claude usage unavailable"));
-    await render({ session: task(), usageProviders: ["codex", "claude"] });
-    await click("Context and provider usage");
-    expect(
-      container.querySelector('[aria-label="Claude Code usage"]'),
-    ).not.toBeNull();
-    expect(container.textContent).toContain("Claude usage unavailable");
-    expect(container.textContent).toContain("5-hour77% left");
-  });
-
-  it("does not probe providers or schedule polling while the strip is idle", async () => {
-    vi.useFakeTimers();
-    await render({ usageProviders: ["codex", "claude"] });
-    await act(async () => {
-      vi.advanceTimersByTime(30 * 60_000);
-    });
-    expect(api.codex).not.toHaveBeenCalled();
-    expect(api.claude).not.toHaveBeenCalled();
-    expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it("loads on open, reuses a fresh snapshot, and refreshes only on demand", async () => {
-    await render({ usageProviders: ["codex", "codex"], costUsd: 1.25 });
-    await click("Context and provider usage");
-    expect(api.codex).toHaveBeenCalledTimes(1);
-    expect(container.textContent).toContain("5-hour77% left");
-    await click("Context and provider usage");
-    await click("Task cost and usage");
-    expect(api.codex).toHaveBeenCalledTimes(1);
-    expect(button("Task cost and usage").getAttribute("aria-expanded")).toBe(
-      "true",
-    );
-    await click("Context and provider usage");
-    expect(button("Task cost and usage").getAttribute("aria-expanded")).toBe(
-      "false",
-    );
-    expect(
-      button("Context and provider usage").getAttribute("aria-expanded"),
-    ).toBe("true");
-    await click("Refresh provider usage");
-    expect(api.codex).toHaveBeenCalledTimes(2);
-  });
-
-  it("preserves an open usage panel and its fetched snapshot while the focused task changes", async () => {
-    await render({ usageProviders: ["codex"] });
-    const trigger = button("Context and provider usage");
-    await click("Context and provider usage");
-    const panel = container.querySelector(
-      '[aria-label="Task and provider usage"]',
-    );
-    expect(api.codex).toHaveBeenCalledOnce();
-    expect(panel?.textContent).toContain("5-hour77% left");
-
-    for (const session of [task(), undefined]) {
-      await render({ session });
-      expect(button("Context and provider usage")).toBe(trigger);
-      expect(trigger.getAttribute("aria-expanded")).toBe("true");
-      expect(
-        container.querySelector('[aria-label="Task and provider usage"]'),
-      ).toBe(panel);
-      expect(panel?.textContent).toContain("5-hour77% left");
-      expect(api.codex).toHaveBeenCalledOnce();
-    }
-  });
-
-  it("does not start a provider process when the document is hidden", async () => {
-    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
-    await render({ usageProviders: ["codex"] });
-    await click("Context and provider usage");
-    expect(api.codex).not.toHaveBeenCalled();
-    await click("Refresh provider usage");
-    expect(api.codex).not.toHaveBeenCalled();
-  });
-});
-
-describe("native workspace toolbar menus", () => {
-  it("opens a graphical owned panel and pushes automatically loaded limits without an HTML overlay", async () => {
-    nativeMenu.supported.mockReturnValue(true);
-    let finish!: (value: ProviderRateLimits) => void;
-    api.codex.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          finish = resolve;
-        }),
-    );
-    await render({
-      session: task({ context: { used: 31, window: 100 } }),
-      usageProviders: ["codex"],
-    });
-    await click("Context and provider usage");
-    expect(nativeMenu.show).not.toHaveBeenCalled();
-    expect(nativePanel.open).toHaveBeenCalledOnce();
-    expect(api.codex).toHaveBeenCalledOnce();
-    expect(
-      container.querySelector('[aria-label="Task and provider usage"]'),
-    ).toBeNull();
-    expect(document.querySelector("[data-popover-side]")).toBeNull();
-    expect(nativePanel.open.mock.calls[0]![1].providers[0].status).toBe(
-      "fetching",
-    );
-    await act(async () => {
-      nativePanel.callbacks.get("usage-panel-action")?.({
-        label: "usage-panel-test",
-        action: "refresh",
-      });
-    });
-    expect(api.codex).toHaveBeenCalledOnce();
-    await act(async () => {
-      finish({
-        provider: "codex",
-        status: "ok",
-        session: { usedPercent: 23, windowMinutes: 300, resetsAt: null },
-        weekly: null,
-        updatedAt: Date.now(),
-        error: null,
-      });
-    });
-    expect(nativePanel.update).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        providers: [
-          expect.objectContaining({
-            status: "ok",
-            session: expect.objectContaining({ usedPercent: 23 }),
-          }),
-        ],
-      }),
-      "usage-panel-test",
-    );
-    await act(async () => {
-      nativePanel.callbacks.get("usage-panel-closed")?.({
-        label: "usage-panel-test",
-      });
-    });
-    expect(
-      button("Context and provider usage").getAttribute("aria-expanded"),
-    ).toBe("false");
-    expect(props.onAccessModeChange).not.toHaveBeenCalled();
-  });
-  it("ignores Usage events from a previous opening of the retained panel", async () => {
-    nativeMenu.supported.mockReturnValue(true);
-    nativePanel.open
-      .mockResolvedValueOnce("usage-first")
-      .mockResolvedValueOnce("usage-second");
-    await render({ usageProviders: ["codex"] });
-    await click("Context and provider usage");
-    await act(async () =>
-      nativePanel.callbacks.get("usage-panel-closed")?.({
-        label: "usage-first",
-      }),
-    );
-    await click("Context and provider usage");
-    const calls = api.codex.mock.calls.length;
-    await act(async () => {
-      nativePanel.callbacks.get("usage-panel-action")?.({
-        label: "usage-first",
-        action: "refresh",
-      });
-      nativePanel.callbacks.get("usage-panel-closed")?.({
-        label: "usage-first",
-      });
-    });
-    expect(api.codex).toHaveBeenCalledTimes(calls);
-    expect(
-      button("Context and provider usage").getAttribute("aria-expanded"),
-    ).toBe("true");
-    await act(async () =>
-      nativePanel.callbacks.get("usage-panel-closed")?.({
-        label: "usage-second",
-      }),
-    );
-    expect(
-      button("Context and provider usage").getAttribute("aria-expanded"),
-    ).toBe("false");
-  });
-  it("allows a requested native panel to load while its parent loses visibility", async () => {
-    nativeMenu.supported.mockReturnValue(true);
-    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
-    await render({ usageProviders: ["codex"] });
-    expect(api.codex).not.toHaveBeenCalled();
-    await click("Context and provider usage");
-    expect(api.codex).toHaveBeenCalledOnce();
-  });
-  it("routes native external choices without an HTML menu", async () => {
-    nativeMenu.supported.mockReturnValue(true);
-
-    const selected = vi.fn();
-    await render({
-      openActions: [{ id: "editor", label: "Open editor", onSelect: selected }],
-    });
-    await click("Open workspace externally");
-    expect(openPanel.open).toHaveBeenCalledWith(
-      expect.any(HTMLElement),
-      expect.objectContaining({
-        title: "Open workspace",
-        items: [expect.objectContaining({ id: "editor", disabled: false })],
-        theme: expect.objectContaining({ mode: "dark" }),
-      }),
-    );
-    expect(selected).not.toHaveBeenCalled();
-    await act(async () =>
-      openPanel.callbacks.get("workspace-menu-panel-action")?.({
-        label: "workspace-menu-panel-test",
-        presentation: "open-1",
-        action: "editor",
-      }),
-    );
-    expect(selected).toHaveBeenCalledOnce();
-    expect(container.querySelector('[aria-label="Open workspace"]')).toBeNull();
-  });
-  it("ignores stale, unknown and disabled native choices", async () => {
-    nativeMenu.supported.mockReturnValue(true);
-    const selected = vi.fn();
-    await render({
-      openActions: [
-        { id: "editor", label: "Open editor", onSelect: selected },
-        { id: "blocked", label: "Blocked", onSelect: selected, disabled: true },
-      ],
-    });
-    await click("Open workspace externally");
-    const receive = openPanel.callbacks.get("workspace-menu-panel-action")!;
-    await act(async () => {
-      receive({ presentation: "open-1", label: "old-panel", action: "editor" });
-      receive({
-        presentation: "previous-open",
-        label: "workspace-menu-panel-test",
-        action: "editor",
-      });
-      receive({
-        presentation: "open-1",
-        label: "workspace-menu-panel-test",
-        action: "blocked",
-      });
-      receive({
-        presentation: "open-1",
-        label: "workspace-menu-panel-test",
-        action: "unknown",
-      });
-    });
-    expect(selected).not.toHaveBeenCalled();
-    expect(
-      button("Open workspace externally").getAttribute("aria-expanded"),
-    ).toBe("true");
-    await act(async () =>
-      receive({
-        presentation: "open-1",
-        label: "workspace-menu-panel-test",
-        action: "editor",
-      }),
-    );
-    expect(selected).toHaveBeenCalledOnce();
-  });
-  it("reports native menu failures without mounting a flashing HTML fallback", async () => {
-    nativeMenu.supported.mockReturnValue(true);
-    openPanel.open.mockRejectedValue(new Error("Native menu unavailable"));
-    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
-    await render({
-      openActions: [{ id: "editor", label: "Open editor", onSelect: vi.fn() }],
-    });
-    await click("Open workspace externally");
-    expect(container.querySelector('[role="status"]')?.textContent).toContain(
-      "Could not open menu",
-    );
-    expect(container.querySelector('[role="menu"]')).toBeNull();
-    warning.mockRestore();
+    expect(labels).not.toContain("Context and provider usage");
+    expect(labels).not.toContain("Task cost and usage");
+    expect(labels).not.toContain("Open workspace externally");
+    expect(container.textContent).not.toContain("101K");
   });
 });

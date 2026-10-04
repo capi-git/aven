@@ -155,7 +155,6 @@ import {
 } from "./lib/agentBrowserOpen";
 import {
   loadDefaultRuntimeMode,
-  subscribeDefaultRuntimeMode,
   saveDefaultRuntimeMode,
 } from "./lib/runtimeMode";
 import { ApprovalToasts } from "./chrome/ApprovalToasts";
@@ -211,11 +210,9 @@ import {
   hasWorkspaceOverlay,
   workspaceShortcutDisposition,
 } from "./lib/workspaceKeyboard";
-import {
-  WorkspaceStatusBar,
-  type WorkspaceStatusAction,
-} from "./chrome/WorkspaceStatusBar";
+import { WorkspaceStatusBar } from "./chrome/WorkspaceStatusBar";
 import { WorkspaceFooter } from "./chrome/WorkspaceFooter";
+import { FooterUsage } from "./chrome/FooterUsage";
 import {
   WorkspaceActionDialog,
   type WorkspaceActionKind,
@@ -224,11 +221,7 @@ import { BranchPicker } from "./chrome/BranchPicker";
 import { Popover } from "./chrome/Popover";
 import { FolderPlus, ArrowDownCircle, Folder } from "./chrome/icons";
 import { installInAppLinks } from "./lib/inAppLinks";
-import {
-  EXTERNAL_BROWSER_NAME,
-  normalizeBrowserUrl,
-  openBrowserExternally,
-} from "./lib/browser";
+import { normalizeBrowserUrl } from "./lib/browser";
 import {
   useWorkspaceProfiles,
   restoreProfileWorkspace,
@@ -250,7 +243,6 @@ import { runUpdateFlow } from "./lib/updater";
 import { displayAttachments, prepareAttachments } from "./lib/attachments";
 import {
   basename,
-  revealPath,
   notifyGitChanged,
   pickFolder,
   restoreSessionCheckout,
@@ -931,11 +923,6 @@ export default function App({
     null,
   );
   const [prAnchor, setPrAnchor] = useState<HTMLButtonElement | null>(null);
-  const defaultAccess = useSyncExternalStore(
-    subscribeDefaultRuntimeMode,
-    loadDefaultRuntimeMode,
-    loadDefaultRuntimeMode,
-  );
   const openWorkspaceAction = useCallback((kind: WorkspaceActionKind) => {
     const current = profilesRef.current;
     setAddProjectAnchor(null);
@@ -7489,6 +7476,10 @@ export default function App({
   );
   // Installed accounts stay visible across projects, tabs, and workspaces.
   const usageProviders = useAccountUsageProviders(sessions);
+  // The footer summarizes the open task's account when it reports usage.
+  const footerHarness = profileHome ? undefined : active?.harness;
+  const footerUsageProvider =
+    usageProviders.find((provider) => provider === footerHarness) ?? null;
   useAutomaticModelCatalogs(sessions);
 
   const onToggleSidebar = useCallback(() => {
@@ -8585,28 +8576,6 @@ export default function App({
     orchestrationRuns,
     busySessionIds,
   ]);
-  const openActions: WorkspaceStatusAction[] = [
-    {
-      id: "browser",
-      label: `Open preview in ${EXTERNAL_BROWSER_NAME}`,
-      disabled: profileHome || !browserState.url,
-      onSelect: () => {
-        void openBrowserExternally(browserState.url).catch((error) =>
-          message(String(error), { kind: "error" }),
-        );
-      },
-    },
-    {
-      id: "finder",
-      label: "Reveal project in Finder",
-      disabled: profileHome,
-      onSelect: () => {
-        void revealPath(projectCwd).catch((error) =>
-          message(String(error), { kind: "error" }),
-        );
-      },
-    },
-  ];
   const browserSurfaceActions = useRef<BrowserSurfaceActions>(null!);
   browserSurfaceActions.current = {
     focus: (project, id) => {
@@ -9028,18 +8997,7 @@ export default function App({
             }
             sessions={profileSessions}
             session={profileHome ? undefined : active}
-            accessMode={
-              profileHome
-                ? defaultAccess
-                : (active?.runtimeMode ?? defaultAccess)
-            }
-            onAccessModeChange={(mode) => {
-              saveDefaultRuntimeMode(mode);
-              if (!profileHome && active) onRuntimeModeChange(active.id, mode);
-            }}
             onSelectSession={onOpenApprovalSession}
-            usageProviders={profileHome ? [] : usageProviders}
-            openActions={openActions}
             onToggleSidebar={onToggleSidebar}
             sidebarOpen={sidebarOpen}
             onSearch={onOpenSearch}
@@ -9860,6 +9818,13 @@ export default function App({
                 }
                 onOpenPRMenu={setPrAnchor}
                 prMenuOpen={!!prAnchor}
+                usage={
+                  <FooterUsage
+                    providers={usageProviders}
+                    primary={footerUsageProvider}
+                    context={profileHome ? null : active?.context}
+                  />
+                }
               />
             </div>
           </div>

@@ -1,6 +1,5 @@
 import {
   memo,
-  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -10,28 +9,17 @@ import {
 } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ProviderMarks } from "./ProviderMarks";
-import { AccessPicker } from "./AccessPicker";
 import { WindowControls } from "./WindowControls";
 import { DevModeSlot } from "./TitleBar";
 import { IS_MAC } from "../lib/platform";
 import { settingsSectionLabel, type SettingsSectionId } from "../lib/settings";
 import { Popover } from "./Popover";
-import { supportsWorkspaceNativeMenu } from "../lib/workspaceNativeMenu";
-import { useWorkspaceMenuPanel } from "../hooks/useWorkspaceMenuPanel";
-import { WorkspaceMenuPanelContent } from "./WorkspaceMenuPanel";
-import {
-  nativeUsagePanel,
-  useUsagePanelTheme,
-  type UsagePanelSnapshot,
-} from "../lib/usagePanel";
-import { UsagePanelContent } from "./UsagePanel";
+import { useUsagePanelTheme } from "../lib/usagePanel";
 import { ActivityPanel } from "./ActivityPanel";
 import { useActivity } from "../lib/activity";
 import { sessionModelIdentity, sessionModelName } from "../lib/sessionLabels";
 import {
   Check,
-  ChevronDown,
-  ExternalLink,
   ListBullet,
   MoreHorizontal,
   ChevronLeft,
@@ -43,49 +31,19 @@ import {
   Search,
   Settings,
   X,
-  Zap,
 } from "./icons";
 import {
   HARNESS_TITLE,
   sessionDisplayTitle,
   sessionNeedsInput,
-  type RuntimeMode,
   type Session,
 } from "../lib/session";
-import {
-  contextPercent,
-  contextTooltip,
-  formatTokens,
-} from "../lib/contextUsage";
-import {
-  errorRateLimits,
-  fetchingRateLimits,
-  idleRateLimits,
-  shouldFetchProvider,
-  type ProviderRateLimits,
-  type RateLimitProvider,
-} from "../lib/rateLimits";
 import "./WorkspaceStatusBar.css";
-
-/** Actions are provided by the app. The status strip never infers or runs commands. */
-export type WorkspaceStatusAction = {
-  id: string;
-  label: string;
-  onSelect?: () => void;
-  disabled?: boolean;
-  description?: string;
-};
 
 export type WorkspaceStatusBarProps = {
   sessions: readonly Session[];
   session?: Session;
-  accessMode: RuntimeMode;
-  onAccessModeChange: (mode: RuntimeMode) => void;
   onSelectSession: (id: string) => boolean | Promise<boolean>;
-  usageProviders?: readonly RateLimitProvider[];
-  /** Only supply a measured provider-reported USD cost; absent means unknown. */
-  costUsd?: number | null;
-  openActions?: readonly WorkspaceStatusAction[];
   onToggleSidebar?: () => void;
   sidebarOpen?: boolean;
   /** The visible sidebar owns the navigation controls in its window bar. */
@@ -169,15 +127,6 @@ export function workspaceQueueSummary(sessions: readonly Session[]) {
   };
 }
 
-export function reportedCostLabel(cost: number | null | undefined) {
-  if (cost == null || !Number.isFinite(cost) || cost < 0) return null;
-  if (cost > 0 && cost < 0.01) return "<$0.01";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(cost);
-}
-
 function menuKeys(event: KeyboardEvent<HTMLDivElement>) {
   if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
   const buttons = [
@@ -202,9 +151,6 @@ function menuKeys(event: KeyboardEvent<HTMLDivElement>) {
   buttons[next]?.focus();
 }
 
-const NO_ACTIONS: readonly WorkspaceStatusAction[] = [];
-const NO_PROVIDERS: readonly RateLimitProvider[] = [];
-const documentVisible = () => document.visibilityState !== "hidden";
 
 function dragStatusBar(event: MouseEvent<HTMLDivElement>) {
   if (event.button !== 0 || event.target !== event.currentTarget) return;
@@ -424,12 +370,7 @@ export function WorkspaceNavigation({
 export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
   sessions,
   session,
-  accessMode,
-  onAccessModeChange,
   onSelectSession,
-  usageProviders = NO_PROVIDERS,
-  costUsd,
-  openActions = NO_ACTIONS,
   onToggleSidebar,
   sidebarOpen,
   navigationInSidebar = false,
@@ -451,288 +392,14 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
   const unreadActivity = activity.filter(
     (entry) => entry.readAt === null,
   ).length;
-  const nativeMenus = supportsWorkspaceNativeMenu();
-  const [nativeMenuError, setNativeMenuError] = useState<string | null>(null);
-  const [menu, setMenu] = useState<"queue" | "usage" | "open" | null>(null);
+  const [menu, setMenu] = useState<"queue" | null>(null);
   const showingSettings = !!settingsView;
   useEffect(() => {
     // The Activity anchor becomes compact when the header changes context.
-    setMenu((current) => (current === "queue" ? null : current));
-  }, [showingSettings]);
-  const [usageMetric, setUsageMetric] = useState<"cost" | "context">("context");
-  const queueAnchor = useRef<HTMLButtonElement>(null);
-  const usageAnchor = useRef<HTMLButtonElement>(null);
-  const openAnchor = useRef<HTMLButtonElement>(null);
-  const alive = useRef(true);
-  const usageApi = useRef<Promise<
-    typeof import("../lib/rateLimitsFetch")
-  > | null>(null);
-  const inflight = useRef(new Map<RateLimitProvider, Promise<void>>());
-  const [limits, setLimits] = useState<
-    Partial<Record<RateLimitProvider, ProviderRateLimits>>
-  >({});
-  const limitsRef = useRef(limits);
-  const providerKey = [...new Set(usageProviders)].sort().join(",");
-  const providers = useMemo(
-    () => (providerKey ? (providerKey.split(",") as RateLimitProvider[]) : []),
-    [providerKey],
-  );
-  const context = session?.context;
-  const validContext =
-    context && Number.isFinite(context.used) && context.used >= 0
-      ? {
-          used: context.used,
-          window:
-            context.window != null &&
-            Number.isFinite(context.window) &&
-            context.window > 0
-              ? context.window
-              : undefined,
-        }
-      : undefined;
-  const percent = contextPercent(validContext);
-  const contextCopy = validContext ? contextTooltip(validContext) : null;
-  const costLabel = reportedCostLabel(costUsd);
-  const costTitle = costLabel ? `Reported task cost: ${costLabel} USD` : null;
-  const showContextUsage = !!validContext || providers.length > 0;
-  const contextLabel =
-    percent != null
-      ? `${percent}%`
-      : validContext
-        ? formatTokens(validContext.used)
-        : "Usage";
-  const contextTitle = contextCopy
-    ? `${contextCopy.headline} · ${contextCopy.detail}`
-    : `View ${providers.map((provider) => HARNESS_TITLE[provider]).join(" and ")} account usage`;
-
-  useEffect(() => {
-    if (
-      menu === "usage" &&
-      (usageMetric === "cost" ? !costLabel : !showContextUsage)
-    )
-      setMenu(null);
-  }, [menu, usageMetric, costLabel, showContextUsage]);
-
-  useEffect(() => {
-    alive.current = true;
-    return () => {
-      alive.current = false;
-    };
-  }, []);
-
-  const requestUsage = useCallback(
-    (
-      provider: RateLimitProvider,
-      force = false,
-      allowHidden = false,
-    ): Promise<void> => {
-      const pending = inflight.current.get(provider);
-      if (pending) return pending;
-      if (!allowHidden && !documentVisible()) return Promise.resolve();
-      const current = limitsRef.current[provider] ?? idleRateLimits(provider);
-      if (!shouldFetchProvider(current, { force, visible: true }))
-        return Promise.resolve();
-      const publish = (value: ProviderRateLimits) => {
-        if (!alive.current) return;
-        limitsRef.current = { ...limitsRef.current, [provider]: value };
-        setLimits(limitsRef.current);
-      };
-      const work = async () => {
-        publish(fetchingRateLimits(provider, current));
-        try {
-          usageApi.current ??= import("../lib/rateLimitsFetch").catch(
-            (error) => {
-              usageApi.current = null;
-              throw error;
-            },
-          );
-          const api = await usageApi.current;
-          if (!alive.current) return;
-          if (!allowHidden && !documentVisible()) {
-            publish(current);
-            return;
-          }
-          const value = await (provider === "claude"
-            ? api.fetchClaudeRateLimits()
-            : api.fetchCodexRateLimits());
-          publish(value);
-        } catch (error) {
-          publish(
-            errorRateLimits(
-              provider,
-              error instanceof Error ? error.message : "Usage unavailable",
-              current,
-            ),
-          );
-        } finally {
-          inflight.current.delete(provider);
-        }
-      };
-      const promise = work();
-      inflight.current.set(provider, promise);
-      return promise;
-    },
-    [],
-  );
-
-  const panelTheme = useUsagePanelTheme(menu !== null);
-  const panelSnapshot = useMemo<UsagePanelSnapshot>(
-    () => ({
-      context: validContext ?? null,
-      costUsd: costLabel ? (costUsd ?? null) : null,
-      providers: providers.map(
-        (provider) => limits[provider] ?? idleRateLimits(provider),
-      ),
-      theme: panelTheme,
-      // Only measured usage changes matter, not transcript renders.
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }),
-    [
-      context?.used,
-      context?.window,
-      costUsd,
-      costLabel,
-      limits,
-      providers,
-      panelTheme,
-    ],
-  );
-  const panelSnapshotRef = useRef(panelSnapshot);
-  panelSnapshotRef.current = panelSnapshot;
-  const panelOpen = useRef<string | null>(null);
-  const panelOperations = useRef(Promise.resolve());
-  const refreshUsage = useCallback(() => {
-    for (const provider of providers)
-      void requestUsage(provider, true, nativeMenus);
-  }, [providers, requestUsage, nativeMenus]);
-  const refreshUsageRef = useRef(refreshUsage);
-  refreshUsageRef.current = refreshUsage;
-
-  useEffect(() => {
-    if (menu !== "usage") return;
-    // Opening the owned panel is an explicit request, even if it takes focus
-    // from its parent. There is no background polling.
-    for (const provider of providers)
-      void requestUsage(provider, false, nativeMenus);
-  }, [menu, providers, requestUsage, nativeMenus]);
-
-  useEffect(() => {
-    if (!nativeMenus || menu !== "usage") return;
-    const anchor = usageAnchor.current;
-    if (!anchor) return;
-    let cancelled = false;
-    const stops: (() => void)[] = [];
-    setNativeMenuError(null);
-    const report = () => {
-      if (!cancelled && alive.current) {
-        setNativeMenuError("Could not open usage. Try again.");
-        setMenu(null);
-      }
-    };
-    let openId: string | null = null;
-    let finished = false;
-    type PanelEvent = { label: string; action?: string };
-    const pending: PanelEvent[] = [];
-    const receive = (event: PanelEvent) => {
-      if (cancelled || finished) return;
-      if (!openId) {
-        pending.push(event);
-        return;
-      }
-      if (event.label !== openId) return;
-      if (event.action === "refresh") {
-        refreshUsageRef.current();
-      } else if (event.action === undefined) {
-        finished = true;
-        panelOpen.current = null;
-        setMenu(null);
-      }
-    };
-    const subscribe = async (name: string) => {
-      const stop = await nativeUsagePanel.listen<PanelEvent>(name, receive);
-      if (cancelled) stop();
-      else stops.push(stop);
-    };
-    const open = async () => {
-      if (cancelled) return;
-      await subscribe("usage-panel-action");
-      if (cancelled) return;
-      await subscribe("usage-panel-closed");
-      if (cancelled) return;
-      openId = await nativeUsagePanel.open(anchor, panelSnapshotRef.current);
-      if (cancelled) return;
-      panelOpen.current = openId;
-      pending.splice(0).forEach(receive);
-      if (!finished)
-        await nativeUsagePanel.update(panelSnapshotRef.current, openId);
-    };
-    panelOperations.current = panelOperations.current
-      .catch(() => {})
-      .then(open)
-      .catch(report);
-    return () => {
-      cancelled = true;
-      stops.splice(0).forEach((stop) => stop());
-      // Serialize open/close so a late opening cannot close its replacement.
-      panelOperations.current = panelOperations.current
-        .catch(() => {})
-        .then(async () => {
-          if (panelOpen.current === openId) panelOpen.current = null;
-          if (openId) await nativeUsagePanel.close(openId);
-        })
-        .catch(() => {});
-    };
-  }, [menu, usageMetric, nativeMenus]);
-
-  useEffect(() => {
-    if (!nativeMenus || menu !== "usage" || !panelOpen.current) return;
-    void nativeUsagePanel
-      .update(panelSnapshot, panelOpen.current)
-      .catch(() => {});
-  }, [panelSnapshot, menu, nativeMenus]);
-
-  const openSnapshot = useMemo(
-    () => ({
-      title: "Open workspace",
-      items: openActions.map(
-        ({ id, label, description, disabled, onSelect }) => ({
-          id,
-          label,
-          description,
-          disabled: !!disabled || !onSelect,
-        }),
-      ),
-      theme: panelTheme,
-    }),
-    [openActions, panelTheme],
-  );
-  const selectOpenAction = (id: string) => {
-    const action = openActions.find((item) => item.id === id);
-    if (!action?.onSelect || action.disabled) return;
     setMenu(null);
-    action.onSelect();
-  };
-  useWorkspaceMenuPanel({
-    open: nativeMenus && menu === "open",
-    anchor: openAnchor,
-    snapshot: openSnapshot,
-    onSelect: selectOpenAction,
-    onClose: () => setMenu(null),
-    onError: () => {
-      setNativeMenuError("Could not open menu. Try again.");
-      setMenu(null);
-    },
-  });
-
-  const toggleUsage = (
-    event: MouseEvent<HTMLButtonElement>,
-    metric: "cost" | "context",
-  ) => {
-    const sameAnchor = usageAnchor.current === event.currentTarget;
-    usageAnchor.current = event.currentTarget;
-    setUsageMetric(metric);
-    setMenu(menu === "usage" && sameAnchor ? null : "usage");
-  };
+  }, [showingSettings]);
+  const queueAnchor = useRef<HTMLButtonElement>(null);
+  const panelTheme = useUsagePanelTheme(menu !== null);
   const dismiss = (
     anchor: { current: HTMLButtonElement | null },
     restore = false,
@@ -740,9 +407,6 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
     setMenu(null);
     if (restore) anchor.current?.focus({ preventScroll: true });
   };
-  const canOpenMenu = openActions.some(
-    (action) => !!action.onSelect && !action.disabled,
-  );
   const QueueIcon =
     showingSettings || summary.rows.length
       ? ListBullet
@@ -837,65 +501,6 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
         aria-label="Workspace tools"
         data-tauri-drag-region="false"
       >
-        {costLabel ? (
-          <button
-            type="button"
-            className="workspace-status-pill workspace-status-metric"
-            aria-label="Task cost and usage"
-            title={costTitle ?? undefined}
-            onClick={(event) => toggleUsage(event, "cost")}
-            aria-haspopup="dialog"
-            aria-expanded={menu === "usage" && usageMetric === "cost"}
-          >
-            {costLabel}
-          </button>
-        ) : null}
-        {showContextUsage ? (
-          <button
-            type="button"
-            className="workspace-status-pill workspace-status-metric"
-            aria-label="Context and provider usage"
-            title={contextTitle}
-            onClick={(event) => toggleUsage(event, "context")}
-            aria-haspopup="dialog"
-            aria-expanded={menu === "usage" && usageMetric === "context"}
-          >
-            {contextLabel}
-          </button>
-        ) : null}
-        <div className="workspace-status-access">
-          <AccessPicker
-            native
-            value={accessMode}
-            onChange={onAccessModeChange}
-            busy={!!session?.busy}
-            triggerIcon={Zap}
-            compact
-            side="bottom"
-          />
-        </div>
-        <button
-          ref={openAnchor}
-          type="button"
-          className="workspace-status-pill workspace-status-open"
-          aria-label="Open workspace externally"
-          title={
-            canOpenMenu
-              ? "Open workspace externally"
-              : "No external actions available"
-          }
-          disabled={!canOpenMenu}
-          aria-haspopup="menu"
-          aria-expanded={menu === "open"}
-          onClick={() => {
-            setNativeMenuError(null);
-            setMenu(menu === "open" ? null : "open");
-          }}
-        >
-          <ExternalLink size={12} aria-hidden />
-          <span className="sr-only">Open</span>
-          <ChevronDown size={10} aria-hidden />
-        </button>
         <div className="workspace-status-layout">
           {settingsView ? (
             <button
@@ -933,12 +538,6 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
       </div>
       {!IS_MAC ? <WindowControls /> : null}
 
-      {nativeMenuError ? (
-        <span role="status" className="workspace-status-menu-error">
-          {nativeMenuError}
-        </span>
-      ) : null}
-
       {menu === "queue" ? (
         <Popover
           anchor={queueAnchor}
@@ -971,46 +570,6 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
         </Popover>
       ) : null}
 
-      {menu === "open" && !nativeMenus ? (
-        <Popover
-          anchor={openAnchor}
-          side="bottom"
-          align="end"
-          width={360}
-          panel
-          className="workspace-status-panel"
-          onDismiss={(reason) => dismiss(openAnchor, reason === "escape")}
-        >
-          <WorkspaceMenuPanelContent
-            snapshot={openSnapshot}
-            onSelect={selectOpenAction}
-            onClose={() => dismiss(openAnchor, true)}
-          />
-        </Popover>
-      ) : null}
-
-      {menu === "usage" && !nativeMenus ? (
-        <Popover
-          key={usageMetric}
-          anchor={usageAnchor}
-          side="bottom"
-          align="end"
-          width={360}
-          autoFocus
-          tabIndex={-1}
-          role="dialog"
-          aria-label="Task and provider usage"
-          panel
-          className="workspace-status-panel"
-          onDismiss={(reason) => dismiss(usageAnchor, reason === "escape")}
-        >
-          <UsagePanelContent
-            snapshot={panelSnapshot}
-            onRefresh={refreshUsage}
-            onClose={() => dismiss(usageAnchor, true)}
-          />
-        </Popover>
-      ) : null}
     </div>
   );
 });

@@ -1,4 +1,5 @@
 .workspace-footer {
+  container: workspace-footer / inline-size;
   display: flex;
   align-items: center;
   flex-shrink: 0;
@@ -17,7 +18,8 @@
 .workspace-footer-project {
   display: flex;
   align-items: center;
-  flex: 1;
+  /* Git controls keep their size; account usage gives way first. */
+  flex: 1 0 auto;
   gap: 10px;
   min-width: 0;
 }

@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, type ReactNode } from "react";
 import { useProjectDiffStats } from "../hooks/useProjectDiffStats";
 import { isProjectlessCwd } from "../lib/projectlessWorkspace";
 import {
@@ -28,6 +28,8 @@ export type WorkspaceFooterProps = {
   createPRDisabledReason?: string;
   onOpenPRMenu?: (anchor: HTMLButtonElement) => void;
   prMenuOpen?: boolean;
+  /** Account usage, shown beside the pull request controls. */
+  usage?: ReactNode;
 };
 
 export const WorkspaceFooter = memo(function WorkspaceFooter({
@@ -45,6 +47,7 @@ export const WorkspaceFooter = memo(function WorkspaceFooter({
   createPRDisabledReason,
   onOpenPRMenu,
   prMenuOpen = false,
+  usage,
 }: WorkspaceFooterProps) {
   const projectless = isProjectlessCwd(cwd);
   const hasCwd = !!cwd && cwd !== "~";
@@ -119,6 +122,8 @@ export const WorkspaceFooter = memo(function WorkspaceFooter({
           </button>
         ) : null}
       </div>
+
+      {usage}
 
       {!projectless ? (
         <div className="workspace-footer-pr">
