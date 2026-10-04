@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [0.1.119] - 2026-10-03
+
+### Consistent glass and a new Settings
+
+- Cards, menus, dialogs, toasts and popovers share one frosted-glass style that follows your Background opacity setting, instead of a mix of dark blocks and one-off tints. Popovers now blur what's behind them, so text no longer shows through.
+- Settings is redesigned: larger titles, frosted cards, roomier rows, smoother switches and controls, provider icon tiles, and colour-coded connection statuses. Archive uses the same cards as the other pages.
+
+### A calmer title bar and footer
+
+- The title bar drops the context, task-access, Open externally and Settings buttons, which duplicated controls in the message box, browser, project menu and sidebar.
+- The footer shows only Claude and Codex usage, side by side, and the terminal toggle. Click the usage for details, including task context.
+- Branch switching and line counts move to the Changes tab, beside Commit, Publish and Create PR.
+
 ## [0.1.118] - 2026-10-03
 
 ### Clearer agent status and tabs
