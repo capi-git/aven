@@ -412,6 +412,9 @@ class WindowsArtifactTests(WorkflowFixture):
         for notarization in (SKIPPED, 'not checked', None):
             with self.subTest(notarization=notarization):
                 (self.root / 'gh-called.json').unlink(missing_ok=True)
+                # Each run publishes from a fresh folder in CI; drop the stable
+                # copy the previous subtest's publish added to this one.
+                (self.release / 'Aven-macos-arm64.zip').unlink(missing_ok=True)
                 self.set_notarization(notarization)
                 notes, log = self.published_notes()
                 self.assertIn('Developer ID signed', notes)
