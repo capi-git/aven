@@ -42,26 +42,39 @@ html.has-chat-background .workspace-home::before {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  border: 1px solid var(--aven-control-border, var(--aven-line));
-  border-radius: 7px;
-  min-height: 32px;
-  padding: 6px 12px;
-  background: var(--aven-glass-surface, var(--aven-control-bg));
-  -webkit-backdrop-filter: var(--aven-glass-blur, none);
-  backdrop-filter: var(--aven-glass-blur, none);
-  box-shadow: var(--aven-control-shadow, none);
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: 999px;
+  min-height: 34px;
+  padding: 6px 15px 6px 12px;
+  background: var(--aven-control-bg);
+  box-shadow: var(--aven-glass-sheen, none);
   color: var(--color-content);
   font-size: 12px;
+  font-weight: 500;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    transform 120ms ease;
+}
+
+.workspace-home-actions button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.workspace-home .workspace-home-actions button:hover:not(:disabled) {
+  background: var(--aven-control-hover, var(--aven-hover));
 }
 
 .workspace-home-actions .workspace-home-new {
-  background: color-mix(
-    in srgb,
-    var(--color-accent) 18%,
-    var(--aven-glass-surface, var(--aven-control-bg))
-  );
-  border-color: color-mix(in srgb, var(--color-accent) 30%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 24%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent) 42%, transparent);
   color: var(--color-content);
+}
+
+.workspace-home
+  .workspace-home-actions
+  .workspace-home-new:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent) 32%, transparent);
 }
 
 .workspace-home-columns {
@@ -74,7 +87,6 @@ html.has-chat-background .workspace-home::before {
   color: var(--aven-muted);
   font-size: 13px;
   font-weight: 600;
-  margin-bottom: 12px;
 }
 
 .workspace-home-row {
@@ -85,8 +97,9 @@ html.has-chat-background .workspace-home::before {
   text-align: left;
   min-height: 48px;
   padding: 9px 10px;
-  border-radius: 7px;
+  border-radius: 9px;
   font-size: 13px;
+  transition: background-color 120ms ease;
 }
 
 .workspace-home-row > span {
@@ -131,8 +144,10 @@ html.has-chat-background .workspace-home::before {
 
 .workspace-home-section-heading {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
+  min-height: 28px;
+  margin: 0 4px 8px 10px;
 }
 
 .workspace-home-section-heading button {
@@ -140,10 +155,16 @@ html.has-chat-background .workspace-home::before {
   place-items: center;
   width: 28px;
   height: 28px;
-  border-radius: 6px;
+  border-radius: 999px;
+  color: var(--aven-muted);
+}
+
+.workspace-home-section-heading button:hover:not(:disabled) {
+  color: var(--color-content);
 }
 
 .workspace-home-empty {
+  padding: 4px 10px 8px;
   color: var(--aven-muted);
   font-size: 12px;
   line-height: 1.6;
@@ -170,8 +191,8 @@ html.has-chat-background .workspace-home::before {
 
 .workspace-home-window button {
   padding: 6px 10px;
-  border: 1px solid var(--aven-control-border, var(--aven-line));
-  border-radius: 6px;
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: var(--aven-radius-control, 8px);
   background: var(--aven-control-bg, var(--aven-hover));
   box-shadow: var(--aven-control-shadow, none);
   font-size: 12px;
@@ -208,14 +229,14 @@ html.has-chat-background .workspace-home::before {
   font-weight: 600;
   color: var(--aven-muted);
 }
-.workspace-home-columns > div {
+.workspace-home-panel {
   min-width: 0;
-  padding: 14px;
-  border: 1px solid var(--aven-glass-edge, var(--aven-line));
-  border-radius: 10px;
-  background: var(--aven-glass-surface, var(--aven-hover));
-  -webkit-backdrop-filter: var(--aven-glass-blur, none);
-  backdrop-filter: var(--aven-glass-blur, none);
+  padding: 12px 8px 8px;
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: var(--aven-radius-card, 12px);
+  background: var(--aven-glass-card, var(--aven-hover));
+  box-shadow:
+    var(--aven-glass-sheen, none), var(--aven-glass-card-shadow, none);
 }
 .workspace-home-columns h2 {
   color: var(--color-content);

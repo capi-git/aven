@@ -44,7 +44,7 @@ export function AgentPageNotices({ notices, onShow, onDismiss }: Props) {
         <article
           key={notice.id}
           role="status"
-          className="pointer-events-auto flex items-center gap-2.5 rounded-xl border border-content/15 bg-[color-mix(in_srgb,var(--color-content)_8%,var(--color-background-base))] py-2 pr-2 pl-3 shadow-xl"
+          className="pointer-events-auto flex items-center gap-2.5 aven-glass-overlay [--aven-radius-overlay:12px] py-2 pr-2 pl-3"
         >
           <HarnessIcon harness={notice.harness} className="size-4 shrink-0" />
           <p className="min-w-0 flex-1 text-[12px] leading-4 text-content/75">

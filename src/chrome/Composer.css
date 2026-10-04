@@ -248,10 +248,11 @@
   padding: 5px 10px 7px;
   border: 0;
   border-radius: 10px 10px 0 0;
+  /* Rides on the composer's own glass rather than as an opaque tab. */
   background: color-mix(
     in srgb,
-    var(--personal-accent) 7%,
-    var(--composer-surface)
+    var(--personal-accent) 9%,
+    var(--composer-glass)
   );
 }
 .personal-shell .personal-composer [data-message-queue-card] > div {

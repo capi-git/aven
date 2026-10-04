@@ -80,7 +80,7 @@ export function QuestionForm({ prompt, onReply }: Props) {
   return (
     <div className="px-1.5 pb-1.5" data-question-form>
       <form
-        className="rounded-lg border border-content/10 bg-content/3 px-3 py-2.5"
+        className="aven-inset-card px-3 py-2.5"
         onSubmit={(event) => {
           event.preventDefault();
           continueCurrent();

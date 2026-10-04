@@ -44,9 +44,47 @@
     transparent
   );
   --aven-glass-blur: blur(40px) saturate(125%);
-  --aven-control-bg: color-mix(
+  /* Cards resting on the workspace: a faint lift of the content color over
+     the scene, with only as much body as the user's panel opacity asks for.
+     At full opacity they read as solid raised cards. */
+  --aven-glass-card-base: color-mix(
     in srgb,
-    var(--aven-control-solid) 64%,
+    var(--aven-grouped-solid) calc(var(--personal-window-opacity, 1) * 36%),
+    transparent
+  );
+  --aven-glass-card: color-mix(
+    in srgb,
+    var(--color-content) 4.5%,
+    var(--aven-glass-card-base)
+  );
+  --aven-glass-card-hover: color-mix(
+    in srgb,
+    var(--color-content) 8%,
+    var(--aven-glass-card-base)
+  );
+  --aven-glass-card-edge: color-mix(
+    in srgb,
+    var(--color-content) 11%,
+    transparent
+  );
+  --aven-glass-overlay-edge: color-mix(
+    in srgb,
+    var(--color-content) 12%,
+    transparent
+  );
+  /* Light catching the top edge of a glass pane. */
+  --aven-glass-sheen: inset 0 1px 0
+    color-mix(in srgb, var(--color-content) 7%, transparent);
+  --aven-glass-card-shadow: 0 1px 2px #0000001a, 0 18px 40px -28px #000000a0;
+  /* Cards inside a panel that already owns the glass (composer, inspector). */
+  --aven-inset-card: color-mix(in srgb, var(--color-content) 5%, transparent);
+  --aven-radius-card: 12px;
+  --aven-radius-overlay: 14px;
+  --aven-radius-control: 8px;
+  --aven-control-bg: color-mix(in srgb, var(--color-content) 7%, transparent);
+  --aven-control-hover: color-mix(
+    in srgb,
+    var(--color-content) 11%,
     transparent
   );
   --aven-toolbar-surface: color-mix(
@@ -55,7 +93,8 @@
     transparent
   );
   --aven-grouped-surface: var(--aven-glass-surface);
-  --aven-field-bg: color-mix(in srgb, var(--aven-field-solid) 64%, transparent);
+  /* Fields sit slightly recessed into the glass rather than as black wells. */
+  --aven-field-bg: color-mix(in srgb, var(--aven-field-solid) 28%, transparent);
   --aven-focus-ring: color-mix(
     in srgb,
     var(--color-accent) 85%,
@@ -93,6 +132,24 @@ html.theme-light .personal-shell {
   --aven-glass-overlay-opacity: 100%;
   --aven-glass-blur: none;
   --aven-glass-edge: color-mix(in srgb, var(--color-content) 12%, transparent);
+  --aven-glass-card: var(--color-background-base);
+  --aven-glass-card-hover: color-mix(
+    in srgb,
+    var(--color-content) 3%,
+    var(--color-background-base)
+  );
+  --aven-glass-card-edge: color-mix(
+    in srgb,
+    var(--color-content) 10%,
+    transparent
+  );
+  --aven-glass-sheen: inset 0 1px 0 #ffffff;
+  --aven-glass-card-shadow: 0 1px 2px #0000000d, 0 12px 28px -22px #0000002e;
+  --aven-control-hover: color-mix(
+    in srgb,
+    var(--color-content) 5%,
+    var(--aven-control-solid)
+  );
   --aven-shadow: 0 16px 48px #0000001a, 0 2px 8px #00000012;
 }
 
@@ -119,14 +176,41 @@ textarea {
   accent-color: var(--color-accent);
 }
 
+/* The two shared materials. Components built from utility classes use these
+   instead of ad-hoc tints, so every card and floating pane matches. */
+.aven-glass-card {
+  border: 1px solid var(--aven-glass-card-edge);
+  border-radius: var(--aven-radius-card);
+  background: var(--aven-glass-card);
+  box-shadow: var(--aven-glass-sheen), var(--aven-glass-card-shadow);
+}
+
+.aven-inset-card {
+  border: 1px solid var(--aven-glass-card-edge);
+  border-radius: 10px;
+  background: var(--aven-inset-card);
+}
+
+.aven-glass-overlay {
+  border: 1px solid var(--aven-glass-overlay-edge);
+  border-radius: var(--aven-radius-overlay);
+  background: var(--aven-glass-overlay);
+  box-shadow: var(--aven-glass-sheen), var(--aven-shadow);
+  -webkit-backdrop-filter: var(--aven-glass-blur);
+  backdrop-filter: var(--aven-glass-blur);
+}
+
 /* Frost whole surfaces, rather than adding a compositor layer for every
    button or row. Their controls inherit the same translucent material. */
 html:not(.theme-light)
   :is(.personal-shell, .detached-workspace)
   :is(
+    .aven-glass-card,
     .settings-group-surface,
     .settings-provider-card,
     .settings-shortcuts-table,
+    .workspace-home-panel,
+    .scheduled-editor,
     .personal-activity-phase,
     [data-streamdown="code-block"],
     [data-streamdown="table-wrapper"],
@@ -135,6 +219,8 @@ html:not(.theme-light)
     .workspace-footer,
     .browser-toolbar,
     .browser-downloads,
+    .browser-notice,
+    .browser-find-bar,
     .directory-view-header,
     .directory-view-footer,
     .file-editor-status,
@@ -313,6 +399,12 @@ html:not(.theme-light)
     --aven-glass-overlay: var(--aven-popup);
     --aven-glass-overlay-opacity: 100%;
     --aven-glass-blur: none;
+    --aven-glass-card: var(--aven-grouped-solid);
+    --aven-glass-card-hover: color-mix(
+      in srgb,
+      var(--color-content) 4%,
+      var(--aven-grouped-solid)
+    );
   }
 
   html.has-native-glass:not(.theme-light),
@@ -370,5 +462,11 @@ html:not(.theme-light)
     --aven-glass-overlay: var(--aven-popup);
     --aven-glass-overlay-opacity: 100%;
     --aven-glass-blur: none;
+    --aven-glass-card: var(--aven-grouped-solid);
+    --aven-glass-card-hover: color-mix(
+      in srgb,
+      var(--color-content) 4%,
+      var(--aven-grouped-solid)
+    );
   }
 }

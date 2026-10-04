@@ -779,6 +779,12 @@ button.chat-reference:hover,
   animation: approval-toast-in 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* A waiting approval keeps its dashed edge on the shared glass. */
+.approval-toast.aven-glass-overlay {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--color-content) 20%, transparent);
+}
+
 .shimmer-text {
   background-image:
     linear-gradient(
@@ -1225,8 +1231,10 @@ html.theme-light .popover-backdrop {
   }
 }
 
+/* Backwards fill only: an opacity animation left in effect after it ends
+   isolates the popover, so glass inside it stops blurring the page. */
 .popover-open {
-  animation: popover-open 170ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: popover-open 170ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
   backface-visibility: hidden;
 }
 

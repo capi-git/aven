@@ -4,13 +4,11 @@
   display: grid;
   gap: 10px;
   padding: 14px 16px;
-  border: 1px solid var(--aven-line);
-  border-radius: 10px;
-  background: color-mix(
-    in srgb,
-    var(--color-content) 3%,
-    var(--aven-grouped-surface, var(--aven-raised))
-  );
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: var(--aven-radius-card, 12px);
+  background: var(--aven-glass-card, var(--aven-raised));
+  box-shadow:
+    var(--aven-glass-sheen, none), var(--aven-glass-card-shadow, none);
 }
 .scheduled-editor h2 {
   margin: 0 0 2px;

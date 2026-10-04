@@ -27,8 +27,10 @@ type Props = {
   enabled?: boolean;
   onChange?: () => void;
   onClose?: () => void;
-  /** Reuse the real picker from another control, such as the workspace footer. */
+  /** Reuse the real picker from another control, such as the Changes header. */
   externalAnchor?: HTMLElement;
+  /** Which side of the anchor the menu opens on. */
+  side?: "top" | "bottom";
   defaultOpen?: boolean;
   hideTrigger?: boolean;
 };
@@ -52,6 +54,7 @@ export function BranchPicker({
   onChange,
   onClose,
   externalAnchor,
+  side = "top",
   defaultOpen = false,
   hideTrigger = false,
 }: Props) {
@@ -344,7 +347,7 @@ export function BranchPicker({
         {open && enabled ? (
           <Popover
             anchor={externalAnchor ?? root}
-            side="top"
+            side={side}
             width={MENU_WIDTH}
             minHeight={MENU_MIN_HEIGHT}
             maxHeight={MENU_MAX_HEIGHT}

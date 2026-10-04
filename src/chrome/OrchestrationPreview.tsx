@@ -336,7 +336,7 @@ export function OrchestrationPreview({
   const fieldLabel = "mb-1 block text-[11px] leading-tight text-content/45";
   return (
     <div
-      className="mb-2 overflow-hidden rounded-xl border border-content/10 bg-content/3 font-sans"
+      className="aven-inset-card mb-2 overflow-hidden font-sans"
       aria-label="Orchestration proposal"
       data-orchestration-review
     >

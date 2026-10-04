@@ -12,6 +12,7 @@ type Props = {
   onOpenFile: (path: string, kind: GitFileDiffKind) => void;
   onOpenAllChanges: (kind: GitFileDiffKind) => void;
   onOpenCommit: (commit: GitHistoryCommit) => void;
+  onOpenBranchPicker?: (anchor: HTMLButtonElement) => void;
 };
 
 export function SourceControl({
@@ -24,6 +25,7 @@ export function SourceControl({
   onOpenFile,
   onOpenAllChanges,
   onOpenCommit,
+  onOpenBranchPicker,
 }: Props) {
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
@@ -37,6 +39,7 @@ export function SourceControl({
         onOpenFile={onOpenFile}
         onOpenAllChanges={onOpenAllChanges}
         onOpenCommit={onOpenCommit}
+        onOpenBranchPicker={onOpenBranchPicker}
       />
     </div>
   );

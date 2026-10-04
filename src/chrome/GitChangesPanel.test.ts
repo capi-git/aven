@@ -40,6 +40,7 @@ vi.mock("../lib/fileWatch", () => ({
 }));
 vi.mock("../hooks/useProjectDiffStats", () => ({
   applyProjectDiffStats: mocks.applyStats,
+  useProjectDiffStats: () => null,
 }));
 vi.mock("./FileTypeIcon", () => ({ FileTypeIcon: () => null }));
 vi.mock("./GitCopies", () => ({ GitCopies: () => null }));
@@ -127,9 +128,7 @@ function changed(
 }
 
 function button(label: string) {
-  return container.querySelector<HTMLButtonElement>(
-    `[aria-label="${label}"]`,
-  );
+  return container.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`);
 }
 
 describe("GitChangesPanel commit message generation", () => {
@@ -150,9 +149,7 @@ describe("GitChangesPanel commit message generation", () => {
     const signal = vi.mocked(generateCommitMessage).mock.calls[0]?.[2];
     expect(signal?.aborted).toBe(false);
 
-    await act(async () =>
-      button("Cancel commit message generation")!.click(),
-    );
+    await act(async () => button("Cancel commit message generation")!.click());
     expect(signal?.aborted).toBe(true);
     expect(button("Generate commit message")?.disabled).toBe(false);
     expect(container.querySelector("textarea")?.disabled).toBe(false);
@@ -420,5 +417,39 @@ describe("clean copy status", () => {
       tone: "neutral",
       title: "Nothing to commit",
     });
+  });
+});
+
+describe("Changes header", () => {
+  it("switches branch from the header, which holds what the footer used to", async () => {
+    const onOpenBranchPicker = vi.fn();
+    await act(async () =>
+      root.render(
+        createElement(GitChangesPanel, {
+          cwd,
+          enabled: true,
+          onOpenFile: vi.fn(),
+          onOpenAllChanges: vi.fn(),
+          onOpenCommit: vi.fn(),
+          onOpenBranchPicker,
+        }),
+      ),
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const branch = button("Switch branch: feature")!;
+    expect(branch.disabled).toBe(false);
+    await act(async () => branch.click());
+    expect(onOpenBranchPicker).toHaveBeenCalledWith(branch);
+  });
+
+  it("shows the branch without a switcher when none is supplied", async () => {
+    await render();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(button("Switch branch: feature")).toBeNull();
+    expect(button("Branch: feature")?.disabled).toBe(true);
   });
 });

@@ -155,7 +155,6 @@ import {
 } from "./lib/agentBrowserOpen";
 import {
   loadDefaultRuntimeMode,
-  subscribeDefaultRuntimeMode,
   saveDefaultRuntimeMode,
 } from "./lib/runtimeMode";
 import { ApprovalToasts } from "./chrome/ApprovalToasts";
@@ -211,11 +210,9 @@ import {
   hasWorkspaceOverlay,
   workspaceShortcutDisposition,
 } from "./lib/workspaceKeyboard";
-import {
-  WorkspaceStatusBar,
-  type WorkspaceStatusAction,
-} from "./chrome/WorkspaceStatusBar";
+import { WorkspaceStatusBar } from "./chrome/WorkspaceStatusBar";
 import { WorkspaceFooter } from "./chrome/WorkspaceFooter";
+import { FooterUsage } from "./chrome/FooterUsage";
 import {
   WorkspaceActionDialog,
   type WorkspaceActionKind,
@@ -224,11 +221,7 @@ import { BranchPicker } from "./chrome/BranchPicker";
 import { Popover } from "./chrome/Popover";
 import { FolderPlus, ArrowDownCircle, Folder } from "./chrome/icons";
 import { installInAppLinks } from "./lib/inAppLinks";
-import {
-  EXTERNAL_BROWSER_NAME,
-  normalizeBrowserUrl,
-  openBrowserExternally,
-} from "./lib/browser";
+import { normalizeBrowserUrl } from "./lib/browser";
 import {
   useWorkspaceProfiles,
   restoreProfileWorkspace,
@@ -250,7 +243,6 @@ import { runUpdateFlow } from "./lib/updater";
 import { displayAttachments, prepareAttachments } from "./lib/attachments";
 import {
   basename,
-  revealPath,
   notifyGitChanged,
   pickFolder,
   restoreSessionCheckout,
@@ -930,16 +922,9 @@ export default function App({
   const [branchAnchor, setBranchAnchor] = useState<HTMLButtonElement | null>(
     null,
   );
-  const [prAnchor, setPrAnchor] = useState<HTMLButtonElement | null>(null);
-  const defaultAccess = useSyncExternalStore(
-    subscribeDefaultRuntimeMode,
-    loadDefaultRuntimeMode,
-    loadDefaultRuntimeMode,
-  );
   const openWorkspaceAction = useCallback((kind: WorkspaceActionKind) => {
     const current = profilesRef.current;
     setAddProjectAnchor(null);
-    setPrAnchor(null);
     setWorkspaceAction({
       kind,
       cwd: projectCwdRef.current,
@@ -4940,7 +4925,6 @@ export default function App({
       setWorkspaceAction(null);
       setAddProjectAnchor(null);
       setBranchAnchor(null);
-      setPrAnchor(null);
       setFilePickerOpen(false);
       setSettingsOpen(false);
       setSearchViewOpen(false);
@@ -8585,28 +8569,6 @@ export default function App({
     orchestrationRuns,
     busySessionIds,
   ]);
-  const openActions: WorkspaceStatusAction[] = [
-    {
-      id: "browser",
-      label: `Open preview in ${EXTERNAL_BROWSER_NAME}`,
-      disabled: profileHome || !browserState.url,
-      onSelect: () => {
-        void openBrowserExternally(browserState.url).catch((error) =>
-          message(String(error), { kind: "error" }),
-        );
-      },
-    },
-    {
-      id: "finder",
-      label: "Reveal project in Finder",
-      disabled: profileHome,
-      onSelect: () => {
-        void revealPath(projectCwd).catch((error) =>
-          message(String(error), { kind: "error" }),
-        );
-      },
-    },
-  ];
   const browserSurfaceActions = useRef<BrowserSurfaceActions>(null!);
   browserSurfaceActions.current = {
     focus: (project, id) => {
@@ -9028,18 +8990,7 @@ export default function App({
             }
             sessions={profileSessions}
             session={profileHome ? undefined : active}
-            accessMode={
-              profileHome
-                ? defaultAccess
-                : (active?.runtimeMode ?? defaultAccess)
-            }
-            onAccessModeChange={(mode) => {
-              saveDefaultRuntimeMode(mode);
-              if (!profileHome && active) onRuntimeModeChange(active.id, mode);
-            }}
             onSelectSession={onOpenApprovalSession}
-            usageProviders={profileHome ? [] : usageProviders}
-            openActions={openActions}
             onToggleSidebar={onToggleSidebar}
             sidebarOpen={sidebarOpen}
             onSearch={onOpenSearch}
@@ -9052,7 +9003,6 @@ export default function App({
             homeOpen={homeViewOpen || profileHome}
             onToggleInspector={onToggleInspector}
             inspectorOpen={inspector.open}
-            onOpenSettings={onOpenSettings}
           />
           <div className="personal-shell-body">
             {!sidebarOpen ? (
@@ -9812,6 +9762,9 @@ export default function App({
                   onOpenDiff={onOpenWorkingTreeDiff}
                   onOpenAllChanges={onOpenAllChanges}
                   onOpenCommit={onOpenCommit}
+                  onOpenBranchPicker={
+                    projectBranches ? setBranchAnchor : undefined
+                  }
                   selectedDiffPath={
                     activeTab
                       ? selectedChangePath(activeTab, gitCwd)
@@ -9838,28 +9791,16 @@ export default function App({
                   !notesViewOpen
                 }
                 cwd={profileHome ? "~" : gitCwd}
-                branch={profileHome ? null : projectBranches?.current}
-                detached={projectBranches?.detached}
-                onOpenBranchPicker={setBranchAnchor}
-                branchDisabledReason={
-                  !projectBranches
-                    ? "This project is not a Git repository"
-                    : undefined
-                }
-                onOpenChanges={onToggleChanges}
-                changesOpen={inspectorVisible && inspector.tab === "changes"}
                 onToggleTerminal={() => {
                   if (!profileHome) onToggleProjectTerminal();
                 }}
                 terminalOpen={!profileHome && dockVisible}
-                onCreatePR={() => openWorkspaceAction("pr")}
-                createPRDisabledReason={
-                  !projectBranches
-                    ? "This project is not a Git repository"
-                    : undefined
+                usage={
+                  <FooterUsage
+                    providers={usageProviders}
+                    context={profileHome ? null : active?.context}
+                  />
                 }
-                onOpenPRMenu={setPrAnchor}
-                prMenuOpen={!!prAnchor}
               />
             </div>
           </div>
@@ -9901,42 +9842,11 @@ export default function App({
               cwd={gitCwd}
               branch={projectBranches?.current ?? undefined}
               externalAnchor={branchAnchor}
+              side="bottom"
               defaultOpen
               hideTrigger
               onClose={() => setBranchAnchor(null)}
             />
-          ) : null}
-          {prAnchor ? (
-            <Popover
-              anchor={prAnchor}
-              side="top"
-              align="end"
-              width={215}
-              autoFocus
-              onDismiss={() => setPrAnchor(null)}
-            >
-              <div
-                className="personal-project-menu"
-                role="menu"
-                aria-label="Pull request options"
-              >
-                <button
-                  role="menuitem"
-                  onClick={() => openWorkspaceAction("pr")}
-                >
-                  Create PR in GitHub…
-                </button>
-                <button
-                  role="menuitem"
-                  onClick={() => {
-                    setPrAnchor(null);
-                    onToggleChanges();
-                  }}
-                >
-                  Review changes
-                </button>
-              </div>
-            </Popover>
           ) : null}
           {workspaceAction ? (
             <WorkspaceActionDialog

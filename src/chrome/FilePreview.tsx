@@ -81,7 +81,7 @@ export function FilePreview({ preview, status, cwd, onOpenFile }: Props) {
     : fileName || preview.title || "File";
 
   return (
-    <div className="overflow-hidden rounded-[10px] border border-content/10 bg-content/6">
+    <div className="aven-inset-card overflow-hidden">
       <div className="flex items-center gap-2 px-2.5 py-2">
         <FileTypeIcon name={fileName || "file"} isDir={false} />
         {filePath && onOpenFile ? (

@@ -41,7 +41,7 @@ export function PlanPreview({
         : "Build";
 
   return (
-    <div className="mb-2 overflow-hidden rounded-[12px] border border-content/10 bg-content/7">
+    <div className="aven-inset-card mb-2 overflow-hidden">
       <div className="flex items-start gap-2.5 px-3 py-2.5">
         {streaming ? (
           <CircleDashed

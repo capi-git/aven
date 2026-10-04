@@ -1,222 +1,65 @@
 // @vitest-environment happy-dom
-import { act, createElement, Fragment } from "react";
+import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceFooter, type WorkspaceFooterProps } from "./WorkspaceFooter";
-import {
-  applyProjectDiffStats,
-  useProjectDiffStats,
-} from "../hooks/useProjectDiffStats";
-import { notifyGitChanged } from "../lib/fs";
-
-const { readStats } = vi.hoisted(() => ({ readStats: vi.fn() }));
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: (command: string, args: { cwd: string }) => {
-    if (command === "git_diff_stats") return readStats(args.cwd);
-    throw new Error(`Unexpected native command: ${command}`);
-  },
-}));
 
 let root: Root;
 let container: HTMLDivElement;
-let props: WorkspaceFooterProps;
-let hidden: boolean;
-let sequence = 0;
 
 beforeEach(() => {
-  vi.clearAllMocks();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  const storage = new Map<string, string>();
-  vi.stubGlobal("localStorage", {
-    getItem: (key: string) => storage.get(key) ?? null,
-    setItem: (key: string, value: string) => storage.set(key, value),
-    removeItem: (key: string) => storage.delete(key),
-  });
-  hidden = false;
-  vi.spyOn(document, "hidden", "get").mockImplementation(() => hidden);
-  readStats.mockResolvedValue({ files: 4, additions: 64872, deletions: 14719 });
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
-  props = {
-    active: true,
-    cwd: `/footer-${++sequence}`,
-    branch: "feature/research-results",
-  };
 });
 
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
-  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
-async function render(patch: Partial<WorkspaceFooterProps> = {}) {
-  props = { ...props, ...patch };
+async function render(props: WorkspaceFooterProps) {
   await act(async () => root.render(createElement(WorkspaceFooter, props)));
 }
+const terminal = () =>
+  container.querySelector<HTMLButtonElement>(".workspace-footer-icon")!;
 
 describe("WorkspaceFooter", () => {
-  it("keeps projectless terminal access without Git controls or reads", async () => {
-    const cwd =
-      "/Users/test/Library/Application Support/com.capi.supermono/projectless-workspaces/personal";
-    localStorage.setItem(
-      "monocode.projectlessWorkspaces.v1",
-      JSON.stringify({ personal: cwd }),
-    );
-    const terminal = vi.fn();
+  it("holds only agent usage and the terminal", async () => {
+    const toggle = vi.fn();
     await render({
-      cwd,
-      onToggleTerminal: terminal,
-      onOpenChanges: vi.fn(),
-      onOpenBranchPicker: vi.fn(),
-      onCreatePR: vi.fn(),
-      onOpenPRMenu: vi.fn(),
+      active: true,
+      cwd: "/project",
+      onToggleTerminal: toggle,
+      usage: createElement("span", { "data-usage": "" }, "usage"),
     });
-    expect(container.textContent).toContain("No project");
-    expect(container.textContent).not.toContain(cwd);
-    expect(container.querySelector(".workspace-footer-branch")).toBeNull();
-    expect(container.querySelector(".workspace-footer-pr")).toBeNull();
-    expect(container.querySelector('[aria-label="Open changes"]')).toBeNull();
-    const toggle = container.querySelector<HTMLButtonElement>(
-      '[aria-label="Show terminal"]',
-    )!;
-    expect(toggle.disabled).toBe(false);
-    await act(async () => {
-      toggle.click();
-      notifyGitChanged();
-      window.dispatchEvent(new Event("focus"));
-    });
-    expect(terminal).toHaveBeenCalledOnce();
-    expect(readStats).not.toHaveBeenCalled();
+    expect(container.querySelector("[data-usage]")).not.toBeNull();
+    const buttons = [...container.querySelectorAll("button")];
+    expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Show terminal",
+    ]);
+    await act(async () => terminal().click());
+    expect(toggle).toHaveBeenCalledOnce();
   });
 
-  it("shows real stats and stops Git work when hidden or inactive", async () => {
-    await render({ active: false });
-    expect(container.childElementCount).toBe(0);
-    expect(readStats).not.toHaveBeenCalled();
-    await render({ active: true });
-    expect(readStats).toHaveBeenCalledOnce();
-    expect(container.textContent).toContain("+64872");
-    expect(container.textContent).toContain("-14719");
-    hidden = true;
-    await act(async () => {
-      document.dispatchEvent(new Event("visibilitychange"));
-      window.dispatchEvent(new Event("focus"));
-      notifyGitChanged();
-    });
-    expect(readStats).toHaveBeenCalledOnce();
-    await render({ active: false });
-    hidden = false;
-    await act(async () => {
-      document.dispatchEvent(new Event("visibilitychange"));
-      notifyGitChanged();
-    });
-    expect(readStats).toHaveBeenCalledOnce();
-  });
-
-  it("shares one stats read with another surface and accepts published Git index stats", async () => {
-    function OtherSurface() {
-      useProjectDiffStats(props.cwd, true);
-      return null;
-    }
-    await act(async () =>
-      root.render(
-        createElement(
-          Fragment,
-          null,
-          createElement(WorkspaceFooter, props),
-          createElement(OtherSurface),
-        ),
-      ),
-    );
-    expect(readStats).toHaveBeenCalledOnce();
-    await act(async () =>
-      applyProjectDiffStats(props.cwd, {
-        files: 2,
-        additions: 17,
-        deletions: 3,
-      }),
-    );
-    expect(container.textContent).toContain("+17");
-    expect(container.textContent).toContain("-3");
-    expect(readStats).toHaveBeenCalledOnce();
-  });
-
-  it("does not invent zero stats or a branch when metadata is unavailable", async () => {
-    readStats.mockRejectedValue(new Error("Not a Git repository"));
-    await render({ branch: undefined });
-    expect(
-      container.querySelector(".workspace-footer-branch")?.textContent,
-    ).toBe("—");
-    expect(container.querySelector(".workspace-footer-diff-counts")).toBeNull();
-    await render({ detached: true });
-    expect(
-      container.querySelector(".workspace-footer-branch")?.textContent,
-    ).toBe("Detached HEAD");
-    await render({ cwd: "~", detached: false });
-    expect(readStats).toHaveBeenCalledOnce();
-    expect(
-      [...container.querySelectorAll("button")].every(
-        (button) => button.disabled,
-      ),
-    ).toBe(true);
-  });
-
-  it("routes branch, PR, Changes and Terminal controls to their actual callbacks", async () => {
-    const branchPicker = vi.fn();
-    const changes = vi.fn();
-    const terminal = vi.fn();
-    const createPR = vi.fn();
-    const prMenu = vi.fn();
+  it("reflects the open terminal and renders nothing while inactive", async () => {
     await render({
-      onOpenBranchPicker: branchPicker,
-      onOpenChanges: changes,
-      onToggleTerminal: terminal,
-      onCreatePR: createPR,
-      onOpenPRMenu: prMenu,
-      changesOpen: true,
+      active: true,
+      cwd: "/project",
+      onToggleTerminal: vi.fn(),
       terminalOpen: true,
     });
-    const click = async (selector: string) => {
-      const button = container.querySelector<HTMLButtonElement>(selector)!;
-      await act(async () => button.click());
-      return button;
-    };
-    const branchButton = await click(".workspace-footer-branch");
-    expect(branchPicker).toHaveBeenCalledWith(branchButton);
-    await click('[aria-label="Open changes"]');
-    expect(changes).toHaveBeenCalledOnce();
-    expect(container.querySelectorAll('[aria-label="Open changes"]')).toHaveLength(1);
-    expect(
-      container.querySelector('[aria-label="Open changes"]')?.getAttribute("aria-description"),
-    ).toBe("64872 added lines, 14719 deleted lines");
-    await click('[aria-label="Hide terminal"]');
-    expect(terminal).toHaveBeenCalledOnce();
-    await click(".workspace-footer-pr-action");
-    expect(createPR).toHaveBeenCalledOnce();
-    const menuButton = await click(".workspace-footer-pr-menu");
-    expect(prMenu).toHaveBeenCalledWith(menuButton);
-    expect(
-      container
-        .querySelector('[aria-label="Open changes"]')
-        ?.getAttribute("aria-pressed"),
-    ).toBe("true");
+    expect(terminal().getAttribute("aria-pressed")).toBe("true");
+    expect(terminal().getAttribute("aria-label")).toBe("Hide terminal");
+    await render({ active: false, cwd: "/project" });
+    expect(container.childElementCount).toBe(0);
   });
 
-  it("disables unavailable actions with the supplied reason", async () => {
-    const createPR = vi.fn();
-    await render({
-      onCreatePR: createPR,
-      createPRDisabledReason: "No GitHub remote is configured",
-    });
-    const button = container.querySelector<HTMLButtonElement>(
-      ".workspace-footer-pr-action",
-    )!;
-    expect(button.disabled).toBe(true);
-    expect(button.title).toBe("No GitHub remote is configured");
-    await act(async () => button.click());
-    expect(createPR).not.toHaveBeenCalled();
+  it("disables the terminal without a working folder", async () => {
+    await render({ active: true, cwd: "~", onToggleTerminal: vi.fn() });
+    expect(terminal().disabled).toBe(true);
+    expect(terminal().title).toBe("Open a project to use the terminal");
   });
 });

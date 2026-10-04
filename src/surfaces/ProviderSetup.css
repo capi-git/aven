@@ -65,13 +65,17 @@
   width: 100%;
   text-align: left;
   padding: 15px 14px;
-  border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--color-content) 12%, transparent);
-  background: color-mix(in srgb, var(--color-content) 3%, transparent);
+  border-radius: var(--aven-radius-card, 12px);
+  border: 1px solid var(--aven-glass-card-edge);
+  background: var(--aven-inset-card);
+  box-shadow: var(--aven-glass-sheen, none);
   cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
 }
 .provider-setup-choice:hover {
-  background: color-mix(in srgb, var(--color-content) 6%, transparent);
+  background: var(--aven-control-hover, var(--aven-hover));
 }
 .provider-setup-choice[aria-checked="true"] {
   border-color: color-mix(in srgb, var(--color-accent) 65%, transparent);
@@ -189,8 +193,9 @@
 }
 .provider-setup-check {
   padding: 16px;
-  border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--color-content) 12%, transparent);
+  border-radius: var(--aven-radius-card, 12px);
+  border: 1px solid var(--aven-glass-card-edge);
+  background: var(--aven-inset-card);
 }
 .provider-setup-check-heading {
   display: flex;
@@ -273,12 +278,8 @@
   height: 260px;
   padding: 12px;
   border-radius: 10px;
-  background: color-mix(
-    in srgb,
-    var(--color-content) 4%,
-    var(--color-background-base)
-  );
-  border: 1px solid color-mix(in srgb, var(--color-content) 12%, transparent);
+  background: var(--aven-field-bg);
+  border: 1px solid var(--aven-glass-card-edge);
 }
 .provider-setup-error {
   font-size: 12px;

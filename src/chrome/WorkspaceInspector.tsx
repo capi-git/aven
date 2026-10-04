@@ -24,6 +24,8 @@ export type WorkspaceInspectorProps = {
   onOpenDiff: (path: string, kind?: GitFileDiffKind) => void;
   onOpenAllChanges: (kind: GitFileDiffKind) => void;
   onOpenCommit: (commit: GitHistoryCommit) => void;
+  /** Opens the branch switcher from the Changes header. */
+  onOpenBranchPicker?: (anchor: HTMLButtonElement) => void;
   selectedDiffPath?: string;
   selectedDiffKind?: GitFileDiffKind;
   selectedCommitSha?: string;
@@ -196,6 +198,7 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
                 onOpenFile={props.onOpenDiff}
                 onOpenAllChanges={props.onOpenAllChanges}
                 onOpenCommit={props.onOpenCommit}
+                onOpenBranchPicker={props.onOpenBranchPicker}
               />
             ) : props.filesSearchOpen ? (
               <InspectorSearch
