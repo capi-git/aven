@@ -30,6 +30,7 @@ import {
   type ReactNode,
 } from "react";
 import { FileTypeIcon } from "./FileTypeIcon";
+import { useProjectDiffStats } from "../hooks/useProjectDiffStats";
 import {
   GitHistoryGraph,
   GraphResizeSash,
@@ -104,6 +105,8 @@ type Props = {
   onOpenFile: (path: string, kind: GitFileDiffKind) => void;
   onOpenAllChanges: (kind: GitFileDiffKind) => void;
   onOpenCommit: (commit: GitHistoryCommit) => void;
+  /** Opens the branch switcher anchored to the header's branch button. */
+  onOpenBranchPicker?: (anchor: HTMLButtonElement) => void;
 };
 
 export function GitChangesPanel({
@@ -116,8 +119,11 @@ export function GitChangesPanel({
   onOpenFile,
   onOpenAllChanges,
   onOpenCommit,
+  onOpenBranchPicker,
 }: Props) {
   const { index, reload } = useDiffIndex(cwd, enabled);
+  // Shared with other Git surfaces, so this adds no extra read.
+  const stats = useProjectDiffStats(cwd, enabled);
   const files = index?.files ?? [];
   // Nothing to commit: the history takes the space the file list would use.
   const clean = index !== null && files.length === 0;
@@ -148,8 +154,33 @@ export function GitChangesPanel({
     >
       <header className="flex h-9 shrink-0 items-center gap-2 border-b border-content/10 px-3">
         <span className="text-[12px] font-medium text-content">Changes</span>
+        {stats ? (
+          <span
+            className="flex shrink-0 gap-1.5 text-[11px] tabular-nums"
+            aria-label={`${stats.additions} added lines, ${stats.deletions} deleted lines`}
+          >
+            <span className="text-[#61bd85]">+{stats.additions}</span>
+            <span className="text-[#d77880]">-{stats.deletions}</span>
+          </span>
+        ) : null}
         {index?.branch ? (
-          <span className="ml-auto flex min-w-0 items-center gap-1 text-[11px] text-content/50">
+          <button
+            type="button"
+            className="-mr-1.5 ml-auto flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-content/60 enabled:hover:bg-content/8 enabled:hover:text-content focus-visible:outline-2 focus-visible:outline-(--aven-focus-ring)"
+            disabled={!onOpenBranchPicker}
+            title={
+              onOpenBranchPicker
+                ? `Switch branch: ${index.branch}`
+                : index.branch
+            }
+            aria-label={
+              onOpenBranchPicker
+                ? `Switch branch: ${index.branch}`
+                : `Branch: ${index.branch}`
+            }
+            aria-haspopup="dialog"
+            onClick={(event) => onOpenBranchPicker?.(event.currentTarget)}
+          >
             <GitBranch className="size-3 shrink-0" strokeWidth={1.75} />
             <span className="min-w-0 truncate">{index.branch}</span>
             {index.ahead > 0 ? (
@@ -162,7 +193,10 @@ export function GitChangesPanel({
                 ↓{index.behind}
               </span>
             ) : null}
-          </span>
+            {onOpenBranchPicker ? (
+              <ChevronDown className="size-3 shrink-0" strokeWidth={1.75} />
+            ) : null}
+          </button>
         ) : (
           <span className="ml-auto" />
         )}

@@ -4,11 +4,6 @@
   /* Sized by the width steps below rather than squeezed mid-number. */
   flex: 0 0 auto;
   gap: 2px;
-  margin-left: auto;
-}
-
-.footer-usage + .workspace-footer-pr {
-  margin-left: 0;
 }
 
 .footer-usage-summary {
@@ -126,13 +121,13 @@
 
 /* Narrower footers shed detail in steps: context, then weekly and later
    windows, then the numbers. Everything stays in the details panel. */
-@container workspace-footer (max-width: 960px) {
+@container workspace-footer (max-width: 640px) {
   .footer-usage-context,
   .footer-usage-context + .footer-usage-account > .footer-usage-divider {
     display: none;
   }
 }
-@container workspace-footer (max-width: 860px) {
+@container workspace-footer (max-width: 540px) {
   .footer-usage-part + .footer-usage-part {
     display: none;
   }
@@ -140,19 +135,14 @@
     width: 30px;
   }
 }
-@container workspace-footer (max-width: 640px) {
+@container workspace-footer (max-width: 360px) {
   .footer-usage-windows {
     display: none;
   }
 }
-@container workspace-footer (max-width: 480px) {
+@container workspace-footer (max-width: 240px) {
   .footer-usage-meter,
   .footer-usage-refresh {
-    display: none;
-  }
-}
-@container workspace-footer (max-width: 400px) {
-  .footer-usage {
     display: none;
   }
 }
