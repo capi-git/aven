@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.1.120] - 2026-10-04
+
+### Steadier floating sidebars
+
+- Hovering the unpinned sidebar or file sidebar on macOS no longer makes the conversation behind flash through. The floating panels use a near-opaque tint there instead of a second blur, as the message box and footer already do.
+
 ## [0.1.119] - 2026-10-03
 
 ### Consistent glass and a new Settings
