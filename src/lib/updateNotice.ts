@@ -26,6 +26,23 @@ export function rememberInstalledUpdate(
   }
 }
 
+/** Undo a record made just before an installer that then failed to start. */
+export function forgetInstalledUpdate(
+  version: string,
+  store?: UpdateNoticeStore,
+): void {
+  try {
+    const target = store ?? window.localStorage;
+    const stored = target.getItem(INSTALLED_UPDATE_KEY);
+    if (stored == null) return;
+    if (parseInstalledUpdate(JSON.parse(stored))?.version !== version.trim())
+      return;
+    target.removeItem(INSTALLED_UPDATE_KEY);
+  } catch {
+    return;
+  }
+}
+
 export function consumeInstalledUpdate(
   store?: UpdateNoticeStore,
 ): InstalledUpdate | null {

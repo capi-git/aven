@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
   prepare: vi.fn(),
   remember: vi.fn(),
+  forget: vi.fn(),
+  platform: { isWin: false },
   lockInput: vi.fn(),
   releaseInput: vi.fn(),
 }));
@@ -24,11 +26,20 @@ vi.mock("@tauri-apps/plugin-updater", () => ({ check: mocks.check }));
 vi.mock("./updateInputLock", () => ({ lockUpdateInput: mocks.lockInput }));
 vi.mock("./appLifecycle", () => ({ prepareUpdateRestart: mocks.prepare }));
 vi.mock("./sounds", () => ({ announceUpdateAvailable: mocks.announce }));
-vi.mock("./updateNotice", () => ({ rememberInstalledUpdate: mocks.remember }));
+vi.mock("./updateNotice", () => ({
+  rememberInstalledUpdate: mocks.remember,
+  forgetInstalledUpdate: mocks.forget,
+}));
+vi.mock("./platform", () => ({
+  get IS_WIN() {
+    return mocks.platform.isWin;
+  },
+}));
 
 beforeEach(() => {
   vi.resetAllMocks();
   vi.resetModules();
+  mocks.platform.isWin = false;
   mocks.getVersion.mockResolvedValue("0.1.79");
   mocks.getIdentifier.mockResolvedValue("com.capi.monocode.personal");
   mocks.message.mockResolvedValue(undefined);
@@ -233,6 +244,7 @@ describe("explicit restart", () => {
     );
     expect(mocks.remember).toHaveBeenCalledWith("0.1.80");
     expect(mocks.invoke).toHaveBeenCalledWith("relaunch_after_update");
+    expect(mocks.invoke).not.toHaveBeenCalledWith("prepare_update_install");
   });
   it("does not install or interrupt tasks when preparation rejects busy work", async () => {
     const updater = await ready();
@@ -316,6 +328,102 @@ describe("explicit restart", () => {
     expect(mocks.install).toHaveBeenCalledOnce();
     expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith(
       "relaunch_after_update",
+    );
+  });
+});
+
+describe("Windows installer updates", () => {
+  beforeEach(() => {
+    mocks.platform.isWin = true;
+  });
+  const commands = () => mocks.invoke.mock.calls.map(([command]) => command);
+
+  it("saves the workspace and runs final native checks before the installer replaces Aven", async () => {
+    const updater = await ready();
+    // On success the plugin starts the installer and ends this process.
+    mocks.install.mockImplementation(() => new Promise(() => {}));
+    void updater.installPendingUpdate();
+    await vi.waitFor(() => expect(mocks.install).toHaveBeenCalledOnce());
+
+    const prepared = mocks.invoke.mock.calls.findIndex(
+      ([command]) => command === "prepare_update_install",
+    );
+    expect(prepared).toBeGreaterThanOrEqual(0);
+    expect(mocks.prepare.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.invoke.mock.invocationCallOrder[prepared]!,
+    );
+    expect(mocks.invoke.mock.invocationCallOrder[prepared]).toBeLessThan(
+      mocks.remember.mock.invocationCallOrder[0]!,
+    );
+    expect(mocks.remember.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.install.mock.invocationCallOrder[0]!,
+    );
+    expect(mocks.remember).toHaveBeenCalledWith("0.1.80");
+    expect(commands()).not.toContain("relaunch_after_update");
+    expect(mocks.releaseInput).not.toHaveBeenCalled();
+    expect(updater.getUpdaterSnapshot().phase).toBe("installing");
+  });
+
+  it("never starts the installer while tasks or other windows are busy", async () => {
+    const updater = await ready();
+    mocks.prepare.mockRejectedValueOnce(
+      new Error("Your tasks are still working"),
+    );
+    expect((await updater.installPendingUpdate()).phase).toBe("ready");
+    mocks.invoke.mockImplementation(async (command) => {
+      if (command === "prepare_update_install")
+        throw new Error("Wait for current activity to finish");
+    });
+    expect(await updater.installPendingUpdate()).toMatchObject({
+      phase: "ready",
+      error: "Wait for current activity to finish",
+    });
+    expect(mocks.install).not.toHaveBeenCalled();
+    expect(mocks.remember).not.toHaveBeenCalled();
+    expect(commands()).not.toContain("abandon_update_install");
+    expect(commands()).toContain("cancel_update_restart");
+    expect(mocks.releaseInput).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves update mode and keeps the download ready when the installer cannot start", async () => {
+    const updater = await ready();
+    mocks.install.mockRejectedValueOnce(new Error("could not write installer"));
+    expect(await updater.installPendingUpdate()).toMatchObject({
+      phase: "ready",
+      error: "could not write installer",
+    });
+    expect(mocks.forget).toHaveBeenCalledWith("0.1.80");
+    expect(commands()).toEqual([
+      "prepare_update_install",
+      "abandon_update_install",
+      "cancel_update_restart",
+    ]);
+    expect(mocks.releaseInput).toHaveBeenCalledOnce();
+    expect(updater.getUpdateNotice()?.text).toContain(
+      "could not write installer",
+    );
+
+    mocks.install.mockImplementation(() => new Promise(() => {}));
+    void updater.installPendingUpdate();
+    await vi.waitFor(() => expect(mocks.install).toHaveBeenCalledTimes(2));
+    expect(mocks.download).toHaveBeenCalledOnce();
+  });
+
+  it("treats a macOS-only release feed as nothing to install", async () => {
+    mocks.check.mockRejectedValue(
+      new Error(
+        'None of the fallback platforms `["windows-x86_64-nsis", "windows-x86_64"]` were found in the response `platforms` object',
+      ),
+    );
+    const updater = await import("./updater");
+    await expect(updater.runUpdateFlow(false)).resolves.toEqual({
+      phase: "current",
+      currentVersion: "0.1.79",
+    });
+    expect(updater.getUpdateNotice()).toBeNull();
+    await updater.runUpdateFlow(true);
+    expect(updater.getUpdateNotice()?.text).toBe(
+      "You're on the latest version.",
     );
   });
 });

@@ -3,6 +3,7 @@
 
 No build, real gh call, credentials, Keychain operation, or remote Git access.
 """
+import base64
 import hashlib
 import json
 import os
@@ -21,6 +22,14 @@ WORKFLOW = ROOT / '.github/workflows/release.yml'
 WINDOWS_WORKFLOW = ROOT / '.github/workflows/windows-candidate.yml'
 VERSION = '1.2.3'
 SOURCE_SHA = 'a' * 40
+INSTALLER = 'Aven_' + VERSION + '_x64-setup.exe'
+
+
+def fixture_signature(name):
+    """A Tauri-shaped updater signature for `name`; never cryptographically valid."""
+    text = ('untrusted comment: signature from tauri secret key\nRUQfixture\n'
+            'trusted comment: timestamp:1700000000\tfile:' + name + '\nfixture\n')
+    return base64.b64encode(text.encode()).decode()
 
 
 def step_script(name):
@@ -85,8 +94,10 @@ class WorkflowFixture(unittest.TestCase):
         self.policy = {'teamId': 'L54FM345MU', 'bundleId': 'com.capi.monocode.personal'}
         (self.root / 'scripts').mkdir()
         (self.root / 'scripts/release-signing.json').write_text(json.dumps(self.policy))
+        shutil.copy(ROOT / 'scripts/release-assets.py', self.root / 'scripts/release-assets.py')
         self.release = self.root / 'release' / ('v' + VERSION)
         self.release.mkdir(parents=True)
+        (self.release / ('Aven-' + VERSION + '-macos-arm64.zip')).write_bytes(b'fixture mac app, never opened')
         (self.release / 'latest.json').write_text(json.dumps({
             'version': VERSION, 'platforms': {'darwin-aarch64': {
                 'url': 'https://example.invalid/macos.app.tar.gz', 'signature': 'fixture-only'}}}))
@@ -177,7 +188,8 @@ class WindowsArtifactTests(WorkflowFixture):
 
     def create_windows(self, crlf=False):
         self.windows.mkdir(parents=True)
-        (self.windows / ('Aven_' + VERSION + '_x64-setup.exe')).write_bytes(b'fixture installer, never executed')
+        (self.windows / INSTALLER).write_bytes(b'fixture installer, never executed')
+        (self.windows / (INSTALLER + '.sig')).write_text(fixture_signature(INSTALLER))
         newline = '\r\n' if crlf else '\n'
         (self.windows / 'README.md').write_bytes(('Windows fixture' + newline + 'Source commit: ' + SOURCE_SHA + newline).encode())
         (self.windows / 'LICENSE').write_text('Fixture license')
@@ -233,9 +245,20 @@ class WindowsArtifactTests(WorkflowFixture):
         installer.write_bytes(b'changed after packaging')
         self.assert_refused('FAILED')
 
+    def published_files(self, arguments):
+        return {Path(argument).name for argument in arguments
+                if argument.startswith(str(self.release.relative_to(self.root)) + '/')}
+
+    def release_checksums(self):
+        entries = {}
+        for line in (self.release / 'SHA256SUMS').read_text().splitlines():
+            digest, name = line.split('  ', 1)
+            self.assertNotIn(name, entries, 'duplicate release checksum entry')
+            entries[name] = digest
+        return entries
+
     def test_valid_windows_package_is_attached_and_zip_is_real(self):
         self.create_windows(crlf=True)
-        update_bytes = (self.release / 'latest.json').read_bytes()
         result = self.run_step('Publish Aven release')
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         arguments = json.loads((self.root / 'gh-called.json').read_text())
@@ -247,15 +270,67 @@ class WindowsArtifactTests(WorkflowFixture):
             self.assertEqual(zipped.read(self.windows.name + '/' + installer.name), installer.read_bytes())
         self.assertEqual((self.release / installer.name).read_bytes(), installer.read_bytes())
         self.assertEqual(self.windows.name, 'Aven-' + VERSION + '-windows-x64')
-        self.assertEqual((self.release / 'latest.json').read_bytes(), update_bytes)
         notes = arguments[arguments.index('--notes') + 1]
         self.assertIn('Windows x64:', notes)
         self.assertIn('regular release downloads', notes)
-        self.assertIn('Windows installer is unsigned', notes)
-        self.assertIn('manually', notes)
+        self.assertIn('no Authenticode signature', notes)
+        self.assertIn('updates signed by Aven', notes)
+        self.assertNotIn('manually', notes)
         self.assertNotIn('test build', notes)
         self.assertNotIn('test downloads', notes)
         self.assertEqual(arguments[arguments.index('--target') + 1], SOURCE_SHA)
+
+    def test_windows_update_joins_the_same_feed_with_its_download_and_signature(self):
+        self.create_windows()
+        mac_update = json.loads((self.release / 'latest.json').read_text())['platforms']['darwin-aarch64']
+        result = self.run_step('Publish Aven release')
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        update = json.loads((self.release / 'latest.json').read_text())
+        self.assertEqual(update['version'], VERSION)
+        self.assertEqual(update['platforms']['darwin-aarch64'], mac_update)
+        expected = {
+            'url': 'https://github.com/fixture/never-published/releases/download/v' + VERSION + '/' + INSTALLER,
+            'signature': fixture_signature(INSTALLER),
+        }
+        self.assertEqual(update['platforms']['windows-x86_64'], expected)
+        self.assertEqual(update['platforms']['windows-x86_64-nsis'], expected)
+        self.assertEqual(set(update['platforms']),
+                         {'darwin-aarch64', 'windows-x86_64', 'windows-x86_64-nsis'})
+        arguments = json.loads((self.root / 'gh-called.json').read_text())
+        files = self.published_files(arguments)
+        self.assertIn(INSTALLER, files)
+        self.assertIn(INSTALLER + '.sig', files)
+        self.assertEqual((self.release / (INSTALLER + '.sig')).read_text(), fixture_signature(INSTALLER))
+        # Every published file is listed once, and the rewritten feed's entry
+        # is the final content rather than the macOS job's original hash.
+        checksums = self.release_checksums()
+        self.assertEqual(set(checksums), files - {'SHA256SUMS'})
+        self.assertEqual(checksums['latest.json'],
+                         hashlib.sha256((self.release / 'latest.json').read_bytes()).hexdigest())
+
+    def test_stable_download_names_are_exact_copies_with_checksums(self):
+        self.create_windows()
+        result = self.run_step('Publish Aven release')
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        files = self.published_files(json.loads((self.root / 'gh-called.json').read_text()))
+        for alias, source in (('Aven-macos-arm64.zip', 'Aven-' + VERSION + '-macos-arm64.zip'),
+                              ('Aven-windows-x64-setup.exe', INSTALLER)):
+            with self.subTest(alias=alias):
+                self.assertIn(alias, files)
+                self.assertIn(source, files)
+                self.assertEqual((self.release / alias).read_bytes(), (self.release / source).read_bytes())
+                self.assertFalse((self.release / alias).is_symlink())
+                self.assertEqual(self.release_checksums()[alias], self.release_checksums()[source])
+
+    def test_requested_windows_requires_its_updater_signature(self):
+        self.create_windows()
+        signature = self.windows / (INSTALLER + '.sig')
+        signature.unlink()
+        self.checksums(self.windows)
+        self.assert_refused('expected one updater signature for the installer')
+        signature.write_text(fixture_signature('Aven_1.2.2_x64-setup.exe'))
+        self.checksums(self.windows)
+        self.assert_refused('does not belong to ' + INSTALLER)
 
     def test_legacy_test_directory_cannot_substitute_for_regular_release(self):
         self.create_windows()
@@ -272,7 +347,7 @@ class WindowsArtifactTests(WorkflowFixture):
         self.assertEqual(producer.group(1), 'Aven-windows-x64')
         self.assertEqual(producer.group(1), consumer.group(1))
 
-    def test_updater_stays_mac_only_and_matches_the_release_version(self):
+    def test_incoming_macos_feed_must_be_mac_only_and_match_the_release_version(self):
         self.environment['AVEN_INCLUDE_WINDOWS'] = 'false'
         for update in (
             {'version': VERSION, 'platforms': {'windows-x86_64': {}}},
@@ -299,10 +374,18 @@ class WindowsArtifactTests(WorkflowFixture):
 
     def test_explicitly_disabled_windows_can_publish_without_its_artifact(self):
         self.environment['AVEN_INCLUDE_WINDOWS'] = 'false'
+        update_bytes = (self.release / 'latest.json').read_bytes()
         result = self.run_step('Publish Aven release')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue((self.root / 'gh-called.json').is_file())
         self.assertFalse(list(self.release.glob('*windows*')))
+        # A macOS-only release keeps a valid macOS-only feed and the stable
+        # macOS name; the Windows stable name is simply absent.
+        self.assertEqual((self.release / 'latest.json').read_bytes(), update_bytes)
+        files = self.published_files(json.loads((self.root / 'gh-called.json').read_text()))
+        self.assertIn('Aven-macos-arm64.zip', files)
+        self.assertNotIn('Aven-windows-x64-setup.exe', files)
+        self.assertEqual(set(self.release_checksums()), files - {'SHA256SUMS'})
 
     def set_notarization(self, notarization):
         report = self.release / 'signing-verification.json'
@@ -448,6 +531,32 @@ class MacosNotarizationTests(WorkflowFixture):
         upload = step_block('Upload candidate for manual review')
         self.assertIn('path: target/releases/v*/', upload)
         self.assertNotIn('RUNNER_TEMP', upload)
+
+
+class WindowsUpdateSigningTests(unittest.TestCase):
+    def test_release_signs_windows_updates_only_when_publishing(self):
+        job = re.search(r'\n  windows:\n(.*?)\n\n  publish:', WORKFLOW.read_text(), re.S)
+        self.assertIsNotNone(job)
+        self.assertIn('sign_updates: ${{ inputs.publish }}', job.group(1))
+        for name in ('TAURI_SIGNING_PRIVATE_KEY', 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD'):
+            self.assertIn(name + ': ${{ secrets.' + name + ' }}', job.group(1))
+
+    def test_candidate_signs_the_tested_installer_and_verifies_it_with_the_public_key(self):
+        text = WINDOWS_WORKFLOW.read_text()
+        step = re.search(r'- name: Sign updater installer\n(.*?)\n      - name: ', text, re.S)
+        self.assertIsNotNone(step)
+        body = step.group(1)
+        self.assertIn('if: inputs.sign_updates', body)
+        self.assertIn('signer sign', body)
+        self.assertIn('*> $null', body, 'signer output may contain key diagnostics')
+        self.assertIn('--example verify_update', body)
+        # The secret is scoped to this step, never to the build or tests.
+        self.assertEqual(text.count('secrets.TAURI_SIGNING_PRIVATE_KEY }}'), 1)
+        order = [text.index('- name: ' + name) for name in (
+            'Build NSIS installer', 'Install and launch on Windows',
+            'Sign updater installer', 'Prepare Windows release package')]
+        self.assertEqual(order, sorted(order))
+        self.assertIn('*-setup.exe.sig', text[text.index('- name: Prepare Windows release package'):])
 
 
 class CheckoutCredentialTests(unittest.TestCase):

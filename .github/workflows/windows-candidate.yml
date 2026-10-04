@@ -1,10 +1,21 @@
 name: Build Windows installer
 
 # Run on its own for an unpublished candidate, or from "Release Aven", which
-# attaches the same installer to the regular macOS and Windows release.
+# attaches the same installer to the regular macOS and Windows release. Only a
+# publishing release asks for the installer to be signed as an Aven update.
 on:
   workflow_dispatch:
   workflow_call:
+    inputs:
+      sign_updates:
+        description: Sign the final installer with the Aven updater key
+        type: boolean
+        default: false
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY:
+        required: false
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        required: false
 
 permissions:
   contents: read
@@ -76,6 +87,27 @@ jobs:
           $installer = Get-ChildItem target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
           if (@($installer).Count -ne 1) { throw 'Expected exactly one Windows installer' }
           ./scripts/test-windows-install.ps1 -Installer $installer.FullName -OutputDir target/windows-smoke
+      # Tauri's updater verifies this signature before running the installer.
+      # It is independent of Authenticode; the installer itself stays unsigned.
+      # The tested installer is signed as-is, so the update is that exact file.
+      - name: Sign updater installer
+        if: inputs.sign_updates
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) { throw 'TAURI_SIGNING_PRIVATE_KEY is required to publish Windows updates.' }
+          $installer = Get-ChildItem target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+          if (@($installer).Count -ne 1) { throw 'Expected exactly one Windows installer' }
+          $signature = "$($installer.FullName).sig"
+          Remove-Item -LiteralPath $signature -ErrorAction SilentlyContinue
+          # Suppress signer output so key diagnostics never reach the log.
+          & node_modules/.bin/tauri.cmd signer sign $installer.FullName *> $null
+          if ($LASTEXITCODE -ne 0) { throw 'Update signing failed; private-key diagnostics suppressed.' }
+          if (-not (Test-Path -LiteralPath $signature) -or -not (Get-Content -Raw -LiteralPath $signature).Trim()) { throw 'Signer did not produce a signature' }
+          cargo run --locked --release --target x86_64-pc-windows-msvc -p aven --no-default-features --features tauri/custom-protocol --example verify_update -- src-tauri/tauri.conf.json $installer.FullName $signature
+          if ($LASTEXITCODE -ne 0) { throw 'Windows update signature does not match the configured public key' }
       - name: Prepare Windows release package
         shell: pwsh
         run: |
@@ -83,6 +115,8 @@ jobs:
           $output = "target/releases/Aven-$version-windows-x64"
           New-Item -ItemType Directory -Force $output | Out-Null
           Copy-Item target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe $output
+          # Present only when this run signed the installer as an Aven update.
+          Copy-Item target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe.sig $output -ErrorAction SilentlyContinue
           Copy-Item LICENSE, NOTICE, THIRD_PARTY_NOTICES.txt $output
           Copy-Item docs/WINDOWS.md "$output/README.md"
           "Source commit: $env:GITHUB_SHA" | Add-Content "$output/README.md"

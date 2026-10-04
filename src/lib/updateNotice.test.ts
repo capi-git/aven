@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   consumeInstalledUpdate,
+  forgetInstalledUpdate,
   rememberInstalledUpdate,
   type UpdateNoticeStore,
 } from "./updateNotice";
@@ -20,6 +21,17 @@ describe("installed update marker", () => {
     rememberInstalledUpdate("0.1.23", store);
     expect(consumeInstalledUpdate(store)).toEqual({ version: "0.1.23" });
     expect(consumeInstalledUpdate(store)).toBeNull();
+  });
+
+  it("is forgotten only for the version whose installer failed to start", () => {
+    const store = memoryStore();
+    rememberInstalledUpdate("0.1.23", store);
+    forgetInstalledUpdate("0.1.24", store);
+    forgetInstalledUpdate("0.1.23", store);
+    expect(consumeInstalledUpdate(store)).toBeNull();
+    rememberInstalledUpdate("0.1.25", store);
+    forgetInstalledUpdate("0.1.23", store);
+    expect(consumeInstalledUpdate(store)).toEqual({ version: "0.1.25" });
   });
 
   it.each(["", "   "])("does not store blank version %j", (version) => {

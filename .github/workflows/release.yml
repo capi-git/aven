@@ -1,13 +1,14 @@
 name: Release Aven
 
 # One run builds the macOS app and Windows installer from the same commit.
-# Publishing creates one versioned release with both platform downloads.
-# macOS receives signed updates; Windows remains unsigned and updates manually.
+# Publishing creates one versioned release with both platform downloads and
+# one latest.json update feed. Both platforms receive updates signed with the
+# Aven updater key; the Windows installer has no Authenticode signature.
 on:
   workflow_dispatch:
     inputs:
       publish:
-        description: Publish reviewed downloads and the macOS update
+        description: Publish reviewed downloads and signed updates
         type: boolean
         default: false
       windows:
@@ -151,6 +152,11 @@ jobs:
     needs: validate-source
     if: inputs.windows
     uses: ./.github/workflows/windows-candidate.yml
+    with:
+      sign_updates: ${{ inputs.publish }}
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
   publish:
     # Windows is optional, but when requested it must succeed before anything
@@ -205,8 +211,10 @@ jobs:
               raise SystemExit('Refusing to publish an unverified signing identity.')
           update = json.loads(Path(sys.argv[2]).read_text())
           platforms = update.get('platforms')
+          # The macOS build writes the feed; Windows is added below, only from
+          # this run's verified package.
           if update.get('version') != sys.argv[3] or not isinstance(platforms, dict) or set(platforms) != {'darwin-aarch64'}:
-              raise SystemExit('Refusing to publish an unexpected updater version or platform; only macOS updates are supported.')
+              raise SystemExit('Refusing to publish an unexpected updater version or platform; the macOS feed must describe only macOS.')
           PY
           # Never attach a new binary to a tag that points at different source.
           task_tag_status=0
@@ -257,6 +265,8 @@ jobs:
               require((folder / name).is_file() and (folder / name).stat().st_size > 0, name + ' is missing or empty')
           installers = [path for path in files if path.name.endswith('-setup.exe')]
           require(len(installers) == 1, 'expected exactly one installer')
+          signatures = [path.name for path in files if path.name.endswith('.sig')]
+          require(signatures == [installers[0].name + '.sig'], 'expected one updater signature for the installer')
           markers = [line for line in (folder / 'README.md').read_text().splitlines() if line.startswith('Source commit:')]
           require(markers == ['Source commit: ' + sys.argv[2]], 'source commit does not match this release')
           names = []
@@ -272,12 +282,20 @@ jobs:
             # PowerShell writes CRLF; normalize the verification stream only.
             (cd "$task_windows_dir" && tr -d '\r' < SHA256SUMS | sha256sum -c -)
             (cd windows && zip -qr "../$task_release_dir/Aven-$task_version-windows-x64.zip" "Aven-$task_version-windows-x64")
-            cp "$task_windows_dir/$task_windows_installer" "$task_release_dir/"
-            (cd "$task_release_dir" && sha256sum "Aven-$task_version-windows-x64.zip" "$task_windows_installer" >> SHA256SUMS && sha256sum -c SHA256SUMS)
+            cp "$task_windows_dir/$task_windows_installer" "$task_windows_dir/$task_windows_installer.sig" "$task_release_dir/"
+            (cd "$task_release_dir" && sha256sum "Aven-$task_version-windows-x64.zip" "$task_windows_installer" "$task_windows_installer.sig" >> SHA256SUMS)
+            python3 -B scripts/release-assets.py add-windows-update --release-dir "$task_release_dir" \
+              --version "$task_version" --installer "$task_windows_installer" \
+              --url-base "https://github.com/$GITHUB_REPOSITORY/releases/download/v$task_version"
+            python3 -B scripts/release-assets.py add-stable-aliases --release-dir "$task_release_dir" \
+              --version "$task_version" --windows-installer "$task_windows_installer"
             task_notes="$task_notes
 
-          Windows x64: the ZIP and setup installer are regular release downloads built from the same commit. The Windows installer is unsigned, so Windows may warn about an unknown publisher. Windows updates require installing the newer release manually. See docs/WINDOWS.md for setup and platform limitations."
+          Windows x64: the ZIP and setup installer are regular release downloads built from the same commit. The Windows installer has no Authenticode signature, so Windows may warn about an unknown publisher when you first install it. Installed Windows versions from this release on download updates signed by Aven and install them when you choose to restart. See docs/WINDOWS.md for setup and platform limitations."
+          else
+            python3 -B scripts/release-assets.py add-stable-aliases --release-dir "$task_release_dir" --version "$task_version"
           fi
+          (cd "$task_release_dir" && sha256sum -c SHA256SUMS)
           gh release create "v$task_version" "$task_release_dir"/* --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" --title "Aven $task_version" --latest \
             --notes "$task_notes"
