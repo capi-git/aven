@@ -274,6 +274,27 @@ html.is-mac :is(.personal-shell, .detached-workspace) .workspace-footer {
   backdrop-filter: none;
 }
 
+/* Cards in the page flow never overlap other page content, so on Mac a CSS
+   blur behind them has nothing to sample but the native window glass. WebKit
+   still re-runs it on every repaint, and a page of them (Settings, Home, a
+   long transcript) flickers. Keep their tint and edges; skip the blur. */
+html.is-mac:not(.theme-light)
+  :is(.personal-shell, .detached-workspace)
+  :is(
+    .aven-glass-card,
+    .settings-group-surface,
+    .settings-provider-card,
+    .settings-shortcuts-table,
+    .workspace-home-panel,
+    .scheduled-editor,
+    .personal-activity-phase,
+    [data-streamdown="code-block"],
+    [data-streamdown="table-wrapper"]
+  ) {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 /* Expanded tool cards already own the frost; their code and tables only
    add a tint, rather than a second filter over the scrolling transcript. */
 html:not(.theme-light)

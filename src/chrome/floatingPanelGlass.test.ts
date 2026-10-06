@@ -41,3 +41,30 @@ describe("floating panels on macOS", () => {
     },
   );
 });
+
+describe("in-flow glass cards on macOS", () => {
+  it("skips the CSS blur that WebKit re-runs on every repaint", () => {
+    const css = readFileSync("src/macos-theme.css", "utf8");
+    const rule = css
+      .split(/\n}\n/)
+      .find(
+        (block) =>
+          block.includes("html.is-mac:not(.theme-light)") &&
+          block.includes(".settings-provider-card"),
+      );
+    expect(rule).toBeDefined();
+    for (const surface of [
+      ".settings-group-surface",
+      ".settings-provider-card",
+      ".aven-glass-card",
+      ".workspace-home-panel",
+      ".personal-activity-phase",
+    ])
+      expect(rule).toContain(surface);
+    expect(rule).toContain("backdrop-filter: none;");
+    // It must come after the shared rule that adds the blur, so it wins.
+    expect(css.indexOf(rule!)).toBeGreaterThan(
+      css.indexOf("Frost whole surfaces"),
+    );
+  });
+});
