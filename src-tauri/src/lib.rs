@@ -15,6 +15,7 @@ mod browser_agent_dom;
 mod browser_agent_dom;
 #[cfg(any(test, all(feature = "chromium", target_os = "macos")))]
 mod browser_drop_indicator;
+mod panic_log;
 pub use browser_agent::{run_browser_cli, run_desktop_cli};
 #[cfg(not(all(feature = "chromium", target_os = "macos")))]
 mod browser_dialogs;
@@ -224,6 +225,8 @@ fn configure_development(config: &mut tauri::Config) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // First, so a panic anywhere after this leaves its message on disk.
+    panic_log::install();
     #[cfg(windows)]
     windows::initialize().expect("Failed to initialize Windows process safety");
     let context = tauri::generate_context!();
