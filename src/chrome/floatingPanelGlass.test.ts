@@ -59,6 +59,9 @@ describe("in-flow glass cards on macOS", () => {
       ".aven-glass-card",
       ".workspace-home-panel",
       ".personal-activity-phase",
+      ".browser-toolbar",
+      ".settings-toolbar",
+      ".workspace-inspector-header",
     ])
       expect(rule).toContain(surface);
     expect(rule).toContain("backdrop-filter: none;");

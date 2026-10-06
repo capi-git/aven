@@ -274,10 +274,11 @@ html.is-mac :is(.personal-shell, .detached-workspace) .workspace-footer {
   backdrop-filter: none;
 }
 
-/* Cards in the page flow never overlap other page content, so on Mac a CSS
-   blur behind them has nothing to sample but the native window glass. WebKit
-   still re-runs it on every repaint, and a page of them (Settings, Home, a
-   long transcript) flickers. Keep their tint and edges; skip the blur. */
+/* Cards and bars in the page flow never overlap other page content, so on
+   Mac a CSS blur behind them has nothing to sample but the native window
+   glass (or, for the browser toolbar, the native Chromium view). WebKit
+   still re-runs it on every repaint, and they flicker. Keep their tint and
+   edges; skip the blur. */
 html.is-mac:not(.theme-light)
   :is(.personal-shell, .detached-workspace)
   :is(
@@ -289,7 +290,17 @@ html.is-mac:not(.theme-light)
     .scheduled-editor,
     .personal-activity-phase,
     [data-streamdown="code-block"],
-    [data-streamdown="table-wrapper"]
+    [data-streamdown="table-wrapper"],
+    .settings-toolbar,
+    .workspace-inspector-header,
+    .browser-toolbar,
+    .browser-downloads,
+    .browser-notice,
+    .browser-find-bar,
+    .directory-view-header,
+    .directory-view-footer,
+    .file-editor-status,
+    .pdf-viewer-toolbar
   ) {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
