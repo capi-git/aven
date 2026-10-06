@@ -6464,14 +6464,21 @@ export default function App({
   );
 
   const onEditQueuedMessage = useCallback(
-    (sessionId: string, messageId: string, text: string) => {
+    (
+      sessionId: string,
+      messageId: string,
+      text: string,
+      attachments: Attachment[],
+    ) => {
       setSessions((prev) =>
         prev.map((session) =>
           session.id === sessionId
             ? {
                 ...session,
                 queuedMessages: session.queuedMessages?.map((message) =>
-                  message.id === messageId ? { ...message, text } : message,
+                  message.id === messageId
+                    ? { ...message, text, attachments }
+                    : message,
                 ),
                 editingQueuedMessageId: undefined,
               }

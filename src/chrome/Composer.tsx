@@ -199,7 +199,11 @@ type Props = {
   onStop?: () => void;
   onCompactContext?: () => boolean;
   onDeleteQueuedMessage?: (messageId: string) => void;
-  onEditQueuedMessage?: (messageId: string, text: string) => void;
+  onEditQueuedMessage?: (
+    messageId: string,
+    text: string,
+    attachments: Attachment[],
+  ) => void;
   onQueuedMessageEditingChange?: (messageId?: string) => void;
   onSteerQueuedMessage?: (messageId: string) => void;
   onResumeQueue?: () => void;
@@ -252,13 +256,14 @@ function MessageQueue({
   messages: QueuedMessage[];
   status?: MessageQueueStatus;
   onDelete?: (messageId: string) => void;
-  onEdit?: (messageId: string, text: string) => void;
+  onEdit?: (messageId: string, text: string, attachments: Attachment[]) => void;
   onEditingChange?: (messageId?: string) => void;
   onSteer?: (messageId: string) => void;
   onResume?: () => void;
 }) {
   const [editingId, setEditingId] = useState<string>();
   const [editDraft, setEditDraft] = useState("");
+  const [editAttachments, setEditAttachments] = useState<Attachment[]>([]);
   const onEditingChangeRef = useRef(onEditingChange);
   onEditingChangeRef.current = onEditingChange;
   const editingIdRef = useRef(editingId);
@@ -274,18 +279,21 @@ function MessageQueue({
   const startEdit = (message: QueuedMessage) => {
     setEditingId(message.id);
     setEditDraft(message.text);
+    setEditAttachments(message.attachments);
     onEditingChange?.(message.id);
   };
   const cancelEdit = () => {
     setEditingId(undefined);
     setEditDraft("");
+    setEditAttachments([]);
     onEditingChange?.();
   };
   const saveEdit = (message: QueuedMessage) => {
-    if (!editDraft.trim() && message.attachments.length === 0) return;
-    onEdit?.(message.id, editDraft);
+    if (!editDraft.trim() && editAttachments.length === 0) return;
+    onEdit?.(message.id, editDraft, editAttachments);
     setEditingId(undefined);
     setEditDraft("");
+    setEditAttachments([]);
   };
 
   return (
@@ -313,95 +321,121 @@ function MessageQueue({
           const label =
             message.text.trim() ||
             `${message.attachments.length} attachment${message.attachments.length === 1 ? "" : "s"}`;
+          // While editing, show the draft's attachments so removals are visible.
+          const attachments = editing ? editAttachments : message.attachments;
           return (
             <div
               key={message.id}
-              className={`flex min-h-7 items-center gap-2 text-[12px] ${
-                index > 0 ? "border-t border-content/10" : ""
-              }`}
+              className={index > 0 ? "border-t border-content/10" : undefined}
+              data-queued-message
             >
-              <ListEnd className="size-3.5 shrink-0" />
-              {editing ? (
-                <>
-                  <textarea
-                    autoFocus
-                    aria-label="Edit queued message"
-                    value={editDraft}
-                    rows={1}
-                    onChange={(event) => setEditDraft(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (isImeComposition(event.nativeEvent)) return;
-                      if (event.key === "Escape") {
-                        event.preventDefault();
-                        cancelEdit();
-                      } else if (event.key === "Enter" && !event.shiftKey) {
-                        event.preventDefault();
-                        saveEdit(message);
+              <div className="flex min-h-7 items-center gap-2 text-[12px]">
+                <ListEnd className="size-3.5 shrink-0" />
+                {editing ? (
+                  <>
+                    <textarea
+                      autoFocus
+                      aria-label="Edit queued message"
+                      value={editDraft}
+                      rows={1}
+                      onChange={(event) => setEditDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (isImeComposition(event.nativeEvent)) return;
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          cancelEdit();
+                        } else if (event.key === "Enter" && !event.shiftKey) {
+                          event.preventDefault();
+                          saveEdit(message);
+                        }
+                      }}
+                      className="min-h-6 min-w-0 flex-1 resize-none rounded-md border border-content/15 bg-content/5 px-1.5 py-0.5 text-[12px] text-content outline-none focus:border-content/30"
+                    />
+                    <button
+                      type="button"
+                      title="Save queued message"
+                      aria-label="Save queued message"
+                      disabled={
+                        !editDraft.trim() && editAttachments.length === 0
                       }
-                    }}
-                    className="min-h-6 min-w-0 flex-1 resize-none rounded-md border border-content/15 bg-content/5 px-1.5 py-0.5 text-[12px] text-content outline-none focus:border-content/30"
-                  />
-                  <button
-                    type="button"
-                    title="Save queued message"
-                    aria-label="Save queued message"
-                    disabled={
-                      !editDraft.trim() && message.attachments.length === 0
-                    }
-                    onClick={() => saveEdit(message)}
-                    className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content disabled:opacity-30"
-                  >
-                    <Check className="size-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    title="Cancel queued message edit"
-                    aria-label="Cancel queued message edit"
-                    onClick={cancelEdit}
-                    className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content"
-                  >
-                    <X className="size-3.5" />
-                  </button>
-                </>
-              ) : (
-                <>
-                  <span className="min-w-0 flex-1 truncate text-content/80">
-                    {label}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => onSteer?.(message.id)}
-                    disabled={!onSteer}
-                    title={
-                      !onSteer
-                        ? "This provider will send the queued message after its current turn"
-                        : undefined
-                    }
-                    className="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 hover:bg-content/10 hover:text-content disabled:opacity-40"
-                  >
-                    <CornerDownRight className="size-3.5" />
-                    Steer
-                  </button>
-                  <button
-                    type="button"
-                    title="Edit queued message"
-                    aria-label="Edit queued message"
-                    onClick={() => startEdit(message)}
-                    className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content"
-                  >
-                    <Pencil className="size-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    title="Remove queued message"
-                    aria-label="Remove queued message"
-                    onClick={() => onDelete?.(message.id)}
-                    className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content"
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                </>
-              )}
+                      onClick={() => saveEdit(message)}
+                      className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content disabled:opacity-30"
+                    >
+                      <Check className="size-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      title="Cancel queued message edit"
+                      aria-label="Cancel queued message edit"
+                      onClick={cancelEdit}
+                      className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="min-w-0 flex-1 truncate text-content/80">
+                      {label}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onSteer?.(message.id)}
+                      disabled={!onSteer}
+                      title={
+                        !onSteer
+                          ? "This provider will send the queued message after its current turn"
+                          : undefined
+                      }
+                      className="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 hover:bg-content/10 hover:text-content disabled:opacity-40"
+                    >
+                      <CornerDownRight className="size-3.5" />
+                      Steer
+                    </button>
+                    <button
+                      type="button"
+                      title="Edit queued message"
+                      aria-label="Edit queued message"
+                      onClick={() => startEdit(message)}
+                      className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content"
+                    >
+                      <Pencil className="size-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      title="Remove queued message"
+                      aria-label="Remove queued message"
+                      onClick={() => onDelete?.(message.id)}
+                      className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </>
+                )}
+              </div>
+              {attachments.length > 0 ? (
+                <div
+                  className="flex flex-wrap items-center gap-1.5 pb-1.5 pl-5.5"
+                  aria-label="Queued attachments"
+                >
+                  {attachments.map((attachment, attachmentIndex) => (
+                    <AttachmentChip
+                      key={`${attachment.path ?? attachment.name}:${attachmentIndex}`}
+                      attachment={attachment}
+                      onRemove={
+                        editing
+                          ? () =>
+                              setEditAttachments((current) =>
+                                current.filter(
+                                  (_, index) => index !== attachmentIndex,
+                                ),
+                              )
+                          : undefined
+                      }
+                    />
+                  ))}
+                </div>
+              ) : null}
             </div>
           );
         })}

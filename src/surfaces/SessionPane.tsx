@@ -110,6 +110,7 @@ type Props = {
     sessionId: string,
     messageId: string,
     text: string,
+    attachments: Attachment[],
   ) => void;
   onQueuedMessageEditingChange: (sessionId: string, messageId?: string) => void;
   onSteerQueuedMessage: (sessionId: string, messageId: string) => void;
@@ -440,8 +441,8 @@ export const SessionPane = memo(function SessionPane({
     [onDeleteQueuedMessage, sessionId],
   );
   const editQueuedMessage = useCallback(
-    (messageId: string, text: string) =>
-      onEditQueuedMessage(sessionId, messageId, text),
+    (messageId: string, text: string, attachments: Attachment[]) =>
+      onEditQueuedMessage(sessionId, messageId, text, attachments),
     [onEditQueuedMessage, sessionId],
   );
   const changeQueuedMessageEditing = useCallback(

@@ -344,4 +344,57 @@ describe("composer draft mutation boundaries", () => {
       intent: "default",
     });
   });
+
+  it("shows a queued message's attachments and keeps them when its text is edited", async () => {
+    const spec: Attachment = {
+      kind: "file",
+      name: "spec.pdf",
+      path: "/tmp/spec.pdf",
+    } as Attachment;
+    const notes: Attachment = {
+      kind: "file",
+      name: "notes.txt",
+      path: "/tmp/notes.txt",
+    } as Attachment;
+    props.queuedMessages = [
+      { id: "queued", text: "Use these", attachments: [spec, notes] },
+    ];
+    props.onEditQueuedMessage = vi.fn();
+    await render();
+    const queue = () =>
+      container.querySelector<HTMLElement>("[data-message-queue]")!;
+    const names = () =>
+      [
+        ...queue().querySelectorAll(
+          '[aria-label="Queued attachments"] div[title]',
+        ),
+      ].map((chip) => chip.getAttribute("title"));
+    // Visible before editing, and read-only there.
+    expect(names()).toEqual(["/tmp/spec.pdf", "/tmp/notes.txt"]);
+    expect(queue().querySelector('[aria-label="Remove spec.pdf"]')).toBeNull();
+
+    await act(async () =>
+      queue()
+        .querySelector<HTMLButtonElement>('[aria-label="Edit queued message"]')!
+        .click(),
+    );
+    // Still visible while editing, and removable there.
+    expect(names()).toEqual(["/tmp/spec.pdf", "/tmp/notes.txt"]);
+    await act(async () =>
+      queue()
+        .querySelector<HTMLButtonElement>('[aria-label="Remove spec.pdf"]')!
+        .click(),
+    );
+    expect(names()).toEqual(["/tmp/notes.txt"]);
+    await act(async () =>
+      queue()
+        .querySelector<HTMLButtonElement>('[aria-label="Save queued message"]')!
+        .click(),
+    );
+    expect(props.onEditQueuedMessage).toHaveBeenCalledExactlyOnceWith(
+      "queued",
+      "Use these",
+      [notes],
+    );
+  });
 });
