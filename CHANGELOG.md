@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [0.1.122] - 2026-10-05
+
+### Steadier Settings on Mac
+
+- Settings pages such as **Providers & models** no longer flicker on macOS. Cards in the page keep their frosted tint without a second blur, as the message box, footer and floating sidebars already do. Home and chat tool cards get the same fix.
+- The built-in browser's toolbar and tab, and other bars such as the Settings toolbar and the file sidebar header, no longer flicker on macOS.
+
+### Queued messages keep their attachments in view
+
+- Queued messages now show their attachments: picture thumbnails and file names. While you edit a queued message they stay visible, and you can remove any before saving.
+
+### Crash details
+
+- If Aven ever quits unexpectedly, the error and where it happened are now saved to `Library/Logs/Aven/panics.log` (on Windows, `%LOCALAPPDATA%\Aven\logs`), so the cause can be found and fixed.
+
 ## [0.1.121] - 2026-10-04
 
 ### Opens normally on Mac
