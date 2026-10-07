@@ -192,9 +192,9 @@ describe("sidebar workspace navigation", () => {
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("exposes labeled Notes and Inbox shortcuts with current-page state and optional Notes", async () => {
-    const notes = vi.fn(), inbox = vi.fn();
-    const current = { ...props, onOpenNotes: notes, onOpenInbox: inbox, notesActive: true };
+  it("exposes labeled Notes, Inbox and Automations tabs with current-page state and optional Notes", async () => {
+    const notes = vi.fn(), inbox = vi.fn(), automations = vi.fn();
+    const current = { ...props, onOpenNotes: notes, onOpenInbox: inbox, onOpenAutomations: automations, notesActive: true };
     await act(async () => root.render(createElement(Sidebar, current)));
     const libraries = [...container.querySelectorAll('nav[aria-label="Library"]')].filter(
       (node) => !node.closest('[inert],[aria-hidden="true"]'),
@@ -202,13 +202,16 @@ describe("sidebar workspace navigation", () => {
     expect(libraries).toHaveLength(1);
     const library = libraries[0];
     const actions = [...library.querySelectorAll<HTMLButtonElement>("button")];
-    expect(actions.map((item) => item.textContent)).toEqual(["Notes", "Inbox"]);
-    expect(actions[0].getAttribute("aria-current")).toBe("page");
+    expect(actions.map((item) => item.textContent)).toEqual(["Notes", "Inbox", "Automations"]);
+    expect(actions.map((item) => item.getAttribute("aria-current"))).toEqual(["page", null, null]);
     expect(actions[1].title).toContain("GitHub");
-    await click(actions[0]); await click(actions[1]);
-    expect(notes).toHaveBeenCalledOnce(); expect(inbox).toHaveBeenCalledOnce();
+    expect(actions[2].title).toContain("schedule");
+    await click(actions[0]); await click(actions[1]); await click(actions[2]);
+    expect(notes).toHaveBeenCalledOnce(); expect(inbox).toHaveBeenCalledOnce(); expect(automations).toHaveBeenCalledOnce();
+    await act(async () => root.render(createElement(Sidebar, { ...current, notesActive: false, automationsActive: true })));
+    expect([...library.querySelectorAll("button")].map((item) => item.getAttribute("aria-current"))).toEqual([null, null, "page"]);
     await act(async () => root.render(createElement(Sidebar, { ...current, notesEnabled: false, notesActive: false, inboxActive: true })));
-    expect(library.querySelectorAll("button")).toHaveLength(1);
+    expect([...library.querySelectorAll("button")].map((item) => item.textContent)).toEqual(["Inbox", "Automations"]);
     expect(library.querySelector("button")?.getAttribute("aria-current")).toBe("page");
   });
 
@@ -219,7 +222,7 @@ describe("sidebar workspace navigation", () => {
     expect(menu()).not.toBeNull();
     await act(async () => root.render(createElement(Sidebar, { ...props, open: false })));
     expect(menu()).toBeNull();
-    await act(async () => root.render(createElement(Sidebar, { ...props, settingsOpen: true, onSelectSettingsSection: section, onCloseSettings: noop, onOpenInbox: noop, onOpenNotes: noop })));
+    await act(async () => root.render(createElement(Sidebar, { ...props, settingsOpen: true, onSelectSettingsSection: section, onCloseSettings: noop, onOpenInbox: noop, onOpenAutomations: noop, onOpenNotes: noop })));
     expect(container.querySelector('nav[aria-label="Library"]')).toBeNull();
     const appearance = container.querySelector<HTMLButtonElement>('button[aria-label="Appearance"]')!;
     await click(appearance);

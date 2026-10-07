@@ -475,7 +475,11 @@ export function updateScheduledRun(id: string, patch: Partial<ScheduledRun>) {
 
 export const subscribeScheduledRuns = runs.subscribe;
 
-/** Inbox read state key and timestamp; a finished run reads as new again. */
+/**
+ * Read state key and timestamp in the shared seen store (the key predates the
+ * Automations view, so it keeps its "scheduled:" prefix); a finished run reads
+ * as new again.
+ */
 export function scheduledRunSeenEntry(run: ScheduledRun) {
   return {
     key: `scheduled:${run.id}`,
@@ -595,7 +599,7 @@ export async function runDueScheduledAgents({
 }
 
 // ---------------------------------------------------------------------------
-// The palette asks the Inbox to open a blank schedule.
+// The palette asks the Automations view to open a blank automation.
 
 const EDITOR_REQUEST = "aven:scheduled-agent-editor";
 let editorRequested = false;

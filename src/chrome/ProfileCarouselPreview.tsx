@@ -143,6 +143,7 @@ export const ProfileCarouselPreview = memo(function ProfileCarouselPreview({
   showSearch,
   showNotes,
   showInbox,
+  showAutomations,
   showNewSession = true,
 }: {
   profile: WorkspaceProfile;
@@ -151,6 +152,7 @@ export const ProfileCarouselPreview = memo(function ProfileCarouselPreview({
   showSearch?: boolean;
   showNotes?: boolean;
   showInbox?: boolean;
+  showAutomations?: boolean;
   showNewSession?: boolean;
 }) {
   if (snapshot)
@@ -168,6 +170,7 @@ export const ProfileCarouselPreview = memo(function ProfileCarouselPreview({
         showSearch={showSearch}
         showNotes={showNotes}
         showInbox={showInbox}
+        showAutomations={showAutomations}
       />
       {showNewSession ? (
         <div className="personal-new-session">

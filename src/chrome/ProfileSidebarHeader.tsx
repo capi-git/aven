@@ -1,6 +1,6 @@
 import type { WorkspaceProfile } from "../lib/workspaceProfiles";
 import { MOD } from "../lib/platform";
-import { ChevronDown, Inbox, Search, StickyNote } from "./icons";
+import { ChevronDown, Clock, Inbox, Search, StickyNote } from "./icons";
 import { WorkspaceProfileIcon } from "./PersonalWorkspaceSwitcher";
 
 type Props = {
@@ -17,6 +17,9 @@ type Props = {
   showInbox?: boolean;
   inboxActive?: boolean;
   onOpenInbox?: () => void;
+  showAutomations?: boolean;
+  automationsActive?: boolean;
+  onOpenAutomations?: () => void;
 };
 
 /** Live and preview pages share geometry; previews never own focus or actions. */
@@ -34,6 +37,9 @@ export function ProfileSidebarHeader({
   showInbox,
   inboxActive,
   onOpenInbox,
+  showAutomations,
+  automationsActive,
+  onOpenAutomations,
 }: Props) {
   const heading = (
     <>
@@ -86,7 +92,7 @@ export function ProfileSidebarHeader({
           )
         ) : null}
       </div>
-      {showNotes || showInbox ? (
+      {showNotes || showInbox || showAutomations ? (
         <nav className="personal-library-nav" aria-label="Library">
           {showNotes ? (
             preview ? (
@@ -121,6 +127,24 @@ export function ProfileSidebarHeader({
               >
                 <Inbox className="size-3.5" aria-hidden />
                 <span>Inbox</span>
+              </button>
+            )
+          ) : null}
+          {showAutomations ? (
+            preview ? (
+              <span>
+                <Clock className="size-3.5" aria-hidden />
+                <span>Automations</span>
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={onOpenAutomations}
+                aria-current={automationsActive ? "page" : undefined}
+                title="Automations: agents that run on a schedule"
+              >
+                <Clock className="size-3.5" aria-hidden />
+                <span>Automations</span>
               </button>
             )
           ) : null}

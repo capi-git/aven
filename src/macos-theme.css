@@ -288,6 +288,7 @@ html.is-mac:not(.theme-light)
     .settings-shortcuts-table,
     .workspace-home-panel,
     .scheduled-editor,
+    .automation-example-card,
     .personal-activity-phase,
     [data-streamdown="code-block"],
     [data-streamdown="table-wrapper"],
@@ -393,7 +394,12 @@ html:not(.theme-light):not(.access-panel-window):not(.usage-panel-window):not(
 
 html:not(.theme-light)
   .personal-shell
-  :is([data-app-notes], [data-app-search], [data-app-inbox])
+  :is(
+    [data-app-notes],
+    [data-app-search],
+    [data-app-inbox],
+    [data-app-automations]
+  )
   > [data-tauri-drag-region] {
   -webkit-backdrop-filter: var(--aven-glass-blur);
   backdrop-filter: var(--aven-glass-blur);

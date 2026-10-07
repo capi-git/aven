@@ -20,6 +20,42 @@ fn help_url(id: &str) -> Option<&'static str> {
     }
 }
 
+/// Menu commands every window hears; each window decides whether it acts.
+fn is_broadcast_command(id: &str) -> bool {
+    matches!(
+        id,
+        "new_tab"
+            | "close_tab"
+            | "close_other_tabs"
+            | "next_tab"
+            | "prev_tab"
+            | "back_tab"
+            | "forward_tab"
+            | "split_right"
+            | "split_down"
+            | "focus_left"
+            | "focus_right"
+            | "focus_up"
+            | "focus_down"
+            | "sidebar_opacity"
+            | "open_project"
+            | "go_to_file"
+            | "open_palette"
+            | "open_search"
+            | "open_inbox"
+            | "open_automations"
+            | "open_notes"
+            | "find_in_project"
+            | "find"
+            | "new_terminal"
+            | "new_terminal_tab"
+            | "toggle_terminal"
+            | "open_model_picker"
+            | "open_settings"
+            | "check_for_updates"
+    )
+}
+
 /// Picks the window a single-window menu command belongs to: the focused one,
 /// else the first visible one, else any. Labels are sorted for stability.
 fn single_target(windows: &[(String, bool, bool)]) -> Option<&str> {
@@ -105,12 +141,7 @@ pub fn dispatch(app: &AppHandle, id: &str) {
             let _ = crate::window::open_new_window(app);
         }
         "quit" => crate::window::request_quit(app),
-        "new_tab" | "close_tab" | "close_other_tabs" | "next_tab" | "prev_tab" | "back_tab"
-        | "forward_tab" | "split_right" | "split_down" | "focus_left" | "focus_right"
-        | "focus_up" | "focus_down" | "sidebar_opacity" | "open_project" | "go_to_file"
-        | "open_palette" | "open_search" | "open_inbox" | "open_notes" | "find_in_project"
-        | "find" | "new_terminal" | "new_terminal_tab" | "toggle_terminal"
-        | "open_model_picker" | "open_settings" | "check_for_updates" => {
+        _ if is_broadcast_command(id) => {
             let _ = app.emit(id, ());
         }
         "toggle_sidebar" | "toggle_inspector" | "zoom_in" | "zoom_out" | "zoom_reset" => {
@@ -143,6 +174,8 @@ fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         .accelerator("CmdOrCtrl+Shift+K")
         .build(app)?;
     let open_inbox = MenuItemBuilder::with_id("open_inbox", "Inbox").build(app)?;
+    let open_automations =
+        MenuItemBuilder::with_id("open_automations", "Automations").build(app)?;
     let open_notes = MenuItemBuilder::with_id("open_notes", "Notes").build(app)?;
     let new_tab = MenuItemBuilder::with_id("new_tab", "New Tab")
         .accelerator("CmdOrCtrl+T")
@@ -245,6 +278,7 @@ fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         .item(&toggle_sidebar)
         .item(&toggle_inspector)
         .item(&open_inbox)
+        .item(&open_automations)
         .item(&open_notes)
         .item(&toggle_terminal)
         .item(&open_model_picker)
@@ -337,6 +371,24 @@ mod tests {
             assert!(!url.to_lowercase().contains("monocode"));
             assert!(!url.contains("usemono"));
         }
+    }
+
+    #[test]
+    fn library_views_open_in_every_window_that_listens() {
+        for id in ["open_inbox", "open_automations", "open_notes"] {
+            assert!(is_broadcast_command(id), "{id} should reach the webviews");
+        }
+        // Single-window and app-level commands keep their own routing.
+        for id in [
+            "toggle_sidebar",
+            "zoom_in",
+            "new_window",
+            "quit",
+            "help_github",
+        ] {
+            assert!(!is_broadcast_command(id), "{id} is not a broadcast");
+        }
+        assert!(!is_broadcast_command("open_scheduled"));
     }
 
     #[test]

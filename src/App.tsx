@@ -179,7 +179,6 @@ import {
   type RaceBase,
   type RaceWorkspace,
 } from "./lib/race";
-import { saveInboxSource } from "./lib/inboxFilters";
 import {
   finalAssistantText,
   getScheduledRun,
@@ -556,6 +555,7 @@ import { SettingsView } from "./surfaces/SettingsView";
 import { ProviderSetupDialog } from "./surfaces/ProviderSetup";
 import { shouldOfferProviderSetup } from "./lib/providerSetup";
 import { InboxView } from "./surfaces/InboxView";
+import { AutomationsView } from "./surfaces/AutomationsView";
 import type { InboxSessionPortal } from "./surfaces/InboxDiscussionPanel";
 import { inboxAskKey, inboxAskPrompt } from "./lib/inboxAsk";
 import { NotesView } from "./surfaces/NotesView";
@@ -1525,6 +1525,7 @@ export default function App({
     useState<InboxSessionPortal | null>(null);
   const openingInboxSessions = useRef(new Map<string, Promise<string>>());
   const [notesViewOpen, setNotesViewOpen] = useState(false);
+  const [automationsViewOpen, setAutomationsViewOpen] = useState(false);
   const [inspectedWorkerId, setInspectedWorkerId] = useState<string | null>(
     null,
   );
@@ -1557,6 +1558,7 @@ export default function App({
     !settingsOpen &&
     !searchViewOpen &&
     !inboxViewOpen &&
+    !automationsViewOpen &&
     !notesViewOpen;
   // Rest on the edge briefly before revealing, so a pointer passing the edge
   // does not flash the sidebar; a short grace on leave absorbs the gap
@@ -1656,6 +1658,8 @@ export default function App({
   searchViewOpenRef.current = searchViewOpen;
   const inboxViewOpenRef = useRef(inboxViewOpen);
   inboxViewOpenRef.current = inboxViewOpen;
+  const automationsViewOpenRef = useRef(automationsViewOpen);
+  automationsViewOpenRef.current = automationsViewOpen;
   // Session surfaces outside the workspace tab tree, for stream flush pacing.
   const streamSurfacesRef = useRef<{
     inboxSessionId?: string;
@@ -1953,11 +1957,13 @@ export default function App({
         ? "search"
         : inboxViewOpen
           ? "inbox"
-          : notesViewOpen
-            ? "notes"
-            : homeViewOpen || profileHome
-              ? "home"
-              : "workspace",
+          : automationsViewOpen
+            ? "automations"
+            : notesViewOpen
+              ? "notes"
+              : homeViewOpen || profileHome
+                ? "home"
+                : "workspace",
     cwd: projectCwd,
     profileId: profiles.activeProfileId,
     surfaceId: view.focusedId,
@@ -2743,6 +2749,7 @@ export default function App({
         setSettingsOpen(false);
         setSearchViewOpen(false);
         setInboxViewOpen(false);
+        setAutomationsViewOpen(false);
         setNotesViewOpen(false);
         setProjectCwd(cwd);
         setSessions((previous) => [...previous, session]);
@@ -2790,6 +2797,7 @@ export default function App({
     setSettingsOpen(false);
     setSearchViewOpen(false);
     setInboxViewOpen(false);
+    setAutomationsViewOpen(false);
     setNotesViewOpen(false);
     setComposerFocused(false);
     onNewBrowserTab();
@@ -2805,6 +2813,7 @@ export default function App({
     setSettingsOpen(false);
     setSearchViewOpen(false);
     setInboxViewOpen(false);
+    setAutomationsViewOpen(false);
     setNotesViewOpen(false);
     const cwd = active?.cwd ?? sessionDefaults?.cwd ?? projectCwd;
     const session = newDefaultSession(cwd);
@@ -2828,6 +2837,7 @@ export default function App({
     async (item: InboxItem, body?: string) => {
       const start = (description?: string) => {
         setInboxViewOpen(false);
+        setAutomationsViewOpen(false);
         setNotesViewOpen(false);
         setSidebarTab("sessions");
         const cwd =
@@ -2881,6 +2891,7 @@ export default function App({
       if (!card.id) return;
       setSearchViewOpen(false);
       setInboxViewOpen(false);
+      setAutomationsViewOpen(false);
       setNotesViewOpen(false);
       setSidebarTab("sessions");
       const cwd =
@@ -3747,6 +3758,7 @@ export default function App({
       setSettingsOpen(place.kind === "settings");
       setSearchViewOpen(place.kind === "search");
       setInboxViewOpen(place.kind === "inbox");
+      setAutomationsViewOpen(place.kind === "automations");
       setNotesViewOpen(place.kind === "notes");
       setHomeViewOpen(place.kind === "home");
       setFilePickerOpen(false);
@@ -3905,6 +3917,7 @@ export default function App({
     setSettingsOpen(false);
     setSearchViewOpen(false);
     setInboxViewOpen(false);
+    setAutomationsViewOpen(false);
     setNotesViewOpen(false);
     setSidebarTab("changes");
   }, []);
@@ -4168,6 +4181,7 @@ export default function App({
       setSettingsOpen(false);
       setSearchViewOpen(false);
       setInboxViewOpen(false);
+      setAutomationsViewOpen(false);
       setNotesViewOpen(false);
       profilesRef.current.selectProfile(
         projectlessProfileForCwd(entry.cwd) ??
@@ -4300,6 +4314,7 @@ export default function App({
       setSettingsOpen(false);
       setSearchViewOpen(false);
       setInboxViewOpen(false);
+      setAutomationsViewOpen(false);
       setNotesViewOpen(false);
       if (focusOpenSession(sessionId)) return;
       let session = await ensureOpenSession(sessionId);
@@ -4647,6 +4662,7 @@ export default function App({
           surfaceOpen: Boolean(
             searchViewOpenRef.current ||
             inboxViewOpenRef.current ||
+            automationsViewOpenRef.current ||
             notesViewOpenRef.current ||
             settingsOpenRef.current ||
             filePickerOpenRef.current ||
@@ -4857,6 +4873,7 @@ export default function App({
       setSettingsOpen(false);
       setSearchViewOpen(false);
       setInboxViewOpen(false);
+      setAutomationsViewOpen(false);
       setNotesViewOpen(false);
       const normalized = normalizeProjectPath(path);
       if (!looksLikeProject(normalized)) return;
@@ -4929,6 +4946,7 @@ export default function App({
       setSettingsOpen(false);
       setSearchViewOpen(false);
       setInboxViewOpen(false);
+      setAutomationsViewOpen(false);
       setNotesViewOpen(false);
       restoreProfileWorkspace(
         id,
@@ -4971,6 +4989,7 @@ export default function App({
       setSettingsOpen(false);
       setSearchViewOpen(false);
       setInboxViewOpen(false);
+      setAutomationsViewOpen(false);
       setNotesViewOpen(false);
       const session = newDefaultSession(path);
       const tab = newTab(session.id);
@@ -5219,6 +5238,7 @@ export default function App({
       setSettingsOpen(false);
       setSearchViewOpen(false);
       setInboxViewOpen(false);
+      setAutomationsViewOpen(false);
       setNotesViewOpen(false);
       setBrowserWorkspaces((all) => ({
         ...all,
@@ -5292,6 +5312,7 @@ export default function App({
         setSettingsOpen(false);
         setSearchViewOpen(false);
         setInboxViewOpen(false);
+        setAutomationsViewOpen(false);
         setNotesViewOpen(false);
         viewRef.current.focus(cwd, tab.id);
       })().catch((error) =>
@@ -5341,6 +5362,7 @@ export default function App({
       setSettingsOpen(false);
       setSearchViewOpen(false);
       setInboxViewOpen(false);
+      setAutomationsViewOpen(false);
       setNotesViewOpen(false);
       setComposerFocused(false);
       viewRef.current.focus(session.cwd, opened.tabId);
@@ -6972,6 +6994,7 @@ export default function App({
           setSettingsOpen(false);
           setSearchViewOpen(false);
           setInboxViewOpen(false);
+          setAutomationsViewOpen(false);
           setNotesViewOpen(false);
           leaveExpandedPreview();
         });
@@ -7412,6 +7435,7 @@ export default function App({
       setSettingsOpen(false);
       setSearchViewOpen(false);
       setInboxViewOpen(false);
+      setAutomationsViewOpen(false);
       setNotesViewOpen(false);
       return onOpenApprovalSession(sessionId);
     },
@@ -7498,6 +7522,7 @@ export default function App({
     }
     setSearchViewOpen(false);
     setInboxViewOpen(false);
+    setAutomationsViewOpen(false);
     setNotesViewOpen(false);
     setFilePickerOpen(true);
   }, [profileHome, openWorkspaceAction]);
@@ -7506,6 +7531,7 @@ export default function App({
     setSettingsOpen(false);
     setSearchViewOpen(false);
     setInboxViewOpen(false);
+    setAutomationsViewOpen(false);
     setNotesViewOpen(false);
     setSidebarTab("files");
     setFilesSearchOpen(true);
@@ -7517,6 +7543,7 @@ export default function App({
       !settingsOpenRef.current &&
       !searchViewOpenRef.current &&
       !inboxViewOpenRef.current &&
+      !automationsViewOpenRef.current &&
       !notesViewOpenRef.current
     )
       clearReturnFocus();
@@ -7528,6 +7555,7 @@ export default function App({
     setFilePickerOpen(false);
     setSettingsOpen(false);
     setInboxViewOpen(false);
+    setAutomationsViewOpen(false);
     setNotesViewOpen(false);
     setSearchViewOpen(true);
     setSearchViewFocusToken((token) => token + 1);
@@ -7552,8 +7580,24 @@ export default function App({
     setSettingsOpen(false);
     setSearchViewOpen(false);
     setNotesViewOpen(false);
+    setAutomationsViewOpen(false);
     setInboxViewOpen(true);
   }, [captureUtilityFocus]);
+
+  const onOpenAutomations = useCallback(() => {
+    captureUtilityFocus();
+    setFilePickerOpen(false);
+    setSettingsOpen(false);
+    setSearchViewOpen(false);
+    setNotesViewOpen(false);
+    setInboxViewOpen(false);
+    setAutomationsViewOpen(true);
+  }, [captureUtilityFocus]);
+
+  const onLeaveAutomations = useCallback(() => {
+    setAutomationsViewOpen(false);
+    restoreReturnFocus();
+  }, [restoreReturnFocus]);
 
   const onLeaveInbox = useCallback(() => {
     setInboxViewOpen(false);
@@ -7567,6 +7611,7 @@ export default function App({
     setSettingsOpen(false);
     setSearchViewOpen(false);
     setInboxViewOpen(false);
+    setAutomationsViewOpen(false);
     setNotesViewOpen(true);
   }, [captureUtilityFocus]);
 
@@ -7581,12 +7626,14 @@ export default function App({
         settingsReturnViewRef.current = captureSettingsReturnView({
           search: searchViewOpenRef.current,
           inbox: inboxViewOpenRef.current,
+          automations: automationsViewOpenRef.current,
           notes: notesViewOpenRef.current,
         });
       captureUtilityFocus();
       setFilePickerOpen(false);
       setSearchViewOpen(false);
       setInboxViewOpen(false);
+      setAutomationsViewOpen(false);
       setNotesViewOpen(false);
       if (section) {
         setSettingsSection(section);
@@ -7604,6 +7651,7 @@ export default function App({
     setSettingsOpen(false);
     setSearchViewOpen(false);
     setInboxViewOpen(false);
+    setAutomationsViewOpen(false);
     setNotesViewOpen(false);
     setFilePickerOpen(false);
     setHomeViewOpen(true);
@@ -7621,6 +7669,7 @@ export default function App({
     if (returnView) {
       setSearchViewOpen(returnView === "search");
       setInboxViewOpen(returnView === "inbox");
+      setAutomationsViewOpen(returnView === "automations");
       setNotesViewOpen(returnView === "notes");
       return;
     }
@@ -7731,6 +7780,7 @@ export default function App({
     onOpenSearch,
     onOpenPalette,
     onOpenInbox,
+    onOpenAutomations,
     onOpenNotes,
     pickProject,
     onNewTerminal,
@@ -7761,6 +7811,7 @@ export default function App({
     onOpenSearch,
     onOpenPalette,
     onOpenInbox,
+    onOpenAutomations,
     onOpenNotes,
     pickProject,
     onNewTerminal,
@@ -7800,6 +7851,7 @@ export default function App({
           settingsOpenRef.current ||
           searchViewOpenRef.current ||
           inboxViewOpenRef.current ||
+          automationsViewOpenRef.current ||
           notesViewOpenRef.current,
         workspace: workspaceVisibleRef.current,
       });
@@ -7808,6 +7860,7 @@ export default function App({
         setSettingsOpen(false);
         setSearchViewOpen(false);
         setInboxViewOpen(false);
+        setAutomationsViewOpen(false);
         setNotesViewOpen(false);
         restoreReturnFocus();
         return;
@@ -7867,6 +7920,7 @@ export default function App({
           const surfaceOpen =
             searchViewOpenRef.current ||
             inboxViewOpenRef.current ||
+            automationsViewOpenRef.current ||
             notesViewOpenRef.current ||
             settingsOpenRef.current ||
             filePickerOpenRef.current ||
@@ -7956,6 +8010,7 @@ export default function App({
       if (
         !searchViewOpenRef.current &&
         !inboxViewOpenRef.current &&
+        !automationsViewOpenRef.current &&
         !notesViewOpenRef.current &&
         handleEditorFindKey(e)
       ) {
@@ -8072,6 +8127,7 @@ export default function App({
       listen("open_search", () => actions.current.onOpenSearch()),
       listen("open_palette", () => actions.current.onOpenPalette()),
       listen("open_inbox", () => actions.current.onOpenInbox()),
+      listen("open_automations", () => actions.current.onOpenAutomations()),
       listen("open_notes", () => actions.current.onOpenNotes()),
       listen("open_settings", () => actions.current.openSettings()),
       listen("check_for_updates", () => {
@@ -8321,6 +8377,7 @@ export default function App({
       setSettingsOpen(false);
       setSearchViewOpen(false);
       setInboxViewOpen(false);
+      setAutomationsViewOpen(false);
       setNotesViewOpen(false);
       profilesRef.current.selectProfile(
         projectlessProfileForCwd(cwd) ??
@@ -8661,10 +8718,11 @@ export default function App({
       reopen_closed_tab: run.onReopenClosedTab,
       close_pane: run.onClosePane,
       open_inbox: run.onOpenInbox,
+      open_automations: run.onOpenAutomations,
       new_scheduled_agent: () => {
-        saveInboxSource("scheduled");
+        // Taken by the Automations view when it mounts, or at once if open.
         requestScheduleEditor();
-        run.onOpenInbox();
+        run.onOpenAutomations();
       },
       open_notes: run.onOpenNotes,
       add_project: () => void run.pickProject(),
@@ -8688,6 +8746,7 @@ export default function App({
       setSettingsOpen(false);
       setSearchViewOpen(false);
       setInboxViewOpen(false);
+      setAutomationsViewOpen(false);
       setNotesViewOpen(false);
       if (!sameProjectPath(request.project, projectCwdRef.current)) {
         revealProjectTask(request.project);
@@ -8768,6 +8827,7 @@ export default function App({
     setSettingsOpen(false);
     setSearchViewOpen(false);
     setInboxViewOpen(false);
+    setAutomationsViewOpen(false);
     setNotesViewOpen(false);
     if (!sameProjectPath(request.project, projectCwdRef.current)) {
       revealProjectTask(request.project);
@@ -9054,6 +9114,7 @@ export default function App({
                 setSidebarTab(tab);
                 setSearchViewOpen(false);
                 setInboxViewOpen(false);
+                setAutomationsViewOpen(false);
                 setNotesViewOpen(false);
               }}
               filesSearchOpen={filesSearchOpen}
@@ -9125,10 +9186,12 @@ export default function App({
               onNewTerminal={onNewTerminal}
               onSearch={onOpenSearch}
               onOpenInbox={onOpenInbox}
+              onOpenAutomations={onOpenAutomations}
               onOpenNotes={notesEnabled ? onOpenNotes : undefined}
               onGoToFile={onGoToFile}
               searchActive={searchViewOpen}
               inboxActive={inboxViewOpen}
+              automationsActive={automationsViewOpen}
               notesActive={notesViewOpen}
               notesEnabled={notesEnabled}
               projectRailOpen={projectRailOpen}
@@ -9162,6 +9225,7 @@ export default function App({
                   !settingsOpen &&
                   !searchViewOpen &&
                   !inboxViewOpen &&
+                  !automationsViewOpen &&
                   !notesViewOpen ? (
                     <WorkspaceHome
                       profile={profiles.activeProfile.name}
@@ -9257,6 +9321,7 @@ export default function App({
                         onFindInProject={onFindInProject}
                         onSearch={onOpenSearch}
                         onOpenInbox={onOpenInbox}
+                        onOpenAutomations={onOpenAutomations}
                         onOpenNotes={notesEnabled ? onOpenNotes : undefined}
                         onZoomIn={() => {
                           const next = saveUiScale(
@@ -9514,6 +9579,7 @@ export default function App({
                                     }
                                     onOpenSettings={onOpenSettings}
                                     onOpenInbox={onOpenInbox}
+                                    onOpenAutomations={onOpenAutomations}
                                     onOpenNotes={
                                       notesEnabled ? onOpenNotes : undefined
                                     }
@@ -9716,10 +9782,19 @@ export default function App({
                       onAsk={onAskInboxItem}
                       onAskRestart={onRestartInboxAsk}
                       onAskMount={setInboxAskPortal}
-                      onRunScheduledAgent={(agent) =>
+                    />
+                  ) : null}
+                  {automationsViewOpen ? (
+                    <AutomationsView
+                      cwd={sidebarCwd}
+                      recents={recents}
+                      besideRail={sidebarOpen}
+                      onClose={onLeaveAutomations}
+                      onToggleSidebar={onToggleSidebar}
+                      onRunAutomation={(agent) =>
                         startScheduledAgentRef.current(agent)
                       }
-                      onOpenScheduledChat={onOpenApprovalSession}
+                      onOpenChat={onOpenApprovalSession}
                     />
                   ) : null}
                   {notesViewOpen ? (
@@ -9795,6 +9870,7 @@ export default function App({
                   !settingsOpen &&
                   !searchViewOpen &&
                   !inboxViewOpen &&
+                  !automationsViewOpen &&
                   !notesViewOpen
                 }
                 cwd={profileHome ? "~" : gitCwd}

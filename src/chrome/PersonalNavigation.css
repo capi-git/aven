@@ -59,22 +59,33 @@
   gap: 4px;
   margin: 4px 6px 7px;
 }
+/* Notes, Inbox and Automations share the row equally. The icon sits above
+   the label so "Automations" fits at the default sidebar width; narrower
+   sidebars clip labels with an ellipsis and keep the full name as a tooltip. */
 .personal-shell .personal-library-nav > :is(button, span) {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
-  gap: 7px;
-  flex: 1;
+  justify-content: center;
+  gap: 3px;
+  flex: 1 1 0;
   min-width: 0;
-  min-height: 30px;
-  padding: 0 8px;
+  min-height: 42px;
+  padding: 5px 4px 4px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: color-mix(in srgb, var(--color-content) 72%, transparent);
   font-weight: 500;
-  font-size: 12px;
-  text-align: left;
+  font-size: 11px;
+  line-height: 1.2;
+  text-align: center;
+}
+.personal-shell .personal-library-nav > :is(button, span) > span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .personal-shell .personal-library-nav > button:hover,
 .personal-shell .personal-library-nav > button:focus-visible {

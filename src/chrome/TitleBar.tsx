@@ -3,6 +3,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Flag,
   Globe,
   Inbox,
@@ -187,6 +188,7 @@ export type TitleBarProps = {
   projectTerminalActive?: boolean;
   onOpenSettings?: () => void;
   onOpenInbox?: () => void;
+  onOpenAutomations?: () => void;
   onOpenNotes?: () => void;
   onClose: (id: string) => void;
   onCloseMany: (ids: string[], fallbackId: string) => void;
@@ -1062,6 +1064,7 @@ function TitleBarComponent({
   projectTerminalActive = false,
   onOpenSettings,
   onOpenInbox,
+  onOpenAutomations,
   onOpenNotes,
   onClose,
   onCloseMany,
@@ -1955,6 +1958,11 @@ function TitleBarComponent({
         {projectless && railClosed && onOpenInbox ? (
           <IconButton label="Inbox" onClick={onOpenInbox}>
             <Inbox className="size-3.5" strokeWidth={1.75} />
+          </IconButton>
+        ) : null}
+        {projectless && railClosed && onOpenAutomations ? (
+          <IconButton label="Automations" onClick={onOpenAutomations}>
+            <Clock className="size-3.5" strokeWidth={1.75} />
           </IconButton>
         ) : null}
         {projectless && railClosed && onOpenNotes ? (
