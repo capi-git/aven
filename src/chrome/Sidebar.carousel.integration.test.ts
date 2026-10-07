@@ -419,7 +419,13 @@ it("slides each workspace heading and library with its task page while window co
   const search = vi.fn();
   const notes = vi.fn();
   const inbox = vi.fn();
-  await render({ onSearch: search, onOpenNotes: notes, onOpenInbox: inbox });
+  const automations = vi.fn();
+  await render({
+    onSearch: search,
+    onOpenNotes: notes,
+    onOpenInbox: inbox,
+    onOpenAutomations: automations,
+  });
   const liveBody = body();
   const heading = body().querySelector<HTMLElement>(
     ".personal-profile-header",
@@ -435,6 +441,7 @@ it("slides each workspace heading and library with its task page while window co
   expect(footer.closest(".personal-profile-viewport")).toBeNull();
   expect(library.textContent).toContain("Notes");
   expect(library.textContent).toContain("Inbox");
+  expect(library.textContent).toContain("Automations");
   expect(accessible(".personal-library-nav")).toHaveLength(1);
 
   const coldPreview = container.querySelector<HTMLElement>(
@@ -449,6 +456,9 @@ it("slides each workspace heading and library with its task page while window co
   expect(
     coldPreview.querySelector(".personal-library-nav")?.textContent,
   ).toContain("Inbox");
+  expect(
+    coldPreview.querySelector(".personal-library-nav")?.textContent,
+  ).toContain("Automations");
   expect(coldPreview.querySelector("button,a,input,[tabindex]")).toBeNull();
 
   for (const profile of ["work", "personal"] as const) {
@@ -474,6 +484,9 @@ it("slides each workspace heading and library with its task page while window co
     expect(
       preview.querySelector(".personal-library-nav")?.textContent,
     ).toContain("Inbox");
+    expect(
+      preview.querySelector(".personal-library-nav")?.textContent,
+    ).toContain("Automations");
     await act(async () => {
       for (const control of preview.querySelectorAll<HTMLButtonElement>(
         "button",
@@ -485,6 +498,7 @@ it("slides each workspace heading and library with its task page while window co
     expect(search).not.toHaveBeenCalled();
     expect(notes).not.toHaveBeenCalled();
     expect(inbox).not.toHaveBeenCalled();
+    expect(automations).not.toHaveBeenCalled();
     expect(container.querySelector(".personal-sidebar-windowbar")).toBe(
       windowbar,
     );

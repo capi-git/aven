@@ -43,6 +43,20 @@ describe("palette commands", () => {
     expect(rankPaletteCommands(PALETTE_COMMANDS, "zzzq")).toEqual([]);
   });
 
+  it("reaches Automations, including from the old scheduled-agent wording", () => {
+    expect(rankPaletteCommands(PALETTE_COMMANDS, "automations")[0].id).toBe(
+      "open_automations",
+    );
+    expect(rankPaletteCommands(PALETTE_COMMANDS, "new automation")[0].id).toBe(
+      "new_scheduled_agent",
+    );
+    expect(
+      rankPaletteCommands(PALETTE_COMMANDS, "scheduled agent").map(
+        (command) => command.id,
+      ),
+    ).toContain("new_scheduled_agent");
+  });
+
   it("has unique ids", () => {
     const ids = PALETTE_COMMANDS.map((command) => command.id);
     expect(new Set(ids).size).toBe(ids.length);

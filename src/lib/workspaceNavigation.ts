@@ -1,6 +1,13 @@
 /** Places in the app. Webpage history stays in the browser toolbar. */
 export type WorkspaceLocation = {
-  kind: "workspace" | "home" | "settings" | "search" | "inbox" | "notes";
+  kind:
+    | "workspace"
+    | "home"
+    | "settings"
+    | "search"
+    | "inbox"
+    | "automations"
+    | "notes";
   cwd: string;
   profileId: string;
   surfaceId?: string;

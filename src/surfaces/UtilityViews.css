@@ -1,9 +1,19 @@
 /* Utility views share the same controls and selection language as the workspace.
    Keep pane and native titlebar geometry unchanged. */
-:is([data-app-notes], [data-app-search], [data-app-inbox]) {
+:is(
+  [data-app-notes],
+  [data-app-search],
+  [data-app-inbox],
+  [data-app-automations]
+) {
   container-type: inline-size;
 }
-:is([data-app-notes], [data-app-search], [data-app-inbox])
+:is(
+    [data-app-notes],
+    [data-app-search],
+    [data-app-inbox],
+    [data-app-automations]
+  )
   > [data-tauri-drag-region] {
   border-color: var(--aven-line);
   background: var(--aven-toolbar-surface, transparent);
@@ -18,17 +28,25 @@
 [data-app-search] input[aria-label="Search"] {
   padding: 4px 10px;
 }
-:is([data-app-notes], [data-app-search], [data-app-inbox]) input::placeholder {
+:is(
+    [data-app-notes],
+    [data-app-search],
+    [data-app-inbox],
+    [data-app-automations]
+  )
+  input::placeholder {
   color: var(--aven-muted);
 }
 .utility-list-card,
-[data-app-inbox] [data-utility-card] {
+[data-app-inbox] [data-utility-card],
+[data-app-automations] [data-utility-card] {
   border-color: transparent;
   border-radius: 7px;
   padding: 10px 12px;
 }
 .utility-list-card[aria-current="true"],
 [data-app-inbox] [data-utility-card][aria-current="true"],
+[data-app-automations] [data-utility-card][aria-current="true"],
 [data-app-search] [role="option"][aria-selected="true"] {
   background: var(--aven-selected);
 }
@@ -69,7 +87,12 @@
   font-size: 11px;
   gap: 12px;
 }
-:is([data-app-notes], [data-app-search], [data-app-inbox])
+:is(
+    [data-app-notes],
+    [data-app-search],
+    [data-app-inbox],
+    [data-app-automations]
+  )
   :is(button, input, textarea):focus-visible {
   outline: 2px solid var(--aven-focus-ring, var(--color-accent));
   outline-offset: -2px;

@@ -229,10 +229,12 @@ export type SidebarProps = {
   onNewTerminal?: () => void;
   onSearch?: () => void;
   onOpenInbox?: () => void;
+  onOpenAutomations?: () => void;
   onOpenNotes?: () => void;
   onGoToFile?: () => void;
   searchActive?: boolean;
   inboxActive?: boolean;
+  automationsActive?: boolean;
   notesActive?: boolean;
   notesEnabled?: boolean;
   onToggleProjectRail?: () => void;
@@ -305,9 +307,11 @@ function SidebarComponent({
   onSearch,
   onToggleProjectRail,
   onOpenInbox,
+  onOpenAutomations,
   onOpenNotes,
   searchActive = false,
   inboxActive = false,
+  automationsActive = false,
   notesActive = false,
 
   notesEnabled = true,
@@ -1364,6 +1368,9 @@ function SidebarComponent({
       showInbox={!settingsOpen && !!onOpenInbox}
       inboxActive={inboxActive}
       onOpenInbox={onOpenInbox}
+      showAutomations={!settingsOpen && !!onOpenAutomations}
+      automationsActive={automationsActive}
+      onOpenAutomations={onOpenAutomations}
     />
   );
 
@@ -1437,7 +1444,7 @@ function SidebarComponent({
         <div className="personal-profile-track">
           {profiles.map((profile) => (
             <div key={profile.id} className="personal-profile-page" inert aria-hidden="true">
-              {profile.id !== activeProfile.id ? <ProfileCarouselPreview profile={profile} preview={profilePreviews?.[profile.id]} snapshot={profileSnapshots.current.get(profile.id)} showSearch={!!onSearch} showNotes={notesEnabled && !!onOpenNotes} showInbox={!!onOpenInbox} showNewSession={!!onNewStandalone} /> : null}
+              {profile.id !== activeProfile.id ? <ProfileCarouselPreview profile={profile} preview={profilePreviews?.[profile.id]} snapshot={profileSnapshots.current.get(profile.id)} showSearch={!!onSearch} showNotes={notesEnabled && !!onOpenNotes} showInbox={!!onOpenInbox} showAutomations={!!onOpenAutomations} showNewSession={!!onNewStandalone} /> : null}
             </div>
           ))}
         <div

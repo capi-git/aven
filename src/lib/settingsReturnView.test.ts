@@ -6,12 +6,20 @@ import {
 
 describe("settings return view", () => {
   it("remembers the utility that Settings replaced", () => {
-    const closed = { search: false, inbox: false, notes: false };
+    const closed = {
+      search: false,
+      inbox: false,
+      automations: false,
+      notes: false,
+    };
     expect(captureSettingsReturnView(closed)).toBeNull();
     expect(captureSettingsReturnView({ ...closed, search: true })).toBe(
       "search",
     );
     expect(captureSettingsReturnView({ ...closed, inbox: true })).toBe("inbox");
+    expect(captureSettingsReturnView({ ...closed, automations: true })).toBe(
+      "automations",
+    );
     expect(captureSettingsReturnView({ ...closed, notes: true })).toBe("notes");
   });
 
@@ -20,6 +28,7 @@ describe("settings return view", () => {
     expect(resolveSettingsReturnView("notes", false)).toBeNull();
     expect(resolveSettingsReturnView("search", false)).toBe("search");
     expect(resolveSettingsReturnView("inbox", false)).toBe("inbox");
+    expect(resolveSettingsReturnView("automations", false)).toBe("automations");
     expect(resolveSettingsReturnView(null, true)).toBeNull();
   });
 });

@@ -3,7 +3,6 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import {
   useEffect,
   useMemo,
-  useRef,
   useState,
   useSyncExternalStore,
   type FormEvent,
@@ -12,17 +11,28 @@ import {
 import {
   CheckCheck,
   Check,
+  CheckCircle,
   CircleAlert,
+  CircleDot,
   CircleX,
   Clock,
+  Flag,
+  ListBullet,
   LoaderCircle,
   MessageSquare,
   Pencil,
   Play,
   Plus,
+  Sparkles,
   Trash2,
+  Wrench,
   type IconComponent,
 } from "../chrome/icons";
+import {
+  AUTOMATION_EXAMPLES,
+  type AutomationExample,
+} from "../lib/automationExamples";
+import { useKeepAwakeSetting } from "../hooks/useScheduledAgents";
 import { formatRelativeTime } from "../lib/githubTasks";
 import {
   isInboxEntryUnread,
@@ -53,6 +63,7 @@ import {
   listScheduledAgents,
   listScheduledRuns,
   nextRunAt,
+  saveKeepAwake,
   saveScheduledAgent,
   scheduledRunSeenEntry,
   SCHEDULE_MAX_HOURS,
@@ -70,11 +81,12 @@ import {
   type ScheduledRunStatus,
   type ScheduleRule,
 } from "../lib/scheduledAgents";
+import { IS_MAC } from "../lib/platform";
 import { HARNESS_TITLE, type HarnessId } from "../lib/session";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { Segmented, Select, Toggle } from "./SettingsControls";
 
-/** List selection that shows the schedule manager instead of a run. */
+/** List selection that shows the automation manager instead of a run. */
 export const SCHEDULES = "schedules";
 
 // Matches the Inbox detail action row.
@@ -97,7 +109,35 @@ const DAY_FULL_NAMES = [
 const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
 export type ScheduledProject = { path: string; name: string };
-export type ScheduleEditorState = ScheduledAgent | "new" | null;
+/** Editing an automation, a blank one, one started from an example, or none. */
+export type ScheduleEditorState =
+  ScheduledAgent | "new" | { example: AutomationExample } | null;
+
+function editorExample(editor: ScheduleEditorState): AutomationExample | null {
+  return editor && typeof editor === "object" && "example" in editor
+    ? editor.example
+    : null;
+}
+
+function editorAgent(editor: ScheduleEditorState): ScheduledAgent | null {
+  return editor && editor !== "new" && !("example" in editor) ? editor : null;
+}
+
+function editorKey(editor: ScheduleEditorState): string {
+  const agent = editorAgent(editor);
+  if (agent) return agent.id;
+  const example = editorExample(editor);
+  return example ? `example:${example.id}` : "new";
+}
+
+const EXAMPLE_ICONS: Record<string, IconComponent> = {
+  "morning-briefing": Sparkles,
+  "nightly-tests": CheckCircle,
+  "dependency-check": Wrench,
+  "issue-triage": CircleDot,
+  "weekly-changelog": ListBullet,
+  "stale-todos-docs": Flag,
+};
 
 export function useScheduledAgentList(): ScheduledAgent[] {
   return useSyncExternalStore(subscribeScheduledAgents, listScheduledAgents);
@@ -108,18 +148,15 @@ export function useScheduledRuns(): ScheduledRun[] {
 }
 
 /**
- * Selection and editor state for the Scheduled tab. A "New scheduled agent"
- * request from the command palette switches to the tab with a blank form.
+ * Selection and editor state for the Automations view. A "New automation"
+ * request from the command palette opens the manager with a blank form.
  */
-export function useScheduledInbox(onEditorRequest: () => void) {
+export function useAutomationSelection() {
   const [selected, setSelected] = useState<string | null>(null);
   const [editor, setEditor] = useState<ScheduleEditorState>(null);
-  const requestRef = useRef(onEditorRequest);
-  requestRef.current = onEditorRequest;
   useEffect(() => {
     const take = () => {
       if (!takeScheduleEditorRequest()) return;
-      requestRef.current();
       setSelected(SCHEDULES);
       setEditor("new");
     };
@@ -209,7 +246,7 @@ export function ScheduledRunList({
     <>
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-content/10 px-2">
         <span className="min-w-0 flex-1 truncate px-1 text-[12px] text-content/50">
-          Scheduled runs
+          Recent runs
         </span>
         <button
           type="button"
@@ -242,11 +279,11 @@ export function ScheduledRunList({
               />
               <span className="flex min-w-0 flex-1 flex-col">
                 <span className="text-[13px] font-semibold leading-snug text-content">
-                  Schedules
+                  All automations
                 </span>
                 <span className="truncate text-[11px] text-content/45">
                   {agents.length === 0
-                    ? "Set up an agent to run on a timetable"
+                    ? "Start from an example or your own prompt"
                     : upcoming != null
                       ? `${enabled.length} active · next ${formatRunTime(upcoming)}`
                       : `${enabled.length} of ${agents.length} active`}
@@ -398,7 +435,7 @@ function ScheduledRunDetail({
       <header className="flex flex-col gap-3">
         <div className="flex items-center gap-2 text-[12px] text-content/50">
           <Clock className="size-3.5" strokeWidth={1.75} />
-          <span>Scheduled agent</span>
+          <span>Automation</span>
           <span className={`flex items-center gap-1 ${status.className}`}>
             <status.Icon
               className={`size-3.5 ${status.spin ? "animate-spin" : ""}`}
@@ -475,12 +512,12 @@ function ScheduleManager({
 
   const remove = async (agent: ScheduledAgent) => {
     const ok = await ask(
-      `Delete the schedule “${agent.name}”? Its past runs stay in the Inbox.`,
+      `Delete the automation “${agent.name}”? Its past runs stay in the list.`,
       { title: "Aven", kind: "warning", okLabel: "Delete" },
     );
     if (!ok) return;
     deleteScheduledAgent(agent.id);
-    if (editor !== "new" && editor?.id === agent.id) onEditorChange(null);
+    if (editorAgent(editor)?.id === agent.id) onEditorChange(null);
   };
 
   return (
@@ -488,11 +525,11 @@ function ScheduleManager({
       <header className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 flex-col gap-1.5">
           <h1 className="text-[20px] font-semibold leading-tight text-content">
-            Schedules
+            Automations
           </h1>
           <p className="text-[12px] text-content/50">
-            While Aven is open, it starts these agents in the background. Each
-            result arrives here.
+            Runs while your {IS_MAC ? "Mac" : "computer"} is awake and Aven is
+            open. If a run is missed, it runs once when you’re back.
           </p>
         </div>
         <button
@@ -501,13 +538,14 @@ function ScheduleManager({
           onClick={() => onEditorChange("new")}
           className={`${ACTION_FILLED} shrink-0`}
         >
-          <Plus className="size-3.5" strokeWidth={1.75} /> New schedule
+          <Plus className="size-3.5" strokeWidth={1.75} /> New automation
         </button>
       </header>
       {editor ? (
         <ScheduleEditor
-          key={editor === "new" ? "new" : editor.id}
-          initial={editor === "new" ? undefined : editor}
+          key={editorKey(editor)}
+          initial={editorAgent(editor) ?? undefined}
+          example={editorExample(editor) ?? undefined}
           projects={projects}
           cwd={cwd}
           onCancel={() => onEditorChange(null)}
@@ -519,18 +557,17 @@ function ScheduleManager({
       ) : null}
       {agents.length === 0 ? (
         editor ? null : (
-          <p className="text-[13px] text-content/45">
-            No schedules yet. Create one to run a prompt every day, on chosen
-            weekdays, or every few hours.
-          </p>
+          <AutomationExamples
+            onChoose={(example) => onEditorChange({ example })}
+          />
         )
       ) : (
-        <ul className="flex flex-col gap-1.5" aria-label="Schedules">
+        <ul className="flex flex-col gap-1.5" aria-label="Automations">
           {agents.map((agent) => (
             <li
               key={agent.id}
               aria-label={agent.name}
-              className="flex items-center gap-3 rounded-lg border border-content/10 px-3 py-2.5"
+              className="aven-inset-card flex items-center gap-3 px-3 py-2.5"
             >
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span className="truncate text-[13px] font-medium text-content">
@@ -585,7 +622,82 @@ function ScheduleManager({
           ))}
         </ul>
       )}
+      {agents.length > 0 ? <KeepAwakeRow /> : null}
     </div>
+  );
+}
+
+function KeepAwakeRow() {
+  const on = useKeepAwakeSetting();
+  const device = IS_MAC ? "Mac" : "computer";
+  return (
+    <div className="aven-inset-card flex items-center gap-3 px-3 py-2.5">
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="text-[13px] font-medium text-content">
+          Keep this {device} awake for automations
+        </span>
+        <span className="text-[11px] text-content/50">
+          While Aven is open, your {device} won’t go to sleep on its own, so
+          overnight runs still happen. The screen can still turn off.
+          {IS_MAC ? " Closing the lid still puts it to sleep." : ""}
+        </span>
+      </div>
+      <Toggle
+        label={`Keep this ${device} awake for automations`}
+        on={on}
+        onChange={saveKeepAwake}
+      />
+    </div>
+  );
+}
+
+/** The empty state: ready-made automations that fill in the editor. */
+export function AutomationExamples({
+  onChoose,
+}: {
+  onChoose: (example: AutomationExample) => void;
+}) {
+  return (
+    <section
+      className="automation-examples"
+      aria-labelledby="automation-examples-title"
+    >
+      <div className="automation-examples-intro">
+        <h2 id="automation-examples-title">Start from an example</h2>
+        <p>
+          No automations yet. Pick one to fill in the form, then choose the
+          project, agent and access before you save. Every example only reads
+          and suggests; nothing is pushed, merged or posted for you.
+        </p>
+      </div>
+      <ul className="automation-example-grid">
+        {AUTOMATION_EXAMPLES.map((example) => {
+          const Icon = EXAMPLE_ICONS[example.id] ?? Clock;
+          return (
+            <li key={example.id}>
+              <button
+                type="button"
+                className="automation-example-card"
+                data-example={example.id}
+                onClick={() => onChoose(example)}
+              >
+                <span className="automation-example-icon" aria-hidden>
+                  <Icon className="size-3.5" strokeWidth={1.75} />
+                </span>
+                <span className="automation-example-name">{example.name}</span>
+                <span className="automation-example-summary">
+                  {example.summary}
+                </span>
+                <span className="automation-example-when">
+                  <Clock className="size-3" strokeWidth={1.75} aria-hidden />
+                  {describeSchedule(example.schedule)}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 
@@ -605,10 +717,24 @@ type Draft = {
   hours: number;
 };
 
+/** Name, prompt and timing from an example; the rest stays as it was. */
+function exampleDraft(example: AutomationExample): Partial<Draft> {
+  const { schedule } = example;
+  return {
+    name: example.name,
+    prompt: example.prompt,
+    kind: schedule.kind,
+    ...(schedule.kind === "weekly"
+      ? { days: [...schedule.days], time: schedule.time }
+      : { hours: schedule.hours }),
+  };
+}
+
 function draftFrom(
   initial: ScheduledAgent | undefined,
   projects: readonly ScheduledProject[],
   cwd: string,
+  example?: AutomationExample,
 ): Draft {
   if (initial)
     return {
@@ -626,7 +752,7 @@ function draftFrom(
       hours: initial.schedule.kind === "interval" ? initial.schedule.hours : 4,
     };
   const agent = availablePaletteAgents()[0] ?? defaultSessionChoice();
-  return {
+  const blank: Draft = {
     name: "",
     prompt: "",
     project:
@@ -641,6 +767,7 @@ function draftFrom(
     time: "09:00",
     hours: 4,
   };
+  return example ? { ...blank, ...exampleDraft(example) } : blank;
 }
 
 function ruleFrom(draft: Draft): ScheduleRule {
@@ -663,6 +790,7 @@ function sameDays(a: readonly number[], b: readonly number[]): boolean {
 
 export function ScheduleEditor({
   initial,
+  example,
   projects,
   cwd,
   onCancel,
@@ -670,13 +798,18 @@ export function ScheduleEditor({
   now = () => Date.now(),
 }: {
   initial?: ScheduledAgent;
+  /** Prefills a new automation; ignored when editing `initial`. */
+  example?: AutomationExample;
   projects: readonly ScheduledProject[];
   cwd: string;
   onCancel: () => void;
   onSave: (agent: ScheduledAgent) => void;
   now?: () => number;
 }) {
-  const [draft, setDraft] = useState(() => draftFrom(initial, projects, cwd));
+  const [draft, setDraft] = useState(() =>
+    draftFrom(initial, projects, cwd, initial ? undefined : example),
+  );
+  const [exampleId, setExampleId] = useState(initial ? undefined : example?.id);
   const patch = (next: Partial<Draft>) =>
     setDraft((current) => ({ ...current, ...next }));
 
@@ -769,12 +902,38 @@ export function ScheduleEditor({
   return (
     <form
       data-scheduled-editor
-      aria-label={initial ? "Edit schedule" : "New schedule"}
+      aria-label={initial ? "Edit automation" : "New automation"}
       className="scheduled-editor"
       onSubmit={submit}
       onKeyDown={onKeyDown}
     >
-      <h2>{initial ? "Edit schedule" : "New schedule"}</h2>
+      <h2>{initial ? "Edit automation" : "New automation"}</h2>
+      {initial ? null : (
+        <div className="scheduled-field">
+          <span>Example</span>
+          <div
+            className="scheduled-controls scheduled-examples"
+            role="group"
+            aria-label="Start from an example"
+          >
+            {AUTOMATION_EXAMPLES.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className="scheduled-preset"
+                aria-pressed={exampleId === item.id}
+                title={item.summary}
+                onClick={() => {
+                  setExampleId(item.id);
+                  patch(exampleDraft(item));
+                }}
+              >
+                {item.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <label className="scheduled-field">
         <span>Name</span>
         <input
@@ -951,7 +1110,7 @@ export function ScheduleEditor({
           Cancel
         </button>
         <button type="submit" disabled={!valid} className={ACTION_FILLED}>
-          {initial ? "Save" : "Create schedule"}
+          {initial ? "Save" : "Create automation"}
         </button>
       </div>
     </form>

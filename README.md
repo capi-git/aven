@@ -12,7 +12,7 @@ Aven brings agent conversations, your project, and a browser into one window. Us
 
 ## Download
 
-**macOS:** Download the [Mac app](https://github.com/capi-git/aven/releases/latest/download/Aven-macos-arm64.zip) for Apple Silicon Macs running macOS 13 or later, extract it, and move **Aven.app** to Applications. Or download it from the website, [aven-desktop.vercel.app](https://aven-desktop.vercel.app).
+**macOS:** Download the [Mac app](https://github.com/capi-git/aven/releases/latest/download/Aven-macos-arm64.zip) for Apple Silicon Macs running macOS 13 or later, extract it, and move **Aven.app** to Applications.
 
 From 0.1.121 the Mac app is Developer ID signed and notarized by Apple, so it opens normally after download. Each release's notes confirm its notarization. Earlier builds may ask you to approve opening the app in **System Settings → Privacy & Security**. Intel Mac and Linux release builds are not currently provided or verified.
 

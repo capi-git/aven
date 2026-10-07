@@ -5,12 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EVERY_DAY,
   getScheduledAgent,
+  saveKeepAwake,
   saveScheduledAgent,
+  setScheduledAgentEnabled,
   type ScheduledAgent,
 } from "../lib/scheduledAgents";
 import {
   SCHEDULE_CHECK_MS,
   SCHEDULE_FIRST_CHECK_MS,
+  useAutomationsKeepAwake,
   useScheduledAgents,
 } from "./useScheduledAgents";
 
@@ -125,5 +128,53 @@ describe("scheduled agent checks", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(start).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("keeping the computer awake for automations", () => {
+  let root: Root;
+  let container: HTMLDivElement;
+  const apply = vi.fn();
+
+  function Harness() {
+    useAutomationsKeepAwake(apply);
+    return null;
+  }
+
+  beforeEach(async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    mockLocalStorage();
+    apply.mockReset();
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => root.render(createElement(Harness)));
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("holds only while the setting is on and an automation is enabled", async () => {
+    expect(apply).toHaveBeenLastCalledWith(false);
+
+    await act(async () => saveKeepAwake(true));
+    // Nothing is scheduled yet, so there is no reason to stay awake.
+    expect(apply).toHaveBeenLastCalledWith(false);
+
+    await act(async () => saveScheduledAgent(agent));
+    expect(apply).toHaveBeenLastCalledWith(true);
+
+    await act(async () => setScheduledAgentEnabled(agent.id, false));
+    expect(apply).toHaveBeenLastCalledWith(false);
+
+    await act(async () => setScheduledAgentEnabled(agent.id, true));
+    expect(apply).toHaveBeenLastCalledWith(true);
+
+    await act(async () => saveKeepAwake(false));
+    expect(apply).toHaveBeenLastCalledWith(false);
+    expect(apply).toHaveBeenCalledTimes(5);
   });
 });

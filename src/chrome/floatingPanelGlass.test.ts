@@ -58,6 +58,8 @@ describe("in-flow glass cards on macOS", () => {
       ".settings-provider-card",
       ".aven-glass-card",
       ".workspace-home-panel",
+      ".scheduled-editor",
+      ".automation-example-card",
       ".personal-activity-phase",
       ".browser-toolbar",
       ".settings-toolbar",
@@ -69,5 +71,10 @@ describe("in-flow glass cards on macOS", () => {
     expect(css.indexOf(rule!)).toBeGreaterThan(
       css.indexOf("Frost whole surfaces"),
     );
+  });
+
+  it("never gives the Automations example cards a blur of their own", () => {
+    const css = readFileSync("src/surfaces/ScheduledInbox.css", "utf8");
+    expect(css).not.toMatch(/backdrop-filter/);
   });
 });

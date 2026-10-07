@@ -1,4 +1,4 @@
-/* Schedule editor in the Inbox's Scheduled tab. Controls come from
+/* Automations view: the editor and the example gallery. Controls come from
    SettingsControls; these rules only lay out the fields around them. */
 .scheduled-editor {
   display: grid;
@@ -108,6 +108,120 @@
   flex: 1;
   min-width: 0;
 }
+.scheduled-examples {
+  gap: 4px;
+}
+.scheduled-examples .scheduled-preset {
+  border-color: var(--aven-line);
+}
+.scheduled-examples .scheduled-preset[aria-pressed="true"] {
+  border-color: var(--aven-control-border, var(--aven-line));
+  background: var(--aven-control-bg, var(--aven-raised));
+  box-shadow: var(--aven-control-shadow, 0 1px 3px #0000001a);
+}
+
+/* Empty state. The cards use the shared glass card tokens but no backdrop
+   blur: they sit in the page flow (see the Mac rule in macos-theme.css). */
+.automation-examples {
+  display: grid;
+  gap: 14px;
+}
+.automation-examples-intro h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--color-content);
+}
+.automation-examples-intro p {
+  margin: 4px 0 0;
+  max-width: 60ch;
+  color: var(--aven-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.automation-example-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.automation-example-grid > li {
+  display: flex;
+  min-width: 0;
+}
+.automation-example-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto 1fr auto;
+  column-gap: 10px;
+  row-gap: 4px;
+  width: 100%;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: var(--aven-radius-card, 12px);
+  background: var(--aven-glass-card, var(--aven-raised));
+  box-shadow:
+    var(--aven-glass-sheen, none), var(--aven-glass-card-shadow, none);
+  color: var(--color-content);
+  text-align: left;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+.automation-example-card:hover {
+  background: var(--aven-glass-card-hover, var(--aven-hover));
+}
+.automation-example-card:focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: 1px;
+}
+.automation-example-icon {
+  display: grid;
+  grid-row: 1 / span 3;
+  align-self: start;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--aven-control-border, var(--aven-line));
+  border-radius: 7px;
+  background: var(--aven-control-bg, var(--aven-hover));
+  box-shadow: var(--aven-control-shadow, none);
+  color: color-mix(in srgb, var(--color-content) 75%, transparent);
+}
+.automation-example-name,
+.automation-example-summary,
+.automation-example-when {
+  grid-column: 2;
+}
+.automation-example-name {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.automation-example-summary {
+  color: var(--aven-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.automation-example-when {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  color: var(--aven-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  .automation-example-card {
+    transition: none;
+  }
+}
+
 @container (max-width: 560px) {
   .scheduled-field {
     grid-template-columns: minmax(0, 1fr);
