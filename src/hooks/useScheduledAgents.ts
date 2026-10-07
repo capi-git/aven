@@ -1,7 +1,13 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import {
   claimScheduledSlot,
+  listScheduledAgents,
+  loadKeepAwake,
   runDueScheduledAgents,
+  setSystemKeepAwake,
+  subscribeKeepAwake,
+  subscribeScheduledAgents,
+  wantsKeepAwake,
   type ScheduledAgent,
 } from "../lib/scheduledAgents";
 
@@ -58,4 +64,28 @@ export function useScheduledAgents(
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
+}
+
+export function useKeepAwakeSetting(): boolean {
+  return useSyncExternalStore(subscribeKeepAwake, loadKeepAwake);
+}
+
+/**
+ * Hold off idle sleep while the setting is on and an automation is waiting.
+ * Every window sends the same answer, so the host keeps a single hold.
+ */
+export function useAutomationsKeepAwake(
+  apply: (enabled: boolean) => Promise<void> | void = setSystemKeepAwake,
+) {
+  const on = useKeepAwakeSetting();
+  const agents = useSyncExternalStore(
+    subscribeScheduledAgents,
+    listScheduledAgents,
+  );
+  const wanted = wantsKeepAwake(on, agents);
+  const applyRef = useRef(apply);
+  applyRef.current = apply;
+  useEffect(() => {
+    void applyRef.current(wanted);
+  }, [wanted]);
 }

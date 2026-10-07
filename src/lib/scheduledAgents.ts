@@ -528,6 +528,59 @@ export async function claimScheduledSlot(slot: string): Promise<boolean> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Keeping the computer awake
+
+const KEEP_AWAKE_KEY = "aven.automations.keepAwake";
+const KEEP_AWAKE_EVENT = "aven:automations-keep-awake-changed";
+
+export function loadKeepAwake(): boolean {
+  try {
+    return localStorage.getItem(KEEP_AWAKE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function saveKeepAwake(on: boolean) {
+  try {
+    if (on) localStorage.setItem(KEEP_AWAKE_KEY, "1");
+    else localStorage.removeItem(KEEP_AWAKE_KEY);
+  } catch {
+    // Storage unavailable: the switch falls back to off.
+  }
+  window.dispatchEvent(new Event(KEEP_AWAKE_EVENT));
+}
+
+export function subscribeKeepAwake(listener: () => void) {
+  const onStorage = (storage: StorageEvent) => {
+    if (!storage.key || storage.key === KEEP_AWAKE_KEY) listener();
+  };
+  window.addEventListener(KEEP_AWAKE_EVENT, listener);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(KEEP_AWAKE_EVENT, listener);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
+/** Only worth holding off sleep while something is waiting to run. */
+export function wantsKeepAwake(
+  on: boolean,
+  agents: readonly ScheduledAgent[],
+): boolean {
+  return on && agents.some((agent) => agent.enabled);
+}
+
+export async function setSystemKeepAwake(enabled: boolean) {
+  if (!isTauri()) return;
+  try {
+    await invoke("scheduled_agents_keep_awake", { enabled });
+  } catch {
+    // An older host without the command just sleeps as before.
+  }
+}
+
 export type ScheduledAgentChecks = {
   probe: () => Promise<void>;
   installed: (harness: HarnessId) => boolean;

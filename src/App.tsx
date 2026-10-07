@@ -69,7 +69,10 @@ import { WorkspaceHome } from "./surfaces/WorkspaceHome";
 import { useHoverRevealPanel } from "./hooks/useHoverRevealPanel";
 import { useWorkspaceSnapshotPersistence } from "./hooks/useWorkspaceSnapshotPersistence";
 import { useRecentProjects } from "./hooks/useRecentProjects";
-import { useScheduledAgents } from "./hooks/useScheduledAgents";
+import {
+  useAutomationsKeepAwake,
+  useScheduledAgents,
+} from "./hooks/useScheduledAgents";
 import { Sidebar } from "./chrome/Sidebar";
 import type { WorkspaceProfilePreviewData } from "./chrome/ProfileCarouselPreview";
 import { projectDisplayName } from "./hooks/useProjectLabels";
@@ -950,6 +953,7 @@ export default function App({
     () => {},
   );
   useScheduledAgents((agent) => startScheduledAgentRef.current(agent));
+  useAutomationsKeepAwake();
   const onRaceFromChat = useCallback(
     (
       sessionId: string,

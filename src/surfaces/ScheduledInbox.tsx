@@ -32,6 +32,7 @@ import {
   AUTOMATION_EXAMPLES,
   type AutomationExample,
 } from "../lib/automationExamples";
+import { useKeepAwakeSetting } from "../hooks/useScheduledAgents";
 import { formatRelativeTime } from "../lib/githubTasks";
 import {
   isInboxEntryUnread,
@@ -62,6 +63,7 @@ import {
   listScheduledAgents,
   listScheduledRuns,
   nextRunAt,
+  saveKeepAwake,
   saveScheduledAgent,
   scheduledRunSeenEntry,
   SCHEDULE_MAX_HOURS,
@@ -79,6 +81,7 @@ import {
   type ScheduledRunStatus,
   type ScheduleRule,
 } from "../lib/scheduledAgents";
+import { IS_MAC } from "../lib/platform";
 import { HARNESS_TITLE, type HarnessId } from "../lib/session";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { Segmented, Select, Toggle } from "./SettingsControls";
@@ -525,8 +528,8 @@ function ScheduleManager({
             Automations
           </h1>
           <p className="text-[12px] text-content/50">
-            While Aven is open, it starts these agents in the background on
-            their schedule. Each result appears under Recent runs.
+            Runs while your {IS_MAC ? "Mac" : "computer"} is awake and Aven is
+            open. If a run is missed, it runs once when you’re back.
           </p>
         </div>
         <button
@@ -619,6 +622,31 @@ function ScheduleManager({
           ))}
         </ul>
       )}
+      {agents.length > 0 ? <KeepAwakeRow /> : null}
+    </div>
+  );
+}
+
+function KeepAwakeRow() {
+  const on = useKeepAwakeSetting();
+  const device = IS_MAC ? "Mac" : "computer";
+  return (
+    <div className="aven-inset-card flex items-center gap-3 px-3 py-2.5">
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="text-[13px] font-medium text-content">
+          Keep this {device} awake for automations
+        </span>
+        <span className="text-[11px] text-content/50">
+          While Aven is open, your {device} won’t go to sleep on its own, so
+          overnight runs still happen. The screen can still turn off.
+          {IS_MAC ? " Closing the lid still puts it to sleep." : ""}
+        </span>
+      </div>
+      <Toggle
+        label={`Keep this ${device} awake for automations`}
+        on={on}
+        onChange={saveKeepAwake}
+      />
     </div>
   );
 }

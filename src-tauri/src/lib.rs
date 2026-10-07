@@ -332,6 +332,7 @@ pub fn run() {
             race::race_apply,
             race::race_cleanup,
             scheduled_agents::scheduled_agent_claim,
+            scheduled_agents::scheduled_agents_keep_awake,
             browser::browser_engine_options,
             browser::browser_sleep_probe,
             browser::browser_sleep,
