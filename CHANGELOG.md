@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [0.1.123] - 2026-10-06
+
+### Automations get their own place
+
+- **Automations** now sit beside **Inbox** at the top of the sidebar, with three tabs. Inbox keeps GitHub and Linear.
+- New automations can start from six examples: a morning briefing, a nightly test run, a dependency check, issue triage, a weekly changelog and a sweep for stale TODOs.
+- The page now says plainly when automations run: while your computer is awake and Aven is open. A missed run happens once when you're back.
+- A new **Keep this Mac awake for automations** switch stops the computer going to sleep on its own while an automation is waiting, so overnight runs still happen. The screen can still turn off, and closing a Mac's lid still puts it to sleep.
+
+### Smoother new browser tabs
+
+- Opening a new or sleeping browser tab no longer stutters or briefly shows the previous page through it.
+
 ## [0.1.122] - 2026-10-05
 
 ### Steadier Settings on Mac
