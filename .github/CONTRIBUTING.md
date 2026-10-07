@@ -4,7 +4,7 @@ Bug reports, documentation improvements, and focused fixes are welcome. For a ne
 
 ## Development setup
 
-Start with [the Chromium build guide](docs/CHROMIUM.md), which describes the macOS development environment and the runtime packaging required for a complete release. Apple Silicon macOS is the initial release target; other platforms need their own build and interaction verification.
+Start with [the Chromium build guide](../docs/CHROMIUM.md), which describes the macOS development environment and the runtime packaging required for a complete release. Apple Silicon macOS is the initial release target; other platforms need their own build and interaction verification.
 
 Install and sign in to an agent CLI to test real agent sessions. You can run frontend and protocol tests without authenticating to every provider. Never put provider credentials, personal sessions, or private project data in a commit or test fixture.
 
@@ -36,6 +36,6 @@ For UI changes, also exercise the affected interaction in a running app. For bro
 
 Keep changes focused and describe the problem, the resulting behavior, and how you verified it. Include a screenshot for visible changes. Mention any checks you could not run rather than presenting them as passed.
 
-Do not include generated release bundles, local build caches, logs containing personal data, credentials, or unrelated formatting changes. Preserve third-party copyright and license notices. Contributions are made under the repository's [MIT license](LICENSE).
+Do not include generated release bundles, local build caches, logs containing personal data, credentials, or unrelated formatting changes. Preserve third-party copyright and license notices. Contributions are made under the repository's [MIT license](../LICENSE).
 
 See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community expectations and [SECURITY.md](SECURITY.md) for private vulnerability reporting.
