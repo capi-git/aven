@@ -1432,11 +1432,15 @@ function BrowserPaneSession({
     // Overlay captures are temporary backing images, not workspace previews.
     // Release their decoded pixels/base64 once the pane no longer presents them.
     if (!visible || error) setSnapshot(null);
-    // Register before any outgoing page decides to hide in this commit.
-    if (visible && !error && isTauri()) beginBrowserHandoff(id);
+    // Register before any outgoing page decides to hide in this commit. An
+    // empty new tab, or one still asleep, has no native page about to show:
+    // holding the outgoing surface would leave it showing through this pane
+    // for the full handoff deadline.
+    if (visible && !error && hasUrl && !sleeping && isTauri())
+      beginBrowserHandoff(id);
     else endBrowserHandoff(id);
     scheduleLayout.current();
-  }, [visible, error, expanded, id]);
+  }, [visible, error, hasUrl, sleeping, expanded, id]);
 
   useEffect(() => {
     if (!loading || !isTauri()) return;
