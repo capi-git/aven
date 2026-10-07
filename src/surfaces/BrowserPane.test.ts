@@ -426,6 +426,22 @@ describe("native preview lifecycle", () => {
     expect(frames.size).toBe(0);
   });
 
+  it("does not hold the outgoing surface for an empty new tab", async () => {
+    resetBrowserHandoff();
+    await act(async () =>
+      root.render(
+        createElement(BrowserPane, {
+          id: "blank",
+          initialUrl: "",
+          visible: true,
+        }),
+      ),
+    );
+    // Nothing native will ever confirm an empty tab, so nothing may wait on it.
+    expect(browserHandoffPending()).toBe(false);
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
   it("keeps an outgoing page shown until the incoming page is presented", async () => {
     resetBrowserHandoff();
     try {

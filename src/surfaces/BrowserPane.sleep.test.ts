@@ -17,6 +17,20 @@ vi.mock("@tauri-apps/api/core", () => ({ isTauri: () => true }));
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({ onFocusChanged: async () => () => {} }),
 }));
+const handoff = vi.hoisted(() => ({ began: [] as string[] }));
+vi.mock("../lib/browserHandoff", async (original) => {
+  const actual = await original<typeof import("../lib/browserHandoff")>();
+  return {
+    ...actual,
+    // Record what the pane showed when it asked the stage to hold the old view.
+    beginBrowserHandoff: (id: string, now?: number) => {
+      handoff.began.push(
+        document.querySelector(`[data-browser-pane="${id}"]`)?.textContent ?? "",
+      );
+      actual.beginBrowserHandoff(id, now);
+    },
+  };
+});
 vi.mock("../lib/browser", async (original) => ({
   ...(await original<typeof import("../lib/browser")>()),
   browserBounds: () => ({ x: 0, y: 40, width: 600, height: 500, scale: 2 }),
@@ -101,6 +115,18 @@ describe("sleeping retained browser tabs", () => {
     expect(native.create.mock.lastCall?.[1]).toBe("https://example.com/redirected");
     expect(getRegisteredAgentBrowserPage("a")).not.toBe(original);
     expect(container.querySelector('[data-browser-pane="a"]')?.textContent).not.toContain("Tab sleeping");
+  });
+  it("does not hold the previous view while a selected tab is still asleep", async () => {
+    await render(["a", "b", "c", "d"]);
+    await render(["d"]);
+    await idle();
+    expect(container.textContent).toContain("Tab sleeping");
+    handoff.began.length = 0;
+    await render(["a"]);
+    // Waking rebuilds the page; until then nothing native can confirm, so the
+    // stage must not keep the old surface painted under "Restoring tab…".
+    expect(handoff.began.some((shown) => shown.includes("Restoring tab"))).toBe(false);
+    expect(handoff.began.some((shown) => shown.includes("Tab sleeping"))).toBe(false);
   });
   it("captures latest native metadata and keeps safely closed tabs asleep until update cancellation", async () => {
     const onUrlChange = vi.fn();
