@@ -1,3 +1,5 @@
+import { logError } from "./lib/errors";
+import { useWorkspaceSessions } from "./hooks/useWorkspaceSessions";
 import { discardEditorDrafts } from "./lib/workspaceTransfers";
 import { useFixedDeadline } from "./hooks/useFixedDeadline";
 import { useReturnFocus } from "./hooks/useReturnFocus";
@@ -61,7 +63,6 @@ import {
   useState,
   useSyncExternalStore,
   type CSSProperties,
-  type SetStateAction,
 } from "react";
 import { PersonalInspectorDock } from "./chrome/PersonalInspectorDock";
 import { WorkspaceHome } from "./surfaces/WorkspaceHome";
@@ -626,16 +627,8 @@ import {
   type ScheduledFlush,
 } from "./lib/streamFlush";
 import {
-  canDeferStreamCommit,
-  createLiveSessionStore,
   LiveSessionsContext,
 } from "./lib/liveSessions";
-
-/**
- * How long transcript-only streaming may trail workspace state. Visible panes
- * update from the live store; the sidebar, tabs and persistence see it here.
- */
-const TRANSCRIPT_COMMIT_INTERVAL_MS = 250;
 
 /** Minimum spacing between full transcript saves of a chat that is still running. */
 const BUSY_PERSIST_INTERVAL_MS = 10_000;
@@ -850,33 +843,8 @@ export default function App({
       ),
     ),
   );
-  const [sessions, setCommittedSessions] = useState<Session[]>(
+  const { sessions, sessionsRef, liveSessions, setSessions, commitStream, flushCommittedSessions } = useWorkspaceSessions(
     () => windowTransfer?.sessions ?? resumed?.sessions ?? [seed.session],
-  );
-  // Source of truth for the newest sessions. React state can trail it while
-  // transcript-only streaming reaches visible panes through the live store.
-  const sessionsRef = useRef(sessions);
-  const [liveSessions] = useState(() => createLiveSessionStore(sessions));
-  const transcriptCommit = useRef<number | null>(null);
-  const commitSessions = useCallback(
-    (next: Session[]) => {
-      if (transcriptCommit.current !== null) {
-        clearTimeout(transcriptCommit.current);
-        transcriptCommit.current = null;
-      }
-      sessionsRef.current = next;
-      liveSessions.set(next);
-      setCommittedSessions(next);
-    },
-    [liveSessions],
-  );
-  /** Updates always apply to the newest sessions, never to trailing state. */
-  const setSessions = useCallback(
-    (action: SetStateAction<Session[]>) =>
-      commitSessions(
-        typeof action === "function" ? action(sessionsRef.current) : action,
-      ),
-    [commitSessions],
   );
   const [tabs, setTabs] = useState<WorkspaceTab[]>(
     () => windowTransfer?.tabs ?? resumed?.tabs ?? [seed.tab],
@@ -1761,21 +1729,8 @@ export default function App({
     });
     if (!next.some((session, index) => session !== prev[index])) return;
     syncDockBadge(next);
-    if (
-      !canDeferStreamCommit(prev, next, externallyRenderedSessionIds.current)
-    ) {
-      commitSessions(next);
-      return;
-    }
-    // Only transcripts changed: update visible panes now and let the rest of
-    // the workspace (sidebar, tabs, persistence) catch up a few times a second.
-    sessionsRef.current = next;
-    liveSessions.set(next);
-    transcriptCommit.current ??= window.setTimeout(() => {
-      transcriptCommit.current = null;
-      setCommittedSessions(sessionsRef.current);
-    }, TRANSCRIPT_COMMIT_INTERVAL_MS);
-  }, [commitSessions, liveSessions]);
+    commitStream(next, externallyRenderedSessionIds.current);
+  }, [commitStream]);
 
   const stopSessionForRemoval = useCallback(
     async (sessionId: string): Promise<Session | undefined> => {
@@ -1918,13 +1873,9 @@ export default function App({
       cancelScheduledFlush(harnessFlush.current);
       harnessFlush.current = null;
       // Never leave streamed text only in the live store.
-      if (transcriptCommit.current !== null) {
-        clearTimeout(transcriptCommit.current);
-        transcriptCommit.current = null;
-        setCommittedSessions(sessionsRef.current);
-      }
+      flushCommittedSessions();
     };
-  }, [resumed]);
+  }, [resumed, flushCommittedSessions]);
 
   useEffect(() => {
     void probeHarnessAvailability();
@@ -10334,11 +10285,11 @@ function trackSessionEdits(
     event.type === "tool.updated" &&
     (event.status === "completed" || event.status === "success");
   if (!completed) {
-    void prepareSessionCheckpoint(sessionId, cwd, paths).catch(() => undefined);
+    void prepareSessionCheckpoint(sessionId, cwd, paths).catch((error) => logError("Prepare change checkpoint", error));
     return;
   }
   void captureSessionCheckpoint(sessionId, cwd, paths)
-    .catch(() => undefined)
+    .catch((error) => logError("Capture change checkpoint", error))
     .then(() => notifyReviewChanged(sessionId));
 }
 

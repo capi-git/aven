@@ -1,3 +1,4 @@
+import { errorText } from "./errors";
 import { getIdentifier, getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -96,9 +97,6 @@ export async function readAppVersion(): Promise<string> {
   } catch {
     return "0.0.0";
   }
-}
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 async function isDevelopmentApp(): Promise<boolean> {
