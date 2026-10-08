@@ -61,7 +61,6 @@ mod shell_navigation;
 mod skills;
 mod startup_cli;
 pub use startup_cli::run_startup_cli;
-mod browser_orb;
 mod turn_shots;
 mod usage_panel;
 mod window;
@@ -259,7 +258,6 @@ pub fn run() {
         .manage(session_pip::SessionPipState::default())
         .manage(workspace_window::WorkspaceWindowState::default())
         .manage(usage_panel::UsagePanelState::default())
-        .manage(browser_orb::BrowserOrbState::default())
         .manage(access_panel::AccessPanelState::default())
         .manage(workspace_menu_panel::WorkspaceMenuPanelState::default())
         .setup(|app| {
@@ -314,12 +312,6 @@ pub fn run() {
             usage_panel::usage_panel_ready,
             usage_panel::usage_panel_action,
             usage_panel::usage_panel_close,
-            browser_orb::browser_orb_set,
-            browser_orb::browser_orb_close,
-            browser_orb::browser_orb_get_state,
-            browser_orb::browser_orb_ready,
-            browser_orb::browser_orb_layout,
-            browser_orb::browser_orb_action,
             popup_glass::popup_glass_set,
             browser_agent::browser_agent_bind,
             browser_agent::browser_agent_revoke,
@@ -561,7 +553,6 @@ pub fn run() {
         {
             window::update_window_event(handle, label, event);
             usage_panel::window_event(handle, label, event);
-            browser_orb::window_event(handle, label, event);
             access_panel::window_event(handle, label, event);
             workspace_menu_panel::window_event(handle, label, event);
         }
