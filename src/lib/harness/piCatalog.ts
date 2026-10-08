@@ -56,7 +56,13 @@ async function discoverModels(flavor: PiFlavor) {
     await spawnChild(
       probeId,
       path,
-      buildPiSpawnArgs(flavor, { noSession: true, noExtensions: true }),
+      // Pi extensions can register providers and models, so the catalog
+      // must load them to list everything a chat can select. omp keeps its
+      // probe isolated.
+      buildPiSpawnArgs(flavor, {
+        noSession: true,
+        noExtensions: flavor.id !== "pi",
+      }),
       cwd,
     );
     const response = await Promise.race([

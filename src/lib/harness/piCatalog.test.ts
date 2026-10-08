@@ -27,11 +27,6 @@ vi.mock("./piClient", () => ({
     request = mocks.request;
   },
 }));
-vi.mock("./piProtocol", () => ({
-  buildPiSpawnArgs: vi.fn(() => []),
-  modelsFromRpcData: vi.fn(() => []),
-}));
-
 import { refreshOmpCatalog, refreshPiCatalog } from "./piCatalog";
 
 beforeEach(() => {
@@ -68,5 +63,29 @@ it("gives every catalog probe its own child id", async () => {
   expect(mocks.watchChild.mock.calls.map(([id]) => id)).toEqual(spawned);
   expect(mocks.killChild.mock.calls.map(([id]) => id).sort()).toEqual(
     [...spawned].sort(),
+  );
+});
+
+it("loads Pi extensions so extension-registered models are listed", async () => {
+  await refreshPiCatalog();
+  expect(mocks.spawnChild).toHaveBeenCalledWith(
+    expect.stringMatching(/^aven-pi-probe-/),
+    "/fake/pi",
+    ["--mode", "rpc", "--no-session"],
+    "/home/test",
+  );
+  expect(mocks.request).toHaveBeenCalledWith(
+    { type: "get_available_models" },
+    45_000,
+  );
+});
+
+it("keeps extensions disabled for omp catalog probes", async () => {
+  await refreshOmpCatalog();
+  expect(mocks.spawnChild).toHaveBeenCalledWith(
+    expect.stringMatching(/^aven-omp-probe-/),
+    "/fake/pi",
+    ["--mode", "rpc", "--no-session", "--no-extensions"],
+    "/home/test",
   );
 });
