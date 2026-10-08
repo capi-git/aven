@@ -13,6 +13,7 @@
 
 #include "supermono_chromium.h"
 #include "browser_viewport.h"
+#include "browser_pump.h"
 #include "browser_host_view.h"
 #include "browser_tab_zoom.h"
 #include "browser_actions_menu.h"
@@ -58,10 +59,10 @@ int live_browser_count = 0;
 __strong SMChromiumPump *pump_handler=nil;
 __strong NSTimer *pump_timer=nil;
 __strong id backing_scale_observer=nil;
+__strong NSArray *pump_wake_observers=nil;
 __strong id input_monitor=nil;
 bool pump_active=false,pump_reentered=false;
-constexpr int64_t kPumpFallback=INT_MAX;
-constexpr int64_t kPumpMaximumDelay=1000/30;
+constexpr int64_t kPumpFallback=supermono::kBrowserPumpFallback;
 bool handling_send_event = false;
 IMP original_send_event = nullptr;
 
@@ -175,6 +176,7 @@ bool InstallApplicationIntegration() {
   return true;
 }
 
+bool HasVisiblePumpWork();
 bool HasPumpWork() { return initialized && (!pages.empty() || live_browser_count>0); }
 void KillPumpTimer() { [pump_timer invalidate]; pump_timer=nil; }
 void SchedulePump(int64_t delay_ms) {
@@ -203,7 +205,7 @@ void HandlePumpSchedule(int64_t delay_ms) {
   // scheduling callback; otherwise network/IPC work can stall after creation.
   // https://github.com/chromiumembedded/cef/blob/master/tests/shared/browser/main_message_loop_external_pump.cc
   // https://github.com/chromiumembedded/cef/blob/master/tests/shared/browser/main_message_loop_external_pump_mac.mm
-  const double seconds=std::min(delay_ms,kPumpMaximumDelay)/1000.0;
+  const double seconds=supermono::BrowserPumpDelayMs(delay_ms,stopping || HasVisiblePumpWork())/1000.0;
   pump_timer=[NSTimer timerWithTimeInterval:seconds target:pump_handler
     selector:@selector(timerFired:) userInfo:nil repeats:NO];
   [NSRunLoop.mainRunLoop addTimer:pump_timer forMode:NSRunLoopCommonModes];
@@ -248,6 +250,13 @@ class DevToolsClient final : public CefClient, public CefLifeSpanHandler {
   }
   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {
     --live_browser_count; browsers_.erase(browser->GetIdentifier()); FinishShutdown();
+  }
+  bool Visible() const {
+    for (const auto& entry:browsers_) {
+      NSView *view=(__bridge NSView*)entry.second->GetHost()->GetWindowHandle();
+      if (view.window.visible && (view.window.occlusionState & NSWindowOcclusionStateVisible)) return true;
+    }
+    return false;
   }
   void Close() {
     closing_=true;
@@ -604,6 +613,16 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     NSResponder *responder=view.window.firstResponder;
     return [responder isKindOfClass:NSView.class] && [(NSView*)responder isDescendantOf:view];
   }
+  bool VisibleForPump() const {
+    if (visible_ && !clip_view_.hidden && parent_.window.visible &&
+        (parent_.window.occlusionState & NSWindowOcclusionStateVisible)) return true;
+    if (devtools_client_ && devtools_client_->Visible()) return true;
+    for (const auto& entry:popups_) {
+      NSView *view=(__bridge NSView*)entry.second->GetHost()->GetWindowHandle();
+      if (view.window.visible && (view.window.occlusionState & NSWindowOcclusionStateVisible)) return true;
+    }
+    return false;
+  }
   void State() {
     if (!browser_) return;
     [actions_menu_ updateZoom:zoom_.factor()];
@@ -699,7 +718,9 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       auto_resize_ ? 0 : bottom_corner_radius_,corner_mask_);
     if (!visible_ || update_prepared_ || exposed<=0)
       supermono::ReturnHiddenBrowserFocus(clip_view_,WorkspaceWebView(parent_));
+    const bool was_hidden=clip_view_.hidden;
     supermono::ApplyBrowserHostVisibility(clip_view_,view,visible_ && !update_prepared_ && exposed>0);
+    if (was_hidden && !clip_view_.hidden) SchedulePump(0);
     if (clip_view_.hidden) [drop_indicator_ clear];
     [drop_indicator_ placeAboveBrowser:view frame:aligned.browser];
     // Covers reparenting to a different-density display. Ordinary layouts do
@@ -1490,6 +1511,12 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   IMPLEMENT_REFCOUNTING(Page);
 };
 
+bool HasVisiblePumpWork() {
+  if (!NSApp.active) return false;
+  for (const auto& entry:pages) if (entry.second->VisibleForPump()) return true;
+  return false;
+}
+
 void FinishShutdownNow() {
   if (!initialized || !stopping || !pages.empty() || live_browser_count) return;
   KillPumpTimer();
@@ -1497,6 +1524,8 @@ void FinishShutdownNow() {
     [NSNotificationCenter.defaultCenter removeObserver:backing_scale_observer];
     backing_scale_observer=nil;
   }
+  for (id observer in pump_wake_observers) [NSNotificationCenter.defaultCenter removeObserver:observer];
+  pump_wake_observers=nil;
   if (input_monitor) { [NSEvent removeMonitor:input_monitor]; input_monitor=nil; }
   profiles.clear(); CefShutdown(); initialized=false; application=nullptr;
   // Cocoa runtime classes remain registered until process exit, so retain the
@@ -1566,6 +1595,16 @@ extern "C" int sm_chromium_initialize(const char *config_json,sm_chromium_event_
             entry.second->RefreshBackingScale();
         }
       }];
+    // Waking the app or a minimized browser window must not wait for the idle heartbeat.
+    NSMutableArray *wake_observers=[NSMutableArray array];
+    for (NSString *name in @[NSApplicationDidBecomeActiveNotification,NSWindowDidBecomeKeyNotification]) {
+      id observer=[NSNotificationCenter.defaultCenter addObserverForName:name object:nil
+        queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *) {
+          if (initialized && !stopping) SchedulePump(0);
+        }];
+      [wake_observers addObject:observer];
+    }
+    pump_wake_observers=[wake_observers copy];
     // Clicks go straight to Chromium's views; note which page they land in.
     input_monitor=[NSEvent addLocalMonitorForEventsMatchingMask:
         NSEventMaskLeftMouseDown|NSEventMaskRightMouseDown|NSEventMaskOtherMouseDown
