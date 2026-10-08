@@ -27,7 +27,7 @@ const session = (id: string): Session => ({
   harness: "codex",
   model: "gpt-5",
   modelSettings: {},
-  runtimeMode: "bypass",
+  runtimeMode: "full-access",
   cwd: "/project",
   blocks: [],
 });
@@ -512,8 +512,8 @@ describe("detached workspace transactions", () => {
       b = state("b");
     const original = mergeDetachedWorkspaces(a, b);
     original.editorDrafts = {
-      "/project/readme.md": { content: "unsaved", savedContent: "saved" },
-    } as DetachedWorkspaceState["editorDrafts"];
+      "/project/readme.md": { text: "unsaved", baseline: "saved", updatedAt: 1 },
+    };
     const opened = openDetachedFileForSession(
       original,
       "a",
@@ -690,8 +690,9 @@ describe("detached workspace transactions", () => {
       "tab-b",
       "browser-b",
     ]);
+    const mergedLayout = merged.view.layout;
     expect(
-      merged.view.layout!.type === "split" && merged.view.layout.children[1],
+      mergedLayout?.type === "split" && mergedLayout.children[1],
     ).toEqual(b.view.layout);
     expect(merged.browsers[0].nativeId).toBe("existing-cef");
     expect(merged.browsers[0].kept).toBe(true);

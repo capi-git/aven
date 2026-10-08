@@ -62,7 +62,7 @@ describe("snake arcade", () => {
   it("eases the pickup in rather than popping it into place", () => {
     const arcade = createSnakeArcade();
     arcade.resize(COLS, ROWS);
-    let tracked: { key: string; shownFor: number } | null = null;
+    let tracked = null as { key: string; shownFor: number } | null;
 
     for (let t = 0; t < 120_000; t += FRAME_MS) {
       arcade.step(FRAME_MS);

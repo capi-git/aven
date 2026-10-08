@@ -75,7 +75,7 @@ describe("isTranscriptOnlyChange", () => {
     );
     const approval = {
       ...reply("Run tests?"),
-      approval: { requestId: "r1" },
+      approval: { requestId: 1 },
     } as Block;
     expect(
       isTranscriptOnlyChange(session, withBlocks(session, [approval])),

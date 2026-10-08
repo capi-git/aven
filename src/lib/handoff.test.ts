@@ -236,8 +236,12 @@ describe("handoff block lifecycle", () => {
       ...session,
       blocks: [
         ...session.blocks,
-        { id: "u2", role: "user", text: "hey what is this" },
-        { id: "e1", role: "system", text: "fx did not start. fx exited" },
+        { id: "u2", role: "user" as const, text: "hey what is this" },
+        {
+          id: "e1",
+          role: "system" as const,
+          text: "fx did not start. fx exited",
+        },
       ],
     };
     expect(pendingHandoff(afterFailedSend)?.from).toBe("cursor");

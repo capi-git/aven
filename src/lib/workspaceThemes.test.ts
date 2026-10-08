@@ -338,7 +338,7 @@ describe("workspace appearance migration and persistence", () => {
     expect(WORKSPACE_THEME_PRESETS).toHaveLength(21);
     const next = applyWorkspaceThemePreset("personal", black, "dark");
     expect({ ...next, colors: original.colors }).toEqual(original);
-    expect(next.colors?.dark.background).toBe("#000000");
+    expect(next.colors?.dark?.background).toBe("#000000");
     expect(resolvedWorkspaceColors(next, "light")).toEqual(light);
     expect(loadWorkspaceTheme("work")).toEqual(original);
     saveWorkspaceColor("personal", "light", "accent", "#AbC");

@@ -112,6 +112,7 @@ describe("workspace snapshot persistence during streaming and movement", () => {
     latest.sessions[0].draft = {
       text: "Keep this unsent draft",
       attachments: [],
+      updatedAt: 1,
     };
     await act(async () => schedule(latest, 0));
     await advance(0);

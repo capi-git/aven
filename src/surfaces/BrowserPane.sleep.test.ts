@@ -149,6 +149,7 @@ describe("sleeping retained browser tabs", () => {
             canGoBack: false,
             canGoForward: false,
             error: null,
+            notice: null,
           },
         ]),
       );
@@ -166,6 +167,7 @@ describe("sleeping retained browser tabs", () => {
             canGoBack: false,
             canGoForward: false,
             error: null,
+            notice: null,
             closed: true,
             sleeping: true,
           });
@@ -196,7 +198,7 @@ describe("sleeping retained browser tabs", () => {
       for (const handler of native.handlers) handler({
         id: original, url: "https://example.com/a", title: "Saved page",
         loading: false, canGoBack: false, canGoForward: false, error: null,
-        closed: true, sleeping: true,
+        notice: null, closed: true, sleeping: true,
       });
     });
     expect(native.create).toHaveBeenCalledTimes(2);

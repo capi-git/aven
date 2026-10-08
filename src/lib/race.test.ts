@@ -130,6 +130,8 @@ describe("restoring race lanes", () => {
       providerSessionId: "provider-in-copy",
       pendingSwitch: {
         from: "claude" as const,
+        fromModel: "claude:test",
+        fromSettings: {},
         fromProviderSessionId: "old-provider",
       },
     };
@@ -139,7 +141,12 @@ describe("restoring race lanes", () => {
       worktreeCwd: undefined,
       branch: undefined,
       providerSessionId: undefined,
-      pendingSwitch: { from: "claude", fromProviderSessionId: undefined },
+      pendingSwitch: {
+        from: "claude",
+        fromModel: "claude:test",
+        fromSettings: {},
+        fromProviderSessionId: undefined,
+      },
     });
     const unrelated = { cwd: record.project, worktreeCwd: "/work/other" };
     expect(usesRaceCheckout(unrelated, record)).toBe(false);

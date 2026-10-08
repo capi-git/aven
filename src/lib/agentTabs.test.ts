@@ -52,7 +52,7 @@ describe("agent tabs", () => {
     const file = agent("worker-a", "Audit the engine");
     expect(editorTabKey(file)).toBe("agent:worker-a");
     expect(isAgentTab(file)).toBe(true);
-    expect(file.agent.harness).toBe("codex");
+    expect(file.agent?.harness).toBe("codex");
     expect(isFilesystemTab(file)).toBe(false);
     expect(isFilesystemTab(newFileTab("/repo/a.ts", "/repo"))).toBe(true);
   });

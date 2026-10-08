@@ -1,14 +1,22 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 import { useSortable, type SortableOptions } from "./useSortable";
 
 describe("useSortable external drops and cancellation", () => {
   let container: HTMLDivElement;
   let root: Root;
   let sortable: ReturnType<typeof useSortable>;
-  let onReorder: ReturnType<typeof vi.fn>;
+  let onReorder: Mock<(ids: string[], movedId?: string) => void>;
   let options: SortableOptions;
   let ids: string[];
   let frames: Map<number, FrameRequestCallback>;
@@ -197,7 +205,6 @@ describe("useSortable external drops and cancellation", () => {
     expect(sortable.consumeClick()).toBe(true);
     expect(document.documentElement.classList.contains("is-reordering")).toBe(
       false,
-      { screenX: 0, screenY: 0 },
     );
     expect(document.body.style.cursor).toBe("");
   });

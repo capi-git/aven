@@ -11,7 +11,9 @@ import { discardEditorDrafts } from "../lib/workspaceTransfers";
 
 const disk = vi.hoisted(() => ({ content: "" }));
 const written = vi.hoisted(() => ({ content: null as string | null }));
-const formatText = vi.hoisted(() => vi.fn(async () => null));
+const formatText = vi.hoisted(() =>
+  vi.fn<typeof import("../lib/format").formatText>(async () => null),
+);
 const invoke = vi.hoisted(() =>
   vi.fn(async (command: string, args?: Record<string, unknown>) => {
     if (command === "read_text_file") return disk.content;

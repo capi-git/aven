@@ -29,7 +29,7 @@ function chat(id: string, cwd: string): Session {
     busy: false,
     model: "",
     modelSettings: {},
-    runtimeMode: "default",
+    runtimeMode: "supervised",
   };
 }
 

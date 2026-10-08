@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 import {
   createComposerDraftStore,
   sanitizeComposerDraft,
@@ -8,8 +16,8 @@ import type { Attachment } from "./session";
 describe("composer draft persistence", () => {
   let values: Map<string, string>;
   let storage: {
-    getItem: ReturnType<typeof vi.fn>;
-    setItem: ReturnType<typeof vi.fn>;
+    getItem: Mock<(key: string) => string | null>;
+    setItem: Mock<(key: string, value: string) => void>;
   };
   const stores: ReturnType<typeof createComposerDraftStore>[] = [];
   const create = (target?: EventTarget) => {

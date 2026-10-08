@@ -26,7 +26,9 @@ import { registerBuiltinHarnesses } from "./register";
 
 const control = vi.hoisted(() => ({
   isTauri: vi.fn(() => false),
-  invoke: vi.fn(async () => undefined),
+  invoke: vi.fn<(command: string, args?: unknown) => Promise<unknown>>(
+    async () => undefined,
+  ),
 }));
 vi.mock("@tauri-apps/api/core", () => ({
   isTauri: control.isTauri,

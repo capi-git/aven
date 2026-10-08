@@ -32,6 +32,8 @@ function session(id: string, cwd: string): Session {
     blocks: [],
     busy: false,
     model: "",
+    modelSettings: {},
+    runtimeMode: "supervised",
   };
 }
 
@@ -542,19 +544,13 @@ describe("Race lane files", () => {
 
   it("keeps a file a lane opened in the project it was copied from", () => {
     const base = newTab("file-pane");
+    const file = newFileTab(`${lane}/docs/notes.md`, lane);
     const tab: WorkspaceTab = {
       ...base,
       layout: { type: "leaf", id: "file-pane" },
       focusedId: "file-pane",
-      editorPanes: [
-        {
-          id: "file-pane",
-          files: [newFileTab(`${lane}/docs/notes.md`, lane)],
-          activeFileId: undefined,
-        },
-      ],
+      editorPanes: [{ id: "file-pane", files: [file], activeFileId: file.id }],
     };
-    tab.editorPanes[0].activeFileId = tab.editorPanes[0].files[0].id;
     expect(focusedWorkspaceTabCwd(tab, [])).toBe(project);
     expect(workspaceTabCwd(tab, [])).toBe(project);
   });

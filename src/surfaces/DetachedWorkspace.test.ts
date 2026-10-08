@@ -79,8 +79,18 @@ beforeEach(() => {
       sessions: [],
       transferToken: "transfer",
       browsers: [
-        { id: "selected", title: "Selected", url: "https://example.com" },
-        { id: "background", title: "Background", url: "https://example.org" },
+        {
+          id: "selected",
+          tabId: "selected",
+          title: "Selected",
+          url: "https://example.com",
+        },
+        {
+          id: "background",
+          tabId: "background",
+          title: "Background",
+          url: "https://example.org",
+        },
       ],
       view: {
         layout: leaf("selected"),
@@ -290,7 +300,7 @@ it("opens an agent file in its detached task and forwards editor navigation with
         harness: "codex",
         model: "gpt-5",
         modelSettings: {},
-        runtimeMode: "bypass",
+        runtimeMode: "full-access",
         blocks: [],
       },
       recents: [],

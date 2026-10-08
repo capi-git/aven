@@ -534,7 +534,10 @@ describe("orchestration composer and card", () => {
     const reply = vi.fn();
     const open = vi.fn();
     const noop = () => {};
-    function LeadPane({ id = lead.id, undoLocked = false } = {}) {
+    function LeadPane({
+      id = lead.id,
+      undoLocked = false,
+    }: { id?: string; undoLocked?: boolean }) {
       const [selectedId, inspect] = useState<string | null>(null);
       return createElement(
         OrchestrationActions.Provider,
@@ -560,7 +563,6 @@ describe("orchestration composer and card", () => {
             onSubmit: submit,
             onStop: noop,
             onCompactContext: () => false,
-            onPlaceSessionInFolder: noop,
             onDeleteQueuedMessage: noop,
             onEditQueuedMessage: noop,
             onQueuedMessageEditingChange: noop,
@@ -577,7 +579,7 @@ describe("orchestration composer and card", () => {
         ),
       );
     }
-    await act(async () => root.render(createElement(LeadPane)));
+    await act(async () => root.render(createElement(LeadPane, {})));
     // Detailed worker panes stay on the sidebar. Compact status is available
     // above the composer without narrowing the lead's transcript.
     expect(container.querySelector("[data-orchestration-agents]")).toBeNull();

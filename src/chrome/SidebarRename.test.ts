@@ -340,7 +340,7 @@ describe("orchestration in other workspace lists", () => {
         },
       ];
       if (kind === "project") {
-        props.recents = [{ path: "/workspace/other", lastOpened: 1 }];
+        props.recents = [{ path: "/workspace/other", openedAt: 1 }];
         props.projectSessions = { "/workspace/other": sessions };
         props.onSelectProjectSession = vi.fn();
       } else {

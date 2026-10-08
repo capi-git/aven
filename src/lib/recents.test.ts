@@ -202,10 +202,6 @@ describe("projectRailSections", () => {
   });
 
   it("appends new projects without reordering existing entries", () => {
-    const recents = [
-      { path: "/tmp/older", openedAt: 1 },
-      { path: "/tmp/new", openedAt: 3 },
-    ];
     const projects = new Map([
       ["/tmp/older", { path: "/tmp/older", openedAt: 1 }],
       ["/tmp/new", { path: "/tmp/new", openedAt: 3 }],

@@ -37,7 +37,7 @@ describe("explicit window close and quit", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(ask).mockResolvedValue(true);
-    vi.mocked(message).mockResolvedValue(undefined);
+    vi.mocked(message).mockResolvedValue("Ok");
     vi.mocked(invoke).mockResolvedValue(undefined);
   });
 

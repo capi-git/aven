@@ -14,7 +14,7 @@ function session(id: string, cwd: string): Session {
     busy: false,
     model: "",
     modelSettings: {},
-    runtimeMode: "default",
+    runtimeMode: "supervised",
   };
 }
 

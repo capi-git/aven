@@ -32,7 +32,7 @@ const task = {
   id: "ui",
   title: "Settings UI",
   prompt: "Build the view",
-  harness: "codex",
+  harness: "codex" as const,
   model: "codex:test",
   files: ["src/settings"],
   dependsOn: [],

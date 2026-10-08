@@ -387,9 +387,12 @@ describe("hydrateWorkspaceSnapshot", () => {
 
   it("excludes private temporary Inbox draft content from the snapshot", () => {
     const session = newSession("cursor", "/tmp/inbox");
-    session.inboxAsk = { itemId: "private" } as NonNullable<
-      Session["inboxAsk"]
-    >;
+    session.inboxAsk = {
+      key: "github:private",
+      title: "Private",
+      url: "https://github.com/example/private/issues/1",
+      provider: "github",
+    };
     updateComposerDraft(session.id, { text: "private temporary question" });
     const tab = newTab(session.id);
     const snapshot = collectWorkspaceSnapshot(
