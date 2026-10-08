@@ -70,6 +70,7 @@ import { useHoverRevealPanel } from "./hooks/useHoverRevealPanel";
 import { useWorkspaceSnapshotPersistence } from "./hooks/useWorkspaceSnapshotPersistence";
 import { useRecentProjects } from "./hooks/useRecentProjects";
 import { useBrowserOrb } from "./hooks/useBrowserOrb";
+import { usagePanelTheme } from "./lib/usagePanel";
 import {
   useAutomationsKeepAwake,
   useScheduledAgents,
@@ -579,6 +580,7 @@ import {
   type SettingsSectionId,
   type FollowUpBehavior,
   loadBrowserBubble,
+  loadBrowserBubbleColor,
   subscribeBrowserBubble,
 } from "./lib/settings";
 import {
@@ -8442,9 +8444,24 @@ export default function App({
     subscribeBrowserBubble,
     loadBrowserBubble,
   );
+  const browserBubbleColor = useSyncExternalStore(
+    subscribeBrowserBubble,
+    loadBrowserBubbleColor,
+  );
+  const browserBubbleTint = useMemo(
+    () =>
+      browserBubbleColor === "none"
+        ? null
+        : browserBubbleColor === "accent"
+          ? usagePanelTheme().accent
+          : browserBubbleColor,
+    // The workspace accent changes with the active project's theme.
+    [browserBubbleColor, projectCwd],
+  );
   useBrowserOrb({
     enabled: browserBubble && !profileHome,
     session: active,
+    tint: browserBubbleTint,
     onSubmit: (sessionId, text) => {
       sessionPaneProps.onSubmit(sessionId, text, []);
     },

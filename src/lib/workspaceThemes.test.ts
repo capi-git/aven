@@ -17,6 +17,8 @@ import {
   saveWorkspaceColor,
   defaultWorkspaceTheme,
   copyWorkspaceTheme,
+  SIDEBAR_TINT_STRENGTH_DEFAULT,
+  SIDEBAR_TINT_STRENGTH_MAX,
 } from "./workspaceThemes";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -93,6 +95,29 @@ describe("workspace appearance migration and persistence", () => {
     expect(document.documentElement.classList.contains("match-workspace-panels")).toBe(true);
     act(() => resetWorkspaceTheme("personal"));
     expect(document.documentElement.classList.contains("match-workspace-panels")).toBe(false);
+  });
+
+  it("gives each workspace its own sidebar colour and clears it with Graphite", () => {
+    const root = document.documentElement;
+    render("personal");
+    expect(root.classList.contains("has-sidebar-tint")).toBe(false);
+    act(() => saveWorkspaceTheme("personal", { sidebarTint: "#4F7CFF" as never }));
+    expect(root.classList.contains("has-sidebar-tint")).toBe(true);
+    expect(root.style.getPropertyValue("--sidebar-tint")).toBe("#4f7cff");
+    expect(root.style.getPropertyValue("--sidebar-tint-strength")).toBe(`${SIDEBAR_TINT_STRENGTH_DEFAULT}%`);
+    act(() => saveWorkspaceTheme("personal", { sidebarTintStrength: 500 }));
+    expect(root.style.getPropertyValue("--sidebar-tint-strength")).toBe(`${SIDEBAR_TINT_STRENGTH_MAX}%`);
+    render("work");
+    expect(root.classList.contains("has-sidebar-tint")).toBe(false);
+    act(() => saveWorkspaceTheme("work", { sidebarTint: "accent" }));
+    expect(root.style.getPropertyValue("--sidebar-tint")).toBe("var(--personal-accent)");
+    render("personal");
+    expect(root.style.getPropertyValue("--sidebar-tint")).toBe("#4f7cff");
+    act(() => saveWorkspaceTheme("personal", { sidebarTint: "none" }));
+    expect(root.classList.contains("has-sidebar-tint")).toBe(false);
+    expect(loadWorkspaceTheme("personal").sidebarTint).toBeUndefined();
+    act(() => saveWorkspaceTheme("personal", { sidebarTint: "url(evil)" as never }));
+    expect(root.classList.contains("has-sidebar-tint")).toBe(false);
   });
 
   it("starts fresh workspaces with the Aven glass palette following the system and persists it", () => {

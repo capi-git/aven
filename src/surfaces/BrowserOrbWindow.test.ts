@@ -24,6 +24,7 @@ const IDLE: BrowserOrbSnapshot = {
   chat: { title: "Fix hero layout", agent: "Claude Code" },
   busy: false,
   answer: null,
+  tint: null,
 };
 
 let root: Root;
@@ -192,4 +193,11 @@ it("explains when there is no chat to ask", async () => {
   const input = container.querySelector<HTMLInputElement>(".orb-input")!;
   expect(input.disabled).toBe(true);
   expect(input.placeholder).toBe("Open a chat in this workspace to ask");
+});
+
+it("tints the glass with the chosen colour", async () => {
+  await mount({ ...IDLE, tint: "#9b5cff" });
+  const stack = container.querySelector<HTMLElement>(".orb-stack")!;
+  expect(stack.hasAttribute("data-tint")).toBe(true);
+  expect(stack.style.getPropertyValue("--orb-tint")).toBe("#9b5cff");
 });

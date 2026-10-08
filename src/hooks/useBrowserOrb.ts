@@ -26,6 +26,7 @@ type Asked = { id: string; sessionId: string; after: number };
 export function useBrowserOrb({
   enabled,
   session,
+  tint = null,
   onSubmit,
   onStop,
   onOpenChat,
@@ -34,6 +35,8 @@ export function useBrowserOrb({
 }: {
   enabled: boolean;
   session: Session | undefined;
+  /** The bubble's glass colour, or null for the standard charcoal. */
+  tint?: string | null;
   onSubmit: (sessionId: string, text: string) => void;
   onStop: (sessionId: string) => void;
   onOpenChat: (sessionId: string) => void;
@@ -63,8 +66,9 @@ export function useBrowserOrb({
         : null,
       busy: Boolean(session?.busy),
       answer,
+      tint,
     };
-  }, [session, asked]);
+  }, [session, asked, tint]);
 
   const latest = useRef({ session, onSubmit, onStop, onOpenChat, snapshot });
   latest.current = { session, onSubmit, onStop, onOpenChat, snapshot };

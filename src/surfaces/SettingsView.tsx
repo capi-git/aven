@@ -40,7 +40,9 @@ import {
   Select,
   SecondaryButton,
   SettingsGroup,
+  ColorSwatches,
 } from "./SettingsControls";
+import type { ColorChoice } from "../lib/colorChoice";
 import "./SettingsView.css";
 import {
   AUTOSAVE_DEFAULT,
@@ -175,6 +177,7 @@ import {
   BROWSER_BUBBLE_DEFAULT,
   BROWSER_MEMORY_SAVER_DEFAULT,
   loadBrowserBubble,
+  loadBrowserBubbleColor,
   loadBrowserMemorySaver,
   loadBrowserLowMemory,
   loadClaudeHooks,
@@ -192,6 +195,7 @@ import {
   saveLiveAgentsEnabled,
   saveNotesEnabled,
   saveBrowserBubble,
+  saveBrowserBubbleColor,
   saveBrowserMemorySaver,
   subscribeBrowserBubble,
   subscribeBrowserMemorySaver,
@@ -230,6 +234,9 @@ import {
   saveWorkspaceTheme,
   type WorkspaceColorTarget,
   useActiveWorkspaceTheme,
+  SIDEBAR_TINT_STRENGTH_DEFAULT,
+  SIDEBAR_TINT_STRENGTH_MAX,
+  SIDEBAR_TINT_STRENGTH_MIN,
 } from "../lib/workspaceThemes";
 import {
   installPendingUpdate,
@@ -548,6 +555,11 @@ function PreferencesPage({
     loadBrowserBubble,
     () => BROWSER_BUBBLE_DEFAULT,
   );
+  const browserBubbleColor = useSyncExternalStore(
+    subscribeBrowserBubble,
+    loadBrowserBubbleColor,
+    () => "none" as ColorChoice,
+  );
   const browserLowMemory = useSyncExternalStore(
     subscribeBrowserLowMemory,
     loadBrowserLowMemory,
@@ -815,6 +827,18 @@ function PreferencesPage({
               onChange={saveBrowserBubble}
             />
           </Row>
+          {browserBubble ? (
+            <Row
+              label="Bubble colour"
+              description="The colour of the bubble's glass. Graphite is the standard charcoal."
+            >
+              <ColorSwatches
+                label="Bubble colour"
+                value={browserBubbleColor}
+                onChange={saveBrowserBubbleColor}
+              />
+            </Row>
+          ) : null}
         </SettingsGroup>
         <SettingsGroup
           title="Memory"
@@ -1236,6 +1260,9 @@ function useAppearanceSettings() {
   const colors = resolvedWorkspaceColors(theme, colorScheme);
   const themePreference = theme.preference;
   const { opacity, blur, bodyGlass, matchPanels } = theme;
+  const sidebarTint = theme.sidebarTint ?? "none";
+  const sidebarTintStrength =
+    theme.sidebarTintStrength ?? SIDEBAR_TINT_STRENGTH_DEFAULT;
   const [chatBackgroundPath, setChatBackgroundPath] = useState(
     loadChatBackgroundPath,
   );
@@ -1300,6 +1327,17 @@ function useAppearanceSettings() {
 
   const onMatchPanels = useCallback(
     (next: boolean) => saveWorkspaceTheme(profileId, { matchPanels: next }),
+    [profileId],
+  );
+
+  const onSidebarTint = useCallback(
+    (next: ColorChoice) => saveWorkspaceTheme(profileId, { sidebarTint: next }),
+    [profileId],
+  );
+
+  const onSidebarTintStrength = useCallback(
+    (next: number) =>
+      saveWorkspaceTheme(profileId, { sidebarTintStrength: next }),
     [profileId],
   );
 
@@ -1380,6 +1418,8 @@ function useAppearanceSettings() {
     blur,
     bodyGlass,
     matchPanels,
+    sidebarTint,
+    sidebarTintStrength,
     chatBackgroundPath,
     chatBackgroundOpacity,
     chatBackgroundScope,
@@ -1393,6 +1433,8 @@ function useAppearanceSettings() {
     onPreviewColor,
     onBodyGlass,
     onMatchPanels,
+    onSidebarTint,
+    onSidebarTintStrength,
     onChooseChatBackground,
     onClearChatBackground,
     onChatBackgroundOpacity,
@@ -1465,6 +1507,31 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
             onChange={appearance.onMatchPanels}
           />
         </Row>
+        <Row
+          label="Sidebar colour"
+          description="A wash of colour over this workspace's sidebar, strongest at the top. Text stays readable."
+        >
+          <ColorSwatches
+            label="Sidebar colour"
+            value={appearance.sidebarTint}
+            onChange={appearance.onSidebarTint}
+          />
+        </Row>
+        {appearance.sidebarTint !== "none" ? (
+          <Row
+            label="Sidebar colour strength"
+            description="How much of the colour shows."
+          >
+            <Slider
+              label="Sidebar colour strength"
+              value={appearance.sidebarTintStrength}
+              display={`${appearance.sidebarTintStrength}%`}
+              min={SIDEBAR_TINT_STRENGTH_MIN}
+              max={SIDEBAR_TINT_STRENGTH_MAX}
+              onChange={appearance.onSidebarTintStrength}
+            />
+          </Row>
+        ) : null}
         {HAS_NATIVE_GLASS && (
           <Row
             label="Background opacity"

@@ -116,6 +116,7 @@ describe("the Aven bubble's owner", () => {
       chat: { title: "Fix hero layout", agent: "Claude Code" },
       busy: false,
       answer: null,
+      tint: null,
     });
     anchor = null;
     await act(() => vi.advanceTimersByTimeAsync(BROWSER_ORB_TRACK_MS));
@@ -181,6 +182,28 @@ describe("the Aven bubble's owner", () => {
     expect(lastSet()[1].chat).toBeNull();
     await act(async () => deliver({ action: "submit", text: "hello" }));
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("passes the chosen colour to the bubble", async () => {
+    function Tinted({ tint }: { tint: string | null }) {
+      useBrowserOrb({
+        enabled: true,
+        session: chat(),
+        tint,
+        onSubmit,
+        onStop,
+        onOpenChat,
+        findAnchor,
+        native,
+      });
+      return null;
+    }
+    await act(async () =>
+      root.render(createElement(Tinted, { tint: "#12b886" })),
+    );
+    expect(lastSet()[1].tint).toBe("#12b886");
+    await act(async () => root.render(createElement(Tinted, { tint: null })));
+    expect(lastSet()[1].tint).toBeNull();
   });
 
   it("hides the bubble when the setting is turned off", async () => {

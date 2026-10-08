@@ -10,6 +10,11 @@ import {
   type ReactNode,
 } from "react";
 import { playCue } from "../lib/sounds";
+import {
+  COLOR_PRESETS,
+  colorChoiceLabel,
+  type ColorChoice,
+} from "../lib/colorChoice";
 import { Popover } from "../chrome/Popover";
 import { ToolbarPanel } from "../chrome/ToolbarPanel";
 import { Check, ChevronDown } from "../chrome/icons";
@@ -271,6 +276,68 @@ export function Toggle({
         <span />
       </span>
     </button>
+  );
+}
+
+/** Preset colour swatches plus any colour, as one radio group. */
+export function ColorSwatches({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: ColorChoice;
+  onChange: (value: ColorChoice) => void;
+}) {
+  const descriptionId = useContext(RowDescription);
+  const custom = !COLOR_PRESETS.some((preset) => preset.value === value);
+  const choose = (next: ColorChoice) => {
+    onChange(next);
+    playCue("switch");
+  };
+  return (
+    <div
+      className="settings-swatches"
+      role="radiogroup"
+      aria-label={label}
+      aria-describedby={descriptionId}
+    >
+      {COLOR_PRESETS.map((preset) => (
+        <button
+          key={preset.value}
+          type="button"
+          role="radio"
+          className="settings-swatch"
+          aria-checked={preset.value === value}
+          aria-label={preset.label}
+          title={preset.label}
+          style={{ "--swatch": preset.swatch } as CSSProperties}
+          onClick={() => choose(preset.value)}
+        />
+      ))}
+      <label
+        className="settings-swatch settings-swatch-custom"
+        title={custom ? `Custom (${value})` : "Any colour"}
+        data-checked={custom || undefined}
+        style={
+          (custom ? { "--swatch": value } : undefined) as
+            | CSSProperties
+            | undefined
+        }
+      >
+        <input
+          type="color"
+          aria-label="Any colour"
+          value={custom ? value : "#7aa7ff"}
+          onChange={(event) =>
+            onChange(event.target.value.toLowerCase() as ColorChoice)
+          }
+        />
+      </label>
+      <span className="settings-swatch-name" aria-hidden="true">
+        {colorChoiceLabel(value)}
+      </span>
+    </div>
   );
 }
 

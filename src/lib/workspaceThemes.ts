@@ -1,4 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { normalizeColorChoice, type ColorChoice } from "./colorChoice";
 import {
   applyBodyGlass,
   applySidebarBlur,
@@ -55,7 +56,38 @@ export type WorkspaceTheme = {
   bodyGlass: boolean;
   matchPanels: boolean;
   colors?: ThemeColorOverrides;
+  /** A wash of colour over the sidebar; absent or "none" keeps it plain. */
+  sidebarTint?: ColorChoice;
+  /** How strong the sidebar wash is, in percent. */
+  sidebarTintStrength?: number;
 };
+
+export const SIDEBAR_TINT_STRENGTH_MIN = 5;
+export const SIDEBAR_TINT_STRENGTH_MAX = 60;
+export const SIDEBAR_TINT_STRENGTH_DEFAULT = 28;
+
+/** Paint the sidebar wash on the document; "none" removes it. */
+export function applySidebarTint(
+  tint: ColorChoice | undefined,
+  strength: number | undefined,
+  root: HTMLElement = document.documentElement,
+) {
+  const on = !!tint && tint !== "none";
+  root.classList.toggle("has-sidebar-tint", on);
+  if (!on) {
+    root.style.removeProperty("--sidebar-tint");
+    root.style.removeProperty("--sidebar-tint-strength");
+    return;
+  }
+  root.style.setProperty(
+    "--sidebar-tint",
+    tint === "accent" ? "var(--personal-accent)" : tint,
+  );
+  root.style.setProperty(
+    "--sidebar-tint-strength",
+    `${strength ?? SIDEBAR_TINT_STRENGTH_DEFAULT}%`,
+  );
+}
 export type WorkspaceColorTarget = ThemeColorTarget;
 export type WorkspaceColors = Record<WorkspaceColorTarget, string>;
 export type WorkspaceThemePreset = {
@@ -382,6 +414,24 @@ export function normalizeWorkspaceTheme(
         ? candidate.matchPanels
         : fallback.matchPanels,
     ...(colors ? { colors } : {}),
+    ...sidebarTintFields(candidate, fallback),
+  };
+}
+function sidebarTintFields(
+  candidate: Partial<WorkspaceTheme>,
+  fallback: WorkspaceTheme,
+): Pick<WorkspaceTheme, "sidebarTint" | "sidebarTintStrength"> {
+  const tint =
+    normalizeColorChoice(candidate.sidebarTint) ?? fallback.sidebarTint;
+  if (!tint || tint === "none") return {};
+  return {
+    sidebarTint: tint,
+    sidebarTintStrength: numberInRange(
+      candidate.sidebarTintStrength,
+      fallback.sidebarTintStrength ?? SIDEBAR_TINT_STRENGTH_DEFAULT,
+      SIDEBAR_TINT_STRENGTH_MIN,
+      SIDEBAR_TINT_STRENGTH_MAX,
+    ),
   };
 }
 function validId(id: string) {
@@ -636,6 +686,7 @@ export function useActivateWorkspaceTheme(profileId: string) {
       "match-workspace-panels",
       theme.matchPanels,
     );
+    applySidebarTint(theme.sidebarTint, theme.sidebarTintStrength);
     if (appliedBlur.current !== theme.blur) {
       appliedBlur.current = theme.blur;
       applySidebarBlur(theme.blur);
@@ -653,6 +704,8 @@ export function useActivateWorkspaceTheme(profileId: string) {
     theme.blur,
     theme.bodyGlass,
     theme.matchPanels,
+    theme.sidebarTint,
+    theme.sidebarTintStrength,
     theme.colors?.dark?.background,
     theme.colors?.dark?.accent,
     theme.colors?.dark?.highlight,

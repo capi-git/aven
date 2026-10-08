@@ -648,3 +648,33 @@ html
     --personal-navigation-blur: none;
   }
 }
+
+/* A workspace's sidebar colour: a wash that is strongest at the top corner,
+   over whichever glass or solid surface the sidebar has, under its content. */
+html.has-sidebar-tint .personal-shell .personal-sidebar.personal-navigation::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      140% 55% at 0% 0%,
+      color-mix(
+        in srgb,
+        var(--sidebar-tint) calc(var(--sidebar-tint-strength) * 1.25),
+        transparent
+      ),
+      transparent 78%
+    ),
+    color-mix(
+      in srgb,
+      var(--sidebar-tint) calc(var(--sidebar-tint-strength) * 0.45),
+      transparent
+    );
+  transition: background 0.4s ease;
+}
+html.has-sidebar-tint .personal-shell .personal-sidebar.personal-navigation {
+  isolation: isolate;
+}

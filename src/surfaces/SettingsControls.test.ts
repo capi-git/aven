@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { playCue } from "../lib/sounds";
 import {
+  ColorSwatches,
   Row,
   SecondaryButton,
   Segmented,
@@ -395,5 +396,55 @@ describe("settings app-rendered select", () => {
     expect(document.querySelector('[role="listbox"]')).toBeNull();
     expect(document.activeElement).toBe(outside);
     outside.remove();
+  });
+});
+
+describe("ColorSwatches", () => {
+  function Picker({ initial }: { initial: string }) {
+    const [value, setValue] = useState(initial);
+    return h(ColorSwatches, {
+      label: "Sidebar colour",
+      value: value as never,
+      onChange: (next: string) => setValue(next),
+    });
+  }
+
+  it("selects presets and any colour as one radio group", async () => {
+    await act(async () => root.render(h(Picker, { initial: "none" })));
+    const group = container.querySelector('[role="radiogroup"]')!;
+    expect(group.getAttribute("aria-label")).toBe("Sidebar colour");
+    const checked = () =>
+      container
+        .querySelector('[role="radio"][aria-checked="true"]')
+        ?.getAttribute("aria-label");
+    expect(checked()).toBe("Graphite");
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Forest"]')!
+        .click(),
+    );
+    expect(checked()).toBe("Forest");
+    expect(playCue).toHaveBeenCalledWith("switch");
+
+    const input = container.querySelector<HTMLInputElement>(
+      'input[type="color"]',
+    )!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!;
+      setter.call(input, "#AB12CD");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(checked()).toBeUndefined();
+    expect(
+      container
+        .querySelector(".settings-swatch-custom")
+        ?.hasAttribute("data-checked"),
+    ).toBe(true);
+    expect(container.querySelector(".settings-swatch-name")?.textContent).toBe(
+      "Custom",
+    );
   });
 });

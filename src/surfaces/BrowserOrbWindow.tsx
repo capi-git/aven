@@ -1,5 +1,11 @@
 import "./BrowserOrbWindow.css";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import {
   BROWSER_ORB_STATE_EVENT,
   browserOrbWindow,
@@ -158,6 +164,11 @@ export function BrowserOrbWindow() {
     <div
       ref={stack}
       className={`orb-stack${busy ? " is-busy" : ""}`}
+      data-tint={snapshot.tint ? "" : undefined}
+      style={
+        (snapshot.tint ? { "--orb-tint": snapshot.tint } : undefined) as
+          CSSProperties | undefined
+      }
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();

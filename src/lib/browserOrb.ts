@@ -9,6 +9,8 @@ export type BrowserOrbSnapshot = {
   busy: boolean;
   /** The latest answer to something asked from the bubble. */
   answer: { id: string; text: string } | null;
+  /** The bubble's glass colour, or null for the standard charcoal. */
+  tint: string | null;
 };
 
 export type BrowserOrbState = {
