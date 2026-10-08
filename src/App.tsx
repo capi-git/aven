@@ -3018,10 +3018,14 @@ export default function App({
     [focusProjectTerminal],
   );
 
+  // New terminals open in the active session's worktree when it has one, so
+  // they never land in the main checkout while the session works elsewhere.
+  const terminalCwd = active ? sessionWorkCwd(active) : projectCwd;
+
   const onOpenTerminal = useCallback(
     (cwd: string, asWorkspaceTab = false, occupySessionId?: string) => {
       leaveExpandedPreview();
-      const workdir = cwd || active?.cwd || projectCwd;
+      const workdir = cwd || terminalCwd;
       if (openProjectTerminal(workdir)) return;
 
       if (asWorkspaceTab || !activeTab) {
@@ -3059,12 +3063,12 @@ export default function App({
       );
       setComposerFocused(false);
     },
-    [active?.cwd, activeTab, appendTab, openProjectTerminal, projectCwd],
+    [terminalCwd, activeTab, appendTab, openProjectTerminal],
   );
 
   const onNewTerminal = useCallback(() => {
-    onOpenTerminal(active?.cwd ?? projectCwd);
-  }, [active?.cwd, onOpenTerminal, projectCwd]);
+    onOpenTerminal(terminalCwd);
+  }, [terminalCwd, onOpenTerminal]);
 
   const onNewTerminalInSession = useCallback(
     (sessionId: string) => {
@@ -3084,7 +3088,7 @@ export default function App({
     if (!looksLikeProject(projectCwd)) return;
     const dock = findProjectTerminal(projectTerminalsRef.current, projectCwd);
     if (!dock) {
-      openProjectTerminal(active?.cwd ?? projectCwd);
+      openProjectTerminal(terminalCwd);
       return;
     }
     const nextOpen = !dock.open;
@@ -3095,7 +3099,7 @@ export default function App({
     );
     if (nextOpen) focusProjectTerminal();
     else setProjectTerminalFocused(false);
-  }, [active?.cwd, focusProjectTerminal, openProjectTerminal, projectCwd]);
+  }, [terminalCwd, focusProjectTerminal, openProjectTerminal, projectCwd]);
 
   const onHideProjectTerminal = useCallback(() => {
     setProjectTerminals((prev) =>
@@ -3177,8 +3181,8 @@ export default function App({
 
   const onNewTerminalTab = useCallback(() => {
     leaveExpandedPreview();
-    onOpenTerminal(active?.cwd ?? projectCwd, true);
-  }, [active?.cwd, onOpenTerminal, projectCwd]);
+    onOpenTerminal(terminalCwd, true);
+  }, [terminalCwd, onOpenTerminal]);
 
   const onCloseTab = useCallback(
     (id: string, opts?: { confirmedTerminalIds?: string[] }) => {
