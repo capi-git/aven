@@ -89,8 +89,20 @@ import {
   setGitOriginal,
 } from "./editorGit";
 import { editorLint } from "./editorLint";
-import { editorSearch } from "./editorSearch";
+import {
+  editorSearch,
+  handleEditorFindKey,
+  openFindInActiveEditor,
+} from "./editorSearch";
+import { registerEditorCommands } from "./editorCommands";
+import { indentFocusedEditor } from "./editorShortcuts";
 import { DirectoryView } from "./DirectoryView";
+
+registerEditorCommands({
+  handleFindKey: handleEditorFindKey,
+  openFind: openFindInActiveEditor,
+  indent: indentFocusedEditor,
+});
 
 type EditorNavigationRequest = EditorNavigation & { token: number };
 

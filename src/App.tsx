@@ -1,7 +1,6 @@
 import { discardEditorDrafts } from "./lib/workspaceTransfers";
 import { useFixedDeadline } from "./hooks/useFixedDeadline";
 import { useReturnFocus } from "./hooks/useReturnFocus";
-import { indentFocusedEditor } from "./surfaces/editorShortcuts";
 import { useAccountUsageProviders } from "./hooks/useAccountUsageProviders";
 import { useAutomaticModelCatalogs } from "./hooks/useAutomaticModelCatalogs";
 import {
@@ -299,7 +298,11 @@ import {
   type SplitDir,
   type WorkspaceTab,
 } from "./lib/layout";
-import { releaseNotesForVersion, releaseNotesTitle } from "./lib/releaseNotes";
+import {
+  loadBundledChangelog,
+  releaseNotesForVersion,
+  releaseNotesTitle,
+} from "./lib/releaseNotes";
 import { mergeOrderedSubset, orderByIds } from "./lib/reorder";
 import {
   addTerminalToDock,
@@ -580,8 +583,9 @@ import {
 } from "./lib/settings";
 import {
   handleEditorFindKey,
+  indentFocusedEditor,
   openFindInActiveEditor,
-} from "./surfaces/editorSearch";
+} from "./surfaces/editorCommands";
 
 import {
   mergeHistorySummary,
@@ -2728,15 +2732,19 @@ export default function App({
   );
 
   const onOpenWhatsNew = useCallback((version: string) => {
-    const document = releaseNotesForVersion(version);
-    if (!document) {
-      void message(
-        "Release notes for this version are not available in this build.",
-        { title: "Aven" },
-      );
-      return;
-    }
-    setWhatsNewVersion(document.source.version);
+    void loadBundledChangelog()
+      .then((changelog) => releaseNotesForVersion(version, changelog))
+      .catch(() => null)
+      .then((document) => {
+        if (!document) {
+          void message(
+            "Release notes for this version are not available in this build.",
+            { title: "Aven" },
+          );
+          return;
+        }
+        setWhatsNewVersion(document.source.version);
+      });
   }, []);
 
   const onNewStandalone = useCallback(

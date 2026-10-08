@@ -1,4 +1,22 @@
-import bundledChangelog from "../../CHANGELOG.md?raw";
+let bundledChangelog: string | null = null;
+let bundledChangelogLoad: Promise<string> | null = null;
+
+/** The changelog is ~45 kB of text; load it when release notes are shown. */
+export function loadBundledChangelog(): Promise<string> {
+  bundledChangelogLoad ??= import("../../CHANGELOG.md?raw").then(
+    (module) => (bundledChangelog = module.default),
+    (error: unknown) => {
+      // Let a later request retry a failed chunk load.
+      bundledChangelogLoad = null;
+      throw error;
+    },
+  );
+  return bundledChangelogLoad;
+}
+
+export function loadedBundledChangelog(): string | null {
+  return bundledChangelog;
+}
 
 export type ReleaseNotesTabSource = {
   version: string;
@@ -15,7 +33,7 @@ export function releaseNotesTitle(version: string): string {
 
 export function releaseNotesForVersion(
   version: string,
-  changelog: string = bundledChangelog,
+  changelog: string,
 ): ReleaseNotesDocument | null {
   const normalized = version.trim();
   if (!normalized || normalized === "Unreleased") return null;
@@ -41,7 +59,7 @@ export function releaseNotesForVersion(
 
 export function releaseNotesMarkdown(
   source: ReleaseNotesTabSource,
-  changelog: string = bundledChangelog,
+  changelog: string,
 ): string | null {
   return releaseNotesForVersion(source.version, changelog)?.markdown ?? null;
 }
@@ -55,7 +73,7 @@ export type ReleaseNotesPresentation = {
 /** Changelog body for the What's new modal: version heading lives in the chrome. */
 export function presentReleaseNotes(
   version: string,
-  changelog: string = bundledChangelog,
+  changelog: string,
 ): ReleaseNotesPresentation | null {
   const release = releaseNotesForVersion(version, changelog);
   if (!release) return null;

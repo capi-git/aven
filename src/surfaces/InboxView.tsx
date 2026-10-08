@@ -21,6 +21,8 @@ import {
   type IconComponent,
 } from "../chrome/icons";
 import {
+  lazy,
+  Suspense,
   useEffect,
   useMemo,
   useRef,
@@ -114,12 +116,16 @@ import {
   InboxCommentForm,
   type InboxReplyTarget,
 } from "./InboxComments";
-import { InboxPrDiff } from "./InboxPrDiff";
 import {
   InboxDiscussionPanel,
   type InboxSessionPortal,
 } from "./InboxDiscussionPanel";
 import { inboxAskKey } from "../lib/inboxAsk";
+
+// The diff renderer pulls in CodeMirror; load it when a PR's code is opened.
+const InboxPrDiff = lazy(() =>
+  import("./InboxPrDiff").then((module) => ({ default: module.InboxPrDiff })),
+);
 
 const MIN_WIDTH = 240;
 const MAX_WIDTH = 420;
@@ -1368,10 +1374,21 @@ function InboxDetail({
         ) : diffError ? (
           <p className="text-[13px] text-content/50">{diffError}</p>
         ) : prDiff ? (
-          <InboxPrDiff
-            key={`${item.projectPath}:${item.number}:${revision}`}
-            diff={prDiff}
-          />
+          <Suspense
+            fallback={
+              <div className="flex justify-center py-10 text-content/40">
+                <LoaderCircle
+                  className="size-4 animate-spin"
+                  strokeWidth={1.75}
+                />
+              </div>
+            }
+          >
+            <InboxPrDiff
+              key={`${item.projectPath}:${item.number}:${revision}`}
+              diff={prDiff}
+            />
+          </Suspense>
         ) : (
           <p className="text-[13px] text-content/45">No file changes</p>
         )

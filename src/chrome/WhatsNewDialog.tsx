@@ -1,3 +1,4 @@
+import { useBundledChangelog } from "../hooks/useBundledChangelog";
 import {
   formatReleaseDate,
   presentReleaseNotes,
@@ -12,12 +13,14 @@ type Props = {
 };
 
 export function WhatsNewBody({ version }: { version: string }) {
-  const notes = presentReleaseNotes(version);
+  const changelog = useBundledChangelog();
+  const notes =
+    changelog === null ? null : presentReleaseNotes(version, changelog);
   const title = releaseNotesTitle(version);
 
   return (
     <article aria-label={title} className="px-5 py-4">
-      {notes?.markdown ? (
+      {changelog === null ? null : notes?.markdown ? (
         <AgentMarkdown
           className="whats-new-md"
           text={notes.markdown}
@@ -33,7 +36,9 @@ export function WhatsNewBody({ version }: { version: string }) {
 }
 
 export function WhatsNewDialog({ version, onClose }: Props) {
-  const notes = presentReleaseNotes(version);
+  const changelog = useBundledChangelog();
+  const notes =
+    changelog === null ? null : presentReleaseNotes(version, changelog);
   const date = notes?.date ? formatReleaseDate(notes.date) : null;
 
   return (

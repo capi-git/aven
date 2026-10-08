@@ -10,6 +10,8 @@ import {
   Plus,
 } from "../chrome/icons";
 import {
+  lazy,
+  Suspense,
   useEffect,
   useRef,
   useState,
@@ -27,7 +29,11 @@ import {
 } from "../lib/projectTerminal";
 import { MOD } from "../lib/platform";
 import type { TerminalMetaPatch } from "../lib/terminalTab";
-import { TerminalView } from "./TerminalView";
+
+// xterm loads with the first terminal instead of at startup.
+const TerminalView = lazy(() =>
+  import("./TerminalView").then((module) => ({ default: module.TerminalView })),
+);
 
 type Props = {
   dock: ProjectTerminalDock;
@@ -251,13 +257,17 @@ export function ProjectTerminalDock({
                 : "hidden"
             }
           >
-            <TerminalView
-              id={file.id}
-              cwd={file.cwd}
-              active={focused && file.id === dock.pane.activeFileId}
-              presented={presented && file.id === dock.pane.activeFileId}
-              onMetaChange={(patch) => onTerminalMetaChange?.(file.id, patch)}
-            />
+            <Suspense
+              fallback={<div aria-busy="true" className="h-full w-full" />}
+            >
+              <TerminalView
+                id={file.id}
+                cwd={file.cwd}
+                active={focused && file.id === dock.pane.activeFileId}
+                presented={presented && file.id === dock.pane.activeFileId}
+                onMetaChange={(patch) => onTerminalMetaChange?.(file.id, patch)}
+              />
+            </Suspense>
           </div>
         ))}
       </div>
