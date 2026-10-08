@@ -3,7 +3,7 @@ import { act, createElement, StrictMode, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { leaf, leafIds, type WorkspaceTab } from "./layout";
-import { resolveWorkspaceView } from "./workspaceViews";
+import { minimizeWorkspaceSide, resolveWorkspaceView } from "./workspaceViews";
 import { browserIdForTab } from "./personalWorkspace";
 import { captureWorkspaceReturnPlacement } from "./workspaceArrangement";
 import {
@@ -699,6 +699,31 @@ describe("detached workspace transactions", () => {
     expect(() =>
       mergeDetachedWorkspaces(a, { ...b, cwd: "/different" }),
     ).toThrow("same project");
+  });
+  it("keeps minimized tabs in their own panes when combining detached windows", () => {
+    const a = state("a"), b = state("b");
+    a.browsers = [{ id: "browser-a", tabId: "page", url: "https://example.test", nativeId: "retained-page" }];
+    a.view = resolveWorkspaceView(
+      {
+        layout: {
+          type: "split", id: "a-split", dir: "right",
+          children: [leaf("tab-a"), leaf("browser-a")], sizes: [0.4, 0.6],
+        },
+        order: ["tab-a", "browser-a"], focusedId: "browser-a",
+        groups: { "tab-a": ["tab-a"], "browser-a": ["browser-a"] },
+      },
+      ["tab-a", "browser-a"], "browser-a",
+    );
+    a.view = minimizeWorkspaceSide(a.view, "a-split", 0, "before");
+    for (const [first, second] of [[a, b], [b, a]]) {
+      const merged = mergeDetachedWorkspaces(first, second);
+      expect(leafIds(merged.view.layout!).sort()).toEqual(["browser-a", "tab-a", "tab-b"]);
+      expect(merged.view.groups["tab-a"]).toEqual(["tab-a"]);
+      expect(merged.view.groups["browser-a"]).toEqual(["browser-a"]);
+      expect(merged.browsers[0].nativeId).toBe("retained-page");
+      expect(merged.view.hiddenGroups).toBeUndefined();
+      expect(merged.view.restoreView).toBeUndefined();
+    }
   });
   it("moves a five-browser group immediately, retaining live pages and leaving unvisited URLs for the destination", async () => {
     await render();

@@ -45,7 +45,7 @@ export type WorkspaceRecoveryState = {
   version: 1;
   /** Oldest first; each stack is independently bounded. */
   closed: ClosedWorkspaceEntry[];
-  layouts: { cwd: string; view: WorkspaceViewSnapshot }[];
+  layouts: { cwd: string; view: WorkspaceView }[];
 };
 
 export function emptyWorkspaceRecovery(): WorkspaceRecoveryState {
@@ -350,7 +350,7 @@ export function popClosedWorkspaceEntry(
   };
 }
 
-function cleanView(raw: unknown): WorkspaceViewSnapshot | null {
+function cleanView(raw: unknown): WorkspaceView | null {
   try {
     const value = record(raw);
     if (
@@ -360,12 +360,25 @@ function cleanView(raw: unknown): WorkspaceViewSnapshot | null {
       !value.order.every((id) => text(id, 200))
     )
       return null;
+    const restore = record(value.restoreView);
     const copy = boundedCopy({
       layout: value.layout,
       focusedId: value.focusedId,
       order: value.order,
       groups: value.groups,
-    }) as WorkspaceViewSnapshot;
+      hiddenGroups: value.hiddenGroups,
+      minimizedEdge: value.minimizedEdge,
+      // One metadata-only backup keeps minimized tabs out of visible strips.
+      // Nested backups and any runtime fields are deliberately omitted.
+      restoreView: restore
+        ? {
+            layout: restore.layout,
+            focusedId: restore.focusedId,
+            order: restore.order,
+            groups: restore.groups,
+          }
+        : undefined,
+    }) as WorkspaceView;
     return resolveWorkspaceView(
       copy,
       copy.order,

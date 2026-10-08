@@ -11,6 +11,7 @@ import { browserIdForTab } from "./personalWorkspace";
 import {
   resolveWorkspaceView,
   selectWorkspaceView,
+  restoreWorkspaceSplit,
   type WorkspaceView,
 } from "./workspaceViews";
 import {
@@ -210,16 +211,24 @@ export function mergeDetachedWorkspaces(
     detachedSurfaceIds(b).includes(id),
   );
   if (overlap) throw new Error("These tabs already belong to this window.");
+  // Combining windows replaces their restore snapshots. Preserve minimized
+  // groups as separate panes instead of folding their tabs into a neighbor.
+  const aView = Object.keys(a.view.hiddenGroups ?? {}).length
+    ? restoreWorkspaceSplit(a.view)
+    : a.view;
+  const bView = Object.keys(b.view.hiddenGroups ?? {}).length
+    ? restoreWorkspaceSplit(b.view)
+    : b.view;
   const layout =
-    a.view.layout && b.view.layout
+    aView.layout && bView.layout
       ? {
           type: "split" as const,
           id: crypto.randomUUID(),
           dir: "right" as const,
-          children: [a.view.layout, b.view.layout],
+          children: [aView.layout, bView.layout],
           sizes: [0.5, 0.5],
         }
-      : (a.view.layout ?? b.view.layout);
+      : (aView.layout ?? bView.layout);
   return {
     ...a,
     // Combined windows no longer have one unambiguous original placement.
@@ -229,9 +238,9 @@ export function mergeDetachedWorkspaces(
     view: resolveWorkspaceView(
       {
         layout,
-        focusedId: b.view.focusedId,
-        order: [...a.view.order, ...b.view.order],
-        groups: { ...a.view.groups, ...b.view.groups },
+        focusedId: bView.focusedId,
+        order: [...aView.order, ...bView.order],
+        groups: { ...aView.groups, ...bView.groups },
       },
       ids,
       b.view.focusedId,

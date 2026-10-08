@@ -97,6 +97,8 @@ import {
   reorderWorkspaceGroup,
   collapseWorkspaceView,
   combineWorkspaceGroups,
+  minimizeWorkspaceSide,
+  restoreWorkspaceSplit,
   toggleWorkspaceExpansion,
   resolveWorkspaceView,
   type WorkspaceView,
@@ -7457,6 +7459,13 @@ export default function App({
     titleTabsRef.current = nextTitleTabs;
   }
   const titleTabs = titleTabsRef.current;
+  const hiddenSplitIds = new Set(Object.values(view.hiddenGroups ?? {}).flat());
+  const hiddenSplitTabs = titleTabs.filter((tab) => hiddenSplitIds.has(tab.id));
+  const hiddenSplitStatus = hiddenSplitTabs.some((tab) => tab.needsInput)
+    ? "attention"
+    : hiddenSplitTabs.some((tab) => tab.busyHarnesses.length > 0)
+      ? "working"
+      : undefined;
 
   // `history` now spans every visited project; consumers that expect the
   // current project only get this slice.
@@ -9618,6 +9627,18 @@ export default function App({
                             onLayoutChange={(layout) =>
                               changeLayout((view) => ({ ...view, layout }))
                             }
+                            onMinimizeSide={(splitId, index, side) =>
+                              changeLayout((view) =>
+                                minimizeWorkspaceSide(view, splitId, index, side),
+                              )
+                            }
+                            onRestoreSplit={
+                              view.restoreView
+                                ? () => changeLayout(restoreWorkspaceSplit)
+                                : undefined
+                            }
+                            restoreEdge={view.minimizedEdge}
+                            restoreStatus={hiddenSplitStatus}
                             dragging={surfaceDragging}
                             dragKind={dragKind}
                             dragLabel={

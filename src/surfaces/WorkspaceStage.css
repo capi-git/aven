@@ -145,6 +145,84 @@ html.has-chat-background:not(.chat-background-empty-only)
   min-width: 0;
   overflow: hidden;
   border-radius: 8px 8px 0 0;
+  box-sizing: border-box;
+}
+.workspace-pane-minimize-controls {
+  position: absolute;
+  top: 4px;
+  display: flex;
+  gap: 2px;
+}
+.workspace-pane-toggle {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: color-mix(in srgb, var(--color-content) 54%, transparent);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.workspace-pane-toggle:hover,
+.workspace-pane-toggle:focus-visible {
+  background: color-mix(in srgb, var(--color-content) 9%, transparent);
+  color: var(--color-content);
+}
+.workspace-pane-toggle:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
+.workspace-pane-restore {
+  position: absolute;
+  top: 4px;
+  left: 2px;
+}
+.workspace-pane-restore[data-edge="right"] {
+  left: auto;
+  right: 2px;
+}
+.workspace-pane-status {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+.workspace-pane-restore[data-status="attention"] .workspace-pane-status {
+  background: var(--color-warning, #d99a45);
+}
+.workspace-minimize-cue {
+  position: absolute;
+  inset: 4px auto 4px 3px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: max-content;
+  max-width: calc(100% - 6px);
+  padding: 0 8px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: var(--color-background-base, #242a31);
+  color: var(--color-content);
+  font-size: 11px;
+  line-height: 20px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.workspace-minimize-cue[data-align="right"] {
+  left: auto;
+  right: 3px;
+}
+.workspace-minimize-cue[hidden] {
+  display: none;
 }
 .workspace-stage-header[data-drop-target="true"]::after {
   content: "";

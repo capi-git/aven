@@ -6,6 +6,7 @@ import {
   reorderWorkspaceGroup,
   workspaceGroupOwner,
   selectWorkspaceView,
+  restoreWorkspaceSplit,
   type WorkspaceView,
   type WorkspaceViewSnapshot,
   type ViewEdge,
@@ -60,6 +61,9 @@ function arrangementStructure(view: WorkspaceView): string {
   return JSON.stringify([
     snapshot(view),
     view.restoreView ? snapshot(view.restoreView) : null,
+    Object.values(view.hiddenGroups ?? {}).sort((a, b) =>
+      a.join("\0").localeCompare(b.join("\0")),
+    ),
   ]);
 }
 
@@ -90,7 +94,10 @@ export function restoreWorkspaceArrangement(
     ...(current.layout ? leafIds(current.layout) : []),
     ...(incoming.layout ? leafIds(incoming.layout) : []),
   ])
-    restored = selectWorkspaceView(restored, id);
+    // A source left with only hidden tabs may temporarily reveal one. The
+    // unchanged round trip should put that group back into its hidden state.
+    if (workspaceGroupOwner(restored, id))
+      restored = selectWorkspaceView(restored, id);
   return selectWorkspaceView(restored, incoming.focusedId);
 }
 
@@ -99,6 +106,12 @@ export function mergeWorkspaceArrangements(
   current: WorkspaceView,
   incoming: WorkspaceView,
 ): WorkspaceView {
+  // A deliberate merge replaces the old restoration geometry. Reveal hidden
+  // groups in their own panes before building that new arrangement.
+  if (Object.keys(current.hiddenGroups ?? {}).length)
+    current = restoreWorkspaceSplit(current);
+  if (Object.keys(incoming.hiddenGroups ?? {}).length)
+    incoming = restoreWorkspaceSplit(incoming);
   const remaining = closeWorkspaceViews(
     current,
     incoming.order,
@@ -134,9 +147,12 @@ export function moveWorkspaceGroup(
   edge: ViewEdge | "tab",
   index?: number,
 ): WorkspaceView {
+  const original = view;
+  if (Object.keys(view.hiddenGroups ?? {}).length)
+    view = restoreWorkspaceSplit(view);
   const owner = workspaceGroupOwner(view, groupId);
   const target = workspaceGroupOwner(view, targetId);
-  if (!owner || !target || owner === target || !view.layout) return view;
+  if (!owner || !target || owner === target || !view.layout) return original;
   if (edge === "tab") {
     const combined = combineWorkspaceGroups(view, owner, target);
     if (index === undefined) return combined;
