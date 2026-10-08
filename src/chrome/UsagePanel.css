@@ -34,7 +34,7 @@ html.usage-panel-window .usage-panel {
   align-items: center;
   gap: 8px;
   color: var(--toolbar-panel-text);
-  font-size: 13px;
+  font-size: var(--text-ui-body);
   font-weight: 600;
 }
 
@@ -64,19 +64,19 @@ html.usage-panel-window .usage-panel {
 
 .usage-panel-label {
   color: var(--toolbar-panel-text);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
 }
 
 .usage-panel-remaining {
   color: var(--toolbar-panel-muted);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 
 .usage-panel-remaining strong {
   color: var(--toolbar-panel-text);
-  font-size: 13px;
+  font-size: var(--text-ui-body);
   font-weight: 600;
 }
 
@@ -111,7 +111,7 @@ html.usage-panel-window .usage-panel {
 .usage-panel-detail {
   margin-top: 5px;
   color: var(--toolbar-panel-muted);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   line-height: 1.5;
   font-variant-numeric: tabular-nums;
 }
@@ -141,7 +141,7 @@ html.usage-panel-window .usage-panel {
 .usage-panel-provider-status {
   min-width: 0;
   color: var(--toolbar-panel-muted);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   text-align: right;
 }
 
@@ -161,14 +161,14 @@ html.usage-panel-window .usage-panel {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   color: var(--toolbar-panel-warning);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   line-height: 1.5;
 }
 
 .usage-panel .usage-panel-empty {
   margin-top: 16px;
   color: var(--toolbar-panel-muted);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
 }
 
 .usage-panel-footer {
@@ -180,7 +180,7 @@ html.usage-panel-window .usage-panel {
   padding: 10px 16px 12px;
   border-top: 1px solid var(--toolbar-panel-line);
   color: var(--toolbar-panel-muted);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   line-height: 1.5;
 }
 

@@ -20,10 +20,10 @@ export function TaskListPreview({ items, explanation }: Props) {
         />
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-3">
-            <h3 className="font-mono text-[12px] font-medium text-content/85">
+            <h3 className="font-mono text-ui-label font-medium text-content/85">
               Tasks
             </h3>
-            <span className="shrink-0 rounded-full bg-content/7 px-2 py-0.5 font-mono text-[10px] text-content/50">
+            <span className="shrink-0 rounded-full bg-content/7 px-2 py-0.5 font-mono text-ui-micro text-content/50">
               {taskListProgressLabel(items)}
             </span>
           </div>

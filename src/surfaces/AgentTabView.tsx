@@ -27,7 +27,7 @@ export function AgentTabView({
   if (!session) {
     return (
       <div className="grid h-full place-items-center px-6 text-center">
-        <p className="max-w-sm text-[12px] leading-5 text-content/45">
+        <p className="max-w-sm text-ui-label leading-5 text-content/45">
           This agent is no longer running. Its work is summarised in the
           orchestrator's conversation.
         </p>
@@ -49,7 +49,7 @@ export function AgentTabView({
           managed
         />
       </div>
-      <footer className="flex shrink-0 items-center gap-1.5 border-t border-content/10 px-3 py-1.5 font-sans text-[11px] text-content/45">
+      <footer className="flex shrink-0 items-center gap-1.5 border-t border-content/10 px-3 py-1.5 font-sans text-ui-caption text-content/45">
         <HarnessIcon harness={session.harness} className="size-3.5 shrink-0" />
         <span className="min-w-0 truncate" title={title}>
           {model} · {HARNESS_TITLE[session.harness]}

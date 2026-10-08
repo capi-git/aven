@@ -24,14 +24,14 @@ export function UpdateNoticeDialog() {
     >
       <div className="px-4 pb-4 pt-3">
         {rest.length ? (
-          <p className="mb-4 whitespace-pre-line text-[12px] leading-relaxed text-content/70">
+          <p className="mb-4 whitespace-pre-line text-ui-label leading-relaxed text-content/70">
             {rest.join("\n\n")}
           </p>
         ) : null}
         <div className="flex justify-end">
           <button
             type="button"
-            className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-background-base hover:opacity-90"
+            className="rounded-md bg-accent px-3 py-1.5 text-ui-label font-medium text-background-base hover:opacity-90"
             autoFocus
             onClick={dismissUpdateNotice}
           >

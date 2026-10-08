@@ -64,14 +64,14 @@ export function OrchestrationSidebarAgents({
     (task) => task.status === "completed",
   ).length;
   const action =
-    "rounded px-1.5 py-0.5 text-[11px] text-content/55 hover:bg-content/10 hover:text-content disabled:opacity-35";
+    "rounded px-1.5 py-0.5 text-ui-caption text-content/55 hover:bg-content/10 hover:text-content disabled:opacity-35";
   // Sits inside an already-lit row, so it needs its own surface to read as a
   // button rather than as another line of text.
   const solidAction =
-    "rounded bg-content/15 px-1.5 py-0.5 text-[11px] text-content/75 hover:bg-content/25 hover:text-content disabled:opacity-35";
+    "rounded bg-content/15 px-1.5 py-0.5 text-ui-caption text-content/75 hover:bg-content/25 hover:text-content disabled:opacity-35";
   return (
     <div className="relative mt-1.5">
-      <div className="mb-0.5 px-0.5 flex items-center justify-between text-[11px] text-content/45">
+      <div className="mb-0.5 px-0.5 flex items-center justify-between text-ui-caption text-content/45">
         <span>
           {summary.tasks.length}{" "}
           {summary.tasks.length === 1 ? "agent" : "agents"}
@@ -142,11 +142,11 @@ export function OrchestrationSidebarAgents({
                     </>
                   )}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-[12px] leading-snug text-content/80">
+                <span className="min-w-0 flex-1 truncate text-ui-label leading-snug text-content/80">
                   {task.title}
                 </span>
                 <span
-                  className={`flex shrink-0 items-center gap-1 text-[11px] ${
+                  className={`flex shrink-0 items-center gap-1 text-ui-caption ${
                     task.needsInput || task.status === "failed"
                       ? "text-amber-400"
                       : working
@@ -159,7 +159,7 @@ export function OrchestrationSidebarAgents({
                   {task.needsInput || task.status === "failed" ? (
                     <CircleAlert className="size-3" strokeWidth={1.75} />
                   ) : working ? (
-                    <TerminalSpinner className="inline-block w-3 select-none text-center text-[11px] leading-none text-accent" />
+                    <TerminalSpinner className="inline-block w-3 select-none text-center text-ui-caption leading-none text-accent" />
                   ) : task.status === "completed" ? (
                     <Check className="size-3" strokeWidth={2.25} />
                   ) : null}
@@ -170,7 +170,7 @@ export function OrchestrationSidebarAgents({
               {open && (
                 <div className="space-y-2 pb-3 pl-6.5 pr-2">
                   <p
-                    className="flex min-w-0 items-center gap-1.5 text-[11px] text-content/45"
+                    className="flex min-w-0 items-center gap-1.5 text-ui-caption text-content/45"
                     title={`${model} · ${HARNESS_TITLE[task.harness]}`}
                   >
                     <HarnessIcon
@@ -180,7 +180,7 @@ export function OrchestrationSidebarAgents({
                     <span className="min-w-0 truncate">{model}</span>
                   </p>
                   {live?.error && (
-                    <p className="text-[11px] text-red-400">{live.error}</p>
+                    <p className="text-ui-caption text-red-400">{live.error}</p>
                   )}
                   <div className="flex flex-wrap items-center gap-1">
                     {workers.openDetails && (
@@ -222,7 +222,7 @@ export function OrchestrationSidebarAgents({
         })}
       </div>
       {(error || run?.error) && (
-        <p role="alert" className="py-1 text-[11px] text-red-400">
+        <p role="alert" className="py-1 text-ui-caption text-red-400">
           {error ?? run?.error}
         </p>
       )}

@@ -1116,7 +1116,7 @@ function SidebarComponent({
           setTaskSearchOpen(false);
         }
       }}
-      className="h-full w-full min-w-0 rounded-md bg-transparent py-0 pl-7 pr-2 text-[12px] text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+      className="h-full w-full min-w-0 rounded-md bg-transparent py-0 pl-7 pr-2 text-ui-label text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
     />
   );
 
@@ -1133,7 +1133,7 @@ function SidebarComponent({
       {tasksExpanded ? (
         <>
           {!cwd || cwd === "~" ? (
-            <p className="px-4 py-4 text-[12px] leading-relaxed text-content/60">
+            <p className="px-4 py-4 text-ui-label leading-relaxed text-content/60">
               Open a project to see its tasks.
             </p>
           ) : (
@@ -1147,7 +1147,7 @@ function SidebarComponent({
             */}
               {pendingFirstLoad ? null : status === "error" &&
                 sessions.length === 0 ? (
-                <p className="px-3 py-2 text-[12px] text-content/50">
+                <p className="px-3 py-2 text-ui-label text-content/50">
                   Couldn’t load sessions
                 </p>
               ) : visibleSessions.length === 0 ? (
@@ -1155,7 +1155,7 @@ function SidebarComponent({
                 // just typed, so it stays a quiet line of text. Only the genuine
                 // "this project has nothing in it" case earns the illustration.
                 narrowedByUser ? (
-                  <p className="px-3 py-2 text-[12px] text-content/50">
+                  <p className="px-3 py-2 text-ui-label text-content/50">
                     {searchNarrowed
                       ? "No matching sessions"
                       : "No sessions match these filters"}
@@ -1315,7 +1315,7 @@ function SidebarComponent({
                                         className="size-3 shrink-0"
                                         strokeWidth={1.75}
                                       />
-                                      <span className="text-[13px] font-semibold leading-snug">
+                                      <span className="text-ui-body font-semibold leading-snug">
                                         New session
                                       </span>
                                     </button>
@@ -2062,10 +2062,10 @@ function FolderRow({
           </>
         )}
       </span>
-      <span className="relative min-w-0 flex-1 truncate text-[13px] font-semibold leading-snug text-content">
+      <span className="relative min-w-0 flex-1 truncate text-ui-body font-semibold leading-snug text-content">
         {folder.name}
       </span>
-      <span className="relative flex shrink-0 items-center gap-1 text-[11px] tabular-nums text-content/45">
+      <span className="relative flex shrink-0 items-center gap-1 text-ui-caption tabular-nums text-content/45">
         {!expanded && needsApproval ? (
           <CircleAlert className="size-3 text-amber-400" strokeWidth={1.75} />
         ) : !expanded && busy ? (
@@ -2147,9 +2147,9 @@ function FolderRenameRow({
             finish(false);
           }
         }}
-        className="relative min-w-0 flex-1 rounded bg-content/10 px-2 py-0.5 text-[13px] font-semibold leading-snug text-content outline-none ring-1 ring-accent/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+        className="relative min-w-0 flex-1 rounded bg-content/10 px-2 py-0.5 text-ui-body font-semibold leading-snug text-content outline-none ring-1 ring-accent/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
       />
-      <span className="relative shrink-0 text-[11px] tabular-nums text-content/45">
+      <span className="relative shrink-0 text-ui-caption tabular-nums text-content/45">
         {memberCount}
       </span>
     </div>
@@ -2222,7 +2222,7 @@ function SessionCard({
         : "text-content/45";
   const status = (
     <span
-      className={`personal-task-status flex shrink-0 items-center gap-1 text-[11px] tabular-nums ${statusClass}`}
+      className={`personal-task-status flex shrink-0 items-center gap-1 text-ui-caption tabular-nums ${statusClass}`}
       title={
         needsApproval ? approvalLabel : busy ? "Working" : done ? "Done" : time
       }
@@ -2461,7 +2461,7 @@ function SessionCard({
                 harness={session.harness}
                 className="size-3 shrink-0"
               />
-              <span className="min-w-0 flex-1 truncate text-[10px] text-content/55">
+              <span className="min-w-0 flex-1 truncate text-ui-micro text-content/55">
                 {model}
               </span>
               {status}
@@ -2555,7 +2555,7 @@ function SessionCard({
                 harness={session.harness}
                 className="size-3.5 shrink-0"
               />
-              <span className="min-w-0 truncate text-[11px] text-content/50">
+              <span className="min-w-0 truncate text-ui-caption text-content/50">
                 {model}
               </span>
             </span>
@@ -2578,7 +2578,7 @@ function SessionCard({
               className="size-3 shrink-0 opacity-60"
             />
           ) : null}
-          <span className="personal-task-title min-w-0 flex-1 line-clamp-1 text-[13px] font-semibold leading-snug text-content">
+          <span className="personal-task-title min-w-0 flex-1 line-clamp-1 text-ui-body font-semibold leading-snug text-content">
             {title}
           </span>
           {compact ? status : null}
@@ -2586,7 +2586,7 @@ function SessionCard({
         {compact ? null : (
           <span className="personal-task-meta relative mt-1 flex items-center gap-2">
             {gitLabel ? (
-              <span className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-content/45">
+              <span className="flex min-w-0 flex-1 items-center gap-1 text-ui-caption text-content/45">
                 <GitBranch className="size-3 shrink-0" strokeWidth={1.75} />
                 <span className="min-w-0 truncate">{gitLabel}</span>
               </span>
@@ -2704,7 +2704,7 @@ function SessionRenameRow({
         onChange={(e) => setValue(e.target.value)}
         onBlur={() => finish(true)}
         onKeyDown={onKeyDown}
-        className="w-full rounded bg-content/10 px-2 py-1 text-[13px] font-semibold leading-snug text-content outline-none ring-1 ring-accent/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+        className="w-full rounded bg-content/10 px-2 py-1 text-ui-body font-semibold leading-snug text-content outline-none ring-1 ring-accent/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
       />
     </div>
   );

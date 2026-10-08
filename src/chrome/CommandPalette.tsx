@@ -408,7 +408,7 @@ function CommandPaletteBody({
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={onKeyDown}
           />
-          <kbd className="rounded border border-content/15 px-1.5 text-[11px] text-content/45">
+          <kbd className="rounded border border-content/15 px-1.5 text-ui-caption text-content/45">
             esc
           </kbd>
         </label>
@@ -421,7 +421,7 @@ function CommandPaletteBody({
           className="min-h-0 flex-1 overflow-y-auto p-1.5"
         >
           {items.length === 0 ? (
-            <p className="px-3 py-6 text-center text-[12px] text-content/45">
+            <p className="px-3 py-6 text-center text-ui-label text-content/45">
               {mode === "files" && !looksLikeProject(project.path)
                 ? "Open a project to search its files."
                 : "Nothing matches."}
@@ -434,7 +434,7 @@ function CommandPaletteBody({
               aria-label={section.title || "New chat"}
             >
               {section.title ? (
-                <div className="px-2.5 pb-1 pt-2 text-[11px] text-content/40">
+                <div className="px-2.5 pb-1 pt-2 text-ui-caption text-content/40">
                   {section.title}
                 </div>
               ) : null}
@@ -452,7 +452,7 @@ function CommandPaletteBody({
                       data-palette-index={position}
                       onMouseMove={() => setActive(position)}
                       onClick={race}
-                      className={`mx-1 flex cursor-default items-center gap-2.5 rounded-lg px-3 py-1.5 text-[13px] ${selected ? "bg-content/10" : ""}`}
+                      className={`mx-1 flex cursor-default items-center gap-2.5 rounded-lg px-3 py-1.5 text-ui-body ${selected ? "bg-content/10" : ""}`}
                     >
                       <Race className="size-4 shrink-0 text-content/60" />
                       <span className="min-w-0 flex-1 truncate text-content">
@@ -461,7 +461,7 @@ function CommandPaletteBody({
                           .map((item) => item.label.split(" · ")[0])
                           .join(" vs ")}
                       </span>
-                      <span className="shrink-0 text-[11px] text-content/40">
+                      <span className="shrink-0 text-ui-caption text-content/40">
                         separate copies · ⌥↵
                       </span>
                     </div>
@@ -480,10 +480,10 @@ function CommandPaletteBody({
                     >
                       <div className="flex items-center gap-2.5">
                         <MessageSquarePlus className="size-4 shrink-0 text-content/60" />
-                        <span className="min-w-0 flex-1 truncate text-[13px] text-content">
+                        <span className="min-w-0 flex-1 truncate text-ui-body text-content">
                           Start a chat: “{text}”
                         </span>
-                        <kbd className="text-[11px] text-content/45">↵</kbd>
+                        <kbd className="text-ui-caption text-content/45">↵</kbd>
                       </div>
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         <Chip
@@ -527,7 +527,7 @@ function CommandPaletteBody({
                     data-palette-index={position}
                     onMouseMove={() => setActive(position)}
                     onClick={() => activate(item)}
-                    className={`flex cursor-default items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] ${selected ? "bg-content/10" : ""}`}
+                    className={`flex cursor-default items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-ui-body ${selected ? "bg-content/10" : ""}`}
                   >
                     <Row item={item} project={project} />
                   </div>
@@ -536,7 +536,7 @@ function CommandPaletteBody({
             </div>
           ))}
         </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-content/10 px-4 py-2 text-[11px] text-content/40">
+        <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-content/10 px-4 py-2 text-ui-caption text-content/40">
           {newChat ? (
             <>
               <span>↵ start chat</span>
@@ -575,7 +575,7 @@ function Chip({
       type="button"
       tabIndex={-1}
       onClick={onClick}
-      className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-content/15 bg-content/[0.06] px-2 py-0.5 text-[12px] text-content hover:bg-content/10"
+      className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-content/15 bg-content/[0.06] px-2 py-0.5 text-ui-label text-content hover:bg-content/10"
     >
       {icon}
       <span className="truncate">{label}</span>
@@ -595,7 +595,7 @@ function Row({ item, project }: { item: Item; project: PaletteProject }) {
           {item.command.label}
         </span>
         {item.command.keys ? (
-          <kbd className="shrink-0 text-[11px] text-content/40">
+          <kbd className="shrink-0 text-ui-caption text-content/40">
             {item.command.keys}
           </kbd>
         ) : null}
@@ -608,7 +608,7 @@ function Row({ item, project }: { item: Item; project: PaletteProject }) {
         <span className="min-w-0 flex-1 truncate text-content">
           {sessionDisplayTitle(item.chat.title, item.chat.harness)}
         </span>
-        <span className="shrink-0 truncate text-[12px] text-content/40">
+        <span className="shrink-0 truncate text-ui-label text-content/40">
           {item.chat.busy ? "running" : projectLabel(item.chat.cwd, project)}
         </span>
       </>
@@ -620,7 +620,7 @@ function Row({ item, project }: { item: Item; project: PaletteProject }) {
         <span className="min-w-0 flex-1 truncate text-content">
           {item.project.name}
         </span>
-        <span className="shrink-0 truncate text-[12px] text-content/40">
+        <span className="shrink-0 truncate text-ui-label text-content/40">
           {item.project.path}
         </span>
       </>
@@ -629,7 +629,7 @@ function Row({ item, project }: { item: Item; project: PaletteProject }) {
     return (
       <>
         <FileTypeIcon name={item.file.name} isDir={false} />
-        <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-content">
+        <span className="min-w-0 flex-1 truncate font-mono text-ui-label text-content">
           {item.file.relative}
         </span>
       </>
@@ -641,7 +641,7 @@ function Row({ item, project }: { item: Item; project: PaletteProject }) {
         <span className="min-w-0 flex-1 truncate text-content">
           {item.setting.label}
         </span>
-        <span className="shrink-0 text-[12px] capitalize text-content/40">
+        <span className="shrink-0 text-ui-label capitalize text-content/40">
           {item.setting.section}
         </span>
       </>

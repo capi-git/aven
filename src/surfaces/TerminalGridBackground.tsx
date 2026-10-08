@@ -633,7 +633,7 @@ export function TerminalGridBackground({ visible }: { visible: boolean }) {
       </div>
 
       {playing ? (
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 grid grid-cols-3 items-center px-3 py-2 font-mono text-[11px] tracking-[0.14em] text-content/50">
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 grid grid-cols-3 items-center px-3 py-2 font-mono text-ui-caption tracking-[0.14em] text-content/50">
           <span>
             score {score}
             {game.lives ? (
@@ -684,7 +684,7 @@ export function TerminalGridBackground({ visible }: { visible: boolean }) {
               tabIndex={-1}
               onMouseDown={(event) => event.preventDefault()}
               onClick={takeControl}
-              className="pointer-events-none flex cursor-pointer items-center gap-2 border border-content/25 bg-background-base/80 px-3 py-1.5 font-mono text-[11px] tracking-[0.16em] text-content/85 shadow-lg backdrop-blur-sm group-hover:pointer-events-auto hover:border-content/45 hover:bg-content/10 hover:text-content"
+              className="pointer-events-none flex cursor-pointer items-center gap-2 border border-content/25 bg-background-base/80 px-3 py-1.5 font-mono text-ui-caption tracking-[0.16em] text-content/85 shadow-lg backdrop-blur-sm group-hover:pointer-events-auto hover:border-content/45 hover:bg-content/10 hover:text-content"
             >
               <span className="text-content/40">[</span>
               take control

@@ -53,7 +53,7 @@ export function TranscriptSelectionMenu({
           window.getSelection()?.removeAllRanges();
           onDismiss();
         }}
-        className="flex h-7 items-center gap-1.5 rounded-lg px-2 font-sans text-[13px] leading-none text-content outline-none ring-accent/40 hover:bg-content/5 focus-visible:ring-2"
+        className="flex h-7 items-center gap-1.5 rounded-lg px-2 font-sans text-ui-body leading-none text-content outline-none ring-accent/40 hover:bg-content/5 focus-visible:ring-2"
       >
         <MessageSquarePlus
           aria-hidden="true"

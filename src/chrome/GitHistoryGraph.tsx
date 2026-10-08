@@ -56,7 +56,7 @@ export function GitHistoryGraph({
           expanded ? "h-7" : "h-full"
         }`}
       >
-        <span className="text-[10px] font-semibold tracking-[0.04em] text-content/55 uppercase">
+        <span className="text-ui-micro font-semibold tracking-[0.04em] text-content/55 uppercase">
           Graph
         </span>
         {expanded ? (
@@ -77,9 +77,9 @@ export function GitHistoryGraph({
           className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-none"
         >
           {!cwd || cwd === "~" ? (
-            <p className="px-3 py-2 text-[12px] text-content/45">No project folder</p>
+            <p className="px-3 py-2 text-ui-label text-content/45">No project folder</p>
           ) : commits.length === 0 ? (
-            <p className="px-3 py-2 text-[12px] text-content/45">No commits yet</p>
+            <p className="px-3 py-2 text-ui-label text-content/45">No commits yet</p>
           ) : (
             <ul className="min-w-0 max-w-full">
               {commits.map((commit, index) => {
@@ -164,14 +164,14 @@ function HistoryRow({
         </svg>
         <span className="ml-1 flex min-w-0 flex-1 items-center overflow-hidden">
           <span
-            className={`min-w-0 flex-1 truncate text-[12px] leading-[22px] ${
+            className={`min-w-0 flex-1 truncate text-ui-label leading-[22px] ${
               row.kind === "HEAD" ? "font-semibold" : ""
             }`}
           >
             {commit.subject || commit.shortSha}
           </span>
           {showAuthor && commit.author ? (
-            <span className="ml-2 min-w-0 max-w-[6rem] shrink truncate text-[12px] leading-[22px] text-content/45">
+            <span className="ml-2 min-w-0 max-w-[6rem] shrink truncate text-ui-label leading-[22px] text-content/45">
               {commit.author}
             </span>
           ) : null}
@@ -186,7 +186,7 @@ function RefPill({ refInfo }: { refInfo: GraphRef }) {
   const local = refInfo.kind === "local";
   return (
     <span
-      className={`ml-1 flex h-3.5 min-w-0 max-w-[6.5rem] shrink-0 self-center items-center gap-0.5 truncate rounded-full px-1.5 text-[10px] leading-none ${
+      className={`ml-1 flex h-3.5 min-w-0 max-w-[6.5rem] shrink-0 self-center items-center gap-0.5 truncate rounded-full px-1.5 text-ui-micro leading-none ${
         refInfo.color ? "" : "bg-content/10 text-content/55"
       }`}
       style={

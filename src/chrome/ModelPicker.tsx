@@ -331,7 +331,7 @@ export function ModelPicker({
         <HarnessIcon harness={current.harness} className="size-4 shrink-0" />
         <span
           key={current.id}
-          className="model-control-value min-w-0 truncate text-[11px]"
+          className="model-control-value min-w-0 truncate text-ui-caption"
         >
           {current.name}
         </span>
@@ -394,7 +394,7 @@ export function ModelPicker({
                   value={query}
                   placeholder="Search models..."
                   aria-label="Search models"
-                  className="min-w-0 flex-1 bg-transparent text-[12px] text-content outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+                  className="min-w-0 flex-1 bg-transparent text-ui-label text-content outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={onSearchKey}
                 />
@@ -453,7 +453,7 @@ function ProviderTabButton({
         if (disabled) return;
         onSelect();
       }}
-      className={`model-control-option relative flex min-w-0 flex-1 items-center justify-center gap-1 px-2 py-3 text-[11px] leading-4 ${
+      className={`model-control-option relative flex min-w-0 flex-1 items-center justify-center gap-1 px-2 py-3 text-ui-caption leading-4 ${
         disabled
           ? "cursor-not-allowed text-content/25"
           : selected
@@ -516,7 +516,7 @@ function ModelList({
 
   if (models.length === 0) {
     return (
-      <div className="px-3 py-4 text-[12px] text-content/50">{emptyLabel}</div>
+      <div className="px-3 py-4 text-ui-label text-content/50">{emptyLabel}</div>
     );
   }
 
@@ -565,10 +565,10 @@ function ModelList({
               }`}
             >
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13px] font-medium leading-5">
+                <span className="block truncate text-ui-body font-medium leading-5">
                   {item.name}
                 </span>
-                <span className="mt-0.5 flex items-center gap-1 text-[11px] leading-4 text-content/50">
+                <span className="mt-0.5 flex items-center gap-1 text-ui-caption leading-4 text-content/50">
                   <HarnessIcon
                     harness={item.harness}
                     className="size-3 shrink-0 opacity-80"
@@ -580,7 +580,7 @@ function ModelList({
                 </span>
               </span>
               {shortcut ? (
-                <span className="shrink-0 rounded-md bg-content/10 px-1.5 py-0.5 font-mono text-[10px] text-content/50">
+                <span className="shrink-0 rounded-md bg-content/10 px-1.5 py-0.5 font-mono text-ui-micro text-content/50">
                   {shortcut}
                 </span>
               ) : null}

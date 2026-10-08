@@ -472,7 +472,7 @@ function TitleTabItem({
             <span className="flex min-w-0 items-center gap-1">
               {/* Keep the task name on one line; model details remain in the
                   tooltip and the composer's model picker. */}
-              <span className="personal-title-tab-label min-w-0 truncate text-[13px]">
+              <span className="personal-title-tab-label min-w-0 truncate text-ui-body">
                 {headline}
               </span>
               {visible && !active ? (
@@ -925,7 +925,7 @@ export function DevModeLabel() {
   return (
     <span
       title="Development build"
-      className="mr-1 min-w-0 truncate rounded-md bg-skill/15 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-skill"
+      className="mr-1 min-w-0 truncate rounded-md bg-skill/15 px-1.5 py-0.5 text-ui-micro font-medium tracking-wide text-skill"
     >
       Development
     </span>

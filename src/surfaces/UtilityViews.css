@@ -84,7 +84,7 @@
   border-color: var(--aven-line);
   background: var(--aven-toolbar-surface, transparent);
   color: var(--aven-muted);
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   gap: 12px;
 }
 :is(

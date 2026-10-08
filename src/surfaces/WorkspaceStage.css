@@ -212,7 +212,7 @@ html.has-chat-background:not(.chat-background-empty-only)
   border-radius: 5px;
   background: var(--color-background-base, #242a31);
   color: var(--color-content);
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   line-height: 20px;
   white-space: nowrap;
   pointer-events: none;

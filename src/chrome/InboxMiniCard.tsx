@@ -35,16 +35,16 @@ export function InboxMiniCard({ card, onDismiss }: Props) {
               className="size-3 shrink-0 text-content/45"
               strokeWidth={1.75}
             />
-            <span className="min-w-0 truncate text-[11px] text-content/50">
+            <span className="min-w-0 truncate text-ui-caption text-content/50">
               {kindLabel} · {card.identifier}
             </span>
           </span>
-          <span className="mt-1 line-clamp-1 text-[13px] font-semibold leading-snug text-content">
+          <span className="mt-1 line-clamp-1 text-ui-body font-semibold leading-snug text-content">
             {card.title}
           </span>
           <span className="mt-1 flex min-w-0 items-center gap-2">
             {card.source ? (
-              <span className="min-w-0 flex-1 truncate text-[11px] text-content/45">
+              <span className="min-w-0 flex-1 truncate text-ui-caption text-content/45">
                 {card.source}
               </span>
             ) : (
@@ -78,7 +78,7 @@ export function InboxMiniCard({ card, onDismiss }: Props) {
 function InboxMiniLabel({ label }: { label: GithubLabel }) {
   const color = labelColor(label.color);
   return (
-    <span className="inline-flex min-w-0 max-w-20 items-center gap-1 rounded bg-content/8 px-1.5 py-px text-[10px] text-content/50">
+    <span className="inline-flex min-w-0 max-w-20 items-center gap-1 rounded bg-content/8 px-1.5 py-px text-ui-micro text-content/50">
       {color ? (
         <span
           aria-hidden

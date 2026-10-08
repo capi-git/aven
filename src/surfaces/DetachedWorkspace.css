@@ -6,7 +6,7 @@
   background: var(--personal-main-surface, var(--color-background-base));
   color: var(--color-content);
   overflow: hidden;
-  font-size: 12px;
+  font-size: var(--text-ui-label);
 }
 .detached-workspace-toolbar {
   height: 40px;
@@ -100,6 +100,6 @@
   }
   .detached-workspace-toolbar-actions button {
     padding: 5px;
-    font-size: 11px;
+    font-size: var(--text-ui-caption);
   }
 }

@@ -174,7 +174,7 @@ export function UnifiedDiffView({
 
   if (files.length === 0) {
     return (
-      <p className="px-4 py-6 text-[13px] text-content/45">No file changes</p>
+      <p className="px-4 py-6 text-ui-body text-content/45">No file changes</p>
     );
   }
 
@@ -194,7 +194,7 @@ export function UnifiedDiffView({
       }
     >
       <div
-        className={`flex h-8 shrink-0 items-center gap-3 border-b border-content/10 px-3 text-[12px]`}
+        className={`flex h-8 shrink-0 items-center gap-3 border-b border-content/10 px-3 text-ui-label`}
       >
         <span className="text-content/70">{fileLabel}</span>
         <DiffCounts additions={additions} deletions={deletions} />
@@ -229,7 +229,7 @@ export function UnifiedDiffView({
         }
       >
         {truncated ? (
-          <p className="px-3 py-3 text-[12px] text-content/45">
+          <p className="px-3 py-3 text-ui-label text-content/45">
             Diff is too large to display in full. File list is shown without
             patches.
           </p>
@@ -389,7 +389,7 @@ const FileSection = memo(function FileSection({
           />
           <FileTypeIcon name={name} isDir={false} size={16} />
           <span
-            className="min-w-0 flex-1 truncate font-mono text-[12px] text-content/85"
+            className="min-w-0 flex-1 truncate font-mono text-ui-label text-content/85"
             title={file.label}
           >
             {file.label}
@@ -883,7 +883,7 @@ function FoldBar({
       <button
         type="button"
         onClick={() => onReveal("all")}
-        className="min-w-0 flex-1 py-1 text-left font-mono text-[11px] text-content/45 hover:text-content/70"
+        className="min-w-0 flex-1 py-1 text-left font-mono text-ui-caption text-content/45 hover:text-content/70"
       >
         {hidden} unmodified {hidden === 1 ? "line" : "lines"}
       </button>
@@ -915,7 +915,7 @@ const DiffLineRow = memo(function DiffLineRow({
         style={{ height: UNIFIED_HUNK_PX }}
       >
         {lane === "code" ? (
-          <span className="px-3 font-mono text-[11px] leading-none text-content/40">
+          <span className="px-3 font-mono text-ui-caption leading-none text-content/40">
             {line.text}
           </span>
         ) : null}
@@ -949,7 +949,7 @@ const DiffLineRow = memo(function DiffLineRow({
           />
         ) : null}
         <span
-          className={`relative block w-full pr-2 text-right font-mono text-[11px] leading-none tabular-nums ${gutterText}`}
+          className={`relative block w-full pr-2 text-right font-mono text-ui-caption leading-none tabular-nums ${gutterText}`}
         >
           {number ?? ""}
         </span>
@@ -976,7 +976,7 @@ const DiffLineRow = memo(function DiffLineRow({
             title="Stage hunk"
             aria-label="Stage hunk"
             onClick={onStage}
-            className={`absolute top-0.5 left-full z-10 ml-0.5 grid size-4 place-items-center rounded-[3px] bg-white text-[11px] font-bold text-black ${
+            className={`absolute top-0.5 left-full z-10 ml-0.5 grid size-4 place-items-center rounded-[3px] bg-white text-ui-caption font-bold text-black ${
               hovered ? "opacity-100" : "pointer-events-none opacity-0"
             }`}
           >
@@ -993,7 +993,7 @@ const DiffLineRow = memo(function DiffLineRow({
       style={{ height: UNIFIED_LINE_PX }}
     >
       <span
-        className={`whitespace-pre px-3 font-mono text-[12px] leading-none text-content/80 ${
+        className={`whitespace-pre px-3 font-mono text-ui-label leading-none text-content/80 ${
           line.kind === "context" ? "opacity-70" : ""
         }`}
       >
@@ -1023,7 +1023,7 @@ function renderLineText(line: UnifiedLine, tokens?: SyntaxToken[]) {
 }
 
 function EmptyBody({ children }: { children: string }) {
-  return <p className="px-3 py-3 text-[12px] text-content/45">{children}</p>;
+  return <p className="px-3 py-3 text-ui-label text-content/45">{children}</p>;
 }
 
 function DiffCounts({
@@ -1035,7 +1035,7 @@ function DiffCounts({
 }) {
   if (additions <= 0 && deletions <= 0) return null;
   return (
-    <span className="flex shrink-0 items-center gap-1.5 font-mono text-[11px] font-semibold tabular-nums">
+    <span className="flex shrink-0 items-center gap-1.5 font-mono text-ui-caption font-semibold tabular-nums">
       {additions > 0 ? (
         <span className="text-emerald-400">+{additions}</span>
       ) : null}

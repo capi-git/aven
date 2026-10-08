@@ -146,7 +146,7 @@ export function GitChangesPanel({
 
   if (!cwd || cwd === "~") {
     return (
-      <p className="px-3 py-2 text-[12px] text-content/50">No project folder</p>
+      <p className="px-3 py-2 text-ui-label text-content/50">No project folder</p>
     );
   }
 
@@ -158,7 +158,7 @@ export function GitChangesPanel({
       <header aria-label="Change summary" className="flex h-9 shrink-0 items-center gap-2 border-b border-content/10 px-3">
         {stats ? (
           <span
-            className="flex shrink-0 gap-1.5 text-[11px] tabular-nums"
+            className="flex shrink-0 gap-1.5 text-ui-caption tabular-nums"
             aria-label={`${stats.additions} added lines, ${stats.deletions} deleted lines`}
           >
             <span className="text-[#61bd85]">+{stats.additions}</span>
@@ -168,7 +168,7 @@ export function GitChangesPanel({
         {index?.branch ? (
           <button
             type="button"
-            className="-mr-1.5 ml-auto flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-content/60 enabled:hover:bg-content/8 enabled:hover:text-content focus-visible:outline-2 focus-visible:outline-(--aven-focus-ring)"
+            className="-mr-1.5 ml-auto flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-ui-caption text-content/60 enabled:hover:bg-content/8 enabled:hover:text-content focus-visible:outline-2 focus-visible:outline-(--aven-focus-ring)"
             disabled={!onOpenBranchPicker}
             title={
               onOpenBranchPicker
@@ -590,7 +590,7 @@ function ChangedFiles({
                 void commit(false);
               }
             }}
-            className="max-h-40 w-full resize-none overflow-y-auto rounded-md bg-content/10 py-1 pr-8 pl-2 text-[13px] leading-5 text-content outline-none placeholder:text-content/35 disabled:opacity-40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+            className="max-h-40 w-full resize-none overflow-y-auto rounded-md bg-content/10 py-1 pr-8 pl-2 text-ui-body leading-5 text-content outline-none placeholder:text-content/35 disabled:opacity-40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
           />
           <button
             type="button"
@@ -634,7 +634,7 @@ function ChangedFiles({
             type="button"
             disabled={!canCommit}
             onClick={() => void commit(false)}
-            className="flex h-7 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-l-md bg-content text-[12px] font-medium text-background-base disabled:opacity-40"
+            className="flex h-7 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-l-md bg-content text-ui-label font-medium text-background-base disabled:opacity-40"
           >
             <Check className="size-3.5" strokeWidth={2} />
             Commit
@@ -656,7 +656,7 @@ function ChangedFiles({
                 type="button"
                 disabled={!canCommitPush}
                 onClick={() => void commit(true)}
-                className="flex h-7 w-full items-center px-3 text-left text-[12px] text-content hover:bg-content/10 disabled:opacity-40"
+                className="flex h-7 w-full items-center px-3 text-left text-ui-label text-content hover:bg-content/10 disabled:opacity-40"
               >
                 Commit & Push
               </button>
@@ -664,7 +664,7 @@ function ChangedFiles({
                 type="button"
                 disabled={!canCommitPushPr}
                 onClick={() => void commit(true, true)}
-                className="flex h-7 w-full items-center px-3 text-left text-[12px] text-content hover:bg-content/10 disabled:opacity-40"
+                className="flex h-7 w-full items-center px-3 text-left text-ui-label text-content hover:bg-content/10 disabled:opacity-40"
               >
                 Commit, Push & Create PR
               </button>
@@ -700,7 +700,7 @@ function ChangedFiles({
       >
         {files.length === 0 ? (
           index ? null : (
-            <p className="px-3 py-2 text-[12px] text-content/45">
+            <p className="px-3 py-2 text-ui-label text-content/45">
               Loading changes…
             </p>
           )
@@ -957,7 +957,7 @@ function GitSyncActions({
     ? `View PR #${pr.number}: ${pr.title}`
     : "View pull request";
   const btn =
-    "flex h-7 w-full min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-[12px] font-medium disabled:opacity-40";
+    "flex h-7 w-full min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-ui-label font-medium disabled:opacity-40";
   const secondary = `${btn} bg-content/10 text-content hover:bg-content/15`;
   const showCreatePr = !hasOpenPr && !onDefault;
   const showViewPr = hasOpenPr;
@@ -1106,7 +1106,7 @@ function FileSection({
               strokeWidth={1.75}
             />
           )}
-          <span className="min-w-0 truncate text-[10px] font-semibold tracking-[0.04em] text-content/55 uppercase">
+          <span className="min-w-0 truncate text-ui-micro font-semibold tracking-[0.04em] text-content/55 uppercase">
             {title}
           </span>
           <span className="ml-1 grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-accent/80 px-1 text-[8px] text-background-base">
@@ -1262,7 +1262,7 @@ function ChangeDirRow({
           )}
         </span>
         <FileTypeIcon name={dir.name} isDir isOpen={open} size={16} />
-        <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+        <span className="min-w-0 flex-1 truncate text-ui-body font-medium">
           {dir.name}
         </span>
         <span
@@ -1391,9 +1391,9 @@ function ChangeRow({
           {tree ? <span className="size-4 shrink-0" /> : null}
           <FileTypeIcon name={name} isDir={false} size={16} />
           <span className="min-w-0 flex-1 truncate">
-            <span className="text-[13px] font-medium">{name}</span>
+            <span className="text-ui-body font-medium">{name}</span>
             {dir ? (
-              <span className="ml-1.5 text-[11px] text-content/40">{dir}</span>
+              <span className="ml-1.5 text-ui-caption text-content/40">{dir}</span>
             ) : null}
           </span>
         </button>
@@ -1430,7 +1430,7 @@ function ChangeRow({
           )}
         </div>
         <span
-          className={`w-3.5 shrink-0 text-right font-mono text-[11px] font-semibold ${statusColor(file.status)}`}
+          className={`w-3.5 shrink-0 text-right font-mono text-ui-caption font-semibold ${statusColor(file.status)}`}
         >
           {statusLetter(file.status)}
         </span>

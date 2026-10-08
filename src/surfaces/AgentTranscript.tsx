@@ -517,14 +517,14 @@ function AgentTranscriptComponent({
       id={scrollerId}
       ref={setScroller}
       data-transcript-layout={transcriptLayout}
-      className="agent-transcript h-full overflow-y-auto overscroll-none [overflow-anchor:none] font-mono text-[13px] leading-5"
+      className="agent-transcript h-full overflow-y-auto overscroll-none [overflow-anchor:none] font-mono text-ui-body leading-5"
     >
       <div className="personal-transcript-content mx-auto flex w-full min-w-0 max-w-4xl flex-col gap-1 pb-1">
         {firstVisibleTurn > 0 ? (
           <div className="flex justify-center px-4 py-3">
             <button
               type="button"
-              className="rounded-md bg-content/8 px-2.5 py-1.5 font-sans text-[12px] text-content/60 hover:bg-content/12 hover:text-content"
+              className="rounded-md bg-content/8 px-2.5 py-1.5 font-sans text-ui-label text-content/60 hover:bg-content/12 hover:text-content"
               onClick={loadEarlier}
             >
               Load earlier messages
@@ -2228,7 +2228,7 @@ function ToolCallSummary({
   if (!action || !target) {
     return (
       <span
-        className={`min-w-0 flex-1 truncate font-mono text-[13px] ${
+        className={`min-w-0 flex-1 truncate font-mono text-ui-body ${
           failed ? "text-red-400" : chip ? "text-content/65" : "text-content/80"
         }`}
         title={label}
@@ -2256,7 +2256,7 @@ function ToolCallSummary({
       : "text-content/85";
 
   return (
-    <span className="flex min-w-0 flex-1 items-center gap-1.5 font-mono text-[13px]">
+    <span className="flex min-w-0 flex-1 items-center gap-1.5 font-mono text-ui-body">
       <span className={`shrink-0 font-sans text-sm ${actionTone}`}>
         {action}
       </span>
@@ -2331,14 +2331,14 @@ function ApprovalControls({
     <div className="personal-tool-approval mt-1.5 flex gap-2">
       <button
         type="button"
-        className="rounded-md bg-content px-2.5 py-0.5 text-[11px] hover:bg-content/80     text-background-base"
+        className="rounded-md bg-content px-2.5 py-0.5 text-ui-caption hover:bg-content/80     text-background-base"
         onClick={() => onApproval?.(approval.requestId, "allow")}
       >
         Allow
       </button>
       <button
         type="button"
-        className="rounded-md bg-content/10 px-2.5 py-0.5 text-[11px] text-content/70 hover:bg-content/20"
+        className="rounded-md bg-content/10 px-2.5 py-0.5 text-ui-caption text-content/70 hover:bg-content/20"
         onClick={() => onApproval?.(approval.requestId, "deny")}
       >
         Deny
@@ -2365,11 +2365,11 @@ function HandoffDivider({ block }: { block: Block }) {
               ? `Preparing a handoff to ${HARNESS_TITLE[meta.to]}`
               : `Continued with ${label}`
           }
-          className="flex max-w-[min(100%,20rem)] items-center gap-1.5 px-1.5 font-sans text-[12px] text-content/55"
+          className="flex max-w-[min(100%,20rem)] items-center gap-1.5 px-1.5 font-sans text-ui-label text-content/55"
         >
           {preparing ? (
             <>
-              <TerminalSpinner className="inline-block w-3.5 shrink-0 select-none text-center text-[11px] leading-none text-content/45" />
+              <TerminalSpinner className="inline-block w-3.5 shrink-0 select-none text-center text-ui-caption leading-none text-content/45" />
               <Shimmer duration={1.4}>{label}</Shimmer>
             </>
           ) : (

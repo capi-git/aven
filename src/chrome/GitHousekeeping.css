@@ -16,7 +16,7 @@
 }
 .git-house-title span {
   margin-left: auto;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   letter-spacing: 0;
   text-transform: none;
 }
@@ -46,7 +46,7 @@
   align-items: center;
   gap: 7px;
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   font-weight: 500;
   color: var(--color-content);
 }
@@ -63,7 +63,7 @@
 .git-house-detail,
 .git-house-error {
   margin: 3px 0 0 14px;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   line-height: 1.4;
   color: color-mix(in srgb, var(--color-content) 55%, transparent);
 }

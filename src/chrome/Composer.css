@@ -51,7 +51,7 @@
 .personal-shell .personal-composer .composer-highlight {
   padding: 14px 16px 12px;
   min-height: 64px;
-  font-size: 14px;
+  font-size: var(--text-ui-reading);
   line-height: 22px;
   letter-spacing: normal;
   caret-color: var(--personal-accent);
@@ -139,7 +139,7 @@
 }
 .personal-shell .personal-composer-capsule > button > span,
 .personal-shell .personal-composer-capsule > div > button > span {
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
 }
 .personal-shell .personal-composer-settings > :not(:first-child) {
   border-left: 0;

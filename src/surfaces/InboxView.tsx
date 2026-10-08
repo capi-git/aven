@@ -132,7 +132,7 @@ const MAX_WIDTH = 420;
 
 // One height for the whole detail action row; `border` is inside it, so the
 // outline variant lines up with the filled and ghost ones.
-const ACTION = "inline-flex items-center gap-1.5 rounded-md px-3 text-[12px]";
+const ACTION = "inline-flex items-center gap-1.5 rounded-md px-3 text-ui-label";
 const ACTION_FILLED = `${ACTION} h-6.5 bg-content text-background-base hover:bg-content/80`;
 const ACTION_OUTLINE = `${ACTION} h-7 border border-content/15 text-content/80 hover:bg-content/5`;
 const ACTION_GHOST = `${ACTION} h-7 text-content/70 hover:bg-content/10 hover:text-content`;
@@ -227,7 +227,7 @@ function InboxSourceTab({
       role="tab"
       aria-selected={selected}
       onClick={() => onSelect(source)}
-      className={`flex h-6 min-w-0 flex-1 items-center justify-center rounded-md px-2 text-[12px] leading-none ${
+      className={`flex h-6 min-w-0 flex-1 items-center justify-center rounded-md px-2 text-ui-label leading-none ${
         selected
           ? "bg-content/10 text-content"
           : "text-content/50 hover:bg-content/5 hover:text-content"
@@ -259,7 +259,7 @@ function InboxDetailTab({
       role="tab"
       aria-selected={selected}
       onClick={onSelect}
-      className={`relative flex h-9 items-center text-[12px] leading-none ${
+      className={`relative flex h-9 items-center text-ui-label leading-none ${
         selected ? "text-content" : "text-content/50 hover:text-content"
       }`}
     >
@@ -554,7 +554,7 @@ export function InboxView({
             aria-label="Filter inbox"
             spellCheck={false}
             autoComplete="off"
-            className="h-7 w-full rounded-md bg-transparent pl-7 pr-2 text-[12px] text-content outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+            className="h-7 w-full rounded-md bg-transparent pl-7 pr-2 text-ui-label text-content outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
           />
         </div>
         <button
@@ -601,13 +601,13 @@ export function InboxView({
         className="min-h-0 flex-1 overflow-y-auto overscroll-none"
       >
         {sourceError && visibleItems.length === 0 ? (
-          <p className="px-3 py-2 text-[12px] text-content/50">{sourceError}</p>
+          <p className="px-3 py-2 text-ui-label text-content/50">{sourceError}</p>
         ) : loading && items.length === 0 ? (
           <div className="flex justify-center py-10 text-content/40">
             <LoaderCircle className="size-4 animate-spin" strokeWidth={1.75} />
           </div>
         ) : visibleItems.length === 0 ? (
-          <p className="px-3 py-2 text-[12px] text-content/50">
+          <p className="px-3 py-2 text-ui-label text-content/50">
             {narrowedByUser
               ? searchNarrowed
                 ? source === "linear"
@@ -696,13 +696,13 @@ export function InboxView({
       >
         {IS_MAC && !besideRail ? <div className="w-[78px] shrink-0" /> : null}
         <OverlayNav onBack={onClose} onToggleSidebar={onToggleSidebar} />
-        <div className="flex min-w-0 flex-1 items-center gap-2 px-3 text-[13px]">
+        <div className="flex min-w-0 flex-1 items-center gap-2 px-3 text-ui-body">
           <Inbox
             className="size-3.5 shrink-0 text-content/45"
             strokeWidth={1.75}
           />
           <span className="min-w-0 truncate text-content">Inbox</span>
-          <span className="truncate text-[11px] text-content/45">
+          <span className="truncate text-ui-caption text-content/45">
             Issues & pull requests
           </span>
         </div>
@@ -761,7 +761,7 @@ function InboxDetailBody({
     return (
       <div className="flex h-full flex-col items-center justify-center px-6 text-center">
         <Inbox className="mb-3 size-6 text-content/30" strokeWidth={1.75} />
-        <p className="text-[13px] text-content/45">
+        <p className="text-ui-body text-content/45">
           Select an issue or pull request
         </p>
       </div>
@@ -875,14 +875,14 @@ function InboxCard({
             className={`size-3 shrink-0 ${status.className}`}
             strokeWidth={1.75}
           />
-          <span className="min-w-0 truncate text-[11px] text-content/50">
+          <span className="min-w-0 truncate text-ui-caption text-content/50">
             {kindLabel} · {inboxItemRef(item)}
           </span>
         </span>
         {time || unseen ? (
           <span className="flex shrink-0 items-center gap-1.5">
             {time ? (
-              <span className="text-[11px] tabular-nums text-content/45">
+              <span className="text-ui-caption tabular-nums text-content/45">
                 {time}
               </span>
             ) : null}
@@ -892,11 +892,11 @@ function InboxCard({
           </span>
         ) : null}
       </span>
-      <span className="mt-1 line-clamp-1 text-[13px] font-semibold leading-snug text-content">
+      <span className="mt-1 line-clamp-1 text-ui-body font-semibold leading-snug text-content">
         {item.title}
       </span>
       <span className="mt-1 flex min-w-0 items-center gap-2">
-        <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[11px] text-content/45">
+        <span className="flex min-w-0 flex-1 items-center gap-1.5 text-ui-caption text-content/45">
           {linear ? null : logoPath ? (
             <ProjectLogoIcon
               path={logoPath}
@@ -1199,7 +1199,7 @@ function InboxDetail({
   return (
     <div className={`mx-auto flex w-full flex-col gap-5 px-8 py-8 max-w-5xl`}>
       <header className="flex flex-col gap-3">
-        <div className="flex items-center gap-2 text-[12px] text-content/50">
+        <div className="flex items-center gap-2 text-ui-label text-content/50">
           <InboxProviderMark provider={item.provider} className="size-3.5" />
           <span>{item.kind === "pr" ? "Pull request" : "Issue"}</span>
           <span className="tabular-nums">{inboxItemRef(item)}</span>
@@ -1209,10 +1209,10 @@ function InboxDetail({
           </span>
           {source ? <span className="truncate">{source}</span> : null}
         </div>
-        <h1 className="text-[20px] font-semibold leading-tight text-content">
+        <h1 className="text-ui-heading font-semibold leading-tight text-content">
           {item.title}
         </h1>
-        <div className="flex flex-wrap items-center gap-2 text-[12px] text-content/50">
+        <div className="flex flex-wrap items-center gap-2 text-ui-label text-content/50">
           {authorName ? (
             <InboxPerson
               name={authorName}
@@ -1343,7 +1343,7 @@ function InboxDetail({
           </button>
         </div>
         {startError ? (
-          <p className="text-[12px] text-red-400/90">{startError}</p>
+          <p className="text-ui-label text-red-400/90">{startError}</p>
         ) : null}
       </header>
       {isPr ? (
@@ -1372,7 +1372,7 @@ function InboxDetail({
             <LoaderCircle className="size-4 animate-spin" strokeWidth={1.75} />
           </div>
         ) : diffError ? (
-          <p className="text-[13px] text-content/50">{diffError}</p>
+          <p className="text-ui-body text-content/50">{diffError}</p>
         ) : prDiff ? (
           <Suspense
             fallback={
@@ -1390,14 +1390,14 @@ function InboxDetail({
             />
           </Suspense>
         ) : (
-          <p className="text-[13px] text-content/45">No file changes</p>
+          <p className="text-ui-body text-content/45">No file changes</p>
         )
       ) : loading ? (
         <div className="flex justify-center py-10 text-content/40">
           <LoaderCircle className="size-4 animate-spin" strokeWidth={1.75} />
         </div>
       ) : error ? (
-        <p className="text-[13px] text-content/50">{error}</p>
+        <p className="text-ui-body text-content/50">{error}</p>
       ) : (
         <>
           {details?.body.trim() ? (
@@ -1407,7 +1407,7 @@ function InboxDetail({
               allowRemoteMedia
             />
           ) : (
-            <p className="text-[13px] text-content/45">No description</p>
+            <p className="text-ui-body text-content/45">No description</p>
           )}
           <InboxComments
             thread={thread}
@@ -1530,7 +1530,7 @@ function InboxProjectPicker({
         type="button"
         disabled={projects.length === 0}
         onClick={() => setOpen((next) => !next)}
-        className="inline-flex h-7 max-w-48 items-center gap-1.5 rounded-md border border-content/10 bg-content/5 px-2 text-[12px] text-content/80 hover:bg-content/10 hover:text-content disabled:cursor-default disabled:opacity-40"
+        className="inline-flex h-7 max-w-48 items-center gap-1.5 rounded-md border border-content/10 bg-content/5 px-2 text-ui-label text-content/80 hover:bg-content/10 hover:text-content disabled:cursor-default disabled:opacity-40"
       >
         {selected ? <InboxProjectMark project={selected} /> : null}
         <span className="min-w-0 truncate">
@@ -1562,7 +1562,7 @@ function InboxProjectPicker({
                   onChange(project.path);
                   setOpen(false);
                 }}
-                className={`flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left text-[12px] ${
+                className={`flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left text-ui-label ${
                   active
                     ? "bg-content/10 text-content"
                     : "text-content/80 hover:bg-content/5 hover:text-content"
@@ -1590,7 +1590,7 @@ function InboxLabel({
   return (
     <span
       className={`inline-flex min-w-0 items-center gap-1 rounded px-1.5 py-px text-content/50 bg-content/8 ${
-        compact ? "max-w-20 text-[10px]" : "text-[11px]"
+        compact ? "max-w-20 text-ui-micro" : "text-ui-caption"
       }`}
     >
       {color ? (

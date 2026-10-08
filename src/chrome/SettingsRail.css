@@ -36,7 +36,7 @@
   background: transparent;
   color: var(--color-content);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-ui-body);
 }
 .settings-nav__search input::placeholder {
   color: var(--personal-muted, var(--aven-muted));
@@ -59,7 +59,7 @@
 .settings-nav__result-copy small {
   overflow: hidden;
   color: var(--personal-muted, var(--aven-muted));
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   line-height: 15px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -163,7 +163,7 @@
   flex-shrink: 0;
   padding: 18px 10px 5px;
   color: var(--personal-muted, var(--aven-muted));
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   font-weight: 600;
   letter-spacing: 0;
   line-height: 16px;
@@ -183,7 +183,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--text-ui-body);
   font-weight: 400;
   line-height: 20px;
   letter-spacing: -0.01em;

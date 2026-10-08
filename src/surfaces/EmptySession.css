@@ -30,7 +30,7 @@
 .aven-opening-heading p {
   margin: 12px 0 0;
   color: color-mix(in srgb, var(--color-content) 68%, transparent);
-  font-size: 13px;
+  font-size: var(--text-ui-body);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }

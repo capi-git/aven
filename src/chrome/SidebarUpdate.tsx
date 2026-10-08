@@ -123,10 +123,10 @@ export function SidebarUpdate({
         )}
       </span>
       <span className="min-w-0 flex-1 flex items-center">
-        <span className="block truncate text-[12px] font-medium leading-tight">
+        <span className="block truncate text-ui-label font-medium leading-tight">
           {label}
         </span>
-        <span className="ml-auto block text-[11px] text-content/40">
+        <span className="ml-auto block text-ui-caption text-content/40">
           v{snapshot.currentVersion}
         </span>
       </span>

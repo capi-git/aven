@@ -49,7 +49,7 @@ html.has-chat-background .workspace-home::before {
   background: var(--aven-control-bg);
   box-shadow: var(--aven-glass-sheen, none);
   color: var(--color-content);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   font-weight: 500;
   transition:
     background-color 120ms ease,
@@ -85,7 +85,7 @@ html.has-chat-background .workspace-home::before {
 
 .workspace-home h2 {
   color: var(--aven-muted);
-  font-size: 13px;
+  font-size: var(--text-ui-body);
   font-weight: 600;
 }
 
@@ -98,7 +98,7 @@ html.has-chat-background .workspace-home::before {
   min-height: 48px;
   padding: 9px 10px;
   border-radius: 9px;
-  font-size: 13px;
+  font-size: var(--text-ui-body);
   transition: background-color 120ms ease;
 }
 
@@ -125,7 +125,7 @@ html.has-chat-background .workspace-home::before {
   text-overflow: ellipsis;
   white-space: nowrap;
   margin-top: 3px;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   color: var(--aven-muted);
 }
 
@@ -166,7 +166,7 @@ html.has-chat-background .workspace-home::before {
 .workspace-home-empty {
   padding: 4px 10px 8px;
   color: var(--aven-muted);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   line-height: 1.6;
 }
 
@@ -195,7 +195,7 @@ html.has-chat-background .workspace-home::before {
   border-radius: var(--aven-radius-control, 8px);
   background: var(--aven-control-bg, var(--aven-hover));
   box-shadow: var(--aven-control-shadow, none);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
 }
 
 @container aven-opening (max-width: 580px) {
@@ -225,7 +225,7 @@ html.has-chat-background .workspace-home::before {
 }
 .workspace-home-eyebrow {
   margin-bottom: 10px;
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   font-weight: 600;
   color: var(--aven-muted);
 }

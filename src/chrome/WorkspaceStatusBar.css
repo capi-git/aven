@@ -9,7 +9,7 @@
   min-width: 0;
   padding: 4px 10px;
   color: color-mix(in srgb, var(--color-content) 68%, transparent);
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   line-height: 1;
   cursor: grab;
   user-select: none;
@@ -68,7 +68,7 @@
   color: color-mix(in srgb, var(--color-content) 75%, transparent);
   background: transparent;
   font: inherit;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   white-space: nowrap;
   cursor: pointer;
   flex-shrink: 0;
@@ -101,7 +101,7 @@
 }
 .workspace-status-popover {
   padding: 6px;
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   color: var(--color-content);
   overflow-y: auto;
 }
@@ -168,7 +168,7 @@
   border-top: 1px solid color-mix(in srgb, var(--color-content) 9%, transparent);
 }
 .workspace-status-provider strong {
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   font-weight: 500;
 }
 .workspace-status-provider p {
@@ -211,7 +211,7 @@
   min-width: 0;
   max-width: min(44vw, 540px);
   color: var(--color-content);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   font-weight: 600;
 }
 .workspace-status-context > span:last-child {
@@ -259,7 +259,7 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--text-ui-label);
 }
 .workspace-status-settings-path > span,
 .workspace-status-settings-path > svg {
@@ -382,7 +382,7 @@
     left: -4px;
   }
   .workspace-status-context {
-    font-size: 11px;
+    font-size: var(--text-ui-caption);
   }
   .workspace-status-navigation,
   .workspace-status-history {
@@ -394,7 +394,7 @@
   min-width: 15px;
   padding: 1px 4px;
   border-radius: 8px;
-  font-size: 10px;
+  font-size: var(--text-ui-micro);
   line-height: 13px;
   background: var(--color-accent);
   color: var(--color-background-base);
@@ -491,7 +491,7 @@
   border-radius: 6px;
   background: transparent;
   color: var(--color-content);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   text-align: left;
   cursor: pointer;
 }

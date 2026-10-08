@@ -73,7 +73,7 @@ export function InboxDiscussionPanel({
         className="absolute inset-y-0 -left-1 z-20 w-2 cursor-col-resize max-[1100px]:hidden"
       />
       <header className="flex h-11 shrink-0 items-center border-b border-content/10 px-3">
-        <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+        <span className="min-w-0 flex-1 truncate text-ui-body font-medium">
           Ask · {inboxItemRef(item)}
         </span>
         <IconButton

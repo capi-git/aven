@@ -163,7 +163,7 @@ export function ProjectSearch({
 
   if (!cwd || cwd === "~") {
     return (
-      <p className="px-3 py-2 text-[12px] text-content/50">No project folder</p>
+      <p className="px-3 py-2 text-ui-label text-content/50">No project folder</p>
     );
   }
 
@@ -179,7 +179,7 @@ export function ProjectSearch({
         >
           <ChevronLeft className="size-4" strokeWidth={1.75} />
         </button>
-        <span className="min-w-0 flex-1 truncate text-[12px] text-content/55">
+        <span className="min-w-0 flex-1 truncate text-ui-label text-content/55">
           Search in files
         </span>
       </div>
@@ -193,7 +193,7 @@ export function ProjectSearch({
             placeholder="Search"
             aria-label="Search"
             spellCheck={false}
-            className="min-w-0 flex-1 bg-transparent py-1.5 text-[12px] text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+            className="min-w-0 flex-1 bg-transparent py-1.5 text-ui-label text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
           />
           <Toggle
             label="Match case"
@@ -223,7 +223,7 @@ export function ProjectSearch({
           placeholder="files to include"
           aria-label="files to include"
           spellCheck={false}
-          className="w-full rounded-md border border-content/10 bg-content/5 px-2 py-1.5 text-[11px] text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+          className="w-full rounded-md border border-content/10 bg-content/5 px-2 py-1.5 text-ui-caption text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
         />
         <input
           value={exclude}
@@ -231,11 +231,11 @@ export function ProjectSearch({
           placeholder="files to exclude"
           aria-label="files to exclude"
           spellCheck={false}
-          className="w-full rounded-md border border-content/10 bg-content/5 px-2 py-1.5 text-[11px] text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+          className="w-full rounded-md border border-content/10 bg-content/5 px-2 py-1.5 text-ui-caption text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
         />
       </div>
 
-      <div className="flex min-h-8 shrink-0 items-center gap-2 px-3 py-1.5 text-[11px] text-content/45">
+      <div className="flex min-h-8 shrink-0 items-center gap-2 px-3 py-1.5 text-ui-caption text-content/45">
         {loading ? (
           <>
             <LoaderCircle className="size-3 animate-spin" strokeWidth={1.75} />
@@ -260,15 +260,15 @@ export function ProjectSearch({
           <section key={group.path} className="border-b border-content/8">
             <div className="flex items-center gap-1.5 px-2 py-1.5">
               <FileTypeIcon name={group.name} isDir={false} size={16} />
-              <span className="min-w-0 flex-1 truncate text-[12px] text-content">
+              <span className="min-w-0 flex-1 truncate text-ui-label text-content">
                 {group.name}
               </span>
-              <span className="rounded-full bg-accent/20 px-1.5 py-0.5 text-[10px] tabular-nums text-accent">
+              <span className="rounded-full bg-accent/20 px-1.5 py-0.5 text-ui-micro tabular-nums text-accent">
                 {group.matches.length}
               </span>
             </div>
             <p
-              className="truncate px-2 pb-1 text-[10px] text-content/40"
+              className="truncate px-2 pb-1 text-ui-micro text-content/40"
               title={group.relative}
             >
               {group.relative}
@@ -281,10 +281,10 @@ export function ProjectSearch({
                     onClick={() => openMatch(match)}
                     className="flex w-full items-start gap-2 px-2 py-1 text-left hover:bg-content/5"
                   >
-                    <span className="w-7 shrink-0 pt-px text-right font-mono text-[11px] text-content/35 tabular-nums">
+                    <span className="w-7 shrink-0 pt-px text-right font-mono text-ui-caption text-content/35 tabular-nums">
                       {match.line}
                     </span>
-                    <span className="min-w-0 flex-1 truncate font-mono text-[11px] leading-5 text-content/80">
+                    <span className="min-w-0 flex-1 truncate font-mono text-ui-caption leading-5 text-content/80">
                       <MatchPreview
                         preview={match.preview.trimEnd()}
                         query={query.trim()}

@@ -607,7 +607,7 @@ export const SessionPane = memo(function SessionPane({
           </span>
           {paneLabel.model ? (
             <span
-              className="max-w-[45%] shrink truncate text-[10px] text-content/45"
+              className="max-w-[45%] shrink truncate text-ui-micro text-content/45"
               data-session-pane-model
               title={paneLabel.model}
             >

@@ -805,7 +805,7 @@ describe("browser tab integration", () => {
       const label = root("a").querySelector(".personal-title-tab-label")!;
       expect(label.textContent).toBe("Busy task");
       // The base title size remains stable when a tab is selected or resized.
-      expect(label.className).toContain("text-[13px]");
+      expect(label.className).toContain("text-ui-body");
       expect(label.className).not.toMatch(/@min-/);
       expect(root("a").querySelector(".personal-title-tab-meta")).toBeNull();
       const control = root("a").querySelector('[role="tab"]')!;

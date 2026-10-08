@@ -170,7 +170,7 @@ function ToggleSetting({
       }`}
     >
       <Icon className="size-3.5 shrink-0" strokeWidth={1.75} />
-      <span key={value} className="model-control-value text-[11px]">
+      <span key={value} className="model-control-value text-ui-caption">
         {setting.label}
       </span>
     </button>
@@ -272,7 +272,7 @@ function SelectSetting({
         <Icon className="size-3.5 shrink-0" strokeWidth={1.75} />
         <span
           key={value}
-          className="model-control-value min-w-0 truncate text-[11px]"
+          className="model-control-value min-w-0 truncate text-ui-caption"
         >
           {current?.label ?? setting.label}
         </span>
@@ -310,7 +310,7 @@ function SelectSetting({
                 onMouseDown={(e) => e.preventDefault()}
                 onMouseEnter={() => setActive(index)}
                 onClick={() => pick(option.value)}
-                className={`model-control-option flex w-full items-center rounded-lg px-2 py-1.5 text-left text-[13px] ${
+                className={`model-control-option flex w-full items-center rounded-lg px-2 py-1.5 text-left text-ui-body ${
                   highlighted || selected
                     ? "bg-content/10 text-content"
                     : "text-content hover:bg-content/5"

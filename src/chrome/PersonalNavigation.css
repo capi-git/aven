@@ -21,7 +21,7 @@
   height: 36px;
   padding: 0 8px;
   color: var(--color-content);
-  font-size: 13px;
+  font-size: var(--text-ui-body);
   font-weight: 600;
 }
 .personal-shell .personal-profile-picker {
@@ -76,7 +76,7 @@
   background: transparent;
   color: color-mix(in srgb, var(--color-content) 72%, transparent);
   font-weight: 500;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   line-height: 1.2;
   text-align: center;
 }
@@ -104,7 +104,7 @@
   height: 31px;
   min-height: 31px;
   padding: 0 5px 0 8px;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   color: color-mix(in srgb, var(--color-content) 56%, transparent);
   font-weight: 600;
 }
@@ -123,7 +123,7 @@
   );
   box-shadow: var(--aven-control-shadow, 0 1px 2px rgb(0 0 0 / 10%));
   color: var(--color-content);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   font-weight: 500;
   text-align: left;
 }
@@ -172,7 +172,7 @@
   padding: 0 5px;
   border-radius: 6px;
   text-align: left;
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   font-weight: 500;
   color: var(--color-content);
 }
@@ -251,7 +251,7 @@
   font-weight: 400;
 }
 .personal-shell .personal-navigation .personal-task-status {
-  font-size: 10px;
+  font-size: var(--text-ui-micro);
   font-variant-numeric: tabular-nums;
 }
 .personal-shell .personal-navigation .personal-other-task {
@@ -315,12 +315,12 @@
 .personal-shell .personal-navigation .personal-tasks-empty {
   padding: 7px 12px;
   color: var(--personal-muted);
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
 }
 .personal-shell .personal-navigation .personal-view-project-tasks {
   padding: 5px 12px;
   color: var(--personal-muted);
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   text-align: left;
 }
 .personal-shell .personal-navigation .personal-view-project-tasks:hover {
@@ -452,7 +452,7 @@
 .personal-shell .personal-navigation .personal-sidebar-section-label {
   margin: 7px 0 3px;
   padding: 0 8px;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   color: color-mix(in srgb, var(--color-content) 56%, transparent);
   font-weight: 600;
 }

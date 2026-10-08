@@ -253,7 +253,7 @@ export function MenuBar({
   return (
     <div
       ref={barRef}
-      className="flex h-7 shrink-0 items-center gap-0.5 border-b border-content/10 bg-content/5 px-2 text-[12px]"
+      className="flex h-7 shrink-0 items-center gap-0.5 border-b border-content/10 bg-content/5 px-2 text-ui-label"
       data-tauri-drag-region="false"
     >
       {MENUS.map(({ key, label }) => {

@@ -730,7 +730,7 @@ function PreferencesPage({
           <NotificationsBlocked />
         ) : null}
         {notificationsEnabled && notificationPermission === "unsupported" ? (
-          <span className="text-[12px] text-content/45">
+          <span className="text-ui-label text-content/45">
             Not available on this platform
           </span>
         ) : null}
@@ -771,7 +771,7 @@ function PreferencesPage({
           ).map(([key, label]) => (
             <label
               key={key}
-              className="flex items-center gap-2 text-[11px] text-content/65"
+              className="flex items-center gap-2 text-ui-caption text-content/65"
             >
               {label}
               <Toggle
@@ -1085,7 +1085,7 @@ function LinearSettings() {
                 aria-label="Linear API key"
                 autoComplete="off"
                 spellCheck={false}
-                className="min-w-0 flex-1 bg-transparent text-[12px] text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+                className="min-w-0 flex-1 bg-transparent text-ui-label text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
               />
             </label>
             <SecondaryButton
@@ -1098,14 +1098,14 @@ function LinearSettings() {
         )}
       </Row>
       {error ? (
-        <p className="pb-2 text-[12px] text-red-400/90">{error}</p>
+        <p className="pb-2 text-ui-label text-red-400/90">{error}</p>
       ) : null}
       {connected && teams.length > 0 ? (
         <div className="border-b border-content/5 py-4">
-          <div className="text-[13px] font-medium text-content">
+          <div className="text-ui-body font-medium text-content">
             Linear Teams
           </div>
-          <p className="mt-1 text-[12px] leading-relaxed text-content/45">
+          <p className="mt-1 text-ui-label leading-relaxed text-content/45">
             Unchecked teams stay out of the inbox.
           </p>
           <div className="mt-3 flex flex-col gap-0.5 -mx-2">
@@ -1116,7 +1116,7 @@ function LinearSettings() {
                   key={team.id}
                   type="button"
                   onClick={() => toggleTeam(team.id)}
-                  className="flex h-7 items-center gap-2 rounded-md px-2 text-left text-[13px] text-content hover:bg-content/5"
+                  className="flex h-7 items-center gap-2 rounded-md px-2 text-left text-ui-body text-content hover:bg-content/5"
                 >
                   <span className="min-w-0 flex-1 truncate">
                     {team.name}
@@ -1184,7 +1184,7 @@ function UpdateRow({
       label={
         <span className="flex items-baseline gap-2">
           Version
-          <span className="font-mono text-[12px] text-content/45">
+          <span className="font-mono text-ui-label text-content/45">
             {snapshot.currentVersion}
           </span>
         </span>
@@ -1656,10 +1656,10 @@ function ChatBackgroundCard({
     >
       <div className="settings-background-heading">
         <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-medium text-content">
+          <div className="text-ui-body font-medium text-content">
             Chat background
           </div>
-          <p className="mt-1 text-[12px] leading-relaxed text-content/65">
+          <p className="mt-1 text-ui-label leading-relaxed text-content/65">
             An image behind your chat panes. It stays on this device.
           </p>
         </div>
@@ -1695,7 +1695,7 @@ function ChatBackgroundCard({
               className="size-full object-cover"
               style={{ opacity: appearance.chatBackgroundOpacity }}
             />
-            <span className="pointer-events-none absolute bottom-2 left-2 text-[11px] text-content/40">
+            <span className="pointer-events-none absolute bottom-2 left-2 text-ui-caption text-content/40">
               Preview at {visibility}%
             </span>
           </div>
@@ -1721,8 +1721,8 @@ function ChatBackgroundCard({
           <div className="border-t border-content/8">
             <div className="flex items-center justify-between gap-4 px-3 py-2.5">
               <div className="min-w-0">
-                <div className="text-[12px] text-content">Show on</div>
-                <p className="text-[11px] text-content/40">
+                <div className="text-ui-label text-content">Show on</div>
+                <p className="text-ui-caption text-content/40">
                   Empty sessions only, or every conversation.
                 </p>
               </div>
@@ -1738,8 +1738,8 @@ function ChatBackgroundCard({
             </div>
             <div className="flex items-center justify-between gap-4 border-t border-content/5 px-3 py-2.5">
               <div className="min-w-0">
-                <div className="text-[12px] text-content">Visibility</div>
-                <p className="text-[11px] text-content/40">
+                <div className="text-ui-label text-content">Visibility</div>
+                <p className="text-ui-caption text-content/40">
                   Keep it subtle so long conversations stay readable.
                 </p>
               </div>
@@ -1756,7 +1756,7 @@ function ChatBackgroundCard({
         ) : null}
       </div>
       {appearance.chatBackgroundError ? (
-        <p className="mt-2 text-[12px] text-red-400">
+        <p className="mt-2 text-ui-label text-red-400">
           {appearance.chatBackgroundError}
         </p>
       ) : null}
@@ -2011,13 +2011,13 @@ function ProviderRow({
           <HarnessIcon harness={harness} className="size-5 shrink-0" />
         </span>
         <div className="min-w-0 flex-1">
-          <span className="text-[14px] font-semibold tracking-[-0.01em]">
+          <span className="text-ui-reading font-semibold tracking-[-0.01em]">
             {HARNESS_TITLE[harness]}
           </span>
           {isDefault ? (
             <span className="settings-provider-badge">Default</span>
           ) : null}
-          <p className="mt-0.5 text-[12px] leading-relaxed text-content/60">
+          <p className="mt-0.5 text-ui-label leading-relaxed text-content/60">
             {available
               ? `${shownModels.length} of ${models.length} models shown`
               : harnessUnavailableHint(harness)}
@@ -2031,7 +2031,7 @@ function ProviderRow({
               : undefined
           }
         >
-          <span className="text-[12px] text-content/55">Show in picker</span>
+          <span className="text-ui-label text-content/55">Show in picker</span>
           <Toggle
             label={`Show ${HARNESS_TITLE[harness]} in the model picker`}
             on={inPicker}
@@ -2079,7 +2079,7 @@ function ProviderRow({
       {refreshState !== "idle" ? (
         <p
           role={refreshState === "failed" ? "alert" : "status"}
-          className={`mt-2 pl-12 text-[12px] ${refreshState === "failed" ? "text-red-400" : "text-content/55"}`}
+          className={`mt-2 pl-12 text-ui-label ${refreshState === "failed" ? "text-red-400" : "text-content/55"}`}
         >
           {refreshState === "pending"
             ? "Checking for available models…"
@@ -2090,7 +2090,7 @@ function ProviderRow({
       ) : null}
       {models.length > 0 ? (
         <details
-          className="mt-2 text-[12px]"
+          className="mt-2 text-ui-label"
           onToggle={(event) => {
             setExpanded(event.currentTarget.open);
             if (event.currentTarget.open && available)
@@ -2109,7 +2109,7 @@ function ProviderRow({
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="Filter models"
-                  className="min-w-0 flex-1 bg-transparent text-[12px] outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+                  className="min-w-0 flex-1 bg-transparent text-ui-label outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
                 />
                 <SecondaryButton
                   onClick={() => showAllPickerModels(harness)}
@@ -2134,7 +2134,7 @@ function ProviderRow({
                         {model.name}
                       </span>
                       {lastModel ? (
-                        <span className="text-[10px] text-content/40">
+                        <span className="text-ui-micro text-content/40">
                           Keep one
                         </span>
                       ) : null}
@@ -2218,7 +2218,7 @@ function ArchivePage({
     <>
       <SettingsGroup title="Archived projects" id="setting-archived-projects">
         {archivedProjects.length === 0 ? (
-          <p className="py-4 text-[12px] text-content/50">
+          <p className="py-4 text-ui-label text-content/50">
             Archive a project from the rail to keep its chats without listing it
             in the sidebar.
           </p>
@@ -2229,10 +2229,10 @@ function ArchivePage({
               className="flex min-h-14 items-center gap-3 border-b border-content/8 py-2.5 last:border-b-0"
             >
               <div className="min-w-0 flex-1">
-                <div className="truncate text-[13px]">
+                <div className="truncate text-ui-body">
                   {archivedProjectLabel(project.path)}
                 </div>
-                <div className="truncate text-[11px] text-content/40">
+                <div className="truncate text-ui-caption text-content/40">
                   {prettyCwd(project.path)}
                 </div>
               </div>
@@ -2273,11 +2273,11 @@ function ArchivePage({
         id="setting-archived-conversations"
       >
         {!looksLikeProject(cwd) ? (
-          <p className="py-4 text-[12px] text-content/50">
+          <p className="py-4 text-ui-label text-content/50">
             Open a project to see its archived conversations.
           </p>
         ) : archived.length === 0 ? (
-          <p className="py-4 text-[12px] text-content/50">
+          <p className="py-4 text-ui-label text-content/50">
             No archived conversations in this project.
           </p>
         ) : (
@@ -2293,11 +2293,11 @@ function ArchivePage({
               <button
                 type="button"
                 onClick={() => onOpenSession(session.id)}
-                className="min-w-0 flex-1 truncate text-left text-[13px] hover:text-content"
+                className="min-w-0 flex-1 truncate text-left text-ui-body hover:text-content"
               >
                 {sessionDisplayTitle(session.title, session.harness)}
               </button>
-              <span className="shrink-0 text-[11px] text-content/35 tabular-nums">
+              <span className="shrink-0 text-ui-caption text-content/35 tabular-nums">
                 {formatDate(session.updatedAt)}
               </span>
               <SecondaryButton
@@ -2346,7 +2346,7 @@ function formatDate(value: number): string {
 /** macOS keeps the decision after the first prompt; only System Settings can flip it. */
 function NotificationsBlocked() {
   return (
-    <span className="flex items-center gap-2 text-[12px] text-content/45">
+    <span className="flex items-center gap-2 text-ui-label text-content/45">
       Permission needed
       {IS_MAC ? (
         <button

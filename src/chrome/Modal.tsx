@@ -230,7 +230,7 @@ export function ModalPanel({
             {description ? (
               <p
                 id={descriptionId}
-                className="mt-1 text-[12px] leading-relaxed text-content/65"
+                className="mt-1 text-ui-label leading-relaxed text-content/65"
               >
                 {description}
               </p>

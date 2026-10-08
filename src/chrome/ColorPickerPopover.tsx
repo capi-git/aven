@@ -172,7 +172,7 @@ export function ColorPickerPopover({ value, onChange }: Props) {
                     picker.commitEntry();
                   }
                 }}
-                className="min-w-0 flex-1 rounded-md border border-content/10 bg-content/5 px-2 py-1 font-mono text-[12px] text-content outline-none ring-accent/40 focus:ring-1"
+                className="min-w-0 flex-1 rounded-md border border-content/10 bg-content/5 px-2 py-1 font-mono text-ui-label text-content outline-none ring-accent/40 focus:ring-1"
               />
             </div>
           </div>

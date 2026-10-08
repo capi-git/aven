@@ -15,7 +15,7 @@
 }
 .git-copies-title span {
   margin-left: auto;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   letter-spacing: 0;
   text-transform: none;
 }
@@ -39,7 +39,7 @@
   align-items: center;
   gap: 7px;
   text-align: left;
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   color: var(--color-content);
 }
 .git-copy-head:focus-visible {
@@ -83,7 +83,7 @@
   min-width: 0;
   gap: 8px;
   margin: 3px 0 0 38px;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   color: color-mix(in srgb, var(--color-content) 50%, transparent);
 }
 .git-copy-added {
@@ -130,7 +130,7 @@
   margin-top: 6px;
   padding: 0 8px;
   border-radius: 6px;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   background: color-mix(in srgb, var(--color-content) 8%, transparent);
   color: color-mix(in srgb, var(--color-content) 85%, transparent);
 }
@@ -230,7 +230,7 @@
   flex-shrink: 0;
   place-items: center;
   border-radius: 50%;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   font-weight: 800;
   background: color-mix(in srgb, var(--color-content) 20%, transparent);
   color: var(--color-content);
