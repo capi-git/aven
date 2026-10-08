@@ -800,52 +800,52 @@ function PreferencesPage({
   if (page === "browser")
     return (
       <>
-      <SettingsGroup
-        title="Aven bubble"
-        description="Ask your chat about the page you're on."
-        scope="Device"
-      >
-        <Row
-          label="Show the bubble on web pages"
-          description="A small Aven bubble floats at the bottom of the page. Click it to ask the chat in this workspace; the answer appears above it."
+        <SettingsGroup
+          title="Aven bubble"
+          description="Ask your chat about the page you're on."
+          scope="Device"
         >
-          <Toggle
+          <Row
             label="Show the bubble on web pages"
-            on={browserBubble}
-            onChange={saveBrowserBubble}
-          />
-        </Row>
-      </SettingsGroup>
-      <SettingsGroup
-        title="Memory"
-        description="Keep browser tabs ready while managing memory."
-        scope="Device"
-      >
-        <Row
-          label="Memory saver"
-          description="Keep your three most recent browser tabs ready. Older inactive tabs can sleep after five minutes and reload when reopened. Pages in use stay awake."
+            description="A small Aven bubble floats at the bottom of the page. Click it to ask the chat in this workspace; the answer appears above it."
+          >
+            <Toggle
+              label="Show the bubble on web pages"
+              on={browserBubble}
+              onChange={saveBrowserBubble}
+            />
+          </Row>
+        </SettingsGroup>
+        <SettingsGroup
+          title="Memory"
+          description="Keep browser tabs ready while managing memory."
+          scope="Device"
         >
-          <Toggle
+          <Row
             label="Memory saver"
-            on={browserMemorySaver}
-            onChange={saveBrowserMemorySaver}
-          />
-        </Row>
-        <Row
-          label="Lightweight browser"
-          description={
-            browserEngineRestart
-              ? "Uses Chromium's reduced-memory mode for web pages. Restart Aven to apply this change."
-              : "Uses Chromium's reduced-memory mode for web pages. With Memory saver on, keeps only your most recent inactive tab ready and sleeps others after two minutes. For laptops with little memory; the engine mode applies when Aven starts."
-          }
-        >
-          <Toggle
+            description="Keep your three most recent browser tabs ready. Older inactive tabs can sleep after five minutes and reload when reopened. Pages in use stay awake."
+          >
+            <Toggle
+              label="Memory saver"
+              on={browserMemorySaver}
+              onChange={saveBrowserMemorySaver}
+            />
+          </Row>
+          <Row
             label="Lightweight browser"
-            on={browserLowMemory}
-            onChange={saveBrowserLowMemory}
-          />
-        </Row>
-      </SettingsGroup>
+            description={
+              browserEngineRestart
+                ? "Uses Chromium's reduced-memory mode for web pages. Restart Aven to apply this change."
+                : "Uses Chromium's reduced-memory mode for web pages. With Memory saver on, keeps only your most recent inactive tab ready and sleeps others after two minutes. For laptops with little memory; the engine mode applies when Aven starts."
+            }
+          >
+            <Toggle
+              label="Lightweight browser"
+              on={browserLowMemory}
+              onChange={saveBrowserLowMemory}
+            />
+          </Row>
+        </SettingsGroup>
       </>
     );
 
