@@ -6242,7 +6242,7 @@ export default function App({
             message,
           });
         } finally {
-          if (turnGen.current.get(sessionId) !== gen) return;
+          if (turnGen.current.get(sessionId) === gen) {
           flushHarnessEvents();
           controlOutcome = {
             status:
@@ -6256,11 +6256,10 @@ export default function App({
           };
           await flushSessionCheckpoint(sessionId);
           // Stop/removal may happen while the checkpoint was being flushed.
-          if (turnGen.current.get(sessionId) !== gen) return;
-          const latest = sessionsRef.current.find(
-            (session) => session.id === sessionId,
-          );
-          if (!latest) return;
+          const latest = turnGen.current.get(sessionId) === gen
+            ? sessionsRef.current.find((session) => session.id === sessionId)
+            : undefined;
+          if (latest) {
           const stopped = stopStreaming(latest);
           const providerFailed =
             providerFailureSeen ||
@@ -6315,6 +6314,8 @@ export default function App({
           nudgeWatchedFiles();
           window.setTimeout(() => nudgeWatchedFiles(), 150);
         }
+          }
+          }
       })()
         .catch((error: unknown) => {
           controlOutcome = {
@@ -6355,6 +6356,7 @@ export default function App({
               : controlOutcome,
           );
         });
+      return undefined;
     },
     [enqueueHarnessEvent, flushHarnessEvents, announceActivity],
   );
@@ -6798,7 +6800,7 @@ export default function App({
                 : `${current.harness} could not compact this context`,
           });
         } finally {
-          if (turnGen.current.get(sessionId) !== gen) return;
+          if (turnGen.current.get(sessionId) === gen) {
           flushHarnessEvents();
           const finished = sessionsRef.current.map((session) =>
             session.id === sessionId ? { ...session, busy: false } : session,
@@ -6807,6 +6809,7 @@ export default function App({
           syncDockBadge(finished);
           setSessions(finished);
         }
+          }
       })();
       return true;
     },
@@ -8544,6 +8547,7 @@ export default function App({
     } finally {
       movingWindow.current = false;
     }
+    return undefined;
   };
   const moveTabToWindow = (id: string, target?: string) => {
     void moveWindowRef.current([id], target);
@@ -10131,6 +10135,7 @@ function selectedCommitSha(tab: WorkspaceTab): string | undefined {
     const file = pane.files.find((entry) => entry.id === pane.activeFileId);
     if (file && isCommitTab(file)) return file.commit.sha;
   }
+  return undefined;
 }
 
 function isBlankWorkspaceTab(tab: WorkspaceTab, sessions: Session[]): boolean {

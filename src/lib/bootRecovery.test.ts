@@ -69,6 +69,8 @@ beforeEach(() => {
     .spyOn(window.location, "reload")
     .mockImplementation(() => undefined);
   disconnect = vi.spyOn(MutationObserver.prototype, "disconnect");
+  // Execute the owned bootstrap fixture inside this isolated test window.
+  // eslint-disable-next-line no-eval
   startRecovery = () => window.eval(script);
 });
 

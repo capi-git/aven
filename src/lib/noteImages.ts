@@ -88,7 +88,7 @@ export function noteImageMarkdown(image: NoteImageAsset): string {
   const alt = image.name
     .replace(/[\r\n]+/g, " ")
     .replace(/\\/g, "\\\\")
-    .replace(/([\[\]])/g, "\\$1");
+    .replace(/(\[|\])/g, "\\$1");
   return `![${alt}](${image.markdownPath})`;
 }
 

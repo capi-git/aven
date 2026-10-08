@@ -1,3 +1,4 @@
+import { clamp } from "../lib/math";
 import {
   useEffect,
   useRef,
@@ -8,8 +9,6 @@ import {
 import { hexToHsv, hsvToHex, type Hsv } from "../lib/colorUtils";
 import "./SettingsColorPicker.css";
 
-const clamp = (value: number, min: number, max: number) =>
-  Math.min(max, Math.max(min, value));
 
 const toHex = ({ h, s, v }: Hsv) => hsvToHex(h, s, v);
 

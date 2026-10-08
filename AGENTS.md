@@ -13,3 +13,12 @@ This repository is the source of Aven. The installed Aven may be hosting the ver
 - Work on a branch in your own worktree under `~/Developer/.worktrees/Aven/`, never directly on `main`. Merge through a pull request; the repository only allows squash merges and deletes the branch afterwards. Remove the local worktree and branch once merged.
 - Releases are batched: bump the version and changelog in their own pull request, then run **Release Aven**, which builds macOS and Windows together. Do not publish per change, and do not add follow-up commits for download links.
 - Inspect the Git remote and explicitly verified account before pushing. Follow the user's account-routing instructions; never change a shared global account or expose credentials.
+
+## Conventions
+
+- New persisted keys use the `aven.` prefix. Keep existing `monocode.*` and `supermono.*` keys compatible.
+- Reusable stateful hooks live in `src/hooks`, non-UI logic in `src/lib`, app chrome in `src/chrome`, and workspace views in `src/surfaces`.
+- Name tests after their module: `Name.test.ts` or `Name.topicName.test.ts`. Tests are included in TypeScript checks.
+- Use `errorText` and `logError` from `src/lib/errors` for error messages and actionable diagnostics; keep intentional best-effort failures quiet.
+- Prefer shared theme tokens and existing spacing variables to new hard-coded colors and sizes.
+- Run `npm run lint`, `npm run check:web`, and relevant native checks. Format touched frontend files with Prettier; keep formatting-only changes separate from behavior changes.

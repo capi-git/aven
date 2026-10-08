@@ -20,7 +20,9 @@ let root: Root;
 
 function expectedSvg(name: string) {
   const host = document.createElement("span");
-  host.innerHTML = getIconSvg(name);
+  const svg = getIconSvg(name);
+  if (!svg) throw new Error(`Missing reference icon: ${name}`);
+  host.innerHTML = svg;
   return host.querySelector("svg")?.outerHTML;
 }
 
@@ -116,7 +118,7 @@ describe("FileTypeIcon DOM updates", () => {
 
   it("loads the original glyph for an uncommon extension on demand", async () => {
     await act(async () =>
-      root.render(createElement(FileTypeIcon, { name: "main.nim" })),
+      root.render(createElement(FileTypeIcon, { name: "main.nim", isDir: false })),
     );
     await waitForIcons(1);
     expect(container.querySelector("svg")?.outerHTML).toBe(

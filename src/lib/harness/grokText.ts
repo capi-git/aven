@@ -31,6 +31,7 @@ type LiveText = {
   collecting: boolean;
   output: string;
   closed: boolean;
+  exited: boolean;
 };
 
 let live: LiveText | null = null;
@@ -128,6 +129,7 @@ async function startLive(cwd: string): Promise<LiveText> {
     collecting: false,
     output: "",
     closed: false,
+    exited: false,
   };
   acpRef.session = session;
 
@@ -136,6 +138,7 @@ async function startLive(cwd: string): Promise<LiveText> {
     (line) => acp.pushLine(line),
     () => {
       session.closed = true;
+      session.exited = true;
       // Keep the closed session available for history cleanup in dropLive.
       acp.close(new Error("Grok Build text generator exited"));
     },
@@ -169,8 +172,7 @@ async function startLive(cwd: string): Promise<LiveText> {
     session.closed = true;
     acp.close(error instanceof Error ? error : new Error(String(error)));
     unwatchChild(TEXT_CHILD_ID);
-    await killChild(TEXT_CHILD_ID).catch(() => undefined);
-    await deleteTextSession(session);
+    if (await stopTextChild(session)) await deleteTextSession(session);
     throw error;
   }
 }
@@ -211,9 +213,20 @@ async function dropLive(): Promise<void> {
     current.acp.close();
   }
   unwatchChild(TEXT_CHILD_ID);
-  await killChild(TEXT_CHILD_ID).catch(() => undefined);
-  // Stop the writer first so it cannot recreate the session after deletion.
-  if (current) await deleteTextSession(current);
+  const stopped = await stopTextChild(current);
+  // Delete only after confirmed process termination. A failed kill can leave
+  // the writer alive; removing its history then would race with its next save.
+  if (current && stopped) await deleteTextSession(current);
+}
+
+async function stopTextChild(session: LiveText | null): Promise<boolean> {
+  try {
+    await killChild(TEXT_CHILD_ID);
+    return true;
+  } catch (error) {
+    console.debug("[aven] Grok text process cleanup", error);
+    return session?.exited === true;
+  }
 }
 
 const GROK_SESSION_ID =

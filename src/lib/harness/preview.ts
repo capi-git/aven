@@ -1,3 +1,4 @@
+import { basename } from "./pathLabel";
 import type { ToolPreview, ToolPreviewKind, ToolPreviewLine } from "../session";
 import { displayPath } from "../paths";
 import {
@@ -903,11 +904,6 @@ function normalizePath(path: string): string {
   return path;
 }
 
-function basename(path: string): string {
-  const trimmed = path.replace(/[/\\]+$/, "") || path;
-  const parts = trimmed.split(/[/\\]/).filter(Boolean);
-  return parts[parts.length - 1] ?? trimmed;
-}
 
 function parseRecord(value: unknown): Record<string, unknown> {
   if (typeof value === "string") {
@@ -973,7 +969,7 @@ function firstLine(value: string | undefined): string {
 }
 
 function stripExecutePrefix(title: string): string {
-  return title.replace(/^(?:bash|shell|execute)\s*[:\-]\s+/i, "").trim();
+  return title.replace(/^(?:bash|shell|execute)\s*[:-]\s+/i, "").trim();
 }
 
 function skillNameField(value: unknown): string | undefined {

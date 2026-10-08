@@ -1,3 +1,6 @@
+import { hexToHsl, hslToHex } from "../lib/colorUtils";
+export { hexToHsl, hslToHex } from "../lib/colorUtils";
+import { clamp } from "../lib/math";
 import {
   useEffect,
   useRef,
@@ -5,46 +8,6 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
-
-const clamp = (value: number, min: number, max: number) =>
-  Math.min(max, Math.max(min, value));
-export function hexToHsl(hex: string) {
-  const [r, g, b] = [1, 3, 5].map(
-    (offset) => parseInt(hex.slice(offset, offset + 2), 16) / 255,
-  );
-  const max = Math.max(r, g, b),
-    min = Math.min(r, g, b),
-    delta = max - min;
-  const l = (max + min) / 2;
-  let h = 0;
-  if (delta) {
-    h =
-      max === r
-        ? ((g - b) / delta) % 6
-        : max === g
-          ? (b - r) / delta + 2
-          : (r - g) / delta + 4;
-    h = (h * 60 + 360) % 360;
-  }
-  return {
-    h,
-    s: delta ? (delta / (1 - Math.abs(2 * l - 1))) * 100 : 0,
-    l: l * 100,
-  };
-}
-
-export function hslToHex(h: number, s: number, l: number) {
-  s = clamp(s, 0, 100) / 100;
-  l = clamp(l, 0, 100) / 100;
-  const a = s * Math.min(l, 1 - l);
-  const channel = (n: number) => {
-    const k = (n + (((h % 360) + 360) % 360) / 30) % 12;
-    return Math.round((l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))) * 255)
-      .toString(16)
-      .padStart(2, "0");
-  };
-  return `#${channel(0)}${channel(8)}${channel(4)}`;
-}
 
 type Props = {
   label: string;

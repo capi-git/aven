@@ -1,3 +1,4 @@
+import { errorText as errorMessage, logError } from "../lib/errors";
 import {
   browserIsTransferred,
   isDetachedWorkspace,
@@ -281,10 +282,6 @@ function startsWithUrl(value?: string): string {
   } catch {
     return "";
   }
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 /** A project id change gets a fresh native view without inheriting another URL. */
@@ -988,7 +985,7 @@ function BrowserPaneSession({
       }
       unlisten?.();
       if (created && !terminated && !browserIsTransferred(nativeId))
-        void nativeBrowser.close(nativeId).catch(() => {});
+        void nativeBrowser.close(nativeId).catch((error) => logError("Close browser", error));
     });
     return () => {
       disposed = true;
@@ -999,7 +996,7 @@ function BrowserPaneSession({
       if (!browserIsTransferred(nativeId)) unregisterAgentPage?.();
       unlisten?.();
       if (created && !terminated && !browserIsTransferred(nativeId))
-        void nativeBrowser.close(nativeId).catch(() => {});
+        void nativeBrowser.close(nativeId).catch((error) => logError("Close browser", error));
     };
   }, [hasUrl, id, retryGeneration, requestedAttachmentId, sleeping]);
 

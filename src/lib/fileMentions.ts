@@ -1,3 +1,4 @@
+import { clamp } from "./math";
 import { loadProjectFiles, rankProjectFiles, type RankedFile } from "./fileIndex";
 import type { ProjectFile } from "./fs";
 import { isMarkdownBlockquotePosition } from "./quoteDraft";
@@ -368,8 +369,4 @@ function isMentionableRelative(relative: string): boolean {
 
 function isSpace(ch: string): boolean {
   return ch === " " || ch === "\n" || ch === "\t" || ch === "\r";
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
 }

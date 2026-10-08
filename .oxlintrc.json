@@ -1,0 +1,43 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "react", "unicorn", "oxc"],
+  "env": {
+    "browser": true,
+    "es2023": true
+  },
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    "react/rules-of-hooks": "error",
+    // Advisory only: adding a dependency changes when an effect runs.
+    "react/exhaustive-deps": "warn",
+
+    // These rules assume the React Compiler, which Aven does not use.
+    "react/refs": "off",
+    "react/set-state-in-effect": "off",
+    "react/globals": "off",
+    "react/preserve-manual-memoization": "off",
+    "react/immutability": "off",
+    "react/purity": "off",
+    "react/error-boundaries": "off",
+    "react/static-components": "warn",
+
+    // Deliberate: input validation rejects control characters and terminal
+    // parsers strip ANSI/OSC escape sequences.
+    "eslint/no-control-regex": "off",
+    // Copies such as `for (const listener of [...listeners])` are intentional
+    // snapshots, and `new Array(n)` is deliberate preallocation.
+    "unicorn/no-useless-spread": "off",
+    "unicorn/no-new-array": "off",
+    "unicorn/no-useless-fallback-in-spread": "warn"
+  },
+  "overrides": [
+    {
+      "files": ["**/*.test.ts", "**/*.test.tsx"],
+      // createElement fixtures pass children explicitly as typed props.
+      "rules": { "react/no-children-prop": "off" }
+    }
+  ],
+  "ignorePatterns": ["dist/**", "src-tauri/**", "vendor/**", "target/**"]
+}
