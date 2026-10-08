@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "browser-orb",
+  "description": "The Aven bubble over browser pages. It only listens for its own display state; actions are validated by its owner bridge.",
+  "webviews": ["browser-orb-*"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

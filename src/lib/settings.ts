@@ -328,6 +328,47 @@ export function subscribeBrowserMemorySaver(onChange: () => void) {
   };
 }
 
+const BROWSER_BUBBLE_KEY = "aven.browserBubble";
+const BROWSER_BUBBLE_CHANGE_EVENT = "aven:browser-bubble-change";
+
+/** The Aven bubble over web pages, for asking the workspace's chat. */
+export const BROWSER_BUBBLE_DEFAULT = true;
+
+export function loadBrowserBubble(): boolean {
+  try {
+    const raw = localStorage.getItem(BROWSER_BUBBLE_KEY);
+    if (raw === "0" || raw === "false") return false;
+    if (raw === "1" || raw === "true") return true;
+    return BROWSER_BUBBLE_DEFAULT;
+  } catch {
+    return BROWSER_BUBBLE_DEFAULT;
+  }
+}
+
+export function saveBrowserBubble(value: boolean) {
+  try {
+    localStorage.setItem(BROWSER_BUBBLE_KEY, value ? "1" : "0");
+  } catch {
+    // private mode / quota
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(BROWSER_BUBBLE_CHANGE_EVENT));
+  }
+}
+
+export function subscribeBrowserBubble(onChange: () => void) {
+  if (typeof window === "undefined") return () => {};
+  const onStorage = (event: StorageEvent) => {
+    if (!event.key || event.key === BROWSER_BUBBLE_KEY) onChange();
+  };
+  window.addEventListener(BROWSER_BUBBLE_CHANGE_EVENT, onChange);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(BROWSER_BUBBLE_CHANGE_EVENT, onChange);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
 const BROWSER_LOW_MEMORY_KEY = "aven.browserLowMemory";
 const BROWSER_LOW_MEMORY_CHANGE_EVENT = "aven:browser-low-memory-change";
 

@@ -65,6 +65,16 @@ if (new URLSearchParams(window.location.search).has("workspaceMenuPanel")) {
       ).render(<AccessPanelWindow />);
     })
     .catch(showStartupFailure);
+} else if (new URLSearchParams(window.location.search).has("browserOrb")) {
+  // The bubble over web pages only displays what its workspace sends it.
+  void import("./surfaces/BrowserOrbWindow")
+    .then(({ BrowserOrbWindow }) => {
+      ReactDOM.createRoot(
+        document.getElementById("root") as HTMLElement,
+        rootOptions,
+      ).render(<BrowserOrbWindow />);
+    })
+    .catch(showStartupFailure);
 } else if (new URLSearchParams(window.location.search).has("usagePanel")) {
   // Usage is a transient controlled view. Never restore an App or a harness here.
   void import("./surfaces/UsagePanelWindow")

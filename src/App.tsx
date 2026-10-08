@@ -69,6 +69,7 @@ import { WorkspaceHome } from "./surfaces/WorkspaceHome";
 import { useHoverRevealPanel } from "./hooks/useHoverRevealPanel";
 import { useWorkspaceSnapshotPersistence } from "./hooks/useWorkspaceSnapshotPersistence";
 import { useRecentProjects } from "./hooks/useRecentProjects";
+import { useBrowserOrb } from "./hooks/useBrowserOrb";
 import {
   useAutomationsKeepAwake,
   useScheduledAgents,
@@ -577,6 +578,8 @@ import {
   subscribeNotesEnabled,
   type SettingsSectionId,
   type FollowUpBehavior,
+  loadBrowserBubble,
+  subscribeBrowserBubble,
 } from "./lib/settings";
 import {
   handleEditorFindKey,
@@ -8435,6 +8438,19 @@ export default function App({
     },
   });
   detachedBrowserBridge.current = detached.openForSession;
+  const browserBubble = useSyncExternalStore(
+    subscribeBrowserBubble,
+    loadBrowserBubble,
+  );
+  useBrowserOrb({
+    enabled: browserBubble && !profileHome,
+    session: active,
+    onSubmit: (sessionId, text) => {
+      sessionPaneProps.onSubmit(sessionId, text, []);
+    },
+    onStop: (sessionId) => sessionPaneProps.onStop(sessionId),
+    onOpenChat: (sessionId) => void onOpenApprovalSession(sessionId),
+  });
   detachedFocusBrowser.current = detached.focusBrowser;
   externallyRenderedSessionIds.current = new Set(detached.detachedSessionIds);
   detachedFileBridge.current = detached.openFileForSession;

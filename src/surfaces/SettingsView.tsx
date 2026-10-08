@@ -172,7 +172,9 @@ import {
   filterKeybindings,
   formatKeybindingContext,
   KEYBINDINGS,
+  BROWSER_BUBBLE_DEFAULT,
   BROWSER_MEMORY_SAVER_DEFAULT,
+  loadBrowserBubble,
   loadBrowserMemorySaver,
   loadBrowserLowMemory,
   loadClaudeHooks,
@@ -189,7 +191,9 @@ import {
   saveGridArcadeEnabled,
   saveLiveAgentsEnabled,
   saveNotesEnabled,
+  saveBrowserBubble,
   saveBrowserMemorySaver,
+  subscribeBrowserBubble,
   subscribeBrowserMemorySaver,
   saveBrowserLowMemory,
   subscribeBrowserLowMemory,
@@ -539,6 +543,11 @@ function PreferencesPage({
     loadBrowserMemorySaver,
     () => BROWSER_MEMORY_SAVER_DEFAULT,
   );
+  const browserBubble = useSyncExternalStore(
+    subscribeBrowserBubble,
+    loadBrowserBubble,
+    () => BROWSER_BUBBLE_DEFAULT,
+  );
   const browserLowMemory = useSyncExternalStore(
     subscribeBrowserLowMemory,
     loadBrowserLowMemory,
@@ -790,6 +799,23 @@ function PreferencesPage({
 
   if (page === "browser")
     return (
+      <>
+      <SettingsGroup
+        title="Aven bubble"
+        description="Ask your chat about the page you're on."
+        scope="Device"
+      >
+        <Row
+          label="Show the bubble on web pages"
+          description="A small Aven bubble floats at the bottom of the page. Click it to ask the chat in this workspace; the answer appears above it."
+        >
+          <Toggle
+            label="Show the bubble on web pages"
+            on={browserBubble}
+            onChange={saveBrowserBubble}
+          />
+        </Row>
+      </SettingsGroup>
       <SettingsGroup
         title="Memory"
         description="Keep browser tabs ready while managing memory."
@@ -820,6 +846,7 @@ function PreferencesPage({
           />
         </Row>
       </SettingsGroup>
+      </>
     );
 
   if (page === "notifications") return notificationsGroup;
