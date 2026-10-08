@@ -7,6 +7,7 @@ const status = vi.hoisted(() => vi.fn());
 vi.mock("../lib/pty", () => ({ getPtyStatus: status }));
 it("hidden retained terminals do no status work, reveal refreshes, late results and unmount are ignored", async () => {
   vi.useFakeTimers();
+  vi.spyOn(document, "hasFocus").mockReturnValue(true);
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const root = createRoot(document.createElement("div")),
     onStatus = vi.fn(),
@@ -24,6 +25,16 @@ it("hidden retained terminals do no status work, reveal refreshes, late results 
   await render(true);
   expect(status).toHaveBeenCalledTimes(1);
   expect(onStatus).toHaveBeenCalledWith("shell");
+  window.dispatchEvent(new Event("blur"));
+  expect(vi.getTimerCount()).toBe(0);
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(status).toHaveBeenCalledTimes(1);
+  window.dispatchEvent(new Event("focus"));
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(status).toHaveBeenCalledTimes(2);
+
   let resolve!: (v: { foreground: string }) => void;
   status.mockImplementationOnce(
     () =>
@@ -33,16 +44,17 @@ it("hidden retained terminals do no status work, reveal refreshes, late results 
   );
   await vi.advanceTimersByTimeAsync(1000);
   await vi.advanceTimersByTimeAsync(3000);
-  expect(status).toHaveBeenCalledTimes(2);
+  expect(status).toHaveBeenCalledTimes(3);
   await render(false);
   resolve({ foreground: "stale" });
   await Promise.resolve();
   expect(onStatus).not.toHaveBeenCalledWith("stale");
   await render(true);
-  expect(status).toHaveBeenCalledTimes(3);
+  expect(status).toHaveBeenCalledTimes(4);
   await act(async () => root.unmount());
   await vi.advanceTimersByTimeAsync(5000);
-  expect(status).toHaveBeenCalledTimes(3);
+  expect(status).toHaveBeenCalledTimes(4);
+  vi.restoreAllMocks();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });

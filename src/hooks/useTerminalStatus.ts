@@ -1,7 +1,8 @@
 import { useEffect, useRef, type RefObject } from "react";
 import { getPtyStatus } from "../lib/pty";
+import { isWindowActive, subscribeWindowActivity } from "../lib/windowActivity";
 
-/** Presentation is independent of keyboard focus: visible splits still poll. */
+/** All presented splits poll while their native window is active. */
 export function useTerminalStatus(
   id: string,
   presented: boolean,
@@ -16,12 +17,12 @@ export function useTerminalStatus(
     let disposed = false;
     let last: string | null | undefined;
     const refresh = () => {
-      if (disposed || !ready.current || document.hidden || inFlight.current)
+      if (disposed || !ready.current || !isWindowActive() || inFlight.current)
         return;
       inFlight.current = true;
       void getPtyStatus(id)
         .then(({ foreground }) => {
-          if (disposed || document.hidden) return;
+          if (disposed || !isWindowActive()) return;
           const value = foreground?.trim() || null;
           if (value === last) return;
           last = value;
@@ -32,13 +33,20 @@ export function useTerminalStatus(
           inFlight.current = false;
         });
     };
-    refresh();
-    const timer = setInterval(refresh, 1000);
-    document.addEventListener("visibilitychange", refresh);
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const sync = () => {
+      if (timer !== undefined) clearInterval(timer);
+      timer = undefined;
+      if (!isWindowActive()) return;
+      refresh();
+      timer = setInterval(refresh, 1000);
+    };
+    const unsubscribe = subscribeWindowActivity(sync);
+    sync();
     return () => {
       disposed = true;
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", refresh);
+      if (timer !== undefined) clearInterval(timer);
+      unsubscribe();
     };
   }, [id, presented, ready]);
 }

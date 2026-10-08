@@ -43,6 +43,7 @@ import {
   basename,
   gitCommit,
   gitDiffIndex,
+  gitDiffFiles,
   gitDiscardAll,
   gitDiscardFile,
   gitPrCreate,
@@ -75,8 +76,10 @@ import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { GitCopies } from "./GitCopies";
 import { GitHousekeeping } from "./GitHousekeeping";
 import { gitPrSquashMerge } from "../lib/gitHousekeeping";
+import { isWindowActive, subscribeWindowActivity } from "../lib/windowActivity";
 
 const GIT_POLL_MS = 2000;
+const GIT_SYNC_POLL_MS = 30_000;
 
 function confirmNative(message: string, okLabel?: string): Promise<boolean> {
   return ask(message, {
@@ -808,28 +811,25 @@ function usePrStatus(
     let cancelled = false;
     let request = 0;
     const load = () => {
-      if (cancelled || document.hidden) return;
+      if (cancelled || !isWindowActive()) return;
       const current = ++request;
       void gitPrStatus(cwd)
         .then((next) => {
-          if (cancelled || current !== request || document.hidden) return;
+          if (cancelled || current !== request || !isWindowActive()) return;
           prByCwd.set(cwd, next);
           setPr(next);
         })
         .catch(() => {
-          if (cancelled || current !== request || document.hidden) return;
+          if (cancelled || current !== request || !isWindowActive()) return;
           prByCwd.set(cwd, null);
           setPr(null);
         });
     };
+    const unsubscribe = subscribeWindowActivity(load);
     load();
-    const onResume = () => load();
-    window.addEventListener("focus", onResume);
-    document.addEventListener("visibilitychange", onResume);
     return () => {
       cancelled = true;
-      window.removeEventListener("focus", onResume);
-      document.removeEventListener("visibilitychange", onResume);
+      unsubscribe();
     };
   }, [branch, cwd, enabled, nonce]);
 
@@ -1510,21 +1510,43 @@ function useDiffIndex(
     let cancelled = false;
     let inFlight = false;
     let pending = false;
+    let pendingSync = false;
+    let publishing = false;
+    let lastSync = 0;
 
-    const load = async () => {
-      if (cancelled || document.hidden) {
+    const load = async (forceSync = false) => {
+      if (cancelled || !isWindowActive()) {
         pending = false;
+        pendingSync = false;
         return;
       }
       if (inFlight) {
         pending = true;
+        pendingSync ||= forceSync;
         return;
       }
       inFlight = true;
       try {
-        const next = await gitDiffIndex(cwd);
-        if (cancelled || document.hidden) return;
         const prev = indexRef.current;
+        const sync =
+          forceSync || !prev || Date.now() - lastSync >= GIT_SYNC_POLL_MS;
+        let next = await (sync ? gitDiffIndex(cwd) : gitDiffFiles(cwd));
+        if (cancelled || !isWindowActive()) return;
+        if (sync) lastSync = Date.now();
+        else if (prev && next.branch === prev.branch) {
+          // The cheap status command omits remote and divergence metadata.
+          next = {
+            ...prev,
+            files: next.files,
+            additions: next.additions,
+            deletions: next.deletions,
+          };
+        } else {
+          // An external checkout must not show the previous branch's sync state.
+          next = await gitDiffIndex(cwd);
+          if (cancelled || !isWindowActive()) return;
+          lastSync = Date.now();
+        }
         if (sameIndex(prev, next)) return;
         indexByCwd.set(cwd, next);
         indexRef.current = next;
@@ -1537,18 +1559,26 @@ function useDiffIndex(
         if (prev) {
           const paths = changedFilePaths(prev, next);
           invalidateWatchedFiles(paths);
-          notifyGitChanged();
+          publishing = true;
+          try {
+            notifyGitChanged();
+          } finally {
+            publishing = false;
+          }
         }
       } catch {
-        if (!cancelled && !document.hidden) {
+        if (!cancelled && isWindowActive()) {
           indexByCwd.delete(cwd);
+          indexRef.current = null;
           setIndex(null);
         }
       } finally {
         inFlight = false;
         if (pending) {
+          const sync = pendingSync;
           pending = false;
-          if (!cancelled && !document.hidden) void load();
+          pendingSync = false;
+          if (!cancelled && isWindowActive()) void load(sync);
         }
       }
     };
@@ -1559,29 +1589,30 @@ function useDiffIndex(
       window.clearInterval(timer);
       timer = null;
     };
-    const onResume = () => {
-      void load();
-    };
-    const onVisibility = () => {
+    const onActivity = () => {
       if (cancelled) return;
-      if (document.hidden) {
+      if (!isWindowActive()) {
         pending = false;
+        pendingSync = false;
         stopPolling();
         return;
       }
-      if (timer === null) timer = window.setInterval(onResume, GIT_POLL_MS);
-      void load();
+      if (timer === null)
+        timer = window.setInterval(() => void load(), GIT_POLL_MS);
+      void load(true);
     };
-    window.addEventListener("focus", onResume);
-    document.addEventListener("visibilitychange", onVisibility);
-    const unsubGit = subscribeGitChanged(onResume);
-    onVisibility();
+    const unsubActivity = subscribeWindowActivity(onActivity);
+    const unsubGit = subscribeGitChanged(() => {
+      // Notify sibling panels without feeding our own poll back into a full refresh.
+      if (!publishing) void load(true);
+    });
+    onActivity();
     return () => {
       cancelled = true;
       pending = false;
+      pendingSync = false;
       stopPolling();
-      window.removeEventListener("focus", onResume);
-      document.removeEventListener("visibilitychange", onVisibility);
+      unsubActivity();
       unsubGit();
     };
   }, [cwd, enabled, nonce]);

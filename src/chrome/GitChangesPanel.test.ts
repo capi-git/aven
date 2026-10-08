@@ -13,6 +13,7 @@ import { generateCommitMessage } from "../lib/harness";
 
 const mocks = vi.hoisted(() => ({
   diffIndex: vi.fn(),
+  diffFiles: vi.fn(),
   stageAll: vi.fn(),
   applyStats: vi.fn(),
   invalidate: vi.fn(),
@@ -23,6 +24,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: (command: string, args: { cwd: string }) => {
+    if (command === "git_diff_files") return mocks.diffFiles(args.cwd);
     if (command === "git_diff_index") return mocks.diffIndex(args.cwd);
     if (command === "git_stage_all") return mocks.stageAll(args.cwd);
     if (command === "git_pr_status") return mocks.prStatus(args.cwd);
@@ -67,6 +69,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   hidden = false;
+  vi.spyOn(document, "hasFocus").mockReturnValue(true);
   vi.spyOn(document, "hidden", "get").mockImplementation(() => hidden);
   cwd = `/git-polling-${++sequence}`;
   index = {
@@ -82,6 +85,7 @@ beforeEach(() => {
     aheadOfDefault: 0,
   };
   mocks.diffIndex.mockResolvedValue(index);
+  mocks.diffFiles.mockResolvedValue(index);
   mocks.stageAll.mockResolvedValue(undefined);
   mocks.prStatus.mockResolvedValue(null);
   container = document.createElement("div");
@@ -287,7 +291,8 @@ describe("Changes panel visibility polling", () => {
     expect(vi.getTimerCount()).toBe(1);
     mocks.diffIndex.mockClear();
     await act(async () => vi.advanceTimersByTimeAsync(2000));
-    expect(mocks.diffIndex).toHaveBeenCalledOnce();
+    expect(mocks.diffIndex).not.toHaveBeenCalled();
+    expect(mocks.diffFiles).toHaveBeenCalledOnce();
     await visibility(true);
     expect(vi.getTimerCount()).toBe(0);
     await act(async () => {
@@ -295,9 +300,9 @@ describe("Changes panel visibility polling", () => {
       notifyGitChanged();
       await vi.advanceTimersByTimeAsync(6000);
     });
-    expect(mocks.diffIndex).toHaveBeenCalledOnce();
+    expect(mocks.diffIndex).not.toHaveBeenCalled();
     await visibility(false);
-    expect(mocks.diffIndex).toHaveBeenCalledTimes(2);
+    expect(mocks.diffIndex).toHaveBeenCalledOnce();
     expect(vi.getTimerCount()).toBe(1);
     await act(async () => root.render(null));
     expect(vi.getTimerCount()).toBe(0);
@@ -305,7 +310,7 @@ describe("Changes panel visibility polling", () => {
       notifyGitChanged();
       window.dispatchEvent(new Event("focus"));
     });
-    expect(mocks.diffIndex).toHaveBeenCalledTimes(2);
+    expect(mocks.diffIndex).toHaveBeenCalledOnce();
   });
 
   it("drops queued refreshes and late publications when an in-flight load becomes hidden", async () => {
@@ -451,5 +456,57 @@ describe("Changes header", () => {
     });
     expect(button("Switch branch: feature")).toBeNull();
     expect(button("Branch: feature")?.disabled).toBe(true);
+  });
+});
+
+
+describe("active window Git polling", () => {
+  it("suspends while unfocused and refreshes full status immediately on focus", async () => {
+    await render();
+    await act(async () => window.dispatchEvent(new Event("blur")));
+    expect(vi.getTimerCount()).toBe(0);
+    await act(async () => {
+      notifyGitChanged();
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(mocks.diffIndex).toHaveBeenCalledOnce();
+    expect(mocks.diffFiles).not.toHaveBeenCalled();
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    expect(mocks.diffIndex).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(1);
+  });
+
+  it("polls changed files cheaply while retaining sync metadata, then refreshes divergence", async () => {
+    index.remote = "origin";
+    index.upstream = "origin/feature";
+    index.ahead = 2;
+    await render();
+    mocks.diffFiles.mockResolvedValue({ ...index, remote: null, upstream: null, ahead: 0,
+      files: [changed("changed.ts", false, true)], additions: 1 });
+    await act(async () => vi.advanceTimersByTimeAsync(2000));
+    expect(mocks.diffFiles).toHaveBeenCalledOnce();
+    expect(mocks.diffIndex).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain("changed.ts");
+    expect(container.textContent).toContain("↑2");
+    await act(async () => vi.advanceTimersByTimeAsync(28_000));
+    expect(mocks.diffIndex).toHaveBeenCalledTimes(2);
+    expect(mocks.diffFiles).toHaveBeenCalledTimes(14);
+    await act(async () => notifyGitChanged());
+    expect(mocks.diffIndex).toHaveBeenCalledTimes(3);
+  });
+
+  it("refreshes sync metadata immediately after an external branch checkout", async () => {
+    index.remote = "origin";
+    index.upstream = "origin/feature";
+    index.ahead = 2;
+    await render();
+    const next = { ...index, branch: "main", upstream: "origin/main", ahead: 0 };
+    mocks.diffFiles.mockResolvedValue({ ...next, remote: null, upstream: null });
+    mocks.diffIndex.mockResolvedValue(next);
+    await act(async () => vi.advanceTimersByTimeAsync(2000));
+    expect(mocks.diffFiles).toHaveBeenCalledOnce();
+    expect(mocks.diffIndex).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain("main is clean and up to date");
+    expect(container.textContent).not.toContain("↑2");
   });
 });
