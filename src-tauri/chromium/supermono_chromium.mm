@@ -1348,8 +1348,27 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     auto params=Object(); params->SetString("format","png"); params->SetBool("captureBeyondViewport",false);
     CefRefPtr<Page> self=this;
     CaptureScreenshot(params,[self,request](bool ok,Dict result) {
-      if (ok) { if (Text(result,"data").size()>10*1024*1024) { Result(self->id_,request,false,Error("Screenshot exceeded its limit")); return; } result->SetString("mimeType","image/png"); }
-      Result(self->id_,request,ok,result);
+      if (!ok) { Result(self->id_,request,false,result); return; }
+      const auto data=Text(result,"data");
+      if (data.size()>supermono::kEditViewportMaxBase64) { Result(self->id_,request,false,Error("Screenshot exceeded its limit")); return; }
+      const auto id=self->id_;
+      // Popup covers cross the IPC bridge briefly. Bound and encode their pixels
+      // off the main thread; agent screenshots and edit attachments stay lossless.
+      dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0), ^{
+        @autoreleasepool {
+          NSData *png=[[NSData alloc] initWithBase64EncodedString:Ns(data) options:0];
+          uint32_t width=0,height=0;
+          NSData *jpeg=supermono::CompressBrowserCoverImage(png,width,height);
+          NSString *encoded=[jpeg base64EncodedStringWithOptions:0];
+          dispatch_async(dispatch_get_main_queue(), ^{
+            if (!initialized || stopping || !pages.contains(id)) return;
+            if (!encoded) { Result(id,request,false,Error("Browser cover could not be encoded")); return; }
+            auto cover=Object(); cover->SetString("data",Str(encoded)); cover->SetString("mimeType","image/jpeg");
+            cover->SetInt("width",width); cover->SetInt("height",height);
+            Result(id,request,true,cover);
+          });
+        }
+      });
     });
   }
   // An agent's page image must not change what the user sees. A shown page is
