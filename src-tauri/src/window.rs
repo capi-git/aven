@@ -397,9 +397,40 @@ pub fn open_new_window(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// The dark workspace shell colour the page hands to macOS: sRGB channels and
+/// the shell's opacity (0..1). AppKit paints it as the window background.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize)]
+pub struct GlassTint {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub alpha: f64,
+}
+
+impl GlassTint {
+    /// Fully clear plus a native shadow leaves a jagged gap at the corners,
+    /// so the native tint never drops below the former near-clear backing.
+    pub const MIN_ALPHA: f64 = 0.01;
+
+    /// The usable native alpha, or `None` for a malformed value so the page
+    /// keeps painting its own tint.
+    pub fn native_alpha(self) -> Option<f64> {
+        self.alpha
+            .is_finite()
+            .then(|| self.alpha.clamp(Self::MIN_ALPHA, 1.0))
+    }
+}
+
 /// Desktop blur goes on after the first UI paint and only in dark mode.
+/// Returns whether the native window now paints the page's glass tint, so the
+/// page can stop painting the same translucent colour twice. Only macOS does.
 #[tauri::command]
-pub fn set_window_glass_enabled(window: Window, webview: Webview, enabled: bool) {
+pub fn set_window_glass_enabled(
+    window: Window,
+    webview: Webview,
+    enabled: bool,
+    tint: Option<GlassTint>,
+) -> bool {
     // Preserve the former WebviewWindow color update on both the native window
     // and its UI webview, including when native browser children are attached.
     #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -411,11 +442,14 @@ pub fn set_window_glass_enabled(window: Window, webview: Webview, enabled: bool)
     #[cfg(target_os = "macos")]
     {
         if enabled {
-            set_background(Color(0, 0, 0, 3));
-            crate::macos::enable_glass(&window);
-        } else {
-            crate::macos::disable_glass(&window);
+            // Tint updates arrive while glass is already on; the webview's
+            // near-clear backing only needs setting when glass turns on.
+            if !crate::macos::glass_enabled(&window) {
+                set_background(Color(0, 0, 0, 3));
+            }
+            return crate::macos::enable_glass(&window, tint);
         }
+        crate::macos::disable_glass(&window);
     }
     #[cfg(target_os = "windows")]
     {
@@ -431,6 +465,9 @@ pub fn set_window_glass_enabled(window: Window, webview: Webview, enabled: bool)
     {
         let _ = (window, webview, enabled);
     }
+    #[cfg(not(target_os = "macos"))]
+    let _ = tint;
+    false
 }
 
 /// Close with a running chat hides the webview so the harness child keeps going.
@@ -604,6 +641,37 @@ fn prepare_process_exit(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn glass_tint_clamps_to_a_usable_native_alpha() {
+        let tint = |alpha| GlassTint {
+            r: 1,
+            g: 2,
+            b: 3,
+            alpha,
+        };
+        assert_eq!(tint(0.52).native_alpha(), Some(0.52));
+        assert_eq!(tint(0.0).native_alpha(), Some(GlassTint::MIN_ALPHA));
+        assert_eq!(tint(-1.0).native_alpha(), Some(GlassTint::MIN_ALPHA));
+        assert_eq!(tint(4.0).native_alpha(), Some(1.0));
+        assert_eq!(tint(f64::NAN).native_alpha(), None);
+        assert_eq!(tint(f64::INFINITY).native_alpha(), None);
+    }
+
+    #[test]
+    fn glass_tint_reads_the_page_payload() {
+        let tint: GlassTint =
+            serde_json::from_str(r#"{"r":10,"g":20,"b":30,"alpha":0.4}"#).unwrap();
+        assert_eq!(
+            tint,
+            GlassTint {
+                r: 10,
+                g: 20,
+                b: 30,
+                alpha: 0.4
+            }
+        );
+    }
 
     #[test]
     fn update_reservation_excludes_work_until_owner_cancels() {

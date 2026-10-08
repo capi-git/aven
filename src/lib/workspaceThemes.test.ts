@@ -771,7 +771,11 @@ describe("workspace theme activation", () => {
     );
     // Only the translucency this edit introduced reaches the native window.
     expect(vi.mocked(invoke).mock.calls).toEqual([
-      ["set_window_glass_enabled", { enabled: true }],
+      [
+        "set_window_glass_enabled",
+        // The shell's dark frame, hsl(90 30% 4%), at the new opacity.
+        { enabled: true, tint: { r: 10, g: 13, b: 7, alpha: 0.05 } },
+      ],
     ]);
   });
 

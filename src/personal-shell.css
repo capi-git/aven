@@ -96,6 +96,16 @@ html.has-native-glass:not(.theme-light) .personal-shell {
   --personal-window-opacity: var(--sidebar-opacity, 1);
 }
 
+/* macOS paints this same shell tint on the window itself once it confirms
+   (appearance.ts), so edges exposed during a live resize are tinted before
+   WebKit's next frame. Every other workspace surface stacks on the shell and
+   keeps its own paint; only the shell stops, or the tint would double.
+   `--personal-window-opacity` stays set for the cards that read it. */
+html.is-mac.has-native-glass.has-native-glass-tint:not(.theme-light)
+  .personal-shell {
+  background: transparent;
+}
+
 /* The window toolbar and the pinned sidebar share one surface, so they read
    as a single frame around the workspace instead of two stacked bars. */
 .personal-shell {

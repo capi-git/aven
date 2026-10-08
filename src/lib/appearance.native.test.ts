@@ -70,6 +70,7 @@ describe("native workspace transparency", () => {
     await Promise.resolve();
     expect(invoke).toHaveBeenLastCalledWith("set_window_glass_enabled", {
       enabled: true,
+      tint: { r: 0, g: 0, b: 0, alpha: 0.52 },
     });
     expect(getCurrentWindow().setBackgroundColor).not.toHaveBeenCalled();
   });
@@ -161,7 +162,11 @@ describe("native workspace transparency", () => {
         .mock.calls.filter(([name]) => name === "set_window_glass_enabled"),
     ).toEqual([
       ["set_window_glass_enabled", { enabled: false }],
-      ["set_window_glass_enabled", { enabled: true }],
+      [
+        "set_window_glass_enabled",
+        // The default shell frame, hsl(207 16% 4%), at the sidebar opacity.
+        { enabled: true, tint: { r: 9, g: 10, b: 12, alpha: 0.6 } },
+      ],
       ["set_window_glass_enabled", { enabled: false }],
       ["set_window_glass_enabled", { enabled: false }],
       ["set_window_glass_enabled", { enabled: false }],
