@@ -1,3 +1,4 @@
+import { useChromeProps } from "../hooks/useChromeProps";
 import { BrowserTabIcon } from "./BrowserTabIcon";
 import {
   ChevronDown,
@@ -2516,4 +2517,10 @@ function TitleBarComponent({
   );
 }
 
-export const TitleBar = memo(TitleBarComponent);
+const MemoTitleBar = memo(TitleBarComponent);
+const TITLE_DATA: readonly (keyof TitleBarProps)[] = [
+  "tabs", "browserTabs", "surfaceOrder", "visibleIds", "windowTargets", "combineTargets", "recents",
+];
+export function TitleBar(props: TitleBarProps) {
+  return <MemoTitleBar {...useChromeProps(props, TITLE_DATA)} />;
+}

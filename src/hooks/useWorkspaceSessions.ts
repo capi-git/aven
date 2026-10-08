@@ -1,5 +1,14 @@
-import { useCallback, useEffect, useRef, useState, type SetStateAction } from "react";
-import { canDeferStreamCommit, createLiveSessionStore } from "../lib/liveSessions";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type SetStateAction,
+} from "react";
+import {
+  canDeferStreamCommit,
+  createLiveSessionStore,
+} from "../lib/liveSessions";
 import type { Session } from "../lib/session";
 
 /** Visible transcripts update immediately; workspace chrome catches up at most four times a second. */
@@ -17,29 +26,52 @@ export function useWorkspaceSessions(initial: () => Session[]) {
       transcriptCommit.current = null;
     }
   }, []);
-  const commitSessions = useCallback((next: Session[]) => {
-    cancelCommit();
-    sessionsRef.current = next;
-    liveSessions.set(next);
-    setCommittedSessions(next);
-  }, [cancelCommit, liveSessions]);
-  const setSessions = useCallback((action: SetStateAction<Session[]>) => {
-    commitSessions(typeof action === "function" ? action(sessionsRef.current) : action);
-  }, [commitSessions]);
+  const commitSessions = useCallback(
+    (next: Session[]) => {
+      cancelCommit();
+      sessionsRef.current = next;
+      liveSessions.set(next);
+      setCommittedSessions(next);
+    },
+    [cancelCommit, liveSessions],
+  );
+  const setSessions = useCallback(
+    (action: SetStateAction<Session[]>) => {
+      commitSessions(
+        typeof action === "function" ? action(sessionsRef.current) : action,
+      );
+    },
+    [commitSessions],
+  );
   const flushCommittedSessions = useCallback(() => {
     if (transcriptCommit.current === null) return;
     cancelCommit();
     setCommittedSessions(sessionsRef.current);
   }, [cancelCommit]);
-  const commitStream = useCallback((next: Session[], externallyRendered: ReadonlySet<string>) => {
-    if (!canDeferStreamCommit(sessionsRef.current, next, externallyRendered)) {
-      commitSessions(next);
-      return;
-    }
-    sessionsRef.current = next;
-    liveSessions.set(next);
-    transcriptCommit.current ??= window.setTimeout(flushCommittedSessions, TRANSCRIPT_COMMIT_INTERVAL_MS);
-  }, [commitSessions, liveSessions, flushCommittedSessions]);
+  const commitStream = useCallback(
+    (next: Session[], externallyRendered: ReadonlySet<string>) => {
+      if (
+        !canDeferStreamCommit(sessionsRef.current, next, externallyRendered)
+      ) {
+        commitSessions(next);
+        return;
+      }
+      sessionsRef.current = next;
+      liveSessions.set(next);
+      transcriptCommit.current ??= window.setTimeout(
+        flushCommittedSessions,
+        TRANSCRIPT_COMMIT_INTERVAL_MS,
+      );
+    },
+    [commitSessions, liveSessions, flushCommittedSessions],
+  );
   useEffect(() => cancelCommit, [cancelCommit]);
-  return { sessions, sessionsRef, liveSessions, setSessions, commitStream, flushCommittedSessions };
+  return {
+    sessions,
+    sessionsRef,
+    liveSessions,
+    setSessions,
+    commitStream,
+    flushCommittedSessions,
+  };
 }

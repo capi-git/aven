@@ -13,7 +13,10 @@ function Harness() {
   return null;
 }
 function reply(text: string): Session {
-  return { ...session, blocks: [{ id: "reply", role: "assistant", text, streaming: true }] };
+  return {
+    ...session,
+    blocks: [{ id: "reply", role: "assistant", text, streaming: true }],
+  };
 }
 beforeEach(async () => {
   vi.useFakeTimers();
@@ -41,8 +44,14 @@ it("publishes streaming to the visible chat immediately and commits the newest t
 });
 
 it("applies a rename against live text and cancels the trailing commit", async () => {
-  await act(async () => state.commitStream([reply("Unsaved token")], new Set()));
-  await act(async () => state.setSessions((current) => current.map((item) => ({ ...item, title: "Renamed" }))));
+  await act(async () =>
+    state.commitStream([reply("Unsaved token")], new Set()),
+  );
+  await act(async () =>
+    state.setSessions((current) =>
+      current.map((item) => ({ ...item, title: "Renamed" })),
+    ),
+  );
   expect(state.sessions[0].title).toBe("Renamed");
   expect(state.sessions[0].blocks[0].text).toBe("Unsaved token");
   expect(vi.getTimerCount()).toBe(0);

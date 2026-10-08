@@ -1,3 +1,4 @@
+import { useChromeProps } from "../hooks/useChromeProps";
 import {
   Archive,
   Check,
@@ -1880,7 +1881,16 @@ function SidebarComponent({
   );
 }
 
-export const Sidebar = memo(SidebarComponent);
+const MemoSidebar = memo(SidebarComponent);
+const SIDEBAR_DATA: readonly (keyof SidebarProps)[] = [
+  "sessions", "openSessions", "profiles", "profilePreviews", "projectSessions",
+  "recents", "busyProjectPaths", "liveAgents", "standaloneSessions",
+  "busySessionIds", "approvalSessionIds", "loadedProjectPaths",
+  "projectHistoryErrors", "unseenFinishedIds",
+];
+export function Sidebar(props: SidebarProps) {
+  return <MemoSidebar {...useChromeProps(props, SIDEBAR_DATA)} />;
+}
 
 function SessionsHeaderButton({
   label,
