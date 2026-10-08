@@ -3845,12 +3845,17 @@ export default function App({
       path?: string,
       session?: { sessionId: string; cwd: string },
       changeKind?: GitFileDiffKind,
+      options?: { exact?: boolean },
     ) => {
       leaveExpandedPreview();
       void (async () => {
         const diffCwd = session?.cwd ?? gitCwdRef.current;
+        // Git already reports exact paths; guessing would scan the project on
+        // every click and could swap in a same-named file.
         const resolved = path
-          ? ((await resolveOpenablePath(diffCwd, path)) ?? path)
+          ? options?.exact
+            ? path
+            : ((await resolveOpenablePath(diffCwd, path)) ?? path)
           : undefined;
         if (resolved) rememberOpenedFile(diffCwd, resolved);
         setTabs((prev) =>
@@ -3887,7 +3892,8 @@ export default function App({
   );
 
   const onOpenWorkingTreeDiff = useCallback(
-    (path: string, kind?: GitFileDiffKind) => onOpenDiff(path, undefined, kind),
+    (path: string, kind?: GitFileDiffKind) =>
+      onOpenDiff(path, undefined, kind, { exact: true }),
     [onOpenDiff],
   );
 

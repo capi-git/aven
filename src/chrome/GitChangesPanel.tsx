@@ -1387,7 +1387,7 @@ function ChangeRow({
           onClick={() => {
             if (canOpen) onOpenFile(file.path, kind);
           }}
-          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+          className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left"
         >
           {tree ? <span className="size-4 shrink-0" /> : null}
           <FileTypeIcon name={name} isDir={false} size={16} />
