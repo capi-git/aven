@@ -202,21 +202,29 @@ export function buildTurnStartParams(input: {
   for (const attachment of input.attachments ?? []) {
     turnInput.push(attachment);
   }
+  // settings.model is a required string. Null is rejected
+  // ("invalid type: null, expected a string") and an empty string leaves
+  // Codex without a model. Skip the override until a model is known so
+  // Codex keeps the one it chose when the thread started.
+  const model = input.model?.trim() ?? "";
+  const collaborationMode = model
+    ? {
+        mode: input.intent === "plan" ? "plan" : "default",
+        settings: {
+          model,
+          reasoning_effort: input.effort ?? null,
+          developer_instructions: null,
+        },
+      }
+    : undefined;
   return {
     threadId: input.threadId,
     input: turnInput,
     approvalPolicy: config.approvalPolicy,
     approvalsReviewer: config.approvalsReviewer,
     sandboxPolicy: config.sandboxPolicy,
-    collaborationMode: {
-      mode: input.intent === "plan" ? "plan" : "default",
-      settings: {
-        model: input.model ?? null,
-        reasoning_effort: input.effort ?? null,
-        developer_instructions: null,
-      },
-    },
-    ...(input.model ? { model: input.model } : {}),
+    ...(collaborationMode ? { collaborationMode } : {}),
+    ...(model ? { model } : {}),
     ...(input.effort ? { effort: input.effort } : {}),
     ...(input.serviceTier && input.serviceTier !== "default"
       ? { serviceTier: input.serviceTier }

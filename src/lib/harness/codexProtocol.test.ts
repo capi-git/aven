@@ -232,6 +232,28 @@ describe("buildThreadStartParams / buildTurnStartParams", () => {
     expect(thread.serviceTier).toBeUndefined();
   });
 
+  it("leaves the model to Codex before one has been selected", () => {
+    const params = buildTurnStartParams({
+      threadId: "t",
+      runtimeMode: "auto",
+      model: "",
+    });
+    expect(params).not.toHaveProperty("model");
+    expect(params).not.toHaveProperty("collaborationMode");
+  });
+
+  it("does not send an empty collaboration model for a plan turn either", () => {
+    const params = buildTurnStartParams({
+      threadId: "t",
+      runtimeMode: "auto",
+      model: "",
+      intent: "plan",
+    });
+    expect(params).not.toHaveProperty("collaborationMode");
+    expect(params.sandboxPolicy).toEqual({ type: "readOnly" });
+    expect(params.approvalPolicy).toBe("never");
+  });
+
   it("builds turn input with text and image attachments", () => {
     const turn = buildTurnStartParams({
       threadId: "thr_1",
