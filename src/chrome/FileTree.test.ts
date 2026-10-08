@@ -173,6 +173,15 @@ describe("FileTree render isolation", () => {
     },
   );
 
+  it("keeps room for descenders in truncated file names", async () => {
+    await act(async () => render());
+    // The row is leading-none; a truncated label needs its own line height
+    // or overflow clipping cuts the tails of letters like g and y.
+    expect(row("first.ts").lastElementChild?.className).toContain(
+      "leading-[1.4]",
+    );
+  });
+
   it("still updates Git decorations and uses a changed navigation callback", async () => {
     await act(async () => render());
     const onOpenFile = vi.fn();
