@@ -41,6 +41,7 @@ import {
   Folder,
   Globe,
   MessageSquarePlus,
+  Race,
   Search,
   Settings,
   Terminal,
@@ -453,7 +454,7 @@ function CommandPaletteBody({
                       onClick={race}
                       className={`mx-1 flex cursor-default items-center gap-2.5 rounded-lg px-3 py-1.5 text-[13px] ${selected ? "bg-content/10" : ""}`}
                     >
-                      <Zap className="size-4 shrink-0 text-content/60" />
+                      <Race className="size-4 shrink-0 text-content/60" />
                       <span className="min-w-0 flex-1 truncate text-content">
                         Race it:{" "}
                         {raceAgents

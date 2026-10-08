@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { FilePlus, FoldVertical, UnfoldVertical } from "./icons";
+import { FilePlus, FoldVertical, Race, UnfoldVertical, Zap } from "./icons";
 
 const SRC = fileURLToPath(new URL("..", import.meta.url));
 const CATALOG = "chrome/icons.tsx";
@@ -49,5 +49,12 @@ describe("hugeicons imports", () => {
       expect(html, Icon.displayName).not.toMatch(/fill="currentColor"/);
       expect(html, Icon.displayName).toMatch(/stroke="currentColor"/);
     }
+  });
+
+  it("draws Race differently from Fast's lightning bolt", () => {
+    // Both sit side by side in the composer; identical glyphs read as one control.
+    expect(renderToStaticMarkup(createElement(Race))).not.toBe(
+      renderToStaticMarkup(createElement(Zap)),
+    );
   });
 });

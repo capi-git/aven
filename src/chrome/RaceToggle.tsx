@@ -11,7 +11,7 @@ import {
 import { moveMenuFocus } from "../lib/keyboard";
 import { HARNESS_TITLE, type HarnessId } from "../lib/session";
 import { HarnessIcon } from "./HarnessIcon";
-import { Check, ChevronDown, Zap } from "./icons";
+import { Check, ChevronDown, Race } from "./icons";
 import { Popover } from "./Popover";
 
 type Props = {
@@ -89,7 +89,7 @@ export function RaceToggle({
               : "text-content/45 hover:bg-content/8 hover:text-content/70"
         }`}
       >
-        <Zap className="size-3.5" strokeWidth={1.75} />
+        <Race className="size-3.5" strokeWidth={1.75} />
         {active ? <span>{label}</span> : null}
       </button>
       {open ? (
