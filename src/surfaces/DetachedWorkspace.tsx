@@ -840,9 +840,10 @@ export function DetachedWorkspace() {
       needsInput: sessions.some(sessionNeedsInput),
     };
   });
-  const hiddenSplitTabs = state.view.restoreView
-    ? titleTabs.filter((tab) => !active.has(tab.id))
-    : [];
+  const hiddenSplitIds = new Set(
+    Object.values(state.view.hiddenGroups ?? {}).flat(),
+  );
+  const hiddenSplitTabs = titleTabs.filter((tab) => hiddenSplitIds.has(tab.id));
   const hiddenSplitStatus = hiddenSplitTabs.some((tab) => tab.needsInput)
     ? "attention"
     : hiddenSplitTabs.some((tab) => tab.busyHarnesses.length > 0)

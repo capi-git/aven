@@ -23,6 +23,8 @@ export type WorkspaceView = WorkspaceViewSnapshot & {
   restoreView?: WorkspaceViewSnapshot;
   /** Edge where a temporary pane minimization can be restored. */
   minimizedEdge?: ViewEdge;
+  /** Tucked panes retain their own tab strips until the split is restored. */
+  hiddenGroups?: Record<string, string[]>;
 };
 
 /** A view arranges existing tabs; it never owns or closes their sessions/pages. */
@@ -110,9 +112,14 @@ function resolveWorkspaceSnapshot(
   ids: readonly string[],
   fallback: string,
   initialLayout?: LayoutNode,
+  excluded = new Set<string>(),
+  assignmentId?: string,
 ): WorkspaceViewSnapshot {
   const allowed = new Set(uniqueIds(ids));
-  const preferred = allowed.has(fallback) ? fallback : ([...allowed][0] ?? "");
+  const selectable = [...allowed].filter((id) => !excluded.has(id));
+  const preferred = selectable.includes(fallback)
+    ? fallback
+    : (selectable[0] ?? "");
   const storedOrder = uniqueIds(value?.order);
   let order = uniqueIds([...storedOrder, ...allowed], allowed);
   const rawGroups =
@@ -124,12 +131,14 @@ function resolveWorkspaceSnapshot(
   // Keep a closed owner long enough to promote a surviving tab in its group.
   let layout = pruneViewLayout(
     value?.layout ?? initialLayout,
-    new Set([...allowed, ...Object.keys(rawGroups)]),
+    new Set(
+      [...allowed, ...Object.keys(rawGroups)].filter((id) => !excluded.has(id)),
+    ),
   );
   const originalOwners = layout ? leafIds(layout) : [];
   const reserved = new Set(originalOwners.filter((id) => allowed.has(id)));
   const groups: Record<string, string[]> = Object.create(null);
-  const claimed = new Set<string>();
+  const claimed = new Set(excluded);
   const replacements = new Map<string, string>();
   for (const owner of originalOwners) {
     const originalMembers = uniqueIds(rawGroups[owner]);
@@ -169,6 +178,11 @@ function resolveWorkspaceSnapshot(
         ? preferred
         : (visible[0] ?? "");
   if (focusedId) {
+    const assignmentOwner = assignmentId
+      ? (Object.keys(groups).find((owner) =>
+          groups[owner].includes(assignmentId),
+        ) ?? focusedId)
+      : focusedId;
     const recorded = new Set([
       ...storedOrder,
       ...Object.values(rawGroups).flatMap((members) => uniqueIds(members)),
@@ -181,13 +195,17 @@ function resolveWorkspaceSnapshot(
     const unassigned = order.filter(
       (id) => !claimed.has(id) && !newIds.has(id),
     );
-    const members = [...groups[focusedId], ...unassigned];
-    const at = members.indexOf(focusedId) + 1;
+    const members = [...groups[assignmentOwner], ...unassigned];
+    const after =
+      assignmentId && members.includes(assignmentId)
+        ? assignmentId
+        : assignmentOwner;
+    const at = members.indexOf(after) + 1;
     members.splice(at, 0, ...newcomers);
-    groups[focusedId] = members;
+    groups[assignmentOwner] = members;
     if (newcomers.length) {
       order = order.filter((id) => !newIds.has(id));
-      order.splice(order.indexOf(focusedId) + 1, 0, ...newcomers);
+      order.splice(order.indexOf(after) + 1, 0, ...newcomers);
     }
   }
   return { layout, focusedId, order, groups };
@@ -200,10 +218,9 @@ export function resolveWorkspaceView(
   fallback: string,
   initialLayout?: LayoutNode,
 ): WorkspaceView {
-  const next = resolveWorkspaceSnapshot(value, ids, fallback, initialLayout);
   const restore = value?.restoreView;
   if (!restore || typeof restore !== "object" || Array.isArray(restore))
-    return next;
+    return resolveWorkspaceSnapshot(value, ids, fallback, initialLayout);
   const groups =
     restore.groups &&
     typeof restore.groups === "object" &&
@@ -214,21 +231,92 @@ export function resolveWorkspaceView(
   if (
     !pruneViewLayout(restore.layout, new Set([...ids, ...Object.keys(groups)]))
   )
-    return next;
+    return resolveWorkspaceSnapshot(value, ids, fallback, initialLayout);
+  const allowed = new Set(ids);
+  const visibleLayout = pruneViewLayout(
+    value?.layout,
+    new Set([...ids, ...Object.keys(value?.groups ?? {})]),
+  );
+  const visibleIds = new Set(
+    (visibleLayout ? leafIds(visibleLayout) : []).flatMap((owner) => [
+      owner,
+      ...uniqueIds(value?.groups?.[owner]),
+    ]),
+  );
+  const rawHidden =
+    value?.hiddenGroups &&
+    typeof value.hiddenGroups === "object" &&
+    !Array.isArray(value.hiddenGroups)
+      ? value.hiddenGroups
+      : {};
+  const reserved = new Set(
+    Object.keys(rawHidden).filter(
+      (id) => allowed.has(id) && !visibleIds.has(id),
+    ),
+  );
+  const hiddenGroups: Record<string, string[]> = Object.create(null);
+  const hiddenIds = new Set<string>();
+  for (const [owner, rawMembers] of Object.entries(rawHidden)) {
+    const original = uniqueIds(rawMembers);
+    if (!original.includes(owner)) original.unshift(owner);
+    const members = original.filter(
+      (id) =>
+        allowed.has(id) &&
+        !visibleIds.has(id) &&
+        !hiddenIds.has(id) &&
+        (!reserved.has(id) || id === owner),
+    );
+    const active = members.includes(owner)
+      ? owner
+      : promotedTab(original, owner, new Set(members));
+    if (!active) continue;
+    hiddenGroups[active] = members;
+    members.forEach((id) => hiddenIds.add(id));
+  }
+  const next = resolveWorkspaceSnapshot(
+    value,
+    ids,
+    fallback,
+    initialLayout,
+    hiddenIds,
+  );
+  // Once all tucked tabs close there is nothing left for a Restore control.
+  if (Object.keys(rawHidden).length && !hiddenIds.size) return next;
   const snapshot = resolveWorkspaceSnapshot(
     restore,
     ids,
     restore.focusedId || fallback,
+    undefined,
+    undefined,
+    next.focusedId,
   );
   if (!snapshot.layout) return next;
+  // Closing the last visible pane must uncover a usable surviving pane.
+  if (!next.layout && hiddenIds.size) return snapshot;
   const minimizedEdge = value?.minimizedEdge;
   return {
     ...next,
     restoreView: snapshot,
+    ...(hiddenIds.size ? { hiddenGroups } : {}),
     ...(minimizedEdge && ["left", "right", "up", "down"].includes(minimizedEdge)
       ? { minimizedEdge }
       : {}),
   };
+}
+
+function revealHiddenWorkspaceTargets(
+  view: WorkspaceView,
+  ids: (string | undefined)[],
+): WorkspaceView {
+  return ids.some(
+    (id) =>
+      id &&
+      Object.values(view.hiddenGroups ?? {}).some((members) =>
+        members.includes(id),
+      ),
+  )
+    ? restoreWorkspaceSplit(view)
+    : view;
 }
 
 export function workspaceGroupOwner(
@@ -244,6 +332,7 @@ export function selectWorkspaceView(
   view: WorkspaceView,
   id: string,
 ): WorkspaceView {
+  view = revealHiddenWorkspaceTargets(view, [id]);
   const owner = workspaceGroupOwner(view, id);
   if (!owner || !view.layout) return view;
   if (owner === id)
@@ -303,6 +392,7 @@ export function splitWorkspaceView(
   edge: ViewEdge,
   targetId?: string,
 ): WorkspaceView {
+  view = revealHiddenWorkspaceTargets(view, [id, targetId]);
   const owner = workspaceGroupOwner(view, id);
   if (!owner || !view.layout) return view;
   const targetOwner = targetId
@@ -346,6 +436,7 @@ export function moveWorkspaceTab(
   targetId: string,
   index?: number,
 ): WorkspaceView {
+  view = revealHiddenWorkspaceTargets(view, [id, targetId]);
   const source = workspaceGroupOwner(view, id);
   const target = workspaceGroupOwner(view, targetId);
   if (!source || !target || !view.layout) return view;
@@ -384,6 +475,7 @@ export function revealBesideWorkspaceView(
   id: string,
   requesterId?: string,
 ): WorkspaceView {
+  view = revealHiddenWorkspaceTargets(view, [id, requesterId]);
   if (!workspaceGroupOwner(view, id) || !view.layout) return view;
   // If the page already covers the chat's pane, uncover the chat first so
   // the pane keeps showing the conversation rather than another tab.
@@ -413,6 +505,17 @@ export function combineWorkspaceGroups(
   sourceId: string,
   targetId: string,
 ): WorkspaceView {
+  const allGroups = { ...view.groups, ...view.hiddenGroups };
+  const previousSource = Object.keys(allGroups).find((owner) =>
+    allGroups[owner].includes(sourceId),
+  );
+  const previousTarget = Object.keys(allGroups).find((owner) =>
+    allGroups[owner].includes(targetId),
+  );
+  if (!previousSource || !previousTarget || previousSource === previousTarget)
+    return view;
+  // This permanent operation clears the backup, so uncover any tucked panes first.
+  if (view.hiddenGroups) view = restoreWorkspaceSplit(view);
   const source = workspaceGroupOwner(view, sourceId);
   const target = workspaceGroupOwner(view, targetId);
   if (!source || !target || source === target || !view.layout) return view;
@@ -433,6 +536,7 @@ export function reorderWorkspaceGroup(
   ownerId: string,
   ids: string[],
 ): WorkspaceView {
+  view = revealHiddenWorkspaceTargets(view, [ownerId]);
   const owner = workspaceGroupOwner(view, ownerId);
   if (!owner) return view;
   const members = view.groups[owner];
@@ -450,6 +554,7 @@ export function collapseWorkspaceView(
   view: WorkspaceView,
   id: string,
 ): WorkspaceView {
+  view = revealHiddenWorkspaceTargets(view, [id]);
   const owner = workspaceGroupOwner(view, id);
   if (!owner) return view;
   const members = uniqueIds([
@@ -507,8 +612,11 @@ export function minimizeWorkspaceSide(
   if (!owner || !removed.length) return view;
 
   const groups = { ...current.groups };
-  groups[owner] = [...groups[owner], ...removed.flatMap((id) => groups[id])];
-  removed.forEach((id) => delete groups[id]);
+  const hiddenGroups = { ...current.hiddenGroups };
+  removed.forEach((id) => {
+    hiddenGroups[id] = groups[id];
+    delete groups[id];
+  });
   const replace = (node: LayoutNode): LayoutNode => {
     if (node.type === "leaf") return node;
     if (node.id !== splitId)
@@ -522,12 +630,18 @@ export function minimizeWorkspaceSide(
     sizes.splice(removedIndex, 1);
     return { ...node, children, sizes };
   };
-  const { restoreView, minimizedEdge: _edge, ...snapshot } = current;
+  const {
+    restoreView,
+    minimizedEdge: _edge,
+    hiddenGroups: _hidden,
+    ...snapshot
+  } = current;
   return {
     ...current,
     layout: replace(current.layout),
     focusedId: removed.includes(current.focusedId) ? owner : current.focusedId,
     groups,
+    hiddenGroups,
     restoreView: restoreView ?? snapshot,
     minimizedEdge:
       split.dir === "right"
@@ -559,12 +673,26 @@ export function toggleWorkspaceExpansion(
   id: string,
   fallbackSessionId?: string,
 ): WorkspaceView {
+  view = revealHiddenWorkspaceTargets(view, [id]);
   if (!workspaceGroupOwner(view, id) || !view.layout) return view;
   const current = resolveWorkspaceView(view, view.order, view.focusedId);
   if (current.layout && leafIds(current.layout).length > 1) {
-    const { restoreView, minimizedEdge, ...snapshot } = current;
+    const {
+      restoreView,
+      minimizedEdge,
+      hiddenGroups: previousHidden,
+      ...snapshot
+    } = current;
+    const selected = selectWorkspaceView(current, id);
+    const hiddenGroups = { ...previousHidden };
+    for (const [owner, members] of Object.entries(selected.groups))
+      if (owner !== id) hiddenGroups[owner] = members;
     return {
-      ...collapseWorkspaceView(current, id),
+      layout: leaf(id),
+      focusedId: id,
+      order: current.order,
+      groups: { [id]: selected.groups[id] },
+      hiddenGroups,
       restoreView: restoreView ?? snapshot,
       ...(minimizedEdge ? { minimizedEdge } : {}),
     };

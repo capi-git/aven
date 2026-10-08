@@ -5,6 +5,7 @@ import {
   resolveWorkspaceView,
   selectWorkspaceView,
   reorderWorkspaceGroup,
+  minimizeWorkspaceSide,
 } from "./workspaceViews";
 import {
   mergeWorkspaceArrangements,
@@ -47,6 +48,40 @@ describe("workspace arrangement transfers", () => {
     expect(result.order).toEqual(["new", "a", "b", "c"]);
     expect(leafIds(result.layout!)).toEqual(["new", "a", "c"]);
     expect(result.groups.a).toEqual(["a", "b"]);
+  });
+  it("reveals minimized groups as separate panes when a returned window changes the arrangement", () => {
+    const minimized = minimizeWorkspaceSide(view(), "split", 0, "before");
+    const incoming = resolveWorkspaceView(undefined, ["new"], "new");
+    for (const [current, added] of [[minimized, incoming], [incoming, minimized]]) {
+      const merged = mergeWorkspaceArrangements(current, added);
+      expect(leafIds(merged.layout!).sort()).toEqual(["a", "c", "new"]);
+      expect(merged.groups.a).toEqual(["a", "b"]);
+      expect(merged.groups.c).toEqual(["c"]);
+      expect(merged.groups.new).toEqual(["new"]);
+      expect(merged.hiddenGroups).toBeUndefined();
+      expect(merged.restoreView).toBeUndefined();
+    }
+  });
+  it("preserves minimized state during an unchanged visible-group window round trip", () => {
+    const minimized = minimizeWorkspaceSide(view(), "split", 0, "before");
+    const placement = captureWorkspaceReturnPlacement(minimized, ["c"]);
+    const restored = restoreWorkspaceArrangement(
+      placement.remaining, placement.incoming, placement,
+    );
+    expect(restored).toEqual(minimized);
+    expect(restored.groups).toEqual({ c: ["c"] });
+    expect(restored.hiddenGroups).toEqual({ a: ["a", "b"] });
+  });
+  it("reveals hidden groups before a deliberate group move replaces restoration geometry", () => {
+    const minimized = minimizeWorkspaceSide(view(), "split", 0, "before");
+    expect(moveWorkspaceGroup(minimized, "missing", "c", "left")).toBe(minimized);
+    expect(moveWorkspaceGroup(minimized, "c", "c", "left")).toBe(minimized);
+    const moved = moveWorkspaceGroup(minimized, "c", "a", "left");
+    expect(leafIds(moved.layout!)).toEqual(["c", "a"]);
+    expect(moved.groups.a).toEqual(["a", "b"]);
+    expect(moved.groups.c).toEqual(["c"]);
+    expect(moved.restoreView).toBeUndefined();
+    expect(moved.hiddenGroups).toBeUndefined();
   });
   const roundTrip = () => {
     const original = resolveWorkspaceView(

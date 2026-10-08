@@ -6,7 +6,11 @@ import {
   type FilePaneTab,
   type WorkspaceTab,
 } from "./layout";
-import { resolveWorkspaceView } from "./workspaceViews";
+import {
+  minimizeWorkspaceSide,
+  resolveWorkspaceView,
+  restoreWorkspaceSplit,
+} from "./workspaceViews";
 import {
   emptyWorkspaceRecovery,
   loadWorkspaceRecovery,
@@ -354,6 +358,45 @@ describe("layout undo", () => {
       /restoreView|secret|runtime|buffer/,
     );
     expect(popWorkspaceLayoutUndo(state, cwd, [], "").view?.layout).toBeNull();
+  });
+
+  it("round-trips minimized groups through undo storage without exposing their tabs", () => {
+    const original = resolveWorkspaceView(
+      {
+        layout: {
+          type: "split", id: "split", dir: "right",
+          children: [leaf("chat"), leaf("browser")], sizes: [0.3, 0.7],
+        },
+        focusedId: "browser",
+        order: ["chat", "draft", "browser"],
+        groups: { chat: ["chat", "draft"], browser: ["browser"] },
+      },
+      ["chat", "draft", "browser"],
+      "browser",
+    );
+    const minimized = minimizeWorkspaceSide(original, "split", 0, "before");
+    const captured = {
+      ...minimized,
+      runtime: "live-buffer",
+      restoreView: {
+        ...minimized.restoreView!,
+        runtime: "secret-buffer",
+        restoreView: original,
+      },
+    };
+    const storage = memoryStorage();
+    saveWorkspaceRecovery(
+      pushWorkspaceLayoutUndo(emptyWorkspaceRecovery(), cwd, captured),
+      storage,
+    );
+    const saved = loadWorkspaceRecovery(storage);
+    const restored = popWorkspaceLayoutUndo(saved, cwd, original.order, "browser").view!;
+    expect(restored.groups).toEqual({ browser: ["browser"] });
+    expect(restored.hiddenGroups).toEqual({ chat: ["chat", "draft"] });
+    expect(restored.restoreView).toEqual(original);
+    expect(restoreWorkspaceSplit(restored)).toEqual(original);
+    expect(JSON.stringify(saved)).not.toMatch(/runtime|live-buffer|secret-buffer/);
+    expect(restored.restoreView).not.toHaveProperty("restoreView");
   });
 });
 

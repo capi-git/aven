@@ -7459,9 +7459,8 @@ export default function App({
     titleTabsRef.current = nextTitleTabs;
   }
   const titleTabs = titleTabsRef.current;
-  const hiddenSplitTabs = view.restoreView
-    ? titleTabs.filter((tab) => !visibleSurfaceIds.includes(tab.id))
-    : [];
+  const hiddenSplitIds = new Set(Object.values(view.hiddenGroups ?? {}).flat());
+  const hiddenSplitTabs = titleTabs.filter((tab) => hiddenSplitIds.has(tab.id));
   const hiddenSplitStatus = hiddenSplitTabs.some((tab) => tab.needsInput)
     ? "attention"
     : hiddenSplitTabs.some((tab) => tab.busyHarnesses.length > 0)

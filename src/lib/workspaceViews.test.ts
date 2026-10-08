@@ -43,10 +43,18 @@ function grouped() {
 function expectPartition(view: WorkspaceView, expectedIds = view.order) {
   const leaves = view.layout ? leafIds(view.layout) : [];
   expect(Object.keys(view.groups).sort()).toEqual([...leaves].sort());
-  const members = Object.values(view.groups).flat();
+  const hidden = view.hiddenGroups ?? {};
+  const members = [
+    ...Object.values(view.groups),
+    ...Object.values(hidden),
+  ].flat();
   expect([...members].sort()).toEqual([...expectedIds].sort());
   expect(new Set(members).size).toBe(members.length);
   for (const owner of leaves) expect(view.groups[owner]).toContain(owner);
+  for (const [owner, members] of Object.entries(hidden)) {
+    expect(leaves).not.toContain(owner);
+    expect(members).toContain(owner);
+  }
   if (leaves.length) expect(leaves).toContain(view.focusedId);
   else expect(view.focusedId).toBe("");
 }
@@ -422,6 +430,11 @@ describe("temporary workspace expansion", () => {
     expect(expanded.layout).toEqual(leaf("browser-a"));
     expect(expanded.restoreView).toEqual(before);
     expect(expanded.restoreView).not.toHaveProperty("restoreView");
+    expect(expanded.groups).toEqual({ "browser-a": ["browser-a"] });
+    expect(expanded.hiddenGroups).toEqual({
+      "chat-a": ["chat-c", "chat-a"],
+      "chat-b": ["chat-b", "browser-b"],
+    });
     expectPartition(expanded, ids);
     const restored = toggleWorkspaceExpansion(expanded, "browser-a", "chat-a");
     expect(restored).toEqual(before);
@@ -463,42 +476,43 @@ describe("temporary workspace expansion", () => {
     expectPartition(restored, liveIds);
   });
 
-  it("keeps a browser selected after switching to it while another page is expanded", () => {
+  it("restores the split when an explicitly selected browser belongs to a tucked pane", () => {
     const expanded = toggleWorkspaceExpansion(original(), "browser-a");
-    const switched = selectWorkspaceView(expanded, "browser-b");
-    const restored = toggleWorkspaceExpansion(switched, "browser-b");
+    const restored = selectWorkspaceView(expanded, "browser-b");
     expect(restored.focusedId).toBe("browser-b");
-    expect(leafIds(restored.layout!)).toContain("browser-b");
+    expect(leafIds(restored.layout!)).toEqual([
+      "chat-a",
+      "browser-b",
+      "browser-a",
+    ]);
     expect(restored.groups["browser-b"]).toEqual(["chat-b", "browser-b"]);
+    expect(restored.hiddenGroups).toBeUndefined();
+    expect(restored.restoreView).toBeUndefined();
     expectPartition(restored, ids);
   });
 
-  it("keeps a usable restore snapshot after the expanded active page closes and never resurrects it", () => {
+  it("reveals surviving panes when the last expanded tab closes and never resurrects it", () => {
     const before = original();
     const closed = closeWorkspaceViews(
       toggleWorkspaceExpansion(before, "browser-a"),
       ["browser-a"],
       "chat-a",
     );
-    expect(closed.restoreView).toBeDefined();
-    expect(closed.restoreView?.layout).toEqual({
+    expect(closed.restoreView).toBeUndefined();
+    expect(closed.hiddenGroups).toBeUndefined();
+    expect(closed.layout).toEqual({
       type: "split",
       id: "outer",
       dir: "right",
       sizes: [0.32, 0.68],
       children: [leaf("chat-a"), leaf("chat-b")],
     });
-    const restored = toggleWorkspaceExpansion(
-      closed,
-      closed.focusedId,
-      "chat-a",
-    );
     expectPartition(
-      restored,
+      closed,
       ids.filter((id) => id !== "browser-a"),
     );
-    expect(restored.order).not.toContain("browser-a");
-    expect(Object.values(restored.groups).flat()).not.toContain("browser-a");
+    expect(closed.order).not.toContain("browser-a");
+    expect(Object.values(closed.groups).flat()).not.toContain("browser-a");
   });
 
   it("survives serialization while ignoring nested restore snapshots", () => {
@@ -609,17 +623,14 @@ describe("temporary workspace minimization", () => {
       "left-a",
     );
 
-  it("minimizes a left pane into the nearest sibling, retaining tabs and unrelated pane sizes", () => {
+  it("tucks a left pane and its tab strip while retaining unrelated pane sizes", () => {
     const before = original();
     const next = minimizeWorkspaceSide(before, "columns", 0, "before");
     expect(leafIds(next.layout!)).toEqual(["top-a", "bottom-a", "right"]);
     expect(next.layout).toMatchObject({ id: "columns", sizes: [0.7, 0.3] });
-    expect(next.groups["top-a"]).toEqual([
-      "top-a",
-      "top-b",
-      "left-a",
-      "left-b",
-    ]);
+    expect(next.groups["top-a"]).toEqual(["top-a", "top-b"]);
+    expect(next.hiddenGroups).toEqual({ "left-a": ["left-a", "left-b"] });
+    expect(workspaceGroupOwner(next, "left-b")).toBeUndefined();
     expect(next.groups["bottom-a"]).toEqual(before.groups["bottom-a"]);
     expect(next.groups.right).toEqual(before.groups.right);
     expect(next.focusedId).toBe("top-a");
@@ -639,7 +650,7 @@ describe("temporary workspace minimization", () => {
       side: "after" as const,
       owner: "left-a",
       sizes: [0.7, 0.3],
-      members: ["left-a", "left-b", "top-a", "top-b", "bottom-a", "bottom-b"],
+      members: ["left-a", "left-b"],
       edge: "right",
     },
     {
@@ -647,7 +658,7 @@ describe("temporary workspace minimization", () => {
       side: "before" as const,
       owner: "right",
       sizes: [0.2, 0.8],
-      members: ["right", "top-a", "top-b", "bottom-a", "bottom-b"],
+      members: ["right"],
       edge: "left",
     },
   ])(
@@ -658,6 +669,10 @@ describe("temporary workspace minimization", () => {
       expect(leafIds(next.layout!)).toEqual(["left-a", "right"]);
       expect(next.layout).toMatchObject({ sizes });
       expect(next.groups[owner]).toEqual(members);
+      expect(next.hiddenGroups).toEqual({
+        "top-a": ["top-a", "top-b"],
+        "bottom-a": ["bottom-a", "bottom-b"],
+      });
       expect(next.focusedId).toBe("left-a");
       expect(next.minimizedEdge).toBe(edge);
       expect(next.order).toEqual(before.order);
@@ -666,11 +681,12 @@ describe("temporary workspace minimization", () => {
     },
   );
 
-  it("uses the last leaf of the left sibling when the right pane is minimized", () => {
+  it("tucks a right pane without changing the neighboring tab strips", () => {
     const next = minimizeWorkspaceSide(original(), "columns", 1, "after");
     expect(next.layout).toMatchObject({ sizes: [0.2, 0.8] });
-    expect(next.groups["bottom-a"]).toEqual(["bottom-a", "bottom-b", "right"]);
+    expect(next.groups["bottom-a"]).toEqual(["bottom-a", "bottom-b"]);
     expect(next.groups["top-a"]).toEqual(["top-a", "top-b"]);
+    expect(next.hiddenGroups).toEqual({ right: ["right"] });
     expect(next.minimizedEdge).toBe("right");
     expectPartition(next, liveIds);
   });
@@ -680,17 +696,19 @@ describe("temporary workspace minimization", () => {
       side: "before" as const,
       owner: "bottom-a",
       edge: "up",
-      members: ["bottom-a", "bottom-b", "top-a", "top-b"],
+      members: ["bottom-a", "bottom-b"],
+      hidden: { "top-a": ["top-a", "top-b"] },
     },
     {
       side: "after" as const,
       owner: "top-a",
       edge: "down",
-      members: ["top-a", "top-b", "bottom-a", "bottom-b"],
+      members: ["top-a", "top-b"],
+      hidden: { "bottom-a": ["bottom-a", "bottom-b"] },
     },
   ])(
     "minimizes the $side side of a nested vertical split",
-    ({ side, owner, edge, members }) => {
+    ({ side, owner, edge, members, hidden }) => {
       const before = original();
       const next = minimizeWorkspaceSide(before, "middle-rows", 0, side);
       expect(next.layout).toEqual({
@@ -701,6 +719,7 @@ describe("temporary workspace minimization", () => {
         children: [leaf("left-a"), leaf(owner), leaf("right")],
       });
       expect(next.groups[owner]).toEqual(members);
+      expect(next.hiddenGroups).toEqual(hidden);
       expect(next.minimizedEdge).toBe(edge);
       expectPartition(next, liveIds);
       expect(restoreWorkspaceSplit(next)).toEqual(before);
@@ -717,10 +736,17 @@ describe("temporary workspace minimization", () => {
     expect(single.restoreView).not.toHaveProperty("restoreView");
     expect(single.restoreView).not.toHaveProperty("minimizedEdge");
     expect(single.order).toEqual(before.order);
+    expect(single.groups).toEqual({ "top-a": ["top-a", "top-b"] });
+    expect(single.hiddenGroups).toEqual({
+      "left-a": ["left-a", "left-b"],
+      right: ["right"],
+      "bottom-a": ["bottom-a", "bottom-b"],
+    });
     expectPartition(single, liveIds);
     const restored = restoreWorkspaceSplit(single);
     expect(restored).toEqual({ ...before, focusedId: "top-a" });
     expect(restored).not.toHaveProperty("minimizedEdge");
+    expect(restored).not.toHaveProperty("hiddenGroups");
     expect(toggleWorkspaceExpansion(single, "top-a")).toEqual(restored);
   });
 
@@ -731,6 +757,12 @@ describe("temporary workspace minimization", () => {
     expect(expanded.layout).toEqual(leaf("bottom-a"));
     expect(expanded.restoreView).toEqual(before);
     expect(expanded.minimizedEdge).toBe("left");
+    expect(expanded.groups).toEqual({ "bottom-a": ["bottom-a", "bottom-b"] });
+    expect(Object.keys(expanded.hiddenGroups!).sort()).toEqual([
+      "left-a",
+      "right",
+      "top-a",
+    ]);
     expect(toggleWorkspaceExpansion(expanded, "bottom-a")).toEqual({
       ...before,
       focusedId: "bottom-a",
@@ -748,6 +780,8 @@ describe("temporary workspace minimization", () => {
       resolveWorkspaceView(closed, remaining, closed.focusedId),
       "new-tab",
     );
+    expect(updated.groups["new-tab"]).toEqual(["top-b", "new-tab"]);
+    expect(updated.hiddenGroups).toEqual({ "left-b": ["left-b"] });
     const restored = restoreWorkspaceSplit(updated);
     expect(restored.focusedId).toBe("new-tab");
     expect(leafIds(restored.layout!)).toContain("new-tab");
@@ -755,6 +789,8 @@ describe("temporary workspace minimization", () => {
     expect(restored.order).not.toContain("left-a");
     expect(restored.order).not.toContain("top-a");
     expect(restored.groups["bottom-a"]).toEqual(["bottom-a", "bottom-b"]);
+    expect(restored.groups["new-tab"]).toEqual(["top-b", "new-tab"]);
+    expect(restored.groups["left-b"]).toEqual(["left-b"]);
     expectPartition(restored, remaining);
     expect(restored).not.toHaveProperty("restoreView");
     expect(restored).not.toHaveProperty("minimizedEdge");
@@ -798,6 +834,143 @@ describe("temporary workspace minimization", () => {
     expect(collapseWorkspaceView(minimized, "top-a")).not.toHaveProperty(
       "minimizedEdge",
     );
+  });
+
+  it("keeps tucked groups separate through serialization and stale focus hints", () => {
+    const minimized = minimizeWorkspaceSide(original(), "columns", 0, "before");
+    const resumed = resolveWorkspaceView(
+      JSON.parse(JSON.stringify(minimized)),
+      liveIds,
+      "left-a",
+    );
+    expect(resumed.groups).toEqual(minimized.groups);
+    expect(resumed.hiddenGroups).toEqual({ "left-a": ["left-a", "left-b"] });
+    expect(resumed.focusedId).toBe("top-a");
+    const selected = selectWorkspaceView(resumed, "left-b");
+    expect(selected.focusedId).toBe("left-b");
+    expect(selected.groups["left-b"]).toEqual(["left-a", "left-b"]);
+    expect(selected.layout).toMatchObject({ sizes: [0.2, 0.5, 0.3] });
+    expect(selected.hiddenGroups).toBeUndefined();
+    expectPartition(selected, liveIds);
+  });
+
+  it("closing tucked tabs promotes inside the hidden group and removes an exhausted restore affordance", () => {
+    const minimized = minimizeWorkspaceSide(original(), "columns", 0, "before");
+    const oneClosed = closeWorkspaceViews(minimized, ["left-a"], "left-b");
+    expect(oneClosed.hiddenGroups).toEqual({ "left-b": ["left-b"] });
+    expect(oneClosed.groups).toEqual(minimized.groups);
+    const allClosed = closeWorkspaceViews(oneClosed, ["left-b"], "top-a");
+    expect(allClosed.layout).toEqual(minimized.layout);
+    expect(allClosed.groups).toEqual(minimized.groups);
+    expect(allClosed.restoreView).toBeUndefined();
+    expect(allClosed.hiddenGroups).toBeUndefined();
+    expect(allClosed.minimizedEdge).toBeUndefined();
+    expectPartition(
+      allClosed,
+      liveIds.filter((id) => !id.startsWith("left")),
+    );
+  });
+
+  it("rejects malformed or duplicate hidden membership without hiding visible tabs or losing live IDs", () => {
+    const minimized = minimizeWorkspaceSide(original(), "columns", 0, "before");
+    const malformed = resolveWorkspaceView(
+      {
+        ...minimized,
+        hiddenGroups: {
+          "left-a": ["left-a", "top-a", "left-b", "left-b", "gone"],
+          duplicate: ["left-b", "right"],
+          broken: null as never,
+        },
+      },
+      liveIds,
+      "left-a",
+    );
+    expect(malformed.groups).toEqual(minimized.groups);
+    expect(malformed.hiddenGroups).toEqual({ "left-a": ["left-a", "left-b"] });
+    expectPartition(malformed, liveIds);
+    for (const hiddenGroups of ["broken", []]) {
+      const resolved = resolveWorkspaceView(
+        { ...minimized, hiddenGroups: hiddenGroups as never },
+        liveIds,
+        "top-a",
+      );
+      expect(resolved.hiddenGroups).toBeUndefined();
+      expectPartition(resolved, liveIds);
+    }
+    const invalidBackup = resolveWorkspaceView(
+      { ...minimized, restoreView: undefined },
+      liveIds,
+      "top-a",
+    );
+    expect(invalidBackup.hiddenGroups).toBeUndefined();
+    expectPartition(invalidBackup, liveIds);
+  });
+
+  it.each([
+    [
+      "split a tucked tab",
+      (view: WorkspaceView) =>
+        splitWorkspaceView(view, "left-b", "down", "right"),
+    ],
+    [
+      "move a tucked tab",
+      (view: WorkspaceView) => moveWorkspaceTab(view, "left-b", "right"),
+    ],
+    [
+      "move into a tucked group",
+      (view: WorkspaceView) => moveWorkspaceTab(view, "top-b", "left-a"),
+    ],
+    [
+      "reveal a tucked surface",
+      (view: WorkspaceView) =>
+        revealBesideWorkspaceView(view, "left-b", "right"),
+    ],
+    [
+      "reveal beside a tucked requester",
+      (view: WorkspaceView) =>
+        revealBesideWorkspaceView(view, "top-b", "left-a"),
+    ],
+    [
+      "combine a tucked group",
+      (view: WorkspaceView) => combineWorkspaceGroups(view, "left-a", "top-a"),
+    ],
+    [
+      "combine visible groups while another is tucked",
+      (view: WorkspaceView) => combineWorkspaceGroups(view, "top-a", "right"),
+    ],
+    [
+      "reorder a tucked group",
+      (view: WorkspaceView) =>
+        reorderWorkspaceGroup(view, "left-a", ["left-b", "left-a"]),
+    ],
+    [
+      "permanently collapse into a tucked group",
+      (view: WorkspaceView) => collapseWorkspaceView(view, "left-b"),
+    ],
+  ])("can %s without losing any hidden tab", (_name, update) => {
+    const minimized = minimizeWorkspaceSide(original(), "columns", 0, "before");
+    const next = update(minimized);
+    expect(next.hiddenGroups).toBeUndefined();
+    expect(next.restoreView).toBeUndefined();
+    expectPartition(next, liveIds);
+    expectPartition(
+      resolveWorkspaceView(next, liveIds, next.focusedId),
+      liveIds,
+    );
+  });
+
+  it("keeps tucked groups unchanged when a permanent combine request is invalid or stays within one group", () => {
+    const minimized = minimizeWorkspaceSide(original(), "columns", 0, "before");
+    expect(combineWorkspaceGroups(minimized, "missing", "right")).toBe(
+      minimized,
+    );
+    expect(combineWorkspaceGroups(minimized, "top-a", "missing")).toBe(
+      minimized,
+    );
+    expect(combineWorkspaceGroups(minimized, "left-a", "left-b")).toBe(
+      minimized,
+    );
+    expect(combineWorkspaceGroups(minimized, "top-a", "top-b")).toBe(minimized);
   });
 
   it("ignores missing splits, invalid sashes, invalid sides and single-pane requests", () => {

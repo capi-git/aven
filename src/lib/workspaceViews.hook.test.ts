@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { leaf, leafIds, type LayoutNode } from "./layout";
 import {
   closeWorkspaceViews,
+  minimizeWorkspaceSide,
+  restoreWorkspaceSplit,
   selectWorkspaceView,
   useWorkspaceViews,
   type WorkspaceView,
@@ -308,5 +310,107 @@ describe("useWorkspaceViews project and explicit focus lifecycle", () => {
     expect(current.view.layout).toEqual(leaf("a-web"));
     expect(current.view.focusedId).toBe("a-web");
     expect(persisted()[projectA].order).toEqual(["a-web", "a-other"]);
+  });
+
+  it("keeps minimized tabs out of visible groups through rerenders with a stale session preference", async () => {
+    await render();
+    await act(async () => {
+      current.change((view) => minimizeWorkspaceSide(view, "a-split", 0, "before"));
+    });
+    expect(current.view.layout).toEqual(leaf("a-web"));
+    expect(current.view.groups).toEqual({ "a-web": ["a-web", "a-other"] });
+    expect(current.view.hiddenGroups).toEqual({ "a-chat": ["a-chat"] });
+    expect(current.view.order).toEqual(savedA.order);
+    const minimized = current.view;
+    // The legacy selected session still points at the hidden chat. Rebuilding
+    // the available IDs during ordinary app updates must not make it a tab.
+    await render({ ids: [...props.ids], requestedFocus: "a-chat" });
+    expect(current.view).toEqual(minimized);
+    expect(current.get(projectA)).toEqual(minimized);
+    expect(persisted()[projectA]).toEqual(minimized);
+  });
+
+  it("persists hidden tab membership across remount and a project round trip", async () => {
+    await render();
+    await act(async () => {
+      current.change((view) => minimizeWorkspaceSide(view, "a-split", 0, "after"));
+    });
+    const minimized = current.view;
+    expect(minimized.groups).toEqual({ "a-chat": ["a-chat"] });
+    expect(minimized.hiddenGroups).toEqual({ "a-web": ["a-web", "a-other"] });
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    // A remembered browser preference on a fresh mount is not a new request.
+    await render({ requestedFocus: "a-web" });
+    expect(current.view).toEqual(minimized);
+    await render({
+      project: projectB,
+      ids: ["b-chat", "b-web"],
+      requestedFocus: "b-chat",
+    });
+    await render({
+      project: projectA,
+      ids: ["a-chat", "a-web", "a-other"],
+      requestedFocus: "a-other",
+    });
+    expect(current.view).toEqual(minimized);
+    expect(persisted()[projectA]).toEqual(minimized);
+  });
+
+  it.each([false, true])("restores and selects a hidden tab on explicit focus (other project: %s)", async (fromOtherProject) => {
+    await render();
+    await act(async () => {
+      current.change((view) => minimizeWorkspaceSide(view, "a-split", 0, "after"));
+    });
+    if (fromOtherProject) {
+      await render({
+        project: projectB,
+        ids: ["b-chat", "b-web"],
+        requestedFocus: "b-chat",
+      });
+    }
+    await act(async () => current.focus(projectA, "a-other"));
+    if (fromOtherProject) {
+      expect(current.view).toEqual(savedB);
+      await render({
+        project: projectA,
+        ids: ["a-chat", "a-web", "a-other"],
+        requestedFocus: "a-other",
+      });
+    }
+    expect(current.view.layout).toEqual({
+      ...columns,
+      children: [leaf("a-chat"), leaf("a-other")],
+    });
+    expect(current.view.focusedId).toBe("a-other");
+    expect(current.view.groups).toEqual({
+      "a-chat": ["a-chat"],
+      "a-other": ["a-web", "a-other"],
+    });
+    expect(current.view.hiddenGroups).toBeUndefined();
+    expect(current.view.restoreView).toBeUndefined();
+    expect(persisted()[projectA]).toEqual(current.view);
+  });
+
+  it("keeps a newly opened visible tab selected when restoring minimized tabs", async () => {
+    await render();
+    await act(async () => {
+      current.change((view) => minimizeWorkspaceSide(view, "a-split", 0, "before"));
+    });
+    await render({ ids: [...props.ids, "a-new"], requestedFocus: "a-new" });
+    expect(current.view.layout).toEqual(leaf("a-new"));
+    expect(current.view.focusedId).toBe("a-new");
+    expect(Object.values(current.view.groups).flat()).not.toContain("a-chat");
+    expect(current.view.hiddenGroups).toEqual({ "a-chat": ["a-chat"] });
+    await act(async () => current.change(restoreWorkspaceSplit));
+    expect(current.view.layout).toEqual({
+      ...columns,
+      children: [leaf("a-chat"), leaf("a-new")],
+    });
+    expect(current.view.focusedId).toBe("a-new");
+    expect(current.view.groups["a-chat"]).toEqual(["a-chat"]);
+    expect(current.view.groups["a-new"]).toEqual(expect.arrayContaining(["a-web", "a-other", "a-new"]));
+    expect(current.view.hiddenGroups).toBeUndefined();
+    expect(persisted()[projectA]).toEqual(current.view);
   });
 });
