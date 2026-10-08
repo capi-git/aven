@@ -83,6 +83,11 @@ export class OpenCodeClient {
     }).catch(() => undefined);
   }
 
+  /** Drop a throwaway session. Abort only stops the run. */
+  async deleteSession(sessionID: string): Promise<void> {
+    await this.request<unknown>("DELETE", `/session/${enc(sessionID)}`);
+  }
+
   async summarizeSession(
     sessionID: string,
     model: { providerID: string; modelID: string },

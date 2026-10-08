@@ -924,6 +924,17 @@ fn exec_args_allowed(args: &[String]) -> bool {
         .any(|a| a.len() == args.len() && a.iter().zip(args).all(|(x, y)| x == y))
 }
 
+/// `grok sessions delete <uuid>` for one temporary text-generation session.
+/// Only a single well-formed session id is accepted, never flags such as `--all`.
+fn is_grok_session_delete(args: &[String]) -> bool {
+    args.len() == 4
+        && args[0] == "--no-auto-update"
+        && args[1] == "sessions"
+        && args[2] == "delete"
+        && args[3].len() == 36
+        && uuid::Uuid::parse_str(&args[3]).is_ok()
+}
+
 /// Must be a path a resolver would hand back, not an arbitrary binary
 /// that merely shares a file name.
 fn is_resolved_harness_binary(command: &str) -> bool {
@@ -943,7 +954,7 @@ fn is_resolved_harness_binary(command: &str) -> bool {
     .any(|resolved| resolved == path)
 }
 
-/// One-shot capture of stdout (used for `cursor-agent --list-models`).
+/// One-shot provider commands: catalog probes and temporary-session cleanup.
 #[tauri::command]
 pub async fn harness_exec(
     app: AppHandle,
@@ -952,12 +963,18 @@ pub async fn harness_exec(
     cwd: Option<String>,
 ) -> Result<String, String> {
     let work = crate::window::begin_runtime_work(&app)?;
-    if !exec_args_allowed(&args) {
+    let grok_delete = is_grok_session_delete(&args);
+    if !grok_delete && !exec_args_allowed(&args) {
         return Err("harness_exec: unsupported arguments".into());
     }
     tauri::async_runtime::spawn_blocking(move || {
         let _work = work;
-        if !is_resolved_harness_binary(&command) {
+        let resolved = if grok_delete {
+            resolve_grok().is_some_and(|grok| grok == Path::new(&command))
+        } else {
+            is_resolved_harness_binary(&command)
+        };
+        if !resolved {
             return Err("harness_exec: not a resolved harness CLI".to_string());
         }
         exec_capture(&command, &args, cwd.as_deref())
@@ -3383,6 +3400,36 @@ mod exec_allowlist_tests {
         assert!(!exec_args_allowed(&args(&["--version", "--json"])));
         assert!(!exec_args_allowed(&args(&["-c", "id"])));
         assert!(!exec_args_allowed(&args(&["agent", "list", "--json"])));
+    }
+
+    #[test]
+    fn allows_grok_cleanup_only_for_one_valid_session_id() {
+        let cleanup = args(&[
+            "--no-auto-update",
+            "sessions",
+            "delete",
+            "550e8400-e29b-41d4-a716-446655440000",
+        ]);
+        assert!(is_grok_session_delete(&cleanup));
+        assert!(!exec_args_allowed(&cleanup));
+        for id in [
+            "",
+            "--all",
+            "../sessions",
+            "invalid",
+            "550e8400e29b41d4a716446655440000",
+            "{550e8400-e29b-41d4-a716-446655440000}",
+        ] {
+            let mut rejected = cleanup.clone();
+            rejected[3] = id.to_string();
+            assert!(!is_grok_session_delete(&rejected), "{id}");
+        }
+        let mut extra = cleanup.clone();
+        extra.push("--all".to_string());
+        assert!(!is_grok_session_delete(&extra));
+        let mut without_flag = cleanup;
+        without_flag.remove(0);
+        assert!(!is_grok_session_delete(&without_flag));
     }
 }
 

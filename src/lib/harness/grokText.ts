@@ -1,5 +1,6 @@
 import { AcpClient } from "./acp";
 import {
+  execChild,
   killChild,
   resolveGrokBinary,
   spawnChild,
@@ -24,6 +25,7 @@ const CLIENT_CAPABILITIES = {
 
 type LiveText = {
   acp: AcpClient;
+  binaryPath: string;
   cwd: string;
   acpSessionId: string;
   collecting: boolean;
@@ -98,15 +100,9 @@ async function promptOnLive(input: {
 }
 
 async function ensureLive(cwd: string): Promise<LiveText> {
-  if (live && !live.closed) {
-    if (live.cwd === cwd) return live;
-    try {
-      await openSession(live, cwd);
-      return live;
-    } catch {
-      await dropLive();
-    }
-  }
+  if (live && !live.closed && live.cwd === cwd) return live;
+  // Retire the previous throwaway session before replacing it, including
+  // when a warmed-up process needs a different working directory.
   return startLive(cwd);
 }
 
@@ -126,6 +122,7 @@ async function startLive(cwd: string): Promise<LiveText> {
   });
   const session: LiveText = {
     acp,
+    binaryPath: path,
     cwd,
     acpSessionId: "",
     collecting: false,
@@ -139,7 +136,7 @@ async function startLive(cwd: string): Promise<LiveText> {
     (line) => acp.pushLine(line),
     () => {
       session.closed = true;
-      if (live === session) live = null;
+      // Keep the closed session available for history cleanup in dropLive.
       acp.close(new Error("Grok Build text generator exited"));
     },
   );
@@ -173,6 +170,7 @@ async function startLive(cwd: string): Promise<LiveText> {
     acp.close(error instanceof Error ? error : new Error(String(error)));
     unwatchChild(TEXT_CHILD_ID);
     await killChild(TEXT_CHILD_ID).catch(() => undefined);
+    await deleteTextSession(session);
     throw error;
   }
 }
@@ -185,6 +183,7 @@ async function openSession(session: LiveText, cwd: string): Promise<void> {
   );
   const acpSessionId = setup.sessionId?.trim();
   if (!acpSessionId) throw new Error("Grok Build did not return a session id");
+  session.acpSessionId = acpSessionId;
 
   await session.acp
     .request(
@@ -202,7 +201,6 @@ async function openSession(session: LiveText, cwd: string): Promise<void> {
     .catch(() => undefined);
 
   session.cwd = cwd;
-  session.acpSessionId = acpSessionId;
 }
 
 async function dropLive(): Promise<void> {
@@ -214,6 +212,21 @@ async function dropLive(): Promise<void> {
   }
   unwatchChild(TEXT_CHILD_ID);
   await killChild(TEXT_CHILD_ID).catch(() => undefined);
+  // Stop the writer first so it cannot recreate the session after deletion.
+  if (current) await deleteTextSession(current);
+}
+
+const GROK_SESSION_ID =
+  /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
+
+/** Titles, commit messages and PR text must not stay in Grok's history. */
+async function deleteTextSession(session: LiveText): Promise<void> {
+  if (!GROK_SESSION_ID.test(session.acpSessionId)) return;
+  await execChild(
+    session.binaryPath,
+    ["--no-auto-update", "sessions", "delete", session.acpSessionId],
+    session.cwd,
+  ).catch((error) => console.debug("[aven] Grok text session cleanup", error));
 }
 
 async function handleTextRequest(

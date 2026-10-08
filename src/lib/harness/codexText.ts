@@ -232,13 +232,18 @@ async function startLive(cwd: string): Promise<LiveText> {
 }
 
 async function openThread(session: LiveText, cwd: string): Promise<void> {
+  // Titles, commit messages, branch names and PR text are throwaway turns.
+  // An ephemeral thread keeps them out of the user's saved Codex history.
   const opened = await session.rpc.request<{ thread?: { id?: string } }>(
     "thread/start",
-    buildThreadStartParams({
-      cwd,
-      runtimeMode: TEXT_RUNTIME_MODE,
-      model: session.model || undefined,
-    }),
+    {
+      ...buildThreadStartParams({
+        cwd,
+        runtimeMode: TEXT_RUNTIME_MODE,
+        model: session.model || undefined,
+      }),
+      ephemeral: true,
+    },
     INIT_TIMEOUT_MS,
   );
   const threadId = opened.thread?.id?.trim();
