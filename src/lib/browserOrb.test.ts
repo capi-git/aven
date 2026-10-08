@@ -61,10 +61,12 @@ describe("finding the page under the bubble", () => {
     dialog.setAttribute("role", "dialog");
     document.body.append(dialog);
     // Mounted but not laid out: not covering anything.
-    dialog.getClientRects = () => [] as unknown as DOMRectList;
+    dialog.getBoundingClientRect = () => rect(0, 0, 0, 0);
     expect(findBrowserOrbAnchor()).not.toBeNull();
-    dialog.getClientRects = () =>
-      [rect(0, 0, 10, 10)] as unknown as DOMRectList;
+    // A list elsewhere in the window, like the sidebar, does not count.
+    dialog.getBoundingClientRect = () => rect(950, 0, 200, 300);
+    expect(findBrowserOrbAnchor()).not.toBeNull();
+    dialog.getBoundingClientRect = () => rect(300, 300, 200, 100);
     expect(findBrowserOrbAnchor()).toBeNull();
   });
 });

@@ -46,8 +46,6 @@ const COVERING_UI =
 export function findBrowserOrbAnchor(
   root: ParentNode = document,
 ): BrowserOrbAnchor | null {
-  for (const element of root.querySelectorAll<HTMLElement>(COVERING_UI))
-    if (element.getClientRects().length > 0) return null;
   let best: { rect: DOMRect; area: number } | null = null;
   for (const pane of root.querySelectorAll<HTMLElement>(
     ".browser-pane[data-browser-pane]:not([data-blank])",
@@ -61,6 +59,21 @@ export function findBrowserOrbAnchor(
     if (!best || area > best.area) best = { rect: page, area };
   }
   if (!best) return null;
+  // Only UI that actually overlaps the page hides the bubble; lists and menus
+  // elsewhere in the window, like the sidebar, leave it alone.
+  const page = best.rect;
+  for (const element of root.querySelectorAll<HTMLElement>(COVERING_UI)) {
+    const box = element.getBoundingClientRect();
+    if (
+      box.width > 0 &&
+      box.height > 0 &&
+      box.left < page.right &&
+      box.right > page.left &&
+      box.top < page.bottom &&
+      box.bottom > page.top
+    )
+      return null;
+  }
   return {
     x: best.rect.left,
     y: best.rect.top,
