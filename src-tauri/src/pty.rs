@@ -214,8 +214,8 @@ pub(crate) struct PtyStatus {
     foreground: Option<String>,
 }
 
-/// Off the main thread: this forks `ps`, and the title poll calls it once a
-/// second for every open terminal.
+/// Off the main thread: inspect the foreground job without spawning a helper
+/// on macOS/Linux. Other Unix targets retain the portable `ps` fallback.
 #[tauri::command(async)]
 pub fn pty_status(host: State<'_, PtyHost>, id: String) -> Result<PtyStatus, String> {
     let live = host
@@ -707,7 +707,90 @@ fn foreground_label(master_fd: i32, shell_pid: u32) -> Option<String> {
     Some(label)
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "macos")]
+fn process_label(pid: i32) -> Option<String> {
+    if pid <= 0 {
+        return None;
+    }
+    // KERN_PROCARGS2 preserves interpreter/script names, unlike proc_name.
+    // Read a bounded buffer and parse only argc arguments, never the trailing
+    // environment. Neither command arguments nor environment are published.
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
+    let mut bytes = vec![0u8; 256 * 1024];
+    let mut length = bytes.len();
+    let result = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            mib.len() as u32,
+            bytes.as_mut_ptr().cast(),
+            &mut length,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if result == 0 {
+        bytes.truncate(length);
+        if let Some(args) = darwin_process_args(&bytes) {
+            if let Some(label) = command_label_parts(&args) {
+                return Some(label);
+            }
+        }
+    }
+    // The process may disallow argv inspection or exceed the bound. Its
+    // executable still gives a useful label without forking or retrying.
+    let mut path = [0u8; 4096];
+    let length = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), path.len() as u32) };
+    if length <= 0 {
+        return None;
+    }
+    let path = std::str::from_utf8(path.split(|byte| *byte == 0).next()?).ok()?;
+    command_label_parts(&[path])
+}
+
+#[cfg(target_os = "macos")]
+fn darwin_process_args(bytes: &[u8]) -> Option<Vec<&str>> {
+    let argc = i32::from_ne_bytes(bytes.get(..4)?.try_into().ok()?);
+    if argc <= 0 || argc as usize > bytes.len() {
+        return None;
+    }
+    let mut remaining = bytes.get(4..)?;
+    // The executable path precedes NUL padding and argv[0].
+    remaining = remaining.get(remaining.iter().position(|byte| *byte == 0)? + 1..)?;
+    while remaining.first() == Some(&0) {
+        remaining = &remaining[1..];
+    }
+    let mut args = Vec::new();
+    for _ in 0..argc {
+        let end = remaining.iter().position(|byte| *byte == 0)?;
+        args.push(std::str::from_utf8(&remaining[..end]).ok()?);
+        remaining = &remaining[end + 1..];
+    }
+    Some(args)
+}
+
+#[cfg(target_os = "linux")]
+fn process_label(pid: i32) -> Option<String> {
+    if pid <= 0 {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(format!("/proc/{pid}/cmdline"))
+        .ok()?
+        .take(256 * 1024)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.last() != Some(&0) {
+        return None;
+    }
+    let args = bytes[..bytes.len() - 1]
+        .split(|byte| *byte == 0)
+        .map(std::str::from_utf8)
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    command_label_parts(&args)
+}
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
 fn process_label(pid: i32) -> Option<String> {
     use std::process::Command;
     let output = Command::new("ps")
@@ -725,9 +808,14 @@ fn process_label(pid: i32) -> Option<String> {
     command_label(args)
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, any(test, not(any(target_os = "macos", target_os = "linux")))))]
 fn command_label(args: &str) -> Option<String> {
     let parts: Vec<&str> = args.split_whitespace().collect();
+    command_label_parts(&parts)
+}
+
+#[cfg(unix)]
+fn command_label_parts(parts: &[&str]) -> Option<String> {
     if parts.is_empty() {
         return None;
     }
@@ -784,6 +872,40 @@ mod label_tests {
     fn shell_names_are_ignored() {
         assert!(is_shell_name("zsh"));
         assert!(!is_shell_name("npm"));
+    }
+
+    #[test]
+    fn argument_boundaries_preserve_script_paths_with_spaces() {
+        assert_eq!(
+            command_label_parts(&[
+                "/usr/bin/node",
+                "--no-warnings",
+                "/my tools/my cli.js",
+                "run"
+            ]),
+            Some("my cli.js".into())
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn darwin_arguments_exclude_environment_and_reject_truncation() {
+        let mut bytes = 3i32.to_ne_bytes().to_vec();
+        bytes.extend_from_slice(
+            b"/usr/bin/node\0\0\0node\0--no-warnings\0/my tools/cli.js\0PRIVATE=value\0",
+        );
+        let args = darwin_process_args(&bytes).unwrap();
+        assert_eq!(args, ["node", "--no-warnings", "/my tools/cli.js"]);
+        assert_eq!(command_label_parts(&args), Some("cli.js".into()));
+        assert!(darwin_process_args(&bytes[..10]).is_none());
+        assert!(darwin_process_args(&0i32.to_ne_bytes()).is_none());
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn native_process_lookup_finds_the_test_process_without_a_helper() {
+        assert!(process_label(std::process::id() as i32).is_some());
+        assert!(process_label(-1).is_none());
     }
 }
 
