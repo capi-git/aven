@@ -1460,6 +1460,7 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         </Row>
         <div id="setting-workspace-colors" tabIndex={-1}>
           <SettingsColorPicker
+            scopeKey={`${appearance.profileId}:${appearance.colorScheme}`}
             targets={COLOR_TARGETS}
             target={colorTarget}
             onTarget={setColorTarget}

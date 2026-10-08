@@ -45,8 +45,8 @@ type Props = {
   uppercase?: boolean;
   shorthand?: boolean;
   invalidEntry?: "reset" | "error";
-  /** Flush before a Settings target/workspace callback is replaced. */
-  scope?: unknown;
+  /** End a gesture only when its edited target, workspace, or mode changes. */
+  scope?: string;
   children: (picker: PickerState) => ReactNode;
 };
 
@@ -85,6 +85,7 @@ export function ColorPicker({
   const [invalid, setInvalid] = useState(false);
   const committed = useRef(value);
   const editing = useRef(false);
+  const context = useRef({ scope, model });
   const frame = useRef<number | null>(null);
   const pending = useRef<{ value: string; save: Props["onChange"] } | null>(
     null,
@@ -100,14 +101,22 @@ export function ColorPicker({
   } | null>(null);
 
   useEffect(() => {
+    const changedScope =
+      context.current.scope !== scope || context.current.model !== model;
+    context.current = { scope, model };
+    if (changedScope) editing.current = false;
     if (!editing.current) {
       setEntryState(uppercase ? value.toUpperCase() : value);
       setInvalid(false);
     }
-    if (value.toLowerCase() === committed.current.toLowerCase()) return;
+    if (
+      !changedScope &&
+      value.toLowerCase() === committed.current.toLowerCase()
+    )
+      return;
     committed.current = value;
     setColor(fromHex(value, model));
-  }, [value, model, uppercase]);
+  }, [value, model, uppercase, scope]);
 
   const flush = () => {
     if (frame.current !== null) cancelAnimationFrame(frame.current);
@@ -123,8 +132,10 @@ export function ColorPicker({
       active.element.releasePointerCapture(active.id);
     flush();
   };
-  // Finish using the callback captured by the old target/workspace. This also
-  // releases capture and cancels queued work when a picker unmounts mid-drag.
+  // A fresh callback can come from an unrelated parent render. Save its old
+  // preview without ending the pointer gesture; later moves use the new callback.
+  useEffect(() => flush, [onChange]);
+  // Actual target/workspace changes and unmounts release capture as well.
   useEffect(() => finish, [scope, model]);
 
   const update = (next: Coordinates, dragging = false, immediate = false) => {

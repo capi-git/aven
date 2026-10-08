@@ -17,6 +17,7 @@ export function SettingsColorPicker<T extends string>({
   onChange,
   onPreview,
   note,
+  scopeKey,
 }: {
   targets: readonly Target<T>[];
   target: T;
@@ -26,6 +27,8 @@ export function SettingsColorPicker<T extends string>({
   /** Shows a color without saving it, while a drag is in progress. */
   onPreview?: (target: T, color: string) => void;
   note?: string;
+  /** Stable workspace/mode identity, separate from callback identity. */
+  scopeKey?: string;
 }) {
   const targetButtons = useRef<(HTMLButtonElement | null)[]>([]);
   const change = useCallback(
@@ -41,7 +44,7 @@ export function SettingsColorPicker<T extends string>({
     <ColorPicker
       value={colors[target]}
       model="hsv"
-      scope={change}
+      scope={JSON.stringify([scopeKey, target])}
       onChange={change}
       onPreview={onPreview ? preview : undefined}
     >
