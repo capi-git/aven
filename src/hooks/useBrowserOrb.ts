@@ -11,7 +11,11 @@ import {
   type BrowserOrbSnapshot,
 } from "../lib/browserOrb";
 import { finalAssistantText } from "../lib/scheduledAgents";
-import { HARNESS_TITLE, type Session } from "../lib/session";
+import {
+  HARNESS_TITLE,
+  sessionDisplayTitle,
+  type Session,
+} from "../lib/session";
 
 /** How often the page position is checked; cheap layout reads only. */
 export const BROWSER_ORB_TRACK_MS = 250;
@@ -60,7 +64,9 @@ export function useBrowserOrb({
     return {
       chat: session
         ? {
-            title: session.title?.trim() || "Chat",
+            title:
+              sessionDisplayTitle(session.title ?? "", session.harness) ||
+              "Chat",
             agent: HARNESS_TITLE[session.harness] ?? "Aven",
           }
         : null,
