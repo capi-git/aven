@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.1.124] - 2026-10-08
+
+### More room for either pane
+
+- Hide a workspace pane with the small chevron on either side of a divider, or drag the divider to the outer edge and release. The remaining pane fills the workspace. This works for left/right and upper/lower splits, including detached windows.
+- Hidden panes keep their own tabs instead of combining them with the visible tabs. Restore the original split, sizes and tab groups with one click; drafts stay intact and background agents keep running.
+- Normal resizing and double-click balancing still work. Cancelling a drag leaves the panes open.
+
 ## [0.1.123] - 2026-10-06
 
 ### Automations get their own place
