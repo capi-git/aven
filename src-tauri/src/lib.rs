@@ -61,9 +61,9 @@ mod shell_navigation;
 mod skills;
 mod startup_cli;
 pub use startup_cli::run_startup_cli;
+mod browser_orb;
 mod turn_shots;
 mod usage_panel;
-mod browser_orb;
 mod window;
 mod window_transfer;
 #[cfg(windows)]
