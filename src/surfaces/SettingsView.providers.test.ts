@@ -29,10 +29,13 @@ vi.mock("@tauri-apps/api/core", async (original) => ({
 vi.mock("@tauri-apps/api/webview", () => ({
   getCurrentWebview: () => ({ setZoom: vi.fn().mockResolvedValue(undefined) }),
 }));
+const availability = vi.hoisted(() => ({
+  installed: new Set<string>(["codex", "claude"]),
+}));
 vi.mock("../lib/harness/availability", () => ({
   getHarnessAvailabilitySnapshot: () => 0,
   hasProbedHarnessAvailability: () => true,
-  isHarnessAvailable: (id: string) => id === "codex" || id === "claude",
+  isHarnessAvailable: (id: string) => availability.installed.has(id),
   harnessUnavailableHint: () => "CLI not installed",
   probeHarnessAvailability: vi.fn().mockResolvedValue(undefined),
   subscribeHarnessAvailability: () => () => {},
@@ -94,6 +97,7 @@ describe("provider and model controls", () => {
     container.remove();
     localStorage.clear();
     resetHarnessModelOverlays();
+    availability.installed = new Set(["codex", "claude"]);
     vi.unstubAllGlobals();
   });
 
@@ -183,6 +187,16 @@ describe("provider and model controls", () => {
     expect(container.querySelector('[role="status"]')?.textContent).toBe(
       "Models refreshed.",
     );
+  });
+
+  it("loads the live catalog for a provider that only has its built-in fallback model", async () => {
+    availability.installed = new Set(["codex", "claude", "pi"]);
+    await act(async () => root.render(createElement(Settings)));
+    // Pi always lists a built-in default model; that must not count as loaded.
+    expect(refreshHarnessCatalogs).toHaveBeenCalledWith(["pi"]);
+    // Providers whose live catalog already loaded are not refreshed again.
+    expect(refreshHarnessCatalogs).not.toHaveBeenCalledWith(["claude"]);
+    expect(refreshHarnessCatalogs).not.toHaveBeenCalledWith(["codex"]);
   });
 
   it("can refresh an installed hidden provider without enabling it and omits unavailable providers", async () => {

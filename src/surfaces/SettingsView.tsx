@@ -126,6 +126,7 @@ import {
   defaultSessionChoice,
   getModelSnapshot,
   getPickerVisibilitySnapshot,
+  hasLiveCatalog,
   isPickerProviderVisible,
   modelsFor,
   pickerModelsFor,
@@ -1950,9 +1951,11 @@ function ProviderRow({
     : [];
 
   useEffect(() => {
-    if (!available || models.length > 0) return;
+    // Pi and similar providers always have a built-in fallback model, so a
+    // non-empty list does not mean the live catalog has loaded.
+    if (!available || hasLiveCatalog(harness)) return;
     void refreshHarnessCatalogs([harness]);
-  }, [available, harness, models.length]);
+  }, [available, harness]);
 
   return (
     <section
