@@ -811,6 +811,14 @@ button.chat-reference:hover,
   animation: shimmer-text var(--shimmer-duration, 2s) linear infinite;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-text {
+    animation: none;
+    background: none;
+    color: var(--color-content);
+  }
+}
+
 /* Two-frame mascot loop — a hard swap plus a one-pixel hop, arcade style. */
 .mascot-active {
   animation: mascot-hop var(--mascot-beat, 460ms) infinite;

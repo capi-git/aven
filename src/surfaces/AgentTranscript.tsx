@@ -1,3 +1,4 @@
+import { visibleInterval } from "../lib/visibleInterval";
 import {
   Check,
   ChevronRight,
@@ -2028,9 +2029,7 @@ function useElapsedFrom(
     }
     const tick = () =>
       setElapsedMs(Math.max(0, Date.now() - start - pausedMs.current));
-    tick();
-    const id = window.setInterval(tick, 1000);
-    return () => window.clearInterval(id);
+    return visibleInterval(tick, 1000);
   }, [startedAt, paused]);
 
   return elapsedMs;

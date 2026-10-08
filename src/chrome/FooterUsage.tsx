@@ -1,3 +1,4 @@
+import { visibleInterval } from "../lib/visibleInterval";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useProviderUsage } from "../hooks/useProviderUsage";
 import { contextPercent, formatTokens } from "../lib/contextUsage";
@@ -70,10 +71,7 @@ export function FooterUsage({ providers, context }: FooterUsageProps) {
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
   const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
-    return () => window.clearInterval(timer);
-  }, []);
+  useEffect(() => visibleInterval(() => setNow(Date.now()), 30_000), []);
 
   // Opening the details is an explicit request for every account.
   useEffect(() => {
