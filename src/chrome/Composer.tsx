@@ -516,6 +516,11 @@ function ComposerComponent({
   const slashRef = useRef<SlashToken | null>(null);
   const mentionRef = useRef<MentionToken | null>(null);
   const [draft, setDraft] = useState(initialDraft ?? "");
+  // React rewrites a textarea's text node whenever defaultValue changes, and
+  // WebKit then resets the field, committing any IME composition. The pane
+  // re-renders with the latest draft (often, while a reply streams), so keep
+  // the mount-time value; the initialDraft effect applies later changes.
+  const [mountDraft] = useState(initialDraft);
   const [hasValue, setHasValue] = useState(
     () =>
       (initialDraft ?? "").trim().length > 0 ||
@@ -1480,7 +1485,7 @@ function ComposerComponent({
               data-composer-empty={navigationEmpty ? "true" : undefined}
               rows={1}
               spellCheck={false}
-              defaultValue={initialDraft}
+              defaultValue={mountDraft}
               placeholder={
                 inboxCard
                   ? "Add a note, or send to start…"
