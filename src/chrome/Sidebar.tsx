@@ -2492,6 +2492,7 @@ function SessionCard({
     <div
       className="personal-task-row group relative"
       data-has-archive={!!onArchive}
+      data-compact={compact || undefined}
     >
       <button
         type="button"

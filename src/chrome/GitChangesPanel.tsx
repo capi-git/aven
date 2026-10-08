@@ -152,8 +152,7 @@ export function GitChangesPanel({
       ref={paneRef}
       className="flex h-full min-h-0 flex-1 flex-col overflow-hidden"
     >
-      <header className="flex h-9 shrink-0 items-center gap-2 border-b border-content/10 px-3">
-        <span className="text-[12px] font-medium text-content">Changes</span>
+      <header aria-label="Change summary" className="flex h-9 shrink-0 items-center gap-2 border-b border-content/10 px-3">
         {stats ? (
           <span
             className="flex shrink-0 gap-1.5 text-[11px] tabular-nums"

@@ -9096,7 +9096,11 @@ export default function App({
             onToggleSidebar={onToggleSidebar}
             sidebarOpen={sidebarOpen}
             onSearch={onOpenSearch}
-            onNewBrowser={onGlobalNewBrowser}
+            onNewBrowser={
+              workspaceVisible && visibleSurfaceIds.length > 0
+                ? undefined
+                : onGlobalNewBrowser
+            }
             onGoBack={onRailBack}
             onGoForward={onRailForward}
             canGoBack={tabVisitNav.canBack}

@@ -68,6 +68,12 @@ import { WindowControls } from "../chrome/WindowControls";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useColorScheme } from "../hooks/useColorScheme";
 import {
+  applyStatusBarOpacity,
+  loadStatusBarOpacity,
+  saveStatusBarOpacity,
+  STATUS_BAR_OPACITY_DEFAULT,
+  STATUS_BAR_OPACITY_MIN,
+  STATUS_BAR_OPACITY_MAX,
   applyChatBackground,
   applyChatBackgroundOpacity,
   applyChatBackgroundScope,
@@ -735,6 +741,22 @@ function PreferencesPage({
         />
       </Row>
       <Row
+        label="Quiet mode"
+        description="Keep recording Activity without task banners or task sounds. Your other sound settings stay unchanged."
+      >
+        <Toggle
+          label="Quiet mode"
+          on={notificationPreferences.quiet}
+          onChange={(value) => onNotificationPreference("quiet", value)}
+        />
+      </Row>
+      <Row
+        label="Sounds"
+        description="Play short cues for task completion, inbox items, updates, and interactions."
+      >
+        <Toggle label="Sounds" on={soundsEnabled} onChange={onSoundsEnabled} />
+      </Row>
+      <Row
         label="Activity alerts"
         description="Choose which outcomes can interrupt you. Every outcome still appears in Activity."
       >
@@ -760,22 +782,6 @@ function PreferencesPage({
             </label>
           ))}
         </div>
-      </Row>
-      <Row
-        label="Quiet mode"
-        description="Keep recording Activity without task banners or task sounds. Your other sound settings stay unchanged."
-      >
-        <Toggle
-          label="Quiet mode"
-          on={notificationPreferences.quiet}
-          onChange={(value) => onNotificationPreference("quiet", value)}
-        />
-      </Row>
-      <Row
-        label="Sounds"
-        description="Play short cues for task completion, inbox items, updates, and interactions."
-      >
-        <Toggle label="Sounds" on={soundsEnabled} onChange={onSoundsEnabled} />
       </Row>
     </SettingsGroup>
   );
@@ -857,16 +863,6 @@ function PreferencesPage({
             onChange={onFollowUpBehavior}
           />
         </Row>
-        <Row
-          label="Claude Code hooks"
-          description="Run your configured Claude Code hooks. Changes apply on the next turn."
-        >
-          <Toggle
-            label="Claude Code hooks"
-            on={claudeHooks}
-            onChange={onClaudeHooks}
-          />
-        </Row>
       </SettingsGroup>
       <SettingsGroup
         title="Conversation &amp; review"
@@ -912,6 +908,22 @@ function PreferencesPage({
           />
         </Row>
         <AutosaveRow />
+      </SettingsGroup>
+      <SettingsGroup
+        title="Advanced"
+        description="Provider-specific behavior."
+        scope="Device"
+      >
+        <Row
+          label="Claude Code hooks"
+          description="Run your configured Claude Code hooks. Changes apply on the next turn."
+        >
+          <Toggle
+            label="Claude Code hooks"
+            on={claudeHooks}
+            onChange={onClaudeHooks}
+          />
+        </Row>
       </SettingsGroup>
     </>
   );
@@ -1231,6 +1243,7 @@ function useAppearanceSettings() {
     null,
   );
   const [uiScale, setUiScale] = useState(loadUiScale);
+  const [statusBarOpacity, setStatusBarOpacity] = useState(loadStatusBarOpacity);
 
   useEffect(() => subscribeUiScale(() => setUiScale(loadUiScale())), []);
 
@@ -1343,6 +1356,12 @@ function useAppearanceSettings() {
     setChatBackgroundScope(next);
   }, []);
 
+  const onStatusBarOpacity = useCallback((percent: number) => {
+    const next = applyStatusBarOpacity(percent / 100);
+    saveStatusBarOpacity(next);
+    setStatusBarOpacity(next);
+  }, []);
+
   const onUiScale = useCallback((percent: number) => {
     const next = saveUiScale(percent / 100);
     setUiScale(next);
@@ -1355,12 +1374,14 @@ function useAppearanceSettings() {
     onChatBackgroundScope(CHAT_BACKGROUND_SCOPE_DEFAULT);
     if (chatBackgroundPath) void onClearChatBackground();
     onUiScale(Math.round(UI_SCALE_DEFAULT * 100));
+    onStatusBarOpacity(Math.round(STATUS_BAR_OPACITY_DEFAULT * 100));
   }, [
     chatBackgroundPath,
     onChatBackgroundOpacity,
     onChatBackgroundScope,
     onClearChatBackground,
     onUiScale,
+    onStatusBarOpacity,
     profileId,
   ]);
 
@@ -1381,6 +1402,8 @@ function useAppearanceSettings() {
     chatBackgroundBusy,
     chatBackgroundError,
     uiScale,
+    statusBarOpacity,
+    onStatusBarOpacity,
     onThemePreference,
     onOpacity,
     onBlur,
@@ -1448,6 +1471,41 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         </div>
       </SettingsGroup>
       <SettingsGroup
+        title="Display"
+        description="Comfortable reading and quieter window controls."
+        scope="Device"
+      >
+        <Row
+          label="Interface scale"
+          description="Resize the whole interface. Use Cmd +/− and Cmd 0 on Mac, or Ctrl on Windows and Linux."
+        >
+          {/* A menu, not a live slider: rescaling the page while dragging
+              moves the control out from under the pointer (MonoCode b4f5befb). */}
+          <Select
+            label="Interface scale"
+            value={String(Math.round(appearance.uiScale * 100))}
+            options={UI_SCALE_PERCENTS.map((percent) => ({
+              value: String(percent),
+              label: `${percent}%`,
+            }))}
+            onChange={(value) => appearance.onUiScale(Number(value))}
+          />
+        </Row>
+        <Row
+          label="Status bar opacity"
+          description="Background strength of the bottom bar when the sidebar is hidden. Text and controls stay solid."
+        >
+          <Slider
+            label="Status bar opacity"
+            value={Math.round(appearance.statusBarOpacity * 100)}
+            display={`${Math.round(appearance.statusBarOpacity * 100)}%`}
+            min={Math.round(STATUS_BAR_OPACITY_MIN * 100)}
+            max={Math.round(STATUS_BAR_OPACITY_MAX * 100)}
+            onChange={appearance.onStatusBarOpacity}
+          />
+        </Row>
+      </SettingsGroup>
+      <SettingsGroup
         title="Window &amp; sidebars"
         description="Balance focus, transparency, and a consistent workspace."
         scope="Workspace"
@@ -1462,31 +1520,6 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
             onChange={appearance.onMatchPanels}
           />
         </Row>
-        <Row
-          label="Sidebar colour"
-          description="A wash of colour over this workspace's sidebar, strongest at the top. Text stays readable."
-        >
-          <ColorSwatches
-            label="Sidebar colour"
-            value={appearance.sidebarTint}
-            onChange={appearance.onSidebarTint}
-          />
-        </Row>
-        {appearance.sidebarTint !== "none" ? (
-          <Row
-            label="Sidebar colour strength"
-            description="How much of the colour shows."
-          >
-            <Slider
-              label="Sidebar colour strength"
-              value={appearance.sidebarTintStrength}
-              display={`${appearance.sidebarTintStrength}%`}
-              min={SIDEBAR_TINT_STRENGTH_MIN}
-              max={SIDEBAR_TINT_STRENGTH_MAX}
-              onChange={appearance.onSidebarTintStrength}
-            />
-          </Row>
-        ) : null}
         {HAS_NATIVE_GLASS && (
           <Row
             label="Background opacity"
@@ -1546,29 +1579,38 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
             />
           </Row>
         )}
+        <Row
+          label="Sidebar colour"
+          description="A wash of colour over this workspace's sidebar, strongest at the top. Text stays readable."
+        >
+          <ColorSwatches
+            label="Sidebar colour"
+            value={appearance.sidebarTint}
+            onChange={appearance.onSidebarTint}
+          />
+        </Row>
+        {appearance.sidebarTint !== "none" ? (
+          <Row
+            label="Sidebar colour strength"
+            description="How much of the colour shows."
+          >
+            <Slider
+              label="Sidebar colour strength"
+              value={appearance.sidebarTintStrength}
+              display={`${appearance.sidebarTintStrength}%`}
+              min={SIDEBAR_TINT_STRENGTH_MIN}
+              max={SIDEBAR_TINT_STRENGTH_MAX}
+              onChange={appearance.onSidebarTintStrength}
+            />
+          </Row>
+        ) : null}
       </SettingsGroup>
       <SettingsGroup
-        title="Chat &amp; display"
-        description="Personal touches and comfortable reading."
+        title="Chat background"
+        description="Personalize your conversations."
         scope="Device"
       >
         <ChatBackgroundCard appearance={appearance} />
-        <Row
-          label="Interface scale"
-          description="Resize the whole interface. Use Cmd +/− and Cmd 0 on Mac, or Ctrl on Windows and Linux."
-        >
-          {/* A menu, not a live slider: rescaling the page while dragging
-              moves the control out from under the pointer (MonoCode b4f5befb). */}
-          <Select
-            label="Interface scale"
-            value={String(Math.round(appearance.uiScale * 100))}
-            options={UI_SCALE_PERCENTS.map((percent) => ({
-              value: String(percent),
-              label: `${percent}%`,
-            }))}
-            onChange={(value) => appearance.onUiScale(Number(value))}
-          />
-        </Row>
       </SettingsGroup>
       <SettingsGroup
         title="Reuse this appearance"
@@ -1584,7 +1626,7 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
       <div className="settings-reset">
         <p>
           Reset this workspace’s theme and this device’s chat background and
-          interface scale.
+          interface scale and status bar opacity.
         </p>
         <SecondaryButton onClick={appearance.restoreDefaults}>
           <RotateCcw className="size-3.5" aria-hidden />
@@ -1857,22 +1899,6 @@ function ProvidersPage() {
 
   return (
     <>
-      <SettingsGroup
-        title="Model discovery"
-        description="Stay current without changing the models selected for your tasks."
-        scope="Device"
-      >
-        <Row
-          label="Keep provider tools up to date"
-          description="Check supported Codex and Claude installations daily so newly released models appear automatically. Model lists also refresh while Aven is open. Your selected models stay the same."
-        >
-          <Toggle
-            label="Keep provider tools up to date"
-            on={autoUpdateTools}
-            onChange={saveProviderToolAutoUpdates}
-          />
-        </Row>
-      </SettingsGroup>
       <div id="setting-providers" className="settings-providers" tabIndex={-1}>
         <Heading title="Providers & models" />
         <p className="settings-section-note">
@@ -1892,6 +1918,22 @@ function ProvidersPage() {
           </details>
         ) : null}
       </div>
+      <SettingsGroup
+        title="Model discovery"
+        description="Stay current without changing the models selected for your tasks."
+        scope="Device"
+      >
+        <Row
+          label="Keep provider tools up to date"
+          description="Check supported Codex and Claude installations daily so newly released models appear automatically. Model lists also refresh while Aven is open. Your selected models stay the same."
+        >
+          <Toggle
+            label="Keep provider tools up to date"
+            on={autoUpdateTools}
+            onChange={saveProviderToolAutoUpdates}
+          />
+        </Row>
+      </SettingsGroup>
     </>
   );
 }

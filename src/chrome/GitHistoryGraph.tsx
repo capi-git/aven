@@ -43,6 +43,7 @@ export function GitHistoryGraph({
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const { commits } = useGitHistory(cwd, enabled && expanded);
   const rows = useMemo(() => layoutGitGraph(commits), [commits]);
+  const showAuthors = new Set(commits.map((commit) => commit.author).filter(Boolean)).size > 1;
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
@@ -88,6 +89,7 @@ export function GitHistoryGraph({
                   <HistoryRow
                     key={commit.sha}
                     commit={commit}
+                    showAuthor={showAuthors}
                     row={row}
                     active={selectedSha === commit.sha}
                     onOpen={() => onOpenCommit(commit)}
@@ -104,11 +106,13 @@ export function GitHistoryGraph({
 
 function HistoryRow({
   commit,
+  showAuthor,
   row,
   active,
   onOpen,
 }: {
   commit: GitHistoryCommit;
+  showAuthor: boolean;
   row: HistoryItemViewModel;
   active: boolean;
   onOpen: () => void;
@@ -160,14 +164,14 @@ function HistoryRow({
         </svg>
         <span className="ml-1 flex min-w-0 flex-1 items-center overflow-hidden">
           <span
-            className={`min-w-0 truncate text-[12px] leading-[22px] ${
+            className={`min-w-0 flex-1 truncate text-[12px] leading-[22px] ${
               row.kind === "HEAD" ? "font-semibold" : ""
             }`}
           >
             {commit.subject || commit.shortSha}
           </span>
-          {commit.author ? (
-            <span className="ml-2 min-w-0 shrink truncate text-[12px] leading-[22px] text-content/45">
+          {showAuthor && commit.author ? (
+            <span className="ml-2 min-w-0 max-w-[6rem] shrink truncate text-[12px] leading-[22px] text-content/45">
               {commit.author}
             </span>
           ) : null}
@@ -272,6 +276,7 @@ function sameHistory(
       other &&
       commit.sha === other.sha &&
       commit.subject === other.subject &&
+      commit.author === other.author &&
       commit.head === other.head &&
       commit.refs.length === other.refs.length &&
       commit.refs.every(

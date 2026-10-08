@@ -59,3 +59,13 @@
     var(--aven-focus-ring, var(--personal-accent, var(--color-accent)));
   outline-offset: 2px;
 }
+
+/* Keep the status bar under the sidebar. Only its tint changes when the
+   sidebar is tucked away, leaving labels and controls fully opaque. */
+.personal-shell[data-sidebar-pinned="false"] .workspace-footer {
+  background: color-mix(
+    in srgb,
+    var(--aven-toolbar-surface, transparent) calc(var(--status-bar-opacity, 0.65) * 100%),
+    transparent
+  );
+}

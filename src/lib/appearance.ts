@@ -17,6 +17,7 @@ const TRANSCRIPT_ANCHOR_KEY = "monocode.transcriptAnchor";
 const CHAT_BACKGROUND_PATH_KEY = "monocode.chatBackgroundPath";
 const CHAT_BACKGROUND_OPACITY_KEY = "monocode.chatBackgroundOpacity";
 const CHAT_BACKGROUND_SCOPE_KEY = "monocode.chatBackgroundScope";
+const STATUS_BAR_OPACITY_KEY = "aven.statusBarOpacity";
 const CHANGES_VIEW_KEY = "monocode.changesView";
 let chatBackgroundRevision = Date.now();
 let nativeGlassReady = false;
@@ -133,6 +134,10 @@ export const THEME_SATURATION_MAX = 100;
 export const THEME_SATURATION_DEFAULT = 0;
 /** Sky's tint strength, also the default for older standalone preferences. */
 export const SKY_THEME_SATURATION = 16;
+
+export const STATUS_BAR_OPACITY_DEFAULT = 0.65;
+export const STATUS_BAR_OPACITY_MIN = 0;
+export const STATUS_BAR_OPACITY_MAX = 1;
 
 export const SIDEBAR_OPACITY_MIN = 0.05;
 export const SIDEBAR_OPACITY_MAX = 1;
@@ -341,6 +346,7 @@ export function initAppearance() {
   applyThemePreference(loadThemePreference());
   watchSystemColorScheme();
   applySidebarOpacity(loadSidebarOpacity());
+  applyStatusBarOpacity(loadStatusBarOpacity());
   applySidebarBlur(loadSidebarBlur());
   applyBodyGlass(loadBodyGlass());
   applyChatBackground(loadChatBackgroundPath());
@@ -693,6 +699,22 @@ export function applyChatBackground(path: string | null) {
 
 export function chatBackgroundSrc(path: string | null): string | null {
   return path ? `${convertFileSrc(path)}?v=${chatBackgroundRevision}` : null;
+}
+
+/** Tint only the bottom bar when the sidebar is tucked away; text stays solid. */
+export function loadStatusBarOpacity(): number {
+  return clamp(readNumber(STATUS_BAR_OPACITY_KEY) ?? STATUS_BAR_OPACITY_DEFAULT,
+    STATUS_BAR_OPACITY_MIN, STATUS_BAR_OPACITY_MAX);
+}
+
+export function saveStatusBarOpacity(value: number) {
+  writeNumber(STATUS_BAR_OPACITY_KEY, clamp(value, STATUS_BAR_OPACITY_MIN, STATUS_BAR_OPACITY_MAX));
+}
+
+export function applyStatusBarOpacity(value: number) {
+  const next = clamp(value, STATUS_BAR_OPACITY_MIN, STATUS_BAR_OPACITY_MAX);
+  document.documentElement.style.setProperty("--status-bar-opacity", String(next));
+  return next;
 }
 
 export function loadChatBackgroundOpacity(): number {
