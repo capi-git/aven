@@ -270,7 +270,7 @@ fn github_auth_token(cwd: Option<&str>) -> Result<Option<String>, String> {
         return Ok(None);
     };
     let root = crate::fs::expand_home(cwd);
-    let route = crate::fs::github_route(&root)?;
+    let route = crate::git::github_route(&root)?;
     route.auth_token(&root).map(Some)
 }
 
