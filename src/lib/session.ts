@@ -196,6 +196,8 @@ export type Block = {
   secondOpinion?: SecondOpinionMeta;
   /** Note chip shown on this user turn. Body is not stored; the harness already received it. */
   noteCard?: NoteCardMeta;
+  /** Provider status slot (e.g. a Pi extension's setStatus key) this row shows. */
+  statusKey?: string;
 };
 
 /** Provider-reported child activity for this live connection; never restored from history. */

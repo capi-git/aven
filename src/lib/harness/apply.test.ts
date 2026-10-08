@@ -308,6 +308,86 @@ describe("status blocks", () => {
     session = applyHarnessEvent(session, { type: "status", text: "  " });
     expect(session.blocks.some((block) => block.role === "system")).toBe(false);
   });
+
+  it("updates a keyed status in place for the rest of the turn", () => {
+    let session = appendUser(newSession("pi", "/tmp"), "go");
+    session = applyHarnessEvent(session, {
+      type: "status",
+      key: "caveman",
+      text: "⠋ caveman level: ULTRA",
+    });
+    const id = session.blocks[1]?.id;
+    session = applyHarnessEvent(session, {
+      type: "message.delta",
+      text: "Working.",
+    });
+    for (const frame of ["⠙", "⠹", "⠸"]) {
+      session = applyHarnessEvent(session, {
+        type: "status",
+        key: "caveman",
+        text: `${frame} caveman level: ULTRA`,
+      });
+    }
+    expect(session.blocks.map((block) => [block.role, block.text])).toEqual([
+      ["user", "go"],
+      ["system", "⠸ caveman level: ULTRA"],
+      ["assistant", "Working."],
+    ]);
+    expect(session.blocks[1]).toMatchObject({ id, statusKey: "caveman" });
+    expect(session.blocks[2]?.streaming).toBe(true);
+  });
+
+  it("removes a keyed status when its text is cleared", () => {
+    let session = appendUser(newSession("pi", "/tmp"), "go");
+    session = applyHarnessEvent(session, {
+      type: "status",
+      key: "caveman",
+      text: "caveman level: ULTRA",
+    });
+    session = applyHarnessEvent(session, {
+      type: "status",
+      key: "caveman",
+      text: " ",
+    });
+    expect(session.blocks.map((block) => block.role)).toEqual(["user"]);
+  });
+
+  it("keeps one row per status key", () => {
+    let session = appendUser(newSession("pi", "/tmp"), "go");
+    for (const [key, text] of [
+      ["caveman", "caveman level: ULTRA"],
+      ["ponytail", "ponytail: FULL"],
+      ["caveman", "caveman level: LITE"],
+    ]) {
+      session = applyHarnessEvent(session, { type: "status", key, text });
+    }
+    expect(
+      session.blocks
+        .filter((block) => block.role === "system")
+        .map((block) => block.text),
+    ).toEqual(["caveman level: LITE", "ponytail: FULL"]);
+  });
+
+  it("starts a new keyed status row in the next turn", () => {
+    let session = appendUser(newSession("pi", "/tmp"), "go");
+    session = applyHarnessEvent(session, {
+      type: "status",
+      key: "caveman",
+      text: "caveman level: ULTRA",
+    });
+    session = appendUser(session, "again");
+    session = applyHarnessEvent(session, {
+      type: "status",
+      key: "caveman",
+      text: "caveman level: LITE",
+    });
+    expect(session.blocks.map((block) => block.text)).toEqual([
+      "go",
+      "caveman level: ULTRA",
+      "again",
+      "caveman level: LITE",
+    ]);
+  });
 });
 
 describe("task list updates", () => {

@@ -20,7 +20,8 @@ export type HarnessEvent =
       model?: string;
       modelSettings?: Record<string, string>;
     }
-  | { type: "status"; text: string }
+  /** A keyed status replaces its earlier row in the current turn; empty text clears it. */
+  | { type: "status"; text: string; key?: string }
   | { type: "message.delta"; text: string; key?: string }
   | { type: "message.completed"; key?: string }
   | { type: "reasoning.delta"; text: string }
