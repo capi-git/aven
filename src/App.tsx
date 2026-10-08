@@ -8459,7 +8459,7 @@ export default function App({
     [browserBubbleColor, projectCwd],
   );
   useBrowserOrb({
-    enabled: browserBubble && !profileHome,
+    enabled: browserBubble && workspaceVisible,
     session: active,
     tint: browserBubbleTint,
     onSubmit: (sessionId, text) => {

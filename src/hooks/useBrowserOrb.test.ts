@@ -167,6 +167,23 @@ describe("the Aven bubble's owner", () => {
     expect(set.mock.calls.length).toBe(calls);
   });
 
+  it("forgets an answer once it is dismissed", async () => {
+    const session = chat();
+    await render(session);
+    await act(async () => deliver({ action: "submit", text: "hello" }));
+    await render({
+      ...session,
+      blocks: [
+        ...session.blocks,
+        block("user", "hello"),
+        block("assistant", "Hi."),
+      ],
+    });
+    expect(lastSet()[1].answer).toMatchObject({ text: "Hi." });
+    await act(async () => deliver({ action: "dismiss" }));
+    expect(lastSet()[1].answer).toBeNull();
+  });
+
   it("does not send while the chat is working, and routes stop and open", async () => {
     await render(chat({ busy: true }));
     await act(async () => deliver({ action: "submit", text: "hello" }));

@@ -166,7 +166,11 @@ fn apply_placement(app: &AppHandle, label: &str) -> Result<(), String> {
         .set_size(size)
         .and_then(|()| window.set_position(position))
         .map_err(|error| error.to_string())?;
+    // The page always fills the window exactly. Tauri's proportional
+    // auto-resize would scale it again on top of this, leaving the page ten
+    // times too wide after the pill opens.
     if let Some(webview) = app.get_webview(label) {
+        let _ = webview.set_position(LogicalPosition::new(0.0, 0.0));
         let _ = webview.set_size(size);
     }
     Ok(())
@@ -338,7 +342,6 @@ fn set_orb(caller: Webview, anchor: Option<Anchor>, snapshot: Value) -> Result<(
             .full_refresh_rate(app)
             .focused(false)
             .accept_first_mouse(true)
-            .auto_resize()
             .disable_drag_drop_handler()
             .transparent(true)
             .background_color(Color(0, 0, 0, 0))
@@ -462,7 +465,7 @@ pub async fn browser_orb_action(
                 return Err("Invalid message".into());
             }
         }
-        "stop" | "openChat" => {
+        "stop" | "openChat" | "dismiss" => {
             if text.is_some() {
                 return Err("Invalid bubble action".into());
             }
