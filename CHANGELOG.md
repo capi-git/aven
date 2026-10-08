@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [0.1.126] - 2026-10-08
+
+### The Aven bubble is gone for now
+
+- The bubble that floated over web pages in 0.1.125 has been removed, along with its section in **Settings → Browser**. Sidebar colour stays.
+
+### Fable usage
+
+- The usage panel now shows Claude's separate weekly Fable allowance under Claude Code, with its own remaining percentage and reset time.
+
 ## [0.1.125] - 2026-10-08
 
 ### Ask about the page you're on
