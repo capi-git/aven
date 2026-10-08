@@ -439,9 +439,7 @@ function syncNativeGlass(scheme: ColorScheme) {
   appliedNativeGlass = enabled;
   paintedWindowColor = null;
   void invoke("set_window_glass_enabled", { enabled })
-    .then(() => {
-      if (!enabled) return paintOpaqueWindow();
-    })
+    .then(() => (enabled ? undefined : paintOpaqueWindow()))
     .catch(() => {
       // Browser previews have no native window.
     });
