@@ -36,8 +36,17 @@ impl SessionStore {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
         let conn = Connection::open(path).map_err(|e| e.to_string())?;
-        conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")
+        conn.execute_batch("PRAGMA foreign_keys = ON;")
             .map_err(|e| e.to_string())?;
+        let journal: String = conn
+            .query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0))
+            .map_err(|e| e.to_string())?;
+        if journal.eq_ignore_ascii_case("wal") {
+            // WAL stays consistent with NORMAL; sync at checkpoints instead of
+            // on every streaming snapshot. Retain FULL if WAL is unavailable.
+            conn.execute_batch("PRAGMA synchronous = NORMAL;")
+                .map_err(|e| e.to_string())?;
+        }
         migrate(&conn).map_err(|e| e.to_string())?;
         Ok(Self {
             conn: Mutex::new(conn),
@@ -174,8 +183,11 @@ pub fn session_upsert(
         return Err("blocks must be an array".into());
     }
 
+    // Git can spawn processes and JSON can be megabytes. Neither needs the
+    // SQLite lock shared by history, drafts, notes and workspace snapshots.
+    let prepared = prepare_session(&session).map_err(|e| e.to_string())?;
     let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
-    upsert_session(&conn, &session).map_err(|e| e.to_string())
+    upsert_prepared_session(&conn, &session, prepared).map_err(|e| e.to_string())
 }
 
 #[tauri::command(async)]
@@ -186,8 +198,9 @@ pub fn session_list_by_project(
     if cwd.trim().is_empty() {
         return Err("cwd is required".into());
     }
+    let git = crate::fs::git_info_for(&crate::fs::expand_home(&cwd));
     let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
-    list_by_project(&conn, &cwd).map_err(|e| e.to_string())
+    list_by_project_with_git(&conn, &cwd, git.branch, git.repo).map_err(|e| e.to_string())
 }
 
 /// Destructive project operations need the complete inventory, including rows
@@ -736,26 +749,60 @@ fn optional_json(raw: Option<String>) -> Option<Value> {
     raw.and_then(|value| serde_json::from_str(&value).ok())
 }
 
-fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Result<SessionSummary> {
-    let now = now_millis();
+struct PreparedSession {
+    model_settings: String,
+    blocks_json: String,
+    queued_messages_json: String,
+    git_branch: Option<String>,
+    git_repo: Option<String>,
+}
+
+fn prepare_session(session: &SessionUpsert) -> rusqlite::Result<PreparedSession> {
     let model_settings = serde_json::to_string(&session.model_settings)
         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
     let blocks_json = serde_json::to_string(&session.blocks)
         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
     let queued_messages_json = serde_json::to_string(&session.queued_messages)
         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+    let git = crate::fs::git_info_for(&crate::fs::expand_home(&session.cwd));
+    Ok(PreparedSession {
+        model_settings,
+        blocks_json,
+        queued_messages_json,
+        git_branch: git.branch,
+        git_repo: git.repo,
+    })
+}
+
+#[cfg(test)]
+fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Result<SessionSummary> {
+    upsert_prepared_session(conn, session, prepare_session(session)?)
+}
+
+fn upsert_prepared_session(
+    conn: &Connection,
+    session: &SessionUpsert,
+    prepared: PreparedSession,
+) -> rusqlite::Result<SessionSummary> {
+    let now = now_millis();
+    let PreparedSession {
+        model_settings,
+        blocks_json,
+        queued_messages_json,
+        git_branch,
+        git_repo,
+    } = prepared;
     let provider_session_id = session
         .provider_session_id
         .as_ref()
         .map(|value| value.trim())
         .filter(|value| !value.is_empty());
-    let git = crate::fs::git_info_for(&crate::fs::expand_home(&session.cwd));
     let branch = session
         .branch
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .or_else(|| git.branch.as_deref().filter(|value| !value.is_empty()));
+        .or_else(|| git_branch.as_deref().filter(|value| !value.is_empty()));
     let worktree_cwd = session
         .worktree_cwd
         .as_deref()
@@ -819,7 +866,22 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
            context_window = excluded.context_window,
            worktree_cwd = excluded.worktree_cwd,
            has_user_message = excluded.has_user_message,
-           queued_messages_json = excluded.queued_messages_json",
+           queued_messages_json = excluded.queued_messages_json
+         WHERE sessions.cwd IS NOT excluded.cwd
+            OR sessions.harness IS NOT excluded.harness
+            OR sessions.model IS NOT excluded.model
+            OR sessions.model_settings IS NOT excluded.model_settings
+            OR sessions.runtime_mode IS NOT excluded.runtime_mode
+            OR sessions.title IS NOT excluded.title
+            OR sessions.provider_session_id IS NOT excluded.provider_session_id
+            OR sessions.blocks_json IS NOT excluded.blocks_json
+            OR sessions.updated_at IS NOT excluded.updated_at
+            OR sessions.branch IS NOT excluded.branch
+            OR sessions.context_used IS NOT excluded.context_used
+            OR sessions.context_window IS NOT excluded.context_window
+            OR sessions.worktree_cwd IS NOT excluded.worktree_cwd
+            OR sessions.has_user_message IS NOT excluded.has_user_message
+            OR sessions.queued_messages_json IS NOT excluded.queued_messages_json",
         params![
             session.id,
             session.cwd,
@@ -853,7 +915,7 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
         title: session.title.clone(),
         provider_session_id: provider_session_id.map(str::to_owned),
         branch: branch.map(str::to_owned),
-        repo: git.repo,
+        repo: git_repo,
         additions: 0,
         deletions: 0,
         created_at,
@@ -1117,8 +1179,18 @@ fn list_project_ids(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<String
     rows.collect()
 }
 
+#[cfg(test)]
 fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<SessionSummary>> {
     let git = crate::fs::git_info_for(&crate::fs::expand_home(cwd));
+    list_by_project_with_git(conn, cwd, git.branch, git.repo)
+}
+
+fn list_by_project_with_git(
+    conn: &Connection,
+    cwd: &str,
+    git_branch: Option<String>,
+    git_repo: Option<String>,
+) -> rusqlite::Result<Vec<SessionSummary>> {
     let mut statement = conn.prepare(
         "SELECT id, cwd, harness, model, runtime_mode, title, provider_session_id,
                 created_at, updated_at, branch, archived, pinned,
@@ -1146,8 +1218,8 @@ fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<Session
             provider_session_id: row.get(6)?,
             created_at: row.get(7)?,
             updated_at: row.get(8)?,
-            branch: nonempty(stored_branch).or_else(|| git.branch.clone()),
-            repo: git.repo.clone(),
+            branch: nonempty(stored_branch).or_else(|| git_branch.clone()),
+            repo: git_repo.clone(),
             additions: 0,
             deletions: 0,
             archived: archived != 0,
@@ -1451,6 +1523,76 @@ pub(crate) fn now_millis() -> i64 {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn disk_store_uses_normal_wal_and_preserves_history_after_reopen() {
+        let root = crate::turn_shots::tests::TemporaryDirectory::new();
+        let path = root.0.join("session-performance.db");
+        {
+            let store = SessionStore::open(path.clone()).unwrap();
+            let conn = store.lock_conn().unwrap();
+            let journal: String = conn
+                .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+                .unwrap();
+            let synchronous: i64 = conn
+                .query_row("PRAGMA synchronous", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(journal, "wal");
+            assert_eq!(synchronous, 1);
+            upsert_session(
+                &conn,
+                &sample("durable", "/tmp/project", "Saved transcript"),
+            )
+            .unwrap();
+        }
+        let store = SessionStore::open(path).unwrap();
+        let conn = store.lock_conn().unwrap();
+        let restored = get_session(&conn, "durable").unwrap().unwrap();
+        assert_eq!(restored.title, "Saved transcript");
+        assert_eq!(restored.blocks[0]["text"], "hello");
+        let integrity: String = conn
+            .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(integrity, "ok");
+    }
+
+    #[test]
+    fn unchanged_session_does_not_write_rows_but_metadata_and_queue_changes_do() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.lock_conn().unwrap();
+        let mut session = sample("unchanged", "/tmp/project", "Same");
+        let first = upsert_session(&conn, &session).unwrap();
+        let changes = conn.total_changes();
+        let same = upsert_session(&conn, &session).unwrap();
+        assert_eq!(conn.total_changes(), changes);
+        assert_eq!(same.updated_at, first.updated_at);
+        session.title = "Changed title".into();
+        session.context_used = Some(42);
+        session.queued_messages = vec![json!({"id":"queued", "text":"Follow up"})];
+        upsert_session(&conn, &session).unwrap();
+        assert!(conn.total_changes() > changes);
+        let restored = get_session(&conn, &session.id).unwrap().unwrap();
+        assert_eq!(restored.title, "Changed title");
+        assert_eq!(restored.context_used, Some(42));
+        assert_eq!(restored.queued_messages, session.queued_messages);
+    }
+
+    #[test]
+    fn prepared_session_uses_git_metadata_gathered_before_locking() {
+        let session = sample("prepared", "/tmp/project", "Prepared");
+        let mut prepared = prepare_session(&session).unwrap();
+        prepared.git_branch = Some("snapshot-branch".into());
+        prepared.git_repo = Some("snapshot-repo".into());
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.lock_conn().unwrap();
+        let summary = upsert_prepared_session(&conn, &session, prepared).unwrap();
+        assert_eq!(summary.branch.as_deref(), Some("snapshot-branch"));
+        assert_eq!(summary.repo.as_deref(), Some("snapshot-repo"));
+        let listed =
+            list_by_project_with_git(&conn, &session.cwd, None, Some("list-repo".into())).unwrap();
+        assert_eq!(listed[0].branch.as_deref(), Some("snapshot-branch"));
+        assert_eq!(listed[0].repo.as_deref(), Some("list-repo"));
+    }
 
     fn sample(id: &str, cwd: &str, title: &str) -> SessionUpsert {
         SessionUpsert {

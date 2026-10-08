@@ -38,3 +38,27 @@ These are build-output measurements, not measured startup time or frame rate.
 Source tests cover preserved editor buffers, editor shortcuts, file icon
 identity, PDF visibility, and release note content after asynchronous loading.
 The combined Aven Dev preview supplies the separate native runtime check.
+
+## Session saves
+
+Git metadata and JSON serialization now finish before acquiring the shared
+SQLite lock. History listing also gathers Git metadata before locking. An
+unchanged upsert executes no row update; changes to metadata, context or the
+queued follow-ups still persist even when transcript text is unchanged.
+The frontend shares adjacent identical pending saves, while preserving
+A–B–A ordering, failure retries and archive/delete barriers. It does not cache
+completed writes across windows. App's existing immutable-block fingerprint
+continues to skip unchanged periodic snapshots.
+
+On disk, connections use `synchronous=NORMAL` only after SQLite confirms WAL
+mode. This avoids a disk sync on every streaming snapshot. WAL integrity is
+preserved, but the latest committed transactions can be lost after an OS crash
+or power loss before a checkpoint; this is the durability tradeoff of NORMAL.
+The fixture verifies the configured pragmas, reopening saved history and
+SQLite integrity. No schema, production data or transcript format changed.
+
+Storage is still one `blocks_json` value per session. Saving individual messages
+would require a schema/format transition and compatibility work for restore,
+search, worker ownership, backups and older records. That was explicitly
+deferred in the original audit; the changes above reduce redundant work without
+pretending to implement incremental message storage.

@@ -150,11 +150,18 @@ export function sanitizeSessionForPersist(
  */
 const sessionWriteQueues = new Map<string, Promise<unknown>>();
 const deletedSessionIds = new Set<string>();
+const pendingSessionSnapshots = new Map<
+  string,
+  { fingerprint: string; promise: Promise<SessionSummary | null> }
+>();
 
 function enqueueSessionWrite<T>(
   sessionId: string,
   operation: () => Promise<T>,
 ): Promise<T> {
+  // A different queued operation (including archive/delete) is an ordering
+  // barrier. Only adjacent identical snapshots may share the same write.
+  pendingSessionSnapshots.delete(sessionId);
   const previous = sessionWriteQueues.get(sessionId) ?? Promise.resolve();
   const run = previous.catch(() => undefined).then(operation);
   const tail = run.then(
@@ -174,10 +181,13 @@ export async function upsertSession(
   session: Session,
 ): Promise<SessionSummary | null> {
   if (!shouldPersistSession(session) || deletedSessionIds.has(session.id)) {
-    return null;
+    return Promise.resolve(null);
   }
+  const fingerprint = persistFingerprint(session);
+  const pending = pendingSessionSnapshots.get(session.id);
+  if (pending?.fingerprint === fingerprint) return pending.promise;
   const payload = sanitizeSessionForPersist(session);
-  const summary = await enqueueSessionWrite(session.id, async () => {
+  const promise = enqueueSessionWrite(session.id, async () => {
     if (deletedSessionIds.has(session.id)) return null;
     return invoke<SessionSummary>("session_upsert", {
       session: {
@@ -190,8 +200,15 @@ export async function upsertSession(
         ),
       },
     });
-  });
-  return summary ? normalizeSummary(summary) : null;
+  }).then((summary) => (summary ? normalizeSummary(summary) : null));
+  pendingSessionSnapshots.set(session.id, { fingerprint, promise });
+  const clear = () => {
+    if (pendingSessionSnapshots.get(session.id)?.promise === promise) {
+      pendingSessionSnapshots.delete(session.id);
+    }
+  };
+  void promise.then(clear, clear);
+  return promise;
 }
 
 /**
@@ -284,6 +301,8 @@ export async function getSession(sessionId: string): Promise<Session | null> {
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
+  // Deleting a lead also changes how queued worker snapshots are sanitized.
+  pendingSessionSnapshots.clear();
   deletedSessionIds.add(sessionId);
   try {
     // Drain worker snapshots before native deletion strips their lead ownership.
@@ -293,6 +312,7 @@ export async function deleteSession(sessionId: string): Promise<void> {
     );
   } catch (error) {
     deletedSessionIds.delete(sessionId);
+    pendingSessionSnapshots.clear();
     throw error;
   }
 }
