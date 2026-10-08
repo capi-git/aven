@@ -140,6 +140,7 @@ import {
   ORCHESTRATOR_COMMAND,
 } from "../lib/orchestratorCommand";
 import { COMPACT_COMMAND, isCompactCommand } from "../lib/compact";
+import { resizeComposer } from "../lib/composerResize";
 
 type Props = {
   enabled?: boolean;
@@ -831,22 +832,17 @@ function ComposerComponent({
     );
   }, [rankedFiles.length]);
 
-  const resizeTextarea = (el: HTMLTextAreaElement) => {
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
-  };
-
   useLayoutEffect(() => {
     // Attachment mode changes the field's padding and empty height. Measure
     // after those styles commit, without changing any of the saved draft.
-    if (ref.current) resizeTextarea(ref.current);
+    if (ref.current) resizeComposer(ref.current);
   }, [attachmentsOnly]);
 
   useEffect(() => {
     const el = ref.current;
     if (!el || !initialDraft) return;
     if (el.value !== initialDraft) el.value = initialDraft;
-    resizeTextarea(el);
+    resizeComposer(el);
   }, [initialDraft]);
 
   const syncHighlightScroll = useCallback((el: HTMLTextAreaElement) => {
@@ -896,7 +892,7 @@ function ComposerComponent({
     consumedQuoteId.current = result.consumedId;
     if (result.changed) {
       el.value = result.draft;
-      resizeTextarea(el);
+      resizeComposer(el);
       updateDraft(result.draft);
       syncHasValue(result.draft, attachmentsRef.current);
       setSlash(null);
@@ -939,7 +935,7 @@ function ComposerComponent({
             .replace(/^\s/, "")}`
         : replaceSlashToken(el.value, token, skill.invocation);
       el.value = next;
-      resizeTextarea(el);
+      resizeComposer(el);
       let cursor = modeCommand
         ? token.start
         : token.start + skill.invocation.length + 1;
@@ -976,7 +972,7 @@ function ComposerComponent({
         : mentionLabel(file, mentionIndexRef.current);
       const next = replaceMentionToken(el.value, token, label);
       el.value = next;
-      resizeTextarea(el);
+      resizeComposer(el);
       let cursor = token.start + label.length + 1;
       if (next[cursor] === " ") cursor += 1;
       el.setSelectionRange(cursor, cursor);
@@ -1125,7 +1121,7 @@ function ComposerComponent({
         if (started !== false || !el || el.value || attachmentsRef.current.length)
           return;
         el.value = value;
-        resizeTextarea(el);
+        resizeComposer(el);
         updateDraft(value);
         updateAttachments(files);
         syncHasValue(value, files);
@@ -1355,7 +1351,7 @@ function ComposerComponent({
                       const rest = el.value.slice(token.end).replace(/^\s/, "");
                       const next = `${el.value.slice(0, token.start)}${rest}`;
                       el.value = next;
-                      resizeTextarea(el);
+                      resizeComposer(el);
                       el.setSelectionRange(token.start, token.start);
                       updateDraft(next);
                       syncHasValue(next, attachments);
@@ -1518,7 +1514,7 @@ function ComposerComponent({
               onInput={(e) => {
                 const el = e.currentTarget;
                 setCommandNotice(null);
-                resizeTextarea(el);
+                resizeComposer(el);
                 updateDraft(el.value);
                 syncHasValue(el.value, attachments);
                 syncTokensFromTextarea(el);

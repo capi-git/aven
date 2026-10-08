@@ -74,7 +74,12 @@ import {
   type ScrollAnchor,
 } from "../lib/scrollAnchor";
 import { useTranscriptSelection } from "../hooks/useTranscriptSelection";
-import { TRANSCRIPT_SCROLL_DRAG_EVENT } from "../lib/transcriptScrollIntent";
+import {
+  followsAfterScroll,
+  isAtEnd,
+  readerScrolled,
+  TRANSCRIPT_SCROLL_DRAG_EVENT,
+} from "../lib/transcriptScrollIntent";
 import type { TranscriptLayout } from "../lib/appearance";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { TranscriptSelectionMenu } from "./TranscriptSelectionMenu";
@@ -110,6 +115,8 @@ import {
 } from "./transcriptActivity";
 
 const NEAR_BOTTOM_PX = 16;
+/** How long a trackpad gesture with no direction yet holds the bottom pin. */
+const WHEEL_HOLD_MS = 150;
 const INITIAL_TURNS = 20;
 const TURN_PAGE_SIZE = 20;
 
@@ -166,7 +173,11 @@ function AgentTranscriptComponent({
   const scrollbarDragging = useRef(false);
   const stickToBottom = useRef(true);
   const showJumpRef = useRef(false);
-  const distanceFromBottom = useRef(0);
+  // The offset as of the last scroll this component saw or wrote. Comparing
+  // against it tells the reader moving apart from content growing under them.
+  const lastScrollTop = useRef(0);
+  // Until this time, a trackpad gesture with no direction yet owns the pin.
+  const wheelHold = useRef(0);
   const prependHeight = useRef<number | null>(null);
   // What the reader sees at the top edge while scrolled up. WebKit has no CSS
   // scroll anchoring, so a rewrap would otherwise slide it away.
@@ -223,41 +234,85 @@ function AgentTranscriptComponent({
     [onJumpToBottomChange],
   );
 
-  const syncPinned = useCallback(
-    (el: HTMLElement) => {
-      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-      // Scrolling up inside the bottom margin is the reader leaving. Pinning
-      // again here would snap each streamed chunk back down under the wheel.
-      const leaving =
-        !stickToBottom.current && distance > distanceFromBottom.current;
-      const near = isNearBottom(el);
-      stickToBottom.current = near && !leaving && !scrollbarDragging.current;
-      distanceFromBottom.current = distance;
-      setShowJump(!near || leaving);
+  /** Record an offset this component wrote, so its event is not the reader. */
+  const rememberScroll = useCallback((el: HTMLElement) => {
+    lastScrollTop.current = el.scrollTop;
+  }, []);
+
+  const pinTranscript = useCallback(
+    (el: HTMLElement | null) => {
+      if (!el) return;
+      pinToBottom(el);
+      rememberScroll(el);
     },
-    [setShowJump],
+    [rememberScroll],
   );
 
-  const rememberReadingPosition = useCallback((el: HTMLElement) => {
-    if (stickToBottom.current) {
-      readingAnchor.current = null;
-      return;
-    }
-    const anchor = readingAnchor.current;
-    // The scroll event that follows our own restore describes the same view.
-    if (anchor?.scrollTop === el.scrollTop && anchor.element.isConnected)
-      return;
-    readingAnchor.current = captureScrollAnchor(el);
-  }, []);
+  /**
+   * Reconcile following with how the offset changed since we last saw it.
+   * Returns true when the reader moved it, rather than nothing or a layout
+   * clamp. Content growth changes the distance to the end without moving the
+   * reader, so a queued event from an earlier pin keeps following.
+   */
+  const syncPinned = useCallback(
+    (el: HTMLElement): boolean => {
+      const previousTop = lastScrollTop.current;
+      const moved = readerScrolled(el, previousTop);
+      stickToBottom.current =
+        !scrollbarDragging.current &&
+        followsAfterScroll(el, previousTop, stickToBottom.current);
+      rememberScroll(el);
+      setShowJump(!stickToBottom.current && el.scrollHeight > el.clientHeight);
+      return moved;
+    },
+    [rememberScroll, setShowJump],
+  );
+
+  /** `moved` is false when the offset changed only by layout, not the reader. */
+  const rememberReadingPosition = useCallback(
+    (el: HTMLElement, moved = true) => {
+      if (stickToBottom.current) {
+        readingAnchor.current = null;
+        return;
+      }
+      const anchor = readingAnchor.current;
+      // The scroll event that follows our own restore describes the same
+      // view, and a clamp is not the reader choosing a new line.
+      if (
+        anchor?.element.isConnected &&
+        (!moved || anchor.scrollTop === el.scrollTop)
+      )
+        return;
+      readingAnchor.current = captureScrollAnchor(el);
+    },
+    [],
+  );
+
+  /**
+   * Pin for streamed output or a resize, unless the reader has scrolled. The
+   * browser can apply a manual scroll before dispatching its event, so read
+   * the offset first. Returns whether the reader moved it.
+   */
+  const followTranscript = useCallback(
+    (el: HTMLElement): boolean => {
+      const moved = syncPinned(el);
+      // A gesture whose direction is not known yet may already be scrolling
+      // off the main thread. Pinning now would snap it back to the end.
+      if (stickToBottom.current && performance.now() >= wheelHold.current)
+        pinTranscript(el);
+      return moved;
+    },
+    [pinTranscript, syncPinned],
+  );
 
   const jumpToBottom = useCallback(() => {
     stickToBottom.current = true;
-    distanceFromBottom.current = 0;
+    wheelHold.current = 0;
     setShowJump(false);
     const el = scroller.current;
     syncTranscriptViewport(el);
-    pinToBottom(el);
-  }, [setShowJump]);
+    pinTranscript(el);
+  }, [pinTranscript, setShowJump]);
 
   const setScroller = useCallback((el: HTMLDivElement | null) => {
     scroller.current = el;
@@ -270,27 +325,48 @@ function AgentTranscriptComponent({
 
   useEffect(() => {
     if (!visible || !scrollerEl) return;
-    syncPinned(scrollerEl);
-    rememberReadingPosition(scrollerEl);
+    rememberReadingPosition(scrollerEl, syncPinned(scrollerEl));
     const onScroll = () => {
-      syncPinned(scrollerEl);
-      rememberReadingPosition(scrollerEl);
+      // A hidden or detached scroller reports a reset offset, not the reader.
+      if (!scrollerEl.isConnected || scrollerEl.clientHeight <= 0) return;
+      rememberReadingPosition(scrollerEl, syncPinned(scrollerEl));
     };
     const onScrollbarDrag = (event: Event) => {
-      scrollbarDragging.current = (event as CustomEvent<boolean>).detail;
+      const dragging = (event as CustomEvent<boolean>).detail;
+      scrollbarDragging.current = dragging;
       syncPinned(scrollerEl);
+      // Releasing the thumb at the end follows again, even when its last
+      // move was already reported while the drag held the pin.
+      if (!dragging && isAtEnd(scrollerEl)) {
+        stickToBottom.current = true;
+        setShowJump(false);
+      }
       rememberReadingPosition(scrollerEl);
     };
+    let release: ReturnType<typeof setTimeout> | undefined;
     const onWheel = (e: WheelEvent) => {
       if (e.deltaY < 0) {
         stickToBottom.current = false;
+        wheelHold.current = 0;
         setShowJump(true);
+      } else if (e.deltaY === 0 && stickToBottom.current) {
+        // A trackpad gesture can open with an event that carries no
+        // direction, and the rest of it may reach us after the scroll has
+        // moved. Hold the pin until its upward events can release it.
+        wheelHold.current = performance.now() + WHEEL_HOLD_MS;
+        clearTimeout(release);
+        release = setTimeout(() => {
+          if (!scrollerEl.isConnected || scrollerEl.clientHeight <= 0) return;
+          rememberReadingPosition(scrollerEl, followTranscript(scrollerEl));
+        }, WHEEL_HOLD_MS);
       }
     };
     scrollerEl.addEventListener("scroll", onScroll, { passive: true });
     scrollerEl.addEventListener("wheel", onWheel, { passive: true });
     scrollerEl.addEventListener(TRANSCRIPT_SCROLL_DRAG_EVENT, onScrollbarDrag);
     return () => {
+      clearTimeout(release);
+      wheelHold.current = 0;
       scrollerEl.removeEventListener("scroll", onScroll);
       scrollerEl.removeEventListener("wheel", onWheel);
       scrollerEl.removeEventListener(
@@ -299,15 +375,23 @@ function AgentTranscriptComponent({
       );
       scrollbarDragging.current = false;
     };
-  }, [rememberReadingPosition, scrollerEl, setShowJump, syncPinned, visible]);
+  }, [
+    followTranscript,
+    rememberReadingPosition,
+    scrollerEl,
+    setShowJump,
+    syncPinned,
+    visible,
+  ]);
 
   useLayoutEffect(() => {
     stickToBottom.current = true;
+    wheelHold.current = 0;
     setShowJump(false);
     const el = scroller.current;
     syncTranscriptViewport(el);
-    pinToBottom(el);
-  }, [lastUserId, setShowJump]);
+    pinTranscript(el);
+  }, [lastUserId, pinTranscript, setShowJump]);
 
   useLayoutEffect(() => {
     const opened = visible && !wasVisible.current;
@@ -321,16 +405,24 @@ function AgentTranscriptComponent({
     if (el.scrollHeight <= el.clientHeight + NEAR_BOTTOM_PX) {
       stickToBottom.current = true;
       setShowJump(false);
-      pinToBottom(el);
+      pinTranscript(el);
+    } else if (stickToBottom.current) {
+      // Output may have arrived while hidden, and showing the pane can reset
+      // its offset. Pin before a follow reads that as the reader leaving.
+      pinTranscript(el);
+    } else {
+      // A reader keeps their place through the anchor, not this offset.
+      rememberScroll(el);
     }
-  }, [visible, setShowJump]);
+  }, [visible, pinTranscript, rememberScroll, setShowJump]);
 
   useLayoutEffect(() => {
     if (!visible || !stickToBottom.current) return;
     const el = scroller.current;
+    if (!el) return;
     syncTranscriptViewport(el);
-    pinToBottom(el);
-  }, [blocks, busy, visible]);
+    rememberReadingPosition(el, followTranscript(el));
+  }, [blocks, busy, followTranscript, rememberReadingPosition, visible]);
 
   useLayoutEffect(() => {
     const el = scrollerEl;
@@ -339,31 +431,32 @@ function AgentTranscriptComponent({
     // Runs after layout and before paint, so a rewrap from a window, sidebar
     // or pane resize is corrected in the frame that produced it.
     const onResize = () => {
+      if (!el.isConnected || el.clientHeight <= 0) return;
       syncTranscriptViewport(el);
+      const moved = followTranscript(el);
       if (stickToBottom.current) {
-        pinToBottom(el);
-        distanceFromBottom.current = 0;
+        readingAnchor.current = null;
         return;
       }
       const anchor = readingAnchor.current;
       // A gesture owns scrollTop until it ends. Growth or rewrap must not
-      // restore an anchor captured before the latest pointer movement.
+      // restore an anchor captured before the latest pointer movement, nor
+      // one from before a scroll whose event has not arrived yet.
       if (
         scrollbarDragging.current ||
+        moved ||
         !anchor ||
         !restoreScrollAnchor(el, anchor)
       )
         readingAnchor.current = captureScrollAnchor(el);
-      distanceFromBottom.current =
-        el.scrollHeight - el.scrollTop - el.clientHeight;
-      setShowJump(!isNearBottom(el));
+      rememberScroll(el);
     };
     const observer = new ResizeObserver(onResize);
     observer.observe(inner);
     observer.observe(el);
     onResize();
     return () => observer.disconnect();
-  }, [scrollerEl, setShowJump, visible]);
+  }, [followTranscript, rememberScroll, scrollerEl, visible]);
 
   const turns = groupTurns(blocks, managed);
   const firstVisibleTurn = Math.max(0, turns.length - visibleTurnCount);
@@ -379,11 +472,10 @@ function AgentTranscriptComponent({
     if (previousHeight == null || !el) return;
     prependHeight.current = null;
     el.scrollTop += el.scrollHeight - previousHeight;
-    distanceFromBottom.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight;
+    rememberScroll(el);
     // The earlier anchor may sit above the inserted turns now.
     readingAnchor.current = captureScrollAnchor(el);
-  }, [visibleTurnCount]);
+  }, [rememberScroll, visibleTurnCount]);
 
   const prepareToPrepend = useCallback(() => {
     const el = scroller.current;
@@ -1375,8 +1467,8 @@ function sameActivity(a: ActivityPhasesProps, b: ActivityPhasesProps): boolean {
 
 /**
  * Keep a live phase body on its newest step. Pinning happens in layout
- * before paint so the window follows without a visible hitch; only a real
- * wheel away from the bottom pauses that.
+ * before paint so the window follows without a visible hitch; scrolling up,
+ * by wheel or otherwise, pauses that until the reader returns to the end.
  */
 function useLivePhaseScroll(
   el: HTMLDivElement | null,
@@ -1384,7 +1476,21 @@ function useLivePhaseScroll(
   steps: Block[],
 ) {
   const stickToBottom = useRef(true);
+  const lastScrollTop = useRef(0);
   const wasEnabled = useRef(false);
+
+  // Growth is not the reader moving. Reconcile a scroll whose event has not
+  // arrived yet, then pin only if still following.
+  const pin = useCallback(() => {
+    if (!el) return;
+    stickToBottom.current = followsAfterScroll(
+      el,
+      lastScrollTop.current,
+      stickToBottom.current,
+    );
+    if (stickToBottom.current) el.scrollTop = el.scrollHeight;
+    lastScrollTop.current = el.scrollTop;
+  }, [el]);
 
   useLayoutEffect(() => {
     if (!enabled) {
@@ -1393,29 +1499,22 @@ function useLivePhaseScroll(
     }
     if (!wasEnabled.current) {
       stickToBottom.current = true;
+      lastScrollTop.current = el?.scrollTop ?? 0;
       wasEnabled.current = true;
     }
-    if (!el || !stickToBottom.current) return;
-    el.scrollTop = el.scrollHeight;
-  }, [el, enabled, steps]);
+    pin();
+  }, [el, enabled, pin, steps]);
 
   useEffect(() => {
     if (!el || !enabled) return;
 
-    const distance = () => el.scrollHeight - el.scrollTop - el.clientHeight;
-    let lastDistance = 0;
-    const pin = () => {
-      if (stickToBottom.current) el.scrollTop = el.scrollHeight;
-      // Growth is not the reader moving, so compare later scrolls to now.
-      lastDistance = distance();
-    };
     const onScroll = () => {
-      // Only a scroll toward the end re-pins; one leaving it must not.
-      const current = distance();
-      if (isNearBottom(el) && current <= lastDistance) {
-        stickToBottom.current = true;
-      }
-      lastDistance = current;
+      stickToBottom.current = followsAfterScroll(
+        el,
+        lastScrollTop.current,
+        stickToBottom.current,
+      );
+      lastScrollTop.current = el.scrollTop;
     };
     const onWheel = (e: WheelEvent) => {
       if (!nestedScrollAbsorbsWheel(el, e.deltaY)) return;
@@ -1434,7 +1533,7 @@ function useLivePhaseScroll(
       el.removeEventListener("wheel", onWheel);
       observer.disconnect();
     };
-  }, [el, enabled]);
+  }, [el, enabled, pin]);
 }
 
 /**
@@ -2296,10 +2395,6 @@ function turnUserBlock(blocks: Block[], managed = false): Block | undefined {
     if (block.role === "user" && (managed || !block.internal)) return block;
   }
   return undefined;
-}
-
-function isNearBottom(el: HTMLElement): boolean {
-  return el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX;
 }
 
 function pinToBottom(el: HTMLElement | null) {

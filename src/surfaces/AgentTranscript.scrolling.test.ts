@@ -58,7 +58,12 @@ async function render(blocks: Block[]) {
 }
 
 /** happy-dom does not lay out or clamp scroll offsets like a real scroller. */
-function scrollMetrics(el: HTMLElement, height: number, initialTotal: number) {
+function scrollMetrics(
+  el: HTMLElement,
+  initialHeight: number,
+  initialTotal: number,
+) {
+  let height = initialHeight;
   let total = initialTotal;
   let position = 0;
   Object.defineProperties(el, {
@@ -75,6 +80,11 @@ function scrollMetrics(el: HTMLElement, height: number, initialTotal: number) {
   return {
     grow: (amount: number) => {
       total += amount;
+    },
+    /** Change the viewport. A browser clamps the offset to the new bottom. */
+    resize: (next: number) => {
+      height = next;
+      position = Math.max(0, Math.min(position, total - height));
     },
   };
 }
@@ -98,6 +108,18 @@ async function markAtBottom(el: HTMLElement) {
   });
 }
 
+async function scrollTo(el: HTMLElement, top: number) {
+  el.scrollTop = top;
+  await act(async () => {
+    el.dispatchEvent(new Event("scroll"));
+  });
+}
+
+const answer = (text: string): Block[] => [
+  prompt,
+  { id: "answer", role: "assistant", text },
+];
+
 describe("transcript native scrolling", () => {
   it("leaves wheel defaults intact at both edges and inside nested content", async () => {
     const el = await render([prompt]);
@@ -118,10 +140,6 @@ describe("transcript native scrolling", () => {
   });
 
   it("releases the bottom pin on upward input and resumes following after Jump to bottom", async () => {
-    const answer = (text: string): Block[] => [
-      prompt,
-      { id: "answer", role: "assistant", text },
-    ];
     const el = await render(answer("Starting the review."));
     const metrics = scrollMetrics(el, 400, 1200);
     await markAtBottom(el);
@@ -141,10 +159,6 @@ describe("transcript native scrolling", () => {
   });
 
   it("lets a small wheel up inside the bottom margin leave a streaming reply", async () => {
-    const answer = (text: string): Block[] => [
-      prompt,
-      { id: "answer", role: "assistant", text },
-    ];
     const el = await render(answer("One"));
     const metrics = scrollMetrics(el, 400, 1000);
     await markAtBottom(el);
@@ -232,10 +246,6 @@ describe("transcript native scrolling", () => {
   });
 
   it("keeps streaming updates from repinning an active scrollbar drag and follows after release at the end", async () => {
-    const answer = (text: string): Block[] => [
-      prompt,
-      { id: "answer", role: "assistant", text },
-    ];
     const el = await render(answer("Starting the review."));
     const metrics = scrollMetrics(el, 400, 1200);
     await markAtBottom(el);
@@ -257,5 +267,161 @@ describe("transcript native scrolling", () => {
     metrics.grow(100);
     await render(answer("Following is restored at the bottom."));
     expect(el.scrollTop).toBe(1200);
+  });
+});
+
+describe("transcript bottom following", () => {
+  it("keeps following when a queued scroll event from the last pin lands after content grows", async () => {
+    const el = await render(answer("One"));
+    const metrics = scrollMetrics(el, 400, 1000);
+    await markAtBottom(el);
+    expect(el.scrollTop).toBe(600);
+
+    // The event belongs to the earlier pin and still reports its offset,
+    // but streamed Markdown has already grown the transcript below it.
+    metrics.grow(100);
+    await act(async () => {
+      el.dispatchEvent(new Event("scroll"));
+    });
+    expect(showJump).not.toHaveBeenCalledWith(true);
+    await render(answer("One\n\nTwo"));
+    expect(el.scrollTop).toBe(700);
+  });
+
+  it("resumes following only when the reader reaches the very end", async () => {
+    const el = await render(answer("One"));
+    const metrics = scrollMetrics(el, 400, 1000);
+    await markAtBottom(el);
+    await wheel(el, -40);
+    await scrollTo(el, 560);
+
+    // A small reversal back inside the bottom margin is still reading.
+    await scrollTo(el, 590);
+    expect(showJump).toHaveBeenLastCalledWith(true);
+    metrics.grow(40);
+    await render(answer("One\n\nTwo"));
+    expect(el.scrollTop).toBe(590);
+
+    await scrollTo(el, 640);
+    expect(showJump).toHaveBeenLastCalledWith(false);
+    metrics.grow(40);
+    await render(answer("One\n\nTwo\n\nThree"));
+    expect(el.scrollTop).toBe(680);
+  });
+
+  it("keeps following when a taller viewport clamps the offset to the bottom", async () => {
+    const el = await render(answer("One"));
+    const metrics = scrollMetrics(el, 400, 1000);
+    await markAtBottom(el);
+    metrics.resize(440);
+    await act(async () => {
+      el.dispatchEvent(new Event("scroll"));
+    });
+    metrics.resize(400);
+    metrics.grow(40);
+    await render(answer("One\n\nTwo"));
+    expect(el.scrollTop).toBe(640);
+  });
+
+  it("does not re-pin a slightly scrolled-up reader that a layout change clamps to the bottom", async () => {
+    const el = await render(answer("One"));
+    const metrics = scrollMetrics(el, 400, 1000);
+    await markAtBottom(el);
+    await wheel(el, -4);
+    await scrollTo(el, 596);
+
+    // The composer briefly collapsing (or any taller viewport) clamps the
+    // reader to the new bottom. That is layout, not the reader returning.
+    metrics.resize(440);
+    expect(el.scrollTop).toBe(560);
+    await act(async () => {
+      el.dispatchEvent(new Event("scroll"));
+    });
+    expect(showJump).toHaveBeenLastCalledWith(true);
+    metrics.resize(400);
+    metrics.grow(40);
+    await render(answer("One\n\nTwo"));
+    expect(el.scrollTop).toBe(560);
+  });
+
+  it("does not pull a reader back down when their scroll lands before its event", async () => {
+    const el = await render(answer("One"));
+    const metrics = scrollMetrics(el, 400, 1000);
+    await markAtBottom(el);
+
+    // The browser has applied the scroll, but the event is still queued
+    // when the next streamed chunk commits.
+    el.scrollTop = 500;
+    metrics.grow(40);
+    await render(answer("One\n\nTwo"));
+    expect(el.scrollTop).toBe(500);
+    expect(showJump).toHaveBeenLastCalledWith(true);
+  });
+
+  it("holds the bottom pin while a trackpad gesture has no direction yet", async () => {
+    let now = 1_000;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const el = await render(answer("One"));
+      const metrics = scrollMetrics(el, 400, 1000);
+      await markAtBottom(el);
+
+      // The opening event of a trackpad gesture carries no direction.
+      await wheel(el, 0);
+      metrics.grow(40);
+      await render(answer("One\n\nTwo"));
+      expect(el.scrollTop).toBe(600);
+
+      // Nothing moved by the end of the hold, so following resumes.
+      now += 150;
+      await act(async () => {
+        vi.advanceTimersByTime(150);
+      });
+      expect(el.scrollTop).toBe(640);
+
+      // A gesture whose upward events arrive during the hold releases it.
+      await wheel(el, 0);
+      metrics.grow(40);
+      await render(answer("One\n\nTwo\n\nThree"));
+      await wheel(el, -6);
+      await scrollTo(el, 630);
+      now += 150;
+      await act(async () => {
+        vi.advanceTimersByTime(150);
+      });
+      metrics.grow(40);
+      await render(answer("One\n\nTwo\n\nThree\n\nFour"));
+      expect(el.scrollTop).toBe(630);
+      expect(showJump).toHaveBeenLastCalledWith(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("re-pins a following transcript that is shown again after growing while hidden", async () => {
+    const renderVisible = async (blocks: Block[], visible: boolean) => {
+      await act(async () => {
+        root.render(
+          createElement(AgentTranscript, {
+            blocks,
+            busy: true,
+            visible,
+            onJumpToBottomChange: showJump,
+          }),
+        );
+      });
+      return container.querySelector<HTMLElement>(".agent-transcript")!;
+    };
+    const el = await renderVisible(answer("One"), true);
+    const metrics = scrollMetrics(el, 400, 1000);
+    await markAtBottom(el);
+    await renderVisible(answer("One\n\nTwo"), false);
+    // Hiding the pane reset its offset, and output kept arriving.
+    el.scrollTop = 0;
+    metrics.grow(200);
+    await renderVisible(answer("One\n\nTwo\n\nThree"), true);
+    expect(el.scrollTop).toBe(800);
+    expect(showJump).not.toHaveBeenLastCalledWith(true);
   });
 });
