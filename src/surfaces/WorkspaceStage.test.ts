@@ -659,61 +659,184 @@ describe("workspace stage", () => {
     },
   );
 
-  it("reserves header room and preserves keyboard focus for hide and restore controls", async () => {
+  it.each([
+    ["left", "before", "chat", "browser"],
+    ["right", "after", "browser", "chat"],
+  ] as const)(
+    "reserves header room and preserves keyboard focus for %s hide and restore controls",
+    async (edge, side, hidden, surviving) => {
+      const minimize = vi.fn();
+      const restore = vi.fn();
+      await render({
+        layout: columns(),
+        onMinimizeSide: minimize,
+        headers: [
+          { id: "chat", content: createElement("button", null, "Chat tab") },
+          {
+            id: "browser",
+            content: createElement("button", null, "Browser tab"),
+          },
+        ],
+      });
+      const hide = container.querySelector<HTMLButtonElement>(
+        `button[aria-label="Hide ${edge} pane"]`,
+      )!;
+      expect(hide.type).toBe("button");
+      expect(hide.closest("[data-workspace-header]")).toBe(header(hidden));
+      expect(header("chat")!.style.paddingRight).toBe("28px");
+      expect(header("browser")!.style.paddingLeft).toBe("28px");
+      expect(header("chat")!.style.height).toBe("32px");
+      act(() => {
+        hide.focus();
+        hide.dispatchEvent(pointer("pointerdown", 590));
+        hide.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, detail: 0 }),
+        );
+      });
+      expect(stage().hasAttribute("data-resizing")).toBe(false);
+      expect(minimize).toHaveBeenCalledExactlyOnceWith("columns", 0, side);
+      expect(props.onLayoutChange).not.toHaveBeenCalled();
+      await render({
+        layout: leaf(surviving),
+        onRestoreSplit: restore,
+        restoreEdge: edge,
+        restoreStatus: "working",
+      });
+      const show = container.querySelector<HTMLButtonElement>(
+        ".workspace-pane-restore",
+      )!;
+      expect(show.getAttribute("aria-label")).toBe(
+        "Show hidden pane (agent working)",
+      );
+      expect(show.closest("[data-workspace-header]")).toBe(header(surviving));
+      expect(
+        header(surviving)!.style[
+          edge === "left" ? "paddingLeft" : "paddingRight"
+        ],
+      ).toBe("28px");
+      expect(document.activeElement).toBe(show);
+      expect(props.onFocus).not.toHaveBeenCalled();
+      act(() =>
+        show.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, detail: 0 }),
+        ),
+      );
+      expect(restore).toHaveBeenCalledOnce();
+      await render({
+        layout: columns(),
+        onRestoreSplit: undefined,
+        restoreStatus: undefined,
+      });
+      expect(document.activeElement).toBe(sash());
+      expect(header("browser")!.style.paddingLeft).toBe("28px");
+    },
+  );
+
+  it.each([
+    ["upper", "before", "chat"],
+    ["lower", "after", "browser"],
+  ] as const)(
+    "provides a keyboard-operable control for the %s pane",
+    async (position, side, id) => {
+      const minimize = vi.fn();
+      await render({
+        layout: {
+          type: "split",
+          id: "rows",
+          dir: "down",
+          children: [leaf("chat"), leaf("browser")],
+          sizes: [0.4, 0.6],
+        },
+        onMinimizeSide: minimize,
+      });
+      const hide = container.querySelector<HTMLButtonElement>(
+        `button[aria-label="Hide ${position} pane"]`,
+      )!;
+      expect(hide.type).toBe("button");
+      expect(hide.closest("[data-workspace-header]")).toBe(header(id));
+      expect(header(id)!.style.height).toBe("32px");
+      act(() => {
+        hide.focus();
+        hide.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, detail: 0 }),
+        );
+      });
+      expect(minimize).toHaveBeenCalledExactlyOnceWith("rows", 0, side);
+      expect(props.onLayoutChange).not.toHaveBeenCalled();
+      expect(props.onFocus).not.toHaveBeenCalled();
+    },
+  );
+
+  it("reserves both header edges for adjacent hide controls alongside a restore control", async () => {
     const minimize = vi.fn();
     const restore = vi.fn();
     await render({
-      layout: columns(),
+      layout: {
+        type: "split",
+        id: "three",
+        dir: "right",
+        children: [leaf("chat"), leaf("browser"), leaf("third")],
+        sizes: [0.3, 0.3, 0.4],
+      },
+      surfaces: [...props.surfaces, { id: "third", content: "Third pane" }],
       onMinimizeSide: minimize,
-      headers: [
-        { id: "chat", content: createElement("button", null, "Chat tab") },
-        {
-          id: "browser",
-          content: createElement("button", null, "Browser tab"),
-        },
-      ],
+      onRestoreSplit: restore,
+      restoreEdge: "right",
     });
-    const hide = container.querySelector<HTMLButtonElement>(
+    const middle = header("browser")!;
+    expect(middle.style.paddingLeft).toBe("28px");
+    expect(middle.style.paddingRight).toBe("28px");
+    expect(header("third")!.style.paddingLeft).toBe("28px");
+    expect(header("third")!.style.paddingRight).toBe("28px");
+    const hideBefore = middle.querySelector<HTMLButtonElement>(
       'button[aria-label="Hide left pane"]',
     )!;
-    expect(hide.type).toBe("button");
-    expect(hide.closest("[data-workspace-header]")).toBe(header("chat"));
-    expect(header("chat")!.style.paddingRight).toBe("28px");
-    expect(header("chat")!.style.height).toBe("32px");
-    act(() => {
-      hide.focus();
-      hide.dispatchEvent(pointer("pointerdown", 590));
-      hide.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 }));
-    });
-    expect(stage().hasAttribute("data-resizing")).toBe(false);
-    expect(minimize).toHaveBeenCalledExactlyOnceWith("columns", 0, "before");
-    expect(props.onLayoutChange).not.toHaveBeenCalled();
-    await render({
-      layout: leaf("browser"),
-      onRestoreSplit: restore,
-      restoreStatus: "working",
-    });
-    const show = container.querySelector<HTMLButtonElement>(
-      ".workspace-pane-restore",
+    const hideAfter = middle.querySelector<HTMLButtonElement>(
+      'button[aria-label="Hide right pane"]',
     )!;
-    expect(show.getAttribute("aria-label")).toBe(
-      "Show hidden pane (agent working)",
-    );
-    expect(show.closest("[data-workspace-header]")).toBe(header("browser"));
-    expect(header("browser")!.style.paddingLeft).toBe("28px");
-    expect(document.activeElement).toBe(show);
-    expect(props.onFocus).not.toHaveBeenCalled();
+    act(() => hideBefore.click());
+    expect(minimize).toHaveBeenLastCalledWith("three", 1, "before");
+    act(() => hideAfter.click());
+    expect(minimize).toHaveBeenLastCalledWith("three", 0, "after");
     act(() =>
-      show.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 })),
+      header("third")!
+        .querySelector<HTMLButtonElement>(".workspace-pane-restore")!
+        .click(),
     );
     expect(restore).toHaveBeenCalledOnce();
+    expect(props.onFocus).not.toHaveBeenCalled();
+  });
+
+  it("separates restore and hide controls when they share the same header edge", async () => {
+    const minimize = vi.fn();
+    const restore = vi.fn();
     await render({
-      layout: columns(),
-      onRestoreSplit: undefined,
-      restoreStatus: undefined,
+      layout: {
+        type: "split",
+        id: "rows",
+        dir: "down",
+        children: [leaf("chat"), leaf("browser")],
+        sizes: [0.4, 0.6],
+      },
+      onMinimizeSide: minimize,
+      onRestoreSplit: restore,
+      restoreEdge: "right",
     });
-    expect(document.activeElement).toBe(sash());
-    expect(header("browser")!.style.paddingLeft).toBe("");
+    const topHeader = header("chat")!;
+    expect(topHeader.style.paddingRight).toBe("54px");
+    const hide = topHeader.querySelector<HTMLButtonElement>(
+      'button[aria-label="Hide upper pane"]',
+    )!;
+    expect(hide.parentElement!.style.right).toBe("28px");
+    act(() => hide.click());
+    expect(minimize).toHaveBeenCalledExactlyOnceWith("rows", 0, "before");
+    act(() =>
+      topHeader
+        .querySelector<HTMLButtonElement>(".workspace-pane-restore")!
+        .click(),
+    );
+    expect(restore).toHaveBeenCalledOnce();
+    expect(props.onFocus).not.toHaveBeenCalled();
   });
 
   it("cancels the fallback when an animation frame paints first", async () => {

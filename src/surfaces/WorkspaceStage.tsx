@@ -419,12 +419,20 @@ export function WorkspaceStage({
           (row && side === "after" ? a.rect.x - b.rect.x : b.rect.x - a.rect.x),
       )[0]?.id;
   }
-  const minimizeControls = new Map<string, LayoutSash[]>();
+  const minimizeControls = new Map<
+    string,
+    Array<{ sash: LayoutSash; side: "before" | "after" }>
+  >();
   if (onMinimizeSide) {
     for (const sash of sashes) {
-      const id = adjacentHeader(sash, "before");
-      if (id)
-        minimizeControls.set(id, [...(minimizeControls.get(id) ?? []), sash]);
+      for (const side of ["before", "after"] as const) {
+        const id = adjacentHeader(sash, side);
+        if (id)
+          minimizeControls.set(id, [
+            ...(minimizeControls.get(id) ?? []),
+            { sash, side },
+          ]);
+      }
     }
   }
   const restoreHeaderId = onRestoreSplit
@@ -877,8 +885,19 @@ export function WorkspaceStage({
         const rect = positions.get(id);
         if (!rect) return null;
         const minimize = minimizeControls.get(id) ?? [];
+        // Column controls sit on their own side of the divider. Row controls
+        // stay in the header so native browser content cannot cover them.
+        const leftControls = minimize.filter(
+          ({ sash, side }) => sash.dir === "right" && side === "after",
+        );
+        const rightControls = minimize.filter(
+          ({ sash, side }) => sash.dir !== "right" || side === "before",
+        );
         const restore = id === restoreHeaderId;
         const restoreRight = restore && restoreEdge === "right";
+        const leftSlots =
+          leftControls.length + Number(restore && !restoreRight);
+        const rightSlots = rightControls.length + Number(restoreRight);
         const RestoreIcon =
           restoreEdge === "right"
             ? ChevronLeft
@@ -908,11 +927,8 @@ export function WorkspaceStage({
             }
             style={{
               ...headerStyle(rect),
-              paddingLeft: restore && !restoreRight ? 28 : undefined,
-              paddingRight:
-                minimize.length || restoreRight
-                  ? (minimize.length + Number(restoreRight)) * 26 + 2
-                  : undefined,
+              paddingLeft: leftSlots ? leftSlots * 26 + 2 : undefined,
+              paddingRight: rightSlots ? rightSlots * 26 + 2 : undefined,
             }}
             onPointerDownCapture={(event) => {
               if ((event.target as Element).closest(".workspace-pane-toggle"))
@@ -948,32 +964,59 @@ export function WorkspaceStage({
                 ) : null}
               </button>
             ) : null}
-            {minimize.length ? (
-              <div
-                className="workspace-pane-minimize-controls"
-                style={{ right: restoreRight ? 28 : 2 }}
-              >
-                {minimize.map((sash) => {
-                  const Icon = sash.dir === "right" ? ChevronLeft : ChevronUp;
-                  const label = `Hide ${sash.dir === "right" ? "left" : "upper"} pane`;
-                  return (
-                    <button
-                      key={sashKey(sash)}
-                      type="button"
-                      className="workspace-pane-toggle"
-                      aria-label={label}
-                      title={`${label} (or drag the divider to the edge)`}
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onDoubleClick={(event) => event.stopPropagation()}
-                      onKeyDown={(event) => event.stopPropagation()}
-                      onClick={() => minimizePane(sash, "before")}
-                    >
-                      <Icon size={13} aria-hidden="true" />
-                    </button>
-                  );
-                })}
-              </div>
-            ) : null}
+            {(
+              [
+                ["left", leftControls],
+                ["right", rightControls],
+              ] as const
+            ).map(([edge, controls]) =>
+              controls.length ? (
+                <div
+                  key={edge}
+                  className="workspace-pane-minimize-controls"
+                  style={
+                    edge === "left"
+                      ? { left: restore && !restoreRight ? 28 : 2 }
+                      : { right: restoreRight ? 28 : 2 }
+                  }
+                >
+                  {controls.map(({ sash, side }) => {
+                    const before = side === "before";
+                    const horizontal = sash.dir === "right";
+                    const Icon = horizontal
+                      ? before
+                        ? ChevronLeft
+                        : ChevronRight
+                      : before
+                        ? ChevronUp
+                        : ChevronDown;
+                    const direction = horizontal
+                      ? before
+                        ? "left"
+                        : "right"
+                      : before
+                        ? "upper"
+                        : "lower";
+                    const label = `Hide ${direction} pane`;
+                    return (
+                      <button
+                        key={`${sashKey(sash)}:${side}`}
+                        type="button"
+                        className="workspace-pane-toggle"
+                        aria-label={label}
+                        title={`${label} (or drag the divider to the edge)`}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onDoubleClick={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => event.stopPropagation()}
+                        onClick={() => minimizePane(sash, side)}
+                      >
+                        <Icon size={13} aria-hidden="true" />
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null,
+            )}
             {onMinimizeSide ? (
               <span
                 className="workspace-minimize-cue"

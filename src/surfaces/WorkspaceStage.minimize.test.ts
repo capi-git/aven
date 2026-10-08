@@ -105,32 +105,38 @@ describe("workspace pane minimization and visible tab headers", () => {
       `button[aria-label="${label}"]`,
     )!;
 
-  it("removes the minimized pane's entire tab strip and restores its original group and draft", async () => {
-    const chatDraft = draft("chat");
-    chatDraft.value = "Unsent prompt remains here";
-    expect(tabIds()).toEqual(["chat", "chat-two", "web", "web-two"]);
-    await act(async () => button("Hide left pane").click());
-    expect(tabIds()).toEqual(["web", "web-two"]);
-    expect(
-      container.querySelector('[data-workspace-header="chat"]'),
-    ).toBeNull();
-    expect(draft("chat")).toBe(chatDraft);
-    expect(
-      chatDraft.closest<HTMLElement>("[data-workspace-surface]")!.hidden,
-    ).toBe(true);
-    expect(document.activeElement).toBe(button("Show hidden pane"));
-    await act(async () => button("Show hidden pane").click());
-    expect(tabIds()).toEqual(["chat", "chat-two", "web", "web-two"]);
-    expect(
-      chatDraft.closest<HTMLElement>("[data-workspace-surface]")!.hidden,
-    ).toBe(false);
-    expect(chatDraft.value).toBe("Unsent prompt remains here");
-    expect(
-      container
-        .querySelector('[data-workspace-surface="chat"]')!
-        .getAttribute("style"),
-    ).toContain("30%");
-  });
+  it.each([
+    ["left", "chat", ["web", "web-two"], "30%"],
+    ["right", "web", ["chat", "chat-two"], "70%"],
+  ] as const)(
+    "removes the %s pane's entire tab strip and restores its original group and draft",
+    async (side, hidden, remainingTabs, width) => {
+      const hiddenDraft = draft(hidden);
+      hiddenDraft.value = "Unsent content remains here";
+      expect(tabIds()).toEqual(["chat", "chat-two", "web", "web-two"]);
+      await act(async () => button(`Hide ${side} pane`).click());
+      expect(tabIds()).toEqual(remainingTabs);
+      expect(
+        container.querySelector(`[data-workspace-header="${hidden}"]`),
+      ).toBeNull();
+      expect(draft(hidden)).toBe(hiddenDraft);
+      expect(
+        hiddenDraft.closest<HTMLElement>("[data-workspace-surface]")!.hidden,
+      ).toBe(true);
+      expect(document.activeElement).toBe(button("Show hidden pane"));
+      await act(async () => button("Show hidden pane").click());
+      expect(tabIds()).toEqual(["chat", "chat-two", "web", "web-two"]);
+      expect(
+        hiddenDraft.closest<HTMLElement>("[data-workspace-surface]")!.hidden,
+      ).toBe(false);
+      expect(hiddenDraft.value).toBe("Unsent content remains here");
+      expect(
+        container.querySelector<HTMLElement>(
+          `[data-workspace-surface="${hidden}"]`,
+        )!.style.width,
+      ).toBe(`calc(${width} - 2px)`);
+    },
+  );
 
   it("restores a hidden group when a task is explicitly selected elsewhere", async () => {
     await act(async () => button("Hide left pane").click());
