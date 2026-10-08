@@ -20,6 +20,8 @@ const openedPtys = new Set<string>();
 // Explicit Run clicks queue one command until this terminal's native PTY exists.
 // In-memory only: reopening the application never replays a saved run command.
 const initialCommands = new Map<string, string>();
+const pendingWrites = new Map<string, Promise<void>>();
+const writeGenerations = new Map<string, symbol>();
 export function queueTerminalCommand(id: string, command: string): void {
   if (!command.trim() || command.includes("\0"))
     throw new Error("Enter a valid command.");
@@ -159,7 +161,23 @@ export async function spawnPty(
 }
 
 export async function writePty(id: string, data: string): Promise<void> {
-  await invoke("pty_write", { id, data });
+  const generation = writeGenerations.get(id) ?? Symbol(id);
+  writeGenerations.set(id, generation);
+  const previous = pendingWrites.get(id) ?? Promise.resolve();
+  const write = previous
+    .catch(() => undefined)
+    .then(async () => {
+      if (writeGenerations.get(id) !== generation) {
+        throw new Error("Terminal was closed before input was written");
+      }
+      await invoke("pty_write", { id, data });
+    });
+  pendingWrites.set(id, write);
+  const clear = () => {
+    if (pendingWrites.get(id) === write) pendingWrites.delete(id);
+  };
+  void write.then(clear, clear);
+  await write;
 }
 
 export async function resizePty(
@@ -177,6 +195,8 @@ export async function getPtyStatus(
 }
 
 export async function killPty(id: string): Promise<void> {
+  writeGenerations.delete(id);
+  pendingWrites.delete(id);
   releaseTerminalScreen(id);
   initialCommands.delete(id);
   dataHandlers.delete(id);
@@ -187,6 +207,8 @@ export async function killPty(id: string): Promise<void> {
 }
 
 export async function killAllPtys(): Promise<void> {
+  writeGenerations.clear();
+  pendingWrites.clear();
   initialCommands.clear();
   dataHandlers.clear();
   exitHandlers.clear();

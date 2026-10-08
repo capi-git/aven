@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -46,8 +47,14 @@ struct LivePty {
     pid: u32,
 }
 
+enum PtySlot {
+    Starting(u64),
+    Running(Arc<LivePty>),
+}
+
 pub struct PtyHost {
-    sessions: Mutex<HashMap<String, Arc<LivePty>>>,
+    sessions: Mutex<HashMap<String, PtySlot>>,
+    next_spawn: AtomicU64,
 }
 
 impl PtyHost {
@@ -67,14 +74,46 @@ impl PtyHost {
     pub fn new() -> Self {
         Self {
             sessions: Mutex::new(HashMap::new()),
+            next_spawn: AtomicU64::new(1),
         }
     }
 
-    fn insert(&self, id: String, live: Arc<LivePty>) -> Option<Arc<LivePty>> {
+    #[cfg(test)]
+    fn insert(&self, id: String, live: Arc<LivePty>) {
         self.sessions
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .insert(id, live)
+            .insert(id, PtySlot::Running(live));
+    }
+
+    fn begin_spawn(&self, id: &str) -> (u64, Option<Arc<LivePty>>) {
+        let ticket = self.next_spawn.fetch_add(1, Ordering::Relaxed);
+        let previous = self
+            .sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id.to_string(), PtySlot::Starting(ticket));
+        let running = match previous {
+            Some(PtySlot::Running(live)) => Some(live),
+            _ => None,
+        };
+        (ticket, running)
+    }
+
+    fn install_spawn(&self, id: &str, ticket: u64, live: Arc<LivePty>) -> bool {
+        let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        if !matches!(sessions.get(id), Some(PtySlot::Starting(current)) if *current == ticket) {
+            return false;
+        }
+        sessions.insert(id.to_string(), PtySlot::Running(live));
+        true
+    }
+
+    fn cancel_spawn(&self, id: &str, ticket: u64) {
+        let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        if matches!(sessions.get(id), Some(PtySlot::Starting(current)) if *current == ticket) {
+            sessions.remove(id);
+        }
     }
 
     fn get(&self, id: &str) -> Option<Arc<LivePty>> {
@@ -82,28 +121,44 @@ impl PtyHost {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .get(id)
-            .cloned()
+            .and_then(|slot| match slot {
+                PtySlot::Running(live) => Some(live.clone()),
+                PtySlot::Starting(_) => None,
+            })
     }
 
     fn remove(&self, id: &str) -> Option<Arc<LivePty>> {
-        self.sessions
+        match self
+            .sessions
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(id)
+        {
+            Some(PtySlot::Running(live)) => Some(live),
+            _ => None,
+        }
     }
 
     fn remove_if_pid(&self, id: &str, pid: u32) -> Option<Arc<LivePty>> {
         let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        if sessions.get(id).map(|live| live.pid) != Some(pid) {
+        if !matches!(sessions.get(id), Some(PtySlot::Running(live)) if live.pid == pid) {
             return None;
         }
-        sessions.remove(id)
+        match sessions.remove(id) {
+            Some(PtySlot::Running(live)) => Some(live),
+            _ => None,
+        }
     }
 
     pub(crate) fn kill_all(&self) {
         let kids: Vec<Arc<LivePty>> = {
             let mut map = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-            map.drain().map(|(_, live)| live).collect()
+            map.drain()
+                .filter_map(|(_, slot)| match slot {
+                    PtySlot::Running(live) => Some(live),
+                    PtySlot::Starting(_) => None,
+                })
+                .collect()
         };
         let pids: Vec<u32> = kids.iter().map(|live| live.pid).collect();
         for live in kids {
@@ -128,56 +183,88 @@ impl Drop for PtyHost {
 }
 
 #[tauri::command]
-pub fn pty_spawn(
+pub async fn pty_spawn(
     app: AppHandle,
-    host: State<PtyHost>,
     id: String,
     cwd: String,
     cols: u16,
     rows: u16,
     reuse_existing: Option<bool>,
 ) -> Result<(), String> {
-    let _work = crate::window::begin_runtime_work(&app)?;
+    let work = crate::window::begin_runtime_work(&app)?;
+    let host = app.state::<PtyHost>();
     if reuse_existing == Some(true) && host.get(&id).is_some() {
         return pty_resize(host, id, cols, rows);
     }
-    if let Some(prev) = host.remove(&id) {
-        terminate(prev.pid);
-    }
+    // Reserve before waiting for a blocking worker, so Close can cancel a
+    // startup that has not reached fork/exec yet.
+    let (ticket, previous) = host.begin_spawn(&id);
+    tauri::async_runtime::spawn_blocking(move || {
+        let _work = work;
+        let host = app.state::<PtyHost>();
+        if let Some(prev) = previous {
+            terminate(prev.pid);
+        }
 
-    #[cfg(unix)]
-    {
-        spawn_unix(app, host, id, cwd, cols.max(2), rows.max(2))
-    }
+        #[cfg(unix)]
+        let result = spawn_unix(
+            app.clone(),
+            &host,
+            id.clone(),
+            cwd,
+            cols.max(2),
+            rows.max(2),
+            ticket,
+        );
 
-    #[cfg(windows)]
-    {
-        spawn_windows(app, host, id, cwd, cols.max(2), rows.max(2))
-    }
+        #[cfg(windows)]
+        let result = spawn_windows(
+            app.clone(),
+            &host,
+            id.clone(),
+            cwd,
+            cols.max(2),
+            rows.max(2),
+            ticket,
+        );
 
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = (app, cwd, cols, rows);
-        Err("Terminals are not supported on this platform.".into())
-    }
+        #[cfg(not(any(unix, windows)))]
+        let result = {
+            let _ = (cwd, cols, rows);
+            Err("Terminals are not supported on this platform.".into())
+        };
+        if result.is_err() {
+            host.cancel_spawn(&id, ticket);
+        }
+        result
+    })
+    .await
+    .map_err(|error| format!("Terminal startup was interrupted: {error}"))?
 }
 
 #[tauri::command]
-pub fn pty_write(
+pub async fn pty_write(
     app: AppHandle,
-    host: State<PtyHost>,
+    host: State<'_, PtyHost>,
     id: String,
     data: String,
 ) -> Result<(), String> {
-    let _work = crate::window::begin_runtime_work(&app)?;
+    let work = crate::window::begin_runtime_work(&app)?;
     let live = host
         .get(&id)
         .ok_or_else(|| "Terminal is not running".to_string())?;
-    let mut writer = live.writer.lock().unwrap_or_else(|e| e.into_inner());
-    writer
-        .write_all(data.as_bytes())
-        .and_then(|_| writer.flush())
-        .map_err(|e| format!("Failed to write to terminal: {e}"))
+    // The frontend chains writes per terminal. Keep the OS pipe wait off the
+    // GUI and async executor threads without changing completion/error signals.
+    tauri::async_runtime::spawn_blocking(move || {
+        let _work = work;
+        let mut writer = live.writer.lock().unwrap_or_else(|e| e.into_inner());
+        writer
+            .write_all(data.as_bytes())
+            .and_then(|_| writer.flush())
+            .map_err(|e| format!("Failed to write to terminal: {e}"))
+    })
+    .await
+    .map_err(|error| format!("Terminal input was interrupted: {error}"))?
 }
 
 #[tauri::command]
@@ -252,11 +339,12 @@ pub fn pty_kill_all(host: State<'_, PtyHost>) -> Result<(), String> {
 #[cfg(unix)]
 fn spawn_unix(
     app: AppHandle,
-    host: State<PtyHost>,
+    host: &PtyHost,
     id: String,
     cwd: String,
     cols: u16,
     rows: u16,
+    ticket: u64,
 ) -> Result<(), String> {
     use std::fs::File;
     use std::os::unix::process::CommandExt;
@@ -316,7 +404,13 @@ fn spawn_unix(
         master_fd: master,
         pid,
     });
-    host.insert(id.clone(), live);
+    if !host.install_spawn(&id, ticket, live) {
+        terminate(pid);
+        thread::spawn(move || {
+            let _ = child.wait();
+        });
+        return Err("Terminal startup was cancelled".into());
+    }
 
     let data_app = app.clone();
     let data_id = id.clone();
@@ -376,11 +470,12 @@ fn spawn_unix(
 #[cfg(windows)]
 fn spawn_windows(
     app: AppHandle,
-    host: State<PtyHost>,
+    host: &PtyHost,
     id: String,
     cwd: String,
     cols: u16,
     rows: u16,
+    ticket: u64,
 ) -> Result<(), String> {
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
@@ -434,7 +529,13 @@ fn spawn_windows(
         master: Mutex::new(pair.master),
         pid,
     });
-    host.insert(id.clone(), live);
+    if !host.install_spawn(&id, ticket, live) {
+        terminate(pid);
+        thread::spawn(move || {
+            let _ = child.wait();
+        });
+        return Err("Terminal startup was cancelled".into());
+    }
 
     let data_app = app.clone();
     let data_id = id.clone();
@@ -962,6 +1063,45 @@ mod tests {
         reader.read_exact(&mut bytes).unwrap();
         assert_eq!(&bytes, b"pty-output");
         drop(slave);
+    }
+
+    fn fixture_pty() -> Arc<LivePty> {
+        Arc::new(LivePty {
+            writer: Mutex::new(Box::new(std::io::sink())),
+            master_fd: std::fs::File::open("/dev/null").unwrap().into(),
+            pid: 0,
+        })
+    }
+
+    #[test]
+    fn closing_a_pending_spawn_prevents_installation() {
+        let host = PtyHost::new();
+        let (ticket, _) = host.begin_spawn("term");
+        assert!(host.ensure_update_idle(false).is_err());
+        host.remove("term");
+        assert!(!host.install_spawn("term", ticket, fixture_pty()));
+        assert_eq!(host.ensure_update_idle(false).unwrap(), 0);
+    }
+
+    #[test]
+    fn an_obsolete_spawn_cannot_replace_or_cancel_a_newer_one() {
+        let host = PtyHost::new();
+        let (old, _) = host.begin_spawn("term");
+        let (new, _) = host.begin_spawn("term");
+        host.cancel_spawn("term", old);
+        assert!(!host.install_spawn("term", old, fixture_pty()));
+        assert!(host.install_spawn("term", new, fixture_pty()));
+        assert!(host.get("term").is_some());
+        host.remove("term");
+    }
+
+    #[test]
+    fn kill_all_also_cancels_pending_startups() {
+        let host = PtyHost::new();
+        let (ticket, _) = host.begin_spawn("term");
+        host.kill_all();
+        assert!(!host.install_spawn("term", ticket, fixture_pty()));
+        assert_eq!(host.ensure_update_idle(false).unwrap(), 0);
     }
 
     #[test]

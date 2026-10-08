@@ -62,3 +62,9 @@ would require a schema/format transition and compatibility work for restore,
 search, worker ownership, backups and older records. That was explicitly
 deferred in the original audit; the changes above reduce redundant work without
 pretending to implement incremental message storage.
+
+## Native terminal and orchestration waits
+
+Terminal spawn, terminal pipe writes, and orchestration JSON/SQLite saves now run on blocking workers. Terminal input is chained per terminal, so rapid keystrokes retain their order while another terminal can progress independently. Closing a terminal invalidates queued input and a reserved startup; a child that loses that reservation is terminated and reaped rather than installed after Close. Existing completion and error promises remain observable.
+
+Validation: 110 focused PTY/orchestration web tests, TypeScript, 9 native PTY tests and 23 control-filter native tests passed. Regression cases cover ordered input, independent terminals, failed-write recovery, close/kill-all during queued input, pending startup cancellation, and malformed/oversized orchestration saves retaining the previous fixture record. Tests use disposable state and do not touch installed-app data.
