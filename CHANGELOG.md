@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.1.125] - 2026-10-08
+
+### Ask about the page you're on
+
+- A small see-through Aven bubble now floats at the bottom of web pages in the built-in browser. Click it to ask the chat in your workspace. A ring turns while the agent works, and the answer appears in a card above the bubble with **Reply** and **Open chat**.
+- The page stays fully usable around the bubble. It moves with the page and steps aside when a menu or dialog opens over it. Close it with ✕ or Esc, or by clicking back on the page.
+- Turn it off or change its colour in **Settings → Browser → Aven bubble**.
+
+### Colour your sidebar
+
+- **Settings → Appearance → Window & sidebars → Sidebar colour** adds a wash of colour to the sidebar: Graphite, five presets, your workspace colour or any colour, with a strength slider. Each workspace keeps its own.
+
 ## [0.1.124] - 2026-10-08
 
 ### More room for either pane
