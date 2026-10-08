@@ -35,7 +35,7 @@ html.browser-orb-window #root {
   -webkit-font-smoothing: antialiased;
 }
 
-/* ---------- The bubble: Aven's chevron in smoky charcoal glass ---------- */
+/* ---------- The bubble: smoky charcoal glass ---------- */
 .orb-bubble {
   position: relative;
   flex: none;
@@ -99,29 +99,11 @@ html.browser-orb-window #root {
     transform 0.55s var(--orb-spring),
     opacity 0.3s;
 }
-.orb-chevron {
-  animation: orb-nudge 5s var(--orb-spring) infinite;
-}
-.orb-bubble:hover .orb-chevron {
-  transform: translateX(-1.5px);
-}
-@keyframes orb-nudge {
-  0%,
-  82%,
-  100% {
-    transform: none;
-  }
-  88% {
-    transform: translateX(-2.5px);
-  }
-  94% {
-    transform: translateX(0.5px);
-  }
-}
 .orb-ring {
   opacity: 0;
-  transform: scale(0.6) rotate(-90deg);
+  transform: scale(0.6);
   stroke-dasharray: 30 18;
+  will-change: transform, opacity;
 }
 .orb-glint {
   position: absolute;
@@ -145,11 +127,6 @@ html.browser-orb-window #root {
   100% {
     transform: translateX(110%);
   }
-}
-.orb-stack.is-busy .orb-chevron {
-  opacity: 0;
-  transform: scale(0.5) rotate(90deg);
-  animation: none;
 }
 .orb-stack.is-busy .orb-ring {
   opacity: 1;

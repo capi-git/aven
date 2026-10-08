@@ -252,20 +252,28 @@ fn set_orb(caller: Webview, anchor: Option<Anchor>, snapshot: Value) -> Result<(
         }
         return Ok(());
     };
-    if let Some(label) = existing.clone().filter(|label| app.get_window(label).is_some()) {
-        let (state, show) = with_orbs(app, |entries| {
+    if let Some(label) = existing
+        .clone()
+        .filter(|label| app.get_window(label).is_some())
+    {
+        let (state, show, moved) = with_orbs(app, |entries| {
             let orb = entries.get_mut(&label).ok_or("Bubble closed")?;
             let changed = orb.snapshot != snapshot;
             if changed {
                 orb.snapshot = snapshot;
                 orb.revision += 1;
             }
+            let moved = orb.anchor != anchor || !orb.wanted;
             orb.anchor = anchor;
             let show = !orb.wanted && orb.ready;
             orb.wanted = true;
-            Ok((changed.then(|| display_state(orb)), show))
+            Ok((changed.then(|| display_state(orb)), show, moved))
         })?;
-        apply_placement(app, &label)?;
+        // Content updates arrive with every streamed word; only move the
+        // window when the page itself moved, or it jitters.
+        if moved {
+            apply_placement(app, &label)?;
+        }
         if let Some(state) = state {
             app.emit_to(EventTarget::webview(&label), STATE_EVENT, state)
                 .map_err(|error| error.to_string())?;
@@ -412,16 +420,19 @@ pub async fn browser_orb_layout(
         let app = caller.app_handle();
         let change = with_orbs(app, |entries| {
             Ok(entries.get_mut(&label).map(|orb| {
+                let resized = orb.size != size;
                 orb.size = size;
                 let was = orb.focused;
                 orb.focused = focus && orb.wanted;
-                (was, orb.focused, orb.owner_window.clone())
+                (was, orb.focused, orb.owner_window.clone(), resized)
             }))
         })?;
-        let Some((was_focused, focused, owner_window)) = change else {
+        let Some((was_focused, focused, owner_window, resized)) = change else {
             return Ok(());
         };
-        apply_placement(app, &label)?;
+        if resized {
+            apply_placement(app, &label)?;
+        }
         if focused && !was_focused {
             let window = caller.window();
             window.set_focus().map_err(|error| error.to_string())?;

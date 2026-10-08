@@ -154,6 +154,18 @@ describe("the Aven bubble's owner", () => {
     });
   });
 
+  it("ignores streamed chat updates that do not change what the bubble shows", async () => {
+    const session = chat({ busy: true });
+    await render(session);
+    const calls = set.mock.calls.length;
+    for (const word of ["The", "heading", "is", "fixed"])
+      await render({
+        ...session,
+        blocks: [...session.blocks, block("assistant", word)],
+      });
+    expect(set.mock.calls.length).toBe(calls);
+  });
+
   it("does not send while the chat is working, and routes stop and open", async () => {
     await render(chat({ busy: true }));
     await act(async () => deliver({ action: "submit", text: "hello" }));

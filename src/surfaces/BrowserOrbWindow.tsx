@@ -12,13 +12,11 @@ const CLOSED_WIDTH = 60;
 const OPEN_WIDTH = 600;
 const CARD_WIDTH = 500;
 
-function Chevron() {
+/** Plain glass with a passing glint; a ring turns while the chat works. */
+function BubbleGlass() {
   return (
     <>
       <span className="orb-glint" aria-hidden="true" />
-      <svg className="orb-chevron" viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M14.5 6 8.5 12l6 6" />
-      </svg>
       <svg className="orb-ring" viewBox="0 0 24 24" aria-hidden="true">
         <circle cx="12" cy="12" r="7.5" />
       </svg>
@@ -216,7 +214,7 @@ export function BrowserOrbWindow() {
           }}
         >
           <span className="orb-bubble" aria-hidden="true">
-            <Chevron />
+            <BubbleGlass />
           </span>
           <input
             ref={input}
@@ -293,7 +291,7 @@ export function BrowserOrbWindow() {
           title={busy ? "Working…" : "Ask about this page"}
           onClick={() => setOpen(true)}
         >
-          <Chevron />
+          <BubbleGlass />
         </button>
       )}
     </div>

@@ -98,12 +98,15 @@ export function useBrowserOrb({
     };
   }, [live, findAnchor, native]);
 
-  // Push snapshot changes straight away rather than on the next check.
+  // Push real changes straight away rather than on the next check. The chat
+  // object changes with every streamed word; only its visible summary counts.
+  const snapshotKey = JSON.stringify(snapshot);
   useEffect(() => {
     if (!live) return;
     const anchor = findAnchor();
-    if (anchor) void native.set(anchor, snapshot).catch(() => {});
-  }, [live, snapshot, findAnchor, native]);
+    if (anchor)
+      void native.set(anchor, latest.current.snapshot).catch(() => {});
+  }, [live, snapshotKey, findAnchor, native]);
 
   useEffect(() => {
     if (!live) return;
