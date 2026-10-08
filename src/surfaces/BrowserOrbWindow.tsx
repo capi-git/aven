@@ -138,6 +138,13 @@ export function BrowserOrbWindow() {
     void browserOrbWindow.act(action).catch(() => setFailed(true));
   };
 
+  // The workspace forgets a dismissed answer too, so it cannot come back
+  // when the bubble is shown again.
+  const dismiss = (id: string) => {
+    setDismissedAnswer(id);
+    void browserOrbWindow.act({ action: "dismiss" }).catch(() => {});
+  };
+
   const close = () => {
     setText("");
     setOpen(false);
@@ -173,7 +180,7 @@ export function BrowserOrbWindow() {
         if (event.key === "Escape") {
           event.preventDefault();
           if (open) close();
-          else if (answer) setDismissedAnswer(answer.id);
+          else if (answer) dismiss(answer.id);
         }
       }}
     >
@@ -186,7 +193,7 @@ export function BrowserOrbWindow() {
               className="orb-icon-button"
               aria-label="Dismiss"
               title="Dismiss"
-              onClick={() => setDismissedAnswer(answer.id)}
+              onClick={() => dismiss(answer.id)}
             >
               <CloseIcon />
             </button>
@@ -197,7 +204,7 @@ export function BrowserOrbWindow() {
               type="button"
               className="orb-chip orb-primary"
               onClick={() => {
-                setDismissedAnswer(answer.id);
+                dismiss(answer.id);
                 setOpen(true);
               }}
             >
@@ -207,7 +214,7 @@ export function BrowserOrbWindow() {
               type="button"
               className="orb-chip"
               onClick={() => {
-                setDismissedAnswer(answer.id);
+                dismiss(answer.id);
                 act({ action: "openChat" });
               }}
             >

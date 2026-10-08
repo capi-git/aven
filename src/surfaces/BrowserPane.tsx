@@ -1831,6 +1831,8 @@ function BrowserPaneSession({
       data-browser-pane={id}
       // No page yet: the pane shows the workspace background like other panes.
       data-blank={(!url && !error && !sleeping) || undefined}
+      // The native page is on screen; the Aven bubble only floats over these.
+      data-page-shown={(visible && !error && hasUrl && !sleeping) || undefined}
       onKeyDown={(event) => {
         if ((event.metaKey || event.ctrlKey) && !event.altKey) {
           if (event.key.toLowerCase() === "f" && readyId) {

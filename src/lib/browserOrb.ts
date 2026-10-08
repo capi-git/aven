@@ -21,7 +21,8 @@ export type BrowserOrbState = {
 export type BrowserOrbAction =
   | { action: "submit"; text: string }
   | { action: "stop" }
-  | { action: "openChat" };
+  | { action: "openChat" }
+  | { action: "dismiss" };
 
 /** The visible page rectangle in CSS pixels. */
 export type BrowserOrbAnchor = {
@@ -50,7 +51,7 @@ export function findBrowserOrbAnchor(
 ): BrowserOrbAnchor | null {
   let best: { rect: DOMRect; area: number } | null = null;
   for (const pane of root.querySelectorAll<HTMLElement>(
-    ".browser-pane[data-browser-pane]:not([data-blank])",
+    ".browser-pane[data-browser-pane][data-page-shown]",
   )) {
     const rect = pane.getBoundingClientRect();
     const toolbar = pane.querySelector(".browser-toolbar");

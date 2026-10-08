@@ -134,7 +134,8 @@ export function useBrowserOrb({
             after: target.blocks.length,
           });
           onSubmit(target.id, text);
-        } else if (request.action === "stop") onStop(target.id);
+        } else if (request.action === "dismiss") setAsked(null);
+        else if (request.action === "stop") onStop(target.id);
         else if (request.action === "openChat") onOpenChat(target.id);
       })
       .then((unlisten) => {

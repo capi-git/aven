@@ -22,6 +22,7 @@ function pane(
   element.className = "browser-pane";
   element.dataset.browserPane = crypto.randomUUID();
   if (blank) element.dataset.blank = "true";
+  else element.dataset.pageShown = "true";
   element.getBoundingClientRect = () => box;
   const bar = document.createElement("form");
   bar.className = "browser-toolbar";
@@ -47,6 +48,12 @@ describe("finding the page under the bubble", () => {
       height: 660,
       dpr: window.devicePixelRatio || 1,
     });
+  });
+
+  it("ignores panes whose page is not on screen, like a sleeping tab or one behind Settings", () => {
+    const hidden = pane(rect(0, 0, 900, 700));
+    delete hidden.dataset.pageShown;
+    expect(findBrowserOrbAnchor()).toBeNull();
   });
 
   it("ignores panes too small to hold the bubble, or hidden by another view", () => {
