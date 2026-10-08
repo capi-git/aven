@@ -49,6 +49,7 @@ import {
   revealPath,
   type FsEntry,
 } from "../lib/fs";
+import { isImeComposition } from "../lib/keyboard";
 import { displayPath, parentPath, rebasePath } from "../lib/paths";
 import { IS_MAC, IS_WIN, MOD, SHIFT } from "../lib/platform";
 import type { GitStatusMap } from "../hooks/useGitFileStatuses";
@@ -1052,7 +1053,7 @@ function NameRow({
             setSubmitError(null);
           }}
           onKeyDown={(e) => {
-            if (e.nativeEvent.isComposing) return;
+            if (isImeComposition(e.nativeEvent)) return;
             if (e.key === "Enter") {
               e.preventDefault();
               e.stopPropagation();
