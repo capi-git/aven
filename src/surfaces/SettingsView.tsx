@@ -40,7 +40,9 @@ import {
   Select,
   SecondaryButton,
   SettingsGroup,
+  ColorSwatches,
 } from "./SettingsControls";
+import type { ColorChoice } from "../lib/colorChoice";
 import "./SettingsView.css";
 import {
   AUTOSAVE_DEFAULT,
@@ -172,7 +174,10 @@ import {
   filterKeybindings,
   formatKeybindingContext,
   KEYBINDINGS,
+  BROWSER_BUBBLE_DEFAULT,
   BROWSER_MEMORY_SAVER_DEFAULT,
+  loadBrowserBubble,
+  loadBrowserBubbleColor,
   loadBrowserMemorySaver,
   loadBrowserLowMemory,
   loadClaudeHooks,
@@ -189,7 +194,10 @@ import {
   saveGridArcadeEnabled,
   saveLiveAgentsEnabled,
   saveNotesEnabled,
+  saveBrowserBubble,
+  saveBrowserBubbleColor,
   saveBrowserMemorySaver,
+  subscribeBrowserBubble,
   subscribeBrowserMemorySaver,
   saveBrowserLowMemory,
   subscribeBrowserLowMemory,
@@ -226,6 +234,9 @@ import {
   saveWorkspaceTheme,
   type WorkspaceColorTarget,
   useActiveWorkspaceTheme,
+  SIDEBAR_TINT_STRENGTH_DEFAULT,
+  SIDEBAR_TINT_STRENGTH_MAX,
+  SIDEBAR_TINT_STRENGTH_MIN,
 } from "../lib/workspaceThemes";
 import {
   installPendingUpdate,
@@ -539,6 +550,16 @@ function PreferencesPage({
     loadBrowserMemorySaver,
     () => BROWSER_MEMORY_SAVER_DEFAULT,
   );
+  const browserBubble = useSyncExternalStore(
+    subscribeBrowserBubble,
+    loadBrowserBubble,
+    () => BROWSER_BUBBLE_DEFAULT,
+  );
+  const browserBubbleColor = useSyncExternalStore(
+    subscribeBrowserBubble,
+    loadBrowserBubbleColor,
+    () => "none" as ColorChoice,
+  );
   const browserLowMemory = useSyncExternalStore(
     subscribeBrowserLowMemory,
     loadBrowserLowMemory,
@@ -790,36 +811,66 @@ function PreferencesPage({
 
   if (page === "browser")
     return (
-      <SettingsGroup
-        title="Memory"
-        description="Keep browser tabs ready while managing memory."
-        scope="Device"
-      >
-        <Row
-          label="Memory saver"
-          description="Keep your three most recent browser tabs ready. Older inactive tabs can sleep after five minutes and reload when reopened. Pages in use stay awake."
+      <>
+        <SettingsGroup
+          title="Aven bubble"
+          description="Ask your chat about the page you're on."
+          scope="Device"
         >
-          <Toggle
+          <Row
+            label="Show the bubble on web pages"
+            description="A small Aven bubble floats at the bottom of the page. Click it to ask the chat in this workspace; the answer appears above it."
+          >
+            <Toggle
+              label="Show the bubble on web pages"
+              on={browserBubble}
+              onChange={saveBrowserBubble}
+            />
+          </Row>
+          {browserBubble ? (
+            <Row
+              label="Bubble colour"
+              description="The colour of the bubble's glass. Graphite is the standard charcoal."
+            >
+              <ColorSwatches
+                label="Bubble colour"
+                value={browserBubbleColor}
+                onChange={saveBrowserBubbleColor}
+              />
+            </Row>
+          ) : null}
+        </SettingsGroup>
+        <SettingsGroup
+          title="Memory"
+          description="Keep browser tabs ready while managing memory."
+          scope="Device"
+        >
+          <Row
             label="Memory saver"
-            on={browserMemorySaver}
-            onChange={saveBrowserMemorySaver}
-          />
-        </Row>
-        <Row
-          label="Lightweight browser"
-          description={
-            browserEngineRestart
-              ? "Uses Chromium's reduced-memory mode for web pages. Restart Aven to apply this change."
-              : "Uses Chromium's reduced-memory mode for web pages. With Memory saver on, keeps only your most recent inactive tab ready and sleeps others after two minutes. For laptops with little memory; the engine mode applies when Aven starts."
-          }
-        >
-          <Toggle
+            description="Keep your three most recent browser tabs ready. Older inactive tabs can sleep after five minutes and reload when reopened. Pages in use stay awake."
+          >
+            <Toggle
+              label="Memory saver"
+              on={browserMemorySaver}
+              onChange={saveBrowserMemorySaver}
+            />
+          </Row>
+          <Row
             label="Lightweight browser"
-            on={browserLowMemory}
-            onChange={saveBrowserLowMemory}
-          />
-        </Row>
-      </SettingsGroup>
+            description={
+              browserEngineRestart
+                ? "Uses Chromium's reduced-memory mode for web pages. Restart Aven to apply this change."
+                : "Uses Chromium's reduced-memory mode for web pages. With Memory saver on, keeps only your most recent inactive tab ready and sleeps others after two minutes. For laptops with little memory; the engine mode applies when Aven starts."
+            }
+          >
+            <Toggle
+              label="Lightweight browser"
+              on={browserLowMemory}
+              onChange={saveBrowserLowMemory}
+            />
+          </Row>
+        </SettingsGroup>
+      </>
     );
 
   if (page === "notifications") return notificationsGroup;
@@ -1209,6 +1260,9 @@ function useAppearanceSettings() {
   const colors = resolvedWorkspaceColors(theme, colorScheme);
   const themePreference = theme.preference;
   const { opacity, blur, bodyGlass, matchPanels } = theme;
+  const sidebarTint = theme.sidebarTint ?? "none";
+  const sidebarTintStrength =
+    theme.sidebarTintStrength ?? SIDEBAR_TINT_STRENGTH_DEFAULT;
   const [chatBackgroundPath, setChatBackgroundPath] = useState(
     loadChatBackgroundPath,
   );
@@ -1273,6 +1327,17 @@ function useAppearanceSettings() {
 
   const onMatchPanels = useCallback(
     (next: boolean) => saveWorkspaceTheme(profileId, { matchPanels: next }),
+    [profileId],
+  );
+
+  const onSidebarTint = useCallback(
+    (next: ColorChoice) => saveWorkspaceTheme(profileId, { sidebarTint: next }),
+    [profileId],
+  );
+
+  const onSidebarTintStrength = useCallback(
+    (next: number) =>
+      saveWorkspaceTheme(profileId, { sidebarTintStrength: next }),
     [profileId],
   );
 
@@ -1353,6 +1418,8 @@ function useAppearanceSettings() {
     blur,
     bodyGlass,
     matchPanels,
+    sidebarTint,
+    sidebarTintStrength,
     chatBackgroundPath,
     chatBackgroundOpacity,
     chatBackgroundScope,
@@ -1366,6 +1433,8 @@ function useAppearanceSettings() {
     onPreviewColor,
     onBodyGlass,
     onMatchPanels,
+    onSidebarTint,
+    onSidebarTintStrength,
     onChooseChatBackground,
     onClearChatBackground,
     onChatBackgroundOpacity,
@@ -1438,6 +1507,31 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
             onChange={appearance.onMatchPanels}
           />
         </Row>
+        <Row
+          label="Sidebar colour"
+          description="A wash of colour over this workspace's sidebar, strongest at the top. Text stays readable."
+        >
+          <ColorSwatches
+            label="Sidebar colour"
+            value={appearance.sidebarTint}
+            onChange={appearance.onSidebarTint}
+          />
+        </Row>
+        {appearance.sidebarTint !== "none" ? (
+          <Row
+            label="Sidebar colour strength"
+            description="How much of the colour shows."
+          >
+            <Slider
+              label="Sidebar colour strength"
+              value={appearance.sidebarTintStrength}
+              display={`${appearance.sidebarTintStrength}%`}
+              min={SIDEBAR_TINT_STRENGTH_MIN}
+              max={SIDEBAR_TINT_STRENGTH_MAX}
+              onChange={appearance.onSidebarTintStrength}
+            />
+          </Row>
+        ) : null}
         {HAS_NATIVE_GLASS && (
           <Row
             label="Background opacity"

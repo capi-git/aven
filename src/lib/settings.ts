@@ -1,3 +1,4 @@
+import { normalizeColorChoice, type ColorChoice } from "./colorChoice";
 import { ALT, IS_MAC, MOD, SHIFT } from "./platform";
 
 const SECTION_KEY = "monocode.settingsSection";
@@ -326,6 +327,77 @@ export function subscribeBrowserMemorySaver(onChange: () => void) {
     window.removeEventListener(BROWSER_MEMORY_SAVER_CHANGE_EVENT, onChange);
     window.removeEventListener("storage", onStorage);
   };
+}
+
+const BROWSER_BUBBLE_KEY = "aven.browserBubble";
+const BROWSER_BUBBLE_CHANGE_EVENT = "aven:browser-bubble-change";
+
+/** The Aven bubble over web pages, for asking the workspace's chat. */
+export const BROWSER_BUBBLE_DEFAULT = true;
+
+export function loadBrowserBubble(): boolean {
+  try {
+    const raw = localStorage.getItem(BROWSER_BUBBLE_KEY);
+    if (raw === "0" || raw === "false") return false;
+    if (raw === "1" || raw === "true") return true;
+    return BROWSER_BUBBLE_DEFAULT;
+  } catch {
+    return BROWSER_BUBBLE_DEFAULT;
+  }
+}
+
+export function saveBrowserBubble(value: boolean) {
+  try {
+    localStorage.setItem(BROWSER_BUBBLE_KEY, value ? "1" : "0");
+  } catch {
+    // private mode / quota
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(BROWSER_BUBBLE_CHANGE_EVENT));
+  }
+}
+
+export function subscribeBrowserBubble(onChange: () => void) {
+  if (typeof window === "undefined") return () => {};
+  const onStorage = (event: StorageEvent) => {
+    if (
+      !event.key ||
+      event.key === BROWSER_BUBBLE_KEY ||
+      event.key === BROWSER_BUBBLE_COLOR_KEY
+    )
+      onChange();
+  };
+  window.addEventListener(BROWSER_BUBBLE_CHANGE_EVENT, onChange);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(BROWSER_BUBBLE_CHANGE_EVENT, onChange);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
+const BROWSER_BUBBLE_COLOR_KEY = "aven.browserBubbleColor";
+
+/** The bubble's glass colour; "none" is the standard charcoal. */
+export function loadBrowserBubbleColor(): ColorChoice {
+  try {
+    return (
+      normalizeColorChoice(localStorage.getItem(BROWSER_BUBBLE_COLOR_KEY)) ??
+      "none"
+    );
+  } catch {
+    return "none";
+  }
+}
+
+export function saveBrowserBubbleColor(value: ColorChoice) {
+  try {
+    localStorage.setItem(BROWSER_BUBBLE_COLOR_KEY, value);
+  } catch {
+    // private mode / quota
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(BROWSER_BUBBLE_CHANGE_EVENT));
+  }
 }
 
 const BROWSER_LOW_MEMORY_KEY = "aven.browserLowMemory";
