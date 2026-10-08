@@ -512,6 +512,210 @@ describe("workspace stage", () => {
     expect(painted).toHaveBeenCalledTimes(2);
   });
 
+  it.each([
+    ["before", 124, "browser", "left"],
+    ["after", 1076, "chat", "right"],
+  ] as const)(
+    "hides the %s pane only on a deliberate edge release",
+    async (side, x, surviving, label) => {
+      const minimize = vi.fn();
+      await render({ layout: columns(), onMinimizeSide: minimize });
+      bindStageBounds();
+      const draft = input("chat");
+      draft.value = "Keep my unfinished prompt";
+      const originalGeometry = surface("chat").style.cssText;
+      rendered.mockClear();
+      act(() => sash().dispatchEvent(pointer("pointerdown", 600)));
+      act(() => window.dispatchEvent(pointer("pointermove", x)));
+      flushFrame();
+      const cue = header(surviving)!.querySelector<HTMLElement>(
+        "[data-minimize-cue]",
+      )!;
+      expect(cue.hidden).toBe(false);
+      expect(cue.textContent).toBe(`Release to hide ${label} pane`);
+      expect(minimize).not.toHaveBeenCalled();
+      expect(rendered).not.toHaveBeenCalled();
+      act(() => window.dispatchEvent(pointer("pointerup", x)));
+      expect(minimize).toHaveBeenCalledExactlyOnceWith("columns", 0, side);
+      expect(props.onLayoutChange).not.toHaveBeenCalled();
+      expect(surface("chat").style.cssText).toBe(originalGeometry);
+      expect(cue.hidden).toBe(true);
+      await render({ layout: leaf(surviving), onRestoreSplit: vi.fn() });
+      expect(input("chat")).toBe(draft);
+      expect(draft.value).toBe("Keep my unfinished prompt");
+      expect(document.activeElement).toBe(
+        container.querySelector(".workspace-pane-restore"),
+      );
+      expect(unmounted).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([125, 1075])(
+    "keeps releases outside the edge threshold as ordinary resizing (%s)",
+    async (x) => {
+      const minimize = vi.fn();
+      await render({ layout: columns(), onMinimizeSide: minimize });
+      bindStageBounds();
+      act(() => sash().dispatchEvent(pointer("pointerdown", 600)));
+      act(() => window.dispatchEvent(pointer("pointerup", x)));
+      expect(minimize).not.toHaveBeenCalled();
+      expect(props.onLayoutChange).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("requires travel intent and clears the armed cue when dragging away", async () => {
+    const minimize = vi.fn();
+    await render({ layout: columns([0.02, 0.98]), onMinimizeSide: minimize });
+    bindStageBounds();
+    act(() => sash().dispatchEvent(pointer("pointerdown", 120)));
+    act(() => window.dispatchEvent(pointer("pointerup", 115)));
+    expect(minimize).not.toHaveBeenCalled();
+    await render({ layout: columns() });
+    act(() => sash().dispatchEvent(pointer("pointerdown", 600)));
+    act(() => window.dispatchEvent(pointer("pointermove", 120)));
+    const cue = header("browser")!.querySelector<HTMLElement>(
+      "[data-minimize-cue]",
+    )!;
+    expect(cue.hidden).toBe(false);
+    act(() => window.dispatchEvent(pointer("pointermove", 400)));
+    expect(cue.hidden).toBe(true);
+    act(() => window.dispatchEvent(pointer("pointerup", 400)));
+    expect(minimize).not.toHaveBeenCalled();
+  });
+
+  it("uses CSS zoom and an interior adjacent child's outside edge for minimization", async () => {
+    const minimize = vi.fn();
+    await render({
+      layout: {
+        type: "split",
+        id: "three",
+        dir: "right",
+        children: [leaf("third"), leaf("chat"), leaf("browser")],
+        sizes: [0.2, 0.3, 0.5],
+      },
+      surfaces: [...props.surfaces, { id: "third", content: "Third pane" }],
+      onMinimizeSide: minimize,
+    });
+    stage().style.zoom = "2";
+    bindStageBounds();
+    act(() => sash(1).dispatchEvent(pointer("pointerdown", 600)));
+    // Child chat starts at x300. The 24px local threshold is 48 viewport px.
+    act(() => window.dispatchEvent(pointer("pointerup", 348)));
+    expect(minimize).toHaveBeenCalledExactlyOnceWith("three", 1, "before");
+    expect(props.onLayoutChange).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["before", 74],
+    ["after", 626],
+  ] as const)("supports the %s edge of horizontal panes", async (side, y) => {
+    const minimize = vi.fn();
+    await render({
+      layout: {
+        type: "split",
+        id: "rows",
+        dir: "down",
+        children: [leaf("chat"), leaf("browser")],
+        sizes: [0.5, 0.5],
+      },
+      onMinimizeSide: minimize,
+    });
+    bindStageBounds();
+    act(() => sash().dispatchEvent(pointer("pointerdown", 600, 350)));
+    act(() => window.dispatchEvent(pointer("pointerup", 600, y)));
+    expect(minimize).toHaveBeenCalledExactlyOnceWith("rows", 0, side);
+    expect(props.onLayoutChange).not.toHaveBeenCalled();
+  });
+
+  it.each(["Escape", "pointercancel", "blur", "lostpointercapture"])(
+    "never minimizes an armed drag ended by %s",
+    async (ending) => {
+      const minimize = vi.fn();
+      await render({ layout: columns(), onMinimizeSide: minimize });
+      bindStageBounds();
+      act(() => sash().dispatchEvent(pointer("pointerdown", 600)));
+      act(() => window.dispatchEvent(pointer("pointermove", 110)));
+      flushFrame();
+      act(() => {
+        if (ending === "Escape")
+          window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+        else if (ending === "pointercancel")
+          window.dispatchEvent(pointer("pointercancel", 110));
+        else
+          (ending === "blur" ? window : sash()).dispatchEvent(
+            new Event(ending),
+          );
+      });
+      act(() => window.dispatchEvent(pointer("pointerup", 110)));
+      expect(minimize).not.toHaveBeenCalled();
+      expect(stage().hasAttribute("data-resizing")).toBe(false);
+      expect(
+        [
+          ...container.querySelectorAll<HTMLElement>("[data-minimize-cue]"),
+        ].every((cue) => cue.hidden),
+      ).toBe(true);
+      expect(document.body.style.cursor).toBe("");
+      expect(frames.size).toBe(0);
+    },
+  );
+
+  it("reserves header room and preserves keyboard focus for hide and restore controls", async () => {
+    const minimize = vi.fn();
+    const restore = vi.fn();
+    await render({
+      layout: columns(),
+      onMinimizeSide: minimize,
+      headers: [
+        { id: "chat", content: createElement("button", null, "Chat tab") },
+        {
+          id: "browser",
+          content: createElement("button", null, "Browser tab"),
+        },
+      ],
+    });
+    const hide = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Hide left pane"]',
+    )!;
+    expect(hide.type).toBe("button");
+    expect(hide.closest("[data-workspace-header]")).toBe(header("chat"));
+    expect(header("chat")!.style.paddingRight).toBe("28px");
+    expect(header("chat")!.style.height).toBe("32px");
+    act(() => {
+      hide.focus();
+      hide.dispatchEvent(pointer("pointerdown", 590));
+      hide.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 }));
+    });
+    expect(stage().hasAttribute("data-resizing")).toBe(false);
+    expect(minimize).toHaveBeenCalledExactlyOnceWith("columns", 0, "before");
+    expect(props.onLayoutChange).not.toHaveBeenCalled();
+    await render({
+      layout: leaf("browser"),
+      onRestoreSplit: restore,
+      restoreStatus: "working",
+    });
+    const show = container.querySelector<HTMLButtonElement>(
+      ".workspace-pane-restore",
+    )!;
+    expect(show.getAttribute("aria-label")).toBe(
+      "Show hidden pane (agent working)",
+    );
+    expect(show.closest("[data-workspace-header]")).toBe(header("browser"));
+    expect(header("browser")!.style.paddingLeft).toBe("28px");
+    expect(document.activeElement).toBe(show);
+    expect(props.onFocus).not.toHaveBeenCalled();
+    act(() =>
+      show.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 })),
+    );
+    expect(restore).toHaveBeenCalledOnce();
+    await render({
+      layout: columns(),
+      onRestoreSplit: undefined,
+      restoreStatus: undefined,
+    });
+    expect(document.activeElement).toBe(sash());
+    expect(header("browser")!.style.paddingLeft).toBe("");
+  });
+
   it("cancels the fallback when an animation frame paints first", async () => {
     await render({ layout: columns() });
     bindStageBounds();

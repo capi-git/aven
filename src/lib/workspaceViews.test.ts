@@ -12,6 +12,8 @@ import {
   reorderWorkspaceGroup,
   workspaceGroupOwner,
   toggleWorkspaceExpansion,
+  minimizeWorkspaceSide,
+  restoreWorkspaceSplit,
   type WorkspaceView,
 } from "./workspaceViews";
 
@@ -437,10 +439,19 @@ describe("temporary workspace expansion", () => {
     );
     const restored = toggleWorkspaceExpansion(withNew, "new-browser", "chat-a");
     expect(restored.focusedId).toBe("new-browser");
-    expect(leafIds(restored.layout!)).toEqual(["chat-a", "chat-b", "new-browser"]);
-    expect(layoutLeaves(restored.layout!).map((leaf) => leaf.rect)).toEqual(layoutLeaves(before.layout!).map((leaf) => leaf.rect));
+    expect(leafIds(restored.layout!)).toEqual([
+      "chat-a",
+      "chat-b",
+      "new-browser",
+    ]);
+    expect(layoutLeaves(restored.layout!).map((leaf) => leaf.rect)).toEqual(
+      layoutLeaves(before.layout!).map((leaf) => leaf.rect),
+    );
     expect(restored.groups["chat-b"]).toEqual(["chat-b"]);
-    expect(restored.groups["new-browser"]).toEqual(["browser-a", "new-browser"]);
+    expect(restored.groups["new-browser"]).toEqual([
+      "browser-a",
+      "new-browser",
+    ]);
     expect(restored.groups["chat-a"]).toEqual(before.groups["chat-a"]);
     expect(restored.order).toEqual([
       "chat-a",
@@ -552,6 +563,258 @@ describe("temporary workspace expansion", () => {
       order: [],
       groups: {},
     });
+  });
+});
+
+describe("temporary workspace minimization", () => {
+  const liveIds = [
+    "left-a",
+    "left-b",
+    "top-a",
+    "top-b",
+    "bottom-a",
+    "bottom-b",
+    "right",
+  ];
+  const original = (): WorkspaceView =>
+    resolveWorkspaceView(
+      {
+        layout: {
+          type: "split",
+          id: "columns",
+          dir: "right",
+          sizes: [0.2, 0.5, 0.3],
+          children: [
+            leaf("left-a"),
+            {
+              type: "split",
+              id: "middle-rows",
+              dir: "down",
+              sizes: [0.4, 0.6],
+              children: [leaf("top-a"), leaf("bottom-a")],
+            },
+            leaf("right"),
+          ],
+        },
+        focusedId: "left-a",
+        order: liveIds,
+        groups: {
+          "left-a": ["left-a", "left-b"],
+          "top-a": ["top-a", "top-b"],
+          "bottom-a": ["bottom-a", "bottom-b"],
+          right: ["right"],
+        },
+      },
+      liveIds,
+      "left-a",
+    );
+
+  it("minimizes a left pane into the nearest sibling, retaining tabs and unrelated pane sizes", () => {
+    const before = original();
+    const next = minimizeWorkspaceSide(before, "columns", 0, "before");
+    expect(leafIds(next.layout!)).toEqual(["top-a", "bottom-a", "right"]);
+    expect(next.layout).toMatchObject({ id: "columns", sizes: [0.7, 0.3] });
+    expect(next.groups["top-a"]).toEqual([
+      "top-a",
+      "top-b",
+      "left-a",
+      "left-b",
+    ]);
+    expect(next.groups["bottom-a"]).toEqual(before.groups["bottom-a"]);
+    expect(next.groups.right).toEqual(before.groups.right);
+    expect(next.focusedId).toBe("top-a");
+    expect(next.order).toEqual(before.order);
+    expect(next.minimizedEdge).toBe("left");
+    expect(next.restoreView).toEqual(before);
+    expectPartition(next, liveIds);
+    expect(restoreWorkspaceSplit(next)).toEqual({
+      ...before,
+      focusedId: "top-a",
+    });
+  });
+
+  it.each([
+    {
+      index: 0,
+      side: "after" as const,
+      owner: "left-a",
+      sizes: [0.7, 0.3],
+      members: ["left-a", "left-b", "top-a", "top-b", "bottom-a", "bottom-b"],
+      edge: "right",
+    },
+    {
+      index: 1,
+      side: "before" as const,
+      owner: "right",
+      sizes: [0.2, 0.8],
+      members: ["right", "top-a", "top-b", "bottom-a", "bottom-b"],
+      edge: "left",
+    },
+  ])(
+    "minimizes an entire nested subtree $side a sash without losing any group",
+    ({ index, side, owner, sizes, members, edge }) => {
+      const before = original();
+      const next = minimizeWorkspaceSide(before, "columns", index, side);
+      expect(leafIds(next.layout!)).toEqual(["left-a", "right"]);
+      expect(next.layout).toMatchObject({ sizes });
+      expect(next.groups[owner]).toEqual(members);
+      expect(next.focusedId).toBe("left-a");
+      expect(next.minimizedEdge).toBe(edge);
+      expect(next.order).toEqual(before.order);
+      expectPartition(next, liveIds);
+      expect(restoreWorkspaceSplit(next)).toEqual(before);
+    },
+  );
+
+  it("uses the last leaf of the left sibling when the right pane is minimized", () => {
+    const next = minimizeWorkspaceSide(original(), "columns", 1, "after");
+    expect(next.layout).toMatchObject({ sizes: [0.2, 0.8] });
+    expect(next.groups["bottom-a"]).toEqual(["bottom-a", "bottom-b", "right"]);
+    expect(next.groups["top-a"]).toEqual(["top-a", "top-b"]);
+    expect(next.minimizedEdge).toBe("right");
+    expectPartition(next, liveIds);
+  });
+
+  it.each([
+    {
+      side: "before" as const,
+      owner: "bottom-a",
+      edge: "up",
+      members: ["bottom-a", "bottom-b", "top-a", "top-b"],
+    },
+    {
+      side: "after" as const,
+      owner: "top-a",
+      edge: "down",
+      members: ["top-a", "top-b", "bottom-a", "bottom-b"],
+    },
+  ])(
+    "minimizes the $side side of a nested vertical split",
+    ({ side, owner, edge, members }) => {
+      const before = original();
+      const next = minimizeWorkspaceSide(before, "middle-rows", 0, side);
+      expect(next.layout).toEqual({
+        type: "split",
+        id: "columns",
+        dir: "right",
+        sizes: [0.2, 0.5, 0.3],
+        children: [leaf("left-a"), leaf(owner), leaf("right")],
+      });
+      expect(next.groups[owner]).toEqual(members);
+      expect(next.minimizedEdge).toBe(edge);
+      expectPartition(next, liveIds);
+      expect(restoreWorkspaceSplit(next)).toEqual(before);
+    },
+  );
+
+  it("keeps the oldest full split through successive minimizations down to a single pane", () => {
+    const before = original();
+    const left = minimizeWorkspaceSide(before, "columns", 0, "before");
+    const right = minimizeWorkspaceSide(left, "columns", 0, "after");
+    const single = minimizeWorkspaceSide(right, "middle-rows", 0, "after");
+    expect(single.layout).toEqual(leaf("top-a"));
+    expect(single.restoreView).toEqual(before);
+    expect(single.restoreView).not.toHaveProperty("restoreView");
+    expect(single.restoreView).not.toHaveProperty("minimizedEdge");
+    expect(single.order).toEqual(before.order);
+    expectPartition(single, liveIds);
+    const restored = restoreWorkspaceSplit(single);
+    expect(restored).toEqual({ ...before, focusedId: "top-a" });
+    expect(restored).not.toHaveProperty("minimizedEdge");
+    expect(toggleWorkspaceExpansion(single, "top-a")).toEqual(restored);
+  });
+
+  it("keeps the oldest restore snapshot when expanding after partial minimization", () => {
+    const before = original();
+    const minimized = minimizeWorkspaceSide(before, "columns", 0, "before");
+    const expanded = toggleWorkspaceExpansion(minimized, "bottom-a");
+    expect(expanded.layout).toEqual(leaf("bottom-a"));
+    expect(expanded.restoreView).toEqual(before);
+    expect(expanded.minimizedEdge).toBe("left");
+    expect(toggleWorkspaceExpansion(expanded, "bottom-a")).toEqual({
+      ...before,
+      focusedId: "bottom-a",
+    });
+  });
+
+  it("restores surviving groups after tabs close and keeps a newly opened selected tab visible", () => {
+    const minimized = minimizeWorkspaceSide(original(), "columns", 0, "before");
+    const closed = closeWorkspaceViews(minimized, ["left-a", "top-a"], "right");
+    const remaining = [
+      ...liveIds.filter((id) => !["left-a", "top-a"].includes(id)),
+      "new-tab",
+    ];
+    const updated = selectWorkspaceView(
+      resolveWorkspaceView(closed, remaining, closed.focusedId),
+      "new-tab",
+    );
+    const restored = restoreWorkspaceSplit(updated);
+    expect(restored.focusedId).toBe("new-tab");
+    expect(leafIds(restored.layout!)).toContain("new-tab");
+    expect(restored.layout).toMatchObject({ sizes: [0.2, 0.5, 0.3] });
+    expect(restored.order).not.toContain("left-a");
+    expect(restored.order).not.toContain("top-a");
+    expect(restored.groups["bottom-a"]).toEqual(["bottom-a", "bottom-b"]);
+    expectPartition(restored, remaining);
+    expect(restored).not.toHaveProperty("restoreView");
+    expect(restored).not.toHaveProperty("minimizedEdge");
+  });
+
+  it("validates a serialized minimized edge only alongside a surviving restore snapshot", () => {
+    const before = original();
+    const minimized = minimizeWorkspaceSide(before, "columns", 0, "before");
+    expect(
+      resolveWorkspaceView(
+        JSON.parse(JSON.stringify(minimized)),
+        liveIds,
+        "right",
+      ),
+    ).toEqual(minimized);
+    expect(
+      resolveWorkspaceView(
+        { ...before, minimizedEdge: "left" },
+        liveIds,
+        "right",
+      ),
+    ).toEqual(before);
+    expect(
+      resolveWorkspaceView(
+        { ...minimized, minimizedEdge: "invalid" as never },
+        liveIds,
+        "right",
+      ),
+    ).not.toHaveProperty("minimizedEdge");
+    const invalid = { ...minimized, restoreView: { layout: null } as never };
+    expect(resolveWorkspaceView(invalid, liveIds, "right")).not.toHaveProperty(
+      "minimizedEdge",
+    );
+    expect(restoreWorkspaceSplit(invalid)).not.toHaveProperty("restoreView");
+    expect(closeWorkspaceViews(minimized, liveIds, "")).toEqual({
+      layout: null,
+      focusedId: "",
+      order: [],
+      groups: {},
+    });
+    expect(collapseWorkspaceView(minimized, "top-a")).not.toHaveProperty(
+      "minimizedEdge",
+    );
+  });
+
+  it("ignores missing splits, invalid sashes, invalid sides and single-pane requests", () => {
+    const before = original();
+    expect(minimizeWorkspaceSide(before, "missing", 0, "before")).toBe(before);
+    for (const index of [-1, 2, 0.5, NaN, Infinity])
+      expect(minimizeWorkspaceSide(before, "columns", index, "before")).toBe(
+        before,
+      );
+    expect(
+      minimizeWorkspaceSide(before, "columns", 0, "invalid" as never),
+    ).toBe(before);
+    expect(restoreWorkspaceSplit(before)).toBe(before);
+    const single = collapseWorkspaceView(before, "right");
+    expect(minimizeWorkspaceSide(single, "columns", 0, "before")).toBe(single);
+    const empty = resolveWorkspaceView(undefined, [], "");
+    expect(minimizeWorkspaceSide(empty, "columns", 0, "before")).toBe(empty);
   });
 });
 

@@ -1,5 +1,5 @@
 import { discardEditorDrafts } from "../lib/workspaceTransfers";
-import { sessionWorkCwd } from "../lib/session";
+import { sessionNeedsInput, sessionWorkCwd } from "../lib/session";
 import { useBootSplashReady } from "../lib/bootSplash";
 import { selectWorkspaceArrangement } from "../lib/workspaceArrangement";
 import { flushSync } from "react-dom";
@@ -47,6 +47,8 @@ import {
   selectWorkspaceView,
   splitWorkspaceView,
   toggleWorkspaceExpansion,
+  minimizeWorkspaceSide,
+  restoreWorkspaceSplit,
   moveWorkspaceTab,
   reorderWorkspaceGroup,
   combineWorkspaceGroups,
@@ -835,8 +837,17 @@ export function DetachedWorkspace() {
       terminal: !sessions.length && files.some((f) => f.terminal),
       dirty: files.some((f) => state.dirtyFileIds?.includes(f.id)),
       groupId: tab.groupId,
+      needsInput: sessions.some(sessionNeedsInput),
     };
   });
+  const hiddenSplitTabs = state.view.restoreView
+    ? titleTabs.filter((tab) => !active.has(tab.id))
+    : [];
+  const hiddenSplitStatus = hiddenSplitTabs.some((tab) => tab.needsInput)
+    ? "attention"
+    : hiddenSplitTabs.some((tab) => tab.busyHarnesses.length > 0)
+      ? "working"
+      : undefined;
   const dragMove = (id: string, x: number, y: number) => {
     const stage = stageHost.current?.querySelector<HTMLElement>(
       ":scope > [data-workspace-stage]",
@@ -1034,7 +1045,7 @@ export function DetachedWorkspace() {
               ),
             }))
           }
-          expanded={!!state.view.restoreView}
+          expanded={active.size === 1}
           onToggleExpand={() =>
             change((s) => ({
               ...s,
@@ -1219,6 +1230,20 @@ export function DetachedWorkspace() {
           onLayoutChange={(layout) =>
             change((s) => ({ ...s, view: { ...s.view, layout } }))
           }
+          onMinimizeSide={(splitId, index, side) =>
+            change((s) => ({
+              ...s,
+              view: minimizeWorkspaceSide(s.view, splitId, index, side),
+            }))
+          }
+          onRestoreSplit={
+            state.view.restoreView
+              ? () =>
+                  change((s) => ({ ...s, view: restoreWorkspaceSplit(s.view) }))
+              : undefined
+          }
+          restoreEdge={state.view.minimizedEdge}
+          restoreStatus={hiddenSplitStatus}
           dragTarget={drag?.target ?? null}
           dragging={!!drag}
           headers={headers}

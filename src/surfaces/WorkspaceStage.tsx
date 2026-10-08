@@ -30,6 +30,12 @@ import {
   waitForBrowserHandoff,
 } from "../lib/browserHandoff";
 import { WORKSPACE_DROP_FEEDBACK } from "../hooks/useBrowserDropIndicator";
+import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+} from "../chrome/icons";
 import "./WorkspaceStage.css";
 
 export type WorkspaceSurfaceDropTarget =
@@ -50,6 +56,14 @@ export type WorkspaceStageProps = {
   headers?: Array<{ id: string; key?: string; content: ReactNode }>;
   onFocus: (id: string) => void;
   onLayoutChange: (layout: LayoutNode) => void;
+  onMinimizeSide?: (
+    splitId: string,
+    index: number,
+    side: "before" | "after",
+  ) => void;
+  onRestoreSplit?: () => void;
+  restoreEdge?: "left" | "right" | "up" | "down";
+  restoreStatus?: "working" | "attention";
   dragTarget: WorkspaceSurfaceDropTarget | null;
   dragging: boolean;
   dragLabel?: string;
@@ -290,6 +304,10 @@ export function WorkspaceStage({
   headers = [],
   onFocus,
   onLayoutChange,
+  onMinimizeSide,
+  onRestoreSplit,
+  restoreEdge = "left",
+  restoreStatus,
   dragTarget,
   dragging,
   dragLabel,
@@ -326,6 +344,8 @@ export function WorkspaceStage({
   const surfaceNodes = useRef(new Map<string, HTMLDivElement>());
   const headerNodes = useRef(new Map<string, HTMLDivElement>());
   const sashNodes = useRef(new Map<string, HTMLDivElement>());
+  const lastMinimizedSash = useRef<string | null>(null);
+  const pendingFocus = useRef<"restore" | "split" | null>(null);
   useLayoutEffect(() => {
     if (
       !dragging ||
@@ -351,14 +371,103 @@ export function WorkspaceStage({
     const localPosition = (position - rect.left) / zoom;
     marker.style.left = `${Math.max(1, Math.min(rect.width / zoom - 2, localPosition))}px`;
   }, [dragging, dragTarget]);
-  const current = useRef({ layout, onFocus, onLayoutChange });
-  current.current = { layout, onFocus, onLayoutChange };
+  const current = useRef({ layout, onFocus, onLayoutChange, onMinimizeSide });
+  current.current = { layout, onFocus, onLayoutChange, onMinimizeSide };
   const stopResize = useRef<((commit: boolean) => void) | null>(null);
   const leaves = layout ? layoutLeaves(layout) : [];
   const positions = new Map(leaves.map((leaf) => [leaf.id, leaf.rect]));
+  const sashes = layout ? layoutSashes(layout) : [];
+  function minimizePane(sash: LayoutSash, side: "before" | "after") {
+    if (!current.current.onMinimizeSide) return;
+    lastMinimizedSash.current = sashKey(sash);
+    pendingFocus.current = "restore";
+    current.current.onMinimizeSide(sash.splitId, sash.index, side);
+  }
+  // Keep controls inside the header's reserved 32px strip. Chromium draws above
+  // the web app, so a floating control over a pane body cannot be relied on.
+  function adjacentHeader(sash: LayoutSash, side: "before" | "after") {
+    const index = sash.index + (side === "after" ? 1 : 0);
+    const start = sash.sizes
+      .slice(0, index)
+      .reduce((sum, size) => sum + size, 0);
+    const end = start + sash.sizes[index];
+    const row = sash.dir === "right";
+    const child = row
+      ? {
+          x: sash.group.x + start * sash.group.w,
+          y: sash.group.y,
+          w: (end - start) * sash.group.w,
+          h: sash.group.h,
+        }
+      : {
+          x: sash.group.x,
+          y: sash.group.y + start * sash.group.h,
+          w: sash.group.w,
+          h: (end - start) * sash.group.h,
+        };
+    return leaves
+      .filter(
+        ({ rect }) =>
+          rect.x >= child.x - 1e-6 &&
+          rect.y >= child.y - 1e-6 &&
+          rect.x + rect.w <= child.x + child.w + 1e-6 &&
+          rect.y + rect.h <= child.y + child.h + 1e-6,
+      )
+      .sort(
+        (a, b) =>
+          a.rect.y - b.rect.y ||
+          (row && side === "after" ? a.rect.x - b.rect.x : b.rect.x - a.rect.x),
+      )[0]?.id;
+  }
+  const minimizeControls = new Map<string, LayoutSash[]>();
+  if (onMinimizeSide) {
+    for (const sash of sashes) {
+      const id = adjacentHeader(sash, "before");
+      if (id)
+        minimizeControls.set(id, [...(minimizeControls.get(id) ?? []), sash]);
+    }
+  }
+  const restoreHeaderId = onRestoreSplit
+    ? [...leaves].sort((a, b) => {
+        if (restoreEdge === "right")
+          return (
+            b.rect.x + b.rect.w - a.rect.x - a.rect.w || a.rect.y - b.rect.y
+          );
+        if (restoreEdge === "down")
+          return (
+            b.rect.y + b.rect.h - a.rect.y - a.rect.h || a.rect.x - b.rect.x
+          );
+        if (restoreEdge === "up")
+          return a.rect.y - b.rect.y || a.rect.x - b.rect.x;
+        return a.rect.x - b.rect.x || a.rect.y - b.rect.y;
+      })[0]?.id
+    : undefined;
+  const displayHeaders = [...headers];
+  if (onMinimizeSide || onRestoreSplit) {
+    for (const { id } of leaves) {
+      if (!displayHeaders.some((header) => header.id === id))
+        displayHeaders.push({ id, content: null });
+    }
+  }
   const headerContents = new Map(
-    headers.map(({ id, content }) => [id, content]),
+    displayHeaders.map(({ id, content }) => [id, content]),
   );
+  useLayoutEffect(() => {
+    if (!visible || !pendingFocus.current) return;
+    const target =
+      pendingFocus.current === "restore"
+        ? stage.current?.querySelector<HTMLElement>(".workspace-pane-restore")
+        : ((lastMinimizedSash.current
+            ? sashNodes.current.get(lastMinimizedSash.current)
+            : null) ??
+          headerNodes.current
+            .get(focusedId)
+            ?.querySelector<HTMLElement>("button, [tabindex='0']"));
+    if (target) {
+      target.focus({ preventScroll: true });
+      pendingFocus.current = null;
+    }
+  }, [layout, visible, focusedId, restoreHeaderId]);
   // Hidden tabs already keep their React/native owners. Keep the last visited
   // layout too, so returning to a workspace does not rebuild every text/editor
   // measurement from a display:none subtree. Only committed visits are warm;
@@ -479,7 +588,6 @@ export function WorkspaceStage({
     .filter(({ id }) => headerContents.has(id))
     .map(({ id }) => id)
     .join("\0");
-  const sashes = layout ? layoutSashes(layout) : [];
 
   function paintSurface(id: string, rect: LayoutRect) {
     const element = surfaceNodes.current.get(id);
@@ -533,6 +641,12 @@ export function WorkspaceStage({
     const horizontal = sash.dir === "right";
     const startPointer = horizontal ? event.clientX : event.clientY;
     const startBoundary = sashBoundary(sash);
+    const localZoom = effectiveCssZoom(container);
+    const beforeEdge = sash.sizes
+      .slice(0, sash.index)
+      .reduce((sum, size) => sum + size, 0);
+    const afterEdge =
+      beforeEdge + sash.sizes[sash.index] + sash.sizes[sash.index + 1];
     const span = horizontal
       ? sash.group.w * bounds.width
       : sash.group.h * bounds.height;
@@ -549,6 +663,8 @@ export function WorkspaceStage({
     container.dataset.resizing = "true";
     let boundary = sashBoundary(sash);
     let moved = false;
+    let minimizeSide: "before" | "after" | null = null;
+    let cue: HTMLElement | null = null;
     let frame: number | null = null;
     let fallback: number | null = null;
     const draft = () => setSplitRatio(tree, sash.splitId, sash.index, boundary);
@@ -563,10 +679,45 @@ export function WorkspaceStage({
       paint(draft());
     };
     const readPointer = (event: PointerEvent) => {
-      boundary =
-        startBoundary +
-        ((horizontal ? event.clientX : event.clientY) - startPointer) / span;
+      const travel =
+        (horizontal ? event.clientX : event.clientY) - startPointer;
+      boundary = startBoundary + travel / span;
       moved = moved || Math.abs(boundary - sashBoundary(sash)) > 0.0001;
+      // Layout resizing retains its minimum widths. Only a deliberate release
+      // near the raw divider's outside edge requests hiding an adjacent pane.
+      const next =
+        current.current.onMinimizeSide && Math.abs(travel) >= 12 * localZoom
+          ? travel < 0 &&
+            (boundary - beforeEdge) * span <= 24 * localZoom + 1e-6
+            ? "before"
+            : travel > 0 &&
+                (afterEdge - boundary) * span <= 24 * localZoom + 1e-6
+              ? "after"
+              : null
+          : null;
+      if (next !== minimizeSide) {
+        if (cue) cue.hidden = true;
+        cue = null;
+        minimizeSide = next;
+        if (next) {
+          // The hidden side can be narrower than the label. Put feedback in
+          // the surviving neighbor's header, beside the divider being dragged.
+          const id = adjacentHeader(
+            sash,
+            next === "before" ? "after" : "before",
+          );
+          cue = id
+            ? (headerNodes.current
+                .get(id)
+                ?.querySelector<HTMLElement>("[data-minimize-cue]") ?? null)
+            : null;
+          if (cue) {
+            cue.textContent = `Release to hide ${horizontal ? (next === "before" ? "left" : "right") : next === "before" ? "upper" : "lower"} pane`;
+            cue.dataset.align = next === "before" ? "left" : "right";
+            cue.hidden = false;
+          }
+        }
+      }
     };
     const move = (event: PointerEvent) => {
       if (event.pointerId !== pointerId) return;
@@ -576,7 +727,7 @@ export function WorkspaceStage({
         fallback = window.setTimeout(flush, DRAG_FRAME_DEADLINE_MS);
       }
     };
-    const finish = (commit: boolean) => {
+    const finish = (commit: boolean, allowMinimize = false) => {
       if (stopResize.current !== finish) return;
       stopResize.current = null;
       cancelPaint();
@@ -594,7 +745,18 @@ export function WorkspaceStage({
       restoreSelection();
       document.body.style.cursor = previousCursor;
       delete container.dataset.resizing;
-      if (commit && moved) {
+      if (cue) cue.hidden = true;
+      if (
+        commit &&
+        allowMinimize &&
+        minimizeSide &&
+        current.current.onMinimizeSide
+      ) {
+        // Restore committed geometry before removing a pane so retained drafts
+        // and native page owners keep the pre-drag measurements for restoration.
+        if (current.current.layout) paint(current.current.layout);
+        minimizePane(sash, minimizeSide);
+      } else if (commit && moved) {
         const next = draft();
         paint(next);
         current.current.onLayoutChange(next);
@@ -603,7 +765,7 @@ export function WorkspaceStage({
     const up = (event: PointerEvent) => {
       if (event.pointerId !== pointerId) return;
       readPointer(event);
-      finish(true);
+      finish(true, true);
     };
     const cancel = (event: PointerEvent) => {
       if (event.pointerId === pointerId) finish(false);
@@ -711,9 +873,27 @@ export function WorkspaceStage({
           </div>
         );
       })}
-      {headers.map(({ id, key, content }) => {
+      {displayHeaders.map(({ id, key, content }) => {
         const rect = positions.get(id);
         if (!rect) return null;
+        const minimize = minimizeControls.get(id) ?? [];
+        const restore = id === restoreHeaderId;
+        const restoreRight = restore && restoreEdge === "right";
+        const RestoreIcon =
+          restoreEdge === "right"
+            ? ChevronLeft
+            : restoreEdge === "up"
+              ? ChevronDown
+              : restoreEdge === "down"
+                ? ChevronUp
+                : ChevronRight;
+        const restoreLabel = `Show hidden pane${
+          restoreStatus === "working"
+            ? " (agent working)"
+            : restoreStatus === "attention"
+              ? " (needs attention)"
+              : ""
+        }`;
         return (
           <div
             key={`header:${key ?? id}`}
@@ -726,15 +906,82 @@ export function WorkspaceStage({
             data-drop-target={
               dragging && dragTarget?.id === id ? "true" : undefined
             }
-            style={headerStyle(rect)}
-            onPointerDownCapture={() => {
+            style={{
+              ...headerStyle(rect),
+              paddingLeft: restore && !restoreRight ? 28 : undefined,
+              paddingRight:
+                minimize.length || restoreRight
+                  ? (minimize.length + Number(restoreRight)) * 26 + 2
+                  : undefined,
+            }}
+            onPointerDownCapture={(event) => {
+              if ((event.target as Element).closest(".workspace-pane-toggle"))
+                return;
               if (visible && focusedId !== id) current.current.onFocus(id);
             }}
-            onFocusCapture={() => {
+            onFocusCapture={(event) => {
+              if ((event.target as Element).closest(".workspace-pane-toggle"))
+                return;
               if (visible && focusedId !== id) current.current.onFocus(id);
             }}
           >
             {content}
+            {restore ? (
+              <button
+                type="button"
+                className="workspace-pane-toggle workspace-pane-restore"
+                data-edge={restoreEdge}
+                data-status={restoreStatus}
+                aria-label={restoreLabel}
+                title={restoreLabel}
+                onPointerDown={(event) => event.stopPropagation()}
+                onDoubleClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
+                onClick={() => {
+                  pendingFocus.current = "split";
+                  onRestoreSplit?.();
+                }}
+              >
+                <RestoreIcon size={13} aria-hidden="true" />
+                {restoreStatus ? (
+                  <span className="workspace-pane-status" aria-hidden="true" />
+                ) : null}
+              </button>
+            ) : null}
+            {minimize.length ? (
+              <div
+                className="workspace-pane-minimize-controls"
+                style={{ right: restoreRight ? 28 : 2 }}
+              >
+                {minimize.map((sash) => {
+                  const Icon = sash.dir === "right" ? ChevronLeft : ChevronUp;
+                  const label = `Hide ${sash.dir === "right" ? "left" : "upper"} pane`;
+                  return (
+                    <button
+                      key={sashKey(sash)}
+                      type="button"
+                      className="workspace-pane-toggle"
+                      aria-label={label}
+                      title={`${label} (or drag the divider to the edge)`}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onDoubleClick={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => event.stopPropagation()}
+                      onClick={() => minimizePane(sash, "before")}
+                    >
+                      <Icon size={13} aria-hidden="true" />
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+            {onMinimizeSide ? (
+              <span
+                className="workspace-minimize-cue"
+                data-minimize-cue
+                hidden
+                aria-hidden="true"
+              />
+            ) : null}
             {dragging &&
             dragTarget?.id === id &&
             dragTarget.edge === "tab" &&

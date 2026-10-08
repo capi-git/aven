@@ -21,6 +21,8 @@ export type WorkspaceViewSnapshot = {
 export type WorkspaceView = WorkspaceViewSnapshot & {
   /** One validated split snapshot; never contains another restore snapshot. */
   restoreView?: WorkspaceViewSnapshot;
+  /** Edge where a temporary pane minimization can be restored. */
+  minimizedEdge?: ViewEdge;
 };
 
 /** A view arranges existing tabs; it never owns or closes their sessions/pages. */
@@ -218,7 +220,15 @@ export function resolveWorkspaceView(
     ids,
     restore.focusedId || fallback,
   );
-  return snapshot.layout ? { ...next, restoreView: snapshot } : next;
+  if (!snapshot.layout) return next;
+  const minimizedEdge = value?.minimizedEdge;
+  return {
+    ...next,
+    restoreView: snapshot,
+    ...(minimizedEdge && ["left", "right", "up", "down"].includes(minimizedEdge)
+      ? { minimizedEdge }
+      : {}),
+  };
 }
 
 export function workspaceGroupOwner(
@@ -457,6 +467,92 @@ export function collapseWorkspaceView(
   };
 }
 
+function findWorkspaceSplit(
+  node: LayoutNode,
+  id: string,
+): Extract<LayoutNode, { type: "split" }> | undefined {
+  if (node.type === "leaf") return undefined;
+  if (node.id === id) return node;
+  for (const child of node.children) {
+    const found = findWorkspaceSplit(child, id);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/** Hide the adjacent subtree, retaining every tab and the original split. */
+export function minimizeWorkspaceSide(
+  view: WorkspaceView,
+  splitId: string,
+  index: number,
+  side: "before" | "after",
+): WorkspaceView {
+  if (
+    !view.layout ||
+    !Number.isInteger(index) ||
+    (side !== "before" && side !== "after")
+  )
+    return view;
+  const current = resolveWorkspaceView(view, view.order, view.focusedId);
+  if (!current.layout) return view;
+  const split = findWorkspaceSplit(current.layout, splitId);
+  if (!split || index < 0 || index >= split.children.length - 1) return view;
+
+  const before = side === "before";
+  const removedIndex = before ? index : index + 1;
+  const receivingIndex = before ? index + 1 : index;
+  const removed = leafIds(split.children[removedIndex]);
+  const receiving = leafIds(split.children[receivingIndex]);
+  const owner = before ? receiving[0] : receiving[receiving.length - 1];
+  if (!owner || !removed.length) return view;
+
+  const groups = { ...current.groups };
+  groups[owner] = [...groups[owner], ...removed.flatMap((id) => groups[id])];
+  removed.forEach((id) => delete groups[id]);
+  const replace = (node: LayoutNode): LayoutNode => {
+    if (node.type === "leaf") return node;
+    if (node.id !== splitId)
+      return { ...node, children: node.children.map(replace) };
+    const children = node.children.filter((_, i) => i !== removedIndex);
+    if (children.length === 1) return children[0];
+    // Give the freed space to the adjacent sibling; unrelated panes stay put.
+    const sizes = node.sizes.map((size, i) =>
+      i === receivingIndex ? size + node.sizes[removedIndex] : size,
+    );
+    sizes.splice(removedIndex, 1);
+    return { ...node, children, sizes };
+  };
+  const { restoreView, minimizedEdge: _edge, ...snapshot } = current;
+  return {
+    ...current,
+    layout: replace(current.layout),
+    focusedId: removed.includes(current.focusedId) ? owner : current.focusedId,
+    groups,
+    restoreView: restoreView ?? snapshot,
+    minimizedEdge:
+      split.dir === "right"
+        ? before
+          ? "left"
+          : "right"
+        : before
+          ? "up"
+          : "down",
+  };
+}
+
+/** Restore surviving pane groups and sizes, keeping the current tab visible. */
+export function restoreWorkspaceSplit(view: WorkspaceView): WorkspaceView {
+  if (!view.restoreView) return view;
+  const current = resolveWorkspaceView(view, view.order, view.focusedId);
+  if (!current.restoreView) return current;
+  const restored = resolveWorkspaceView(
+    current.restoreView,
+    current.order,
+    current.restoreView.focusedId,
+  );
+  return selectWorkspaceView(restored, current.focusedId);
+}
+
 /** Expand temporarily; restore exact surviving pane groups and proportions. */
 export function toggleWorkspaceExpansion(
   view: WorkspaceView,
@@ -466,17 +562,16 @@ export function toggleWorkspaceExpansion(
   if (!workspaceGroupOwner(view, id) || !view.layout) return view;
   const current = resolveWorkspaceView(view, view.order, view.focusedId);
   if (current.layout && leafIds(current.layout).length > 1) {
-    const { restoreView: _previous, ...snapshot } = current;
-    return { ...collapseWorkspaceView(current, id), restoreView: snapshot };
+    const { restoreView, minimizedEdge, ...snapshot } = current;
+    return {
+      ...collapseWorkspaceView(current, id),
+      restoreView: restoreView ?? snapshot,
+      ...(minimizedEdge ? { minimizedEdge } : {}),
+    };
   }
   if (current.restoreView) {
-    const restored = resolveWorkspaceView(
-      current.restoreView,
-      current.order,
-      current.restoreView.focusedId,
-    );
     // Keep the page whose Restore control was clicked visible in its split.
-    return selectWorkspaceView(restored, id);
+    return selectWorkspaceView(restoreWorkspaceSplit(current), id);
   }
   return fallbackSessionId && fallbackSessionId !== id
     ? splitWorkspaceView(current, fallbackSessionId, "left", id)
