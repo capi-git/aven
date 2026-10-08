@@ -56,7 +56,6 @@ mod race;
 mod rate_limits;
 mod scheduled_agents;
 mod search;
-mod session_pip;
 mod session_store;
 mod shell_navigation;
 mod skills;
@@ -256,7 +255,6 @@ pub fn run() {
         .manage(pty::PtyHost::new())
         .manage(window::UpdateRestartState::default())
         .manage(window_transfer::WindowTransferState::new())
-        .manage(session_pip::SessionPipState::default())
         .manage(workspace_window::WorkspaceWindowState::default())
         .manage(usage_panel::UsagePanelState::default())
         .manage(access_panel::AccessPanelState::default())
@@ -364,17 +362,6 @@ pub fn run() {
             workspace_window::workspace_window_recover,
             workspace_window::workspace_window_close,
             browser::browser_attach,
-            session_pip::session_pip_open,
-            session_pip::session_pip_update,
-            session_pip::session_pip_get_state,
-            session_pip::session_pip_action,
-            session_pip::session_pip_draft,
-            session_pip::session_pip_return,
-            session_pip::session_pip_set_pinned,
-            session_pip::session_pip_show,
-            session_pip::session_pip_close,
-            session_pip::session_pip_flush_all,
-            pip_group::pip_group_windows,
             default_cwd,
             home_dir,
             notifications::notification_permission,
@@ -532,7 +519,6 @@ pub fn run() {
             window::abandon_update_install,
             provider_updates::provider_refresh_cli,
             window::set_window_glass_enabled,
-            window_transfer::stage_window_transfer,
             window_transfer::take_window_transfer,
             chat_background::save_chat_background,
             chat_background::remove_chat_background,
@@ -583,9 +569,7 @@ pub fn run() {
                 control::window_closed(handle, &label);
                 browser_agent::window_destroyed(&label);
                 browser::window_destroyed(handle, &label);
-                session_pip::window_destroyed(handle, &label);
                 workspace_window::window_destroyed(handle, &label);
-                pip_group::window_destroyed(handle, &label);
                 let other_window = handle
                     .windows()
                     .keys()

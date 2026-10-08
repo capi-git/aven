@@ -1778,9 +1778,8 @@ fn route_toolbar_command(context: Arc<PageContext>, action: String) {
                 .unwrap_or_else(|error| error.into_inner()) = Some(action);
             placement.window.is_some()
         };
-        // set_floating owns the existing group-return handshake. A grouped
-        // return starts asynchronously; it flushes this intent when docking
-        // actually finishes, not when the group merely accepts the request.
+        // Dock the floating page first; the intent flushes only once docking
+        // has finished.
         if floating {
             if let Err(error) = set_floating(context.clone(), false).await {
                 context
@@ -1797,14 +1796,6 @@ fn route_toolbar_command(context: Arc<PageContext>, action: String) {
 }
 
 async fn set_floating(context: Arc<PageContext>, floating: bool) -> Result<(), String> {
-    if !floating {
-        let current = context.placement.lock().await.window.clone();
-        if current.as_ref().is_some_and(|label| {
-            crate::pip_group::request_return(context.caller.app_handle(), label)
-        }) {
-            return Ok(());
-        }
-    }
     let mut placement = context.placement.lock().await;
     if context.closed.load(Ordering::Acquire) {
         return Err("Browser is closed".into());

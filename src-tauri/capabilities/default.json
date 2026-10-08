@@ -37,7 +37,6 @@
   "webviews": [
     "main",
     "window-*",
-    "pip-session-*",
     "workspace-detached-*"
   ]
 }

@@ -440,9 +440,6 @@ pub fn hide_window(window: Window) -> Result<(), String> {
     if window.label().starts_with("workspace-detached-") {
         return crate::workspace_window::request_return(window.app_handle(), window.label());
     }
-    if window.label().starts_with("pip-session-") {
-        return crate::session_pip::request_return(window.app_handle(), window.label());
-    }
     window.hide().map_err(|err| err.to_string())
 }
 
@@ -453,9 +450,6 @@ pub async fn destroy_window(window: Window) -> Result<(), String> {
     let _work = begin_runtime_work(window.app_handle())?;
     if window.label().starts_with("workspace-detached-") {
         return crate::workspace_window::request_return(window.app_handle(), window.label());
-    }
-    if window.label().starts_with("pip-session-") {
-        return crate::session_pip::request_return(window.app_handle(), window.label());
     }
     #[cfg(all(feature = "chromium", target_os = "macos"))]
     crate::browser::close_window_pages(window.app_handle(), Some(window.label())).await?;
@@ -512,11 +506,6 @@ pub fn request_quit(app: &AppHandle) {
     let Ok(_work) = begin_runtime_work(app) else {
         return;
     };
-    if let Some(label) = crate::session_pip::focused_label(app) {
-        if crate::session_pip::request_quit(app, &label).is_ok() {
-            return;
-        }
-    }
     let windows = app.windows();
     let target = crate::browser::focused_floating_owner(app)
         .and_then(|owner| windows.get(&owner).cloned())

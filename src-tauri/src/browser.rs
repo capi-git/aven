@@ -635,24 +635,6 @@ pub(crate) fn return_floating(root: &str) {
     floating::request_return(root);
 }
 
-pub(crate) fn floating_owner(label: &str) -> Option<String> {
-    let entries = registry().lock().unwrap_or_else(|error| error.into_inner());
-    let root = entries.floating.get(label)?;
-    Some(entries.roots.get(root)?.caller.window().label().to_string())
-}
-
-pub(crate) fn return_floating_window(label: &str) {
-    let root = registry()
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .floating
-        .get(label)
-        .cloned();
-    if let Some(root) = root {
-        floating::request_return(&root);
-    }
-}
-
 pub fn dispatch_floating_menu(app: &AppHandle, id: &str) -> bool {
     floating::dispatch_menu(app, id)
 }
