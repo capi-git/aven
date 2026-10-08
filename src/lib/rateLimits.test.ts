@@ -112,6 +112,101 @@ describe("parseResetTimestamp", () => {
 });
 
 describe("parseClaudeOAuthUsage", () => {
+  const fableLimit = {
+    kind: "weekly_scoped",
+    group: "weekly",
+    percent: 42,
+    resets_at: "2026-10-14T00:00:00.000Z",
+    severity: "normal",
+    is_active: false,
+    scope: { model: { display_name: "Fable 5" } },
+  };
+
+  it("keeps each scoped Fable allowance separate from overall weekly usage", () => {
+    const limits = parseClaudeOAuthUsage(
+      JSON.stringify({
+        seven_day: { utilization: 2 },
+        limits: [
+          fableLimit,
+          {
+            ...fableLimit,
+            percent: 0,
+            resets_at: null,
+            scope: { model: { display_name: "Fable 5.1" } },
+          },
+        ],
+      }),
+    );
+    expect(limits.weekly?.usedPercent).toBe(2);
+    expect(limits.scopedWeekly).toEqual([
+      {
+        model: "Fable 5",
+        window: {
+          usedPercent: 42,
+          windowMinutes: 10_080,
+          resetsAt: Date.parse(fableLimit.resets_at),
+        },
+      },
+      {
+        model: "Fable 5.1",
+        window: { usedPercent: 0, windowMinutes: 10_080, resetsAt: null },
+      },
+    ]);
+  });
+
+  it("retains a Fable-only snapshot while refreshing or reporting an error", () => {
+    const limits = parseClaudeOAuthUsage(
+      JSON.stringify({ limits: [fableLimit] }),
+    );
+    expect(hasRateLimitWindows(limits)).toBe(true);
+    expect(fetchingRateLimits("claude", limits).scopedWeekly).toEqual(
+      limits.scopedWeekly,
+    );
+    expect(errorRateLimits("claude", "offline", limits).scopedWeekly).toEqual(
+      limits.scopedWeekly,
+    );
+  });
+
+  it.each([undefined, null, "unknown", "", "Infinity"])(
+    "keeps invalid Fable usage %s unknown instead of reporting a full allowance",
+    (percent) => {
+      const limits = parseClaudeOAuthUsage(
+        JSON.stringify({
+          limits: [{ ...fableLimit, percent }],
+        }),
+      );
+      expect(limits.scopedWeekly).toEqual([{ model: "Fable 5", window: null }]);
+      expect(hasRateLimitWindows(limits)).toBe(false);
+    },
+  );
+
+  it("ignores unrelated and malformed scopes without dropping a valid Fable row", () => {
+    const limits = parseClaudeOAuthUsage(
+      JSON.stringify({
+        limits: [
+          null,
+          3,
+          {},
+          { ...fableLimit, scope: null },
+          { ...fableLimit, kind: "five_hour" },
+          { ...fableLimit, scope: { model: { display_name: "Sonnet" } } },
+          { ...fableLimit, scope: { model: { display_name: "Fableish" } } },
+          { ...fableLimit, scope: { model: { display_name: "fable" } } },
+        ],
+      }),
+    );
+    expect(limits.scopedWeekly?.map((limit) => limit.model)).toEqual(["fable"]);
+  });
+
+  it.each([undefined, null, {}, "invalid"])(
+    "accepts absent or invalid limits %s",
+    (limits) => {
+      expect(
+        parseClaudeOAuthUsage(JSON.stringify({ limits })).scopedWeekly,
+      ).toEqual([]);
+    },
+  );
+
   it("maps five_hour and seven_day windows", () => {
     const limits = parseClaudeOAuthUsage(
       JSON.stringify({

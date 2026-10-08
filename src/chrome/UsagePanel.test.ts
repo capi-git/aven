@@ -3,7 +3,13 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UsagePanelSnapshot } from "../lib/usagePanel";
-import { type ProviderRateLimits, idleRateLimits } from "../lib/rateLimits";
+import {
+  type ProviderRateLimits,
+  idleRateLimits,
+  parseClaudeOAuthUsage,
+  fetchingRateLimits,
+  errorRateLimits,
+} from "../lib/rateLimits";
 import { UsagePanelContent } from "./UsagePanel";
 
 let container: HTMLDivElement;
@@ -74,6 +80,74 @@ function bar(label: string) {
 }
 
 describe("usage panel", () => {
+  it("shows reported Fable weekly allowances with their own remaining usage and reset", async () => {
+    const claude = parseClaudeOAuthUsage(
+      JSON.stringify({
+        five_hour: { utilization: 80 },
+        seven_day: { utilization: 2 },
+        limits: [
+          {
+            kind: "weekly_scoped",
+            percent: 42,
+            resets_at: now + 172_800_000,
+            scope: { model: { display_name: "Fable 5" } },
+          },
+          {
+            kind: "weekly_scoped",
+            percent: 0,
+            resets_at: null,
+            scope: { model: { display_name: "Fable 5.1" } },
+          },
+        ],
+      }),
+    );
+    for (const limits of [
+      claude,
+      fetchingRateLimits("claude", claude),
+      errorRateLimits("claude", "offline", claude),
+    ]) {
+      await render(snapshot({ providers: [limits] }));
+      expect(bar("Claude Code Weekly").getAttribute("aria-valuenow")).toBe(
+        "98",
+      );
+      expect(
+        bar("Claude Code Fable 5 weekly").getAttribute("aria-valuenow"),
+      ).toBe("58");
+      expect(
+        bar("Claude Code Fable 5 weekly").parentElement?.textContent,
+      ).toContain("Resets in 2d");
+      expect(
+        bar("Claude Code Fable 5.1 weekly").getAttribute("aria-valuenow"),
+      ).toBe("100");
+      expect(
+        bar("Claude Code Fable 5.1 weekly").parentElement?.textContent,
+      ).toContain("Reset time not reported");
+    }
+  });
+
+  it("does not invent a Fable allowance when absent or a percentage when unknown", async () => {
+    await render();
+    expect(container.textContent).not.toContain("Fable");
+    const claude = parseClaudeOAuthUsage(
+      JSON.stringify({
+        limits: [
+          {
+            kind: "weekly_scoped",
+            percent: null,
+            scope: { model: { display_name: "Fable" } },
+          },
+        ],
+      }),
+    );
+    await render(snapshot({ providers: [claude] }));
+    const progress = bar("Claude Code Fable weekly");
+    expect(progress.hasAttribute("aria-valuenow")).toBe(false);
+    expect(progress.getAttribute("aria-valuetext")).toBe("Unknown");
+    expect(progress.parentElement?.textContent).toContain(
+      "Not reported by provider",
+    );
+  });
+
   it("shows remaining capacity consistently for context and each provider window", async () => {
     await render();
     expect(bar("Selected task context").getAttribute("aria-valuenow")).toBe(
