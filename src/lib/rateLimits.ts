@@ -20,6 +20,8 @@ export type ProviderRateLimits = {
   weekly: RateLimitWindow | null;
   /** Codex free plans report a single 30-day window instead of 5h/weekly. */
   monthly?: RateLimitWindow | null;
+  /** Model-specific weekly allowances reported separately from account usage. */
+  scopedWeekly?: { model: string; window: RateLimitWindow | null }[];
   updatedAt: number;
   error: string | null;
   status: RateLimitStatus;
@@ -31,9 +33,17 @@ export const MONTHLY_WINDOW_MINUTES = 43_200;
 
 /** True when a snapshot carries any usage window worth showing or keeping. */
 export function hasRateLimitWindows(
-  limits: Pick<ProviderRateLimits, "session" | "weekly" | "monthly">,
+  limits: Pick<
+    ProviderRateLimits,
+    "session" | "weekly" | "monthly" | "scopedWeekly"
+  >,
 ): boolean {
-  return Boolean(limits.session || limits.weekly || limits.monthly);
+  return Boolean(
+    limits.session ||
+    limits.weekly ||
+    limits.monthly ||
+    limits.scopedWeekly?.some((limit) => limit.window),
+  );
 }
 
 /** Background poll while the window is visible. */
@@ -281,10 +291,41 @@ export function parseClaudeOAuthUsage(body: string): ProviderRateLimits {
     provider: "claude",
     session: mapUsageWindow(rec.five_hour, SESSION_WINDOW_MINUTES),
     weekly: mapUsageWindow(rec.seven_day, WEEKLY_WINDOW_MINUTES),
+    scopedWeekly: parseClaudeFableWeekly(rec.limits),
     updatedAt: Date.now(),
     error: null,
     status: "ok",
   };
+}
+
+function parseClaudeFableWeekly(
+  raw: unknown,
+): NonNullable<ProviderRateLimits["scopedWeekly"]> {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((value) => {
+    const limit = asRecord(value);
+    const scope = asRecord(limit?.scope);
+    const model = asRecord(scope?.model)?.display_name;
+    // Claude Code reports Fable allowances in limits[], not seven_day.
+    // Match its supported model display names; is_active does not determine
+    // whether an allowance exists (an unused allowance can be inactive).
+    if (
+      limit?.kind !== "weekly_scoped" ||
+      typeof model !== "string" ||
+      !/^(?:Fable|Fable 5|Fable 5\.1)$/i.test(model)
+    ) {
+      return [];
+    }
+    return [
+      {
+        model,
+        window: mapUsageWindow(
+          { utilization: limit.percent, resets_at: limit.resets_at },
+          WEEKLY_WINDOW_MINUTES,
+        ),
+      },
+    ];
+  });
 }
 
 type CodexWindowSnapshot = {

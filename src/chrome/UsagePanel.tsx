@@ -173,6 +173,17 @@ function ProviderUsage({
         status={limits.status}
         now={now}
       />
+      {limits.provider === "claude" &&
+        limits.scopedWeekly?.map((limit, index) => (
+          <RateWindow
+            key={`${limit.model}-${index}`}
+            provider={name}
+            label={`${limit.model} weekly`}
+            window={limit.window}
+            status={limits.status}
+            now={now}
+          />
+        ))}
       {limits.monthly && (
         <RateWindow
           provider={name}
