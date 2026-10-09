@@ -16,11 +16,16 @@ import {
 } from "./TitleBar";
 
 const nativeWindow = vi.hoisted(() => ({
+  setFocus: vi.fn().mockResolvedValue(undefined),
   setTitle: vi.fn().mockResolvedValue(undefined),
   getName: vi.fn().mockResolvedValue("Aven"),
   startDragging: vi.fn().mockResolvedValue(undefined),
   toggleMaximize: vi.fn().mockResolvedValue(undefined),
 }));
+vi.mock("@tauri-apps/api/webview", () => ({
+  getCurrentWebview: () => ({ setFocus: vi.fn().mockResolvedValue(undefined) }),
+}));
+vi.mock("@tauri-apps/api/core", () => ({ isTauri: () => true }));
 vi.mock("@tauri-apps/api/app", () => ({ getName: nativeWindow.getName }));
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => nativeWindow,
@@ -361,6 +366,56 @@ describe("browser tab integration", () => {
     await render({ activeId: "web-1" });
     expect(ids()).toEqual(["a", "b", "web-1"]);
     expect(pages).toHaveLength(3);
+  });
+
+  it("keeps Recent inside the desktop app, anchored after resize, with search and Escape focus", async () => {
+    vi.stubGlobal("innerWidth", 1200);
+    vi.stubGlobal("innerHeight", 800);
+    await render({
+      browserTabs: [
+        { id: "web-1", title: "First page", url: "https://example.com" },
+      ],
+      activeId: "web-1",
+      onKeepBrowser: vi.fn(),
+    });
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Recent browser tabs"]',
+    )!;
+    let rect = new DOMRect(800, 32, 60, 24);
+    vi.spyOn(trigger, "getBoundingClientRect").mockImplementation(() => rect);
+    const realFocus = HTMLElement.prototype.focus;
+    vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (
+      this: HTMLElement,
+      options,
+    ) {
+      if (!this.closest('[style*="visibility: hidden"]'))
+        realFocus.call(this, options);
+    });
+    await act(async () => trigger.click());
+    const search = document.querySelector<HTMLInputElement>(
+      '[aria-label="Search Recent browser tabs"]',
+    )!;
+    const frame = search.closest<HTMLElement>(".aven-popover-frame")!;
+    expect(frame.parentElement).toBe(document.body);
+    expect(frame.style.left).toBe("560px");
+    expect(frame.style.top).toBe("60px");
+    expect(document.activeElement).toBe(search);
+    rect = new DOMRect(950, 32, 60, 24);
+    await act(async () => window.dispatchEvent(new Event("resize")));
+    expect(frame.style.left).toBe("710px");
+    expect(
+      document.querySelectorAll('[aria-label="Search Recent browser tabs"]'),
+    ).toHaveLength(1);
+    await act(async () =>
+      search.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      ),
+    );
+    expect(
+      document.querySelector('[aria-label="Search Recent browser tabs"]'),
+    ).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    expect(props.onSelectBrowser).not.toHaveBeenCalled();
   });
 
   it("keeps a preview without resurrecting hidden pages and retains it on the next open", async () => {
@@ -1066,12 +1121,9 @@ describe("browser tab integration", () => {
       expect(drawn()).toEqual(["a", "b", "c"]);
     });
 
-    it("moves a group to a window and closes it with a fallback tab", async () => {
-      const onMoveTabsToWindow = vi.fn();
+    it("keeps groups in the workspace and closes them with a fallback tab", async () => {
       await render({
         tabs: [tab({ id: "a" }), tab({ id: "b" }), tab({ id: "c" })],
-        windowTargets: [{ id: "window-2", label: "Work window" }],
-        onMoveTabsToWindow,
       });
       await makeGroup("b", "Move me");
       await openTabMenu("c");
@@ -1083,18 +1135,56 @@ describe("browser tab integration", () => {
           ),
         );
       await openLabelMenu();
-      await choose("Move group to", "Work window");
-      expect(onMoveTabsToWindow).toHaveBeenCalledExactlyOnceWith(
-        ["b", "c"],
-        "window-2",
+      expect(document.querySelector('[role="menu"]')?.textContent).not.toMatch(
+        /window/i,
       );
-      await openLabelMenu();
       await choose("Close group");
       expect(props.onCloseMany).toHaveBeenCalledExactlyOnceWith(
         ["b", "c"],
         "a",
       );
       expect(label()).toBeNull();
+    });
+
+    it("cancels a group drag outside the app without moving or closing its tabs", async () => {
+      await render({
+        tabs: [tab({ id: "a" }), tab({ id: "b" }), tab({ id: "c" })],
+        onReorderSurfaces: vi.fn(),
+        onSurfaceDragEnd: vi.fn(),
+      });
+      await makeGroup("b", "Keep here");
+      const handle = label()!;
+      const slot = handle.closest<HTMLElement>(".personal-tab-group-slot")!;
+      slot.getBoundingClientRect = () => new DOMRect(100, 0, 100, 32);
+      slot.setPointerCapture = vi.fn();
+      slot.releasePointerCapture = vi.fn();
+      container.querySelector<HTMLElement>(
+        '[role="tablist"]',
+      )!.getBoundingClientRect = () => new DOMRect(0, 0, 400, 32);
+      const pointer = (
+        target: EventTarget,
+        type: string,
+        x: number,
+        y: number,
+      ) =>
+        act(async () =>
+          target.dispatchEvent(
+            new PointerEvent(type, {
+              bubbles: true,
+              pointerId: 1,
+              button: 0,
+              clientX: x,
+              clientY: y,
+            }),
+          ),
+        );
+      await pointer(handle, "pointerdown", 150, 16);
+      await pointer(window, "pointermove", -100, -100);
+      await pointer(window, "pointerup", -100, -100);
+      expect(drawn()).toEqual(["a", "[Keep here]", "b", "c"]);
+      expect(props.onReorderSurfaces).not.toHaveBeenCalled();
+      expect(props.onSurfaceDragEnd).not.toHaveBeenCalled();
+      expect(props.onCloseMany).not.toHaveBeenCalled();
     });
 
     it("joins a group when a tab is dropped right after its label", async () => {
@@ -1784,7 +1874,6 @@ describe("browser tab integration", () => {
     await render({
       paneLocal: true,
       groupId: "team",
-      onMoveGroupToWindow: vi.fn(),
       tabs: [
         tab({ id: "a", harnesses: ["codex"], busyHarnesses: ["codex"] }),
         tab({ id: "b", harnesses: ["claude"] }),
@@ -1803,7 +1892,7 @@ describe("browser tab integration", () => {
       ),
     ).toBeNull();
     // Without a group drag there is nothing for the grip to do, so it takes
-    // no width; moving the group to a window stays in the tab menu.
+    // no width.
     expect(container.querySelector(".personal-tab-group-handle")).toBeNull();
     expect(marks('[data-surface-tab-id="a"]')).toEqual(["codex"]);
     await render({ activeId: "a" });
@@ -1831,12 +1920,9 @@ describe("browser tab integration", () => {
     ).toEqual(["claude", "codex"]);
   });
 
-  it("offers precise tab and pane window destinations, returns, and history callbacks", async () => {
+  it("offers legacy window returns and history without new window destinations", async () => {
     await render({
       groupId: "group-owner",
-      windowTargets: [{ id: "window-2", label: "Work window" }],
-      onMoveTabToWindow: vi.fn(),
-      onMoveGroupToWindow: vi.fn(),
       onReturnTabToWindow: vi.fn(),
       onReturnGroupToWindow: vi.fn(),
       onReopenClosedTab: vi.fn(),
@@ -1865,19 +1951,12 @@ describe("browser tab integration", () => {
       await open('[role="tablist"]');
       await choose(label);
     };
-    await pickTab("Move to", "Move tab to new window");
-    expect(props.onMoveTabToWindow).toHaveBeenLastCalledWith("a");
-    await pickTab("Move to", "Move tab to Work window");
-    expect(props.onMoveTabToWindow).toHaveBeenLastCalledWith("a", "window-2");
-    await pickTab("Move to", "Return tab to original window");
-    expect(props.onReturnTabToWindow).toHaveBeenCalledWith("a");
-    await pickBar("Move all tabs to new window");
-    expect(props.onMoveGroupToWindow).toHaveBeenLastCalledWith("group-owner");
-    await pickBar("Move all tabs to Work window");
-    expect(props.onMoveGroupToWindow).toHaveBeenLastCalledWith(
-      "group-owner",
-      "window-2",
+    await open('[role="tab"]');
+    expect(document.querySelector('[role="menu"]')?.textContent).not.toContain(
+      "new window",
     );
+    await choose("Return tab to original window");
+    expect(props.onReturnTabToWindow).toHaveBeenCalledWith("a");
     await pickBar("Return all tabs to original window");
     expect(props.onReturnGroupToWindow).toHaveBeenCalledWith("group-owner");
     await pickTab("Reopen closed tab");

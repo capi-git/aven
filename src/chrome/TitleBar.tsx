@@ -158,11 +158,6 @@ export type TitleBarProps = {
     pointer?: SortablePointerPosition,
   ) => void;
   groupId?: string;
-  windowTargets?: Array<{ id: string; label: string }>;
-  onMoveTabToWindow?: (tabId: string, targetWindowId?: string) => void;
-  onMoveGroupToWindow?: (groupId: string, targetWindowId?: string) => void;
-  /** Moves a user tab group; its members may be a subset of this pane. */
-  onMoveTabsToWindow?: (ids: string[], targetWindowId?: string) => void;
   onReturnTabToWindow?: (tabId: string) => void;
   onReturnGroupToWindow?: (groupId: string) => void;
   onReopenClosedTab?: () => void;
@@ -1042,10 +1037,6 @@ function TitleBarComponent({
   onSurfaceDragMove,
   onSurfaceDragEnd,
   groupId,
-  windowTargets = [],
-  onMoveTabToWindow,
-  onMoveGroupToWindow,
-  onMoveTabsToWindow,
   onReturnTabToWindow,
   onReturnGroupToWindow,
   onReopenClosedTab,
@@ -1198,8 +1189,6 @@ function TitleBarComponent({
     // Only a change of focus should unfold; the fold click itself does not.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusedId]);
-  const groupMembers = (id: string) =>
-    stripGroups.find((segment) => segment.group.id === id)?.members ?? [];
   const sortable = useSortable(
     displayIds,
     (ids, movedId) => {
@@ -1230,14 +1219,8 @@ function TitleBarComponent({
       },
       onDragEnd: (id, x, y, cancelled, pointer) => {
         const dragged = chipGroupId(id);
-        if (dragged) {
-          // Only leaving the window tears a group out; the strip reorders it.
-          const outside =
-            x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight;
-          if (cancelled || !outside || !onMoveTabsToWindow) return false;
-          onMoveTabsToWindow(groupMembers(dragged));
-          return true;
-        }
+        // Group labels reorder within this strip; leaving the window cancels.
+        if (dragged) return false;
         const consumed = onSurfaceDragEnd?.(id, x, y, cancelled, pointer);
         // A tab that left this strip for another pane or window leaves its group.
         if (consumed && !cancelled && groupState.members[id])
@@ -1265,13 +1248,13 @@ function TitleBarComponent({
     kind?: "tab" | "group" | "bar";
     tabId: string;
     groupId?: string;
-    /** Secondary page; the native panel cannot nest submenus. */
+    /** Secondary page for longer action lists. */
     page?: string;
     x: number;
     y: number;
     anchor?: HTMLElement;
   } | null>(null);
-  // A page change closes the native panel; that close must not end the menu.
+  // A page selection must not let the previous menu close its replacement.
   const menuPageSwitch = useRef(false);
   useLayoutEffect(() => {
     menuPageSwitch.current = false;
@@ -1522,19 +1505,6 @@ function TitleBarComponent({
       },
     );
   const moveItems: ExplorerMenuItem[] = [];
-  if (contextId && onMoveTabToWindow) {
-    moveItems.push({
-      kind: "item",
-      id: "move-tab-new-window",
-      label: "Move tab to new window",
-    });
-    for (const target of windowTargets)
-      moveItems.push({
-        kind: "item",
-        id: `move-tab-window:${target.id}`,
-        label: `Move tab to ${target.label}`,
-      });
-  }
   if (contextId && onReturnTabToWindow)
     moveItems.push({
       kind: "item",
@@ -1671,20 +1641,6 @@ function TitleBarComponent({
           id: "group-fold",
           label: menuGroup.group.collapsed ? "Unfold group" : "Fold group",
         },
-        ...(onMoveTabsToWindow
-          ? pageEntry("group-move", "Move group to", [
-              {
-                kind: "item",
-                id: "group-move-new",
-                label: "Move group to new window",
-              },
-              ...windowTargets.map((target): ExplorerMenuItem => ({
-                kind: "item",
-                id: `group-move:${target.id}`,
-                label: `Move group to ${target.label}`,
-              })),
-            ])
-          : []),
         { kind: "sep" },
         { kind: "item", id: "group-ungroup", label: "Ungroup" },
         {
@@ -1703,17 +1659,6 @@ function TitleBarComponent({
         checked: menuGroup.group.color === index,
       }))
     : [];
-  const groupMoveItems: ExplorerMenuItem[] = menuGroup
-    ? [
-        { kind: "item", id: "group-move-new", label: "New window" },
-        ...windowTargets.map((target): ExplorerMenuItem => ({
-          kind: "item",
-          id: `group-move:${target.id}`,
-          label: target.label,
-        })),
-      ]
-    : [];
-
   // Empty strip space: actions for the whole strip.
   const barItems: ExplorerMenuItem[] = [];
   barItems.push({ kind: "item", id: "bar-new-session", label: "New session" });
@@ -1748,27 +1693,13 @@ function TitleBarComponent({
       label: "Undo layout change",
       disabled: !canUndoLayout,
     });
-  if (groupId && (onMoveGroupToWindow || onReturnGroupToWindow)) {
+  if (groupId && onReturnGroupToWindow) {
     barItems.push({ kind: "sep" });
-    if (onMoveGroupToWindow) {
-      barItems.push({
-        kind: "item",
-        id: "move-group-new-window",
-        label: "Move all tabs to new window",
-      });
-      for (const target of windowTargets)
-        barItems.push({
-          kind: "item",
-          id: `move-group-window:${target.id}`,
-          label: `Move all tabs to ${target.label}`,
-        });
-    }
-    if (onReturnGroupToWindow)
-      barItems.push({
-        kind: "item",
-        id: "return-group-window",
-        label: "Return all tabs to original window",
-      });
+    barItems.push({
+      kind: "item",
+      id: "return-group-window",
+      label: "Return all tabs to original window",
+    });
   }
 
   const pages: Record<string, ExplorerMenuItem[]> = {
@@ -1777,7 +1708,6 @@ function TitleBarComponent({
     move: moveItems,
     close: closeItems,
     color: colorItems,
-    "group-move": groupMoveItems,
   };
   const page = tabMenu?.page;
   const contextMenuItems: ExplorerMenuItem[] =
@@ -1833,18 +1763,8 @@ function TitleBarComponent({
       );
       return;
     }
-    if (id === "move-group-new-window" && groupId) {
-      onMoveGroupToWindow?.(groupId);
-      return;
-    }
     if (id === "return-group-window" && groupId) {
       onReturnGroupToWindow?.(groupId);
-      return;
-    }
-    if (id.startsWith("move-group-window:") && groupId) {
-      const target = id.slice("move-group-window:".length);
-      if (windowTargets.some((item) => item.id === target))
-        onMoveGroupToWindow?.(groupId, target);
       return;
     }
     if (menuGroup) {
@@ -1863,12 +1783,7 @@ function TitleBarComponent({
         if (group.collapsed) changeSurfaceGroup(group.id, { collapsed: false });
         onNew();
       } else if (id === "group-fold") foldGroups([group.id], !group.collapsed);
-      else if (id === "group-move-new") onMoveTabsToWindow?.(menuGroup.members);
-      else if (id.startsWith("group-move:")) {
-        const target = id.slice("group-move:".length);
-        if (windowTargets.some((item) => item.id === target))
-          onMoveTabsToWindow?.(menuGroup.members, target);
-      } else if (id === "group-ungroup") ungroupSurfaceGroup(group.id);
+      else if (id === "group-ungroup") ungroupSurfaceGroup(group.id);
       else if (id === "group-close") {
         if (groupSessionIds.length > 0 && !groupFallback) return;
         const browserIds = menuGroup.members.filter((member) =>
@@ -1898,14 +1813,8 @@ function TitleBarComponent({
       setSurfaceGroupMembership({ [contextId]: null });
     } else if (id === "keep-open") {
       if (contextBrowser) onKeepBrowser?.(contextId);
-    } else if (id === "move-tab-new-window") {
-      onMoveTabToWindow?.(contextId);
     } else if (id === "return-tab-window") {
       onReturnTabToWindow?.(contextId);
-    } else if (id.startsWith("move-tab-window:")) {
-      const target = id.slice("move-tab-window:".length);
-      if (windowTargets.some((item) => item.id === target))
-        onMoveTabToWindow?.(contextId, target);
     } else if (id === "race-overview") {
       onOpenRaceOverview?.(contextId);
     } else if (id === "new-view") {
@@ -2431,7 +2340,6 @@ function TitleBarComponent({
       </div>
       {recentMenu && previewEnabled ? (
         <ExplorerMenu
-          native
           searchable
           x={0}
           y={0}
@@ -2458,7 +2366,6 @@ function TitleBarComponent({
       {tabMenu && contextMenuItems.length ? (
         <ExplorerMenu
           key={`${menuKind}:${tabMenu.page ?? ""}`}
-          native
           x={tabMenu.x}
           y={tabMenu.y}
           anchor={tabMenu.anchor}
@@ -2479,7 +2386,6 @@ function TitleBarComponent({
       ) : null}
       {browserOpen && browserMenu && onBrowserModeChange ? (
         <ExplorerMenu
-          native
           x={browserMenu.x}
           y={browserMenu.y}
           anchor={browserMenu.anchor}
@@ -2518,7 +2424,6 @@ const TITLE_DATA: readonly (keyof TitleBarProps)[] = [
   "browserTabs",
   "surfaceOrder",
   "visibleIds",
-  "windowTargets",
   "combineTargets",
   "recents",
 ];

@@ -15,10 +15,7 @@ import { openAgentFileInTabs } from "./lib/agentFiles";
 import { orchestrator, type ControlOutcome } from "./lib/orchestration";
 import { submitManagedTurn } from "./lib/managedSubmission";
 import { steerManagedTurn } from "./lib/managedSteering";
-import {
-  orchestrationMoveError,
-  orchestrationOwnsTurn,
-} from "./lib/workspaceOrchestration";
+import { orchestrationOwnsTurn } from "./lib/workspaceOrchestration";
 import {
   adoptLateProposal,
   completeOrchestrationProposal,
@@ -106,8 +103,6 @@ import {
   type WorkspaceView,
 } from "./lib/workspaceViews";
 import {
-  selectWorkspaceArrangement,
-  captureWorkspaceReturnPlacement,
   restoreWorkspaceArrangement,
   moveWorkspaceGroup,
 } from "./lib/workspaceArrangement";
@@ -1160,13 +1155,6 @@ export default function App({
   const [detachedIds, setDetachedIds] = useState<Set<string>>(() => new Set());
   const detachedIdsRef = useRef(detachedIds);
   detachedIdsRef.current = detachedIds;
-  const moveWindowRef = useRef<
-    (
-      ids: string[],
-      target?: string,
-      point?: WorkspaceDropPoint,
-    ) => Promise<string | undefined>
-  >(async () => undefined);
   const deckProjectTabs = useMemo(() => {
     // A projectless session belongs to no project, so it stands on its own
     // rather than trailing the last project's tabs.
@@ -1339,7 +1327,7 @@ export default function App({
       x: number,
       y: number,
       cancelled: boolean,
-      point?: WorkspaceDropPoint,
+      _point?: WorkspaceDropPoint,
       group = false,
     ) => {
       const stage = document.querySelector<HTMLElement>(
@@ -1361,17 +1349,8 @@ export default function App({
       setSurfaceDragging(false);
       setSurfaceDrop(null);
       if (cancelled) return false;
-      if (!target) {
-        // Only leaving the window tears out. Empty space inside cancels safely.
-        if (
-          point &&
-          (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight)
-        ) {
-          void moveWindowRef.current(members, undefined, point);
-          return true;
-        }
-        return false;
-      }
+      // Outside drops cancel. Splits and tab moves stay inside this workspace.
+      if (!target) return false;
       // A deliberate move keeps the page visible in its destination group.
       setBrowserWorkspaces((all) => {
         const cwd = projectCwdRef.current;
@@ -8562,71 +8541,6 @@ export default function App({
   useLayoutEffect(() => {
     setDetachedIds(new Set(detached.detachedSurfaceIds));
   }, [detachedKey]);
-  const movingWindow = useRef(false);
-  moveWindowRef.current = async (ids, target, point) => {
-    if (movingWindow.current) return;
-    movingWindow.current = true;
-    const cwd = projectCwdRef.current;
-    const before = viewRef.current.view;
-    const available = ids.filter((id) => before.order.includes(id));
-    try {
-      if (!available.length) return;
-      const selection = new Set(available);
-      const moveError = orchestrationMoveError(
-        tabsRef.current.filter((tab) => selection.has(tab.id)),
-        orchestrator.snapshot(),
-      );
-      if (moveError) throw new Error(moveError);
-      const state: DetachedWorkspaceState = {
-        cwd,
-        title: `${basename(cwd) || "Workspace"} · ${available.length === 1 ? "Tab" : "Group"}`,
-        tabs: tabsRef.current.filter((tab) => selection.has(tab.id)),
-        browsers: normalizeBrowserWorkspace(
-          browserWorkspacesRef.current[cwd] ?? EMPTY_BROWSER,
-        )
-          .tabs.filter((tab) => selection.has(browserIdForTab(cwd, tab.id)))
-          .map((tab) => ({
-            ...tab,
-            tabId: tab.id,
-            id: browserIdForTab(cwd, tab.id),
-            project: cwd,
-            nativeId: detached.nativeBrowserIds[browserIdForTab(cwd, tab.id)],
-          })),
-        view: selectWorkspaceArrangement(before, available),
-        returnPlacement: target
-          ? undefined
-          : captureWorkspaceReturnPlacement(before, available),
-        sessions: [],
-        dirtyFileIds: [...dirtyFilesRef.current],
-      };
-      const openedId = await detached.open(state, target, point);
-      setDetachedIds((current) => new Set([...current, ...available]));
-      const saved = pushWorkspaceLayoutUndo(recoveryRef.current, cwd, before);
-      recoveryRef.current = saved;
-      setRecovery(saved);
-      const current = viewRef.current.get(cwd);
-      viewRef.current.restore(
-        cwd,
-        closeWorkspaceViews(current, available, current.focusedId),
-      );
-      return openedId;
-    } catch (error) {
-      void message(error instanceof Error ? error.message : String(error), {
-        title: "Move to window",
-        kind: "error",
-      });
-    } finally {
-      movingWindow.current = false;
-    }
-    return undefined;
-  };
-  const moveTabToWindow = (id: string, target?: string) => {
-    void moveWindowRef.current([id], target);
-  };
-  const moveGroupToWindow = (id: string, target?: string) => {
-    void moveWindowRef.current(viewRef.current.view.groups[id] ?? [id], target);
-  };
-
   const profileSessions = useMemo(
     () =>
       sessions.filter(
@@ -9636,16 +9550,6 @@ export default function App({
                                             targetId,
                                           ),
                                         );
-                                      }}
-                                      windowTargets={detached.windows.filter(
-                                        (target) =>
-                                          detached.states.get(target.id)
-                                            ?.cwd === projectCwd,
-                                      )}
-                                      onMoveTabToWindow={moveTabToWindow}
-                                      onMoveGroupToWindow={moveGroupToWindow}
-                                      onMoveTabsToWindow={(ids, target) => {
-                                        void moveWindowRef.current(ids, target);
                                       }}
                                       groupId={owner}
                                       onReopenClosedTab={() => {
