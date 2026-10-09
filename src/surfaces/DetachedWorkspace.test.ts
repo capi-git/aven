@@ -347,9 +347,10 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-it("keeps the startup cover until parent theme and selected browser content commit", async () => {
+it("finishes startup recovery when the parent theme and selected browser content commit", async () => {
   const splash = document.createElement("div");
   splash.id = "boot-splash";
+  splash.hidden = true;
   document.body.append(splash);
   const initial = await nativeWorkspaceWindow.getState();
   initial.state.theme = {
@@ -370,9 +371,8 @@ it("keeps the startup cover until parent theme and selected browser content comm
     document.documentElement.style.getPropertyValue("--theme-background-color"),
   ).toBe("#112233");
   expect(splash.dataset.dismissed).toBe("1");
-  expect(nativeWorkspaceWindow.ready).toHaveBeenCalledWith("transfer");
-  await act(async () => vi.advanceTimersByTime(430));
   expect(splash.isConnected).toBe(false);
+  expect(nativeWorkspaceWindow.ready).toHaveBeenCalledWith("transfer");
 });
 
 it("opens an agent file in its detached task and forwards editor navigation without a duplicate tab", async () => {
@@ -478,16 +478,16 @@ it("opens an agent file in its detached task and forwards editor navigation with
   );
 });
 
-it("uncovers a workspace startup error when the initial state request fails", async () => {
+it("finishes startup recovery when the initial state request fails", async () => {
   const splash = document.createElement("div");
   splash.id = "boot-splash";
+  splash.hidden = true;
   document.body.append(splash);
   vi.mocked(nativeWorkspaceWindow.getState).mockRejectedValue(
     new Error("Owner closed"),
   );
   await act(async () => root.render(createElement(DetachedWorkspace)));
   expect(host.textContent).toContain("Owner closed");
-  await act(async () => vi.advanceTimersByTime(430));
   expect(splash.isConnected).toBe(false);
 });
 
