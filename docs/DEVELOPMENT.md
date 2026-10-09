@@ -57,7 +57,9 @@ Aven stores Codex conversations under its own app data directory in `codex-home`
 
 When an existing Aven or imported conversation resumes, Aven copies only its requested provider rollout into private storage and continues there. The original remains unchanged, and later resumes prefer the private copy. This does not archive or remove previous entries from Codex Recents.
 
-Before starting a thread, Aven verifies that the effective Codex database path is private. Managed settings that override that path, unsupported configuration sharing, and keyring or automatic credential-store selection produce an explicit error instead of falling back to shared history. The currently supported shared login uses Codex's default file credential store; keyring bridging needs separate implementation and verification.
+Before starting a thread, Aven verifies that the effective Codex database path is private. Managed settings that override that path, unsupported configuration sharing, and keyring or automatic selection for `cli_auth_credentials_store` produce an explicit error instead of falling back to shared history. The currently supported shared Codex login uses its default file credential store; bridging its home-specific keyring account needs separate implementation and verification.
+
+MCP OAuth has a separate credential store. Ordinary macOS keyring credentials remain shared, and file credentials use a managed hardlink with shared refresh locks. The encrypted `secrets` directory stays private because its encryption key depends on the Codex home. When `features.secret_auth_storage` is active (the Windows default), enabled remote MCP servers require `mcp_oauth_credentials_store = "file"`; unsupported combinations stop before a thread starts. Switching an existing encrypted MCP login to the file store requires signing in to that server again. An explicit `secret_auth_storage = false` keeps the ordinary keyring backend. Enterprise `ema-idp:` keyring identities are also home-specific and are not shared between Aven and Codex.
 
 ## Agent instructions and tools
 
