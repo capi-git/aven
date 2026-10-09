@@ -63,7 +63,8 @@
                 root.style.setProperty("--boot-background", background);
               }
             }
-          } catch (_) {}          var bodyGlass = localStorage.getItem("monocode.bodyGlass");
+          } catch (_) {}
+          var bodyGlass = localStorage.getItem("monocode.bodyGlass");
           if (bodyGlass === "1" || bodyGlass === "true") {
             root.classList.add("glass-body");
           }
@@ -100,8 +101,7 @@
         background: var(--boot-background);
       }
 
-      /* Opaque cover until React paints. The logo is in HTML so it is
-         visible during the Dock bounce, before the bundle runs. */
+      /* Recovery is hidden during normal startup; the workspace appears directly. */
       #boot-splash {
         position: fixed;
         inset: 0;
@@ -114,18 +114,17 @@
         pointer-events: none;
         background: var(--theme-background-color, var(--boot-background));
         color: #e7edf4;
-        font: 14px/1.5 -apple-system, BlinkMacSystemFont, sans-serif;
-        transition: opacity 0.16s ease;
+        font:
+          14px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          sans-serif;
       }
 
       html.theme-light #boot-splash {
         color: #1d2835;
       }
 
-      #boot-splash.boot-splash-out {
-        opacity: 0;
-      }
-
+      #boot-splash[hidden],
       #boot-splash [hidden] {
         display: none !important;
       }
@@ -160,20 +159,12 @@
         cursor: pointer;
         outline-offset: 4px;
       }
-
-      #boot-splash img {
-        width: 72px;
-        height: 72px;
-        object-fit: contain;
-        display: block;
-      }
     </style>
   </head>
   <body>
-    <div id="boot-splash">
-      <img src="/aven-mark.png" alt="" />
+    <div id="boot-splash" hidden>
       <section id="boot-status" role="status" aria-live="polite">
-        <h1 id="boot-title">Opening Aven…</h1>
+        <h1 id="boot-title"></h1>
         <p id="boot-message" hidden></p>
         <button id="boot-retry" type="button" hidden>Retry loading</button>
       </section>
@@ -183,7 +174,6 @@
     <script id="aven-boot-recovery">
       (function () {
         var splash = document.getElementById("boot-splash");
-        var logo = splash.querySelector("img");
         var title = document.getElementById("boot-title");
         var message = document.getElementById("boot-message");
         var retry = document.getElementById("boot-retry");
@@ -198,7 +188,6 @@
           active = false;
           window.clearTimeout(timeout);
           window.removeEventListener("error", resourceError, true);
-          logo.removeEventListener("error", hideLogo);
           retry.removeEventListener("click", reload);
           observer.disconnect();
         }
@@ -207,6 +196,7 @@
           if (!active) return;
           if (finished()) return cleanup();
           window.clearTimeout(timeout);
+          splash.hidden = false;
           title.textContent = failed
             ? "Aven couldn’t load its interface"
             : "Aven is taking longer to open";
@@ -220,29 +210,32 @@
 
         function resourceError(event) {
           var target = event.target;
-          if (target && target.tagName === "SCRIPT" && target.type === "module") {
+          if (
+            target &&
+            target.tagName === "SCRIPT" &&
+            target.type === "module"
+          ) {
             showRecovery(true);
           }
-        }
-
-        function hideLogo() {
-          logo.hidden = true;
         }
 
         function reload() {
           window.location.reload();
         }
 
-        var timeout = window.setTimeout(function () { showRecovery(false); }, 15000);
+        var timeout = window.setTimeout(function () {
+          showRecovery(false);
+        }, 15000);
         var observer = new MutationObserver(function () {
           if (finished()) cleanup();
         });
         observer.observe(document.body, { childList: true });
-        observer.observe(splash, { attributes: true, attributeFilter: ["data-dismissed"] });
+        observer.observe(splash, {
+          attributes: true,
+          attributeFilter: ["data-dismissed"],
+        });
         window.addEventListener("error", resourceError, true);
-        logo.addEventListener("error", hideLogo);
         retry.addEventListener("click", reload);
-        if (logo.complete && logo.naturalWidth === 0) hideLogo();
       })();
     </script>
     <script type="module" src="/src/main.tsx"></script>
