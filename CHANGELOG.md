@@ -4,6 +4,10 @@
 
 ## [0.1.128] - 2026-10-08
 
+### Dependency maintenance
+
+- Updated the HTML sanitizer and development source-map parser with upstream security fixes.
+
 ### Safer chat storage upgrade
 
 - If the chat database upgrade from 0.1.127 cannot finish, Aven now opens and explains that chat history is unavailable instead of failing to start. It tries again on the next launch and reuses its one backup rather than writing a new copy each time.
