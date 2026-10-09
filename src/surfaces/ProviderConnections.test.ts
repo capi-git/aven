@@ -112,16 +112,14 @@ describe("managing MCP servers", () => {
         removable: true,
       },
     ]);
-    codex
-      .mockReset()
-      .mockResolvedValue([
-        {
-          name: "ChatGPT apps",
-          key: "codex_apps",
-          state: "ready",
-          toolCount: 2,
-        },
-      ]);
+    codex.mockReset().mockResolvedValue([
+      {
+        name: "ChatGPT apps",
+        key: "codex_apps",
+        state: "ready",
+        toolCount: 2,
+      },
+    ]);
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
