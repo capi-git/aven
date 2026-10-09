@@ -38,7 +38,7 @@
   border-radius: 5px;
   background: transparent;
   color: var(--aven-muted);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   line-height: 1.4;
   white-space: nowrap;
   transition:
@@ -124,7 +124,7 @@
   border: 1px solid var(--aven-line);
   border-radius: 6px;
   color: var(--aven-muted);
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
 }
 
 .settings-color-picker__hex:focus-within {
@@ -137,7 +137,7 @@
   background: transparent;
   color: var(--color-content);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   outline: none;
 }
 
@@ -145,7 +145,7 @@
   grid-area: note;
   margin: 0;
   color: var(--aven-muted);
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   line-height: 1.5;
 }
 

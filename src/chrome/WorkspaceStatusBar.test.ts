@@ -282,8 +282,12 @@ describe("workspace status data and actions", () => {
     const navigation = bar.querySelector(".workspace-navigation")!;
     const controls = bar.querySelector(".workspace-status-controls")!;
     expect(bar.querySelector(".workspace-status-tabs")).toBeNull();
-    expect(children().indexOf(trigger)).toBe(children().indexOf(navigation) + 1);
-    expect(children().indexOf(trigger)).toBeLessThan(children().indexOf(controls));
+    expect(children().indexOf(trigger)).toBe(
+      children().indexOf(navigation) + 1,
+    );
+    expect(children().indexOf(trigger)).toBeLessThan(
+      children().indexOf(controls),
+    );
     expect(
       trigger.querySelector(".workspace-status-context")?.textContent,
     ).toBe("model");
@@ -295,7 +299,9 @@ describe("workspace status data and actions", () => {
       settingsView: { section: "appearance", onClose: vi.fn() },
     });
     expect(button("Activity: Queue is clear · 1 unread")).toBe(trigger);
-    expect(children().indexOf(trigger)).toBe(children().indexOf(navigation) + 1);
+    expect(children().indexOf(trigger)).toBe(
+      children().indexOf(navigation) + 1,
+    );
     expect(
       children().indexOf(bar.querySelector(".workspace-status-settings")!),
     ).toBeGreaterThan(children().indexOf(trigger));

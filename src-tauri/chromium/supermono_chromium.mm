@@ -13,6 +13,7 @@
 
 #include "supermono_chromium.h"
 #include "browser_viewport.h"
+#include "browser_pump.h"
 #include "browser_host_view.h"
 #include "browser_tab_zoom.h"
 #include "browser_actions_menu.h"
@@ -53,15 +54,16 @@ sm_chromium_event_cb event_callback = nullptr;
 void *event_context = nullptr;
 std::string last_error, cache_root, download_root, dev_origin;
 bool low_memory=false;
+bool layout_trace=false;
 bool initialized = false, stopping = false, library_loaded = false;
 int live_browser_count = 0;
 __strong SMChromiumPump *pump_handler=nil;
 __strong NSTimer *pump_timer=nil;
 __strong id backing_scale_observer=nil;
+__strong NSArray *pump_wake_observers=nil;
 __strong id input_monitor=nil;
 bool pump_active=false,pump_reentered=false;
-constexpr int64_t kPumpFallback=INT_MAX;
-constexpr int64_t kPumpMaximumDelay=1000/30;
+constexpr int64_t kPumpFallback=supermono::kBrowserPumpFallback;
 bool handling_send_event = false;
 IMP original_send_event = nullptr;
 
@@ -175,6 +177,7 @@ bool InstallApplicationIntegration() {
   return true;
 }
 
+bool HasVisiblePumpWork();
 bool HasPumpWork() { return initialized && (!pages.empty() || live_browser_count>0); }
 void KillPumpTimer() { [pump_timer invalidate]; pump_timer=nil; }
 void SchedulePump(int64_t delay_ms) {
@@ -203,7 +206,7 @@ void HandlePumpSchedule(int64_t delay_ms) {
   // scheduling callback; otherwise network/IPC work can stall after creation.
   // https://github.com/chromiumembedded/cef/blob/master/tests/shared/browser/main_message_loop_external_pump.cc
   // https://github.com/chromiumembedded/cef/blob/master/tests/shared/browser/main_message_loop_external_pump_mac.mm
-  const double seconds=std::min(delay_ms,kPumpMaximumDelay)/1000.0;
+  const double seconds=supermono::BrowserPumpDelayMs(delay_ms,stopping || HasVisiblePumpWork())/1000.0;
   pump_timer=[NSTimer timerWithTimeInterval:seconds target:pump_handler
     selector:@selector(timerFired:) userInfo:nil repeats:NO];
   [NSRunLoop.mainRunLoop addTimer:pump_timer forMode:NSRunLoopCommonModes];
@@ -248,6 +251,13 @@ class DevToolsClient final : public CefClient, public CefLifeSpanHandler {
   }
   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {
     --live_browser_count; browsers_.erase(browser->GetIdentifier()); FinishShutdown();
+  }
+  bool Visible() const {
+    for (const auto& entry:browsers_) {
+      NSView *view=(__bridge NSView*)entry.second->GetHost()->GetWindowHandle();
+      if (view.window.visible && (view.window.occlusionState & NSWindowOcclusionStateVisible)) return true;
+    }
+    return false;
   }
   void Close() {
     closing_=true;
@@ -345,10 +355,12 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     --live_browser_count;
     DismissPrompts(browser->GetIdentifier());
     if (browser_ && browser->IsSame(browser_)) {
+      TraceLayout("native-before-close");
       registration_=nullptr; browser_=nullptr; context_id_=0;
       [drop_indicator_ clear]; drop_indicator_=nil;
       [edit_annotation_ clear]; [edit_annotation_ removeFromSuperview]; edit_annotation_=nil;
       [clip_view_ removeFromSuperview]; clip_view_=nil;
+      TraceLayout("native-closed-detached");
       auto pending=std::move(pending_); pending_.clear();
       for (auto& item:pending) item.second(false,Error("Browser closed"));
       downloads_.clear(); download_names_.clear();
@@ -604,6 +616,16 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     NSResponder *responder=view.window.firstResponder;
     return [responder isKindOfClass:NSView.class] && [(NSView*)responder isDescendantOf:view];
   }
+  bool VisibleForPump() const {
+    if (visible_ && !clip_view_.hidden && parent_.window.visible &&
+        (parent_.window.occlusionState & NSWindowOcclusionStateVisible)) return true;
+    if (devtools_client_ && devtools_client_->Visible()) return true;
+    for (const auto& entry:popups_) {
+      NSView *view=(__bridge NSView*)entry.second->GetHost()->GetWindowHandle();
+      if (view.window.visible && (view.window.occlusionState & NSWindowOcclusionStateVisible)) return true;
+    }
+    return false;
+  }
   void State() {
     if (!browser_) return;
     [actions_menu_ updateZoom:zoom_.factor()];
@@ -666,10 +688,34 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       self->ApplyZoom();
     });
   }
+  void TraceLayout(const char* phase) {
+    if (!layout_trace) return;
+    auto event=Object(); event->SetString("type","layoutTrace"); event->SetString("phase",phase);
+    event->SetBool("visible",visible_);
+    auto geometry=Object();
+    const auto rect=[&](const char* key,NSRect frame) {
+      auto value=Object(); value->SetDouble("x",frame.origin.x); value->SetDouble("y",frame.origin.y);
+      value->SetDouble("width",frame.size.width); value->SetDouble("height",frame.size.height);
+      geometry->SetDictionary(key,value);
+    };
+    NSView *view=browser_ ? (__bridge NSView*)browser_->GetHost()->GetWindowHandle() : nil;
+    rect("requested",NSMakeRect(x_,y_,w_,h_)); rect("parentBounds",parent_.bounds);
+    rect("clipFrame",clip_view_.frame); rect("browserFrame",view.frame);
+    NSView *workspace=WorkspaceWebView(parent_); rect("workspaceFrame",workspace.frame);
+    geometry->SetBool("clipHidden",clip_view_.hidden); geometry->SetBool("browserHidden",view.hidden);
+    geometry->SetBool("browserHiddenByAncestor",view.hiddenOrHasHiddenAncestor);
+    geometry->SetBool("browserAttached",view.superview==clip_view_);
+    geometry->SetBool("clipAttached",clip_view_.superview==parent_);
+    geometry->SetBool("autoResize",auto_resize_); geometry->SetBool("updatePrepared",update_prepared_);
+    geometry->SetBool("hasBrowser",browser_!=nullptr);
+    geometry->SetDouble("viewportHeight",viewport_height_);
+    event->SetDictionary("geometry",geometry); Emit(id_,event);
+  }
   void Layout() {
+    TraceLayout("native-before");
     if (visible_ && !update_prepared_) sleep_.Invalidate();
     if (!visible_ || update_prepared_) [drop_indicator_ clear];
-    if (!browser_) return;
+    if (!browser_) { TraceLayout("native-no-browser"); return; }
     NSView *view=(__bridge NSView*)browser_->GetHost()->GetWindowHandle();
     // CEF enables a layer-backed content view for its own macOS windows so
     // native siblings retain their compositing order. External hosts must do
@@ -699,16 +745,20 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       auto_resize_ ? 0 : bottom_corner_radius_,corner_mask_);
     if (!visible_ || update_prepared_ || exposed<=0)
       supermono::ReturnHiddenBrowserFocus(clip_view_,WorkspaceWebView(parent_));
+    const bool was_hidden=clip_view_.hidden;
     supermono::ApplyBrowserHostVisibility(clip_view_,view,visible_ && !update_prepared_ && exposed>0);
+    if (was_hidden && !clip_view_.hidden) SchedulePump(0);
     if (clip_view_.hidden) [drop_indicator_ clear];
     [drop_indicator_ placeAboveBrowser:view frame:aligned.browser];
     // Covers reparenting to a different-density display. Ordinary layouts do
     // not issue another metrics request when the physical scale is unchanged.
     RefreshBackingScale();
+    TraceLayout("native-after");
     // AppKit delivers the actual frame/visibility changes to Chromium above.
     // NotifyMoveOrResizeStarted is only implemented for Windows and Linux.
   }
   void Close() {
+    TraceLayout("native-close-request");
     // An explicit user close supersedes automatic sleep, with existing close
     // semantics. The waiter must not mistake that close for a sleeping tab.
     if (sleep_.active()) FinishSleep(sleep_.token(),{"explicit-close"});
@@ -1327,8 +1377,27 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     auto params=Object(); params->SetString("format","png"); params->SetBool("captureBeyondViewport",false);
     CefRefPtr<Page> self=this;
     CaptureScreenshot(params,[self,request](bool ok,Dict result) {
-      if (ok) { if (Text(result,"data").size()>10*1024*1024) { Result(self->id_,request,false,Error("Screenshot exceeded its limit")); return; } result->SetString("mimeType","image/png"); }
-      Result(self->id_,request,ok,result);
+      if (!ok) { Result(self->id_,request,false,result); return; }
+      const auto data=Text(result,"data");
+      if (data.size()>supermono::kEditViewportMaxBase64) { Result(self->id_,request,false,Error("Screenshot exceeded its limit")); return; }
+      const auto id=self->id_;
+      // Popup covers cross the IPC bridge briefly. Bound and encode their pixels
+      // off the main thread; agent screenshots and edit attachments stay lossless.
+      dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0), ^{
+        @autoreleasepool {
+          NSData *png=[[NSData alloc] initWithBase64EncodedString:Ns(data) options:0];
+          uint32_t width=0,height=0;
+          NSData *jpeg=supermono::CompressBrowserCoverImage(png,width,height);
+          NSString *encoded=[jpeg base64EncodedStringWithOptions:0];
+          dispatch_async(dispatch_get_main_queue(), ^{
+            if (!initialized || stopping || !pages.contains(id)) return;
+            if (!encoded) { Result(id,request,false,Error("Browser cover could not be encoded")); return; }
+            auto cover=Object(); cover->SetString("data",Str(encoded)); cover->SetString("mimeType","image/jpeg");
+            cover->SetInt("width",width); cover->SetInt("height",height);
+            Result(id,request,true,cover);
+          });
+        }
+      });
     });
   }
   // An agent's page image must not change what the user sees. A shown page is
@@ -1490,6 +1559,12 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   IMPLEMENT_REFCOUNTING(Page);
 };
 
+bool HasVisiblePumpWork() {
+  if (!NSApp.active) return false;
+  for (const auto& entry:pages) if (entry.second->VisibleForPump()) return true;
+  return false;
+}
+
 void FinishShutdownNow() {
   if (!initialized || !stopping || !pages.empty() || live_browser_count) return;
   KillPumpTimer();
@@ -1497,6 +1572,8 @@ void FinishShutdownNow() {
     [NSNotificationCenter.defaultCenter removeObserver:backing_scale_observer];
     backing_scale_observer=nil;
   }
+  for (id observer in pump_wake_observers) [NSNotificationCenter.defaultCenter removeObserver:observer];
+  pump_wake_observers=nil;
   if (input_monitor) { [NSEvent removeMonitor:input_monitor]; input_monitor=nil; }
   profiles.clear(); CefShutdown(); initialized=false; application=nullptr;
   // Cocoa runtime classes remain registered until process exit, so retain the
@@ -1543,6 +1620,8 @@ extern "C" int sm_chromium_initialize(const char *config_json,sm_chromium_event_
     if (![NSFileManager.defaultManager createDirectoryAtPath:cache withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions:@0700} error:&directory_error]) return Fail("Chromium profile directory is not writable");
     cache_root=Str(cache.stringByStandardizingPath); download_root=Str(string(@"downloadPath")); dev_origin=Origin([NSURL URLWithString:string(@"devUrl")]);
     { id flag=config[@"lowMemory"]; low_memory=[flag isKindOfClass:NSNumber.class] && [flag boolValue]; }
+    // Only the Rust debug build can enable the private bounded trace writer.
+    { id flag=config[@"layoutTrace"]; layout_trace=[flag isKindOfClass:NSNumber.class] && [flag boolValue]; }
     CefSettings settings; settings.no_sandbox=false; settings.external_message_pump=true; settings.multi_threaded_message_loop=false; settings.command_line_args_disabled=true;
     CefString(&settings.framework_dir_path)=Str(framework); CefString(&settings.browser_subprocess_path)=Str(helper);
     CefString(&settings.main_bundle_path)=Str(NSBundle.mainBundle.bundlePath);
@@ -1566,6 +1645,16 @@ extern "C" int sm_chromium_initialize(const char *config_json,sm_chromium_event_
             entry.second->RefreshBackingScale();
         }
       }];
+    // Waking the app or a minimized browser window must not wait for the idle heartbeat.
+    NSMutableArray *wake_observers=[NSMutableArray array];
+    for (NSString *name in @[NSApplicationDidBecomeActiveNotification,NSWindowDidBecomeKeyNotification]) {
+      id observer=[NSNotificationCenter.defaultCenter addObserverForName:name object:nil
+        queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *) {
+          if (initialized && !stopping) SchedulePump(0);
+        }];
+      [wake_observers addObject:observer];
+    }
+    pump_wake_observers=[wake_observers copy];
     // Clicks go straight to Chromium's views; note which page they land in.
     input_monitor=[NSEvent addLocalMonitorForEventsMatchingMask:
         NSEventMaskLeftMouseDown|NSEventMaskRightMouseDown|NSEventMaskOtherMouseDown
@@ -1601,6 +1690,7 @@ extern "C" int sm_chromium_create(const char *id,void *parent,const char *url,co
     // This fallback must not inherit the surrounding application's dark theme.
     CefBrowserSettings settings; settings.background_color=CefColorSetARGB(255,255,255,255);
     pages[id]=page;
+    page->TraceLayout("native-create-hidden");
     if (!CefBrowserHost::CreateBrowser(window,page,url,settings,nullptr,request_context)) { [page->clip_view_ removeFromSuperview]; pages.erase(id); return Fail("Chromium could not create the tab"); }
     // Pumping stops at zero pages. Explicitly wake when a new page is accepted,
     // even if Chromium already considers an older scheduling callback pending.

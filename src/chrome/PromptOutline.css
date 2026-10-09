@@ -49,3 +49,15 @@
     transition: none !important;
   }
 }
+
+/* A lone prompt does not need a permanent navigation mark in an otherwise
+   empty gutter. Keep its hover target and keyboard access available. */
+.prompt-outline[data-prompt-count="1"] .prompt-outline-bar {
+  visibility: hidden;
+}
+.prompt-outline[data-prompt-count="1"]:hover .prompt-outline-bar,
+.prompt-outline[data-prompt-count="1"]:focus-within .prompt-outline-bar,
+.prompt-outline[data-prompt-count="1"][data-dragging="true"]
+  .prompt-outline-bar {
+  visibility: visible;
+}

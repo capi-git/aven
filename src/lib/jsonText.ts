@@ -35,7 +35,13 @@ export function extractJsonObject(raw: string): string | null {
   return null;
 }
 
-const GIT_TEXT_KEYS = ["subject", "title", "message", "body", "branch"] as const;
+const GIT_TEXT_KEYS = [
+  "subject",
+  "title",
+  "message",
+  "body",
+  "branch",
+] as const;
 
 export function parseJsonObject(raw: string): Record<string, unknown> | null {
   const trimmed = raw.trim();

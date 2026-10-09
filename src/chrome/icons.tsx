@@ -87,6 +87,7 @@ import Settings01Icon from "@hugeicons/core-free-icons/Settings01Icon";
 import Share02Icon from "@hugeicons/core-free-icons/Share02Icon";
 import SidebarRight01Icon from "@hugeicons/core-free-icons/SidebarRight01Icon";
 import SparklesIcon from "@hugeicons/core-free-icons/SparklesIcon";
+import SplitIcon from "@hugeicons/core-free-icons/SplitIcon";
 import SquareIcon from "@hugeicons/core-free-icons/SquareIcon";
 import SquareLock02Icon from "@hugeicons/core-free-icons/SquareLock02Icon";
 import SquareUnlock01Icon from "@hugeicons/core-free-icons/SquareUnlock01Icon";
@@ -231,6 +232,8 @@ export const PinOff = wrap(PinOffIcon, "PinOff");
 export const Play = wrap(PlayIcon, "Play");
 export const Pipette = wrap(ColorPickerIcon, "Pipette");
 export const Plus = wrap(Add01Icon, "Plus");
+/** Race: one message forks out to several agents. Distinct from Fast's Zap. */
+export const Race = wrap(SplitIcon, "Race");
 export const RefreshCw = wrap(Refresh01Icon, "RefreshCw");
 export const Regex = wrap(RegexIcon, "Regex");
 export const Replace = wrap(ReplaceIcon, "Replace");

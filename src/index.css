@@ -6,6 +6,15 @@
 @custom-variant dark (&:where(html:not(.theme-light), html:not(.theme-light) *));
 
 @theme {
+  /* Shared UI sizes only. Line heights remain owned by each surface and its
+     existing leading utilities; code and artwork retain their own scales. */
+  --text-ui-micro: 10px;
+  --text-ui-caption: 11px;
+  --text-ui-label: 12px;
+  --text-ui-body: 13px;
+  --text-ui-reading: 14px;
+  --text-ui-heading: 20px;
+
   --color-background-base: var(
     --theme-background-color,
     hsl(var(--theme-hue) var(--theme-saturation) var(--background-lightness))
@@ -540,7 +549,7 @@ header[data-tauri-drag-region] button {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   font-weight: 500;
   color: color-mix(in srgb, var(--color-content) 65%, transparent);
   pointer-events: none;
@@ -601,7 +610,7 @@ button.chat-reference:hover,
 .whats-new-md.agent-markdown [data-streamdown="heading-3"] {
   margin-top: 1.15rem;
   margin-bottom: 0.35rem;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -625,7 +634,7 @@ button.chat-reference:hover,
 
 .agent-markdown [data-streamdown="code-block-header"] > span {
   margin-left: 0;
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   font-weight: 500;
 }
 
@@ -706,7 +715,7 @@ button.chat-reference:hover,
 .agent-markdown [data-streamdown="table-header-cell"],
 .agent-markdown [data-streamdown="table-cell"] {
   padding: 8px 10px;
-  font-size: 12px;
+  font-size: var(--text-ui-label);
 }
 
 .agent-markdown [data-streamdown="horizontal-rule"] {
@@ -809,6 +818,14 @@ button.chat-reference:hover,
   -webkit-background-clip: text;
   color: transparent;
   animation: shimmer-text var(--shimmer-duration, 2s) linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-text {
+    animation: none;
+    background: none;
+    color: var(--color-content);
+  }
 }
 
 /* Two-frame mascot loop — a hard swap plus a one-pixel hop, arcade style. */

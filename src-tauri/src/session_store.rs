@@ -7,6 +7,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, State};
 
+#[path = "session_transcript.rs"]
+mod transcript;
+
 const MIGRATION_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
@@ -35,9 +38,19 @@ impl SessionStore {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
-        let conn = Connection::open(path).map_err(|e| e.to_string())?;
-        conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")
+        let conn = Connection::open(&path).map_err(|e| e.to_string())?;
+        conn.execute_batch("PRAGMA foreign_keys = ON;")
             .map_err(|e| e.to_string())?;
+        let journal: String = conn
+            .query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0))
+            .map_err(|e| e.to_string())?;
+        if journal.eq_ignore_ascii_case("wal") {
+            // WAL stays consistent with NORMAL; sync at checkpoints instead of
+            // on every streaming snapshot. Retain FULL if WAL is unavailable.
+            conn.execute_batch("PRAGMA synchronous = NORMAL;")
+                .map_err(|e| e.to_string())?;
+        }
+        backup_legacy_transcripts(&conn, &path)?;
         migrate(&conn).map_err(|e| e.to_string())?;
         Ok(Self {
             conn: Mutex::new(conn),
@@ -62,6 +75,62 @@ impl SessionStore {
     }
 }
 
+/// VACUUM INTO is a consistent SQLite snapshot including committed WAL pages.
+/// Keep this adjacent backup before the first incompatible transcript write.
+fn backup_legacy_transcripts(conn: &Connection, path: &std::path::Path) -> Result<(), String> {
+    let legacy: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sessions')
+           AND NOT EXISTS(SELECT 1 FROM pragma_table_info('sessions') WHERE name = 'blocks_storage')",
+        [], |row| row.get(0),
+    ).map_err(|error| error.to_string())?;
+    if !legacy {
+        return Ok(());
+    }
+    let populated: bool = conn
+        .query_row("SELECT EXISTS(SELECT 1 FROM sessions)", [], |row| {
+            row.get(0)
+        })
+        .map_err(|error| error.to_string())?;
+    if !populated {
+        return Ok(());
+    }
+    let filename = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or("Invalid session database path")?;
+    let backup = path.with_file_name(format!(
+        "{filename}.pre-transcript-v12-{}.db",
+        uuid::Uuid::new_v4()
+    ));
+    let partial = backup.with_extension("partial");
+    let partial_path = partial.to_str().ok_or("Invalid session backup path")?;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    // SQLite accepts an existing empty target. Reserve a private file first,
+    // and publish its final name only after the consistent snapshot succeeds.
+    drop(
+        options
+            .open(&partial)
+            .map_err(|error| format!("Cannot create session history backup: {error}"))?,
+    );
+    let result = conn
+        .execute("VACUUM main INTO ?1", [partial_path])
+        .map_err(|error| error.to_string())
+        .and_then(|_| std::fs::rename(&partial, &backup).map_err(|error| error.to_string()));
+    if let Err(error) = result {
+        let _ = std::fs::remove_file(&partial);
+        return Err(format!(
+            "Cannot back up session history before migration: {error}"
+        ));
+    }
+    Ok(())
+}
+
 pub fn init(app: &AppHandle) -> Result<(), String> {
     let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let store = SessionStore::open(data_dir.join("monocode.db"))?;
@@ -81,7 +150,10 @@ pub struct SessionUpsert {
     pub title: String,
     #[serde(default)]
     pub provider_session_id: Option<String>,
+    #[serde(default)]
     pub blocks: Value,
+    #[serde(default)]
+    pub blocks_delta: Option<transcript::Delta>,
     #[serde(default)]
     pub queued_messages: Vec<Value>,
     /// Last context-window reading reported by the harness, if any.
@@ -98,6 +170,8 @@ pub struct SessionUpsert {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionSummary {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transcript_revision: Option<String>,
     pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub orchestration_lead_id: Option<String>,
@@ -170,12 +244,15 @@ pub fn session_upsert(
     if !session.model_settings.is_object() {
         return Err("modelSettings must be an object".into());
     }
-    if !session.blocks.is_array() {
+    if session.blocks_delta.is_none() && !session.blocks.is_array() {
         return Err("blocks must be an array".into());
     }
 
+    // Git can spawn processes and JSON can be megabytes. Neither needs the
+    // SQLite lock shared by history, drafts, notes and workspace snapshots.
+    let prepared = prepare_session(&session).map_err(|e| e.to_string())?;
     let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
-    upsert_session(&conn, &session).map_err(|e| e.to_string())
+    upsert_prepared_session(&conn, &session, prepared).map_err(|e| e.to_string())
 }
 
 #[tauri::command(async)]
@@ -186,8 +263,9 @@ pub fn session_list_by_project(
     if cwd.trim().is_empty() {
         return Err("cwd is required".into());
     }
+    let git = crate::fs::git_info_for(&crate::fs::expand_home(&cwd));
     let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
-    list_by_project(&conn, &cwd).map_err(|e| e.to_string())
+    list_by_project_with_git(&conn, &cwd, git.branch, git.repo).map_err(|e| e.to_string())
 }
 
 /// Destructive project operations need the complete inventory, including rows
@@ -610,6 +688,13 @@ fn migrate_schema(conn: &Connection) -> rusqlite::Result<()> {
     )?;
     ensure_session_column(conn, "queued_messages_json", "TEXT NOT NULL DEFAULT '[]'")?;
     crate::notes::ensure_notes_table(conn)?;
+    transcript::migrate(conn)?;
+    if current < 12 {
+        conn.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (12, ?1)",
+            params![now_millis()],
+        )?;
+    }
     ensure_orchestration_history(conn)?;
     Ok(())
 }
@@ -640,13 +725,14 @@ fn ensure_orchestration_history(conn: &Connection) -> rusqlite::Result<()> {
                 index_orchestration(conn, &lead, &run)?;
             }
         }
-        let workers = conn.prepare("SELECT id, blocks_json FROM sessions WHERE blocks_json LIKE '%orchestrationLeadId%'")?
-            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+        let workers = conn
+            .prepare(
+                "SELECT DISTINCT session_id FROM session_blocks WHERE worker_lead IS NOT NULL",
+            )?
+            .query_map([], |row| row.get::<_, String>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        for (id, blocks) in workers {
-            if let Ok(blocks) = serde_json::from_str::<Value>(&blocks) {
-                remember_worker_from_blocks(conn, &id, &blocks)?;
-            }
+        for id in workers {
+            remember_worker_from_blocks(conn, &id, &transcript::read(conn, &id)?)?;
         }
     }
     Ok(())
@@ -736,74 +822,101 @@ fn optional_json(raw: Option<String>) -> Option<Value> {
     raw.and_then(|value| serde_json::from_str(&value).ok())
 }
 
-fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Result<SessionSummary> {
-    let now = now_millis();
+struct PreparedSession {
+    model_settings: String,
+    transcript: transcript::Prepared,
+    queued_messages_json: String,
+    git_branch: Option<String>,
+    git_repo: Option<String>,
+}
+
+fn prepare_session(session: &SessionUpsert) -> rusqlite::Result<PreparedSession> {
     let model_settings = serde_json::to_string(&session.model_settings)
         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-    let blocks_json = serde_json::to_string(&session.blocks)
-        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+    let transcript = transcript::prepare(&session.blocks, session.blocks_delta.as_ref())?;
     let queued_messages_json = serde_json::to_string(&session.queued_messages)
         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+    let git = crate::fs::git_info_for(&crate::fs::expand_home(&session.cwd));
+    Ok(PreparedSession {
+        model_settings,
+        transcript,
+        queued_messages_json,
+        git_branch: git.branch,
+        git_repo: git.repo,
+    })
+}
+
+#[cfg(test)]
+fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Result<SessionSummary> {
+    upsert_prepared_session(conn, session, prepare_session(session)?)
+}
+
+fn upsert_prepared_session(
+    conn: &Connection,
+    session: &SessionUpsert,
+    prepared: PreparedSession,
+) -> rusqlite::Result<SessionSummary> {
+    let now = now_millis();
+    let PreparedSession {
+        model_settings,
+        transcript,
+        queued_messages_json,
+        git_branch,
+        git_repo,
+    } = prepared;
     let provider_session_id = session
         .provider_session_id
         .as_ref()
         .map(|value| value.trim())
         .filter(|value| !value.is_empty());
-    let git = crate::fs::git_info_for(&crate::fs::expand_home(&session.cwd));
     let branch = session
         .branch
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .or_else(|| git.branch.as_deref().filter(|value| !value.is_empty()));
+        .or_else(|| git_branch.as_deref().filter(|value| !value.is_empty()));
     let worktree_cwd = session
         .worktree_cwd
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
-    let has_user_message = has_user_block(&session.blocks);
-
-    let existing: Option<(i64, i64, String, i64, i64)> = conn
+    let tx = conn.unchecked_transaction()?;
+    let existing: Option<(i64, i64, i64, i64)> = tx
         .query_row(
-            "SELECT created_at, updated_at, blocks_json, archived, pinned FROM sessions WHERE id = ?1",
-            params![session.id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            "SELECT created_at, updated_at, archived, pinned FROM sessions WHERE id = ?1",
+            [&session.id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .optional()?;
-    let created_at = existing
-        .as_ref()
-        .map(|(value, _, _, _, _)| *value)
-        .unwrap_or(now);
-    let updated_at = match &existing {
-        // Both strings come from this serializer, so equal text is the
-        // common unchanged case. Parsing the stored transcript again to
-        // compare semantically costs tens of milliseconds per megabyte.
-        Some((_, prev_updated, prev_blocks, _, _))
-            if *prev_blocks == blocks_json || json_eq(prev_blocks, &session.blocks) =>
-        {
-            *prev_updated
-        }
-        _ => now,
+    if existing.is_none() && session.blocks_delta.is_some() {
+        return Err(rusqlite::Error::InvalidParameterName(
+            transcript::REVISION_MISMATCH.into(),
+        ));
+    }
+    // Install the parent row before FK-protected blocks, inside this same transaction.
+    tx.execute(
+        "INSERT OR IGNORE INTO sessions(id, cwd, harness, model, runtime_mode, title, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+        params![session.id, session.cwd, session.harness, session.model, session.runtime_mode, session.title, now],
+    )?;
+    let applied = transcript::apply(&tx, &session.id, transcript)?;
+    let created_at = existing.as_ref().map(|row| row.0).unwrap_or(now);
+    let updated_at = if applied.changed {
+        now
+    } else {
+        existing.as_ref().map(|row| row.1).unwrap_or(now)
     };
-    let archived = existing
-        .as_ref()
-        .map(|(_, _, _, value, _)| *value != 0)
-        .unwrap_or(false);
-    let pinned = existing
-        .as_ref()
-        .map(|(_, _, _, _, value)| *value != 0)
-        .unwrap_or(false);
+    let archived = existing.as_ref().is_some_and(|row| row.2 != 0);
+    let pinned = existing.as_ref().is_some_and(|row| row.3 != 0);
+    let has_user_message = applied.has_user;
 
-    // A worker transcript and its ownership index must become durable together.
-    // Otherwise a crash between writes could briefly restore it as a loose chat.
-    let tx = conn.unchecked_transaction()?;
     tx.execute(
         "INSERT INTO sessions (
            id, cwd, harness, model, model_settings, runtime_mode, title,
-           provider_session_id, blocks_json, created_at, updated_at, branch,
+           provider_session_id, created_at, updated_at, branch,
            context_used, context_window, worktree_cwd, has_user_message, queued_messages_json
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
          ON CONFLICT(id) DO UPDATE SET
            cwd = excluded.cwd,
            harness = excluded.harness,
@@ -812,14 +925,27 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
            runtime_mode = excluded.runtime_mode,
            title = excluded.title,
            provider_session_id = excluded.provider_session_id,
-           blocks_json = excluded.blocks_json,
            updated_at = excluded.updated_at,
            branch = excluded.branch,
            context_used = excluded.context_used,
            context_window = excluded.context_window,
            worktree_cwd = excluded.worktree_cwd,
            has_user_message = excluded.has_user_message,
-           queued_messages_json = excluded.queued_messages_json",
+           queued_messages_json = excluded.queued_messages_json
+         WHERE sessions.cwd IS NOT excluded.cwd
+            OR sessions.harness IS NOT excluded.harness
+            OR sessions.model IS NOT excluded.model
+            OR sessions.model_settings IS NOT excluded.model_settings
+            OR sessions.runtime_mode IS NOT excluded.runtime_mode
+            OR sessions.title IS NOT excluded.title
+            OR sessions.provider_session_id IS NOT excluded.provider_session_id
+            OR sessions.updated_at IS NOT excluded.updated_at
+            OR sessions.branch IS NOT excluded.branch
+            OR sessions.context_used IS NOT excluded.context_used
+            OR sessions.context_window IS NOT excluded.context_window
+            OR sessions.worktree_cwd IS NOT excluded.worktree_cwd
+            OR sessions.has_user_message IS NOT excluded.has_user_message
+            OR sessions.queued_messages_json IS NOT excluded.queued_messages_json",
         params![
             session.id,
             session.cwd,
@@ -829,7 +955,6 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
             session.runtime_mode,
             session.title,
             provider_session_id,
-            blocks_json,
             created_at,
             updated_at,
             branch,
@@ -841,8 +966,11 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
         ],
     )?;
 
-    remember_worker_from_blocks(&tx, &session.id, &session.blocks)?;
+    if let Some(lead) = &applied.worker_lead {
+        remember_worker(&tx, &session.id, lead)?;
+    }
     let summary = SessionSummary {
+        transcript_revision: Some(applied.revision),
         id: session.id.clone(),
         orchestration_lead_id: worker_parent(&tx, &session.id)?,
         orchestration: orchestration_summary(&tx, &session.id)?,
@@ -853,7 +981,7 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
         title: session.title.clone(),
         provider_session_id: provider_session_id.map(str::to_owned),
         branch: branch.map(str::to_owned),
-        repo: git.repo,
+        repo: git_repo,
         additions: 0,
         deletions: 0,
         created_at,
@@ -885,12 +1013,12 @@ fn search_sessions(
         .filter(|value| !value.is_empty());
 
     let mut sql = String::from(
-        "SELECT id, cwd, harness, title, updated_at, archived, blocks_json
+        "SELECT id, cwd, harness, title, updated_at, archived
          FROM sessions
-         WHERE inbox_ask IS NULL AND blocks_json != '[]'
-           AND blocks_json LIKE '%\"role\":\"user\"%'
+         WHERE inbox_ask IS NULL AND has_user_message = 1
            AND (LOWER(title) LIKE LOWER(?1) ESCAPE '\\'
-                OR LOWER(blocks_json) LIKE LOWER(?1) ESCAPE '\\')",
+                OR (blocks_storage = 0 AND LOWER(blocks_json) LIKE LOWER(?1) ESCAPE '\\')
+                OR EXISTS(SELECT 1 FROM session_blocks WHERE session_id = sessions.id AND LOWER(block_json) LIKE LOWER(?1) ESCAPE '\\'))",
     );
     if !options.include_archived {
         sql.push_str(" AND archived = 0");
@@ -915,7 +1043,7 @@ fn search_sessions(
     let mut scanned = 0;
     let mut truncated = false;
     for row in rows {
-        let (id, cwd, harness, title, updated_at, blocks_raw) = row?;
+        let (id, cwd, harness, title, updated_at) = row?;
         scanned += 1;
         if scanned > MAX_SEARCH_SCAN {
             truncated = true;
@@ -948,7 +1076,7 @@ fn search_sessions(
             continue;
         }
 
-        let Ok(blocks) = serde_json::from_str::<Value>(&blocks_raw) else {
+        let Ok(blocks) = transcript::read(conn, &id) else {
             continue;
         };
         for hit in block_hits(&blocks, &needle) {
@@ -979,16 +1107,13 @@ fn search_sessions(
     Ok(SessionSearchResult { hits, truncated })
 }
 
-fn search_row(
-    row: &rusqlite::Row<'_>,
-) -> rusqlite::Result<(String, String, String, String, i64, String)> {
+fn search_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(String, String, String, String, i64)> {
     Ok((
         row.get(0)?,
         row.get(1)?,
         row.get(2)?,
         row.get(3)?,
         row.get(4)?,
-        row.get(6)?,
     ))
 }
 
@@ -1117,8 +1242,18 @@ fn list_project_ids(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<String
     rows.collect()
 }
 
+#[cfg(test)]
 fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<SessionSummary>> {
     let git = crate::fs::git_info_for(&crate::fs::expand_home(cwd));
+    list_by_project_with_git(conn, cwd, git.branch, git.repo)
+}
+
+fn list_by_project_with_git(
+    conn: &Connection,
+    cwd: &str,
+    git_branch: Option<String>,
+    git_repo: Option<String>,
+) -> rusqlite::Result<Vec<SessionSummary>> {
     let mut statement = conn.prepare(
         "SELECT id, cwd, harness, model, runtime_mode, title, provider_session_id,
                 created_at, updated_at, branch, archived, pinned,
@@ -1135,6 +1270,7 @@ fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<Session
         let archived: i64 = row.get(10)?;
         let pinned: i64 = row.get(11)?;
         Ok(SessionSummary {
+            transcript_revision: None,
             id: row.get(0)?,
             orchestration_lead_id: None,
             orchestration: optional_json(row.get(12)?),
@@ -1146,8 +1282,8 @@ fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<Session
             provider_session_id: row.get(6)?,
             created_at: row.get(7)?,
             updated_at: row.get(8)?,
-            branch: nonempty(stored_branch).or_else(|| git.branch.clone()),
-            repo: git.repo.clone(),
+            branch: nonempty(stored_branch).or_else(|| git_branch.clone()),
+            repo: git_repo.clone(),
             additions: 0,
             deletions: 0,
             archived: archived != 0,
@@ -1159,6 +1295,7 @@ fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<Session
 
 /// Mirrors the sidebar's notion of a listable session: a transcript that the
 /// user has actually said something in.
+#[cfg(test)]
 fn has_user_block(blocks: &Value) -> bool {
     blocks.as_array().is_some_and(|blocks| {
         blocks
@@ -1171,25 +1308,16 @@ fn nonempty(value: Option<String>) -> Option<String> {
     value.filter(|value| !value.is_empty())
 }
 
-fn json_eq(raw: &str, incoming: &Value) -> bool {
-    match serde_json::from_str::<Value>(raw) {
-        Ok(previous) => previous == *incoming,
-        Err(_) => false,
-    }
-}
-
 fn delete_session(conn: &Connection, session_id: &str) -> rusqlite::Result<()> {
     let tx = conn.unchecked_transaction()?;
     let parent = worker_parent(&tx, session_id)?;
     // Ownership is also carried in transcripts for older clients. Release
     // that metadata along with the index so reopening a worker stays detached.
-    let workers = tx.prepare("SELECT id, blocks_json FROM sessions WHERE id IN (SELECT session_id FROM orchestration_workers WHERE lead_id = ?1)")?
-        .query_map([session_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+    let workers = tx.prepare("SELECT id FROM sessions WHERE id IN (SELECT session_id FROM orchestration_workers WHERE lead_id = ?1)")?
+        .query_map([session_id], |row| row.get::<_, String>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    for (id, raw) in workers {
-        let mut blocks: Value = serde_json::from_str(&raw).map_err(|e| {
-            rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e))
-        })?;
+    for id in workers {
+        let mut blocks = transcript::read(&tx, &id)?;
         if let Some(blocks) = blocks.as_array_mut() {
             for block in blocks {
                 if block["orchestrationLeadId"] == session_id {
@@ -1199,10 +1327,7 @@ fn delete_session(conn: &Connection, session_id: &str) -> rusqlite::Result<()> {
                 }
             }
         }
-        tx.execute(
-            "UPDATE sessions SET blocks_json = ?1 WHERE id = ?2",
-            params![blocks.to_string(), id],
-        )?;
+        transcript::apply(&tx, &id, transcript::prepare(&blocks, None)?)?;
     }
     tx.execute(
         "DELETE FROM orchestration_runs WHERE lead_id = ?1",
@@ -1285,6 +1410,10 @@ fn delete_session(conn: &Connection, session_id: &str) -> rusqlite::Result<()> {
         "DELETE FROM orchestration_workers WHERE session_id = ?1 OR lead_id = ?1",
         [session_id],
     )?;
+    tx.execute(
+        "DELETE FROM session_blocks WHERE session_id = ?1",
+        [session_id],
+    )?;
     tx.execute("DELETE FROM sessions WHERE id = ?1", [session_id])?;
     tx.commit()
 }
@@ -1308,14 +1437,13 @@ fn set_pinned(conn: &Connection, session_id: &str, pinned: bool) -> rusqlite::Re
 fn get_session(conn: &Connection, session_id: &str) -> rusqlite::Result<Option<SessionRecord>> {
     conn.query_row(
         "SELECT id, cwd, harness, model, model_settings, runtime_mode, title,
-                provider_session_id, blocks_json, created_at, updated_at,
+                provider_session_id, NULL, created_at, updated_at,
                 context_used, context_window, branch, worktree_cwd, queued_messages_json
          FROM sessions
          WHERE id = ?1 AND inbox_ask IS NULL",
         params![session_id],
         |row| {
             let model_settings_raw: String = row.get(4)?;
-            let blocks_raw: String = row.get(8)?;
             let model_settings = serde_json::from_str(&model_settings_raw).map_err(|e| {
                 rusqlite::Error::FromSqlConversionFailure(
                     4,
@@ -1323,13 +1451,7 @@ fn get_session(conn: &Connection, session_id: &str) -> rusqlite::Result<Option<S
                     Box::new(e),
                 )
             })?;
-            let blocks = serde_json::from_str(&blocks_raw).map_err(|e| {
-                rusqlite::Error::FromSqlConversionFailure(
-                    8,
-                    rusqlite::types::Type::Text,
-                    Box::new(e),
-                )
-            })?;
+            let blocks = transcript::read(conn, session_id)?;
             Ok(SessionRecord {
                 id: row.get(0)?,
                 orchestration_lead_id: worker_parent(conn, session_id)?,
@@ -1448,12 +1570,87 @@ pub(crate) fn now_millis() -> i64 {
 }
 
 #[cfg(test)]
+#[path = "session_transcript_tests.rs"]
+mod transcript_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
 
+    #[test]
+    fn disk_store_uses_normal_wal_and_preserves_history_after_reopen() {
+        let root = crate::turn_shots::tests::TemporaryDirectory::new();
+        let path = root.0.join("session-performance.db");
+        {
+            let store = SessionStore::open(path.clone()).unwrap();
+            let conn = store.lock_conn().unwrap();
+            let journal: String = conn
+                .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+                .unwrap();
+            let synchronous: i64 = conn
+                .query_row("PRAGMA synchronous", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(journal, "wal");
+            assert_eq!(synchronous, 1);
+            upsert_session(
+                &conn,
+                &sample("durable", "/tmp/project", "Saved transcript"),
+            )
+            .unwrap();
+        }
+        let store = SessionStore::open(path).unwrap();
+        let conn = store.lock_conn().unwrap();
+        let restored = get_session(&conn, "durable").unwrap().unwrap();
+        assert_eq!(restored.title, "Saved transcript");
+        assert_eq!(restored.blocks[0]["text"], "hello");
+        let integrity: String = conn
+            .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(integrity, "ok");
+    }
+
+    #[test]
+    fn unchanged_session_does_not_write_rows_but_metadata_and_queue_changes_do() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.lock_conn().unwrap();
+        let mut session = sample("unchanged", "/tmp/project", "Same");
+        let first = upsert_session(&conn, &session).unwrap();
+        let changes = conn.total_changes();
+        let same = upsert_session(&conn, &session).unwrap();
+        assert_eq!(conn.total_changes(), changes);
+        assert_eq!(same.updated_at, first.updated_at);
+        session.title = "Changed title".into();
+        session.context_used = Some(42);
+        session.queued_messages = vec![json!({"id":"queued", "text":"Follow up"})];
+        upsert_session(&conn, &session).unwrap();
+        assert!(conn.total_changes() > changes);
+        let restored = get_session(&conn, &session.id).unwrap().unwrap();
+        assert_eq!(restored.title, "Changed title");
+        assert_eq!(restored.context_used, Some(42));
+        assert_eq!(restored.queued_messages, session.queued_messages);
+    }
+
+    #[test]
+    fn prepared_session_uses_git_metadata_gathered_before_locking() {
+        let session = sample("prepared", "/tmp/project", "Prepared");
+        let mut prepared = prepare_session(&session).unwrap();
+        prepared.git_branch = Some("snapshot-branch".into());
+        prepared.git_repo = Some("snapshot-repo".into());
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.lock_conn().unwrap();
+        let summary = upsert_prepared_session(&conn, &session, prepared).unwrap();
+        assert_eq!(summary.branch.as_deref(), Some("snapshot-branch"));
+        assert_eq!(summary.repo.as_deref(), Some("snapshot-repo"));
+        let listed =
+            list_by_project_with_git(&conn, &session.cwd, None, Some("list-repo".into())).unwrap();
+        assert_eq!(listed[0].branch.as_deref(), Some("snapshot-branch"));
+        assert_eq!(listed[0].repo.as_deref(), Some("list-repo"));
+    }
+
     fn sample(id: &str, cwd: &str, title: &str) -> SessionUpsert {
         SessionUpsert {
+            blocks_delta: None,
             id: id.into(),
             cwd: cwd.into(),
             harness: "cursor".into(),

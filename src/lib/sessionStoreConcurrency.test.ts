@@ -7,14 +7,17 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
 type Deferred<T> = {
   promise: Promise<T>;
   resolve: (value: T) => void;
+  reject: (error: Error) => void;
 };
 
 function deferred<T>(): Deferred<T> {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((res) => {
+  let reject!: (error: Error) => void;
+  const promise = new Promise<T>((res, rej) => {
     resolve = res;
+    reject = rej;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 async function loadStore() {
@@ -41,6 +44,81 @@ afterEach(() => {
 });
 
 describe("session persistence concurrency", () => {
+  it("combines identical pending snapshots but does not cache settled writes", async () => {
+    const write = deferred<unknown>();
+    mocks.invoke
+      .mockReturnValueOnce(write.promise)
+      .mockResolvedValue(undefined);
+    const { upsertSession } = await loadStore();
+    const snapshot = session("same");
+    const first = upsertSession(snapshot);
+    const second = upsertSession({ ...snapshot, busy: false });
+    await vi.waitFor(() => expect(mocks.invoke).toHaveBeenCalledTimes(1));
+    write.resolve(undefined);
+    await Promise.all([first, second]);
+    await upsertSession(snapshot);
+    expect(mocks.invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it("preserves A-B-A ordering when a changed snapshot intervenes", async () => {
+    const write = deferred<unknown>();
+    mocks.invoke
+      .mockReturnValueOnce(write.promise)
+      .mockResolvedValue(undefined);
+    const { upsertSession } = await loadStore();
+    const snapshot = session("ordered");
+    const first = upsertSession(snapshot);
+    const changed = upsertSession({ ...snapshot, title: "renamed" });
+    const last = upsertSession(snapshot);
+    await vi.waitFor(() => expect(mocks.invoke).toHaveBeenCalledTimes(1));
+    write.resolve(undefined);
+    await Promise.all([first, changed, last]);
+    expect(
+      mocks.invoke.mock.calls.map(([, args]) => args.session.title),
+    ).toEqual(["", "renamed", ""]);
+  });
+
+  it("shares a pending failure and allows the same snapshot to retry", async () => {
+    const write = deferred<unknown>();
+    mocks.invoke
+      .mockReturnValueOnce(write.promise)
+      .mockResolvedValue(undefined);
+    const { upsertSession } = await loadStore();
+    const snapshot = session("retry");
+    const failures = Promise.allSettled([
+      upsertSession(snapshot),
+      upsertSession(snapshot),
+    ]);
+    await vi.waitFor(() => expect(mocks.invoke).toHaveBeenCalledTimes(1));
+    write.reject(new Error("disk unavailable"));
+    expect((await failures).map((result) => result.status)).toEqual([
+      "rejected",
+      "rejected",
+    ]);
+    await upsertSession(snapshot);
+    expect(mocks.invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not combine identical snapshots across an archive operation", async () => {
+    const write = deferred<unknown>();
+    mocks.invoke
+      .mockReturnValueOnce(write.promise)
+      .mockResolvedValue(undefined);
+    const { upsertSession, setSessionArchived } = await loadStore();
+    const snapshot = session("barrier");
+    const first = upsertSession(snapshot);
+    const archive = setSessionArchived(snapshot.id, true);
+    const last = upsertSession(snapshot);
+    await vi.waitFor(() => expect(mocks.invoke).toHaveBeenCalledTimes(1));
+    write.resolve(undefined);
+    await Promise.all([first, archive, last]);
+    expect(mocks.invoke.mock.calls.map(([command]) => command)).toEqual([
+      "session_upsert",
+      "session_set_archived",
+      "session_upsert",
+    ]);
+  });
+
   it("uses the complete project inventory instead of filtered sidebar history", async () => {
     mocks.invoke.mockResolvedValue(["lead", "hidden-worker", "empty-chat"]);
     const { listProjectSessionIds } = await loadStore();
@@ -75,11 +153,7 @@ describe("session persistence concurrency", () => {
     expect(commands).toEqual(["session_upsert"]);
     firstWrite.resolve(undefined);
     await Promise.all([writing, queued, deleting]);
-    expect(commands).toEqual([
-      "session_upsert",
-      "session_upsert",
-      "session_delete",
-    ]);
+    expect(commands).toEqual(["session_upsert", "session_delete"]);
     await upsertSession(worker);
     for (const [, args] of mocks.invoke.mock.calls
       .slice(1)

@@ -17,4 +17,9 @@ constexpr size_t kEditViewportMaxBytes = kEditViewportMaxBase64 / 4 * 3;
 // Width and height are zero on failure; no files or browser state are changed.
 NSData *CropBrowserEditImage(NSData *png, BrowserRect normalizedTarget,
                             uint32_t &width, uint32_t &height);
+// Temporary popup covers: bounded JPEG, opaque browser background, no metadata.
+// Resizes captured pixels without changing live browser geometry or emulation.
+constexpr uint32_t kBrowserCoverMaxEdge = 1280;
+constexpr size_t kBrowserCoverMaxBytes = 2 * 1024 * 1024;
+NSData *CompressBrowserCoverImage(NSData *png, uint32_t &width, uint32_t &height);
 }  // namespace supermono

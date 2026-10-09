@@ -17,11 +17,7 @@ export type SettingsSectionId =
   | "archive";
 
 export type SettingsSectionGroup =
-  | "Personal"
-  | "Agents"
-  | "Coding"
-  | "Integrations"
-  | "Archived";
+  "Personal" | "Agents" | "Coding" | "Integrations" | "Archived";
 
 /** Navigation order. Each group starts where its first section appears. */
 export const SETTINGS_SECTIONS: {
@@ -58,7 +54,8 @@ export const SETTINGS_SECTIONS: {
     id: "provider-setup",
     group: "Agents",
     label: "Provider setup",
-    description: "Choose providers, install their CLIs, and connect your accounts.",
+    description:
+      "Choose providers, install their CLIs, and connect your accounts.",
   },
   {
     id: "providers",

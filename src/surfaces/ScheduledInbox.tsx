@@ -90,7 +90,7 @@ import { Segmented, Select, Toggle } from "./SettingsControls";
 export const SCHEDULES = "schedules";
 
 // Matches the Inbox detail action row.
-const ACTION = "inline-flex items-center gap-1.5 rounded-md px-3 text-[12px]";
+const ACTION = "inline-flex items-center gap-1.5 rounded-md px-3 text-ui-label";
 const ACTION_FILLED = `${ACTION} h-6.5 bg-content text-background-base hover:bg-content/80 disabled:cursor-default disabled:opacity-40`;
 const ACTION_GHOST = `${ACTION} h-7 text-content/70 hover:bg-content/10 hover:text-content disabled:cursor-default disabled:opacity-40`;
 const ICON_BUTTON =
@@ -245,7 +245,7 @@ export function ScheduledRunList({
   return (
     <>
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-content/10 px-2">
-        <span className="min-w-0 flex-1 truncate px-1 text-[12px] text-content/50">
+        <span className="min-w-0 flex-1 truncate px-1 text-ui-label text-content/50">
           Recent runs
         </span>
         <button
@@ -278,10 +278,10 @@ export function ScheduledRunList({
                 strokeWidth={1.75}
               />
               <span className="flex min-w-0 flex-1 flex-col">
-                <span className="text-[13px] font-semibold leading-snug text-content">
+                <span className="text-ui-body font-semibold leading-snug text-content">
                   All automations
                 </span>
-                <span className="truncate text-[11px] text-content/45">
+                <span className="truncate text-ui-caption text-content/45">
                   {agents.length === 0
                     ? "Start from an example or your own prompt"
                     : upcoming != null
@@ -292,7 +292,7 @@ export function ScheduledRunList({
             </button>
           </li>
           {runs.length === 0 ? (
-            <li className="px-3 py-2 text-[12px] text-content/50">
+            <li className="px-3 py-2 text-ui-label text-content/50">
               No runs yet
             </li>
           ) : (
@@ -353,13 +353,13 @@ function ScheduledRunCard({
             className={`size-3 shrink-0 ${status.className} ${status.spin ? "animate-spin" : ""}`}
             strokeWidth={1.75}
           />
-          <span className="min-w-0 truncate text-[11px] text-content/50">
+          <span className="min-w-0 truncate text-ui-caption text-content/50">
             {status.label} · {projectName(run.project)}
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-1.5">
           {time ? (
-            <span className="text-[11px] tabular-nums text-content/45">
+            <span className="text-ui-caption tabular-nums text-content/45">
               {time}
             </span>
           ) : null}
@@ -368,11 +368,11 @@ function ScheduledRunCard({
           ) : null}
         </span>
       </span>
-      <span className="mt-1 line-clamp-1 text-[13px] font-semibold leading-snug text-content">
+      <span className="mt-1 line-clamp-1 text-ui-body font-semibold leading-snug text-content">
         {run.name}
       </span>
       {detail ? (
-        <span className="mt-1 line-clamp-1 text-[11px] text-content/45">
+        <span className="mt-1 line-clamp-1 text-ui-caption text-content/45">
           {detail}
         </span>
       ) : null}
@@ -433,7 +433,7 @@ function ScheduledRunDetail({
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-8 py-8">
       <header className="flex flex-col gap-3">
-        <div className="flex items-center gap-2 text-[12px] text-content/50">
+        <div className="flex items-center gap-2 text-ui-label text-content/50">
           <Clock className="size-3.5" strokeWidth={1.75} />
           <span>Automation</span>
           <span className={`flex items-center gap-1 ${status.className}`}>
@@ -444,10 +444,10 @@ function ScheduledRunDetail({
             {status.label}
           </span>
         </div>
-        <h1 className="text-[20px] font-semibold leading-tight text-content">
+        <h1 className="text-ui-heading font-semibold leading-tight text-content">
           {run.name}
         </h1>
-        <div className="flex flex-wrap items-center gap-2 text-[12px] text-content/50">
+        <div className="flex flex-wrap items-center gap-2 text-ui-label text-content/50">
           <span>{projectName(run.project)}</span>
           <span aria-hidden>·</span>
           <span>Started {formatRunTime(run.startedAt)}</span>
@@ -479,12 +479,12 @@ function ScheduledRunDetail({
       </header>
       <div className="border-t border-content/10" />
       {run.error ? (
-        <p className="text-[13px] text-rose-400/90">{run.error}</p>
+        <p className="text-ui-body text-rose-400/90">{run.error}</p>
       ) : null}
       {run.summary ? (
         <AgentMarkdown text={run.summary} cwd={run.project} />
       ) : run.error ? null : (
-        <p className="text-[13px] text-content/45">
+        <p className="text-ui-body text-content/45">
           {run.status === "running"
             ? "The agent is still working."
             : "The agent did not reply."}
@@ -524,10 +524,10 @@ function ScheduleManager({
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-8 py-8">
       <header className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 flex-col gap-1.5">
-          <h1 className="text-[20px] font-semibold leading-tight text-content">
+          <h1 className="text-ui-heading font-semibold leading-tight text-content">
             Automations
           </h1>
-          <p className="text-[12px] text-content/50">
+          <p className="text-ui-label text-content/50">
             Runs while your {IS_MAC ? "Mac" : "computer"} is awake and Aven is
             open. If a run is missed, it runs once when you’re back.
           </p>
@@ -570,16 +570,16 @@ function ScheduleManager({
               className="aven-inset-card flex items-center gap-3 px-3 py-2.5"
             >
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <span className="truncate text-[13px] font-medium text-content">
+                <span className="truncate text-ui-body font-medium text-content">
                   {agent.name}
                 </span>
-                <span className="truncate text-[11px] text-content/50">
+                <span className="truncate text-ui-caption text-content/50">
                   {describeSchedule(agent.schedule)} ·{" "}
                   {agentLabel(agent.harness, agent.model)} ·{" "}
                   {projectName(agent.project)}
                 </span>
               </div>
-              <span className="shrink-0 text-[11px] tabular-nums text-content/50">
+              <span className="shrink-0 text-ui-caption tabular-nums text-content/50">
                 {started === agent.id ? "Started" : nextRunLabel(agent)}
               </span>
               <Toggle
@@ -633,10 +633,10 @@ function KeepAwakeRow() {
   return (
     <div className="aven-inset-card flex items-center gap-3 px-3 py-2.5">
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="text-[13px] font-medium text-content">
+        <span className="text-ui-body font-medium text-content">
           Keep this {device} awake for automations
         </span>
-        <span className="text-[11px] text-content/50">
+        <span className="text-ui-caption text-content/50">
           While Aven is open, your {device} won’t go to sleep on its own, so
           overnight runs still happen. The screen can still turn off.
           {IS_MAC ? " Closing the lid still puts it to sleep." : ""}

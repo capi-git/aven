@@ -24,18 +24,49 @@ afterEach(() => {
 describe("live child agents", () => {
   it("keeps child lifecycle separate from lead completion and merges by stable identity", () => {
     let session = appendUser(newSession("codex", "/repo"), "Delegate checks");
-    session = applyHarnessEvent(session, { type: "agent.updated", agentId: "one", title: "Review", status: "running" });
-    session = applyHarnessEvent(session, { type: "agent.updated", agentId: "two", title: "Review", status: "running" });
+    session = applyHarnessEvent(session, {
+      type: "agent.updated",
+      agentId: "one",
+      title: "Review",
+      status: "running",
+    });
+    session = applyHarnessEvent(session, {
+      type: "agent.updated",
+      agentId: "two",
+      title: "Review",
+      status: "running",
+    });
     session = stopStreaming(session);
     expect(session.busy).toBe(false);
     expect(session.liveAgents).toHaveLength(2);
-    session = applyHarnessEvent(session, { type: "agent.updated", agentId: "one", title: "Review", status: "completed" });
-    expect(session.liveAgents?.map(agent => agent.status)).toEqual(["completed", "running"]);
-    session = applyHarnessEvent(session, { type: "agent.updated", agentId: "two", title: "Review", status: "unknown", detail: "Connection lost" });
-    session = applyHarnessEvent(session, { type: "agent.updated", agentId: "two", title: "Review", status: "running" });
-    expect(session.liveAgents?.find(agent => agent.id === "two")?.detail).toBeUndefined();
+    session = applyHarnessEvent(session, {
+      type: "agent.updated",
+      agentId: "one",
+      title: "Review",
+      status: "completed",
+    });
+    expect(session.liveAgents?.map((agent) => agent.status)).toEqual([
+      "completed",
+      "running",
+    ]);
+    session = applyHarnessEvent(session, {
+      type: "agent.updated",
+      agentId: "two",
+      title: "Review",
+      status: "unknown",
+      detail: "Connection lost",
+    });
+    session = applyHarnessEvent(session, {
+      type: "agent.updated",
+      agentId: "two",
+      title: "Review",
+      status: "running",
+    });
+    expect(
+      session.liveAgents?.find((agent) => agent.id === "two")?.detail,
+    ).toBeUndefined();
     session = appendUser(session, "Continue");
-    expect(session.liveAgents?.map(agent => agent.id)).toEqual(["two"]);
+    expect(session.liveAgents?.map((agent) => agent.id)).toEqual(["two"]);
     session = applyHarnessEvent(session, { type: "agents.cleared" });
     expect(session.liveAgents).toBeUndefined();
   });
@@ -150,13 +181,21 @@ describe("approval lifetime", () => {
   });
 
   it("keeps a live request available during an in-flight steer", () => {
-    const session = appendSteerUser(waitingForApproval(), "also inspect the UI");
+    const session = appendSteerUser(
+      waitingForApproval(),
+      "also inspect the UI",
+    );
 
     expect(session.busy).toBe(true);
-    expect(session.blocks.find((block) => block.tool?.callId === "shell-1"))
-      .toMatchObject({ approval: { requestId: 7 }, tool: { status: "pending" } });
-    expect(session.blocks.find((block) => block.approval)?.approval?.decided)
-      .toBeUndefined();
+    expect(
+      session.blocks.find((block) => block.tool?.callId === "shell-1"),
+    ).toMatchObject({
+      approval: { requestId: 7 },
+      tool: { status: "pending" },
+    });
+    expect(
+      session.blocks.find((block) => block.approval)?.approval?.decided,
+    ).toBeUndefined();
   });
 
   it("keeps completed tools and prior decisions intact while settling a failed turn", () => {
@@ -180,29 +219,35 @@ describe("approval lifetime", () => {
       message: "Provider disconnected",
     });
 
-    expect(session.blocks.find((block) => block.tool?.callId === "shell-1"))
-      .toMatchObject({
-        approval: { requestId: 7, decided: "cancelled" },
-        tool: { status: "completed" },
-      });
-    expect(session.blocks.find((block) => block.approval?.requestId === 8)
-      ?.approval?.decided).toBe("deny");
+    expect(
+      session.blocks.find((block) => block.tool?.callId === "shell-1"),
+    ).toMatchObject({
+      approval: { requestId: 7, decided: "cancelled" },
+      tool: { status: "completed" },
+    });
+    expect(
+      session.blocks.find((block) => block.approval?.requestId === 8)?.approval
+        ?.decided,
+    ).toBe("deny");
     expect(session.blocks.at(-1)?.text).toBe("Provider disconnected");
   });
 
   it("removes an unresolved legacy standalone prompt when the turn stops", () => {
     const session = stopStreaming({
       ...newSession("codex", "/tmp"),
-      blocks: [{
-        id: "standalone-approval",
-        role: "approval",
-        text: "Permission needed",
-        approval: { requestId: 9 },
-      }],
+      blocks: [
+        {
+          id: "standalone-approval",
+          role: "approval",
+          text: "Permission needed",
+          approval: { requestId: 9 },
+        },
+      ],
     });
 
-    expect(session.blocks.some((block) => block.approval?.requestId === 9))
-      .toBe(false);
+    expect(
+      session.blocks.some((block) => block.approval?.requestId === 9),
+    ).toBe(false);
   });
 });
 
@@ -307,6 +352,86 @@ describe("status blocks", () => {
     let session = appendUser(newSession("claude", "/tmp"), "go");
     session = applyHarnessEvent(session, { type: "status", text: "  " });
     expect(session.blocks.some((block) => block.role === "system")).toBe(false);
+  });
+
+  it("updates a keyed status in place for the rest of the turn", () => {
+    let session = appendUser(newSession("pi", "/tmp"), "go");
+    session = applyHarnessEvent(session, {
+      type: "status",
+      key: "caveman",
+      text: "⠋ caveman level: ULTRA",
+    });
+    const id = session.blocks[1]?.id;
+    session = applyHarnessEvent(session, {
+      type: "message.delta",
+      text: "Working.",
+    });
+    for (const frame of ["⠙", "⠹", "⠸"]) {
+      session = applyHarnessEvent(session, {
+        type: "status",
+        key: "caveman",
+        text: `${frame} caveman level: ULTRA`,
+      });
+    }
+    expect(session.blocks.map((block) => [block.role, block.text])).toEqual([
+      ["user", "go"],
+      ["system", "⠸ caveman level: ULTRA"],
+      ["assistant", "Working."],
+    ]);
+    expect(session.blocks[1]).toMatchObject({ id, statusKey: "caveman" });
+    expect(session.blocks[2]?.streaming).toBe(true);
+  });
+
+  it("removes a keyed status when its text is cleared", () => {
+    let session = appendUser(newSession("pi", "/tmp"), "go");
+    session = applyHarnessEvent(session, {
+      type: "status",
+      key: "caveman",
+      text: "caveman level: ULTRA",
+    });
+    session = applyHarnessEvent(session, {
+      type: "status",
+      key: "caveman",
+      text: " ",
+    });
+    expect(session.blocks.map((block) => block.role)).toEqual(["user"]);
+  });
+
+  it("keeps one row per status key", () => {
+    let session = appendUser(newSession("pi", "/tmp"), "go");
+    for (const [key, text] of [
+      ["caveman", "caveman level: ULTRA"],
+      ["ponytail", "ponytail: FULL"],
+      ["caveman", "caveman level: LITE"],
+    ]) {
+      session = applyHarnessEvent(session, { type: "status", key, text });
+    }
+    expect(
+      session.blocks
+        .filter((block) => block.role === "system")
+        .map((block) => block.text),
+    ).toEqual(["caveman level: LITE", "ponytail: FULL"]);
+  });
+
+  it("starts a new keyed status row in the next turn", () => {
+    let session = appendUser(newSession("pi", "/tmp"), "go");
+    session = applyHarnessEvent(session, {
+      type: "status",
+      key: "caveman",
+      text: "caveman level: ULTRA",
+    });
+    session = appendUser(session, "again");
+    session = applyHarnessEvent(session, {
+      type: "status",
+      key: "caveman",
+      text: "caveman level: LITE",
+    });
+    expect(session.blocks.map((block) => block.text)).toEqual([
+      "go",
+      "caveman level: ULTRA",
+      "again",
+      "caveman level: LITE",
+    ]);
   });
 });
 
@@ -833,7 +958,10 @@ describe("plan keys", () => {
   });
 
   it("does not adopt a saved plan block when the turn counter starts over", () => {
-    let session = appendUser(newSession("claude", "/repo"), "plan the refactor");
+    let session = appendUser(
+      newSession("claude", "/repo"),
+      "plan the refactor",
+    );
     session = applyHarnessEvent(session, {
       type: "plan",
       key: planTurnKey(1),

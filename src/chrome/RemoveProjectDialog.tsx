@@ -67,27 +67,27 @@ export function RemoveProjectDialog({
         className="absolute left-1/2 top-[22%] flex w-[min(420px,calc(100vw-24px))] -translate-x-1/2 flex-col gap-3 aven-glass-overlay p-4"
       >
         <div className="flex flex-col gap-1">
-          <h2 className="text-[13px] font-medium leading-tight text-content">
+          <h2 className="text-ui-body font-medium leading-tight text-content">
             Delete “{name}”?
           </h2>
-          <p className="text-[12px] leading-snug text-content/55">
+          <p className="text-ui-label leading-snug text-content/55">
             All conversations for this project, including agent conversations,
             will be deleted. It also leaves the sidebar. The folder on disk
             stays put, and opening it again brings the project back empty.
           </p>
           {sessions != null && sessions > 0 ? (
-            <p className="text-[12px] leading-snug text-content/45">
+            <p className="text-ui-label leading-snug text-content/45">
               {sessions === 1
                 ? "1 saved conversation will be removed."
                 : `${sessions} saved conversations will be removed.`}
             </p>
           ) : null}
           {countError ? (
-            <p role="alert" className="text-[12px] leading-snug text-red-300">
+            <p role="alert" className="text-ui-label leading-snug text-red-300">
               Could not load this project's conversations. Cancel and try again.
             </p>
           ) : null}
-          <p className="truncate text-[11px] leading-tight text-content/40">
+          <p className="truncate text-ui-caption leading-tight text-content/40">
             {prettyCwd(path)}
           </p>
         </div>
@@ -97,7 +97,7 @@ export function RemoveProjectDialog({
             ref={cancelRef}
             type="button"
             onClick={onCancel}
-            className="rounded-md px-3 py-1.5 text-[12px] text-content/70 hover:bg-content/8 hover:text-content"
+            className="rounded-md px-3 py-1.5 text-ui-label text-content/70 hover:bg-content/8 hover:text-content"
           >
             Cancel
           </button>
@@ -105,7 +105,7 @@ export function RemoveProjectDialog({
             type="button"
             onClick={onConfirm}
             disabled={sessions == null || countError}
-            className="rounded-md bg-red-500/20 px-3 py-1.5 text-[12px] font-medium text-red-300 hover:bg-red-500/30 disabled:opacity-50"
+            className="rounded-md bg-red-500/20 px-3 py-1.5 text-ui-label font-medium text-red-300 hover:bg-red-500/30 disabled:opacity-50"
           >
             Delete
           </button>

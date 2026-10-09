@@ -108,7 +108,10 @@ export function ReleaseCard({ cwd }: { cwd: string }) {
       <div className="git-house-card" data-tone={summary.tone} role="status">
         <p className="git-house-headline">
           {summary.tone === "busy" ? (
-            <Loader className="size-3.5 shrink-0 animate-spin" strokeWidth={1.75} />
+            <Loader
+              className="size-3.5 shrink-0 animate-spin"
+              strokeWidth={1.75}
+            />
           ) : (
             <span className="git-house-dot" aria-hidden />
           )}
@@ -180,14 +183,19 @@ export function MergedBranchesCard({ cwd }: { cwd: string }) {
   const remoteName = branches.remote ?? "remote";
   const names = [
     ...local.map((name) => ({ name, where: "Local" })),
-    ...remote.map((name) => ({ name, where: remoteName === "origin" ? "GitHub" : remoteName })),
+    ...remote.map((name) => ({
+      name,
+      where: remoteName === "origin" ? "GitHub" : remoteName,
+    })),
   ];
 
   const clean = async () => {
     if (busy || total === 0) return;
     const parts = [
       local.length ? `${local.length} local` : "",
-      remote.length ? `${remote.length} on ${remoteName === "origin" ? "GitHub" : remoteName}` : "",
+      remote.length
+        ? `${remote.length} on ${remoteName === "origin" ? "GitHub" : remoteName}`
+        : "",
     ].filter(Boolean);
     const ok = await ask(
       `Delete ${total} merged ${total === 1 ? "branch" : "branches"} (${parts.join(", ")})? Their work is already in ${branches.base}. Branches that are open in a copy are kept.`,

@@ -89,8 +89,20 @@ import {
   setGitOriginal,
 } from "./editorGit";
 import { editorLint } from "./editorLint";
-import { editorSearch } from "./editorSearch";
+import {
+  editorSearch,
+  handleEditorFindKey,
+  openFindInActiveEditor,
+} from "./editorSearch";
+import { registerEditorCommands } from "./editorCommands";
+import { indentFocusedEditor } from "./editorShortcuts";
 import { DirectoryView } from "./DirectoryView";
+
+registerEditorCommands({
+  handleFindKey: handleEditorFindKey,
+  openFind: openFindInActiveEditor,
+  indent: indentFocusedEditor,
+});
 
 type EditorNavigationRequest = EditorNavigation & { token: number };
 
@@ -457,7 +469,7 @@ export function FileEditor({
 
   if (loadState.status === "loading") {
     return (
-      <div className="grid h-full place-items-center text-[12px] text-content/45">
+      <div className="grid h-full place-items-center text-ui-label text-content/45">
         Opening {basename(path)}…
       </div>
     );
@@ -468,16 +480,16 @@ export function FileEditor({
       <div className="grid h-full place-items-center p-6">
         <div className="max-w-md text-center">
           <AlertCircle className="mx-auto mb-3 size-5 text-red-400" />
-          <p className="text-[13px] text-content">
+          <p className="text-ui-body text-content">
             Couldn’t open {basename(path)}
           </p>
-          <p className="mt-1 text-[12px] leading-5 text-content/50">
+          <p className="mt-1 text-ui-label leading-5 text-content/50">
             {loadState.message}
           </p>
           <button
             type="button"
             onClick={() => setReloadKey((value) => value + 1)}
-            className="mx-auto mt-4 flex h-7 items-center gap-1.5 rounded-md bg-content/10 px-2.5 text-[12px] text-content hover:bg-content/15"
+            className="mx-auto mt-4 flex h-7 items-center gap-1.5 rounded-md bg-content/10 px-2.5 text-ui-label text-content hover:bg-content/15"
           >
             <RotateCcw className="size-3" strokeWidth={1.75} />
             Retry
@@ -502,7 +514,7 @@ export function FileEditor({
       {showDiff && gitDiff?.eolOnly ? (
         <p
           role="status"
-          className="shrink-0 border-b border-content/10 px-3 py-1 text-[12px] text-content/60"
+          className="shrink-0 border-b border-content/10 px-3 py-1 text-ui-label text-content/60"
         >
           {gitDiff.kind === "staged" ? "Staged" : "Unstaged"} line-ending
           changes. Line breaks are normalized in this view.
@@ -1079,7 +1091,7 @@ function DiffChunkStat({
     return <span className="min-w-0 flex-1" />;
   }
   return (
-    <span className="flex min-w-0 shrink-0 items-center gap-1.5 font-mono text-[11px] font-semibold tabular-nums">
+    <span className="flex min-w-0 shrink-0 items-center gap-1.5 font-mono text-ui-caption font-semibold tabular-nums">
       {additions > 0 ? (
         <span className="text-emerald-400">+{additions}</span>
       ) : null}

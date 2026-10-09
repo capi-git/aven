@@ -18,6 +18,7 @@ import {
 import { Popover } from "../chrome/Popover";
 import { ToolbarPanel } from "../chrome/ToolbarPanel";
 import { Check, ChevronDown } from "../chrome/icons";
+import { isImeComposition } from "../lib/keyboard";
 import { LAYER } from "../lib/layers";
 import { useUsagePanelTheme } from "../lib/usagePanel";
 import { settingSearchAnchor as settingAnchor } from "../lib/settingsSearch";
@@ -321,8 +322,7 @@ export function ColorSwatches({
         data-checked={custom || undefined}
         style={
           (custom ? { "--swatch": value } : undefined) as
-            | CSSProperties
-            | undefined
+            CSSProperties | undefined
         }
       >
         <input
@@ -448,7 +448,7 @@ export function Select({
         onKeyDown={(event) => {
           if (
             unavailable ||
-            event.nativeEvent.isComposing ||
+            isImeComposition(event.nativeEvent) ||
             event.altKey ||
             event.ctrlKey ||
             event.metaKey

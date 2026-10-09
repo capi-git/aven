@@ -12,8 +12,5 @@ export function sessionListWindow(
 ): number {
   if (total <= 0) return 0;
   const includeActive = activeIndex >= 0 ? activeIndex + 1 : 0;
-  return Math.min(
-    total,
-    Math.max(SESSION_LIST_PAGE, requested, includeActive),
-  );
+  return Math.min(total, Math.max(SESSION_LIST_PAGE, requested, includeActive));
 }

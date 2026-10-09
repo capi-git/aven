@@ -64,7 +64,7 @@ function ModeTab({
       type="button"
       role="tab"
       aria-selected={selected}
-      className={`rounded px-2 py-0.5 font-mono text-[11px] ${
+      className={`rounded px-2 py-0.5 font-mono text-ui-caption ${
         selected
           ? "bg-content/12 text-content"
           : "text-content/45 hover:text-content/80"

@@ -39,7 +39,7 @@ function Harness(current: Props) {
         get: () => width * props.profiles.length,
       },
     });
-    node.scrollTo = scrollTo;
+    node.scrollTo = scrollTo as Element["scrollTo"];
     const captured = new Set<number>();
     node.setPointerCapture = vi.fn((id: number) => captured.add(id));
     node.hasPointerCapture = vi.fn((id: number) => captured.has(id));
@@ -81,7 +81,12 @@ async function resize(nextWidth: number) {
   await act(async () => {
     for (const observer of resizeObservers)
       observer.callback(
-        [{ target: viewport, contentRect: { width } } as ResizeObserverEntry],
+        [
+          {
+            target: viewport,
+            contentRect: { width },
+          } as unknown as ResizeObserverEntry,
+        ],
         observer as unknown as ResizeObserver,
       );
   });

@@ -373,7 +373,7 @@ export function SearchView({
             autoCorrect="off"
             autoCapitalize="off"
             data-tauri-drag-region="false"
-            className="min-w-0 flex-1 bg-transparent text-[13px] text-content outline-none select-text placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+            className="min-w-0 flex-1 bg-transparent text-ui-body text-content outline-none select-text placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
           />
           {loading ? (
             <LoaderCircle
@@ -394,7 +394,7 @@ export function SearchView({
               type="button"
               aria-pressed={selected}
               onClick={() => setScope(item.id)}
-              className={`rounded-md px-2 py-1 text-[12px] ${
+              className={`rounded-md px-2 py-1 text-ui-label ${
                 selected
                   ? "bg-content/10 text-content"
                   : "text-content/50 hover:bg-content/5 hover:text-content"
@@ -417,9 +417,11 @@ export function SearchView({
         {empty ? (
           <EmptyState />
         ) : error && hits.length === 0 ? (
-          <p className="px-2 py-1.5 text-[12px] text-red-400">{error}</p>
+          <p className="px-2 py-1.5 text-ui-label text-red-400">{error}</p>
         ) : noResults ? (
-          <p className="px-2 py-1.5 text-[12px] text-content/50">No results</p>
+          <p className="px-2 py-1.5 text-ui-label text-content/50">
+            No results
+          </p>
         ) : (
           <ResultList
             hits={hits}
@@ -462,7 +464,7 @@ function EmptyState() {
         </div>
       </div>
 
-      <p className="max-w-xs text-center text-[13px] text-content/45">
+      <p className="max-w-xs text-center text-ui-body text-content/45">
         Find files, conversations, messages, and projects.
       </p>
     </div>
@@ -534,7 +536,7 @@ function ResultList({
             onMouseDown={(event) => event.preventDefault()}
             onMouseEnter={() => onRowEnter(index)}
             onClick={() => onOpen(hit)}
-            className={`flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] leading-none ${
+            className={`flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-ui-body leading-none ${
               highlighted ? "bg-content/10 text-content" : "text-content"
             }`}
           >
@@ -543,7 +545,7 @@ function ResultList({
             </span>
             <span className="min-w-0 flex-1 truncate">{row.title}</span>
             {row.meta ? (
-              <span className="min-w-0 max-w-[45%] truncate font-mono text-[11px] text-content/40">
+              <span className="min-w-0 max-w-[45%] truncate font-mono text-ui-caption text-content/40">
                 {row.meta}
               </span>
             ) : null}

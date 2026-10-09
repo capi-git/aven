@@ -130,19 +130,33 @@ describe("model settings memory", () => {
 
   it("starts Opus 5.5 at medium without changing saved effort or fast choices", () => {
     expect(defaultModelSettings(CLAUDE_OPUS_5_5_MODEL)).toEqual({
-      effort: "medium", fast: "false",
+      effort: "medium",
+      fast: "false",
     });
     expect(preferredModelSettings(CLAUDE_OPUS_5_5_MODEL)).toEqual({
-      effort: "medium", fast: "false",
+      effort: "medium",
+      fast: "false",
     });
-    saveLastModelSettings({ effort: "xhigh", fast: "true", context: "200k", thinking: "false" });
+    saveLastModelSettings({
+      effort: "xhigh",
+      fast: "true",
+      context: "200k",
+      thinking: "false",
+    });
     expect(preferredModelSettings(CLAUDE_OPUS_5_5_MODEL)).toEqual({
-      effort: "xhigh", fast: "true",
+      effort: "xhigh",
+      fast: "true",
     });
     expect(loadLastModelSettings()).toEqual({
-      effort: "xhigh", fast: "true", context: "200k", thinking: "false",
+      effort: "xhigh",
+      fast: "true",
+      context: "200k",
+      thinking: "false",
     });
-    expect(preferredModelSettings(opus)).toEqual({ effort: "xhigh", fast: "true" });
+    expect(preferredModelSettings(opus)).toEqual({
+      effort: "xhigh",
+      fast: "true",
+    });
   });
 
   it("drops values the new model does not support", () => {
@@ -466,7 +480,9 @@ describe("picker preferences across catalog aliases", () => {
     resetHarnessModelOverlays();
     expect(preferredModelId("claude")).toBe(exactId);
     expect(nativeModelId(preferredModelId("claude"))).toBe("claude-opus-5-5");
-    expect(findPickerModel(loadFavoriteModels()[0])).toBe(CLAUDE_OPUS_5_5_MODEL);
+    expect(findPickerModel(loadFavoriteModels()[0])).toBe(
+      CLAUDE_OPUS_5_5_MODEL,
+    );
   });
 
   it("honors an existing fallback hide when a live alias catalog replaces it", () => {

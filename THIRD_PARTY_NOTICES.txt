@@ -1942,15 +1942,6 @@ Text [9c1db6b7e7eb83e1cb2a]: LICENSE.spdx
 Text [bb28c48e3e078166e91c]: LICENSE_APACHE-2.0
 Text [9dd42ea92cff2ede5cd4]: LICENSE_MIT
 
-cargo:tauri-plugin-process@2.3.1
-Declared license: Apache-2.0 OR MIT
-Source: https://github.com/tauri-apps/plugins-workspace
-Source archive: https://crates.io/api/v1/crates/tauri-plugin-process/2.3.1/download
-Package author metadata: Tauri Programme within The Commons Conservancy
-Text [9c1db6b7e7eb83e1cb2a]: LICENSE.spdx
-Text [bb28c48e3e078166e91c]: LICENSE_APACHE-2.0
-Text [9dd42ea92cff2ede5cd4]: LICENSE_MIT
-
 cargo:tauri-plugin-updater@2.10.1
 Declared license: Apache-2.0 OR MIT
 Source: https://github.com/tauri-apps/plugins-workspace
@@ -2879,14 +2870,6 @@ Text [50e6751797c50dedd75e]: https://www.apache.org/licenses/LICENSE-2.0.txt
 Text [b05785f9f18e6716bab6]: https://raw.githubusercontent.com/spdx/license-list-data/main/text/MIT.txt
 Text [84c8c85ba53a803c036f]: Original package source copyright headers
 
-npm:@tauri-apps/plugin-process@2.3.1
-Declared license: MIT OR Apache-2.0
-Source: https://github.com/tauri-apps/plugins-workspace
-Text [9c1db6b7e7eb83e1cb2a]: LICENSE.spdx
-Text [50e6751797c50dedd75e]: https://www.apache.org/licenses/LICENSE-2.0.txt
-Text [b05785f9f18e6716bab6]: https://raw.githubusercontent.com/spdx/license-list-data/main/text/MIT.txt
-Text [84c8c85ba53a803c036f]: Original package source copyright headers
-
 npm:@tauri-apps/plugin-updater@2.10.1
 Declared license: MIT OR Apache-2.0
 Source: https://github.com/tauri-apps/plugins-workspace
@@ -3111,12 +3094,6 @@ Declared license: MIT
 Source: https://github.com/upsetjs/venn.js
 Package author metadata: Ben Frederickson
 Text [6a3508febf2cfccfee96]: LICENSE
-
-npm:@xterm/addon-fit@0.11.0
-Declared license: MIT
-Source: https://github.com/xtermjs/xterm.js/tree/master/addons/addon-fit
-Package author metadata: The xterm.js authors
-Text [e256f01188af527e4d06]: LICENSE
 
 npm:@xterm/xterm@6.0.0
 Declared license: MIT
@@ -17318,28 +17295,6 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ----- END TEXT e20fa2b8e0a2565f24a7 -----
-
------ TEXT e256f01188af527e4d06 -----
-Copyright (c) 2019, The xterm.js authors (https://github.com/xtermjs/xterm.js)
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
------ END TEXT e256f01188af527e4d06 -----
 
 ----- TEXT e271993808fec50ab293 -----
 # Community Data License Agreement - Permissive - Version 2.0

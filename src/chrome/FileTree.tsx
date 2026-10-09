@@ -49,6 +49,7 @@ import {
   revealPath,
   type FsEntry,
 } from "../lib/fs";
+import { isImeComposition } from "../lib/keyboard";
 import { displayPath, parentPath, rebasePath } from "../lib/paths";
 import { IS_MAC, IS_WIN, MOD, SHIFT } from "../lib/platform";
 import type { GitStatusMap } from "../hooks/useGitFileStatuses";
@@ -703,7 +704,7 @@ export const FileTree = memo(function FileTree({
                 <ChevronRight className="size-3.5" strokeWidth={1.75} />
               )}
             </span>
-            <span className="min-w-0 truncate text-[11px] font-semibold tracking-[0.08em] text-content/50 uppercase">
+            <span className="min-w-0 truncate text-ui-caption font-semibold tracking-[0.08em] text-content/50 uppercase">
               {name}
             </span>
           </button>
@@ -713,7 +714,7 @@ export const FileTree = memo(function FileTree({
           className="min-h-0 flex-1 overflow-y-auto overscroll-none"
         >
           {opError ? (
-            <p className="px-3 py-1 text-[12px] leading-4 text-red-400">
+            <p className="px-3 py-1 text-ui-label leading-4 text-red-400">
               {opError}
             </p>
           ) : null}
@@ -811,13 +812,13 @@ function TreeChildren({
   return (
     <>
       {error ? (
-        <p className="truncate pr-2 text-[12px] text-content/50" style={pad}>
+        <p className="truncate pr-2 text-ui-label text-content/50" style={pad}>
           {error}
         </p>
       ) : null}
       {show && ctx.creating?.isDir ? row : null}
       {loading && !error ? (
-        <p className="pr-2 text-[12px] text-content/50" style={pad}>
+        <p className="pr-2 text-ui-label text-content/50" style={pad}>
           …
         </p>
       ) : null}
@@ -918,7 +919,7 @@ function TreeNode({ entry, depth }: { entry: FsEntry; depth: number }) {
           onClick={onClick}
           onContextMenu={(e) => onItemContextMenu(entry, e)}
           style={{ paddingLeft: 8 + depth * 12 }}
-          className={`flex h-7.5 w-full cursor-default items-center gap-1 pr-2 text-left text-[14px] leading-none ${
+          className={`flex h-7.5 w-full cursor-default items-center gap-1 pr-2 text-left text-ui-reading leading-none ${
             selected
               ? "bg-content/10 text-content"
               : "text-content hover:bg-content/5"
@@ -937,7 +938,7 @@ function TreeNode({ entry, depth }: { entry: FsEntry; depth: number }) {
             <FileTypeIcon name={entry.name} isDir={entry.isDir} isOpen={open} />
           </span>
           <span
-            className={`min-w-0 truncate ${
+            className={`min-w-0 truncate leading-[1.4] ${
               entry.ignored ? "italic text-content/50" : (gitColor ?? "")
             }`}
           >
@@ -1052,7 +1053,7 @@ function NameRow({
             setSubmitError(null);
           }}
           onKeyDown={(e) => {
-            if (e.nativeEvent.isComposing) return;
+            if (isImeComposition(e.nativeEvent)) return;
             if (e.key === "Enter") {
               e.preventDefault();
               e.stopPropagation();
@@ -1064,7 +1065,7 @@ function NameRow({
             }
           }}
           onBlur={() => finish(issue === null || issue.severity !== "error")}
-          className="h-5 min-w-0 flex-1 rounded-sm bg-content/10 px-1 text-[14px] leading-none text-content outline-none ring-1 ring-accent focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+          className="h-5 min-w-0 flex-1 rounded-sm bg-content/10 px-1 text-ui-reading leading-none text-content outline-none ring-1 ring-accent focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
         />
       </div>
       {showIssue ? (
@@ -1120,7 +1121,7 @@ function NameIssueView({
   const error = Boolean(fallback) || !issue || issue.severity === "error";
   return (
     <p
-      className={`pr-2 pb-1 text-[12px] leading-4 ${
+      className={`pr-2 pb-1 text-ui-label leading-4 ${
         error ? "text-red-400" : "text-amber-400"
       }`}
       style={{ paddingLeft: 28 + depth * 12 }}

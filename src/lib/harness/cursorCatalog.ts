@@ -78,36 +78,44 @@ async function discoverViaAcp(): Promise<AgentModel[]> {
 
   try {
     await spawnChild(probeId, path, ["acp"], cwd);
-    return await withTimeout(DISCOVERY_TIMEOUT_MS, async () => {
-      await acp.request(
-        "initialize",
-        {
-          protocolVersion: 1,
-          clientCapabilities: CURSOR_CLIENT_CAPABILITIES,
-          clientInfo: { name: "aven", version: "0.1.0" },
-        },
-        REQUEST_TIMEOUT_MS,
-      );
-      await acp
-        .request("authenticate", { methodId: "cursor_login" }, REQUEST_TIMEOUT_MS)
-        .catch(() => undefined);
-      const listed = await acp.request<unknown>(
-        "cursor/list_available_models",
-        {},
-        REQUEST_TIMEOUT_MS,
-      );
-      const models = modelsFromListAvailable(listed);
-      if (models.length > 0) return models;
+    return await withTimeout(
+      DISCOVERY_TIMEOUT_MS,
+      async () => {
+        await acp.request(
+          "initialize",
+          {
+            protocolVersion: 1,
+            clientCapabilities: CURSOR_CLIENT_CAPABILITIES,
+            clientInfo: { name: "aven", version: "0.1.0" },
+          },
+          REQUEST_TIMEOUT_MS,
+        );
+        await acp
+          .request(
+            "authenticate",
+            { methodId: "cursor_login" },
+            REQUEST_TIMEOUT_MS,
+          )
+          .catch(() => undefined);
+        const listed = await acp.request<unknown>(
+          "cursor/list_available_models",
+          {},
+          REQUEST_TIMEOUT_MS,
+        );
+        const models = modelsFromListAvailable(listed);
+        if (models.length > 0) return models;
 
-      const created = await acp.request<unknown>(
-        "session/new",
-        { cwd, mcpServers: [] },
-        REQUEST_TIMEOUT_MS,
-      );
-      return modelsFromSessionNew(created);
-    }, () => {
-      void stop();
-    });
+        const created = await acp.request<unknown>(
+          "session/new",
+          { cwd, mcpServers: [] },
+          REQUEST_TIMEOUT_MS,
+        );
+        return modelsFromSessionNew(created);
+      },
+      () => {
+        void stop();
+      },
+    );
   } finally {
     await stop();
   }
@@ -338,7 +346,9 @@ function parseConfigOptions(raw: unknown): ModelSetting[] | undefined {
     const rec = asRecord(item);
     if (!rec) continue;
     const id = String(rec.id ?? rec.configId ?? "").trim();
-    const category = String(rec.category ?? "").trim().toLowerCase();
+    const category = String(rec.category ?? "")
+      .trim()
+      .toLowerCase();
     if (
       !id ||
       id === "mode" ||
@@ -437,7 +447,11 @@ function stripVariantWords(name: string): string {
 }
 
 function effortKeyFor(base: string): string {
-  if (base.startsWith("gpt-") || base.startsWith("kimi-") || base.startsWith("glm-")) {
+  if (
+    base.startsWith("gpt-") ||
+    base.startsWith("kimi-") ||
+    base.startsWith("glm-")
+  ) {
     return "reasoning";
   }
   return "effort";

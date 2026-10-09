@@ -163,7 +163,7 @@ body,
    depend on it. Only inherited desktop copy uses the compact text size. */
 body,
 #root {
-  font-size: 13px;
+  font-size: var(--text-ui-body);
   line-height: 1.5;
 }
 
@@ -452,6 +452,8 @@ html:not(.theme-light)
   }
 
   html.has-native-glass:not(.theme-light) .personal-shell,
+  html.is-mac.has-native-glass.has-native-glass-tint:not(.theme-light)
+    .personal-shell,
   html.has-native-glass.glass-body.match-workspace-panels:not(.theme-light)
     .personal-shell {
     --personal-window-opacity: 1;

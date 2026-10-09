@@ -10,7 +10,10 @@ import {
 
 describe("buildUnifiedFile", () => {
   it("marks a replacement as a delete then an add", () => {
-    const diff = buildUnifiedFile("alpha\nbeta\ngamma\n", "alpha\nBETA\ngamma\n");
+    const diff = buildUnifiedFile(
+      "alpha\nbeta\ngamma\n",
+      "alpha\nBETA\ngamma\n",
+    );
     expect(diff.additions).toBe(1);
     expect(diff.deletions).toBe(1);
     const changed = diff.lines.filter((line) => line.kind !== "context");
@@ -101,7 +104,12 @@ describe("blocksFromLines", () => {
   it("keeps hunk headers visible so they split folds", () => {
     const blocks = blocksFromLines(
       [
-        { kind: "hunk", text: "@@ -1,3 +1,3 @@", oldNumber: null, newNumber: null },
+        {
+          kind: "hunk",
+          text: "@@ -1,3 +1,3 @@",
+          oldNumber: null,
+          newNumber: null,
+        },
         { kind: "context", text: "keep", oldNumber: 1, newNumber: 1 },
         { kind: "add", text: "plus", oldNumber: null, newNumber: 2 },
       ],

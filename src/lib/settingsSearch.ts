@@ -243,6 +243,12 @@ const SETTINGS_SEARCH_ENTRIES: readonly SearchEntry[] = [
   ),
   setting(
     "appearance",
+    "Status bar opacity",
+    "Adjust the bottom bar background when the sidebar is hidden.",
+    "footer transparent translucent background strength",
+  ),
+  setting(
+    "appearance",
     "Interface scale",
     "Make the whole interface larger or smaller.",
     "zoom text size font accessibility",

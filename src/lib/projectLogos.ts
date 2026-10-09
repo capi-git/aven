@@ -50,7 +50,9 @@ async function forgetLogoFile(path: string | null): Promise<void> {
   await invoke("forget_logo_file", { path }).catch(() => undefined);
 }
 
-export async function pickAndSetProjectLogo(project: string): Promise<string | null> {
+export async function pickAndSetProjectLogo(
+  project: string,
+): Promise<string | null> {
   const sourcePath = await pickImageFile();
   if (!sourcePath) return null;
   const logos = loadTabGroupLogos();

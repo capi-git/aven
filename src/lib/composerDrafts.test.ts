@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 import {
   createComposerDraftStore,
   sanitizeComposerDraft,
@@ -8,8 +16,8 @@ import type { Attachment } from "./session";
 describe("composer draft persistence", () => {
   let values: Map<string, string>;
   let storage: {
-    getItem: ReturnType<typeof vi.fn>;
-    setItem: ReturnType<typeof vi.fn>;
+    getItem: Mock<(key: string) => string | null>;
+    setItem: Mock<(key: string, value: string) => void>;
   };
   const stores: ReturnType<typeof createComposerDraftStore>[] = [];
   const create = (target?: EventTarget) => {
@@ -36,19 +44,27 @@ describe("composer draft persistence", () => {
   it("releases only durable unowned draft memory and preserves quota-failed bytes", () => {
     const store = create();
     const release = store.retain("closed");
-    store.update("closed", {text: "saved draft"});
+    store.update("closed", { text: "saved draft" });
     const before = store.read("closed");
     release();
     const restored = store.read("closed");
     expect(restored).toEqual(before);
     expect(restored).not.toBe(before); // loaded from durable storage
-    const a = store.retain("peer"), b = store.retain("peer");
-    store.update("peer", {text:"keep live"}); const peer = store.read("peer");
-    a(); expect(store.read("peer")).toBe(peer); b();
+    const a = store.retain("peer"),
+      b = store.retain("peer");
+    store.update("peer", { text: "keep live" });
+    const peer = store.read("peer");
+    a();
+    expect(store.read("peer")).toBe(peer);
+    b();
     const failed = store.retain("quota");
-    storage.setItem.mockImplementation(() => {throw new Error("quota");});
-    store.update("quota", {text:"cannot lose"}); const cached = store.read("quota");
-    failed(); expect(store.read("quota")).toBe(cached);
+    storage.setItem.mockImplementation(() => {
+      throw new Error("quota");
+    });
+    store.update("quota", { text: "cannot lose" });
+    const cached = store.read("quota");
+    failed();
+    expect(store.read("quota")).toBe(cached);
   });
 
   it("restores separate unsent drafts after restart without a tab or session change", () => {

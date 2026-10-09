@@ -164,7 +164,12 @@ describe("turn boundaries", () => {
     expect(typeof prompt.uuid).toBe("string");
 
     // Claude reports on a background task before starting the queued prompt.
-    emit({ type: "system", subtype: "task_notification", task_id: "t1", status: "stopped" });
+    emit({
+      type: "system",
+      subtype: "task_notification",
+      task_id: "t1",
+      status: "stopped",
+    });
     emit({ type: "result", subtype: "success", session_id: "sess_1" });
     expect(await isDone()).toBe(false);
 
@@ -841,7 +846,9 @@ describe("claude subagents", () => {
       agentId: "two",
       status: "unknown",
     });
-    expect(events.filter((event) => event.type === "agents.cleared")).toHaveLength(1);
+    expect(
+      events.filter((event) => event.type === "agents.cleared"),
+    ).toHaveLength(1);
   });
 
   it("clears workers only after confirmed process shutdown", async () => {
@@ -854,7 +861,9 @@ describe("claude subagents", () => {
       resolveStop = resolve;
     });
     const stop = stopClaudeSession("s1");
-    expect(events.filter((event) => event.type === "agents.cleared")).toHaveLength(1);
+    expect(
+      events.filter((event) => event.type === "agents.cleared"),
+    ).toHaveLength(1);
     resolveStop();
     await stop;
     expect(events.at(-1)).toEqual({ type: "agents.cleared" });
@@ -873,7 +882,9 @@ describe("claude subagents", () => {
       agentId: "one",
       status: "unknown",
     });
-    expect(events.filter((event) => event.type === "agents.cleared")).toHaveLength(1);
+    expect(
+      events.filter((event) => event.type === "agents.cleared"),
+    ).toHaveLength(1);
     await expect(
       sendClaudeTurn({
         sessionId: "s1",
@@ -895,10 +906,21 @@ describe("claude subagents", () => {
     taskStarted("one");
     await cancelClaudeTurn("s1");
     await turn;
-    emit({ type: "assistant", message: { content: [{ type: "text", text: "Late prose" }] } });
+    emit({
+      type: "assistant",
+      message: { content: [{ type: "text", text: "Late prose" }] },
+    });
     taskFinished("one");
-    expect(agentEvents(events).at(-1)).toMatchObject({ agentId: "one", status: "completed" });
-    expect(events.some((event) => event.type === "message.delta" && event.text === "Late prose")).toBe(false);
+    expect(agentEvents(events).at(-1)).toMatchObject({
+      agentId: "one",
+      status: "completed",
+    });
+    expect(
+      events.some(
+        (event) =>
+          event.type === "message.delta" && event.text === "Late prose",
+      ),
+    ).toBe(false);
   });
 
   it("ignores lifecycle and control requests from a retired process after replacement", async () => {
@@ -909,10 +931,37 @@ describe("claude subagents", () => {
     await stopClaudeSession("s1");
     sent.length = 0;
     const second = await startTurn("s1");
-    oldLine(JSON.stringify({ type: "system", subtype: "task_started", task_id: "stale", task_type: "local_agent" }));
-    oldLine(JSON.stringify({ type: "control_request", request_id: "stale-control", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "pwd" } } }));
-    expect([...first.events, ...second.events].some((event) => event.type === "agent.updated" && event.agentId === "stale")).toBe(false);
-    expect(parse().some((message) => (message.response as Record<string, unknown> | undefined)?.request_id === "stale-control")).toBe(false);
+    oldLine(
+      JSON.stringify({
+        type: "system",
+        subtype: "task_started",
+        task_id: "stale",
+        task_type: "local_agent",
+      }),
+    );
+    oldLine(
+      JSON.stringify({
+        type: "control_request",
+        request_id: "stale-control",
+        request: {
+          subtype: "can_use_tool",
+          tool_name: "Bash",
+          input: { command: "pwd" },
+        },
+      }),
+    );
+    expect(
+      [...first.events, ...second.events].some(
+        (event) => event.type === "agent.updated" && event.agentId === "stale",
+      ),
+    ).toBe(false);
+    expect(
+      parse().some(
+        (message) =>
+          (message.response as Record<string, unknown> | undefined)
+            ?.request_id === "stale-control",
+      ),
+    ).toBe(false);
     emit({ type: "result", subtype: "success" });
     await second.turn;
   });
@@ -1379,9 +1428,9 @@ describe("claude task tools", () => {
       { id: "2", text: "Ship it", status: "pending" },
     ]);
     expect(lists[0].taskList?.providerSessionId).toBe("sess_1");
-    expect(
-      session.blocks.some((block) => block.tool?.kind === "agent"),
-    ).toBe(false);
+    expect(session.blocks.some((block) => block.tool?.kind === "agent")).toBe(
+      false,
+    );
     expect(session.liveAgents ?? []).toEqual([]);
   });
 
@@ -1761,34 +1810,70 @@ describe("claude manual compaction", () => {
 
 describe("Claude message-scoped stream reconciliation", () => {
   it("does not append completed commentary/final snapshots after multiple streamed messages", async () => {
-    const {events, turn} = await startTurn("s1");
-    const texts = ["First commentary.\n", "Second commentary.\n", "Final answer."];
+    const { events, turn } = await startTurn("s1");
+    const texts = [
+      "First commentary.\n",
+      "Second commentary.\n",
+      "Final answer.",
+    ];
     for (const [index, text] of texts.entries()) {
-      emit({type:"stream_event",event:{type:"message_start",message:{id:`msg-${index}`}}});
-      emit({type:"stream_event",event:{type:"content_block_delta",index:0,delta:{type:"text_delta",text}}});
-      emit({type:"assistant",message:{id:`msg-${index}`,content:[{type:"text",text}]}});
+      emit({
+        type: "stream_event",
+        event: { type: "message_start", message: { id: `msg-${index}` } },
+      });
+      emit({
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text },
+        },
+      });
+      emit({
+        type: "assistant",
+        message: { id: `msg-${index}`, content: [{ type: "text", text }] },
+      });
     }
-    emit({type:"result",subtype:"success"}); await turn;
+    emit({ type: "result", subtype: "success" });
+    await turn;
     // Both the transcript and orchestration's controlText consume these deltas.
-    expect(events.filter((e) => e.type === "message.delta").map((e) => e.text).join("")).toBe(texts.join(""));
+    expect(
+      events
+        .filter((e) => e.type === "message.delta")
+        .map((e) => e.text)
+        .join(""),
+    ).toBe(texts.join(""));
   });
   it("keeps identical text from distinct message IDs while ignoring replay of the same completed ID", async () => {
-    const {events, turn} = await startTurn("s1");
-    for (const id of ["a","b","b"]) emit({type:"assistant",message:{id,content:[{type:"text",text:"Again. "}]}});
-    emit({type:"result",subtype:"success"}); await turn;
-    expect(events.filter((e) => e.type === "message.delta").map((e) => e.text).join("")).toBe("Again. Again. ");
+    const { events, turn } = await startTurn("s1");
+    for (const id of ["a", "b", "b"])
+      emit({
+        type: "assistant",
+        message: { id, content: [{ type: "text", text: "Again. " }] },
+      });
+    emit({ type: "result", subtype: "success" });
+    await turn;
+    expect(
+      events
+        .filter((e) => e.type === "message.delta")
+        .map((e) => e.text)
+        .join(""),
+    ).toBe("Again. Again. ");
   });
 });
 
 describe("Claude connection form requests", () => {
   const responseFor = (id: string) =>
     parse().find(
-      (m) => (m.response as Record<string, unknown> | undefined)?.request_id === id,
+      (m) =>
+        (m.response as Record<string, unknown> | undefined)?.request_id === id,
     );
 
   it("asks the user and returns typed content instead of cancelling", async () => {
     const { respondClaudeQuestion } = await import("./claude");
-    const { events, turn } = await startTurn("s1", { runtimeMode: "full-access" });
+    const { events, turn } = await startTurn("s1", {
+      runtimeMode: "full-access",
+    });
     emit({
       type: "control_request",
       request_id: "elicit_1",
@@ -1797,14 +1882,27 @@ describe("Claude connection form requests", () => {
         mcp_server_name: "aventest",
         message: "Which color do you want?",
         mode: "form",
-        requested_schema: { type: "object", properties: { color: { type: "string", enum: ["red", "blue"] } }, required: ["color"] },
+        requested_schema: {
+          type: "object",
+          properties: { color: { type: "string", enum: ["red", "blue"] } },
+          required: ["color"],
+        },
       },
     });
-    await waitFor(() => events.some((e) => e.type === "question.asked"), "question card");
+    await waitFor(
+      () => events.some((e) => e.type === "question.asked"),
+      "question card",
+    );
     expect(responseFor("elicit_1")).toBeUndefined();
-    const asked = events.find((e) => e.type === "question.asked") as { requestId: number; title: string };
+    const asked = events.find((e) => e.type === "question.asked") as {
+      requestId: number;
+      title: string;
+    };
     expect(asked.title).toBe("aventest: Which color do you want?");
-    respondClaudeQuestion("s1", asked.requestId, { kind: "answered", answers: { color: ["blue"] } });
+    respondClaudeQuestion("s1", asked.requestId, {
+      kind: "answered",
+      answers: { color: ["blue"] },
+    });
     await waitFor(() => !!responseFor("elicit_1"), "elicitation response");
     expect(responseFor("elicit_1")).toMatchObject({
       response: { response: { action: "accept", content: { color: "blue" } } },
@@ -1819,13 +1917,29 @@ describe("Claude connection form requests", () => {
     emit({
       type: "control_request",
       request_id: "elicit_2",
-      request: { subtype: "elicitation", mcp_server_name: "s", message: "Name?", mode: "form", requested_schema: { type: "object", properties: { name: { type: "string" } } } },
+      request: {
+        subtype: "elicitation",
+        mcp_server_name: "s",
+        message: "Name?",
+        mode: "form",
+        requested_schema: {
+          type: "object",
+          properties: { name: { type: "string" } },
+        },
+      },
     });
-    await waitFor(() => events.some((e) => e.type === "question.asked"), "question card");
-    const asked = events.find((e) => e.type === "question.asked") as { requestId: number };
+    await waitFor(
+      () => events.some((e) => e.type === "question.asked"),
+      "question card",
+    );
+    const asked = events.find((e) => e.type === "question.asked") as {
+      requestId: number;
+    };
     respondClaudeQuestion("s1", asked.requestId, { kind: "skipped" });
     await waitFor(() => !!responseFor("elicit_2"), "decline");
-    expect(responseFor("elicit_2")).toMatchObject({ response: { response: { action: "decline" } } });
+    expect(responseFor("elicit_2")).toMatchObject({
+      response: { response: { action: "decline" } },
+    });
     emit({ type: "result", subtype: "success", session_id: "sess_1" });
     await turn;
   });

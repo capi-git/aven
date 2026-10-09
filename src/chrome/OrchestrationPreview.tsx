@@ -109,7 +109,7 @@ function AssignmentModel({
           setActive(selected ? choices.indexOf(selected) : 0);
           setOpen(!open);
         }}
-        className="flex h-7 max-w-full items-center gap-1.5 rounded-md bg-content/5 px-2 text-[11px] text-content/60 hover:bg-content/10 hover:text-content"
+        className="flex h-7 max-w-full items-center gap-1.5 rounded-md bg-content/5 px-2 text-ui-caption text-content/60 hover:bg-content/10 hover:text-content"
       >
         <HarnessIcon harness={task.harness} className="size-3.5 shrink-0" />
         <span className="truncate">
@@ -143,7 +143,7 @@ function AssignmentModel({
                 setActive(0);
               }}
               onKeyDown={onSearchKey}
-              className="min-w-0 flex-1 bg-transparent text-[13px] text-content outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+              className="min-w-0 flex-1 bg-transparent text-ui-body text-content outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
             />
           </label>
           <div
@@ -171,10 +171,10 @@ function AssignmentModel({
                   className="size-4 shrink-0"
                 />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] leading-tight text-content">
+                  <span className="block truncate text-ui-body leading-tight text-content">
                     {choice.name}
                   </span>
-                  <span className="mt-0.5 block truncate text-[11px] leading-tight text-content/45">
+                  <span className="mt-0.5 block truncate text-ui-caption leading-tight text-content/45">
                     {HARNESS_TITLE[choice.harness]}
                   </span>
                 </span>
@@ -187,7 +187,7 @@ function AssignmentModel({
               </button>
             ))}
             {!matches.length && (
-              <p className="px-2 py-3 text-[12px] text-content/45">
+              <p className="px-2 py-3 text-ui-label text-content/45">
                 No matching models
               </p>
             )}
@@ -227,10 +227,10 @@ function WorkerHelp() {
           onDismiss={() => setOpen(false)}
           className={`px-2.5 py-2 ${open ? "" : "pointer-events-none"}`}
         >
-          <div className="text-[12px] leading-4 text-content">
+          <div className="text-ui-label leading-4 text-content">
             How many workers run at once
           </div>
-          <div className="mt-1 text-[11px] leading-4 text-content/50">
+          <div className="mt-1 text-ui-caption leading-4 text-content/50">
             The rest of the tasks wait their turn, and a task that depends on
             another waits for it either way. Every worker edits this same
             project folder, so a lower number means fewer changes landing in it
@@ -330,10 +330,10 @@ export function OrchestrationPreview({
     });
   };
   const secondary =
-    "flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[11px] text-content/50 hover:bg-content/8 hover:text-content disabled:opacity-35";
+    "flex h-7 items-center gap-1.5 rounded-md px-2.5 text-ui-caption text-content/50 hover:bg-content/8 hover:text-content disabled:opacity-35";
   const field =
-    "w-full rounded-md border border-content/12 bg-background-base/40 px-2 py-1.5 text-[12px] leading-5 text-content outline-none placeholder:text-content/35 focus:border-content/30";
-  const fieldLabel = "mb-1 block text-[11px] leading-tight text-content/45";
+    "w-full rounded-md border border-content/12 bg-background-base/40 px-2 py-1.5 text-ui-label leading-5 text-content outline-none placeholder:text-content/35 focus:border-content/30";
+  const fieldLabel = "mb-1 block text-ui-caption leading-tight text-content/45";
   return (
     <div
       className="aven-inset-card mb-2 overflow-hidden font-sans"
@@ -349,10 +349,10 @@ export function OrchestrationPreview({
           )}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[13px] font-medium leading-tight text-content/90">
+          <div className="truncate text-ui-body font-medium leading-tight text-content/90">
             {planning ? "Planning assignments…" : proposal.title}
           </div>
-          <div className="mt-1 flex items-center gap-1.5 text-[11px] leading-tight text-content/45">
+          <div className="mt-1 flex items-center gap-1.5 text-ui-caption leading-tight text-content/45">
             <HarnessIcon
               harness={proposal.author.harness}
               className="size-3 shrink-0"
@@ -383,7 +383,7 @@ export function OrchestrationPreview({
           )}
           {!run && ["ready", "starting"].includes(proposal.status) && (
             <button
-              className="flex h-7 items-center gap-1.5 rounded-md bg-content px-2.5 text-[11px] font-medium text-background-base hover:bg-content/80 disabled:opacity-40"
+              className="flex h-7 items-center gap-1.5 rounded-md bg-content px-2.5 text-ui-caption font-medium text-background-base hover:bg-content/80 disabled:opacity-40"
               disabled={!editable}
               onClick={() =>
                 void perform(() => actions!.confirm(proposal.leadId, block.id))
@@ -413,7 +413,7 @@ export function OrchestrationPreview({
         </div>
       </div>
       {planning && (
-        <p className="px-3 pb-2.5 text-[12px] leading-5 text-content/50">
+        <p className="px-3 pb-2.5 text-ui-label leading-5 text-content/50">
           {proposal.settings.choices.length
             ? "Your lead is choosing tasks and worker models. Review the assignments here before starting."
             : "Checking available harnesses and models…"}
@@ -445,7 +445,7 @@ export function OrchestrationPreview({
                     ) : (
                       <ChevronRight className="size-3.5 shrink-0" />
                     )}
-                    <span className="truncate text-[12px]" title={task.title}>
+                    <span className="truncate text-ui-label" title={task.title}>
                       {task.title}
                     </span>
                   </button>
@@ -463,7 +463,7 @@ export function OrchestrationPreview({
                       />
                     ) : (
                       <span
-                        className="flex min-w-0 items-center gap-1.5 text-[11px] text-content/50"
+                        className="flex min-w-0 items-center gap-1.5 text-ui-caption text-content/50"
                         title={HARNESS_TITLE[task.harness]}
                       >
                         <HarnessIcon
@@ -482,7 +482,7 @@ export function OrchestrationPreview({
                   </div>
                 </div>
                 {open && (
-                  <div className="space-y-2.5 px-3 pb-3 pl-8 text-[11px] leading-4 text-content/45">
+                  <div className="space-y-2.5 px-3 pb-3 pl-8 text-ui-caption leading-4 text-content/45">
                     {editable ? (
                       <>
                         <label className="block">
@@ -507,7 +507,7 @@ export function OrchestrationPreview({
                         </label>
                       </>
                     ) : (
-                      <p className="whitespace-pre-wrap text-[12px] leading-5 text-content/60">
+                      <p className="whitespace-pre-wrap text-ui-label leading-5 text-content/60">
                         {task.prompt}
                       </p>
                     )}
@@ -535,7 +535,7 @@ export function OrchestrationPreview({
           type="button"
           aria-expanded={showAll}
           onClick={() => setShowAll(!showAll)}
-          className="flex h-8 w-full items-center gap-1.5 border-t border-content/10 px-3 text-left text-[11px] text-content/45 hover:bg-content/5 hover:text-content/70"
+          className="flex h-8 w-full items-center gap-1.5 border-t border-content/10 px-3 text-left text-ui-caption text-content/45 hover:bg-content/5 hover:text-content/70"
         >
           {showAll ? (
             <ChevronDown className="size-3.5" />
@@ -548,12 +548,12 @@ export function OrchestrationPreview({
         </button>
       )}
       {(error || proposal.error) && (
-        <p role="alert" className="px-3 py-2 text-[12px] text-red-400">
+        <p role="alert" className="px-3 py-2 text-ui-label text-red-400">
           {error ?? proposal.error}
         </p>
       )}
       {!planning && (
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-content/10 px-3 py-2 text-[11px] text-content/45">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-content/10 px-3 py-2 text-ui-caption text-content/45">
           <div className="flex items-center gap-1.5">
             {editable ? (
               <>
@@ -578,7 +578,7 @@ export function OrchestrationPreview({
                           },
                         })
                       }
-                      className={`grid size-5 place-items-center rounded-[5px] text-[11px] leading-none tabular-nums ${
+                      className={`grid size-5 place-items-center rounded-[5px] text-ui-caption leading-none tabular-nums ${
                         proposal.settings.maxWorkers === number
                           ? "bg-content/15 font-medium text-content"
                           : "text-content/45 hover:bg-content/8 hover:text-content"

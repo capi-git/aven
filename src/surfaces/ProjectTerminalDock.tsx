@@ -10,6 +10,8 @@ import {
   Plus,
 } from "../chrome/icons";
 import {
+  lazy,
+  Suspense,
   useEffect,
   useRef,
   useState,
@@ -27,7 +29,11 @@ import {
 } from "../lib/projectTerminal";
 import { MOD } from "../lib/platform";
 import type { TerminalMetaPatch } from "../lib/terminalTab";
-import { TerminalView } from "./TerminalView";
+
+// xterm loads with the first terminal instead of at startup.
+const TerminalView = lazy(() =>
+  import("./TerminalView").then((module) => ({ default: module.TerminalView })),
+);
 
 type Props = {
   dock: ProjectTerminalDock;
@@ -220,21 +226,18 @@ export function ProjectTerminalDock({
               <Plus className="size-3.5" strokeWidth={1.75} />
             </IconButton>
             <div ref={sideButton}>
-            <IconButton
-              label="Move Terminal"
-              onClick={() => {
-                const rect = sideButton.current?.getBoundingClientRect();
-                if (!rect) return;
-                setMenu({ x: rect.left, y: rect.bottom + 4 });
-              }}
-            >
-              <SideIcon className="size-3.5" strokeWidth={1.75} />
-            </IconButton>
+              <IconButton
+                label="Move Terminal"
+                onClick={() => {
+                  const rect = sideButton.current?.getBoundingClientRect();
+                  if (!rect) return;
+                  setMenu({ x: rect.left, y: rect.bottom + 4 });
+                }}
+              >
+                <SideIcon className="size-3.5" strokeWidth={1.75} />
+              </IconButton>
             </div>
-            <IconButton
-              label={`Hide Terminal (${MOD}J)`}
-              onClick={onHide}
-            >
+            <IconButton label={`Hide Terminal (${MOD}J)`} onClick={onHide}>
               <HideIcon className="size-3.5" strokeWidth={1.75} />
             </IconButton>
           </div>
@@ -251,13 +254,17 @@ export function ProjectTerminalDock({
                 : "hidden"
             }
           >
-            <TerminalView
-              id={file.id}
-              cwd={file.cwd}
-              active={focused && file.id === dock.pane.activeFileId}
-              presented={presented && file.id === dock.pane.activeFileId}
-              onMetaChange={(patch) => onTerminalMetaChange?.(file.id, patch)}
-            />
+            <Suspense
+              fallback={<div aria-busy="true" className="h-full w-full" />}
+            >
+              <TerminalView
+                id={file.id}
+                cwd={file.cwd}
+                active={focused && file.id === dock.pane.activeFileId}
+                presented={presented && file.id === dock.pane.activeFileId}
+                onMetaChange={(patch) => onTerminalMetaChange?.(file.id, patch)}
+              />
+            </Suspense>
           </div>
         ))}
       </div>
@@ -273,7 +280,12 @@ export function ProjectTerminalDock({
             checked: item.id === dock.side,
           }))}
           onPick={(id) => {
-            if (id === "top" || id === "bottom" || id === "left" || id === "right") {
+            if (
+              id === "top" ||
+              id === "bottom" ||
+              id === "left" ||
+              id === "right"
+            ) {
               onSideChange(id);
             }
             setMenu(null);

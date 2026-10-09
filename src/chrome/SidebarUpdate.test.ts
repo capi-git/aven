@@ -19,7 +19,6 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: vi.fn(),
   message: vi.fn(),
 }));
-vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: vi.fn() }));
 vi.mock("@tauri-apps/plugin-updater", () => ({ check: vi.fn() }));
 vi.mock("../lib/updater", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/updater")>();

@@ -38,9 +38,11 @@ export async function stopOpenCodeTextPrompt(): Promise<void> {
 
 export function warmupOpenCodeText(cwd: string): Promise<void> {
   if (!cwd || cwd === "~") return Promise.resolve();
-  const run = turns.catch(() => undefined).then(async () => {
-    await ensureLive(cwd);
-  });
+  const run = turns
+    .catch(() => undefined)
+    .then(async () => {
+      await ensureLive(cwd);
+    });
   turns = run.then(
     () => undefined,
     () => undefined,
@@ -153,6 +155,13 @@ async function dropLive(): Promise<void> {
   live = null;
   if (current) {
     await current.client.abortSession(current.sessionId);
+    // Titles, commit messages and PR text must not stay in OpenCode's
+    // session history. Delete before the server below is stopped.
+    await current.client
+      .deleteSession(current.sessionId)
+      .catch((error) =>
+        console.debug("[aven] OpenCode text session cleanup", error),
+      );
     await current.client.closeEvents(TEXT_CHILD_ID);
   }
   unwatchChild(TEXT_CHILD_ID);

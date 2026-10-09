@@ -58,9 +58,7 @@ describe("extractToolPreview", () => {
 
   it("finds search queries in nested input", () => {
     expect(
-      extractSearchQuery([
-        { arguments: { pattern: "busyHarness|busy.*tab" } },
-      ]),
+      extractSearchQuery([{ arguments: { pattern: "busyHarness|busy.*tab" } }]),
     ).toBe("busyHarness|busy.*tab");
   });
 
@@ -109,7 +107,11 @@ describe("shell command titles", () => {
     expect(extractShellCommand({ cmd: "pwd" })).toBe("pwd");
     expect(extractShellCommand({ command: ["npm", "test"] })).toBe("npm test");
     expect(
-      extractShellCommand({}, { rawInput: {} }, { input: { command: "git status" } }),
+      extractShellCommand(
+        {},
+        { rawInput: {} },
+        { input: { command: "git status" } },
+      ),
     ).toBe("git status");
   });
 
@@ -137,8 +139,7 @@ describe("shell command titles", () => {
     ).toBe("Read src/lib/harness/preview.ts");
     expect(
       titleFromToolInput("Bash", "execute", {
-        command:
-          "sed -n '713,1200p' src/surfaces/AgentTranscript.tsx",
+        command: "sed -n '713,1200p' src/surfaces/AgentTranscript.tsx",
       }),
     ).toBe("Read src/surfaces/AgentTranscript.tsx");
     expect(
@@ -181,9 +182,9 @@ describe("skill titles", () => {
   it("labels a Skill tool with /name", () => {
     expect(extractSkillName({ skill: "code-review" })).toBe("code-review");
     expect(extractSkillName({ args: { skill_name: "commit" } })).toBe("commit");
-    expect(extractSkillName({}, { rawInput: {} }, { skill: "code-review" })).toBe(
-      "code-review",
-    );
+    expect(
+      extractSkillName({}, { rawInput: {} }, { skill: "code-review" }),
+    ).toBe("code-review");
     expect(titleFromToolInput("Skill", "skill", { skill: "code-review" })).toBe(
       "Skill /code-review",
     );
@@ -211,9 +212,9 @@ describe("agent titles", () => {
         subagent_type: "explore",
       }),
     ).toBe("Explore the auth module");
-    expect(titleFromToolInput("Task", "agent", { subagent_type: "explore" })).toBe(
-      "Explore subagent",
-    );
+    expect(
+      titleFromToolInput("Task", "agent", { subagent_type: "explore" }),
+    ).toBe("Explore subagent");
     expect(titleFromToolInput("Agent", "agent", {})).toBe("Subagent");
   });
 

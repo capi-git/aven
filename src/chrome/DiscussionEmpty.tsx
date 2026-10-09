@@ -58,7 +58,7 @@ export function DiscussionEmpty({ message }: { message: string }) {
         <path d={GLOW_PATH} opacity={0.4} />
         <path d={BUBBLES_PATH} />
       </svg>
-      <p className="text-[13px] leading-relaxed text-content/45">{message}</p>
+      <p className="text-ui-body leading-relaxed text-content/45">{message}</p>
     </div>
   );
 }

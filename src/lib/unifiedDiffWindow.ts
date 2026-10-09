@@ -62,7 +62,8 @@ export function flattenVisibleRows(
         pos != null;
       rows.push({
         type: "line",
-        line: stage && line.pos == null && pos != null ? { ...line, pos } : line,
+        line:
+          stage && line.pos == null && pos != null ? { ...line, pos } : line,
         stage,
         height: line.kind === "hunk" ? UNIFIED_HUNK_PX : UNIFIED_LINE_PX,
       });
@@ -156,7 +157,9 @@ function pushLines(
 ) {
   for (const line of lines) {
     const stage =
-      canStage && (line.kind === "add" || line.kind === "del") && line.pos != null;
+      canStage &&
+      (line.kind === "add" || line.kind === "del") &&
+      line.pos != null;
     rows.push({
       type: "line",
       line,

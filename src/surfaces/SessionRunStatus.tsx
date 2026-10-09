@@ -1,5 +1,11 @@
 import { memo, useEffect, useState } from "react";
-import { AlertCircle, Check, LoaderCircle, Pause, Square } from "../chrome/icons";
+import {
+  AlertCircle,
+  Check,
+  LoaderCircle,
+  Pause,
+  Square,
+} from "../chrome/icons";
 import { useActivity } from "../lib/activity";
 import type { Session, SessionAgent } from "../lib/session";
 import { sessionRunStatus } from "../lib/sessionRunStatus";
@@ -41,12 +47,22 @@ function VisibleRunStatus({ session, onStop, onOpenTerminal }: Props) {
           <Icon className="size-3.5" />
         </span>
       </span>
-      <div className="session-run-copy" role="status" aria-live="polite" aria-atomic="true">
+      <div
+        className="session-run-copy"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
         <strong>{status.label}</strong>
-        <span className="session-run-detail" title={status.detail}>{status.detail}</span>
+        <span className="session-run-detail" title={status.detail}>
+          {status.detail}
+        </span>
       </div>
       {queued > 0 && status.canStop ? (
-        <span className="session-run-queued" title={`${queued} messages queued`}>
+        <span
+          className="session-run-queued"
+          title={`${queued} messages queued`}
+        >
           {queued} queued
         </span>
       ) : null}
@@ -57,48 +73,83 @@ function VisibleRunStatus({ session, onStop, onOpenTerminal }: Props) {
         running={running}
       />
       {status.canStop ? (
-        <button type="button" className="session-run-stop" onClick={() => onStop(session.id)} aria-label="Stop agent">
+        <button
+          type="button"
+          className="session-run-stop"
+          onClick={() => onStop(session.id)}
+          aria-label="Stop agent"
+        >
           <Square className="size-2.5" aria-hidden="true" />
           Stop
         </button>
       ) : null}
       {status.recovery === "claude-login" ? (
         <div className="session-run-recovery">
-          <span>Run <code>claude auth login</code> in Aven’s terminal, then retry.</span>
+          <span>
+            Run <code>claude auth login</code> in Aven’s terminal, then retry.
+          </span>
           {onOpenTerminal ? (
-            <button type="button" className="session-run-stop" onClick={() => onOpenTerminal(session.id)}>
+            <button
+              type="button"
+              className="session-run-stop"
+              onClick={() => onOpenTerminal(session.id)}
+            >
               Open terminal
             </button>
           ) : null}
         </div>
       ) : null}
-      {session.liveAgents?.length ? <AgentDetails key={session.id} agents={session.liveAgents} /> : null}
+      {session.liveAgents?.length ? (
+        <AgentDetails key={session.id} agents={session.liveAgents} />
+      ) : null}
     </div>
   );
 }
 
 const agentStatusLabels: Record<SessionAgent["status"], string> = {
-  running: "Working", waiting: "Waiting", completed: "Done", failed: "Failed", stopped: "Stopped", unknown: "Status unknown",
+  running: "Working",
+  waiting: "Waiting",
+  completed: "Done",
+  failed: "Failed",
+  stopped: "Stopped",
+  unknown: "Status unknown",
 };
 
 function AgentDetails({ agents }: { agents: SessionAgent[] }) {
   return (
     <details className="session-run-agents">
-      <summary>Agents <span>{sessionAgentSummary(agents)}</span></summary>
+      <summary>
+        Agents <span>{sessionAgentSummary(agents)}</span>
+      </summary>
       <ul aria-label="Agent status" className="session-run-agent-list">
-        {agents.map(agent => {
-          const Icon = agent.status === "running" ? LoaderCircle
-            : agent.status === "completed" ? Check
-            : agent.status === "waiting" ? Pause
-            : agent.status === "stopped" ? Square : AlertCircle;
+        {agents.map((agent) => {
+          const Icon =
+            agent.status === "running"
+              ? LoaderCircle
+              : agent.status === "completed"
+                ? Check
+                : agent.status === "waiting"
+                  ? Pause
+                  : agent.status === "stopped"
+                    ? Square
+                    : AlertCircle;
           return (
             <li key={agent.id} data-agent-state={agent.status}>
-              <span aria-hidden="true" className={agent.status === "running" ? "session-run-spinner" : undefined}><Icon className="size-3.5" /></span>
+              <span
+                aria-hidden="true"
+                className={
+                  agent.status === "running" ? "session-run-spinner" : undefined
+                }
+              >
+                <Icon className="size-3.5" />
+              </span>
               <div className="session-run-agent-copy">
                 <strong>{agent.title}</strong>
                 {agent.detail ? <span>{agent.detail}</span> : null}
               </div>
-              <span className="session-run-agent-label">{agentStatusLabels[agent.status]}</span>
+              <span className="session-run-agent-label">
+                {agentStatusLabels[agent.status]}
+              </span>
             </li>
           );
         })}
@@ -108,7 +159,11 @@ function AgentDetails({ agents }: { agents: SessionAgent[] }) {
 }
 
 /** Only this small leaf re-renders each second; the transcript never ticks. */
-function RunClock({ startedAt, durationMs, running }: {
+function RunClock({
+  startedAt,
+  durationMs,
+  running,
+}: {
   startedAt?: number;
   durationMs?: number;
   running: boolean;
@@ -124,8 +179,20 @@ function RunClock({ startedAt, durationMs, running }: {
   if (elapsed == null || !Number.isFinite(elapsed)) return null;
   const seconds = Math.max(0, Math.floor(elapsed / 1000));
   const minutes = Math.floor(seconds / 60);
-  const time = minutes >= 60
-    ? `${Math.floor(minutes / 60)}h ${minutes % 60}m`
-    : minutes > 0 ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
-  return <span className="session-run-clock" role="timer" aria-live="off" aria-label={`Elapsed time: ${time}`}>{time}</span>;
+  const time =
+    minutes >= 60
+      ? `${Math.floor(minutes / 60)}h ${minutes % 60}m`
+      : minutes > 0
+        ? `${minutes}m ${seconds % 60}s`
+        : `${seconds}s`;
+  return (
+    <span
+      className="session-run-clock"
+      role="timer"
+      aria-live="off"
+      aria-label={`Elapsed time: ${time}`}
+    >
+      {time}
+    </span>
+  );
 }

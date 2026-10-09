@@ -85,7 +85,7 @@
   box-shadow: var(--aven-control-shadow, 0 1px 2px rgb(0 0 0 / 10%));
   color: var(--color-content);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -118,7 +118,7 @@
   );
   color: var(--color-content);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   user-select: text;
 }
 .browser-address::placeholder {
@@ -140,7 +140,7 @@
     --aven-toolbar-surface,
     var(--personal-frame, var(--color-surface))
   );
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   border-bottom: 1px solid
     color-mix(in srgb, var(--color-content) 8%, transparent);
 }
@@ -193,7 +193,7 @@
   border-bottom: 1px solid
     color-mix(in srgb, var(--color-content) 8%, transparent);
   color: color-mix(in srgb, var(--color-content) 75%, transparent);
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   line-height: 16px;
   background: var(--aven-grouped-surface, transparent);
 }
@@ -260,7 +260,7 @@
 .browser-empty p {
   max-width: 270px;
   color: color-mix(in srgb, var(--color-content) 65%, transparent);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   line-height: 1.65;
   margin: 0;
 }
@@ -276,7 +276,7 @@
   box-shadow: var(--aven-control-shadow, 0 1px 2px rgb(0 0 0 / 10%));
   padding: 8px 12px;
   font: inherit;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   cursor: pointer;
 }
 .browser-empty-actions {
@@ -313,7 +313,7 @@
   background: var(--aven-popup);
 }
 .browser-engine-label {
-  font-size: 10px;
+  font-size: var(--text-ui-micro);
   color: color-mix(in srgb, var(--color-content) 72%, transparent);
 }
 .browser-zoom-controls {
@@ -331,7 +331,7 @@
   background: transparent;
   color: var(--color-content);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   cursor: pointer;
 }
 .browser-zoom-controls button:nth-child(2) {
@@ -369,10 +369,10 @@
   background: transparent;
   color: var(--color-content);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
 }
 .browser-find-count {
-  font-size: 10px;
+  font-size: var(--text-ui-micro);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -389,12 +389,12 @@
   justify-content: space-between;
 }
 .browser-downloads strong {
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   font-weight: 500;
 }
 .browser-downloads p {
   margin: 5px 0;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   color: color-mix(in srgb, var(--color-content) 55%, transparent);
   overflow-wrap: anywhere;
 }
@@ -424,7 +424,7 @@
   text-overflow: ellipsis;
 }
 .browser-download-details span {
-  font-size: 10px;
+  font-size: var(--text-ui-micro);
   color: color-mix(in srgb, var(--color-content) 55%, transparent);
   overflow-wrap: anywhere;
 }
@@ -439,7 +439,7 @@
   border-radius: 5px;
   padding: 5px 7px;
   font: inherit;
-  font-size: 10px;
+  font-size: var(--text-ui-micro);
   cursor: pointer;
 }
 .browser-load-indicator {

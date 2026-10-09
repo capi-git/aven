@@ -1,7 +1,15 @@
 // @vitest-environment happy-dom
 import { act, createElement, StrictMode, type RefObject } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 import { ComposerRunner } from "./ComposerRunner";
 import { EXIT_MS, STAR_COUNT } from "../lib/composerRunner";
 
@@ -15,7 +23,7 @@ describe("composer mascot presentation", () => {
   let now: number;
   let frameId: number;
   let frames: Map<number, FrameRequestCallback>;
-  let onExited: ReturnType<typeof vi.fn>;
+  let onExited: Mock<() => void>;
 
   beforeEach(() => {
     hidden = false;

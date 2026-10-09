@@ -175,9 +175,9 @@ describe("multiple browser tabs", () => {
       ["blank", true],
       ["third", true],
     ]);
-    expect(addRetainedBrowserTab(EMPTY_BROWSER, { id: "only", url: "" }).tabs).toEqual([
-      { id: "only", url: "", kept: true },
-    ]);
+    expect(
+      addRetainedBrowserTab(EMPTY_BROWSER, { id: "only", url: "" }).tabs,
+    ).toEqual([{ id: "only", url: "", kept: true }]);
   });
 
   it("keeps an existing preview without replacing its page, focus or layout", () => {
@@ -204,7 +204,12 @@ describe("multiple browser tabs", () => {
     });
     const closedOther = closeBrowserTab(navigated, "active");
     expect(closedOther.tabs).toEqual([
-      { id: "preview", url: "https://preview.example/next", title: "Next page", kept: true },
+      {
+        id: "preview",
+        url: "https://preview.example/next",
+        title: "Next page",
+        kept: true,
+      },
     ]);
     saveBrowserWorkspaces({ "/project": closedOther });
     expect(loadBrowserWorkspaces()["/project"]).toEqual(closedOther);
@@ -220,11 +225,20 @@ describe("multiple browser tabs", () => {
       ],
     });
     expect(state.tabs.map((tab) => tab.kept)).toEqual([
-      undefined, true, undefined, undefined,
+      undefined,
+      true,
+      undefined,
+      undefined,
     ]);
-    expect(updateBrowserTab(state, "legacy", { kept: true }).tabs[0].kept).toBe(true);
-    expect(updateBrowserTab(state, "kept", { kept: false }).tabs[1].kept).toBeUndefined();
-    expect(updateBrowserTab(state, "kept", { kept: undefined }).tabs[1].kept).toBe(true);
+    expect(updateBrowserTab(state, "legacy", { kept: true }).tabs[0].kept).toBe(
+      true,
+    );
+    expect(
+      updateBrowserTab(state, "kept", { kept: false }).tabs[1].kept,
+    ).toBeUndefined();
+    expect(
+      updateBrowserTab(state, "kept", { kept: undefined }).tabs[1].kept,
+    ).toBe(true);
     expect(normalizeBrowserWorkspace(state)).toEqual(state);
   });
 

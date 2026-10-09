@@ -3,7 +3,7 @@
 .personal-shell .agent-transcript {
   container: personal-transcript / inline-size;
   font-family: var(--font-sans);
-  font-size: 14px;
+  font-size: var(--text-ui-reading);
   line-height: 23px;
   /* The chat outline remains usable in a narrow split without covering prose. */
   padding-inline-end: 24px;
@@ -16,7 +16,7 @@
   padding-block: 30px 10px;
 }
 .personal-shell .personal-transcript-response .agent-markdown {
-  font-size: 14px;
+  font-size: var(--text-ui-reading);
   line-height: 23px;
   letter-spacing: normal;
 }
@@ -57,7 +57,7 @@
   background: var(--aven-glass-surface, var(--aven-hover));
   -webkit-backdrop-filter: var(--aven-glass-blur, none);
   backdrop-filter: var(--aven-glass-blur, none);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   line-height: 19px;
   color: color-mix(in srgb, var(--color-content) 66%, transparent);
 }
@@ -91,7 +91,7 @@
   border-bottom-right-radius: 5px;
 }
 .personal-shell .personal-user-bubble > pre {
-  font-size: 14px;
+  font-size: var(--text-ui-reading);
   line-height: 23px;
   letter-spacing: normal;
 }
@@ -121,7 +121,7 @@
 .personal-shell .personal-work-fold > :last-child {
   order: 1;
   flex: 0 1 auto;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   line-height: 18px;
 }
 .personal-shell .personal-work-fold > :last-child:not(.shimmer-text) {
@@ -160,7 +160,7 @@
 }
 .personal-shell .personal-activity-phase > button > :last-child,
 .personal-shell .personal-activity-line > span:last-child {
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   line-height: 20px;
 }
 .personal-shell
@@ -196,7 +196,7 @@
   min-height: 29px;
   padding: 5px 11px;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   font-weight: 500;
 }
 .personal-shell .personal-activity-phase button:focus-visible,
@@ -209,7 +209,7 @@
   padding-top: 11px;
   padding-bottom: 13px;
   gap: 8px;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   line-height: 18px;
   color: color-mix(in srgb, var(--color-content) 58%, transparent);
 }

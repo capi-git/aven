@@ -139,7 +139,10 @@ export function validSessionPipAction(
   if (!SESSION_PIP_CALLBACKS.includes(action.action as SessionPipCallback))
     return false;
   if (action.action === "onOpenFile") return typeof action.args[0] === "string";
-  if (action.action === "onOpenUrl") return typeof action.args[0] === "string" && /^https?:\/\//i.test(action.args[0]);
+  if (action.action === "onOpenUrl")
+    return (
+      typeof action.args[0] === "string" && /^https?:\/\//i.test(action.args[0])
+    );
   if (action.action === "onOpenDiff") {
     const session = action.args[1] as { sessionId?: unknown } | undefined;
     return (

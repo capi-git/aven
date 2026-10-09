@@ -63,6 +63,17 @@ afterEach(async () => {
 });
 
 describe("Codex background text history", () => {
+  it("keeps generated-text threads out of saved Codex history", async () => {
+    await expect(
+      runCodexTextPrompt({ cwd: "/repo", prompt: "Title this" }),
+    ).resolves.toBe('{"title":"Medication card variants"}');
+    const starts = transport.sent.filter(
+      (request) => request.method === "thread/start",
+    );
+    expect(starts).toHaveLength(1);
+    expect(starts[0].params).toMatchObject({ cwd: "/repo", ephemeral: true });
+  });
+
   it("does not create any helper thread when configuration routes state to shared history", async () => {
     transport.stateHome = "/shared/.codex";
     await warmupCodexText("/repo");

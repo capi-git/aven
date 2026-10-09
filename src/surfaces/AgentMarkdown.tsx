@@ -356,12 +356,12 @@ function MarkdownCode({
   ...props
 }: MarkdownCodeProps) {
   const incomplete = useIsCodeFenceIncomplete();
+  const { cwd, onOpenFile } = useContext(FileOpenContext);
+  const allowRemoteMedia = useContext(RemoteMediaContext);
   const block = Object.prototype.hasOwnProperty.call(props, "data-block");
   if (!block) {
     const text = textContent(children);
     const fileName = inlineFileName(text);
-    const { cwd, onOpenFile } = useContext(FileOpenContext);
-    const allowRemoteMedia = useContext(RemoteMediaContext);
     const file =
       fileName && !allowRemoteMedia ? resolveFileLink(text, cwd) : undefined;
     const open = file

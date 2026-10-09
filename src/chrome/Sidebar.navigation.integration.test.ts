@@ -19,7 +19,10 @@ vi.mock("../lib/platform", async (importOriginal) => ({
   HAS_NATIVE_GLASS: true,
   IS_MAC: true,
 }));
-const idleUpdate = vi.hoisted(() => ({ phase: "idle", currentVersion: "0.1.41" }));
+const idleUpdate = vi.hoisted(() => ({
+  phase: "idle",
+  currentVersion: "0.1.41",
+}));
 vi.mock("../lib/updater", () => ({
   readAppVersion: vi.fn().mockResolvedValue("0.1.41"),
   getUpdaterSnapshot: () => idleUpdate,
@@ -100,7 +103,9 @@ async function click(target: HTMLElement) {
   });
 }
 function menu() {
-  return document.querySelector<HTMLElement>('[role="menu"][aria-label="Switch workspace"]');
+  return document.querySelector<HTMLElement>(
+    '[role="menu"][aria-label="Switch workspace"]',
+  );
 }
 
 describe("sidebar workspace navigation", () => {
@@ -110,20 +115,32 @@ describe("sidebar workspace navigation", () => {
       const paths = ["/projects/HOLO", "/projects/Catalog", "/projects/Aven"];
       localStorage.setItem(
         RECENT_PROJECTS_KEY,
-        JSON.stringify(paths.map((path, index) => ({ path, openedAt: 3 - index }))),
+        JSON.stringify(
+          paths.map((path, index) => ({ path, openedAt: 3 - index })),
+        ),
       );
       let initial = defaultWorkspaceProfiles();
       for (const path of paths.slice(0, 2))
         initial = assignWorkspaceProject(initial, path, "work");
       saveWorkspaceProfiles({ ...initial, activeProfileId: "work" });
-      await act(async () => root.render(createElement(ProjectNavigationSidebar)));
+      await act(async () =>
+        root.render(createElement(ProjectNavigationSidebar)),
+      );
 
-      const content = () => container.querySelector<HTMLElement>(".personal-profile-content")!;
+      const content = () =>
+        container.querySelector<HTMLElement>(".personal-profile-content")!;
       const visibleButton = (label: string) =>
-        content().querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+        content().querySelector<HTMLButtonElement>(
+          `button[aria-label="${label}"]`,
+        )!;
       const visibleProjects = () =>
-        [...content().querySelectorAll<HTMLButtonElement>(".personal-project-open")]
-          .map((item) => item.title).sort();
+        [
+          ...content().querySelectorAll<HTMLButtonElement>(
+            ".personal-project-open",
+          ),
+        ]
+          .map((item) => item.title)
+          .sort();
       const expectWork = () => {
         expect(visibleButton("Switch workspace, Work")).not.toBeNull();
         expect(visibleProjects()).toEqual(paths.slice(0, 2).sort());
@@ -142,20 +159,31 @@ describe("sidebar workspace navigation", () => {
       for (const name of ["HOLO", "Catalog", "HOLO"]) {
         await click(visibleButton(`Open ${name} project`));
         expectWork();
-        expect(content().querySelector(".personal-project-row[data-active=true] .personal-project-open")?.getAttribute("title"))
-          .toBe(`/projects/${name}`);
+        expect(
+          content()
+            .querySelector(
+              ".personal-project-row[data-active=true] .personal-project-open",
+            )
+            ?.getAttribute("title"),
+        ).toBe(`/projects/${name}`);
       }
       await click(visibleButton("Switch workspace, Work"));
-      await click([...menu()!.querySelectorAll<HTMLButtonElement>("button")]
-        .find((item) => item.textContent === "Personal")!);
+      await click(
+        [...menu()!.querySelectorAll<HTMLButtonElement>("button")].find(
+          (item) => item.textContent === "Personal",
+        )!,
+      );
       expect(visibleButton("Switch workspace, Personal")).not.toBeNull();
       expect(visibleProjects()).toEqual(["/projects/Aven"]);
       await click(visibleButton("Open Aven project"));
       expect(visibleButton("Switch workspace, Personal")).not.toBeNull();
       expect(visibleProjects()).toEqual(["/projects/Aven"]);
       await click(visibleButton("Switch workspace, Personal"));
-      await click([...menu()!.querySelectorAll<HTMLButtonElement>("button")]
-        .find((item) => item.textContent === "Work")!);
+      await click(
+        [...menu()!.querySelectorAll<HTMLButtonElement>("button")].find(
+          (item) => item.textContent === "Work",
+        )!,
+      );
       expectWork();
     },
   );
@@ -163,20 +191,34 @@ describe("sidebar workspace navigation", () => {
   it("switches profiles from the heading without changing appearance", async () => {
     const select = vi.fn();
     const before = loadWorkspaceTheme("personal");
-    await act(async () => root.render(createElement(Sidebar, { ...props, onSelectProfile: select })));
+    await act(async () =>
+      root.render(
+        createElement(Sidebar, { ...props, onSelectProfile: select }),
+      ),
+    );
     const trigger = button("Switch workspace, Personal");
     await click(trigger);
     expect(menu()).not.toBeNull();
     expect(menu()!.querySelectorAll('[role="menuitemradio"]')).toHaveLength(2);
     expect(document.querySelector('[aria-label^="Customize"]')).toBeNull();
     expect(document.querySelector('input[type="color"]')).toBeNull();
-    const work = [...menu()!.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent?.includes("Work"))!;
+    const work = [
+      ...menu()!.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((item) => item.textContent?.includes("Work"))!;
     await click(work);
     expect(select).toHaveBeenCalledExactlyOnceWith("work");
     expect(menu()).toBeNull();
     expect(document.activeElement).toBe(trigger);
     expect(loadWorkspaceTheme("personal")).toEqual(before);
-    await act(async () => root.render(createElement(Sidebar, { ...props, activeProfileId: "work", onSelectProfile: select })));
+    await act(async () =>
+      root.render(
+        createElement(Sidebar, {
+          ...props,
+          activeProfileId: "work",
+          onSelectProfile: select,
+        }),
+      ),
+    );
     expect(button("Switch workspace, Work")).not.toBeNull();
   });
 
@@ -185,7 +227,9 @@ describe("sidebar workspace navigation", () => {
     const trigger = button("Switch workspace, Personal");
     await click(trigger);
     expect(menu()).not.toBeNull();
-    await act(async () => trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
+    await act(async () =>
+      trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })),
+    );
     await act(async () => trigger.focus());
     await act(async () => trigger.click());
     expect(menu()).toBeNull();
@@ -193,26 +237,71 @@ describe("sidebar workspace navigation", () => {
   });
 
   it("exposes labeled Notes, Inbox and Automations tabs with current-page state and optional Notes", async () => {
-    const notes = vi.fn(), inbox = vi.fn(), automations = vi.fn();
-    const current = { ...props, onOpenNotes: notes, onOpenInbox: inbox, onOpenAutomations: automations, notesActive: true };
+    const notes = vi.fn(),
+      inbox = vi.fn(),
+      automations = vi.fn();
+    const current = {
+      ...props,
+      onOpenNotes: notes,
+      onOpenInbox: inbox,
+      onOpenAutomations: automations,
+      notesActive: true,
+    };
     await act(async () => root.render(createElement(Sidebar, current)));
-    const libraries = [...container.querySelectorAll('nav[aria-label="Library"]')].filter(
-      (node) => !node.closest('[inert],[aria-hidden="true"]'),
-    );
+    const libraries = [
+      ...container.querySelectorAll('nav[aria-label="Library"]'),
+    ].filter((node) => !node.closest('[inert],[aria-hidden="true"]'));
     expect(libraries).toHaveLength(1);
     const library = libraries[0];
     const actions = [...library.querySelectorAll<HTMLButtonElement>("button")];
-    expect(actions.map((item) => item.textContent)).toEqual(["Notes", "Inbox", "Automations"]);
-    expect(actions.map((item) => item.getAttribute("aria-current"))).toEqual(["page", null, null]);
+    expect(actions.map((item) => item.textContent)).toEqual([
+      "Notes",
+      "Inbox",
+      "Automations",
+    ]);
+    expect(actions.map((item) => item.getAttribute("aria-current"))).toEqual([
+      "page",
+      null,
+      null,
+    ]);
     expect(actions[1].title).toContain("GitHub");
     expect(actions[2].title).toContain("schedule");
-    await click(actions[0]); await click(actions[1]); await click(actions[2]);
-    expect(notes).toHaveBeenCalledOnce(); expect(inbox).toHaveBeenCalledOnce(); expect(automations).toHaveBeenCalledOnce();
-    await act(async () => root.render(createElement(Sidebar, { ...current, notesActive: false, automationsActive: true })));
-    expect([...library.querySelectorAll("button")].map((item) => item.getAttribute("aria-current"))).toEqual([null, null, "page"]);
-    await act(async () => root.render(createElement(Sidebar, { ...current, notesEnabled: false, notesActive: false, inboxActive: true })));
-    expect([...library.querySelectorAll("button")].map((item) => item.textContent)).toEqual(["Inbox", "Automations"]);
-    expect(library.querySelector("button")?.getAttribute("aria-current")).toBe("page");
+    await click(actions[0]);
+    await click(actions[1]);
+    await click(actions[2]);
+    expect(notes).toHaveBeenCalledOnce();
+    expect(inbox).toHaveBeenCalledOnce();
+    expect(automations).toHaveBeenCalledOnce();
+    await act(async () =>
+      root.render(
+        createElement(Sidebar, {
+          ...current,
+          notesActive: false,
+          automationsActive: true,
+        }),
+      ),
+    );
+    expect(
+      [...library.querySelectorAll("button")].map((item) =>
+        item.getAttribute("aria-current"),
+      ),
+    ).toEqual([null, null, "page"]);
+    await act(async () =>
+      root.render(
+        createElement(Sidebar, {
+          ...current,
+          notesEnabled: false,
+          notesActive: false,
+          inboxActive: true,
+        }),
+      ),
+    );
+    expect(
+      [...library.querySelectorAll("button")].map((item) => item.textContent),
+    ).toEqual(["Inbox", "Automations"]);
+    expect(library.querySelector("button")?.getAttribute("aria-current")).toBe(
+      "page",
+    );
   });
 
   it("keeps appearance in Settings and clears the switcher when the sidebar hides", async () => {
@@ -220,11 +309,27 @@ describe("sidebar workspace navigation", () => {
     await act(async () => root.render(createElement(Sidebar, props)));
     await click(button("Switch workspace, Personal"));
     expect(menu()).not.toBeNull();
-    await act(async () => root.render(createElement(Sidebar, { ...props, open: false })));
+    await act(async () =>
+      root.render(createElement(Sidebar, { ...props, open: false })),
+    );
     expect(menu()).toBeNull();
-    await act(async () => root.render(createElement(Sidebar, { ...props, settingsOpen: true, onSelectSettingsSection: section, onCloseSettings: noop, onOpenInbox: noop, onOpenAutomations: noop, onOpenNotes: noop })));
+    await act(async () =>
+      root.render(
+        createElement(Sidebar, {
+          ...props,
+          settingsOpen: true,
+          onSelectSettingsSection: section,
+          onCloseSettings: noop,
+          onOpenInbox: noop,
+          onOpenAutomations: noop,
+          onOpenNotes: noop,
+        }),
+      ),
+    );
     expect(container.querySelector('nav[aria-label="Library"]')).toBeNull();
-    const appearance = container.querySelector<HTMLButtonElement>('button[aria-label="Appearance"]')!;
+    const appearance = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Appearance"]',
+    )!;
     await click(appearance);
     expect(section).toHaveBeenCalledExactlyOnceWith("appearance");
   });

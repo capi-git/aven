@@ -13,7 +13,7 @@
   -webkit-backdrop-filter: var(--aven-glass-blur, none);
   backdrop-filter: var(--aven-glass-blur, none);
   font-family: var(--font-sans);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   line-height: 17px;
   container: session-run / inline-size;
 }
@@ -81,7 +81,7 @@ html.theme-light
 .session-run-queued {
   flex-shrink: 0;
   color: var(--aven-muted);
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   font-variant-numeric: tabular-nums;
 }
 .session-run-clock {
@@ -152,7 +152,7 @@ html.theme-light
 .session-run-agent-copy > span,
 .session-run-agent-label {
   color: var(--aven-muted);
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
 }
 .session-run-agent-label {
   flex-shrink: 0;
@@ -182,7 +182,7 @@ html.theme-light
   box-shadow: var(--aven-control-shadow, none);
   color: var(--color-content);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   cursor: pointer;
 }
 .session-run-stop:hover {
@@ -210,13 +210,13 @@ html.theme-light
   }
   .session-run-detail {
     max-width: 100%;
-    font-size: 11px;
+    font-size: var(--text-ui-caption);
   }
 }
 @container session-run (max-width: 350px) {
   .session-run-queued {
     padding-inline: 3px;
-    font-size: 10px;
+    font-size: var(--text-ui-micro);
   }
   .session-run-stop {
     padding-inline: 6px;

@@ -12,7 +12,7 @@
 }
 .scheduled-editor h2 {
   margin: 0 0 2px;
-  font-size: 13px;
+  font-size: var(--text-ui-body);
   font-weight: 600;
   line-height: 1.4;
 }
@@ -21,7 +21,7 @@
   grid-template-columns: 84px minmax(0, 1fr);
   align-items: center;
   gap: 12px;
-  font-size: 12px;
+  font-size: var(--text-ui-label);
 }
 .scheduled-field > span:first-child {
   align-self: start;
@@ -37,7 +37,7 @@
   border-radius: 6px;
   background: var(--aven-field-bg, var(--aven-hover));
   color: var(--color-content);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   line-height: 1.5;
   outline: none;
 }
@@ -70,7 +70,7 @@
   border: 1px solid transparent;
   border-radius: 5px;
   color: var(--aven-muted);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   line-height: 1.4;
 }
 .scheduled-days button:hover,
@@ -91,12 +91,12 @@
 .scheduled-warning {
   margin: 0 0 0 96px;
   color: color-mix(in srgb, #f59e0b 80%, var(--color-content));
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   line-height: 1.5;
 }
 .scheduled-hint {
   color: var(--aven-muted);
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
 }
 .scheduled-footer {
   display: flex;
@@ -137,7 +137,7 @@
   margin: 4px 0 0;
   max-width: 60ch;
   color: var(--aven-muted);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   line-height: 1.5;
 }
 .automation-example-grid {
@@ -198,13 +198,13 @@
   grid-column: 2;
 }
 .automation-example-name {
-  font-size: 13px;
+  font-size: var(--text-ui-body);
   font-weight: 600;
   line-height: 1.35;
 }
 .automation-example-summary {
   color: var(--aven-muted);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   line-height: 1.45;
 }
 .automation-example-when {
@@ -213,7 +213,7 @@
   gap: 5px;
   margin-top: 4px;
   color: var(--aven-muted);
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   font-variant-numeric: tabular-nums;
 }
 @media (prefers-reduced-motion: reduce) {

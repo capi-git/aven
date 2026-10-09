@@ -43,7 +43,9 @@ const CONTINUE_ID = "continue";
 const DECLINE_ID = "decline";
 const CONFIRM_KEY = "__confirm__";
 
-export function elicitationPrompt(request: McpElicitation): McpElicitationPrompt {
+export function elicitationPrompt(
+  request: McpElicitation,
+): McpElicitationPrompt {
   const title = `${request.serverName}: ${request.message}`.slice(0, 240);
   if (request.mode === "url") {
     const prompt = request.url

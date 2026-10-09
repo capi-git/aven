@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi, type Mock } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import {
   nativeWorkspaceMenuPanel,
@@ -39,7 +39,7 @@ const initial: WorkspaceMenuPanelState = {
 let host: HTMLDivElement;
 let root: Root;
 let receive: (value: WorkspaceMenuPanelState | null) => void;
-let stop: ReturnType<typeof vi.fn>;
+let stop: Mock<() => void>;
 const render = async () =>
   act(async () => root.render(createElement(WorkspaceMenuPanelWindow)));
 const clickAction = async (index = 0) =>

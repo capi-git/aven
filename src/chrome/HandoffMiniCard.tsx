@@ -33,11 +33,11 @@ export function HandoffMiniCard({ card, onDismiss }: Props) {
               className="size-3.5 shrink-0 text-content/45"
               strokeWidth={1.75}
             />
-            <span className="min-w-0 truncate text-[11px] text-content/50">
+            <span className="min-w-0 truncate text-ui-caption text-content/50">
               Handoff
             </span>
           </span>
-          <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[13px] font-semibold leading-snug text-content">
+          <span className="mt-1 flex min-w-0 items-center gap-1.5 text-ui-body font-semibold leading-snug text-content">
             <HarnessIcon harness={card.from} className="size-3.5 shrink-0" />
             <span className="min-w-0 truncate">{HARNESS_TITLE[card.from]}</span>
             <ChevronRight
@@ -48,12 +48,12 @@ export function HandoffMiniCard({ card, onDismiss }: Props) {
             <span className="min-w-0 truncate">{HARNESS_TITLE[card.to]}</span>
           </span>
           {card.request ? (
-            <span className="mt-1 line-clamp-1 text-[11px] text-content/45">
+            <span className="mt-1 line-clamp-1 text-ui-caption text-content/45">
               {card.request}
             </span>
           ) : null}
           {files ? (
-            <span className="mt-1 text-[11px] leading-4 text-content/45">
+            <span className="mt-1 text-ui-caption leading-4 text-content/45">
               {files}
             </span>
           ) : null}

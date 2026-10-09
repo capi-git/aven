@@ -1,7 +1,12 @@
 import { homeDir, listProjectFiles, type ProjectFile } from "./fs";
 import { subscribeDirsChanged } from "./fileTree";
 import { scorePath, type FuzzyHit } from "./fuzzy";
-import { isEqualOrInside, joinPath, resolveWorkspacePath, slash } from "./paths";
+import {
+  isEqualOrInside,
+  joinPath,
+  resolveWorkspacePath,
+  slash,
+} from "./paths";
 import { looksLikeProject } from "./recents";
 import { normalizeEditorPath } from "./search";
 

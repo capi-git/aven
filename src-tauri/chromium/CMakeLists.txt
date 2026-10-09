@@ -109,3 +109,7 @@ target_compile_options(supermono_chromium_browser_update_dom_test PRIVATE -fobjc
 target_link_libraries(supermono_chromium_browser_update_dom_test PRIVATE libcef_dll_wrapper ${CEF_STANDARD_LIBS})
 add_test(NAME browser_update_dom COMMAND supermono_chromium_browser_update_dom_test
   "${CEF_ROOT}/Release/Chromium Embedded Framework.framework/Chromium Embedded Framework")
+
+# Idle fallback backoff never delays an explicit CEF work request.
+add_executable(supermono_chromium_browser_pump_test EXCLUDE_FROM_ALL browser_pump_test.cc)
+add_test(NAME browser_pump_schedule COMMAND supermono_chromium_browser_pump_test)

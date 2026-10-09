@@ -29,7 +29,7 @@ function chat(id: string, cwd: string): Session {
     busy: false,
     model: "",
     modelSettings: {},
-    runtimeMode: "default",
+    runtimeMode: "supervised",
   };
 }
 
@@ -149,7 +149,10 @@ describe("clampDockSize", () => {
 
 describe("withDockSide", () => {
   it("keeps size when the axis stays the same", () => {
-    const dock = { ...createProjectTerminal("/tmp/a", newTerminalFile("/tmp/a")), size: 200 };
+    const dock = {
+      ...createProjectTerminal("/tmp/a", newTerminalFile("/tmp/a")),
+      size: 200,
+    };
     expect(withDockSide(dock, "top").size).toBe(200);
     expect(withDockSide(dock, "top").side).toBe("top");
   });
@@ -161,7 +164,9 @@ describe("dockGridStyle", () => {
   });
 
   it("places the dock on the requested edge", () => {
-    expect(dockGridStyle("bottom", 220).gridTemplateAreas).toBe('"main" "dock"');
+    expect(dockGridStyle("bottom", 220).gridTemplateAreas).toBe(
+      '"main" "dock"',
+    );
     expect(dockGridStyle("top", 220).gridTemplateAreas).toBe('"dock" "main"');
     expect(dockGridStyle("left", 360).gridTemplateAreas).toBe('"dock main"');
     expect(dockGridStyle("right", 360).gridTemplateAreas).toBe('"main dock"');

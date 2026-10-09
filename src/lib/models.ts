@@ -376,9 +376,9 @@ const CLAUDE_VERSIONED_SLUG = /^(opus|sonnet|haiku|fable)-\d/;
 export function resolveModel(harness: HarnessId, id?: string): AgentModel {
   const available = modelsFor(harness);
   if (id) {
-    const exact = findModel(id) ?? available.find(
-      (model) => pickerIdentities(model).includes(id),
-    );
+    const exact =
+      findModel(id) ??
+      available.find((model) => pickerIdentities(model).includes(id));
     if (exact && exact.harness === harness) return exact;
     const slug = nativeIdFrom(id);
     const byNative = available.find(

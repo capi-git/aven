@@ -10,11 +10,7 @@ export const SOUNDS_VOLUME = 0.55;
 export const SOUNDS_CHANGE_EVENT = "monocode:sounds-change";
 
 export type SoundCue =
-  | "turnFinished"
-  | "inboxUnseen"
-  | "updateAvailable"
-  | "switch"
-  | "copy";
+  "turnFinished" | "inboxUnseen" | "updateAvailable" | "switch" | "copy";
 
 const CUES: Record<SoundCue, SoundName> = {
   turnFinished: "success",

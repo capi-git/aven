@@ -1,12 +1,17 @@
 import { IS_WIN } from "./platform";
 
 function windowsPath(path: string): boolean {
-  return /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\") || path.startsWith("//");
+  return (
+    /^[A-Za-z]:[\\/]/.test(path) ||
+    path.startsWith("\\\\") ||
+    path.startsWith("//")
+  );
 }
 
 export function slash(path: string): string {
   return windowsPath(path) || (IS_WIN && !path.startsWith("/"))
-    ? path.replace(/\\/g, "/") : path;
+    ? path.replace(/\\/g, "/")
+    : path;
 }
 
 function trimSlash(path: string): string {
@@ -106,7 +111,13 @@ export function resolveWorkspacePath(
   }
 
   value = slash(value).replace(/(?::\d+(?::\d+)?|#L\d+(?:-L\d+)?)$/, "");
-  if (!value || value === "." || value.startsWith("#") || value.startsWith("?") || value.includes("://")) {
+  if (
+    !value ||
+    value === "." ||
+    value.startsWith("#") ||
+    value.startsWith("?") ||
+    value.includes("://")
+  ) {
     return undefined;
   }
   // A leading tilde belongs to the user's home, never the active project.

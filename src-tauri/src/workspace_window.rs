@@ -477,24 +477,130 @@ pub async fn workspace_window_ready(caller: Webview, token: String) -> Result<()
     }
     Ok(())
 }
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSessionUpdate {
+    transfer_token: Option<String>,
+    session_ids: Vec<String>,
+    sessions: Vec<Value>,
+}
+
+fn apply_session_update(
+    state: &mut Value,
+    update: &WorkspaceSessionUpdate,
+) -> Result<bool, String> {
+    if state["transferToken"].as_str() != update.transfer_token.as_deref() {
+        return Ok(false); // A move/append superseded this owner's queued update.
+    }
+    let old = state["sessions"]
+        .as_array()
+        .ok_or("Missing workspace sessions")?;
+    let ids: HashSet<_> = update.session_ids.iter().map(String::as_str).collect();
+    if ids.len() != update.session_ids.len()
+        || ids.len() > 128
+        || update.sessions.len() > 128
+        || ids.iter().any(|id| id.is_empty() || id.len() > 1024)
+    {
+        return Err("Invalid workspace session order".into());
+    }
+    let mut available: HashSet<_> = old
+        .iter()
+        .filter_map(|entry| entry["session"]["id"].as_str())
+        .collect();
+    let mut changed = HashSet::new();
+    for entry in &update.sessions {
+        let id = entry["session"]["id"]
+            .as_str()
+            .ok_or("Missing session identifier")?;
+        if !ids.contains(id) || !changed.insert(id) {
+            return Err("Invalid session update".into());
+        }
+        available.insert(id);
+    }
+    if ids.iter().any(|id| !available.contains(id)) {
+        return Err("Unknown workspace session".into());
+    }
+    // Move unchanged JSON rather than cloning every retained transcript.
+    let old = std::mem::take(
+        state["sessions"]
+            .as_array_mut()
+            .ok_or("Missing workspace sessions")?,
+    );
+    let mut merged: HashMap<String, Value> = old
+        .into_iter()
+        .filter_map(|entry| {
+            entry["session"]["id"]
+                .as_str()
+                .map(str::to_owned)
+                .map(|id| (id, entry))
+        })
+        .collect();
+    for entry in &update.sessions {
+        if let Some(id) = entry["session"]["id"].as_str() {
+            merged.insert(id.to_owned(), entry.clone());
+        }
+    }
+    state["sessions"] = Value::Array(
+        update
+            .session_ids
+            .iter()
+            .filter_map(|id| merged.remove(id))
+            .collect(),
+    );
+    Ok(true)
+}
+
+fn apply_entry_session_update(
+    entry: &mut Entry,
+    update: &WorkspaceSessionUpdate,
+) -> Result<bool, String> {
+    // Appending first installs the merged state, then moves browsers, then
+    // assigns a new transfer token. Old-token deltas must not erase the merged
+    // roster during that intermediate state, or be acknowledged on rollback.
+    if entry.transitioning || entry.returning {
+        return Ok(false);
+    }
+    let owned: HashSet<_> = entry.state["sessions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|value| value["session"]["id"].as_str())
+        .collect();
+    // A partial return keeps the layout token. Only a full open/append can add
+    // ownership; a delayed old-roster delta cannot reintroduce returned tasks.
+    if update
+        .session_ids
+        .iter()
+        .any(|id| !owned.contains(id.as_str()))
+    {
+        return Ok(false);
+    }
+    apply_session_update(&mut entry.state, update)
+}
+
 #[tauri::command]
 pub fn workspace_window_update(
     caller: Webview,
     id: String,
-    sessions: Value,
-    theme: Value,
-) -> Result<(), String> {
+    update: WorkspaceSessionUpdate,
+) -> Result<bool, String> {
     let owner = owner(&caller)?;
-    let current = entries(caller.app_handle(), |all| {
+    let applied = entries(caller.app_handle(), |all| {
         let e = all.get_mut(&id).ok_or("Workspace closed")?;
         if e.owner != owner {
             return Err("Wrong workspace owner".into());
         }
-        e.state["sessions"] = sessions;
-        e.state["theme"] = theme;
-        Ok(snapshot(&id, e))
+        apply_entry_session_update(e, &update)
     })?;
-    emit(caller.app_handle(), &id, "workspace-window-state", current)
+    if applied {
+        emit(
+            caller.app_handle(),
+            &id,
+            "workspace-window-sessions",
+            update,
+        )?;
+    }
+    Ok(applied)
 }
 #[tauri::command]
 pub fn workspace_window_checkpoint(caller: Webview, state: Value) -> Result<(), String> {
@@ -1073,4 +1179,107 @@ pub async fn workspace_window_return_selection(
         }
     }
     result
+}
+
+#[cfg(test)]
+mod session_update_tests {
+    use super::*;
+    fn state() -> Value {
+        json!({"transferToken":"transfer", "theme":{"scheme":"dark"}, "drafts":{"a":"unsaved"},
+            "sessions":[{"session":{"id":"a","title":"old","blocks":["old"]}},
+            {"session":{"id":"b","blocks":["unchanged transcript allocation"]}}]})
+    }
+    fn update() -> WorkspaceSessionUpdate {
+        WorkspaceSessionUpdate {
+            transfer_token: Some("transfer".into()),
+            session_ids: vec!["a".into(), "b".into()],
+            sessions: vec![json!({"session":{"id":"a","title":"latest","blocks":["new"]}})],
+        }
+    }
+    #[test]
+    fn merges_only_changed_sessions_without_cloning_unchanged_transcripts() {
+        let mut state = state();
+        let before = state["sessions"][1]["session"]["blocks"][0]
+            .as_str()
+            .unwrap()
+            .as_ptr();
+        assert!(apply_session_update(&mut state, &update()).unwrap());
+        assert_eq!(state["sessions"][0]["session"]["title"], "latest");
+        assert_eq!(
+            state["sessions"][1]["session"]["blocks"][0]
+                .as_str()
+                .unwrap()
+                .as_ptr(),
+            before
+        );
+        assert_eq!(state["drafts"]["a"], "unsaved");
+        assert_eq!(state["theme"]["scheme"], "dark");
+        let mut remove = update();
+        remove.session_ids = vec!["b".into()];
+        remove.sessions.clear();
+        assert!(apply_session_update(&mut state, &remove).unwrap());
+        assert_eq!(state["sessions"].as_array().unwrap().len(), 1);
+        assert_eq!(state["sessions"][0]["session"]["id"], "b");
+    }
+    #[test]
+    fn append_rollback_and_partial_return_cannot_accept_an_old_roster() {
+        let original = state();
+        let mut entry = Entry {
+            owner: "main".into(),
+            state: original.clone(),
+            pinned: false,
+            returning: false,
+            transitioning: true,
+        };
+        entry.state["sessions"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"session":{"id":"new"}}));
+        let appended = entry.state.clone();
+        assert!(!apply_entry_session_update(&mut entry, &update()).unwrap());
+        assert_eq!(entry.state, appended); // Browser transfer still holds the old token.
+        entry.state = original.clone();
+        entry.transitioning = false; // Rollback.
+        assert!(apply_entry_session_update(&mut entry, &update()).unwrap());
+        assert_eq!(entry.state["sessions"][0]["session"]["title"], "latest");
+        entry.returning = true;
+        assert!(!apply_entry_session_update(&mut entry, &update()).unwrap());
+        entry.returning = false;
+        entry.state["sessions"].as_array_mut().unwrap().remove(0);
+        let remaining = entry.state.clone();
+        assert!(!apply_entry_session_update(&mut entry, &update()).unwrap());
+        assert_eq!(entry.state, remaining); // The old token cannot return removed ownership.
+        entry.state = appended;
+        entry.state["transferToken"] = json!("new-token");
+        let first = WorkspaceSessionUpdate {
+            transfer_token: Some("new-token".into()),
+            session_ids: vec!["a".into(), "b".into(), "new".into()],
+            sessions: vec![json!({"session":{"id":"new","title":"new response"}})],
+        };
+        assert!(apply_entry_session_update(&mut entry, &first).unwrap());
+        assert_eq!(
+            entry.state["sessions"][2]["session"]["title"],
+            "new response"
+        );
+    }
+
+    #[test]
+    fn stale_transfer_and_invalid_rosters_leave_authoritative_state_intact() {
+        let original = state();
+        let mut current = original.clone();
+        let mut stale = update();
+        stale.transfer_token = Some("older".into());
+        assert!(!apply_session_update(&mut current, &stale).unwrap());
+        assert_eq!(current, original);
+        for ids in [vec!["a".into(), "a".into()], vec!["unknown".into()]] {
+            let mut invalid = update();
+            invalid.session_ids = ids;
+            assert!(apply_session_update(&mut current, &invalid).is_err());
+            assert_eq!(current, original);
+        }
+        let mut duplicate = update();
+        duplicate.sessions.push(duplicate.sessions[0].clone());
+        assert!(apply_session_update(&mut current, &duplicate).is_err());
+        assert_eq!(current, original);
+    }
 }

@@ -15,7 +15,7 @@
   background: var(--aven-popup);
   box-shadow: var(--aven-shadow);
   padding: 20px;
-  font-size: 12px;
+  font-size: var(--text-ui-label);
 }
 .workspace-action-dialog header {
   display: flex;
@@ -38,7 +38,7 @@
   display: flex;
   flex-direction: column;
   gap: 7px;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   color: color-mix(in srgb, var(--color-content) 65%, transparent);
 }
 .workspace-action-dialog input,
@@ -55,7 +55,7 @@
 }
 .workspace-action-dialog p {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   line-height: 1.5;
   color: color-mix(in srgb, var(--color-content) 55%, transparent);
 }
@@ -104,7 +104,7 @@
   gap: 6px;
 }
 .workspace-script-suggestions button {
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   padding: 4px 8px;
   background: color-mix(in srgb, var(--color-content) 7%, transparent);
   border-radius: 5px;
@@ -114,7 +114,7 @@
   flex-direction: column;
   gap: 5px;
   overflow-wrap: anywhere;
-  font-size: 10px;
+  font-size: var(--text-ui-micro);
   color: color-mix(in srgb, var(--color-content) 50%, transparent);
 }
 .workspace-action-dialog :is(button, input, select, textarea):focus-visible {

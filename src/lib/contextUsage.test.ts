@@ -116,6 +116,8 @@ describe("dropContextWindow", () => {
   });
 
   it("leaves the ring hidden until the next turn re-reports", () => {
-    expect(contextRatio(dropContextWindow({ used: 30_000, window: 200_000 }))).toBeNull();
+    expect(
+      contextRatio(dropContextWindow({ used: 30_000, window: 200_000 })),
+    ).toBeNull();
   });
 });

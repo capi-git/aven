@@ -29,15 +29,35 @@ import { loadDiffViewer, subscribeDiffViewer } from "../lib/settings";
 import { AgentTabView } from "./AgentTabView";
 import { MarkdownPreview } from "./AgentMarkdown";
 import { BinaryFileView } from "./BinaryFileView";
-import { CommitDiff } from "./CommitDiff";
-import { FileEditor } from "./FileEditor";
 import { ReleaseNotesSurface } from "./ReleaseNotesSurface";
-import { SessionChangesDiff } from "./SessionChangesDiff";
-import { TerminalView } from "./TerminalView";
-import { WorkingTreeDiff } from "./WorkingTreeDiff";
-import { RaceView } from "./RaceView";
 
 const PdfViewer = lazy(() => import("./PdfViewer"));
+// CodeMirror, xterm and the diff views load on first use, not at startup.
+const FileEditor = lazy(() =>
+  import("./FileEditor").then((module) => ({ default: module.FileEditor })),
+);
+const TerminalView = lazy(() =>
+  import("./TerminalView").then((module) => ({ default: module.TerminalView })),
+);
+const CommitDiff = lazy(() =>
+  import("./CommitDiff").then((module) => ({ default: module.CommitDiff })),
+);
+const SessionChangesDiff = lazy(() =>
+  import("./SessionChangesDiff").then((module) => ({
+    default: module.SessionChangesDiff,
+  })),
+);
+const WorkingTreeDiff = lazy(() =>
+  import("./WorkingTreeDiff").then((module) => ({
+    default: module.WorkingTreeDiff,
+  })),
+);
+const RaceView = lazy(() =>
+  import("./RaceView").then((module) => ({ default: module.RaceView })),
+);
+
+/** Holds the slot's full size while a view's code loads, so nothing shifts. */
+const surfaceFallback = <div aria-busy="true" className="h-full w-full" />;
 
 type Props = {
   pane: EditorPane;
@@ -115,27 +135,29 @@ function FilePaneComponent({
         onPaneDragStart={onPaneDragStart}
       />
       <div className="relative min-h-0 flex-1">
-        {sessionReview ? (
-          <div className="absolute inset-0 h-full">
-            <SessionChangesDiff
-              cwd={sessionReview.cwd}
-              sessionId={sessionReview.sessionChanges.sessionId}
-              focusPath={sessionReview.path}
-            />
-          </div>
-        ) : commitReview && activeFile?.commit ? (
-          <div className="absolute inset-0 h-full">
-            <CommitDiff cwd={activeFile.cwd} sha={activeFile.commit.sha} />
-          </div>
-        ) : unifiedReview && activeFile ? (
-          <div className="absolute inset-0 h-full">
-            <WorkingTreeDiff
-              cwd={activeFile.cwd}
-              focusPath={activeFile.path}
-              focusKind={activeFile.changeKind}
-            />
-          </div>
-        ) : null}
+        <Suspense fallback={null}>
+          {sessionReview ? (
+            <div className="absolute inset-0 h-full">
+              <SessionChangesDiff
+                cwd={sessionReview.cwd}
+                sessionId={sessionReview.sessionChanges.sessionId}
+                focusPath={sessionReview.path}
+              />
+            </div>
+          ) : commitReview && activeFile?.commit ? (
+            <div className="absolute inset-0 h-full">
+              <CommitDiff cwd={activeFile.cwd} sha={activeFile.commit.sha} />
+            </div>
+          ) : unifiedReview && activeFile ? (
+            <div className="absolute inset-0 h-full">
+              <WorkingTreeDiff
+                cwd={activeFile.cwd}
+                focusPath={activeFile.path}
+                focusKind={activeFile.changeKind}
+              />
+            </div>
+          ) : null}
+        </Suspense>
         {pane.files.map((file) => {
           if (
             isCommitTab(file) ||
@@ -154,80 +176,82 @@ function FilePaneComponent({
                   : "hidden"
               }
             >
-              {isAgentTab(file) ? (
-                <AgentTabView
-                  title={file.path}
-                  session={sessions.find(
-                    (entry) => entry.id === file.agent.sessionId,
-                  )}
-                  visible={presented && file.id === pane.activeFileId}
-                  onOpenFile={onOpenFile}
-                />
-              ) : isPlanTab(file) ? (
-                <PlanSurface
-                  file={file}
-                  sessions={sessions}
-                  onOpenFile={onOpenFile}
-                  onUpdatePlan={onUpdatePlan}
-                  onBuildPlan={onBuildPlan}
-                />
-              ) : isReleaseNotesTab(file) ? (
-                <ReleaseNotesSurface source={file.releaseNotes} />
-              ) : isRaceTab(file) ? (
-                <RaceView
-                  raceId={file.race.raceId}
-                  sessions={sessions}
-                  visible={presented && file.id === pane.activeFileId}
-                />
-              ) : isTerminalTab(file) ? (
-                <TerminalView
-                  id={file.id}
-                  cwd={file.cwd}
-                  active={focused && file.id === pane.activeFileId}
-                  presented={presented && file.id === pane.activeFileId}
-                  onMetaChange={(patch) =>
-                    onTerminalMetaChange?.(file.id, patch)
-                  }
-                />
-              ) : isImagePath(file.path) ? (
-                <BinaryFileView path={file.path} cwd={file.cwd} />
-              ) : isPdfPath(file.path) ? (
-                <Suspense
-                  fallback={
-                    <div
-                      role="status"
-                      className="grid h-full place-items-center text-[12px] text-content/45"
-                    >
-                      Opening PDF…
-                    </div>
-                  }
-                >
-                  <PdfViewer
-                    path={file.path}
-                    active={presented && file.id === pane.activeFileId}
+              <Suspense fallback={surfaceFallback}>
+                {isAgentTab(file) ? (
+                  <AgentTabView
+                    title={file.path}
+                    session={sessions.find(
+                      (entry) => entry.id === file.agent.sessionId,
+                    )}
+                    visible={presented && file.id === pane.activeFileId}
+                    onOpenFile={onOpenFile}
                   />
-                </Suspense>
-              ) : (
-                <FileEditor
-                  path={file.path}
-                  cwd={file.cwd}
-                  showDiff={!!file.review}
-                  active={focused && file.id === pane.activeFileId}
-                  navigation={
-                    editorNavigation &&
-                    editorPathsEqual(file.path, editorNavigation.path)
-                      ? editorNavigation
-                      : null
-                  }
-                  onDirtyChange={(_path, dirty) =>
-                    onDirtyChange(file.id, dirty)
-                  }
-                  onErrorCountChange={(_path, count) =>
-                    onErrorCountChange(file.id, count)
-                  }
-                  onOpenFile={onOpenFile}
-                />
-              )}
+                ) : isPlanTab(file) ? (
+                  <PlanSurface
+                    file={file}
+                    sessions={sessions}
+                    onOpenFile={onOpenFile}
+                    onUpdatePlan={onUpdatePlan}
+                    onBuildPlan={onBuildPlan}
+                  />
+                ) : isReleaseNotesTab(file) ? (
+                  <ReleaseNotesSurface source={file.releaseNotes} />
+                ) : isRaceTab(file) ? (
+                  <RaceView
+                    raceId={file.race.raceId}
+                    sessions={sessions}
+                    visible={presented && file.id === pane.activeFileId}
+                  />
+                ) : isTerminalTab(file) ? (
+                  <TerminalView
+                    id={file.id}
+                    cwd={file.cwd}
+                    active={focused && file.id === pane.activeFileId}
+                    presented={presented && file.id === pane.activeFileId}
+                    onMetaChange={(patch) =>
+                      onTerminalMetaChange?.(file.id, patch)
+                    }
+                  />
+                ) : isImagePath(file.path) ? (
+                  <BinaryFileView path={file.path} cwd={file.cwd} />
+                ) : isPdfPath(file.path) ? (
+                  <Suspense
+                    fallback={
+                      <div
+                        role="status"
+                        className="grid h-full place-items-center text-ui-label text-content/45"
+                      >
+                        Opening PDF…
+                      </div>
+                    }
+                  >
+                    <PdfViewer
+                      path={file.path}
+                      active={presented && file.id === pane.activeFileId}
+                    />
+                  </Suspense>
+                ) : (
+                  <FileEditor
+                    path={file.path}
+                    cwd={file.cwd}
+                    showDiff={!!file.review}
+                    active={focused && file.id === pane.activeFileId}
+                    navigation={
+                      editorNavigation &&
+                      editorPathsEqual(file.path, editorNavigation.path)
+                        ? editorNavigation
+                        : null
+                    }
+                    onDirtyChange={(_path, dirty) =>
+                      onDirtyChange(file.id, dirty)
+                    }
+                    onErrorCountChange={(_path, count) =>
+                      onErrorCountChange(file.id, count)
+                    }
+                    onOpenFile={onOpenFile}
+                  />
+                )}
+              </Suspense>
             </div>
           );
         })}
@@ -301,7 +325,7 @@ function PlanSurface({
   if (!block || !plan) {
     return (
       <div className="grid h-full place-items-center p-6 text-center">
-        <p className="text-[13px] text-content/70">
+        <p className="text-ui-body text-content/70">
           This plan is no longer in the session.
         </p>
       </div>
@@ -340,7 +364,7 @@ function PlanSurface({
               type="button"
               disabled={buildDisabled}
               onClick={() => onBuildPlan(plan.sessionId, block.id)}
-              className={`flex h-6 items-center gap-1.5 bg-content px-2.5 font-sans text-[11px] font-medium text-background-base hover:bg-content/90 disabled:cursor-not-allowed disabled:opacity-40 ${
+              className={`flex h-6 items-center gap-1.5 bg-content px-2.5 font-sans text-ui-caption font-medium text-background-base hover:bg-content/90 disabled:cursor-not-allowed disabled:opacity-40 ${
                 session ? "rounded-l-md" : "rounded-md"
               }`}
             >
@@ -372,7 +396,7 @@ function PlanSurface({
             onChange={(event) =>
               onUpdatePlan(plan.sessionId, block.id, event.currentTarget.value)
             }
-            className="h-full w-full resize-none overflow-auto bg-transparent px-5 pb-5 pt-14 font-mono text-[13px] leading-6 text-content outline-none disabled:opacity-70 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+            className="h-full w-full resize-none overflow-auto bg-transparent px-5 pb-5 pt-14 font-mono text-ui-body leading-6 text-content outline-none disabled:opacity-70 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
           />
         }
       />

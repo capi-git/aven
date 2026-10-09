@@ -47,7 +47,9 @@ export function MenuBar({
 }: Props) {
   const [open, setOpen] = useState(false);
   const [activeMenu, setActiveMenu] = useState<MenuKey | null>(null);
-  const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(
+    null,
+  );
   const barRef = useRef<HTMLDivElement>(null);
 
   // Toggle with standalone Alt key tap
@@ -195,16 +197,56 @@ export function MenuBar({
     switch (key) {
       case "file":
         return [
-          { kind: "item", id: "new_tab", label: "New Tab", shortcut: `${MOD}T` },
-          { kind: "item", id: "new_terminal", label: "New Terminal", shortcut: `${MOD}\`` },
-          { kind: "item", id: "new_window", label: "New Window", shortcut: `${MOD}${SHIFT}N` },
+          {
+            kind: "item",
+            id: "new_tab",
+            label: "New Tab",
+            shortcut: `${MOD}T`,
+          },
+          {
+            kind: "item",
+            id: "new_terminal",
+            label: "New Terminal",
+            shortcut: `${MOD}\``,
+          },
+          {
+            kind: "item",
+            id: "new_window",
+            label: "New Window",
+            shortcut: `${MOD}${SHIFT}N`,
+          },
           { kind: "sep" },
-          { kind: "item", id: "open_project", label: "Open Project…", shortcut: `${MOD}O` },
-          { kind: "item", id: "open_search", label: "Search…", shortcut: `${MOD}K` },
-          { kind: "item", id: "go_to_file", label: "Go to File…", shortcut: `${MOD}P` },
-          { kind: "item", id: "find_in_project", label: "Find in Files…", shortcut: `${MOD}${SHIFT}F` },
+          {
+            kind: "item",
+            id: "open_project",
+            label: "Open Project…",
+            shortcut: `${MOD}O`,
+          },
+          {
+            kind: "item",
+            id: "open_search",
+            label: "Search…",
+            shortcut: `${MOD}K`,
+          },
+          {
+            kind: "item",
+            id: "go_to_file",
+            label: "Go to File…",
+            shortcut: `${MOD}P`,
+          },
+          {
+            kind: "item",
+            id: "find_in_project",
+            label: "Find in Files…",
+            shortcut: `${MOD}${SHIFT}F`,
+          },
           { kind: "sep" },
-          { kind: "item", id: "close_tab", label: "Close Pane", shortcut: `${MOD}W` },
+          {
+            kind: "item",
+            id: "close_tab",
+            label: "Close Pane",
+            shortcut: `${MOD}W`,
+          },
           {
             kind: "item",
             id: "close_other_tabs",
@@ -212,30 +254,80 @@ export function MenuBar({
             shortcut: `${MOD}${ALT}T`,
           },
           { kind: "sep" },
-          { kind: "item", id: "check_for_updates", label: "Check for Updates…" },
+          {
+            kind: "item",
+            id: "check_for_updates",
+            label: "Check for Updates…",
+          },
         ];
       case "view":
         return [
-          { kind: "item", id: "toggle_sidebar", label: "Toggle Sidebar", shortcut: `${MOD}B` },
+          {
+            kind: "item",
+            id: "toggle_sidebar",
+            label: "Toggle Sidebar",
+            shortcut: `${MOD}B`,
+          },
           { kind: "item", id: "open_inbox", label: "Inbox" },
           ...(onOpenAutomations
-            ? [{ kind: "item" as const, id: "open_automations", label: "Automations" }]
+            ? [
+                {
+                  kind: "item" as const,
+                  id: "open_automations",
+                  label: "Automations",
+                },
+              ]
             : []),
           ...(onOpenNotes
             ? [{ kind: "item" as const, id: "open_notes", label: "Notes" }]
             : []),
-          { kind: "item", id: "toggle_terminal", label: "Toggle Terminal", shortcut: `${MOD}J` },
-          { kind: "item", id: "open_model_picker", label: "Switch Model…", shortcut: `${MOD}.` },
+          {
+            kind: "item",
+            id: "toggle_terminal",
+            label: "Toggle Terminal",
+            shortcut: `${MOD}J`,
+          },
+          {
+            kind: "item",
+            id: "open_model_picker",
+            label: "Switch Model…",
+            shortcut: `${MOD}.`,
+          },
           { kind: "item", id: "toggle_diff", label: "Toggle Changes" },
           { kind: "sep" },
-          { kind: "item", id: "zoom_in", label: "Zoom In", shortcut: `${MOD}+` },
-          { kind: "item", id: "zoom_out", label: "Zoom Out", shortcut: `${MOD}-` },
-          { kind: "item", id: "zoom_reset", label: "Reset Zoom", shortcut: `${MOD}0` },
+          {
+            kind: "item",
+            id: "zoom_in",
+            label: "Zoom In",
+            shortcut: `${MOD}+`,
+          },
+          {
+            kind: "item",
+            id: "zoom_out",
+            label: "Zoom Out",
+            shortcut: `${MOD}-`,
+          },
+          {
+            kind: "item",
+            id: "zoom_reset",
+            label: "Reset Zoom",
+            shortcut: `${MOD}0`,
+          },
         ];
       case "terminal":
         return [
-          { kind: "item", id: "new_terminal", label: "New Terminal", shortcut: `${MOD}\`` },
-          { kind: "item", id: "toggle_terminal", label: "Toggle Terminal", shortcut: `${MOD}J` },
+          {
+            kind: "item",
+            id: "new_terminal",
+            label: "New Terminal",
+            shortcut: `${MOD}\``,
+          },
+          {
+            kind: "item",
+            id: "toggle_terminal",
+            label: "Toggle Terminal",
+            shortcut: `${MOD}J`,
+          },
         ];
     }
   };
@@ -253,7 +345,7 @@ export function MenuBar({
   return (
     <div
       ref={barRef}
-      className="flex h-7 shrink-0 items-center gap-0.5 border-b border-content/10 bg-content/5 px-2 text-[12px]"
+      className="flex h-7 shrink-0 items-center gap-0.5 border-b border-content/10 bg-content/5 px-2 text-ui-label"
       data-tauri-drag-region="false"
     >
       {MENUS.map(({ key, label }) => {

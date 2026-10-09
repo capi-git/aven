@@ -20,10 +20,7 @@ import {
 } from "./handoff";
 import { newSession, type Block, type Session } from "./session";
 
-function sessionWith(
-  blocks: Block[],
-  extra?: Partial<Session>,
-): Session {
+function sessionWith(blocks: Block[], extra?: Partial<Session>): Session {
   return {
     ...newSession("cursor", "/tmp/project"),
     blocks,
@@ -40,10 +37,9 @@ describe("planComposerSwitch", () => {
   });
 
   it("arms a handoff for later instead of running it on picker change", () => {
-    const session = sessionWith(
-      [{ id: "u1", role: "user", text: "hey" }],
-      { providerSessionId: "acp-1" },
-    );
+    const session = sessionWith([{ id: "u1", role: "user", text: "hey" }], {
+      providerSessionId: "acp-1",
+    });
     expect(planComposerSwitch(session, "fx")).toEqual({
       kind: "arm",
       pending: {
@@ -236,8 +232,12 @@ describe("handoff block lifecycle", () => {
       ...session,
       blocks: [
         ...session.blocks,
-        { id: "u2", role: "user", text: "hey what is this" },
-        { id: "e1", role: "system", text: "fx did not start. fx exited" },
+        { id: "u2", role: "user" as const, text: "hey what is this" },
+        {
+          id: "e1",
+          role: "system" as const,
+          text: "fx did not start. fx exited",
+        },
       ],
     };
     expect(pendingHandoff(afterFailedSend)?.from).toBe("cursor");

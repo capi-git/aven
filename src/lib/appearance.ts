@@ -17,6 +17,7 @@ const TRANSCRIPT_ANCHOR_KEY = "monocode.transcriptAnchor";
 const CHAT_BACKGROUND_PATH_KEY = "monocode.chatBackgroundPath";
 const CHAT_BACKGROUND_OPACITY_KEY = "monocode.chatBackgroundOpacity";
 const CHAT_BACKGROUND_SCOPE_KEY = "monocode.chatBackgroundScope";
+const STATUS_BAR_OPACITY_KEY = "aven.statusBarOpacity";
 const CHANGES_VIEW_KEY = "monocode.changesView";
 let chatBackgroundRevision = Date.now();
 let nativeGlassReady = false;
@@ -133,6 +134,10 @@ export const THEME_SATURATION_MAX = 100;
 export const THEME_SATURATION_DEFAULT = 0;
 /** Sky's tint strength, also the default for older standalone preferences. */
 export const SKY_THEME_SATURATION = 16;
+
+export const STATUS_BAR_OPACITY_DEFAULT = 0.65;
+export const STATUS_BAR_OPACITY_MIN = 0;
+export const STATUS_BAR_OPACITY_MAX = 1;
 
 export const SIDEBAR_OPACITY_MIN = 0.05;
 export const SIDEBAR_OPACITY_MAX = 1;
@@ -263,6 +268,9 @@ export function applyThemeTint(hue: number, saturation: number) {
     "--theme-saturation",
     `${nextSaturation}%`,
   );
+  appliedThemeHue = nextHue;
+  appliedThemeSaturation = nextSaturation;
+  refreshNativeTint();
   return { hue: nextHue, saturation: nextSaturation };
 }
 
@@ -324,6 +332,7 @@ export function applyThemeColors(colors: ThemeColorOverrides = {}) {
   paintThemeColors(isLightScheme() ? "light" : "dark");
   if (nativeGlassReady && appliedNativeGlass === false)
     void paintOpaqueWindow();
+  refreshNativeTint();
 }
 
 export function initAppearance() {
@@ -337,6 +346,7 @@ export function initAppearance() {
   applyThemePreference(loadThemePreference());
   watchSystemColorScheme();
   applySidebarOpacity(loadSidebarOpacity());
+  applyStatusBarOpacity(loadStatusBarOpacity());
   applySidebarBlur(loadSidebarBlur());
   applyBodyGlass(loadBodyGlass());
   applyChatBackground(loadChatBackgroundPath());
@@ -412,6 +422,50 @@ function windowTranslucencyWanted(): boolean {
 
 let appliedNativeGlass: boolean | null = null;
 let paintedWindowColor: string | null = null;
+/** Mirrors index.css `:root`, which always defines the shell's hue inputs. */
+let appliedThemeHue = 207;
+let appliedThemeSaturation = 16;
+/** The tint last handed to the native window while glass was on. */
+let sentNativeTint: string | null = null;
+let nativeGlassGeneration = 0;
+let nativeTintRefreshQueued = false;
+
+/** The page class that stops the shell painting the tint AppKit now paints. */
+export const NATIVE_GLASS_TINT_CLASS = "has-native-glass-tint";
+
+type GlassTint = { r: number; g: number; b: number; alpha: number };
+
+function hexRgb(hex: string) {
+  return [1, 3, 5].map((start) => parseInt(hex.slice(start, start + 2), 16));
+}
+
+function hslRgb(hue: number, saturation: number, lightness: number) {
+  const s = saturation / 100;
+  const l = lightness / 100;
+  const k = (n: number) => (n + hue / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  return [0, 8, 4].map((n) =>
+    Math.round(255 * (l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1)))),
+  );
+}
+
+/**
+ * The dark `.personal-shell` background (personal-shell.css): `--personal-frame`
+ * mixed at `--personal-window-opacity`, which glass sets to the sidebar
+ * opacity. It is the one translucent layer under every other workspace
+ * surface, so AppKit can paint it instead and the result is unchanged.
+ */
+function nativeGlassTint(): GlassTint {
+  const custom = normalizeThemeColor(appliedThemeColors.dark?.background);
+  const [r, g, b] = custom
+    ? hexRgb(custom)
+    : hslRgb(appliedThemeHue, appliedThemeSaturation, 4);
+  return { r, g, b, alpha: appliedSidebarOpacity };
+}
+
+function tintKey(tint: GlassTint) {
+  return `${tint.r},${tint.g},${tint.b},${tint.alpha}`;
+}
 
 function opaqueWindowColor(): string {
   const scheme = isLightScheme() ? "light" : "dark";
@@ -436,14 +490,44 @@ function paintOpaqueWindow() {
 function syncNativeGlass(scheme: ColorScheme) {
   const enabled =
     HAS_NATIVE_GLASS && scheme === "dark" && windowTranslucencyWanted();
+  const root = document.documentElement;
+  const generation = ++nativeGlassGeneration;
   appliedNativeGlass = enabled;
   paintedWindowColor = null;
-  void invoke("set_window_glass_enabled", { enabled })
-    .then(() => {
-      if (!enabled) return paintOpaqueWindow();
+  if (!enabled) {
+    // Restore the page's own tint (or its opaque light/full-opacity shell)
+    // before the window drops its native colour.
+    sentNativeTint = null;
+    root.classList.remove(NATIVE_GLASS_TINT_CLASS);
+    void invoke("set_window_glass_enabled", { enabled })
+      .then(() => {
+        // A workspace/theme switch may already have restored glass while
+        // this acknowledgement was in flight. Its opaque paint would cover
+        // the new native tint after the page has stopped painting its own.
+        if (generation !== nativeGlassGeneration) return undefined;
+        return paintOpaqueWindow();
+      })
+      .catch(() => {
+        // Browser previews have no native window.
+      });
+    return;
+  }
+  // Only macOS paints the tint natively; the page keeps painting it until the
+  // window confirms, and keeps it if an older host or a preview cannot.
+  const tint = IS_MAC ? nativeGlassTint() : undefined;
+  sentNativeTint = tint ? tintKey(tint) : null;
+  void invoke<boolean | undefined>("set_window_glass_enabled", {
+    enabled,
+    ...(tint ? { tint } : {}),
+  })
+    .then((nativeTint) => {
+      if (generation !== nativeGlassGeneration) return;
+      if (nativeTint === true) root.classList.add(NATIVE_GLASS_TINT_CLASS);
+      else root.classList.remove(NATIVE_GLASS_TINT_CLASS);
     })
     .catch(() => {
-      // Browser previews have no native window.
+      // Browser previews have no native window. A failed later update keeps
+      // the tint AppKit already paints, so the page does not double it.
     });
 }
 
@@ -454,6 +538,21 @@ function syncNativeGlassIfChanged() {
   const enabled =
     HAS_NATIVE_GLASS && scheme === "dark" && windowTranslucencyWanted();
   if (enabled !== appliedNativeGlass) syncNativeGlass(scheme);
+}
+
+/**
+ * Keep the native tint in step with the shell's colour and opacity. Workspace
+ * switches apply several settings in one pass; send at most one update.
+ */
+function refreshNativeTint() {
+  if (!IS_MAC || nativeTintRefreshQueued) return;
+  nativeTintRefreshQueued = true;
+  queueMicrotask(() => {
+    nativeTintRefreshQueued = false;
+    if (!nativeGlassReady || appliedNativeGlass !== true) return;
+    if (tintKey(nativeGlassTint()) === sentNativeTint) return;
+    syncNativeGlass(isLightScheme() ? "light" : "dark");
+  });
 }
 
 /** Synchronizes native appearance after the first opaque frame is ready. */
@@ -497,6 +596,7 @@ export function applySidebarOpacity(value: number) {
   document.documentElement.style.setProperty("--sidebar-opacity", String(next));
   appliedSidebarOpacity = next;
   syncNativeGlassIfChanged();
+  refreshNativeTint();
   return next;
 }
 
@@ -599,6 +699,31 @@ export function applyChatBackground(path: string | null) {
 
 export function chatBackgroundSrc(path: string | null): string | null {
   return path ? `${convertFileSrc(path)}?v=${chatBackgroundRevision}` : null;
+}
+
+/** Tint only the bottom bar when the sidebar is tucked away; text stays solid. */
+export function loadStatusBarOpacity(): number {
+  return clamp(
+    readNumber(STATUS_BAR_OPACITY_KEY) ?? STATUS_BAR_OPACITY_DEFAULT,
+    STATUS_BAR_OPACITY_MIN,
+    STATUS_BAR_OPACITY_MAX,
+  );
+}
+
+export function saveStatusBarOpacity(value: number) {
+  writeNumber(
+    STATUS_BAR_OPACITY_KEY,
+    clamp(value, STATUS_BAR_OPACITY_MIN, STATUS_BAR_OPACITY_MAX),
+  );
+}
+
+export function applyStatusBarOpacity(value: number) {
+  const next = clamp(value, STATUS_BAR_OPACITY_MIN, STATUS_BAR_OPACITY_MAX);
+  document.documentElement.style.setProperty(
+    "--status-bar-opacity",
+    String(next),
+  );
+  return next;
 }
 
 export function loadChatBackgroundOpacity(): number {

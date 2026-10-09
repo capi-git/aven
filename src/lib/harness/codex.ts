@@ -134,7 +134,8 @@ export async function sendCodexTurn(input: SendTurnInput): Promise<void> {
   live.turns = live.turns
     .catch(() => undefined)
     .then(async () => {
-      if (live.retired) throw new Error("Codex session stopped before this turn could start");
+      if (live.retired)
+        throw new Error("Codex session stopped before this turn could start");
       live.onEvent = input.onEvent;
       live.runtimeMode = input.runtimeMode;
       live.planning = input.intent === "plan";
@@ -165,7 +166,8 @@ export async function compactCodexContext(
   live.turns = live.turns
     .catch(() => undefined)
     .then(async () => {
-      if (live.retired) throw new Error("Codex session stopped before compaction could start");
+      if (live.retired)
+        throw new Error("Codex session stopped before compaction could start");
       live.onEvent = input.onEvent;
       live.runtimeMode = input.runtimeMode;
       live.cancelled = false;
@@ -184,7 +186,8 @@ export async function steerCodexTurn(input: SteerTurnInput): Promise<void> {
   const live = liveByThread.get(input.sessionId);
   if (!live) throw new Error("No active Codex session");
   await live.turnReady;
-  if (liveByThread.get(input.sessionId) !== live || live.retired) throw new Error("No active Codex session");
+  if (liveByThread.get(input.sessionId) !== live || live.retired)
+    throw new Error("No active Codex session");
   const turnId = live.activeTurnId;
   if (!turnId) throw new Error("No active turn to steer");
 
@@ -297,7 +300,8 @@ export async function stopCodexSession(sessionId: string): Promise<void> {
   try {
     await stopping;
   } finally {
-    if (stoppingByThread.get(sessionId) === stopping) stoppingByThread.delete(sessionId);
+    if (stoppingByThread.get(sessionId) === stopping)
+      stoppingByThread.delete(sessionId);
   }
 }
 
@@ -337,7 +341,9 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
 
   // Existing Aven/imported threads are copied on demand. Never resume them
   // through Codex's shared store, where future turns would clutter its Recents.
-  const storage = await prepareCodexStorage(canResume ? resume.threadId : undefined);
+  const storage = await prepareCodexStorage(
+    canResume ? resume.threadId : undefined,
+  );
   const { path } = await resolveCodexBinaryImpl();
   const liveRef: { current: Live | null } = { current: null };
 
@@ -346,8 +352,12 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     {
       onNotification: (method, params) => {
         const live = liveRef.current;
-        if (!live || liveByThread.get(input.sessionId) !== live ||
-          (live.muteUpdates && !live.cancelled)) return;
+        if (
+          !live ||
+          liveByThread.get(input.sessionId) !== live ||
+          (live.muteUpdates && !live.cancelled)
+        )
+          return;
         handleNotification(live, method, params);
       },
       onRequest: (id, method, params) => {
@@ -402,11 +412,14 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
         3000,
       );
     } catch {
-      throw new Error("Aven could not verify private Codex chat storage. Update the Codex CLI and try again; no chat was started.");
+      throw new Error(
+        "Aven could not verify private Codex chat storage. Update the Codex CLI and try again; no chat was started.",
+      );
     }
     assertCodexStorage(effectiveConfig, storage.home);
     // Preserve effective developer instructions without logging or editing them.
-    const browserHostInstructions = codexBrowserHostInstructionsFromConfig(effectiveConfig);
+    const browserHostInstructions =
+      codexBrowserHostInstructionsFromConfig(effectiveConfig);
 
     const model = nativeModelId(input.model);
     const serviceTier = input.modelSettings?.serviceTier;
@@ -580,7 +593,9 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
   live.emittedReasoning = "";
   live.turnMode = "prompt";
   live.turnStartPending = true;
-  live.turnReady = new Promise((resolve) => { live.resolveTurnReady = resolve; });
+  live.turnReady = new Promise((resolve) => {
+    live.resolveTurnReady = resolve;
+  });
   live.activeTurnId = null;
   live.earlyTerminals.clear();
 
@@ -626,7 +641,9 @@ async function runCompaction(live: Live): Promise<void> {
   live.emittedReasoning = "";
   live.turnMode = "compaction";
   live.turnStartPending = true;
-  live.turnReady = new Promise((resolve) => { live.resolveTurnReady = resolve; });
+  live.turnReady = new Promise((resolve) => {
+    live.resolveTurnReady = resolve;
+  });
   live.activeTurnId = null;
   live.earlyTerminals.clear();
   const turnPromise = new Promise<void>((resolve, reject) => {
@@ -656,7 +673,8 @@ function handleNotification(live: Live, method: string, params: unknown): void {
   // turn/completed (and turn/aborted) settle sendCodexTurn, which is what the
   // UI uses for busy / stop / "Working for".
   const record = asRecord(params);
-  const threadId = typeof record?.threadId === "string" ? record.threadId : undefined;
+  const threadId =
+    typeof record?.threadId === "string" ? record.threadId : undefined;
   if (threadId && threadId !== live.threadId) {
     // Child notifications must never settle the lead's turn or append the
     // child's transcript to the lead. Only known child lifecycle is relevant.
@@ -672,7 +690,13 @@ function handleNotification(live: Live, method: string, params: unknown): void {
   if (startsTurn || endsTurn) {
     const turn = asRecord(record?.turn);
     const turnId = typeof turn?.id === "string" ? turn.id : undefined;
-    if (!live.turnDone || !live.turnMode || !turnId || live.finishedTurnIds.has(turnId)) return;
+    if (
+      !live.turnDone ||
+      !live.turnMode ||
+      !turnId ||
+      live.finishedTurnIds.has(turnId)
+    )
+      return;
     if (startsTurn) {
       // thread/compact/start returns no turn ID. Its explicit start event is
       // therefore the authority; ordinary prompts use the RPC response ID.
@@ -682,7 +706,10 @@ function handleNotification(live: Live, method: string, params: unknown): void {
       }
       if (live.activeTurnId !== turnId) return;
     } else if (live.activeTurnId !== turnId) {
-      if (live.turnStartPending || (live.turnMode === "compaction" && !live.activeTurnId)) {
+      if (
+        live.turnStartPending ||
+        (live.turnMode === "compaction" && !live.activeTurnId)
+      ) {
         // A very fast turn can finish before its start RPC returns. Keep it
         // only for this request, and apply it only after matching its ID.
         // Retain compact terminal metadata for this request rather than the
@@ -690,7 +717,10 @@ function handleNotification(live: Live, method: string, params: unknown): void {
         // matching terminal before the RPC tells us which ID is ours.
         live.earlyTerminals.set(turnId, {
           method,
-          params: { threadId, turn: { id: turnId, status: turn?.status, error: turn?.error } },
+          params: {
+            threadId,
+            turn: { id: turnId, status: turn?.status, error: turn?.error },
+          },
         });
       }
       return;
@@ -755,8 +785,10 @@ function handleNotification(live: Live, method: string, params: unknown): void {
 
 function publishAgentUpdate(live: Live, event: AgentUpdate): void {
   const previous = live.agents.get(event.agentId);
-  const next = event.title === "Subagent" && previous
-    ? { ...event, title: previous.title } : event;
+  const next =
+    event.title === "Subagent" && previous
+      ? { ...event, title: previous.title }
+      : event;
   live.agents.set(event.agentId, next);
   live.onEvent(next);
 }
@@ -778,20 +810,29 @@ function childThreadStatus(
   previous: AgentUpdate["status"],
 ): AgentUpdate["status"] | undefined {
   if (method === "turn/started") return "running";
-  const terminal = previous === "completed" || previous === "failed" || previous === "stopped";
-  if (method === "thread/closed" || method === "thread/deleted") return terminal ? undefined : "stopped";
+  const terminal =
+    previous === "completed" || previous === "failed" || previous === "stopped";
+  if (method === "thread/closed" || method === "thread/deleted")
+    return terminal ? undefined : "stopped";
   if (method === "turn/completed" || method === "turn/aborted") {
     const status = asRecord(record?.turn)?.status;
     if (status === "failed") return "failed";
-    if (status === "interrupted" || status === "cancelled" || method === "turn/aborted") return "stopped";
+    if (
+      status === "interrupted" ||
+      status === "cancelled" ||
+      method === "turn/aborted"
+    )
+      return "stopped";
     if (status === "completed") return "completed";
   }
   if (method === "thread/status/changed") {
     const status = asRecord(record?.status);
     if (status?.type === "active") {
       const flags = Array.isArray(status.activeFlags) ? status.activeFlags : [];
-      return flags.includes("waitingOnApproval") || flags.includes("waitingOnUserInput")
-        ? "waiting" : "running";
+      return flags.includes("waitingOnApproval") ||
+        flags.includes("waitingOnUserInput")
+        ? "waiting"
+        : "running";
     }
     if (status?.type === "idle") return terminal ? undefined : "completed";
     if (status?.type === "systemError") return "failed";
@@ -1000,7 +1041,12 @@ async function handleUserInputRequest(
     await live.rpc.respond(id, { answers: {} }).catch(() => undefined);
     return;
   }
-  const reply = await askQuestions(live, id, questionPromptTitle(questions), questions);
+  const reply = await askQuestions(
+    live,
+    id,
+    questionPromptTitle(questions),
+    questions,
+  );
   if (reply === null) return;
   await live.rpc
     .respond(id, codexUserInputResponse(questions, reply))
@@ -1012,8 +1058,13 @@ async function handleElicitationRequest(
   id: JsonRpcId,
   params: unknown,
 ): Promise<void> {
-  const respond = (action: "accept" | "decline" | "cancel", content: unknown = null) =>
-    live.rpc.respond(id, { action, content, _meta: null }).catch(() => undefined);
+  const respond = (
+    action: "accept" | "decline" | "cancel",
+    content: unknown = null,
+  ) =>
+    live.rpc
+      .respond(id, { action, content, _meta: null })
+      .catch(() => undefined);
   const request = parseCodexElicitation(params);
   if (request.kind === "unsupported" || live.cancelled || live.muteUpdates) {
     await respond("decline");
@@ -1060,10 +1111,12 @@ async function askQuestions(
   const uiId = live.nextApprovalUiId++;
   live.onEvent({ type: "question.asked", requestId: uiId, title, questions });
   let pending: PendingQuestion | undefined;
-  const reply = await new Promise<UserQuestionReply | "cancelled">((resolve) => {
-    pending = { rpcId, resolve };
-    live.questions.set(uiId, pending);
-  }).finally(() => {
+  const reply = await new Promise<UserQuestionReply | "cancelled">(
+    (resolve) => {
+      pending = { rpcId, resolve };
+      live.questions.set(uiId, pending);
+    },
+  ).finally(() => {
     live.questions.delete(uiId);
   });
   live.onEvent({

@@ -10,18 +10,7 @@ pub async fn browser_snapshot(caller: Webview, id: String) -> Result<String, Str
         let result = crate::browser::preview(&caller, &id)?
             .command(serde_json::json!({"action":"snapshot"}))
             .await?;
-        let data = result
-            .as_str()
-            .or_else(|| result.get("data").and_then(serde_json::Value::as_str))
-            .ok_or("Chromium did not return an image")?;
-        if data.len() > 12 * 1024 * 1024 {
-            return Err("Browser image exceeds the size limit".into());
-        }
-        Ok(if data.starts_with("data:image/") {
-            data.to_string()
-        } else {
-            format!("data:image/png;base64,{data}")
-        })
+        chromium_data_url(&result)
     }
     #[cfg(all(target_os = "macos", not(feature = "chromium")))]
     {
@@ -31,6 +20,66 @@ pub async fn browser_snapshot(caller: Webview, id: String) -> Result<String, Str
     {
         let _ = (caller, id);
         Err("Preview snapshots are only available on macOS".into())
+    }
+}
+
+#[cfg(any(test, all(feature = "chromium", target_os = "macos")))]
+fn chromium_data_url(result: &serde_json::Value) -> Result<String, String> {
+    let data = result
+        .as_str()
+        .or_else(|| result.get("data").and_then(serde_json::Value::as_str))
+        .ok_or("Chromium did not return an image")?;
+    if data.is_empty() || data.len() > 12 * 1024 * 1024 {
+        return Err("Browser image exceeds the size limit".into());
+    }
+    if data.starts_with("data:image/png;base64,") || data.starts_with("data:image/jpeg;base64,") {
+        return Ok(data.to_string());
+    }
+    if data.starts_with("data:") {
+        return Err("Unsupported browser image format".into());
+    }
+    let mime = result
+        .get("mimeType")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("image/png");
+    if !matches!(mime, "image/png" | "image/jpeg") {
+        return Err("Unsupported browser image format".into());
+    }
+    Ok(format!("data:{mime};base64,{data}"))
+}
+
+#[cfg(test)]
+mod chromium_tests {
+    use super::chromium_data_url;
+    use serde_json::json;
+
+    #[test]
+    fn temporary_cover_uses_the_returned_mime_type() {
+        assert_eq!(
+            chromium_data_url(&json!({"data":"aW1hZ2U=","mimeType":"image/jpeg"})).unwrap(),
+            "data:image/jpeg;base64,aW1hZ2U="
+        );
+        assert_eq!(
+            chromium_data_url(&json!({"data":"aW1hZ2U="})).unwrap(),
+            "data:image/png;base64,aW1hZ2U="
+        );
+        assert_eq!(
+            chromium_data_url(&json!("data:image/png;base64,aW1hZ2U=")).unwrap(),
+            "data:image/png;base64,aW1hZ2U="
+        );
+    }
+
+    #[test]
+    fn rejects_missing_oversized_and_unsupported_images() {
+        for value in [
+            json!({}),
+            json!({"data":""}),
+            json!({"data":"a","mimeType":"image/svg+xml"}),
+            json!("data:text/html;base64,a"),
+            json!("a".repeat(12 * 1024 * 1024 + 1)),
+        ] {
+            assert!(chromium_data_url(&value).is_err());
+        }
     }
 }
 

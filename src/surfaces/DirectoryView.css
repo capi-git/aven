@@ -5,7 +5,7 @@
   min-height: 0;
   flex-direction: column;
   color: var(--color-content);
-  font-size: 13px;
+  font-size: var(--text-ui-body);
 }
 
 .directory-view-header {
@@ -94,7 +94,7 @@
 
 .directory-view-path {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   color: var(--aven-muted);
   overflow-wrap: anywhere;
 }
@@ -138,7 +138,7 @@
 
 .directory-view-entry-kind {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   color: var(--aven-muted);
 }
 
@@ -156,7 +156,7 @@
 .directory-view-footer {
   padding: 5px 12px;
   border-top: 1px solid var(--aven-line);
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   color: var(--aven-muted);
   background: var(--aven-toolbar-surface, transparent);
 }

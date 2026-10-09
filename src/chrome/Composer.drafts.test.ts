@@ -397,4 +397,17 @@ describe("composer draft mutation boundaries", () => {
       [notes],
     );
   });
+
+  it("keeps the textarea's text node when the pane re-renders with the latest draft", async () => {
+    props.initialDraft = "你";
+    const textarea = await render();
+    expect(textarea.defaultValue).toBe("你");
+    // Streaming re-renders the pane with the draft typed so far. Rewriting
+    // the text node makes WebKit commit an in-progress IME composition.
+    textarea.value = "你好";
+    props = { ...props, initialDraft: "你好" };
+    await render();
+    expect(textarea.defaultValue).toBe("你");
+    expect(textarea.value).toBe("你好");
+  });
 });

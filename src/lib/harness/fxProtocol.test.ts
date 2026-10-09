@@ -57,12 +57,12 @@ describe("fx protocol", () => {
   });
 
   it("picks allow/reject option ids from ACP permission options", () => {
-    expect(
-      permissionOptionId("allow", ["allow_once", "reject_once"]),
-    ).toBe("allow_once");
-    expect(
-      permissionOptionId("deny", ["allow-once", "reject-once"]),
-    ).toBe("reject-once");
+    expect(permissionOptionId("allow", ["allow_once", "reject_once"])).toBe(
+      "allow_once",
+    );
+    expect(permissionOptionId("deny", ["allow-once", "reject-once"])).toBe(
+      "reject-once",
+    );
   });
 
   it("reads a permission prompt from an ACP request", () => {

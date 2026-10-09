@@ -44,11 +44,15 @@ it("updates saved project names on Home while preserving navigation paths and se
       ),
     );
     const projectRows = container.querySelector(".workspace-home-columns")!;
-    expect(projectRows.textContent?.match(/Personal workspace/g)).toHaveLength(2);
+    expect(projectRows.textContent?.match(/Personal workspace/g)).toHaveLength(
+      2,
+    );
     await act(async () =>
       saveTabGroupLabel(projectKey(path), "Updated workspace"),
     );
-    expect(projectRows.textContent?.match(/Updated workspace/g)).toHaveLength(2);
+    expect(projectRows.textContent?.match(/Updated workspace/g)).toHaveLength(
+      2,
+    );
     expect(container.textContent).toContain("Original task title");
     const projectButton = [...container.querySelectorAll("button")].find(
       (button) => button.textContent === "Updated workspace",

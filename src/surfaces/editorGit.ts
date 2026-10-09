@@ -54,10 +54,10 @@ const insertedLine = Decoration.line({ class: "cm-gitInsertedLine" });
 const LINE_HEIGHT = Math.round(13 * 1.6);
 
 const addMarker = new (class extends GutterMarker {
-  eq() {
+  override eq() {
     return true;
   }
-  toDOM() {
+  override toDOM() {
     const el = document.createElement("div");
     el.className = "cm-gitMarker cm-gitAdd";
     return el;
@@ -137,7 +137,7 @@ class DeletedLinesWidget extends WidgetType {
     super();
   }
 
-  eq(other: DeletedLinesWidget) {
+  override eq(other: DeletedLinesWidget) {
     return (
       this.pos === other.pos &&
       this.firstLine === other.firstLine &&
@@ -159,11 +159,11 @@ class DeletedLinesWidget extends WidgetType {
     return wrap;
   }
 
-  get estimatedHeight() {
+  override get estimatedHeight() {
     return this.lines.length * LINE_HEIGHT;
   }
 
-  ignoreEvent() {
+  override ignoreEvent() {
     return true;
   }
 }

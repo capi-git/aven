@@ -38,7 +38,6 @@ describe("file pane agent tabs", () => {
       onFocus: noop,
       onSelectFile: noop,
       onCloseFile: noop,
-      onCloseOtherFiles: noop,
       onDirtyChange: noop,
       onErrorCountChange: noop,
       onReorderFiles: noop,

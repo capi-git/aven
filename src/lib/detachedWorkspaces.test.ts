@@ -8,6 +8,7 @@ import { browserIdForTab } from "./personalWorkspace";
 import { captureWorkspaceReturnPlacement } from "./workspaceArrangement";
 import {
   mergeDetachedWorkspaces,
+  mergeDetachedSessionUpdate,
   nativeWorkspaceWindow,
   openDetachedFileForSession,
   useDetachedWorkspaces,
@@ -27,7 +28,7 @@ const session = (id: string): Session => ({
   harness: "codex",
   model: "gpt-5",
   modelSettings: {},
-  runtimeMode: "bypass",
+  runtimeMode: "full-access",
   cwd: "/project",
   blocks: [],
 });
@@ -512,8 +513,12 @@ describe("detached workspace transactions", () => {
       b = state("b");
     const original = mergeDetachedWorkspaces(a, b);
     original.editorDrafts = {
-      "/project/readme.md": { content: "unsaved", savedContent: "saved" },
-    } as DetachedWorkspaceState["editorDrafts"];
+      "/project/readme.md": {
+        text: "unsaved",
+        baseline: "saved",
+        updatedAt: 1,
+      },
+    };
     const opened = openDetachedFileForSession(
       original,
       "a",
@@ -589,7 +594,8 @@ describe("detached workspace transactions", () => {
         pinned: false,
       }),
     );
-    for (const name of ["update", "ack", "resume", "close"] as const)
+    vi.spyOn(nativeWorkspaceWindow, "update").mockResolvedValue(true);
+    for (const name of ["ack", "resume", "close"] as const)
       vi.spyOn(nativeWorkspaceWindow, name).mockResolvedValue(undefined);
     host = document.createElement("div");
     document.body.append(host);
@@ -690,9 +696,10 @@ describe("detached workspace transactions", () => {
       "tab-b",
       "browser-b",
     ]);
-    expect(
-      merged.view.layout!.type === "split" && merged.view.layout.children[1],
-    ).toEqual(b.view.layout);
+    const mergedLayout = merged.view.layout;
+    expect(mergedLayout?.type === "split" && mergedLayout.children[1]).toEqual(
+      b.view.layout,
+    );
     expect(merged.browsers[0].nativeId).toBe("existing-cef");
     expect(merged.browsers[0].kept).toBe(true);
     expect(merged.editorDrafts).toEqual(b.editorDrafts);
@@ -701,23 +708,43 @@ describe("detached workspace transactions", () => {
     ).toThrow("same project");
   });
   it("keeps minimized tabs in their own panes when combining detached windows", () => {
-    const a = state("a"), b = state("b");
-    a.browsers = [{ id: "browser-a", tabId: "page", url: "https://example.test", nativeId: "retained-page" }];
+    const a = state("a"),
+      b = state("b");
+    a.browsers = [
+      {
+        id: "browser-a",
+        tabId: "page",
+        url: "https://example.test",
+        nativeId: "retained-page",
+      },
+    ];
     a.view = resolveWorkspaceView(
       {
         layout: {
-          type: "split", id: "a-split", dir: "right",
-          children: [leaf("tab-a"), leaf("browser-a")], sizes: [0.4, 0.6],
+          type: "split",
+          id: "a-split",
+          dir: "right",
+          children: [leaf("tab-a"), leaf("browser-a")],
+          sizes: [0.4, 0.6],
         },
-        order: ["tab-a", "browser-a"], focusedId: "browser-a",
+        order: ["tab-a", "browser-a"],
+        focusedId: "browser-a",
         groups: { "tab-a": ["tab-a"], "browser-a": ["browser-a"] },
       },
-      ["tab-a", "browser-a"], "browser-a",
+      ["tab-a", "browser-a"],
+      "browser-a",
     );
     a.view = minimizeWorkspaceSide(a.view, "a-split", 0, "before");
-    for (const [first, second] of [[a, b], [b, a]]) {
+    for (const [first, second] of [
+      [a, b],
+      [b, a],
+    ]) {
       const merged = mergeDetachedWorkspaces(first, second);
-      expect(leafIds(merged.view.layout!).sort()).toEqual(["browser-a", "tab-a", "tab-b"]);
+      expect(leafIds(merged.view.layout!).sort()).toEqual([
+        "browser-a",
+        "tab-a",
+        "tab-b",
+      ]);
       expect(merged.view.groups["tab-a"]).toEqual(["tab-a"]);
       expect(merged.view.groups["browser-a"]).toEqual(["browser-a"]);
       expect(merged.browsers[0].nativeId).toBe("retained-page");
@@ -949,4 +976,224 @@ describe("detached workspace transactions", () => {
     await act(async () => vi.advanceTimersByTime(110));
     expect(nativeWorkspaceWindow.update).not.toHaveBeenCalled();
   });
+  it("sends only the changed session while the owner document is hidden", async () => {
+    await render();
+    await act(async () => {
+      await api.open(mergeDetachedWorkspaces(state("a"), state("b")));
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(110));
+    vi.mocked(nativeWorkspaceWindow.update).mockClear();
+    vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    sessions = [{ ...sessions[0], title: "streamed reply" }, sessions[1]];
+    await render();
+    await act(async () => vi.advanceTimersByTimeAsync(110));
+    expect(nativeWorkspaceWindow.update).toHaveBeenCalledOnce();
+    const [, update] = vi.mocked(nativeWorkspaceWindow.update).mock.calls[0];
+    expect(update.sessionIds).toEqual(["a", "b"]);
+    expect(update.sessions.map((item) => item.session.id)).toEqual(["a"]);
+    expect(update.sessions[0].session.title).toBe("streamed reply");
+    expect(update).not.toHaveProperty("theme");
+  });
+
+  it("allows one update in flight per child and coalesces to the latest state", async () => {
+    await render();
+    await act(async () => {
+      await api.open(mergeDetachedWorkspaces(state("a"), state("b")));
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(110));
+    vi.mocked(nativeWorkspaceWindow.update).mockClear();
+    let finish!: () => void;
+    vi.mocked(nativeWorkspaceWindow.update).mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finish = () => resolve(true);
+        }),
+    );
+    sessions = [{ ...sessions[0], title: "first" }, sessions[1]];
+    await render();
+    await act(async () => vi.advanceTimersByTimeAsync(110));
+    for (const title of ["middle", "final"]) {
+      sessions = [{ ...sessions[0], title }, sessions[1]];
+      await render();
+      await act(async () => vi.advanceTimersByTimeAsync(110));
+    }
+    expect(nativeWorkspaceWindow.update).toHaveBeenCalledOnce();
+    await act(async () => finish());
+    await act(async () => vi.advanceTimersByTimeAsync(110));
+    expect(nativeWorkspaceWindow.update).toHaveBeenCalledTimes(2);
+    const update = vi.mocked(nativeWorkspaceWindow.update).mock.calls[1][1];
+    expect(update.sessions).toHaveLength(1);
+    expect(update.sessions[0].session.title).toBe("final");
+    await render();
+    await act(async () => vi.advanceTimersByTimeAsync(110));
+    expect(nativeWorkspaceWindow.update).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([false, true])(
+    "retries a declined in-flight update after append completes (success=%s)",
+    async (succeed) => {
+      await render();
+      await act(async () => {
+        await api.open(state("a"));
+      });
+      await act(async () => vi.advanceTimersByTimeAsync(110));
+      vi.mocked(nativeWorkspaceWindow.update).mockClear();
+      let finishUpdate!: (applied: boolean) => void;
+      vi.mocked(nativeWorkspaceWindow.update).mockImplementationOnce(
+        () =>
+          new Promise<boolean>((resolve) => {
+            finishUpdate = resolve;
+          }),
+      );
+      sessions = [
+        { ...sessions[0], title: "final during transfer" },
+        sessions[1],
+      ];
+      await render();
+      await act(async () => vi.advanceTimersByTimeAsync(110));
+      vi.spyOn(nativeWorkspaceWindow, "freeze").mockResolvedValue({
+        id: "window-a",
+        state: state("a"),
+        pinned: false,
+      });
+      let finishOpen!: () => void;
+      vi.mocked(nativeWorkspaceWindow.open).mockImplementationOnce(
+        (merged) =>
+          new Promise((resolve, reject) => {
+            finishOpen = () =>
+              succeed
+                ? resolve({
+                    id: "window-a",
+                    state: { ...merged, transferToken: "new" },
+                    pinned: false,
+                  })
+                : reject(new Error("append rolled back"));
+          }),
+      );
+      let append!: Promise<unknown>;
+      await act(async () => {
+        append = api.open(state("b"), "window-a").catch((error) => error);
+      });
+      await act(async () => finishUpdate(false));
+      await act(async () => vi.advanceTimersByTimeAsync(110));
+      expect(nativeWorkspaceWindow.update).toHaveBeenCalledOnce();
+      await act(async () => {
+        finishOpen();
+        await append;
+      });
+      await act(async () => vi.advanceTimersByTimeAsync(110));
+      expect(nativeWorkspaceWindow.update).toHaveBeenCalledTimes(2);
+      const latest = vi.mocked(nativeWorkspaceWindow.update).mock.calls[1][1];
+      expect(latest.sessionIds).toEqual(succeed ? ["a", "b"] : ["a"]);
+      expect(
+        latest.sessions.find((item) => item.session.id === "a")?.session.title,
+      ).toBe("final during transfer");
+    },
+  );
+
+  it("resends the queued latest state after a failed update", async () => {
+    await render();
+    await act(async () => {
+      await api.open(state("a"));
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(110));
+    vi.mocked(nativeWorkspaceWindow.update).mockClear();
+    let fail!: (reason: Error) => void;
+    vi.mocked(nativeWorkspaceWindow.update).mockImplementationOnce(
+      () =>
+        new Promise<boolean>((_, reject) => {
+          fail = reject;
+        }),
+    );
+    sessions = [{ ...sessions[0], title: "first" }, sessions[1]];
+    await render();
+    await act(async () => vi.advanceTimersByTimeAsync(110));
+    sessions = [{ ...sessions[0], title: "final" }, sessions[1]];
+    await render();
+    await act(async () => vi.advanceTimersByTimeAsync(110));
+    await act(async () => fail(new Error("temporary transport failure")));
+    await act(async () => vi.advanceTimersByTimeAsync(110));
+    expect(nativeWorkspaceWindow.update).toHaveBeenCalledTimes(2);
+    expect(
+      vi.mocked(nativeWorkspaceWindow.update).mock.calls[1][1].sessions[0]
+        .session.title,
+    ).toBe("final");
+  });
+
+  it("does not publish a coalesced update after owner disposal", async () => {
+    await render();
+    await act(async () => {
+      await api.open(state("a"));
+    });
+    let finish!: () => void;
+    vi.mocked(nativeWorkspaceWindow.update).mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finish = () => resolve(true);
+        }),
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(110));
+    sessions = [{ ...sessions[0], title: "last" }, sessions[1]];
+    await render();
+    await act(async () => vi.advanceTimersByTimeAsync(110));
+    await act(async () => root.render(null));
+    await act(async () => finish());
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    expect(nativeWorkspaceWindow.update).toHaveBeenCalledOnce();
+  });
+});
+
+it("merges session deltas while retaining layout, drafts, theme and unchanged session identity", () => {
+  const original: DetachedWorkspaceSnapshot = {
+    id: "window",
+    pinned: false,
+    state: {
+      ...mergeDetachedWorkspaces(state("a"), state("b")),
+      transferToken: "current",
+      theme: { scheme: "dark", variables: {} },
+      drafts: { a: { text: "unsaved", attachments: [], updatedAt: 1 } },
+    },
+  };
+  const updated = {
+    ...original.state.sessions[0],
+    session: { ...original.state.sessions[0].session, title: "new" },
+  };
+  const delta = {
+    transferToken: "current",
+    sessionIds: ["a", "b"],
+    sessions: [updated],
+  };
+  const next = mergeDetachedSessionUpdate(original, delta);
+  expect(next.state.sessions[0]).toBe(updated);
+  expect(next.state.sessions[1]).toBe(original.state.sessions[1]);
+  for (const key of ["tabs", "browsers", "view", "theme", "drafts"] as const)
+    expect(next.state[key]).toBe(original.state[key]);
+  expect(
+    mergeDetachedSessionUpdate(original, { ...delta, transferToken: "old" }),
+  ).toBe(original);
+  expect(
+    mergeDetachedSessionUpdate(original, { ...delta, sessionIds: ["missing"] }),
+  ).toBe(original);
+  expect(
+    mergeDetachedSessionUpdate(original, {
+      ...delta,
+      sessions: [],
+      sessionIds: ["b"],
+    }).state.sessions,
+  ).toEqual([original.state.sessions[1]]);
+});
+
+it("rejects a late pre-return delta without reintroducing removed sessions", () => {
+  const remaining: DetachedWorkspaceSnapshot = {
+    id: "window",
+    pinned: false,
+    state: { ...state("b"), transferToken: "same" },
+  };
+  expect(
+    mergeDetachedSessionUpdate(remaining, {
+      transferToken: "same",
+      sessionIds: ["a", "b"],
+      sessions: [{ session: session("a"), recents: [] }],
+    }),
+  ).toBe(remaining);
 });

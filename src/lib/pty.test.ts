@@ -6,6 +6,7 @@ import {
   queueTerminalCommand,
   spawnPty,
   trimReplay,
+  writePty,
 } from "./pty";
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
@@ -199,4 +200,85 @@ describe("queued terminal commands", () => {
     );
     expect(invoke).not.toHaveBeenCalled();
   });
+});
+
+describe("terminal input ordering", () => {
+  beforeEach(async () => {
+    invoke.mockReset();
+    invoke.mockResolvedValue(undefined);
+    await killAllPtys();
+    invoke.mockClear();
+  });
+
+  function holdWrite() {
+    let resolve!: () => void;
+    let reject!: (error: Error) => void;
+    invoke.mockImplementationOnce(
+      () =>
+        new Promise<void>((ok, fail) => {
+          resolve = ok;
+          reject = fail;
+        }),
+    );
+    return {
+      resolve: () => resolve(),
+      reject: () => reject(new Error("broken pipe")),
+    };
+  }
+
+  it("preserves input order while allowing another terminal to write", async () => {
+    const held = holdWrite();
+    const first = writePty("one", "first");
+    const second = writePty("one", "second");
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+    await writePty("two", "independent");
+    expect(invoke.mock.calls).toEqual([
+      ["pty_write", { id: "one", data: "first" }],
+      ["pty_write", { id: "two", data: "independent" }],
+    ]);
+    held.resolve();
+    await Promise.all([first, second]);
+    expect(invoke).toHaveBeenLastCalledWith("pty_write", {
+      id: "one",
+      data: "second",
+    });
+  });
+
+  it("reports a failed write without poisoning later input", async () => {
+    const held = holdWrite();
+    const first = writePty("one", "first");
+    const failure = expect(first).rejects.toThrow("broken pipe");
+    const second = writePty("one", "second");
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+    held.reject();
+    await failure;
+    await second;
+    expect(invoke).toHaveBeenLastCalledWith("pty_write", {
+      id: "one",
+      data: "second",
+    });
+  });
+
+  it.each(["one", "all"])(
+    "drops queued bytes after closing %s terminal(s)",
+    async (scope) => {
+      const held = holdWrite();
+      const first = writePty("one", "first");
+      const queued = writePty("one", "stale");
+      const cancelled = expect(queued).rejects.toThrow("closed");
+      await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+      if (scope === "all") await killAllPtys();
+      else await killPty("one");
+      await writePty("one", "new generation");
+      held.resolve();
+      await first;
+      await cancelled;
+      expect(
+        invoke.mock.calls.filter(([command]) => command === "pty_write"),
+      ).toEqual([
+        ["pty_write", { id: "one", data: "first" }],
+        ["pty_write", { id: "one", data: "new generation" }],
+      ]);
+    },
+  );
 });

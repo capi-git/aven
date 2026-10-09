@@ -305,6 +305,7 @@ export function findSurfacePane(
   if (editor) return { kind: "editor", pane: editor };
   const terminal = (tab.terminalPanes ?? []).find((pane) => pane.id === paneId);
   if (terminal) return { kind: "terminal", pane: terminal };
+  return undefined;
 }
 
 export function isPlanTab(

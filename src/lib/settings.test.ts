@@ -72,7 +72,10 @@ describe("browser memory saver setting", () => {
   });
 
   it.each([
-    ["false", false], ["true", true], ["invalid", true], ["", true],
+    ["false", false],
+    ["true", true],
+    ["invalid", true],
+    ["", true],
   ])("reads %s without silently disabling the default", (stored, expected) => {
     localStorage.setItem(BROWSER_MEMORY_SAVER_KEY, stored);
     expect(loadBrowserMemorySaver()).toBe(expected);

@@ -40,16 +40,31 @@ describe("collectWorkspaceSnapshot", () => {
       ...newTab("session"),
       layout: leaf("editor"),
       focusedId: "editor",
-      editorPanes: [{ id: "editor", files: [kept, older, preview], activeFileId: preview.id }],
+      editorPanes: [
+        {
+          id: "editor",
+          files: [kept, older, preview],
+          activeFileId: preview.id,
+        },
+      ],
     };
     const snapshot = collectWorkspaceSnapshot([tab], [], tab.id, "/repo");
     const parsed = parseWorkspaceSnapshot(JSON.parse(JSON.stringify(snapshot)));
-    expect(parsed?.tabs[0].editorPanes[0].files).toEqual([kept, older, preview]);
-    expect(hydrateWorkspaceSnapshot(parsed!, new Map())?.tabs[0].editorPanes[0].activeFileId).toBe(preview.id);
+    expect(parsed?.tabs[0].editorPanes[0].files).toEqual([
+      kept,
+      older,
+      preview,
+    ]);
+    expect(
+      hydrateWorkspaceSnapshot(parsed!, new Map())?.tabs[0].editorPanes[0]
+        .activeFileId,
+    ).toBe(preview.id);
 
     const invalid = JSON.parse(JSON.stringify(snapshot));
     invalid.tabs[0].editorPanes[0].files[1].kept = "true";
-    expect(parseWorkspaceSnapshot(invalid)?.tabs[0].editorPanes[0].files[1].kept).toBeUndefined();
+    expect(
+      parseWorkspaceSnapshot(invalid)?.tabs[0].editorPanes[0].files[1].kept,
+    ).toBeUndefined();
   });
 
   it("saves unsent standalone drafts separately from transcripts, including pasted attachments", () => {
@@ -135,13 +150,7 @@ describe("collectWorkspaceSnapshot", () => {
         { id: "e2", files: [file, mixed], activeFileId: mixed.id },
       ],
     };
-    const snapshot = collectWorkspaceSnapshot(
-      [tab],
-      [],
-      "t1",
-      "/tmp/a",
-      [],
-    );
+    const snapshot = collectWorkspaceSnapshot([tab], [], "t1", "/tmp/a", []);
     const panes = snapshot.tabs[0]!.editorPanes;
     // The agent-only pane is gone along with its leaf; the mixed one keeps its
     // file and falls back to it as the active tab.
@@ -387,9 +396,12 @@ describe("hydrateWorkspaceSnapshot", () => {
 
   it("excludes private temporary Inbox draft content from the snapshot", () => {
     const session = newSession("cursor", "/tmp/inbox");
-    session.inboxAsk = { itemId: "private" } as NonNullable<
-      Session["inboxAsk"]
-    >;
+    session.inboxAsk = {
+      key: "github:private",
+      title: "Private",
+      url: "https://github.com/example/private/issues/1",
+      provider: "github",
+    };
     updateComposerDraft(session.id, { text: "private temporary question" });
     const tab = newTab(session.id);
     const snapshot = collectWorkspaceSnapshot(
@@ -596,10 +608,7 @@ it("uses the newest workspace queue, including an empty queue, while keeping leg
 describe("stableSnapshotSessions", () => {
   it("keeps the saved list while only transcripts stream", () => {
     const saved = [chat("s1", "/tmp/a"), chat("s2", "/tmp/b")];
-    const streamed = [
-      { ...saved[0], blocks: [...saved[0].blocks] },
-      saved[1],
-    ];
+    const streamed = [{ ...saved[0], blocks: [...saved[0].blocks] }, saved[1]];
     expect(stableSnapshotSessions(saved, streamed)).toBe(saved);
   });
 

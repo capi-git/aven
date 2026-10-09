@@ -55,7 +55,9 @@ describe("provider setup choices", () => {
     expect(loadProviderSetup().selected).toEqual([
       "codex",
       "claude",
-      ...HARNESSES.filter((harness) => harness !== "codex" && harness !== "claude"),
+      ...HARNESSES.filter(
+        (harness) => harness !== "codex" && harness !== "claude",
+      ),
     ]);
   });
 
@@ -66,12 +68,15 @@ describe("provider setup choices", () => {
     "7",
     '"codex"',
     '{"selected":"codex","finished":"true"}',
-  ])("recovers from corrupted storage %s without selecting a provider", (raw) => {
-    localStorage.setItem(PROVIDER_SETUP_KEY, raw);
-    expect(loadProviderSetup()).toEqual({ selected: [], finished: false });
-    // Reading never rewrites damaged storage or other preferences.
-    expect(localStorage.getItem(PROVIDER_SETUP_KEY)).toBe(raw);
-  });
+  ])(
+    "recovers from corrupted storage %s without selecting a provider",
+    (raw) => {
+      localStorage.setItem(PROVIDER_SETUP_KEY, raw);
+      expect(loadProviderSetup()).toEqual({ selected: [], finished: false });
+      // Reading never rewrites damaged storage or other preferences.
+      expect(localStorage.getItem(PROVIDER_SETUP_KEY)).toBe(raw);
+    },
+  );
 
   it("saves only choices and deferral, never credentials or readiness", () => {
     localStorage.setItem("monocode.recentProjects", "existing work");
@@ -87,14 +92,19 @@ describe("provider setup choices", () => {
       selected: ["claude", "pi"],
       finished: true,
     });
-    expect(localStorage.getItem("monocode.recentProjects")).toBe("existing work");
+    expect(localStorage.getItem("monocode.recentProjects")).toBe(
+      "existing work",
+    );
   });
 
   it("keeps setup deferred on later launches while retaining choices for Settings", () => {
     saveProviderSetup({ selected: ["cursor"], finished: true });
     expect(shouldOfferProviderSetup(false)).toBe(false);
     // Reopening Settings reads the same selection irrespective of deferral.
-    expect(loadProviderSetup()).toEqual({ selected: ["cursor"], finished: true });
+    expect(loadProviderSetup()).toEqual({
+      selected: ["cursor"],
+      finished: true,
+    });
     saveProviderSetup({ selected: ["cursor", "opencode"], finished: true });
     expect(loadProviderSetup().selected).toEqual(["cursor", "opencode"]);
     expect(shouldOfferProviderSetup(false)).toBe(false);
@@ -120,14 +130,20 @@ describe("provider setup persistence notifications", () => {
     try {
       saveProviderSetup({ selected: ["codex"], finished: false });
       expect(listener).toHaveBeenCalledTimes(1);
-      window.dispatchEvent(new StorageEvent("storage", { key: "other setting" }));
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: "other setting" }),
+      );
       expect(listener).toHaveBeenCalledTimes(1);
-      window.dispatchEvent(new StorageEvent("storage", { key: PROVIDER_SETUP_KEY }));
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: PROVIDER_SETUP_KEY }),
+      );
       window.dispatchEvent(new StorageEvent("storage", { key: null }));
       expect(listener).toHaveBeenCalledTimes(3);
       unsubscribe();
       saveProviderSetup({ selected: [], finished: true });
-      window.dispatchEvent(new StorageEvent("storage", { key: PROVIDER_SETUP_KEY }));
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: PROVIDER_SETUP_KEY }),
+      );
       expect(listener).toHaveBeenCalledTimes(3);
     } finally {
       unsubscribe();
@@ -142,9 +158,14 @@ describe("provider setup persistence notifications", () => {
       throw new Error("Storage unavailable");
     });
     try {
-      expect(saveProviderSetup({ selected: ["codex"], finished: true })).toBe(false);
+      expect(saveProviderSetup({ selected: ["codex"], finished: true })).toBe(
+        false,
+      );
       expect(listener).not.toHaveBeenCalled();
-      expect(loadProviderSetup()).toEqual({ selected: ["claude"], finished: false });
+      expect(loadProviderSetup()).toEqual({
+        selected: ["claude"],
+        finished: false,
+      });
     } finally {
       unsubscribe();
     }

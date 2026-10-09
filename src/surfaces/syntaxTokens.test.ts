@@ -2,10 +2,7 @@ import { javascript } from "@codemirror/lang-javascript";
 import { describe, expect, it } from "vitest";
 import { buildUnifiedFile } from "../lib/unifiedDiff";
 import { languageForPath } from "./editorLanguage";
-import {
-  highlightDiffFile,
-  highlightSource,
-} from "./syntaxTokens";
+import { highlightDiffFile, highlightSource } from "./syntaxTokens";
 
 const KEYWORD_DARK = "#ff8ffd";
 const STRING_DARK = "#b4fa72";
@@ -25,7 +22,11 @@ describe("highlightSource", () => {
 
   it("colors comments in JSONC files", async () => {
     const language = await languageForPath("settings.jsonc");
-    const lines = highlightSource('{\n  // note\n  "a": 1\n}', language, "dark");
+    const lines = highlightSource(
+      '{\n  // note\n  "a": 1\n}',
+      language,
+      "dark",
+    );
     expect(token(lines[1], "// note")?.color).toBe(COMMENT_DARK);
   });
 
@@ -37,10 +38,7 @@ describe("highlightSource", () => {
 
 describe("highlightDiffFile", () => {
   it("highlights added and deleted lines from each side", async () => {
-    const diff = buildUnifiedFile(
-      "const alpha = 1;\n",
-      "const beta = 1;\n",
-    );
+    const diff = buildUnifiedFile("const alpha = 1;\n", "const beta = 1;\n");
     const tokens = await highlightDiffFile(
       {
         path: "src/lib/settings.ts",
@@ -76,6 +74,11 @@ describe("highlightDiffFile", () => {
   });
 });
 
-function token(line: { text: string; color?: string }[] | undefined, text: string) {
-  return line?.find((piece) => piece.text.includes(text) || piece.text === text);
+function token(
+  line: { text: string; color?: string }[] | undefined,
+  text: string,
+) {
+  return line?.find(
+    (piece) => piece.text.includes(text) || piece.text === text,
+  );
 }

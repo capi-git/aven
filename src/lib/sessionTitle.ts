@@ -48,7 +48,9 @@ export function parseGeneratedThreadTitle(raw: string): string | null {
     try {
       const parsed: unknown = JSON.parse(json);
       if (parsed && typeof parsed === "object" && "title" in parsed) {
-        const title = sanitizeThreadTitle(String((parsed as { title: unknown }).title));
+        const title = sanitizeThreadTitle(
+          String((parsed as { title: unknown }).title),
+        );
         if (title) return title;
       }
     } catch {

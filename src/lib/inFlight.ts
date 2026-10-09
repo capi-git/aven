@@ -154,8 +154,7 @@ export function shouldWriteInFlightSnapshot(
 
 function canResumeAfterQuit(session: Session): boolean {
   return (
-    session.cwd !== "~" &&
-    session.blocks.some((block) => block.role === "user")
+    session.cwd !== "~" && session.blocks.some((block) => block.role === "user")
   );
 }
 

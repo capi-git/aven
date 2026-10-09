@@ -186,7 +186,11 @@ export function runnerPose(
 }
 
 /** Keep a position in the same relative spot when the composer width changes. */
-export function scaleTrackX(x: number, fromWidth: number, toWidth: number): number {
+export function scaleTrackX(
+  x: number,
+  fromWidth: number,
+  toWidth: number,
+): number {
   if (fromWidth <= 0) return 0;
   return x * (toWidth / fromWidth);
 }
@@ -377,9 +381,7 @@ export type RunnerTrack = {
 
 /** Prefer the top edge of a control stacked on the composer. */
 export function runnerTrack(box: Rect, ledge: Rect | null): RunnerTrack {
-  const ledgeWidth = ledge
-    ? (ledge.width ?? ledge.right - ledge.left)
-    : 0;
+  const ledgeWidth = ledge ? (ledge.width ?? ledge.right - ledge.left) : 0;
   if (!ledge || ledgeWidth <= 0) {
     return {
       left: box.left,

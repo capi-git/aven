@@ -1,3 +1,4 @@
+import { useBundledChangelog } from "../hooks/useBundledChangelog";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import {
   releaseNotesMarkdown,
@@ -11,7 +12,9 @@ export function ReleaseNotesSurface({
   source: ReleaseNotesTabSource;
 }) {
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
-  const markdown = releaseNotesMarkdown(source);
+  const changelog = useBundledChangelog();
+  const markdown =
+    changelog === null ? null : releaseNotesMarkdown(source, changelog);
 
   return (
     <div
@@ -22,10 +25,10 @@ export function ReleaseNotesSurface({
         aria-label="Release notes"
         className="mx-auto w-full max-w-3xl px-8 py-10"
       >
-        {markdown ? (
+        {changelog === null ? null : markdown ? (
           <AgentMarkdown text={markdown} streaming={false} />
         ) : (
-          <p className="text-[13px] text-content/60">
+          <p className="text-ui-body text-content/60">
             Release notes for this version are not available in this build.
           </p>
         )}

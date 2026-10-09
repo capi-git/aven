@@ -1,0 +1,7 @@
+node_modules/
+dist/
+target/
+vendor/
+src-tauri/
+package-lock.json
+src/chrome/fileIconSubset.ts

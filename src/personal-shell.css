@@ -96,6 +96,16 @@ html.has-native-glass:not(.theme-light) .personal-shell {
   --personal-window-opacity: var(--sidebar-opacity, 1);
 }
 
+/* macOS paints this same shell tint on the window itself once it confirms
+   (appearance.ts), so edges exposed during a live resize are tinted before
+   WebKit's next frame. Every other workspace surface stacks on the shell and
+   keeps its own paint; only the shell stops, or the tint would double.
+   `--personal-window-opacity` stays set for the cards that read it. */
+html.is-mac.has-native-glass.has-native-glass-tint:not(.theme-light)
+  .personal-shell {
+  background: transparent;
+}
+
 /* The window toolbar and the pinned sidebar share one surface, so they read
    as a single frame around the workspace instead of two stacked bars. */
 .personal-shell {
@@ -511,7 +521,7 @@ html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar {
 }
 .personal-home-eyebrow {
   color: var(--personal-muted);
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
 }
 .personal-profile-home h1 {
   font-size: 22px;
@@ -520,7 +530,7 @@ html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar {
   margin: 11px 0 8px;
 }
 .personal-profile-home p {
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   color: var(--personal-muted);
 }
 .personal-home-add {
@@ -534,7 +544,7 @@ html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar {
   border-radius: 7px;
   background: var(--aven-control-bg);
   box-shadow: var(--aven-control-shadow);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
 }
 .personal-home-actions {
   display: flex;
@@ -553,7 +563,7 @@ html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar {
   gap: 7px;
   margin-top: 14px;
   padding: 5px 0;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   color: var(--personal-muted);
 }
 .personal-project-menu {
@@ -569,7 +579,7 @@ html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar {
   padding: 8px;
   border-radius: 5px;
   text-align: left;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   color: var(--color-content);
 }
 .personal-project-menu button:hover,
@@ -605,7 +615,7 @@ html.theme-light .personal-shell .workspace-status-bar {
   flex-basis: 40px;
   padding-left: 20px;
   padding-right: calc(var(--workspace-inspector-width, 0px) + 16px);
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
 }
 html.theme-light.is-mac
   .personal-shell[data-sidebar-pinned="false"]
@@ -620,7 +630,7 @@ html.theme-light .personal-shell .workspace-footer {
   height: 38px;
   max-height: 38px;
   padding-left: 20px;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
 }
 html.theme-light .personal-shell .personal-inspector-dock {
   padding: 0 8px 0 0;
@@ -680,7 +690,7 @@ html.theme-light.is-mac
   min-height: 40px;
   padding: 5px 12px;
   gap: 8px;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
 }
 html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar,
 html.theme-light.is-mac
@@ -693,7 +703,7 @@ html.theme-light.is-mac
   height: 26px;
   min-height: 26px;
   border-radius: 7px;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
 }
 .personal-shell .personal-navigation .personal-sidebar-windowbar {
   height: 40px;

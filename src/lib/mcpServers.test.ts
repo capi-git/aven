@@ -9,21 +9,18 @@ import {
 
 describe("MCP server drafts", () => {
   it("splits arguments like a shell for quotes and escapes", () => {
-    expect(splitArguments(`-y @acme/mcp --root "My Files" 'a b' c\\ d ""`)).toEqual([
-      "-y",
-      "@acme/mcp",
-      "--root",
-      "My Files",
-      "a b",
-      "c d",
-      "",
-    ]);
+    expect(
+      splitArguments(`-y @acme/mcp --root "My Files" 'a b' c\\ d ""`),
+    ).toEqual(["-y", "@acme/mcp", "--root", "My Files", "a b", "c d", ""]);
     expect(splitArguments("   ")).toEqual([]);
     expect(() => splitArguments(`"open`)).toThrow("unclosed quote");
   });
 
   it("reads environment and header lines", () => {
-    expect(parseEnvLines("A=1\n\n B_2 = x=y ")).toEqual({ A: "1", B_2: " x=y" });
+    expect(parseEnvLines("A=1\n\n B_2 = x=y ")).toEqual({
+      A: "1",
+      B_2: " x=y",
+    });
     expect(() => parseEnvLines("NOPE")).toThrow("NAME=value");
     expect(() => parseEnvLines("1BAD=x")).toThrow();
     expect(parseHeaderLines("Authorization: Bearer abc\nX-Key:1")).toEqual({

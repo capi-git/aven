@@ -6,15 +6,9 @@ import {
   type FilePaneTab,
   type WorkspaceTab,
 } from "./layout";
-import {
-  normalizeProjectPath,
-  sameProjectPath,
-} from "./recents";
+import { normalizeProjectPath, sameProjectPath } from "./recents";
 import type { Session } from "./session";
-import {
-  applyTerminalMeta,
-  type TerminalMetaPatch,
-} from "./terminalTab";
+import { applyTerminalMeta, type TerminalMetaPatch } from "./terminalTab";
 import { workspaceTabCwd } from "./workspaceTabGroups";
 
 export type DockSide = "top" | "bottom" | "left" | "right";
@@ -226,9 +220,7 @@ export function withDockSize(
   return next === dock.size ? dock : { ...dock, size: next };
 }
 
-export function projectTerminalFileIds(
-  docks: ProjectTerminalDock[],
-): string[] {
+export function projectTerminalFileIds(docks: ProjectTerminalDock[]): string[] {
   const ids: string[] = [];
   for (const dock of docks) {
     for (const file of dock.pane.files) {

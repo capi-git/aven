@@ -544,6 +544,7 @@ export function PromptOutline({
       ref={rail}
       role="toolbar"
       aria-label="Prompts"
+      data-prompt-count={prompts.length}
       aria-orientation="vertical"
       data-dragging={dragging || undefined}
       style={{ width: BAR_WIDTH_LIFTED_PX, height: stackBudget }}

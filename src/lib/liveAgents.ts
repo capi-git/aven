@@ -161,8 +161,7 @@ function hasLiveWork(session: Session, workers: Session[] = []): boolean {
     uncertainSessionAgents(session).length > 0 ||
     workers.some(
       (worker) =>
-        isInFlightSession(worker) ||
-        uncertainSessionAgents(worker).length > 0,
+        isInFlightSession(worker) || uncertainSessionAgents(worker).length > 0,
     )
   );
 }

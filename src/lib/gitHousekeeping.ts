@@ -124,8 +124,7 @@ export function summarizeRelease(status: ReleaseStatus): ReleaseSummary {
     return {
       tone: "info",
       title: `Version ${ready} is ready to publish`,
-      detail:
-        changes ?? `Publishes what's on GitHub's ${status.base}.`,
+      detail: changes ?? `Publishes what's on GitHub's ${status.base}.`,
       publish: ready,
     };
   if (!latest)

@@ -1,3 +1,4 @@
+import { clamp } from "./math";
 import {
   createPath,
   homeDir,
@@ -612,8 +613,4 @@ export async function createBlankSkill(input: {
 
 function isSpace(ch: string): boolean {
   return ch === " " || ch === "\n" || ch === "\t" || ch === "\r";
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
 }

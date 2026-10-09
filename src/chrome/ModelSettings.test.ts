@@ -1,7 +1,15 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 import {
   CLAUDE_OPUS_5_5_MODEL,
   resetHarnessModelOverlays,
@@ -16,8 +24,8 @@ describe("model setting controls", () => {
   let composer: HTMLTextAreaElement;
   let outside: HTMLButtonElement;
   let root: Root;
-  let onChange: ReturnType<typeof vi.fn>;
-  let onClose: ReturnType<typeof vi.fn>;
+  let onChange: Mock<(settings: Record<string, string>) => void>;
+  let onClose: Mock<() => void>;
   const initialValues = { effort: "medium", fast: "false" };
 
   beforeEach(() => {
@@ -48,7 +56,7 @@ describe("model setting controls", () => {
     vi.unstubAllGlobals();
   });
 
-  async function render(values = initialValues) {
+  async function render(values: Record<string, string> = initialValues) {
     await renderModel("claude", CLAUDE_OPUS_5_5_MODEL.id, values);
   }
 

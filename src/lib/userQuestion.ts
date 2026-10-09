@@ -180,7 +180,8 @@ function optionsFromUnknown(value: unknown): UserQuestionOption[] {
       stringField(rec, "text") ??
       stringField(rec, "id");
     if (!label) return [];
-    const description = stringField(rec, "description") ?? stringField(rec, "detail");
+    const description =
+      stringField(rec, "description") ?? stringField(rec, "detail");
     return [
       {
         id: uniqueId(

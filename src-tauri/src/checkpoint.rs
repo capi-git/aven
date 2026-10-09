@@ -8,11 +8,11 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
+use crate::fs::{expand_home, path_to_js, MAX_TEXT_FILE_BYTES};
 #[cfg(test)]
-use crate::fs::GitDiffStats;
-use crate::fs::{
-    expand_home, git_checked, git_diff_files_for, path_to_js, resolve_repo_path, GitChangedFile,
-    GitDiffIndex, MAX_TEXT_FILE_BYTES,
+use crate::git::GitDiffStats;
+use crate::git::{
+    git_checked, git_diff_files_for, resolve_repo_path, GitChangedFile, GitDiffIndex,
 };
 
 const MAX_SNAPSHOT_FILES: usize = 500;

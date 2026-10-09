@@ -1234,9 +1234,7 @@ describe("native preview lifecycle", () => {
       callback({ id, token, active: true, error: "Late stop failure" });
       rejectStop(new Error("Late stop rejection"));
     });
-    expect(
-      container.querySelector('[aria-label="Exit edit mode"]'),
-    ).toBeNull();
+    expect(container.querySelector('[aria-label="Exit edit mode"]')).toBeNull();
     expect(container.querySelector(".browser-edit-hint")).toBeNull();
     expect(add).not.toHaveBeenCalled();
   });
@@ -2795,7 +2793,9 @@ describe("native preview lifecycle", () => {
     await openPane({ visible: true });
     expect(observedMutations.size).toBe(1);
     expect(observedResizes.size).toBe(1);
-    expect(mocks.layout.mock.calls.some((call) => call[2] === true)).toBe(false);
+    expect(mocks.layout.mock.calls.some((call) => call[2] === true)).toBe(
+      false,
+    );
     removeOverlay(overlay);
     await flushFrame();
     expect(mocks.layout).toHaveBeenLastCalledWith(

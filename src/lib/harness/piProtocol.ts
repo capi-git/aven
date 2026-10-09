@@ -59,6 +59,8 @@ export type PiExtensionUiRequest =
       method:
         "notify" | "setStatus" | "setWidget" | "setTitle" | "set_editor_text";
       title?: string;
+      /** setStatus slot; Pi replaces the slot's text on every call. */
+      statusKey?: string;
     };
 
 export type PiRpcResponse = {
@@ -276,6 +278,8 @@ export function parseExtensionUiRequest(
     method === "setTitle" ||
     method === "set_editor_text"
   ) {
+    const statusKey =
+      method === "setStatus" ? stringField(rec, "statusKey") : undefined;
     return {
       id,
       method,
@@ -284,6 +288,7 @@ export function parseExtensionUiRequest(
         stringField(rec, "statusText") ??
         stringField(rec, "title") ??
         stringField(rec, "text"),
+      ...(statusKey ? { statusKey } : {}),
     };
   }
   return null;
@@ -310,7 +315,7 @@ export function extensionUiTitle(request: PiExtensionUiRequest): string {
   const text =
     request.method === "confirm"
       ? [request.title, request.message].filter(Boolean).join(" — ")
-      : request.title ?? "Pi extension";
+      : (request.title ?? "Pi extension");
   // Pi's theme helpers emit ANSI even in RPC mode (e.g. Ponytail setStatus).
   // These labels use native UI styling. Strip CSI and OSC sequences only at
   // the display boundary: select replies must retain the original option.

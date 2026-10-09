@@ -108,13 +108,13 @@ export function AutomationsView({
       >
         {IS_MAC && !besideRail ? <div className="w-[78px] shrink-0" /> : null}
         <OverlayNav onBack={onClose} onToggleSidebar={onToggleSidebar} />
-        <div className="flex min-w-0 flex-1 items-center gap-2 px-3 text-[13px]">
+        <div className="flex min-w-0 flex-1 items-center gap-2 px-3 text-ui-body">
           <Clock
             className="size-3.5 shrink-0 text-content/45"
             strokeWidth={1.75}
           />
           <span className="min-w-0 truncate text-content">Automations</span>
-          <span className="truncate text-[11px] text-content/45">
+          <span className="truncate text-ui-caption text-content/45">
             Agents that run on a schedule
           </span>
         </div>

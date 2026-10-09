@@ -1,9 +1,18 @@
 // @vitest-environment happy-dom
 import { act, createElement, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { ProviderSetup } from "./ProviderSetup";
+import type { HarnessId } from "../lib/session";
 import { recordHarnessAvailability } from "../lib/harness/availability";
 import { refreshHarnessCatalogs } from "../lib/harness/registry";
 import {
@@ -57,7 +66,7 @@ const plan: ProviderSetupPlan = {
 };
 let container: HTMLDivElement;
 let root: Root;
-let onDone: ReturnType<typeof vi.fn>;
+let onDone: Mock<(harness?: HarnessId) => void>;
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);

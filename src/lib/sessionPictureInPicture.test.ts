@@ -25,7 +25,22 @@ it("rejects unrelated session identities and malformed callback payloads", () =>
 
 it("accepts only web destinations for link actions", () => {
   const openIds = new Set(["a"]);
-  expect(validSessionPipAction({ id: "a", action: "onOpenUrl", args: ["https://example.com"] }, openIds)).toBe(true);
-  expect(validSessionPipAction({ id: "a", action: "onOpenUrl", args: ["file:///private"] }, openIds)).toBe(false);
-  expect(validSessionPipAction({ id: "other", action: "onOpenUrl", args: ["https://example.com"] }, openIds)).toBe(false);
+  expect(
+    validSessionPipAction(
+      { id: "a", action: "onOpenUrl", args: ["https://example.com"] },
+      openIds,
+    ),
+  ).toBe(true);
+  expect(
+    validSessionPipAction(
+      { id: "a", action: "onOpenUrl", args: ["file:///private"] },
+      openIds,
+    ),
+  ).toBe(false);
+  expect(
+    validSessionPipAction(
+      { id: "other", action: "onOpenUrl", args: ["https://example.com"] },
+      openIds,
+    ),
+  ).toBe(false);
 });

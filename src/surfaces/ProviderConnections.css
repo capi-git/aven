@@ -11,7 +11,7 @@
   border-radius: 999px;
   background: var(--provider-state-fill, transparent);
   color: var(--color-content);
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   font-weight: 500;
   line-height: 16px;
   text-align: right;
@@ -55,7 +55,7 @@
   min-width: 0;
   flex: 1;
   color: var(--color-content);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   font-weight: 500;
 }
 .provider-connection-source {
@@ -85,7 +85,7 @@
 .provider-row-action {
   min-height: 26px;
   padding-block: 2px;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
 }
 .provider-row-action {
   flex-shrink: 0;
@@ -111,7 +111,7 @@
   grid-template-columns: 150px minmax(0, 1fr);
   align-items: center;
   gap: 12px;
-  font-size: 12px;
+  font-size: var(--text-ui-label);
 }
 .provider-field > span:first-child {
   color: var(--aven-muted);
@@ -126,7 +126,7 @@
   background: var(--aven-field-bg);
   color: var(--color-content);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   outline: none;
   resize: vertical;
 }

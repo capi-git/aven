@@ -1,3 +1,4 @@
+import { errorText } from "./errors";
 import { getIdentifier, getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -97,9 +98,6 @@ export async function readAppVersion(): Promise<string> {
     return "0.0.0";
   }
 }
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 async function isDevelopmentApp(): Promise<boolean> {
   try {
@@ -109,6 +107,34 @@ async function isDevelopmentApp(): Promise<boolean> {
     // Native debug builds also omit the updater plugin as an independent guard.
     return false;
   }
+}
+
+/** Compare the semver releases accepted by the native updater, ignoring build metadata. */
+function newerRelease(candidate: string, staged: string): boolean {
+  const parts = (version: string) =>
+    version.replace(/^v/, "").split("+", 1)[0]!.split("-");
+  const [nextCore, ...nextPre] = parts(candidate);
+  const [oldCore, ...oldPre] = parts(staged);
+  const next = nextCore!.split(".").map(Number);
+  const old = oldCore!.split(".").map(Number);
+  for (let index = 0; index < 3; index++) {
+    if (next[index] !== old[index]) return next[index]! > old[index]!;
+  }
+  if (!oldPre.length) return false;
+  if (!nextPre.length) return true;
+  const a = nextPre.join("-").split(".");
+  const b = oldPre.join("-").split(".");
+  for (let index = 0; index < Math.max(a.length, b.length); index++) {
+    if (a[index] === b[index]) continue;
+    if (a[index] === undefined) return false;
+    if (b[index] === undefined) return true;
+    const numericA = /^\d+$/.test(a[index]!);
+    const numericB = /^\d+$/.test(b[index]!);
+    if (numericA && numericB) return Number(a[index]) > Number(b[index]);
+    if (numericA !== numericB) return numericB;
+    return a[index]! > b[index]!;
+  }
+  return false;
 }
 
 /** Download verifies the signed archive in the native plugin; never installs. */
@@ -121,12 +147,28 @@ async function checkAndDownload(): Promise<UpdaterSnapshot> {
   if (developmentBuild)
     return publish({ phase: "idle", currentVersion, developmentBuild: true });
   if (IS_PERSONAL_BUILD) return publish({ phase: "idle", currentVersion });
-  if (pendingUpdate && downloaded) return snapshot;
+  // A failed relaunch still needs to finish the installed version first.
+  if (pendingInstalled) return snapshot;
+  const staged = downloaded ? pendingUpdate : null;
+  const readySnapshot = (): UpdaterSnapshot => ({
+    phase: "ready",
+    currentVersion,
+    availableVersion: staged!.version,
+  });
+  let candidate: Update | null = null;
   publish({ phase: "checking", currentVersion });
   try {
-    const update = pendingUpdate ?? (await check({ timeout: 30_000 }));
-    if (!update) return publish({ phase: "current", currentVersion });
-    pendingUpdate = update;
+    candidate = await check({ timeout: 30_000 });
+    if (
+      staged &&
+      (!candidate || !newerRelease(candidate.version, staged.version))
+    ) {
+      if (candidate && candidate !== staged)
+        await candidate.close().catch(() => undefined);
+      return publish(readySnapshot());
+    }
+    if (!candidate) return publish({ phase: "current", currentVersion });
+    const update = candidate;
     publish({
       phase: "available",
       currentVersion,
@@ -165,7 +207,10 @@ async function checkAndDownload(): Promise<UpdaterSnapshot> {
     );
     // Finished progress alone does not prove signature verification. Only the
     // resolved download promise makes this archive eligible for installation.
+    pendingUpdate = update;
     downloaded = true;
+    if (staged && staged !== update)
+      await staged.close().catch(() => undefined);
     announceUpdateAvailable(update.version);
     return publish({
       phase: "ready",
@@ -173,6 +218,10 @@ async function checkAndDownload(): Promise<UpdaterSnapshot> {
       availableVersion: update.version,
     });
   } catch (error) {
+    if (candidate && candidate !== staged)
+      await candidate.close().catch(() => undefined);
+    // A failed newer check/download must not discard the already verified archive.
+    if (staged) return publish({ ...readySnapshot(), error: errorText(error) });
     downloaded = false;
     if (/updater does not have any endpoints set/i.test(errorText(error))) {
       return publish({ phase: "idle", currentVersion });
@@ -182,10 +231,9 @@ async function checkAndDownload(): Promise<UpdaterSnapshot> {
     if (!pendingUpdate && PLATFORM_MISSING_FROM_FEED.test(errorText(error))) {
       return publish({ phase: "current", currentVersion });
     }
-    const availableVersion = pendingUpdate?.version;
+    const availableVersion = candidate?.version;
     // Re-read the signed feed on retry; a broken or revoked release can be
     // corrected upstream without pinning this process to its old metadata.
-    await pendingUpdate?.close().catch(() => undefined);
     pendingUpdate = null;
     return publish({
       phase: "error",
@@ -275,6 +323,8 @@ export function installPendingUpdate(
   onProgress?: (snapshot: UpdaterSnapshot) => void,
 ): Promise<UpdaterSnapshot> {
   if (installing) return installing;
+  // Do not install or close an archive while a refresh is replacing it.
+  if (checking) return checking.then(() => installPendingUpdate(onProgress));
   const update = pendingUpdate;
   if (IS_PERSONAL_BUILD || !update || !downloaded)
     return Promise.resolve(snapshot);

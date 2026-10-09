@@ -9,7 +9,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, EventTarget, Manager, State};
 
 use crate::dirs_home;
 use crate::fs::expand_home;
@@ -26,6 +26,13 @@ const SSE_END_EVENT: &str = "harness-sse-end";
 struct HarnessLine {
     session_id: String,
     line: String,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct HarnessLines {
+    session_id: String,
+    lines: Vec<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -468,17 +475,23 @@ pub fn harness_spawn(
 
     let (output_done, output_drained) = mpsc::channel();
     let output_open = Arc::new(Mutex::new(true));
+    let output_owner = caller.label().to_string();
+    let (stdout_sender, stdout_receiver) = mpsc::sync_channel(OUTPUT_BATCH_LINES);
+    let stdout_stop = stdout_sender.clone();
+    thread::spawn(move || read_harness_lines(stdout, stdout_sender));
     let stdout_done = output_done.clone();
     let stdout_open = output_open.clone();
     let stdout_app = app.clone();
     let stdout_id = session_id.clone();
+    let stdout_owner = output_owner.clone();
     thread::spawn(move || {
-        forward_harness_output(stdout, &stdout_open, |line| {
-            let _ = stdout_app.emit(
-                STDOUT_EVENT,
-                HarnessLine {
+        forward_harness_batches(&stdout_receiver, &stdout_open, |lines| {
+            let _ = stdout_app.emit_to(
+                EventTarget::webview(&stdout_owner),
+                &format!("{STDOUT_EVENT}:{stdout_owner}"),
+                HarnessLines {
                     session_id: stdout_id.clone(),
-                    line,
+                    lines,
                 },
             );
         });
@@ -488,10 +501,12 @@ pub fn harness_spawn(
     let stderr_app = app.clone();
     let stderr_id = session_id.clone();
     let stderr_open = output_open.clone();
+    let stderr_owner = output_owner.clone();
     thread::spawn(move || {
         forward_harness_output(stderr, &stderr_open, |line| {
-            let _ = stderr_app.emit(
-                STDERR_EVENT,
+            let _ = stderr_app.emit_to(
+                EventTarget::webview(&stderr_owner),
+                &format!("{STDERR_EVENT}:{stderr_owner}"),
                 HarnessLine {
                     session_id: stderr_id.clone(),
                     line,
@@ -516,8 +531,12 @@ pub fn harness_spawn(
             &output_open,
             OUTPUT_DRAIN_TIMEOUT,
         );
-        let _ = wait_app.emit(
-            EXIT_EVENT,
+        // Release an idle dispatcher when a descendant kept stdout open past
+        // the bounded drain. The closed output gate rejects all later batches.
+        let _ = stdout_stop.send(OutputMessage::Stop);
+        let _ = wait_app.emit_to(
+            EventTarget::webview(&output_owner),
+            &format!("{EXIT_EVENT}:{output_owner}"),
             HarnessExit {
                 session_id: wait_id,
                 code,
@@ -530,6 +549,89 @@ pub fn harness_spawn(
 }
 
 const OUTPUT_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+
+const OUTPUT_BATCH_DELAY: Duration = Duration::from_millis(16);
+const OUTPUT_BATCH_LINES: usize = 64;
+const OUTPUT_BATCH_BYTES: usize = 128 * 1024;
+
+enum OutputMessage {
+    Line(String),
+    End,
+    Stop,
+}
+
+fn read_harness_lines(reader: impl Read, sender: mpsc::SyncSender<OutputMessage>) {
+    for line in BufReader::new(reader).lines() {
+        let Ok(line) = line else { break };
+        if sender.send(OutputMessage::Line(line)).is_err() {
+            return;
+        }
+    }
+    let _ = sender.send(OutputMessage::End);
+}
+
+fn forward_harness_batches(
+    receiver: &mpsc::Receiver<OutputMessage>,
+    open: &Mutex<bool>,
+    mut emit: impl FnMut(Vec<String>),
+) {
+    let mut lines = Vec::new();
+    let mut bytes = 0;
+    let mut deadline: Option<Instant> = None;
+    let mut flush = |lines: &mut Vec<String>| {
+        // Same barrier as stderr: EXIT cannot overtake an accepted batch.
+        let open = open.lock().unwrap_or_else(|error| error.into_inner());
+        if !*open {
+            return false;
+        }
+        if !lines.is_empty() {
+            emit(std::mem::take(lines));
+        }
+        true
+    };
+    loop {
+        // No idle timer: wake only for a line, EOF or the exit-thread stop.
+        let next = match deadline {
+            Some(at) => receiver.recv_timeout(at.saturating_duration_since(Instant::now())),
+            None => receiver
+                .recv()
+                .map_err(|_| mpsc::RecvTimeoutError::Disconnected),
+        };
+        match next {
+            Ok(OutputMessage::Line(line)) => {
+                if !lines.is_empty() && bytes + line.len() > OUTPUT_BATCH_BYTES {
+                    if !flush(&mut lines) {
+                        break;
+                    }
+                    bytes = 0;
+                    deadline = None;
+                }
+                bytes += line.len();
+                lines.push(line);
+                deadline.get_or_insert_with(|| Instant::now() + OUTPUT_BATCH_DELAY);
+                if lines.len() >= OUTPUT_BATCH_LINES || bytes >= OUTPUT_BATCH_BYTES {
+                    if !flush(&mut lines) {
+                        break;
+                    }
+                    bytes = 0;
+                    deadline = None;
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if !flush(&mut lines) {
+                    break;
+                }
+                bytes = 0;
+                deadline = None;
+            }
+            Ok(OutputMessage::End) | Err(mpsc::RecvTimeoutError::Disconnected) => {
+                flush(&mut lines);
+                break;
+            }
+            Ok(OutputMessage::Stop) => break,
+        }
+    }
+}
 
 fn finish_child_output(
     host: Option<&HarnessHost>,
@@ -928,6 +1030,17 @@ fn exec_args_allowed(args: &[String]) -> bool {
         .any(|a| a.len() == args.len() && a.iter().zip(args).all(|(x, y)| x == y))
 }
 
+/// `grok sessions delete <uuid>` for one temporary text-generation session.
+/// Only a single well-formed session id is accepted, never flags such as `--all`.
+fn is_grok_session_delete(args: &[String]) -> bool {
+    args.len() == 4
+        && args[0] == "--no-auto-update"
+        && args[1] == "sessions"
+        && args[2] == "delete"
+        && args[3].len() == 36
+        && uuid::Uuid::parse_str(&args[3]).is_ok()
+}
+
 /// Must be a path a resolver would hand back, not an arbitrary binary
 /// that merely shares a file name.
 fn is_resolved_harness_binary(command: &str) -> bool {
@@ -947,7 +1060,7 @@ fn is_resolved_harness_binary(command: &str) -> bool {
     .any(|resolved| resolved == path)
 }
 
-/// One-shot capture of stdout (used for `cursor-agent --list-models`).
+/// One-shot provider commands: catalog probes and temporary-session cleanup.
 #[tauri::command]
 pub async fn harness_exec(
     app: AppHandle,
@@ -956,12 +1069,18 @@ pub async fn harness_exec(
     cwd: Option<String>,
 ) -> Result<String, String> {
     let work = crate::window::begin_runtime_work(&app)?;
-    if !exec_args_allowed(&args) {
+    let grok_delete = is_grok_session_delete(&args);
+    if !grok_delete && !exec_args_allowed(&args) {
         return Err("harness_exec: unsupported arguments".into());
     }
     tauri::async_runtime::spawn_blocking(move || {
         let _work = work;
-        if !is_resolved_harness_binary(&command) {
+        let resolved = if grok_delete {
+            resolve_grok().is_some_and(|grok| grok == Path::new(&command))
+        } else {
+            is_resolved_harness_binary(&command)
+        };
+        if !resolved {
             return Err("harness_exec: not a resolved harness CLI".to_string());
         }
         exec_capture(&command, &args, cwd.as_deref())
@@ -2673,6 +2792,76 @@ mod tests {
     }
 
     #[test]
+    fn harness_batches_keep_line_order_and_flush_at_eof() {
+        let (send, receive) = mpsc::sync_channel(256);
+        let expected: Vec<_> = (0..130)
+            .map(|i| {
+                if i == 4 {
+                    String::new()
+                } else {
+                    format!("line {i}")
+                }
+            })
+            .collect();
+        for line in &expected {
+            send.send(OutputMessage::Line(line.clone())).unwrap();
+        }
+        send.send(OutputMessage::End).unwrap();
+        let mut batches = Vec::new();
+        forward_harness_batches(&receive, &Mutex::new(true), |lines| batches.push(lines));
+        assert_eq!(
+            batches.iter().map(Vec::len).collect::<Vec<_>>(),
+            vec![64, 64, 2]
+        );
+        assert_eq!(batches.into_iter().flatten().collect::<Vec<_>>(), expected);
+    }
+
+    #[test]
+    fn harness_batches_flush_low_volume_without_waiting_for_eof_and_stop_without_polling() {
+        let (send, receive) = mpsc::sync_channel(64);
+        let (delivered, batches) = mpsc::channel();
+        let open = Arc::new(Mutex::new(true));
+        let dispatch_open = open.clone();
+        let dispatcher = thread::spawn(move || {
+            forward_harness_batches(&receive, &dispatch_open, |lines| {
+                delivered.send(lines).unwrap();
+            });
+        });
+        send.send(OutputMessage::Line("one result".into())).unwrap();
+        assert_eq!(
+            batches.recv_timeout(Duration::from_secs(2)).unwrap(),
+            vec!["one result"]
+        );
+        *open.lock().unwrap() = false;
+        send.send(OutputMessage::Stop).unwrap();
+        dispatcher.join().unwrap();
+        assert!(batches.try_recv().is_err());
+    }
+
+    #[test]
+    fn harness_batches_limit_bytes_without_splitting_large_protocol_records() {
+        let (send, receive) = mpsc::sync_channel(8);
+        let half = "a".repeat(OUTPUT_BATCH_BYTES / 2);
+        let large = "b".repeat(OUTPUT_BATCH_BYTES + 5);
+        for line in [half.clone(), half.clone(), large.clone(), "final".into()] {
+            send.send(OutputMessage::Line(line)).unwrap();
+        }
+        send.send(OutputMessage::End).unwrap();
+        let mut batches = Vec::new();
+        forward_harness_batches(&receive, &Mutex::new(true), |lines| batches.push(lines));
+        assert_eq!(
+            batches,
+            vec![vec![half.clone(), half], vec![large], vec!["final".into()]]
+        );
+        let (send, receive) = mpsc::sync_channel(2);
+        send.send(OutputMessage::Line("after exit".into())).unwrap();
+        send.send(OutputMessage::End).unwrap();
+        forward_harness_batches(&receive, &Mutex::new(false), |_| {
+            panic!("output after exit")
+        });
+    }
+
+    #[test]
     fn harness_exit_waits_for_final_output_after_the_process_exits() {
         let mut child = Command::new("sh")
             .args([
@@ -2695,8 +2884,10 @@ mod tests {
         let stdout_done = done.clone();
         thread::spawn(move || {
             start.recv().unwrap();
-            forward_harness_output(stdout, &stdout_open, |line| {
-                stdout_messages.lock().unwrap().push(line)
+            let (send, receive) = mpsc::sync_channel(OUTPUT_BATCH_LINES);
+            thread::spawn(move || read_harness_lines(stdout, send));
+            forward_harness_batches(&receive, &stdout_open, |lines| {
+                stdout_messages.lock().unwrap().extend(lines)
             });
             stdout_done.send(()).unwrap();
         });
@@ -3387,6 +3578,36 @@ mod exec_allowlist_tests {
         assert!(!exec_args_allowed(&args(&["--version", "--json"])));
         assert!(!exec_args_allowed(&args(&["-c", "id"])));
         assert!(!exec_args_allowed(&args(&["agent", "list", "--json"])));
+    }
+
+    #[test]
+    fn allows_grok_cleanup_only_for_one_valid_session_id() {
+        let cleanup = args(&[
+            "--no-auto-update",
+            "sessions",
+            "delete",
+            "550e8400-e29b-41d4-a716-446655440000",
+        ]);
+        assert!(is_grok_session_delete(&cleanup));
+        assert!(!exec_args_allowed(&cleanup));
+        for id in [
+            "",
+            "--all",
+            "../sessions",
+            "invalid",
+            "550e8400e29b41d4a716446655440000",
+            "{550e8400-e29b-41d4-a716-446655440000}",
+        ] {
+            let mut rejected = cleanup.clone();
+            rejected[3] = id.to_string();
+            assert!(!is_grok_session_delete(&rejected), "{id}");
+        }
+        let mut extra = cleanup.clone();
+        extra.push("--all".to_string());
+        assert!(!is_grok_session_delete(&extra));
+        let mut without_flag = cleanup;
+        without_flag.remove(0);
+        assert!(!is_grok_session_delete(&without_flag));
     }
 }
 

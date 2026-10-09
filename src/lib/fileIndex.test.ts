@@ -85,14 +85,20 @@ describe("resolveOpenablePath", () => {
 
   it("resolves home folders and files without scanning or fuzzy-matching the project", async () => {
     list.mockRejectedValue(new Error("Unrelated project is unavailable"));
-    expect(await resolveOpenablePath("/Volumes/Projects/app", "~/.agents/skills")).toBe("/Users/me/.agents/skills");
-    expect(await resolveOpenablePath(cwd, "~/My Notes/SKILL.md:12")).toBe("/Users/me/My Notes/SKILL.md");
+    expect(
+      await resolveOpenablePath("/Volumes/Projects/app", "~/.agents/skills"),
+    ).toBe("/Users/me/.agents/skills");
+    expect(await resolveOpenablePath(cwd, "~/My Notes/SKILL.md:12")).toBe(
+      "/Users/me/My Notes/SKILL.md",
+    );
     expect(await resolveOpenablePath(cwd, "~")).toBe("/Users/me");
     expect(list).not.toHaveBeenCalled();
   });
 
   it("honors paths outside the project instead of opening a same-named project file", async () => {
-    expect(await resolveOpenablePath(cwd, "/Users/me/.agents/skills/main.tsx")).toBe("/Users/me/.agents/skills/main.tsx");
+    expect(
+      await resolveOpenablePath(cwd, "/Users/me/.agents/skills/main.tsx"),
+    ).toBe("/Users/me/.agents/skills/main.tsx");
     expect(list).not.toHaveBeenCalled();
   });
 });
@@ -261,7 +267,10 @@ describe("rankProjectFiles", () => {
     const recents = [many[40]!.path, many[7]!.path];
     for (const query of ["f", "a1", "file2", "area3/file"]) {
       const full = many
-        .map((file) => ({ file, hit: scorePath(query, file.relative, file.name) }))
+        .map((file) => ({
+          file,
+          hit: scorePath(query, file.relative, file.name),
+        }))
         .filter((entry) => entry.hit)
         .map(({ file, hit }) => {
           const recency = recents.indexOf(file.path);

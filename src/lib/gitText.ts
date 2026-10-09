@@ -27,7 +27,9 @@ export function buildCommitMessagePrompt(input: {
     "- subject must be imperative, <= 72 chars, and no trailing period",
     "- body can be empty string or short bullet points",
     ...(wantsBranch
-      ? ["- branch must be a short semantic git branch fragment for this change"]
+      ? [
+          "- branch must be a short semantic git branch fragment for this change",
+        ]
       : []),
     "- capture the primary user-visible or developer-visible change",
     "",
@@ -112,7 +114,9 @@ function commitBody(rec: Record<string, unknown>): string {
 }
 
 export function formatCommitMessage(message: CommitMessage): string {
-  return message.body ? `${message.subject}\n\n${message.body}` : message.subject;
+  return message.body
+    ? `${message.subject}\n\n${message.body}`
+    : message.subject;
 }
 
 export function parsePrContent(raw: string): PrContent | null {
@@ -126,9 +130,7 @@ export function parsePrContent(raw: string): PrContent | null {
 
 export function parseBranchName(raw: string): string | null {
   const rec = parseJsonObject(raw);
-  const branch = sanitizeBranchFragment(
-    rec ? stringField(rec, "branch") : raw,
-  );
+  const branch = sanitizeBranchFragment(rec ? stringField(rec, "branch") : raw);
   return branch || null;
 }
 

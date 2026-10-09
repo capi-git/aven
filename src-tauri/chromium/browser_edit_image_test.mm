@@ -157,6 +157,40 @@ static void EncodedAttachmentLimit() {
   CHECK(crop && width==160 && height==120);
 }
 
+static void BoundedPopupCover() {
+  uint32_t width=0,height=0;
+  NSData *cover = CompressBrowserCoverImage(ImagePNG(4500,2400),width,height);
+  CHECK(cover && width==1280 && height<=683 && height>=682);
+  CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef)cover,nullptr);
+  CHECK(source && CFEqual(CGImageSourceGetType(source),CFSTR("public.jpeg")));
+  CFRelease(source);
+  const Pixel expected[] = {red,green,blue,yellow};
+  const Pixel actual[] = {ReadPixel(cover,10,10),ReadPixel(cover,width-11,10),
+      ReadPixel(cover,10,height-11),ReadPixel(cover,width-11,height-11)};
+  for (size_t i=0;i<4;++i) for (size_t c=0;c<3;++c)
+    CHECK(std::abs(int(actual[i][c])-expected[i][c])<=6);
+  cover = CompressBrowserCoverImage(ImagePNG(16,12),width,height);
+  CHECK(cover && width==16 && height==12); // No upscaling.
+  cover = CompressBrowserCoverImage(ImagePNG(100,5000),width,height);
+  CHECK(cover && width<=26 && height==1280);
+}
+
+static void CoverCompressionAndInvalidInputs() {
+  NSData *noisy = ImagePNG(1600,1200,true);
+  uint32_t width=0,height=0;
+  NSData *cover = CompressBrowserCoverImage(noisy,width,height);
+  CHECK(cover && width==1280 && height==960);
+  CHECK(cover.length<noisy.length/4 && cover.length<=kBrowserCoverMaxBytes);
+  std::printf("Synthetic 1600x1200 cover: PNG %zu bytes -> 1280x960 JPEG %zu bytes\n",
+      size_t(noisy.length),size_t(cover.length));
+  CHECK(CompressBrowserCoverImage(nil,width,height)==nil && !width && !height);
+  for (NSData *invalid in @[[NSData data],Header(0,8),Header(kEditViewportMaxEdge+1,1),
+      Header(8192,4097),Header(8,8),cover]) {
+    width=height=42;
+    CHECK(CompressBrowserCoverImage(invalid,width,height)==nil && !width && !height);
+  }
+}
+
 int main() {
   @autoreleasepool {
     KnownPixelsAndOrientation();
@@ -164,7 +198,9 @@ int main() {
     InvalidInputsAndBounds();
     DownsampleLimitsAndOrientation();
     EncodedAttachmentLimit();
-    std::puts("Browser edit image: 5 ImageIO crop checks passed");
+    BoundedPopupCover();
+    CoverCompressionAndInvalidInputs();
+    std::puts("Browser images: 5 crop checks and 2 popup-cover checks passed");
   }
   return 0;
 }

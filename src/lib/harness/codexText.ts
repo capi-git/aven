@@ -50,7 +50,9 @@ function pickTextModel(): string {
 
 function pickTextEffort(modelId: string): string {
   const model = modelsFor("codex").find((entry) => entry.nativeId === modelId);
-  const setting = model?.settings?.find((entry) => entry.id === "reasoningEffort");
+  const setting = model?.settings?.find(
+    (entry) => entry.id === "reasoningEffort",
+  );
   const options = setting?.options?.map((option) => option.value) ?? [];
   if (options.includes("low")) return "low";
   if (options.includes("none")) return "none";
@@ -65,9 +67,11 @@ export async function stopCodexTextPrompt(): Promise<void> {
 /** Start the shared Codex app-server in the background so the first prompt is fast. */
 export function warmupCodexText(cwd: string): Promise<void> {
   if (!cwd || cwd === "~") return Promise.resolve();
-  const run = turns.catch(() => undefined).then(async () => {
-    await ensureLive(cwd);
-  });
+  const run = turns
+    .catch(() => undefined)
+    .then(async () => {
+      await ensureLive(cwd);
+    });
   turns = run.then(
     () => undefined,
     () => undefined,
@@ -243,6 +247,8 @@ async function startLive(cwd: string): Promise<LiveText> {
 }
 
 async function openThread(session: LiveText, cwd: string): Promise<void> {
+  // Titles, commit messages, branch names and PR text are throwaway turns.
+  // An ephemeral thread keeps them out of the user's saved Codex history.
   const opened = await session.rpc.request<{ thread?: { id?: string } }>(
     "thread/start",
     {
@@ -251,8 +257,6 @@ async function openThread(session: LiveText, cwd: string): Promise<void> {
         runtimeMode: TEXT_RUNTIME_MODE,
         model: session.model || undefined,
       }),
-      // Titles and Git summaries have no resumable conversation. Keep both
-      // warmup and prompt threads out of the user's Codex history.
       ephemeral: true,
     },
     INIT_TIMEOUT_MS,

@@ -37,22 +37,34 @@ describe("restoring late orchestration proposals", () => {
     text: `<aven_proposal>${JSON.stringify({
       title: "Settings",
       summary: "Build settings",
-      tasks: [{
-        id: "ui", title: "UI", prompt: "Build the view", harness: "claude",
-        model: "claude:test", files: ["src/settings"], dependsOn: [],
-      }],
+      tasks: [
+        {
+          id: "ui",
+          title: "UI",
+          prompt: "Build the view",
+          harness: "claude",
+          model: "claude:test",
+          files: ["src/settings"],
+          dependsOn: [],
+        },
+      ],
     })}</aven_proposal>`,
   };
   const failed = completeOrchestrationProposal(draft, "Still investigating");
 
   async function restore(blocks: Block[]) {
-    vi.mocked(invoke).mockResolvedValueOnce({ ...newSession("claude", "/repo"), id: "lead", blocks });
+    vi.mocked(invoke).mockResolvedValueOnce({
+      ...newSession("claude", "/repo"),
+      id: "lead",
+      blocks,
+    });
     return (await getSession("lead"))!;
   }
 
   it("does not manufacture a ready card from historical response text", async () => {
     const restored = await restore([
-      { ...proposalBlock("card", failed), streaming: false }, reply,
+      { ...proposalBlock("card", failed), streaming: false },
+      reply,
     ]);
     expect(restored.blocks).toHaveLength(2);
     expect(restored.blocks[0].orchestration?.status).toBe("invalid");
@@ -94,7 +106,10 @@ describe("isPersistableId", () => {
 
 describe("sanitizeSessionForPersist", () => {
   it("does not persist live agent observations as running work after a restart", () => {
-    const session: Session = { ...newSession("codex", "/repo"), liveAgents: [{ id: "one", title: "Review", status: "running" }] };
+    const session: Session = {
+      ...newSession("codex", "/repo"),
+      liveAgents: [{ id: "one", title: "Review", status: "running" }],
+    };
     expect(sanitizeSessionForPersist(session)).not.toHaveProperty("liveAgents");
   });
   it("preserves an internal worker's lead and hidden turns without mutating the runtime blocks", () => {

@@ -7,7 +7,11 @@ import {
   isSearchTool,
 } from "./harness/preview";
 import { hasPendingApproval, type Block, type Session } from "./session";
-import { activeSessionAgents, uncertainSessionAgents, sessionAgentSummary } from "./sessionAgents";
+import {
+  activeSessionAgents,
+  uncertainSessionAgents,
+  sessionAgentSummary,
+} from "./sessionAgents";
 
 export type SessionRunStatus = {
   kind:
@@ -142,7 +146,8 @@ export function sessionRunStatus(
     : undefined;
   const agents = activeSessionAgents(session);
   const unknownAgents = uncertainSessionAgents(session);
-  const canStop = !!session.busy || agents.length > 0 || unknownAgents.length > 0;
+  const canStop =
+    !!session.busy || agents.length > 0 || unknownAgents.length > 0;
   if (session.pendingQuestion || hasPendingApproval(session.blocks)) {
     return {
       kind: "waiting",
@@ -168,7 +173,7 @@ export function sessionRunStatus(
     };
   }
   if (agents.length) {
-    const working = agents.some(agent => agent.status === "running");
+    const working = agents.some((agent) => agent.status === "running");
     return {
       kind: working ? "working" : "waiting",
       label: working ? "Agents still working" : "Agents waiting",
@@ -210,10 +215,15 @@ export function sessionRunStatus(
     const needsClaudeLogin =
       outcome.outcome === "failed" &&
       (turn?.block.turnModel?.harness ?? session.harness) === "claude" &&
-      session.blocks.slice((turn?.index ?? -1) + 1).some((block) =>
-        block.role === "system" &&
-        /^(?:Failed to authenticate\b|Claude Code authentication failed\b|OAuth session expired\b|Not logged in\b.*\/login)/i.test(block.text.trim()),
-      );
+      session.blocks
+        .slice((turn?.index ?? -1) + 1)
+        .some(
+          (block) =>
+            block.role === "system" &&
+            /^(?:Failed to authenticate\b|Claude Code authentication failed\b|OAuth session expired\b|Not logged in\b.*\/login)/i.test(
+              block.text.trim(),
+            ),
+        );
     const terminal = {
       completed: {
         kind: "finished",
@@ -232,24 +242,34 @@ export function sessionRunStatus(
       },
     } as const;
     const state = terminal[outcome.outcome as keyof typeof terminal];
-    const failedAgents = session.liveAgents?.filter(agent => agent.status === "failed").length ?? 0;
-    const stoppedAgents = session.liveAgents?.filter(agent => agent.status === "stopped").length ?? 0;
+    const failedAgents =
+      session.liveAgents?.filter((agent) => agent.status === "failed").length ??
+      0;
+    const stoppedAgents =
+      session.liveAgents?.filter((agent) => agent.status === "stopped")
+        .length ?? 0;
     return {
       ...state,
-      ...(outcome.outcome === "completed" && failedAgents ? {
-        kind: "failed" as const,
-        label: "Agent failed",
-        detail: `${failedAgents} ${failedAgents === 1 ? "agent" : "agents"} failed · Open agent details`,
-      } : outcome.outcome === "completed" && stoppedAgents ? {
-        kind: "stopped" as const,
-        label: "Agents stopped",
-        detail: `${stoppedAgents} ${stoppedAgents === 1 ? "agent" : "agents"} stopped · Open agent details`,
-      } : {}),
-      ...(needsClaudeLogin ? {
-        label: "Sign in required",
-        detail: "Reconnect Claude Code, then retry your message",
-        recovery: "claude-login" as const,
-      } : {}),
+      ...(outcome.outcome === "completed" && failedAgents
+        ? {
+            kind: "failed" as const,
+            label: "Agent failed",
+            detail: `${failedAgents} ${failedAgents === 1 ? "agent" : "agents"} failed · Open agent details`,
+          }
+        : outcome.outcome === "completed" && stoppedAgents
+          ? {
+              kind: "stopped" as const,
+              label: "Agents stopped",
+              detail: `${stoppedAgents} ${stoppedAgents === 1 ? "agent" : "agents"} stopped · Open agent details`,
+            }
+          : {}),
+      ...(needsClaudeLogin
+        ? {
+            label: "Sign in required",
+            detail: "Reconnect Claude Code, then retry your message",
+            recovery: "claude-login" as const,
+          }
+        : {}),
       ...(startedAt !== undefined ? { startedAt } : {}),
       ...(validTime(turn?.block.durationMs)
         ? { durationMs: turn.block.durationMs }

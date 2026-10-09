@@ -526,17 +526,26 @@ pub fn control_reply(
 }
 
 #[tauri::command]
-pub fn control_save(
-    store: State<'_, crate::session_store::SessionStore>,
-    lead_id: String,
-    state: String,
+pub async fn control_save(app: AppHandle, lead_id: String, state: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let store = app.state::<crate::session_store::SessionStore>();
+        save_control_state(&store, &lead_id, &state)
+    })
+    .await
+    .map_err(|error| format!("Orchestration save was interrupted: {error}"))?
+}
+
+fn save_control_state(
+    store: &crate::session_store::SessionStore,
+    lead_id: &str,
+    state: &str,
 ) -> Result<(), String> {
     if state.len() > 8_000_000 {
         return Err("Orchestration history is too large".into());
     }
-    let run: Value = serde_json::from_str(&state).map_err(|_| "Invalid run state")?;
+    let run: Value = serde_json::from_str(state).map_err(|_| "Invalid run state")?;
     let conn = store.lock_conn()?;
-    crate::session_store::save_orchestration(&conn, &lead_id, &run).map_err(|e| e.to_string())?;
+    crate::session_store::save_orchestration(&conn, lead_id, &run).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -606,6 +615,28 @@ pub fn control_scopes(cwd: String, files: Vec<String>) -> Result<Vec<String>, St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn save_validates_before_mutating_the_previous_run() {
+        let store = crate::session_store::SessionStore::open_in_memory().unwrap();
+        let original = r#"{"tasks":[],"status":"running"}"#;
+        save_control_state(&store, "lead", original).unwrap();
+        assert!(save_control_state(&store, "lead", "invalid").is_err());
+        assert!(save_control_state(&store, "lead", &" ".repeat(8_000_001)).is_err());
+        let saved: String = store
+            .lock_conn()
+            .unwrap()
+            .query_row(
+                "SELECT state FROM orchestration_runs WHERE lead_id = 'lead'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&saved).unwrap(),
+            serde_json::from_str::<Value>(original).unwrap()
+        );
+    }
 
     #[test]
     fn update_rejects_active_turns_and_pending_control_but_allows_idle_grants() {

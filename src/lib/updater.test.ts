@@ -203,11 +203,103 @@ describe("automatic signed update staging", () => {
     expect(mocks.check).toHaveBeenCalledTimes(2);
     expect(mocks.install).not.toHaveBeenCalled();
   });
-  it("preserves a staged update without downloading it repeatedly", async () => {
+  it("rechecks a staged update without downloading the same release repeatedly", async () => {
     const updater = await ready();
     await updater.runUpdateFlow(false);
-    expect(mocks.check).toHaveBeenCalledOnce();
+    expect(mocks.check).toHaveBeenCalledTimes(2);
     expect(mocks.download).toHaveBeenCalledOnce();
+  });
+  it("replaces a staged release only after the newer archive verifies", async () => {
+    const updater = await ready();
+    const old = await mocks.check.mock.results[0]!.value;
+    const newer = {
+      version: "0.1.81",
+      download: vi.fn().mockResolvedValue(undefined),
+      install: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+    mocks.check.mockResolvedValue(newer);
+    await expect(updater.runUpdateFlow(false)).resolves.toMatchObject({
+      phase: "ready",
+      availableVersion: "0.1.81",
+    });
+    expect(newer.download).toHaveBeenCalledOnce();
+    expect(old.close).toHaveBeenCalledOnce();
+    await updater.installPendingUpdate();
+    expect(newer.install).toHaveBeenCalledOnce();
+    expect(mocks.install).not.toHaveBeenCalled();
+  });
+
+  it.each(["offline", "signature"])(
+    "retains the verified archive after a %s refresh failure",
+    async (failure) => {
+      const updater = await ready();
+      const old = await mocks.check.mock.results[0]!.value;
+      const candidate = {
+        version: "0.1.81",
+        download: vi
+          .fn()
+          .mockRejectedValue(new Error("signature verification failed")),
+        close: vi.fn().mockResolvedValue(undefined),
+      };
+      if (failure === "offline")
+        mocks.check.mockRejectedValue(new Error("offline"));
+      else mocks.check.mockResolvedValue(candidate);
+      await expect(updater.runUpdateFlow(false)).resolves.toMatchObject({
+        phase: "ready",
+        availableVersion: "0.1.80",
+        error: expect.any(String),
+      });
+      expect(old.close).not.toHaveBeenCalled();
+      if (failure === "signature")
+        expect(candidate.close).toHaveBeenCalledOnce();
+      await updater.installPendingUpdate();
+      expect(mocks.install).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(["0.1.80", "0.1.79", "0.1.80-beta.1"])(
+    "does not replace a staged release with %s",
+    async (version) => {
+      const updater = await ready();
+      const candidate = {
+        version,
+        download: vi.fn(),
+        close: vi.fn().mockResolvedValue(undefined),
+      };
+      mocks.check.mockResolvedValue(candidate);
+      await expect(updater.runUpdateFlow(false)).resolves.toMatchObject({
+        phase: "ready",
+        availableVersion: "0.1.80",
+      });
+      expect(candidate.download).not.toHaveBeenCalled();
+      expect(candidate.close).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("waits for a replacement download before installing", async () => {
+    const updater = await ready();
+    let finish!: () => void;
+    const candidate = {
+      version: "0.1.81",
+      download: vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            finish = resolve;
+          }),
+      ),
+      install: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+    mocks.check.mockResolvedValue(candidate);
+    const refresh = updater.runUpdateFlow(false);
+    await vi.waitFor(() => expect(candidate.download).toHaveBeenCalledOnce());
+    const install = updater.installPendingUpdate();
+    expect(mocks.install).not.toHaveBeenCalled();
+    expect(candidate.install).not.toHaveBeenCalled();
+    finish();
+    await Promise.all([refresh, install]);
+    expect(candidate.install).toHaveBeenCalledOnce();
   });
 });
 

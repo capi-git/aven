@@ -1,7 +1,7 @@
 .provider-setup {
   color: var(--color-content);
   padding: 22px 20px 18px;
-  font-size: 12px;
+  font-size: var(--text-ui-label);
 }
 .provider-setup-modal {
   max-height: min(80vh, 800px);
@@ -17,7 +17,7 @@
   display: flex;
   gap: 6px;
   align-items: center;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
 }
 .provider-setup-progress > span[aria-current] {
   color: var(--color-content);
@@ -29,7 +29,7 @@
   height: 20px;
   border: 1px solid color-mix(in srgb, var(--color-content) 15%, transparent);
   border-radius: 50%;
-  font-size: 10px;
+  font-size: var(--text-ui-micro);
 }
 .provider-setup-progress > span[aria-current] .provider-setup-step-number {
   background: var(--color-content);
@@ -38,7 +38,7 @@
 }
 .provider-setup-progress small {
   margin-left: auto;
-  font-size: 10px;
+  font-size: var(--text-ui-micro);
 }
 .provider-setup-lead h3 {
   font-size: 17px;
@@ -96,12 +96,12 @@
   min-width: 0;
 }
 .provider-setup-choice-copy strong {
-  font-size: 13px;
+  font-size: var(--text-ui-body);
   font-weight: 550;
 }
 .provider-setup-choice-copy > span {
   color: color-mix(in srgb, var(--color-content) 55%, transparent);
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   line-height: 1.5;
 }
 .provider-setup-checkbox {
@@ -138,7 +138,7 @@
   gap: 8px;
 }
 .provider-setup-note {
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   color: color-mix(in srgb, var(--color-content) 50%, transparent);
   line-height: 1.6;
   margin-top: 14px;
@@ -162,7 +162,7 @@
   border-radius: 7px;
   padding: 8px 11px;
   font-weight: 500;
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   line-height: 1.3;
   cursor: pointer;
 }
@@ -208,12 +208,12 @@
   min-width: 0;
 }
 .provider-setup h4 {
-  font-size: 13px;
+  font-size: var(--text-ui-body);
   font-weight: 550;
   margin: 0 0 5px;
 }
 .provider-setup-check-heading > small {
-  font-size: 10px;
+  font-size: var(--text-ui-micro);
   color: color-mix(in srgb, var(--color-content) 45%, transparent);
   max-width: 120px;
   overflow-wrap: anywhere;
@@ -222,7 +222,7 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   margin: 0;
   color: color-mix(in srgb, var(--color-content) 50%, transparent);
 }
@@ -234,7 +234,7 @@
   color: #d97764;
 }
 .provider-setup-message {
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   margin-bottom: 12px;
 }
 .provider-setup-actions {
@@ -257,7 +257,7 @@
   cursor: pointer;
 }
 .provider-setup-plan pre {
-  font-size: 10px;
+  font-size: var(--text-ui-micro);
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -282,7 +282,7 @@
   border: 1px solid var(--aven-glass-card-edge);
 }
 .provider-setup-error {
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   color: #d97764;
   margin-bottom: 16px;
   line-height: 1.5;

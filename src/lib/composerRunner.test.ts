@@ -193,7 +193,9 @@ describe("composerRunner", () => {
   it("knocks the mascot back, shakes, then finishes the stun", () => {
     expect(recoilAlong(70, 1, 0, 200)).toBe(70);
     expect(recoilAlong(70, 1, CRASH_RECOIL_MS, 200)).toBe(70 - CRASH_RECOIL_PX);
-    expect(recoilAlong(70, -1, CRASH_RECOIL_MS, 200)).toBe(70 + CRASH_RECOIL_PX);
+    expect(recoilAlong(70, -1, CRASH_RECOIL_MS, 200)).toBe(
+      70 + CRASH_RECOIL_PX,
+    );
     expect(recoilAlong(4, 1, CRASH_RECOIL_MS, 200)).toBe(0);
     expect(recoilAlong(190, -1, CRASH_RECOIL_MS, 200)).toBe(200);
 

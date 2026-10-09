@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -46,8 +47,14 @@ struct LivePty {
     pid: u32,
 }
 
+enum PtySlot {
+    Starting(u64),
+    Running(Arc<LivePty>),
+}
+
 pub struct PtyHost {
-    sessions: Mutex<HashMap<String, Arc<LivePty>>>,
+    sessions: Mutex<HashMap<String, PtySlot>>,
+    next_spawn: AtomicU64,
 }
 
 impl PtyHost {
@@ -67,14 +74,46 @@ impl PtyHost {
     pub fn new() -> Self {
         Self {
             sessions: Mutex::new(HashMap::new()),
+            next_spawn: AtomicU64::new(1),
         }
     }
 
-    fn insert(&self, id: String, live: Arc<LivePty>) -> Option<Arc<LivePty>> {
+    #[cfg(test)]
+    fn insert(&self, id: String, live: Arc<LivePty>) {
         self.sessions
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .insert(id, live)
+            .insert(id, PtySlot::Running(live));
+    }
+
+    fn begin_spawn(&self, id: &str) -> (u64, Option<Arc<LivePty>>) {
+        let ticket = self.next_spawn.fetch_add(1, Ordering::Relaxed);
+        let previous = self
+            .sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id.to_string(), PtySlot::Starting(ticket));
+        let running = match previous {
+            Some(PtySlot::Running(live)) => Some(live),
+            _ => None,
+        };
+        (ticket, running)
+    }
+
+    fn install_spawn(&self, id: &str, ticket: u64, live: Arc<LivePty>) -> bool {
+        let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        if !matches!(sessions.get(id), Some(PtySlot::Starting(current)) if *current == ticket) {
+            return false;
+        }
+        sessions.insert(id.to_string(), PtySlot::Running(live));
+        true
+    }
+
+    fn cancel_spawn(&self, id: &str, ticket: u64) {
+        let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        if matches!(sessions.get(id), Some(PtySlot::Starting(current)) if *current == ticket) {
+            sessions.remove(id);
+        }
     }
 
     fn get(&self, id: &str) -> Option<Arc<LivePty>> {
@@ -82,28 +121,44 @@ impl PtyHost {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .get(id)
-            .cloned()
+            .and_then(|slot| match slot {
+                PtySlot::Running(live) => Some(live.clone()),
+                PtySlot::Starting(_) => None,
+            })
     }
 
     fn remove(&self, id: &str) -> Option<Arc<LivePty>> {
-        self.sessions
+        match self
+            .sessions
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(id)
+        {
+            Some(PtySlot::Running(live)) => Some(live),
+            _ => None,
+        }
     }
 
     fn remove_if_pid(&self, id: &str, pid: u32) -> Option<Arc<LivePty>> {
         let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        if sessions.get(id).map(|live| live.pid) != Some(pid) {
+        if !matches!(sessions.get(id), Some(PtySlot::Running(live)) if live.pid == pid) {
             return None;
         }
-        sessions.remove(id)
+        match sessions.remove(id) {
+            Some(PtySlot::Running(live)) => Some(live),
+            _ => None,
+        }
     }
 
     pub(crate) fn kill_all(&self) {
         let kids: Vec<Arc<LivePty>> = {
             let mut map = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-            map.drain().map(|(_, live)| live).collect()
+            map.drain()
+                .filter_map(|(_, slot)| match slot {
+                    PtySlot::Running(live) => Some(live),
+                    PtySlot::Starting(_) => None,
+                })
+                .collect()
         };
         let pids: Vec<u32> = kids.iter().map(|live| live.pid).collect();
         for live in kids {
@@ -128,56 +183,88 @@ impl Drop for PtyHost {
 }
 
 #[tauri::command]
-pub fn pty_spawn(
+pub async fn pty_spawn(
     app: AppHandle,
-    host: State<PtyHost>,
     id: String,
     cwd: String,
     cols: u16,
     rows: u16,
     reuse_existing: Option<bool>,
 ) -> Result<(), String> {
-    let _work = crate::window::begin_runtime_work(&app)?;
+    let work = crate::window::begin_runtime_work(&app)?;
+    let host = app.state::<PtyHost>();
     if reuse_existing == Some(true) && host.get(&id).is_some() {
         return pty_resize(host, id, cols, rows);
     }
-    if let Some(prev) = host.remove(&id) {
-        terminate(prev.pid);
-    }
+    // Reserve before waiting for a blocking worker, so Close can cancel a
+    // startup that has not reached fork/exec yet.
+    let (ticket, previous) = host.begin_spawn(&id);
+    tauri::async_runtime::spawn_blocking(move || {
+        let _work = work;
+        let host = app.state::<PtyHost>();
+        if let Some(prev) = previous {
+            terminate(prev.pid);
+        }
 
-    #[cfg(unix)]
-    {
-        spawn_unix(app, host, id, cwd, cols.max(2), rows.max(2))
-    }
+        #[cfg(unix)]
+        let result = spawn_unix(
+            app.clone(),
+            &host,
+            id.clone(),
+            cwd,
+            cols.max(2),
+            rows.max(2),
+            ticket,
+        );
 
-    #[cfg(windows)]
-    {
-        spawn_windows(app, host, id, cwd, cols.max(2), rows.max(2))
-    }
+        #[cfg(windows)]
+        let result = spawn_windows(
+            app.clone(),
+            &host,
+            id.clone(),
+            cwd,
+            cols.max(2),
+            rows.max(2),
+            ticket,
+        );
 
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = (app, cwd, cols, rows);
-        Err("Terminals are not supported on this platform.".into())
-    }
+        #[cfg(not(any(unix, windows)))]
+        let result = {
+            let _ = (cwd, cols, rows);
+            Err("Terminals are not supported on this platform.".into())
+        };
+        if result.is_err() {
+            host.cancel_spawn(&id, ticket);
+        }
+        result
+    })
+    .await
+    .map_err(|error| format!("Terminal startup was interrupted: {error}"))?
 }
 
 #[tauri::command]
-pub fn pty_write(
+pub async fn pty_write(
     app: AppHandle,
-    host: State<PtyHost>,
+    host: State<'_, PtyHost>,
     id: String,
     data: String,
 ) -> Result<(), String> {
-    let _work = crate::window::begin_runtime_work(&app)?;
+    let work = crate::window::begin_runtime_work(&app)?;
     let live = host
         .get(&id)
         .ok_or_else(|| "Terminal is not running".to_string())?;
-    let mut writer = live.writer.lock().unwrap_or_else(|e| e.into_inner());
-    writer
-        .write_all(data.as_bytes())
-        .and_then(|_| writer.flush())
-        .map_err(|e| format!("Failed to write to terminal: {e}"))
+    // The frontend chains writes per terminal. Keep the OS pipe wait off the
+    // GUI and async executor threads without changing completion/error signals.
+    tauri::async_runtime::spawn_blocking(move || {
+        let _work = work;
+        let mut writer = live.writer.lock().unwrap_or_else(|e| e.into_inner());
+        writer
+            .write_all(data.as_bytes())
+            .and_then(|_| writer.flush())
+            .map_err(|e| format!("Failed to write to terminal: {e}"))
+    })
+    .await
+    .map_err(|error| format!("Terminal input was interrupted: {error}"))?
 }
 
 #[tauri::command]
@@ -214,8 +301,8 @@ pub(crate) struct PtyStatus {
     foreground: Option<String>,
 }
 
-/// Off the main thread: this forks `ps`, and the title poll calls it once a
-/// second for every open terminal.
+/// Off the main thread: inspect the foreground job without spawning a helper
+/// on macOS/Linux. Other Unix targets retain the portable `ps` fallback.
 #[tauri::command(async)]
 pub fn pty_status(host: State<'_, PtyHost>, id: String) -> Result<PtyStatus, String> {
     let live = host
@@ -252,11 +339,12 @@ pub fn pty_kill_all(host: State<'_, PtyHost>) -> Result<(), String> {
 #[cfg(unix)]
 fn spawn_unix(
     app: AppHandle,
-    host: State<PtyHost>,
+    host: &PtyHost,
     id: String,
     cwd: String,
     cols: u16,
     rows: u16,
+    ticket: u64,
 ) -> Result<(), String> {
     use std::fs::File;
     use std::os::unix::process::CommandExt;
@@ -316,7 +404,13 @@ fn spawn_unix(
         master_fd: master,
         pid,
     });
-    host.insert(id.clone(), live);
+    if !host.install_spawn(&id, ticket, live) {
+        terminate(pid);
+        thread::spawn(move || {
+            let _ = child.wait();
+        });
+        return Err("Terminal startup was cancelled".into());
+    }
 
     let data_app = app.clone();
     let data_id = id.clone();
@@ -376,11 +470,12 @@ fn spawn_unix(
 #[cfg(windows)]
 fn spawn_windows(
     app: AppHandle,
-    host: State<PtyHost>,
+    host: &PtyHost,
     id: String,
     cwd: String,
     cols: u16,
     rows: u16,
+    ticket: u64,
 ) -> Result<(), String> {
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
@@ -434,7 +529,13 @@ fn spawn_windows(
         master: Mutex::new(pair.master),
         pid,
     });
-    host.insert(id.clone(), live);
+    if !host.install_spawn(&id, ticket, live) {
+        terminate(pid);
+        thread::spawn(move || {
+            let _ = child.wait();
+        });
+        return Err("Terminal startup was cancelled".into());
+    }
 
     let data_app = app.clone();
     let data_id = id.clone();
@@ -707,7 +808,90 @@ fn foreground_label(master_fd: i32, shell_pid: u32) -> Option<String> {
     Some(label)
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "macos")]
+fn process_label(pid: i32) -> Option<String> {
+    if pid <= 0 {
+        return None;
+    }
+    // KERN_PROCARGS2 preserves interpreter/script names, unlike proc_name.
+    // Read a bounded buffer and parse only argc arguments, never the trailing
+    // environment. Neither command arguments nor environment are published.
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
+    let mut bytes = vec![0u8; 256 * 1024];
+    let mut length = bytes.len();
+    let result = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            mib.len() as u32,
+            bytes.as_mut_ptr().cast(),
+            &mut length,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if result == 0 {
+        bytes.truncate(length);
+        if let Some(args) = darwin_process_args(&bytes) {
+            if let Some(label) = command_label_parts(&args) {
+                return Some(label);
+            }
+        }
+    }
+    // The process may disallow argv inspection or exceed the bound. Its
+    // executable still gives a useful label without forking or retrying.
+    let mut path = [0u8; 4096];
+    let length = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), path.len() as u32) };
+    if length <= 0 {
+        return None;
+    }
+    let path = std::str::from_utf8(path.split(|byte| *byte == 0).next()?).ok()?;
+    command_label_parts(&[path])
+}
+
+#[cfg(target_os = "macos")]
+fn darwin_process_args(bytes: &[u8]) -> Option<Vec<&str>> {
+    let argc = i32::from_ne_bytes(bytes.get(..4)?.try_into().ok()?);
+    if argc <= 0 || argc as usize > bytes.len() {
+        return None;
+    }
+    let mut remaining = bytes.get(4..)?;
+    // The executable path precedes NUL padding and argv[0].
+    remaining = remaining.get(remaining.iter().position(|byte| *byte == 0)? + 1..)?;
+    while remaining.first() == Some(&0) {
+        remaining = &remaining[1..];
+    }
+    let mut args = Vec::new();
+    for _ in 0..argc {
+        let end = remaining.iter().position(|byte| *byte == 0)?;
+        args.push(std::str::from_utf8(&remaining[..end]).ok()?);
+        remaining = &remaining[end + 1..];
+    }
+    Some(args)
+}
+
+#[cfg(target_os = "linux")]
+fn process_label(pid: i32) -> Option<String> {
+    if pid <= 0 {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(format!("/proc/{pid}/cmdline"))
+        .ok()?
+        .take(256 * 1024)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.last() != Some(&0) {
+        return None;
+    }
+    let args = bytes[..bytes.len() - 1]
+        .split(|byte| *byte == 0)
+        .map(std::str::from_utf8)
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    command_label_parts(&args)
+}
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
 fn process_label(pid: i32) -> Option<String> {
     use std::process::Command;
     let output = Command::new("ps")
@@ -725,9 +909,14 @@ fn process_label(pid: i32) -> Option<String> {
     command_label(args)
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, any(test, not(any(target_os = "macos", target_os = "linux")))))]
 fn command_label(args: &str) -> Option<String> {
     let parts: Vec<&str> = args.split_whitespace().collect();
+    command_label_parts(&parts)
+}
+
+#[cfg(unix)]
+fn command_label_parts(parts: &[&str]) -> Option<String> {
     if parts.is_empty() {
         return None;
     }
@@ -785,6 +974,40 @@ mod label_tests {
         assert!(is_shell_name("zsh"));
         assert!(!is_shell_name("npm"));
     }
+
+    #[test]
+    fn argument_boundaries_preserve_script_paths_with_spaces() {
+        assert_eq!(
+            command_label_parts(&[
+                "/usr/bin/node",
+                "--no-warnings",
+                "/my tools/my cli.js",
+                "run"
+            ]),
+            Some("my cli.js".into())
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn darwin_arguments_exclude_environment_and_reject_truncation() {
+        let mut bytes = 3i32.to_ne_bytes().to_vec();
+        bytes.extend_from_slice(
+            b"/usr/bin/node\0\0\0node\0--no-warnings\0/my tools/cli.js\0PRIVATE=value\0",
+        );
+        let args = darwin_process_args(&bytes).unwrap();
+        assert_eq!(args, ["node", "--no-warnings", "/my tools/cli.js"]);
+        assert_eq!(command_label_parts(&args), Some("cli.js".into()));
+        assert!(darwin_process_args(&bytes[..10]).is_none());
+        assert!(darwin_process_args(&0i32.to_ne_bytes()).is_none());
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn native_process_lookup_finds_the_test_process_without_a_helper() {
+        assert!(process_label(std::process::id() as i32).is_some());
+        assert!(process_label(-1).is_none());
+    }
 }
 
 #[cfg(all(test, unix))]
@@ -840,6 +1063,45 @@ mod tests {
         reader.read_exact(&mut bytes).unwrap();
         assert_eq!(&bytes, b"pty-output");
         drop(slave);
+    }
+
+    fn fixture_pty() -> Arc<LivePty> {
+        Arc::new(LivePty {
+            writer: Mutex::new(Box::new(std::io::sink())),
+            master_fd: std::fs::File::open("/dev/null").unwrap().into(),
+            pid: 0,
+        })
+    }
+
+    #[test]
+    fn closing_a_pending_spawn_prevents_installation() {
+        let host = PtyHost::new();
+        let (ticket, _) = host.begin_spawn("term");
+        assert!(host.ensure_update_idle(false).is_err());
+        host.remove("term");
+        assert!(!host.install_spawn("term", ticket, fixture_pty()));
+        assert_eq!(host.ensure_update_idle(false).unwrap(), 0);
+    }
+
+    #[test]
+    fn an_obsolete_spawn_cannot_replace_or_cancel_a_newer_one() {
+        let host = PtyHost::new();
+        let (old, _) = host.begin_spawn("term");
+        let (new, _) = host.begin_spawn("term");
+        host.cancel_spawn("term", old);
+        assert!(!host.install_spawn("term", old, fixture_pty()));
+        assert!(host.install_spawn("term", new, fixture_pty()));
+        assert!(host.get("term").is_some());
+        host.remove("term");
+    }
+
+    #[test]
+    fn kill_all_also_cancels_pending_startups() {
+        let host = PtyHost::new();
+        let (ticket, _) = host.begin_spawn("term");
+        host.kill_all();
+        assert!(!host.install_spawn("term", ticket, fixture_pty()));
+        assert_eq!(host.ensure_update_idle(false).unwrap(), 0);
     }
 
     #[test]

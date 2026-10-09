@@ -12,7 +12,10 @@
 //!
 //! Sidebar glass uses a transparent NSWindow plus
 //! `CGSSetWindowBackgroundBlurRadius` (private WindowServer API). That
-//! blurs the desktop behind the window; CSS only tints the sidebar on top.
+//! blurs the desktop behind the window. The workspace shell's translucent
+//! tint is painted by the NSWindow itself, so areas exposed during a live
+//! resize are tinted before WebKit's next frame; the page stops painting that
+//! tint once the window acknowledges it. Panels and cards stay in CSS above.
 //!
 //! Fully clear `NSColor.clearColor` (alpha 0) plus a native shadow makes
 //! macOS draw a chamfered gap at the corners. Tiny alpha (0.01) keeps the
@@ -277,7 +280,7 @@ mod blur_tests {
     }
 }
 
-fn glass_enabled(window: &Window) -> bool {
+pub(crate) fn glass_enabled(window: &Window) -> bool {
     glass_windows()
         .lock()
         .unwrap_or_else(|err| err.into_inner())
@@ -319,11 +322,19 @@ fn set_launch_background(window: &Window, r: u8, g: u8, b: u8) {
     )));
 }
 
-/// Turn on desktop blur after the first UI paint.
-pub fn enable_glass(window: &Window) {
+/// Turn on desktop blur after the first UI paint, or update the native tint
+/// while glass is already on. Reports whether AppKit paints the tint so the
+/// page can stop painting the same translucent colour twice.
+pub fn enable_glass(window: &Window, tint: Option<crate::window::GlassTint>) -> bool {
+    let turning_on = !glass_enabled(window);
     set_glass_enabled(window, true);
-    prepare_glass(window);
-    apply_blur(window, window_blur_radius(window.label()));
+    let tinted = prepare_glass(window, tint);
+    // `set_background_blur_radius` keeps an enabled window's blur current, so
+    // a tint-only update does not need another WindowServer blur request.
+    if turning_on {
+        apply_blur(window, window_blur_radius(window.label()));
+    }
+    tinted
 }
 
 /// Light mode stays opaque because pale desktop content makes translucent UI illegible.
@@ -349,16 +360,28 @@ fn diagnose_opacity(window: &Window, outcome: &str) {
     }
 }
 
-fn prepare_glass(window: &Window) {
+fn prepare_glass(window: &Window, tint: Option<crate::window::GlassTint>) -> bool {
     let Some(ns_window) = ns_window(window) else {
-        return;
+        return false;
     };
     ns_window.setOpaque(false);
-    // Fully clear + shadow leaves a jagged gap at the corners.
-    ns_window.setBackgroundColor(Some(&NSColor::clearColor().colorWithAlphaComponent(0.01)));
+    let native = tint.and_then(|tint| tint.native_alpha().map(|alpha| (tint, alpha)));
+    let color = match native {
+        Some((tint, alpha)) => NSColor::colorWithSRGBRed_green_blue_alpha(
+            tint.r as f64 / 255.0,
+            tint.g as f64 / 255.0,
+            tint.b as f64 / 255.0,
+            alpha,
+        ),
+        // Without a tint the page paints its own. Fully clear + shadow leaves
+        // a jagged gap at the corners, so keep the original tiny alpha.
+        None => NSColor::clearColor().colorWithAlphaComponent(0.01),
+    };
+    ns_window.setBackgroundColor(Some(&color));
     ns_window.setHasShadow(true);
     ns_window.invalidateShadow();
     ns_window.setTitlebarSeparatorStyle(NSTitlebarSeparatorStyle::None);
+    native.is_some()
 }
 
 fn apply_blur(window: &Window, radius: u8) {

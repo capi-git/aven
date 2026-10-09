@@ -1,7 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 type LinePayload = { sessionId: string; line: string };
+type StdoutPayload = { sessionId: string; lines: string[] } | LinePayload;
 type ExitPayload = { sessionId: string; code: number | null; pid?: number };
 type SsePayload = { sessionId: string; data: string };
 type SseEndPayload = { sessionId: string; error?: string | null };
@@ -18,7 +20,7 @@ const stderrHandlers = new Map<string, LineHandler>();
 const sseHandlers = new Map<string, SseHandler>();
 const sseEndHandlers = new Map<string, SseEndHandler>();
 const sseBuffer = new Map<string, string[]>();
-// Output is broadcast to every window. Only ids this window spawned or opened
+// Native stdout is owner-targeted. Only ids this window spawned or opened
 // may buffer while unwatched; anything else would be held until the bridge is
 // torn down, and a later watch of the same id would replay stale lines.
 const ownedChildren = new Set<string>();
@@ -60,6 +62,11 @@ function pushBounded(
 
 function ensureBridge() {
   if (bridge) return;
+  // Tauri evaluates an event in every webview that subscribed to its name,
+  // even when emit_to filters its listener IDs. Separate owner event names
+  // avoid parsing another window's stream at all.
+  const owner = getCurrentWebview().label;
+  const outputOptions = { target: { kind: "Webview" as const, label: owner } };
   let failed = false;
   const installed: UnlistenFn[] = [];
   const register = (pending: Promise<UnlistenFn>) =>
@@ -75,41 +82,67 @@ function ensureBridge() {
   bridgeAttempt = attempt;
   const installation = Promise.all([
     register(
-      listen<LinePayload>("harness-stdout", (event) => {
-        const { sessionId, line } = event.payload;
-        const handler = lineHandlers.get(sessionId);
-        if (handler) {
-          handler(line);
-          return;
-        }
-        if (ownedChildren.has(sessionId)) {
-          pushBounded(lineBuffer, sessionId, line);
-        }
-      }),
+      listen<StdoutPayload>(
+        `harness-stdout:${owner}`,
+        (event) => {
+          const { sessionId } = event.payload;
+          // Keep line boundaries for every provider protocol, including blanks.
+          // Single-line payloads remain accepted by the line-oriented bridge.
+          const lines =
+            "lines" in event.payload
+              ? event.payload.lines
+              : [event.payload.line];
+          let failed = false;
+          let firstError: unknown;
+          for (const line of lines) {
+            try {
+              const handler = lineHandlers.get(sessionId);
+              if (handler) handler(line);
+              else if (ownedChildren.has(sessionId))
+                pushBounded(lineBuffer, sessionId, line);
+            } catch (error) {
+              // Separate native events used to continue after one callback
+              // failed. Keep later protocol records (especially final results).
+              if (!failed) firstError = error;
+              failed = true;
+            }
+          }
+          if (failed) throw firstError;
+        },
+        outputOptions,
+      ),
     ),
     register(
-      listen<LinePayload>("harness-stderr", (event) => {
-        const { sessionId, line } = event.payload;
-        stderrHandlers.get(sessionId)?.(line);
-      }),
+      listen<LinePayload>(
+        `harness-stderr:${owner}`,
+        (event) => {
+          const { sessionId, line } = event.payload;
+          stderrHandlers.get(sessionId)?.(line);
+        },
+        outputOptions,
+      ),
     ),
     register(
-      listen<ExitPayload>("harness-exit", (event) => {
-        const { sessionId, code, pid } = event.payload;
-        const handler = exitHandlers.get(sessionId);
-        if (!handler || pid == null || pid <= 0) return;
-        const currentPid = livePid.get(sessionId);
-        if (isCurrentChildExit(currentPid, pid)) {
-          livePid.delete(sessionId);
-          handler(code);
-          return;
-        }
-        if (currentPid != null) return;
-        const exits = pendingExit.get(sessionId) ?? [];
-        exits.push({ code, pid });
-        if (exits.length > 8) exits.splice(0, exits.length - 8);
-        pendingExit.set(sessionId, exits);
-      }),
+      listen<ExitPayload>(
+        `harness-exit:${owner}`,
+        (event) => {
+          const { sessionId, code, pid } = event.payload;
+          const handler = exitHandlers.get(sessionId);
+          if (!handler || pid == null || pid <= 0) return;
+          const currentPid = livePid.get(sessionId);
+          if (isCurrentChildExit(currentPid, pid)) {
+            livePid.delete(sessionId);
+            handler(code);
+            return;
+          }
+          if (currentPid != null) return;
+          const exits = pendingExit.get(sessionId) ?? [];
+          exits.push({ code, pid });
+          if (exits.length > 8) exits.splice(0, exits.length - 8);
+          pendingExit.set(sessionId, exits);
+        },
+        outputOptions,
+      ),
     ),
     register(
       listen<SsePayload>("harness-sse", (event) => {
@@ -156,9 +189,7 @@ function teardownBridge() {
   ownedSse.clear();
   livePid.clear();
   pendingExit.clear();
-  void pending
-    ?.then((fns) => fns.forEach((fn) => fn()))
-    .catch(() => undefined);
+  void pending?.then((fns) => fns.forEach((fn) => fn())).catch(() => undefined);
 }
 
 export function startHarnessBridge(): () => void {

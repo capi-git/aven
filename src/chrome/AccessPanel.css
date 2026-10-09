@@ -17,7 +17,7 @@ html.access-panel-window #root {
 
 .access-panel-note {
   margin: 0 16px 10px;
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   line-height: 1.5;
   color: var(--toolbar-panel-muted);
 }
@@ -51,11 +51,11 @@ html.access-panel-window #root {
   min-width: 0;
 }
 .access-panel-copy strong {
-  font-size: 13px;
+  font-size: var(--text-ui-body);
   font-weight: 500;
 }
 .access-panel-copy > span {
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   line-height: 1.45;
   color: var(--toolbar-panel-muted);
 }
@@ -71,5 +71,5 @@ html.access-panel-window #root {
 .access-panel-error {
   margin: 0 16px 12px;
   color: var(--toolbar-panel-error);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
 }

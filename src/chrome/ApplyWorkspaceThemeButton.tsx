@@ -22,7 +22,7 @@ export function ApplyWorkspaceThemeButton({
     <div className={compact ? "my-2" : "flex flex-col items-end gap-1"}>
       <button
         type="button"
-        className={`inline-flex items-center justify-center gap-1.5 rounded-lg border border-content/15 bg-content/5 px-3 py-2 text-content hover:bg-content/10 ${compact ? "w-full text-[11px]" : "text-xs"}`}
+        className={`inline-flex items-center justify-center gap-1.5 rounded-lg border border-content/15 bg-content/5 px-3 py-2 text-content hover:bg-content/10 ${compact ? "w-full text-ui-caption" : "text-xs"}`}
         onClick={() => {
           const ids = loadWorkspaceProfiles().profiles.map(
             (profile) => profile.id,
@@ -41,8 +41,8 @@ export function ApplyWorkspaceThemeButton({
         role="status"
         className={
           compact
-            ? "mt-1 text-[10px] text-content/70"
-            : "text-[11px] text-content/70"
+            ? "mt-1 text-ui-micro text-content/70"
+            : "text-ui-caption text-content/70"
         }
       >
         {currentResult

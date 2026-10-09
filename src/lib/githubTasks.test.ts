@@ -122,7 +122,9 @@ describe("githubReviewDecisionLabel", () => {
     expect(githubReviewDecisionLabel("changes_requested")).toBe(
       "Changes requested",
     );
-    expect(githubReviewDecisionLabel("REVIEW_REQUIRED")).toBe("Review required");
+    expect(githubReviewDecisionLabel("REVIEW_REQUIRED")).toBe(
+      "Review required",
+    );
     expect(githubReviewDecisionLabel("")).toBe("");
   });
 });
@@ -206,12 +208,13 @@ describe("dedupeInboxItems", () => {
         repo: "Capi-Git/aven",
       }),
     ];
-    const deduped = dedupeInboxItems(rows, ["/tmp/aven", "/tmp/agent-terminal"]);
+    const deduped = dedupeInboxItems(rows, [
+      "/tmp/aven",
+      "/tmp/agent-terminal",
+    ]);
     expect(deduped).toHaveLength(1);
     expect(deduped[0]?.projectPath).toBe("/tmp/aven");
-    expect(inboxItemKey(deduped[0]!)).toBe(
-      "github:capi-git/aven:issue:10",
-    );
+    expect(inboxItemKey(deduped[0]!)).toBe("github:capi-git/aven:issue:10");
   });
 });
 
@@ -278,9 +281,9 @@ describe("filterInboxItems", () => {
   });
 
   it("matches title, number, kind, repo, and labels", () => {
-    expect(filterInboxItems(items, "checkout").map((row) => row.number)).toEqual(
-      [12],
-    );
+    expect(
+      filterInboxItems(items, "checkout").map((row) => row.number),
+    ).toEqual([12]);
     expect(filterInboxItems(items, "#4").map((row) => row.number)).toEqual([4]);
     expect(filterInboxItems(items, "pull").map((row) => row.number)).toEqual([
       12,

@@ -42,14 +42,6 @@ pub(super) async fn close_context(context: PreviewContext) -> Result<(), String>
 }
 
 pub(super) async fn set_floating(context: PreviewContext, floating: bool) -> Result<(), String> {
-    if !floating {
-        let label = context.placement.lock().await.window.clone();
-        if label.as_ref().is_some_and(|label| {
-            crate::pip_group::request_return(context.caller.app_handle(), label)
-        }) {
-            return Ok(());
-        }
-    }
     // Layout, return and owner-close operations serialize per view. This async
     // lock is never acquired by a native main-thread callback.
     let mut placement = context.placement.lock().await;

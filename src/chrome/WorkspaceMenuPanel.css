@@ -37,13 +37,13 @@ html.workspace-menu-panel-window #root {
   cursor: default;
 }
 .workspace-menu-panel-item small {
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   line-height: 1.45;
 }
 .workspace-menu-panel-error {
   margin: 0 16px 12px;
   color: var(--toolbar-panel-error);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
 }
 
 .workspace-menu-panel-items:focus {
@@ -67,7 +67,7 @@ html.workspace-menu-panel-window #root {
 .workspace-menu-panel-shortcut {
   flex-shrink: 0;
   color: var(--toolbar-panel-muted);
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   white-space: nowrap;
 }
 .workspace-menu-panel-item-danger {
@@ -88,7 +88,7 @@ html.workspace-menu-panel-window #root {
 }
 .workspace-menu-panel-compact {
   border-radius: 8px;
-  font-size: 12px;
+  font-size: var(--text-ui-label);
 }
 .workspace-menu-panel-compact .workspace-menu-panel-items {
   padding: 6px;
@@ -169,14 +169,14 @@ html.workspace-menu-panel-window #root {
 .workspace-menu-panel-count {
   margin-top: 5px;
   color: var(--toolbar-panel-muted);
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   line-height: 16px;
 }
 .workspace-menu-panel-empty {
   margin: 0;
   padding: 12px 6px;
   color: var(--toolbar-panel-muted);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   line-height: 18px;
   text-align: center;
 }

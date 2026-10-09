@@ -98,6 +98,61 @@ function sessionSearchHit(row: SessionSummary, query: string): boolean {
   return fields.some((field) => field && fuzzyMatch(query, field) != null);
 }
 
+type LiveActivity = {
+  stamp: readonly (string | number | undefined)[];
+  updatedAt: number;
+};
+
+// Unsaved rows have no durable updatedAt yet. Remember only their compact
+// activity stamp so rendering (including token deltas) cannot change recency.
+// Bound this cache because a window may open many different sessions over time.
+const liveActivity = new Map<string, LiveActivity>();
+const MAX_LIVE_ACTIVITY = 2048;
+
+function liveUpdatedAt(session: Session): number {
+  let turnIndex = session.blocks.length - 1;
+  while (turnIndex >= 0 && session.blocks[turnIndex].role !== "user")
+    turnIndex--;
+  const turn = session.blocks[turnIndex];
+  const stamp = [
+    session.cwd,
+    session.harness,
+    session.model,
+    session.runtimeMode,
+    session.title,
+    session.providerSessionId,
+    session.orchestrationLeadId,
+    turn?.id,
+    turn?.startedAt,
+    turn?.durationMs,
+  ];
+  const previous = liveActivity.get(session.id);
+  const unchanged = previous?.stamp.every((value, i) => value === stamp[i]);
+  const startedAt = turn?.startedAt;
+  const durationMs = turn?.durationMs;
+  const turnAt =
+    startedAt != null && Number.isFinite(startedAt) && startedAt > 0
+      ? startedAt +
+        (durationMs != null && Number.isFinite(durationMs)
+          ? Math.max(0, durationMs)
+          : 0)
+      : undefined;
+  const updatedAt =
+    previous && unchanged
+      ? previous.updatedAt
+      : previous
+        ? Math.max(previous.updatedAt + 1, turnAt ?? 0, Date.now())
+        : (turnAt ?? Date.now());
+  // Refresh insertion order on access, retaining recent rows without retaining
+  // any Session, Block, or transcript text references.
+  liveActivity.delete(session.id);
+  liveActivity.set(session.id, { stamp, updatedAt });
+  if (liveActivity.size > MAX_LIVE_ACTIVITY) {
+    liveActivity.delete(liveActivity.keys().next().value!);
+  }
+  return updatedAt;
+}
+
 export function summaryFromSession(
   session: Session,
   git?: SessionGitHint,
@@ -114,7 +169,7 @@ export function summaryFromSession(
     ...(git?.branch ? { branch: git.branch } : {}),
     ...(git?.repo ? { repo: git.repo } : {}),
     createdAt: 0,
-    updatedAt: Date.now(),
+    updatedAt: liveUpdatedAt(session),
   };
 }
 

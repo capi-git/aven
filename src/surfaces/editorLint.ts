@@ -155,7 +155,8 @@ function isGrammarGap(
   for (; parent; parent = parent.parent as typeof parent) {
     const text = state.doc.sliceString(parent.from, parent.to);
     if (parent.name === "CatchClause" && TYPED_CATCH.test(text)) return true;
-    if (parent.name === "JSXEscape" && JSX_BLOCK_COMMENT.test(text)) return true;
+    if (parent.name === "JSXEscape" && JSX_BLOCK_COMMENT.test(text))
+      return true;
     if (parent.name === "AtRule" && TAILWIND_AT.test(text)) return true;
   }
   return false;

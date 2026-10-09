@@ -43,6 +43,8 @@ export function GitHistoryGraph({
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const { commits } = useGitHistory(cwd, enabled && expanded);
   const rows = useMemo(() => layoutGitGraph(commits), [commits]);
+  const showAuthors =
+    new Set(commits.map((commit) => commit.author).filter(Boolean)).size > 1;
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
@@ -55,7 +57,7 @@ export function GitHistoryGraph({
           expanded ? "h-7" : "h-full"
         }`}
       >
-        <span className="text-[10px] font-semibold tracking-[0.04em] text-content/55 uppercase">
+        <span className="text-ui-micro font-semibold tracking-[0.04em] text-content/55 uppercase">
           Graph
         </span>
         {expanded ? (
@@ -76,9 +78,13 @@ export function GitHistoryGraph({
           className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-none"
         >
           {!cwd || cwd === "~" ? (
-            <p className="px-3 py-2 text-[12px] text-content/45">No project folder</p>
+            <p className="px-3 py-2 text-ui-label text-content/45">
+              No project folder
+            </p>
           ) : commits.length === 0 ? (
-            <p className="px-3 py-2 text-[12px] text-content/45">No commits yet</p>
+            <p className="px-3 py-2 text-ui-label text-content/45">
+              No commits yet
+            </p>
           ) : (
             <ul className="min-w-0 max-w-full">
               {commits.map((commit, index) => {
@@ -88,6 +94,7 @@ export function GitHistoryGraph({
                   <HistoryRow
                     key={commit.sha}
                     commit={commit}
+                    showAuthor={showAuthors}
                     row={row}
                     active={selectedSha === commit.sha}
                     onOpen={() => onOpenCommit(commit)}
@@ -104,11 +111,13 @@ export function GitHistoryGraph({
 
 function HistoryRow({
   commit,
+  showAuthor,
   row,
   active,
   onOpen,
 }: {
   commit: GitHistoryCommit;
+  showAuthor: boolean;
   row: HistoryItemViewModel;
   active: boolean;
   onOpen: () => void;
@@ -160,14 +169,14 @@ function HistoryRow({
         </svg>
         <span className="ml-1 flex min-w-0 flex-1 items-center overflow-hidden">
           <span
-            className={`min-w-0 truncate text-[12px] leading-[22px] ${
+            className={`min-w-0 flex-1 truncate text-ui-label leading-[22px] ${
               row.kind === "HEAD" ? "font-semibold" : ""
             }`}
           >
             {commit.subject || commit.shortSha}
           </span>
-          {commit.author ? (
-            <span className="ml-2 min-w-0 shrink truncate text-[12px] leading-[22px] text-content/45">
+          {showAuthor && commit.author ? (
+            <span className="ml-2 min-w-0 max-w-[6rem] shrink truncate text-ui-label leading-[22px] text-content/45">
               {commit.author}
             </span>
           ) : null}
@@ -182,7 +191,7 @@ function RefPill({ refInfo }: { refInfo: GraphRef }) {
   const local = refInfo.kind === "local";
   return (
     <span
-      className={`ml-1 flex h-3.5 min-w-0 max-w-[6.5rem] shrink-0 self-center items-center gap-0.5 truncate rounded-full px-1.5 text-[10px] leading-none ${
+      className={`ml-1 flex h-3.5 min-w-0 max-w-[6.5rem] shrink-0 self-center items-center gap-0.5 truncate rounded-full px-1.5 text-ui-micro leading-none ${
         refInfo.color ? "" : "bg-content/10 text-content/55"
       }`}
       style={
@@ -272,6 +281,7 @@ function sameHistory(
       other &&
       commit.sha === other.sha &&
       commit.subject === other.subject &&
+      commit.author === other.author &&
       commit.head === other.head &&
       commit.refs.length === other.refs.length &&
       commit.refs.every(

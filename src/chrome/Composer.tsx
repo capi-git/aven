@@ -140,6 +140,7 @@ import {
   ORCHESTRATOR_COMMAND,
 } from "../lib/orchestratorCommand";
 import { COMPACT_COMMAND, isCompactCommand } from "../lib/compact";
+import { resizeComposer } from "../lib/composerResize";
 
 type Props = {
   enabled?: boolean;
@@ -303,7 +304,7 @@ function MessageQueue({
         data-message-queue-card
       >
         {paused ? (
-          <div className="flex h-7 items-center gap-2 border-b border-content/10 text-[12px]">
+          <div className="flex h-7 items-center gap-2 border-b border-content/10 text-ui-label">
             <Pause className="size-3.5" />
             <span className="min-w-0 flex-1 truncate">Queue paused</span>
             <button
@@ -329,7 +330,7 @@ function MessageQueue({
               className={index > 0 ? "border-t border-content/10" : undefined}
               data-queued-message
             >
-              <div className="flex min-h-7 items-center gap-2 text-[12px]">
+              <div className="flex min-h-7 items-center gap-2 text-ui-label">
                 <ListEnd className="size-3.5 shrink-0" />
                 {editing ? (
                   <>
@@ -349,7 +350,7 @@ function MessageQueue({
                           saveEdit(message);
                         }
                       }}
-                      className="min-h-6 min-w-0 flex-1 resize-none rounded-md border border-content/15 bg-content/5 px-1.5 py-0.5 text-[12px] text-content outline-none focus:border-content/30"
+                      className="min-h-6 min-w-0 flex-1 resize-none rounded-md border border-content/15 bg-content/5 px-1.5 py-0.5 text-ui-label text-content outline-none focus:border-content/30"
                     />
                     <button
                       type="button"
@@ -516,6 +517,11 @@ function ComposerComponent({
   const slashRef = useRef<SlashToken | null>(null);
   const mentionRef = useRef<MentionToken | null>(null);
   const [draft, setDraft] = useState(initialDraft ?? "");
+  // React rewrites a textarea's text node whenever defaultValue changes, and
+  // WebKit then resets the field, committing any IME composition. The pane
+  // re-renders with the latest draft (often, while a reply streams), so keep
+  // the mount-time value; the initialDraft effect applies later changes.
+  const [mountDraft] = useState(initialDraft);
   const [hasValue, setHasValue] = useState(
     () =>
       (initialDraft ?? "").trim().length > 0 ||
@@ -826,22 +832,17 @@ function ComposerComponent({
     );
   }, [rankedFiles.length]);
 
-  const resizeTextarea = (el: HTMLTextAreaElement) => {
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
-  };
-
   useLayoutEffect(() => {
     // Attachment mode changes the field's padding and empty height. Measure
     // after those styles commit, without changing any of the saved draft.
-    if (ref.current) resizeTextarea(ref.current);
+    if (ref.current) resizeComposer(ref.current);
   }, [attachmentsOnly]);
 
   useEffect(() => {
     const el = ref.current;
     if (!el || !initialDraft) return;
     if (el.value !== initialDraft) el.value = initialDraft;
-    resizeTextarea(el);
+    resizeComposer(el);
   }, [initialDraft]);
 
   const syncHighlightScroll = useCallback((el: HTMLTextAreaElement) => {
@@ -891,7 +892,7 @@ function ComposerComponent({
     consumedQuoteId.current = result.consumedId;
     if (result.changed) {
       el.value = result.draft;
-      resizeTextarea(el);
+      resizeComposer(el);
       updateDraft(result.draft);
       syncHasValue(result.draft, attachmentsRef.current);
       setSlash(null);
@@ -934,7 +935,7 @@ function ComposerComponent({
             .replace(/^\s/, "")}`
         : replaceSlashToken(el.value, token, skill.invocation);
       el.value = next;
-      resizeTextarea(el);
+      resizeComposer(el);
       let cursor = modeCommand
         ? token.start
         : token.start + skill.invocation.length + 1;
@@ -971,7 +972,7 @@ function ComposerComponent({
         : mentionLabel(file, mentionIndexRef.current);
       const next = replaceMentionToken(el.value, token, label);
       el.value = next;
-      resizeTextarea(el);
+      resizeComposer(el);
       let cursor = token.start + label.length + 1;
       if (next[cursor] === " ") cursor += 1;
       el.setSelectionRange(cursor, cursor);
@@ -1117,10 +1118,15 @@ function ComposerComponent({
       // race could not start and the field is still empty.
       void Promise.resolve(onRace(text, files, raceLanes)).then((started) => {
         const el = ref.current;
-        if (started !== false || !el || el.value || attachmentsRef.current.length)
+        if (
+          started !== false ||
+          !el ||
+          el.value ||
+          attachmentsRef.current.length
+        )
           return;
         el.value = value;
-        resizeTextarea(el);
+        resizeComposer(el);
         updateDraft(value);
         updateAttachments(files);
         syncHasValue(value, files);
@@ -1287,7 +1293,9 @@ function ComposerComponent({
         addAttachments(files);
         ref.current?.focus();
       })
-      .catch(() => setAttachmentError("Couldn't attach these files. Try again."));
+      .catch(() =>
+        setAttachmentError("Couldn't attach these files. Try again."),
+      );
   };
 
   return (
@@ -1350,7 +1358,7 @@ function ComposerComponent({
                       const rest = el.value.slice(token.end).replace(/^\s/, "");
                       const next = `${el.value.slice(0, token.start)}${rest}`;
                       el.value = next;
-                      resizeTextarea(el);
+                      resizeComposer(el);
                       el.setSelectionRange(token.start, token.start);
                       updateDraft(next);
                       syncHasValue(next, attachments);
@@ -1399,12 +1407,12 @@ function ComposerComponent({
           }`}
         >
           {fileDrag ? (
-            <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center rounded-lg bg-accent/8 text-[12px] text-content/70">
+            <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center rounded-lg bg-accent/8 text-ui-label text-content/70">
               Drop files to attach
             </div>
           ) : null}
           {attachmentError || commandNotice ? (
-            <p role="alert" className="px-3 pt-2 text-[12px] text-content/80">
+            <p role="alert" className="px-3 pt-2 text-ui-label text-content/80">
               {attachmentError ?? commandNotice}
             </p>
           ) : null}
@@ -1480,7 +1488,7 @@ function ComposerComponent({
               data-composer-empty={navigationEmpty ? "true" : undefined}
               rows={1}
               spellCheck={false}
-              defaultValue={initialDraft}
+              defaultValue={mountDraft}
               placeholder={
                 inboxCard
                   ? "Add a note, or send to start…"
@@ -1513,7 +1521,7 @@ function ComposerComponent({
               onInput={(e) => {
                 const el = e.currentTarget;
                 setCommandNotice(null);
-                resizeTextarea(el);
+                resizeComposer(el);
                 updateDraft(el.value);
                 syncHasValue(el.value, attachments);
                 syncTokensFromTextarea(el);
@@ -1550,7 +1558,7 @@ function ComposerComponent({
                   data-composer-plus
                   className="p-1.5 outline-none"
                 >
-                  <p className="px-2 pb-1 pt-0.5 text-[10px] font-medium uppercase tracking-wide text-content/40">
+                  <p className="px-2 pb-1 pt-0.5 text-ui-micro font-medium uppercase tracking-wide text-content/40">
                     Add to message
                   </p>
                   <button
@@ -1565,8 +1573,8 @@ function ComposerComponent({
                   >
                     <FilePlus className="mt-0.5 size-4 shrink-0" />
                     <span className="min-w-0">
-                      <span className="block text-[13px]">Upload file</span>
-                      <span className="block text-[11px] leading-4 text-content/45">
+                      <span className="block text-ui-body">Upload file</span>
+                      <span className="block text-ui-caption leading-4 text-content/45">
                         {attachmentsSupported
                           ? "Attach files or images to this message"
                           : `${HARNESS_TITLE[harness]} does not support attachments`}
@@ -1588,8 +1596,8 @@ function ComposerComponent({
                   >
                     <AiIdea className="mt-0.5 size-4 shrink-0 text-yellow-300/80" />
                     <span className="min-w-0 flex-1">
-                      <span className="block text-[13px]">Plan mode</span>
-                      <span className="block text-[11px] leading-4 text-content/45">
+                      <span className="block text-ui-body">Plan mode</span>
+                      <span className="block text-ui-caption leading-4 text-content/45">
                         Create a plan to review before building
                       </span>
                     </span>
@@ -1613,8 +1621,8 @@ function ComposerComponent({
                     >
                       <Share className="mt-0.5 size-4 shrink-0 text-accent" />
                       <span className="min-w-0 flex-1">
-                        <span className="block text-[13px]">Orchestrator</span>
-                        <span className="block text-[11px] leading-4 text-content/45">
+                        <span className="block text-ui-body">Orchestrator</span>
+                        <span className="block text-ui-caption leading-4 text-content/45">
                           Plan and coordinate agent work
                         </span>
                       </span>
@@ -1636,7 +1644,7 @@ function ComposerComponent({
                   setOrchestrationSelected(false);
                   ref.current?.focus();
                 }}
-                className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-accent/10 px-1.5 text-[11px] text-accent hover:bg-accent/15"
+                className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-accent/10 px-1.5 text-ui-caption text-accent hover:bg-accent/15"
               >
                 <Share className="size-3.5" />
                 Orchestrator
@@ -1652,7 +1660,7 @@ function ComposerComponent({
                   setPlanSelected(false);
                   ref.current?.focus();
                 }}
-                className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-yellow-300/12 px-1.5 text-[11px] text-yellow-200/90 hover:bg-yellow-300/18"
+                className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-yellow-300/12 px-1.5 text-ui-caption text-yellow-200/90 hover:bg-yellow-300/18"
               >
                 <AiIdea className="size-3.5" />
                 Plan
@@ -1722,7 +1730,6 @@ function ComposerComponent({
                     onClose={() => ref.current?.focus()}
                   />
                 </div>
-
               </div>
             </div>
 
@@ -1742,10 +1749,10 @@ function ComposerComponent({
                   raceActive
                     ? `Race ${raceLanes.length} agents`
                     : queueSubmission
-                    ? "Queue message"
-                    : busy
-                      ? "Steer active turn"
-                      : "Send"
+                      ? "Queue message"
+                      : busy
+                        ? "Steer active turn"
+                        : "Send"
                 }
                 hasValue={hasValue}
                 onSend={() => submit(ref.current?.value ?? "")}

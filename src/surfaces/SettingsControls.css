@@ -12,12 +12,12 @@
   max-width: 60ch;
   margin: 8px 0 0;
   color: var(--aven-muted);
-  font-size: 13px;
+  font-size: var(--text-ui-body);
   line-height: 1.5;
 }
 .settings-heading {
   margin: 22px 0 8px;
-  font-size: 13px;
+  font-size: var(--text-ui-body);
   font-weight: 600;
   line-height: 1.4;
 }
@@ -45,14 +45,14 @@
 }
 .settings-group-header h2 {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-ui-body);
   font-weight: 600;
   line-height: 1.4;
 }
 .settings-group-header p {
   margin: 3px 0 0;
   color: var(--aven-muted);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   line-height: 1.5;
 }
 /* Where a group's choices are saved, as a quiet pill beside its title. */
@@ -106,7 +106,7 @@
 }
 .settings-row-label {
   color: var(--color-content);
-  font-size: 13px;
+  font-size: var(--text-ui-body);
   font-weight: 500;
   line-height: 1.5;
 }
@@ -114,7 +114,7 @@
   margin: 3px 0 0;
   max-width: 68ch;
   color: var(--aven-muted);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -147,7 +147,7 @@
   border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
   border-radius: 10px;
   background: var(--aven-field-bg, var(--aven-hover));
-  font-size: 12px;
+  font-size: var(--text-ui-label);
 }
 .settings-segmented button {
   min-width: 0;
@@ -247,7 +247,7 @@
 .settings-slider output {
   flex: 0 0 38px;
   color: var(--aven-muted);
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -323,7 +323,7 @@
   background: var(--aven-control-bg, var(--aven-raised));
   box-shadow: var(--aven-glass-sheen, none);
   color: var(--color-content);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   font-weight: 500;
   line-height: 1.4;
   transition:
@@ -384,7 +384,7 @@
 }
 @container settings (max-width: 640px) {
   .settings-page-header h1 {
-    font-size: 20px;
+    font-size: var(--text-ui-heading);
   }
   .settings-group-surface {
     padding: 0 14px;
@@ -541,5 +541,5 @@
 .settings-swatch-name {
   min-width: 7.5em;
   color: color-mix(in srgb, var(--color-content) 55%, transparent);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
 }

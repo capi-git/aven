@@ -90,7 +90,10 @@ type RuntimeActivity = {
   harness: HarnessId;
   turns: number;
   stopping: boolean;
-  agents: Map<string, Extract<HarnessEvent, { type: "agent.updated" }>["status"]>;
+  agents: Map<
+    string,
+    Extract<HarnessEvent, { type: "agent.updated" }>["status"]
+  >;
 };
 const runtimeActivity = new Map<string, RuntimeActivity>();
 
@@ -99,7 +102,12 @@ function beginRuntimeActivity<T extends CompactContextInput>(
 ): { input: T & { harness: HarnessId }; activity: RuntimeActivity } {
   let activity = runtimeActivity.get(input.sessionId);
   if (!activity || activity.harness !== input.harness || activity.stopping) {
-    activity = { harness: input.harness, turns: 0, stopping: false, agents: new Map() };
+    activity = {
+      harness: input.harness,
+      turns: 0,
+      stopping: false,
+      agents: new Map(),
+    };
     runtimeActivity.set(input.sessionId, activity);
   }
   activity.turns += 1;
@@ -110,14 +118,20 @@ function beginRuntimeActivity<T extends CompactContextInput>(
       ...input,
       onEvent: (event) => {
         if (runtimeActivity.get(input.sessionId) !== current) return;
-        if (event.type === "agent.updated") current.agents.set(event.agentId, event.status);
+        if (event.type === "agent.updated")
+          current.agents.set(event.agentId, event.status);
         if (event.type === "agents.cleared") current.agents.clear();
         if (event.type === "session.ended") {
           for (const [id, status] of current.agents) {
-            if (status === "running" || status === "waiting") current.agents.set(id, "unknown");
+            if (status === "running" || status === "waiting")
+              current.agents.set(id, "unknown");
           }
         }
-        if (event.type === "agent.updated" || event.type === "agents.cleared" || event.type === "session.ended") {
+        if (
+          event.type === "agent.updated" ||
+          event.type === "agents.cleared" ||
+          event.type === "session.ended"
+        ) {
           scheduleIdlePark(input.harness, input.sessionId);
         }
         input.onEvent(event);
@@ -126,9 +140,14 @@ function beginRuntimeActivity<T extends CompactContextInput>(
   };
 }
 
-function endRuntimeActivity(harness: HarnessId, sessionId: string, activity: RuntimeActivity): void {
+function endRuntimeActivity(
+  harness: HarnessId,
+  sessionId: string,
+  activity: RuntimeActivity,
+): void {
   activity.turns = Math.max(0, activity.turns - 1);
-  if (runtimeActivity.get(sessionId) === activity) scheduleIdlePark(harness, sessionId);
+  if (runtimeActivity.get(sessionId) === activity)
+    scheduleIdlePark(harness, sessionId);
 }
 
 function cancelIdlePark(sessionId: string): void {
@@ -141,8 +160,16 @@ function scheduleIdlePark(harness: HarnessId, sessionId: string): void {
   const activity = runtimeActivity.get(sessionId);
   if (activity && activity.harness !== harness) return;
   cancelIdlePark(sessionId);
-  if (activity && (activity.turns > 0 || activity.stopping ||
-    [...activity.agents.values()].some((status) => status === "running" || status === "waiting" || status === "unknown"))) return;
+  if (
+    activity &&
+    (activity.turns > 0 ||
+      activity.stopping ||
+      [...activity.agents.values()].some(
+        (status) =>
+          status === "running" || status === "waiting" || status === "unknown",
+      ))
+  )
+    return;
   idleParkTimers.set(
     sessionId,
     setTimeout(() => {
@@ -286,7 +313,8 @@ export async function stopHarnessSession(
   sessionId: string,
 ): Promise<void> {
   const currentActivity = runtimeActivity.get(sessionId);
-  const activity = currentActivity?.harness === harness ? currentActivity : undefined;
+  const activity =
+    currentActivity?.harness === harness ? currentActivity : undefined;
   if (!currentActivity || activity) cancelIdlePark(sessionId);
   const adapter = getHarness(harness);
   if (!adapter?.live) return;
@@ -296,7 +324,8 @@ export async function stopHarnessSession(
       forgetAgentBrowser(sessionId).catch(() => {}),
       adapter.stopSession(sessionId),
     ]);
-    if (activity && runtimeActivity.get(sessionId) === activity) runtimeActivity.delete(sessionId);
+    if (activity && runtimeActivity.get(sessionId) === activity)
+      runtimeActivity.delete(sessionId);
   } catch (error) {
     if (activity) activity.stopping = false;
     throw error;
@@ -308,7 +337,8 @@ export async function forgetHarnessSession(
   sessionId: string,
 ): Promise<void> {
   const currentActivity = runtimeActivity.get(sessionId);
-  const activity = currentActivity?.harness === harness ? currentActivity : undefined;
+  const activity =
+    currentActivity?.harness === harness ? currentActivity : undefined;
   if (!currentActivity || activity) cancelIdlePark(sessionId);
   const adapter = getHarness(harness);
   if (!adapter) return;
@@ -319,7 +349,8 @@ export async function forgetHarnessSession(
       forgetAgentBrowser(sessionId).catch(() => {}),
       adapter.forgetSession(sessionId),
     ]);
-    if (activity && runtimeActivity.get(sessionId) === activity) runtimeActivity.delete(sessionId);
+    if (activity && runtimeActivity.get(sessionId) === activity)
+      runtimeActivity.delete(sessionId);
   } catch (error) {
     if (activity) activity.stopping = false;
     throw error;

@@ -1,3 +1,4 @@
+import { errorText as errorMessage, logError } from "../lib/errors";
 import {
   browserIsTransferred,
   isDetachedWorkspace,
@@ -283,10 +284,6 @@ function startsWithUrl(value?: string): string {
   }
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 /** A project id change gets a fresh native view without inheriting another URL. */
 export function BrowserPane(props: BrowserPaneProps) {
   return <BrowserPaneSession key={props.id} {...props} />;
@@ -426,12 +423,7 @@ function BrowserPaneSession({
   const toolbarPresentation = useRef({ visible });
   toolbarPresentation.current = { visible };
   const focusShellForToolbar = useCallback((input: HTMLInputElement | null) => {
-    if (
-      !input ||
-      !isTauri() ||
-      !toolbarPresentation.current.visible
-    )
-      return;
+    if (!input || !isTauri() || !toolbarPresentation.current.visible) return;
     const generation = ++toolbarFocusGeneration.current;
     toolbarFocusTarget.current = input;
     // Chromium and the app's WKWebView are sibling native views. A DOM focus
@@ -660,13 +652,7 @@ function BrowserPaneSession({
       setRetryGeneration((generation) => generation + 1);
     }
     if (visible || attachedNativeId) void wakePage();
-  }, [
-    visible,
-    attachedNativeId,
-    wakePage,
-    updatePaused,
-    sleeping,
-  ]);
+  }, [visible, attachedNativeId, wakePage, updatePaused, sleeping]);
   const memoryRegistration = useRef<ReturnType<
     typeof registerBrowserMemoryPage
   > | null>(null);
@@ -988,7 +974,9 @@ function BrowserPaneSession({
       }
       unlisten?.();
       if (created && !terminated && !browserIsTransferred(nativeId))
-        void nativeBrowser.close(nativeId).catch(() => {});
+        void nativeBrowser
+          .close(nativeId)
+          .catch((error) => logError("Close browser", error));
     });
     return () => {
       disposed = true;
@@ -999,7 +987,9 @@ function BrowserPaneSession({
       if (!browserIsTransferred(nativeId)) unregisterAgentPage?.();
       unlisten?.();
       if (created && !terminated && !browserIsTransferred(nativeId))
-        void nativeBrowser.close(nativeId).catch(() => {});
+        void nativeBrowser
+          .close(nativeId)
+          .catch((error) => logError("Close browser", error));
     };
   }, [hasUrl, id, retryGeneration, requestedAttachmentId, sleeping]);
 

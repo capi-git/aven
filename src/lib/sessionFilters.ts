@@ -140,5 +140,7 @@ function isHarnessId(value: unknown): value is HarnessId {
 }
 
 function isTimeFilter(value: unknown): value is SessionTimeFilter {
-  return value === "all" || value === "today" || value === "7d" || value === "30d";
+  return (
+    value === "all" || value === "today" || value === "7d" || value === "30d"
+  );
 }

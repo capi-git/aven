@@ -7,7 +7,8 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::process::Command;
 
-use crate::fs::{expand_home, git_checked, github_route};
+use crate::fs::expand_home;
+use crate::git::{git_checked, github_route};
 
 #[derive(Serialize, Clone, Debug, Default, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]

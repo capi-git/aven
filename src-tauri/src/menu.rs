@@ -111,9 +111,7 @@ pub fn dispatch(app: &AppHandle, id: &str) {
     if crate::browser::dispatch_native_menu(id) {
         return;
     }
-    if crate::browser::dispatch_floating_menu(app, id)
-        || crate::session_pip::dispatch_floating_menu(app, id)
-    {
+    if crate::browser::dispatch_floating_menu(app, id) {
         return;
     }
     if !matches!(id, "new_window" | "quit") {

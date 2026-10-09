@@ -62,16 +62,16 @@ export function FileMentionPicker({
       className="overflow-hidden rounded-lg border border-content/10 bg-content/5 backdrop-blur-xl"
     >
       {files.length === 0 ? (
-        <p className="px-3 py-2.5 text-[12px] text-content/50">
-            {loading
-              ? "Indexing files…"
-              : query.trim()
-                ? includeNotes
-                  ? "No matching files or notes"
-                  : "No matching files or folders"
-                : includeNotes
-                  ? "No files or notes found"
-                  : "No files or folders found"}
+        <p className="px-3 py-2.5 text-ui-label text-content/50">
+          {loading
+            ? "Indexing files…"
+            : query.trim()
+              ? includeNotes
+                ? "No matching files or notes"
+                : "No matching files or folders"
+              : includeNotes
+                ? "No files or notes found"
+                : "No files or folders found"}
         </p>
       ) : (
         <div
@@ -85,7 +85,11 @@ export function FileMentionPicker({
             const highlighted = index === active;
             const note = isNoteMentionPath(file.path);
             const slash = file.relative.lastIndexOf("/");
-            const dir = note ? "" : slash === -1 ? "" : file.relative.slice(0, slash);
+            const dir = note
+              ? ""
+              : slash === -1
+                ? ""
+                : file.relative.slice(0, slash);
             const nameOffset = slash === -1 ? 0 : slash + 1;
             const namePositions = note
               ? file.positions
@@ -102,7 +106,7 @@ export function FileMentionPicker({
                 onMouseDown={(e) => e.preventDefault()}
                 onMouseEnter={() => onRowEnter(index)}
                 onClick={() => onPick(file)}
-                className={`flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] leading-none ${
+                className={`flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-ui-body leading-none ${
                   highlighted ? "bg-content/10 text-content" : "text-content"
                 }`}
               >
@@ -130,11 +134,11 @@ export function FileMentionPicker({
                   {file.isDir ? "/" : null}
                 </span>
                 {note ? (
-                  <span className="shrink-0 font-mono text-[11px] text-content/40">
+                  <span className="shrink-0 font-mono text-ui-caption text-content/40">
                     Note
                   </span>
                 ) : dir ? (
-                  <span className="min-w-0 max-w-[45%] truncate font-mono text-[11px] text-content/40">
+                  <span className="min-w-0 max-w-[45%] truncate font-mono text-ui-caption text-content/40">
                     <MatchText
                       text={dir}
                       positions={file.positions.filter((pos) => pos < slash)}

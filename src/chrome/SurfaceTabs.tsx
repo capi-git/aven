@@ -304,7 +304,7 @@ export function SurfaceTabs({
                     if (sortable.consumeClick()) return;
                     onSelectFile(file.id);
                   }}
-                  className={`aven-surface-tab-button flex min-w-0 flex-1 items-center gap-1.5 px-3 pr-8 text-left text-[12px] ${
+                  className={`aven-surface-tab-button flex min-w-0 flex-1 items-center gap-1.5 px-3 pr-8 text-left text-ui-label ${
                     canDrag ? "cursor-grab active:cursor-grabbing" : ""
                   } ${
                     active

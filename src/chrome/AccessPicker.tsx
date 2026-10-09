@@ -163,7 +163,9 @@ export function AccessPicker({
         className={`flex h-6.5 max-w-52 items-center gap-1 rounded-md px-1.5 ${open ? "bg-content/10 text-content" : "bg-content/10 text-content hover:bg-content/15"}`}
       >
         <Icon className="size-3.5 shrink-0" strokeWidth={1.75} />
-        <span className={compact ? "sr-only" : "min-w-0 truncate text-[11px]"}>
+        <span
+          className={compact ? "sr-only" : "min-w-0 truncate text-ui-caption"}
+        >
           {RUNTIME_MODE_LABEL[value]}
         </span>
         {compact ? null : (
@@ -174,7 +176,7 @@ export function AccessPicker({
         )}
       </button>
       {error ? (
-        <span role="status" className="text-[11px] text-content/70">
+        <span role="status" className="text-ui-caption text-content/70">
           {error}
         </span>
       ) : null}

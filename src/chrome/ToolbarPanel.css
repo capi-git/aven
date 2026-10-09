@@ -97,7 +97,7 @@ html.popup-glass .toolbar-panel {
   min-width: 0;
   margin: 0;
   color: var(--toolbar-panel-text);
-  font-size: 14px;
+  font-size: var(--text-ui-reading);
   font-weight: 600;
   letter-spacing: -0.1px;
 }
@@ -152,7 +152,7 @@ html.popup-glass .toolbar-panel {
 
 .toolbar-panel-secondary {
   color: var(--toolbar-panel-muted);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   line-height: 1.5;
 }
 

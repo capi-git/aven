@@ -112,10 +112,10 @@ describe("retained browser pages in the workspace stage", () => {
       `[data-workspace-surface="${id}"] [aria-label="Preview address"]`,
     );
   }
-  const columns = (): LayoutNode => ({
+  const columns = (dir: "right" | "down" = "right"): LayoutNode => ({
     type: "split",
     id: "a-columns",
-    dir: "right",
+    dir,
     sizes: [0.6, 0.4],
     children: [leaf("project-a-preview"), leaf("project-a-docs")],
   });
@@ -153,7 +153,9 @@ describe("retained browser pages in the workspace stage", () => {
       root.render(createElement(RetainedBrowserPane, props)),
     );
     await act(async () =>
-      root.render(createElement(RetainedBrowserPane, { ...props, visible: true })),
+      root.render(
+        createElement(RetainedBrowserPane, { ...props, visible: true }),
+      ),
     );
     await act(async () =>
       root.render(createElement(RetainedBrowserPane, props)),
@@ -211,7 +213,7 @@ describe("retained browser pages in the workspace stage", () => {
       preview.dispatchEvent(new Event("input", { bubbles: true }));
     });
     pageIds = ["project-a-docs", "project-b-preview", "project-a-preview"];
-    await render({ ...columns(), type: "split", dir: "down" });
+    await render(columns("down"));
     expect(address("project-a-preview")).toBe(preview);
     expect(address("project-a-docs")).toBe(docs);
     expect(preview.value).toBe("Unsubmitted address text");

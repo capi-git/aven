@@ -9,7 +9,11 @@
     var(--color-accent) 45%,
     transparent
   );
-  --aven-tab-selected: color-mix(in srgb, var(--color-content) 10%, transparent);
+  --aven-tab-selected: color-mix(
+    in srgb,
+    var(--color-content) 10%,
+    transparent
+  );
 }
 html.theme-light .personal-shell {
   --aven-tab-selected: color-mix(in srgb, var(--color-content) 6%, transparent);
@@ -125,7 +129,7 @@ html.theme-light .personal-shell {
   display: none;
 }
 .personal-shell .personal-title-tab-label {
-  font-size: 13px;
+  font-size: var(--text-ui-body);
   font-weight: 400;
   line-height: 1.25;
 }
@@ -382,7 +386,7 @@ html.theme-light .personal-shell {
   padding: 0 6px;
   border-radius: 5px;
   color: color-mix(in srgb, var(--color-content) 58%, transparent);
-  font-size: 10px;
+  font-size: var(--text-ui-micro);
   white-space: nowrap;
   cursor: default;
 }

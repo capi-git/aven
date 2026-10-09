@@ -205,7 +205,13 @@ function headTailIntent(argv: string[]): Classified {
       files.push(...argv.slice(i + 1));
       break;
     }
-    if (/^-\d+$/.test(arg) || arg === "-n" || arg === "-c" || arg === "-q" || arg === "-v") {
+    if (
+      /^-\d+$/.test(arg) ||
+      arg === "-n" ||
+      arg === "-c" ||
+      arg === "-q" ||
+      arg === "-v"
+    ) {
       if (arg === "-n" || arg === "-c") i += 1;
       continue;
     }
@@ -308,7 +314,12 @@ function findIntent(argv: string[]): Classified {
   let path: string | undefined;
   for (let i = 1; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "-name" || arg === "-iname" || arg === "-path" || arg === "-ipath") {
+    if (
+      arg === "-name" ||
+      arg === "-iname" ||
+      arg === "-path" ||
+      arg === "-ipath"
+    ) {
       query = argv[i + 1];
       i += 1;
       continue;
@@ -370,12 +381,22 @@ function isSedScript(value: string): boolean {
 }
 
 function tidyPath(value: string | undefined): string | undefined {
-  if (!value || value === "-" || value === "/dev/stdin" || value === "/dev/stdout") {
+  if (
+    !value ||
+    value === "-" ||
+    value === "/dev/stdin" ||
+    value === "/dev/stdout"
+  ) {
     return undefined;
   }
   if (value.includes(">") || value.includes("<")) return undefined;
   const trimmed = value.replace(/\\/g, "/").replace(/\/+$/, "");
-  if (!trimmed || trimmed === "." || trimmed === "./" || trimmed === "/dev/null") {
+  if (
+    !trimmed ||
+    trimmed === "." ||
+    trimmed === "./" ||
+    trimmed === "/dev/null"
+  ) {
     return undefined;
   }
   if (/^\d+$/.test(trimmed)) return undefined;
@@ -388,7 +409,12 @@ function binName(token: string): string {
 }
 
 function isSedInPlace(arg: string): boolean {
-  return arg === "--in-place" || arg === "-i" || arg.startsWith("-i") || arg.startsWith("--in-place=");
+  return (
+    arg === "--in-place" ||
+    arg === "-i" ||
+    arg.startsWith("-i") ||
+    arg.startsWith("--in-place=")
+  );
 }
 
 function sedStartLine(script: string | undefined): number | undefined {

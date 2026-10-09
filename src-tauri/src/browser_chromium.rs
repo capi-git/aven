@@ -11,6 +11,34 @@ use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, EventTarget, Manager, Url, Webview, Window};
 
+#[path = "browser_layout_trace.rs"]
+mod layout_trace;
+#[path = "browser_renderer.rs"]
+mod renderer;
+
+fn trace_layout(
+    phase: &str,
+    id: &str,
+    window: &str,
+    bounds: &BrowserBounds,
+    visible: bool,
+    flags: Value,
+) {
+    if layout_trace::enabled() {
+        layout_trace::record(
+            phase,
+            id,
+            window,
+            visible,
+            json!({
+                "x": bounds.x, "y": bounds.y, "width": bounds.width, "height": bounds.height,
+                "scale": bounds.scale, "viewportHeight": bounds.viewport_height,
+                "clipLeft": bounds.clip_left, "clipRight": bounds.clip_right, "flags": flags,
+            }),
+        );
+    }
+}
+
 type NativeEvent = unsafe extern "C" fn(*const c_char, *const c_char, *mut c_void);
 extern "C" {
     fn sm_chromium_initialize(
@@ -209,6 +237,8 @@ struct PageContext {
     caller: Webview,
     root: String,
     native_id: String,
+    renderer_label: String,
+    renderer_epoch: u64,
     state: Mutex<BrowserState>,
     downloads: Mutex<Vec<BrowserDownload>>,
     pending_toolbar: Mutex<Option<String>>,
@@ -225,6 +255,7 @@ struct Pending {
 }
 #[derive(Default)]
 struct Registry {
+    renderer_epochs: renderer::RendererEpochs,
     roots: HashMap<String, Arc<PageContext>>,
     pages: HashMap<String, Arc<PageContext>>,
     floating: HashMap<String, String>,
@@ -266,6 +297,48 @@ pub fn browser_engine_options(options: BrowserEngineOptions) -> bool {
 static NEXT: AtomicU64 = AtomicU64::new(1);
 fn registry() -> &'static Mutex<Registry> {
     REGISTRY.get_or_init(|| Mutex::new(Registry::default()))
+}
+
+#[tauri::command]
+pub fn browser_renderer_epoch(caller: Webview) -> Result<u64, String> {
+    label(&caller, "renderer")?;
+    Ok(registry()
+        .lock()
+        .map_err(|_| "Browser is unavailable")?
+        .renderer_epochs
+        .current(caller.label()))
+}
+
+/// A document replacement does not destroy its NSWindow or run React cleanup.
+/// Capture outgoing pages now, before the new document can create replacements.
+pub fn renderer_loading(caller: &Webview) {
+    if !crate::window::is_workspace_label(caller.label()) {
+        return;
+    }
+    let (epoch, outgoing) = {
+        let mut entries = registry().lock().unwrap_or_else(|error| error.into_inner());
+        let epoch = entries.renderer_epochs.advance(caller.label());
+        let outgoing = entries
+            .pages
+            .values()
+            .filter(|context| context.caller.label() == caller.label())
+            .cloned()
+            .collect::<Vec<_>>();
+        (epoch, outgoing)
+    };
+    layout_trace::record(
+        "renderer-loading",
+        "",
+        caller.label(),
+        false,
+        json!({"epoch": epoch, "capturedCount": outgoing.len(), "captured": outgoing.iter().map(|context| &context.native_id).collect::<Vec<_>>()}),
+    );
+    for context in outgoing {
+        let label = caller.label().to_string();
+        tauri::async_runtime::spawn(async move {
+            let _ = close_context_for_reload(context, &label, epoch).await;
+        });
+    }
 }
 
 pub(crate) async fn ensure_update_idle(app: &AppHandle) -> Result<(), String> {
@@ -537,6 +610,7 @@ fn initialize(app: &AppHandle) -> Result<PathBuf, String> {
                 "cachePath": cache.to_string_lossy(),
                 "devUrl": app.config().build.dev_url.as_ref().map(Url::as_str),
                 "lowMemory": LOW_MEMORY.load(Ordering::Acquire),
+                "layoutTrace": layout_trace::enabled(),
             })
             .to_string(),
         )?;
@@ -754,6 +828,30 @@ fn edit_event_payload(id: &str, event: &Value) -> Option<Value> {
 
 fn handle_event(native_id: &str, event: Value) {
     let kind = event.get("type").and_then(Value::as_str).unwrap_or("");
+    if kind == "layoutTrace" {
+        if layout_trace::enabled() {
+            let window = registry()
+                .lock()
+                .ok()
+                .and_then(|entries| entries.pages.get(native_id).cloned())
+                .map(|context| context.caller.label().to_string())
+                .unwrap_or_default();
+            layout_trace::record(
+                event
+                    .get("phase")
+                    .and_then(Value::as_str)
+                    .unwrap_or("native"),
+                native_id,
+                &window,
+                event
+                    .get("visible")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                event.get("geometry").cloned().unwrap_or(Value::Null),
+            );
+        }
+        return;
+    }
     if kind == "result" {
         let Some(request) = event.get("requestId").and_then(Value::as_str) else {
             return;
@@ -1187,12 +1285,44 @@ pub async fn browser_create(
     id: String,
     url: String,
     bounds: BrowserBounds,
+    renderer_epoch: u64,
 ) -> Result<(), String> {
+    trace_layout(
+        "create-request",
+        &id,
+        caller.label(),
+        &bounds,
+        false,
+        Value::Null,
+    );
     let _work = crate::window::begin_runtime_work(caller.app_handle())?;
     let root = label(&caller, &id)?;
     let url = parse_url(&caller, &url)?;
     bounds.validate()?;
+    if !registry()
+        .lock()
+        .map_err(|_| "Browser is unavailable")?
+        .renderer_epochs
+        .accepts(caller.label(), renderer_epoch)
+    {
+        layout_trace::record(
+            "create-retired-renderer",
+            &id,
+            caller.label(),
+            false,
+            json!({"epoch": renderer_epoch}),
+        );
+        return Err("The browser's workspace document was replaced".into());
+    }
     if preview(&caller, &id).is_ok() {
+        trace_layout(
+            "create-existing",
+            &id,
+            caller.label(),
+            &bounds,
+            true,
+            Value::Null,
+        );
         return browser_layout(caller, id, bounds, true).await;
     }
     let delegate = crate::workspace_window::owner_for_child(caller.app_handle(), caller.label());
@@ -1205,6 +1335,8 @@ pub async fn browser_create(
         caller: page_owner,
         root: root.clone(),
         native_id: format!("{root}-{}", NEXT.fetch_add(1, Ordering::Relaxed)),
+        renderer_label: caller.label().to_string(),
+        renderer_epoch,
         state: Mutex::new(BrowserState {
             id,
             url: url.to_string(),
@@ -1242,6 +1374,19 @@ pub async fn browser_create(
     let (created_sender, created_receiver) = mpsc::channel();
     {
         let mut entries = registry().lock().map_err(|_| "Browser is unavailable")?;
+        if !entries
+            .renderer_epochs
+            .accepts(caller.label(), renderer_epoch)
+        {
+            layout_trace::record(
+                "create-retired-renderer",
+                &context.native_id,
+                caller.label(),
+                false,
+                json!({"epoch": renderer_epoch}),
+            );
+            return Err("The browser's workspace document was replaced".into());
+        }
         if entries.roots.contains_key(&root) {
             return Err("This browser tab is already opening".into());
         }
@@ -1266,6 +1411,30 @@ pub async fn browser_create(
         let native_id = string(&creation_context.native_id)?;
         let url = string(url.as_str())?;
         let profile = string(&profile.join("Default").to_string_lossy())?;
+        // Initialization can enter Cocoa's run loop. Check the epoch only
+        // after it returns, immediately before creating the native child.
+        let current = {
+            let entries = registry().lock().map_err(|_| "Browser is unavailable")?;
+            !creation_context.closed.load(Ordering::Acquire)
+                && entries.renderer_epochs.accepts(
+                    &creation_context.renderer_label,
+                    creation_context.renderer_epoch,
+                )
+                && entries
+                    .pages
+                    .get(&creation_context.native_id)
+                    .is_some_and(|registered| Arc::ptr_eq(registered, &creation_context))
+        };
+        if !current {
+            layout_trace::record(
+                "create-native-retired",
+                &creation_context.native_id,
+                &creation_context.renderer_label,
+                false,
+                json!({"epoch": creation_context.renderer_epoch}),
+            );
+            return Err("The browser's workspace document was replaced".into());
+        }
         native_result(unsafe {
             sm_chromium_create(
                 native_id.as_ptr(),
@@ -1495,10 +1664,54 @@ pub async fn browser_layout(
     bounds: BrowserBounds,
     visible: bool,
 ) -> Result<(), String> {
-    bounds.validate()?;
-    let page = preview(&caller, &id)?;
+    trace_layout(
+        "layout-request",
+        &id,
+        caller.label(),
+        &bounds,
+        visible,
+        Value::Null,
+    );
+    if let Err(error) = bounds.validate() {
+        trace_layout(
+            "layout-invalid",
+            &id,
+            caller.label(),
+            &bounds,
+            visible,
+            Value::Null,
+        );
+        return Err(error);
+    }
+    let page = match preview(&caller, &id) {
+        Ok(page) => page,
+        Err(error) => {
+            trace_layout(
+                "layout-lookup-missing",
+                &id,
+                caller.label(),
+                &bounds,
+                visible,
+                Value::Null,
+            );
+            return Err(error);
+        }
+    };
     let mut placement = page.0.placement.lock().await;
     let delegated = placement.detached_window.as_deref() == Some(caller.label());
+    trace_layout(
+        "layout-owner",
+        &page.0.native_id,
+        caller.label(),
+        &bounds,
+        visible,
+        json!({
+            "owner": page.0.caller.label(), "delegated": delegated,
+            "detachedWindow": placement.detached_window, "floatingWindow": placement.window,
+            "closed": page.0.closed.load(Ordering::Acquire),
+            "dockVisible": placement.dock_visible, "awaitingLayout": placement.awaiting_layout,
+        }),
+    );
     if delegated {
         placement.detached_bounds = Some(bounds.clone());
         placement.detached_visible = visible;
@@ -1511,6 +1724,14 @@ pub async fn browser_layout(
         || placement.window.is_some()
         || page.0.closed.load(Ordering::Acquire)
     {
+        trace_layout(
+            "layout-skipped",
+            &page.0.native_id,
+            caller.label(),
+            &bounds,
+            visible,
+            Value::Null,
+        );
         return Ok(());
     }
     let context = page.0.clone();
@@ -1522,6 +1743,14 @@ pub async fn browser_layout(
         let [clip_left, clip_right] = bounds.clip_points(scale)?;
         let viewport_height = bounds.viewport_points(scale)?;
         let bottom_corner_radius = bounds.bottom_radius_points(scale)?;
+        trace_layout(
+            "layout-accepted",
+            &context.native_id,
+            window.label(),
+            &bounds,
+            visible,
+            json!({"nativeScale": scale, "points": [x, y, w, h]}),
+        );
         let native_id = string(&context.native_id)?;
         native_result(unsafe {
             sm_chromium_layout(
@@ -1541,6 +1770,19 @@ pub async fn browser_layout(
     .await;
     if result.is_ok() {
         placement.awaiting_layout = false;
+    }
+    if layout_trace::enabled() {
+        layout_trace::record(
+            if result.is_ok() {
+                "layout-complete"
+            } else {
+                "layout-failed"
+            },
+            &page.0.native_id,
+            caller.label(),
+            visible,
+            Value::Null,
+        );
     }
     result
 }
@@ -1778,9 +2020,8 @@ fn route_toolbar_command(context: Arc<PageContext>, action: String) {
                 .unwrap_or_else(|error| error.into_inner()) = Some(action);
             placement.window.is_some()
         };
-        // set_floating owns the existing group-return handshake. A grouped
-        // return starts asynchronously; it flushes this intent when docking
-        // actually finishes, not when the group merely accepts the request.
+        // Dock the floating page first; the intent flushes only once docking
+        // has finished.
         if floating {
             if let Err(error) = set_floating(context.clone(), false).await {
                 context
@@ -1797,14 +2038,6 @@ fn route_toolbar_command(context: Arc<PageContext>, action: String) {
 }
 
 async fn set_floating(context: Arc<PageContext>, floating: bool) -> Result<(), String> {
-    if !floating {
-        let current = context.placement.lock().await.window.clone();
-        if current.as_ref().is_some_and(|label| {
-            crate::pip_group::request_return(context.caller.app_handle(), label)
-        }) {
-            return Ok(());
-        }
-    }
     let mut placement = context.placement.lock().await;
     if context.closed.load(Ordering::Acquire) {
         return Err("Browser is closed".into());
@@ -1965,8 +2198,98 @@ pub async fn browser_show_floating(caller: Webview, id: String) -> Result<(), St
     window.set_focus().map_err(|error| error.to_string())
 }
 async fn close_context(context: Arc<PageContext>) -> Result<(), String> {
+    close_context_checked(context, None).await
+}
+
+async fn close_context_for_reload(
+    context: Arc<PageContext>,
+    label: &str,
+    epoch: u64,
+) -> Result<(), String> {
+    close_context_checked(context, Some((label, epoch))).await
+}
+
+fn reload_owns_page(owner: &str, label: &str, placement: &Placement) -> bool {
+    owner == label && placement.window.is_none() && placement.detached_window.is_none()
+}
+
+#[cfg(test)]
+mod renderer_reload_tests {
+    use super::*;
+
+    #[test]
+    fn retires_only_pages_currently_docked_in_the_reloading_owner() {
+        let dock = Placement::default();
+        assert!(reload_owns_page("main", "main", &dock));
+        assert!(!reload_owns_page("window-1", "main", &dock));
+    }
+
+    #[test]
+    fn child_created_page_is_retired_after_returning_to_its_primary_owner() {
+        // Creation renderer/epoch are deliberately not cleanup ownership:
+        // a child-created page's caller is its primary owner throughout.
+        let mut placement = Placement {
+            detached_window: Some("workspace-detached-1".into()),
+            ..Placement::default()
+        };
+        assert!(!reload_owns_page("main", "main", &placement));
+        placement.detached_window = None;
+        assert!(reload_owns_page("main", "main", &placement));
+    }
+
+    #[test]
+    fn rechecks_placement_after_a_transfer_wins_the_lock() {
+        let mut placement = Placement::default();
+        assert!(reload_owns_page("main", "main", &placement));
+        // Selection precedes async cleanup; its ownership check runs only
+        // after acquiring the same lock that protects these transfer changes.
+        placement.detached_window = Some("workspace-detached-1".into());
+        assert!(!reload_owns_page("main", "main", &placement));
+        placement.detached_window = None;
+        placement.window = Some("preview-float-1".into());
+        assert!(!reload_owns_page("main", "main", &placement));
+    }
+}
+
+async fn close_context_checked(
+    context: Arc<PageContext>,
+    reload: Option<(&str, u64)>,
+) -> Result<(), String> {
+    layout_trace::record(
+        "close-request",
+        &context.native_id,
+        context.caller.label(),
+        false,
+        Value::Null,
+    );
     let mut placement = context.placement.lock().await;
+    if let Some((label, epoch)) = reload {
+        if !reload_owns_page(context.caller.label(), label, &placement) {
+            layout_trace::record(
+                "reload-preserved",
+                &context.native_id,
+                label,
+                false,
+                json!({"epoch": epoch, "floatingWindow": placement.window, "detachedWindow": placement.detached_window}),
+            );
+            return Ok(());
+        }
+        layout_trace::record(
+            "reload-close",
+            &context.native_id,
+            label,
+            false,
+            json!({"epoch": epoch}),
+        );
+    }
     if context.closed.swap(true, Ordering::AcqRel) {
+        layout_trace::record(
+            "close-already-requested",
+            &context.native_id,
+            context.caller.label(),
+            false,
+            Value::Null,
+        );
         return Ok(());
     }
     let app = context.caller.app_handle();
@@ -1984,6 +2307,17 @@ async fn close_context(context: Arc<PageContext>) -> Result<(), String> {
         native_result(unsafe { sm_chromium_close(id.as_ptr()) })
     })
     .await;
+    layout_trace::record(
+        if result.is_ok() {
+            "close-native-accepted"
+        } else {
+            "close-native-failed"
+        },
+        &context.native_id,
+        context.caller.label(),
+        false,
+        Value::Null,
+    );
     if result.is_ok() {
         // Keep the owning NSWindow alive until Chromium releases its child view.
         // Waiting on the async worker lets Cocoa continue delivering close events.
@@ -1993,6 +2327,13 @@ async fn close_context(context: Arc<PageContext>) -> Result<(), String> {
         .await
         .map_err(|error| error.to_string())?;
         if finished.is_err() {
+            layout_trace::record(
+                "close-timeout",
+                &context.native_id,
+                context.caller.label(),
+                false,
+                Value::Null,
+            );
             context.closed.store(false, Ordering::Release);
             registry()
                 .lock()
@@ -2008,6 +2349,13 @@ async fn close_context(context: Arc<PageContext>) -> Result<(), String> {
         .closing
         .remove(&context.native_id);
     remove_context(&context);
+    layout_trace::record(
+        "close-context-removed",
+        &context.native_id,
+        context.caller.label(),
+        false,
+        Value::Null,
+    );
     if let Some(label) = placement.window.take() {
         registry()
             .lock()

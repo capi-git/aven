@@ -147,7 +147,7 @@ export function SessionChangesDiff({ cwd, sessionId, focusPath }: Props) {
 
   if (!cwd || cwd === "~") {
     return (
-      <p className="grid h-full place-items-center text-[13px] text-content/45">
+      <p className="grid h-full place-items-center text-ui-body text-content/45">
         No project folder
       </p>
     );
@@ -156,8 +156,10 @@ export function SessionChangesDiff({ cwd, sessionId, focusPath }: Props) {
     return (
       <div className="grid h-full place-items-center p-6 text-center">
         <AlertCircle className="mx-auto mb-3 size-5 text-red-400" />
-        <p className="text-[13px] text-content">Couldn’t load session changes</p>
-        <p className="mt-1 text-[12px] text-content/50">{error}</p>
+        <p className="text-ui-body text-content">
+          Couldn’t load session changes
+        </p>
+        <p className="mt-1 text-ui-label text-content/50">{error}</p>
       </div>
     );
   }
@@ -170,7 +172,7 @@ export function SessionChangesDiff({ cwd, sessionId, focusPath }: Props) {
   }
   if (files.length === 0) {
     return (
-      <p className="grid h-full place-items-center text-[13px] text-content/45">
+      <p className="grid h-full place-items-center text-ui-body text-content/45">
         No session changes
       </p>
     );

@@ -96,4 +96,46 @@ NSData *CropBrowserEditImage(NSData *png, BrowserRect target, uint32_t &width, u
   height = outputHeight;
   return [encoded copy];
 }
+NSData *CompressBrowserCoverImage(NSData *png, uint32_t &width, uint32_t &height) {
+  width = height = 0;
+  uint32_t sourceWidth = 0, sourceHeight = 0;
+  if (!ViewportDimensions(png, sourceWidth, sourceHeight)) return nil;
+  NSDictionary *options = @{
+    (__bridge NSString *)kCGImageSourceShouldCache:@NO,
+    (__bridge NSString *)kCGImageSourceCreateThumbnailFromImageAlways:@YES,
+    (__bridge NSString *)kCGImageSourceThumbnailMaxPixelSize:@(kBrowserCoverMaxEdge),
+  };
+  OwnedCF<CGImageSourceRef> source(CGImageSourceCreateWithData((__bridge CFDataRef)png,
+      (__bridge CFDictionaryRef)options));
+  if (!source || CGImageSourceGetCount(source) != 1 ||
+      !CGImageSourceGetType(source) || !CFEqual(CGImageSourceGetType(source), CFSTR("public.png")) ||
+      CGImageSourceGetStatus(source) != kCGImageStatusComplete) return nil;
+  OwnedCF<CGImageRef> image(CGImageSourceCreateThumbnailAtIndex(source, 0,
+      (__bridge CFDictionaryRef)options));
+  if (!image) return nil;
+  const size_t outputWidth = CGImageGetWidth(image), outputHeight = CGImageGetHeight(image);
+  if (!outputWidth || !outputHeight || outputWidth > std::min(sourceWidth,kBrowserCoverMaxEdge) ||
+      outputHeight > std::min(sourceHeight,kBrowserCoverMaxEdge)) return nil;
+  OwnedCF<CGColorSpaceRef> color(CGColorSpaceCreateWithName(kCGColorSpaceSRGB));
+  OwnedCF<CGContextRef> context(color ? CGBitmapContextCreate(nullptr,outputWidth,outputHeight,8,
+      outputWidth*4,color,static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedLast) | kCGBitmapByteOrder32Big) : nullptr);
+  if (!context) return nil;
+  // CEF's page canvas is white. Flatten any alpha before JPEG encoding.
+  CGContextSetRGBFillColor(context,1,1,1,1);
+  CGContextFillRect(context,CGRectMake(0,0,outputWidth,outputHeight));
+  CGContextDrawImage(context,CGRectMake(0,0,outputWidth,outputHeight),image);
+  OwnedCF<CGImageRef> opaque(CGBitmapContextCreateImage(context));
+  if (!opaque) return nil;
+  NSMutableData *encoded = [NSMutableData data];
+  OwnedCF<CGImageDestinationRef> destination(CGImageDestinationCreateWithData(
+      (__bridge CFMutableDataRef)encoded,CFSTR("public.jpeg"),1,nullptr));
+  if (!destination) return nil;
+  NSDictionary *quality = @{(__bridge NSString *)kCGImageDestinationLossyCompressionQuality:@0.86};
+  CGImageDestinationAddImage(destination,opaque,(__bridge CFDictionaryRef)quality);
+  if (!CGImageDestinationFinalize(destination) || !encoded.length ||
+      encoded.length > kBrowserCoverMaxBytes) return nil;
+  width = static_cast<uint32_t>(outputWidth);
+  height = static_cast<uint32_t>(outputHeight);
+  return [encoded copy];
+}
 }  // namespace supermono

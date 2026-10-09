@@ -1,4 +1,12 @@
-import { memo, useMemo, type CSSProperties, type ElementType } from "react";
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  type CSSProperties,
+  type ElementType,
+} from "react";
+import { isWindowActive, subscribeWindowActivity } from "../lib/windowActivity";
 
 export interface ShimmerProps {
   children: string;
@@ -15,6 +23,30 @@ function ShimmerComponent({
   duration = 2,
   spread = 2,
 }: ShimmerProps) {
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    let intersecting = typeof IntersectionObserver === "undefined";
+    const update = () => {
+      element.style.animationPlayState =
+        intersecting && isWindowActive() ? "running" : "paused";
+    };
+    const unsubscribe = subscribeWindowActivity(update);
+    const observer =
+      typeof IntersectionObserver === "undefined"
+        ? null
+        : new IntersectionObserver(([entry]) => {
+            intersecting = entry?.isIntersecting ?? false;
+            update();
+          });
+    observer?.observe(element);
+    update();
+    return () => {
+      observer?.disconnect();
+      unsubscribe();
+    };
+  }, []);
   const dynamicSpread = useMemo(
     () => (children?.length ?? 0) * spread,
     [children, spread],
@@ -22,6 +54,7 @@ function ShimmerComponent({
 
   return (
     <Component
+      ref={ref}
       className={`shimmer-text relative inline-block ${className}`.trim()}
       style={
         {

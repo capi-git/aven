@@ -58,7 +58,7 @@ export function PlanPreview({
           {onOpen ? (
             <button
               type="button"
-              className="block w-full truncate text-left font-sans text-[13px] font-medium text-content/90 hover:text-yellow-100"
+              className="block w-full truncate text-left font-sans text-ui-body font-medium text-content/90 hover:text-yellow-100"
               title={title}
               onClick={onOpen}
             >
@@ -66,14 +66,14 @@ export function PlanPreview({
             </button>
           ) : (
             <span
-              className="block truncate font-sans text-[13px] font-medium text-content/90"
+              className="block truncate font-sans text-ui-body font-medium text-content/90"
               title={title}
             >
               {title}
             </span>
           )}
           {summary ? (
-            <p className="mt-0.5 line-clamp-3 font-sans text-[12px] leading-4.5 text-content/50">
+            <p className="mt-0.5 line-clamp-3 font-sans text-ui-label leading-4.5 text-content/50">
               {summary}
             </p>
           ) : null}
@@ -84,7 +84,7 @@ export function PlanPreview({
                   type="button"
                   title="Open in pane"
                   aria-label="Open plan in pane"
-                  className="flex h-6 shrink-0 items-center gap-1 rounded-md bg-content/8 px-2 font-sans text-[11px] text-content/70 hover:bg-content/12 hover:text-content"
+                  className="flex h-6 shrink-0 items-center gap-1 rounded-md bg-content/8 px-2 font-sans text-ui-caption text-content/70 hover:bg-content/12 hover:text-content"
                   onClick={onOpen}
                 >
                   <PanelRight className="size-3" strokeWidth={1.75} />
@@ -97,7 +97,7 @@ export function PlanPreview({
                     type="button"
                     title="Build this plan"
                     disabled={buildDisabled}
-                    className={`flex h-6 shrink-0 items-center gap-1 bg-content px-2 font-sans text-[11px] text-background-base hover:bg-content/90 disabled:cursor-not-allowed disabled:opacity-40 ${
+                    className={`flex h-6 shrink-0 items-center gap-1 bg-content px-2 font-sans text-ui-caption text-background-base hover:bg-content/90 disabled:cursor-not-allowed disabled:opacity-40 ${
                       harness ? "rounded-l-md" : "rounded-md"
                     }`}
                     onClick={() => onBuild()}

@@ -29,7 +29,9 @@ export function collectWindowTransfer(
     for (const id of leafIds(tab.layout)) sessionIds.add(id);
   }
 
-  const movingSessions = sessions.filter((session) => sessionIds.has(session.id));
+  const movingSessions = sessions.filter((session) =>
+    sessionIds.has(session.id),
+  );
   const dirtyInTabs = new Set<string>();
   for (const tab of movingTabs) {
     for (const pane of [...tab.editorPanes, ...(tab.terminalPanes ?? [])]) {

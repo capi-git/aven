@@ -32,6 +32,7 @@ mod cursor_store;
 mod desktop_control;
 mod display_rate;
 mod fs;
+mod git;
 mod git_housekeeping;
 mod github_account;
 mod harness;
@@ -56,7 +57,6 @@ mod race;
 mod rate_limits;
 mod scheduled_agents;
 mod search;
-mod session_pip;
 mod session_store;
 mod shell_navigation;
 mod skills;
@@ -243,8 +243,15 @@ pub fn run() {
     #[cfg(not(debug_assertions))]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
     let app = builder
+        .on_page_load(|webview, payload| {
+            #[cfg(all(feature = "chromium", target_os = "macos"))]
+            if payload.event() == tauri::webview::PageLoadEvent::Started {
+                browser::renderer_loading(webview);
+            }
+            #[cfg(not(all(feature = "chromium", target_os = "macos")))]
+            let _ = (webview, payload);
+        })
         .plugin(shell_navigation::init())
-        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(
@@ -256,7 +263,6 @@ pub fn run() {
         .manage(pty::PtyHost::new())
         .manage(window::UpdateRestartState::default())
         .manage(window_transfer::WindowTransferState::new())
-        .manage(session_pip::SessionPipState::default())
         .manage(workspace_window::WorkspaceWindowState::default())
         .manage(usage_panel::UsagePanelState::default())
         .manage(access_panel::AccessPanelState::default())
@@ -325,6 +331,7 @@ pub fn run() {
             browser::browser_edit,
             browser::browser_drop_indicator,
             browser::browser_layout,
+            browser::browser_renderer_epoch,
             browser::browser_close,
             race::race_prepare,
             race::race_worktree_create,
@@ -364,17 +371,6 @@ pub fn run() {
             workspace_window::workspace_window_recover,
             workspace_window::workspace_window_close,
             browser::browser_attach,
-            session_pip::session_pip_open,
-            session_pip::session_pip_update,
-            session_pip::session_pip_get_state,
-            session_pip::session_pip_action,
-            session_pip::session_pip_draft,
-            session_pip::session_pip_return,
-            session_pip::session_pip_set_pinned,
-            session_pip::session_pip_show,
-            session_pip::session_pip_close,
-            session_pip::session_pip_flush_all,
-            pip_group::pip_group_windows,
             default_cwd,
             home_dir,
             notifications::notification_permission,
@@ -384,41 +380,41 @@ pub fn run() {
             fs::list_dir,
             personal_project::personal_project_info,
             fs::list_project_files,
-            fs::git_diff_stats,
-            fs::git_diff_index,
-            fs::git_diff_files,
-            fs::git_worktrees,
-            fs::git_worktree_remove,
-            fs::git_file_diff,
-            fs::git_history,
-            fs::git_commit_files,
-            fs::git_commit_file_diff,
-            fs::git_stage_file,
-            fs::git_stage_contents,
-            fs::git_unstage_file,
-            fs::git_discard_file,
-            fs::git_discard_all,
-            fs::git_stage_all,
-            fs::git_unstage_all,
-            fs::git_commit,
-            fs::git_staged_context,
-            fs::git_push,
-            fs::git_pull,
-            fs::git_sync,
-            fs::git_range_context,
-            fs::git_pr_status,
+            git::git_diff_stats,
+            git::git_diff_index,
+            git::git_diff_files,
+            git::git_worktrees,
+            git::git_worktree_remove,
+            git::git_file_diff,
+            git::git_history,
+            git::git_commit_files,
+            git::git_commit_file_diff,
+            git::git_stage_file,
+            git::git_stage_contents,
+            git::git_unstage_file,
+            git::git_discard_file,
+            git::git_discard_all,
+            git::git_stage_all,
+            git::git_unstage_all,
+            git::git_commit,
+            git::git_staged_context,
+            git::git_push,
+            git::git_pull,
+            git::git_sync,
+            git::git_range_context,
+            git::git_pr_status,
             git_housekeeping::git_merged_branches,
             git_housekeeping::git_delete_merged_branches,
             git_housekeeping::git_pr_squash_merge,
             git_housekeeping::git_release_status,
             git_housekeeping::git_release_start,
-            fs::git_pr_create,
-            fs::git_github_repo,
-            fs::git_github_work_items,
-            fs::git_github_work_item_details,
-            fs::git_github_work_item_thread,
-            fs::git_github_work_item_comment,
-            fs::git_github_pr_diff,
+            git::git_pr_create,
+            git::git_github_repo,
+            git::git_github_work_items,
+            git::git_github_work_item_details,
+            git::git_github_work_item_thread,
+            git::git_github_work_item_comment,
+            git::git_github_pr_diff,
             inbox_media::fetch_inbox_media,
             linear::linear_status,
             linear::linear_set_token,
@@ -427,17 +423,17 @@ pub fn run() {
             linear::linear_issue_details,
             linear::linear_issue_thread,
             linear::linear_issue_comment,
-            fs::git_branches,
-            fs::git_checkout,
-            fs::git_create_branch,
-            fs::git_stash,
+            git::git_branches,
+            git::git_checkout,
+            git::git_create_branch,
+            git::git_stash,
             fs::create_path,
             fs::rename_path,
             fs::delete_path,
             fs::copy_path,
             fs::move_path,
             fs::reveal_path,
-            fs::clone_repo,
+            git::clone_repo,
             fs::read_file_preview,
             fs::stat_files,
             fs::inspect_paths,
@@ -533,7 +529,6 @@ pub fn run() {
             window::abandon_update_install,
             provider_updates::provider_refresh_cli,
             window::set_window_glass_enabled,
-            window_transfer::stage_window_transfer,
             window_transfer::take_window_transfer,
             chat_background::save_chat_background,
             chat_background::remove_chat_background,
@@ -584,9 +579,7 @@ pub fn run() {
                 control::window_closed(handle, &label);
                 browser_agent::window_destroyed(&label);
                 browser::window_destroyed(handle, &label);
-                session_pip::window_destroyed(handle, &label);
                 workspace_window::window_destroyed(handle, &label);
-                pip_group::window_destroyed(handle, &label);
                 let other_window = handle
                     .windows()
                     .keys()

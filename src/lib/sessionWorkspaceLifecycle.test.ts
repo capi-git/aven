@@ -38,10 +38,7 @@ function remove(input: {
 
 describe("removeSessionFromWorkspace", () => {
   it("closes the sole-session tab with its files instead of promoting them", () => {
-    const file = newFileTab(
-      "/projects/aven/README.md",
-      "/projects/aven",
-    );
+    const file = newFileTab("/projects/aven/README.md", "/projects/aven");
     const closing = {
       ...tab("closing", "s1"),
       layout: {
@@ -68,10 +65,7 @@ describe("removeSessionFromWorkspace", () => {
   });
 
   it("retains file panes and another conversation in a shared workspace", () => {
-    const file = newFileTab(
-      "/projects/aven/README.md",
-      "/projects/aven",
-    );
+    const file = newFileTab("/projects/aven/README.md", "/projects/aven");
     const shared: WorkspaceTab = {
       ...tab("shared", "s1"),
       layout: {
@@ -121,10 +115,7 @@ describe("removeSessionFromWorkspace", () => {
       review: true,
       sessionChanges: { sessionId: "s1" },
     };
-    const readme = newFileTab(
-      "/projects/aven/README.md",
-      "/projects/aven",
-    );
+    const readme = newFileTab("/projects/aven/README.md", "/projects/aven");
     const shared: WorkspaceTab = {
       ...tab("shared", "s1"),
       layout: {
@@ -185,10 +176,7 @@ describe("removeSessionFromWorkspace", () => {
   it("removes only the archived session's plans in a shared workspace", () => {
     const own = newPlanTab("s1", "p1", "Own plan", "/projects/aven");
     const other = newPlanTab("s2", "p2", "Other plan", "/projects/aven");
-    const readme = newFileTab(
-      "/projects/aven/README.md",
-      "/projects/aven",
-    );
+    const readme = newFileTab("/projects/aven/README.md", "/projects/aven");
     const shared: WorkspaceTab = {
       ...tab("shared", "s1"),
       layout: {

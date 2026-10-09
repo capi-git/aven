@@ -24,7 +24,7 @@
   align-items: center;
   gap: 8px;
   padding-inline: 10px;
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   flex: 1;
   min-width: 0;
   color: var(--settings-muted);
@@ -68,7 +68,7 @@
   border-right: 1px solid var(--settings-line);
 }
 .settings-navigation-title {
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   font-weight: 600;
   color: var(--settings-muted);
   padding: 0 10px 10px;
@@ -76,7 +76,7 @@
 .settings-navigation-note {
   padding: 20px 12px;
   margin-top: auto;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   line-height: 1.5;
   color: var(--settings-muted);
 }
@@ -145,7 +145,7 @@
   outline: none;
   background: transparent;
   color: var(--color-content);
-  font-size: 12px;
+  font-size: var(--text-ui-label);
 }
 .settings-search-field input::placeholder {
   color: var(--settings-muted);
@@ -167,7 +167,7 @@
   box-shadow: var(--aven-glass-sheen), var(--aven-shadow);
 }
 .settings-search-count {
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   color: var(--settings-muted);
   padding: 8px 10px;
 }
@@ -190,12 +190,12 @@
 }
 .settings-search-results strong {
   display: block;
-  font-size: 13px;
+  font-size: var(--text-ui-body);
   font-weight: 500;
 }
 .settings-search-results small {
   display: block;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   color: var(--settings-muted);
   line-height: 1.5;
   margin-top: 3px;
@@ -204,12 +204,12 @@
   display: flex;
   gap: 4px;
   align-items: center;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   color: var(--settings-muted);
 }
 .settings-search-empty {
   padding: 8px 10px 14px;
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   line-height: 1.5;
   color: var(--settings-muted);
 }
@@ -226,7 +226,7 @@
   border-radius: 999px;
   background: var(--aven-control-bg);
   box-shadow: var(--aven-glass-sheen, none);
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   line-height: 18px;
   color: var(--settings-muted);
 }
@@ -264,7 +264,7 @@
 }
 .settings-reset p {
   max-width: 420px;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   color: var(--settings-muted);
   line-height: 1.6;
 }
@@ -301,13 +301,13 @@
 }
 .settings-background-empty strong {
   display: block;
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   font-weight: 500;
   color: var(--color-content);
 }
 .settings-background-empty small {
   display: block;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   margin-top: 4px;
 }
 .settings-providers > .settings-heading {
@@ -317,7 +317,7 @@
 .settings-section-note {
   margin-bottom: 16px;
   padding-inline: 4px;
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   color: var(--settings-muted);
   line-height: 1.6;
 }
@@ -417,11 +417,11 @@
 .settings-shortcuts th,
 .settings-shortcuts td {
   padding: 10px 14px;
-  font-size: 12px;
+  font-size: var(--text-ui-label);
   overflow-wrap: anywhere;
 }
 .settings-shortcuts th {
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   font-weight: 550;
   color: var(--settings-muted);
   border-bottom: 1px solid var(--settings-line);
@@ -436,12 +436,12 @@
   border-top: 1px solid var(--settings-line);
 }
 .settings-shortcuts td:last-child {
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   color: var(--settings-muted);
 }
 .settings-shortcuts kbd {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
   background: var(--aven-control-bg);
   border: 1px solid var(--aven-glass-card-edge, var(--aven-control-border));
   box-shadow:
@@ -453,7 +453,7 @@
 }
 .settings-empty {
   padding: 28px 18px;
-  font-size: 13px;
+  font-size: var(--text-ui-body);
   color: var(--settings-muted);
 }
 .settings-view [data-search-match="true"] {
@@ -566,9 +566,9 @@
   cursor: pointer;
   padding: 10px 4px;
   color: var(--settings-muted);
-  font-size: 13px;
+  font-size: var(--text-ui-body);
 }
 .settings-other-providers > summary span {
   margin-left: 6px;
-  font-size: 11px;
+  font-size: var(--text-ui-caption);
 }

@@ -1,17 +1,25 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 import { useDragResize } from "./useDragResize";
 
 describe("pane resize lifecycle", () => {
   let container: HTMLDivElement;
   let root: Root;
-  let onCommit: ReturnType<typeof vi.fn>;
-  let renders: ReturnType<typeof vi.fn>;
+  let onCommit: Mock<(width: number) => void>;
+  let renders: Mock<() => void>;
   let frames: Map<number, FrameRequestCallback>;
   let nextFrame: number;
-  let geometry: ReturnType<typeof vi.fn>;
+  let geometry: Mock<() => string>;
   function Pane({
     enabled = true,
     direction = "right",
@@ -161,7 +169,9 @@ describe("pane resize lifecycle", () => {
     async (direction, scale) => {
       await act(async () => root.render(createElement(Pane, { direction })));
       const pane = container.querySelector("aside")!;
-      const usedWidth = vi.spyOn(pane, "offsetWidth", "get").mockReturnValue(280);
+      const usedWidth = vi
+        .spyOn(pane, "offsetWidth", "get")
+        .mockReturnValue(280);
       const bounds = vi
         .spyOn(pane, "getBoundingClientRect")
         .mockReturnValue(DOMRect.fromRect({ width: 280 * scale }));

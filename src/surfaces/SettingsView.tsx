@@ -68,6 +68,12 @@ import { WindowControls } from "../chrome/WindowControls";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useColorScheme } from "../hooks/useColorScheme";
 import {
+  applyStatusBarOpacity,
+  loadStatusBarOpacity,
+  saveStatusBarOpacity,
+  STATUS_BAR_OPACITY_DEFAULT,
+  STATUS_BAR_OPACITY_MIN,
+  STATUS_BAR_OPACITY_MAX,
   applyChatBackground,
   applyChatBackgroundOpacity,
   applyChatBackgroundScope,
@@ -126,6 +132,7 @@ import {
   defaultSessionChoice,
   getModelSnapshot,
   getPickerVisibilitySnapshot,
+  hasLiveCatalog,
   isPickerProviderVisible,
   modelsFor,
   pickerModelsFor,
@@ -723,7 +730,7 @@ function PreferencesPage({
           <NotificationsBlocked />
         ) : null}
         {notificationsEnabled && notificationPermission === "unsupported" ? (
-          <span className="text-[12px] text-content/45">
+          <span className="text-ui-label text-content/45">
             Not available on this platform
           </span>
         ) : null}
@@ -732,33 +739,6 @@ function PreferencesPage({
           on={notificationsEnabled}
           onChange={onNotificationsEnabled}
         />
-      </Row>
-      <Row
-        label="Activity alerts"
-        description="Choose which outcomes can interrupt you. Every outcome still appears in Activity."
-      >
-        <div className="settings-alert-options">
-          {(
-            [
-              ["needsInput", "Needs input"],
-              ["failures", "Failures"],
-              ["finished", "Finished / stopped"],
-              ["sound", "Sound"],
-            ] as const
-          ).map(([key, label]) => (
-            <label
-              key={key}
-              className="flex items-center gap-2 text-[11px] text-content/65"
-            >
-              {label}
-              <Toggle
-                label={`Activity: ${label}`}
-                on={notificationPreferences[key]}
-                onChange={(value) => onNotificationPreference(key, value)}
-              />
-            </label>
-          ))}
-        </div>
       </Row>
       <Row
         label="Quiet mode"
@@ -775,6 +755,33 @@ function PreferencesPage({
         description="Play short cues for task completion, inbox items, updates, and interactions."
       >
         <Toggle label="Sounds" on={soundsEnabled} onChange={onSoundsEnabled} />
+      </Row>
+      <Row
+        label="Activity alerts"
+        description="Choose which outcomes can interrupt you. Every outcome still appears in Activity."
+      >
+        <div className="settings-alert-options">
+          {(
+            [
+              ["needsInput", "Needs input"],
+              ["failures", "Failures"],
+              ["finished", "Finished / stopped"],
+              ["sound", "Sound"],
+            ] as const
+          ).map(([key, label]) => (
+            <label
+              key={key}
+              className="flex items-center gap-2 text-ui-caption text-content/65"
+            >
+              {label}
+              <Toggle
+                label={`Activity: ${label}`}
+                on={notificationPreferences[key]}
+                onChange={(value) => onNotificationPreference(key, value)}
+              />
+            </label>
+          ))}
+        </div>
       </Row>
     </SettingsGroup>
   );
@@ -840,7 +847,10 @@ function PreferencesPage({
           label="Default task access"
           description="Applies to new tasks. Existing tasks keep their own access setting."
         >
-          <AccessPicker value={defaultAccess} onChange={saveDefaultRuntimeMode} />
+          <AccessPicker
+            value={defaultAccess}
+            onChange={saveDefaultRuntimeMode}
+          />
         </Row>
         <Row
           label="Follow-up behavior"
@@ -854,16 +864,6 @@ function PreferencesPage({
               { value: "steer", label: "Steer" },
             ]}
             onChange={onFollowUpBehavior}
-          />
-        </Row>
-        <Row
-          label="Claude Code hooks"
-          description="Run your configured Claude Code hooks. Changes apply on the next turn."
-        >
-          <Toggle
-            label="Claude Code hooks"
-            on={claudeHooks}
-            onChange={onClaudeHooks}
           />
         </Row>
       </SettingsGroup>
@@ -911,6 +911,22 @@ function PreferencesPage({
           />
         </Row>
         <AutosaveRow />
+      </SettingsGroup>
+      <SettingsGroup
+        title="Advanced"
+        description="Provider-specific behavior."
+        scope="Device"
+      >
+        <Row
+          label="Claude Code hooks"
+          description="Run your configured Claude Code hooks. Changes apply on the next turn."
+        >
+          <Toggle
+            label="Claude Code hooks"
+            on={claudeHooks}
+            onChange={onClaudeHooks}
+          />
+        </Row>
       </SettingsGroup>
     </>
   );
@@ -1072,7 +1088,7 @@ function LinearSettings() {
                 aria-label="Linear API key"
                 autoComplete="off"
                 spellCheck={false}
-                className="min-w-0 flex-1 bg-transparent text-[12px] text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+                className="min-w-0 flex-1 bg-transparent text-ui-label text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
               />
             </label>
             <SecondaryButton
@@ -1085,14 +1101,14 @@ function LinearSettings() {
         )}
       </Row>
       {error ? (
-        <p className="pb-2 text-[12px] text-red-400/90">{error}</p>
+        <p className="pb-2 text-ui-label text-red-400/90">{error}</p>
       ) : null}
       {connected && teams.length > 0 ? (
         <div className="border-b border-content/5 py-4">
-          <div className="text-[13px] font-medium text-content">
+          <div className="text-ui-body font-medium text-content">
             Linear Teams
           </div>
-          <p className="mt-1 text-[12px] leading-relaxed text-content/45">
+          <p className="mt-1 text-ui-label leading-relaxed text-content/45">
             Unchecked teams stay out of the inbox.
           </p>
           <div className="mt-3 flex flex-col gap-0.5 -mx-2">
@@ -1103,7 +1119,7 @@ function LinearSettings() {
                   key={team.id}
                   type="button"
                   onClick={() => toggleTeam(team.id)}
-                  className="flex h-7 items-center gap-2 rounded-md px-2 text-left text-[13px] text-content hover:bg-content/5"
+                  className="flex h-7 items-center gap-2 rounded-md px-2 text-left text-ui-body text-content hover:bg-content/5"
                 >
                   <span className="min-w-0 flex-1 truncate">
                     {team.name}
@@ -1171,7 +1187,7 @@ function UpdateRow({
       label={
         <span className="flex items-baseline gap-2">
           Version
-          <span className="font-mono text-[12px] text-content/45">
+          <span className="font-mono text-ui-label text-content/45">
             {snapshot.currentVersion}
           </span>
         </span>
@@ -1230,6 +1246,8 @@ function useAppearanceSettings() {
     null,
   );
   const [uiScale, setUiScale] = useState(loadUiScale);
+  const [statusBarOpacity, setStatusBarOpacity] =
+    useState(loadStatusBarOpacity);
 
   useEffect(() => subscribeUiScale(() => setUiScale(loadUiScale())), []);
 
@@ -1342,6 +1360,12 @@ function useAppearanceSettings() {
     setChatBackgroundScope(next);
   }, []);
 
+  const onStatusBarOpacity = useCallback((percent: number) => {
+    const next = applyStatusBarOpacity(percent / 100);
+    saveStatusBarOpacity(next);
+    setStatusBarOpacity(next);
+  }, []);
+
   const onUiScale = useCallback((percent: number) => {
     const next = saveUiScale(percent / 100);
     setUiScale(next);
@@ -1354,12 +1378,14 @@ function useAppearanceSettings() {
     onChatBackgroundScope(CHAT_BACKGROUND_SCOPE_DEFAULT);
     if (chatBackgroundPath) void onClearChatBackground();
     onUiScale(Math.round(UI_SCALE_DEFAULT * 100));
+    onStatusBarOpacity(Math.round(STATUS_BAR_OPACITY_DEFAULT * 100));
   }, [
     chatBackgroundPath,
     onChatBackgroundOpacity,
     onChatBackgroundScope,
     onClearChatBackground,
     onUiScale,
+    onStatusBarOpacity,
     profileId,
   ]);
 
@@ -1380,6 +1406,8 @@ function useAppearanceSettings() {
     chatBackgroundBusy,
     chatBackgroundError,
     uiScale,
+    statusBarOpacity,
+    onStatusBarOpacity,
     onThemePreference,
     onOpacity,
     onBlur,
@@ -1436,6 +1464,7 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         </Row>
         <div id="setting-workspace-colors" tabIndex={-1}>
           <SettingsColorPicker
+            scopeKey={`${appearance.profileId}:${appearance.colorScheme}`}
             targets={COLOR_TARGETS}
             target={colorTarget}
             onTarget={setColorTarget}
@@ -1445,6 +1474,41 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
             note={`Editing ${appearance.colorScheme} colors for this workspace. Dark and light are saved separately.`}
           />
         </div>
+      </SettingsGroup>
+      <SettingsGroup
+        title="Display"
+        description="Comfortable reading and quieter window controls."
+        scope="Device"
+      >
+        <Row
+          label="Interface scale"
+          description="Resize the whole interface. Use Cmd +/− and Cmd 0 on Mac, or Ctrl on Windows and Linux."
+        >
+          {/* A menu, not a live slider: rescaling the page while dragging
+              moves the control out from under the pointer (MonoCode b4f5befb). */}
+          <Select
+            label="Interface scale"
+            value={String(Math.round(appearance.uiScale * 100))}
+            options={UI_SCALE_PERCENTS.map((percent) => ({
+              value: String(percent),
+              label: `${percent}%`,
+            }))}
+            onChange={(value) => appearance.onUiScale(Number(value))}
+          />
+        </Row>
+        <Row
+          label="Status bar opacity"
+          description="Background strength of the bottom bar when the sidebar is hidden. Text and controls stay solid."
+        >
+          <Slider
+            label="Status bar opacity"
+            value={Math.round(appearance.statusBarOpacity * 100)}
+            display={`${Math.round(appearance.statusBarOpacity * 100)}%`}
+            min={Math.round(STATUS_BAR_OPACITY_MIN * 100)}
+            max={Math.round(STATUS_BAR_OPACITY_MAX * 100)}
+            onChange={appearance.onStatusBarOpacity}
+          />
+        </Row>
       </SettingsGroup>
       <SettingsGroup
         title="Window &amp; sidebars"
@@ -1461,31 +1525,6 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
             onChange={appearance.onMatchPanels}
           />
         </Row>
-        <Row
-          label="Sidebar colour"
-          description="A wash of colour over this workspace's sidebar, strongest at the top. Text stays readable."
-        >
-          <ColorSwatches
-            label="Sidebar colour"
-            value={appearance.sidebarTint}
-            onChange={appearance.onSidebarTint}
-          />
-        </Row>
-        {appearance.sidebarTint !== "none" ? (
-          <Row
-            label="Sidebar colour strength"
-            description="How much of the colour shows."
-          >
-            <Slider
-              label="Sidebar colour strength"
-              value={appearance.sidebarTintStrength}
-              display={`${appearance.sidebarTintStrength}%`}
-              min={SIDEBAR_TINT_STRENGTH_MIN}
-              max={SIDEBAR_TINT_STRENGTH_MAX}
-              onChange={appearance.onSidebarTintStrength}
-            />
-          </Row>
-        ) : null}
         {HAS_NATIVE_GLASS && (
           <Row
             label="Background opacity"
@@ -1545,29 +1584,38 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
             />
           </Row>
         )}
+        <Row
+          label="Sidebar colour"
+          description="A wash of colour over this workspace's sidebar, strongest at the top. Text stays readable."
+        >
+          <ColorSwatches
+            label="Sidebar colour"
+            value={appearance.sidebarTint}
+            onChange={appearance.onSidebarTint}
+          />
+        </Row>
+        {appearance.sidebarTint !== "none" ? (
+          <Row
+            label="Sidebar colour strength"
+            description="How much of the colour shows."
+          >
+            <Slider
+              label="Sidebar colour strength"
+              value={appearance.sidebarTintStrength}
+              display={`${appearance.sidebarTintStrength}%`}
+              min={SIDEBAR_TINT_STRENGTH_MIN}
+              max={SIDEBAR_TINT_STRENGTH_MAX}
+              onChange={appearance.onSidebarTintStrength}
+            />
+          </Row>
+        ) : null}
       </SettingsGroup>
       <SettingsGroup
-        title="Chat &amp; display"
-        description="Personal touches and comfortable reading."
+        title="Chat background"
+        description="Personalize your conversations."
         scope="Device"
       >
         <ChatBackgroundCard appearance={appearance} />
-        <Row
-          label="Interface scale"
-          description="Resize the whole interface. Use Cmd +/− and Cmd 0 on Mac, or Ctrl on Windows and Linux."
-        >
-          {/* A menu, not a live slider: rescaling the page while dragging
-              moves the control out from under the pointer (MonoCode b4f5befb). */}
-          <Select
-            label="Interface scale"
-            value={String(Math.round(appearance.uiScale * 100))}
-            options={UI_SCALE_PERCENTS.map((percent) => ({
-              value: String(percent),
-              label: `${percent}%`,
-            }))}
-            onChange={(value) => appearance.onUiScale(Number(value))}
-          />
-        </Row>
       </SettingsGroup>
       <SettingsGroup
         title="Reuse this appearance"
@@ -1583,7 +1631,7 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
       <div className="settings-reset">
         <p>
           Reset this workspace’s theme and this device’s chat background and
-          interface scale.
+          interface scale and status bar opacity.
         </p>
         <SecondaryButton onClick={appearance.restoreDefaults}>
           <RotateCcw className="size-3.5" aria-hidden />
@@ -1612,10 +1660,10 @@ function ChatBackgroundCard({
     >
       <div className="settings-background-heading">
         <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-medium text-content">
+          <div className="text-ui-body font-medium text-content">
             Chat background
           </div>
-          <p className="mt-1 text-[12px] leading-relaxed text-content/65">
+          <p className="mt-1 text-ui-label leading-relaxed text-content/65">
             An image behind your chat panes. It stays on this device.
           </p>
         </div>
@@ -1651,7 +1699,7 @@ function ChatBackgroundCard({
               className="size-full object-cover"
               style={{ opacity: appearance.chatBackgroundOpacity }}
             />
-            <span className="pointer-events-none absolute bottom-2 left-2 text-[11px] text-content/40">
+            <span className="pointer-events-none absolute bottom-2 left-2 text-ui-caption text-content/40">
               Preview at {visibility}%
             </span>
           </div>
@@ -1677,8 +1725,8 @@ function ChatBackgroundCard({
           <div className="border-t border-content/8">
             <div className="flex items-center justify-between gap-4 px-3 py-2.5">
               <div className="min-w-0">
-                <div className="text-[12px] text-content">Show on</div>
-                <p className="text-[11px] text-content/40">
+                <div className="text-ui-label text-content">Show on</div>
+                <p className="text-ui-caption text-content/40">
                   Empty sessions only, or every conversation.
                 </p>
               </div>
@@ -1694,8 +1742,8 @@ function ChatBackgroundCard({
             </div>
             <div className="flex items-center justify-between gap-4 border-t border-content/5 px-3 py-2.5">
               <div className="min-w-0">
-                <div className="text-[12px] text-content">Visibility</div>
-                <p className="text-[11px] text-content/40">
+                <div className="text-ui-label text-content">Visibility</div>
+                <p className="text-ui-caption text-content/40">
                   Keep it subtle so long conversations stay readable.
                 </p>
               </div>
@@ -1712,7 +1760,7 @@ function ChatBackgroundCard({
         ) : null}
       </div>
       {appearance.chatBackgroundError ? (
-        <p className="mt-2 text-[12px] text-red-400">
+        <p className="mt-2 text-ui-label text-red-400">
           {appearance.chatBackgroundError}
         </p>
       ) : null}
@@ -1856,22 +1904,6 @@ function ProvidersPage() {
 
   return (
     <>
-      <SettingsGroup
-        title="Model discovery"
-        description="Stay current without changing the models selected for your tasks."
-        scope="Device"
-      >
-        <Row
-          label="Keep provider tools up to date"
-          description="Check supported Codex and Claude installations daily so newly released models appear automatically. Model lists also refresh while Aven is open. Your selected models stay the same."
-        >
-          <Toggle
-            label="Keep provider tools up to date"
-            on={autoUpdateTools}
-            onChange={saveProviderToolAutoUpdates}
-          />
-        </Row>
-      </SettingsGroup>
       <div id="setting-providers" className="settings-providers" tabIndex={-1}>
         <Heading title="Providers & models" />
         <p className="settings-section-note">
@@ -1891,6 +1923,22 @@ function ProvidersPage() {
           </details>
         ) : null}
       </div>
+      <SettingsGroup
+        title="Model discovery"
+        description="Stay current without changing the models selected for your tasks."
+        scope="Device"
+      >
+        <Row
+          label="Keep provider tools up to date"
+          description="Check supported Codex and Claude installations daily so newly released models appear automatically. Model lists also refresh while Aven is open. Your selected models stay the same."
+        >
+          <Toggle
+            label="Keep provider tools up to date"
+            on={autoUpdateTools}
+            onChange={saveProviderToolAutoUpdates}
+          />
+        </Row>
+      </SettingsGroup>
     </>
   );
 }
@@ -1950,9 +1998,11 @@ function ProviderRow({
     : [];
 
   useEffect(() => {
-    if (!available || models.length > 0) return;
+    // Pi and similar providers always have a built-in fallback model, so a
+    // non-empty list does not mean the live catalog has loaded.
+    if (!available || hasLiveCatalog(harness)) return;
     void refreshHarnessCatalogs([harness]);
-  }, [available, harness, models.length]);
+  }, [available, harness]);
 
   return (
     <section
@@ -1965,13 +2015,13 @@ function ProviderRow({
           <HarnessIcon harness={harness} className="size-5 shrink-0" />
         </span>
         <div className="min-w-0 flex-1">
-          <span className="text-[14px] font-semibold tracking-[-0.01em]">
+          <span className="text-ui-reading font-semibold tracking-[-0.01em]">
             {HARNESS_TITLE[harness]}
           </span>
           {isDefault ? (
             <span className="settings-provider-badge">Default</span>
           ) : null}
-          <p className="mt-0.5 text-[12px] leading-relaxed text-content/60">
+          <p className="mt-0.5 text-ui-label leading-relaxed text-content/60">
             {available
               ? `${shownModels.length} of ${models.length} models shown`
               : harnessUnavailableHint(harness)}
@@ -1985,7 +2035,7 @@ function ProviderRow({
               : undefined
           }
         >
-          <span className="text-[12px] text-content/55">Show in picker</span>
+          <span className="text-ui-label text-content/55">Show in picker</span>
           <Toggle
             label={`Show ${HARNESS_TITLE[harness]} in the model picker`}
             on={inPicker}
@@ -2033,7 +2083,7 @@ function ProviderRow({
       {refreshState !== "idle" ? (
         <p
           role={refreshState === "failed" ? "alert" : "status"}
-          className={`mt-2 pl-12 text-[12px] ${refreshState === "failed" ? "text-red-400" : "text-content/55"}`}
+          className={`mt-2 pl-12 text-ui-label ${refreshState === "failed" ? "text-red-400" : "text-content/55"}`}
         >
           {refreshState === "pending"
             ? "Checking for available models…"
@@ -2044,7 +2094,7 @@ function ProviderRow({
       ) : null}
       {models.length > 0 ? (
         <details
-          className="mt-2 text-[12px]"
+          className="mt-2 text-ui-label"
           onToggle={(event) => {
             setExpanded(event.currentTarget.open);
             if (event.currentTarget.open && available)
@@ -2063,7 +2113,7 @@ function ProviderRow({
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="Filter models"
-                  className="min-w-0 flex-1 bg-transparent text-[12px] outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+                  className="min-w-0 flex-1 bg-transparent text-ui-label outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
                 />
                 <SecondaryButton
                   onClick={() => showAllPickerModels(harness)}
@@ -2088,7 +2138,7 @@ function ProviderRow({
                         {model.name}
                       </span>
                       {lastModel ? (
-                        <span className="text-[10px] text-content/40">
+                        <span className="text-ui-micro text-content/40">
                           Keep one
                         </span>
                       ) : null}
@@ -2172,7 +2222,7 @@ function ArchivePage({
     <>
       <SettingsGroup title="Archived projects" id="setting-archived-projects">
         {archivedProjects.length === 0 ? (
-          <p className="py-4 text-[12px] text-content/50">
+          <p className="py-4 text-ui-label text-content/50">
             Archive a project from the rail to keep its chats without listing it
             in the sidebar.
           </p>
@@ -2183,10 +2233,10 @@ function ArchivePage({
               className="flex min-h-14 items-center gap-3 border-b border-content/8 py-2.5 last:border-b-0"
             >
               <div className="min-w-0 flex-1">
-                <div className="truncate text-[13px]">
+                <div className="truncate text-ui-body">
                   {archivedProjectLabel(project.path)}
                 </div>
-                <div className="truncate text-[11px] text-content/40">
+                <div className="truncate text-ui-caption text-content/40">
                   {prettyCwd(project.path)}
                 </div>
               </div>
@@ -2227,11 +2277,11 @@ function ArchivePage({
         id="setting-archived-conversations"
       >
         {!looksLikeProject(cwd) ? (
-          <p className="py-4 text-[12px] text-content/50">
+          <p className="py-4 text-ui-label text-content/50">
             Open a project to see its archived conversations.
           </p>
         ) : archived.length === 0 ? (
-          <p className="py-4 text-[12px] text-content/50">
+          <p className="py-4 text-ui-label text-content/50">
             No archived conversations in this project.
           </p>
         ) : (
@@ -2247,11 +2297,11 @@ function ArchivePage({
               <button
                 type="button"
                 onClick={() => onOpenSession(session.id)}
-                className="min-w-0 flex-1 truncate text-left text-[13px] hover:text-content"
+                className="min-w-0 flex-1 truncate text-left text-ui-body hover:text-content"
               >
                 {sessionDisplayTitle(session.title, session.harness)}
               </button>
-              <span className="shrink-0 text-[11px] text-content/35 tabular-nums">
+              <span className="shrink-0 text-ui-caption text-content/35 tabular-nums">
                 {formatDate(session.updatedAt)}
               </span>
               <SecondaryButton
@@ -2300,7 +2350,7 @@ function formatDate(value: number): string {
 /** macOS keeps the decision after the first prompt; only System Settings can flip it. */
 function NotificationsBlocked() {
   return (
-    <span className="flex items-center gap-2 text-[12px] text-content/45">
+    <span className="flex items-center gap-2 text-ui-label text-content/45">
       Permission needed
       {IS_MAC ? (
         <button

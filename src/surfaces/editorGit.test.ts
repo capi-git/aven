@@ -106,9 +106,9 @@ describe("overviewTicks", () => {
       Text.of("alpha\ngamma\n".split("\n")),
       Text.of("alpha\nbeta\ngamma\n".split("\n")),
     );
-    expect(overviewTicks(Text.of("alpha\nbeta\ngamma\n".split("\n")), added, null)).toEqual([
-      { kind: "add", top: 1 / 4, size: 1 / 4, pos: 6 },
-    ]);
+    expect(
+      overviewTicks(Text.of("alpha\nbeta\ngamma\n".split("\n")), added, null),
+    ).toEqual([{ kind: "add", top: 1 / 4, size: 1 / 4, pos: 6 }]);
 
     const original = Text.of("alpha\nbeta\ngamma\n".split("\n"));
     const deletedDoc = Text.of("alpha\ngamma\n".split("\n"));
@@ -156,9 +156,7 @@ describe("stateWithGitOriginal", () => {
     expect(() =>
       stateWithGitOriginal("alpha\ngamma\n", "alpha\nbeta\ngamma\n"),
     ).not.toThrow();
-    expect(() =>
-      stateWithGitOriginal("hello\nworld\n", ""),
-    ).not.toThrow();
+    expect(() => stateWithGitOriginal("hello\nworld\n", "")).not.toThrow();
   });
 
   it("rebuilds hunks when the whole document is replaced", () => {

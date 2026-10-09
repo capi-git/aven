@@ -165,22 +165,27 @@ describe("codexBrowserHostInstructionsFromConfig", () => {
   it.each([undefined, null, ""])(
     "adds routing when effective developer instructions are empty: %s",
     (developer_instructions) => {
-      expect(codexBrowserHostInstructionsFromConfig({
-        config: { developer_instructions },
-      })).toBe(AVEN_BROWSER_HOST_POLICY);
+      expect(
+        codexBrowserHostInstructionsFromConfig({
+          config: { developer_instructions },
+        }),
+      ).toBe(AVEN_BROWSER_HOST_POLICY);
     },
   );
 
   it("preserves configured instructions verbatim and does not duplicate host routing", () => {
-    const custom = "Use my engineering conventions.\nPreserve existing approval rules.\n";
+    const custom =
+      "Use my engineering conventions.\nPreserve existing approval rules.\n";
     const merged = codexBrowserHostInstructionsFromConfig({
       config: { developer_instructions: custom },
     });
     expect(merged).toBe(`${custom}\n\n${AVEN_BROWSER_HOST_POLICY}`);
     expect(merged).toContain("Aven --aven-desktop command");
-    expect(codexBrowserHostInstructionsFromConfig({
-      config: { developer_instructions: merged },
-    })).toBe(merged);
+    expect(
+      codexBrowserHostInstructionsFromConfig({
+        config: { developer_instructions: merged },
+      }),
+    ).toBe(merged);
   });
 
   it.each([
@@ -190,9 +195,12 @@ describe("codexBrowserHostInstructionsFromConfig", () => {
     { config: [] },
     { config: { developer_instructions: 42 } },
     { config: { profile: "work", developer_instructions: "global text" } },
-  ])("leaves unknown or profile-specific provider instructions untouched: %j", (response) => {
-    expect(codexBrowserHostInstructionsFromConfig(response)).toBeUndefined();
-  });
+  ])(
+    "leaves unknown or profile-specific provider instructions untouched: %j",
+    (response) => {
+      expect(codexBrowserHostInstructionsFromConfig(response)).toBeUndefined();
+    },
+  );
 });
 
 describe("buildThreadStartParams / buildTurnStartParams", () => {
@@ -230,6 +238,28 @@ describe("buildThreadStartParams / buildTurnStartParams", () => {
       approvalPolicy: "untrusted",
     });
     expect(thread.serviceTier).toBeUndefined();
+  });
+
+  it("leaves the model to Codex before one has been selected", () => {
+    const params = buildTurnStartParams({
+      threadId: "t",
+      runtimeMode: "auto",
+      model: "",
+    });
+    expect(params).not.toHaveProperty("model");
+    expect(params).not.toHaveProperty("collaborationMode");
+  });
+
+  it("does not send an empty collaboration model for a plan turn either", () => {
+    const params = buildTurnStartParams({
+      threadId: "t",
+      runtimeMode: "auto",
+      model: "",
+      intent: "plan",
+    });
+    expect(params).not.toHaveProperty("collaborationMode");
+    expect(params.sandboxPolicy).toEqual({ type: "readOnly" });
+    expect(params.approvalPolicy).toBe("never");
   });
 
   it("builds turn input with text and image attachments", () => {
@@ -473,8 +503,11 @@ describe("mapCodexNotification", () => {
       title: "Explore Auth subagent",
     });
     expect(started.events[1]).toEqual({
-      type: "agent.updated", agentId: "thr_child", title: "Explore Auth subagent",
-      status: "running", callId: "sa_1",
+      type: "agent.updated",
+      agentId: "thr_child",
+      title: "Explore Auth subagent",
+      status: "running",
+      callId: "sa_1",
     });
 
     const interrupted = mapCodexNotification("item/completed", {
@@ -495,14 +528,29 @@ describe("mapCodexNotification", () => {
 
   it("uses the child's stable identity when a later activity item reports completion", () => {
     const mapped = mapCodexNotification("item/completed", {
-      item: { id: "sa_completed", type: "subAgentActivity", kind: "completed",
-        agentPath: "/root/asset-inventory", agentThreadId: "child" },
+      item: {
+        id: "sa_completed",
+        type: "subAgentActivity",
+        kind: "completed",
+        agentPath: "/root/asset-inventory",
+        agentThreadId: "child",
+      },
     });
     expect(mapped.events).toEqual([
-      { type: "tool.updated", callId: "sa_completed", title: "Asset Inventory subagent",
-        kind: "agent", status: "completed" },
-      { type: "agent.updated", agentId: "child", title: "Asset Inventory subagent",
-        callId: "sa_completed", status: "completed" },
+      {
+        type: "tool.updated",
+        callId: "sa_completed",
+        title: "Asset Inventory subagent",
+        kind: "agent",
+        status: "completed",
+      },
+      {
+        type: "agent.updated",
+        agentId: "child",
+        title: "Asset Inventory subagent",
+        callId: "sa_completed",
+        status: "completed",
+      },
     ]);
     expect(mapped.turnCompleted).toBeUndefined();
   });
@@ -510,28 +558,58 @@ describe("mapCodexNotification", () => {
   it("does not claim an interaction or an unknown activity kind started another child turn", () => {
     for (const kind of ["interacted", "new-unknown-kind"]) {
       const mapped = mapCodexNotification("item/completed", {
-        item: { id: "interaction", type: "subAgentActivity", kind,
-          agentPath: "/root/child", agentThreadId: "child" },
+        item: {
+          id: "interaction",
+          type: "subAgentActivity",
+          kind,
+          agentPath: "/root/child",
+          agentThreadId: "child",
+        },
       });
-      expect(mapped.events.some((event) => event.type === "agent.updated")).toBe(false);
+      expect(
+        mapped.events.some((event) => event.type === "agent.updated"),
+      ).toBe(false);
     }
   });
 
   it("tracks explicit collab child states without inferring activity from message delivery", () => {
     const mapped = mapCodexNotification("item/completed", {
-      item: { id: "wait-call", type: "collabAgentToolCall", tool: "wait",
+      item: {
+        id: "wait-call",
+        type: "collabAgentToolCall",
+        tool: "wait",
         agentsStates: {
-          one: { status: "running" }, two: { status: "completed" },
-          three: { status: "errored" }, four: { status: "notFound" },
-          five: { status: "shutdown" }, future: { status: "future" },
-        } },
+          one: { status: "running" },
+          two: { status: "completed" },
+          three: { status: "errored" },
+          four: { status: "notFound" },
+          five: { status: "shutdown" },
+          future: { status: "future" },
+        },
+      },
     });
-    expect(mapped.events.map((event) => event.type === "agent.updated" && [event.agentId, event.status]))
-      .toEqual([["one", "running"], ["two", "completed"], ["three", "failed"], ["four", "unknown"], ["five", "stopped"]]);
-    expect(mapCodexNotification("item/completed", {
-      item: { id: "message", type: "collabAgentToolCall", tool: "sendMessage",
-        receiverThreadIds: ["idle-child"] },
-    }).events).toEqual([]);
+    expect(
+      mapped.events.map(
+        (event) =>
+          event.type === "agent.updated" && [event.agentId, event.status],
+      ),
+    ).toEqual([
+      ["one", "running"],
+      ["two", "completed"],
+      ["three", "failed"],
+      ["four", "unknown"],
+      ["five", "stopped"],
+    ]);
+    expect(
+      mapCodexNotification("item/completed", {
+        item: {
+          id: "message",
+          type: "collabAgentToolCall",
+          tool: "sendMessage",
+          receiverThreadIds: ["idle-child"],
+        },
+      }).events,
+    ).toEqual([]);
   });
 
   it("does not treat a completed agent message as the end of the turn", () => {
@@ -850,40 +928,135 @@ describe("orchestration control sandbox", () => {
 
 describe("Codex connection requests", () => {
   it("maps request_user_input questions and answers by label", async () => {
-    const { codexUserInputQuestions, codexUserInputResponse } = await import("./codexProtocol");
+    const { codexUserInputQuestions, codexUserInputResponse } =
+      await import("./codexProtocol");
     const questions = codexUserInputQuestions({
       questions: [
-        { id: "scope", header: "Scope", question: "Which scope?", isOther: true, isSecret: false, options: [{ label: "Repo", description: "Whole repo" }, { label: "File", description: "" }] },
-        { id: "name", header: "Name", question: "Branch name?", isOther: false, isSecret: false, options: null },
+        {
+          id: "scope",
+          header: "Scope",
+          question: "Which scope?",
+          isOther: true,
+          isSecret: false,
+          options: [
+            { label: "Repo", description: "Whole repo" },
+            { label: "File", description: "" },
+          ],
+        },
+        {
+          id: "name",
+          header: "Name",
+          question: "Branch name?",
+          isOther: false,
+          isSecret: false,
+          options: null,
+        },
       ],
     });
     expect(questions).toEqual([
-      { id: "scope", header: "Scope", prompt: "Which scope?", multiSelect: false, allowCustom: true, options: [{ id: "Repo", label: "Repo", description: "Whole repo" }, { id: "File", label: "File" }] },
-      { id: "name", header: "Name", prompt: "Branch name?", multiSelect: false, allowCustom: true, options: [] },
+      {
+        id: "scope",
+        header: "Scope",
+        prompt: "Which scope?",
+        multiSelect: false,
+        allowCustom: true,
+        options: [
+          { id: "Repo", label: "Repo", description: "Whole repo" },
+          { id: "File", label: "File" },
+        ],
+      },
+      {
+        id: "name",
+        header: "Name",
+        prompt: "Branch name?",
+        multiSelect: false,
+        allowCustom: true,
+        options: [],
+      },
     ]);
-    expect(codexUserInputResponse(questions, { kind: "answered", answers: { scope: ["File"] }, custom: { name: "feat/x" } })).toEqual({
+    expect(
+      codexUserInputResponse(questions, {
+        kind: "answered",
+        answers: { scope: ["File"] },
+        custom: { name: "feat/x" },
+      }),
+    ).toEqual({
       answers: { scope: { answers: ["File"] }, name: { answers: ["feat/x"] } },
     });
-    expect(codexUserInputResponse(questions, { kind: "skipped" })).toEqual({ answers: {} });
+    expect(codexUserInputResponse(questions, { kind: "skipped" })).toEqual({
+      answers: {},
+    });
   });
 
   it("recognizes Codex MCP tool approvals and titles them like the tool row", async () => {
-    const { parseCodexElicitation, codexToolApprovalEvent } = await import("./codexProtocol");
+    const { parseCodexElicitation, codexToolApprovalEvent } =
+      await import("./codexProtocol");
     const request = parseCodexElicitation({
-      threadId: "t", turnId: "u", serverName: "aventest", mode: "form",
-      _meta: { codex_approval_kind: "mcp_tool_call", persist: ["session", "always"], tool_params_display: [{ name: "text", value: "hello", display_name: "text" }] },
+      threadId: "t",
+      turnId: "u",
+      serverName: "aventest",
+      mode: "form",
+      _meta: {
+        codex_approval_kind: "mcp_tool_call",
+        persist: ["session", "always"],
+        tool_params_display: [
+          { name: "text", value: "hello", display_name: "text" },
+        ],
+      },
       message: 'Allow the aventest MCP server to run tool "save_note"?',
       requestedSchema: { type: "object", properties: {} },
     });
-    expect(request).toMatchObject({ kind: "tool-approval", serverName: "aventest", toolName: "save_note", params: [{ name: "text", value: "hello" }] });
+    expect(request).toMatchObject({
+      kind: "tool-approval",
+      serverName: "aventest",
+      toolName: "save_note",
+      params: [{ name: "text", value: "hello" }],
+    });
     if (request.kind !== "tool-approval") throw new Error("expected approval");
-    expect(codexToolApprovalEvent(request, 7)).toMatchObject({ type: "approval.requested", requestId: 7, title: "aventest:save_note", kind: "other", preview: { output: "text: hello" } });
+    expect(codexToolApprovalEvent(request, 7)).toMatchObject({
+      type: "approval.requested",
+      requestId: 7,
+      title: "aventest:save_note",
+      kind: "other",
+      preview: { output: "text: hello" },
+    });
   });
 
   it("treats other elicitations as questions and declines unknown modes", async () => {
     const { parseCodexElicitation } = await import("./codexProtocol");
-    expect(parseCodexElicitation({ serverName: "s", mode: "form", _meta: null, message: "Pick", requestedSchema: { type: "object", properties: { c: { type: "string", enum: ["a"] } } } })).toMatchObject({ kind: "question", request: { serverName: "s", mode: "form", message: "Pick" } });
-    expect(parseCodexElicitation({ serverName: "s", mode: "url", message: "Sign in", url: "https://x.test", elicitationId: "e" })).toMatchObject({ kind: "question", request: { mode: "url", url: "https://x.test" } });
-    expect(parseCodexElicitation({ serverName: "s", mode: "openai/form", message: "?" })).toEqual({ kind: "unsupported" });
+    expect(
+      parseCodexElicitation({
+        serverName: "s",
+        mode: "form",
+        _meta: null,
+        message: "Pick",
+        requestedSchema: {
+          type: "object",
+          properties: { c: { type: "string", enum: ["a"] } },
+        },
+      }),
+    ).toMatchObject({
+      kind: "question",
+      request: { serverName: "s", mode: "form", message: "Pick" },
+    });
+    expect(
+      parseCodexElicitation({
+        serverName: "s",
+        mode: "url",
+        message: "Sign in",
+        url: "https://x.test",
+        elicitationId: "e",
+      }),
+    ).toMatchObject({
+      kind: "question",
+      request: { mode: "url", url: "https://x.test" },
+    });
+    expect(
+      parseCodexElicitation({
+        serverName: "s",
+        mode: "openai/form",
+        message: "?",
+      }),
+    ).toEqual({ kind: "unsupported" });
   });
 });

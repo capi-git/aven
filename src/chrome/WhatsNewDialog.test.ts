@@ -2,9 +2,11 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { WhatsNewBody } from "./WhatsNewDialog";
+import { loadBundledChangelog } from "../lib/releaseNotes";
 
 describe("WhatsNewBody", () => {
-  it("renders the version notes without the changelog heading", () => {
+  it("renders the version notes without the changelog heading once loaded", async () => {
+    await loadBundledChangelog();
     const markup = renderToStaticMarkup(
       createElement(WhatsNewBody, { version: "0.1.71" }),
     );

@@ -1,3 +1,4 @@
+import { visibleInterval } from "../lib/visibleInterval";
 import { useEffect, useState } from "react";
 import { formatTokens } from "../lib/contextUsage";
 import {
@@ -209,10 +210,7 @@ export function UsagePanelContent({
   onClose,
 }: UsagePanelContentProps) {
   const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
-    return () => window.clearInterval(timer);
-  }, []);
+  useEffect(() => visibleInterval(() => setNow(Date.now()), 30_000), []);
   const context = snapshot.context;
   const hasUsed =
     context != null && Number.isFinite(context.used) && context.used >= 0;

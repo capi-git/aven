@@ -64,6 +64,7 @@ describe("session pane draft and header ownership", () => {
         id: "one",
         harness: "codex",
         model: "gpt-5",
+        modelSettings: {},
         runtimeMode: "full-access",
         cwd: "~",
         title: "New session",

@@ -6,6 +6,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
+import { isImeComposition } from "../lib/keyboard";
 import type { WorkspaceMenuPanelSnapshot } from "../lib/workspaceMenuPanel";
 import { ToolbarPanel, ToolbarPanelHeader } from "./ToolbarPanel";
 import { Check, Search } from "./icons";
@@ -47,7 +48,7 @@ export function WorkspaceMenuPanelContent({
   }, []);
   const navigate = (event: KeyboardEvent) => {
     const inSearch = event.target === search.current;
-    if (inSearch && event.nativeEvent.isComposing) return;
+    if (inSearch && isImeComposition(event.nativeEvent)) return;
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();

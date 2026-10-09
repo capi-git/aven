@@ -31,13 +31,11 @@
     },
     "dialog:default",
     "updater:default",
-    "process:default",
     "window-state:default"
   ],
   "webviews": [
     "main",
     "window-*",
-    "pip-session-*",
     "workspace-detached-*"
   ]
 }

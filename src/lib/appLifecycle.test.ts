@@ -37,7 +37,7 @@ describe("explicit window close and quit", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(ask).mockResolvedValue(true);
-    vi.mocked(message).mockResolvedValue(undefined);
+    vi.mocked(message).mockResolvedValue("Ok");
     vi.mocked(invoke).mockResolvedValue(undefined);
   });
 
@@ -90,7 +90,9 @@ describe("explicit window close and quit", () => {
 
   it("keeps an idle window's failed draft available and closes only after a successful retry", async () => {
     const { release } = workspace(false);
-    const flush = vi.fn().mockRejectedValue(new Error("Last note edit could not be saved"));
+    const flush = vi
+      .fn()
+      .mockRejectedValue(new Error("Last note edit could not be saved"));
     const releaseFlusher = registerWorkspaceDraftFlusher(flush);
     try {
       await closeBusyWindow();
@@ -118,85 +120,100 @@ describe("explicit window close and quit", () => {
     "session_upsert",
     "workspace_set_snapshot",
     "session_set_in_flight",
-  ])("keeps an idle window open when explicit close cannot write %s", async (failedCommand) => {
-    const { release } = workspace(false);
-    vi.mocked(invoke).mockImplementation(async (command) => {
-      if (command === failedCommand) throw new Error("Disk is full");
-      return undefined;
-    });
-    try {
-      await closeBusyWindow();
-      expect(ask).not.toHaveBeenCalled();
-      expect(message).toHaveBeenCalledWith(
-        expect.stringContaining("Disk is full"),
-        { title: "Could not close window", kind: "error" },
-      );
-      expect(isAppQuitting()).toBe(false);
-      expect(invoke).not.toHaveBeenCalledWith("destroy_window");
-      expect(forgetHarnessSession).not.toHaveBeenCalled();
+  ])(
+    "keeps an idle window open when explicit close cannot write %s",
+    async (failedCommand) => {
+      const { release } = workspace(false);
+      vi.mocked(invoke).mockImplementation(async (command) => {
+        if (command === failedCommand) throw new Error("Disk is full");
+        return undefined;
+      });
+      try {
+        await closeBusyWindow();
+        expect(ask).not.toHaveBeenCalled();
+        expect(message).toHaveBeenCalledWith(
+          expect.stringContaining("Disk is full"),
+          { title: "Could not close window", kind: "error" },
+        );
+        expect(isAppQuitting()).toBe(false);
+        expect(invoke).not.toHaveBeenCalledWith("destroy_window");
+        expect(forgetHarnessSession).not.toHaveBeenCalled();
 
-      vi.mocked(invoke).mockResolvedValue(undefined);
-      await closeBusyWindow();
-      expect(invoke).toHaveBeenCalledWith("destroy_window");
-    } finally {
-      release();
-    }
-  });
+        vi.mocked(invoke).mockResolvedValue(undefined);
+        await closeBusyWindow();
+        expect(invoke).toHaveBeenCalledWith("destroy_window");
+      } finally {
+        release();
+      }
+    },
+  );
 
-  it.each(["quit", "close"])("shows a save failure and allows retrying %s", async (action) => {
-    const { release } = workspace();
-    const flush = vi.fn().mockRejectedValue(new Error("Notes could not be saved"));
-    const releaseFlusher = registerWorkspaceDraftFlusher(flush);
-    const close = action === "quit" ? handleQuitRequested : closeBusyWindow;
-    try {
-      await close();
-      expect(message).toHaveBeenCalledWith(
-        expect.stringContaining("Notes could not be saved"),
-        expect.objectContaining({ kind: "error" }),
-      );
-      expect(isAppQuitting()).toBe(false);
-      expect(forgetHarnessSession).not.toHaveBeenCalled();
-      expect(invoke).not.toHaveBeenCalledWith("confirm_quit");
-      expect(invoke).not.toHaveBeenCalledWith("destroy_window");
+  it.each(["quit", "close"])(
+    "shows a save failure and allows retrying %s",
+    async (action) => {
+      const { release } = workspace();
+      const flush = vi
+        .fn()
+        .mockRejectedValue(new Error("Notes could not be saved"));
+      const releaseFlusher = registerWorkspaceDraftFlusher(flush);
+      const close = action === "quit" ? handleQuitRequested : closeBusyWindow;
+      try {
+        await close();
+        expect(message).toHaveBeenCalledWith(
+          expect.stringContaining("Notes could not be saved"),
+          expect.objectContaining({ kind: "error" }),
+        );
+        expect(isAppQuitting()).toBe(false);
+        expect(forgetHarnessSession).not.toHaveBeenCalled();
+        expect(invoke).not.toHaveBeenCalledWith("confirm_quit");
+        expect(invoke).not.toHaveBeenCalledWith("destroy_window");
 
-      flush.mockResolvedValue(undefined);
-      await close();
-      expect(invoke).toHaveBeenCalledWith(
-        action === "quit" ? "confirm_quit" : "destroy_window",
-      );
-    } finally {
-      releaseFlusher();
-      release();
-    }
-  });
+        flush.mockResolvedValue(undefined);
+        await close();
+        expect(invoke).toHaveBeenCalledWith(
+          action === "quit" ? "confirm_quit" : "destroy_window",
+        );
+      } finally {
+        releaseFlusher();
+        release();
+      }
+    },
+  );
 
   it.each([
     "session_upsert",
     "workspace_set_snapshot",
     "session_set_in_flight",
-  ])("keeps Aven open when explicit quit cannot write %s", async (failedCommand) => {
-    const { release } = workspace();
-    vi.mocked(invoke).mockImplementation(async (command) => {
-      if (command === failedCommand) throw new Error("Saved data is unavailable");
-      return undefined;
-    });
-    try {
-      await handleQuitRequested();
-      expect(message).toHaveBeenCalledWith(
-        expect.stringContaining("Saved data is unavailable"),
-        expect.objectContaining({ title: "Could not quit Aven", kind: "error" }),
-      );
-      expect(isAppQuitting()).toBe(false);
-      expect(invoke).not.toHaveBeenCalledWith("confirm_quit");
-      expect(forgetHarnessSession).not.toHaveBeenCalled();
+  ])(
+    "keeps Aven open when explicit quit cannot write %s",
+    async (failedCommand) => {
+      const { release } = workspace();
+      vi.mocked(invoke).mockImplementation(async (command) => {
+        if (command === failedCommand)
+          throw new Error("Saved data is unavailable");
+        return undefined;
+      });
+      try {
+        await handleQuitRequested();
+        expect(message).toHaveBeenCalledWith(
+          expect.stringContaining("Saved data is unavailable"),
+          expect.objectContaining({
+            title: "Could not quit Aven",
+            kind: "error",
+          }),
+        );
+        expect(isAppQuitting()).toBe(false);
+        expect(invoke).not.toHaveBeenCalledWith("confirm_quit");
+        expect(forgetHarnessSession).not.toHaveBeenCalled();
 
-      vi.mocked(invoke).mockResolvedValue(undefined);
-      await handleQuitRequested();
-      expect(invoke).toHaveBeenCalledWith("confirm_quit");
-    } finally {
-      release();
-    }
-  });
+        vi.mocked(invoke).mockResolvedValue(undefined);
+        await handleQuitRequested();
+        expect(invoke).toHaveBeenCalledWith("confirm_quit");
+      } finally {
+        release();
+      }
+    },
+  );
 });
 
 it("normal quit saves the latest unsent standalone draft without creating a sent transcript", async () => {

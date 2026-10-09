@@ -58,7 +58,10 @@ describe("surface group store", () => {
     expect(loadSurfaceGroups()).toEqual({ groups: {}, members: {} });
     localStorage.setItem(
       "aven.tabGroups.v1",
-      JSON.stringify({ groups: { g: { color: 99 } }, members: { a: "g", b: "x" } }),
+      JSON.stringify({
+        groups: { g: { color: 99 } },
+        members: { a: "g", b: "x" },
+      }),
     );
     expect(loadSurfaceGroups()).toEqual({
       groups: { g: { id: "g", name: "", color: 1, collapsed: false } },
@@ -69,15 +72,26 @@ describe("surface group store", () => {
   it("picks the first unused colour after grey", () => {
     expect(nextSurfaceGroupColor([])).toBe(1);
     expect(
-      nextSurfaceGroupColor([{ id: "g", name: "", color: 1, collapsed: false }]),
+      nextSurfaceGroupColor([
+        { id: "g", name: "", color: 1, collapsed: false },
+      ]),
     ).toBe(2);
   });
 });
 
 describe("strip segments", () => {
   it("draws a group at its first member and gathers stray members", () => {
-    const segments = stripSegments(["a", "x", "b", "c"], state({ a: "g", c: "g" }));
-    expect(stripDisplayIds(segments)).toEqual([groupChipId("g"), "a", "c", "x", "b"]);
+    const segments = stripSegments(
+      ["a", "x", "b", "c"],
+      state({ a: "g", c: "g" }),
+    );
+    expect(stripDisplayIds(segments)).toEqual([
+      groupChipId("g"),
+      "a",
+      "c",
+      "x",
+      "b",
+    ]);
   });
 
   it("shows only the label of a folded group, as Brave does", () => {

@@ -174,14 +174,25 @@ export function createComposerDraftStore(
     owners.set(id, (owners.get(id) ?? 0) + 1);
     return () => {
       const count = Math.max(0, (owners.get(id) ?? 1) - 1);
-      if (count) { owners.set(id, count); return; }
+      if (count) {
+        owners.set(id, count);
+        return;
+      }
       owners.delete(id);
       flush();
-      const cached = drafts.get(id), stored = readStored(id);
+      const cached = drafts.get(id),
+        stored = readStored(id);
       // Only release memory after verifying the durable copy. Quota failures,
       // imported newer drafts and clear-ordering timestamps must survive.
-      if (!dirty.has(id) && cached && stored && stored.updatedAt === cached.updatedAt &&
-          stored.text === cached.text && sameAttachments(stored.attachments, cached.attachments)) drafts.delete(id);
+      if (
+        !dirty.has(id) &&
+        cached &&
+        stored &&
+        stored.updatedAt === cached.updatedAt &&
+        stored.text === cached.text &&
+        sameAttachments(stored.attachments, cached.attachments)
+      )
+        drafts.delete(id);
     };
   };
   const subscribe = (listener: () => void) => {

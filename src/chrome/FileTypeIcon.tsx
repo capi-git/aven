@@ -1,4 +1,4 @@
-import { memo, useMemo, useSyncExternalStore } from "react";
+import { memo, useEffect, useMemo, useSyncExternalStore } from "react";
 
 type Props = {
   name: string;
@@ -8,36 +8,63 @@ type Props = {
   size?: number;
 };
 
-type IconPack = typeof import("react-material-icon-theme");
+type IconNames = typeof import("./fileIconNames");
 
 /**
- * The Material icon pack inlines every glyph as a component — ~1.1 MB, the
- * single largest thing in the boot chunk, for 16px decorations. Load it after
- * first paint and hold a same-sized blank until it lands, so the app starts
- * without it and nothing reflows when it arrives.
+ * The Material icon pack inlines every glyph — ~1.1 MB for 16px decorations.
+ * After first paint, load only its name lookup plus the SVGs common files and
+ * folders use. The full SVG set loads only when a rarer
+ * icon is actually shown. Until a glyph is available, hold a same-sized blank
+ * so nothing reflows when it arrives.
  */
-let pack: IconPack | null = null;
-let loading: Promise<void> | null = null;
+let iconNames: IconNames | null = null;
+let fullSvgs: Readonly<Record<string, string>> | null = null;
+let namesLoad: Promise<void> | null = null;
+let fullLoad: Promise<void> | null = null;
+let version = 0;
 const listeners = new Set<() => void>();
 
-function loadPack() {
-  if (pack || loading) return;
-  loading = import("react-material-icon-theme").then((mod) => {
-    pack = mod;
-    for (const listener of listeners) listener();
-  });
+function notify() {
+  version += 1;
+  for (const listener of listeners) listener();
+}
+
+function loadNames() {
+  if (iconNames || namesLoad) return;
+  namesLoad = import("./fileIconNames").then(
+    (mod) => {
+      iconNames = mod;
+      notify();
+    },
+    () => {
+      namesLoad = null;
+    },
+  );
+}
+
+function loadFullSvgs() {
+  if (fullSvgs || fullLoad) return;
+  fullLoad = import("material-icon-svgs").then(
+    (mod) => {
+      fullSvgs = mod.iconData;
+      notify();
+    },
+    () => {
+      fullLoad = null;
+    },
+  );
 }
 
 function subscribe(onStoreChange: () => void) {
   listeners.add(onStoreChange);
-  loadPack();
+  loadNames();
   return () => {
     listeners.delete(onStoreChange);
   };
 }
 
 function getSnapshot() {
-  return pack;
+  return version;
 }
 
 /** Filename maps to the matching Material Icon Theme icon. */
@@ -48,19 +75,23 @@ export const FileTypeIcon = memo(function FileTypeIcon({
   isRoot = false,
   size = 16,
 }: Props) {
-  const icons = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
-  const iconName = icons
-    ? isDir
-      ? icons.getFolderIcon({ folderName: name, isOpen, isRoot })
-      : resolveFileIcon(icons, name)
+  const iconName = iconNames
+    ? iconNames.iconNameFor(name, isDir, isOpen, isRoot)
     : "";
-  const svg = icons?.getIconSvg(iconName) ?? "";
+  const svg = iconName
+    ? (iconNames?.FILE_ICON_SVGS[iconName] ?? fullSvgs?.[iconName] ?? "")
+    : "";
+  const needsFullSet = !!iconName && !svg && !fullSvgs;
+  useEffect(() => {
+    if (needsFullSet) loadFullSvgs();
+  }, [needsFullSet]);
   // React compares this prop by identity. A fresh object replaces the SVG
   // subtree even when the glyph is unchanged (for example, on resize).
   const markup = useMemo(() => ({ __html: svg }), [svg]);
 
-  if (!icons) {
+  if (!svg) {
     return (
       <span
         aria-hidden
@@ -79,39 +110,3 @@ export const FileTypeIcon = memo(function FileTypeIcon({
     />
   );
 });
-
-/**
- * The package only checks `fileExtension` when that prop is set — it does not
- * peel an extension off `fileName`. Try the full name, then compound suffixes
- * (`d.ts`, then `ts`) so `.rs` / `.toml` / `.json` resolve by compound suffix.
- */
-function resolveFileIcon(icons: IconPack, fileName: string): string {
-  const key = fileName.toLowerCase();
-  const fromName = icons.getFileIcon({
-    fileName: key,
-    fallback: "",
-    iconPack: "",
-  });
-  if (fromName) return fromName;
-
-  for (const ext of compoundExtensions(key)) {
-    const fromExt = icons.getFileIcon({
-      fileExtension: ext,
-      fallback: "",
-      iconPack: "",
-    });
-    if (fromExt) return fromExt;
-  }
-
-  return "file";
-}
-
-function compoundExtensions(fileName: string): string[] {
-  const parts = fileName.split(".");
-  const start = parts[0] === "" ? 1 : 0;
-  const exts: string[] = [];
-  for (let i = start + 1; i < parts.length; i++) {
-    exts.push(parts.slice(i).join("."));
-  }
-  return exts;
-}

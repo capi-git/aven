@@ -26,12 +26,9 @@ describe("repository clone URL validation", () => {
     "git@github.com:owner/repo.git",
     "ssh://git@github.com/owner/repo",
     "git@github-work:owner/repo.git",
-  ])(
-    "preserves the explicitly supplied repository transport: %s",
-    (input) => {
-      expect(routedCloneUrl(input)).toBe(input);
-    },
-  );
+  ])("preserves the explicitly supplied repository transport: %s", (input) => {
+    expect(routedCloneUrl(input)).toBe(input);
+  });
   it.each([
     "https://token@github.com/owner/repo",
     "ssh://git:password@github.com/owner/repo",

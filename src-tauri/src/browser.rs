@@ -14,6 +14,13 @@ use tauri::{
 #[path = "browser_floating.rs"]
 mod floating;
 
+/// The fallback backend accepts the shared frontend creation handshake.
+#[tauri::command]
+pub fn browser_renderer_epoch(caller: Webview) -> Result<u64, String> {
+    label(&caller, "renderer")?;
+    Ok(0)
+}
+
 #[derive(Clone, Deserialize)]
 pub struct BrowserBounds {
     x: f64,
@@ -633,24 +640,6 @@ pub fn window_destroyed(app: &AppHandle, window_label: &str) {
 
 pub(crate) fn return_floating(root: &str) {
     floating::request_return(root);
-}
-
-pub(crate) fn floating_owner(label: &str) -> Option<String> {
-    let entries = registry().lock().unwrap_or_else(|error| error.into_inner());
-    let root = entries.floating.get(label)?;
-    Some(entries.roots.get(root)?.caller.window().label().to_string())
-}
-
-pub(crate) fn return_floating_window(label: &str) {
-    let root = registry()
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .floating
-        .get(label)
-        .cloned();
-    if let Some(root) = root {
-        floating::request_return(&root);
-    }
 }
 
 pub fn dispatch_floating_menu(app: &AppHandle, id: &str) -> bool {

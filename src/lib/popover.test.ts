@@ -7,7 +7,14 @@ function anchor(
   width: number,
   height: number,
 ): AnchorRect {
-  return { left, top, width, height, right: left + width, bottom: top + height };
+  return {
+    left,
+    top,
+    width,
+    height,
+    right: left + width,
+    bottom: top + height,
+  };
 }
 
 const menu = { width: 200, height: 150 };
@@ -43,9 +50,9 @@ describe("placePopover", () => {
   });
 
   it("keeps a menu inside the trailing viewport edge", () => {
-    expect(
-      placePopover(anchor(700, 100, 80, 20), menu, viewport).left,
-    ).toBe(592);
+    expect(placePopover(anchor(700, 100, 80, 20), menu, viewport).left).toBe(
+      592,
+    );
   });
 
   it("aligns to the anchor's center and trailing edge", () => {

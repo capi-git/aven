@@ -38,7 +38,7 @@ export function applyTerminalMeta(
   const foreground =
     patch.foreground === undefined
       ? file.foreground
-      : (patch.foreground?.trim() || undefined);
+      : patch.foreground?.trim() || undefined;
   if (
     path === file.path &&
     cwd === file.cwd &&
@@ -89,8 +89,7 @@ export function runningTerminalChipLabel(terminals: RunningTerminal[]): string {
     .join(" · ");
 }
 
-const OSC_CWD =
-  /\x1b\]7;file:\/\/[^/]*(\/[^\x07\x1b]*)(?:\x07|\x1b\\)/g;
+const OSC_CWD = /\x1b\]7;file:\/\/[^/]*(\/[^\x07\x1b]*)(?:\x07|\x1b\\)/g;
 
 function decodeOscPath(raw: string): string {
   try {

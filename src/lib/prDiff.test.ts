@@ -49,7 +49,14 @@ index abc..0000000
 @@ -1,1 +0,0 @@
 -bye
 `);
-    expect(files.map((file) => [file.path, file.status, file.additions, file.deletions])).toEqual([
+    expect(
+      files.map((file) => [
+        file.path,
+        file.status,
+        file.additions,
+        file.deletions,
+      ]),
+    ).toEqual([
       ["new.txt", "added", 2, 0],
       ["gone.txt", "deleted", 0, 1],
     ]);

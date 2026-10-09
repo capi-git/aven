@@ -238,7 +238,7 @@ export function CwdPicker({
               path={projectless ? null : projectLogoPath}
               fallbackStrokeWidth={1.5}
             />
-            <span className="truncate font-mono text-[12px]">{label}</span>
+            <span className="truncate font-mono text-ui-label">{label}</span>
           </>
         )}
         {chevron ? (
@@ -275,21 +275,21 @@ export function CwdPicker({
             {folderError ? (
               <p
                 role="alert"
-                className="px-2.5 py-2 text-[12px] text-content/70"
+                className="px-2.5 py-2 text-ui-label text-content/70"
               >
                 Could not open the folder picker. Try again.
               </p>
             ) : null}
             {inProject ? (
               <>
-                <p className="px-2.5 pb-1 pt-2 text-[10px] uppercase tracking-widest text-content/50">
+                <p className="px-2.5 pb-1 pt-2 text-ui-micro uppercase tracking-widest text-content/50">
                   Current project
                 </p>
                 <div className="px-2.5 py-1.5 text-content/50">
-                  <p className="truncate text-[13px] text-content">
+                  <p className="truncate text-ui-body text-content">
                     {basename(cwd)}
                   </p>
-                  <p className="truncate font-mono text-[11px]">
+                  <p className="truncate font-mono text-ui-caption">
                     {prettyParent(cwd)}
                   </p>
                 </div>
@@ -297,7 +297,7 @@ export function CwdPicker({
             ) : null}
             {previewRecents.length > 0 ? (
               <>
-                <p className="px-2.5 pb-1 pt-2 text-[10px] uppercase tracking-widest text-content/50">
+                <p className="px-2.5 pb-1 pt-2 text-ui-micro uppercase tracking-widest text-content/50">
                   Recent projects
                 </p>
                 {previewRecents.map((item, index) => (
@@ -318,10 +318,10 @@ export function CwdPicker({
                         : "text-content/80 hover:bg-content/5"
                     }`}
                   >
-                    <span className="min-w-0 truncate text-[13px]">
+                    <span className="min-w-0 truncate text-ui-body">
                       {basename(item.path)}
                     </span>
-                    <span className="max-w-28 shrink-0 truncate font-mono text-[11px] text-content/45">
+                    <span className="max-w-28 shrink-0 truncate font-mono text-ui-caption text-content/45">
                       {prettyParent(item.path)}
                     </span>
                   </button>
@@ -351,7 +351,7 @@ export function CwdPicker({
                     : "text-content/80 hover:bg-content/5"
                 }`}
               >
-                <span className="text-[13px]">More Projects</span>
+                <span className="text-ui-body">More Projects</span>
                 <ChevronRight
                   className="size-3.5 shrink-0"
                   strokeWidth={1.75}
@@ -371,7 +371,7 @@ export function CwdPicker({
                     setActive(previewRecents.length + (hasMore ? 1 : 0));
                   }}
                   onClick={() => pick({ kind: "choose-folder" })}
-                  className={`flex w-full items-center px-2.5 py-2 text-left text-[13px] ${
+                  className={`flex w-full items-center px-2.5 py-2 text-left text-ui-body ${
                     active === previewRecents.length + (hasMore ? 1 : 0)
                       ? "bg-content/10 text-content"
                       : "text-content/80 hover:bg-content/5"
@@ -396,8 +396,8 @@ export function CwdPicker({
                       : "text-content/80 hover:bg-content/5"
                   }`}
                 >
-                  <span className="text-[13px]">New terminal</span>
-                  <span className="shrink-0 font-mono text-[11px] text-content/45">
+                  <span className="text-ui-body">New terminal</span>
+                  <span className="shrink-0 font-mono text-ui-caption text-content/45">
                     {MOD}`
                   </span>
                 </button>
@@ -431,10 +431,10 @@ export function CwdPicker({
               onClick={() => pick({ kind: "recent", path: item.path })}
               className="flex w-full items-center justify-between gap-3 px-2.5 py-2 text-left text-content/80 hover:bg-content/5 hover:text-content"
             >
-              <span className="min-w-0 truncate text-[13px]">
+              <span className="min-w-0 truncate text-ui-body">
                 {basename(item.path)}
               </span>
-              <span className="max-w-28 shrink-0 truncate font-mono text-[11px] text-content/45">
+              <span className="max-w-28 shrink-0 truncate font-mono text-ui-caption text-content/45">
                 {prettyParent(item.path)}
               </span>
             </button>

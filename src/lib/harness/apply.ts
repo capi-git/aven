@@ -64,19 +64,24 @@ export function applyHarnessEvent(
     case "agent.updated": {
       const { type: _type, agentId, ...agent } = event;
       const previous = session.liveAgents ?? [];
-      const existing = previous.findIndex(entry => entry.id === agentId);
+      const existing = previous.findIndex((entry) => entry.id === agentId);
       const prior = previous[existing];
       const next = {
         ...prior,
-        ...(prior && prior.status !== agent.status ? { detail: undefined } : {}),
+        ...(prior && prior.status !== agent.status
+          ? { detail: undefined }
+          : {}),
         ...agent,
         id: agentId,
       };
       return {
         ...session,
-        liveAgents: existing < 0
-          ? [...previous, next]
-          : previous.map((entry, index) => index === existing ? next : entry),
+        liveAgents:
+          existing < 0
+            ? [...previous, next]
+            : previous.map((entry, index) =>
+                index === existing ? next : entry,
+              ),
       };
     }
     case "agents.cleared":
@@ -168,7 +173,9 @@ export function applyHarnessEvent(
           : {}),
       };
     case "status":
-      return appendStatus(session, event.text);
+      return event.key
+        ? upsertKeyedStatus(session, event.key, event.text)
+        : appendStatus(session, event.text);
     default:
       return session;
   }
@@ -378,9 +385,14 @@ export function appendUser(
     {
       ...session,
       busy: true,
-      ...(session.liveAgents ? {
-        liveAgents: session.liveAgents.filter(agent => isActiveSessionAgent(agent) || agent.status === "unknown"),
-      } : {}),
+      ...(session.liveAgents
+        ? {
+            liveAgents: session.liveAgents.filter(
+              (agent) =>
+                isActiveSessionAgent(agent) || agent.status === "unknown",
+            ),
+          }
+        : {}),
     },
     {
       id: crypto.randomUUID(),
@@ -580,6 +592,37 @@ function appendStatus(session: Session, text: string): Session {
     role: "system",
     text: trimmed,
   });
+}
+
+/** One row per status key per turn: updates replace it and empty text removes it. */
+function upsertKeyedStatus(
+  session: Session,
+  key: string,
+  text: string,
+): Session {
+  const trimmed = text.trim();
+  const turnStart = lastMatchingBlock(
+    session.blocks,
+    (block) => block.role === "user",
+  );
+  const index = lastMatchingBlock(
+    session.blocks,
+    (block, at) => at > turnStart && block.statusKey === key,
+  );
+  if (index < 0) {
+    if (!trimmed) return session;
+    return appendBlock(session, {
+      id: crypto.randomUUID(),
+      role: "system",
+      text: trimmed,
+      statusKey: key,
+    });
+  }
+  if (session.blocks[index].text === trimmed) return session;
+  const blocks = session.blocks.slice();
+  if (trimmed) blocks[index] = { ...blocks[index], text: trimmed };
+  else blocks.splice(index, 1);
+  return { ...session, blocks };
 }
 
 function appendBlock(session: Session, block: Block): Session {
