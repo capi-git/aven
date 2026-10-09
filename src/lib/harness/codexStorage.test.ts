@@ -52,4 +52,100 @@ describe("effective Codex history isolation", () => {
       ).toThrow("login and history are unchanged");
     },
   );
+
+  describe("remote MCP credential compatibility", () => {
+    const macHome = "/aven/codex-home";
+    const windowsHome = "C:\\Users\\Jack\\Aven\\codex-home";
+    const remoteServers = { remote: { url: "https://mcp.example.com" } };
+    const assertMcpStorage = (
+      home: string,
+      config: Record<string, unknown>,
+    ): void =>
+      assertCodexStorage({ config: { sqlite_home: home, ...config } }, home);
+
+    it.each([undefined, "auto", "keyring"])(
+      "allows ordinary Mac keyring storage with MCP mode %s",
+      (mode) => {
+        expect(() =>
+          assertMcpStorage(macHome, {
+            mcp_oauth_credentials_store: mode,
+            mcp_servers: remoteServers,
+          }),
+        ).not.toThrow();
+      },
+    );
+
+    it.each([undefined, "auto", "keyring"])(
+      "rejects the Windows encrypted storage default with MCP mode %s",
+      (mode) => {
+        expect(() =>
+          assertMcpStorage(windowsHome, {
+            mcp_oauth_credentials_store: mode,
+            mcp_servers: remoteServers,
+          }),
+        ).toThrow('mcp_oauth_credentials_store = "file"');
+      },
+    );
+
+    it("honors an effective feature override instead of the platform default", () => {
+      expect(() =>
+        assertMcpStorage(macHome, {
+          features: { secret_auth_storage: true },
+          mcp_servers: remoteServers,
+        }),
+      ).toThrow("No chat was started");
+      expect(() =>
+        assertMcpStorage(windowsHome, {
+          features: { secret_auth_storage: false },
+          mcp_servers: remoteServers,
+        }),
+      ).not.toThrow();
+    });
+
+    it.each([macHome, windowsHome])(
+      "allows file-based remote MCP credentials on %s",
+      (home) => {
+        expect(() =>
+          assertMcpStorage(home, {
+            features: { secret_auth_storage: true },
+            mcp_oauth_credentials_store: "file",
+            mcp_servers: remoteServers,
+          }),
+        ).not.toThrow();
+      },
+    );
+
+    it.each([
+      undefined,
+      {},
+      { local: { command: "mcp-server", args: [] } },
+      { disabled: { url: "https://mcp.example.com", enabled: false } },
+      {
+        local: { command: "mcp-server" },
+        disabled: { url: "https://mcp.example.com", enabled: false },
+      },
+    ])(
+      "allows configurations without an enabled remote server: %j",
+      (servers) => {
+        expect(() =>
+          assertMcpStorage(windowsHome, {
+            mcp_oauth_credentials_store: "keyring",
+            mcp_servers: servers,
+          }),
+        ).not.toThrow();
+      },
+    );
+
+    it("checks every server, including an explicitly enabled remote server", () => {
+      expect(() =>
+        assertMcpStorage(windowsHome, {
+          mcp_servers: {
+            disabled: { url: "https://disabled.example.com", enabled: false },
+            local: { command: "mcp-server" },
+            remote: { url: "https://enabled.example.com", enabled: true },
+          },
+        }),
+      ).toThrow("No chat was started");
+    });
+  });
 });

@@ -33,7 +33,6 @@ const SHARED_RESOURCES: &[&str] = &[
     "prompts",
     "model-catalogs",
     "themes",
-    "secrets",
     "mcp-oauth-locks",
 ];
 
@@ -133,6 +132,9 @@ fn prepare_at(
         "archived_sessions",
         "generated_images",
         "sqlite",
+        // The encryption key for this directory is scoped to CODEX_HOME.
+        // Never share ciphertext with a provider using a different home key.
+        "secrets",
     ] {
         ensure_private_directory(&private.join(name))?;
     }
@@ -249,7 +251,7 @@ fn collect_relative_assets(
                 {
                     let name = name.to_string_lossy().into_owned();
                     if private_state_name(&name) {
-                        return Err("Codex configuration references conversation state that Aven cannot safely share".into());
+                        return Err("Codex configuration references private provider state that Aven cannot safely share".into());
                     }
                     names.insert(name);
                 }
@@ -279,6 +281,7 @@ fn private_state_name(name: &str) -> bool {
         "sessions"
             | "archived_sessions"
             | "sqlite"
+            | "secrets"
             | "history.jsonl"
             | "session_index.jsonl"
             | "generated_images"
@@ -701,6 +704,78 @@ mod tests {
             "synthetic refreshed auth"
         );
         prepare_at(&source, &fixture.private(), None).unwrap();
+    }
+
+    #[test]
+    fn encrypted_secrets_are_private_and_never_modify_the_source_store() {
+        let fixture = Fixture::new();
+        let source = fixture.source().join("secrets");
+        fs::create_dir(&source).unwrap();
+        let original = b"synthetic ciphertext encrypted for the shared home";
+        fs::write(source.join("mcp_oauth.age"), original).unwrap();
+
+        prepare_at(&fixture.source(), &fixture.private(), None).unwrap();
+        let private = fixture.private().join("secrets");
+        let metadata = fs::symlink_metadata(&private).unwrap();
+        assert!(metadata.is_dir());
+        assert!(!is_redirect(&metadata));
+        assert_ne!(
+            private.canonicalize().unwrap(),
+            source.canonicalize().unwrap()
+        );
+        assert_eq!(fs::read_dir(&private).unwrap().count(), 0);
+
+        let isolated = b"synthetic ciphertext encrypted for the private home";
+        fs::write(private.join("mcp_oauth.age"), isolated).unwrap();
+        prepare_at(&fixture.source(), &fixture.private(), None).unwrap();
+        assert_eq!(fs::read(source.join("mcp_oauth.age")).unwrap(), original);
+        assert_eq!(fs::read(private.join("mcp_oauth.age")).unwrap(), isolated);
+        assert_eq!(fs::read_dir(&source).unwrap().count(), 1);
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn existing_private_secrets_redirect_is_rejected_without_touching_source() {
+        let fixture = Fixture::new();
+        let source = fixture.source().join("secrets");
+        fs::create_dir(&source).unwrap();
+        let original = b"synthetic source ciphertext";
+        fs::write(source.join("mcp_oauth.age"), original).unwrap();
+        fs::create_dir(fixture.private()).unwrap();
+        let private = fixture.private().join("secrets");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&source, &private).unwrap();
+        #[cfg(windows)]
+        junction::create(&source, &private).unwrap();
+
+        let error = prepare_at(&fixture.source(), &fixture.private(), None).unwrap_err();
+        assert!(error.contains("not a private directory"));
+        assert!(is_redirect(&fs::symlink_metadata(&private).unwrap()));
+        assert_eq!(fs::read(source.join("mcp_oauth.age")).unwrap(), original);
+        assert_eq!(fs::read_dir(&source).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn relative_assets_cannot_reintroduce_shared_secrets() {
+        let fixture = Fixture::new();
+        let source = fixture.source().join("secrets");
+        fs::create_dir(&source).unwrap();
+        let original = b"synthetic source ciphertext";
+        fs::write(source.join("mcp_oauth.age"), original).unwrap();
+        let config = "model_instructions_file = 'secrets/mcp_oauth.age'\n";
+        fs::write(fixture.source().join("config.toml"), config).unwrap();
+
+        assert!(prepare_at(&fixture.source(), &fixture.private(), None)
+            .unwrap_err()
+            .contains("private provider state"));
+        assert!(!is_redirect(
+            &fs::symlink_metadata(fixture.private().join("secrets")).unwrap()
+        ));
+        assert_eq!(fs::read(source.join("mcp_oauth.age")).unwrap(), original);
+        assert_eq!(
+            fs::read_to_string(fixture.source().join("config.toml")).unwrap(),
+            config
+        );
     }
 
     #[test]
