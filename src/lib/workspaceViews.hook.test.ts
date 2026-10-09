@@ -113,10 +113,22 @@ describe("useWorkspaceViews project and explicit focus lifecycle", () => {
     function ProfileHarness() {
       const [browser, setBrowser] = useState(true);
       const [, setProfile] = useState("personal");
-      current = useWorkspaceViews(projectA, ["a-chat", "a-web", "a-other"], browser ? "a-web" : "a-chat");
-      selectProfile = (id) => restoreProfileWorkspace(id,
-        (next) => {setProfile(next);return next === "personal" ? projectA : "~";},
-        (_cwd, restoreWorkspace = false) => {if (!restoreWorkspace) setBrowser(false);});
+      current = useWorkspaceViews(
+        projectA,
+        ["a-chat", "a-web", "a-other"],
+        browser ? "a-web" : "a-chat",
+      );
+      selectProfile = (id) =>
+        restoreProfileWorkspace(
+          id,
+          (next) => {
+            setProfile(next);
+            return next === "personal" ? projectA : "~";
+          },
+          (_cwd, restoreWorkspace = false) => {
+            if (!restoreWorkspace) setBrowser(false);
+          },
+        );
       return null;
     }
     await act(async () => root.render(createElement(ProfileHarness)));
@@ -315,7 +327,9 @@ describe("useWorkspaceViews project and explicit focus lifecycle", () => {
   it("keeps minimized tabs out of visible groups through rerenders with a stale session preference", async () => {
     await render();
     await act(async () => {
-      current.change((view) => minimizeWorkspaceSide(view, "a-split", 0, "before"));
+      current.change((view) =>
+        minimizeWorkspaceSide(view, "a-split", 0, "before"),
+      );
     });
     expect(current.view.layout).toEqual(leaf("a-web"));
     expect(current.view.groups).toEqual({ "a-web": ["a-web", "a-other"] });
@@ -333,7 +347,9 @@ describe("useWorkspaceViews project and explicit focus lifecycle", () => {
   it("persists hidden tab membership across remount and a project round trip", async () => {
     await render();
     await act(async () => {
-      current.change((view) => minimizeWorkspaceSide(view, "a-split", 0, "after"));
+      current.change((view) =>
+        minimizeWorkspaceSide(view, "a-split", 0, "after"),
+      );
     });
     const minimized = current.view;
     expect(minimized.groups).toEqual({ "a-chat": ["a-chat"] });
@@ -357,45 +373,52 @@ describe("useWorkspaceViews project and explicit focus lifecycle", () => {
     expect(persisted()[projectA]).toEqual(minimized);
   });
 
-  it.each([false, true])("restores and selects a hidden tab on explicit focus (other project: %s)", async (fromOtherProject) => {
-    await render();
-    await act(async () => {
-      current.change((view) => minimizeWorkspaceSide(view, "a-split", 0, "after"));
-    });
-    if (fromOtherProject) {
-      await render({
-        project: projectB,
-        ids: ["b-chat", "b-web"],
-        requestedFocus: "b-chat",
+  it.each([false, true])(
+    "restores and selects a hidden tab on explicit focus (other project: %s)",
+    async (fromOtherProject) => {
+      await render();
+      await act(async () => {
+        current.change((view) =>
+          minimizeWorkspaceSide(view, "a-split", 0, "after"),
+        );
       });
-    }
-    await act(async () => current.focus(projectA, "a-other"));
-    if (fromOtherProject) {
-      expect(current.view).toEqual(savedB);
-      await render({
-        project: projectA,
-        ids: ["a-chat", "a-web", "a-other"],
-        requestedFocus: "a-other",
+      if (fromOtherProject) {
+        await render({
+          project: projectB,
+          ids: ["b-chat", "b-web"],
+          requestedFocus: "b-chat",
+        });
+      }
+      await act(async () => current.focus(projectA, "a-other"));
+      if (fromOtherProject) {
+        expect(current.view).toEqual(savedB);
+        await render({
+          project: projectA,
+          ids: ["a-chat", "a-web", "a-other"],
+          requestedFocus: "a-other",
+        });
+      }
+      expect(current.view.layout).toEqual({
+        ...columns,
+        children: [leaf("a-chat"), leaf("a-other")],
       });
-    }
-    expect(current.view.layout).toEqual({
-      ...columns,
-      children: [leaf("a-chat"), leaf("a-other")],
-    });
-    expect(current.view.focusedId).toBe("a-other");
-    expect(current.view.groups).toEqual({
-      "a-chat": ["a-chat"],
-      "a-other": ["a-web", "a-other"],
-    });
-    expect(current.view.hiddenGroups).toBeUndefined();
-    expect(current.view.restoreView).toBeUndefined();
-    expect(persisted()[projectA]).toEqual(current.view);
-  });
+      expect(current.view.focusedId).toBe("a-other");
+      expect(current.view.groups).toEqual({
+        "a-chat": ["a-chat"],
+        "a-other": ["a-web", "a-other"],
+      });
+      expect(current.view.hiddenGroups).toBeUndefined();
+      expect(current.view.restoreView).toBeUndefined();
+      expect(persisted()[projectA]).toEqual(current.view);
+    },
+  );
 
   it("keeps a newly opened visible tab selected when restoring minimized tabs", async () => {
     await render();
     await act(async () => {
-      current.change((view) => minimizeWorkspaceSide(view, "a-split", 0, "before"));
+      current.change((view) =>
+        minimizeWorkspaceSide(view, "a-split", 0, "before"),
+      );
     });
     await render({ ids: [...props.ids, "a-new"], requestedFocus: "a-new" });
     expect(current.view.layout).toEqual(leaf("a-new"));
@@ -409,7 +432,9 @@ describe("useWorkspaceViews project and explicit focus lifecycle", () => {
     });
     expect(current.view.focusedId).toBe("a-new");
     expect(current.view.groups["a-chat"]).toEqual(["a-chat"]);
-    expect(current.view.groups["a-new"]).toEqual(expect.arrayContaining(["a-web", "a-other", "a-new"]));
+    expect(current.view.groups["a-new"]).toEqual(
+      expect.arrayContaining(["a-web", "a-other", "a-new"]),
+    );
     expect(current.view.hiddenGroups).toBeUndefined();
     expect(persisted()[projectA]).toEqual(current.view);
   });

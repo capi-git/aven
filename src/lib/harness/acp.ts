@@ -28,8 +28,7 @@ export class AcpClient {
       onNotification: (method, params) =>
         this.handlers.onNotification?.(method, params),
       onRequest: (id, method, params) => {
-        const numeric =
-          typeof id === "number" ? id : Number(id);
+        const numeric = typeof id === "number" ? id : Number(id);
         void this.handlers.onRequest?.(numeric, method, params);
       },
     };

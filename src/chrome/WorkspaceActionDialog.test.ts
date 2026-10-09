@@ -222,14 +222,12 @@ describe("workspace action dialogs", () => {
 
   it("ignores an old project's delayed metadata after the project changes", async () => {
     const old = deferred<unknown>();
-    native.invoke
-      .mockReturnValueOnce(old.promise)
-      .mockResolvedValueOnce({
-        root: "/two",
-        branch: "new-branch",
-        remoteUrl: "https://github.com/new/repo",
-        defaultBranch: "develop",
-      });
+    native.invoke.mockReturnValueOnce(old.promise).mockResolvedValueOnce({
+      root: "/two",
+      branch: "new-branch",
+      remoteUrl: "https://github.com/new/repo",
+      defaultBranch: "develop",
+    });
     await render({ kind: "pr" });
     await render({ cwd: "/two" });
     await act(async () =>

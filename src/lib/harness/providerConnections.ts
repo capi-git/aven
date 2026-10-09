@@ -23,11 +23,7 @@ import { asRecord, stringField } from "./codexProtocol";
 import { JsonRpcClient } from "./jsonRpc";
 
 export type ConnectionState =
-  | "ready"
-  | "needs-sign-in"
-  | "failed"
-  | "starting"
-  | "inactive";
+  "ready" | "needs-sign-in" | "failed" | "starting" | "inactive";
 
 export type ProviderConnection = {
   name: string;
@@ -80,11 +76,15 @@ function once(
   return next;
 }
 
-export function listClaudeConnections(cwd: string): Promise<ProviderConnection[]> {
+export function listClaudeConnections(
+  cwd: string,
+): Promise<ProviderConnection[]> {
   return once(`claude:${cwd}`, () => inventoryClaude(cwd));
 }
 
-export function listCodexConnections(cwd: string): Promise<ProviderConnection[]> {
+export function listCodexConnections(
+  cwd: string,
+): Promise<ProviderConnection[]> {
   return once(`codex:${cwd}`, () => inventoryCodex(cwd));
 }
 
@@ -96,7 +96,10 @@ async function inventoryClaude(cwd: string): Promise<ProviderConnection[]> {
   let requestSeq = 0;
   const waiters = new Map<
     string,
-    { resolve: (payload: Record<string, unknown>) => void; reject: (error: Error) => void }
+    {
+      resolve: (payload: Record<string, unknown>) => void;
+      reject: (error: Error) => void;
+    }
   >();
   let exited: ((error: Error) => void) | null = null;
   const exit = new Promise<never>((_, reject) => {
@@ -113,7 +116,9 @@ async function inventoryClaude(cwd: string): Promise<ProviderConnection[]> {
       claudeProbeId,
       JSON.stringify(buildControlRequest(id, body)),
     ).catch((error: unknown) => {
-      waiters.get(id)?.reject(error instanceof Error ? error : new Error(String(error)));
+      waiters
+        .get(id)
+        ?.reject(error instanceof Error ? error : new Error(String(error)));
     });
     return Promise.race([reply, exit]);
   };
@@ -129,9 +134,13 @@ async function inventoryClaude(cwd: string): Promise<ProviderConnection[]> {
       if (!waiter) return;
       waiters.delete(response.requestId);
       if (response.ok) waiter.resolve(response.payload ?? {});
-      else waiter.reject(new Error(response.error ?? "Claude Code request failed"));
+      else
+        waiter.reject(
+          new Error(response.error ?? "Claude Code request failed"),
+        );
     },
-    () => exited?.(new Error("Claude Code stopped before reporting connections")),
+    () =>
+      exited?.(new Error("Claude Code stopped before reporting connections")),
   );
 
   const stop = async () => {
@@ -145,13 +154,17 @@ async function inventoryClaude(cwd: string): Promise<ProviderConnection[]> {
     return await withTimeout(PROBE_TIMEOUT_MS, async () => {
       await request({ subtype: "initialize" });
       const started = Date.now();
-      let rows = claudeConnectionsFromStatus(await request({ subtype: "mcp_status" }));
+      let rows = claudeConnectionsFromStatus(
+        await request({ subtype: "mcp_status" }),
+      );
       while (
         rows.some((row) => row.state === "starting") &&
         Date.now() - started < CLAUDE_SETTLE_MS
       ) {
         await new Promise((resolve) => setTimeout(resolve, CLAUDE_POLL_MS));
-        rows = claudeConnectionsFromStatus(await request({ subtype: "mcp_status" }));
+        rows = claudeConnectionsFromStatus(
+          await request({ subtype: "mcp_status" }),
+        );
       }
       return rows;
     });
@@ -186,7 +199,9 @@ export function claudeConnectionsFromStatus(
       if (!server || !name) return [];
       const status = stringField(server, "status");
       const scope = stringField(server, "scope");
-      const tools = Array.isArray(server.tools) ? server.tools.length : undefined;
+      const tools = Array.isArray(server.tools)
+        ? server.tools.length
+        : undefined;
       const error = stringField(server, "error");
       const state: ConnectionState =
         status === "connected"
@@ -205,7 +220,8 @@ export function claudeConnectionsFromStatus(
           ? CLAUDE_SCOPES[scope]
           : undefined;
       const editable =
-        !plugin && (scope === "user" || scope === "project" || scope === "local");
+        !plugin &&
+        (scope === "user" || scope === "project" || scope === "local");
       return [
         {
           name: plugin ? plugin[2]! : displayClaudeName(name, scope),
@@ -214,7 +230,9 @@ export function claudeConnectionsFromStatus(
           ...(state === "needs-sign-in" ? { canSignIn: true } : {}),
           state,
           ...(source ? { source } : {}),
-          ...(state === "ready" && tools !== undefined ? { toolCount: tools } : {}),
+          ...(state === "ready" && tools !== undefined
+            ? { toolCount: tools }
+            : {}),
           ...(error ? { detail: error.trim() } : {}),
         },
       ];
@@ -292,7 +310,9 @@ const CODEX_NAMES: Record<string, string> = {
   codex_apps: "ChatGPT apps",
 };
 
-export function codexConnectionsFromStatus(rows: unknown[]): ProviderConnection[] {
+export function codexConnectionsFromStatus(
+  rows: unknown[],
+): ProviderConnection[] {
   return sortConnections(
     rows.flatMap((item) => {
       const server = asRecord(item);
@@ -351,9 +371,14 @@ function sortConnections(rows: ProviderConnection[]): ProviderConnection[] {
 function withTimeout<T>(ms: number, run: () => Promise<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(
-      () => reject(new Error("The provider took too long to report its connections")),
+      () =>
+        reject(
+          new Error("The provider took too long to report its connections"),
+        ),
       ms,
     );
-    run().then(resolve, reject).finally(() => clearTimeout(timer));
+    run()
+      .then(resolve, reject)
+      .finally(() => clearTimeout(timer));
   });
 }

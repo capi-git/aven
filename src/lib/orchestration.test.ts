@@ -19,9 +19,7 @@ function setup() {
       saved.set(run.leadId, structuredClone(run));
     }),
     load: vi.fn(async (id: string) => saved.get(id) ?? null),
-    enable: vi.fn(
-      async () => "/Applications/Aven.app/Contents/MacOS/aven",
-    ),
+    enable: vi.fn(async () => "/Applications/Aven.app/Contents/MacOS/aven"),
     disable: vi.fn(async () => {}),
     scopes: vi.fn(async (_cwd: string, files: string[]) =>
       files.map((file) => (file === "." ? "/repo" : `/repo/${file}`)),
@@ -110,7 +108,8 @@ describe("worker assignment prompts", () => {
   });
 
   it("still hides legacy assignment instructions in restored conversations", () => {
-    const restored = "Review the branch.\n\n<monocode_assignment>\nLegacy worker instructions\n</monocode_assignment>";
+    const restored =
+      "Review the branch.\n\n<monocode_assignment>\nLegacy worker instructions\n</monocode_assignment>";
     expect(visibleUserPrompt(restored)).toBe("Review the branch.");
   });
 });
@@ -468,11 +467,19 @@ describe("local orchestration", () => {
     expect(f.manager.run("lead")!.error).toContain("outside its assignment");
   });
   it("keeps overlapping work queued when native termination is unconfirmed", async () => {
-    const f = setup(); await f.start(); await f.delegate(["a"]); await f.delegate(["a"]);
+    const f = setup();
+    await f.start();
+    await f.delegate(["a"]);
+    await f.delegate(["a"]);
     await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(1));
-    vi.mocked(f.host.stop).mockRejectedValueOnce(new Error("process tree still running"));
-    await expect(f.call("cancel", {taskId:f.tasks()[0].id})).rejects.toThrow("still running");
-    expect(f.tasks()[0].status).toBe("cancelling"); expect(f.tasks()[1].status).toBe("queued");
+    vi.mocked(f.host.stop).mockRejectedValueOnce(
+      new Error("process tree still running"),
+    );
+    await expect(f.call("cancel", { taskId: f.tasks()[0].id })).rejects.toThrow(
+      "still running",
+    );
+    expect(f.tasks()[0].status).toBe("cancelling");
+    expect(f.tasks()[1].status).toBe("queued");
     expect(f.host.submit).toHaveBeenCalledTimes(1);
   });
   it("holds ownership until a cancelled process has stopped", async () => {
@@ -655,21 +662,17 @@ describe("local orchestration", () => {
     expect(first).toHaveProperty("taskId");
   });
   it("quotes the control path only when the shell needs it", () => {
-    expect(
-      shellPath("/Applications/Aven.app/Contents/MacOS/aven"),
-    ).toBe("/Applications/Aven.app/Contents/MacOS/aven");
+    expect(shellPath("/Applications/Aven.app/Contents/MacOS/aven")).toBe(
+      "/Applications/Aven.app/Contents/MacOS/aven",
+    );
     expect(shellPath("/Users/a b/Aven")).toBe("'/Users/a b/Aven'");
     expect(shellPath("C:/Program Files/Aven/aven.exe")).toBe(
       '"C:/Program Files/Aven/aven.exe"',
     );
-    expect(shellPath("C:\\Tools\\aven.exe")).toBe(
-      "C:\\Tools\\aven.exe",
-    );
+    expect(shellPath("C:\\Tools\\aven.exe")).toBe("C:\\Tools\\aven.exe");
     // A backslash escapes in a POSIX shell, so bare would rewrite the path.
     expect(shellPath("/Users/a\\b/Aven")).toBe("'/Users/a\\b/Aven'");
-    expect(shellPath("/Users/it's/Aven")).toBe(
-      "'/Users/it'\\''s/Aven'",
-    );
+    expect(shellPath("/Users/it's/Aven")).toBe("'/Users/it'\\''s/Aven'");
   });
   it("treats an action named after an Object member as unknown", async () => {
     const f = setup();

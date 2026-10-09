@@ -40,7 +40,10 @@ describe("collectWindowTransfer", () => {
       projectCwd: "/Users/me/agent-terminal",
     });
     expect(payload?.tabs.map((tab) => tab.id)).toEqual(["t1", "t2"]);
-    expect(payload?.sessions.map((session) => session.id)).toEqual(["s1", "s2"]);
+    expect(payload?.sessions.map((session) => session.id)).toEqual([
+      "s1",
+      "s2",
+    ]);
     expect(payload?.projectTerminals).toBeUndefined();
   });
 

@@ -11,7 +11,9 @@ describe("sessionListWindow", () => {
   });
 
   it("caps the first page", () => {
-    expect(sessionListWindow(200, SESSION_LIST_PAGE, -1)).toBe(SESSION_LIST_PAGE);
+    expect(sessionListWindow(200, SESSION_LIST_PAGE, -1)).toBe(
+      SESSION_LIST_PAGE,
+    );
   });
 
   it("grows as more rows are requested", () => {

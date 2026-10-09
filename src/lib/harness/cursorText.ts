@@ -42,9 +42,11 @@ export async function stopCursorTextPrompt(childId?: string): Promise<void> {
 /** Start the shared text ACP process in the background so the first prompt is fast. */
 export function warmupCursorText(cwd: string): Promise<void> {
   if (!cwd || cwd === "~") return Promise.resolve();
-  const run = turns.catch(() => undefined).then(async () => {
-    await ensureLive(cwd);
-  });
+  const run = turns
+    .catch(() => undefined)
+    .then(async () => {
+      await ensureLive(cwd);
+    });
   turns = run.then(
     () => undefined,
     () => undefined,
@@ -116,7 +118,8 @@ async function startLive(cwd: string): Promise<LiveText> {
   const acp = new AcpClient(TEXT_CHILD_ID, {
     onNotification: (method, params) => {
       const session = acpRef.session;
-      if (!session || method !== "session/update" || !session.collecting) return;
+      if (!session || method !== "session/update" || !session.collecting)
+        return;
       session.output = mergeStream(session.output, textFromUpdate(params));
     },
     onRequest: (id, method, params) => {
@@ -173,11 +176,7 @@ async function openSession(session: LiveText, cwd: string): Promise<void> {
   const setup = await session.acp.request<{
     sessionId?: string;
     configOptions?: unknown;
-  }>(
-    "session/new",
-    { cwd, mcpServers: [] },
-    REQUEST_TIMEOUT_MS,
-  );
+  }>("session/new", { cwd, mcpServers: [] }, REQUEST_TIMEOUT_MS);
   const acpSessionId = setup.sessionId?.trim();
   if (!acpSessionId) throw new Error("Cursor did not return a session id");
 

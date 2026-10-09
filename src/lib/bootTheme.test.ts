@@ -62,14 +62,21 @@ describe("startup theme", () => {
     save({
       version: 1,
       fallback: theme("dark", "#0a0a0a"),
-      themes: { personal: theme("system", "#000000"), work: theme("dark", "#101820") },
+      themes: {
+        personal: theme("system", "#000000"),
+        work: theme("dark", "#101820"),
+      },
     });
     runThemeScript();
     expect(root.style.getPropertyValue("--boot-background")).toBe("#000000");
     expect(root.classList.contains("theme-light")).toBe(false);
 
     save(
-      { version: 1, fallback: theme("dark"), themes: { work: theme("dark", "#101820") } },
+      {
+        version: 1,
+        fallback: theme("dark"),
+        themes: { work: theme("dark", "#101820") },
+      },
       "work",
     );
     runThemeScript();
@@ -78,7 +85,11 @@ describe("startup theme", () => {
 
   it("follows the system appearance and falls back when the profile has no theme", () => {
     prefersLight = true;
-    save({ version: 1, fallback: theme("system", "#000000", "#f4f4f4"), themes: {} });
+    save({
+      version: 1,
+      fallback: theme("system", "#000000", "#f4f4f4"),
+      themes: {},
+    });
     runThemeScript();
     expect(root.classList.contains("theme-light")).toBe(true);
     expect(root.style.getPropertyValue("--boot-background")).toBe("#f4f4f4");

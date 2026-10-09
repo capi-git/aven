@@ -60,7 +60,11 @@ describe("release summary", () => {
     // A workflow without a publish input cannot be driven from the card.
     expect(
       summarizeRelease(
-        status({ version: "0.1.108", versionUnreleased: true, workflowHasPublish: false }),
+        status({
+          version: "0.1.108",
+          versionUnreleased: true,
+          workflowHasPublish: false,
+        }),
       ).publish,
     ).toBeNull();
   });
@@ -96,7 +100,9 @@ describe("release summary", () => {
 
   it("explains a project without releases", () => {
     expect(
-      summarizeRelease(status({ latest: null, unreleased: null, workflow: null })),
+      summarizeRelease(
+        status({ latest: null, unreleased: null, workflow: null }),
+      ),
     ).toMatchObject({
       title: "No releases yet",
       detail: "This project has no release workflow.",

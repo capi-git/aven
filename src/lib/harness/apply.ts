@@ -64,19 +64,24 @@ export function applyHarnessEvent(
     case "agent.updated": {
       const { type: _type, agentId, ...agent } = event;
       const previous = session.liveAgents ?? [];
-      const existing = previous.findIndex(entry => entry.id === agentId);
+      const existing = previous.findIndex((entry) => entry.id === agentId);
       const prior = previous[existing];
       const next = {
         ...prior,
-        ...(prior && prior.status !== agent.status ? { detail: undefined } : {}),
+        ...(prior && prior.status !== agent.status
+          ? { detail: undefined }
+          : {}),
         ...agent,
         id: agentId,
       };
       return {
         ...session,
-        liveAgents: existing < 0
-          ? [...previous, next]
-          : previous.map((entry, index) => index === existing ? next : entry),
+        liveAgents:
+          existing < 0
+            ? [...previous, next]
+            : previous.map((entry, index) =>
+                index === existing ? next : entry,
+              ),
       };
     }
     case "agents.cleared":
@@ -380,9 +385,14 @@ export function appendUser(
     {
       ...session,
       busy: true,
-      ...(session.liveAgents ? {
-        liveAgents: session.liveAgents.filter(agent => isActiveSessionAgent(agent) || agent.status === "unknown"),
-      } : {}),
+      ...(session.liveAgents
+        ? {
+            liveAgents: session.liveAgents.filter(
+              (agent) =>
+                isActiveSessionAgent(agent) || agent.status === "unknown",
+            ),
+          }
+        : {}),
     },
     {
       id: crypto.randomUUID(),

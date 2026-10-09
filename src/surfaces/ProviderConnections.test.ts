@@ -38,9 +38,26 @@ describe("provider connection section", () => {
     const html = render({
       status: "loaded",
       connections: [
-        { name: "Gmail", key: "claude.ai Gmail", state: "needs-sign-in", source: "claude.ai" },
-        { name: "scape", key: "scape", state: "failed", source: "Personal", detail: "ENOENT: no such file" },
-        { name: "Vercel", key: "claude.ai Vercel", state: "ready", source: "claude.ai", toolCount: 245 },
+        {
+          name: "Gmail",
+          key: "claude.ai Gmail",
+          state: "needs-sign-in",
+          source: "claude.ai",
+        },
+        {
+          name: "scape",
+          key: "scape",
+          state: "failed",
+          source: "Personal",
+          detail: "ENOENT: no such file",
+        },
+        {
+          name: "Vercel",
+          key: "claude.ai Vercel",
+          state: "ready",
+          source: "claude.ai",
+          toolCount: 245,
+        },
         { name: "one", key: "one", state: "ready", toolCount: 1 },
       ],
     });
@@ -55,9 +72,14 @@ describe("provider connection section", () => {
 
   it("reports loading, empty, healthy and error states", () => {
     expect(render({ status: "loading" })).toContain("Checking…");
-    expect(render({ status: "loaded", connections: [] })).toContain("None set up");
+    expect(render({ status: "loaded", connections: [] })).toContain(
+      "None set up",
+    );
     expect(
-      render({ status: "loaded", connections: [{ name: "a", key: "a", state: "ready", toolCount: 3 }] }),
+      render({
+        status: "loaded",
+        connections: [{ name: "a", key: "a", state: "ready", toolCount: 3 }],
+      }),
     ).toContain("1 available");
     const error = render({ status: "error", message: "Claude Code stopped" });
     expect(error).toContain("Could not check");
@@ -74,12 +96,32 @@ describe("managing MCP servers", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     invoke.mockReset().mockResolvedValue("");
     claude.mockReset().mockResolvedValue([
-      { name: "Gmail", key: "claude.ai Gmail", state: "needs-sign-in", source: "claude.ai", canSignIn: true },
-      { name: "scape", key: "scape", state: "failed", source: "Personal", scope: "user", removable: true },
+      {
+        name: "Gmail",
+        key: "claude.ai Gmail",
+        state: "needs-sign-in",
+        source: "claude.ai",
+        canSignIn: true,
+      },
+      {
+        name: "scape",
+        key: "scape",
+        state: "failed",
+        source: "Personal",
+        scope: "user",
+        removable: true,
+      },
     ]);
-    codex.mockReset().mockResolvedValue([
-      { name: "ChatGPT apps", key: "codex_apps", state: "ready", toolCount: 2 },
-    ]);
+    codex
+      .mockReset()
+      .mockResolvedValue([
+        {
+          name: "ChatGPT apps",
+          key: "codex_apps",
+          state: "ready",
+          toolCount: 2,
+        },
+      ]);
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -94,13 +136,14 @@ describe("managing MCP servers", () => {
   const button = (text: string) =>
     [...container.querySelectorAll<HTMLButtonElement>("button")].find(
       (element) =>
-        element.textContent === text || element.getAttribute("aria-label") === text,
+        element.textContent === text ||
+        element.getAttribute("aria-label") === text,
     )!;
   const click = (element: HTMLElement) => act(async () => element.click());
   const type = async (placeholder: string, value: string) => {
-    const field = container.querySelector<HTMLInputElement | HTMLTextAreaElement>(
-      `[placeholder^="${placeholder}"]`,
-    )!;
+    const field = container.querySelector<
+      HTMLInputElement | HTMLTextAreaElement
+    >(`[placeholder^="${placeholder}"]`)!;
     await act(async () => {
       const proto =
         field instanceof HTMLTextAreaElement
@@ -112,7 +155,9 @@ describe("managing MCP servers", () => {
   };
   const mount = () =>
     act(async () =>
-      root.render(createElement(ProviderConnections, { cwd: `/tmp/p-${Math.random()}` })),
+      root.render(
+        createElement(ProviderConnections, { cwd: `/tmp/p-${Math.random()}` }),
+      ),
     );
 
   it("signs in and removes through the provider, then checks again", async () => {
@@ -131,7 +176,12 @@ describe("managing MCP servers", () => {
     expect(invoke).toHaveBeenCalledTimes(1);
     await click(button("Remove"));
     expect(invoke).toHaveBeenLastCalledWith("provider_mcp", {
-      request: { action: "remove", provider: "claude", name: "scape", scope: "user" },
+      request: {
+        action: "remove",
+        provider: "claude",
+        name: "scape",
+        scope: "user",
+      },
       cwd: expect.any(String),
     });
     expect(claude.mock.calls.length).toBeGreaterThanOrEqual(3);
@@ -152,13 +202,23 @@ describe("managing MCP servers", () => {
         provider: "claude",
         name: "acme",
         scope: "user",
-        server: { type: "stdio", command: "npx", args: ["-y", "@acme/mcp"], env: { ACME_KEY: "secret" } },
+        server: {
+          type: "stdio",
+          command: "npx",
+          args: ["-y", "@acme/mcp"],
+          env: { ACME_KEY: "secret" },
+        },
       },
       {
         action: "add",
         provider: "codex",
         name: "acme",
-        server: { type: "stdio", command: "npx", args: ["-y", "@acme/mcp"], env: { ACME_KEY: "secret" } },
+        server: {
+          type: "stdio",
+          command: "npx",
+          args: ["-y", "@acme/mcp"],
+          env: { ACME_KEY: "secret" },
+        },
       },
     ]);
     expect(container.textContent).toContain("Added acme to Claude and Codex.");

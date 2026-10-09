@@ -67,7 +67,9 @@ describe("settings search", () => {
   it("does not offer native glass controls on unsupported platforms", () => {
     expect(searchSettings("opacity")[0].label).toBe("Background opacity");
     platform.nativeGlass = false;
-    expect(searchSettings("opacity").map(({ label }) => label)).toEqual(["Status bar opacity"]);
+    expect(searchSettings("opacity").map(({ label }) => label)).toEqual([
+      "Status bar opacity",
+    ]);
     expect(searchSettings("blur radius")).toEqual([]);
     expect(searchSettings("include workspace")).toEqual([]);
     expect(searchSettings("theme")[0].label).toBe("Theme");

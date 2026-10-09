@@ -156,9 +156,11 @@ describe("popup glass window", () => {
     await render(glass, "open-1");
     await render(glass, "open-2");
     expect(
-      vi.mocked(invoke).mock.calls.filter(
-        ([, args]) => (args as { frame?: unknown } | undefined)?.frame,
-      ),
+      vi
+        .mocked(invoke)
+        .mock.calls.filter(
+          ([, args]) => (args as { frame?: unknown } | undefined)?.frame,
+        ),
     ).toHaveLength(2);
     await act(async () => root.render(null));
     expect(translucent()).toBe(false);

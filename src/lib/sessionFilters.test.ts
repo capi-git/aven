@@ -48,9 +48,9 @@ describe("filterSessionsByTime", () => {
       summary("a1", { updatedAt: now - 60_000 }),
       summary("a2", { updatedAt: now - 8 * 24 * 60 * 60 * 1000 }),
     ];
-    expect(filterSessionsByTime(rows, "today", now).map((row) => row.id)).toEqual(
-      ["a1"],
-    );
+    expect(
+      filterSessionsByTime(rows, "today", now).map((row) => row.id),
+    ).toEqual(["a1"]);
   });
 
   it("keeps sessions from the last 7 days", () => {
@@ -92,7 +92,9 @@ describe("filterSessionsByStatus", () => {
 
 describe("hasActiveSessionFilters", () => {
   it("is false for defaults", () => {
-    expect(hasActiveSessionFilters(DEFAULT_SESSION_SIDEBAR_FILTERS)).toBe(false);
+    expect(hasActiveSessionFilters(DEFAULT_SESSION_SIDEBAR_FILTERS)).toBe(
+      false,
+    );
   });
 
   it("is true when any filter is set", () => {

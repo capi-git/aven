@@ -185,10 +185,7 @@ export function WorkspaceActionDialog(props: Props) {
       if ((kind === "clone" || kind === "create") && !parent.trim())
         throw new Error("Choose a parent folder.");
       if (kind === "clone")
-        onCreated(
-          await cloneRepo(routedCloneUrl(name), parent),
-          profileId,
-        );
+        onCreated(await cloneRepo(routedCloneUrl(name), parent), profileId);
       else if (kind === "create") {
         if (
           !name.trim() ||

@@ -1299,111 +1299,108 @@ describe("workspace stage", () => {
     expect(browserHeader.dataset.dropTarget).toBeUndefined();
   });
 
-  it(
-    "maps visible drop slots around hidden Recent tabs without moving the indicator",
-    async () => {
-      const visible = ["browser", "preview", "kept"];
-      const order = [
-        "hidden-first",
-        "browser",
-        "hidden-middle",
-        "preview",
-        "kept",
-        "hidden-last",
-      ];
-      await render({
-        layout: leaf("browser"),
-        focusedId: "browser",
-        headers: [
-          {
-            id: "browser",
-            content: createElement(
-              "div",
-              {
-                "data-surface-order": JSON.stringify(order),
-              },
-              ...visible.map((id) =>
-                createElement(
-                  "button",
-                  {
-                    key: id,
-                    "data-surface-tab-id": id,
-                  },
-                  id,
-                ),
+  it("maps visible drop slots around hidden Recent tabs without moving the indicator", async () => {
+    const visible = ["browser", "preview", "kept"];
+    const order = [
+      "hidden-first",
+      "browser",
+      "hidden-middle",
+      "preview",
+      "kept",
+      "hidden-last",
+    ];
+    await render({
+      layout: leaf("browser"),
+      focusedId: "browser",
+      headers: [
+        {
+          id: "browser",
+          content: createElement(
+            "div",
+            {
+              "data-surface-order": JSON.stringify(order),
+            },
+            ...visible.map((id) =>
+              createElement(
+                "button",
+                {
+                  key: id,
+                  "data-surface-tab-id": id,
+                },
+                id,
               ),
             ),
-          },
-        ],
-      });
-      const targetHeader = stage().querySelector<HTMLElement>(
-        '[data-workspace-header="browser"]',
-      )!;
-      vi.spyOn(targetHeader, "getBoundingClientRect").mockReturnValue(
-        rectangle(100, 5, 600, 32),
-      );
-      const tabs = [
-        ...targetHeader.querySelectorAll<HTMLElement>("[data-surface-tab-id]"),
-      ];
-      tabs.forEach((tab, index) => {
-        vi.spyOn(tab, "getBoundingClientRect").mockReturnValue(
-          rectangle(100 + index * 100, 5, 100, 32),
-        );
-      });
-      for (const [x, index, orderIndex] of [
-        [110, 0, 1],
-        [190, 1, 3],
-        [290, 2, 4],
-        [490, 3, 5],
-      ]) {
-        expect(workspaceSurfaceDropAt(stage(), x, 20, "chat")).toEqual({
-          id: "browser",
-          edge: "tab",
-          index,
-          orderIndex,
-        });
-      }
-
-      const target = workspaceSurfaceDropAt(stage(), 190, 20, "chat")!;
-      if (target.edge !== "tab") throw new Error("Expected header drop");
-      const view = resolveWorkspaceView(
-        {
-          layout: columns(),
-          focusedId: "chat",
-          groups: { chat: ["chat"], browser: order },
-          order: ["chat", ...order],
+          ),
         },
-        ["chat", ...order],
-        "chat",
+      ],
+    });
+    const targetHeader = stage().querySelector<HTMLElement>(
+      '[data-workspace-header="browser"]',
+    )!;
+    vi.spyOn(targetHeader, "getBoundingClientRect").mockReturnValue(
+      rectangle(100, 5, 600, 32),
+    );
+    const tabs = [
+      ...targetHeader.querySelectorAll<HTMLElement>("[data-surface-tab-id]"),
+    ];
+    tabs.forEach((tab, index) => {
+      vi.spyOn(tab, "getBoundingClientRect").mockReturnValue(
+        rectangle(100 + index * 100, 5, 100, 32),
       );
-      const moved = moveWorkspaceTab(
-        view,
-        "chat",
-        target.id,
-        target.orderIndex ?? target.index,
-      );
-      expect(moved.groups.browser).toEqual([
-        "hidden-first",
-        "browser",
-        "hidden-middle",
-        "chat",
-        "preview",
-        "kept",
-        "hidden-last",
-      ]);
-      expect(
-        moved.groups.browser.filter(
-          (id) => id === "chat" || visible.includes(id),
-        ),
-      ).toEqual(["browser", "chat", "preview", "kept"]);
+    });
+    for (const [x, index, orderIndex] of [
+      [110, 0, 1],
+      [190, 1, 3],
+      [290, 2, 4],
+      [490, 3, 5],
+    ]) {
+      expect(workspaceSurfaceDropAt(stage(), x, 20, "chat")).toEqual({
+        id: "browser",
+        edge: "tab",
+        index,
+        orderIndex,
+      });
+    }
 
-      await render({ dragging: true, dragTarget: target });
-      expect(
-        targetHeader.querySelector<HTMLElement>("[data-drop-insertion]")?.style
-          .left,
-      ).toBe("100px");
-    },
-  );
+    const target = workspaceSurfaceDropAt(stage(), 190, 20, "chat")!;
+    if (target.edge !== "tab") throw new Error("Expected header drop");
+    const view = resolveWorkspaceView(
+      {
+        layout: columns(),
+        focusedId: "chat",
+        groups: { chat: ["chat"], browser: order },
+        order: ["chat", ...order],
+      },
+      ["chat", ...order],
+      "chat",
+    );
+    const moved = moveWorkspaceTab(
+      view,
+      "chat",
+      target.id,
+      target.orderIndex ?? target.index,
+    );
+    expect(moved.groups.browser).toEqual([
+      "hidden-first",
+      "browser",
+      "hidden-middle",
+      "chat",
+      "preview",
+      "kept",
+      "hidden-last",
+    ]);
+    expect(
+      moved.groups.browser.filter(
+        (id) => id === "chat" || visible.includes(id),
+      ),
+    ).toEqual(["browser", "chat", "preview", "kept"]);
+
+    await render({ dragging: true, dragTarget: target });
+    expect(
+      targetHeader.querySelector<HTMLElement>("[data-drop-insertion]")?.style
+        .left,
+    ).toBe("100px");
+  });
 
   it("falls back to visible positions when retained-order metadata is malformed", async () => {
     await render({

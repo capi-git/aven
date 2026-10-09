@@ -31,7 +31,9 @@ export class PiRpc {
       if (!pending) return;
       if (!response.success) {
         pending.reject(
-          new Error(response.error || `${this.label} ${response.command} failed`),
+          new Error(
+            response.error || `${this.label} ${response.command} failed`,
+          ),
         );
         return;
       }
@@ -47,7 +49,8 @@ export class PiRpc {
   ): Promise<Record<string, unknown>> {
     if (this.closed) throw new Error(`${this.label} process is not running`);
     const id = stringField(command, "id") ?? `mc_${this.nextId++}`;
-    if (this.pending.has(id)) throw new Error(`Duplicate RPC request id: ${id}`);
+    if (this.pending.has(id))
+      throw new Error(`Duplicate RPC request id: ${id}`);
     const payload = { ...command, id };
     const pending = new Promise<Record<string, unknown>>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -67,8 +70,7 @@ export class PiRpc {
       });
     });
     void writeChild(this.sessionId, JSON.stringify(payload)).catch((error) => {
-      const message =
-        error instanceof Error ? error : new Error(String(error));
+      const message = error instanceof Error ? error : new Error(String(error));
       const request = this.pending.get(id);
       this.pending.delete(id);
       request?.reject(message);

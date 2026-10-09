@@ -48,7 +48,9 @@ function pickTextModel(): string {
 
 function pickTextEffort(modelId: string): string {
   const model = modelsFor("codex").find((entry) => entry.nativeId === modelId);
-  const setting = model?.settings?.find((entry) => entry.id === "reasoningEffort");
+  const setting = model?.settings?.find(
+    (entry) => entry.id === "reasoningEffort",
+  );
   const options = setting?.options?.map((option) => option.value) ?? [];
   if (options.includes("low")) return "low";
   if (options.includes("none")) return "none";
@@ -63,9 +65,11 @@ export async function stopCodexTextPrompt(): Promise<void> {
 /** Start the shared Codex app-server in the background so the first prompt is fast. */
 export function warmupCodexText(cwd: string): Promise<void> {
   if (!cwd || cwd === "~") return Promise.resolve();
-  const run = turns.catch(() => undefined).then(async () => {
-    await ensureLive(cwd);
-  });
+  const run = turns
+    .catch(() => undefined)
+    .then(async () => {
+      await ensureLive(cwd);
+    });
   turns = run.then(
     () => undefined,
     () => undefined,

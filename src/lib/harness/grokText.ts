@@ -47,9 +47,11 @@ export async function stopGrokTextPrompt(childId?: string): Promise<void> {
 
 export function warmupGrokText(cwd: string): Promise<void> {
   if (!cwd || cwd === "~") return Promise.resolve();
-  const run = turns.catch(() => undefined).then(async () => {
-    await ensureLive(cwd);
-  });
+  const run = turns
+    .catch(() => undefined)
+    .then(async () => {
+      await ensureLive(cwd);
+    });
   turns = run.then(
     () => undefined,
     () => undefined,
@@ -114,7 +116,8 @@ async function startLive(cwd: string): Promise<LiveText> {
   const acp = new AcpClient(TEXT_CHILD_ID, {
     onNotification: (method, params) => {
       const session = acpRef.session;
-      if (!session || method !== "session/update" || !session.collecting) return;
+      if (!session || method !== "session/update" || !session.collecting)
+        return;
       session.output = mergeStream(session.output, textFromUpdate(params));
     },
     onRequest: (id, method, params) => {
@@ -229,8 +232,7 @@ async function stopTextChild(session: LiveText | null): Promise<boolean> {
   }
 }
 
-const GROK_SESSION_ID =
-  /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
+const GROK_SESSION_ID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 
 /** Titles, commit messages and PR text must not stay in Grok's history. */
 async function deleteTextSession(session: LiveText): Promise<void> {
@@ -262,9 +264,7 @@ async function handleTextRequest(
     method === "_x.ai/ask_user_question" ||
     method === "x.ai/ask_user_question"
   ) {
-    await acp
-      .respond(id, { outcome: "skip_interview" })
-      .catch(() => undefined);
+    await acp.respond(id, { outcome: "skip_interview" }).catch(() => undefined);
     return;
   }
   await acp.respond(id, {}).catch(() => undefined);

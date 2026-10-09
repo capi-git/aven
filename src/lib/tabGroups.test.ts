@@ -46,7 +46,10 @@ function projectOf(tabs: Tab[]) {
 describe("segmentTabs", () => {
   it("leaves ungrouped tabs as singles even when they share a project", () => {
     const segments = segmentTabs([tab("a", "foo"), tab("b", "foo")]);
-    expect(segments.map((segment) => segment.kind)).toEqual(["single", "single"]);
+    expect(segments.map((segment) => segment.kind)).toEqual([
+      "single",
+      "single",
+    ]);
   });
 
   it("groups contiguous tabs that share a group id, including a single tab", () => {
@@ -60,10 +63,9 @@ describe("segmentTabs", () => {
       key: "g1",
       project: "foo",
     });
-    expect(segments[0].kind === "group" && segments[0].tabs.map((entry) => entry.id)).toEqual([
-      "a",
-      "b",
-    ]);
+    expect(
+      segments[0].kind === "group" && segments[0].tabs.map((entry) => entry.id),
+    ).toEqual(["a", "b"]);
     expect(segments[1]).toMatchObject({ kind: "single", tab: { id: "c" } });
   });
 });
@@ -81,11 +83,7 @@ describe("sharedGroupProject", () => {
 
 describe("applyGroupedReorder", () => {
   it("joins an ungrouped tab dropped between two members of the same group", () => {
-    const tabs = [
-      tab("a", "foo", "g"),
-      tab("b", "foo", "g"),
-      tab("c", "bar"),
-    ];
+    const tabs = [tab("a", "foo", "g"), tab("b", "foo", "g"), tab("c", "bar")];
     const next = applyGroupedReorder(tabs, ["a", "c", "b"], "c");
     expect(next?.map((entry) => [entry.id, entry.groupId])).toEqual([
       ["a", "g"],
@@ -95,11 +93,7 @@ describe("applyGroupedReorder", () => {
   });
 
   it("ungroups a tab dragged out of its group", () => {
-    const tabs = [
-      tab("a", "foo", "g"),
-      tab("b", "foo", "g"),
-      tab("c", "bar"),
-    ];
+    const tabs = [tab("a", "foo", "g"), tab("b", "foo", "g"), tab("c", "bar")];
     const next = applyGroupedReorder(tabs, ["a", "c", "b"], "b");
     expect(next?.map((entry) => [entry.id, entry.groupId ?? null])).toEqual([
       ["a", "g"],
@@ -109,11 +103,7 @@ describe("applyGroupedReorder", () => {
   });
 
   it("keeps membership when sliding a grouped tab along its own group", () => {
-    const tabs = [
-      tab("a", "foo", "g"),
-      tab("b", "foo", "g"),
-      tab("c", "bar"),
-    ];
+    const tabs = [tab("a", "foo", "g"), tab("b", "foo", "g"), tab("c", "bar")];
     const next = applyGroupedReorder(tabs, ["b", "a", "c"], "b");
     expect(next?.map((entry) => [entry.id, entry.groupId])).toEqual([
       ["b", "g"],
@@ -123,11 +113,7 @@ describe("applyGroupedReorder", () => {
   });
 
   it("does not auto-join when placed beside a group edge", () => {
-    const tabs = [
-      tab("a", "foo", "g"),
-      tab("b", "foo", "g"),
-      tab("c", "bar"),
-    ];
+    const tabs = [tab("a", "foo", "g"), tab("b", "foo", "g"), tab("c", "bar")];
     const next = applyGroupedReorder(tabs, ["a", "b", "c"], "c");
     expect(next?.map((entry) => [entry.id, entry.groupId ?? null])).toEqual([
       ["a", "g"],
@@ -143,7 +129,9 @@ describe("joinTabOnto", () => {
     const result = joinTabOnto(tabs, "c", "a", () => "g-new");
     expect(result?.created).toBe(true);
     expect(result?.groupId).toBe("g-new");
-    expect(result?.tabs.map((entry) => [entry.id, entry.groupId ?? null])).toEqual([
+    expect(
+      result?.tabs.map((entry) => [entry.id, entry.groupId ?? null]),
+    ).toEqual([
       ["a", "g-new"],
       ["c", "g-new"],
       ["b", null],
@@ -154,7 +142,9 @@ describe("joinTabOnto", () => {
     const tabs = [tab("a", "foo", "g"), tab("b", "foo", "g"), tab("c", "bar")];
     const result = joinTabOnto(tabs, "c", "a");
     expect(result?.created).toBe(false);
-    expect(result?.tabs.map((entry) => [entry.id, entry.groupId ?? null])).toEqual([
+    expect(
+      result?.tabs.map((entry) => [entry.id, entry.groupId ?? null]),
+    ).toEqual([
       ["a", "g"],
       ["b", "g"],
       ["c", "g"],
@@ -174,19 +164,26 @@ describe("group membership helpers", () => {
 
   it("creates a one-tab group in place", () => {
     const tabs = [tab("a", "foo"), tab("b", "bar")];
-    expect(addTabsToNewGroup(tabs, ["b"], "g").map((entry) => [entry.id, entry.groupId ?? null])).toEqual([
+    expect(
+      addTabsToNewGroup(tabs, ["b"], "g").map((entry) => [
+        entry.id,
+        entry.groupId ?? null,
+      ]),
+    ).toEqual([
       ["a", null],
       ["b", "g"],
     ]);
   });
 
   it("clears a group and a single tab's membership", () => {
-    const tabs = [tab("a", "foo", "g"), tab("b", "foo", "g"), tab("c", "bar", "g2")];
-    expect(ungroupTabs(tabs, "g").map((entry) => entry.groupId ?? null)).toEqual([
-      null,
-      null,
-      "g2",
-    ]);
+    const tabs = [
+      tab("a", "foo", "g"),
+      tab("b", "foo", "g"),
+      tab("c", "bar", "g2"),
+    ];
+    expect(
+      ungroupTabs(tabs, "g").map((entry) => entry.groupId ?? null),
+    ).toEqual([null, null, "g2"]);
     expect(removeTabFromGroup(tabs, "a")[0].groupId).toBeUndefined();
   });
 
@@ -238,7 +235,11 @@ describe("reorderTabSegments", () => {
   });
 
   it("moves a group after ungrouped tabs", () => {
-    const tabs = [tab("a", "foo", "g1"), tab("b", "foo", "g1"), tab("c", "bar")];
+    const tabs = [
+      tab("a", "foo", "g1"),
+      tab("b", "foo", "g1"),
+      tab("c", "bar"),
+    ];
     expect(reorderTabSegments(tabs, 0, 1)).toEqual(["c", "a", "b"]);
   });
 
@@ -424,7 +425,9 @@ describe("migrateProjectAppearanceKeys", () => {
 
     // Next launch, with the project reopened.
     mockLocalStorage({
-      "monocode.recentProjects": JSON.stringify([{ path: FINANCE, openedAt: 1 }]),
+      "monocode.recentProjects": JSON.stringify([
+        { path: FINANCE, openedAt: 1 },
+      ]),
       "monocode:tab-group:labels": JSON.stringify({ agentbase: "Finance" }),
     });
     expect(loadTabGroupLabels()[projectKey(FINANCE)]).toBe("Finance");

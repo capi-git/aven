@@ -419,7 +419,9 @@ export function SearchView({
         ) : error && hits.length === 0 ? (
           <p className="px-2 py-1.5 text-ui-label text-red-400">{error}</p>
         ) : noResults ? (
-          <p className="px-2 py-1.5 text-ui-label text-content/50">No results</p>
+          <p className="px-2 py-1.5 text-ui-label text-content/50">
+            No results
+          </p>
         ) : (
           <ResultList
             hits={hits}

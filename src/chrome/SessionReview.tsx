@@ -133,7 +133,9 @@ export function SessionReview({
                   strokeWidth={1.75}
                 />
               )}
-              <span className="truncate text-ui-label">{files.length} Files</span>
+              <span className="truncate text-ui-label">
+                {files.length} Files
+              </span>
             </button>
           ) : (
             <FileLabel

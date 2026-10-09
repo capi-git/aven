@@ -423,19 +423,39 @@ describe("browser tab integration", () => {
   });
 
   it("does not resurrect a hidden page after Keep and a header remount", async () => {
-    const pages = [{ id: "web-1", title: "Older page" }, { id: "web-2", title: "Kept page", kept: true }];
+    const pages = [
+      { id: "web-1", title: "Older page" },
+      { id: "web-2", title: "Kept page", kept: true },
+    ];
     for (const activeId of ["web-2", "a"]) {
       await act(async () => root.unmount());
       root = createRoot(container);
-      await render({ browserTabs: pages, activeId, browserPreviewId: "web-2", onKeepBrowser: vi.fn() });
+      await render({
+        browserTabs: pages,
+        activeId,
+        browserPreviewId: "web-2",
+        onKeepBrowser: vi.fn(),
+      });
       expect(container.querySelector('[data-surface-id="web-1"]')).toBeNull();
-      expect(container.querySelector('[data-surface-id="web-2"]')).not.toBeNull();
-      expect(container.querySelector('[aria-label="Recent browser tabs"]')).not.toBeNull();
+      expect(
+        container.querySelector('[data-surface-id="web-2"]'),
+      ).not.toBeNull();
+      expect(
+        container.querySelector('[aria-label="Recent browser tabs"]'),
+      ).not.toBeNull();
     }
   });
 
   it("restores the selected preview hint while its conversation has focus", async () => {
-    await render({ browserTabs: [{ id: "web-1", title: "Earlier page" }, { id: "web-2", title: "Later page" }], activeId: "a", browserPreviewId: "web-1", onKeepBrowser: vi.fn() });
+    await render({
+      browserTabs: [
+        { id: "web-1", title: "Earlier page" },
+        { id: "web-2", title: "Later page" },
+      ],
+      activeId: "a",
+      browserPreviewId: "web-1",
+      onKeepBrowser: vi.fn(),
+    });
     expect(container.querySelector('[data-surface-id="web-1"]')).not.toBeNull();
     expect(container.querySelector('[data-surface-id="web-2"]')).toBeNull();
   });
@@ -448,7 +468,9 @@ describe("browser tab integration", () => {
       onKeepBrowser: vi.fn(),
     });
     expect(container.querySelector('[data-surface-id="web-1"]')).toBeNull();
-    expect(container.querySelector('[aria-label="Recent browser tabs"]')).not.toBeNull();
+    expect(
+      container.querySelector('[aria-label="Recent browser tabs"]'),
+    ).not.toBeNull();
     await render({ activeId: "web-1" });
     expect(container.querySelector('[data-surface-id="web-1"]')).not.toBeNull();
   });
@@ -479,9 +501,9 @@ describe("browser tab integration", () => {
       "QA Model 2",
     );
     expect(second.querySelector(".personal-title-tab-meta")).toBeNull();
-    expect(second.querySelector('[role="tab"]')?.getAttribute("title")).toContain(
-      "Repair tabs · QA Model 2",
-    );
+    expect(
+      second.querySelector('[role="tab"]')?.getAttribute("title"),
+    ).toContain("Repair tabs · QA Model 2");
     expect(
       second.querySelector('[role="tab"]')?.getAttribute("aria-label"),
     ).toContain("Repair tabs · QA Model 2");
@@ -763,7 +785,11 @@ describe("browser tab integration", () => {
     const aux = (target: Element, button: number) =>
       act(async () => {
         target.dispatchEvent(
-          new MouseEvent("auxclick", { button, bubbles: true, cancelable: true }),
+          new MouseEvent("auxclick", {
+            button,
+            bubbles: true,
+            cancelable: true,
+          }),
         );
       });
 
@@ -792,7 +818,11 @@ describe("browser tab integration", () => {
     it("keeps active session titles on one line with model details in the tooltip", async () => {
       await render({
         tabs: [
-          tab({ id: "a", title: "Busy task", models: [{ harness: "claude", model: "claude-opus-5-5" }] as never }),
+          tab({
+            id: "a",
+            title: "Busy task",
+            models: [{ harness: "claude", model: "claude-opus-5-5" }] as never,
+          }),
           tab({ id: "b", title: "Plain task" }),
         ],
         activeId: "a",
@@ -933,7 +963,10 @@ describe("browser tab integration", () => {
     });
 
     it("folds from a real press, where pointer capture delivers the click to the label's slot", async () => {
-      await render({ tabs: [tab({ id: "a" }), tab({ id: "b" })], activeId: "a" });
+      await render({
+        tabs: [tab({ id: "a" }), tab({ id: "b" })],
+        activeId: "a",
+      });
       await makeGroup("b", "QA");
       const slot = label()!.closest<HTMLElement>(".personal-tab-group-slot")!;
       slot.setPointerCapture = vi.fn();
@@ -965,7 +998,10 @@ describe("browser tab integration", () => {
     });
 
     it("still folds when every tab in the strip belongs to the group", async () => {
-      await render({ tabs: [tab({ id: "a" }), tab({ id: "b" })], activeId: "a" });
+      await render({
+        tabs: [tab({ id: "a" }), tab({ id: "b" })],
+        activeId: "a",
+      });
       await makeGroup("a", "All");
       await openTabMenu("b");
       await choose("Add to group", "All");
@@ -980,7 +1016,9 @@ describe("browser tab integration", () => {
       });
       await makeGroup("b", "Research");
       label()!.focus();
-      expect((await keydown(label()!, "ArrowRight")).defaultPrevented).toBe(false);
+      expect((await keydown(label()!, "ArrowRight")).defaultPrevented).toBe(
+        false,
+      );
       expect(document.activeElement).toBe(label());
       await keydown(label()!, "F2");
       const input = container.querySelector<HTMLInputElement>(
@@ -1015,8 +1053,9 @@ describe("browser tab integration", () => {
       await openLabelMenu();
       await choose("Colour", "Green");
       expect(
-        (label()!.closest(".personal-tab-group-slot") as HTMLElement).style
-          .getPropertyValue("--tab-group-color"),
+        (
+          label()!.closest(".personal-tab-group-slot") as HTMLElement
+        ).style.getPropertyValue("--tab-group-color"),
       ).toBe("hsl(142 55% 50%)");
       await openTabMenu("a");
       await choose("Remove from group");
@@ -1051,7 +1090,10 @@ describe("browser tab integration", () => {
       );
       await openLabelMenu();
       await choose("Close group");
-      expect(props.onCloseMany).toHaveBeenCalledExactlyOnceWith(["b", "c"], "a");
+      expect(props.onCloseMany).toHaveBeenCalledExactlyOnceWith(
+        ["b", "c"],
+        "a",
+      );
       expect(label()).toBeNull();
     });
 
@@ -1178,13 +1220,13 @@ describe("browser tab integration", () => {
       activeId: "race",
       onOpenRaceOverview: vi.fn(),
     });
-    expect(
-      container.querySelector(".personal-title-tab-race"),
-    ).not.toBeNull();
+    expect(container.querySelector(".personal-title-tab-race")).not.toBeNull();
     await act(async () =>
-      container.querySelector('[role="tab"]')!.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true }),
-      ),
+      container
+        .querySelector('[role="tab"]')!
+        .dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true }),
+        ),
     );
     const overview = Array.from(
       document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
@@ -1486,7 +1528,9 @@ describe("browser tab integration", () => {
         `[aria-label="${label}"]`,
       )!;
       control.focus();
-      expect((await keydown(control, "ArrowLeft")).defaultPrevented).toBe(false);
+      expect((await keydown(control, "ArrowLeft")).defaultPrevented).toBe(
+        false,
+      );
       expect(document.activeElement).toBe(control);
     }
     expect(props.onSelect).not.toHaveBeenCalled();
@@ -1647,57 +1691,61 @@ describe("browser tab integration", () => {
     expect(props.onSelectBrowser).not.toHaveBeenCalled();
   });
 
-  it.each([false, true])("reorders an inactive browser without selecting it or consuming the split target (pane-local=%s)", async (paneLocal) => {
-    await render({
-      paneLocal,
-      browserTabs: [{ id: "web-a", title: "Preview" }],
-      surfaceOrder: ["a", "web-a", "b"],
-      onReorderSurfaces: vi.fn(),
-    });
-    const items = Array.from(
-      container.querySelectorAll<HTMLElement>("[data-surface-id]"),
-    );
-    for (const [index, item] of items.entries()) {
-      item.getBoundingClientRect = () => new DOMRect(index * 100, 0, 100, 30);
-      item.setPointerCapture = vi.fn();
-      item.releasePointerCapture = vi.fn();
-    }
-    container.querySelector<HTMLElement>(
-      '[role="tablist"]',
-    )!.getBoundingClientRect = () => new DOMRect(0, 0, 300, 30);
-    const browser = items[1].querySelector<HTMLButtonElement>('[role="tab"]')!;
-    const pointer = async (target: EventTarget, type: string, x: number) =>
-      act(async () =>
-        target.dispatchEvent(
-          new PointerEvent(type, {
-            bubbles: true,
-            pointerId: 1,
-            button: 0,
-            clientX: x,
-            clientY: 15,
-          }),
-        ),
+  it.each([false, true])(
+    "reorders an inactive browser without selecting it or consuming the split target (pane-local=%s)",
+    async (paneLocal) => {
+      await render({
+        paneLocal,
+        browserTabs: [{ id: "web-a", title: "Preview" }],
+        surfaceOrder: ["a", "web-a", "b"],
+        onReorderSurfaces: vi.fn(),
+      });
+      const items = Array.from(
+        container.querySelectorAll<HTMLElement>("[data-surface-id]"),
       );
-    await pointer(browser, "pointerdown", 150);
-    await mouseDown(browser);
-    expect(props.onSelectBrowser).not.toHaveBeenCalled();
-    expect(props.onSelect).not.toHaveBeenCalled();
-    await pointer(window, "pointermove", 10);
-    await pointer(window, "pointerup", 10);
-    await keydown(
-      items[0].querySelector<HTMLButtonElement>('[role="tab"]')!,
-      "End",
-    );
-    expect(props.onSelect).toHaveBeenCalledExactlyOnceWith("b");
-    await act(async () => browser.click());
-    expect(props.onReorderSurfaces).toHaveBeenCalledExactlyOnceWith(
-      ["web-a", "a", "b"],
-      "web-a",
-    );
-    expect(props.onSelectBrowser).not.toHaveBeenCalled();
-    expect(props.onReorder).not.toHaveBeenCalled();
-    expect(nativeWindow.startDragging).not.toHaveBeenCalled();
-  });
+      for (const [index, item] of items.entries()) {
+        item.getBoundingClientRect = () => new DOMRect(index * 100, 0, 100, 30);
+        item.setPointerCapture = vi.fn();
+        item.releasePointerCapture = vi.fn();
+      }
+      container.querySelector<HTMLElement>(
+        '[role="tablist"]',
+      )!.getBoundingClientRect = () => new DOMRect(0, 0, 300, 30);
+      const browser =
+        items[1].querySelector<HTMLButtonElement>('[role="tab"]')!;
+      const pointer = async (target: EventTarget, type: string, x: number) =>
+        act(async () =>
+          target.dispatchEvent(
+            new PointerEvent(type, {
+              bubbles: true,
+              pointerId: 1,
+              button: 0,
+              clientX: x,
+              clientY: 15,
+            }),
+          ),
+        );
+      await pointer(browser, "pointerdown", 150);
+      await mouseDown(browser);
+      expect(props.onSelectBrowser).not.toHaveBeenCalled();
+      expect(props.onSelect).not.toHaveBeenCalled();
+      await pointer(window, "pointermove", 10);
+      await pointer(window, "pointerup", 10);
+      await keydown(
+        items[0].querySelector<HTMLButtonElement>('[role="tab"]')!,
+        "End",
+      );
+      expect(props.onSelect).toHaveBeenCalledExactlyOnceWith("b");
+      await act(async () => browser.click());
+      expect(props.onReorderSurfaces).toHaveBeenCalledExactlyOnceWith(
+        ["web-a", "a", "b"],
+        "web-a",
+      );
+      expect(props.onSelectBrowser).not.toHaveBeenCalled();
+      expect(props.onReorder).not.toHaveBeenCalled();
+      expect(nativeWindow.startDragging).not.toHaveBeenCalled();
+    },
+  );
   it("selects the tab after an ordinary captured click lands on its wrapper", async () => {
     await render({ browserTabs: [{ id: "web-a", title: "Preview" }] });
     for (const id of ["b", "web-a"]) {
@@ -1743,12 +1791,17 @@ describe("browser tab integration", () => {
       ],
       activeId: "b",
     });
-    const marks = (selector: string) => Array.from(
-      container.querySelectorAll(`${selector} .provider-mark`),
-      (node) => node.getAttribute("data-provider"),
-    );
+    const marks = (selector: string) =>
+      Array.from(
+        container.querySelectorAll(`${selector} .provider-mark`),
+        (node) => node.getAttribute("data-provider"),
+      );
     expect(marks('[data-surface-tab-id="b"]')).toEqual(["claude"]);
-    expect(container.querySelector('[data-surface-tab-id="b"] [data-working="true"]')).toBeNull();
+    expect(
+      container.querySelector(
+        '[data-surface-tab-id="b"] [data-working="true"]',
+      ),
+    ).toBeNull();
     // Without a group drag there is nothing for the grip to do, so it takes
     // no width; moving the group to a window stays in the tab menu.
     expect(container.querySelector(".personal-tab-group-handle")).toBeNull();
@@ -1760,11 +1813,22 @@ describe("browser tab integration", () => {
 
   it("retains combined providers for two agent panes inside one tab", async () => {
     await render({
-      tabs: [tab({ id: "a", sessionCount: 2, multiPane: true, harnesses: ["claude", "codex"] })],
+      tabs: [
+        tab({
+          id: "a",
+          sessionCount: 2,
+          multiPane: true,
+          harnesses: ["claude", "codex"],
+        }),
+      ],
       activeId: "a",
     });
-    expect(Array.from(container.querySelectorAll('[role="tab"] .provider-mark'),
-      (node) => node.getAttribute("data-provider"))).toEqual(["claude", "codex"]);
+    expect(
+      Array.from(
+        container.querySelectorAll('[role="tab"] .provider-mark'),
+        (node) => node.getAttribute("data-provider"),
+      ),
+    ).toEqual(["claude", "codex"]);
   });
 
   it("offers precise tab and pane window destinations, returns, and history callbacks", async () => {

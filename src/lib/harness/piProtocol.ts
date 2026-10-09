@@ -315,7 +315,7 @@ export function extensionUiTitle(request: PiExtensionUiRequest): string {
   const text =
     request.method === "confirm"
       ? [request.title, request.message].filter(Boolean).join(" — ")
-      : request.title ?? "Pi extension";
+      : (request.title ?? "Pi extension");
   // Pi's theme helpers emit ANSI even in RPC mode (e.g. Ponytail setStatus).
   // These labels use native UI styling. Strip CSI and OSC sequences only at
   // the display boundary: select replies must retain the original option.

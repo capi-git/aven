@@ -15,15 +15,23 @@ describe("home-relative workspace links", () => {
   it.each([undefined, "~", "/Volumes/Projects/app", "/Users/me/project"])(
     "preserves the home target independently of cwd %s",
     (cwd) => {
-      expect(resolveWorkspacePath("~/.agents/skills", cwd)).toBe("~/.agents/skills");
-      expect(resolveWorkspacePath("~/My Notes/SKILL.md:12:3", cwd)).toBe("~/My Notes/SKILL.md");
+      expect(resolveWorkspacePath("~/.agents/skills", cwd)).toBe(
+        "~/.agents/skills",
+      );
+      expect(resolveWorkspacePath("~/My Notes/SKILL.md:12:3", cwd)).toBe(
+        "~/My Notes/SKILL.md",
+      );
       expect(resolveWorkspacePath("~", cwd)).toBe("~");
     },
   );
 
   it("keeps an explicitly relative literal tilde folder in the project", () => {
-    expect(resolveWorkspacePath("./~/notes.md", "/project")).toBe("/project/~/notes.md");
-    expect(resolveWorkspacePath("~someone/notes.md", "/project")).toBe("/project/~someone/notes.md");
+    expect(resolveWorkspacePath("./~/notes.md", "/project")).toBe(
+      "/project/~/notes.md",
+    );
+    expect(resolveWorkspacePath("~someone/notes.md", "/project")).toBe(
+      "/project/~someone/notes.md",
+    );
   });
 });
 
@@ -68,20 +76,22 @@ describe("path relations", () => {
       true,
     );
     expect(isEqualOrInside("C:/Users/me", "C:/")).toBe(true);
-    expect(rebasePath("C:\\Users\\me\\app\\src\\a.ts", "C:/Users/me/app", "D:/x")).toBe(
-      "D:/x/src/a.ts",
-    );
-    expect(displayPath("C:\\Users\\me\\app\\src\\a.ts", "C:/Users/me/app")).toBe(
-      "src/a.ts",
-    );
+    expect(
+      rebasePath("C:\\Users\\me\\app\\src\\a.ts", "C:/Users/me/app", "D:/x"),
+    ).toBe("D:/x/src/a.ts");
+    expect(
+      displayPath("C:\\Users\\me\\app\\src\\a.ts", "C:/Users/me/app"),
+    ).toBe("src/a.ts");
     expect(projectName("C:\\Users\\me\\app")).toBe("app");
   });
 
   it("compares Windows paths without case", () => {
-    expect(isEqualOrInside("c:/USERS/me/App/src", "C:/Users/ME/app")).toBe(true);
-    expect(rebasePath("c:/USERS/me/App/src/a.ts", "C:/Users/ME/app", "D:/x")).toBe(
-      "D:/x/src/a.ts",
+    expect(isEqualOrInside("c:/USERS/me/App/src", "C:/Users/ME/app")).toBe(
+      true,
     );
+    expect(
+      rebasePath("c:/USERS/me/App/src/a.ts", "C:/Users/ME/app", "D:/x"),
+    ).toBe("D:/x/src/a.ts");
     expect(displayPath("c:/USERS/me/App/src/a.ts", "C:/Users/ME/app")).toBe(
       "src/a.ts",
     );

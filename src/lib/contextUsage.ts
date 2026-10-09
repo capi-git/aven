@@ -46,8 +46,7 @@ export function contextTooltip(usage: ContextUsage): {
 } {
   const percent = contextPercent(usage);
   return {
-    headline:
-      percent === null ? "Context used" : `${percent}% context used`,
+    headline: percent === null ? "Context used" : `${percent}% context used`,
     detail: usage.window
       ? `${formatTokens(usage.used)} / ${formatTokens(usage.window)} tokens`
       : `${formatTokens(usage.used)} tokens`,

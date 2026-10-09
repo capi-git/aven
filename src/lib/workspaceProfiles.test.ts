@@ -209,12 +209,16 @@ describe("workspace transitions", () => {
     saveWorkspaceProfiles(initial);
     render(otherWorkPath);
     const holoPath = "/Users/test/Projects/HOLO";
-    saveWorkspaceProfiles(assignWorkspaceProject(loadWorkspaceProfiles(), holoPath, "work"));
+    saveWorkspaceProfiles(
+      assignWorkspaceProject(loadWorkspaceProfiles(), holoPath, "work"),
+    );
 
     act(() => latest.selectProjectProfile(holoPath));
     expect(latest.activeProfileId).toBe("work");
     expect(latest.projectProfile(holoPath)).toBe("work");
-    expect(projectWorkspaceProfile(loadWorkspaceProfiles(), holoPath)).toBe("work");
+    expect(projectWorkspaceProfile(loadWorkspaceProfiles(), holoPath)).toBe(
+      "work",
+    );
   });
 
   it.each([
@@ -274,7 +278,8 @@ describe("workspace transitions", () => {
     const holoPath = "/Users/test/Projects/HOLO";
     const write = localStorage.setItem.bind(localStorage);
     vi.spyOn(localStorage, "setItem").mockImplementation((key, value) => {
-      if (key === WORKSPACE_PROFILES_KEY) throw new Error("Storage unavailable");
+      if (key === WORKSPACE_PROFILES_KEY)
+        throw new Error("Storage unavailable");
       write(key, value);
     });
 
@@ -335,7 +340,8 @@ describe("workspace transitions", () => {
     render(personalPath);
     const write = localStorage.setItem.bind(localStorage);
     vi.spyOn(localStorage, "setItem").mockImplementation((key, value) => {
-      if (key === WORKSPACE_PROFILES_KEY) throw new Error("Storage unavailable");
+      if (key === WORKSPACE_PROFILES_KEY)
+        throw new Error("Storage unavailable");
       write(key, value);
     });
     act(() => latest.moveProject(workPath, "personal"));

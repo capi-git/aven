@@ -16,7 +16,10 @@ function sourceFiles(dir: string): string[] {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) out.push(...sourceFiles(path));
-    else if (/\.(ts|tsx)$/.test(entry.name) && !entry.name.endsWith(".test.ts")) {
+    else if (
+      /\.(ts|tsx)$/.test(entry.name) &&
+      !entry.name.endsWith(".test.ts")
+    ) {
       out.push(path);
     }
   }

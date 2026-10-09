@@ -57,6 +57,7 @@
 }
 .prompt-outline[data-prompt-count="1"]:hover .prompt-outline-bar,
 .prompt-outline[data-prompt-count="1"]:focus-within .prompt-outline-bar,
-.prompt-outline[data-prompt-count="1"][data-dragging="true"] .prompt-outline-bar {
+.prompt-outline[data-prompt-count="1"][data-dragging="true"]
+  .prompt-outline-bar {
   visibility: visible;
 }

@@ -459,7 +459,6 @@ describe("Changes header", () => {
   });
 });
 
-
 describe("active window Git polling", () => {
   it("suspends while unfocused and refreshes full status immediately on focus", async () => {
     await render();
@@ -481,8 +480,14 @@ describe("active window Git polling", () => {
     index.upstream = "origin/feature";
     index.ahead = 2;
     await render();
-    mocks.diffFiles.mockResolvedValue({ ...index, remote: null, upstream: null, ahead: 0,
-      files: [changed("changed.ts", false, true)], additions: 1 });
+    mocks.diffFiles.mockResolvedValue({
+      ...index,
+      remote: null,
+      upstream: null,
+      ahead: 0,
+      files: [changed("changed.ts", false, true)],
+      additions: 1,
+    });
     await act(async () => vi.advanceTimersByTimeAsync(2000));
     expect(mocks.diffFiles).toHaveBeenCalledOnce();
     expect(mocks.diffIndex).toHaveBeenCalledOnce();
@@ -500,8 +505,17 @@ describe("active window Git polling", () => {
     index.upstream = "origin/feature";
     index.ahead = 2;
     await render();
-    const next = { ...index, branch: "main", upstream: "origin/main", ahead: 0 };
-    mocks.diffFiles.mockResolvedValue({ ...next, remote: null, upstream: null });
+    const next = {
+      ...index,
+      branch: "main",
+      upstream: "origin/main",
+      ahead: 0,
+    };
+    mocks.diffFiles.mockResolvedValue({
+      ...next,
+      remote: null,
+      upstream: null,
+    });
     mocks.diffIndex.mockResolvedValue(next);
     await act(async () => vi.advanceTimersByTimeAsync(2000));
     expect(mocks.diffFiles).toHaveBeenCalledOnce();

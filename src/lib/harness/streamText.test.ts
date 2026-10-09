@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { joinStreamText, snapshotRemainder, streamTextDelta } from "./streamText";
+import {
+  joinStreamText,
+  snapshotRemainder,
+  streamTextDelta,
+} from "./streamText";
 
 describe("joinStreamText", () => {
   it("appends tokens, including doubled letters and punctuation", () => {

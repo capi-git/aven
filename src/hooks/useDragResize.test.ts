@@ -169,7 +169,9 @@ describe("pane resize lifecycle", () => {
     async (direction, scale) => {
       await act(async () => root.render(createElement(Pane, { direction })));
       const pane = container.querySelector("aside")!;
-      const usedWidth = vi.spyOn(pane, "offsetWidth", "get").mockReturnValue(280);
+      const usedWidth = vi
+        .spyOn(pane, "offsetWidth", "get")
+        .mockReturnValue(280);
       const bounds = vi
         .spyOn(pane, "getBoundingClientRect")
         .mockReturnValue(DOMRect.fromRect({ width: 280 * scale }));

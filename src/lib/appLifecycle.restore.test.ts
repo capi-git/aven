@@ -125,8 +125,12 @@ describe("safe workspace restoration", () => {
     moved.blocks = [{ id: "m", role: "user", text: "On a branch" }];
     moved.branch = "feature";
     savedWorkspace([unchanged, interrupted, moved]);
-    const records = new Map([unchanged, interrupted, moved].map((s) => [s.id, s]));
-    mocks.getSession.mockImplementation(async (id: string) => records.get(id) ?? null);
+    const records = new Map(
+      [unchanged, interrupted, moved].map((s) => [s.id, s]),
+    );
+    mocks.getSession.mockImplementation(
+      async (id: string) => records.get(id) ?? null,
+    );
     mocks.listInFlightSessions.mockResolvedValue([
       { sessionId: interrupted.id } as never,
     ]);
@@ -165,7 +169,9 @@ describe("safe workspace restoration", () => {
     const editor = {
       ...newTab("editor-pane"),
       layout: leaf("editor-pane"),
-      editorPanes: [{ id: "editor-pane", files: [file], activeFileId: file.id }],
+      editorPanes: [
+        { id: "editor-pane", files: [file], activeFileId: file.id },
+      ],
     };
     const terminalTab = {
       ...newTab("terminal-pane"),
@@ -175,7 +181,12 @@ describe("safe workspace restoration", () => {
       ],
     };
     mocks.loadWorkspaceSnapshot.mockResolvedValue(
-      collectWorkspaceSnapshot([editor, terminalTab], [], editor.id, "/project"),
+      collectWorkspaceSnapshot(
+        [editor, terminalTab],
+        [],
+        editor.id,
+        "/project",
+      ),
     );
     mocks.getSession.mockRejectedValue(new Error("not a transcript"));
     const { loadResumedWorkspace } = await import("./appLifecycle");

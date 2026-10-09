@@ -703,17 +703,26 @@ export function chatBackgroundSrc(path: string | null): string | null {
 
 /** Tint only the bottom bar when the sidebar is tucked away; text stays solid. */
 export function loadStatusBarOpacity(): number {
-  return clamp(readNumber(STATUS_BAR_OPACITY_KEY) ?? STATUS_BAR_OPACITY_DEFAULT,
-    STATUS_BAR_OPACITY_MIN, STATUS_BAR_OPACITY_MAX);
+  return clamp(
+    readNumber(STATUS_BAR_OPACITY_KEY) ?? STATUS_BAR_OPACITY_DEFAULT,
+    STATUS_BAR_OPACITY_MIN,
+    STATUS_BAR_OPACITY_MAX,
+  );
 }
 
 export function saveStatusBarOpacity(value: number) {
-  writeNumber(STATUS_BAR_OPACITY_KEY, clamp(value, STATUS_BAR_OPACITY_MIN, STATUS_BAR_OPACITY_MAX));
+  writeNumber(
+    STATUS_BAR_OPACITY_KEY,
+    clamp(value, STATUS_BAR_OPACITY_MIN, STATUS_BAR_OPACITY_MAX),
+  );
 }
 
 export function applyStatusBarOpacity(value: number) {
   const next = clamp(value, STATUS_BAR_OPACITY_MIN, STATUS_BAR_OPACITY_MAX);
-  document.documentElement.style.setProperty("--status-bar-opacity", String(next));
+  document.documentElement.style.setProperty(
+    "--status-bar-opacity",
+    String(next),
+  );
   return next;
 }
 

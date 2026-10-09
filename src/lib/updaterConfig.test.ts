@@ -1,14 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getVersion, getIdentifier, check, message, ask } = vi.hoisted(
-  () => ({
-    getVersion: vi.fn(),
-    getIdentifier: vi.fn(),
-    check: vi.fn(),
-    message: vi.fn(),
-    ask: vi.fn(),
-  }),
-);
+const { getVersion, getIdentifier, check, message, ask } = vi.hoisted(() => ({
+  getVersion: vi.fn(),
+  getIdentifier: vi.fn(),
+  check: vi.fn(),
+  message: vi.fn(),
+  ask: vi.fn(),
+}));
 
 vi.mock("@tauri-apps/api/app", () => ({ getVersion, getIdentifier }));
 vi.mock("@tauri-apps/plugin-updater", () => ({ check }));

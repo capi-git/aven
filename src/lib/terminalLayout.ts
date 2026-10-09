@@ -7,9 +7,9 @@ const MIN_TUI_SCROLLBAR_WIDTH = 1;
 
 type CellSize = { width: number; height: number };
 
-export function terminalScrollbarWidth(
-  overviewRuler?: { width?: number },
-): number {
+export function terminalScrollbarWidth(overviewRuler?: {
+  width?: number;
+}): number {
   const width = overviewRuler?.width;
   return width === undefined ? DEFAULT_SCROLLBAR_WIDTH : width;
 }

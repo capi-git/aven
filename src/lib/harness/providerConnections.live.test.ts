@@ -15,15 +15,23 @@ vi.mock("./child", () => ({
     killed.push(id);
   },
   unwatchChild: (id: string) => lineHandlers.delete(id),
-  watchChild: (id: string, line: (l: string) => void) => lineHandlers.set(id, line),
+  watchChild: (id: string, line: (l: string) => void) =>
+    lineHandlers.set(id, line),
   writeChild: async (id: string, line: string) => {
     const message = JSON.parse(line) as { id?: number; method?: string };
     const result =
       message.method === "mcpServerStatus/list"
-        ? { data: [{ name: "docs", tools: { a: {} }, authStatus: "unsupported" }], nextCursor: null }
+        ? {
+            data: [
+              { name: "docs", tools: { a: {} }, authStatus: "unsupported" },
+            ],
+            nextCursor: null,
+          }
         : {};
     if (message.id !== undefined)
-      queueMicrotask(() => lineHandlers.get(id)?.(JSON.stringify({ id: message.id, result })));
+      queueMicrotask(() =>
+        lineHandlers.get(id)?.(JSON.stringify({ id: message.id, result })),
+      );
   },
 }));
 
@@ -36,7 +44,13 @@ describe("connection checks", () => {
       listCodexConnections("/repo"),
     ]);
     expect(first).toEqual([
-      { name: "docs", key: "docs", removable: true, state: "ready", toolCount: 1 },
+      {
+        name: "docs",
+        key: "docs",
+        removable: true,
+        state: "ready",
+        toolCount: 1,
+      },
     ]);
     expect(second).toBe(first);
     expect(spawned).toHaveLength(1);

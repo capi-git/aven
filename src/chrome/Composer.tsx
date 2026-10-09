@@ -1118,7 +1118,12 @@ function ComposerComponent({
       // race could not start and the field is still empty.
       void Promise.resolve(onRace(text, files, raceLanes)).then((started) => {
         const el = ref.current;
-        if (started !== false || !el || el.value || attachmentsRef.current.length)
+        if (
+          started !== false ||
+          !el ||
+          el.value ||
+          attachmentsRef.current.length
+        )
           return;
         el.value = value;
         resizeComposer(el);
@@ -1288,7 +1293,9 @@ function ComposerComponent({
         addAttachments(files);
         ref.current?.focus();
       })
-      .catch(() => setAttachmentError("Couldn't attach these files. Try again."));
+      .catch(() =>
+        setAttachmentError("Couldn't attach these files. Try again."),
+      );
   };
 
   return (
@@ -1723,7 +1730,6 @@ function ComposerComponent({
                     onClose={() => ref.current?.focus()}
                   />
                 </div>
-
               </div>
             </div>
 
@@ -1743,10 +1749,10 @@ function ComposerComponent({
                   raceActive
                     ? `Race ${raceLanes.length} agents`
                     : queueSubmission
-                    ? "Queue message"
-                    : busy
-                      ? "Steer active turn"
-                      : "Send"
+                      ? "Queue message"
+                      : busy
+                        ? "Steer active turn"
+                        : "Send"
                 }
                 hasValue={hasValue}
                 onSend={() => submit(ref.current?.value ?? "")}

@@ -1,4 +1,8 @@
-import type { DiagramPlugin, MermaidConfig, MermaidInstance } from "@streamdown/mermaid";
+import type {
+  DiagramPlugin,
+  MermaidConfig,
+  MermaidInstance,
+} from "@streamdown/mermaid";
 
 /**
  * `@streamdown/mermaid` is a thin wrapper over a static `import "mermaid"`,

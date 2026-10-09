@@ -48,9 +48,7 @@ export function saveRunScripts(cwd: string, scripts: RunScript[]) {
 }
 
 /** Keep the supplied repository transport and SSH account alias intact. */
-export function routedCloneUrl(
-  raw: string,
-): string {
+export function routedCloneUrl(raw: string): string {
   const value = raw.trim();
   if (/\s/.test(value))
     throw new Error(

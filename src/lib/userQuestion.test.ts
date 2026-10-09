@@ -26,10 +26,7 @@ describe("questionsFromUnknown", () => {
           header: "Sections",
           question: "Which sections should I include?",
           multiSelect: true,
-          options: [
-            { label: "Introduction" },
-            { label: "Conclusion" },
-          ],
+          options: [{ label: "Introduction" }, { label: "Conclusion" }],
         },
       ],
     });
@@ -168,11 +165,7 @@ describe("buildQuestionReply", () => {
 
   it("keeps answers for questions that were filled and drops skipped ones", () => {
     expect(
-      buildQuestionReply(
-        questions,
-        { [files.id]: ["a.ts", "b.ts"] },
-        {},
-      ),
+      buildQuestionReply(questions, { [files.id]: ["a.ts", "b.ts"] }, {}),
     ).toEqual({
       kind: "answered",
       answers: { [files.id]: ["a.ts", "b.ts"] },

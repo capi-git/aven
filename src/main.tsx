@@ -102,33 +102,29 @@ if (new URLSearchParams(window.location.search).has("workspaceMenuPanel")) {
   // an early rejection is not also logged as unhandled.
   bootWorkspace.catch(() => {});
   void Promise.all([import("./App"), lifecycle])
-    .then(
-      async ([{ default: App }, { handleQuitRequested }]) => {
-        void listen("quit_requested", () => {
-          void handleQuitRequested();
-        });
-        const { windowTransfer, resumed, history, historyCwd } =
-          await bootWorkspace;
-        const installedUpdate = windowTransfer
-          ? null
-          : consumeInstalledUpdate();
-        ReactDOM.createRoot(
-          document.getElementById("root") as HTMLElement,
-          rootOptions,
-        ).render(
-          <React.StrictMode>
-            <BootGate>
-              <App
-                windowTransfer={windowTransfer}
-                resumed={resumed}
-                installedUpdate={installedUpdate}
-                history={history}
-                historyCwd={historyCwd}
-              />
-            </BootGate>
-          </React.StrictMode>,
-        );
-      },
-    )
+    .then(async ([{ default: App }, { handleQuitRequested }]) => {
+      void listen("quit_requested", () => {
+        void handleQuitRequested();
+      });
+      const { windowTransfer, resumed, history, historyCwd } =
+        await bootWorkspace;
+      const installedUpdate = windowTransfer ? null : consumeInstalledUpdate();
+      ReactDOM.createRoot(
+        document.getElementById("root") as HTMLElement,
+        rootOptions,
+      ).render(
+        <React.StrictMode>
+          <BootGate>
+            <App
+              windowTransfer={windowTransfer}
+              resumed={resumed}
+              installedUpdate={installedUpdate}
+              history={history}
+              historyCwd={historyCwd}
+            />
+          </BootGate>
+        </React.StrictMode>,
+      );
+    })
     .catch(showStartupFailure);
 }

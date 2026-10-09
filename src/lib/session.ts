@@ -204,7 +204,8 @@ export type Block = {
 export type SessionAgent = {
   id: string;
   title: string;
-  status: "running" | "waiting" | "completed" | "failed" | "stopped" | "unknown";
+  status:
+    "running" | "waiting" | "completed" | "failed" | "stopped" | "unknown";
   callId?: string;
   detail?: string;
 };

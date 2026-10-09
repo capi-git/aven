@@ -15,16 +15,12 @@ describe("layoutGitGraph", () => {
       { sha: "b", parents: ["a"] },
       { sha: "a", parents: [] },
     ]);
-    expect(rows.map((row) => row.outputSwimlanes.map((lane) => lane.id))).toEqual([
-      ["b"],
-      ["a"],
-      [],
-    ]);
-    expect(rows.map((row) => row.inputSwimlanes.map((lane) => lane.id))).toEqual([
-      [],
-      ["b"],
-      ["a"],
-    ]);
+    expect(
+      rows.map((row) => row.outputSwimlanes.map((lane) => lane.id)),
+    ).toEqual([["b"], ["a"], []]);
+    expect(
+      rows.map((row) => row.inputSwimlanes.map((lane) => lane.id)),
+    ).toEqual([[], ["b"], ["a"]]);
     expect(rows[0]?.outputSwimlanes[0]?.color).toBe(COLOR_REGISTRY[0]);
   });
 
@@ -35,7 +31,9 @@ describe("layoutGitGraph", () => {
       { sha: "F", parents: ["B"] },
       { sha: "B", parents: [] },
     ]);
-    expect(rows.map((row) => [row.sha, row.outputSwimlanes.map((l) => l.id)])).toEqual([
+    expect(
+      rows.map((row) => [row.sha, row.outputSwimlanes.map((l) => l.id)]),
+    ).toEqual([
       ["M", ["A", "F"]],
       ["A", ["B", "F"]],
       ["F", ["B", "B"]],
@@ -53,7 +51,9 @@ describe("layoutGitGraph", () => {
       { sha: "D", parents: ["B"] },
       { sha: "B", parents: [] },
     ]);
-    expect(rows.map((row) => [row.sha, row.outputSwimlanes.map((l) => l.id)])).toEqual([
+    expect(
+      rows.map((row) => [row.sha, row.outputSwimlanes.map((l) => l.id)]),
+    ).toEqual([
       ["C", ["B"]],
       ["D", ["B", "B"]],
       ["B", []],
@@ -62,14 +62,25 @@ describe("layoutGitGraph", () => {
 
   it("keeps a through-lane vertical across a stash index commit", () => {
     const rows = layoutGitGraph([
-      { sha: "A", parents: ["M"], head: true, refs: [{ name: "main", kind: "local" }] },
-      { sha: "S", parents: ["W", "I"], refs: [{ name: "stash", kind: "local" }] },
+      {
+        sha: "A",
+        parents: ["M"],
+        head: true,
+        refs: [{ name: "main", kind: "local" }],
+      },
+      {
+        sha: "S",
+        parents: ["W", "I"],
+        refs: [{ name: "stash", kind: "local" }],
+      },
       { sha: "I", parents: ["W"] },
       { sha: "W", parents: ["F"], refs: [{ name: "feature", kind: "local" }] },
       { sha: "F", parents: ["M"] },
       { sha: "M", parents: [] },
     ]);
-    expect(rows.map((row) => [row.sha, row.outputSwimlanes.map((l) => l.id)])).toEqual([
+    expect(
+      rows.map((row) => [row.sha, row.outputSwimlanes.map((l) => l.id)]),
+    ).toEqual([
       ["A", ["M"]],
       ["S", ["M", "W", "I"]],
       ["I", ["M", "W", "W"]],
@@ -171,7 +182,11 @@ describe("historyItemGraph", () => {
       { sha: "X", parents: ["R"] },
       { sha: "R", parents: [] },
     ]);
-    expect(rows[4]?.inputSwimlanes.map((lane) => lane.id)).toEqual(["B", "B", "X"]);
+    expect(rows[4]?.inputSwimlanes.map((lane) => lane.id)).toEqual([
+      "B",
+      "B",
+      "X",
+    ]);
     expect(rows[4]?.outputSwimlanes.map((lane) => lane.id)).toEqual(["R", "X"]);
     const shifted = historyItemGraph(rows[4]!);
     expect(shifted.paths.map((path) => path.d)).toContain(
@@ -187,12 +202,16 @@ describe("historyItemGraph", () => {
   });
 
   it("draws HEAD as an outer disc plus cutout inner circle", () => {
-    const [row] = layoutGitGraph([
-      { sha: "c", parents: ["b"], head: true },
-    ]);
+    const [row] = layoutGitGraph([{ sha: "c", parents: ["b"], head: true }]);
     const graph = historyItemGraph(row!);
     expect(graph.kind).toBe("HEAD");
-    expect(graph.circles.map((circle) => [circle.r, circle.strokeWidth, circle.fill])).toEqual([
+    expect(
+      graph.circles.map((circle) => [
+        circle.r,
+        circle.strokeWidth,
+        circle.fill,
+      ]),
+    ).toEqual([
       [7, 2, COLOR_REGISTRY[0]],
       [2, 4, undefined],
     ]);

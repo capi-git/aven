@@ -79,7 +79,11 @@ describe("searchSessionMessages", () => {
   it("finds matching user and assistant text", () => {
     const session = newSession("cursor", "/tmp/a");
     session.blocks = [
-      { id: "u1", role: "user", text: "Please search the sidebar filter chips" },
+      {
+        id: "u1",
+        role: "user",
+        text: "Please search the sidebar filter chips",
+      },
       { id: "a1", role: "assistant", text: "Opening the explorer next." },
       { id: "r1", role: "reasoning", text: "sidebar internals" },
     ];
@@ -274,8 +278,8 @@ describe("filterHitsByProject", () => {
         positions: [],
       },
     ];
-    expect(
-      filterHitsByProject(hits, "/tmp/a").map((hit) => hit.id),
-    ).toEqual(["conversation:s1"]);
+    expect(filterHitsByProject(hits, "/tmp/a").map((hit) => hit.id)).toEqual([
+      "conversation:s1",
+    ]);
   });
 });

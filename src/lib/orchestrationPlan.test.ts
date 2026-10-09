@@ -268,14 +268,22 @@ describe("orchestration proposals", () => {
           plan: { status: "ready", originalText: tagged },
         },
       ]);
-      expect(adopted[0]).toEqual({ id: "native", role: "assistant", text: "Ready." });
+      expect(adopted[0]).toEqual({
+        id: "native",
+        role: "assistant",
+        text: "Ready.",
+      });
       expect(adopted[1].orchestration?.status).toBe("ready");
       expect(adoptLateProposal(adopted)).toBe(adopted);
     });
     it("does not resurrect proposals from an earlier turn or a failed continuation", () => {
       const newerTurn = [
         ...blocks,
-        { id: "new", role: "user" as const, text: "Never mind, explain this instead" },
+        {
+          id: "new",
+          role: "user" as const,
+          text: "Never mind, explain this instead",
+        },
         { id: "reply", role: "assistant" as const, text: "Explanation" },
       ];
       expect(adoptLateProposal(newerTurn)).toBe(newerTurn);
@@ -286,7 +294,12 @@ describe("orchestration proposals", () => {
       expect(adoptLateProposal(failedTurn)).toBe(failedTurn);
       const stillStreaming = [
         ...blocks,
-        { id: "stream", role: "assistant" as const, text: "One more change", streaming: true },
+        {
+          id: "stream",
+          role: "assistant" as const,
+          text: "One more change",
+          streaming: true,
+        },
       ];
       expect(adoptLateProposal(stillStreaming)).toBe(stillStreaming);
     });
@@ -308,7 +321,10 @@ describe("orchestration proposals", () => {
       for (const status of ["planning", "starting", "approved"] as const) {
         const protectedBlocks = [
           card,
-          { ...proposalBlock("new-card", { ...ready, status }), streaming: false },
+          {
+            ...proposalBlock("new-card", { ...ready, status }),
+            streaming: false,
+          },
           blocks[3],
         ];
         expect(adoptLateProposal(protectedBlocks)).toBe(protectedBlocks);

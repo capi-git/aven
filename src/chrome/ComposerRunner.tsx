@@ -310,7 +310,10 @@ export function ComposerRunner({
         const y = reduced ? -EXIT_SINK : exitJumpY(t);
         placeSprite(track.left, track.top, frozenX, y, frozenFacing);
         for (const coin of [...coins]) {
-          const pop = Math.min(1, (now - (coin.collectedAt ?? now)) / COLLECT_POP_MS);
+          const pop = Math.min(
+            1,
+            (now - (coin.collectedAt ?? now)) / COLLECT_POP_MS,
+          );
           coin.el.style.opacity = String(1 - pop);
           if (pop >= 1) {
             coin.el.remove();
@@ -413,8 +416,7 @@ export function ComposerRunner({
           nextCoinAt = now + nextCoinDelay(false);
         }
 
-        const bob =
-          coin.collectedAt == null ? Math.sin(now / 180) * 2 : 0;
+        const bob = coin.collectedAt == null ? Math.sin(now / 180) * 2 : 0;
         const pop =
           coin.collectedAt == null
             ? 0
@@ -445,7 +447,8 @@ export function ComposerRunner({
       );
     };
 
-    const canAnimate = () => enabledRef.current && !document.hidden && !finished;
+    const canAnimate = () =>
+      enabledRef.current && !document.hidden && !finished;
     const tick = (now: number) => {
       raf = 0;
       apply(now);

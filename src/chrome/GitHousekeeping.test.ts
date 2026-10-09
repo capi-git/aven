@@ -94,8 +94,12 @@ describe("release card", () => {
   it("publishes the ready version only after confirming", async () => {
     mocks.start.mockResolvedValue(undefined);
     await render();
-    expect(container.textContent).toContain("Version 0.1.108 is ready to publish");
-    expect(container.textContent).toContain("2 changes on main since v0.1.107.");
+    expect(container.textContent).toContain(
+      "Version 0.1.108 is ready to publish",
+    );
+    expect(container.textContent).toContain(
+      "2 changes on main since v0.1.107.",
+    );
     mocks.ask.mockResolvedValueOnce(false);
     await act(async () => button("Publish 0.1.108")!.click());
     expect(mocks.start).not.toHaveBeenCalled();
@@ -212,7 +216,9 @@ describe("merged branches", () => {
     expect(container.textContent).toContain("GitHub");
     await act(async () => button("Delete merged branches")!.click());
     expect(mocks.ask).toHaveBeenCalledWith(
-      expect.stringContaining("Delete 2 merged branches (1 local, 1 on GitHub)?"),
+      expect.stringContaining(
+        "Delete 2 merged branches (1 local, 1 on GitHub)?",
+      ),
       expect.objectContaining({ okLabel: "Delete" }),
     );
     expect(mocks.remove).toHaveBeenCalledExactlyOnceWith(

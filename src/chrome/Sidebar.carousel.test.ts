@@ -82,7 +82,10 @@ async function resize(nextWidth: number) {
     for (const observer of resizeObservers)
       observer.callback(
         [
-          { target: viewport, contentRect: { width } } as unknown as ResizeObserverEntry,
+          {
+            target: viewport,
+            contentRect: { width },
+          } as unknown as ResizeObserverEntry,
         ],
         observer as unknown as ResizeObserver,
       );

@@ -19,11 +19,7 @@ function chat(cwd: string, patch: Partial<Session> = {}): Session {
   return { ...session, ...patch, blocks: patch.blocks ?? session.blocks };
 }
 
-function edit(
-  id: string,
-  path = "src/App.tsx",
-  status = "in_progress",
-): Block {
+function edit(id: string, path = "src/App.tsx", status = "in_progress"): Block {
   const fileName = path.split("/").pop() ?? path;
   return {
     id,
@@ -77,26 +73,26 @@ describe("liveAgentsFromSessions", () => {
         { id: "second", title: "Review", status: "running" },
       ],
     });
-    expect(
-      liveAgentsFromSessions([lead], new Set([lead.id]))[0],
-    ).toMatchObject({
-      id: lead.id,
-      activity: "1 background agent working",
-      done: false,
-      durationMs: undefined,
-    });
+    expect(liveAgentsFromSessions([lead], new Set([lead.id]))[0]).toMatchObject(
+      {
+        id: lead.id,
+        activity: "1 background agent working",
+        done: false,
+        durationMs: undefined,
+      },
+    );
   });
 
   it("keeps uncertain agent state visible without claiming completion", () => {
     const lead = chat("/repo", {
       liveAgents: [{ id: "worker", title: "Review", status: "unknown" }],
     });
-    expect(
-      liveAgentsFromSessions([lead], new Set([lead.id]))[0],
-    ).toMatchObject({
-      activity: "Agent status unavailable",
-      done: false,
-    });
+    expect(liveAgentsFromSessions([lead], new Set([lead.id]))[0]).toMatchObject(
+      {
+        activity: "Agent status unavailable",
+        done: false,
+      },
+    );
   });
 
   it("shows an idle managed lead when one of its workers is still running", () => {
@@ -113,9 +109,9 @@ describe("liveAgentsFromSessions", () => {
         done: false,
       },
     ]);
-    expect(
-      liveAgentsFromSessions([lead, { ...worker, busy: false }]),
-    ).toEqual([]);
+    expect(liveAgentsFromSessions([lead, { ...worker, busy: false }])).toEqual(
+      [],
+    );
   });
 
   it("labels waiting workers and settles only after the last one ends", () => {
@@ -252,9 +248,7 @@ describe("liveAgentsFromSessions", () => {
       ],
     });
     expect(liveAgentsFromSessions([finished])).toEqual([]);
-    expect(
-      liveAgentsFromSessions([finished], new Set([finished.id])),
-    ).toEqual([
+    expect(liveAgentsFromSessions([finished], new Set([finished.id]))).toEqual([
       {
         id: finished.id,
         cwd: "/tmp/done",
@@ -303,9 +297,7 @@ describe("isCurrentSessionAgentSource", () => {
     expect(isCurrentSessionAgentSource(chat("/repo"), "claude", 1, 2)).toBe(
       false,
     );
-    expect(isCurrentSessionAgentSource(undefined, "claude", 2, 2)).toBe(
-      false,
-    );
+    expect(isCurrentSessionAgentSource(undefined, "claude", 2, 2)).toBe(false);
     expect(
       isCurrentSessionAgentSource(
         chat("/repo", { harness: "codex" }),

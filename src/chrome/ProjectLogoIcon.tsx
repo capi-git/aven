@@ -40,7 +40,5 @@ export function ProjectLogoIcon({
       />
     );
   }
-  return (
-    <Fallback className={className} strokeWidth={fallbackStrokeWidth} />
-  );
+  return <Fallback className={className} strokeWidth={fallbackStrokeWidth} />;
 }

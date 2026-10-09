@@ -219,7 +219,12 @@ describe("workspace divider and native page presentation", () => {
       ],
       sizes: [0.5, 0.5],
     };
-    native.bounds.mockReturnValue({ ...bounds, x: 0, width: 1000, height: 296 });
+    native.bounds.mockReturnValue({
+      ...bounds,
+      x: 0,
+      width: 1000,
+      height: 296,
+    });
     await act(async () => root.render(createElement(WorkspaceStage, props)));
     await flushFrames();
     native.layout.mockClear();
@@ -247,15 +252,15 @@ describe("workspace divider and native page presentation", () => {
       container.querySelector<HTMLElement>('[data-workspace-surface="page"]')!
         .style.height,
     ).toBe("calc(70% - 2px)");
-    await act(async () =>
-      window.dispatchEvent(pointer("pointerup", 500, 422)),
-    );
+    await act(async () => window.dispatchEvent(pointer("pointerup", 500, 422)));
     await flushFrames();
     expect(native.create).toHaveBeenCalledOnce();
     expect(native.close).not.toHaveBeenCalled();
     expect(native.navigate).not.toHaveBeenCalled();
     expect(native.snapshot).not.toHaveBeenCalled();
-    expect(native.layout.mock.calls.every((call) => call[2] === true)).toBe(true);
+    expect(native.layout.mock.calls.every((call) => call[2] === true)).toBe(
+      true,
+    );
   });
 
   it.each([

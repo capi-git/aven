@@ -235,7 +235,9 @@ async function discoverClaudeModels(): Promise<AgentModel[]> {
   });
   if (listed.length > 0) return listed;
   if (hasLiveCatalog("claude")) {
-    throw new Error("Could not refresh Claude models; keeping the previous catalog.");
+    throw new Error(
+      "Could not refresh Claude models; keeping the previous catalog.",
+    );
   }
   return discoverViaVersion();
 }
@@ -367,7 +369,9 @@ function modelFromListRow(raw: unknown): AgentModel | null {
   const description = stringField(rec, "description") ?? "";
   const resolvedId = fromResolved.id || nativeId;
   const isOpus55 = resolvedId === CLAUDE_OPUS_5_5_MODEL.nativeId;
-  const name = isOpus55 ? "Opus 5.5" : pickerName(displayName, description, nativeId);
+  const name = isOpus55
+    ? "Opus 5.5"
+    : pickerName(displayName, description, nativeId);
   const settings = settingsFromListRow(
     rec,
     fromValue.context1m || fromResolved.context1m,
@@ -381,8 +385,9 @@ function modelFromListRow(raw: unknown): AgentModel | null {
   const pickerAliases = [
     ...new Set([
       ...(fromResolved.id ? [claudeCatalogId(fromResolved.id)] : []),
-      ...CLAUDE_MODEL_CATALOG.filter((model) =>
-        model.nativeId === nativeId || model.nativeId === fromResolved.id,
+      ...CLAUDE_MODEL_CATALOG.filter(
+        (model) =>
+          model.nativeId === nativeId || model.nativeId === fromResolved.id,
       ).map((model) => model.id),
     ]),
   ].filter((alias) => alias !== id);
@@ -392,9 +397,10 @@ function modelFromListRow(raw: unknown): AgentModel | null {
     harness: "claude",
     name,
     // Keep the provider's 1M alias without offering a smaller context mode.
-    nativeId: isOpus55 && fromValue.id === "opus" && fromValue.context1m
-      ? value.trim()
-      : nativeId,
+    nativeId:
+      isOpus55 && fromValue.id === "opus" && fromValue.context1m
+        ? value.trim()
+        : nativeId,
     ...(isOpus55 ? { contextWindow: 1_000_000 } : {}),
     ...(pickerPreferenceId !== id ? { pickerPreferenceId } : {}),
     ...(pickerAliases.length > 0 ? { pickerAliases } : {}),
@@ -410,15 +416,18 @@ function settingsFromListRow(
   const settings: ModelSetting[] = [];
   const levels = advertisedEffortLevels(rec);
   if (
-    rec.supportsEffort === true || levels.length > 0 ||
+    rec.supportsEffort === true ||
+    levels.length > 0 ||
     (isOpus55 && rec.supportsEffort !== false)
   ) {
-    settings.push(effortSetting(
-      isOpus55 && levels.length === 0
-        ? ["low", "medium", "high", "xhigh", "max"]
-        : levels,
-      isOpus55 ? "medium" : "high",
-    ));
+    settings.push(
+      effortSetting(
+        isOpus55 && levels.length === 0
+          ? ["low", "medium", "high", "xhigh", "max"]
+          : levels,
+        isOpus55 ? "medium" : "high",
+      ),
+    );
   } else if (rec.supportsAdaptiveThinking === true && !isOpus55) {
     settings.push(THINKING);
   }
@@ -430,19 +439,27 @@ function settingsFromListRow(
 function advertisedEffortLevels(rec: Record<string, unknown>): string[] {
   const raw = rec.supportedEffortLevels;
   if (!Array.isArray(raw)) return [];
-  return raw.filter((level): level is string => typeof level === "string" && level.trim() !== "");
+  return raw.filter(
+    (level): level is string =>
+      typeof level === "string" && level.trim() !== "",
+  );
 }
 
-function effortSetting(levels: string[], preferredDefault: string): ModelSetting {
+function effortSetting(
+  levels: string[],
+  preferredDefault: string,
+): ModelSetting {
   const known = levels.filter((level) => EFFORT_LABELS[level]);
-  const options = (known.length > 0 ? known : ["low", "medium", "high", "max"]).map(
-    (value) => ({ value, label: EFFORT_LABELS[value] ?? value }),
-  );
+  const options = (
+    known.length > 0 ? known : ["low", "medium", "high", "max"]
+  ).map((value) => ({ value, label: EFFORT_LABELS[value] ?? value }));
   if (options.some((option) => option.value === "xhigh")) {
     options.push({ value: "ultracode", label: "Ultracode" });
   }
   options.push({ value: "ultrathink", label: "Ultrathink" });
-  const defaultValue = options.some((option) => option.value === preferredDefault)
+  const defaultValue = options.some(
+    (option) => option.value === preferredDefault,
+  )
     ? preferredDefault
     : (options[0]?.value ?? "high");
   return {
@@ -472,7 +489,10 @@ function pickerName(
   return name || head || fallback;
 }
 
-function splitClaudeModelValue(value: string): { id: string; context1m: boolean } {
+function splitClaudeModelValue(value: string): {
+  id: string;
+  context1m: boolean;
+} {
   const match = /^(.*)\[1m\]$/i.exec(value.trim());
   if (match?.[1]?.trim()) return { id: match[1].trim(), context1m: true };
   return { id: value.trim(), context1m: false };
@@ -498,7 +518,9 @@ function claudeLaunchId(valueId: string, resolvedId: string): string {
 }
 
 function claudeCatalogId(nativeId: string): string {
-  const slug = nativeId.startsWith("claude-") ? nativeId.slice("claude-".length) : nativeId;
+  const slug = nativeId.startsWith("claude-")
+    ? nativeId.slice("claude-".length)
+    : nativeId;
   return `claude:${slug}`;
 }
 

@@ -24,11 +24,11 @@ vi.mock("./child", () => ({
   watchSse: () => () => undefined,
 }));
 
-const { runOpenCodeTextPrompt, stopOpenCodeTextPrompt } = await import(
-  "./opencodeText"
-);
+const { runOpenCodeTextPrompt, stopOpenCodeTextPrompt } =
+  await import("./opencodeText");
 
-const DELETE_URL = "http://127.0.0.1:4096/session/text_session?directory=%2Frepo";
+const DELETE_URL =
+  "http://127.0.0.1:4096/session/text_session?directory=%2Frepo";
 
 async function waitFor(predicate: () => boolean, label: string) {
   for (let i = 0; i < 200; i += 1) {
@@ -70,7 +70,10 @@ it("deletes the generated-text session after a successful prompt", async () => {
   await waitFor(() => !!finishPrompt, "prompt");
   finishPrompt?.({
     status: 200,
-    body: JSON.stringify({ info: {}, parts: [{ type: "text", text: "Hello" }] }),
+    body: JSON.stringify({
+      info: {},
+      parts: [{ type: "text", text: "Hello" }],
+    }),
   });
   await expect(result).resolves.toBe("Hello");
   expect(deletes()).toEqual([

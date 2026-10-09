@@ -23,7 +23,9 @@ describe("surfaceTabPresentation", () => {
   });
 
   it("labels the unified working-tree tab as Changes", () => {
-    expect(surfaceTabPresentation(newChangesTab("/repo", "/repo/App.tsx"))).toEqual({
+    expect(
+      surfaceTabPresentation(newChangesTab("/repo", "/repo/App.tsx")),
+    ).toEqual({
       name: "Changes",
       label: "Changes",
       iconName: "CHANGES",

@@ -400,7 +400,9 @@ export function parseControlRequest(
     asRecord(rec.input) ??
     {};
   const elicitation =
-    subtype === "elicitation" ? elicitationFromControl(nested ?? rec) : undefined;
+    subtype === "elicitation"
+      ? elicitationFromControl(nested ?? rec)
+      : undefined;
   return {
     requestId,
     subtype,
@@ -522,8 +524,9 @@ export function turnStatusFromResult(rec: Record<string, unknown>): {
     return { status: "completed" };
   }
   const error =
-    errors.find((item) => item.trim() && !item.startsWith("[ede_diagnostic]")) ??
-    (rec.is_error === true ? stringField(rec, "result") : undefined);
+    errors.find(
+      (item) => item.trim() && !item.startsWith("[ede_diagnostic]"),
+    ) ?? (rec.is_error === true ? stringField(rec, "result") : undefined);
   return { status: "failed", error: error ?? "Claude turn failed." };
 }
 
@@ -966,8 +969,7 @@ export function applyClaudeTaskTool(
   if (name === "TaskCreate") {
     const text = [input.subject, input.activeForm, input.description]
       .find(
-        (value): value is string =>
-          typeof value === "string" && !!value.trim(),
+        (value): value is string => typeof value === "string" && !!value.trim(),
       )
       ?.trim();
     const id = resultText.match(/Task #([^\s:]+)/)?.[1];

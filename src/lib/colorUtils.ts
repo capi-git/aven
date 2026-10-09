@@ -65,7 +65,6 @@ export function hsvToHex(h: number, s: number, v: number): string {
   return `#${toByte(r)}${toByte(g)}${toByte(b)}`;
 }
 
-
 export function hexToHsl(hex: string) {
   const [r, g, b] = [1, 3, 5].map(
     (offset) => parseInt(hex.slice(offset, offset + 2), 16) / 255,

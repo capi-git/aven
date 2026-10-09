@@ -390,9 +390,9 @@ describe("shouldFetchRateLimits", () => {
       error: "Codex CLI not found",
     };
     expect(isRateLimitSnapshotStale(disconnected, now)).toBe(false);
-    expect(
-      shouldFetchProvider(disconnected, { visible: true, now }),
-    ).toBe(false);
+    expect(shouldFetchProvider(disconnected, { visible: true, now })).toBe(
+      false,
+    );
     expect(
       shouldFetchRateLimits({
         visible: true,
@@ -410,9 +410,9 @@ describe("shouldFetchRateLimits", () => {
       updatedAt: now - RATE_LIMIT_MIN_REFETCH_MS,
       error: "Claude not signed in",
     };
-    expect(
-      shouldFetchProvider(disconnected, { visible: true, now }),
-    ).toBe(false);
+    expect(shouldFetchProvider(disconnected, { visible: true, now })).toBe(
+      false,
+    );
     expect(
       shouldFetchRateLimits({
         visible: true,

@@ -149,7 +149,6 @@ function menuKeys(event: KeyboardEvent<HTMLDivElement>) {
   buttons[next]?.focus();
 }
 
-
 function dragStatusBar(event: MouseEvent<HTMLDivElement>) {
   if (event.button !== 0 || event.target !== event.currentTarget) return;
   event.preventDefault();
@@ -404,10 +403,7 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
     setMenu(null);
     if (restore) anchor.current?.focus({ preventScroll: true });
   };
-  const QueueIcon =
-    showingSettings || summary.rows.length
-      ? ListBullet
-      : Check;
+  const QueueIcon = showingSettings || summary.rows.length ? ListBullet : Check;
 
   return (
     <div
@@ -557,7 +553,6 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
           />
         </Popover>
       ) : null}
-
     </div>
   );
 });

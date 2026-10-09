@@ -322,8 +322,7 @@ export function ColorSwatches({
         data-checked={custom || undefined}
         style={
           (custom ? { "--swatch": value } : undefined) as
-            | CSSProperties
-            | undefined
+            CSSProperties | undefined
         }
       >
         <input

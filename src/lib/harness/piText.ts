@@ -1,10 +1,5 @@
 import { modelsFor } from "../models";
-import {
-  killChild,
-  spawnChild,
-  unwatchChild,
-  watchChild,
-} from "./child";
+import { killChild, spawnChild, unwatchChild, watchChild } from "./child";
 import { PiRpc } from "./piClient";
 import { OMP_FLAVOR, PI_FLAVOR, type PiFlavor } from "./piFlavor";
 import {
@@ -66,9 +61,11 @@ export async function stopTextPrompt(flavor: PiFlavor): Promise<void> {
 export function warmupText(flavor: PiFlavor, cwd: string): Promise<void> {
   if (!cwd || cwd === "~") return Promise.resolve();
   const state = stateFor(flavor);
-  const run = state.turns.catch(() => undefined).then(async () => {
-    await ensureLive(flavor, cwd);
-  });
+  const run = state.turns
+    .catch(() => undefined)
+    .then(async () => {
+      await ensureLive(flavor, cwd);
+    });
   state.turns = run.then(
     () => undefined,
     () => undefined,
@@ -241,9 +238,7 @@ async function dropLive(flavor: PiFlavor): Promise<void> {
   if (current) {
     current.closed = true;
     current.rpc.close();
-    current.turnFailed?.(
-      new Error(`${flavor.label} text generator stopped`),
-    );
+    current.turnFailed?.(new Error(`${flavor.label} text generator stopped`));
     current.turnDone = null;
     current.turnFailed = null;
   }

@@ -3,10 +3,7 @@ import { useState } from "react";
 import { ProjectLogoIcon } from "./ProjectLogoIcon";
 import { ProjectMascot } from "./ProjectMascot";
 import { useTabGroupLogos } from "../hooks/useTabGroupLogos";
-import {
-  noteSourceProject,
-  type NoteCardMeta,
-} from "../lib/notes";
+import { noteSourceProject, type NoteCardMeta } from "../lib/notes";
 import { projectKey } from "../lib/paths";
 import {
   loadTabGroupColors,

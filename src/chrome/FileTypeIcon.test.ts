@@ -118,7 +118,9 @@ describe("FileTypeIcon DOM updates", () => {
 
   it("loads the original glyph for an uncommon extension on demand", async () => {
     await act(async () =>
-      root.render(createElement(FileTypeIcon, { name: "main.nim", isDir: false })),
+      root.render(
+        createElement(FileTypeIcon, { name: "main.nim", isDir: false }),
+      ),
     );
     await waitForIcons(1);
     expect(container.querySelector("svg")?.outerHTML).toBe(

@@ -43,7 +43,10 @@ export function QuestionForm({ prompt, onReply }: Props) {
   );
 
   const finish = (nextAnswers = answers, nextCustom = custom) => {
-    onReply(prompt.requestId, buildQuestionReply(questions, nextAnswers, nextCustom));
+    onReply(
+      prompt.requestId,
+      buildQuestionReply(questions, nextAnswers, nextCustom),
+    );
   };
 
   const skipCurrent = () => {
@@ -224,12 +227,17 @@ function QuestionFields({
   };
 
   return (
-    <fieldset className="min-w-0" aria-label={question.header || question.prompt}>
+    <fieldset
+      className="min-w-0"
+      aria-label={question.header || question.prompt}
+    >
       <p className="text-ui-body font-medium leading-snug text-content">
         {question.prompt}
       </p>
       {question.multiSelect ? (
-        <p className="mt-0.5 text-ui-caption text-content/40">Select all that apply</p>
+        <p className="mt-0.5 text-ui-caption text-content/40">
+          Select all that apply
+        </p>
       ) : null}
       {options.length === 0 && question.allowCustom ? (
         <input

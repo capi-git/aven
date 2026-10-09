@@ -847,7 +847,10 @@ function PreferencesPage({
           label="Default task access"
           description="Applies to new tasks. Existing tasks keep their own access setting."
         >
-          <AccessPicker value={defaultAccess} onChange={saveDefaultRuntimeMode} />
+          <AccessPicker
+            value={defaultAccess}
+            onChange={saveDefaultRuntimeMode}
+          />
         </Row>
         <Row
           label="Follow-up behavior"
@@ -1243,7 +1246,8 @@ function useAppearanceSettings() {
     null,
   );
   const [uiScale, setUiScale] = useState(loadUiScale);
-  const [statusBarOpacity, setStatusBarOpacity] = useState(loadStatusBarOpacity);
+  const [statusBarOpacity, setStatusBarOpacity] =
+    useState(loadStatusBarOpacity);
 
   useEffect(() => subscribeUiScale(() => setUiScale(loadUiScale())), []);
 

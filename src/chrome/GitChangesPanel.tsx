@@ -146,7 +146,9 @@ export function GitChangesPanel({
 
   if (!cwd || cwd === "~") {
     return (
-      <p className="px-3 py-2 text-ui-label text-content/50">No project folder</p>
+      <p className="px-3 py-2 text-ui-label text-content/50">
+        No project folder
+      </p>
     );
   }
 
@@ -155,7 +157,10 @@ export function GitChangesPanel({
       ref={paneRef}
       className="flex h-full min-h-0 flex-1 flex-col overflow-hidden"
     >
-      <header aria-label="Change summary" className="flex h-9 shrink-0 items-center gap-2 border-b border-content/10 px-3">
+      <header
+        aria-label="Change summary"
+        className="flex h-9 shrink-0 items-center gap-2 border-b border-content/10 px-3"
+      >
         {stats ? (
           <span
             className="flex shrink-0 gap-1.5 text-ui-caption tabular-nums"
@@ -1393,7 +1398,9 @@ function ChangeRow({
           <span className="min-w-0 flex-1 truncate">
             <span className="text-ui-body font-medium">{name}</span>
             {dir ? (
-              <span className="ml-1.5 text-ui-caption text-content/40">{dir}</span>
+              <span className="ml-1.5 text-ui-caption text-content/40">
+                {dir}
+              </span>
             ) : null}
           </span>
         </button>

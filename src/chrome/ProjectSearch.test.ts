@@ -43,9 +43,10 @@ function input() {
 
 async function query(value: string) {
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
-      input(), value,
-    );
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!.call(input(), value);
     input().dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
@@ -56,7 +57,15 @@ async function debounce() {
 
 function result(preview: string): ProjectSearchResult {
   return {
-    matches: [{ path: "/project/file.ts", relative: "file.ts", line: 1, column: 1, preview }],
+    matches: [
+      {
+        path: "/project/file.ts",
+        relative: "file.ts",
+        line: 1,
+        column: 1,
+        preview,
+      },
+    ],
     truncated: false,
   };
 }
@@ -65,7 +74,10 @@ describe("ProjectSearch retained sidebar lifecycle", () => {
   it("does not focus or intercept Escape while hidden and defers an explicit focus request", async () => {
     await render({ enabled: false, focusToken: 1 });
     expect(document.activeElement).not.toBe(input());
-    const hiddenEscape = new KeyboardEvent("keydown", { key: "Escape", cancelable: true });
+    const hiddenEscape = new KeyboardEvent("keydown", {
+      key: "Escape",
+      cancelable: true,
+    });
     window.dispatchEvent(hiddenEscape);
     expect(hiddenEscape.defaultPrevented).toBe(false);
     expect(props.onClose).not.toHaveBeenCalled();
@@ -94,7 +106,9 @@ describe("ProjectSearch retained sidebar lifecycle", () => {
     await render({ enabled: true });
     await debounce();
     expect(mocks.searchProject).toHaveBeenCalledOnce();
-    expect(mocks.searchProject).toHaveBeenCalledWith(expect.objectContaining({ query: "needle" }));
+    expect(mocks.searchProject).toHaveBeenCalledWith(
+      expect.objectContaining({ query: "needle" }),
+    );
   });
 
   it("retains settled results across a hover reopen without repeating the search", async () => {
@@ -115,7 +129,12 @@ describe("ProjectSearch retained sidebar lifecycle", () => {
   it("ignores an in-flight result after hiding and restarts only the interrupted request", async () => {
     let resolveOld!: (value: ProjectSearchResult) => void;
     mocks.searchProject
-      .mockImplementationOnce(() => new Promise<ProjectSearchResult>((resolve) => { resolveOld = resolve; }))
+      .mockImplementationOnce(
+        () =>
+          new Promise<ProjectSearchResult>((resolve) => {
+            resolveOld = resolve;
+          }),
+      )
       .mockResolvedValue(result("current result"));
     await render();
     await query("result");

@@ -71,7 +71,11 @@
   color: color-mix(in srgb, var(--color-content) 70%, transparent);
 }
 .git-copy-pill[data-tone="warn"] {
-  background: color-mix(in srgb, var(--color-warning, #d99c45) 18%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--color-warning, #d99c45) 18%,
+    transparent
+  );
   color: var(--color-warning, #d99c45);
 }
 .git-copy-pill[data-tone="ok"] {

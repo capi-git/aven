@@ -45,9 +45,7 @@ vi.mock("./child", () => ({
   },
 }));
 
-const { runCodexTextPrompt, stopCodexTextPrompt } = await import(
-  "./codexText"
-);
+const { runCodexTextPrompt, stopCodexTextPrompt } = await import("./codexText");
 
 beforeEach(() => {
   sent.length = 0;

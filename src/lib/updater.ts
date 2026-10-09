@@ -111,7 +111,8 @@ async function isDevelopmentApp(): Promise<boolean> {
 
 /** Compare the semver releases accepted by the native updater, ignoring build metadata. */
 function newerRelease(candidate: string, staged: string): boolean {
-  const parts = (version: string) => version.replace(/^v/, "").split("+", 1)[0]!.split("-");
+  const parts = (version: string) =>
+    version.replace(/^v/, "").split("+", 1)[0]!.split("-");
   const [nextCore, ...nextPre] = parts(candidate);
   const [oldCore, ...oldPre] = parts(staged);
   const next = nextCore!.split(".").map(Number);
@@ -158,8 +159,12 @@ async function checkAndDownload(): Promise<UpdaterSnapshot> {
   publish({ phase: "checking", currentVersion });
   try {
     candidate = await check({ timeout: 30_000 });
-    if (staged && (!candidate || !newerRelease(candidate.version, staged.version))) {
-      if (candidate && candidate !== staged) await candidate.close().catch(() => undefined);
+    if (
+      staged &&
+      (!candidate || !newerRelease(candidate.version, staged.version))
+    ) {
+      if (candidate && candidate !== staged)
+        await candidate.close().catch(() => undefined);
       return publish(readySnapshot());
     }
     if (!candidate) return publish({ phase: "current", currentVersion });
@@ -204,7 +209,8 @@ async function checkAndDownload(): Promise<UpdaterSnapshot> {
     // resolved download promise makes this archive eligible for installation.
     pendingUpdate = update;
     downloaded = true;
-    if (staged && staged !== update) await staged.close().catch(() => undefined);
+    if (staged && staged !== update)
+      await staged.close().catch(() => undefined);
     announceUpdateAvailable(update.version);
     return publish({
       phase: "ready",
@@ -212,7 +218,8 @@ async function checkAndDownload(): Promise<UpdaterSnapshot> {
       availableVersion: update.version,
     });
   } catch (error) {
-    if (candidate && candidate !== staged) await candidate.close().catch(() => undefined);
+    if (candidate && candidate !== staged)
+      await candidate.close().catch(() => undefined);
     // A failed newer check/download must not discard the already verified archive.
     if (staged) return publish({ ...readySnapshot(), error: errorText(error) });
     downloaded = false;

@@ -96,7 +96,11 @@ import { TAB_GROUP_COLORS } from "../lib/tabGroups";
 import { useDragResize } from "../hooks/useDragResize";
 import { useProfileCarousel } from "../hooks/useProfileCarousel";
 import { useSidebarPageState } from "../hooks/useSidebarPageState";
-import { ProfileCarouselPreview, captureProfileSidebar, type WorkspaceProfilePreviewData } from "./ProfileCarouselPreview";
+import {
+  ProfileCarouselPreview,
+  captureProfileSidebar,
+  type WorkspaceProfilePreviewData,
+} from "./ProfileCarouselPreview";
 import { useSortable } from "../hooks/useSortable";
 import { normalizeHex } from "../lib/colorUtils";
 import {
@@ -108,9 +112,7 @@ import {
 import { ColorPickerPopover, ColorSwatchRow } from "./ColorPickerPopover";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 import { HarnessIcon } from "./HarnessIcon";
-import {
-  PersonalWorkspaceSwitcher,
-} from "./PersonalWorkspaceSwitcher";
+import { PersonalWorkspaceSwitcher } from "./PersonalWorkspaceSwitcher";
 import { ProfileSidebarHeader } from "./ProfileSidebarHeader";
 import { PersonalProjectRow } from "./PersonalProjectRow";
 import { OrchestrationSidebarAgents } from "./OrchestrationSidebarAgents";
@@ -326,9 +328,8 @@ function SidebarComponent({
   onOpenWhatsNew,
   onDismissUpdate,
 }: SidebarProps) {
-  const [profileMenuAnchor, setProfileMenuAnchor] = useState<HTMLButtonElement | null>(
-    null,
-  );
+  const [profileMenuAnchor, setProfileMenuAnchor] =
+    useState<HTMLButtonElement | null>(null);
   useEffect(() => setProfileMenuAnchor(null), [activeProfileId, open]);
   const [documentVisible, setDocumentVisible] = useState(
     () => !document.hidden,
@@ -338,11 +339,17 @@ function SidebarComponent({
   );
   const sessionFiltersKey = `${sessionFilters.showArchived}\0${sessionFilters.time}\0${sessionFilters.hiddenHarnesses.join(",")}\0${sessionFilters.status.working}\0${sessionFilters.status.needsApproval}\0${sessionFilters.status.done}`;
   const {
-    tasksExpanded, setTasksExpanded,
-    taskSearchOpen, setTaskSearchOpen: updateTaskSearchOpen,
-    searchQuery, setSearchQuery,
-    sessionListLimit, setSessionListLimit,
-    sessionsScrollRef, setScroller, captureScroll,
+    tasksExpanded,
+    setTasksExpanded,
+    taskSearchOpen,
+    setTaskSearchOpen: updateTaskSearchOpen,
+    searchQuery,
+    setSearchQuery,
+    sessionListLimit,
+    setSessionListLimit,
+    sessionsScrollRef,
+    setScroller,
+    captureScroll,
   } = useSidebarPageState({
     profileId: activeProfileId,
     cwd,
@@ -369,20 +376,25 @@ function SidebarComponent({
   const profileViewportRef = useRef<HTMLDivElement | null>(null);
   const profileContentRef = useRef<HTMLDivElement | null>(null);
   const profileSnapshots = useRef(new Map<string, HTMLElement>());
-  const carouselEnabled = open && !!onSelectProfile && !settingsOpen && !profileMenuAnchor;
+  const carouselEnabled =
+    open && !!onSelectProfile && !settingsOpen && !profileMenuAnchor;
   const selectProfile = (id: string) => {
     captureScroll();
     // Capture before React moves the live body to its destination, including
     // footer/header navigation. Every transition should retain the outgoing
     // page's visible rows and scroll position until it leaves the viewport.
     if (id !== activeProfileId && profileContentRef.current)
-      profileSnapshots.current.set(activeProfileId, captureProfileSidebar(profileContentRef.current));
+      profileSnapshots.current.set(
+        activeProfileId,
+        captureProfileSidebar(profileContentRef.current),
+      );
     onSelectProfile?.(id);
   };
   useProfileCarousel({
     viewport: profileViewportRef,
     enabled: carouselEnabled,
-    profiles, activeProfileId,
+    profiles,
+    activeProfileId,
     onSelectProfile: selectProfile,
   });
   const resize = useDragResize({
@@ -423,14 +435,18 @@ function SidebarComponent({
   );
   const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
   const [savedSessionFolders, setSavedSessionFolders] = useState(() => ({
-    cwd, folders: loadSessionFolders(cwd),
+    cwd,
+    folders: loadSessionFolders(cwd),
   }));
   // Resolve the destination folders before rendering its rows and restoring
   // scroll. An outgoing folder tree must not temporarily shorten this page.
-  const sessionFolders = useMemo(() =>
-    savedSessionFolders.cwd === cwd
-      ? savedSessionFolders.folders
-      : loadSessionFolders(cwd), [cwd, savedSessionFolders]);
+  const sessionFolders = useMemo(
+    () =>
+      savedSessionFolders.cwd === cwd
+        ? savedSessionFolders.folders
+        : loadSessionFolders(cwd),
+    [cwd, savedSessionFolders],
+  );
   // Adopt this already-resolved destination before React commits its children.
   // Doing this in a layout effect repeated the whole sidebar commit mid-swipe.
   if (savedSessionFolders.cwd !== cwd)
@@ -439,9 +455,12 @@ function SidebarComponent({
     action: SessionFolder[] | ((folders: SessionFolder[]) => SessionFolder[]),
   ) => {
     setSavedSessionFolders((saved) => {
-      const previous = saved.cwd === cwd ? saved.folders : loadSessionFolders(cwd);
+      const previous =
+        saved.cwd === cwd ? saved.folders : loadSessionFolders(cwd);
       const folders = typeof action === "function" ? action(previous) : action;
-      return saved.cwd === cwd && folders === saved.folders ? saved : { cwd, folders };
+      return saved.cwd === cwd && folders === saved.folders
+        ? saved
+        : { cwd, folders };
     });
   };
   const [sessionDrop, setSessionDrop] = useState<SessionListDropTarget | null>(
@@ -454,7 +473,9 @@ function SidebarComponent({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const requestedSearchFocus = useRef<string | null>(null);
   const searchPageKey = JSON.stringify([activeProfileId, cwd]);
-  const setTaskSearchOpen = (action: boolean | ((shown: boolean) => boolean)) => {
+  const setTaskSearchOpen = (
+    action: boolean | ((shown: boolean) => boolean),
+  ) => {
     const next = typeof action === "function" ? action(taskSearchOpen) : action;
     requestedSearchFocus.current = next ? searchPageKey : null;
     updateTaskSearchOpen(next);
@@ -462,8 +483,11 @@ function SidebarComponent({
   useLayoutEffect(() => {
     if (
       requestedSearchFocus.current === searchPageKey &&
-      taskSearchOpen && open && !settingsOpen
-    ) searchInputRef.current?.focus({ preventScroll: true });
+      taskSearchOpen &&
+      open &&
+      !settingsOpen
+    )
+      searchInputRef.current?.focus({ preventScroll: true });
     requestedSearchFocus.current = null;
   }, [searchPageKey, taskSearchOpen, open, settingsOpen]);
   const pendingFolderSessionIds = useRef(new Set<string>());
@@ -1420,7 +1444,14 @@ function SidebarComponent({
           </>
         )}
       </div>
-      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">{activeProfile.name} workspace</div>
+      <div
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {activeProfile.name} workspace
+      </div>
       {profileMenuAnchor && open ? (
         <WorkspaceProfileMenu
           profiles={profiles}
@@ -1441,344 +1472,384 @@ function SidebarComponent({
           />
         </div>
       ) : (
-        <div ref={profileViewportRef} className="personal-profile-viewport min-h-0 flex-1" data-carousel-enabled={carouselEnabled} aria-label="Workspace carousel" tabIndex={0}>
-        <div className="personal-profile-track">
-          {profiles.map((profile) => (
-            <div key={profile.id} className="personal-profile-page" inert aria-hidden="true">
-              {profile.id !== activeProfile.id ? <ProfileCarouselPreview profile={profile} preview={profilePreviews?.[profile.id]} snapshot={profileSnapshots.current.get(profile.id)} showSearch={!!onSearch} showNotes={notesEnabled && !!onOpenNotes} showInbox={!!onOpenInbox} showAutomations={!!onOpenAutomations} showNewSession={!!onNewStandalone} /> : null}
-            </div>
-          ))}
         <div
-          ref={profileContentRef}
-          className="personal-profile-content flex min-h-0 min-w-0 flex-col"
-          style={{ left: `${Math.max(0, profiles.findIndex((profile) => profile.id === activeProfile.id)) * 100}%` }}
+          ref={profileViewportRef}
+          className="personal-profile-viewport min-h-0 flex-1"
+          data-carousel-enabled={carouselEnabled}
+          aria-label="Workspace carousel"
+          tabIndex={0}
         >
-          {profileHeader}
-          {onNewStandalone ? (
-            <button
-              type="button"
-              className="personal-new-session"
-              aria-label="New session without a project"
-              disabled={startingStandalone}
-              onClick={() => {
-                setTasksExpanded(true);
-                onNewStandalone();
+          <div className="personal-profile-track">
+            {profiles.map((profile) => (
+              <div
+                key={profile.id}
+                className="personal-profile-page"
+                inert
+                aria-hidden="true"
+              >
+                {profile.id !== activeProfile.id ? (
+                  <ProfileCarouselPreview
+                    profile={profile}
+                    preview={profilePreviews?.[profile.id]}
+                    snapshot={profileSnapshots.current.get(profile.id)}
+                    showSearch={!!onSearch}
+                    showNotes={notesEnabled && !!onOpenNotes}
+                    showInbox={!!onOpenInbox}
+                    showAutomations={!!onOpenAutomations}
+                    showNewSession={!!onNewStandalone}
+                  />
+                ) : null}
+              </div>
+            ))}
+            <div
+              ref={profileContentRef}
+              className="personal-profile-content flex min-h-0 min-w-0 flex-col"
+              style={{
+                left: `${
+                  Math.max(
+                    0,
+                    profiles.findIndex(
+                      (profile) => profile.id === activeProfile.id,
+                    ),
+                  ) * 100
+                }%`,
               }}
             >
-              <Plus className="size-3.5" />
-              <span>{startingStandalone ? "Starting…" : "New session"}</span>
-            </button>
-          ) : null}
-          <div
-            ref={setScroller}
-            className="personal-projects-scroll min-h-0 flex-1 overflow-y-auto"
-          >
-            {onOpenStandalone ? (
-              <section
-                className="personal-standalone-group"
-                aria-label="Sessions without a project"
+              {profileHeader}
+              {onNewStandalone ? (
+                <button
+                  type="button"
+                  className="personal-new-session"
+                  aria-label="New session without a project"
+                  disabled={startingStandalone}
+                  onClick={() => {
+                    setTasksExpanded(true);
+                    onNewStandalone();
+                  }}
+                >
+                  <Plus className="size-3.5" />
+                  <span>
+                    {startingStandalone ? "Starting…" : "New session"}
+                  </span>
+                </button>
+              ) : null}
+              <div
+                ref={setScroller}
+                className="personal-projects-scroll min-h-0 flex-1 overflow-y-auto"
               >
-                <div className="personal-projects-heading">
-                  <button
-                    type="button"
-                    className="personal-sessions-heading"
-                    onClick={() => {
-                      setTasksExpanded(true);
-                      onOpenStandalone();
-                    }}
+                {onOpenStandalone ? (
+                  <section
+                    className="personal-standalone-group"
+                    aria-label="Sessions without a project"
                   >
-                    Sessions
-                  </button>
-                </div>
-                {standaloneActive ? (
-                  currentProjectTasks
-                ) : (
-                  <div className="personal-project-tasks">
-                    {standaloneSessions
-                      .filter(
-                        (session) =>
-                          !session.archived && !session.orchestrationLeadId,
-                      )
-                      .slice(0, SESSION_LIST_PAGE)
-                      .map((session) =>
-                        session.orchestration ? (
-                          <SessionCard
-                            key={session.id}
-                            session={session}
-                            compact
-                            now={now}
-                            isActive={session.id === activeSessionId}
-                            isSelected={false}
-                            busy={busySessionIds.has(session.id)}
-                            done={false}
-                            needsApproval={approvalSessionIds.has(session.id)}
-                            onSelect={() => onSelectSession(session.id)}
-                          />
-                        ) : (
-                          <button
-                            key={session.id}
-                            type="button"
-                            className="personal-other-task personal-task-card"
-                            onClick={() => onSelectSession(session.id)}
-                          >
-                            {busySessionIds.has(session.id) ? (
-                              <span
-                                className="personal-task-working-dot"
-                                aria-label="Session running"
-                              />
-                            ) : (
-                              <span className="personal-task-indent" />
-                            )}
-                            <span className="personal-task-title">
-                              {sessionDisplayTitle(
-                                session.title,
-                                session.harness,
-                              )}
-                            </span>
-                          </button>
-                        ),
-                      )}
-                    {standaloneSessions.filter(
-                      (session) =>
-                        !session.archived && !session.orchestrationLeadId,
-                    ).length > SESSION_LIST_PAGE ? (
+                    <div className="personal-projects-heading">
                       <button
                         type="button"
-                        className="personal-view-project-tasks"
-                        onClick={onOpenStandalone}
+                        className="personal-sessions-heading"
+                        onClick={() => {
+                          setTasksExpanded(true);
+                          onOpenStandalone();
+                        }}
                       >
-                        View all sessions
+                        Sessions
                       </button>
-                    ) : null}
-                  </div>
-                )}
-              </section>
-            ) : null}
-            <div className="personal-projects-heading">
-              <span>Projects</span>
-              {inProject ? (
-                <>
-                  <SessionsHeaderButton
-                    label="Filter tasks by title"
-                    active={taskSearchOpen || searchNarrowed}
-                    onClick={() => {
-                      setTasksExpanded(true);
-                      setTaskSearchOpen((shown) => !shown);
-                      if (taskSearchOpen) setSearchQuery("");
-                    }}
-                  >
-                    <Search className="size-3" />
-                  </SessionsHeaderButton>
-                  <SessionsHeaderButton
-                    label="Task filters"
-                    active={filtersActive}
-                    open={!!filterMenu}
-                    hasPopup
-                    onClick={onFilterButtonClick}
-                  >
-                    <ListFilter className="size-3" />
-                  </SessionsHeaderButton>
-                </>
-              ) : null}
-              {onAddProject || onOpenProject ? (
-                <SessionsHeaderButton
-                  label="Add project"
-                  onClick={(event) =>
-                    onAddProject
-                      ? onAddProject(event.currentTarget)
-                      : onOpenProject?.()
-                  }
-                >
-                  <Plus className="size-3" />
-                </SessionsHeaderButton>
-              ) : null}
-            </div>
-            {projects.map((project) => {
-              const active = sameProjectPath(project.path, cwd);
-              const expanded = active
-                ? tasksExpanded
-                : expandedProjects.has(project.path);
-              const otherSessions =
-                !active && expanded
-                  ? (projectSessions[project.path] ?? [])
-                      .filter(
-                        (session) =>
-                          !session.archived && !session.orchestrationLeadId,
-                      )
-                      .sort(compareSessionSummaries)
-                  : [];
-              const historyLoaded = loadedProjectPaths
-                ? loadedProjectPaths.has(project.path)
-                : projectSessions[project.path] !== undefined;
-              const historyError = projectHistoryErrors?.has(project.path);
-              return (
-                <section
-                  key={project.path}
-                  className="personal-project-group"
-                  aria-label={basename(project.path)}
-                >
-                  <PersonalProjectRow
-                    path={project.path}
-                    active={active}
-                    expanded={expanded}
-                    busy={projectPathBusy(busyProjectPaths, project.path)}
-                    profiles={profiles}
-                    activeProfileId={activeProfileId}
-                    onSelect={() => {
-                      setExpandedProjects(
-                        (current) => new Set([...current, project.path]),
-                      );
-                      onSelectProject?.(project.path);
-                    }}
-                    onToggle={() => {
-                      if (active) setTasksExpanded((shown) => !shown);
-                      else {
-                        const opening = !expandedProjects.has(project.path);
-                        setExpandedProjects((current) => {
-                          const next = new Set(current);
-                          if (next.has(project.path)) next.delete(project.path);
-                          else next.add(project.path);
-                          return next;
-                        });
-                        if (opening && !historyLoaded && onExpandProject)
-                          requestProjectHistory(project.path);
+                    </div>
+                    {standaloneActive ? (
+                      currentProjectTasks
+                    ) : (
+                      <div className="personal-project-tasks">
+                        {standaloneSessions
+                          .filter(
+                            (session) =>
+                              !session.archived && !session.orchestrationLeadId,
+                          )
+                          .slice(0, SESSION_LIST_PAGE)
+                          .map((session) =>
+                            session.orchestration ? (
+                              <SessionCard
+                                key={session.id}
+                                session={session}
+                                compact
+                                now={now}
+                                isActive={session.id === activeSessionId}
+                                isSelected={false}
+                                busy={busySessionIds.has(session.id)}
+                                done={false}
+                                needsApproval={approvalSessionIds.has(
+                                  session.id,
+                                )}
+                                onSelect={() => onSelectSession(session.id)}
+                              />
+                            ) : (
+                              <button
+                                key={session.id}
+                                type="button"
+                                className="personal-other-task personal-task-card"
+                                onClick={() => onSelectSession(session.id)}
+                              >
+                                {busySessionIds.has(session.id) ? (
+                                  <span
+                                    className="personal-task-working-dot"
+                                    aria-label="Session running"
+                                  />
+                                ) : (
+                                  <span className="personal-task-indent" />
+                                )}
+                                <span className="personal-task-title">
+                                  {sessionDisplayTitle(
+                                    session.title,
+                                    session.harness,
+                                  )}
+                                </span>
+                              </button>
+                            ),
+                          )}
+                        {standaloneSessions.filter(
+                          (session) =>
+                            !session.archived && !session.orchestrationLeadId,
+                        ).length > SESSION_LIST_PAGE ? (
+                          <button
+                            type="button"
+                            className="personal-view-project-tasks"
+                            onClick={onOpenStandalone}
+                          >
+                            View all sessions
+                          </button>
+                        ) : null}
+                      </div>
+                    )}
+                  </section>
+                ) : null}
+                <div className="personal-projects-heading">
+                  <span>Projects</span>
+                  {inProject ? (
+                    <>
+                      <SessionsHeaderButton
+                        label="Filter tasks by title"
+                        active={taskSearchOpen || searchNarrowed}
+                        onClick={() => {
+                          setTasksExpanded(true);
+                          setTaskSearchOpen((shown) => !shown);
+                          if (taskSearchOpen) setSearchQuery("");
+                        }}
+                      >
+                        <Search className="size-3" />
+                      </SessionsHeaderButton>
+                      <SessionsHeaderButton
+                        label="Task filters"
+                        active={filtersActive}
+                        open={!!filterMenu}
+                        hasPopup
+                        onClick={onFilterButtonClick}
+                      >
+                        <ListFilter className="size-3" />
+                      </SessionsHeaderButton>
+                    </>
+                  ) : null}
+                  {onAddProject || onOpenProject ? (
+                    <SessionsHeaderButton
+                      label="Add project"
+                      onClick={(event) =>
+                        onAddProject
+                          ? onAddProject(event.currentTarget)
+                          : onOpenProject?.()
                       }
-                    }}
-                    onNew={
-                      onNewProjectTask
-                        ? () => onNewProjectTask(project.path)
-                        : active && onNew
-                          ? () => {
-                              setTasksExpanded(true);
-                              onNew();
-                            }
-                          : undefined
-                    }
-                    onMove={onMoveProject}
-                    onRemove={onRemoveProject}
-                    onPinnedChange={() =>
-                      refreshProjects((revision) => revision + 1)
-                    }
-                    visible={open && documentVisible}
-                  />
-                  {active ? (
-                    currentProjectTasks
-                  ) : expanded ? (
-                    <div className="personal-project-tasks">
-                      {!historyLoaded ? (
-                        historyError ? (
-                          <button
-                            type="button"
-                            className="personal-view-project-tasks"
-                            onClick={() => requestProjectHistory(project.path)}
-                          >
-                            Could not load tasks. Retry
-                          </button>
-                        ) : requestedProjectPaths.has(project.path) ? (
-                          <p className="personal-tasks-empty" role="status">
-                            Loading tasks…
-                          </p>
-                        ) : (
-                          <button
-                            type="button"
-                            className="personal-view-project-tasks"
-                            onClick={() =>
-                              onExpandProject
-                                ? requestProjectHistory(project.path)
-                                : onSelectProject?.(project.path)
-                            }
-                          >
-                            Load tasks
-                          </button>
-                        )
-                      ) : null}
-                      {otherSessions
-                        .slice(0, SESSION_LIST_PAGE)
-                        .map((session) =>
-                          session.orchestration ? (
-                            <SessionCard
-                              key={session.id}
-                              session={session}
-                              compact
-                              now={now}
-                              isActive={session.id === activeSessionId}
-                              isSelected={false}
-                              busy={busySessionIds.has(session.id)}
-                              done={false}
-                              needsApproval={approvalSessionIds.has(session.id)}
-                              onSelect={() =>
-                                onSelectProjectSession?.(
-                                  project.path,
-                                  session.id,
-                                )
-                              }
-                            />
-                          ) : (
-                            <button
-                              key={session.id}
-                              type="button"
-                              className="personal-other-task personal-task-card"
-                              onClick={() =>
-                                onSelectProjectSession?.(
-                                  project.path,
-                                  session.id,
-                                )
-                              }
-                              disabled={!onSelectProjectSession}
-                              aria-current={
-                                session.id === activeSessionId
-                                  ? "true"
-                                  : undefined
-                              }
-                            >
-                              {busySessionIds.has(session.id) ? (
-                                <span
-                                  className="personal-task-working-dot"
-                                  aria-label="Task running"
+                    >
+                      <Plus className="size-3" />
+                    </SessionsHeaderButton>
+                  ) : null}
+                </div>
+                {projects.map((project) => {
+                  const active = sameProjectPath(project.path, cwd);
+                  const expanded = active
+                    ? tasksExpanded
+                    : expandedProjects.has(project.path);
+                  const otherSessions =
+                    !active && expanded
+                      ? (projectSessions[project.path] ?? [])
+                          .filter(
+                            (session) =>
+                              !session.archived && !session.orchestrationLeadId,
+                          )
+                          .sort(compareSessionSummaries)
+                      : [];
+                  const historyLoaded = loadedProjectPaths
+                    ? loadedProjectPaths.has(project.path)
+                    : projectSessions[project.path] !== undefined;
+                  const historyError = projectHistoryErrors?.has(project.path);
+                  return (
+                    <section
+                      key={project.path}
+                      className="personal-project-group"
+                      aria-label={basename(project.path)}
+                    >
+                      <PersonalProjectRow
+                        path={project.path}
+                        active={active}
+                        expanded={expanded}
+                        busy={projectPathBusy(busyProjectPaths, project.path)}
+                        profiles={profiles}
+                        activeProfileId={activeProfileId}
+                        onSelect={() => {
+                          setExpandedProjects(
+                            (current) => new Set([...current, project.path]),
+                          );
+                          onSelectProject?.(project.path);
+                        }}
+                        onToggle={() => {
+                          if (active) setTasksExpanded((shown) => !shown);
+                          else {
+                            const opening = !expandedProjects.has(project.path);
+                            setExpandedProjects((current) => {
+                              const next = new Set(current);
+                              if (next.has(project.path))
+                                next.delete(project.path);
+                              else next.add(project.path);
+                              return next;
+                            });
+                            if (opening && !historyLoaded && onExpandProject)
+                              requestProjectHistory(project.path);
+                          }
+                        }}
+                        onNew={
+                          onNewProjectTask
+                            ? () => onNewProjectTask(project.path)
+                            : active && onNew
+                              ? () => {
+                                  setTasksExpanded(true);
+                                  onNew();
+                                }
+                              : undefined
+                        }
+                        onMove={onMoveProject}
+                        onRemove={onRemoveProject}
+                        onPinnedChange={() =>
+                          refreshProjects((revision) => revision + 1)
+                        }
+                        visible={open && documentVisible}
+                      />
+                      {active ? (
+                        currentProjectTasks
+                      ) : expanded ? (
+                        <div className="personal-project-tasks">
+                          {!historyLoaded ? (
+                            historyError ? (
+                              <button
+                                type="button"
+                                className="personal-view-project-tasks"
+                                onClick={() =>
+                                  requestProjectHistory(project.path)
+                                }
+                              >
+                                Could not load tasks. Retry
+                              </button>
+                            ) : requestedProjectPaths.has(project.path) ? (
+                              <p className="personal-tasks-empty" role="status">
+                                Loading tasks…
+                              </p>
+                            ) : (
+                              <button
+                                type="button"
+                                className="personal-view-project-tasks"
+                                onClick={() =>
+                                  onExpandProject
+                                    ? requestProjectHistory(project.path)
+                                    : onSelectProject?.(project.path)
+                                }
+                              >
+                                Load tasks
+                              </button>
+                            )
+                          ) : null}
+                          {otherSessions
+                            .slice(0, SESSION_LIST_PAGE)
+                            .map((session) =>
+                              session.orchestration ? (
+                                <SessionCard
+                                  key={session.id}
+                                  session={session}
+                                  compact
+                                  now={now}
+                                  isActive={session.id === activeSessionId}
+                                  isSelected={false}
+                                  busy={busySessionIds.has(session.id)}
+                                  done={false}
+                                  needsApproval={approvalSessionIds.has(
+                                    session.id,
+                                  )}
+                                  onSelect={() =>
+                                    onSelectProjectSession?.(
+                                      project.path,
+                                      session.id,
+                                    )
+                                  }
                                 />
                               ) : (
-                                <span className="personal-task-indent" />
-                              )}
-                              <span className="personal-task-title">
-                                {sessionDisplayTitle(
-                                  session.title,
-                                  session.harness,
-                                )}
-                              </span>
-                              {session.pinned ? (
-                                <Pin className="size-2.5 shrink-0 opacity-55" />
-                              ) : null}
-                              <span className="personal-task-status">
-                                {formatRelative(session.updatedAt, now)}
-                              </span>
+                                <button
+                                  key={session.id}
+                                  type="button"
+                                  className="personal-other-task personal-task-card"
+                                  onClick={() =>
+                                    onSelectProjectSession?.(
+                                      project.path,
+                                      session.id,
+                                    )
+                                  }
+                                  disabled={!onSelectProjectSession}
+                                  aria-current={
+                                    session.id === activeSessionId
+                                      ? "true"
+                                      : undefined
+                                  }
+                                >
+                                  {busySessionIds.has(session.id) ? (
+                                    <span
+                                      className="personal-task-working-dot"
+                                      aria-label="Task running"
+                                    />
+                                  ) : (
+                                    <span className="personal-task-indent" />
+                                  )}
+                                  <span className="personal-task-title">
+                                    {sessionDisplayTitle(
+                                      session.title,
+                                      session.harness,
+                                    )}
+                                  </span>
+                                  {session.pinned ? (
+                                    <Pin className="size-2.5 shrink-0 opacity-55" />
+                                  ) : null}
+                                  <span className="personal-task-status">
+                                    {formatRelative(session.updatedAt, now)}
+                                  </span>
+                                </button>
+                              ),
+                            )}
+                          {otherSessions.length > SESSION_LIST_PAGE ? (
+                            <button
+                              type="button"
+                              className="personal-view-project-tasks"
+                              onClick={() => onSelectProject?.(project.path)}
+                            >
+                              View all {otherSessions.length} tasks
                             </button>
-                          ),
-                        )}
-                      {otherSessions.length > SESSION_LIST_PAGE ? (
-                        <button
-                          type="button"
-                          className="personal-view-project-tasks"
-                          onClick={() => onSelectProject?.(project.path)}
-                        >
-                          View all {otherSessions.length} tasks
-                        </button>
+                          ) : null}
+                          {historyLoaded && otherSessions.length === 0 ? (
+                            <p className="personal-tasks-empty">No tasks yet</p>
+                          ) : null}
+                        </div>
                       ) : null}
-                      {historyLoaded && otherSessions.length === 0 ? (
-                        <p className="personal-tasks-empty">No tasks yet</p>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </section>
-              );
-            })}
-            {projects.length === 0 ? (
-              <p className="personal-tasks-empty">
-                Add a project to {activeProfile.name}.
-              </p>
-            ) : null}
+                    </section>
+                  );
+                })}
+                {projects.length === 0 ? (
+                  <p className="personal-tasks-empty">
+                    Add a project to {activeProfile.name}.
+                  </p>
+                ) : null}
+              </div>
+            </div>
           </div>
-        </div>
-        </div>
         </div>
       )}
       <SidebarUpdateFooter
@@ -1859,7 +1930,9 @@ function SidebarComponent({
         onKeyDown={(event) => {
           if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
           event.preventDefault();
-          resize.setWidth(resize.width + (event.key === "ArrowRight" ? 20 : -20));
+          resize.setWidth(
+            resize.width + (event.key === "ArrowRight" ? 20 : -20),
+          );
         }}
       />
     </aside>
@@ -1883,10 +1956,20 @@ function SidebarComponent({
 
 const MemoSidebar = memo(SidebarComponent);
 const SIDEBAR_DATA: readonly (keyof SidebarProps)[] = [
-  "sessions", "openSessions", "profiles", "profilePreviews", "projectSessions",
-  "recents", "busyProjectPaths", "liveAgents", "standaloneSessions",
-  "busySessionIds", "approvalSessionIds", "loadedProjectPaths",
-  "projectHistoryErrors", "unseenFinishedIds",
+  "sessions",
+  "openSessions",
+  "profiles",
+  "profilePreviews",
+  "projectSessions",
+  "recents",
+  "busyProjectPaths",
+  "liveAgents",
+  "standaloneSessions",
+  "busySessionIds",
+  "approvalSessionIds",
+  "loadedProjectPaths",
+  "projectHistoryErrors",
+  "unseenFinishedIds",
 ];
 export function Sidebar(props: SidebarProps) {
   return <MemoSidebar {...useChromeProps(props, SIDEBAR_DATA)} />;

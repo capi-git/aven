@@ -19,9 +19,9 @@ describe("flattenVisibleRows", () => {
     const blocks = foldUnifiedLines(lines, 2);
     const rows = flattenVisibleRows(blocks, () => undefined);
     expect(rows.some((row) => row.type === "fold")).toBe(true);
-    expect(rows.some((row) => row.type === "line" && row.line.text === "new")).toBe(
-      true,
-    );
+    expect(
+      rows.some((row) => row.type === "line" && row.line.text === "new"),
+    ).toBe(true);
   });
 
   it("marks every changed line in a hunk as stageable", () => {
@@ -46,8 +46,7 @@ describe("flattenVisibleRows", () => {
       "add",
     ]);
     expect(staged.map((row) => row.type === "line" && row.line.pos)).toEqual([
-      4,
-      4,
+      4, 4,
     ]);
   });
 });
@@ -66,9 +65,11 @@ describe("windowRows", () => {
       },
     }));
     const window = windowRows(rows, 400, 800, 100);
-    expect(window.padTop + window.padBottom + rowsHeight(rows.slice(window.start, window.end))).toBe(
-      rowsHeight(rows),
-    );
+    expect(
+      window.padTop +
+        window.padBottom +
+        rowsHeight(rows.slice(window.start, window.end)),
+    ).toBe(rowsHeight(rows));
     expect(window.start).toBeGreaterThan(0);
     expect(window.end).toBeLessThan(rows.length);
   });

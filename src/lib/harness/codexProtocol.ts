@@ -785,25 +785,38 @@ function mapSubAgentActivity(
     return [];
   }
   const terminal = kind === "completed" || kind === "interrupted";
-  const events: HarnessEvent[] = [{
-    type: terminal || (kind === "interacted" && completed)
-      ? "tool.updated" : "tool.started",
-    callId,
-    title,
-    kind: "agent",
-    status: kind === "completed" ? "completed"
-      : kind === "interrupted" ? "failed" : "in_progress",
-  }];
+  const events: HarnessEvent[] = [
+    {
+      type:
+        terminal || (kind === "interacted" && completed)
+          ? "tool.updated"
+          : "tool.started",
+      callId,
+      title,
+      kind: "agent",
+      status:
+        kind === "completed"
+          ? "completed"
+          : kind === "interrupted"
+            ? "failed"
+            : "in_progress",
+    },
+  ];
   // Interacting with an idle child (for example, sending a message) does not
   // prove that it started another turn. Wait for an explicit running status.
-  if (agentId && kind !== "interacted") events.push({
-    type: "agent.updated",
-    agentId,
-    title,
-    status: kind === "completed" ? "completed"
-      : kind === "interrupted" ? "stopped" : "running",
-    callId,
-  });
+  if (agentId && kind !== "interacted")
+    events.push({
+      type: "agent.updated",
+      agentId,
+      title,
+      status:
+        kind === "completed"
+          ? "completed"
+          : kind === "interrupted"
+            ? "stopped"
+            : "running",
+      callId,
+    });
   return events;
 }
 
@@ -813,7 +826,10 @@ function mapCollabAgentStates(
 ): HarnessEvent[] {
   const states = asRecord(item.agentsStates);
   if (!states) return [];
-  const statuses: Record<string, Extract<HarnessEvent, { type: "agent.updated" }>["status"]> = {
+  const statuses: Record<
+    string,
+    Extract<HarnessEvent, { type: "agent.updated" }>["status"]
+  > = {
     pendingInit: "running",
     running: "running",
     interrupted: "stopped",
@@ -826,14 +842,18 @@ function mapCollabAgentStates(
     const state = asRecord(value);
     const status = statuses[stringField(state, "status") ?? ""];
     if (!agentId || !status) return [];
-    return [{
-      type: "agent.updated" as const,
-      agentId,
-      title: "Subagent",
-      status,
-      callId,
-      ...(status === "unknown" ? { detail: "Agent status is unavailable." } : {}),
-    }];
+    return [
+      {
+        type: "agent.updated" as const,
+        agentId,
+        title: "Subagent",
+        status,
+        callId,
+        ...(status === "unknown"
+          ? { detail: "Agent status is unavailable." }
+          : {}),
+      },
+    ];
   });
 }
 
@@ -1018,13 +1038,14 @@ export function codexUserInputQuestions(params: unknown): UserQuestion[] {
     const id = stringField(question, "id");
     if (!question || !id || used.has(id)) return [];
     used.add(id);
-    const options = (Array.isArray(question.options) ? question.options : [])
-      .flatMap((option) => {
-        const label = stringField(asRecord(option), "label");
-        if (!label) return [];
-        const description = stringField(asRecord(option), "description");
-        return [{ id: label, label, ...(description ? { description } : {}) }];
-      });
+    const options = (
+      Array.isArray(question.options) ? question.options : []
+    ).flatMap((option) => {
+      const label = stringField(asRecord(option), "label");
+      if (!label) return [];
+      const description = stringField(asRecord(option), "description");
+      return [{ id: label, label, ...(description ? { description } : {}) }];
+    });
     const header = stringField(question, "header");
     return [
       {
@@ -1068,7 +1089,9 @@ export type CodexElicitationRequest =
  * `mcpServer/elicitation/request` carries both Codex's own MCP tool approvals
  * (`_meta.codex_approval_kind: "mcp_tool_call"`) and genuine server forms.
  */
-export function parseCodexElicitation(params: unknown): CodexElicitationRequest {
+export function parseCodexElicitation(
+  params: unknown,
+): CodexElicitationRequest {
   const rec = asRecord(params);
   if (!rec) return { kind: "unsupported" };
   const serverName = stringField(rec, "serverName") ?? "Connection";
@@ -1102,7 +1125,12 @@ export function parseCodexElicitation(params: unknown): CodexElicitationRequest 
     const schema = asRecord(rec.requestedSchema) ?? undefined;
     return {
       kind: "question",
-      request: { serverName, message, mode: "form", ...(schema ? { schema } : {}) },
+      request: {
+        serverName,
+        message,
+        mode: "form",
+        ...(schema ? { schema } : {}),
+      },
     };
   }
   if (mode === "url") {

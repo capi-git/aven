@@ -208,9 +208,7 @@ export function InboxCommentForm({
           </button>
         </div>
       </div>
-      {error ? (
-        <p className="text-ui-label text-red-400/90">{error}</p>
-      ) : null}
+      {error ? <p className="text-ui-label text-red-400/90">{error}</p> : null}
     </form>
   );
 }

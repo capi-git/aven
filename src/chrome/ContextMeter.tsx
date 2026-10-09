@@ -74,7 +74,9 @@ export function ContextMeter({
           className={`w-max px-2.5 py-1.5 ${actionsOpen ? "" : "pointer-events-none"}`}
         >
           <div className="text-ui-label leading-4 text-content">{headline}</div>
-          <div className="text-ui-caption leading-4 text-content/50">{detail}</div>
+          <div className="text-ui-caption leading-4 text-content/50">
+            {detail}
+          </div>
           {actionsOpen ? (
             <button
               type="button"

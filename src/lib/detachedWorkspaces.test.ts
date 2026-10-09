@@ -513,7 +513,11 @@ describe("detached workspace transactions", () => {
       b = state("b");
     const original = mergeDetachedWorkspaces(a, b);
     original.editorDrafts = {
-      "/project/readme.md": { text: "unsaved", baseline: "saved", updatedAt: 1 },
+      "/project/readme.md": {
+        text: "unsaved",
+        baseline: "saved",
+        updatedAt: 1,
+      },
     };
     const opened = openDetachedFileForSession(
       original,
@@ -692,9 +696,9 @@ describe("detached workspace transactions", () => {
       "browser-b",
     ]);
     const mergedLayout = merged.view.layout;
-    expect(
-      mergedLayout?.type === "split" && mergedLayout.children[1],
-    ).toEqual(b.view.layout);
+    expect(mergedLayout?.type === "split" && mergedLayout.children[1]).toEqual(
+      b.view.layout,
+    );
     expect(merged.browsers[0].nativeId).toBe("existing-cef");
     expect(merged.browsers[0].kept).toBe(true);
     expect(merged.editorDrafts).toEqual(b.editorDrafts);
@@ -703,23 +707,43 @@ describe("detached workspace transactions", () => {
     ).toThrow("same project");
   });
   it("keeps minimized tabs in their own panes when combining detached windows", () => {
-    const a = state("a"), b = state("b");
-    a.browsers = [{ id: "browser-a", tabId: "page", url: "https://example.test", nativeId: "retained-page" }];
+    const a = state("a"),
+      b = state("b");
+    a.browsers = [
+      {
+        id: "browser-a",
+        tabId: "page",
+        url: "https://example.test",
+        nativeId: "retained-page",
+      },
+    ];
     a.view = resolveWorkspaceView(
       {
         layout: {
-          type: "split", id: "a-split", dir: "right",
-          children: [leaf("tab-a"), leaf("browser-a")], sizes: [0.4, 0.6],
+          type: "split",
+          id: "a-split",
+          dir: "right",
+          children: [leaf("tab-a"), leaf("browser-a")],
+          sizes: [0.4, 0.6],
         },
-        order: ["tab-a", "browser-a"], focusedId: "browser-a",
+        order: ["tab-a", "browser-a"],
+        focusedId: "browser-a",
         groups: { "tab-a": ["tab-a"], "browser-a": ["browser-a"] },
       },
-      ["tab-a", "browser-a"], "browser-a",
+      ["tab-a", "browser-a"],
+      "browser-a",
     );
     a.view = minimizeWorkspaceSide(a.view, "a-split", 0, "before");
-    for (const [first, second] of [[a, b], [b, a]]) {
+    for (const [first, second] of [
+      [a, b],
+      [b, a],
+    ]) {
       const merged = mergeDetachedWorkspaces(first, second);
-      expect(leafIds(merged.view.layout!).sort()).toEqual(["browser-a", "tab-a", "tab-b"]);
+      expect(leafIds(merged.view.layout!).sort()).toEqual([
+        "browser-a",
+        "tab-a",
+        "tab-b",
+      ]);
       expect(merged.view.groups["tab-a"]).toEqual(["tab-a"]);
       expect(merged.view.groups["browser-a"]).toEqual(["browser-a"]);
       expect(merged.browsers[0].nativeId).toBe("retained-page");

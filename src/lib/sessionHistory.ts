@@ -111,7 +111,8 @@ const MAX_LIVE_ACTIVITY = 2048;
 
 function liveUpdatedAt(session: Session): number {
   let turnIndex = session.blocks.length - 1;
-  while (turnIndex >= 0 && session.blocks[turnIndex].role !== "user") turnIndex--;
+  while (turnIndex >= 0 && session.blocks[turnIndex].role !== "user")
+    turnIndex--;
   const turn = session.blocks[turnIndex];
   const stamp = [
     session.cwd,
@@ -136,11 +137,12 @@ function liveUpdatedAt(session: Session): number {
           ? Math.max(0, durationMs)
           : 0)
       : undefined;
-  const updatedAt = previous && unchanged
-    ? previous.updatedAt
-    : previous
-      ? Math.max(previous.updatedAt + 1, turnAt ?? 0, Date.now())
-      : turnAt ?? Date.now();
+  const updatedAt =
+    previous && unchanged
+      ? previous.updatedAt
+      : previous
+        ? Math.max(previous.updatedAt + 1, turnAt ?? 0, Date.now())
+        : (turnAt ?? Date.now());
   // Refresh insertion order on access, retaining recent rows without retaining
   // any Session, Block, or transcript text references.
   liveActivity.delete(session.id);

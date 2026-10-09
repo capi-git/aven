@@ -323,7 +323,12 @@ export function isCheckoutBlockedByChanges(message: string): boolean {
 
 /** Drop leftover session-worktree pins. The composer now switches this folder. */
 export function restoreSessionCheckout<
-  T extends { cwd: string; branch?: string; worktreeCwd?: string; providerSessionId?: string },
+  T extends {
+    cwd: string;
+    branch?: string;
+    worktreeCwd?: string;
+    providerSessionId?: string;
+  },
 >(session: T): T {
   // Older handoffs saved the temporary lane as their project. Restore their
   // project identity while preserving the checkout only for an unfinished race.
@@ -391,7 +396,9 @@ export function homeDir(): Promise<string> {
   return invoke<string>("home_dir");
 }
 
-export async function pickFolder(title = "Open project"): Promise<string | null> {
+export async function pickFolder(
+  title = "Open project",
+): Promise<string | null> {
   const selected = await open({
     directory: true,
     multiple: false,
@@ -400,7 +407,9 @@ export async function pickFolder(title = "Open project"): Promise<string | null>
   return typeof selected === "string" && selected ? slash(selected) : null;
 }
 
-export async function pickFiles(title = "Attach files"): Promise<string[] | null> {
+export async function pickFiles(
+  title = "Attach files",
+): Promise<string[] | null> {
   const selected = await open({
     multiple: true,
     directory: false,

@@ -241,9 +241,9 @@ describe("native workspace transparency", () => {
     platform.HAS_NATIVE_GLASS = false;
     platform.IS_MAC = false;
     expect(appearance.applyBodyGlass(appearance.loadBodyGlass())).toBe(false);
-    expect(appearance.applySidebarOpacity(appearance.loadSidebarOpacity())).toBe(
-      1,
-    );
+    expect(
+      appearance.applySidebarOpacity(appearance.loadSidebarOpacity()),
+    ).toBe(1);
     appearance.applySidebarBlur(appearance.loadSidebarBlur());
     localStorage.setItem("monocode.bodyGlass", "1");
     expect(appearance.loadBodyGlass()).toBe(true);

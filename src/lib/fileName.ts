@@ -38,9 +38,7 @@ export function validateFileName(
     return { severity: "error", kind: "slash" };
   }
 
-  const siblings = new Set(
-    [...siblingNames].map((n) => n.toLowerCase()),
-  );
+  const siblings = new Set([...siblingNames].map((n) => n.toLowerCase()));
   if (siblings.has(name.toLowerCase())) {
     return { severity: "error", kind: "exists", name };
   }

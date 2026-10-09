@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { modelsFor, resetHarnessModelOverlays, setHarnessModels } from "../models";
+import {
+  modelsFor,
+  resetHarnessModelOverlays,
+  setHarnessModels,
+} from "../models";
 
 const child = vi.hoisted(() => ({
   onLine: undefined as ((line: string) => void) | undefined,
@@ -15,20 +19,27 @@ vi.mock("./child", () => ({
   execChild: child.exec,
   spawnChild: child.spawn,
   killChild: child.kill,
-  unwatchChild: () => { child.onLine = undefined; },
+  unwatchChild: () => {
+    child.onLine = undefined;
+  },
   watchChild: (_id: string, onLine: (line: string) => void) => {
     child.onLine = onLine;
   },
   writeChild: async (_id: string, line: string) => {
     const message = JSON.parse(line);
-    child.onLine?.(JSON.stringify({
-      type: "control_response",
-      response: {
-        subtype: "success",
-        request_id: message.request_id,
-        response: message.request.subtype === "list_models" ? { models: child.rows } : {},
-      },
-    }));
+    child.onLine?.(
+      JSON.stringify({
+        type: "control_response",
+        response: {
+          subtype: "success",
+          request_id: message.request_id,
+          response:
+            message.request.subtype === "list_models"
+              ? { models: child.rows }
+              : {},
+        },
+      }),
+    );
   },
 }));
 
@@ -53,33 +64,46 @@ describe("Claude catalog discovery", () => {
   it("uses the version-gated fallback when initial live discovery fails", async () => {
     child.spawn.mockRejectedValueOnce(new Error("CLI unavailable"));
     await refreshClaudeCatalog();
-    expect(child.exec).toHaveBeenCalledWith("/fake/claude", ["--version"], "/home/test");
-    expect(modelsFor("claude").some((model) => model.nativeId === "claude-opus-5")).toBe(true);
-    expect(modelsFor("claude").some((model) => model.nativeId === "claude-opus-5-5")).toBe(false);
+    expect(child.exec).toHaveBeenCalledWith(
+      "/fake/claude",
+      ["--version"],
+      "/home/test",
+    );
+    expect(
+      modelsFor("claude").some((model) => model.nativeId === "claude-opus-5"),
+    ).toBe(true);
+    expect(
+      modelsFor("claude").some((model) => model.nativeId === "claude-opus-5-5"),
+    ).toBe(false);
   });
 
   it.each(["error", "empty"])(
     "preserves a previous live catalog after %s discovery and permits a successful retry",
     async (failure) => {
-      const previous = [{
-        id: "claude:private-model",
-        harness: "claude" as const,
-        name: "Organization model",
-        nativeId: "custom-deployment",
-      }];
+      const previous = [
+        {
+          id: "claude:private-model",
+          harness: "claude" as const,
+          name: "Organization model",
+          nativeId: "custom-deployment",
+        },
+      ];
       setHarnessModels("claude", previous);
-      if (failure === "error") child.spawn.mockRejectedValueOnce(new Error("Temporary failure"));
+      if (failure === "error")
+        child.spawn.mockRejectedValueOnce(new Error("Temporary failure"));
       await refreshClaudeCatalog();
       expect(modelsFor("claude")).toBe(previous);
       expect(child.exec).not.toHaveBeenCalled();
 
-      child.rows = [{
-        value: "opus[1m]",
-        resolvedModel: "claude-opus-5-5[1m]",
-        displayName: "Opus (1M context)",
-        supportsEffort: true,
-        supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
-      }];
+      child.rows = [
+        {
+          value: "opus[1m]",
+          resolvedModel: "claude-opus-5-5[1m]",
+          displayName: "Opus (1M context)",
+          supportsEffort: true,
+          supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+        },
+      ];
       await refreshClaudeCatalog();
       expect(modelsFor("claude")).not.toBe(previous);
       expect(modelsFor("claude")[0]).toMatchObject({

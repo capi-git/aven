@@ -131,23 +131,25 @@ export function expandFold(
   return { start: current.start, end: current.end + step };
 }
 
-function unifiedLinesFromTexts(original: string, current: string): UnifiedLine[] {
+function unifiedLinesFromTexts(
+  original: string,
+  current: string,
+): UnifiedLine[] {
   const oldDoc = textFromString(original);
   const newDoc = textFromString(current);
   if (oldDoc.eq(newDoc)) return contextLines(newDoc, oldDoc, 0, newDoc.length);
   // Line-level: a character diff gives up on large files with scattered edits
   // and marks most of the file as one changed block.
   const chunks = Chunk.build(oldDoc, newDoc, LINE_DIFF_CONFIG);
-  if (chunks.length === 0) return contextLines(newDoc, oldDoc, 0, newDoc.length);
+  if (chunks.length === 0)
+    return contextLines(newDoc, oldDoc, 0, newDoc.length);
 
   const lines: UnifiedLine[] = [];
   let oldPos = 0;
   let newPos = 0;
   for (const chunk of chunks) {
     if (newPos < chunk.fromB) {
-      lines.push(
-        ...contextLines(newDoc, oldDoc, newPos, chunk.fromB, oldPos),
-      );
+      lines.push(...contextLines(newDoc, oldDoc, newPos, chunk.fromB, oldPos));
     }
     const deleted = linesInRange(oldDoc, chunk.fromA, chunk.toA);
     const inserted = linesInRange(newDoc, chunk.fromB, chunk.toB);

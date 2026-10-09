@@ -142,16 +142,14 @@ export function DetachedWorkspace() {
   useEffect(() => {
     const state = envelope?.state;
     const selected = state?.view.focusedId;
-    if (
-      !selected ||
-      !state.browsers.some((browser) => browser.id === selected)
-    )
+    if (!selected || !state.browsers.some((browser) => browser.id === selected))
       return;
     recentBrowserSelections.current = [
       selected,
       ...recentBrowserSelections.current.filter(
         (id) =>
-          id !== selected && state.browsers.some((browser) => browser.id === id),
+          id !== selected &&
+          state.browsers.some((browser) => browser.id === id),
       ),
     ];
   }, [envelope?.state.view.focusedId, envelope?.state.browsers]);
@@ -638,9 +636,9 @@ export function DetachedWorkspace() {
             return {
               ...state,
               browsers: exists
-                // The owner's checkpoint may precede a navigation in this
-                // window. Focusing an existing tab must not restore that URL.
-                ? state.browsers
+                ? // The owner's checkpoint may precede a navigation in this
+                  // window. Focusing an existing tab must not restore that URL.
+                  state.browsers
                 : [...retainCoveredBrowser(state), { ...browser, kept: true }],
               view: selectWorkspaceView(
                 resolveWorkspaceView(

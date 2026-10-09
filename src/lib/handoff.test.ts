@@ -20,10 +20,7 @@ import {
 } from "./handoff";
 import { newSession, type Block, type Session } from "./session";
 
-function sessionWith(
-  blocks: Block[],
-  extra?: Partial<Session>,
-): Session {
+function sessionWith(blocks: Block[], extra?: Partial<Session>): Session {
   return {
     ...newSession("cursor", "/tmp/project"),
     blocks,
@@ -40,10 +37,9 @@ describe("planComposerSwitch", () => {
   });
 
   it("arms a handoff for later instead of running it on picker change", () => {
-    const session = sessionWith(
-      [{ id: "u1", role: "user", text: "hey" }],
-      { providerSessionId: "acp-1" },
-    );
+    const session = sessionWith([{ id: "u1", role: "user", text: "hey" }], {
+      providerSessionId: "acp-1",
+    });
     expect(planComposerSwitch(session, "fx")).toEqual({
       kind: "arm",
       pending: {

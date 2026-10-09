@@ -601,7 +601,9 @@ export function InboxView({
         className="min-h-0 flex-1 overflow-y-auto overscroll-none"
       >
         {sourceError && visibleItems.length === 0 ? (
-          <p className="px-3 py-2 text-ui-label text-content/50">{sourceError}</p>
+          <p className="px-3 py-2 text-ui-label text-content/50">
+            {sourceError}
+          </p>
         ) : loading && items.length === 0 ? (
           <div className="flex justify-center py-10 text-content/40">
             <LoaderCircle className="size-4 animate-spin" strokeWidth={1.75} />

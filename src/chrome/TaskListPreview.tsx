@@ -78,10 +78,7 @@ function TaskState({ status }: { status: TaskListItemStatus }) {
         aria-label="In progress"
         className="mt-px grid size-4 shrink-0 place-items-center text-sky-300"
       >
-        <Loader
-          className="size-4 motion-safe:animate-spin"
-          strokeWidth={2}
-        />
+        <Loader className="size-4 motion-safe:animate-spin" strokeWidth={2} />
       </span>
     );
   }

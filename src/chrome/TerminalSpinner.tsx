@@ -1,17 +1,6 @@
 import { useEffect, useRef } from "react";
 
-const FRAMES = [
-  "⠋",
-  "⠙",
-  "⠹",
-  "⠸",
-  "⠼",
-  "⠴",
-  "⠦",
-  "⠧",
-  "⠇",
-  "⠏",
-] as const;
+const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 
 export function TerminalSpinner({
   className = "inline-block w-3.5 select-none text-center text-ui-caption leading-none",

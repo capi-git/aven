@@ -52,7 +52,14 @@ function matchToken(query: string, text: string): FuzzyHit | null {
 }
 
 function isBreak(ch: string): boolean {
-  return ch === "/" || ch === "\\" || ch === "-" || ch === "_" || ch === "." || ch === " ";
+  return (
+    ch === "/" ||
+    ch === "\\" ||
+    ch === "-" ||
+    ch === "_" ||
+    ch === "." ||
+    ch === " "
+  );
 }
 
 function isUpper(ch: string): boolean {

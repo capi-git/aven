@@ -57,7 +57,8 @@ export function tryExpandEmmet(view: EditorView): boolean {
   if (!pieces) return false;
 
   const indent = line.text.match(/^\s*/)?.[0] ?? "";
-  const unit = view.state.facet(indentUnit) || " ".repeat(getIndentUnit(view.state));
+  const unit =
+    view.state.facet(indentUnit) || " ".repeat(getIndentUnit(view.state));
   const expanded = expandPieces(pieces, syntax === "jsx", indent, unit);
   if (!expanded.text || expanded.text === abbr) return false;
 

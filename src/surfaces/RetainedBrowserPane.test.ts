@@ -153,7 +153,9 @@ describe("retained browser pages in the workspace stage", () => {
       root.render(createElement(RetainedBrowserPane, props)),
     );
     await act(async () =>
-      root.render(createElement(RetainedBrowserPane, { ...props, visible: true })),
+      root.render(
+        createElement(RetainedBrowserPane, { ...props, visible: true }),
+      ),
     );
     await act(async () =>
       root.render(createElement(RetainedBrowserPane, props)),

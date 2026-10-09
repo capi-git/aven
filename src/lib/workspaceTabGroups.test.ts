@@ -112,7 +112,9 @@ describe("project pane navigation", () => {
     expect(findTabForProject([mixed], sessions, holo)).toBe(mixed);
     // Navigation resolution neither mutates focus nor changes tab ownership.
     expect(mixed.focusedId).toBe("aven");
-    expect(workspaceTabCwd(mixed, sessions)).toBe(first === "holo" ? holo : aven);
+    expect(workspaceTabCwd(mixed, sessions)).toBe(
+      first === "holo" ? holo : aven,
+    );
   });
 
   it("validates preferred panes and keeps an already focused project pane", () => {
@@ -121,24 +123,36 @@ describe("project pane navigation", () => {
       ...tab("mixed", "holo"),
       layout: splitPane(
         splitPane(newTab("holo").layout, "holo", "right", "other-holo"),
-        "other-holo", "right", "aven",
+        "other-holo",
+        "right",
+        "aven",
       ),
       focusedId: "aven",
     };
-    expect(findProjectPane(mixed, currentSessions, holo, "other-holo"))
-      .toBe("other-holo");
+    expect(findProjectPane(mixed, currentSessions, holo, "other-holo")).toBe(
+      "other-holo",
+    );
     expect(findProjectPane(mixed, currentSessions, holo, "aven")).toBe("holo");
-    expect(findProjectPane(mixed, currentSessions, holo, "closed")).toBe("holo");
-    expect(findProjectPane({ ...mixed, focusedId: "holo" }, currentSessions, holo, "other-holo"))
-      .toBe("holo");
+    expect(findProjectPane(mixed, currentSessions, holo, "closed")).toBe(
+      "holo",
+    );
+    expect(
+      findProjectPane(
+        { ...mixed, focusedId: "holo" },
+        currentSessions,
+        holo,
+        "other-holo",
+      ),
+    ).toBe("holo");
   });
 
   it.each(["editor", "terminal"] as const)(
     "finds the active %s surface in a mixed tab",
     (kind) => {
-      const file = kind === "editor"
-        ? newFileTab(`${holo}/readme.md`, holo)
-        : newTerminalFile(holo);
+      const file =
+        kind === "editor"
+          ? newFileTab(`${holo}/readme.md`, holo)
+          : newTerminalFile(holo);
       const pane = { id: "surface", files: [file], activeFileId: file.id };
       const mixed: WorkspaceTab = {
         ...tab("mixed", "aven"),
@@ -161,13 +175,16 @@ describe("project pane navigation", () => {
     const active = newFileTab(`${aven}/readme.md`, aven);
     const inactive = newFileTab(`${holo}/readme.md`, holo);
     const pane = {
-      id: "editor", files: [active, inactive], activeFileId: active.id,
+      id: "editor",
+      files: [active, inactive],
+      activeFileId: active.id,
     };
     const workspace = { ...tab("files", pane.id), editorPanes: [pane] };
     expect(findProjectPane(workspace, [], holo)).toBeUndefined();
     expect(focusedWorkspaceTabCwd(workspace, [])).toBe(aven);
     const stale = {
-      ...workspace, editorPanes: [{ ...pane, activeFileId: "closed-file" }],
+      ...workspace,
+      editorPanes: [{ ...pane, activeFileId: "closed-file" }],
     };
     expect(findProjectPane(stale, [], holo)).toBeUndefined();
     expect(focusedWorkspaceTabCwd(stale, [])).toBeNull();
@@ -183,11 +200,14 @@ describe("project pane navigation", () => {
     };
     for (const id of ["holo", "editor", "terminal"]) {
       expect(findProjectPane(ghost, sessions, holo, id)).toBeUndefined();
-      expect(focusedWorkspaceTabCwd({ ...ghost, focusedId: id }, sessions))
-        .toBeNull();
+      expect(
+        focusedWorkspaceTabCwd({ ...ghost, focusedId: id }, sessions),
+      ).toBeNull();
     }
     const live = tab("live", "holo");
-    expect(findTabForProject([ghost, live], sessions, holo, ghost.id)).toBe(live);
+    expect(findTabForProject([ghost, live], sessions, holo, ghost.id)).toBe(
+      live,
+    );
     expect(findProjectPane(live, [], holo)).toBeUndefined();
   });
 
@@ -215,9 +235,12 @@ describe("project pane navigation", () => {
       session("foreign", "C:\\Personal\\HOLO"),
       session("holo", "C:\\Work\\HOLO\\"),
     ];
-    expect(findProjectPane(workspace, windows, "c:/work/holo", "foreign"))
-      .toBe("holo");
-    expect(findTabForProject([workspace], windows, "c:/work/holo/")).toBe(workspace);
+    expect(findProjectPane(workspace, windows, "c:/work/holo", "foreign")).toBe(
+      "holo",
+    );
+    expect(findTabForProject([workspace], windows, "c:/work/holo/")).toBe(
+      workspace,
+    );
   });
 });
 
@@ -306,19 +329,29 @@ describe("visibleProjectTabs", () => {
     };
     const tabs = [tab("first", "first"), mixed, tab("last", "last")];
     const ids = (items: WorkspaceTab[]) => items.map((item) => item.id);
-    expect(ids(filterTabsForProject(tabs, sessions, "/projects/HOLO")))
-      .toEqual(["first", "last"]);
-    expect(ids(visibleProjectTabs(tabs, sessions, "/projects/HOLO", mixed.id)))
-      .toEqual(["first", "mixed", "last"]);
-    expect(ids(filterTabsForProject(tabs, sessions, "/projects/Aven")))
-      .toEqual(["mixed"]);
+    expect(ids(filterTabsForProject(tabs, sessions, "/projects/HOLO"))).toEqual(
+      ["first", "last"],
+    );
+    expect(
+      ids(visibleProjectTabs(tabs, sessions, "/projects/HOLO", mixed.id)),
+    ).toEqual(["first", "mixed", "last"]);
+    expect(ids(filterTabsForProject(tabs, sessions, "/projects/Aven"))).toEqual(
+      ["mixed"],
+    );
     // An inactive mixed tab, or one focused elsewhere, is not added to the deck.
-    expect(ids(visibleProjectTabs(tabs, sessions, "/projects/HOLO", "first")))
-      .toEqual(["first", "last"]);
-    expect(ids(visibleProjectTabs(
-      [tabs[0], { ...mixed, focusedId: "aven" }, tabs[2]],
-      sessions, "/projects/HOLO", mixed.id,
-    ))).toEqual(["first", "last"]);
+    expect(
+      ids(visibleProjectTabs(tabs, sessions, "/projects/HOLO", "first")),
+    ).toEqual(["first", "last"]);
+    expect(
+      ids(
+        visibleProjectTabs(
+          [tabs[0], { ...mixed, focusedId: "aven" }, tabs[2]],
+          sessions,
+          "/projects/HOLO",
+          mixed.id,
+        ),
+      ),
+    ).toEqual(["first", "last"]);
   });
 });
 

@@ -28,9 +28,7 @@ describe("projectMascots", () => {
   });
 
   it("picks the same mascot for the same project", () => {
-    expect(projectMascot("~/code/aven")).toBe(
-      projectMascot("~/code/aven"),
-    );
+    expect(projectMascot("~/code/aven")).toBe(projectMascot("~/code/aven"));
   });
 
   it("honors an explicit pick and ignores unknown names", () => {
@@ -43,9 +41,16 @@ describe("projectMascots", () => {
 
   it("spreads projects across the roster", () => {
     const names = new Set(
-      ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta"].map(
-        (project) => projectMascot(project).name,
-      ),
+      [
+        "alpha",
+        "beta",
+        "gamma",
+        "delta",
+        "epsilon",
+        "zeta",
+        "eta",
+        "theta",
+      ].map((project) => projectMascot(project).name),
     );
     expect(names.size).toBeGreaterThan(3);
   });

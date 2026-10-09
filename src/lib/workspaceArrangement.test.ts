@@ -52,7 +52,10 @@ describe("workspace arrangement transfers", () => {
   it("reveals minimized groups as separate panes when a returned window changes the arrangement", () => {
     const minimized = minimizeWorkspaceSide(view(), "split", 0, "before");
     const incoming = resolveWorkspaceView(undefined, ["new"], "new");
-    for (const [current, added] of [[minimized, incoming], [incoming, minimized]]) {
+    for (const [current, added] of [
+      [minimized, incoming],
+      [incoming, minimized],
+    ]) {
       const merged = mergeWorkspaceArrangements(current, added);
       expect(leafIds(merged.layout!).sort()).toEqual(["a", "c", "new"]);
       expect(merged.groups.a).toEqual(["a", "b"]);
@@ -66,7 +69,9 @@ describe("workspace arrangement transfers", () => {
     const minimized = minimizeWorkspaceSide(view(), "split", 0, "before");
     const placement = captureWorkspaceReturnPlacement(minimized, ["c"]);
     const restored = restoreWorkspaceArrangement(
-      placement.remaining, placement.incoming, placement,
+      placement.remaining,
+      placement.incoming,
+      placement,
     );
     expect(restored).toEqual(minimized);
     expect(restored.groups).toEqual({ c: ["c"] });
@@ -74,7 +79,9 @@ describe("workspace arrangement transfers", () => {
   });
   it("reveals hidden groups before a deliberate group move replaces restoration geometry", () => {
     const minimized = minimizeWorkspaceSide(view(), "split", 0, "before");
-    expect(moveWorkspaceGroup(minimized, "missing", "c", "left")).toBe(minimized);
+    expect(moveWorkspaceGroup(minimized, "missing", "c", "left")).toBe(
+      minimized,
+    );
     expect(moveWorkspaceGroup(minimized, "c", "c", "left")).toBe(minimized);
     const moved = moveWorkspaceGroup(minimized, "c", "a", "left");
     expect(leafIds(moved.layout!)).toEqual(["c", "a"]);

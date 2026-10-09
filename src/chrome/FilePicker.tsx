@@ -190,7 +190,9 @@ export function FilePicker({
           </label>
         </div>
         {empty ? (
-          <p className="px-3 pb-3 pt-1 text-ui-label text-content/50">{empty}</p>
+          <p className="px-3 pb-3 pt-1 text-ui-label text-content/50">
+            {empty}
+          </p>
         ) : (
           <FileList
             files={results}

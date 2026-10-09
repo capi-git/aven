@@ -3,7 +3,10 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsView } from "./SettingsView";
-import { loadStatusBarOpacity, STATUS_BAR_OPACITY_DEFAULT } from "../lib/appearance";
+import {
+  loadStatusBarOpacity,
+  STATUS_BAR_OPACITY_DEFAULT,
+} from "../lib/appearance";
 import {
   loadWorkspaceTheme,
   saveWorkspaceTheme,
@@ -238,7 +241,9 @@ describe("workspace appearance settings", () => {
     const original = loadWorkspaceTheme("work");
     await input("Status bar opacity", "25");
     expect(loadStatusBarOpacity()).toBe(0.25);
-    expect(document.documentElement.style.getPropertyValue("--status-bar-opacity")).toBe("0.25");
+    expect(
+      document.documentElement.style.getPropertyValue("--status-bar-opacity"),
+    ).toBe("0.25");
     expect(loadWorkspaceTheme("work")).toEqual(original);
     await clickText("Restore defaults");
     expect(loadStatusBarOpacity()).toBe(STATUS_BAR_OPACITY_DEFAULT);
@@ -247,9 +252,14 @@ describe("workspace appearance settings", () => {
   it("puts everyday display controls before window details and chat decoration", async () => {
     await act(async () => root.render(createElement(Harness)));
     const text = container.textContent!;
-    expect(text.indexOf("Interface scale")).toBeLessThan(text.indexOf("Blur radius"));
-    expect(text.indexOf("Background opacity")).toBeLessThan(text.indexOf("Sidebar colour"));
-    expect(text.indexOf("Interface scale")).toBeLessThan(text.indexOf("Chat background"));
+    expect(text.indexOf("Interface scale")).toBeLessThan(
+      text.indexOf("Blur radius"),
+    );
+    expect(text.indexOf("Background opacity")).toBeLessThan(
+      text.indexOf("Sidebar colour"),
+    );
+    expect(text.indexOf("Interface scale")).toBeLessThan(
+      text.indexOf("Chat background"),
+    );
   });
-
 });

@@ -53,7 +53,11 @@ import { raceLaneFor } from "../lib/race";
 import { isAstraModel } from "../lib/astraWelcome";
 import { AstraWelcome } from "./AstraWelcome";
 import { projectKey } from "../lib/paths";
-import { readComposerDraft, retainComposerDraft, updateComposerDraft } from "../lib/composerDrafts";
+import {
+  readComposerDraft,
+  retainComposerDraft,
+  updateComposerDraft,
+} from "../lib/composerDrafts";
 import {
   loadProjectChatBackground,
   projectChatBackgroundRevision,
@@ -198,7 +202,9 @@ export const SessionPane = memo(function SessionPane({
 }: Props) {
   // Streaming updates this pane's transcript directly while it is shown.
   const session = useLiveSession(committedSession, visible);
-  const workerAgents = useContext(OrchestrationWorkers).agentsByLead?.get(session.id);
+  const workerAgents = useContext(OrchestrationWorkers).agentsByLead?.get(
+    session.id,
+  );
   const orchestrationRuns = useSyncExternalStore(
     orchestrator.subscribe,
     orchestrator.snapshot,
@@ -333,7 +339,10 @@ export const SessionPane = memo(function SessionPane({
     attachments: Attachment[];
   } | null>(null);
   const persistDraft = !session.inboxAsk;
-  useEffect(() => persistDraft ? retainComposerDraft(session.id) : undefined, [persistDraft, session.id]);
+  useEffect(
+    () => (persistDraft ? retainComposerDraft(session.id) : undefined),
+    [persistDraft, session.id],
+  );
   if (draftRef.current?.sessionId !== session.id) {
     const saved = persistDraft ? readComposerDraft(session.id) : undefined;
     draftRef.current = {
@@ -705,7 +714,16 @@ export const SessionPane = memo(function SessionPane({
       </div>
       {dockComposer ? (
         <div className="personal-session-composer-dock mx-auto w-full max-w-4xl shrink-0">
-          <SessionRunStatus session={sessionWithManagedAgents(session, orchestrationRuns, workerAgents)} visible={visible} onStop={onStop} onOpenTerminal={onNewTerminal} />
+          <SessionRunStatus
+            session={sessionWithManagedAgents(
+              session,
+              orchestrationRuns,
+              workerAgents,
+            )}
+            visible={visible}
+            onStop={onStop}
+            onOpenTerminal={onNewTerminal}
+          />
           {composer}
         </div>
       ) : null}

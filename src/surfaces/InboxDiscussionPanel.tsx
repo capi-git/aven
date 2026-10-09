@@ -83,10 +83,10 @@ export function InboxDiscussionPanel({
             setLoading(true);
             setError(null);
             void onRestart(item)
-              .then(sessionId => {
+              .then((sessionId) => {
                 if (host.current) onMount({ sessionId, host: host.current });
               })
-              .catch(reason => setError(String(reason)))
+              .catch((reason) => setError(String(reason)))
               .finally(() => setLoading(false));
           }}
         >

@@ -607,7 +607,10 @@ import {
   collectWorkspaceSnapshot,
   stableSnapshotSessions,
 } from "./lib/workspaceSnapshot";
-import { readComposerDraft, subscribeComposerDrafts } from "./lib/composerDrafts";
+import {
+  readComposerDraft,
+  subscribeComposerDrafts,
+} from "./lib/composerDrafts";
 import type { InstalledUpdate } from "./lib/updateNotice";
 import {
   bindResumedSessions,
@@ -626,9 +629,7 @@ import {
   scheduleStreamFlush,
   type ScheduledFlush,
 } from "./lib/streamFlush";
-import {
-  LiveSessionsContext,
-} from "./lib/liveSessions";
+import { LiveSessionsContext } from "./lib/liveSessions";
 
 /** Minimum spacing between full transcript saves of a chat that is still running. */
 const BUSY_PERSIST_INTERVAL_MS = 10_000;
@@ -843,7 +844,14 @@ export default function App({
       ),
     ),
   );
-  const { sessions, sessionsRef, liveSessions, setSessions, commitStream, flushCommittedSessions } = useWorkspaceSessions(
+  const {
+    sessions,
+    sessionsRef,
+    liveSessions,
+    setSessions,
+    commitStream,
+    flushCommittedSessions,
+  } = useWorkspaceSessions(
     () => windowTransfer?.sessions ?? resumed?.sessions ?? [seed.session],
   );
   const [tabs, setTabs] = useState<WorkspaceTab[]>(
@@ -979,9 +987,9 @@ export default function App({
       options?: AgentBrowserOpenOptions,
     ) => Promise<string | null>
   >(async () => null);
-  const detachedFocusBrowser = useRef<
-    (surfaceId: string) => Promise<boolean>
-  >(async () => false);
+  const detachedFocusBrowser = useRef<(surfaceId: string) => Promise<boolean>>(
+    async () => false,
+  );
   const agentFileBridge = useRef<
     (
       sessionId: string,
@@ -1092,9 +1100,10 @@ export default function App({
               url,
             };
             setAgentPageNotices((current) =>
-              [...current.filter((item) => item.id !== notice.id), notice].slice(
-                -3,
-              ),
+              [
+                ...current.filter((item) => item.id !== notice.id),
+                notice,
+              ].slice(-3),
             );
             window.setTimeout(
               () =>
@@ -1350,10 +1359,17 @@ export default function App({
               id,
               target.id,
               target.edge,
-              target.edge === "tab" ? target.orderIndex ?? target.index : undefined,
+              target.edge === "tab"
+                ? (target.orderIndex ?? target.index)
+                : undefined,
             )
           : target.edge === "tab"
-            ? moveWorkspaceTab(value, id, target.id, target.orderIndex ?? target.index)
+            ? moveWorkspaceTab(
+                value,
+                id,
+                target.id,
+                target.orderIndex ?? target.index,
+              )
             : splitWorkspaceView(value, id, target.edge, target.id),
       );
       return true;
@@ -1752,7 +1768,8 @@ export default function App({
       try {
         await Promise.all(
           sessionChildHarnesses(open).map((harness) =>
-            activeSessionAgents(open).length || uncertainSessionAgents(open).length
+            activeSessionAgents(open).length ||
+            uncertainSessionAgents(open).length
               ? stopHarnessSession(harness, sessionId)
               : cancelHarnessTurn(harness, sessionId),
           ),
@@ -1760,12 +1777,22 @@ export default function App({
       } catch (error) {
         // Removal may fail while the provider process remains alive. Keep a
         // truthful, stoppable row instead of either forgetting it or spinning.
-        const next = sessionsRef.current.map((session) => session.id !== sessionId
-          ? session
-          : { ...session, liveAgents: session.liveAgents?.map((agent) =>
-              ["running", "waiting", "unknown"].includes(agent.status)
-                ? { ...agent, status: "unknown" as const, detail: "Could not confirm the agent process stopped" }
-                : agent) });
+        const next = sessionsRef.current.map((session) =>
+          session.id !== sessionId
+            ? session
+            : {
+                ...session,
+                liveAgents: session.liveAgents?.map((agent) =>
+                  ["running", "waiting", "unknown"].includes(agent.status)
+                    ? {
+                        ...agent,
+                        status: "unknown" as const,
+                        detail: "Could not confirm the agent process stopped",
+                      }
+                    : agent,
+                ),
+              },
+        );
         sessionsRef.current = next;
         setSessions(next);
         throw error;
@@ -2504,7 +2531,8 @@ export default function App({
       if (
         session.orchestrationLeadId &&
         (isInFlightSession(session) || uncertainSessionAgents(session).length)
-      ) visibleIds.add(session.orchestrationLeadId);
+      )
+        visibleIds.add(session.orchestrationLeadId);
     }
     // Internal workers stay attached to the lead, even while idle between
     // turns. They must not be discarded merely because they have no tab.
@@ -3857,17 +3885,20 @@ export default function App({
   );
 
   /** Stack one section's working-tree changes in one review, whatever the diff-view setting. */
-  const onOpenAllChanges = useCallback((kind: GitFileDiffKind) => {
-    leaveExpandedPreview();
-    setTabs((prev) =>
-      prev.map((tab) =>
-        tab.id === activeTabId
-          ? openChangesTab(tab, sidebarCwdRef.current, undefined, kind)
-          : tab,
-      ),
-    );
-    setComposerFocused(false);
-  }, [activeTabId]);
+  const onOpenAllChanges = useCallback(
+    (kind: GitFileDiffKind) => {
+      leaveExpandedPreview();
+      setTabs((prev) =>
+        prev.map((tab) =>
+          tab.id === activeTabId
+            ? openChangesTab(tab, sidebarCwdRef.current, undefined, kind)
+            : tab,
+        ),
+      );
+      setComposerFocused(false);
+    },
+    [activeTabId],
+  );
 
   const onOpenCommit = useCallback(
     (commit: GitHistoryCommit) => {
@@ -5927,8 +5958,7 @@ export default function App({
       };
       let controlText = "";
       let proposalStream:
-        | ReturnType<typeof createOrchestrationProposalStream>
-        | undefined;
+        ReturnType<typeof createOrchestrationProposalStream> | undefined;
       void (async () => {
         if (proposalDraft && proposalId) {
           const settings = await discoverOrchestrationSettings();
@@ -5979,12 +6009,23 @@ export default function App({
             await forgetHarnessSession(pendingSwitch.from, sessionId);
           } catch (error) {
             if (turnGen.current.get(sessionId) === gen) {
-              const uncertain = sessionsRef.current.map((session) => session.id === sessionId
-                ? { ...session, liveAgents: session.liveAgents?.map((agent) =>
-                    ["running", "waiting", "unknown"].includes(agent.status)
-                      ? { ...agent, status: "unknown" as const, detail: "Could not confirm the previous provider stopped" }
-                      : agent) }
-                : session);
+              const uncertain = sessionsRef.current.map((session) =>
+                session.id === sessionId
+                  ? {
+                      ...session,
+                      liveAgents: session.liveAgents?.map((agent) =>
+                        ["running", "waiting", "unknown"].includes(agent.status)
+                          ? {
+                              ...agent,
+                              status: "unknown" as const,
+                              detail:
+                                "Could not confirm the previous provider stopped",
+                            }
+                          : agent,
+                      ),
+                    }
+                  : session,
+              );
               sessionsRef.current = uncertain;
               setSessions(uncertain);
             }
@@ -6112,28 +6153,37 @@ export default function App({
             ),
             attachments: prepared,
             onEvent: (event) => {
-              if (event.type === "agent.updated" || event.type === "agents.cleared") {
+              if (
+                event.type === "agent.updated" ||
+                event.type === "agents.cleared"
+              ) {
                 if (
                   !removingSessionIds.current.has(sessionId) &&
                   isCurrentSessionAgentSource(
-                    sessionsRef.current.find((session) => session.id === sessionId),
+                    sessionsRef.current.find(
+                      (session) => session.id === sessionId,
+                    ),
                     current.harness,
                     runtimeEpoch,
                     agentRuntimeEpoch.current.get(sessionId) ?? 0,
                   )
-                ) enqueueHarnessEvent(sessionId, event);
+                )
+                  enqueueHarnessEvent(sessionId, event);
                 return;
               }
               if (
                 turnGen.current.get(sessionId) !== gen ||
                 removingSessionIds.current.has(sessionId) ||
                 !isCurrentSessionAgentSource(
-                  sessionsRef.current.find((session) => session.id === sessionId),
+                  sessionsRef.current.find(
+                    (session) => session.id === sessionId,
+                  ),
                   current.harness,
                   runtimeEpoch,
                   agentRuntimeEpoch.current.get(sessionId) ?? 0,
                 )
-              ) return;
+              )
+                return;
               orchestrator.observe(sessionId, event);
               if (options?.onSettled && event.type === "message.delta")
                 controlText = (controlText + event.text).slice(-20_000);
@@ -6194,79 +6244,83 @@ export default function App({
           });
         } finally {
           if (turnGen.current.get(sessionId) === gen) {
-          flushHarnessEvents();
-          controlOutcome = {
-            status:
-              providerFailureSeen ||
-              isProviderFailureText(controlText) ||
-              !buildSucceeded
-                ? "failed"
-                : "completed",
-            text: controlText.trim(),
-            ...(providerFailureSeen ? { error: controlOutcome.error } : {}),
-          };
-          await flushSessionCheckpoint(sessionId);
-          // Stop/removal may happen while the checkpoint was being flushed.
-          const latest = turnGen.current.get(sessionId) === gen
-            ? sessionsRef.current.find((session) => session.id === sessionId)
-            : undefined;
-          if (latest) {
-          const stopped = stopStreaming(latest);
-          const providerFailed =
-            providerFailureSeen ||
-            failedActivityTurns.current.get(sessionId) === activityTurnId ||
-            !buildSucceeded ||
-            isProviderFailureText(lastAssistantTextInTurn(stopped));
-          let finalized =
-            proposalStream && proposalId
-              ? withOrchestrationProposal(
-                  stopped,
-                  proposalId,
-                  proposalStream.finish(
-                    providerFailed
-                      ? (controlOutcome.error ??
-                          failureSummary ??
-                          "The lead could not finish planning.")
-                      : undefined,
-                  ),
-                )
-              : intent === "plan" && !nativePlanSeen && !providerFailed
-                ? promoteLastAssistantToPlan(stopped, planEventKey)
-                : stopped;
-          if (!proposalStream && !providerFailed) {
-            const blocks = adoptLateProposal(finalized.blocks);
-            if (blocks !== finalized.blocks) finalized = { ...finalized, blocks };
+            flushHarnessEvents();
+            controlOutcome = {
+              status:
+                providerFailureSeen ||
+                isProviderFailureText(controlText) ||
+                !buildSucceeded
+                  ? "failed"
+                  : "completed",
+              text: controlText.trim(),
+              ...(providerFailureSeen ? { error: controlOutcome.error } : {}),
+            };
+            await flushSessionCheckpoint(sessionId);
+            // Stop/removal may happen while the checkpoint was being flushed.
+            const latest =
+              turnGen.current.get(sessionId) === gen
+                ? sessionsRef.current.find(
+                    (session) => session.id === sessionId,
+                  )
+                : undefined;
+            if (latest) {
+              const stopped = stopStreaming(latest);
+              const providerFailed =
+                providerFailureSeen ||
+                failedActivityTurns.current.get(sessionId) === activityTurnId ||
+                !buildSucceeded ||
+                isProviderFailureText(lastAssistantTextInTurn(stopped));
+              let finalized =
+                proposalStream && proposalId
+                  ? withOrchestrationProposal(
+                      stopped,
+                      proposalId,
+                      proposalStream.finish(
+                        providerFailed
+                          ? (controlOutcome.error ??
+                              failureSummary ??
+                              "The lead could not finish planning.")
+                          : undefined,
+                      ),
+                    )
+                  : intent === "plan" && !nativePlanSeen && !providerFailed
+                    ? promoteLastAssistantToPlan(stopped, planEventKey)
+                    : stopped;
+              if (!proposalStream && !providerFailed) {
+                const blocks = adoptLateProposal(finalized.blocks);
+                if (blocks !== finalized.blocks)
+                  finalized = { ...finalized, blocks };
+              }
+              const finished =
+                approvedPlan && intent === "build"
+                  ? withPlanStatus(
+                      finalized,
+                      approvedPlan.id,
+                      buildSucceeded && !providerFailed ? "built" : "ready",
+                    )
+                  : finalized;
+              const nextSessions = sessionsRef.current.map((session) =>
+                session.id === sessionId ? finished : session,
+              );
+              sessionsRef.current = nextSessions;
+              setSessions(nextSessions);
+              reconcileSessionActivityInputs(sessionId, []);
+              const outcome = providerFailed ? "failed" : "completed";
+              announceActivity(finished, {
+                id: `${activityTurnId}:${outcome}`,
+                outcome,
+                summary: failureSummary,
+              });
+              activityTurnIds.current.delete(sessionId);
+              failedActivityTurns.current.delete(sessionId);
+              notifyReviewChanged(sessionId);
+              notifyGitChanged();
+              nudgeWorkspace(workCwd);
+              nudgeWatchedFiles();
+              window.setTimeout(() => nudgeWatchedFiles(), 150);
+            }
           }
-          const finished =
-            approvedPlan && intent === "build"
-              ? withPlanStatus(
-                  finalized,
-                  approvedPlan.id,
-                  buildSucceeded && !providerFailed ? "built" : "ready",
-                )
-              : finalized;
-          const nextSessions = sessionsRef.current.map((session) =>
-            session.id === sessionId ? finished : session,
-          );
-          sessionsRef.current = nextSessions;
-          setSessions(nextSessions);
-          reconcileSessionActivityInputs(sessionId, []);
-          const outcome = providerFailed ? "failed" : "completed";
-          announceActivity(finished, {
-            id: `${activityTurnId}:${outcome}`,
-            outcome,
-            summary: failureSummary,
-          });
-          activityTurnIds.current.delete(sessionId);
-          failedActivityTurns.current.delete(sessionId);
-          notifyReviewChanged(sessionId);
-          notifyGitChanged();
-          nudgeWorkspace(workCwd);
-          nudgeWatchedFiles();
-          window.setTimeout(() => nudgeWatchedFiles(), 150);
         }
-          }
-          }
       })()
         .catch((error: unknown) => {
           controlOutcome = {
@@ -6720,16 +6774,22 @@ export default function App({
             modelSettings: current.modelSettings,
             runtimeMode: current.runtimeMode,
             onEvent: (event) => {
-              if (event.type === "agent.updated" || event.type === "agents.cleared") {
+              if (
+                event.type === "agent.updated" ||
+                event.type === "agents.cleared"
+              ) {
                 if (
                   !removingSessionIds.current.has(sessionId) &&
                   isCurrentSessionAgentSource(
-                    sessionsRef.current.find((session) => session.id === sessionId),
+                    sessionsRef.current.find(
+                      (session) => session.id === sessionId,
+                    ),
                     current.harness,
                     runtimeEpoch,
                     agentRuntimeEpoch.current.get(sessionId) ?? 0,
                   )
-                ) enqueueHarnessEvent(sessionId, event);
+                )
+                  enqueueHarnessEvent(sessionId, event);
                 return;
               }
               if (turnGen.current.get(sessionId) !== gen) return;
@@ -6752,15 +6812,15 @@ export default function App({
           });
         } finally {
           if (turnGen.current.get(sessionId) === gen) {
-          flushHarnessEvents();
-          const finished = sessionsRef.current.map((session) =>
-            session.id === sessionId ? { ...session, busy: false } : session,
-          );
-          sessionsRef.current = finished;
-          syncDockBadge(finished);
-          setSessions(finished);
-        }
+            flushHarnessEvents();
+            const finished = sessionsRef.current.map((session) =>
+              session.id === sessionId ? { ...session, busy: false } : session,
+            );
+            sessionsRef.current = finished;
+            syncDockBadge(finished);
+            setSessions(finished);
           }
+        }
       })();
       return true;
     },
@@ -6772,9 +6832,12 @@ export default function App({
       if (!managed) {
         const run = orchestrator.forSession(sessionId);
         const managedWorkers = new Set(
-          run?.tasks.filter((task) =>
-            task.status === "running" || task.status === "cancelling",
-          ).map((task) => task.sessionId) ?? [],
+          run?.tasks
+            .filter(
+              (task) =>
+                task.status === "running" || task.status === "cancelling",
+            )
+            .map((task) => task.sessionId) ?? [],
         );
         // The orchestrator stops active assignments. A finished assignment
         // may still own native children, so stop those runtimes as well.
@@ -6782,16 +6845,22 @@ export default function App({
           sessionsRef.current,
           sessionId,
           managedWorkers,
-        )) onStop(workerId, true);
+        ))
+          onStop(workerId, true);
         const stopping = orchestrator.stopForSession(sessionId);
         if (stopping) {
           if (run?.leadId !== sessionId && !managedWorkers.has(sessionId)) {
             // Closing a completed worker's task only updates orchestration
             // history; it does not ask the provider to stop its child agents.
-            const worker = sessionsRef.current.find((entry) => entry.id === sessionId);
-            if (worker && (
-              activeSessionAgents(worker).length || uncertainSessionAgents(worker).length
-            )) onStop(sessionId, true);
+            const worker = sessionsRef.current.find(
+              (entry) => entry.id === sessionId,
+            );
+            if (
+              worker &&
+              (activeSessionAgents(worker).length ||
+                uncertainSessionAgents(worker).length)
+            )
+              onStop(sessionId, true);
           }
           void stopping.catch(console.error);
           return;
@@ -6803,11 +6872,12 @@ export default function App({
         activityTurnIds.current.get(sessionId) ??
         (session ? sessionTurnActivityId(session) : sessionId);
       turnGen.current.set(sessionId, (turnGen.current.get(sessionId) ?? 0) + 1);
-      const hasBackground = session && (
-        activeSessionAgents(session).length > 0 ||
-        uncertainSessionAgents(session).length > 0
-      );
-      const stopEpoch = (agentRuntimeEpoch.current.get(sessionId) ?? 0) +
+      const hasBackground =
+        session &&
+        (activeSessionAgents(session).length > 0 ||
+          uncertainSessionAgents(session).length > 0);
+      const stopEpoch =
+        (agentRuntimeEpoch.current.get(sessionId) ?? 0) +
         (hasBackground ? 1 : 0);
       if (hasBackground) {
         agentRuntimeEpoch.current.set(sessionId, stopEpoch);
@@ -6818,7 +6888,9 @@ export default function App({
           // Interrupting only the lead does not reliably stop detached workers.
           // Keep their rows until the process confirms it stopped.
           void Promise.all(
-            sessionChildHarnesses(session).map((id) => stopHarnessSession(id, sessionId)),
+            sessionChildHarnesses(session).map((id) =>
+              stopHarnessSession(id, sessionId),
+            ),
           ).then(
             () => settleStoppedAgents("stopped"),
             () => settleStoppedAgents("unknown"),
@@ -6832,35 +6904,38 @@ export default function App({
       function settleStoppedAgents(status: "stopped" | "unknown") {
         if (agentRuntimeEpoch.current.get(sessionId) !== stopEpoch) return;
         const next = sessionsRef.current.map((entry) =>
-          entry.id !== sessionId ? entry : {
-            ...entry,
-            liveAgents: entry.liveAgents?.map((agent) =>
-              ["running", "waiting", "unknown"].includes(agent.status)
-                ? {
-                    ...agent,
-                    status,
-                    detail: status === "unknown"
-                      ? "Could not confirm the agent process stopped"
-                      : "Stopped with this conversation",
-                  }
-                : agent,
-            ),
-          },
+          entry.id !== sessionId
+            ? entry
+            : {
+                ...entry,
+                liveAgents: entry.liveAgents?.map((agent) =>
+                  ["running", "waiting", "unknown"].includes(agent.status)
+                    ? {
+                        ...agent,
+                        status,
+                        detail:
+                          status === "unknown"
+                            ? "Could not confirm the agent process stopped"
+                            : "Stopped with this conversation",
+                      }
+                    : agent,
+                ),
+              },
         );
         sessionsRef.current = next;
         syncDockBadge(next);
         setSessions(next);
       }
       const stoppedSessions = sessionsRef.current.map<Session>((s) => {
-          if (s.id !== sessionId) return s;
-          const stopped = stopStreaming(s);
-          const completed = isPreparingHandoff(stopped)
-            ? completeHandoff(stopped, buildDeterministicHandoff(stopped))
-            : stopped;
-          return completed.queuedMessages?.length
-            ? { ...completed, queueStatus: "paused" }
-            : completed;
-        });
+        if (s.id !== sessionId) return s;
+        const stopped = stopStreaming(s);
+        const completed = isPreparingHandoff(stopped)
+          ? completeHandoff(stopped, buildDeterministicHandoff(stopped))
+          : stopped;
+        return completed.queuedMessages?.length
+          ? { ...completed, queueStatus: "paused" }
+          : completed;
+      });
       sessionsRef.current = stoppedSessions;
       syncDockBadge(stoppedSessions);
       setSessions(stoppedSessions);
@@ -7284,9 +7359,14 @@ export default function App({
     setActiveTabId(tab.id);
     setComposerFocused(false);
   }, [tabs, workerDetailRequest]);
-  const workerAgentRows = useRef<ReturnType<typeof workerAgentsByLead>>(new Map());
+  const workerAgentRows = useRef<ReturnType<typeof workerAgentsByLead>>(
+    new Map(),
+  );
   const agentsByLead = useMemo(() => {
-    workerAgentRows.current = workerAgentsByLead(sessions, workerAgentRows.current);
+    workerAgentRows.current = workerAgentsByLead(
+      sessions,
+      workerAgentRows.current,
+    );
     return workerAgentRows.current;
   }, [sessions]);
   const orchestrationWorkers = useMemo(
@@ -8277,7 +8357,12 @@ export default function App({
       for (const [cwd, value] of Object.entries(browserWorkspacesRef.current)) {
         for (const browser of normalizeBrowserWorkspace(value).tabs) {
           if (!closed.has(browserIdForTab(cwd, browser.id))) continue;
-          rememberClosed({ kind: "browser", cwd, closedAt: Date.now(), browser });
+          rememberClosed({
+            kind: "browser",
+            cwd,
+            closedAt: Date.now(),
+            browser,
+          });
         }
       }
       const incoming = new Map(state.tabs.map((tab) => [tab.id, tab]));
@@ -8507,7 +8592,6 @@ export default function App({
     void moveWindowRef.current(viewRef.current.view.groups[id] ?? [id], target);
   };
 
-
   const profileSessions = useMemo(
     () =>
       sessions.filter(
@@ -8669,7 +8753,6 @@ export default function App({
     },
   };
 
-
   const labelsForPalette = paletteOpen ? loadTabGroupLabels() : null;
   const paletteProjects = labelsForPalette
     ? profiles.profileProjects.map((project) => ({
@@ -8750,7 +8833,10 @@ export default function App({
     try {
       base = await raceHost.prepare(request.project);
     } catch (error) {
-      void message(String(error), { title: "Can't start a race", kind: "error" });
+      void message(String(error), {
+        title: "Can't start a race",
+        kind: "error",
+      });
       return false;
     }
     const created: { path: string; branch: string }[] = [];
@@ -8761,7 +8847,10 @@ export default function App({
         );
     } catch (error) {
       void raceHost.cleanup(base.root, created).catch(() => {});
-      void message(String(error), { title: "Can't start a race", kind: "error" });
+      void message(String(error), {
+        title: "Can't start a race",
+        kind: "error",
+      });
       return false;
     }
     const runtimeMode = request.runtimeMode ?? loadDefaultRuntimeMode();
@@ -8895,7 +8984,11 @@ export default function App({
       setActiveTabId(existing.id);
       return;
     }
-    const overview = newRaceWorkspaceTab(race.id, "Race overview", race.project);
+    const overview = newRaceWorkspaceTab(
+      race.id,
+      "Race overview",
+      race.project,
+    );
     appendTab(overview, race.project);
     setActiveTabId(overview.id);
   };
@@ -9028,1027 +9121,1061 @@ export default function App({
 
   return (
     <LiveSessionsContext.Provider value={liveSessions}>
-    <OrchestrationActions.Provider value={orchestrationActions}>
-      <OrchestrationWorkers.Provider value={orchestrationWorkers}>
-        <div
-          className="personal-shell flex h-full text-content"
-          data-sidebar-pinned={sidebarOpen}
-          data-unified-toolbar
-        >
-          <WorkspaceStatusBar
-            settingsView={
-              settingsOpen
-                ? { section: settingsSection, onClose: onCloseSettings }
-                : undefined
-            }
-            sessions={profileSessions}
-            session={profileHome ? undefined : active}
-            onSelectSession={onOpenApprovalSession}
-            onToggleSidebar={onToggleSidebar}
-            sidebarOpen={sidebarOpen}
-            onSearch={onOpenSearch}
-            onNewBrowser={
-              workspaceVisible && visibleSurfaceIds.length > 0
-                ? undefined
-                : onGlobalNewBrowser
-            }
-            onGoBack={onRailBack}
-            onGoForward={onRailForward}
-            canGoBack={tabVisitNav.canBack}
-            canGoForward={tabVisitNav.canForward}
-            onHome={onOpenHome}
-            homeOpen={homeViewOpen || profileHome}
-            onToggleInspector={onToggleInspector}
-            inspectorOpen={inspector.open}
-          />
-          <div className="personal-shell-body">
-            {!sidebarOpen ? (
-              <button
-                type="button"
-                className="personal-panel-edge personal-panel-edge-left"
-                aria-label="Show workspace sidebar"
-                {...sidebarHover.edgeHandlers}
-                onClick={onToggleSidebar}
-              />
-            ) : null}
-            <Sidebar
-              cwd={profileHome ? "~" : sidebarCwd}
-              gitCwd={profileHome ? "~" : gitCwd}
-              profiles={profiles.profiles}
-              profilePreviews={profilePreviews}
-              activeProfileId={profiles.activeProfileId}
-              onSelectProfile={onSelectProfile}
-              onCreateProfile={(name) =>
-                onSelectProfile(profiles.createProfile(name))
+      <OrchestrationActions.Provider value={orchestrationActions}>
+        <OrchestrationWorkers.Provider value={orchestrationWorkers}>
+          <div
+            className="personal-shell flex h-full text-content"
+            data-sidebar-pinned={sidebarOpen}
+            data-unified-toolbar
+          >
+            <WorkspaceStatusBar
+              settingsView={
+                settingsOpen
+                  ? { section: settingsSection, onClose: onCloseSettings }
+                  : undefined
               }
-              onMoveProject={(path, id) => {
-                const next = profiles.moveProject(path, id);
-                if (looksLikeProject(next)) onSelectProject(next);
-              }}
-              onAddProject={(anchor) =>
-                anchor ? setAddProjectAnchor(anchor) : void pickProject()
+              sessions={profileSessions}
+              session={profileHome ? undefined : active}
+              onSelectSession={onOpenApprovalSession}
+              onToggleSidebar={onToggleSidebar}
+              sidebarOpen={sidebarOpen}
+              onSearch={onOpenSearch}
+              onNewBrowser={
+                workspaceVisible && visibleSurfaceIds.length > 0
+                  ? undefined
+                  : onGlobalNewBrowser
               }
-              projectSessions={profileSessionSummaries}
-              onExpandProject={refreshProfileHistory}
-              loadedProjectPaths={loadedProjects}
-              projectHistoryErrors={profileHistoryErrors}
-              onSelectProjectSession={(_path, id) =>
-                void onSelectHistorySession(id)
-              }
-              onNewProjectTask={onNewProjectTask}
-              open={sidebarHover.visible}
-              floating={!sidebarOpen}
-              hoverHandlers={sidebarHover.panelHandlers}
-              tab={sidebarTab}
-              onTabChange={(tab) => {
-                setSidebarTab(tab);
-                setSearchViewOpen(false);
-                setInboxViewOpen(false);
-                setAutomationsViewOpen(false);
-                setNotesViewOpen(false);
-              }}
-              filesSearchOpen={filesSearchOpen}
-              onFilesSearchOpenChange={setFilesSearchOpen}
-              onOpenFilesSearch={onFindInProject}
-              searchFocusToken={searchFocusToken}
-              sessions={
-                profileHome
-                  ? []
-                  : standaloneActive
-                    ? standaloneSessions
-                    : sidebarHistory
-              }
-              busySessionIds={busySessionIds}
-              approvalSessionIds={approvalSessionIds}
-              activeSessionId={profileHome ? undefined : active?.id}
-              status={historyFailed ? "error" : "idle"}
-              pending={historyPending}
-              onSelectSession={onSelectHistorySession}
-              onSessionNavigationOrder={onSessionNavigationOrder}
-              onPlaceSessionOnPane={onPlaceSessionOnPane}
-              onRenameSession={onRenameHistorySession}
-              onArchiveSession={onArchiveHistorySession}
-              onArchiveSessions={onArchiveHistorySessions}
-              onPinSession={onPinHistorySession}
-              onPinSessions={onPinHistorySessions}
-              onDeleteSession={onDeleteHistorySession}
-              onDeleteSessions={onDeleteHistorySessions}
-              onOpenFile={onOpenFile}
-              onOpenTerminal={onOpenTerminal}
-              onFileMoved={onFileMoved}
-              onFileDeleted={onFileDeleted}
-              canGoBack={tabVisitNav.canBack}
-              canGoForward={tabVisitNav.canForward}
               onGoBack={onRailBack}
               onGoForward={onRailForward}
-              onOpenDiff={onOpenWorkingTreeDiff}
-              onOpenAllChanges={onOpenAllChanges}
-              onOpenCommit={onOpenCommit}
-              onShowSourceControl={onToggleChanges}
-              selectedDiffPath={
-                activeTab ? selectedChangePath(activeTab, gitCwd) : undefined
-              }
-              selectedDiffKind={
-                activeTab ? selectedChangeKind(activeTab) : undefined
-              }
-              selectedCommitSha={
-                activeTab ? selectedCommitSha(activeTab) : undefined
-              }
-              textHarness={pickTextHarness(active?.harness)}
-              recents={profiles.profileProjects}
-              busyProjectPaths={sessions.flatMap((session) =>
-                isInFlightSession(session) && session.cwd ? [session.cwd] : [],
-              )}
-              liveAgents={liveAgents}
-              onSelectAgent={onSelectLiveAgent}
-              onSelectProject={onSelectProject}
-              onOpenProject={pickProject}
-              onRemoveProject={onRemoveProject}
-              onNew={onNew}
-              onNewStandalone={() => void onNewStandalone()}
-              startingStandalone={startingStandalone}
-              standaloneActive={standaloneActive}
-              standaloneSessions={standaloneSessions}
-              onOpenStandalone={
-                standaloneCwd ? () => onSelectProject(standaloneCwd) : undefined
-              }
-              openSessions={profileHome ? [] : openProjectSessions}
-              onNewTerminal={onNewTerminal}
-              onSearch={onOpenSearch}
-              onOpenInbox={onOpenInbox}
-              onOpenAutomations={onOpenAutomations}
-              onOpenNotes={notesEnabled ? onOpenNotes : undefined}
-              onGoToFile={onGoToFile}
-              searchActive={searchViewOpen}
-              inboxActive={inboxViewOpen}
-              automationsActive={automationsViewOpen}
-              notesActive={notesViewOpen}
-              notesEnabled={notesEnabled}
-              projectRailOpen={projectRailOpen}
-              onToggleProjectRail={onToggleProjectRail}
-              unseenFinishedIds={unseenFinishedIds}
-              settingsOpen={settingsOpen}
-              settingsSection={settingsSection}
-              onOpenSettings={onOpenSettings}
-              onSelectSettingsSection={onSelectSettingsSection}
-              onCloseSettings={onCloseSettings}
-              updateNotice={updateNotice}
-              onOpenWhatsNew={onOpenWhatsNew}
-              onDismissUpdate={() => setUpdateNotice(null)}
+              canGoBack={tabVisitNav.canBack}
+              canGoForward={tabVisitNav.canForward}
+              onHome={onOpenHome}
+              homeOpen={homeViewOpen || profileHome}
+              onToggleInspector={onToggleInspector}
+              inspectorOpen={inspector.open}
             />
+            <div className="personal-shell-body">
+              {!sidebarOpen ? (
+                <button
+                  type="button"
+                  className="personal-panel-edge personal-panel-edge-left"
+                  aria-label="Show workspace sidebar"
+                  {...sidebarHover.edgeHandlers}
+                  onClick={onToggleSidebar}
+                />
+              ) : null}
+              <Sidebar
+                cwd={profileHome ? "~" : sidebarCwd}
+                gitCwd={profileHome ? "~" : gitCwd}
+                profiles={profiles.profiles}
+                profilePreviews={profilePreviews}
+                activeProfileId={profiles.activeProfileId}
+                onSelectProfile={onSelectProfile}
+                onCreateProfile={(name) =>
+                  onSelectProfile(profiles.createProfile(name))
+                }
+                onMoveProject={(path, id) => {
+                  const next = profiles.moveProject(path, id);
+                  if (looksLikeProject(next)) onSelectProject(next);
+                }}
+                onAddProject={(anchor) =>
+                  anchor ? setAddProjectAnchor(anchor) : void pickProject()
+                }
+                projectSessions={profileSessionSummaries}
+                onExpandProject={refreshProfileHistory}
+                loadedProjectPaths={loadedProjects}
+                projectHistoryErrors={profileHistoryErrors}
+                onSelectProjectSession={(_path, id) =>
+                  void onSelectHistorySession(id)
+                }
+                onNewProjectTask={onNewProjectTask}
+                open={sidebarHover.visible}
+                floating={!sidebarOpen}
+                hoverHandlers={sidebarHover.panelHandlers}
+                tab={sidebarTab}
+                onTabChange={(tab) => {
+                  setSidebarTab(tab);
+                  setSearchViewOpen(false);
+                  setInboxViewOpen(false);
+                  setAutomationsViewOpen(false);
+                  setNotesViewOpen(false);
+                }}
+                filesSearchOpen={filesSearchOpen}
+                onFilesSearchOpenChange={setFilesSearchOpen}
+                onOpenFilesSearch={onFindInProject}
+                searchFocusToken={searchFocusToken}
+                sessions={
+                  profileHome
+                    ? []
+                    : standaloneActive
+                      ? standaloneSessions
+                      : sidebarHistory
+                }
+                busySessionIds={busySessionIds}
+                approvalSessionIds={approvalSessionIds}
+                activeSessionId={profileHome ? undefined : active?.id}
+                status={historyFailed ? "error" : "idle"}
+                pending={historyPending}
+                onSelectSession={onSelectHistorySession}
+                onSessionNavigationOrder={onSessionNavigationOrder}
+                onPlaceSessionOnPane={onPlaceSessionOnPane}
+                onRenameSession={onRenameHistorySession}
+                onArchiveSession={onArchiveHistorySession}
+                onArchiveSessions={onArchiveHistorySessions}
+                onPinSession={onPinHistorySession}
+                onPinSessions={onPinHistorySessions}
+                onDeleteSession={onDeleteHistorySession}
+                onDeleteSessions={onDeleteHistorySessions}
+                onOpenFile={onOpenFile}
+                onOpenTerminal={onOpenTerminal}
+                onFileMoved={onFileMoved}
+                onFileDeleted={onFileDeleted}
+                canGoBack={tabVisitNav.canBack}
+                canGoForward={tabVisitNav.canForward}
+                onGoBack={onRailBack}
+                onGoForward={onRailForward}
+                onOpenDiff={onOpenWorkingTreeDiff}
+                onOpenAllChanges={onOpenAllChanges}
+                onOpenCommit={onOpenCommit}
+                onShowSourceControl={onToggleChanges}
+                selectedDiffPath={
+                  activeTab ? selectedChangePath(activeTab, gitCwd) : undefined
+                }
+                selectedDiffKind={
+                  activeTab ? selectedChangeKind(activeTab) : undefined
+                }
+                selectedCommitSha={
+                  activeTab ? selectedCommitSha(activeTab) : undefined
+                }
+                textHarness={pickTextHarness(active?.harness)}
+                recents={profiles.profileProjects}
+                busyProjectPaths={sessions.flatMap((session) =>
+                  isInFlightSession(session) && session.cwd
+                    ? [session.cwd]
+                    : [],
+                )}
+                liveAgents={liveAgents}
+                onSelectAgent={onSelectLiveAgent}
+                onSelectProject={onSelectProject}
+                onOpenProject={pickProject}
+                onRemoveProject={onRemoveProject}
+                onNew={onNew}
+                onNewStandalone={() => void onNewStandalone()}
+                startingStandalone={startingStandalone}
+                standaloneActive={standaloneActive}
+                standaloneSessions={standaloneSessions}
+                onOpenStandalone={
+                  standaloneCwd
+                    ? () => onSelectProject(standaloneCwd)
+                    : undefined
+                }
+                openSessions={profileHome ? [] : openProjectSessions}
+                onNewTerminal={onNewTerminal}
+                onSearch={onOpenSearch}
+                onOpenInbox={onOpenInbox}
+                onOpenAutomations={onOpenAutomations}
+                onOpenNotes={notesEnabled ? onOpenNotes : undefined}
+                onGoToFile={onGoToFile}
+                searchActive={searchViewOpen}
+                inboxActive={inboxViewOpen}
+                automationsActive={automationsViewOpen}
+                notesActive={notesViewOpen}
+                notesEnabled={notesEnabled}
+                projectRailOpen={projectRailOpen}
+                onToggleProjectRail={onToggleProjectRail}
+                unseenFinishedIds={unseenFinishedIds}
+                settingsOpen={settingsOpen}
+                settingsSection={settingsSection}
+                onOpenSettings={onOpenSettings}
+                onSelectSettingsSection={onSelectSettingsSection}
+                onCloseSettings={onCloseSettings}
+                updateNotice={updateNotice}
+                onOpenWhatsNew={onOpenWhatsNew}
+                onDismissUpdate={() => setUpdateNotice(null)}
+              />
 
-            <div
-              className="personal-workspace-column"
-              data-settings-open={settingsOpen}
-              style={
-                {
-                  "--workspace-inspector-width":
-                    inspector.open && workspaceVisible
-                      ? `${inspector.width}px`
-                      : "0px",
-                } as CSSProperties
-              }
-            >
-              <div className="personal-workspace-body">
-                <div className="personal-main body-glass flex min-h-0 min-w-0 flex-1 flex-col">
-                  {(profileHome || homeViewOpen || view.order.length === 0) &&
-                  !settingsOpen &&
-                  !searchViewOpen &&
-                  !inboxViewOpen &&
-                  !automationsViewOpen &&
-                  !notesViewOpen ? (
-                    <WorkspaceHome
-                      profile={profiles.activeProfile.name}
-                      projects={profiles.profileProjects.map((project) => ({
-                        path: project.path,
-                        name: basename(project.path),
-                      }))}
-                      sessions={[
-                        ...new Map(
-                          [
-                            ...history.filter((entry) => !entry.archived),
-                            ...sessions.map((entry) => ({
-                              ...summaryFromSession(entry),
-                              busy: entry.busy,
-                            })),
-                          ].map((entry) => [entry.id, entry]),
-                        ).values(),
-                      ]
-                        .filter((session) => !session.orchestrationLeadId)
-                        .sort((a, b) => b.updatedAt - a.updatedAt)
-                        .filter(
-                          (session) =>
-                            projectlessProfileForCwd(session.cwd) ===
-                              profiles.activeProfileId ||
-                            profiles.profileProjects.some((project) =>
-                              sameProjectPath(project.path, session.cwd),
-                            ),
-                        )
-                        .map((session) => ({
-                          id: session.id,
-                          cwd: session.cwd,
-                          title: sessionDisplayTitle(
-                            session.title,
-                            session.harness,
-                          ),
-                          project: isProjectlessCwd(session.cwd)
-                            ? "No project"
-                            : basename(session.cwd),
-                          harness: session.harness,
-                          busy: sessions.find((live) => live.id === session.id)
-                            ?.busy,
+              <div
+                className="personal-workspace-column"
+                data-settings-open={settingsOpen}
+                style={
+                  {
+                    "--workspace-inspector-width":
+                      inspector.open && workspaceVisible
+                        ? `${inspector.width}px`
+                        : "0px",
+                  } as CSSProperties
+                }
+              >
+                <div className="personal-workspace-body">
+                  <div className="personal-main body-glass flex min-h-0 min-w-0 flex-1 flex-col">
+                    {(profileHome || homeViewOpen || view.order.length === 0) &&
+                    !settingsOpen &&
+                    !searchViewOpen &&
+                    !inboxViewOpen &&
+                    !automationsViewOpen &&
+                    !notesViewOpen ? (
+                      <WorkspaceHome
+                        profile={profiles.activeProfile.name}
+                        projects={profiles.profileProjects.map((project) => ({
+                          path: project.path,
+                          name: basename(project.path),
                         }))}
-                      windows={detached.windows}
-                      onShowWindow={(id) => {
-                        void detached
-                          .show(id)
-                          .catch((error) =>
-                            message(String(error), { kind: "error" }),
-                          );
-                      }}
-                      onReturnWindow={(id) => {
-                        void detached
-                          .returnWindow(id)
-                          .catch((error) =>
-                            message(String(error), { kind: "error" }),
-                          );
-                      }}
-                      starting={startingStandalone}
-                      onNew={() => void onNewStandalone()}
-                      onBrowser={() => void onNewStandalone(true)}
-                      onProject={onSelectProject}
-                      onSession={(id) => {
-                        setHomeViewOpen(false);
-                        void onSelectHistorySession(id);
-                      }}
-                      onAddProject={pickProject}
-                      onSearch={onOpenSearch}
-                    />
-                  ) : null}
-                  <div
-                    className="personal-workspace-content flex min-h-0 min-w-0 flex-1 flex-col"
-                    hidden={!workspaceVisible}
-                    aria-hidden={!workspaceVisible}
-                    inert={!workspaceVisible || undefined}
-                  >
-                    {!IS_MAC ? (
-                      <MenuBar
-                        onNew={onNew}
-                        onNewTerminal={onNewTerminal}
-                        onToggleTerminal={onToggleProjectTerminal}
-                        onGoToFile={onGoToFile}
-                        onToggleSidebar={onToggleSidebar}
-                        onShowSourceControl={onToggleChanges}
-                        onCloseCurrentTab={
-                          browserExpanded
-                            ? () => onCloseBrowserTab(view.focusedId)
-                            : activeTabId
-                              ? () => onCloseTab(activeTabId)
-                              : undefined
-                        }
-                        onCloseOtherTabs={onCloseOtherTabs}
-                        onPickProject={pickProject}
-                        onFindInProject={onFindInProject}
+                        sessions={[
+                          ...new Map(
+                            [
+                              ...history.filter((entry) => !entry.archived),
+                              ...sessions.map((entry) => ({
+                                ...summaryFromSession(entry),
+                                busy: entry.busy,
+                              })),
+                            ].map((entry) => [entry.id, entry]),
+                          ).values(),
+                        ]
+                          .filter((session) => !session.orchestrationLeadId)
+                          .sort((a, b) => b.updatedAt - a.updatedAt)
+                          .filter(
+                            (session) =>
+                              projectlessProfileForCwd(session.cwd) ===
+                                profiles.activeProfileId ||
+                              profiles.profileProjects.some((project) =>
+                                sameProjectPath(project.path, session.cwd),
+                              ),
+                          )
+                          .map((session) => ({
+                            id: session.id,
+                            cwd: session.cwd,
+                            title: sessionDisplayTitle(
+                              session.title,
+                              session.harness,
+                            ),
+                            project: isProjectlessCwd(session.cwd)
+                              ? "No project"
+                              : basename(session.cwd),
+                            harness: session.harness,
+                            busy: sessions.find(
+                              (live) => live.id === session.id,
+                            )?.busy,
+                          }))}
+                        windows={detached.windows}
+                        onShowWindow={(id) => {
+                          void detached
+                            .show(id)
+                            .catch((error) =>
+                              message(String(error), { kind: "error" }),
+                            );
+                        }}
+                        onReturnWindow={(id) => {
+                          void detached
+                            .returnWindow(id)
+                            .catch((error) =>
+                              message(String(error), { kind: "error" }),
+                            );
+                        }}
+                        starting={startingStandalone}
+                        onNew={() => void onNewStandalone()}
+                        onBrowser={() => void onNewStandalone(true)}
+                        onProject={onSelectProject}
+                        onSession={(id) => {
+                          setHomeViewOpen(false);
+                          void onSelectHistorySession(id);
+                        }}
+                        onAddProject={pickProject}
                         onSearch={onOpenSearch}
-                        onOpenInbox={onOpenInbox}
-                        onOpenAutomations={onOpenAutomations}
-                        onOpenNotes={notesEnabled ? onOpenNotes : undefined}
-                        onZoomIn={() => {
-                          const next = saveUiScale(
-                            zoomInUiScale(loadUiScale()),
-                          );
-                          void applyUiScale(next);
-                        }}
-                        onZoomOut={() => {
-                          const next = saveUiScale(
-                            zoomOutUiScale(loadUiScale()),
-                          );
-                          void applyUiScale(next);
-                        }}
-                        onZoomReset={() => {
-                          saveUiScale(UI_SCALE_DEFAULT);
-                          void applyUiScale(UI_SCALE_DEFAULT);
-                        }}
                       />
                     ) : null}
-
-                    <main className="relative min-h-0 min-w-0 flex-1">
-                      <div
-                        ref={dockGridRef}
-                        className="absolute inset-0 grid h-full min-h-0 min-w-0"
-                      >
-                        {projectTerminals.map((dock) => {
-                          const show =
-                            dock.open &&
-                            sameProjectPath(dock.projectPath, projectCwd);
-                          return (
-                            <div
-                              key={dock.projectPath}
-                              className={
-                                show
-                                  ? "h-full min-h-0 min-w-0 w-full overflow-hidden"
-                                  : "hidden"
-                              }
-                              style={show ? { gridArea: "dock" } : undefined}
-                              aria-hidden={!show}
-                            >
-                              <ProjectTerminalDock
-                                dock={dock}
-                                presented={show && workspaceVisible}
-                                focused={show && projectTerminalFocused}
-                                onFocus={focusProjectTerminal}
-                                onHide={onHideProjectTerminal}
-                                onSideChange={onProjectTerminalSide}
-                                onSizePaint={paintDockSize}
-                                onSizeCommit={commitDockSize}
-                                onAddTerminal={() =>
-                                  onOpenTerminal(active?.cwd ?? projectCwd)
-                                }
-                                onSelectTerminal={onSelectProjectTerminal}
-                                onCloseTerminal={onCloseProjectTerminal}
-                                onReorderTerminals={onReorderProjectTerminals}
-                                onTerminalMetaChange={onTerminalMetaChange}
-                              />
-                            </div>
-                          );
-                        })}
-                        <div
-                          className="relative min-h-0 min-w-0"
-                          style={{ gridArea: "main" }}
-                        >
-                          {/* Tabs stay in each pane's own header, one pane or
-                              several, so the window toolbar stays clean. */}
-                          <WorkspaceStage
-                            headers={visibleSurfaceIds.map((owner) => {
-                              const members = view.groups[owner] ?? [owner];
-                              return {
-                                id: owner,
-                                key: workspaceHeaderKeys[owner],
-                                content: (
-                                  <TitleBar
-                                    tabs={titleTabs.filter((tab) =>
-                                      members.includes(tab.id),
-                                    )}
-                                    totalSessionTabs={titleTabs.length}
-                                    onOpenRaceOverview={openRaceOverview}
-                                    paneLocal
-                                    paneFocused={owner === view.focusedId}
-                                    activeId={owner}
-                                    cwd={sidebarCwd}
-                                    projectRailOpen={projectRailOpen}
-                                    sidebarOpen={sidebarOpen}
-                                    inspectorOpen={
-                                      inspector.open && workspaceVisible
-                                    }
-                                    onToggleInspector={onToggleInspector}
-                                    browserTabs={browserSurfaces
-                                      .filter((tab) =>
-                                        members.includes(tab.surfaceId),
-                                      )
-                                      .map((tab) => ({
-                                        id: tab.surfaceId,
-                                        favicon: tab.favicon,
-                                        kept: tab.kept,
-                                        url: tab.url,
-                                        title:
-                                          tab.title ||
-                                          (tab.url
-                                            ? tab.url
-                                                .replace(/^https?:\/\//, "")
-                                                .split("/")[0]
-                                            : "New browser tab"),
-                                      }))}
-                                    browserOpen={browserState.open}
-                                    browserActive={browserFocused}
-                                    visibleIds={visibleSurfaceIds}
-                                    surfaceOrder={members}
-                                    onReorderSurfaces={(ids, movedId) => {
-                                      changeLayout((view) =>
-                                        reorderWorkspaceGroup(view, owner, ids),
-                                      );
-                                      onReorderTabs(
-                                        ids.filter((id) =>
-                                          tabs.some((tab) => tab.id === id),
-                                        ),
-                                        movedId &&
-                                          tabs.some((tab) => tab.id === movedId)
-                                          ? movedId
-                                          : undefined,
-                                      );
-                                    }}
-                                    onSplitTab={(id, edge, targetId) =>
-                                      changeLayout((view) =>
-                                        splitWorkspaceView(
-                                          view,
-                                          id,
-                                          edge,
-                                          targetId,
-                                        ),
-                                      )
-                                    }
-                                    onUnsplit={() => {
-                                      visibleSurfaceIds.forEach(onKeepBrowser);
-                                      changeLayout((view) =>
-                                        collapseWorkspaceView(view, owner),
-                                      );
-                                    }}
-                                    combineTargets={
-                                      view.layout
-                                        ? (
-                                            [
-                                              ["left", "left pane"],
-                                              ["right", "right pane"],
-                                              ["up", "pane above"],
-                                              ["down", "pane below"],
-                                            ] as const
-                                          )
-                                            .map(([direction, label]) => ({
-                                              id: neighborLeafId(
-                                                view.layout!,
-                                                owner,
-                                                direction,
-                                              ),
-                                              label: String(label),
-                                            }))
-                                            .filter(
-                                              (
-                                                target,
-                                                index,
-                                                all,
-                                              ): target is {
-                                                id: string;
-                                                label: string;
-                                              } =>
-                                                !!target.id &&
-                                                all.findIndex(
-                                                  (entry) =>
-                                                    entry.id === target.id,
-                                                ) === index,
-                                            )
-                                        : []
-                                    }
-                                    onCombineWith={(targetId) => {
-                                      onKeepBrowser(owner);
-                                      onKeepBrowser(targetId);
-                                      changeLayout((view) =>
-                                        combineWorkspaceGroups(
-                                          view,
-                                          owner,
-                                          targetId,
-                                        ),
-                                      );
-                                    }}
-                                    windowTargets={detached.windows.filter(
-                                      (target) =>
-                                        detached.states.get(target.id)?.cwd ===
-                                        projectCwd,
-                                    )}
-                                    onMoveTabToWindow={moveTabToWindow}
-                                    onMoveGroupToWindow={moveGroupToWindow}
-                                    onMoveTabsToWindow={(ids, target) => {
-                                      void moveWindowRef.current(ids, target);
-                                    }}
-                                    groupId={owner}
-                                    onReopenClosedTab={() => {
-                                      void onReopenClosedTab();
-                                    }}
-                                    canReopenClosedTab={recovery.closed.some(
-                                      (entry) => entry.cwd === projectCwd,
-                                    )}
-                                    onUndoLayout={onUndoLayout}
-                                    canUndoLayout={recovery.layouts.some(
-                                      (entry) => entry.cwd === projectCwd,
-                                    )}
-                                    onSurfaceDragMove={onSurfaceDragMove}
-                                    onSurfaceDragEnd={onSurfaceDragEnd}
-                                    onNewBrowser={() => {
-                                      workspaceViews.change((view) =>
-                                        selectWorkspaceView(view, owner),
-                                      );
-                                      onNewBrowserTab();
-                                    }}
-                                    onNewView={
-                                      members.length > 1 ||
-                                      visibleSurfaceIds.length > 1
-                                        ? (id) =>
-                                            changeLayout((view) =>
-                                              splitWorkspaceView(
-                                                view,
-                                                id,
-                                                "right",
-                                                owner,
-                                              ),
-                                            )
-                                        : undefined
-                                    }
-                                    onSelectBrowser={onSelectBrowserTab}
-                                    onKeepBrowser={onKeepBrowser}
-                                    browserPreviewId={
-                                      browserState.activeTabId
-                                        ? browserIdForTab(projectCwd, browserState.activeTabId)
-                                        : null
-                                    }
-                                    onCloseBrowser={onCloseBrowserTab}
-                                    onToggleSidebar={onToggleSidebar}
-                                    onSelect={(id) => {
-                                      workspaceViews.change((view) =>
-                                        selectWorkspaceView(view, id),
-                                      );
-                                      activateTab(id);
-                                    }}
-                                    onNew={() => {
-                                      workspaceViews.change((view) =>
-                                        selectWorkspaceView(view, owner),
-                                      );
-                                      onNew();
-                                    }}
-                                    onShowTerminal={undefined}
-                                    projectTerminalActive={
-                                      !!currentProjectDock &&
-                                      currentProjectDock.pane.files.length > 0
-                                    }
-                                    onOpenSettings={onOpenSettings}
-                                    onOpenInbox={onOpenInbox}
-                                    onOpenAutomations={onOpenAutomations}
-                                    onOpenNotes={
-                                      notesEnabled ? onOpenNotes : undefined
-                                    }
-                                    onClose={onCloseTitleTab}
-                                    onCloseMany={onCloseTabs}
-                                    onReorder={onReorderTabs}
-                                    onGoToFile={onGoToFile}
-                                    recents={recents}
-                                    onSelectProject={onSelectProject}
-                                  />
-                                ),
-                              };
-                            })}
-                            layout={view.layout}
-                            focusedId={view.focusedId}
-                            visible={workspaceVisible}
-                            onFocus={(id) => {
-                              if (id === view.focusedId) return;
-                              if (
-                                browserSurfaces.some(
-                                  (tab) => tab.surfaceId === id,
-                                )
-                              )
-                                onSelectBrowserTab(id);
-                              else {
-                                workspaceViews.change((view) =>
-                                  selectWorkspaceView(view, id),
-                                );
-                                activateTab(id);
-                              }
-                            }}
-                            onLayoutChange={(layout) =>
-                              changeLayout((view) => ({ ...view, layout }))
-                            }
-                            onMinimizeSide={(splitId, index, side) =>
-                              changeLayout((view) =>
-                                minimizeWorkspaceSide(view, splitId, index, side),
-                              )
-                            }
-                            onRestoreSplit={
-                              view.restoreView
-                                ? () => changeLayout(restoreWorkspaceSplit)
+                    <div
+                      className="personal-workspace-content flex min-h-0 min-w-0 flex-1 flex-col"
+                      hidden={!workspaceVisible}
+                      aria-hidden={!workspaceVisible}
+                      inert={!workspaceVisible || undefined}
+                    >
+                      {!IS_MAC ? (
+                        <MenuBar
+                          onNew={onNew}
+                          onNewTerminal={onNewTerminal}
+                          onToggleTerminal={onToggleProjectTerminal}
+                          onGoToFile={onGoToFile}
+                          onToggleSidebar={onToggleSidebar}
+                          onShowSourceControl={onToggleChanges}
+                          onCloseCurrentTab={
+                            browserExpanded
+                              ? () => onCloseBrowserTab(view.focusedId)
+                              : activeTabId
+                                ? () => onCloseTab(activeTabId)
                                 : undefined
-                            }
-                            restoreEdge={view.minimizedEdge}
-                            restoreStatus={hiddenSplitStatus}
-                            dragging={surfaceDragging}
-                            dragKind={dragKind}
-                            dragLabel={
-                              dragKind === "group" ? "Move group" : "Move tab"
-                            }
-                            dragTarget={surfaceDrop}
-                            surfaces={[
-                              ...tabs
-                                .filter((tab) => !detachedIds.has(tab.id))
-                                .map((tab) => ({
-                                  id: tab.id,
+                          }
+                          onCloseOtherTabs={onCloseOtherTabs}
+                          onPickProject={pickProject}
+                          onFindInProject={onFindInProject}
+                          onSearch={onOpenSearch}
+                          onOpenInbox={onOpenInbox}
+                          onOpenAutomations={onOpenAutomations}
+                          onOpenNotes={notesEnabled ? onOpenNotes : undefined}
+                          onZoomIn={() => {
+                            const next = saveUiScale(
+                              zoomInUiScale(loadUiScale()),
+                            );
+                            void applyUiScale(next);
+                          }}
+                          onZoomOut={() => {
+                            const next = saveUiScale(
+                              zoomOutUiScale(loadUiScale()),
+                            );
+                            void applyUiScale(next);
+                          }}
+                          onZoomReset={() => {
+                            saveUiScale(UI_SCALE_DEFAULT);
+                            void applyUiScale(UI_SCALE_DEFAULT);
+                          }}
+                        />
+                      ) : null}
+
+                      <main className="relative min-h-0 min-w-0 flex-1">
+                        <div
+                          ref={dockGridRef}
+                          className="absolute inset-0 grid h-full min-h-0 min-w-0"
+                        >
+                          {projectTerminals.map((dock) => {
+                            const show =
+                              dock.open &&
+                              sameProjectPath(dock.projectPath, projectCwd);
+                            return (
+                              <div
+                                key={dock.projectPath}
+                                className={
+                                  show
+                                    ? "h-full min-h-0 min-w-0 w-full overflow-hidden"
+                                    : "hidden"
+                                }
+                                style={show ? { gridArea: "dock" } : undefined}
+                                aria-hidden={!show}
+                              >
+                                <ProjectTerminalDock
+                                  dock={dock}
+                                  presented={show && workspaceVisible}
+                                  focused={show && projectTerminalFocused}
+                                  onFocus={focusProjectTerminal}
+                                  onHide={onHideProjectTerminal}
+                                  onSideChange={onProjectTerminalSide}
+                                  onSizePaint={paintDockSize}
+                                  onSizeCommit={commitDockSize}
+                                  onAddTerminal={() =>
+                                    onOpenTerminal(active?.cwd ?? projectCwd)
+                                  }
+                                  onSelectTerminal={onSelectProjectTerminal}
+                                  onCloseTerminal={onCloseProjectTerminal}
+                                  onReorderTerminals={onReorderProjectTerminals}
+                                  onTerminalMetaChange={onTerminalMetaChange}
+                                />
+                              </div>
+                            );
+                          })}
+                          <div
+                            className="relative min-h-0 min-w-0"
+                            style={{ gridArea: "main" }}
+                          >
+                            {/* Tabs stay in each pane's own header, one pane or
+                              several, so the window toolbar stays clean. */}
+                            <WorkspaceStage
+                              headers={visibleSurfaceIds.map((owner) => {
+                                const members = view.groups[owner] ?? [owner];
+                                return {
+                                  id: owner,
+                                  key: workspaceHeaderKeys[owner],
                                   content: (
-                                    <PaneTree
-                                      {...sessionPaneProps}
-                                      visible={
-                                        visibleSurfaceIds.includes(tab.id) &&
-                                        workspaceVisible
+                                    <TitleBar
+                                      tabs={titleTabs.filter((tab) =>
+                                        members.includes(tab.id),
+                                      )}
+                                      totalSessionTabs={titleTabs.length}
+                                      onOpenRaceOverview={openRaceOverview}
+                                      paneLocal
+                                      paneFocused={owner === view.focusedId}
+                                      activeId={owner}
+                                      cwd={sidebarCwd}
+                                      projectRailOpen={projectRailOpen}
+                                      sidebarOpen={sidebarOpen}
+                                      inspectorOpen={
+                                        inspector.open && workspaceVisible
                                       }
-                                      layout={tab.layout}
-                                      sessions={sessions}
-                                      editorPanes={[
-                                        ...tab.editorPanes,
-                                        ...(tab.terminalPanes ?? []),
-                                      ]}
-                                      dirtyFileIds={dirtyFiles}
-                                      fileErrorCounts={fileErrorCounts}
-                                      focusedId={
-                                        tab.id === view.focusedId &&
-                                        workspaceVisible &&
-                                        !tab.diffFocused &&
-                                        !projectTerminalFocused
-                                          ? tab.focusedId
-                                          : ""
+                                      onToggleInspector={onToggleInspector}
+                                      browserTabs={browserSurfaces
+                                        .filter((tab) =>
+                                          members.includes(tab.surfaceId),
+                                        )
+                                        .map((tab) => ({
+                                          id: tab.surfaceId,
+                                          favicon: tab.favicon,
+                                          kept: tab.kept,
+                                          url: tab.url,
+                                          title:
+                                            tab.title ||
+                                            (tab.url
+                                              ? tab.url
+                                                  .replace(/^https?:\/\//, "")
+                                                  .split("/")[0]
+                                              : "New browser tab"),
+                                        }))}
+                                      browserOpen={browserState.open}
+                                      browserActive={browserFocused}
+                                      visibleIds={visibleSurfaceIds}
+                                      surfaceOrder={members}
+                                      onReorderSurfaces={(ids, movedId) => {
+                                        changeLayout((view) =>
+                                          reorderWorkspaceGroup(
+                                            view,
+                                            owner,
+                                            ids,
+                                          ),
+                                        );
+                                        onReorderTabs(
+                                          ids.filter((id) =>
+                                            tabs.some((tab) => tab.id === id),
+                                          ),
+                                          movedId &&
+                                            tabs.some(
+                                              (tab) => tab.id === movedId,
+                                            )
+                                            ? movedId
+                                            : undefined,
+                                        );
+                                      }}
+                                      onSplitTab={(id, edge, targetId) =>
+                                        changeLayout((view) =>
+                                          splitWorkspaceView(
+                                            view,
+                                            id,
+                                            edge,
+                                            targetId,
+                                          ),
+                                        )
                                       }
-                                      addToChatSessionId={
-                                        tab.id === activeTabId
-                                          ? active?.id
+                                      onUnsplit={() => {
+                                        visibleSurfaceIds.forEach(
+                                          onKeepBrowser,
+                                        );
+                                        changeLayout((view) =>
+                                          collapseWorkspaceView(view, owner),
+                                        );
+                                      }}
+                                      combineTargets={
+                                        view.layout
+                                          ? (
+                                              [
+                                                ["left", "left pane"],
+                                                ["right", "right pane"],
+                                                ["up", "pane above"],
+                                                ["down", "pane below"],
+                                              ] as const
+                                            )
+                                              .map(([direction, label]) => ({
+                                                id: neighborLeafId(
+                                                  view.layout!,
+                                                  owner,
+                                                  direction,
+                                                ),
+                                                label: String(label),
+                                              }))
+                                              .filter(
+                                                (
+                                                  target,
+                                                  index,
+                                                  all,
+                                                ): target is {
+                                                  id: string;
+                                                  label: string;
+                                                } =>
+                                                  !!target.id &&
+                                                  all.findIndex(
+                                                    (entry) =>
+                                                      entry.id === target.id,
+                                                  ) === index,
+                                              )
+                                          : []
+                                      }
+                                      onCombineWith={(targetId) => {
+                                        onKeepBrowser(owner);
+                                        onKeepBrowser(targetId);
+                                        changeLayout((view) =>
+                                          combineWorkspaceGroups(
+                                            view,
+                                            owner,
+                                            targetId,
+                                          ),
+                                        );
+                                      }}
+                                      windowTargets={detached.windows.filter(
+                                        (target) =>
+                                          detached.states.get(target.id)
+                                            ?.cwd === projectCwd,
+                                      )}
+                                      onMoveTabToWindow={moveTabToWindow}
+                                      onMoveGroupToWindow={moveGroupToWindow}
+                                      onMoveTabsToWindow={(ids, target) => {
+                                        void moveWindowRef.current(ids, target);
+                                      }}
+                                      groupId={owner}
+                                      onReopenClosedTab={() => {
+                                        void onReopenClosedTab();
+                                      }}
+                                      canReopenClosedTab={recovery.closed.some(
+                                        (entry) => entry.cwd === projectCwd,
+                                      )}
+                                      onUndoLayout={onUndoLayout}
+                                      canUndoLayout={recovery.layouts.some(
+                                        (entry) => entry.cwd === projectCwd,
+                                      )}
+                                      onSurfaceDragMove={onSurfaceDragMove}
+                                      onSurfaceDragEnd={onSurfaceDragEnd}
+                                      onNewBrowser={() => {
+                                        workspaceViews.change((view) =>
+                                          selectWorkspaceView(view, owner),
+                                        );
+                                        onNewBrowserTab();
+                                      }}
+                                      onNewView={
+                                        members.length > 1 ||
+                                        visibleSurfaceIds.length > 1
+                                          ? (id) =>
+                                              changeLayout((view) =>
+                                                splitWorkspaceView(
+                                                  view,
+                                                  id,
+                                                  "right",
+                                                  owner,
+                                                ),
+                                              )
                                           : undefined
                                       }
-                                      composerFocused={
-                                        composerFocused &&
-                                        tab.id === view.focusedId &&
-                                        workspaceVisible &&
-                                        !projectTerminalFocused
+                                      onSelectBrowser={onSelectBrowserTab}
+                                      onKeepBrowser={onKeepBrowser}
+                                      browserPreviewId={
+                                        browserState.activeTabId
+                                          ? browserIdForTab(
+                                              projectCwd,
+                                              browserState.activeTabId,
+                                            )
+                                          : null
                                       }
-                                      onSelectFile={onSelectFileSurface}
-                                      onCloseFile={onCloseFile}
-                                      onReorderFiles={onReorderFiles}
-                                      onFileDirtyChange={onFileDirtyChange}
-                                      onFileErrorCountChange={
-                                        onFileErrorCountChange
+                                      onCloseBrowser={onCloseBrowserTab}
+                                      onToggleSidebar={onToggleSidebar}
+                                      onSelect={(id) => {
+                                        workspaceViews.change((view) =>
+                                          selectWorkspaceView(view, id),
+                                        );
+                                        activateTab(id);
+                                      }}
+                                      onNew={() => {
+                                        workspaceViews.change((view) =>
+                                          selectWorkspaceView(view, owner),
+                                        );
+                                        onNew();
+                                      }}
+                                      onShowTerminal={undefined}
+                                      projectTerminalActive={
+                                        !!currentProjectDock &&
+                                        currentProjectDock.pane.files.length > 0
                                       }
-                                      onRatio={(splitId, index, ratio) =>
-                                        onRatio(tab.id, splitId, index, ratio)
+                                      onOpenSettings={onOpenSettings}
+                                      onOpenInbox={onOpenInbox}
+                                      onOpenAutomations={onOpenAutomations}
+                                      onOpenNotes={
+                                        notesEnabled ? onOpenNotes : undefined
                                       }
-                                      editorNavigation={editorNavigation}
-                                      onUpdatePlan={onUpdatePlan}
-                                      onMovePane={onMovePane}
-                                      onTerminalMetaChange={
-                                        onTerminalMetaChange
-                                      }
+                                      onClose={onCloseTitleTab}
+                                      onCloseMany={onCloseTabs}
+                                      onReorder={onReorderTabs}
+                                      onGoToFile={onGoToFile}
+                                      recents={recents}
+                                      onSelectProject={onSelectProject}
                                     />
                                   ),
-                                })),
-                              ...Object.entries(browserWorkspaces).flatMap(
-                                ([project, state]) => {
-                                  const current =
-                                    normalizeBrowserWorkspace(state);
-                                  return current.open
-                                    ? current.tabs
-                                        .filter(
-                                          (tab) =>
-                                            !detachedIds.has(
-                                              browserIdForTab(project, tab.id),
-                                            ),
-                                        )
-                                        .map((tab) => {
-                                          const id = browserIdForTab(
-                                            project,
-                                            tab.id,
-                                          );
-                                          return {
-                                            id,
-                                            content: (
-                                              <WorkspaceBrowserSurface
-                                                id={id}
-                                                project={project}
-                                                tabId={tab.id}
-                                                url={tab.url}
-                                                attachedNativeId={
-                                                  detached.nativeBrowserIds[id]
-                                                }
-                                                agentRequested={agentBrowserSurfaces.has(
-                                                  id,
-                                                )}
-                                                visible={
-                                                  project === projectCwd &&
-                                                  workspaceVisible &&
-                                                  visibleSurfaceIds.includes(id)
-                                                }
-                                                expanded={
-                                                  visibleSurfaceIds.length === 1
-                                                }
-                                                actions={browserSurfaceActions}
-                                              />
-                                            ),
-                                          };
-                                        })
-                                    : [];
-                                },
-                              ),
-                            ]}
-                          />
-                        </div>
-                      </div>
-                    </main>
-                  </div>
-                  {searchViewOpen ? (
-                    <SearchView
-                      open
-                      cwd={sidebarCwd}
-                      recents={recents}
-                      history={projectHistory}
-                      sessions={sessions.filter((session) => !session.inboxAsk)}
-                      focusToken={searchViewFocusToken}
-                      besideRail={sidebarOpen}
-                      onClose={onLeaveSearch}
-                      onToggleSidebar={onToggleSidebar}
-                      onOpenFile={onOpenFile}
-                      onOpenSession={onSelectHistorySession}
-                      onOpenProject={onSelectProject}
-                    />
-                  ) : null}
-                  <div className="hidden" aria-hidden>
-                    {sessions
-                      .filter((session) => session.inboxAsk)
-                      .map((session) => {
-                        const visible =
-                          inboxViewOpen &&
-                          inboxAskPortal?.sessionId === session.id;
-                        return (
-                          <SessionSurface
-                            key={session.id}
-                            host={visible ? inboxAskPortal.host : undefined}
-                          >
-                            <SessionPane
-                              {...sessionPaneProps}
-                              session={session}
-                              visible={visible}
-                              focused={visible}
-                              inSplit={false}
-                              composerFocused={composerFocused}
+                                };
+                              })}
+                              layout={view.layout}
+                              focusedId={view.focusedId}
+                              visible={workspaceVisible}
+                              onFocus={(id) => {
+                                if (id === view.focusedId) return;
+                                if (
+                                  browserSurfaces.some(
+                                    (tab) => tab.surfaceId === id,
+                                  )
+                                )
+                                  onSelectBrowserTab(id);
+                                else {
+                                  workspaceViews.change((view) =>
+                                    selectWorkspaceView(view, id),
+                                  );
+                                  activateTab(id);
+                                }
+                              }}
+                              onLayoutChange={(layout) =>
+                                changeLayout((view) => ({ ...view, layout }))
+                              }
+                              onMinimizeSide={(splitId, index, side) =>
+                                changeLayout((view) =>
+                                  minimizeWorkspaceSide(
+                                    view,
+                                    splitId,
+                                    index,
+                                    side,
+                                  ),
+                                )
+                              }
+                              onRestoreSplit={
+                                view.restoreView
+                                  ? () => changeLayout(restoreWorkspaceSplit)
+                                  : undefined
+                              }
+                              restoreEdge={view.minimizedEdge}
+                              restoreStatus={hiddenSplitStatus}
+                              dragging={surfaceDragging}
+                              dragKind={dragKind}
+                              dragLabel={
+                                dragKind === "group" ? "Move group" : "Move tab"
+                              }
+                              dragTarget={surfaceDrop}
+                              surfaces={[
+                                ...tabs
+                                  .filter((tab) => !detachedIds.has(tab.id))
+                                  .map((tab) => ({
+                                    id: tab.id,
+                                    content: (
+                                      <PaneTree
+                                        {...sessionPaneProps}
+                                        visible={
+                                          visibleSurfaceIds.includes(tab.id) &&
+                                          workspaceVisible
+                                        }
+                                        layout={tab.layout}
+                                        sessions={sessions}
+                                        editorPanes={[
+                                          ...tab.editorPanes,
+                                          ...(tab.terminalPanes ?? []),
+                                        ]}
+                                        dirtyFileIds={dirtyFiles}
+                                        fileErrorCounts={fileErrorCounts}
+                                        focusedId={
+                                          tab.id === view.focusedId &&
+                                          workspaceVisible &&
+                                          !tab.diffFocused &&
+                                          !projectTerminalFocused
+                                            ? tab.focusedId
+                                            : ""
+                                        }
+                                        addToChatSessionId={
+                                          tab.id === activeTabId
+                                            ? active?.id
+                                            : undefined
+                                        }
+                                        composerFocused={
+                                          composerFocused &&
+                                          tab.id === view.focusedId &&
+                                          workspaceVisible &&
+                                          !projectTerminalFocused
+                                        }
+                                        onSelectFile={onSelectFileSurface}
+                                        onCloseFile={onCloseFile}
+                                        onReorderFiles={onReorderFiles}
+                                        onFileDirtyChange={onFileDirtyChange}
+                                        onFileErrorCountChange={
+                                          onFileErrorCountChange
+                                        }
+                                        onRatio={(splitId, index, ratio) =>
+                                          onRatio(tab.id, splitId, index, ratio)
+                                        }
+                                        editorNavigation={editorNavigation}
+                                        onUpdatePlan={onUpdatePlan}
+                                        onMovePane={onMovePane}
+                                        onTerminalMetaChange={
+                                          onTerminalMetaChange
+                                        }
+                                      />
+                                    ),
+                                  })),
+                                ...Object.entries(browserWorkspaces).flatMap(
+                                  ([project, state]) => {
+                                    const current =
+                                      normalizeBrowserWorkspace(state);
+                                    return current.open
+                                      ? current.tabs
+                                          .filter(
+                                            (tab) =>
+                                              !detachedIds.has(
+                                                browserIdForTab(
+                                                  project,
+                                                  tab.id,
+                                                ),
+                                              ),
+                                          )
+                                          .map((tab) => {
+                                            const id = browserIdForTab(
+                                              project,
+                                              tab.id,
+                                            );
+                                            return {
+                                              id,
+                                              content: (
+                                                <WorkspaceBrowserSurface
+                                                  id={id}
+                                                  project={project}
+                                                  tabId={tab.id}
+                                                  url={tab.url}
+                                                  attachedNativeId={
+                                                    detached.nativeBrowserIds[
+                                                      id
+                                                    ]
+                                                  }
+                                                  agentRequested={agentBrowserSurfaces.has(
+                                                    id,
+                                                  )}
+                                                  visible={
+                                                    project === projectCwd &&
+                                                    workspaceVisible &&
+                                                    visibleSurfaceIds.includes(
+                                                      id,
+                                                    )
+                                                  }
+                                                  expanded={
+                                                    visibleSurfaceIds.length ===
+                                                    1
+                                                  }
+                                                  actions={
+                                                    browserSurfaceActions
+                                                  }
+                                                />
+                                              ),
+                                            };
+                                          })
+                                      : [];
+                                  },
+                                ),
+                              ]}
                             />
-                          </SessionSurface>
-                        );
-                      })}
+                          </div>
+                        </div>
+                      </main>
+                    </div>
+                    {searchViewOpen ? (
+                      <SearchView
+                        open
+                        cwd={sidebarCwd}
+                        recents={recents}
+                        history={projectHistory}
+                        sessions={sessions.filter(
+                          (session) => !session.inboxAsk,
+                        )}
+                        focusToken={searchViewFocusToken}
+                        besideRail={sidebarOpen}
+                        onClose={onLeaveSearch}
+                        onToggleSidebar={onToggleSidebar}
+                        onOpenFile={onOpenFile}
+                        onOpenSession={onSelectHistorySession}
+                        onOpenProject={onSelectProject}
+                      />
+                    ) : null}
+                    <div className="hidden" aria-hidden>
+                      {sessions
+                        .filter((session) => session.inboxAsk)
+                        .map((session) => {
+                          const visible =
+                            inboxViewOpen &&
+                            inboxAskPortal?.sessionId === session.id;
+                          return (
+                            <SessionSurface
+                              key={session.id}
+                              host={visible ? inboxAskPortal.host : undefined}
+                            >
+                              <SessionPane
+                                {...sessionPaneProps}
+                                session={session}
+                                visible={visible}
+                                focused={visible}
+                                inSplit={false}
+                                composerFocused={composerFocused}
+                              />
+                            </SessionSurface>
+                          );
+                        })}
+                    </div>
+                    {inboxViewOpen ? (
+                      <InboxView
+                        cwd={sidebarCwd}
+                        recents={recents}
+                        besideRail={sidebarOpen}
+                        onClose={onLeaveInbox}
+                        onToggleSidebar={onToggleSidebar}
+                        onStart={onStartInboxItem}
+                        onAsk={onAskInboxItem}
+                        onAskRestart={onRestartInboxAsk}
+                        onAskMount={setInboxAskPortal}
+                      />
+                    ) : null}
+                    {automationsViewOpen ? (
+                      <AutomationsView
+                        cwd={sidebarCwd}
+                        recents={recents}
+                        besideRail={sidebarOpen}
+                        onClose={onLeaveAutomations}
+                        onToggleSidebar={onToggleSidebar}
+                        onRunAutomation={(agent) =>
+                          startScheduledAgentRef.current(agent)
+                        }
+                        onOpenChat={onOpenApprovalSession}
+                      />
+                    ) : null}
+                    {notesViewOpen ? (
+                      <NotesView
+                        besideRail={sidebarOpen}
+                        cwd={projectCwd}
+                        onClose={onLeaveNotes}
+                        onToggleSidebar={onToggleSidebar}
+                      />
+                    ) : null}
+                    {settingsOpen ? (
+                      <SettingsView
+                        showToolbar={false}
+                        section={settingsSection}
+                        onSelectSection={onSelectSettingsSection}
+                        workspaceName={profiles.activeProfile.name}
+                        cwd={sidebarCwd}
+                        sessions={sidebarHistory}
+                        besideRail={sidebarOpen}
+                        onToggleSidebar={onToggleSidebar}
+                        onClose={onCloseSettings}
+                        onOpenSession={onOpenArchivedSession}
+                        onArchiveSession={onArchiveHistorySession}
+                        onDeleteSession={onDeleteHistorySession}
+                        onRestoreProject={onRestoreProject}
+                        onDeleteProject={(path) =>
+                          onRemoveProject(path, { purgeData: true })
+                        }
+                        onOpenWhatsNew={onOpenWhatsNew}
+                      />
+                    ) : null}
                   </div>
-                  {inboxViewOpen ? (
-                    <InboxView
-                      cwd={sidebarCwd}
-                      recents={recents}
-                      besideRail={sidebarOpen}
-                      onClose={onLeaveInbox}
-                      onToggleSidebar={onToggleSidebar}
-                      onStart={onStartInboxItem}
-                      onAsk={onAskInboxItem}
-                      onAskRestart={onRestartInboxAsk}
-                      onAskMount={setInboxAskPortal}
-                    />
-                  ) : null}
-                  {automationsViewOpen ? (
-                    <AutomationsView
-                      cwd={sidebarCwd}
-                      recents={recents}
-                      besideRail={sidebarOpen}
-                      onClose={onLeaveAutomations}
-                      onToggleSidebar={onToggleSidebar}
-                      onRunAutomation={(agent) =>
-                        startScheduledAgentRef.current(agent)
-                      }
-                      onOpenChat={onOpenApprovalSession}
-                    />
-                  ) : null}
-                  {notesViewOpen ? (
-                    <NotesView
-                      besideRail={sidebarOpen}
-                      cwd={projectCwd}
-                      onClose={onLeaveNotes}
-                      onToggleSidebar={onToggleSidebar}
-                    />
-                  ) : null}
-                  {settingsOpen ? (
-                    <SettingsView
-                      showToolbar={false}
-                      section={settingsSection}
-                      onSelectSection={onSelectSettingsSection}
-                      workspaceName={profiles.activeProfile.name}
-                      cwd={sidebarCwd}
-                      sessions={sidebarHistory}
-                      besideRail={sidebarOpen}
-                      onToggleSidebar={onToggleSidebar}
-                      onClose={onCloseSettings}
-                      onOpenSession={onOpenArchivedSession}
-                      onArchiveSession={onArchiveHistorySession}
-                      onDeleteSession={onDeleteHistorySession}
-                      onRestoreProject={onRestoreProject}
-                      onDeleteProject={(path) =>
-                        onRemoveProject(path, { purgeData: true })
-                      }
-                      onOpenWhatsNew={onOpenWhatsNew}
-                    />
-                  ) : null}
-                </div>
 
-                <PersonalInspectorDock
-                  active={inspectorVisible}
-                  width={inspector.width}
-                  onWidthChange={onInspectorWidth}
-                  cwd={sidebarCwd}
-                  gitCwd={gitCwd}
-                  tab={inspector.tab}
-                  onTabChange={onInspectorTab}
-                  onClose={onCloseInspector}
-                  onOpenFile={onOpenFile}
-                  onOpenTerminal={onOpenTerminal}
-                  onFileMoved={onFileMoved}
-                  onFileDeleted={onFileDeleted}
-                  onOpenDiff={onOpenWorkingTreeDiff}
-                  onOpenAllChanges={onOpenAllChanges}
-                  onOpenCommit={onOpenCommit}
-                  onOpenBranchPicker={
-                    projectBranches ? setBranchAnchor : undefined
+                  <PersonalInspectorDock
+                    active={inspectorVisible}
+                    width={inspector.width}
+                    onWidthChange={onInspectorWidth}
+                    cwd={sidebarCwd}
+                    gitCwd={gitCwd}
+                    tab={inspector.tab}
+                    onTabChange={onInspectorTab}
+                    onClose={onCloseInspector}
+                    onOpenFile={onOpenFile}
+                    onOpenTerminal={onOpenTerminal}
+                    onFileMoved={onFileMoved}
+                    onFileDeleted={onFileDeleted}
+                    onOpenDiff={onOpenWorkingTreeDiff}
+                    onOpenAllChanges={onOpenAllChanges}
+                    onOpenCommit={onOpenCommit}
+                    onOpenBranchPicker={
+                      projectBranches ? setBranchAnchor : undefined
+                    }
+                    selectedDiffPath={
+                      activeTab
+                        ? selectedChangePath(activeTab, gitCwd)
+                        : undefined
+                    }
+                    selectedDiffKind={
+                      activeTab ? selectedChangeKind(activeTab) : undefined
+                    }
+                    selectedCommitSha={
+                      activeTab ? selectedCommitSha(activeTab) : undefined
+                    }
+                    textHarness={pickTextHarness(active?.harness)}
+                    filesSearchOpen={filesSearchOpen}
+                    onFilesSearchOpenChange={setFilesSearchOpen}
+                    onOpenFilesSearch={onFindInProject}
+                    searchFocusToken={searchFocusToken}
+                  />
+                </div>
+                <WorkspaceFooter
+                  active={
+                    !settingsOpen &&
+                    !searchViewOpen &&
+                    !inboxViewOpen &&
+                    !automationsViewOpen &&
+                    !notesViewOpen
                   }
-                  selectedDiffPath={
-                    activeTab
-                      ? selectedChangePath(activeTab, gitCwd)
-                      : undefined
+                  cwd={profileHome ? "~" : gitCwd}
+                  onToggleTerminal={() => {
+                    if (!profileHome) onToggleProjectTerminal();
+                  }}
+                  terminalOpen={!profileHome && dockVisible}
+                  usage={
+                    <FooterUsage
+                      providers={usageProviders}
+                      context={profileHome ? null : active?.context}
+                    />
                   }
-                  selectedDiffKind={
-                    activeTab ? selectedChangeKind(activeTab) : undefined
-                  }
-                  selectedCommitSha={
-                    activeTab ? selectedCommitSha(activeTab) : undefined
-                  }
-                  textHarness={pickTextHarness(active?.harness)}
-                  filesSearchOpen={filesSearchOpen}
-                  onFilesSearchOpenChange={setFilesSearchOpen}
-                  onOpenFilesSearch={onFindInProject}
-                  searchFocusToken={searchFocusToken}
                 />
               </div>
-              <WorkspaceFooter
-                active={
-                  !settingsOpen &&
-                  !searchViewOpen &&
-                  !inboxViewOpen &&
-                  !automationsViewOpen &&
-                  !notesViewOpen
-                }
-                cwd={profileHome ? "~" : gitCwd}
-                onToggleTerminal={() => {
-                  if (!profileHome) onToggleProjectTerminal();
-                }}
-                terminalOpen={!profileHome && dockVisible}
-                usage={
-                  <FooterUsage
-                    providers={usageProviders}
-                    context={profileHome ? null : active?.context}
-                  />
-                }
-              />
             </div>
-          </div>
-          {addProjectAnchor ? (
-            <Popover
-              anchor={addProjectAnchor}
-              side="top"
-              align="start"
-              width={228}
-              autoFocus
-              onDismiss={() => setAddProjectAnchor(null)}
-            >
-              <div
-                className="personal-project-menu"
-                role="menu"
-                aria-label="Add project"
+            {addProjectAnchor ? (
+              <Popover
+                anchor={addProjectAnchor}
+                side="top"
+                align="start"
+                width={228}
+                autoFocus
+                onDismiss={() => setAddProjectAnchor(null)}
               >
-                <button role="menuitem" onClick={() => void pickProject()}>
-                  <FolderPlus className="size-3.5" /> Add existing project
-                </button>
-                <button
-                  role="menuitem"
-                  onClick={() => openWorkspaceAction("clone")}
+                <div
+                  className="personal-project-menu"
+                  role="menu"
+                  aria-label="Add project"
                 >
-                  <ArrowDownCircle className="size-3.5" /> Clone from URL
-                </button>
-                <button
-                  role="menuitem"
-                  onClick={() => openWorkspaceAction("create")}
-                >
-                  <Folder className="size-3.5" /> Quick start new project
-                </button>
-              </div>
-            </Popover>
-          ) : null}
-          {branchAnchor && !profileHome ? (
-            <BranchPicker
-              key={gitCwd}
-              cwd={gitCwd}
-              branch={projectBranches?.current ?? undefined}
-              externalAnchor={branchAnchor}
-              side="bottom"
-              defaultOpen
-              hideTrigger
-              onClose={() => setBranchAnchor(null)}
-            />
-          ) : null}
-          {workspaceAction ? (
-            <WorkspaceActionDialog
-              key={`${workspaceAction.kind}:${workspaceAction.cwd}:${workspaceAction.profileId}`}
-              {...workspaceAction}
-              scripts={loadRunScripts(workspaceAction.cwd)}
-              onScriptsChange={(next) => {
-                saveRunScripts(workspaceAction.cwd, next);
-              }}
-              onCreated={onCreatedProject}
-              onClose={() => setWorkspaceAction(null)}
-            />
-          ) : null}
+                  <button role="menuitem" onClick={() => void pickProject()}>
+                    <FolderPlus className="size-3.5" /> Add existing project
+                  </button>
+                  <button
+                    role="menuitem"
+                    onClick={() => openWorkspaceAction("clone")}
+                  >
+                    <ArrowDownCircle className="size-3.5" /> Clone from URL
+                  </button>
+                  <button
+                    role="menuitem"
+                    onClick={() => openWorkspaceAction("create")}
+                  >
+                    <Folder className="size-3.5" /> Quick start new project
+                  </button>
+                </div>
+              </Popover>
+            ) : null}
+            {branchAnchor && !profileHome ? (
+              <BranchPicker
+                key={gitCwd}
+                cwd={gitCwd}
+                branch={projectBranches?.current ?? undefined}
+                externalAnchor={branchAnchor}
+                side="bottom"
+                defaultOpen
+                hideTrigger
+                onClose={() => setBranchAnchor(null)}
+              />
+            ) : null}
+            {workspaceAction ? (
+              <WorkspaceActionDialog
+                key={`${workspaceAction.kind}:${workspaceAction.cwd}:${workspaceAction.profileId}`}
+                {...workspaceAction}
+                scripts={loadRunScripts(workspaceAction.cwd)}
+                onScriptsChange={(next) => {
+                  saveRunScripts(workspaceAction.cwd, next);
+                }}
+                onCreated={onCreatedProject}
+                onClose={() => setWorkspaceAction(null)}
+              />
+            ) : null}
 
-          {filePickerOpen ? (
-            <FilePicker
-              open
-              cwd={gitCwd}
-              openPaths={openFilePaths}
-              onOpenFile={onOpenFile}
-              onClose={() => setFilePickerOpen(false)}
-            />
-          ) : null}
-          <UpdateNoticeDialog />
-          {providerSetupOpen ? (
-            <ProviderSetupDialog
-              onDone={(harness) => {
-                setProviderSetupOpen(false);
-                if (!harness) return;
-                saveLastModelChoice(harness, preferredModelId(harness));
-                // The fresh welcome task was seeded before setup. Keep it on
-                // the provider chosen here; never alter an existing task.
-                setSessions((previous) =>
-                  previous.map((session) =>
-                    session.id === seed.session.id && session.blocks.length === 0
-                      ? {
-                          ...session,
-                          harness,
-                          title: HARNESS_LABEL[harness],
-                          model: preferredModelId(harness),
-                          modelSettings: preferredModelSettings(
-                            resolveModel(harness, preferredModelId(harness)),
-                          ),
-                        }
-                      : session,
+            {filePickerOpen ? (
+              <FilePicker
+                open
+                cwd={gitCwd}
+                openPaths={openFilePaths}
+                onOpenFile={onOpenFile}
+                onClose={() => setFilePickerOpen(false)}
+              />
+            ) : null}
+            <UpdateNoticeDialog />
+            {providerSetupOpen ? (
+              <ProviderSetupDialog
+                onDone={(harness) => {
+                  setProviderSetupOpen(false);
+                  if (!harness) return;
+                  saveLastModelChoice(harness, preferredModelId(harness));
+                  // The fresh welcome task was seeded before setup. Keep it on
+                  // the provider chosen here; never alter an existing task.
+                  setSessions((previous) =>
+                    previous.map((session) =>
+                      session.id === seed.session.id &&
+                      session.blocks.length === 0
+                        ? {
+                            ...session,
+                            harness,
+                            title: HARNESS_LABEL[harness],
+                            model: preferredModelId(harness),
+                            modelSettings: preferredModelSettings(
+                              resolveModel(harness, preferredModelId(harness)),
+                            ),
+                          }
+                        : session,
+                    ),
+                  );
+                  void probeHarnessAvailability({ force: true });
+                  void refreshHarnessCatalogs([harness], { force: true }).catch(
+                    () => undefined,
+                  );
+                }}
+                onChooseFolder={() => void pickProject()}
+              />
+            ) : null}
+            <CommandPalette
+              open={paletteOpen}
+              initialQuery={paletteQuery}
+              onClose={() => setPaletteOpen(false)}
+              project={{
+                path: projectCwd,
+                name: projectDisplayName(projectCwd, loadTabGroupLabels()),
+              }}
+              projects={paletteProjects}
+              chats={paletteChats}
+              agents={paletteAgents}
+              commands={paletteCommands}
+              searchChats={searchPaletteChats}
+              searchSettings={searchSettings}
+              onRunCommand={runPaletteCommand}
+              onOpenChat={(id) => void onSelectHistorySession(id)}
+              onOpenProject={onSelectProject}
+              onOpenFile={(path) => onOpenFile(path)}
+              onOpenSetting={(setting) => {
+                openSettings(setting.section);
+                requestAnimationFrame(() =>
+                  requestAnimationFrame(() =>
+                    document
+                      .getElementById(setting.id)
+                      ?.scrollIntoView({ block: "center" }),
                   ),
                 );
-                void probeHarnessAvailability({ force: true });
-                void refreshHarnessCatalogs([harness], { force: true }).catch(
-                  () => undefined,
-                );
               }}
-              onChooseFolder={() => void pickProject()}
+              onStartChat={startPaletteChat}
+              onStartRace={(request) =>
+                // A race that can't start explains why; keep what was typed.
+                void startRace(request).then((started) => {
+                  if (started) return;
+                  setPaletteQuery(request.text);
+                  setPaletteOpen(true);
+                })
+              }
             />
-          ) : null}
-          <CommandPalette
-            open={paletteOpen}
-            initialQuery={paletteQuery}
-            onClose={() => setPaletteOpen(false)}
-            project={{
-              path: projectCwd,
-              name: projectDisplayName(projectCwd, loadTabGroupLabels()),
-            }}
-            projects={paletteProjects}
-            chats={paletteChats}
-            agents={paletteAgents}
-            commands={paletteCommands}
-            searchChats={searchPaletteChats}
-            searchSettings={searchSettings}
-            onRunCommand={runPaletteCommand}
-            onOpenChat={(id) => void onSelectHistorySession(id)}
-            onOpenProject={onSelectProject}
-            onOpenFile={(path) => onOpenFile(path)}
-            onOpenSetting={(setting) => {
-              openSettings(setting.section);
-              requestAnimationFrame(() =>
-                requestAnimationFrame(() =>
-                  document
-                    .getElementById(setting.id)
-                    ?.scrollIntoView({ block: "center" }),
-                ),
-              );
-            }}
-            onStartChat={startPaletteChat}
-            onStartRace={(request) =>
-              // A race that can't start explains why; keep what was typed.
-              void startRace(request).then((started) => {
-                if (started) return;
-                setPaletteQuery(request.text);
-                setPaletteOpen(true);
-              })
-            }
-          />
 
-          <ApprovalToasts
-            notices={hiddenApprovalToasts}
-            onFocusSession={onOpenApprovalSession}
-            onApproval={onApproval}
-          />
-          <AgentPageNotices
-            notices={agentPageNotices}
-            onShow={(notice) => showAgentPageRef.current(notice)}
-            onDismiss={(id) =>
-              setAgentPageNotices((current) =>
-                current.filter((item) => item.id !== id),
-              )
-            }
-          />
-          {whatsNewVersion ? (
-            <WhatsNewDialog
-              version={whatsNewVersion}
-              onClose={() => setWhatsNewVersion(null)}
+            <ApprovalToasts
+              notices={hiddenApprovalToasts}
+              onFocusSession={onOpenApprovalSession}
+              onApproval={onApproval}
             />
-          ) : null}
-        </div>
-      </OrchestrationWorkers.Provider>
-    </OrchestrationActions.Provider>
+            <AgentPageNotices
+              notices={agentPageNotices}
+              onShow={(notice) => showAgentPageRef.current(notice)}
+              onDismiss={(id) =>
+                setAgentPageNotices((current) =>
+                  current.filter((item) => item.id !== id),
+                )
+              }
+            />
+            {whatsNewVersion ? (
+              <WhatsNewDialog
+                version={whatsNewVersion}
+                onClose={() => setWhatsNewVersion(null)}
+              />
+            ) : null}
+          </div>
+        </OrchestrationWorkers.Provider>
+      </OrchestrationActions.Provider>
     </LiveSessionsContext.Provider>
   );
 }
@@ -10065,7 +10192,12 @@ function lastUserBlockId(session: Session): string | undefined {
 }
 
 function isBlankSession(session: Session | undefined): boolean {
-  if (!session || isInFlightSession(session) || uncertainSessionAgents(session).length) return false;
+  if (
+    !session ||
+    isInFlightSession(session) ||
+    uncertainSessionAgents(session).length
+  )
+    return false;
   return !session.blocks.some((block) => block.role === "user");
 }
 
@@ -10138,7 +10270,11 @@ function toTitleTab(
     : tabSessions;
   for (const session of ordered) {
     const { harness } = sessionModelIdentity(session);
-    if (isInFlightSession(session) && !sessionNeedsInput(session) && !busySeen.has(harness)) {
+    if (
+      isInFlightSession(session) &&
+      !sessionNeedsInput(session) &&
+      !busySeen.has(harness)
+    ) {
       busySeen.add(harness);
       busyHarnesses.push(harness);
     }
@@ -10285,7 +10421,9 @@ function trackSessionEdits(
     event.type === "tool.updated" &&
     (event.status === "completed" || event.status === "success");
   if (!completed) {
-    void prepareSessionCheckpoint(sessionId, cwd, paths).catch((error) => logError("Prepare change checkpoint", error));
+    void prepareSessionCheckpoint(sessionId, cwd, paths).catch((error) =>
+      logError("Prepare change checkpoint", error),
+    );
     return;
   }
   void captureSessionCheckpoint(sessionId, cwd, paths)

@@ -39,36 +39,61 @@ describe("live summary activity", () => {
       busy: true,
     }));
     const before = historyWithLiveSessions([], sessions, sessions[0].cwd);
-    expect(before.map((row) => row.id)).toEqual(["stable-order-a", "stable-order-b"]);
+    expect(before.map((row) => row.id)).toEqual([
+      "stable-order-a",
+      "stable-order-b",
+    ]);
 
     now.mockImplementation(() => 1001 + now.mock.calls.length);
     const streamed = sessions.map((session) => ({
       ...session,
       blocks: [
         { ...session.blocks[0] },
-        { id: "reply", role: "assistant" as const, text: "a new token", streaming: true },
+        {
+          id: "reply",
+          role: "assistant" as const,
+          text: "a new token",
+          streaming: true,
+        },
       ],
     }));
-    expect(historyWithLiveSessions([], streamed, sessions[0].cwd)).toEqual(before);
+    expect(historyWithLiveSessions([], streamed, sessions[0].cwd)).toEqual(
+      before,
+    );
   });
 
   it("uses known turn times, then advances recency for new turns, completion, and metadata edits", () => {
     const now = vi.spyOn(Date, "now").mockReturnValue(5000);
     const session = newSession("codex", "/tmp/real-activity");
-    session.blocks = [{ id: "u1", role: "user", text: "hello", startedAt: 1000 }];
+    session.blocks = [
+      { id: "u1", role: "user", text: "hello", startedAt: 1000 },
+    ];
     expect(summaryFromSession(session).updatedAt).toBe(1000);
     const other = summary("other", session.cwd, 2000);
-    expect(historyWithLiveSessions([other], [session], session.cwd)[0].id).toBe("other");
+    expect(historyWithLiveSessions([other], [session], session.cwd)[0].id).toBe(
+      "other",
+    );
 
-    session.blocks = [...session.blocks, { id: "u2", role: "user", text: "next", startedAt: 5000 }];
-    expect(historyWithLiveSessions([other], [session], session.cwd)[0]).toMatchObject({ id: session.id, updatedAt: 5000 });
+    session.blocks = [
+      ...session.blocks,
+      { id: "u2", role: "user", text: "next", startedAt: 5000 },
+    ];
+    expect(
+      historyWithLiveSessions([other], [session], session.cwd)[0],
+    ).toMatchObject({ id: session.id, updatedAt: 5000 });
     now.mockReturnValue(8000);
-    session.blocks = [session.blocks[0], { ...session.blocks[1], durationMs: 3000 }];
+    session.blocks = [
+      session.blocks[0],
+      { ...session.blocks[1], durationMs: 3000 },
+    ];
     expect(summaryFromSession(session).updatedAt).toBe(8000);
     now.mockReturnValue(9000);
     session.title = "Renamed conversation";
     expect(summaryFromSession(session).updatedAt).toBe(9000);
-    expect(summaryFromSession(session, { repo: "repo", branch: "new-overlay" }).updatedAt).toBe(9000);
+    expect(
+      summaryFromSession(session, { repo: "repo", branch: "new-overlay" })
+        .updatedAt,
+    ).toBe(9000);
   });
 
   it("remembers untimed turns and updates only when activity changes, even if the clock moves back", () => {
@@ -77,7 +102,10 @@ describe("live summary activity", () => {
     session.blocks = [{ id: "u1", role: "user", text: "hello" }];
     expect(summaryFromSession(session).updatedAt).toBe(1000);
     now.mockReturnValue(500);
-    expect(summaryFromSession({ ...session, blocks: [{ ...session.blocks[0] }] }).updatedAt).toBe(1000);
+    expect(
+      summaryFromSession({ ...session, blocks: [{ ...session.blocks[0] }] })
+        .updatedAt,
+    ).toBe(1000);
     session.blocks.push({ id: "u2", role: "user", text: "next" });
     expect(summaryFromSession(session).updatedAt).toBe(1001);
   });
@@ -99,9 +127,14 @@ describe("live summary activity", () => {
 
   it("keeps persisted recency authoritative", () => {
     vi.spyOn(Date, "now").mockReturnValue(9000);
-    const session = { ...newSession("codex", "/tmp/persisted-activity"), busy: true };
+    const session = {
+      ...newSession("codex", "/tmp/persisted-activity"),
+      busy: true,
+    };
     const persisted = summary(session.id, session.cwd, 500);
-    expect(historyWithLiveSessions([persisted], [session], session.cwd)).toEqual([persisted]);
+    expect(
+      historyWithLiveSessions([persisted], [session], session.cwd),
+    ).toEqual([persisted]);
   });
 });
 

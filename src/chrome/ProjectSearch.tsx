@@ -59,7 +59,8 @@ export function ProjectSearch({
   const [truncated, setTruncated] = useState(false);
 
   useEffect(() => {
-    if (!enabled || !focusToken || lastFocusToken.current === focusToken) return;
+    if (!enabled || !focusToken || lastFocusToken.current === focusToken)
+      return;
     lastFocusToken.current = focusToken;
     inputRef.current?.focus();
     inputRef.current?.select();
@@ -163,7 +164,9 @@ export function ProjectSearch({
 
   if (!cwd || cwd === "~") {
     return (
-      <p className="px-3 py-2 text-ui-label text-content/50">No project folder</p>
+      <p className="px-3 py-2 text-ui-label text-content/50">
+        No project folder
+      </p>
     );
   }
 

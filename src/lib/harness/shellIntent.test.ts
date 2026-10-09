@@ -62,12 +62,16 @@ describe("inferShellIntent", () => {
 
   it("leaves real shell as the command", () => {
     expect(inferShellIntent("git status -s")).toBeUndefined();
-    expect(inferShellIntent("git diff src/surfaces/AgentTranscript.tsx")).toBeUndefined();
+    expect(
+      inferShellIntent("git diff src/surfaces/AgentTranscript.tsx"),
+    ).toBeUndefined();
     expect(inferShellIntent("npm test")).toBeUndefined();
     expect(inferShellIntent("cat file && python script.py")).toBeUndefined();
     expect(inferShellIntent("cat $(echo foo)")).toBeUndefined();
     expect(inferShellIntent("python3 - <<'PY'")).toBeUndefined();
-    expect(inferShellIntent("rm src/hooks/useActivityTicker.ts && python3 - <<'PY'")).toBeUndefined();
+    expect(
+      inferShellIntent("rm src/hooks/useActivityTicker.ts && python3 - <<'PY'"),
+    ).toBeUndefined();
   });
 
   it("treats file-mutating bash as Edit / Write", () => {

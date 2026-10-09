@@ -75,10 +75,18 @@ describe("mentionTokenAt", () => {
 describe("replaceMentionToken", () => {
   it("inserts @label and a trailing space", () => {
     expect(
-      replaceMentionToken("@Comp", { start: 0, end: 5, query: "Comp" }, "Composer.tsx"),
+      replaceMentionToken(
+        "@Comp",
+        { start: 0, end: 5, query: "Comp" },
+        "Composer.tsx",
+      ),
     ).toBe("@Composer.tsx ");
     expect(
-      replaceMentionToken("x @a y", { start: 2, end: 4, query: "a" }, "App.tsx"),
+      replaceMentionToken(
+        "x @a y",
+        { start: 2, end: 4, query: "a" },
+        "App.tsx",
+      ),
     ).toBe("x @App.tsx y");
   });
 });
@@ -208,7 +216,9 @@ describe("fileMentionParts", () => {
 
   it("highlights folder mentions, including a trailing slash", () => {
     const chrome = index.labels.get("src/chrome");
-    expect(fileMentionParts("look in @src/chrome please", index.labels)).toEqual([
+    expect(
+      fileMentionParts("look in @src/chrome please", index.labels),
+    ).toEqual([
       { text: "look in " },
       { text: "@src/chrome", file: chrome },
       { text: " please" },
@@ -295,9 +305,9 @@ describe("rankMentionFiles", () => {
 
   it("puts folders first when nothing is typed", () => {
     const ranked = rankMentionFiles(files, "", []);
-    expect(ranked.filter((file) => file.isDir).map((file) => file.relative)).toEqual(
-      expect.arrayContaining(["apps", "docs", "src", "src/chrome"]),
-    );
+    expect(
+      ranked.filter((file) => file.isDir).map((file) => file.relative),
+    ).toEqual(expect.arrayContaining(["apps", "docs", "src", "src/chrome"]));
     expect(ranked[0].isDir).toBe(true);
   });
 });
@@ -339,9 +349,9 @@ describe("withMentionDirectories", () => {
         relative: "My Photos/cat.png",
       },
     ]);
-    expect(entries.some((file) => file.relative === "My Photos" && file.isDir)).toBe(
-      true,
-    );
+    expect(
+      entries.some((file) => file.relative === "My Photos" && file.isDir),
+    ).toBe(true);
   });
 
   it("rebuilds folder paths on Windows separators", () => {

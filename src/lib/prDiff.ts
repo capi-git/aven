@@ -125,7 +125,10 @@ function parsePrFile(block: string): PrDiffFile | null {
       status = "renamed";
       continue;
     }
-    if (line.startsWith("Binary files ") || line.startsWith("GIT binary patch")) {
+    if (
+      line.startsWith("Binary files ") ||
+      line.startsWith("GIT binary patch")
+    ) {
       binary = true;
       continue;
     }

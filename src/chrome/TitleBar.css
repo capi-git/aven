@@ -9,7 +9,11 @@
     var(--color-accent) 45%,
     transparent
   );
-  --aven-tab-selected: color-mix(in srgb, var(--color-content) 10%, transparent);
+  --aven-tab-selected: color-mix(
+    in srgb,
+    var(--color-content) 10%,
+    transparent
+  );
 }
 html.theme-light .personal-shell {
   --aven-tab-selected: color-mix(in srgb, var(--color-content) 6%, transparent);

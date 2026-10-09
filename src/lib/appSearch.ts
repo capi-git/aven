@@ -8,10 +8,7 @@ import {
   type HarnessId,
   type Session,
 } from "./session";
-import type {
-  SessionSearchHit,
-  SessionSummary,
-} from "./sessionStore";
+import type { SessionSearchHit, SessionSummary } from "./sessionStore";
 import type { RankedFile } from "./fileIndex";
 import type { ProjectSearchMatch } from "./search";
 
@@ -74,11 +71,7 @@ export type ProjectHit = {
 };
 
 export type AppSearchHit =
-  | ConversationHit
-  | MessageHit
-  | FileHit
-  | ContentHit
-  | ProjectHit;
+  ConversationHit | MessageHit | FileHit | ContentHit | ProjectHit;
 
 export type GroupedHits = {
   conversations: ConversationHit[];
@@ -406,8 +399,12 @@ export function groupHits(
   }
   grouped.conversations.sort(byScoreThenRecency);
   grouped.messages.sort(byScoreThenRecency);
-  grouped.files.sort((a, b) => b.score - a.score || a.relative.localeCompare(b.relative));
-  grouped.projects.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  grouped.files.sort(
+    (a, b) => b.score - a.score || a.relative.localeCompare(b.relative),
+  );
+  grouped.projects.sort(
+    (a, b) => b.score - a.score || a.name.localeCompare(b.name),
+  );
 
   const limits = SCOPE_LIMITS[scope];
   return {

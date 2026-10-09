@@ -24,12 +24,15 @@ export function retainEditorDraft(path: string) {
  * retain their text; transfer/unmount alone never discards an unsaved draft. */
 export function discardEditorDrafts(files: readonly { path: string }[]) {
   const counts = new Map<string, number>();
-  for (const file of files) counts.set(file.path, (counts.get(file.path) ?? 0) + 1);
+  for (const file of files)
+    counts.set(file.path, (counts.get(file.path) ?? 0) + 1);
   for (const [path, count] of counts) {
     if ((editorOwners.get(path) ?? 0) <= count) editors.delete(path);
   }
 }
-export function releaseTerminalScreen(id: string) { terminalScreens.delete(id); }
+export function releaseTerminalScreen(id: string) {
+  terminalScreens.delete(id);
+}
 const editorListeners = new Set<() => void>();
 const retainedBrowsers = new Set<string>();
 const retainedTerminals = new Set<string>();

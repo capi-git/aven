@@ -24,14 +24,21 @@ describe("desktop control permission guidance", () => {
     expect(COMPUTER_USE_SKILL_BODY).toContain(
       "If `enabled` is false or `state` is `off`, do not observe or send input",
     );
-    for (const instructions of [COMPUTER_USE_TASK_GUIDANCE, COMPUTER_USE_SKILL_BODY]) {
+    for (const instructions of [
+      COMPUTER_USE_TASK_GUIDANCE,
+      COMPUTER_USE_SKILL_BODY,
+    ]) {
       expect(instructions).toContain(
         "Continue authorized observation while Accessibility is missing, but do not send input",
       );
-      expect(instructions).toContain("Agent actions never trigger permission prompts");
+      expect(instructions).toContain(
+        "Agent actions never trigger permission prompts",
+      );
       expect(instructions).toContain("drag");
       expect(instructions).toContain("durationMs");
-      expect(instructions).not.toContain("Proceed only when `state` is `ready`");
+      expect(instructions).not.toContain(
+        "Proceed only when `state` is `ready`",
+      );
     }
   });
 });

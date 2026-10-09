@@ -60,7 +60,9 @@ describe("built-in agent tools", () => {
       desktop: { state: "unsupported", enabled: false, permissions: [] },
     });
     expect(await getDesktopControlStatus()).toEqual({
-      state: "unsupported", enabled: false, permissions: [],
+      state: "unsupported",
+      enabled: false,
+      permissions: [],
     });
     expect(mocks.invoke).not.toHaveBeenCalled();
   });
@@ -70,14 +72,17 @@ describe("built-in agent tools", () => {
     expect(await getDesktopControlStatus()).toBe(off);
     expect(mocks.invoke.mock.calls).toEqual([["desktop_control_status"]]);
   });
-  it.each([true, false])("sets desktop enabled to %s and returns native status", async (enabled) => {
-    const result = { ...ready, enabled, state: enabled ? "ready" : "off" };
-    mocks.invoke.mockResolvedValue(result);
-    expect(await setDesktopControlEnabled(enabled)).toBe(result);
-    expect(mocks.invoke.mock.calls).toEqual([
-      ["desktop_control_set_enabled", { enabled }],
-    ]);
-  });
+  it.each([true, false])(
+    "sets desktop enabled to %s and returns native status",
+    async (enabled) => {
+      const result = { ...ready, enabled, state: enabled ? "ready" : "off" };
+      mocks.invoke.mockResolvedValue(result);
+      expect(await setDesktopControlEnabled(enabled)).toBe(result);
+      expect(mocks.invoke.mock.calls).toEqual([
+        ["desktop_control_set_enabled", { enabled }],
+      ]);
+    },
+  );
   it.each(["screenRecording", "accessibility"] as const)(
     "requests only %s when explicitly invoked and returns native status",
     async (permission) => {

@@ -1,5 +1,9 @@
 import { clamp } from "./math";
-import { loadProjectFiles, rankProjectFiles, type RankedFile } from "./fileIndex";
+import {
+  loadProjectFiles,
+  rankProjectFiles,
+  type RankedFile,
+} from "./fileIndex";
 import type { ProjectFile } from "./fs";
 import { isMarkdownBlockquotePosition } from "./quoteDraft";
 

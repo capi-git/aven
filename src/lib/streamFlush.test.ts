@@ -57,9 +57,7 @@ it("paces background-only output on a slower timer", () => {
 it("marks only background flushes as preemptible", () => {
   vi.spyOn(window, "requestAnimationFrame").mockReturnValue(3);
   expect(scheduleStreamFlush(() => {}, 0, 1000).background).toBeUndefined();
-  expect(
-    scheduleStreamFlush(() => {}, 1000, 1008).background,
-  ).toBeUndefined();
+  expect(scheduleStreamFlush(() => {}, 1000, 1008).background).toBeUndefined();
   const background = scheduleStreamFlush(() => {}, 0, 1000, false);
   expect(background.background).toBe(true);
   cancelScheduledFlush(background);

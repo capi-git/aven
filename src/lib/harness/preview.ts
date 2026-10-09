@@ -167,9 +167,7 @@ export function isFileTool(
   title?: string,
   preview?: ToolPreview,
 ): boolean {
-  return (
-    isReadTool(kind, title, preview) || isEditTool(kind, title, preview)
-  );
+  return isReadTool(kind, title, preview) || isEditTool(kind, title, preview);
 }
 
 export function isExecuteTool(kind?: string, title?: string): boolean {
@@ -195,7 +193,13 @@ export function extractShellCommand(...values: unknown[]): string | undefined {
 /** The skill a Skill tool is invoking, if the harness sent it. */
 export function extractSkillName(...values: unknown[]): string | undefined {
   for (const raw of inputRecords(...values)) {
-    for (const key of ["skill", "skill_name", "skillName", "skill_id", "skillId"]) {
+    for (const key of [
+      "skill",
+      "skill_name",
+      "skillName",
+      "skill_id",
+      "skillId",
+    ]) {
       const found = skillNameField(raw[key]);
       if (found) return found;
     }
@@ -216,9 +220,7 @@ export function isSkillTool(kind?: string, title?: string): boolean {
 export function isAgentToolName(name: string): boolean {
   const normalized = name.trim().toLowerCase();
   return (
-    normalized === "agent" ||
-    normalized === "task" ||
-    normalized === "subagent"
+    normalized === "agent" || normalized === "task" || normalized === "subagent"
   );
 }
 
@@ -245,11 +247,7 @@ export function agentToolTitle(
     const label = formatAgentType(type);
     return /subagent/i.test(label) ? label : `${label} subagent`;
   }
-  if (
-    fallback &&
-    !isAgentToolName(fallback) &&
-    !isWeakToolTitle(fallback)
-  ) {
+  if (fallback && !isAgentToolName(fallback) && !isWeakToolTitle(fallback)) {
     return fallback;
   }
   return "Subagent";
@@ -358,9 +356,7 @@ export function composeToolTitle(opts: {
     if (inferred) {
       const inferredPath =
         path ||
-        (inferred.path
-          ? displayPath(inferred.path, opts.cwd)
-          : undefined);
+        (inferred.path ? displayPath(inferred.path, opts.cwd) : undefined);
       const readable = formatShellIntent(inferred, inferredPath, query);
       if (readable) return readable;
     }
@@ -397,10 +393,7 @@ export function composeToolTitle(opts: {
   return title;
 }
 
-export function stubFilePreview(
-  kind?: string,
-  title?: string,
-): ToolPreview {
+export function stubFilePreview(kind?: string, title?: string): ToolPreview {
   const inferred = previewKind(kind ?? "", title, false, false);
   return {
     kind: inferred === "write" ? "write" : "read",
@@ -455,10 +448,7 @@ export function mergeToolPreview(
   };
 }
 
-function pickStrong(
-  next?: string,
-  prev?: string,
-): string | undefined {
+function pickStrong(next?: string, prev?: string): string | undefined {
   if (next && !isWeakToolTitle(next)) return next;
   if (prev && !isWeakToolTitle(prev)) return prev;
   return next || prev;
@@ -506,15 +496,11 @@ function extractPath(
     contentPath(update.content ?? tool.content) ??
     findPathInUnknown(update, 0) ??
     findPathInUnknown(tool, 0) ??
-    pathFromTitle(
-      coerceString(update.title) ?? coerceString(tool.title),
-    )
+    pathFromTitle(coerceString(update.title) ?? coerceString(tool.title))
   );
 }
 
-function firstInputPath(
-  inputs: Record<string, unknown>[],
-): string | undefined {
+function firstInputPath(inputs: Record<string, unknown>[]): string | undefined {
   for (const raw of inputs) {
     const found = inputPath(raw);
     if (found) return found;
@@ -605,19 +591,22 @@ function contentPath(content: unknown): string | undefined {
     if (path && looksLikeToolPath(path)) return normalizePath(path);
     const change = firstChange(block);
     const changePath = change && coerceString(change.path);
-    if (changePath && looksLikeToolPath(changePath)) return normalizePath(changePath);
+    if (changePath && looksLikeToolPath(changePath))
+      return normalizePath(changePath);
   }
   return undefined;
 }
 
-function extractDiff(content: unknown): {
-  path?: string;
-  oldText?: string;
-  newText?: string;
-  lines?: ToolPreviewLine[];
-  additions?: number;
-  deletions?: number;
-} | undefined {
+function extractDiff(content: unknown):
+  | {
+      path?: string;
+      oldText?: string;
+      newText?: string;
+      lines?: ToolPreviewLine[];
+      additions?: number;
+      deletions?: number;
+    }
+  | undefined {
   for (const block of contentBlocks(content)) {
     const type = (coerceString(block.type) ?? "").toLowerCase();
     if (type !== "diff") continue;
@@ -761,7 +750,11 @@ function greedyDiff(oldLines: string[], newLines: string[]): ToolPreviewLine[] {
   let i = 0;
   let j = 0;
   while (i < oldLines.length || j < newLines.length) {
-    if (i < oldLines.length && j < newLines.length && oldLines[i] === newLines[j]) {
+    if (
+      i < oldLines.length &&
+      j < newLines.length &&
+      oldLines[i] === newLines[j]
+    ) {
       out.push({ number: j + 1, kind: "context", text: oldLines[i] });
       i += 1;
       j += 1;
@@ -904,7 +897,6 @@ function normalizePath(path: string): string {
   return path;
 }
 
-
 function parseRecord(value: unknown): Record<string, unknown> {
   if (typeof value === "string") {
     const text = value.trim();
@@ -975,7 +967,12 @@ function stripExecutePrefix(title: string): string {
 function skillNameField(value: unknown): string | undefined {
   if (typeof value !== "string" || !value.trim()) return undefined;
   const text = value.trim().replace(/^\/+/, "");
-  if (!text || isWeakToolTitle(text) || text.length > 80 || /[\n\r]/.test(text)) {
+  if (
+    !text ||
+    isWeakToolTitle(text) ||
+    text.length > 80 ||
+    /[\n\r]/.test(text)
+  ) {
     return undefined;
   }
   return text;

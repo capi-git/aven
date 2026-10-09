@@ -70,7 +70,9 @@ it("shows preloaded notes immediately while refreshing in the background", async
   expect(container.textContent).toContain("Keep this text.");
   expect(container.querySelector(".animate-spin")).toBeNull();
 
-  await act(async () => finish([{ ...stored, title: "Updated plan", updatedAt: 2 }]));
+  await act(async () =>
+    finish([{ ...stored, title: "Updated plan", updatedAt: 2 }]),
+  );
   expect(title()).toBe("Updated plan");
 });
 

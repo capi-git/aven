@@ -322,7 +322,9 @@ async function loadResumedWorkspaceOnce(): Promise<ResumedWorkspace | null> {
     for (const stub of snapshot.sessions) ids.add(stub.id);
     for (const tab of snapshot.tabs) {
       const nonSessionPanes = new Set(
-        [...tab.editorPanes, ...(tab.terminalPanes ?? [])].map((pane) => pane.id),
+        [...tab.editorPanes, ...(tab.terminalPanes ?? [])].map(
+          (pane) => pane.id,
+        ),
       );
       for (const id of leafIds(tab.layout)) {
         if (!nonSessionPanes.has(id)) ids.add(id);

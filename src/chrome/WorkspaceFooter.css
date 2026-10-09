@@ -65,7 +65,8 @@
 .personal-shell[data-sidebar-pinned="false"] .workspace-footer {
   background: color-mix(
     in srgb,
-    var(--aven-toolbar-surface, transparent) calc(var(--status-bar-opacity, 0.65) * 100%),
+    var(--aven-toolbar-surface, transparent)
+      calc(var(--status-bar-opacity, 0.65) * 100%),
     transparent
   );
 }

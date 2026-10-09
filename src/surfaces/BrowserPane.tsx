@@ -423,12 +423,7 @@ function BrowserPaneSession({
   const toolbarPresentation = useRef({ visible });
   toolbarPresentation.current = { visible };
   const focusShellForToolbar = useCallback((input: HTMLInputElement | null) => {
-    if (
-      !input ||
-      !isTauri() ||
-      !toolbarPresentation.current.visible
-    )
-      return;
+    if (!input || !isTauri() || !toolbarPresentation.current.visible) return;
     const generation = ++toolbarFocusGeneration.current;
     toolbarFocusTarget.current = input;
     // Chromium and the app's WKWebView are sibling native views. A DOM focus
@@ -657,13 +652,7 @@ function BrowserPaneSession({
       setRetryGeneration((generation) => generation + 1);
     }
     if (visible || attachedNativeId) void wakePage();
-  }, [
-    visible,
-    attachedNativeId,
-    wakePage,
-    updatePaused,
-    sleeping,
-  ]);
+  }, [visible, attachedNativeId, wakePage, updatePaused, sleeping]);
   const memoryRegistration = useRef<ReturnType<
     typeof registerBrowserMemoryPage
   > | null>(null);
@@ -985,7 +974,9 @@ function BrowserPaneSession({
       }
       unlisten?.();
       if (created && !terminated && !browserIsTransferred(nativeId))
-        void nativeBrowser.close(nativeId).catch((error) => logError("Close browser", error));
+        void nativeBrowser
+          .close(nativeId)
+          .catch((error) => logError("Close browser", error));
     });
     return () => {
       disposed = true;
@@ -996,7 +987,9 @@ function BrowserPaneSession({
       if (!browserIsTransferred(nativeId)) unregisterAgentPage?.();
       unlisten?.();
       if (created && !terminated && !browserIsTransferred(nativeId))
-        void nativeBrowser.close(nativeId).catch((error) => logError("Close browser", error));
+        void nativeBrowser
+          .close(nativeId)
+          .catch((error) => logError("Close browser", error));
     };
   }, [hasUrl, id, retryGeneration, requestedAttachmentId, sleeping]);
 

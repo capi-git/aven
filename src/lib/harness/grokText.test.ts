@@ -61,7 +61,11 @@ async function openTextSession(sessionId = SESSION) {
 }
 
 function deleteArgs(id = SESSION) {
-  return ["/fake/grok", ["--no-auto-update", "sessions", "delete", id], "/repo"];
+  return [
+    "/fake/grok",
+    ["--no-auto-update", "sessions", "delete", id],
+    "/repo",
+  ];
 }
 
 beforeEach(() => {
@@ -141,7 +145,6 @@ it("does not pass an invalid provider session id to the cleanup command", async 
   await stopGrokTextPrompt();
   expect(execChild).not.toHaveBeenCalled();
 });
-
 
 it("preserves history if the provider could still be writing after a failed kill", async () => {
   const warmup = warmupGrokText("/repo");

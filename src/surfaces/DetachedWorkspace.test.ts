@@ -13,7 +13,15 @@ import * as workspaceStage from "./WorkspaceStage";
 const previews = vi.hoisted(() => ({ filePane: vi.fn(), titleBar: vi.fn() }));
 
 vi.mock("./BrowserPane", () => ({
-  BrowserPane: ({ id, visible, initialUrl }: { id: string; visible: boolean; initialUrl: string }) =>
+  BrowserPane: ({
+    id,
+    visible,
+    initialUrl,
+  }: {
+    id: string;
+    visible: boolean;
+    initialUrl: string;
+  }) =>
     createElement("div", {
       "data-test-browser": id,
       "data-presented": String(visible),
@@ -33,7 +41,12 @@ vi.mock("./FilePane", () => ({
     });
   },
 }));
-vi.mock("../chrome/TitleBar", () => ({ TitleBar: (props: unknown) => { previews.titleBar(props); return null; } }));
+vi.mock("../chrome/TitleBar", () => ({
+  TitleBar: (props: unknown) => {
+    previews.titleBar(props);
+    return null;
+  },
+}));
 vi.mock("../lib/inAppLinks", () => ({
   installInAppLinks: vi.fn(() => () => {}),
 }));
@@ -110,24 +123,43 @@ beforeEach(() => {
 
 it("focuses an existing browser without restoring a stale checkpoint address", async () => {
   await act(async () => root.render(createElement(DetachedWorkspace)));
-  await act(async () => listeners.get("workspace-window-focus")!({
-    browser: { id: "background", url: "https://old-preview.example/", title: "Stale title" },
-  }));
+  await act(async () =>
+    listeners.get("workspace-window-focus")!({
+      browser: {
+        id: "background",
+        url: "https://old-preview.example/",
+        title: "Stale title",
+      },
+    }),
+  );
   const browser = host.querySelector('[data-test-browser="background"]');
   expect(browser?.getAttribute("data-presented")).toBe("true");
   expect(browser?.getAttribute("data-url")).toBe("https://example.org");
   await act(async () => vi.advanceTimersByTime(150));
-  expect(nativeWorkspaceWindow.checkpoint).toHaveBeenLastCalledWith(expect.objectContaining({
-    browsers: expect.arrayContaining([expect.objectContaining({ id: "background", url: "https://example.org", title: "Background" })]),
-  }));
+  expect(nativeWorkspaceWindow.checkpoint).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      browsers: expect.arrayContaining([
+        expect.objectContaining({
+          id: "background",
+          url: "https://example.org",
+          title: "Background",
+        }),
+      ]),
+    }),
+  );
 });
 
 it("keeps all detached file tabs after editing and saving and checkpoints their identities", async () => {
   const initial = await nativeWorkspaceWindow.getState();
-  const files = ["a", "b", "c"].map((id) => ({ id, path: `/project/${id}.md`, cwd: "/project" }));
+  const files = ["a", "b", "c"].map((id) => ({
+    id,
+    path: `/project/${id}.md`,
+    cwd: "/project",
+  }));
   const tab = {
     ...newTab("task"),
-    layout: leaf("editor"), focusedId: "editor",
+    layout: leaf("editor"),
+    focusedId: "editor",
     editorPanes: [{ id: "editor", files, activeFileId: "c" }],
   };
   initial.state.tabs = [tab];
@@ -142,25 +174,41 @@ it("keeps all detached file tabs after editing and saving and checkpoints their 
   expect(pane().pane.files).toEqual(files);
   expect(pane().dirtyFileIds.has("a")).toBe(false);
   await act(async () => vi.advanceTimersByTime(150));
-  expect(nativeWorkspaceWindow.checkpoint).toHaveBeenLastCalledWith(expect.objectContaining({
-    tabs: [expect.objectContaining({ editorPanes: [{ id: "editor", activeFileId: "c", files }] })],
-  }));
+  expect(nativeWorkspaceWindow.checkpoint).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      tabs: [
+        expect.objectContaining({
+          editorPanes: [{ id: "editor", activeFileId: "c", files }],
+        }),
+      ],
+    }),
+  );
 });
 
 it("keeps detached browser previews and remembers their slot when returning to a conversation", async () => {
   const initial = await nativeWorkspaceWindow.getState();
   const tab = newTab("task");
   initial.state.tabs = [tab];
-  initial.state.view = resolveWorkspaceView({
-    layout: leaf("selected"), focusedId: "selected", order: [tab.id, "selected", "background"],
-    groups: { selected: [tab.id, "selected", "background"] },
-  }, [tab.id, "selected", "background"], "selected");
+  initial.state.view = resolveWorkspaceView(
+    {
+      layout: leaf("selected"),
+      focusedId: "selected",
+      order: [tab.id, "selected", "background"],
+      groups: { selected: [tab.id, "selected", "background"] },
+    },
+    [tab.id, "selected", "background"],
+    "selected",
+  );
   await act(async () => root.render(createElement(DetachedWorkspace)));
   const header = () => previews.titleBar.mock.calls.at(-1)![0];
   await act(async () => header().onSelect(tab.id));
   expect(header().browserPreviewId).toBe("selected");
   await act(async () => header().onKeepBrowser("selected"));
-  expect(header().browserTabs.find((browser: { id: string }) => browser.id === "selected").kept).toBe(true);
+  expect(
+    header().browserTabs.find(
+      (browser: { id: string }) => browser.id === "selected",
+    ).kept,
+  ).toBe(true);
 });
 
 it("renders detached drag feedback only when the dragged tab or destination changes", async () => {
@@ -186,16 +234,12 @@ it("renders detached drag feedback only when the dragged tab or destination chan
   await move("selected", { ...target });
   expect(previews.titleBar).toHaveBeenCalledTimes(renders);
 
-  const changes: Array<[
-    string,
-    workspaceStage.WorkspaceSurfaceDropTarget | null,
-  ]> = [
+  const changes: Array<
+    [string, workspaceStage.WorkspaceSurfaceDropTarget | null]
+  > = [
     ["selected", { ...target, index: 1 }],
     ["selected", { ...target, index: 1, orderIndex: 2 }],
-    [
-      "selected",
-      { ...target, id: "selected", index: 1, orderIndex: 2 },
-    ],
+    ["selected", { ...target, id: "selected", index: 1, orderIndex: 2 }],
     ["selected", { id: "selected", edge: "right" }],
     ["background", { id: "selected", edge: "right" }],
     ["background", null],
@@ -206,18 +250,32 @@ it("renders detached drag feedback only when the dragged tab or destination chan
   }
   await move("background", null);
   expect(previews.titleBar).toHaveBeenCalledTimes(renders + changes.length);
-  await act(async () =>
-    header().onSurfaceDragEnd("background", 260, 15, true),
-  );
+  await act(async () => header().onSurfaceDragEnd("background", 260, 15, true));
   expect(previews.titleBar).toHaveBeenCalledTimes(renders + changes.length + 1);
 });
 
 it("combines the two visible browser owners without promoting hidden Recent pages", async () => {
   const initial = await nativeWorkspaceWindow.getState();
   initial.state.browsers.push(
-    { id: "target", tabId: "target", title: "Target", url: "https://target.test" },
-    { id: "target-history", tabId: "target-history", title: "Target history", url: "https://history.test" },
-    { id: "saved", tabId: "saved", title: "Saved", url: "https://saved.test", kept: true },
+    {
+      id: "target",
+      tabId: "target",
+      title: "Target",
+      url: "https://target.test",
+    },
+    {
+      id: "target-history",
+      tabId: "target-history",
+      title: "Target history",
+      url: "https://history.test",
+    },
+    {
+      id: "saved",
+      tabId: "saved",
+      title: "Saved",
+      url: "https://saved.test",
+      kept: true,
+    },
   );
   initial.state.view = {
     layout: splitPane(leaf("selected"), "selected", "right", "target"),
@@ -229,26 +287,54 @@ it("combines the two visible browser owners without promoting hidden Recent page
     },
   };
   await act(async () => root.render(createElement(DetachedWorkspace)));
-  const sourceHeader = previews.titleBar.mock.calls.find(([props]) => props.groupId === "selected")![0];
+  const sourceHeader = previews.titleBar.mock.calls.find(
+    ([props]) => props.groupId === "selected",
+  )![0];
   await act(async () => sourceHeader.onCombineWith("target"));
   const combined = previews.titleBar.mock.calls.at(-1)![0];
   expect(combined.groupId).toBe("target");
-  expect(combined.browserTabs.filter((browser: { kept?: boolean }) => browser.kept).map((browser: { id: string }) => browser.id)).toEqual(["selected", "target", "saved"]);
-  expect(combined.browserTabs).toEqual(expect.arrayContaining([
-    expect.objectContaining({ id: "background", kept: undefined, url: "https://example.org" }),
-    expect.objectContaining({ id: "target-history", kept: undefined, url: "https://history.test" }),
-  ]));
+  expect(
+    combined.browserTabs
+      .filter((browser: { kept?: boolean }) => browser.kept)
+      .map((browser: { id: string }) => browser.id),
+  ).toEqual(["selected", "target", "saved"]);
+  expect(combined.browserTabs).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        id: "background",
+        kept: undefined,
+        url: "https://example.org",
+      }),
+      expect.objectContaining({
+        id: "target-history",
+        kept: undefined,
+        url: "https://history.test",
+      }),
+    ]),
+  );
   expect(combined.browserTabs).toHaveLength(5);
   await act(async () => vi.advanceTimersByTime(150));
-  expect(nativeWorkspaceWindow.checkpoint).toHaveBeenLastCalledWith(expect.objectContaining({
-    view: expect.objectContaining({ groups: { target: ["target", "target-history", "selected", "background", "saved"] } }),
-    browsers: expect.arrayContaining([
-      expect.objectContaining({ id: "selected", kept: true }),
-      expect.objectContaining({ id: "target", kept: true }),
-      initial.state.browsers[1],
-      initial.state.browsers[3],
-    ]),
-  }));
+  expect(nativeWorkspaceWindow.checkpoint).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      view: expect.objectContaining({
+        groups: {
+          target: [
+            "target",
+            "target-history",
+            "selected",
+            "background",
+            "saved",
+          ],
+        },
+      }),
+      browsers: expect.arrayContaining([
+        expect.objectContaining({ id: "selected", kept: true }),
+        expect.objectContaining({ id: "target", kept: true }),
+        initial.state.browsers[1],
+        initial.state.browsers[3],
+      ]),
+    }),
+  );
 });
 afterEach(async () => {
   await act(async () => root.unmount());
@@ -429,7 +515,6 @@ it("keeps selected panes mounted behind native occlusion while transfer freezing
   expect(selected().dataset.presented).toBe("true");
   expect(background().dataset.presented).toBe("false");
 });
-
 
 it("accepts session deltas without changing the selected browser or the child's live draft", async () => {
   const initial = await nativeWorkspaceWindow.getState();

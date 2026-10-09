@@ -71,9 +71,17 @@ async function render(enabled = true) {
 describe("retained Git history lifecycle", () => {
   it("keeps the author in the tooltip without repeating a single author in every row", async () => {
     const first = history("First commit").commits[0]!;
-    mocks.history.mockResolvedValue({ head: first.sha, commits: [first, { ...first, sha: "second", subject: "Second commit", head: false }] });
+    mocks.history.mockResolvedValue({
+      head: first.sha,
+      commits: [
+        first,
+        { ...first, sha: "second", subject: "Second commit", head: false },
+      ],
+    });
     await render();
-    const rows = Array.from(container.querySelectorAll<HTMLButtonElement>(".git-history-item"));
+    const rows = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".git-history-item"),
+    );
     expect(rows).toHaveLength(2);
     expect(rows.every((row) => row.title.includes("Test"))).toBe(true);
     expect(rows.every((row) => !row.textContent?.includes("Test"))).toBe(true);
@@ -81,10 +89,21 @@ describe("retained Git history lifecycle", () => {
 
   it("shows authors when history contains several contributors, including refreshed authors", async () => {
     const first = history("First commit").commits[0]!;
-    const second = { ...first, sha: "second", subject: "Second commit", head: false };
-    mocks.history.mockResolvedValue({ head: first.sha, commits: [first, second] });
+    const second = {
+      ...first,
+      sha: "second",
+      subject: "Second commit",
+      head: false,
+    };
+    mocks.history.mockResolvedValue({
+      head: first.sha,
+      commits: [first, second],
+    });
     await render();
-    mocks.history.mockResolvedValue({ head: first.sha, commits: [first, { ...second, author: "Other" }] });
+    mocks.history.mockResolvedValue({
+      head: first.sha,
+      commits: [first, { ...second, author: "Other" }],
+    });
     await act(async () => notifyGitChanged());
     expect(container.textContent).toContain("Test");
     expect(container.textContent).toContain("Other");

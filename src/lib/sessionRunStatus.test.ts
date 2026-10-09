@@ -53,12 +53,17 @@ const queue = [{ id: "queued", text: "Next request", attachments: [] }];
 
 describe("sessionRunStatus", () => {
   it("keeps reported agents visible after the main reply finishes", () => {
-    const current = session({ liveAgents: [
-      { id: "one", title: "Asset inventory", status: "running" },
-      { id: "two", title: "Review", status: "completed" },
-    ] });
+    const current = session({
+      liveAgents: [
+        { id: "one", title: "Asset inventory", status: "running" },
+        { id: "two", title: "Review", status: "completed" },
+      ],
+    });
     expect(sessionRunStatus(current, [activity()])).toMatchObject({
-      kind: "working", label: "Agents still working", detail: "1 active · 1 done", canStop: true,
+      kind: "working",
+      label: "Agents still working",
+      detail: "1 active · 1 done",
+      canStop: true,
     });
     expect(sessionRunStatus(current, [activity()])?.durationMs).toBeUndefined();
     current.liveAgents![0].status = "completed";
@@ -66,18 +71,31 @@ describe("sessionRunStatus", () => {
   });
 
   it("shows unavailable and failed child states honestly", () => {
-    const current = session({ liveAgents: [{ id: "one", title: "Review", status: "unknown" }] });
-    expect(sessionRunStatus(current, [activity()])?.label).toBe("Agent status unavailable");
+    const current = session({
+      liveAgents: [{ id: "one", title: "Review", status: "unknown" }],
+    });
+    expect(sessionRunStatus(current, [activity()])?.label).toBe(
+      "Agent status unavailable",
+    );
     current.liveAgents![0].status = "failed";
     expect(sessionRunStatus(current, [activity()])?.label).toBe("Agent failed");
     current.liveAgents![0].status = "waiting";
-    expect(sessionRunStatus(current, [activity()])?.label).toBe("Agents waiting");
+    expect(sessionRunStatus(current, [activity()])?.label).toBe(
+      "Agents waiting",
+    );
     current.liveAgents![0].status = "stopped";
-    expect(sessionRunStatus(current, [activity()])).toMatchObject({ kind: "stopped", label: "Agents stopped" });
+    expect(sessionRunStatus(current, [activity()])).toMatchObject({
+      kind: "stopped",
+      label: "Agents stopped",
+    });
   });
 
   it("does not infer live work from an old agent tool block", () => {
-    expect(sessionRunStatus(session({ blocks: [user(), tool("agent")] }), [activity()])?.label).toBe("Finished");
+    expect(
+      sessionRunStatus(session({ blocks: [user(), tool("agent")] }), [
+        activity(),
+      ])?.label,
+    ).toBe("Finished");
   });
 
   it("keeps a fresh unused session quiet", () => {
@@ -262,27 +280,48 @@ describe("sessionRunStatus", () => {
     "Claude Code authentication failed. Run claude auth login in Aven’s terminal, then retry.",
     "Not logged in · Please run /login",
   ])("offers Claude login recovery for a failed provider error: %s", (text) => {
-    const value = sessionRunStatus(session({
-      harness: "claude",
-      blocks: [user(), { id: "error", role: "system", text }],
-    }), [activity({ id: "session:turn:runtime-uuid:failed", outcome: "failed" })]);
-    expect(value).toMatchObject({ kind: "failed", label: "Sign in required", recovery: "claude-login", canStop: false });
+    const value = sessionRunStatus(
+      session({
+        harness: "claude",
+        blocks: [user(), { id: "error", role: "system", text }],
+      }),
+      [activity({ id: "session:turn:runtime-uuid:failed", outcome: "failed" })],
+    );
+    expect(value).toMatchObject({
+      kind: "failed",
+      label: "Sign in required",
+      recovery: "claude-login",
+      canStop: false,
+    });
   });
 
   it("does not infer Claude login state from assistant prose, old errors, or other providers", () => {
-    const error: Block = { id: "error", role: "system", text: "Failed to authenticate: OAuth session expired and could not be refreshed" };
-    const failed = [activity({ id: "session:turn:runtime-uuid:failed", outcome: "failed" })];
+    const error: Block = {
+      id: "error",
+      role: "system",
+      text: "Failed to authenticate: OAuth session expired and could not be refreshed",
+    };
+    const failed = [
+      activity({ id: "session:turn:runtime-uuid:failed", outcome: "failed" }),
+    ];
     for (const candidate of [
-      session({ harness: "claude", blocks: [user(), { ...error, role: "assistant" }] }),
+      session({
+        harness: "claude",
+        blocks: [user(), { ...error, role: "assistant" }],
+      }),
       session({ harness: "claude", blocks: [user("old", 100), error, user()] }),
       session({ harness: "codex", blocks: [user(), error] }),
     ]) {
-      expect(sessionRunStatus(candidate, failed)).toMatchObject({ label: "Failed" });
+      expect(sessionRunStatus(candidate, failed)).toMatchObject({
+        label: "Failed",
+      });
       expect(sessionRunStatus(candidate, failed)?.recovery).toBeUndefined();
     }
     const candidate = session({ harness: "claude", blocks: [user(), error] });
     expect(sessionRunStatus(candidate, [activity()])?.recovery).toBeUndefined();
-    expect(sessionRunStatus({ ...candidate, busy: true }, failed)?.kind).toBe("working");
+    expect(sessionRunStatus({ ...candidate, busy: true }, failed)?.kind).toBe(
+      "working",
+    );
   });
 
   it("ignores completion from before the current turn began", () => {
