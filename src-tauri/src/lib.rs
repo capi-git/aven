@@ -25,6 +25,7 @@ mod browser_sleep;
 mod browser_snapshot;
 mod chat_background;
 mod checkpoint;
+mod codex_storage;
 mod control;
 pub mod control_cli;
 mod cursor_store;
@@ -455,6 +456,7 @@ pub fn run() {
             cursor_store::cursor_tool_calls,
             harness::harness_resolve_cursor,
             harness::harness_resolve_codex,
+            codex_storage::harness_prepare_codex_storage,
             harness::harness_resolve_opencode,
             harness::harness_resolve_claude,
             harness::harness_resolve_omp,

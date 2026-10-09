@@ -137,6 +137,18 @@ export function isProseBlock(block: Block): boolean {
   return block.role === "assistant" && !!block.text.trim();
 }
 
+/** Image results belong to the answer, even when more tool work follows them. */
+function isImageResultBlock(block: Block): boolean {
+  if (!isProseBlock(block) || !block.text.includes("![")) return false;
+  const withoutCode = block.text
+    .replace(
+      /(?:^|\n) {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:\n {0,3}\1[^\n]*(?:\n|$)|$)/g,
+      "",
+    )
+    .replace(/(`+)[^\n]*?\1/g, "");
+  return /(?:^|[^\\])!\[[^\]\n]*\]/.test(withoutCode);
+}
+
 /** First paragraph of a folded prose block, stripped to one plain line. */
 export function proseSummary(text: string): string {
   const body = text.replace(/```[\s\S]*?(?:```|$)/g, " ");
@@ -598,8 +610,9 @@ export type WorkFold = { start: number; end: number };
  *
  * Prose following a group puts its work away, except for calls still awaiting
  * approval. As the turn streams, each new paragraph folds the work and running
- * commentary before it, leaving the final answer visible. A late approval can
- * reopen that boundary so its controls remain available.
+ * commentary before it, leaving the final answer visible. Image results stay
+ * visible within that span. A late approval can reopen the boundary so its
+ * controls remain available.
  */
 export function foldableWork(items: TurnItem[]): WorkFold | undefined {
   let end = -1;
@@ -607,7 +620,7 @@ export function foldableWork(items: TurnItem[]): WorkFold | undefined {
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const item = items[index];
     if (item.type === "activity") {
-      if (answered && isFoldableItem(item)) {
+      if (answered && isFoldableWorkItem(item)) {
         end = index;
         break;
       }
@@ -619,14 +632,24 @@ export function foldableWork(items: TurnItem[]): WorkFold | undefined {
   // Only work and the agent's commentary on it fold. A plan, a task list or a
   // call waiting on approval stays where the agent put it.
   let start = end;
-  while (start > 0 && isFoldableItem(items[start - 1])) start -= 1;
+  while (start > 0) {
+    const previous = items[start - 1];
+    if (
+      !isFoldableWorkItem(previous) &&
+      !(previous.type === "block" && isImageResultBlock(previous.block))
+    )
+      break;
+    start -= 1;
+  }
+  // The fold line must start on work; preceding image results keep their row.
+  while (start < end && !isFoldableWorkItem(items[start])) start += 1;
   return { start, end };
 }
 
-function isFoldableItem(item: TurnItem): boolean {
+export function isFoldableWorkItem(item: TurnItem): boolean {
   return item.type === "activity"
     ? !item.blocks.some(needsApproval)
-    : isProseBlock(item.block);
+    : isProseBlock(item.block) && !isImageResultBlock(item.block);
 }
 
 /**
@@ -635,13 +658,14 @@ function isFoldableItem(item: TurnItem): boolean {
  * under the reader's eye and shoving the answer down.
  */
 export function firstFoldableIndex(items: TurnItem[]): number {
-  return items.findIndex(isFoldableItem);
+  return items.findIndex(isFoldableWorkItem);
 }
 
 /** Every block inside a fold, work and commentary alike. */
 export function foldedBlocks(items: TurnItem[], fold: WorkFold): Block[] {
   return items
     .slice(fold.start, fold.end + 1)
+    .filter(isFoldableWorkItem)
     .flatMap((item) => (item.type === "activity" ? item.blocks : [item.block]));
 }
 

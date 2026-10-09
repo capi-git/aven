@@ -2,6 +2,7 @@ import { nativeModelId } from "../models";
 import type { RuntimeMode } from "../session";
 import {
   killChild,
+  prepareCodexStorage,
   resolveCodexBinary,
   spawnChild,
   unwatchChild,
@@ -26,6 +27,7 @@ import {
   type CodexApprovalKind,
 } from "./codexProtocol";
 import { JsonRpcClient, type JsonRpcId } from "./jsonRpc";
+import { assertCodexStorage } from "./codexStorage";
 import {
   elicitationPrompt,
   elicitationResult,
@@ -333,6 +335,9 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     resumeByThread.delete(input.sessionId);
   }
 
+  // Existing Aven/imported threads are copied on demand. Never resume them
+  // through Codex's shared store, where future turns would clutter its Recents.
+  const storage = await prepareCodexStorage(canResume ? resume.threadId : undefined);
   const { path } = await resolveCodexBinaryImpl();
   const liveRef: { current: Live | null } = { current: null };
 
@@ -375,9 +380,8 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     },
   );
 
-  await spawnChild(input.sessionId, path, ["app-server"], input.cwd);
-
   try {
+    await spawnChild(input.sessionId, path, ["app-server"], input.cwd);
     await rpc.request("initialize", {
       clientInfo: {
         name: "aven",
@@ -390,21 +394,19 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     });
     await rpc.notify("initialized", undefined);
 
-    let browserHostInstructions: string | undefined;
+    let effectiveConfig: unknown;
     try {
-      // Only read effective configuration. Never replace unknown user developer
-      // instructions, persist changes, or log potentially sensitive config.
-      browserHostInstructions = codexBrowserHostInstructionsFromConfig(
-        await rpc.request(
-          "config/read",
-          { cwd: input.cwd, includeLayers: false },
-          3000,
-        ),
+      effectiveConfig = await rpc.request(
+        "config/read",
+        { cwd: input.cwd, includeLayers: false },
+        3000,
       );
     } catch {
-      // Older providers can lack this API. Per-turn browser guidance remains,
-      // while leaving developerInstructions unset preserves provider config.
+      throw new Error("Aven could not verify private Codex chat storage. Update the Codex CLI and try again; no chat was started.");
     }
+    assertCodexStorage(effectiveConfig, storage.home);
+    // Preserve effective developer instructions without logging or editing them.
+    const browserHostInstructions = codexBrowserHostInstructionsFromConfig(effectiveConfig);
 
     const model = nativeModelId(input.model);
     const serviceTier = input.modelSettings?.serviceTier;
@@ -420,6 +422,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
           "thread/resume",
           {
             threadId: resume.threadId,
+            ...(storage.resumePath ? { path: storage.resumePath } : {}),
             ...buildThreadStartParams({
               cwd: input.cwd,
               browserHostInstructions,
@@ -440,6 +443,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
             "thread/fork",
             {
               threadId: resume.threadId,
+              ...(storage.resumePath ? { path: storage.resumePath } : {}),
               ...buildThreadStartParams({
                 cwd: input.cwd,
                 browserHostInstructions,
