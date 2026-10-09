@@ -2,6 +2,7 @@ import { ChevronDown, Search, Star } from "./icons";
 import "./ModelControls.css";
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -116,7 +117,11 @@ export function ModelPicker({
     if (restore) onCloseRef.current?.();
   };
 
+  // Settle the tab and query in the same update that opens the picker, so
+  // its first painted frame already shows the remembered provider.
   const openPicker = () => {
+    setTab(coerceModelPickerTab(loadModelPickerTab(), shownInPicker));
+    setQuery("");
     setOpen(true);
   };
 
@@ -140,8 +145,6 @@ export function ModelPicker({
   useEffect(() => {
     if (!open) return;
     void probeHarnessAvailability();
-    setTab(coerceModelPickerTab(loadModelPickerTab(), shownInPicker));
-    setQuery("");
   }, [open]);
 
   useEffect(() => {
@@ -249,17 +252,20 @@ export function ModelPicker({
     visibilityVersion,
   ]);
 
-  useEffect(() => {
-    if (!open) return;
-    const index = visible.findIndex((item) => item.id === current.id);
-    setActive(index >= 0 ? index : 0);
-  }, [open, visibleTab, query, current.id]);
-
-  useEffect(() => {
-    setActive((i) =>
-      visible.length === 0 ? 0 : Math.min(i, visible.length - 1),
-    );
-  }, [visible.length]);
+  // Opening, switching tab or searching highlights the current model. This
+  // is derived while rendering, not in an effect after paint, so the first
+  // frame is final. A catalog that lands later only clamps the highlight.
+  const activeFor = open ? `${visibleTab}\n${query}\n${current.id}` : "";
+  const [activeKey, setActiveKey] = useState(activeFor);
+  if (activeKey !== activeFor) {
+    setActiveKey(activeFor);
+    if (open) {
+      const index = visible.findIndex((item) => item.id === current.id);
+      setActive(index >= 0 ? index : 0);
+    }
+  }
+  const activeRow =
+    visible.length === 0 ? 0 : Math.min(active, visible.length - 1);
 
   const pick = (item: AgentModel) => {
     if (!isHarnessAvailable(item.harness) || !isPickerModelVisible(item))
@@ -286,17 +292,17 @@ export function ModelPicker({
     if (isImeComposition(e.nativeEvent)) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActive((i) => Math.min(visible.length - 1, i + 1));
+      setActive(Math.max(0, Math.min(visible.length - 1, activeRow + 1)));
       return;
     }
     if (e.key === "ArrowUp") {
       e.preventDefault();
-      setActive((i) => Math.max(0, i - 1));
+      setActive(Math.max(0, activeRow - 1));
       return;
     }
     if (e.key === "Enter") {
       e.preventDefault();
-      const item = visible[active];
+      const item = visible[activeRow];
       if (item && isHarnessAvailable(item.harness)) pick(item);
       return;
     }
@@ -405,7 +411,7 @@ export function ModelPicker({
             </div>
             <ModelList
               models={visible}
-              active={active}
+              active={activeRow}
               currentId={current.id}
               favorites={favorites.map((id) => findPickerModel(id)?.id ?? id)}
               emptyLabel={
@@ -500,9 +506,28 @@ function ModelList({
     lockOverscroll(el);
   };
 
-  useEffect(() => {
+  // Before paint, so an opening picker never shows a frame scrolled to the
+  // top before jumping to the highlighted row.
+  useLayoutEffect(() => {
     activeRef.current?.scrollIntoView({ block: "nearest" });
   }, [active]);
+
+  const hasRows = models.length > 0;
+  // The popover measures hidden at its full height, then may place itself
+  // shorter. Keep the highlighted row visible when the list is resized; the
+  // observer runs after layout and before paint.
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let height = el.clientHeight;
+    const observer = new ResizeObserver(() => {
+      if (el.clientHeight === height) return;
+      height = el.clientHeight;
+      activeRef.current?.scrollIntoView({ block: "nearest" });
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasRows]);
 
   useEffect(() => {
     const el = listRef.current;
