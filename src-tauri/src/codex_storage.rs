@@ -1100,7 +1100,11 @@ mod tests {
         // Older Aven builds let Aven's Codex create a real private folder,
         // then standalone Codex created the shared one.
         #[cfg(windows)]
-        junction::delete(&private_locks).unwrap();
+        {
+            junction::delete(&private_locks).unwrap();
+            // Removing the reparse point leaves an ordinary empty directory.
+            fs::remove_dir(&private_locks).unwrap();
+        }
         #[cfg(not(windows))]
         fs::remove_file(&private_locks).unwrap();
         assert!(shared_locks.is_dir());
