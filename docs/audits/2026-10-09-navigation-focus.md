@@ -93,9 +93,9 @@ so a display rule cannot accidentally override the hidden recovery element.
 After this follow-up, all 4,322 web tests in 390 files, TypeScript, formatting,
 lint and the production frontend build passed. The 30 focused startup/theme/
 render-failure/detached-workspace tests passed; the recovery suite also passed
-after its computed-style assertions were added. Aven Dev was unavailable on the
-current desktop, so this does not claim an observed cold launch of the revised
-startup flow. The installed host was not restarted.
+after its computed-style assertions were added. Aven Dev was initially unavailable
+on the current desktop; the later cold-launch follow-up is recorded below. The
+installed host was not restarted.
 
 ## In-app menus and window detachment follow-up
 
@@ -125,16 +125,27 @@ also passed.
 
 Live Aven Dev inspection confirmed the Recent menu and browser-tab context menu
 inside the app over Chromium, correct trigger placement, outside dismissal, no
-new native menu window, and the absence of detachment commands. The Dev preview
-was hidden; its Dock icon restored it. The scoped desktop tool acknowledged
-keyboard input but it produced no visible text in either the menu search or an
-ordinary QA chat composer, so native typing/Escape are not counted as passed.
-Automated keyboard tests passed. No messages were sent during these menu checks.
-A cold launch of the new startup flow remains unobserved; the installed hosting
-app was preserved. Temporary local focus diagnostics were removed before commit.
+new native menu window, and the absence of detachment commands. After rebuilding
+and relaunching the separate signed Dev bundle, live keyboard checks also passed:
+opening Recent focused search, typing a URL query filtered two pages to one,
+Escape dismissed the menu and visibly focused its trigger, and Enter reopened
+it without a pointer click. No messages were sent during these menu checks.
+
+The older preview had a stale native popup and keyboard input produced no visible
+text even in its ordinary QA composer. It was quit normally through its Dock
+menu; that state did not recur in the fresh build. The installed hosting app was
+preserved. Temporary local focus diagnostics were removed before commit.
 
 A separate 45-second background sample from the earlier navigation run averaged
 2.28% of one CPU core (7.93% peak sample), with attributed footprint falling from
 1,309 MiB to 1,298 MiB and a raw GPU driver counter delta of zero. These are short
 Dev-workload observations, with the sampling limitations above, not a guarantee
 for every project or a packaged-app benchmark.
+
+A subsequent cold launch was sampled as the new Dev window first became visible,
+then 0.4 and 1.0 seconds later. The first two captures showed the saved-theme
+window background and the third showed the restored workspace; no startup logo,
+loading message or cover fade appeared. The normal startup still needs time to
+initialize the workspace. This is a debug-preview observation, not a release
+launch-time benchmark. The signed Dev packaging check passed with Chromium
+sandboxing enabled and no library-validation exception.
