@@ -22,6 +22,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -1256,9 +1257,23 @@ function TitleBarComponent({
   } | null>(null);
   // A page selection must not let the previous menu close its replacement.
   const menuPageSwitch = useRef(false);
+  // Pages swap the items of one open menu rather than remounting it, which
+  // would measure, animate and focus it all over again. Selecting the page
+  // item returned focus to the tab, so bring it back to the new page's first
+  // item, at the top of its list, before the page paints.
+  const tabMenuClass = `title-tab-menu-${useId().replace(/[^\w-]/g, "")}`;
   useLayoutEffect(() => {
+    const switched = menuPageSwitch.current;
     menuPageSwitch.current = false;
-  }, [tabMenu?.page, tabMenu?.kind]);
+    if (!switched) return;
+    const items = document.querySelector<HTMLElement>(
+      `.${tabMenuClass} [role="menu"]`,
+    );
+    if (!items) return;
+    items.scrollTop = 0;
+    const first = items.querySelector<HTMLElement>("button:not(:disabled)");
+    (first ?? items).focus({ preventScroll: true });
+  }, [tabMenu?.page, tabMenu?.kind, tabMenuClass]);
   const [renamingGroup, setRenamingGroup] = useState<string | null>(null);
   const pendingGroupJoin = useRef<{
     groupId: string;
@@ -2365,7 +2380,7 @@ function TitleBarComponent({
       ) : null}
       {tabMenu && contextMenuItems.length ? (
         <ExplorerMenu
-          key={`${menuKind}:${tabMenu.page ?? ""}`}
+          className={tabMenuClass}
           x={tabMenu.x}
           y={tabMenu.y}
           anchor={tabMenu.anchor}

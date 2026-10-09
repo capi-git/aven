@@ -303,3 +303,62 @@ describe("popover stylesheet", () => {
     );
   });
 });
+
+describe("popover content changes", () => {
+  let root: Root;
+  let anchor: HTMLButtonElement;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("innerHeight", 800);
+    anchor = document.createElement("button");
+    document.body.append(anchor);
+    vi.spyOn(anchor, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(20, 600, 80, 20),
+    );
+    // Layout stand-in: each row is 50px tall.
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(
+      function (this: HTMLElement) {
+        return this.querySelectorAll("li").length * 50;
+      },
+    );
+    root = createRoot(document.createElement("div"));
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    anchor.remove();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  const render = (rows: number) =>
+    act(async () =>
+      root.render(
+        createElement(
+          Popover,
+          { anchor, "aria-label": "Paged menu" },
+          createElement(
+            "ul",
+            null,
+            Array.from({ length: rows }, (_, index) =>
+              createElement("li", { key: index }, `Row ${index}`),
+            ),
+          ),
+        ),
+      ),
+    );
+
+  it("re-places a longer page in the same pass, without remounting", async () => {
+    await render(2);
+    const content = document.querySelector<HTMLElement>(
+      '[aria-label="Paged menu"]',
+    )!;
+    expect(content.parentElement!.dataset.popoverSide).toBe("bottom");
+    await render(6);
+    expect(document.querySelector('[aria-label="Paged menu"]')).toBe(content);
+    // 300px no longer fits below the trigger, so it flips above it.
+    expect(content.parentElement!.dataset.popoverSide).toBe("top");
+    expect(content.classList).toContain("popover-open");
+  });
+});

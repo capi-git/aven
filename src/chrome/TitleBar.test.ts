@@ -815,6 +815,65 @@ describe("browser tab integration", () => {
     },
   );
 
+  it("switches tab menu pages inside one open menu without remounting it", async () => {
+    await render({
+      paneLocal: true,
+      tabs: [tab({ id: "a", title: "Current task" })],
+      activeId: "a",
+      visibleIds: ["a", "other"],
+      combineTargets: [
+        { id: "a", label: "this pane" },
+        { id: "other", label: "right pane" },
+      ],
+      onCombineWith: vi.fn(),
+      onUnsplit: vi.fn(),
+    });
+    await act(async () =>
+      container.querySelector('[role="tab"]')!.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ContextMenu",
+          bubbles: true,
+        }),
+      ),
+    );
+    const menuItems = () =>
+      Array.from(
+        document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+      );
+    const frame = () =>
+      document
+        .querySelector('[role="menu"]')!
+        .closest<HTMLElement>(".aven-popover-frame")!;
+    const opened = frame();
+    const content = opened.querySelector<HTMLElement>(".popover-open")!;
+    expect(opened.style.visibility).toBe("");
+
+    const split = menuItems().find((item) =>
+      item.textContent?.startsWith("Split"),
+    )!;
+    await act(async () => split.click());
+    expect(frame()).toBe(opened);
+    expect(opened.querySelector(".popover-open")).toBe(content);
+    expect(opened.style.visibility).toBe("");
+    expect(menuItems()[0].textContent).toBe("‹ Back");
+    expect(menuItems().map((item) => item.textContent)).toContain(
+      "Combine with right pane",
+    );
+    expect(document.activeElement).toBe(menuItems()[0]);
+
+    await act(async () => menuItems()[0].click());
+    expect(frame()).toBe(opened);
+    expect(menuItems().some((item) => item.textContent === "‹ Back")).toBe(
+      false,
+    );
+    expect(
+      menuItems().some((item) => item.textContent?.startsWith("Split")),
+    ).toBe(true);
+    expect(document.activeElement).toBe(
+      menuItems().find((item) => !item.disabled),
+    );
+  });
+
   it("hides combine actions in a single pane", async () => {
     await render({
       paneLocal: true,

@@ -185,10 +185,15 @@ export function Popover({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, side, align, gap, padding, width, minHeight, maxHeight]);
 
-  // A panel frame paints its ToolbarPanel's material from the first frame.
-  // The panel itself animates, and an animating opacity isolates its subtree,
-  // so frost there would only appear once the entrance had finished.
+  // Content swapped by a re-render, such as a submenu page, is measured and
+  // placed again in the same pass, so a resized menu never paints a frame
+  // at its old position. `samePosition` keeps this from looping.
+  //
+  // A panel frame also paints its ToolbarPanel's material from the first
+  // frame. The panel itself animates, and an animating opacity isolates its
+  // subtree, so frost there would only appear once the entrance had finished.
   useLayoutEffect(() => {
+    place();
     if (!panel) return;
     const material = surface.current?.querySelector<HTMLElement>(
       ":scope > .toolbar-panel",
