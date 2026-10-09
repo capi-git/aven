@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.1.130] - 2026-10-09
+
+### Consistent sidebar glass
+
+- Popped-out navigation keeps the same native glass and tint as the pinned sidebar, including Settings, with opaque fallbacks for accessibility preferences.
+- Covered chat content stays out of the translucent sidebar without changing its width or scroll position. Closing restores the full workspace immediately, including at different interface zoom levels.
+
+### Browser resizing
+
+- When WebKit delays an animation frame, browser layout now uses a 16 ms fallback instead of waiting up to 100 ms. Resize requests remain coalesced and stop when idle.
+
 ## [0.1.129] - 2026-10-09
 
 ### Direct startup
