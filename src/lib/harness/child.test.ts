@@ -8,6 +8,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
+vi.mock("@tauri-apps/api/webview", () => ({
+  getCurrentWebview: () => ({ label: "main" }),
+}));
 vi.mock("@tauri-apps/api/event", () => ({ listen: mocks.listen }));
 
 type Deferred<T> = {
@@ -68,7 +71,9 @@ describe("child bridge", () => {
     mocks.listen.mockImplementation(
       (name: string, handler: (event: { payload: never }) => void) => {
         mocks.handlers.set(name, handler);
-        return name === "harness-stdout" ? pending.promise : Promise.resolve(vi.fn());
+        return name === "harness-stdout:main"
+          ? pending.promise
+          : Promise.resolve(vi.fn());
       },
     );
     const child = await loadChild();
@@ -127,8 +132,13 @@ describe("child bridge", () => {
     const onExit = vi.fn();
     child.watchChild("probe", vi.fn(), onExit);
 
-    const spawning = child.spawnChild("probe", "pi", ["--mode", "rpc"], "/repo");
-    mocks.handlers.get("harness-exit")?.({
+    const spawning = child.spawnChild(
+      "probe",
+      "pi",
+      ["--mode", "rpc"],
+      "/repo",
+    );
+    mocks.handlers.get("harness-exit:main")?.({
       payload: { sessionId: "probe", code: 1, pid: 42 } as never,
     });
     expect(onExit).not.toHaveBeenCalled();
@@ -147,7 +157,7 @@ describe("child bridge", () => {
 
     // Events are broadcast to every window; this one never spawned "other".
     for (let i = 0; i < 5; i += 1) {
-      emit("harness-stdout", { sessionId: "other", line: `line ${i}` });
+      emit("harness-stdout:main", { sessionId: "other", line: `line ${i}` });
       emit("harness-sse", { sessionId: "other", data: `event ${i}` });
     }
 
@@ -169,7 +179,7 @@ describe("child bridge", () => {
     mocks.invoke.mockResolvedValue(42);
 
     await child.spawnChild("mine", "agent", [], "/tmp");
-    emit("harness-stdout", { sessionId: "mine", line: "early" });
+    emit("harness-stdout:main", { sessionId: "mine", line: "early" });
     await child.openHarnessSse("mine", "http://127.0.0.1:1/event");
     emit("harness-sse", { sessionId: "mine", data: "early-event" });
 
@@ -195,7 +205,7 @@ describe("child bridge", () => {
     await child.openHarnessSse("probe", "http://127.0.0.1:1/event");
     await child.killChild("probe");
     await child.closeHarnessSse("probe");
-    emit("harness-stdout", { sessionId: "probe", line: "late" });
+    emit("harness-stdout:main", { sessionId: "probe", line: "late" });
     emit("harness-sse", { sessionId: "probe", data: "late-event" });
 
     const lines: string[] = [];
@@ -206,4 +216,54 @@ describe("child bridge", () => {
     expect(events).toEqual([]);
     release();
   });
+});
+
+it("subscribes only to its owner output names and expands a batch in order before exit", async () => {
+  installResolvedListeners();
+  const child = await loadChild();
+  const release = await child.acquireHarnessBridge();
+  for (const name of [
+    "harness-stdout:main",
+    "harness-stderr:main",
+    "harness-exit:main",
+  ]) {
+    expect(mocks.listen).toHaveBeenCalledWith(name, expect.any(Function), {
+      target: { kind: "Webview", label: "main" },
+    });
+  }
+  const calls: (string | null)[] = [];
+  mocks.invoke.mockResolvedValue(42);
+  child.watchChild(
+    "mine",
+    (line) => calls.push(line),
+    (code) => calls.push(`exit:${code}`),
+  );
+  await child.spawnChild("mine", "agent", [], "/tmp");
+  mocks.handlers.get("harness-stdout:main")!({
+    payload: {
+      sessionId: "mine",
+      lines: ["first", "", '{"result":true}'],
+    } as never,
+  });
+  mocks.handlers.get("harness-exit:main")!({
+    payload: { sessionId: "mine", code: 0, pid: 42 } as never,
+  });
+  expect(calls).toEqual(["first", "", '{"result":true}', "exit:0"]);
+  release();
+});
+
+it("bounds unwatched batches by individual lines and replays them without merging", async () => {
+  installResolvedListeners();
+  const child = await loadChild();
+  const release = await child.acquireHarnessBridge();
+  mocks.invoke.mockResolvedValue(42);
+  await child.spawnChild("mine", "agent", [], "/tmp");
+  const lines = Array.from({ length: 1050 }, (_, index) => `line:${index}`);
+  mocks.handlers.get("harness-stdout:main")!({
+    payload: { sessionId: "mine", lines } as never,
+  });
+  const received: string[] = [];
+  child.watchChild("mine", (line) => received.push(line), vi.fn());
+  expect(received).toEqual(lines.slice(50));
+  release();
 });
