@@ -3408,6 +3408,36 @@ describe("native preview lifecycle", () => {
     expect(mocks.layout.mock.calls.at(-1)![2]).toBe(true);
   });
 
+  it("keeps resize bounds within one frame when WebKit defers animation frames", async () => {
+    const id = await openPane();
+    mocks.layout.mockClear();
+    for (const width of [640, 680, 720]) {
+      mocks.bounds.mockReturnValue({
+        x: 100,
+        y: 80,
+        width,
+        height: 500,
+        scale: 2,
+      });
+      resizeCallback();
+      window.dispatchEvent(new Event("resize"));
+      await act(async () => vi.advanceTimersByTime(16));
+      expect(mocks.layout).toHaveBeenLastCalledWith(
+        id,
+        expect.objectContaining({ width }),
+        true,
+      );
+      expect(frames.size).toBe(0);
+    }
+    expect(mocks.layout).toHaveBeenCalledTimes(3);
+    expect(mocks.snapshot).not.toHaveBeenCalled();
+    const sent = mocks.layout.mock.calls.length;
+    await act(async () => vi.advanceTimersByTime(1000));
+    expect(mocks.layout).toHaveBeenCalledTimes(sent);
+    await act(async () => root.render(null));
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("recovers show and hide when animation frames are not delivered and cancels timers", async () => {
     await act(async () =>
       root.render(
