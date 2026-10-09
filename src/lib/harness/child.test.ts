@@ -267,3 +267,29 @@ it("bounds unwatched batches by individual lines and replays them without mergin
   expect(received).toEqual(lines.slice(50));
   release();
 });
+
+it("delivers later batch records even if an earlier provider callback throws", async () => {
+  installResolvedListeners();
+  const child = await loadChild();
+  const release = await child.acquireHarnessBridge();
+  const received: string[] = [];
+  const failure = new Error("provider callback failed");
+  child.watchChild(
+    "mine",
+    (line) => {
+      received.push(line);
+      if (line === "bad") throw failure;
+    },
+    vi.fn(),
+  );
+  expect(() =>
+    mocks.handlers.get("harness-stdout:main")!({
+      payload: {
+        sessionId: "mine",
+        lines: ["first", "bad", "final result"],
+      } as never,
+    }),
+  ).toThrow(failure);
+  expect(received).toEqual(["first", "bad", "final result"]);
+  release();
+});

@@ -92,12 +92,22 @@ function ensureBridge() {
             "lines" in event.payload
               ? event.payload.lines
               : [event.payload.line];
+          let failed = false;
+          let firstError: unknown;
           for (const line of lines) {
-            const handler = lineHandlers.get(sessionId);
-            if (handler) handler(line);
-            else if (ownedChildren.has(sessionId))
-              pushBounded(lineBuffer, sessionId, line);
+            try {
+              const handler = lineHandlers.get(sessionId);
+              if (handler) handler(line);
+              else if (ownedChildren.has(sessionId))
+                pushBounded(lineBuffer, sessionId, line);
+            } catch (error) {
+              // Separate native events used to continue after one callback
+              // failed. Keep later protocol records (especially final results).
+              if (!failed) firstError = error;
+              failed = true;
+            }
           }
+          if (failed) throw firstError;
         },
         outputOptions,
       ),
