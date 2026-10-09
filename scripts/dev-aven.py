@@ -113,6 +113,7 @@ def launch():
     child_env.pop('TAURI_CONFIG', None)
     child_env.pop('TAURI_DEV_HOST', None)
     cursor_preview = child_env.pop('AVEN_DEV_CURSOR_PREVIEW', None) == '1'
+    browser_layout_trace = child_env.pop('AVEN_DEV_BROWSER_LAYOUT_TRACE', None) == '1'
     with log_path.open('w') as log:
         server = subprocess.Popen(['npm', 'run', 'dev', '--', '--host', '127.0.0.1'],
                                   cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
@@ -142,6 +143,8 @@ def launch():
             # the exact visual-only preview flag, never host control credentials.
             if cursor_preview:
                 launch_args.extend(['--env', 'AVEN_DEV_CURSOR_PREVIEW=1'])
+            if browser_layout_trace:
+                launch_args.extend(['--env', 'AVEN_DEV_BROWSER_LAYOUT_TRACE=1'])
             launch_args.extend(['-a', str(APP)])
             launcher = subprocess.Popen(launch_args,
                                         cwd=ROOT, env=child_env, start_new_session=True)

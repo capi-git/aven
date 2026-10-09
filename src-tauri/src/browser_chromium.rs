@@ -11,6 +11,32 @@ use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, EventTarget, Manager, Url, Webview, Window};
 
+#[path = "browser_layout_trace.rs"]
+mod layout_trace;
+
+fn trace_layout(
+    phase: &str,
+    id: &str,
+    window: &str,
+    bounds: &BrowserBounds,
+    visible: bool,
+    flags: Value,
+) {
+    if layout_trace::enabled() {
+        layout_trace::record(
+            phase,
+            id,
+            window,
+            visible,
+            json!({
+                "x": bounds.x, "y": bounds.y, "width": bounds.width, "height": bounds.height,
+                "scale": bounds.scale, "viewportHeight": bounds.viewport_height,
+                "clipLeft": bounds.clip_left, "clipRight": bounds.clip_right, "flags": flags,
+            }),
+        );
+    }
+}
+
 type NativeEvent = unsafe extern "C" fn(*const c_char, *const c_char, *mut c_void);
 extern "C" {
     fn sm_chromium_initialize(
@@ -537,6 +563,7 @@ fn initialize(app: &AppHandle) -> Result<PathBuf, String> {
                 "cachePath": cache.to_string_lossy(),
                 "devUrl": app.config().build.dev_url.as_ref().map(Url::as_str),
                 "lowMemory": LOW_MEMORY.load(Ordering::Acquire),
+                "layoutTrace": layout_trace::enabled(),
             })
             .to_string(),
         )?;
@@ -754,6 +781,30 @@ fn edit_event_payload(id: &str, event: &Value) -> Option<Value> {
 
 fn handle_event(native_id: &str, event: Value) {
     let kind = event.get("type").and_then(Value::as_str).unwrap_or("");
+    if kind == "layoutTrace" {
+        if layout_trace::enabled() {
+            let window = registry()
+                .lock()
+                .ok()
+                .and_then(|entries| entries.pages.get(native_id).cloned())
+                .map(|context| context.caller.label().to_string())
+                .unwrap_or_default();
+            layout_trace::record(
+                event
+                    .get("phase")
+                    .and_then(Value::as_str)
+                    .unwrap_or("native"),
+                native_id,
+                &window,
+                event
+                    .get("visible")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                event.get("geometry").cloned().unwrap_or(Value::Null),
+            );
+        }
+        return;
+    }
     if kind == "result" {
         let Some(request) = event.get("requestId").and_then(Value::as_str) else {
             return;
@@ -1188,11 +1239,27 @@ pub async fn browser_create(
     url: String,
     bounds: BrowserBounds,
 ) -> Result<(), String> {
+    trace_layout(
+        "create-request",
+        &id,
+        caller.label(),
+        &bounds,
+        false,
+        Value::Null,
+    );
     let _work = crate::window::begin_runtime_work(caller.app_handle())?;
     let root = label(&caller, &id)?;
     let url = parse_url(&caller, &url)?;
     bounds.validate()?;
     if preview(&caller, &id).is_ok() {
+        trace_layout(
+            "create-existing",
+            &id,
+            caller.label(),
+            &bounds,
+            true,
+            Value::Null,
+        );
         return browser_layout(caller, id, bounds, true).await;
     }
     let delegate = crate::workspace_window::owner_for_child(caller.app_handle(), caller.label());
@@ -1495,10 +1562,54 @@ pub async fn browser_layout(
     bounds: BrowserBounds,
     visible: bool,
 ) -> Result<(), String> {
-    bounds.validate()?;
-    let page = preview(&caller, &id)?;
+    trace_layout(
+        "layout-request",
+        &id,
+        caller.label(),
+        &bounds,
+        visible,
+        Value::Null,
+    );
+    if let Err(error) = bounds.validate() {
+        trace_layout(
+            "layout-invalid",
+            &id,
+            caller.label(),
+            &bounds,
+            visible,
+            Value::Null,
+        );
+        return Err(error);
+    }
+    let page = match preview(&caller, &id) {
+        Ok(page) => page,
+        Err(error) => {
+            trace_layout(
+                "layout-lookup-missing",
+                &id,
+                caller.label(),
+                &bounds,
+                visible,
+                Value::Null,
+            );
+            return Err(error);
+        }
+    };
     let mut placement = page.0.placement.lock().await;
     let delegated = placement.detached_window.as_deref() == Some(caller.label());
+    trace_layout(
+        "layout-owner",
+        &page.0.native_id,
+        caller.label(),
+        &bounds,
+        visible,
+        json!({
+            "owner": page.0.caller.label(), "delegated": delegated,
+            "detachedWindow": placement.detached_window, "floatingWindow": placement.window,
+            "closed": page.0.closed.load(Ordering::Acquire),
+            "dockVisible": placement.dock_visible, "awaitingLayout": placement.awaiting_layout,
+        }),
+    );
     if delegated {
         placement.detached_bounds = Some(bounds.clone());
         placement.detached_visible = visible;
@@ -1511,6 +1622,14 @@ pub async fn browser_layout(
         || placement.window.is_some()
         || page.0.closed.load(Ordering::Acquire)
     {
+        trace_layout(
+            "layout-skipped",
+            &page.0.native_id,
+            caller.label(),
+            &bounds,
+            visible,
+            Value::Null,
+        );
         return Ok(());
     }
     let context = page.0.clone();
@@ -1522,6 +1641,14 @@ pub async fn browser_layout(
         let [clip_left, clip_right] = bounds.clip_points(scale)?;
         let viewport_height = bounds.viewport_points(scale)?;
         let bottom_corner_radius = bounds.bottom_radius_points(scale)?;
+        trace_layout(
+            "layout-accepted",
+            &context.native_id,
+            window.label(),
+            &bounds,
+            visible,
+            json!({"nativeScale": scale, "points": [x, y, w, h]}),
+        );
         let native_id = string(&context.native_id)?;
         native_result(unsafe {
             sm_chromium_layout(
@@ -1541,6 +1668,19 @@ pub async fn browser_layout(
     .await;
     if result.is_ok() {
         placement.awaiting_layout = false;
+    }
+    if layout_trace::enabled() {
+        layout_trace::record(
+            if result.is_ok() {
+                "layout-complete"
+            } else {
+                "layout-failed"
+            },
+            &page.0.native_id,
+            caller.label(),
+            visible,
+            Value::Null,
+        );
     }
     result
 }
@@ -1956,8 +2096,22 @@ pub async fn browser_show_floating(caller: Webview, id: String) -> Result<(), St
     window.set_focus().map_err(|error| error.to_string())
 }
 async fn close_context(context: Arc<PageContext>) -> Result<(), String> {
+    layout_trace::record(
+        "close-request",
+        &context.native_id,
+        context.caller.label(),
+        false,
+        Value::Null,
+    );
     let mut placement = context.placement.lock().await;
     if context.closed.swap(true, Ordering::AcqRel) {
+        layout_trace::record(
+            "close-already-requested",
+            &context.native_id,
+            context.caller.label(),
+            false,
+            Value::Null,
+        );
         return Ok(());
     }
     let app = context.caller.app_handle();
@@ -1975,6 +2129,17 @@ async fn close_context(context: Arc<PageContext>) -> Result<(), String> {
         native_result(unsafe { sm_chromium_close(id.as_ptr()) })
     })
     .await;
+    layout_trace::record(
+        if result.is_ok() {
+            "close-native-accepted"
+        } else {
+            "close-native-failed"
+        },
+        &context.native_id,
+        context.caller.label(),
+        false,
+        Value::Null,
+    );
     if result.is_ok() {
         // Keep the owning NSWindow alive until Chromium releases its child view.
         // Waiting on the async worker lets Cocoa continue delivering close events.
@@ -1984,6 +2149,13 @@ async fn close_context(context: Arc<PageContext>) -> Result<(), String> {
         .await
         .map_err(|error| error.to_string())?;
         if finished.is_err() {
+            layout_trace::record(
+                "close-timeout",
+                &context.native_id,
+                context.caller.label(),
+                false,
+                Value::Null,
+            );
             context.closed.store(false, Ordering::Release);
             registry()
                 .lock()
@@ -1999,6 +2171,13 @@ async fn close_context(context: Arc<PageContext>) -> Result<(), String> {
         .closing
         .remove(&context.native_id);
     remove_context(&context);
+    layout_trace::record(
+        "close-context-removed",
+        &context.native_id,
+        context.caller.label(),
+        false,
+        Value::Null,
+    );
     if let Some(label) = placement.window.take() {
         registry()
             .lock()
