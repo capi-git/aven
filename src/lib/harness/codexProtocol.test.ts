@@ -262,6 +262,57 @@ describe("buildThreadStartParams / buildTurnStartParams", () => {
     expect(params.approvalPolicy).toBe("never");
   });
 
+  it("restates the thread's reported model so a plan turn really plans", () => {
+    const params = buildTurnStartParams({
+      threadId: "t",
+      runtimeMode: "auto",
+      model: "",
+      intent: "plan",
+      threadModel: "gpt-5.6-terra",
+      threadEffort: "medium",
+    });
+    expect(params).not.toHaveProperty("model");
+    expect(params.collaborationMode).toEqual({
+      mode: "plan",
+      settings: {
+        model: "gpt-5.6-terra",
+        reasoning_effort: "medium",
+        developer_instructions: null,
+      },
+    });
+    expect(params.sandboxPolicy).toEqual({ type: "readOnly" });
+  });
+
+  it("returns a default turn after a plan to default mode without a selected model", () => {
+    const params = buildTurnStartParams({
+      threadId: "t",
+      runtimeMode: "auto",
+      model: "  ",
+      threadModel: "gpt-5.6-terra",
+    });
+    expect(params).not.toHaveProperty("model");
+    expect(params.collaborationMode).toMatchObject({
+      mode: "default",
+      settings: { model: "gpt-5.6-terra", reasoning_effort: null },
+    });
+    expect(params.sandboxPolicy).toEqual({ type: "workspaceWrite" });
+  });
+
+  it("prefers the selected model and effort over the thread's previous ones", () => {
+    const params = buildTurnStartParams({
+      threadId: "t",
+      runtimeMode: "auto",
+      model: "gpt-6-sol",
+      threadModel: "gpt-5.6-terra",
+      threadEffort: "high",
+    });
+    expect(params.model).toBe("gpt-6-sol");
+    expect(params.collaborationMode).toMatchObject({
+      mode: "default",
+      settings: { model: "gpt-6-sol", reasoning_effort: null },
+    });
+  });
+
   it("builds turn input with text and image attachments", () => {
     const turn = buildTurnStartParams({
       threadId: "thr_1",

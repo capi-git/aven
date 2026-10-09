@@ -700,6 +700,71 @@ describe("codex live turn sequence", () => {
     await turn;
   });
 
+  it("switches plan and default modes with the thread's reported model when none is selected", async () => {
+    const send = (intent?: TurnIntent) =>
+      sendCodexTurn({
+        sessionId: "codex-live",
+        cwd: "/repo",
+        model: "",
+        modelSettings: {},
+        runtimeMode: "auto",
+        intent,
+        text: "next step",
+        onEvent: () => undefined,
+      });
+    const plan = send("plan");
+    await waitFor(
+      () => parse().some((m) => m.method === "initialize"),
+      "initialize",
+    );
+    reply(parse().find((m) => m.method === "initialize")!.id as number, {});
+    await waitFor(
+      () => parse().some((m) => m.method === "thread/start"),
+      "thread/start",
+    );
+    reply(parse().find((m) => m.method === "thread/start")!.id as number, {
+      thread: { id: "thr_1" },
+      model: "gpt-5.6-terra",
+      reasoningEffort: "medium",
+    });
+    await waitFor(
+      () => parse().some((m) => m.method === "turn/start"),
+      "plan turn/start",
+    );
+    const planRequest = parse().find((m) => m.method === "turn/start")!;
+    expect(planRequest.params).not.toHaveProperty("model");
+    expect(planRequest.params).toMatchObject({
+      collaborationMode: {
+        mode: "plan",
+        settings: { model: "gpt-5.6-terra", reasoning_effort: "medium" },
+      },
+    });
+    reply(planRequest.id as number, {
+      turn: { id: "turn_1", status: "inProgress" },
+    });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await plan;
+
+    sent.length = 0;
+    const next = send();
+    await waitFor(
+      () => parse().some((m) => m.method === "turn/start"),
+      "default turn/start",
+    );
+    const request = parse().find((m) => m.method === "turn/start")!;
+    expect(request.params).toMatchObject({
+      collaborationMode: {
+        mode: "default",
+        settings: { model: "gpt-5.6-terra" },
+      },
+    });
+    reply(request.id as number, {
+      turn: { id: "turn_2", status: "inProgress" },
+    });
+    notify("turn/completed", { turn: { id: "turn_2", status: "completed" } });
+    await next;
+  });
+
   it("applies Full access to the next turn of an existing supervised thread", async () => {
     const first = await startTurn("codex-live");
     notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
