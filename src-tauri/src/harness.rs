@@ -560,14 +560,42 @@ enum OutputMessage {
     Stop,
 }
 
-fn read_harness_lines(reader: impl Read, sender: mpsc::SyncSender<OutputMessage>) {
-    for line in BufReader::new(reader).lines() {
-        let Ok(line) = line else { break };
-        if sender.send(OutputMessage::Line(line)).is_err() {
+/// Like `BufRead::lines`, but an invalid UTF-8 byte cannot end the stream.
+/// Stopping early drops the pipe, and the provider then dies of a broken pipe
+/// mid-turn. Invalid bytes become U+FFFD; only EOF or a read error stops.
+fn for_each_lossy_line(mut reader: impl BufRead, mut visit: impl FnMut(String) -> bool) {
+    let mut buffer = Vec::new();
+    loop {
+        buffer.clear();
+        match reader.read_until(b'\n', &mut buffer) {
+            Ok(0) | Err(_) => return,
+            Ok(_) => {}
+        }
+        if buffer.last() == Some(&b'\n') {
+            buffer.pop();
+            if buffer.last() == Some(&b'\r') {
+                buffer.pop();
+            }
+        }
+        let line = match String::from_utf8(std::mem::take(&mut buffer)) {
+            Ok(line) => line,
+            Err(error) => String::from_utf8_lossy(error.as_bytes()).into_owned(),
+        };
+        if !visit(line) {
             return;
         }
     }
-    let _ = sender.send(OutputMessage::End);
+}
+
+fn read_harness_lines(reader: impl Read, sender: mpsc::SyncSender<OutputMessage>) {
+    let mut receiver_open = true;
+    for_each_lossy_line(BufReader::new(reader), |line| {
+        receiver_open = sender.send(OutputMessage::Line(line)).is_ok();
+        receiver_open
+    });
+    if receiver_open {
+        let _ = sender.send(OutputMessage::End);
+    }
 }
 
 fn forward_harness_batches(
@@ -656,16 +684,16 @@ fn finish_child_output(
 }
 
 fn forward_harness_output(reader: impl Read, open: &Mutex<bool>, mut emit: impl FnMut(String)) {
-    for line in BufReader::new(reader).lines() {
-        let Ok(line) = line else { break };
+    for_each_lossy_line(BufReader::new(reader), |line| {
         // Serialize closing the output gate with delivery. After a bounded
         // drain expires, an inherited pipe must not emit after the exit event.
         let open = open.lock().unwrap_or_else(|error| error.into_inner());
         if !*open {
-            break;
+            return false;
         }
         emit(line);
-    }
+        true
+    });
 }
 
 fn finish_harness_output(drained: &mpsc::Receiver<()>, open: &Mutex<bool>, timeout: Duration) {
@@ -942,17 +970,16 @@ fn read_http_response(response: ureq::Response) -> Result<HarnessHttpResponse, S
 
 fn read_sse<R: BufRead>(reader: R, app: &AppHandle, session_id: &str, stop: &AtomicBool) {
     let mut data = String::new();
-    for line in reader.lines() {
+    for_each_lossy_line(reader, |line| {
         if stop.load(Ordering::SeqCst) {
-            break;
+            return false;
         }
-        let Ok(line) = line else { break };
         if line.starts_with(':') {
-            continue;
+            return true;
         }
         if line.is_empty() {
             if data.is_empty() {
-                continue;
+                return true;
             }
             let payload = std::mem::take(&mut data);
             let _ = app.emit(
@@ -962,7 +989,7 @@ fn read_sse<R: BufRead>(reader: R, app: &AppHandle, session_id: &str, stop: &Ato
                     data: payload,
                 },
             );
-            continue;
+            return true;
         }
         if let Some(rest) = line.strip_prefix("data:") {
             let piece = rest.strip_prefix(' ').unwrap_or(rest);
@@ -971,7 +998,8 @@ fn read_sse<R: BufRead>(reader: R, app: &AppHandle, session_id: &str, stop: &Ato
             }
             data.push_str(piece);
         }
-    }
+        true
+    });
 }
 
 fn emit_sse_end(app: &AppHandle, session_id: &str, error: Option<String>) {
@@ -2966,6 +2994,58 @@ mod tests {
         assert!(still_draining);
         assert!(stop_result.unwrap().is_ok());
         assert!(!host.lock_inner().stopping.contains_key("draining"));
+    }
+
+    #[test]
+    fn harness_output_survives_invalid_utf8_without_reordering_lines() {
+        let input = b"first\n{\"text\":\"\xff\xfe\"}\r\nthird\r\nunterminated".to_vec();
+        let (send, receive) = mpsc::sync_channel(OUTPUT_BATCH_LINES);
+        let reader = thread::spawn(move || read_harness_lines(std::io::Cursor::new(input), send));
+        let mut lines = Vec::new();
+        forward_harness_batches(&receive, &Mutex::new(true), |batch| lines.extend(batch));
+        reader.join().unwrap();
+        assert_eq!(
+            lines,
+            [
+                "first",
+                "{\"text\":\"\u{fffd}\u{fffd}\"}",
+                "third",
+                "unterminated"
+            ]
+        );
+
+        let mut diagnostics = Vec::new();
+        forward_harness_output(
+            std::io::Cursor::new(b"warn \xc3\nafter\n"),
+            &Mutex::new(true),
+            |line| diagnostics.push(line),
+        );
+        assert_eq!(diagnostics, ["warn \u{fffd}", "after"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn harness_keeps_reading_provider_stdout_after_invalid_utf8() {
+        // A reader that stopped at the bad line would close the pipe, and the
+        // provider's next write would fail with a broken pipe mid-turn.
+        let mut child = Command::new("sh")
+            .args([
+                "-c",
+                "printf 'bad \\377\\n'; sleep 0.2; i=0; while [ $i -lt 2000 ]; do printf 'line %s\\n' $i || exit 3; i=$((i+1)); done",
+            ])
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let (send, receive) = mpsc::sync_channel(OUTPUT_BATCH_LINES);
+        let reader = thread::spawn(move || read_harness_lines(stdout, send));
+        let mut lines = Vec::new();
+        forward_harness_batches(&receive, &Mutex::new(true), |batch| lines.extend(batch));
+        reader.join().unwrap();
+        assert!(child.wait().unwrap().success());
+        assert_eq!(lines.len(), 2001);
+        assert_eq!(lines[0], "bad \u{fffd}");
+        assert_eq!(lines[2000], "line 1999");
     }
 
     #[test]
