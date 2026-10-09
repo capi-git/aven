@@ -29,6 +29,7 @@ import {
 } from "react";
 import type { SidebarTabId } from "../lib/appearance";
 import type { HoverRevealHandlers } from "../hooks/useHoverRevealPanel";
+import { DeleteWorkspaceDialog } from "./DeleteWorkspaceDialog";
 import { WorkspaceProfileMenu } from "./WorkspaceProfileMenu";
 import {
   basename,
@@ -210,6 +211,7 @@ export type SidebarProps = {
   activeProfileId?: string;
   onSelectProfile?: (id: string) => void;
   onCreateProfile?: (name: string) => void;
+  onDeleteProfile?: (id: string) => void;
   onMoveProject?: (path: string, profileId: string) => void;
   onAddProject?: (anchor?: HTMLButtonElement) => void;
   projectSessions?: Record<string, readonly SessionSummary[]>;
@@ -288,6 +290,7 @@ function SidebarComponent({
   activeProfileId = "personal",
   onSelectProfile,
   onCreateProfile,
+  onDeleteProfile,
   onMoveProject,
   onAddProject,
   projectSessions = {},
@@ -329,6 +332,8 @@ function SidebarComponent({
   onOpenWhatsNew,
   onDismissUpdate,
 }: SidebarProps) {
+  const [deletingProfile, setDeletingProfile] =
+    useState<WorkspaceProfile | null>(null);
   const [profileMenuAnchor, setProfileMenuAnchor] =
     useState<HTMLButtonElement | null>(null);
   useEffect(() => setProfileMenuAnchor(null), [activeProfileId, open]);
@@ -1460,7 +1465,15 @@ function SidebarComponent({
           activeProfileId={activeProfileId}
           anchor={profileMenuAnchor}
           onSelect={selectProfile}
+          onDelete={onDeleteProfile ? setDeletingProfile : undefined}
           onDismiss={() => setProfileMenuAnchor(null)}
+        />
+      ) : null}
+      {deletingProfile && onDeleteProfile ? (
+        <DeleteWorkspaceDialog
+          profile={deletingProfile}
+          onCancel={() => setDeletingProfile(null)}
+          onDelete={onDeleteProfile}
         />
       ) : null}
       {settingsOpen && onSelectSettingsSection && onCloseSettings ? (

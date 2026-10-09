@@ -59,6 +59,11 @@ function knownWorkspaces(): Map<string, string> {
   return cachedProfiles;
 }
 
+/** Includes retained scratch folders from deleted workspace collections. */
+export function projectlessWorkspacePaths(): string[] {
+  return [...knownWorkspaces().values()];
+}
+
 /** Exact persisted paths make restored sessions recognizable before async setup. */
 export function projectlessProfileForCwd(cwd: string): string | undefined {
   knownWorkspaces();

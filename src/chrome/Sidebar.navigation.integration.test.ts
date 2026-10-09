@@ -66,6 +66,7 @@ function ProjectNavigationSidebar() {
     profiles: profiles.profiles,
     activeProfileId: profiles.activeProfileId,
     onSelectProject: selectProject,
+    onDeleteProfile: profiles.deleteProfile,
     onSelectProfile: (id) =>
       restoreProfileWorkspace(id, profiles.selectProfile, selectProject),
   });
@@ -109,6 +110,35 @@ function menu() {
 }
 
 describe("sidebar workspace navigation", () => {
+  it("deletes through the workspace menu and confirmation while retaining its projects", async () => {
+    const state = assignWorkspaceProject(
+      defaultWorkspaceProfiles(),
+      "/projects/Catalog",
+      "work",
+    );
+    state.activeProfileId = "work";
+    saveWorkspaceProfiles(state);
+    await act(async () => root.render(createElement(ProjectNavigationSidebar)));
+    await click(button("Switch workspace, Work"));
+    const remove = [...menu()!.querySelectorAll("button")].find(
+      (button) => button.textContent === "Delete workspace…",
+    )!;
+    await click(remove);
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      "Delete “Work”?",
+    );
+    expect(button("Switch workspace, Work")).not.toBeNull();
+    const confirm = [
+      ...document.querySelectorAll('[role="dialog"] button'),
+    ].find((button) => button.textContent === "Delete workspace")!;
+    await click(confirm as HTMLElement);
+    expect(button("Switch workspace, Personal")).not.toBeNull();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    await click(button("Switch workspace, Personal"));
+    expect(menu()?.textContent).toBe("Personal");
+    expect(container.textContent).toContain("Catalog");
+  });
+
   it.each([false, true])(
     "keeps Work projects and their workspace after storage loss (writes fail: %s)",
     async (writesFail) => {

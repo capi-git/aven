@@ -6,7 +6,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import type { WorkspaceProfile } from "../lib/workspaceProfiles";
-import { Check } from "./icons";
+import { Check, Trash2 } from "./icons";
 import { WorkspaceProfileIcon } from "./PersonalWorkspaceSwitcher";
 import { Popover } from "./Popover";
 
@@ -15,6 +15,7 @@ type Props = {
   activeProfileId: string;
   anchor: HTMLButtonElement;
   onSelect: (id: string) => void;
+  onDelete?: (profile: WorkspaceProfile) => void;
   onDismiss: () => void;
 };
 
@@ -29,6 +30,7 @@ export function WorkspaceProfileMenu({
   activeProfileId,
   anchor,
   onSelect,
+  onDelete,
   onDismiss,
 }: Props) {
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -84,7 +86,7 @@ export function WorkspaceProfileMenu({
   const navigate = (event: KeyboardEvent<HTMLDivElement>) => {
     const buttons = [
       ...(menuRef.current?.querySelectorAll<HTMLButtonElement>(
-        '[role="menuitemradio"]',
+        '[role="menuitemradio"], [role="menuitem"]',
       ) ?? []),
     ];
     if (!buttons.length) return;
@@ -164,6 +166,30 @@ export function WorkspaceProfileMenu({
           </button>
         );
       })}
+      {onDelete &&
+      activeProfileId !== "personal" &&
+      profiles.some((profile) => profile.id === activeProfileId) ? (
+        <>
+          <div role="separator" className="my-1 border-t border-content/10" />
+          <button
+            type="button"
+            role="menuitem"
+            tabIndex={focusedId === "delete" ? 0 : -1}
+            onFocus={() => setFocusedId("delete")}
+            className="flex min-h-9 w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs text-red-600 dark:text-red-400 hover:bg-content/8 focus:bg-content/10 focus:outline-none"
+            onClick={() => {
+              const profile = profiles.find(
+                (item) => item.id === activeProfileId,
+              );
+              close(true);
+              if (profile) onDelete(profile);
+            }}
+          >
+            <Trash2 aria-hidden="true" className="size-3.5 shrink-0" />
+            <span>Delete workspace…</span>
+          </button>
+        </>
+      ) : null}
     </Popover>
   );
 }
