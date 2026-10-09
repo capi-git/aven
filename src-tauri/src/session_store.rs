@@ -31,6 +31,9 @@ CREATE INDEX IF NOT EXISTS sessions_cwd_updated_idx
 
 pub struct SessionStore {
     conn: Mutex<Connection>,
+    /// Why history could not be opened this launch. Commands report it
+    /// instead of touching the placeholder connection.
+    unavailable: Option<String>,
 }
 
 impl SessionStore {
@@ -54,6 +57,19 @@ impl SessionStore {
         migrate(&conn).map_err(|e| e.to_string())?;
         Ok(Self {
             conn: Mutex::new(conn),
+            unavailable: None,
+        })
+    }
+
+    /// A failed open or migration must not stop Aven from launching. The
+    /// migration rolled back, so the next launch retries with the same data.
+    fn open_or_unavailable(path: Result<PathBuf, String>) -> Result<Self, String> {
+        path.and_then(Self::open).or_else(|error| {
+            eprintln!("[aven] Session history is unavailable: {error}");
+            Ok(Self {
+                conn: Mutex::new(Connection::open_in_memory().map_err(|e| e.to_string())?),
+                unavailable: Some(format!("Chat history could not be opened: {error}")),
+            })
         })
     }
 
@@ -65,10 +81,14 @@ impl SessionStore {
         migrate(&conn).map_err(|e| e.to_string())?;
         Ok(Self {
             conn: Mutex::new(conn),
+            unavailable: None,
         })
     }
 
     pub(crate) fn lock_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>, String> {
+        if let Some(error) = &self.unavailable {
+            return Err(error.clone());
+        }
         self.conn
             .lock()
             .map_err(|_| "Session store is locked".into())
@@ -77,6 +97,8 @@ impl SessionStore {
 
 /// VACUUM INTO is a consistent SQLite snapshot including committed WAL pages.
 /// Keep this adjacent backup before the first incompatible transcript write.
+/// A failed migration rolls back, so a backup completed by an earlier attempt
+/// still describes the legacy data; reuse it instead of adding one per launch.
 fn backup_legacy_transcripts(conn: &Connection, path: &std::path::Path) -> Result<(), String> {
     let legacy: bool = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sessions')
@@ -98,10 +120,31 @@ fn backup_legacy_transcripts(conn: &Connection, path: &std::path::Path) -> Resul
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or("Invalid session database path")?;
-    let backup = path.with_file_name(format!(
-        "{filename}.pre-transcript-v12-{}.db",
-        uuid::Uuid::new_v4()
-    ));
+    let dir = path
+        .parent()
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .unwrap_or(std::path::Path::new("."));
+    let prefix = format!("{filename}.pre-transcript-v12-");
+    let mut completed = false;
+    for entry in std::fs::read_dir(dir)
+        .map_err(|error| format!("Cannot inspect session history backups: {error}"))?
+    {
+        let Ok(entry) = entry else { continue };
+        let name = entry.file_name();
+        let Some(rest) = name.to_str().and_then(|name| name.strip_prefix(&prefix)) else {
+            continue;
+        };
+        if rest.ends_with(".db") {
+            completed = true;
+        } else if rest.ends_with(".partial") {
+            // Left by an interrupted attempt; the database is still legacy.
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+    if completed {
+        return Ok(());
+    }
+    let backup = dir.join(format!("{prefix}{}.db", uuid::Uuid::new_v4()));
     let partial = backup.with_extension("partial");
     let partial_path = partial.to_str().ok_or("Invalid session backup path")?;
     let mut options = std::fs::OpenOptions::new();
@@ -118,24 +161,42 @@ fn backup_legacy_transcripts(conn: &Connection, path: &std::path::Path) -> Resul
             .open(&partial)
             .map_err(|error| format!("Cannot create session history backup: {error}"))?,
     );
+    // VACUUM INTO does not sync. Make the snapshot durable before its name is
+    // published, and before the migration that depends on it can commit.
     let result = conn
         .execute("VACUUM main INTO ?1", [partial_path])
         .map_err(|error| error.to_string())
-        .and_then(|_| std::fs::rename(&partial, &backup).map_err(|error| error.to_string()));
+        .and_then(|_| {
+            std::fs::File::open(&partial)
+                .and_then(|file| file.sync_all())
+                .and_then(|_| std::fs::rename(&partial, &backup))
+                .map_err(|error| error.to_string())
+        });
     if let Err(error) = result {
         let _ = std::fs::remove_file(&partial);
         return Err(format!(
             "Cannot back up session history before migration: {error}"
         ));
     }
+    #[cfg(unix)]
+    if let Err(error) = std::fs::File::open(dir).and_then(|dir| dir.sync_all()) {
+        eprintln!("[aven] Session history backup directory sync failed: {error}");
+    }
     Ok(())
 }
 
-pub fn init(app: &AppHandle) -> Result<(), String> {
-    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let store = SessionStore::open(data_dir.join("monocode.db"))?;
-    app.manage(store);
-    Ok(())
+pub fn init(app: &AppHandle) {
+    let path = app
+        .path()
+        .app_data_dir()
+        .map(|dir| dir.join("monocode.db"))
+        .map_err(|e| e.to_string());
+    match SessionStore::open_or_unavailable(path) {
+        Ok(store) => {
+            app.manage(store);
+        }
+        Err(error) => eprintln!("[aven] Session store placeholder failed: {error}"),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -251,7 +312,7 @@ pub fn session_upsert(
     // Git can spawn processes and JSON can be megabytes. Neither needs the
     // SQLite lock shared by history, drafts, notes and workspace snapshots.
     let prepared = prepare_session(&session).map_err(|e| e.to_string())?;
-    let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
+    let conn = store.lock_conn()?;
     upsert_prepared_session(&conn, &session, prepared).map_err(|e| e.to_string())
 }
 
@@ -264,7 +325,7 @@ pub fn session_list_by_project(
         return Err("cwd is required".into());
     }
     let git = crate::fs::git_info_for(&crate::fs::expand_home(&cwd));
-    let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
+    let conn = store.lock_conn()?;
     list_by_project_with_git(&conn, &cwd, git.branch, git.repo).map_err(|e| e.to_string())
 }
 
@@ -278,7 +339,7 @@ pub fn session_list_project_ids(
     if cwd.trim().is_empty() {
         return Err("cwd is required".into());
     }
-    let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
+    let conn = store.lock_conn()?;
     list_project_ids(&conn, &cwd).map_err(|e| e.to_string())
 }
 
@@ -288,7 +349,7 @@ pub fn session_get(
     session_id: String,
 ) -> Result<Option<SessionRecord>, String> {
     validate_id(&session_id, "session")?;
-    let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
+    let conn = store.lock_conn()?;
     get_session(&conn, &session_id).map_err(|e| e.to_string())
 }
 
@@ -335,7 +396,7 @@ pub fn session_search(
     store: State<'_, SessionStore>,
     options: SessionSearchOptions,
 ) -> Result<SessionSearchResult, String> {
-    let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
+    let conn = store.lock_conn()?;
     search_sessions(&conn, &options).map_err(|e| e.to_string())
 }
 
@@ -355,7 +416,7 @@ fn delete_session_and_assets(
     session_id: &str,
 ) -> Result<(), String> {
     validate_id(session_id, "session")?;
-    let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
+    let conn = store.lock_conn()?;
     delete_session(&conn, session_id).map_err(|e| e.to_string())?;
     drop(conn);
     // The transcript deletion is authoritative. Its page screenshots are
@@ -373,7 +434,7 @@ pub fn session_set_archived(
     archived: bool,
 ) -> Result<(), String> {
     validate_id(&session_id, "session")?;
-    let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
+    let conn = store.lock_conn()?;
     set_archived(&conn, &session_id, archived).map_err(|e| e.to_string())
 }
 
@@ -384,7 +445,7 @@ pub fn session_set_pinned(
     pinned: bool,
 ) -> Result<(), String> {
     validate_id(&session_id, "session")?;
-    let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
+    let conn = store.lock_conn()?;
     set_pinned(&conn, &session_id, pinned).map_err(|e| e.to_string())
 }
 
@@ -406,7 +467,7 @@ pub fn session_set_in_flight(
             return Err("cwd is required".into());
         }
     }
-    let mut conn = store.conn.lock().map_err(|_| "Session store is locked")?;
+    let mut conn = store.lock_conn()?;
     replace_in_flight(&mut conn, &sessions).map_err(|e| e.to_string())
 }
 
@@ -416,7 +477,7 @@ pub fn session_set_in_flight(
 pub fn session_list_in_flight(
     store: State<'_, SessionStore>,
 ) -> Result<Vec<InFlightSession>, String> {
-    let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
+    let conn = store.lock_conn()?;
     list_in_flight(&conn).map_err(|e| e.to_string())
 }
 
@@ -425,7 +486,7 @@ pub fn session_list_in_flight(
 pub fn session_take_in_flight(
     store: State<'_, SessionStore>,
 ) -> Result<Vec<InFlightSession>, String> {
-    let mut conn = store.conn.lock().map_err(|_| "Session store is locked")?;
+    let mut conn = store.lock_conn()?;
     take_in_flight(&mut conn).map_err(|e| e.to_string())
 }
 
@@ -443,13 +504,13 @@ pub fn workspace_set_snapshot(
     if json.len() > WORKSPACE_SNAPSHOT_MAX_BYTES {
         return Err("workspace snapshot is too large".into());
     }
-    let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
+    let conn = store.lock_conn()?;
     set_workspace_snapshot(&conn, &json).map_err(|e| e.to_string())
 }
 
 #[tauri::command(async)]
 pub fn workspace_get_snapshot(store: State<'_, SessionStore>) -> Result<Option<Value>, String> {
-    let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
+    let conn = store.lock_conn()?;
     let json = get_workspace_snapshot(&conn).map_err(|e| e.to_string())?;
     match json {
         None => Ok(None),
@@ -1832,8 +1893,10 @@ mod tests {
         for id in ["lead", "old-worker", "current-worker"] {
             upsert_session(&conn, &sample(id, "/tmp/a", id)).unwrap();
         }
+        // Return the worker to its pre-migration (legacy) form.
         conn.execute(
-            "UPDATE sessions SET blocks_json = ?1 WHERE id = 'old-worker'",
+            "UPDATE sessions SET blocks_storage = 0, blocks_count = 0, blocks_revision = '',
+               blocks_json = ?1 WHERE id = 'old-worker'",
             [
                 json!([{"role": "user", "orchestrationLeadId": "lead", "text": "Old task"}])
                     .to_string(),
