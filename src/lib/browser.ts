@@ -17,6 +17,20 @@ export type BrowserBounds = {
   clipRight?: number;
   /** Bottom content curve, in CSS pixels; native views sit above CSS clipping. */
   bottomCornerRadius?: number;
+  /**
+   * Regions cut out of the live native page so in-app menus drawn beneath it
+   * show through. CSS pixels relative to the page origin (`x`, `y`).
+   */
+  holes?: BrowserHole[];
+};
+
+/** A rounded rectangle cut out of the native page, relative to its origin. */
+export type BrowserHole = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  radius: number;
 };
 
 export type BrowserAction =
@@ -140,6 +154,8 @@ export type BrowserState = {
   focused?: boolean;
   /** Native menus can sit above Chromium without replacing the page. */
   nativeMenus?: boolean;
+  /** The engine can cut layout `holes` so in-app menus show through the page. */
+  nativeHoles?: boolean;
   nativeDropIndicator?: boolean;
   /** The native page was destroyed; Retry must allocate a fresh page. */
   closed?: boolean;

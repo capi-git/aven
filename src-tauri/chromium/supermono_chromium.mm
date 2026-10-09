@@ -64,6 +64,8 @@ __strong NSArray *pump_wake_observers=nil;
 __strong id input_monitor=nil;
 bool pump_active=false,pump_reentered=false;
 constexpr int64_t kPumpFallback=supermono::kBrowserPumpFallback;
+// Matches the Rust bound; more overlapping surfaces use the still-image path.
+constexpr int kMaxBrowserHoles=8;
 bool handling_send_event = false;
 IMP original_send_event = nullptr;
 
@@ -741,8 +743,11 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
         !NSEqualSizes(clip_view_.bounds.size,aligned.clip.size)))
       EditMode(false);
     supermono::ApplyBrowserHostFrames(clip_view_,view,aligned,auto_resize_);
-    supermono::ApplyBrowserBottomCornerMask(clip_view_,aligned.browser,
-      auto_resize_ ? 0 : bottom_corner_radius_,corner_mask_);
+    // Menus cut out of the live page keep it rendering around them. Floating
+    // windows contain only the page, so they never carry workspace cut-outs.
+    static const std::vector<supermono::BrowserHole> no_holes;
+    supermono::ApplyBrowserMask(clip_view_,aligned.browser,
+      auto_resize_ ? 0 : bottom_corner_radius_,auto_resize_ ? no_holes : holes_,corner_mask_);
     if (!visible_ || update_prepared_ || exposed<=0)
       supermono::ReturnHiddenBrowserFocus(clip_view_,WorkspaceWebView(parent_));
     const bool was_hidden=clip_view_.hidden;
@@ -854,6 +859,9 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   void NoteMouseDown(NSEvent *event) {
     if (!clip_view_ || clip_view_.hidden || event.window!=clip_view_.window) return;
     const NSPoint point=[clip_view_ convertPoint:event.locationInWindow fromView:nil];
+    // A click on an in-app menu cut out of the page is not page input.
+    if ([clip_view_ isKindOfClass:SMBrowserClipView.class] &&
+        [(SMBrowserClipView*)clip_view_ holeContainsPoint:point]) return;
     if (NSPointInRect(point,clip_view_.bounds)) user_input_=true;
   }
   bool CancelUpdate() {
@@ -1495,6 +1503,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   __strong SMBrowserDropIndicator *drop_indicator_=nil;
   __strong SMBrowserEditAnnotation *edit_annotation_=nil;
   double x_=0,y_=0,w_=1,h_=1,clip_left_=0,clip_right_=0,viewport_height_=0,bottom_corner_radius_=0;
+  std::vector<supermono::BrowserHole> holes_;
   bool visible_=false, auto_resize_=false;
 
  private:
@@ -1679,7 +1688,7 @@ extern "C" int sm_chromium_create(const char *id,void *parent,const char *url,co
     else { CefRequestContextSettings settings; CefString(&settings.cache_path)=path; settings.persist_session_cookies=true; request_context=CefRequestContext::CreateContext(settings,nullptr); profiles[path]=request_context; }
     CefRefPtr<Page> page=new Page(id); page->parent_=(__bridge NSView*)parent; page->x_=x; page->y_=y; page->w_=w; page->h_=h;
     page->parent_.wantsLayer=YES;
-    page->clip_view_=[[NSView alloc] initWithFrame:WorkspaceFrame(page->parent_,x,y,w,h)];
+    page->clip_view_=[[SMBrowserClipView alloc] initWithFrame:WorkspaceFrame(page->parent_,x,y,w,h)];
     page->clip_view_.wantsLayer=YES;
     page->clip_view_.clipsToBounds=YES; page->clip_view_.hidden=YES;
     [page->parent_ addSubview:page->clip_view_];
@@ -1698,10 +1707,21 @@ extern "C" int sm_chromium_create(const char *id,void *parent,const char *url,co
     last_error.clear(); return 1;
   } catch (const std::exception& e) { return Fail(e.what()); } catch (...) { return Fail("Chromium tab creation failed"); } }
 }
-extern "C" int sm_chromium_layout(const char *id,double x,double y,double w,double h,int visible,double clip_left,double clip_right,double viewport_height,double bottom_corner_radius) {
+extern "C" int sm_chromium_layout(const char *id,double x,double y,double w,double h,int visible,double clip_left,double clip_right,double viewport_height,double bottom_corner_radius,const double *holes,int hole_count) {
   @autoreleasepool { if (!MainThread()) return 0; auto page=FindPage(id); if (!page) return 0;
     if (!Geometry(x,y,w,h) || !std::isfinite(clip_left) || !std::isfinite(clip_right) || clip_left<0 || clip_right<0 || clip_left+clip_right>w || !std::isfinite(viewport_height) || viewport_height<0 || viewport_height>262144 || !std::isfinite(bottom_corner_radius) || bottom_corner_radius<0 || bottom_corner_radius>262144) return Fail("Invalid browser bounds");
-    page->x_=x; page->y_=y; page->w_=w; page->h_=h; page->clip_left_=clip_left; page->clip_right_=clip_right; page->viewport_height_=viewport_height; page->bottom_corner_radius_=bottom_corner_radius; page->visible_=visible; page->Layout(); return 1; }
+    if (hole_count<0 || hole_count>kMaxBrowserHoles || (hole_count>0 && !holes)) return Fail("Invalid browser bounds");
+    std::vector<supermono::BrowserHole> cut;
+    cut.reserve(hole_count);
+    for (int i=0;i<hole_count;++i) {
+      const double *v=holes+i*5;
+      if (!std::all_of(v,v+5,[](double value){ return std::isfinite(value) && value>=0 && value<=262144; })) return Fail("Invalid browser bounds");
+      // Clamp to the page; a cut-out never extends the native view.
+      const double left=std::min(v[0],w),top=std::min(v[1],h);
+      const double width=std::min(v[0]+v[2],w)-left,height=std::min(v[1]+v[3],h)-top;
+      if (width>0 && height>0) cut.push_back({left,top,width,height,std::min({v[4],width/2,height/2})});
+    }
+    page->x_=x; page->y_=y; page->w_=w; page->h_=h; page->clip_left_=clip_left; page->clip_right_=clip_right; page->viewport_height_=viewport_height; page->bottom_corner_radius_=bottom_corner_radius; page->holes_=std::move(cut); page->visible_=visible; page->Layout(); return 1; }
 }
 extern "C" int sm_chromium_reparent(const char *id,void *parent,double x,double y,double w,double h,double inset) {
   @autoreleasepool { if (!MainThread()) return 0; auto page=FindPage(id); if (!page) return 0;
@@ -1709,7 +1729,7 @@ extern "C" int sm_chromium_reparent(const char *id,void *parent,double x,double 
     if (!page->PrepareReparent()) return Fail("This page is going to sleep. Wait for it to reopen.");
     [page->drop_indicator_ clear];
     if (page->EditActive()) page->EditMode(false);
-    page->parent_=(__bridge NSView*)parent; page->x_=x; page->y_=y; page->w_=w; page->h_=h; page->clip_left_=page->clip_right_=page->viewport_height_=page->bottom_corner_radius_=0; page->auto_resize_=inset>=0; page->Layout(); return 1; }
+    page->parent_=(__bridge NSView*)parent; page->x_=x; page->y_=y; page->w_=w; page->h_=h; page->clip_left_=page->clip_right_=page->viewport_height_=page->bottom_corner_radius_=0; page->holes_.clear(); page->auto_resize_=inset>=0; page->Layout(); return 1; }
 }
 extern "C" int sm_chromium_command(const char *id,const char *request_id,const char *json) {
   @autoreleasepool { try {

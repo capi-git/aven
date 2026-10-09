@@ -33,7 +33,8 @@ fn trace_layout(
             json!({
                 "x": bounds.x, "y": bounds.y, "width": bounds.width, "height": bounds.height,
                 "scale": bounds.scale, "viewportHeight": bounds.viewport_height,
-                "clipLeft": bounds.clip_left, "clipRight": bounds.clip_right, "flags": flags,
+                "clipLeft": bounds.clip_left, "clipRight": bounds.clip_right,
+                "holes": bounds.holes.len(), "flags": flags,
             }),
         );
     }
@@ -67,6 +68,8 @@ extern "C" {
         clip_right: f64,
         viewport_height: f64,
         bottom_corner_radius: f64,
+        holes: *const f64,
+        hole_count: c_int,
     ) -> c_int;
     fn sm_chromium_reparent(
         id: *const c_char,
@@ -112,6 +115,23 @@ pub struct BrowserBounds {
     viewport_height: Option<f64>,
     #[serde(default)]
     bottom_corner_radius: f64,
+    /// In-app menus cut out of the live page, relative to its origin.
+    #[serde(default)]
+    holes: Vec<BrowserHole>,
+}
+
+/// Upper bound on page cut-outs; more surfaces use the still-image path.
+const MAX_BROWSER_HOLES: usize = 8;
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserHole {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    #[serde(default)]
+    radius: f64,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -145,6 +165,12 @@ impl BrowserBounds {
             || self
                 .viewport_height
                 .is_some_and(|height| !height.is_finite() || height <= 0.0 || height > 32768.0)
+            || self.holes.len() > MAX_BROWSER_HOLES
+            || self.holes.iter().any(|hole| {
+                [hole.x, hole.y, hole.width, hole.height, hole.radius]
+                    .iter()
+                    .any(|value| !value.is_finite() || *value < 0.0 || *value > 32768.0)
+            })
         {
             return Err("Invalid browser bounds".into());
         }
@@ -171,6 +197,25 @@ impl BrowserBounds {
         // Keep a fully covered viewport valid despite floating-point rounding.
         let right = (self.clip_right * ratio).min(self.width * ratio - left);
         Ok([left, right])
+    }
+    /// Flattened `[x, y, width, height, radius]` cut-outs in native points,
+    /// clamped to the page. Empty intersections are dropped.
+    fn hole_points(&self, native_scale: f64) -> Result<Vec<f64>, String> {
+        self.points(native_scale)?;
+        let ratio = self.scale / native_scale;
+        let mut points = Vec::with_capacity(self.holes.len() * 5);
+        for hole in &self.holes {
+            let left = hole.x.min(self.width);
+            let top = hole.y.min(self.height);
+            let width = (hole.x + hole.width).min(self.width) - left;
+            let height = (hole.y + hole.height).min(self.height) - top;
+            if width <= 0.0 || height <= 0.0 {
+                continue;
+            }
+            let radius = hole.radius.min(width / 2.0).min(height / 2.0);
+            points.extend([left, top, width, height, radius].map(|value| value * ratio));
+        }
+        Ok(points)
     }
     fn viewport_points(&self, native_scale: f64) -> Result<f64, String> {
         self.points(native_scale)?;
@@ -205,6 +250,7 @@ pub(crate) struct BrowserState {
     find_result: Option<Value>,
     engine: &'static str,
     native_menus: bool,
+    native_holes: bool,
     native_drop_indicator: bool,
     closed: bool,
     sleeping: bool,
@@ -1353,6 +1399,7 @@ pub async fn browser_create(
             find_result: None,
             engine: "chromium",
             native_menus: true,
+            native_holes: true,
             native_drop_indicator: true,
             closed: false,
             sleeping: false,
@@ -1743,6 +1790,7 @@ pub async fn browser_layout(
         let [clip_left, clip_right] = bounds.clip_points(scale)?;
         let viewport_height = bounds.viewport_points(scale)?;
         let bottom_corner_radius = bounds.bottom_radius_points(scale)?;
+        let holes = bounds.hole_points(scale)?;
         trace_layout(
             "layout-accepted",
             &context.native_id,
@@ -1764,6 +1812,8 @@ pub async fn browser_layout(
                 clip_right,
                 viewport_height,
                 bottom_corner_radius,
+                holes.as_ptr(),
+                (holes.len() / 5) as c_int,
             )
         })
     })
@@ -1840,6 +1890,10 @@ async fn move_page(
                 clip[1],
                 viewport_height,
                 bottom_corner_radius,
+                // Menu cut-outs are transient; the shell republishes them
+                // after a reparent rather than reusing stale rectangles.
+                std::ptr::null(),
+                0,
             )
         })
     })
@@ -2857,6 +2911,7 @@ mod tests {
             clip_right: 0.0,
             viewport_height: Some(860.0),
             bottom_corner_radius: 8.0,
+            holes: Vec::new(),
         };
         assert_eq!(bounds.points(2.0).unwrap(), [80.0, 40.0, 640.0, 480.0]);
         assert_eq!(bounds.viewport_points(2.0).unwrap(), 688.0);
@@ -2908,6 +2963,66 @@ mod tests {
         .validate()
         .is_err());
         assert!(bounds.points(0.0).is_err());
+    }
+    #[test]
+    fn validates_and_clamps_menu_holes_in_native_points() {
+        let bounds: BrowserBounds = serde_json::from_value(serde_json::json!({
+            "x": 100, "y": 50, "width": 800, "height": 600, "scale": 1.5,
+            "holes": [
+                {"x": 10, "y": 20, "width": 200, "height": 100, "radius": 12},
+                // Extends past the right and bottom edges of the page.
+                {"x": 700, "y": 550, "width": 300, "height": 300, "radius": 80},
+                // Entirely outside the page after clamping.
+                {"x": 800, "y": 0, "width": 50, "height": 50},
+            ]
+        }))
+        .unwrap();
+        bounds.validate().unwrap();
+        assert_eq!(
+            bounds.hole_points(1.0).unwrap(),
+            vec![15.0, 30.0, 300.0, 150.0, 18.0, 1050.0, 825.0, 150.0, 75.0, 37.5]
+        );
+        let legacy: BrowserBounds = serde_json::from_value(serde_json::json!({
+            "x": 0, "y": 0, "width": 800, "height": 600, "scale": 2
+        }))
+        .unwrap();
+        assert!(legacy.hole_points(2.0).unwrap().is_empty());
+        let hole = BrowserHole {
+            x: 0.0,
+            y: 0.0,
+            width: 10.0,
+            height: 10.0,
+            radius: 0.0,
+        };
+        let many = BrowserBounds {
+            holes: vec![hole.clone(); MAX_BROWSER_HOLES],
+            ..legacy.clone()
+        };
+        assert!(many.validate().is_ok());
+        assert!(BrowserBounds {
+            holes: vec![hole.clone(); MAX_BROWSER_HOLES + 1],
+            ..legacy.clone()
+        }
+        .validate()
+        .is_err());
+        for value in [f64::NAN, f64::INFINITY, -1.0, 32769.0] {
+            for field in 0..5 {
+                let mut invalid = hole.clone();
+                match field {
+                    0 => invalid.x = value,
+                    1 => invalid.y = value,
+                    2 => invalid.width = value,
+                    3 => invalid.height = value,
+                    _ => invalid.radius = value,
+                }
+                assert!(BrowserBounds {
+                    holes: vec![invalid],
+                    ..legacy.clone()
+                }
+                .validate()
+                .is_err());
+            }
+        }
     }
     #[test]
     fn keeps_privileged_origins_and_non_web_schemes_out() {
