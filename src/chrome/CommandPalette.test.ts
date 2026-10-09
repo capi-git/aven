@@ -121,6 +121,16 @@ it("turns a typed sentence into a new chat with the chosen agent and project", a
   expect(props.onClose).toHaveBeenCalled();
 });
 
+it("leaves Enter to an input method that is still composing", async () => {
+  await type("fix the redirect loop");
+  // WebKit reports the composition-ending Enter with keyCode 229.
+  await key("Enter", { keyCode: 229 });
+  await key("Enter", { isComposing: true });
+  expect(props.onStartChat).not.toHaveBeenCalled();
+  await key("Enter");
+  expect(props.onStartChat).toHaveBeenCalledTimes(1);
+});
+
 it("starts in the background with Command-Enter", async () => {
   await type("write release notes");
   await key("Enter", { metaKey: true });
