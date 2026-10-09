@@ -172,22 +172,43 @@ function HtmlExplorerMenu({
   snapshot,
   onSelect,
 }: SurfaceProps) {
+  const focusAnchor = () => {
+    const element =
+      anchor instanceof HTMLElement
+        ? anchor
+        : anchor && "current" in anchor
+          ? anchor.current
+          : null;
+    if (element?.isConnected) element.focus({ preventScroll: true });
+  };
   return (
     <Popover
+      autoFocus
+      initialFocus='input:not(:disabled), button:not(:disabled), [role="menu"]'
+      tabIndex={-1}
       anchor={anchor ?? { x, y }}
       align={align}
       gap={gap}
       width={width}
       panel
-      onDismiss={onClose}
+      onDismiss={(reason) => {
+        if (reason === "escape") focusAnchor();
+        onClose();
+      }}
       onContextMenu={(e) => e.preventDefault()}
       className={className}
     >
       <WorkspaceMenuPanelContent
         snapshot={snapshot}
         header={header}
-        onSelect={onSelect}
-        onClose={onClose}
+        onSelect={(id) => {
+          focusAnchor();
+          onSelect(id);
+        }}
+        onClose={() => {
+          focusAnchor();
+          onClose();
+        }}
       />
     </Popover>
   );

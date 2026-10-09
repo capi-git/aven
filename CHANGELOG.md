@@ -8,6 +8,12 @@
 
 - Aven opens without the logo and “Opening Aven…” loading screen or its fade delay. Startup recovery still offers Retry if the interface cannot load.
 
+### Menus stay in Aven
+
+- Tab, group and Recent menus open inside the app, anchored to their controls like the provider details menu. They no longer create separate floating popup windows.
+- Removed moving tabs or groups to detached windows, including dragging them outside the app. Existing detached workspaces can still return their tabs.
+- Menu keyboard focus starts after placement, and delayed focus replies cannot pull the caret back after you move elsewhere.
+
 ### Browsers stay organized
 
 - Agent opens reuse the same URL within a project, including across workspace windows and concurrent requests. An explicit new-tab request still opens a separate copy.
