@@ -51,9 +51,19 @@
   }
 }
 
-/* ToolbarPanel owns the single themed border and surface in both host types. */
+/* ToolbarPanel owns the single themed border in both host types. In a
+   popover the still frame paints its surface, forwarded by Popover, so the
+   material is in place from the first frame while only the content animates. */
 .aven-popover-frame.aven-popover-panel {
   border: 0;
+  background: transparent;
+}
+.aven-popover-panel-backdrop {
+  border-radius: inherit;
+  background: var(--aven-popover-panel-bg, var(--aven-popup));
+}
+.aven-popover-frame.aven-popover-panel > .aven-popover-panel-content,
+.aven-popover-frame .aven-popover-panel-content > .toolbar-panel {
   background: transparent;
 }
 .aven-popover-panel-content {

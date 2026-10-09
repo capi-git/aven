@@ -64,6 +64,8 @@ type Props = Omit<ComponentPropsWithoutRef<"div">, "style"> & {
 const FRAME =
   "aven-popover-frame isolate overflow-hidden rounded-xl border border-content/10 shadow-xl";
 const BACKDROP = "popover-backdrop pointer-events-none absolute inset-0 z-0";
+const PANEL_BACKDROP =
+  "aven-popover-panel-backdrop pointer-events-none absolute inset-0 z-0";
 
 /** Which corner the open animation grows from, so it reads as anchored. */
 function origin(side: PopoverSide, align: PopoverAlign): string {
@@ -72,6 +74,10 @@ function origin(side: PopoverSide, align: PopoverAlign): string {
   if (side === "top") return `${near} 100%`;
   return side === "right" ? `0% ${near}` : `100% ${near}`;
 }
+
+/** The ToolbarPanel background a `panel` frame paints behind its content. */
+const PANEL_MATERIAL = "--aven-popover-panel-bg";
+const TOOLBAR_MATERIAL = "--toolbar-panel-bg";
 
 function anchorElement(anchor: PopoverAnchor): HTMLElement | null {
   if (!anchor) return null;
@@ -178,6 +184,25 @@ export function Popover({
     // `key` stands in for the anchor, which is read through a ref.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, side, align, gap, padding, width, minHeight, maxHeight]);
+
+  // A panel frame paints its ToolbarPanel's material from the first frame.
+  // The panel itself animates, and an animating opacity isolates its subtree,
+  // so frost there would only appear once the entrance had finished.
+  useLayoutEffect(() => {
+    if (!panel) return;
+    const material = surface.current?.querySelector<HTMLElement>(
+      ":scope > .toolbar-panel",
+    );
+    // Themed panels carry the color inline; read styles only as a fallback.
+    const color = material
+      ? material.style.getPropertyValue(TOOLBAR_MATERIAL).trim() ||
+        getComputedStyle(material).getPropertyValue(TOOLBAR_MATERIAL).trim()
+      : "";
+    const el = frame.current;
+    if (!el) return;
+    if (color) el.style.setProperty(PANEL_MATERIAL, color);
+    else el.style.removeProperty(PANEL_MATERIAL);
+  });
 
   useLayoutEffect(() => {
     place();
@@ -303,7 +328,9 @@ export function Popover({
         bare ? undefined : `${FRAME}${panel ? " aven-popover-panel" : ""}`
       }
     >
-      {bare || panel ? null : <div aria-hidden="true" className={BACKDROP} />}
+      {bare ? null : (
+        <div aria-hidden="true" className={panel ? PANEL_BACKDROP : BACKDROP} />
+      )}
       <div
         {...rest}
         ref={(el) => {
