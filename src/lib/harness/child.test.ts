@@ -66,6 +66,26 @@ describe("isCurrentChildExit", () => {
 });
 
 describe("child bridge", () => {
+  it("asks native storage to preserve only the requested legacy provider thread", async () => {
+    const storage = {
+      home: "/aven/codex-home",
+      resumePath: "/aven/codex-home/sessions/rollout-thread.jsonl",
+    };
+    mocks.invoke.mockResolvedValue(storage);
+    const child = await loadChild();
+    expect(await child.prepareCodexStorage("provider-thread")).toEqual(storage);
+    expect(mocks.invoke).toHaveBeenCalledWith("harness_prepare_codex_storage", {
+      threadId: "provider-thread",
+    });
+    await child.prepareCodexStorage();
+    expect(mocks.invoke).toHaveBeenLastCalledWith(
+      "harness_prepare_codex_storage",
+      {
+        threadId: undefined,
+      },
+    );
+  });
+
   it("waits until every listener is installed", async () => {
     const pending = deferred<UnlistenFn>();
     mocks.listen.mockImplementation(

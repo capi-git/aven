@@ -12,6 +12,7 @@ import {
   groupTurns,
   hasRunningSubagent,
   initialThinkingIndex,
+  isFoldableWorkItem,
   lastActivityIndex,
   nestedScrollAbsorbsWheel,
   proseSummary,
@@ -660,6 +661,57 @@ describe("foldableWork", () => {
       "c2",
     ]);
   });
+
+  it("folds surrounding work while preserving image results inside its span", () => {
+    const turn = items([
+      { id: "u", role: "user", text: "Show three options" },
+      note("intro", "Making three options."),
+      shell("c1"),
+      note("image-1", "![Generated image](</project/one.png>)"),
+      shell("c2"),
+      note("image-2", "Option two\n\n![Generated image](</project/two.png>)"),
+      shell("c3"),
+      note("image-3", "![Generated image](</project/three.png>)"),
+      note("answer", "Which option do you prefer?"),
+    ]);
+    const fold = foldableWork(turn)!;
+    expect(fold).toEqual({ start: 1, end: 6 });
+    expect(foldedBlocks(turn, fold).map((block) => block.id)).toEqual([
+      "intro",
+      "c1",
+      "c2",
+      "c3",
+    ]);
+    expect(
+      turn
+        .filter((item) => !isFoldableWorkItem(item))
+        .map((item) => (item.type === "block" ? item.block.id : "activity")),
+    ).toEqual(["u", "image-1", "image-2", "image-3"]);
+  });
+
+  it("places the fold line after a leading image when later work finishes", () => {
+    const turn = items([
+      note("image", "![Mockup](</project/mock.png>)"),
+      shell("check"),
+      note("done", "Checked it."),
+    ]);
+    expect(foldableWork(turn)).toEqual({ start: 1, end: 1 });
+    expect(firstFoldableIndex(turn)).toBe(1);
+  });
+
+  it.each([
+    "```md\n![Example](/example.png)\n```",
+    "~~~md\n![Example](/example.png)\n~~~",
+    "Use `![Example](/example.png)`.",
+    "\\![Example](/example.png)",
+  ])(
+    "keeps image syntax examples in ordinary foldable commentary: %s",
+    (text) => {
+      expect(
+        isFoldableWorkItem({ type: "block", block: note("example", text) }),
+      ).toBe(true);
+    },
+  );
 
   it("leaves work the agent has not answered for alone", () => {
     expect(

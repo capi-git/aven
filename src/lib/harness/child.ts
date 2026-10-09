@@ -300,6 +300,14 @@ export async function spawnChild(
   exitHandlers.get(sessionId)?.(exited.code);
 }
 
+/** Prepare Aven's provider history without changing the shared Codex history. */
+export function prepareCodexStorage(threadId?: string): Promise<{
+  home: string;
+  resumePath?: string;
+}> {
+  return invoke("harness_prepare_codex_storage", { threadId });
+}
+
 export function writeChild(sessionId: string, line: string): Promise<void> {
   return invoke("harness_write", { sessionId, line });
 }

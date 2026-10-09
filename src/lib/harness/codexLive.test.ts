@@ -7,15 +7,29 @@ let onExit: ((code: number) => void) | undefined;
 let killError: Error | undefined;
 let killPending: Promise<void> | undefined;
 let spawnCount = 0;
-let configReadResponse: unknown = { config: {} };
+let spawnError: Error | undefined;
+let killCount = 0;
+let configReadResponse: unknown = {
+  config: { sqlite_home: "/aven/codex-home" },
+};
 let configReadError = false;
+let storageResumePath: string | undefined;
+let storageError: Error | undefined;
+const preparedIds: Array<string | undefined> = [];
 
 vi.mock("./child", () => ({
   resolveCodexBinary: async () => ({ path: "/fake/codex" }),
+  prepareCodexStorage: async (threadId?: string) => {
+    preparedIds.push(threadId);
+    if (storageError) throw storageError;
+    return { home: "/aven/codex-home", resumePath: storageResumePath };
+  },
   spawnChild: async () => {
     spawnCount += 1;
+    if (spawnError) throw spawnError;
   },
   killChild: async () => {
+    killCount += 1;
     if (killError) throw killError;
     await killPending;
   },
@@ -141,8 +155,13 @@ describe("codex live turn sequence", () => {
     killError = undefined;
     killPending = undefined;
     spawnCount = 0;
-    configReadResponse = { config: {} };
+    spawnError = undefined;
+    killCount = 0;
+    configReadResponse = { config: { sqlite_home: "/aven/codex-home" } };
     configReadError = false;
+    storageResumePath = undefined;
+    storageError = undefined;
+    preparedIds.length = 0;
   });
 
   afterEach(async () => {
@@ -151,6 +170,65 @@ describe("codex live turn sequence", () => {
     killPending = undefined;
     await stopCodexSession("codex-live");
     __codexTestReset();
+  });
+
+  it("keeps real chat threads resumable and requests isolated storage before starting", async () => {
+    const first = await startTurn("codex-live");
+    expect(preparedIds).toEqual([undefined]);
+    expect(
+      parse().find((message) => message.method === "thread/start")?.params,
+    ).not.toHaveProperty("ephemeral", true);
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await first.turn;
+    await stopCodexSession("codex-live");
+    sent.length = 0;
+    storageResumePath = "/aven/codex-home/sessions/rollout-thr_1.jsonl";
+    const next = await startTurn("codex-live", { resume: true });
+    expect(preparedIds).toEqual([undefined, "thr_1"]);
+    expect(
+      parse().find((message) => message.method === "thread/resume")?.params,
+    ).toMatchObject({ threadId: "thr_1", path: storageResumePath });
+    expect(parse().some((message) => message.method === "thread/start")).toBe(
+      false,
+    );
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await next.turn;
+  });
+
+  it("fails before spawning when isolated storage cannot be prepared", async () => {
+    storageError = new Error("Could not prepare isolated Codex storage");
+    await expect(
+      sendCodexTurn({
+        sessionId: "codex-live",
+        cwd: "/repo",
+        model: "codex:gpt-5.4",
+        runtimeMode: "supervised",
+        text: "hello",
+        onEvent: () => undefined,
+      }),
+    ).rejects.toThrow("Could not prepare isolated Codex storage");
+    expect(spawnCount).toBe(0);
+    expect(sent).toEqual([]);
+  });
+
+  it("cleans up a native spawn failure and retains the original conversation binding", async () => {
+    bindCodexSession("codex-live", "thr_original", "/repo");
+    spawnError = new Error("Private Codex storage could not be configured");
+    await expect(
+      sendCodexTurn({
+        sessionId: "codex-live",
+        cwd: "/repo",
+        model: "codex:gpt-5.4",
+        runtimeMode: "supervised",
+        text: "hello",
+        onEvent: () => undefined,
+      }),
+    ).rejects.toThrow("Private Codex storage could not be configured");
+    expect(killCount).toBe(1);
+    expect(sent).toEqual([]);
+    expect(__codexTestResumeMap().get("codex-live")?.threadId).toBe(
+      "thr_original",
+    );
   });
 
   it("keeps reporting stable child lifecycle after the lead has completed", async () => {
@@ -439,7 +517,10 @@ describe("codex live turn sequence", () => {
     "preserves configured developer instructions when opening the interactive thread (resume=%s)",
     async (resume) => {
       configReadResponse = {
-        config: { developer_instructions: "Keep my custom workflow." },
+        config: {
+          sqlite_home: "/aven/codex-home",
+          developer_instructions: "Keep my custom workflow.",
+        },
       };
       if (resume) bindCodexSession("codex-live", "thr_1", "/repo");
       const { turn } = await startTurn("codex-live", { resume });
@@ -469,8 +550,45 @@ describe("codex live turn sequence", () => {
     },
   );
 
-  it("continues without overriding provider instructions when config/read is unavailable", async () => {
-    configReadError = true;
+  it.each(["unavailable", "outside Aven"])(
+    "does not start a thread when effective storage is %s",
+    async (failure) => {
+      configReadError = failure === "unavailable";
+      if (!configReadError)
+        configReadResponse = { config: { sqlite_home: "/shared/.codex" } };
+      const turn = sendCodexTurn({
+        sessionId: "codex-live",
+        cwd: "/repo",
+        model: "codex:gpt-5.4",
+        runtimeMode: "supervised",
+        text: "hello",
+        onEvent: () => undefined,
+      });
+      const result = turn.catch((error: unknown) => error);
+      await waitFor(
+        () => parse().some((message) => message.method === "initialize"),
+        "initialize",
+      );
+      reply(
+        parse().find((message) => message.method === "initialize")!
+          .id as number,
+        {},
+      );
+      expect(await result).toBeInstanceOf(Error);
+      expect(
+        parse().some((message) =>
+          ["thread/start", "thread/resume", "turn/start"].includes(
+            String(message.method),
+          ),
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it("keeps configured provider instructions during storage verification", async () => {
+    configReadResponse = {
+      config: { sqlite_home: "/aven/codex-home", profile: "custom" },
+    };
     const { turn } = await startTurn("codex-live");
     expect(
       parse().find((m) => m.method === "thread/start")?.params,
@@ -690,12 +808,17 @@ describe("codex live turn sequence", () => {
 
   it("continues a writer-conflicted imported thread on a preserved-history fork and delivers its attachment once", async () => {
     configReadResponse = {
-      config: { developer_instructions: "Keep my custom workflow." },
+      config: {
+        sqlite_home: "/aven/codex-home",
+        developer_instructions: "Keep my custom workflow.",
+      },
     };
+    storageResumePath = "/aven/codex-home/sessions/rollout-thr_original.jsonl";
     const { result, events, fork } = await conflictAttempt();
     expect(fork.params).toMatchObject({
       threadId: "thr_original",
       cwd: "/repo",
+      path: storageResumePath,
       model: "gpt-5.4",
       serviceTier: "fast",
       approvalPolicy: "untrusted",

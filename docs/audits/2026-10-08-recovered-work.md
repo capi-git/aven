@@ -47,21 +47,47 @@ Unrelated old worktrees were not folded into this batch.
 
 ## Verification boundaries
 
-At `daa44f6c`, the combined branch passed 4,246 frontend tests across 384 files,
+At `0d91a25c`, the combined branch passed 4,249 frontend tests across 385 files,
 test-inclusive TypeScript, Prettier, lint (warnings remain), the production web
-build, tooling checks, Rust formatting and Clippy with warnings denied. Native
-tests passed with Chromium (546) and without it (552). The Chromium pump and
-image tests also passed. The isolated Aven Dev package passed strict signature
-and package checks and launched successfully.
+build, Rust formatting, and Clippy with warnings denied. Native tests passed
+with Chromium (552) and without it (552). The preceding combined checks also
+passed the tooling suites and Chromium pump/image tests. The complete development bundle uses the
+separate Aven Dev identity and passed strict signature/package checks.
 
-Live verification is not complete. A restored native browser page remained over
-Settings and persisted after its tab disappeared. Source review and 146 focused
-browser/stage tests have not identified the cause. An opt-in development trace
-is prepared to record bounds, visibility, native attachment state and lifecycle
-phases without URLs or page content. Its privacy/bounds test, Chromium build
-and 16 development-runner tests pass. A controlled Dev restart is needed to
-collect the trace; the desktop input guard refused the close click when regular
-Aven moved in front. Do not treat this candidate as release-ready yet.
+Live verification reproduced an old native browser covering Settings after a
+full shell-document reload. The outgoing React document cannot run its normal
+cleanup in that case. The trace showed three browser generations and no close
+request until application quit. A primary-window page-load hook now captures
+the outgoing native contexts; cleanup rechecks current docked ownership under
+the transfer lock. Floating/detached pages are preserved. Cleanup also handles
+pages created in a child and subsequently returned to the primary window. A
+cached per-document epoch rejects delayed creation from a retired renderer, including
+creation queued before Chromium initialization completes. Five focused native
+lifecycle and three frontend handshake regressions pass; an independent review
+found no remaining source blocker.
+
+The final rebuilt Aven Dev preview passed the original reproduction twice:
+reload with a visible browser, change the sidebar width, open Settings, and
+return to the workspace. An additional startup document replacement was also
+observed. All three outgoing native views received close acknowledgments and
+had their clipping view detached; no stale page covered Settings. Dragging the
+split divider in both directions kept the page aligned, and repeated Settings
+transitions hid and restored the current browser correctly.
+
+Interactive checks also confirmed readable sidebar library actions, the
+reordered Appearance sections, a working status-bar opacity slider, color-field
+drag/save, and separate dark/light color values. Test changes were restored to
+the original dark theme, accent `#c4c8c8`, and 65% status-bar opacity. A separate
+read-only frontend review passed 86 focused sidebar, Settings, picker, Git, and
+footer tests. Provider execution and every separate-window scenario were not
+re-run interactively; their automated checks and native ownership review remain
+separate from the observed primary-window reproduction.
+
+Before/after images and private diagnostic traces are retained in
+`~/Developer/.worktrees/Aven/scratch/claude-handoff-20261008-163732/`.
+The opt-in debug trace records only IDs, geometry, visibility and lifecycle
+phases, uses a private bounded file, and excludes page URLs/content. Aven Dev is
+left open for review. The installed Aven process stayed running throughout.
 
 Bundle-size reductions and fixture render counts describe the specific checks
 in [the performance report](2026-10-08-performance.md), not measured launch

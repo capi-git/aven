@@ -97,6 +97,7 @@ import {
   groupTurns,
   hasRunningSubagent,
   initialThinkingIndex,
+  isFoldableWorkItem,
   isIncompleteTool,
   isThinkingBlock,
   lastActivityIndex,
@@ -669,7 +670,10 @@ function AgentTranscriptComponent({
             >
               {items.flatMap((item, itemIndex) => {
                 const inFold =
-                  !!fold && itemIndex >= fold.start && itemIndex <= fold.end;
+                  !!fold &&
+                  itemIndex >= fold.start &&
+                  itemIndex <= fold.end &&
+                  isFoldableWorkItem(item);
                 if (inFold) {
                   if (itemIndex !== fold.start) return [];
                   return [
@@ -678,18 +682,20 @@ function AgentTranscriptComponent({
                       {() =>
                         items
                           .slice(fold.start, fold.end + 1)
-                          .map((entry, offset) => (
-                            <div
-                              key={turnItemKey(entry)}
-                              className={`flow-root pb-1 last:pb-0 pl-5 zen-fold-rail ${
-                                fold.start + offset === fold.end
-                                  ? "zen-fold-tail"
-                                  : ""
-                              }`}
-                            >
-                              {renderItem(entry, fold.start + offset)}
-                            </div>
-                          ))
+                          .map((entry, offset) =>
+                            isFoldableWorkItem(entry) ? (
+                              <div
+                                key={turnItemKey(entry)}
+                                className={`flow-root pb-1 last:pb-0 pl-5 zen-fold-rail ${
+                                  fold.start + offset === fold.end
+                                    ? "zen-fold-tail"
+                                    : ""
+                                }`}
+                              >
+                                {renderItem(entry, fold.start + offset)}
+                              </div>
+                            ) : null,
+                          )
                       }
                     </TurnRow>,
                   ];

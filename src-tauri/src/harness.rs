@@ -428,6 +428,10 @@ pub fn harness_spawn(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     prepare_child(&mut cmd, &command);
+    if crate::codex_storage::is_codex_app_server(&command, &args) {
+        let storage = crate::codex_storage::prepare(&app, None)?;
+        crate::codex_storage::configure(&mut cmd, &storage);
+    }
     crate::control::configure_child(&app, caller.window().label(), &session_id, &mut cmd);
     configure_browser_environment(
         &mut cmd,

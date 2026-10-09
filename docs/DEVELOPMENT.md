@@ -51,6 +51,14 @@ In the earlier dual-exit incident, the production app received a Quit AppleEvent
 
 Run `npm run check:web` and the relevant native tests. Verify the changed flow in Aven Dev, then build a release with `./scripts/with-dev-env.sh ./scripts/build-release.sh`. This creates a complete candidate under `target/releases/`; it never replaces or restarts your daily app. See [RELEASING.md](RELEASING.md) for release and updater signing. Install a tested release only after saving work and quitting the daily app normally.
 
+## Codex chat storage
+
+Aven stores Codex conversations under its own app data directory in `codex-home`, separate from the Codex app and CLI history. Background title and Git text requests use unsaved threads. Shared file-based login, provider settings, skills and plugins continue to use the existing Codex setup; Aven does not change the selected account.
+
+When an existing Aven or imported conversation resumes, Aven copies only its requested provider rollout into private storage and continues there. The original remains unchanged, and later resumes prefer the private copy. This does not archive or remove previous entries from Codex Recents.
+
+Before starting a thread, Aven verifies that the effective Codex database path is private. Managed settings that override that path, unsupported configuration sharing, and keyring or automatic credential-store selection produce an explicit error instead of falling back to shared history. The currently supported shared login uses Codex's default file credential store; keyring bridging needs separate implementation and verification.
+
 ## Agent instructions and tools
 
 Repository instructions live in [AGENTS.md](../AGENTS.md). Keep changes scoped, preserve other tasks' work, and use the supplied in-app browser connection for ordinary previews. Skills are reusable instructions, not permission grants. Enable Aven's built-in desktop control in **Settings → Skills & tools**; it is off by default. Listing windows and taking screenshots require Screen Recording; input and app activation require both Screen Recording and Accessibility, granted by the user in macOS. The separate Aven Dev app needs its own access; ad-hoc native rebuilds may reset those grants. Agents use the Aven executable's `--aven-desktop` command over the task's scoped browser connection, and their actions never trigger permission prompts. Browser inspection does not require enabling desktop control.

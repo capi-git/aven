@@ -229,6 +229,7 @@ dependencies = [
  "base64 0.22.1",
  "block2",
  "dispatch2",
+ "junction",
  "libc",
  "minisign-verify",
  "notify-rust",
@@ -248,6 +249,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-updater",
  "tauri-plugin-window-state",
+ "toml 1.1.4+spec-1.1.0",
  "ureq",
  "uuid",
  "windows-sys 0.61.2",
@@ -2055,6 +2057,16 @@ checksum = "5dea2b27dd239b2556ed7a25ba842fe47fd602e7fc7433c2a8d6106d4d9edd70"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "junction"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cde48f36530cbd91b65f050101e6c056d6eb743cea2a8f0f19beef69c6742ff8"
+dependencies = [
+ "scopeguard",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

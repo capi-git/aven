@@ -131,6 +131,37 @@ describe("AgentTranscript collapsed work", () => {
     expect(tagCount(markup)).toBe(tagCount(short));
   });
 
+  it("keeps all generated image options visible while their work stays collapsed", () => {
+    const blocks: Block[] = [
+      { id: "user", role: "user", text: "Show three mockups" },
+      { id: "intro", role: "assistant", text: "I will make three options." },
+      ...[1, 2, 3].flatMap((index): Block[] => [
+        tool(`generation-${index}`),
+        {
+          id: `image-${index}`,
+          role: "assistant",
+          text: `Option ${index}\n\n![Generated image](</project/mock-${index}.png>)`,
+        },
+      ]),
+      { id: "answer", role: "assistant", text: "Choose option 1, 2, or 3." },
+    ];
+    const markup = render(blocks);
+    for (const index of [1, 2, 3]) {
+      expect(markup).toContain(`data-local-image="/project/mock-${index}.png"`);
+      expect(markup).toContain(`Option ${index}`);
+    }
+    expect(markup).toContain("Choose option 1, 2, or 3.");
+    expect(markup).toContain("Show the work");
+    expect(markup).not.toContain("hidden-detail-");
+    expect(markup).not.toContain("I will make three options.");
+    expect(markup.indexOf("mock-1.png")).toBeLessThan(
+      markup.indexOf("mock-2.png"),
+    );
+    expect(markup.indexOf("mock-2.png")).toBeLessThan(
+      markup.indexOf("mock-3.png"),
+    );
+  });
+
   it("keeps live work visible before the assistant answers", () => {
     expect(render([tool("live")], true)).toContain("hidden-detail-live");
   });
