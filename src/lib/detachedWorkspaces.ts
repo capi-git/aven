@@ -105,6 +105,9 @@ export function mergeDetachedSessionUpdate(
   const sessions = new Map(
     current.state.sessions.map((entry) => [entry.session.id, entry]),
   );
+  // Full transfers establish ownership; streamed records cannot bring a
+  // returned/closed session back while retaining the same transfer token.
+  if (update.sessionIds.some((id) => !sessions.has(id))) return current;
   for (const entry of update.sessions) sessions.set(entry.session.id, entry);
   if (
     new Set(update.sessionIds).size !== update.sessionIds.length ||
@@ -132,7 +135,7 @@ export const nativeWorkspaceWindow = {
       point,
     }),
   update: (id: string, update: DetachedSessionUpdate) =>
-    invoke<void>("workspace_window_update", { id, update }),
+    invoke<boolean>("workspace_window_update", { id, update }),
   getState: (id?: string) =>
     invoke<DetachedWorkspaceSnapshot>("workspace_window_get_state", { id }),
   ready: (token: string) => invoke<void>("workspace_window_ready", { token }),
@@ -519,7 +522,12 @@ export function useDetachedWorkspaces(options: Options) {
                   state: entry.remaining,
                   pinned: entry.pinned,
                 });
-              else entries.current.delete(entry.id);
+              else {
+                entries.current.delete(entry.id);
+                sent.current.delete(entry.id);
+                streaming.current.delete(entry.id);
+                streamPending.current.delete(entry.id);
+              }
               setVisibility((v) => {
                 const n = { ...v };
                 if (entry.remaining)
@@ -628,7 +636,10 @@ export function useDetachedWorkspaces(options: Options) {
       streamTimer.current = setTimeout(() => {
         streamTimer.current = undefined;
         for (const entry of entries.current.values()) {
-          if (streaming.current.has(entry.id)) {
+          if (
+            streaming.current.has(entry.id) ||
+            busyTargets.current.has(entry.id)
+          ) {
             streamPending.current.add(entry.id);
             continue;
           }
@@ -675,21 +686,31 @@ export function useDetachedWorkspaces(options: Options) {
               sessionIds,
               sessions: snapshotSessions(changed.map((session) => session.id)),
             })
-            .then(() => {
+            .then((applied) => {
+              if (
+                generation !== streamGeneration.current ||
+                !entries.current.has(entry.id)
+              )
+                return;
+              if (!applied) {
+                sent.current.delete(entry.id);
+                streamPending.current.add(entry.id);
+                return;
+              }
+              sent.current.set(entry.id, {
+                sessions,
+                recents,
+                catalog,
+                metadata,
+                transferToken,
+              });
+            })
+            .catch((reason) => {
               if (
                 generation === streamGeneration.current &&
                 entries.current.has(entry.id)
               )
-                sent.current.set(entry.id, {
-                  sessions,
-                  recents,
-                  catalog,
-                  metadata,
-                  transferToken,
-                });
-            })
-            .catch((reason) => {
-              if (generation === streamGeneration.current) report(reason);
+                report(reason);
             })
             .finally(() => {
               if (streaming.current.get(entry.id) !== marker) return;
@@ -779,11 +800,16 @@ export function useDetachedWorkspaces(options: Options) {
           throw reason;
         }
       } finally {
-        if (target) busyTargets.current.delete(target);
+        if (target) {
+          busyTargets.current.delete(target);
+          // A declined update must also retry when an append rolls back to
+          // the previous token with no further transcript render.
+          if (streamPending.current.delete(target)) scheduleUpdates();
+        }
         moving.forEach((id) => movingSurfaces.current.delete(id));
       }
     },
-    [snapshotSessions],
+    [snapshotSessions, scheduleUpdates],
   );
   openRef.current = open;
   const showSession = useCallback(async (id: string) => {

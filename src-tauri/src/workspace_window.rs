@@ -550,19 +550,47 @@ fn apply_session_update(
     Ok(true)
 }
 
+fn apply_entry_session_update(
+    entry: &mut Entry,
+    update: &WorkspaceSessionUpdate,
+) -> Result<bool, String> {
+    // Appending first installs the merged state, then moves browsers, then
+    // assigns a new transfer token. Old-token deltas must not erase the merged
+    // roster during that intermediate state, or be acknowledged on rollback.
+    if entry.transitioning || entry.returning {
+        return Ok(false);
+    }
+    let owned: HashSet<_> = entry.state["sessions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|value| value["session"]["id"].as_str())
+        .collect();
+    // A partial return keeps the layout token. Only a full open/append can add
+    // ownership; a delayed old-roster delta cannot reintroduce returned tasks.
+    if update
+        .session_ids
+        .iter()
+        .any(|id| !owned.contains(id.as_str()))
+    {
+        return Ok(false);
+    }
+    apply_session_update(&mut entry.state, update)
+}
+
 #[tauri::command]
 pub fn workspace_window_update(
     caller: Webview,
     id: String,
     update: WorkspaceSessionUpdate,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let owner = owner(&caller)?;
     let applied = entries(caller.app_handle(), |all| {
         let e = all.get_mut(&id).ok_or("Workspace closed")?;
         if e.owner != owner {
             return Err("Wrong workspace owner".into());
         }
-        apply_session_update(&mut e.state, &update)
+        apply_entry_session_update(e, &update)
     })?;
     if applied {
         emit(
@@ -572,7 +600,7 @@ pub fn workspace_window_update(
             update,
         )?;
     }
-    Ok(())
+    Ok(applied)
 }
 #[tauri::command]
 pub fn workspace_window_checkpoint(caller: Webview, state: Value) -> Result<(), String> {
@@ -1193,6 +1221,48 @@ mod session_update_tests {
         assert_eq!(state["sessions"].as_array().unwrap().len(), 1);
         assert_eq!(state["sessions"][0]["session"]["id"], "b");
     }
+    #[test]
+    fn append_rollback_and_partial_return_cannot_accept_an_old_roster() {
+        let original = state();
+        let mut entry = Entry {
+            owner: "main".into(),
+            state: original.clone(),
+            pinned: false,
+            returning: false,
+            transitioning: true,
+        };
+        entry.state["sessions"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"session":{"id":"new"}}));
+        let appended = entry.state.clone();
+        assert!(!apply_entry_session_update(&mut entry, &update()).unwrap());
+        assert_eq!(entry.state, appended); // Browser transfer still holds the old token.
+        entry.state = original.clone();
+        entry.transitioning = false; // Rollback.
+        assert!(apply_entry_session_update(&mut entry, &update()).unwrap());
+        assert_eq!(entry.state["sessions"][0]["session"]["title"], "latest");
+        entry.returning = true;
+        assert!(!apply_entry_session_update(&mut entry, &update()).unwrap());
+        entry.returning = false;
+        entry.state["sessions"].as_array_mut().unwrap().remove(0);
+        let remaining = entry.state.clone();
+        assert!(!apply_entry_session_update(&mut entry, &update()).unwrap());
+        assert_eq!(entry.state, remaining); // The old token cannot return removed ownership.
+        entry.state = appended;
+        entry.state["transferToken"] = json!("new-token");
+        let first = WorkspaceSessionUpdate {
+            transfer_token: Some("new-token".into()),
+            session_ids: vec!["a".into(), "b".into(), "new".into()],
+            sessions: vec![json!({"session":{"id":"new","title":"new response"}})],
+        };
+        assert!(apply_entry_session_update(&mut entry, &first).unwrap());
+        assert_eq!(
+            entry.state["sessions"][2]["session"]["title"],
+            "new response"
+        );
+    }
+
     #[test]
     fn stale_transfer_and_invalid_rosters_leave_authoritative_state_intact() {
         let original = state();

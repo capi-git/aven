@@ -594,7 +594,8 @@ describe("detached workspace transactions", () => {
         pinned: false,
       }),
     );
-    for (const name of ["update", "ack", "resume", "close"] as const)
+    vi.spyOn(nativeWorkspaceWindow, "update").mockResolvedValue(true);
+    for (const name of ["ack", "resume", "close"] as const)
       vi.spyOn(nativeWorkspaceWindow, name).mockResolvedValue(undefined);
     host = document.createElement("div");
     document.body.append(host);
@@ -1004,8 +1005,8 @@ describe("detached workspace transactions", () => {
     let finish!: () => void;
     vi.mocked(nativeWorkspaceWindow.update).mockImplementationOnce(
       () =>
-        new Promise<void>((resolve) => {
-          finish = resolve;
+        new Promise<boolean>((resolve) => {
+          finish = () => resolve(true);
         }),
     );
     sessions = [{ ...sessions[0], title: "first" }, sessions[1]];
@@ -1028,6 +1029,97 @@ describe("detached workspace transactions", () => {
     expect(nativeWorkspaceWindow.update).toHaveBeenCalledTimes(2);
   });
 
+  it.each([false, true])(
+    "retries a declined in-flight update after append completes (success=%s)",
+    async (succeed) => {
+      await render();
+      await act(async () => {
+        await api.open(state("a"));
+      });
+      await act(async () => vi.advanceTimersByTimeAsync(110));
+      vi.mocked(nativeWorkspaceWindow.update).mockClear();
+      let finishUpdate!: (applied: boolean) => void;
+      vi.mocked(nativeWorkspaceWindow.update).mockImplementationOnce(
+        () =>
+          new Promise<boolean>((resolve) => {
+            finishUpdate = resolve;
+          }),
+      );
+      sessions = [
+        { ...sessions[0], title: "final during transfer" },
+        sessions[1],
+      ];
+      await render();
+      await act(async () => vi.advanceTimersByTimeAsync(110));
+      vi.spyOn(nativeWorkspaceWindow, "freeze").mockResolvedValue({
+        id: "window-a",
+        state: state("a"),
+        pinned: false,
+      });
+      let finishOpen!: () => void;
+      vi.mocked(nativeWorkspaceWindow.open).mockImplementationOnce(
+        (merged) =>
+          new Promise((resolve, reject) => {
+            finishOpen = () =>
+              succeed
+                ? resolve({
+                    id: "window-a",
+                    state: { ...merged, transferToken: "new" },
+                    pinned: false,
+                  })
+                : reject(new Error("append rolled back"));
+          }),
+      );
+      let append!: Promise<unknown>;
+      await act(async () => {
+        append = api.open(state("b"), "window-a").catch((error) => error);
+      });
+      await act(async () => finishUpdate(false));
+      await act(async () => vi.advanceTimersByTimeAsync(110));
+      expect(nativeWorkspaceWindow.update).toHaveBeenCalledOnce();
+      await act(async () => {
+        finishOpen();
+        await append;
+      });
+      await act(async () => vi.advanceTimersByTimeAsync(110));
+      expect(nativeWorkspaceWindow.update).toHaveBeenCalledTimes(2);
+      const latest = vi.mocked(nativeWorkspaceWindow.update).mock.calls[1][1];
+      expect(latest.sessionIds).toEqual(succeed ? ["a", "b"] : ["a"]);
+      expect(
+        latest.sessions.find((item) => item.session.id === "a")?.session.title,
+      ).toBe("final during transfer");
+    },
+  );
+
+  it("resends the queued latest state after a failed update", async () => {
+    await render();
+    await act(async () => {
+      await api.open(state("a"));
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(110));
+    vi.mocked(nativeWorkspaceWindow.update).mockClear();
+    let fail!: (reason: Error) => void;
+    vi.mocked(nativeWorkspaceWindow.update).mockImplementationOnce(
+      () =>
+        new Promise<boolean>((_, reject) => {
+          fail = reject;
+        }),
+    );
+    sessions = [{ ...sessions[0], title: "first" }, sessions[1]];
+    await render();
+    await act(async () => vi.advanceTimersByTimeAsync(110));
+    sessions = [{ ...sessions[0], title: "final" }, sessions[1]];
+    await render();
+    await act(async () => vi.advanceTimersByTimeAsync(110));
+    await act(async () => fail(new Error("temporary transport failure")));
+    await act(async () => vi.advanceTimersByTimeAsync(110));
+    expect(nativeWorkspaceWindow.update).toHaveBeenCalledTimes(2);
+    expect(
+      vi.mocked(nativeWorkspaceWindow.update).mock.calls[1][1].sessions[0]
+        .session.title,
+    ).toBe("final");
+  });
+
   it("does not publish a coalesced update after owner disposal", async () => {
     await render();
     await act(async () => {
@@ -1036,8 +1128,8 @@ describe("detached workspace transactions", () => {
     let finish!: () => void;
     vi.mocked(nativeWorkspaceWindow.update).mockImplementationOnce(
       () =>
-        new Promise<void>((resolve) => {
-          finish = resolve;
+        new Promise<boolean>((resolve) => {
+          finish = () => resolve(true);
         }),
     );
     await act(async () => vi.advanceTimersByTimeAsync(110));
@@ -1089,4 +1181,19 @@ it("merges session deltas while retaining layout, drafts, theme and unchanged se
       sessionIds: ["b"],
     }).state.sessions,
   ).toEqual([original.state.sessions[1]]);
+});
+
+it("rejects a late pre-return delta without reintroducing removed sessions", () => {
+  const remaining: DetachedWorkspaceSnapshot = {
+    id: "window",
+    pinned: false,
+    state: { ...state("b"), transferToken: "same" },
+  };
+  expect(
+    mergeDetachedSessionUpdate(remaining, {
+      transferToken: "same",
+      sessionIds: ["a", "b"],
+      sessions: [{ session: session("a"), recents: [] }],
+    }),
+  ).toBe(remaining);
 });
