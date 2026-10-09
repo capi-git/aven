@@ -3456,7 +3456,7 @@ Source: wooorm/devlop
 Package author metadata: Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)
 Text [6f296a5eccc1dc96714b]: license
 
-npm:dompurify@3.4.13
+npm:dompurify@3.4.16
 Declared license: (MPL-2.0 OR Apache-2.0)
 Source: git://github.com/cure53/DOMPurify
 Package author metadata: Dr.-Ing. Mario Heiderich, Cure53 <mario@cure53.de> (https://cure53.de/)
