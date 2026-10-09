@@ -18,7 +18,7 @@ export function useFloatingSidebarClip(
       const style = getComputedStyle(panel);
       const shift =
         style.transform && style.transform !== "none"
-          ? new DOMMatrixReadOnly(style.transform).m41
+          ? new DOMMatrixReadOnly(style.transform).m41 * effectiveCssZoom(panel)
           : 0;
       const right = Math.max(
         0,

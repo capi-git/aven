@@ -44,7 +44,7 @@ describe("floating sidebar window material", () => {
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
       function (this: HTMLElement) {
         return this.tagName === "ASIDE"
-          ? new DOMRect(100 + 5 * zoom + shift, 0, width * zoom, 600)
+          ? new DOMRect(100 + 5 * zoom + shift * zoom, 0, width * zoom, 600)
           : new DOMRect(100, 0, 1600 * zoom, 600);
       },
     );
@@ -101,7 +101,7 @@ describe("floating sidebar window material", () => {
     "matches native edge clipping during reveal at %s interface zoom",
     async (value) => {
       zoom = value;
-      shift = -28 * zoom;
+      shift = -28;
       await act(async () =>
         root.render(createElement(Fixture, { revealed: true })),
       );

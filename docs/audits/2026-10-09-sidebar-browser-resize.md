@@ -1,7 +1,8 @@
 # Sidebar material and browser resize follow-up
 
-Status: source checks pass; native visual and drag verification pending. This
-change has not been merged or released.
+Status: source checks and native sidebar visual checks pass. Browser drag
+performance verification is still pending. This change has not been merged
+or released.
 
 Base: Aven 0.1.129, `051362101cb21b6c707eff8be6552f5e73fee872`.
 
@@ -34,8 +35,24 @@ Validation:
 - The supplied Holo URL initially refused connections. Its existing local Vite
   preview was started on port 5178 and the medications page was inspected in
   the task-scoped Aven browser.
-- A separate signed Aven Dev build launched. The desktop input tool refused an
-  action when another application covered it; no input was sent. Further
-  desktop input is on hold to avoid interrupting the user. Live sidebar
-  appearance, contrast, hover/close behavior and before/after resize timing
-  still need verification. Do not describe this as a measured smoothness fix.
+- A separate signed Aven Dev build launched. The initial desktop click was
+  refused because another application covered the preview; no input was sent.
+- The follow-up live check reproduced the opaque popped-out sidebar. WebKit
+  returned false for both reduced-transparency values (`reduce` and
+  `no-preference`), so gating the new material on `no-preference` skipped it.
+  The material now applies by default with explicit supported accessibility
+  overrides. The live page confirmed the old 94% opaque fill before the fix.
+- Native screenshots and interaction checks verified pinned and popped-out
+  navigation, popped-out Settings navigation, and closing without changing the
+  chat width or leaving transcript text behind the sidebar. Settings was opened
+  through the app menu because an existing invisible popup blocked the sidebar
+  Settings button. That separate popup issue is not claimed fixed here.
+- Focused browser/sidebar tests passed again after the compatibility fix
+  (138 tests), followed by a successful production frontend build. A corrected
+  fractional-CSS-zoom test also reproduced and fixed a reveal-offset error:
+  transform translations must be converted to viewport pixels before subtracting
+  them from the measured rectangle.
+- The exact Holo medications workload is available in the task-scoped installed
+  browser. Aven Dev's separate browser profile stops at the mock sign-in page.
+  The 16 ms layout fallback is source-tested; no before/after live drag benchmark
+  has established that this resolves all of the reported resize stutter.
