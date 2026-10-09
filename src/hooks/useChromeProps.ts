@@ -28,22 +28,13 @@ export function equalChromeData(left: unknown, right: unknown): boolean {
     return false;
   const a = left as Record<string, unknown>;
   const b = right as Record<string, unknown>;
-  // Open chats have a synthetic "now" timestamp until their first history row.
-  // Regenerating that placeholder on every token must not redraw/reorder chrome.
-  const syntheticSummary =
-    a.createdAt === 0 &&
-    b.createdAt === 0 &&
-    typeof a.id === "string" &&
-    typeof a.cwd === "string" &&
-    typeof a.harness === "string";
   const keys = Object.keys(a);
   return (
     keys.length === Object.keys(b).length &&
     keys.every(
       (key) =>
         Object.prototype.hasOwnProperty.call(b, key) &&
-        ((syntheticSummary && key === "updatedAt") ||
-          equalChromeData(a[key], b[key])),
+        equalChromeData(a[key], b[key]),
     )
   );
 }

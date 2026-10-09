@@ -69,7 +69,7 @@ it("skips chrome renders for repeated equivalent projections and still calls the
   for (let i = 0; i < 30; i++) {
     props = {
       ...props,
-      rows: props.rows.map((row) => ({ ...row, updatedAt: i + 2 })),
+      rows: props.rows.map((row) => ({ ...row })),
       busy: new Set(["chat"]),
       onOpen: () => `/latest-${i}`,
     };
@@ -79,13 +79,15 @@ it("skips chrome renders for repeated equivalent projections and still calls the
   expect(rendered.onOpen("chat")).toBe("/latest-29");
 });
 
-it("rerenders for title, busy, project and persisted history timestamp changes", async () => {
+it("rerenders for title, busy, project and both live and persisted timestamp changes", async () => {
   props = { ...props, rows: [{ ...props.rows[0], title: "Renamed" }] };
   await draw();
   expect(host.textContent).toBe("Renamed");
   props = { ...props, busy: new Set() };
   await draw();
   props = { ...props, rows: [{ ...props.rows[0], cwd: "/two" }] };
+  await draw();
+  props = { ...props, rows: [{ ...props.rows[0], updatedAt: 2 }] };
   await draw();
   props = {
     ...props,
@@ -94,7 +96,7 @@ it("rerenders for title, busy, project and persisted history timestamp changes",
   await draw();
   props = { ...props, rows: [{ ...props.rows[0], updatedAt: 12 }] };
   await draw();
-  expect(renders).toBe(6);
+  expect(renders).toBe(7);
 });
 
 it("publishes changed actions before child layout effects run", async () => {
