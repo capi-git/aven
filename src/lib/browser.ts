@@ -304,6 +304,16 @@ export function browserBounds(element: HTMLElement): BrowserBounds | null {
   };
 }
 
+/** Retained through module hot updates, replaced with the shell document itself. */
+function browserRendererEpoch(): Promise<number> {
+  const shell = window as Window & {
+    __avenBrowserRendererEpoch?: Promise<number>;
+  };
+  return (shell.__avenBrowserRendererEpoch ??= invoke<number>(
+    "browser_renderer_epoch",
+  ));
+}
+
 export const nativeBrowser = {
   dropIndicator: (id: string, indicator: BrowserDropIndicator | null) =>
     invoke<void>("browser_drop_indicator", { id, indicator }),
@@ -317,8 +327,10 @@ export const nativeBrowser = {
       ({ payload }) => callback(payload),
     ),
   attach: (id: string) => invoke<BrowserState>("browser_attach", { id }),
-  create: (id: string, url: string, bounds: BrowserBounds) =>
-    invoke<void>("browser_create", { id, url, bounds }),
+  create: async (id: string, url: string, bounds: BrowserBounds) => {
+    const rendererEpoch = await browserRendererEpoch();
+    return invoke<void>("browser_create", { id, url, bounds, rendererEpoch });
+  },
   navigate: (id: string, url: string) =>
     invoke<void>("browser_navigate", { id, url }),
   action: (id: string, action: BrowserAction) =>

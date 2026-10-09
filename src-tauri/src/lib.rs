@@ -242,6 +242,14 @@ pub fn run() {
     #[cfg(not(debug_assertions))]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
     let app = builder
+        .on_page_load(|webview, payload| {
+            #[cfg(all(feature = "chromium", target_os = "macos"))]
+            if payload.event() == tauri::webview::PageLoadEvent::Started {
+                browser::renderer_loading(webview);
+            }
+            #[cfg(not(all(feature = "chromium", target_os = "macos")))]
+            let _ = (webview, payload);
+        })
         .plugin(shell_navigation::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -322,6 +330,7 @@ pub fn run() {
             browser::browser_edit,
             browser::browser_drop_indicator,
             browser::browser_layout,
+            browser::browser_renderer_epoch,
             browser::browser_close,
             race::race_prepare,
             race::race_worktree_create,

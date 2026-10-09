@@ -14,6 +14,13 @@ use tauri::{
 #[path = "browser_floating.rs"]
 mod floating;
 
+/// The fallback backend accepts the shared frontend creation handshake.
+#[tauri::command]
+pub fn browser_renderer_epoch(caller: Webview) -> Result<u64, String> {
+    label(&caller, "renderer")?;
+    Ok(0)
+}
+
 #[derive(Clone, Deserialize)]
 pub struct BrowserBounds {
     x: f64,

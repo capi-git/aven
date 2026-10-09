@@ -13,6 +13,8 @@ use tauri::{AppHandle, Emitter, EventTarget, Manager, Url, Webview, Window};
 
 #[path = "browser_layout_trace.rs"]
 mod layout_trace;
+#[path = "browser_renderer.rs"]
+mod renderer;
 
 fn trace_layout(
     phase: &str,
@@ -235,6 +237,8 @@ struct PageContext {
     caller: Webview,
     root: String,
     native_id: String,
+    renderer_label: String,
+    renderer_epoch: u64,
     state: Mutex<BrowserState>,
     downloads: Mutex<Vec<BrowserDownload>>,
     pending_toolbar: Mutex<Option<String>>,
@@ -251,6 +255,7 @@ struct Pending {
 }
 #[derive(Default)]
 struct Registry {
+    renderer_epochs: renderer::RendererEpochs,
     roots: HashMap<String, Arc<PageContext>>,
     pages: HashMap<String, Arc<PageContext>>,
     floating: HashMap<String, String>,
@@ -292,6 +297,48 @@ pub fn browser_engine_options(options: BrowserEngineOptions) -> bool {
 static NEXT: AtomicU64 = AtomicU64::new(1);
 fn registry() -> &'static Mutex<Registry> {
     REGISTRY.get_or_init(|| Mutex::new(Registry::default()))
+}
+
+#[tauri::command]
+pub fn browser_renderer_epoch(caller: Webview) -> Result<u64, String> {
+    label(&caller, "renderer")?;
+    Ok(registry()
+        .lock()
+        .map_err(|_| "Browser is unavailable")?
+        .renderer_epochs
+        .current(caller.label()))
+}
+
+/// A document replacement does not destroy its NSWindow or run React cleanup.
+/// Capture outgoing pages now, before the new document can create replacements.
+pub fn renderer_loading(caller: &Webview) {
+    if !crate::window::is_workspace_label(caller.label()) {
+        return;
+    }
+    let (epoch, outgoing) = {
+        let mut entries = registry().lock().unwrap_or_else(|error| error.into_inner());
+        let epoch = entries.renderer_epochs.advance(caller.label());
+        let outgoing = entries
+            .pages
+            .values()
+            .filter(|context| context.caller.label() == caller.label())
+            .cloned()
+            .collect::<Vec<_>>();
+        (epoch, outgoing)
+    };
+    layout_trace::record(
+        "renderer-loading",
+        "",
+        caller.label(),
+        false,
+        json!({"epoch": epoch, "capturedCount": outgoing.len(), "captured": outgoing.iter().map(|context| &context.native_id).collect::<Vec<_>>()}),
+    );
+    for context in outgoing {
+        let label = caller.label().to_string();
+        tauri::async_runtime::spawn(async move {
+            let _ = close_context_for_reload(context, &label, epoch).await;
+        });
+    }
 }
 
 pub(crate) async fn ensure_update_idle(app: &AppHandle) -> Result<(), String> {
@@ -1238,6 +1285,7 @@ pub async fn browser_create(
     id: String,
     url: String,
     bounds: BrowserBounds,
+    renderer_epoch: u64,
 ) -> Result<(), String> {
     trace_layout(
         "create-request",
@@ -1251,6 +1299,21 @@ pub async fn browser_create(
     let root = label(&caller, &id)?;
     let url = parse_url(&caller, &url)?;
     bounds.validate()?;
+    if !registry()
+        .lock()
+        .map_err(|_| "Browser is unavailable")?
+        .renderer_epochs
+        .accepts(caller.label(), renderer_epoch)
+    {
+        layout_trace::record(
+            "create-retired-renderer",
+            &id,
+            caller.label(),
+            false,
+            json!({"epoch": renderer_epoch}),
+        );
+        return Err("The browser's workspace document was replaced".into());
+    }
     if preview(&caller, &id).is_ok() {
         trace_layout(
             "create-existing",
@@ -1272,6 +1335,8 @@ pub async fn browser_create(
         caller: page_owner,
         root: root.clone(),
         native_id: format!("{root}-{}", NEXT.fetch_add(1, Ordering::Relaxed)),
+        renderer_label: caller.label().to_string(),
+        renderer_epoch,
         state: Mutex::new(BrowserState {
             id,
             url: url.to_string(),
@@ -1309,6 +1374,19 @@ pub async fn browser_create(
     let (created_sender, created_receiver) = mpsc::channel();
     {
         let mut entries = registry().lock().map_err(|_| "Browser is unavailable")?;
+        if !entries
+            .renderer_epochs
+            .accepts(caller.label(), renderer_epoch)
+        {
+            layout_trace::record(
+                "create-retired-renderer",
+                &context.native_id,
+                caller.label(),
+                false,
+                json!({"epoch": renderer_epoch}),
+            );
+            return Err("The browser's workspace document was replaced".into());
+        }
         if entries.roots.contains_key(&root) {
             return Err("This browser tab is already opening".into());
         }
@@ -1333,6 +1411,30 @@ pub async fn browser_create(
         let native_id = string(&creation_context.native_id)?;
         let url = string(url.as_str())?;
         let profile = string(&profile.join("Default").to_string_lossy())?;
+        // Initialization can enter Cocoa's run loop. Check the epoch only
+        // after it returns, immediately before creating the native child.
+        let current = {
+            let entries = registry().lock().map_err(|_| "Browser is unavailable")?;
+            !creation_context.closed.load(Ordering::Acquire)
+                && entries.renderer_epochs.accepts(
+                    &creation_context.renderer_label,
+                    creation_context.renderer_epoch,
+                )
+                && entries
+                    .pages
+                    .get(&creation_context.native_id)
+                    .is_some_and(|registered| Arc::ptr_eq(registered, &creation_context))
+        };
+        if !current {
+            layout_trace::record(
+                "create-native-retired",
+                &creation_context.native_id,
+                &creation_context.renderer_label,
+                false,
+                json!({"epoch": creation_context.renderer_epoch}),
+            );
+            return Err("The browser's workspace document was replaced".into());
+        }
         native_result(unsafe {
             sm_chromium_create(
                 native_id.as_ptr(),
@@ -2096,6 +2198,63 @@ pub async fn browser_show_floating(caller: Webview, id: String) -> Result<(), St
     window.set_focus().map_err(|error| error.to_string())
 }
 async fn close_context(context: Arc<PageContext>) -> Result<(), String> {
+    close_context_checked(context, None).await
+}
+
+async fn close_context_for_reload(
+    context: Arc<PageContext>,
+    label: &str,
+    epoch: u64,
+) -> Result<(), String> {
+    close_context_checked(context, Some((label, epoch))).await
+}
+
+fn reload_owns_page(owner: &str, label: &str, placement: &Placement) -> bool {
+    owner == label && placement.window.is_none() && placement.detached_window.is_none()
+}
+
+#[cfg(test)]
+mod renderer_reload_tests {
+    use super::*;
+
+    #[test]
+    fn retires_only_pages_currently_docked_in_the_reloading_owner() {
+        let dock = Placement::default();
+        assert!(reload_owns_page("main", "main", &dock));
+        assert!(!reload_owns_page("window-1", "main", &dock));
+    }
+
+    #[test]
+    fn child_created_page_is_retired_after_returning_to_its_primary_owner() {
+        // Creation renderer/epoch are deliberately not cleanup ownership:
+        // a child-created page's caller is its primary owner throughout.
+        let mut placement = Placement {
+            detached_window: Some("workspace-detached-1".into()),
+            ..Placement::default()
+        };
+        assert!(!reload_owns_page("main", "main", &placement));
+        placement.detached_window = None;
+        assert!(reload_owns_page("main", "main", &placement));
+    }
+
+    #[test]
+    fn rechecks_placement_after_a_transfer_wins_the_lock() {
+        let mut placement = Placement::default();
+        assert!(reload_owns_page("main", "main", &placement));
+        // Selection precedes async cleanup; its ownership check runs only
+        // after acquiring the same lock that protects these transfer changes.
+        placement.detached_window = Some("workspace-detached-1".into());
+        assert!(!reload_owns_page("main", "main", &placement));
+        placement.detached_window = None;
+        placement.window = Some("preview-float-1".into());
+        assert!(!reload_owns_page("main", "main", &placement));
+    }
+}
+
+async fn close_context_checked(
+    context: Arc<PageContext>,
+    reload: Option<(&str, u64)>,
+) -> Result<(), String> {
     layout_trace::record(
         "close-request",
         &context.native_id,
@@ -2104,6 +2263,25 @@ async fn close_context(context: Arc<PageContext>) -> Result<(), String> {
         Value::Null,
     );
     let mut placement = context.placement.lock().await;
+    if let Some((label, epoch)) = reload {
+        if !reload_owns_page(context.caller.label(), label, &placement) {
+            layout_trace::record(
+                "reload-preserved",
+                &context.native_id,
+                label,
+                false,
+                json!({"epoch": epoch, "floatingWindow": placement.window, "detachedWindow": placement.detached_window}),
+            );
+            return Ok(());
+        }
+        layout_trace::record(
+            "reload-close",
+            &context.native_id,
+            label,
+            false,
+            json!({"epoch": epoch}),
+        );
+    }
     if context.closed.swap(true, Ordering::AcqRel) {
         layout_trace::record(
             "close-already-requested",
