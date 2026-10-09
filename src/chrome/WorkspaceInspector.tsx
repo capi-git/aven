@@ -1,8 +1,10 @@
-import { lazy, memo, Suspense, useId, useRef, type KeyboardEvent } from "react";
+import { memo, Suspense, useId, useRef, type KeyboardEvent } from "react";
 import type { GitFileDiffKind, GitHistoryCommit } from "../lib/fs";
+import { retryableLazy } from "../lib/retryableLazy";
 import type { OpenFileFn } from "../lib/search";
 import type { HarnessId } from "../lib/session";
 import { PanelRight, X } from "./icons";
+import { SurfaceBoundary } from "./SurfaceBoundary";
 import "./WorkspaceInspector.css";
 
 export type WorkspaceInspectorTab = "files" | "changes";
@@ -46,31 +48,25 @@ type FilesProps = Pick<
 
 // Both the tree and its Git subscription load only when Files is visible.
 // Search and Changes each replace it rather than leaving hidden trees mounted.
-const InspectorFiles = lazy(async () => {
+const InspectorFiles = retryableLazy(async () => {
   const [{ FileTree }, { useGitFileStatuses }] = await Promise.all([
     import("./FileTree"),
     import("../hooks/useGitFileStatuses"),
   ]);
-  return {
-    default: function InspectorFilesContent(props: FilesProps) {
-      const gitStatuses = useGitFileStatuses(props.cwd, props.enabled);
-      const lastStatuses = useRef(gitStatuses);
-      if (props.enabled) lastStatuses.current = gitStatuses;
-      return <FileTree {...props} gitStatuses={lastStatuses.current} />;
-    },
+  return function InspectorFilesContent(props: FilesProps) {
+    const gitStatuses = useGitFileStatuses(props.cwd, props.enabled);
+    const lastStatuses = useRef(gitStatuses);
+    if (props.enabled) lastStatuses.current = gitStatuses;
+    return <FileTree {...props} gitStatuses={lastStatuses.current} />;
   };
 });
 
-const InspectorChanges = lazy(() =>
-  import("./SourceControl").then(({ SourceControl }) => ({
-    default: SourceControl,
-  })),
+const InspectorChanges = retryableLazy(() =>
+  import("./SourceControl").then(({ SourceControl }) => SourceControl),
 );
 
-const InspectorSearch = lazy(() =>
-  import("./ProjectSearch").then(({ ProjectSearch }) => ({
-    default: ProjectSearch,
-  })),
+const InspectorSearch = retryableLazy(() =>
+  import("./ProjectSearch").then(({ ProjectSearch }) => ProjectSearch),
 );
 
 const TABS = ["files", "changes"] as const;
@@ -178,50 +174,54 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
             Open a project to browse files and changes.
           </p>
         ) : (
-          <Suspense
+          <SurfaceBoundary
             key={`${root}:${props.tab}:${props.filesSearchOpen && props.tab === "files" ? "search" : "default"}`}
-            fallback={
-              <p className="workspace-inspector-placeholder" role="status">
-                Loading {props.tab === "changes" ? "changes" : "files"}…
-              </p>
-            }
+            label={props.tab === "changes" ? "changes" : "files"}
           >
-            {props.tab === "changes" ? (
-              <InspectorChanges
-                key={root}
-                cwd={root}
-                enabled={active}
-                textHarness={props.textHarness}
-                selectedPath={props.selectedDiffPath}
-                selectedKind={props.selectedDiffKind}
-                selectedSha={props.selectedCommitSha}
-                onOpenFile={props.onOpenDiff}
-                onOpenAllChanges={props.onOpenAllChanges}
-                onOpenCommit={props.onOpenCommit}
-                onOpenBranchPicker={props.onOpenBranchPicker}
-              />
-            ) : props.filesSearchOpen ? (
-              <InspectorSearch
-                key={root}
-                cwd={root}
-                enabled={active}
-                focusToken={props.searchFocusToken || 1}
-                onOpenFile={props.onOpenFile}
-                onClose={() => props.onFilesSearchOpenChange(false)}
-              />
-            ) : (
-              <InspectorFiles
-                key={root}
-                cwd={root}
-                enabled={active}
-                onOpenFile={props.onOpenFile}
-                onOpenTerminal={props.onOpenTerminal}
-                onFileMoved={props.onFileMoved}
-                onFileDeleted={props.onFileDeleted}
-                onSearch={openSearch}
-              />
-            )}
-          </Suspense>
+            <Suspense
+              fallback={
+                <p className="workspace-inspector-placeholder" role="status">
+                  Loading {props.tab === "changes" ? "changes" : "files"}…
+                </p>
+              }
+            >
+              {props.tab === "changes" ? (
+                <InspectorChanges
+                  key={root}
+                  cwd={root}
+                  enabled={active}
+                  textHarness={props.textHarness}
+                  selectedPath={props.selectedDiffPath}
+                  selectedKind={props.selectedDiffKind}
+                  selectedSha={props.selectedCommitSha}
+                  onOpenFile={props.onOpenDiff}
+                  onOpenAllChanges={props.onOpenAllChanges}
+                  onOpenCommit={props.onOpenCommit}
+                  onOpenBranchPicker={props.onOpenBranchPicker}
+                />
+              ) : props.filesSearchOpen ? (
+                <InspectorSearch
+                  key={root}
+                  cwd={root}
+                  enabled={active}
+                  focusToken={props.searchFocusToken || 1}
+                  onOpenFile={props.onOpenFile}
+                  onClose={() => props.onFilesSearchOpenChange(false)}
+                />
+              ) : (
+                <InspectorFiles
+                  key={root}
+                  cwd={root}
+                  enabled={active}
+                  onOpenFile={props.onOpenFile}
+                  onOpenTerminal={props.onOpenTerminal}
+                  onFileMoved={props.onFileMoved}
+                  onFileDeleted={props.onFileDeleted}
+                  onSearch={openSearch}
+                />
+              )}
+            </Suspense>
+          </SurfaceBoundary>
         )}
       </div>
     </section>

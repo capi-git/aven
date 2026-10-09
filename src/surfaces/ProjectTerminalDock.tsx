@@ -10,7 +10,6 @@ import {
   Plus,
 } from "../chrome/icons";
 import {
-  lazy,
   Suspense,
   useEffect,
   useRef,
@@ -18,6 +17,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { ExplorerMenu } from "../chrome/ExplorerMenu";
+import { SurfaceBoundary } from "../chrome/SurfaceBoundary";
 import { SurfaceTabs } from "../chrome/SurfaceTabs";
 import { IconButton } from "../chrome/TitleBar";
 import {
@@ -28,11 +28,12 @@ import {
   type ProjectTerminalDock,
 } from "../lib/projectTerminal";
 import { MOD } from "../lib/platform";
+import { retryableLazy } from "../lib/retryableLazy";
 import type { TerminalMetaPatch } from "../lib/terminalTab";
 
 // xterm loads with the first terminal instead of at startup.
-const TerminalView = lazy(() =>
-  import("./TerminalView").then((module) => ({ default: module.TerminalView })),
+const TerminalView = retryableLazy(() =>
+  import("./TerminalView").then((module) => module.TerminalView),
 );
 
 type Props = {
@@ -254,17 +255,21 @@ export function ProjectTerminalDock({
                 : "hidden"
             }
           >
-            <Suspense
-              fallback={<div aria-busy="true" className="h-full w-full" />}
-            >
-              <TerminalView
-                id={file.id}
-                cwd={file.cwd}
-                active={focused && file.id === dock.pane.activeFileId}
-                presented={presented && file.id === dock.pane.activeFileId}
-                onMetaChange={(patch) => onTerminalMetaChange?.(file.id, patch)}
-              />
-            </Suspense>
+            <SurfaceBoundary label="terminal">
+              <Suspense
+                fallback={<div aria-busy="true" className="h-full w-full" />}
+              >
+                <TerminalView
+                  id={file.id}
+                  cwd={file.cwd}
+                  active={focused && file.id === dock.pane.activeFileId}
+                  presented={presented && file.id === dock.pane.activeFileId}
+                  onMetaChange={(patch) =>
+                    onTerminalMetaChange?.(file.id, patch)
+                  }
+                />
+              </Suspense>
+            </SurfaceBoundary>
           </div>
         ))}
       </div>
