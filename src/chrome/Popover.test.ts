@@ -4,6 +4,19 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Popover, type PopoverDismissReason } from "./Popover";
 
+const native = vi.hoisted(() => ({
+  enabled: false,
+  focus: vi.fn<() => Promise<void>>(),
+}));
+vi.mock("@tauri-apps/api/core", () => ({ isTauri: () => native.enabled }));
+vi.mock("@tauri-apps/api/webview", () => ({
+  getCurrentWebview: () => ({ setFocus: native.focus }),
+}));
+afterEach(() => {
+  native.enabled = false;
+  native.focus.mockReset();
+});
+
 describe("popover focus leaving the main webview", () => {
   let root: Root;
   let container: HTMLDivElement;
@@ -122,4 +135,71 @@ describe("popover autofocus", () => {
       document.querySelector('[aria-label="Menu"]'),
     );
   });
+  it("hands keyboard input from Chromium to the app once after opening", async () => {
+    native.enabled = true;
+    native.focus.mockResolvedValue(undefined);
+    await act(async () =>
+      root.render(
+        createElement(
+          Popover,
+          {
+            anchor,
+            autoFocus: true,
+            initialFocus: "input",
+            tabIndex: -1,
+          },
+          createElement("input", { "aria-label": "Search menu" }),
+        ),
+      ),
+    );
+    expect(native.focus).toHaveBeenCalledOnce();
+    expect(document.activeElement).toBe(
+      document.querySelector('[aria-label="Search menu"]'),
+    );
+    await act(async () => window.dispatchEvent(new Event("resize")));
+    expect(native.focus).toHaveBeenCalledOnce();
+  });
+
+  it.each(["outside", "unmount"])(
+    "does not reclaim input after a late native focus response and %s",
+    async (exit) => {
+      native.enabled = true;
+      let finish!: () => void;
+      native.focus.mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      await act(async () =>
+        root.render(
+          createElement(
+            Popover,
+            {
+              anchor,
+              autoFocus: true,
+              initialFocus: "input",
+              tabIndex: -1,
+            },
+            createElement("input", { "aria-label": "Search menu" }),
+          ),
+        ),
+      );
+      const search = document.querySelector<HTMLInputElement>(
+        '[aria-label="Search menu"]',
+      )!;
+      const refocus = vi.fn(search.focus.bind(search));
+      search.focus = refocus;
+      if (exit === "unmount") await act(async () => root.render(null));
+      await act(async () => {
+        anchor.dispatchEvent(
+          new PointerEvent("pointerdown", { bubbles: true }),
+        );
+        anchor.focus();
+        finish();
+      });
+      expect(document.activeElement).toBe(anchor);
+      expect(refocus).not.toHaveBeenCalled();
+    },
+  );
 });

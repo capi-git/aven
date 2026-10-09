@@ -15,6 +15,12 @@ const mocks = vi.hoisted(() => ({
   },
   panel: vi.fn(),
 }));
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({ setFocus: vi.fn().mockResolvedValue(undefined) }),
+}));
+vi.mock("@tauri-apps/api/webview", () => ({
+  getCurrentWebview: () => ({ setFocus: vi.fn().mockResolvedValue(undefined) }),
+}));
 vi.mock("@tauri-apps/api/core", () => ({ isTauri: () => mocks.native }));
 vi.mock("../hooks/useWorkspaceMenuPanel", () => ({
   useWorkspaceMenuPanel: mocks.panel,

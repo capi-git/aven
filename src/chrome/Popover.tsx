@@ -9,6 +9,8 @@ import {
   type Ref,
 } from "react";
 import { createPortal } from "react-dom";
+import { isTauri } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import "./Overlays.css";
 import { LAYER } from "../lib/layers";
 import {
@@ -49,6 +51,8 @@ type Props = Omit<ComponentPropsWithoutRef<"div">, "style"> & {
   panel?: boolean;
   style?: CSSProperties;
   autoFocus?: boolean;
+  /** First focusable control after the hidden measurement pass. */
+  initialFocus?: string;
   /** Handles outside clicks, Escape, and focus leaving this webview/window. */
   onDismiss?: (reason: PopoverDismissReason) => void;
   dismissOnEscape?: boolean;
@@ -143,6 +147,7 @@ export function Popover({
   className,
   style,
   autoFocus = false,
+  initialFocus,
   onDismiss,
   dismissOnEscape = true,
   ignore,
@@ -197,8 +202,35 @@ export function Popover({
   useEffect(() => {
     if (!autoFocus || !placedOnce || focused.current) return;
     focused.current = true;
-    surface.current?.focus({ preventScroll: true });
-  }, [autoFocus, placedOnce]);
+    const first = initialFocus
+      ? surface.current?.querySelector<HTMLElement>(initialFocus)
+      : null;
+    const target = first ?? surface.current;
+    target?.focus({ preventScroll: true });
+    if (!isTauri() || !target) return;
+    // Chromium and the app are sibling native views. DOM focus alone does not
+    // move keyboard input back from a page into an in-app menu.
+    let cancelled = false;
+    const cancel = () => {
+      cancelled = true;
+    };
+    const outside = (event: PointerEvent) => {
+      if (!surface.current?.contains(event.target as Node)) cancel();
+    };
+    window.addEventListener("pointerdown", outside, true);
+    window.addEventListener("blur", cancel);
+    const focusNative = async () => {
+      await getCurrentWebview().setFocus();
+      if (!cancelled && target.isConnected && document.activeElement === target)
+        target.focus({ preventScroll: true });
+    };
+    void focusNative().catch(() => {});
+    return () => {
+      cancel();
+      window.removeEventListener("pointerdown", outside, true);
+      window.removeEventListener("blur", cancel);
+    };
+  }, [autoFocus, initialFocus, placedOnce]);
 
   useEffect(() => {
     if (!onDismiss) return;
