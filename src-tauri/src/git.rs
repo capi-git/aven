@@ -3957,8 +3957,16 @@ mod tests {
     #[test]
     fn unquote_git_path_decodes_c_style_names() {
         assert_eq!(
+            unquote_git_path(r#""a\"b\\c\td\303\251.ts""#),
+            Some("a\"b\\c\tdé.ts".to_owned())
+        );
+        assert_eq!(
             parse_diff_path(r#""a\"b\\c\td\303\251.ts""#),
-            "a\"b\\c\tdé.ts"
+            if cfg!(windows) {
+                "a\"b/c\tdé.ts"
+            } else {
+                "a\"b\\c\tdé.ts"
+            }
         );
         assert_eq!(parse_diff_path("plain.ts"), "plain.ts");
         assert_eq!(parse_diff_path("a => b.ts"), "a => b.ts");

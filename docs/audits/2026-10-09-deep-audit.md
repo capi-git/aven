@@ -3,8 +3,9 @@
 Reviewed the combined 0.1.128 changes at `610f7aa8` in an isolated checkout,
 including the interrupted Claude audit and the subsequent storage, provider,
 Git, terminal and view hardening. Other worktrees and the installed Aven host
-were left intact. This follow-up changes only dependency pins, their matching
-third-party notice, and documentation.
+were left intact. The initial follow-up updated dependency pins and their matching notice.
+Subsequent Windows release validation exposed the backup-handle issue described
+below; that fix and earlier Windows CI coverage are also included.
 
 ## Findings and fixes
 
@@ -17,7 +18,8 @@ third-party notice, and documentation.
   insertion without separate sanitization. This is a remaining dependency
   finding, not a claim that the app has zero security advisories. Forcing a
   cross-major KaTeX override across Mermaid and Streamdown was not included.
-- No new release-blocking source failure was found. Reviewed cache bounds,
+- Initial local source checks found no new blocker; Windows release validation
+  subsequently exposed the backup failure below. Reviewed cache bounds,
   lazy imports, poller visibility guards, native listener cleanup, transcript
   migration/delta saves, provider setup and model fallback, literal Git paths,
   terminal startup/close ordering, and retryable view loading against their
@@ -118,3 +120,28 @@ Windows build/test/installer validation belongs to the release workflow. Final
 release checks must independently verify the published source, artifacts,
 checksums, updater signatures, and macOS signing/notarization. Publication does
 not install or restart the host app.
+
+## Windows release gate follow-up
+
+The first 0.1.128 release attempt at `6fc6e676` was stopped before publication
+when Windows reported five failing native tests (451 passed). Three failures
+came from one real runtime defect: the pre-migration snapshot was reopened
+read-only before `sync_all`. Windows' `FlushFileBuffers` requires a handle with
+[write access](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers).
+The backup now reopens the existing file with write access, without creation or
+truncation, flushes it and then renames it. The transactional migration and
+fail-open history error remain in place. Existing WAL snapshot, migration retry
+and stale-backup regression tests cover this path.
+
+The other two failures were Unix assumptions in tests: removing a directory
+junction with `remove_file`, and expecting a backslash to remain in a normalized
+Windows path. The lock fixture now removes only its junction and explicitly
+checks that the shared directory survives. The Git test checks C-style decoding
+separately from platform-specific separator normalization. Neither change skips
+the Windows assertion or changes the corresponding production behavior.
+
+A dedicated Windows native job now runs formatting, strict Clippy and the full
+native test suite on pull requests, so these differences are checked before a
+release build. macOS checks retain their existing name and behavior. Final
+Windows validation is recorded by that job and the subsequent release workflow;
+the cancelled build is not a published release.

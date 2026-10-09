@@ -46,3 +46,22 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --locked --workspace --all-targets --no-default-features -- -D warnings
       - run: cargo test --locked --workspace --no-default-features
+
+  native-windows:
+    # Check filesystem/handle semantics before the release-only installer job.
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-native-checks
+      - run: cargo fmt --all --check
+      - run: cargo clippy --locked --workspace --all-targets --no-default-features -- -D warnings
+      - run: cargo test --locked --workspace --no-default-features

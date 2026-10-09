@@ -185,7 +185,11 @@ fn backup_legacy_transcripts(conn: &Connection, path: &std::path::Path) -> Resul
         .execute("VACUUM main INTO ?1", [partial_path])
         .map_err(|error| error.to_string())
         .and_then(|_| {
-            std::fs::File::open(&partial)
+            // FlushFileBuffers requires write access on Windows. Reopen the
+            // completed snapshot without creating or truncating its contents.
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(&partial)
                 .and_then(|file| file.sync_all())
                 .and_then(|_| std::fs::rename(&partial, &backup))
                 .map_err(|error| error.to_string())
