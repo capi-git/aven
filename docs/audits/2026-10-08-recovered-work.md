@@ -99,9 +99,13 @@ replace or restart the installed Aven, change its production data, publish a
 release, or push the recovered branches. Release/version changes belong in a
 separate batched pull request after review.
 
-The new transcript storage is a schema transition. Opening an older Aven build
-against a migrated database is unsupported: downgrade recovery requires its
-pre-migration backup and loses newer changes. See the performance report for
+The new transcript storage is a schema transition. An older Aven build, or
+MonoCode sharing the data directory, shows migrated chats as empty and cannot
+save changes to them; the database refuses those writes instead of letting them
+replace the stored transcript. (Aven 0.1.127 deleted the transcript in that
+case; newer builds replace that rule when they open the database.) Full
+downgrade recovery still requires the pre-migration backup and loses newer
+changes. See the performance report for
 backup naming, atomicity and durability details. Migration tests use disposable
 databases; the preview uses Aven Dev's separate data directory.
 
