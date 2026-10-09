@@ -1,6 +1,7 @@
 import { modelsFor } from "../models";
 import {
   killChild,
+  prepareCodexStorage,
   resolveCodexBinary,
   spawnChild,
   unwatchChild,
@@ -13,6 +14,7 @@ import {
   stringField,
 } from "./codexProtocol";
 import { JsonRpcClient, type JsonRpcId } from "./jsonRpc";
+import { assertCodexStorage } from "./codexStorage";
 import { mergeStream, streamTextDelta } from "./streamText";
 
 const TEXT_CHILD_ID = "aven-codex-text";
@@ -161,6 +163,7 @@ async function ensureLive(cwd: string): Promise<LiveText> {
 
 async function startLive(cwd: string): Promise<LiveText> {
   await dropLive();
+  const storage = await prepareCodexStorage();
   const { path } = await resolveCodexBinary();
   const sessionRef: { session: LiveText | null } = { session: null };
   const rpc = new JsonRpcClient(
@@ -219,6 +222,14 @@ async function startLive(cwd: string): Promise<LiveText> {
       INIT_TIMEOUT_MS,
     );
     await rpc.notify("initialized", undefined);
+    assertCodexStorage(
+      await rpc.request(
+        "config/read",
+        { cwd, includeLayers: false },
+        INIT_TIMEOUT_MS,
+      ),
+      storage.home,
+    );
     await openThread(session, cwd);
     live = session;
     return session;
@@ -234,11 +245,16 @@ async function startLive(cwd: string): Promise<LiveText> {
 async function openThread(session: LiveText, cwd: string): Promise<void> {
   const opened = await session.rpc.request<{ thread?: { id?: string } }>(
     "thread/start",
-    buildThreadStartParams({
-      cwd,
-      runtimeMode: TEXT_RUNTIME_MODE,
-      model: session.model || undefined,
-    }),
+    {
+      ...buildThreadStartParams({
+        cwd,
+        runtimeMode: TEXT_RUNTIME_MODE,
+        model: session.model || undefined,
+      }),
+      // Titles and Git summaries have no resumable conversation. Keep both
+      // warmup and prompt threads out of the user's Codex history.
+      ephemeral: true,
+    },
     INIT_TIMEOUT_MS,
   );
   const threadId = opened.thread?.id?.trim();
