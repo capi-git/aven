@@ -22,8 +22,8 @@ type ProjectOption = {
 };
 
 type Props = {
-  x: number;
-  y: number;
+  /** The filter button. Pressing it again closes the menu, not reopens it. */
+  anchor: HTMLElement;
   projects: ProjectOption[];
   linearProjects: LinearProjectOption[];
   linearTeams: LinearTeam[];
@@ -61,8 +61,7 @@ const KIND_OPTIONS: {
 ];
 
 export function InboxFiltersMenu({
-  x,
-  y,
+  anchor,
   projects,
   linearProjects,
   linearTeams,
@@ -124,8 +123,9 @@ export function InboxFiltersMenu({
 
   return (
     <Popover
-      anchor={{ x, y }}
-      gap={0}
+      anchor={anchor}
+      align="end"
+      gap={2}
       width={INBOX_FILTER_MENU_WIDTH}
       maxHeight={480}
       onDismiss={onClose}

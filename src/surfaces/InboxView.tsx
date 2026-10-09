@@ -30,10 +30,7 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import {
-  InboxFiltersMenu,
-  INBOX_FILTER_MENU_WIDTH,
-} from "../chrome/InboxFiltersMenu";
+import { InboxFiltersMenu } from "../chrome/InboxFiltersMenu";
 import { InboxProviderMark } from "../chrome/InboxProviderMark";
 import { ProjectLogoIcon } from "../chrome/ProjectLogoIcon";
 import { ProjectMascot } from "../chrome/ProjectMascot";
@@ -320,9 +317,7 @@ export function InboxView({
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [filters, setFilters] = useState(loadInboxFilters);
   const [source, setSource] = useState(loadInboxSource);
-  const [filterMenu, setFilterMenu] = useState<{ x: number; y: number } | null>(
-    null,
-  );
+  const [filterMenu, setFilterMenu] = useState<HTMLButtonElement | null>(null);
   const [linearHiddenTeamIds, setLinearHiddenTeamIds] = useState(
     loadHiddenLinearTeamIds,
   );
@@ -513,15 +508,10 @@ export function InboxView({
   };
 
   const onFilterButtonClick = (event: ReactMouseEvent<HTMLButtonElement>) => {
-    if (filterMenu) {
-      setFilterMenu(null);
-      return;
-    }
-    const rect = event.currentTarget.getBoundingClientRect();
-    setFilterMenu({
-      x: rect.right - INBOX_FILTER_MENU_WIDTH,
-      y: rect.bottom + 2,
-    });
+    // Anchored to this button, so the menu's outside-click dismissal ignores
+    // it and this press closes an open menu rather than reopening it.
+    const button = event.currentTarget;
+    setFilterMenu((open) => (open ? null : button));
   };
 
   const list = (
@@ -672,8 +662,7 @@ export function InboxView({
 
   const filtersPortal = filterMenu ? (
     <InboxFiltersMenu
-      x={filterMenu.x}
-      y={filterMenu.y}
+      anchor={filterMenu}
       projects={projectOptions}
       linearProjects={linearProjects}
       linearTeams={linearTeams}

@@ -54,7 +54,13 @@ export function PersonalProjectRow({
 }: Props) {
   const labels = useProjectLabels();
   const [pinned, setPinned] = useState(loadPinnedProjects);
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  // The actions button anchors its menu, so pressing it again closes the menu
+  // instead of counting as an outside click that the click then reopens.
+  const [menu, setMenu] = useState<{
+    x: number;
+    y: number;
+    anchor?: HTMLElement;
+  } | null>(null);
   const [removing, setRemoving] = useState(false);
   useEffect(() => {
     if (visible) return;
@@ -161,9 +167,12 @@ export function PersonalProjectRow({
           aria-label={`Actions for ${label}`}
           title={`Actions for ${label}`}
           aria-haspopup="menu"
+          aria-expanded={Boolean(menu?.anchor)}
           onClick={(event) => {
-            const rect = event.currentTarget.getBoundingClientRect();
-            setMenu({ x: rect.left, y: rect.bottom });
+            const anchor = event.currentTarget;
+            setMenu((open) =>
+              open?.anchor === anchor ? null : { x: 0, y: 0, anchor },
+            );
           }}
         >
           <MoreHorizontal className="size-3.5" />
@@ -173,6 +182,7 @@ export function PersonalProjectRow({
         <ExplorerMenu
           x={menu.x}
           y={menu.y}
+          anchor={menu.anchor}
           items={items}
           ariaLabel={`Actions for ${label}`}
           onClose={() => setMenu(null)}

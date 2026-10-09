@@ -53,10 +53,9 @@ export function PersonalWorkspaceSwitcher({
 }: Props) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
-  const [menu, setMenu] = useState<{
-    x: number;
-    y: number;
-  } | null>(null);
+  // Anchored to its button, so a click on the button while the menu is open
+  // is not an outside click: it closes the menu rather than reopening it.
+  const [menu, setMenu] = useState<HTMLButtonElement | null>(null);
   const addRef = useRef<HTMLButtonElement>(null);
   const activeIndex = profiles.findIndex(
     (profile) => profile.id === activeProfileId,
@@ -87,6 +86,7 @@ export function PersonalWorkspaceSwitcher({
     child: ReactNode,
     onClick: (button: HTMLButtonElement) => void,
     active?: boolean,
+    expanded?: boolean,
   ) => (
     <button
       type="button"
@@ -94,6 +94,8 @@ export function PersonalWorkspaceSwitcher({
       aria-label={label}
       title={label}
       aria-pressed={active}
+      aria-haspopup={expanded === undefined ? undefined : "menu"}
+      aria-expanded={expanded}
       onClick={(event) => onClick(event.currentTarget)}
     >
       {child}
@@ -157,10 +159,9 @@ export function PersonalWorkspaceSwitcher({
         ? tool(
             "Working agents",
             <MoreHorizontal className="size-3.5" />,
-            (button) => {
-              const rect = button.getBoundingClientRect();
-              setMenu({ x: rect.left, y: rect.top });
-            },
+            (button) => setMenu((open) => (open ? null : button)),
+            undefined,
+            Boolean(menu),
           )
         : null}
       {adding ? (
@@ -211,8 +212,9 @@ export function PersonalWorkspaceSwitcher({
       ) : null}
       {menu && menuItems.length ? (
         <ExplorerMenu
-          x={menu.x}
-          y={menu.y}
+          x={0}
+          y={0}
+          anchor={menu}
           items={menuItems}
           ariaLabel="Working agents"
           onClose={() => setMenu(null)}

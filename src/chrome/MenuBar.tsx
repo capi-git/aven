@@ -47,9 +47,8 @@ export function MenuBar({
 }: Props) {
   const [open, setOpen] = useState(false);
   const [activeMenu, setActiveMenu] = useState<MenuKey | null>(null);
-  const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(
-    null,
-  );
+  // The menu's own button, so pressing it again is not an outside click.
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const barRef = useRef<HTMLDivElement>(null);
 
   // Toggle with standalone Alt key tap
@@ -93,9 +92,8 @@ export function MenuBar({
   }, []);
 
   const openDropdown = useCallback((key: MenuKey, target: HTMLElement) => {
-    const rect = target.getBoundingClientRect();
     setActiveMenu(key);
-    setMenuAnchor({ x: rect.left, y: rect.bottom + 2 });
+    setMenuAnchor(target);
   }, []);
 
   const closeMenu = useCallback(() => {
@@ -380,8 +378,10 @@ export function MenuBar({
 
       {activeMenu && menuAnchor ? (
         <ExplorerMenu
-          x={menuAnchor.x}
-          y={menuAnchor.y}
+          x={0}
+          y={0}
+          anchor={menuAnchor}
+          gap={2}
           items={getMenuItems(activeMenu)}
           ariaLabel={`${activeMenu} menu`}
           onPick={handlePick}
