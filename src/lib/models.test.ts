@@ -9,6 +9,7 @@ import {
   defaultModelId,
   findModel,
   findPickerModel,
+  codexNativeModelId,
   nativeModelId,
   resolveModel,
   isPickerModelVisible,
@@ -762,5 +763,44 @@ describe("live catalog overlays", () => {
     ]);
     expect(hasLiveCatalog("pi")).toBe(true);
     expect(hasLiveCatalog("omp")).toBe(false);
+  });
+});
+
+describe("models never cross providers", () => {
+  afterEach(() => {
+    resetHarnessModelOverlays();
+  });
+
+  it("keeps a Codex chat on Codex before its catalog loads", () => {
+    for (const saved of [undefined, "", "claude:sonnet-5", "codex:gpt-x"]) {
+      const resolved = resolveModel("codex", saved);
+      expect(resolved.harness).toBe("codex");
+      expect(resolved.id).toBe("");
+    }
+    expect(newSession("codex").model).toBe("");
+  });
+
+  it("heals a saved Claude id once the Codex catalog loads", () => {
+    setHarnessModels("codex", [
+      {
+        id: "codex:gpt-6.1-sol",
+        harness: "codex",
+        name: "GPT-6.1-Sol",
+        nativeId: "gpt-6.1-sol",
+      },
+    ]);
+    expect(resolveModel("codex", "claude:sonnet-5").id).toBe(
+      "codex:gpt-6.1-sol",
+    );
+  });
+
+  it("never sends another provider's model to Codex", () => {
+    expect(codexNativeModelId("claude:sonnet-5")).toBe("");
+    expect(codexNativeModelId("claude:some-future-model")).toBe("");
+    expect(codexNativeModelId("cursor:composer-2.5")).toBe("");
+    expect(codexNativeModelId("")).toBe("");
+    expect(codexNativeModelId(undefined)).toBe("");
+    expect(codexNativeModelId("codex:gpt-6.1-sol")).toBe("gpt-6.1-sol");
+    expect(codexNativeModelId("gpt-6.1-sol")).toBe("gpt-6.1-sol");
   });
 });

@@ -19,6 +19,7 @@
 
 ### Providers and terminals
 
+- Codex chats no longer fail with “model is not supported when using Codex with a ChatGPT account”. Before Codex's model list loaded, Aven could save Claude's default model on a Codex chat; affected chats now use your Codex default.
 - Codex in Aven no longer stops working when Aven and the standalone Codex app each create the same setup folder. A conflicting local copy is kept aside instead.
 - On Windows, settings Codex saves while running in Aven are no longer discarded.
 - A line of garbled output from an agent no longer ends its turn.
