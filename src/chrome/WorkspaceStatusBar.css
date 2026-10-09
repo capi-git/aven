@@ -249,9 +249,10 @@
   pointer-events: none;
 }
 .workspace-status-settings .workspace-status-settings-back {
-  width: 26px;
-  flex: 0 0 26px;
-  padding: 0;
+  flex: 0 0 auto;
+  padding-inline: 8px;
+  background: var(--aven-control-bg);
+  color: var(--color-content);
   pointer-events: auto;
 }
 .workspace-status-settings-path {

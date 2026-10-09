@@ -480,6 +480,7 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
             onClick={settingsView.onClose}
           >
             <ChevronLeft size={14} aria-hidden />
+            <span>Back to workspace</span>
           </button>
           <div className="workspace-status-settings-path">
             <span>Settings</span>

@@ -599,7 +599,7 @@ it("keeps the workspace heading and settings controls usable outside the carouse
       .click();
     container
       .querySelector<HTMLButtonElement>(
-        '.settings-nav button[aria-label="Back"]',
+        '.settings-nav button[aria-label="Back to workspace"]',
       )!
       .click();
   });

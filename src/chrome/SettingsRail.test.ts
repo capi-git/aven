@@ -101,7 +101,7 @@ describe("settings navigation", () => {
     ).toBe("Providers & models");
 
     const back = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Back"]',
+      'button[aria-label="Back to workspace"]',
     )!;
     expect(back.closest("nav")).toBeNull();
     await act(async () => back.click());
