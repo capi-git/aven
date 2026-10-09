@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Plus, RefreshCw, Search } from "../chrome/icons";
 import { ModalPanel } from "../chrome/Modal";
 import { listSkills, readTextFile } from "../lib/fs";
@@ -30,6 +30,9 @@ type InspectableSkill = FileSkill | BuiltinSkill;
 type SkillSource = "all" | "project" | "personal" | "builtin";
 const skillSourceLabel = (skill: InspectableSkill) =>
   skill.source === "monocode" ? "Aven" : skill.source;
+const NO_SKILLS: InspectableSkill[] = [];
+/** Rows rendered at once; a catalog can hold thousands of skills. */
+const SKILL_PAGE_SIZE = 200;
 const DESKTOP_STATE = {
   ready: "Ready",
   permissionsRequired: "Permissions needed",
@@ -129,12 +132,15 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
     };
   }, [toolReload]);
 
-  const skills = catalog?.cwd === cwd ? catalog.skills : [];
+  const skills = catalog?.cwd === cwd ? catalog.skills : NO_SKILLS;
   const needle = query.trim().toLowerCase();
-  const filtered = skills.filter((skill) =>
-    `${skill.name} ${skill.description} ${skill.source} ${skillSourceLabel(skill)}`
-      .toLowerCase()
-      .includes(needle),
+  const searchable = useMemo(
+    () =>
+      skills.map((skill) => ({
+        skill,
+        text: `${skill.name} ${skill.description} ${skill.source} ${skillSourceLabel(skill)}`.toLowerCase(),
+      })),
+    [skills],
   );
   const desktop = tools?.desktop;
 
@@ -171,16 +177,16 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
         (permission) => permission.required && !permission.granted,
       )
     : [];
-  const sourceCounts = {
-    all: skills.length,
-    project: skills.filter(
-      (skill) => skill.kind === "file" && skill.scope !== "user",
-    ).length,
-    personal: skills.filter(
-      (skill) => skill.kind === "file" && skill.scope === "user",
-    ).length,
-    builtin: skills.filter((skill) => skill.kind === "builtin").length,
-  };
+  const sourceCounts = useMemo(() => {
+    const counts: Record<SkillSource, number> = {
+      all: skills.length,
+      project: 0,
+      personal: 0,
+      builtin: 0,
+    };
+    for (const skill of skills) counts[skillSourceOf(skill)] += 1;
+    return counts;
+  }, [skills]);
   // A refreshed catalog can remove a source entirely. Never leave an invisible
   // filter selected, hiding the remaining skills with no way to clear it.
   const activeSource = sourceCounts[source] ? source : "all";
@@ -188,14 +194,23 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
     if (!skillsLoading && catalog?.cwd === cwd && activeSource !== source)
       setSource(activeSource);
   }, [activeSource, source, skillsLoading, catalog?.cwd, cwd]);
-  const visible = filtered.filter((skill) =>
-    activeSource === "all"
-      ? true
-      : activeSource === "builtin"
-        ? skill.kind === "builtin"
-        : skill.kind === "file" &&
-          (activeSource === "personal") === (skill.scope === "user"),
+  const visible = useMemo(
+    () =>
+      searchable
+        .filter(
+          ({ skill, text }) =>
+            (activeSource === "all" || skillSourceOf(skill) === activeSource) &&
+            text.includes(needle),
+        )
+        .map(({ skill }) => skill),
+    [searchable, activeSource, needle],
   );
+  // Render a page at a time; a new search, source or catalog starts over.
+  const [page, setPage] = useState({ list: visible, count: SKILL_PAGE_SIZE });
+  const shownCount = page.list === visible ? page.count : SKILL_PAGE_SIZE;
+  const shown =
+    visible.length > shownCount ? visible.slice(0, shownCount) : visible;
+  const hiddenCount = visible.length - shown.length;
   const projectName = cwd ? cwd.split("/").filter(Boolean).pop() : null;
 
   return (
@@ -428,7 +443,7 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
           </p>
         ) : null}
         <div className="skills-list" aria-busy={skillsLoading}>
-          {visible.map((skill) => (
+          {shown.map((skill) => (
             <button
               type="button"
               className="skills-item"
@@ -447,6 +462,24 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
               </span>
             </button>
           ))}
+          {hiddenCount > 0 ? (
+            <p className="skills-empty">
+              Showing {shown.length} of {visible.length} skills. Search to
+              narrow the list.{" "}
+              <button
+                type="button"
+                className="settings-button"
+                onClick={() =>
+                  setPage({
+                    list: visible,
+                    count: shownCount + SKILL_PAGE_SIZE,
+                  })
+                }
+              >
+                Show {Math.min(hiddenCount, SKILL_PAGE_SIZE)} more
+              </button>
+            </p>
+          ) : null}
           {!visible.length ? (
             <p className="skills-empty">
               {skillsLoading
@@ -481,6 +514,11 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
       ) : null}
     </div>
   );
+}
+
+function skillSourceOf(skill: InspectableSkill): Exclude<SkillSource, "all"> {
+  if (skill.kind === "builtin") return "builtin";
+  return skill.scope === "user" ? "personal" : "project";
 }
 
 function SkillInspector({
