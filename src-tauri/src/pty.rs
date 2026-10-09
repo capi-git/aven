@@ -3,11 +3,9 @@ use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
-use std::time::Duration;
-#[cfg(unix)]
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -23,6 +21,8 @@ const READ_CHUNK: usize = 32 * 1024;
 const PTY_COALESCE: Duration = Duration::from_millis(8);
 #[cfg(unix)]
 const KILL_ESCALATE: Duration = Duration::from_secs(1);
+/// Bound how long a reattaching view waits for another view's shell startup.
+const STARTUP_WAIT: Duration = Duration::from_secs(15);
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -54,7 +54,30 @@ enum PtySlot {
 
 pub struct PtyHost {
     sessions: Mutex<HashMap<String, PtySlot>>,
+    /// Signalled whenever a slot leaves `Starting`, for reattaching views.
+    settled: Condvar,
     next_spawn: AtomicU64,
+}
+
+enum SpawnPlan {
+    Reuse,
+    Start(u64, Option<Arc<LivePty>>),
+    /// Another view is starting this terminal; reuse it once it is running.
+    Wait,
+}
+
+/// Cancels a reservation if startup fails or its worker panics. A no-op once
+/// the shell is installed, because the slot no longer holds this ticket.
+struct StartupReservation<'a> {
+    host: &'a PtyHost,
+    id: &'a str,
+    ticket: u64,
+}
+
+impl Drop for StartupReservation<'_> {
+    fn drop(&mut self) {
+        self.host.cancel_spawn(self.id, self.ticket);
+    }
 }
 
 impl PtyHost {
@@ -74,7 +97,63 @@ impl PtyHost {
     pub fn new() -> Self {
         Self {
             sessions: Mutex::new(HashMap::new()),
+            settled: Condvar::new(),
             next_spawn: AtomicU64::new(1),
+        }
+    }
+
+    fn lock_sessions(&self) -> MutexGuard<'_, HashMap<String, PtySlot>> {
+        self.sessions.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn reserve(
+        &self,
+        sessions: &mut HashMap<String, PtySlot>,
+        id: &str,
+    ) -> (u64, Option<Arc<LivePty>>) {
+        let ticket = self.next_spawn.fetch_add(1, Ordering::Relaxed);
+        let running = match sessions.insert(id.to_string(), PtySlot::Starting(ticket)) {
+            Some(PtySlot::Running(live)) => Some(live),
+            _ => None,
+        };
+        (ticket, running)
+    }
+
+    /// Decide atomically whether to reattach or start. A reattaching view must
+    /// never replace a startup in progress: that killed the first shell and
+    /// failed the view that had queued a Run command for it.
+    fn plan_spawn(&self, id: &str, reuse_existing: bool) -> SpawnPlan {
+        let mut sessions = self.lock_sessions();
+        match sessions.get(id) {
+            Some(PtySlot::Running(_)) if reuse_existing => SpawnPlan::Reuse,
+            Some(PtySlot::Starting(_)) if reuse_existing => SpawnPlan::Wait,
+            _ => {
+                let (ticket, running) = self.reserve(&mut sessions, id);
+                SpawnPlan::Start(ticket, running)
+            }
+        }
+    }
+
+    /// Wait for another view's startup, then reuse its shell. A startup that
+    /// failed or was closed is reported instead of silently reviving the shell.
+    fn wait_for_startup(&self, id: &str, timeout: Duration) -> Result<(), String> {
+        let deadline = Instant::now() + timeout;
+        let mut sessions = self.lock_sessions();
+        loop {
+            match sessions.get(id) {
+                Some(PtySlot::Running(_)) => return Ok(()),
+                None => return Err("Terminal startup did not complete".into()),
+                Some(PtySlot::Starting(_)) => {}
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return Err("Terminal is still starting; try again".into());
+            }
+            sessions = self
+                .settled
+                .wait_timeout(sessions, deadline - now)
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
         }
     }
 
@@ -86,33 +165,27 @@ impl PtyHost {
             .insert(id, PtySlot::Running(live));
     }
 
+    #[cfg(test)]
     fn begin_spawn(&self, id: &str) -> (u64, Option<Arc<LivePty>>) {
-        let ticket = self.next_spawn.fetch_add(1, Ordering::Relaxed);
-        let previous = self
-            .sessions
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(id.to_string(), PtySlot::Starting(ticket));
-        let running = match previous {
-            Some(PtySlot::Running(live)) => Some(live),
-            _ => None,
-        };
-        (ticket, running)
+        let mut sessions = self.lock_sessions();
+        self.reserve(&mut sessions, id)
     }
 
     fn install_spawn(&self, id: &str, ticket: u64, live: Arc<LivePty>) -> bool {
-        let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let mut sessions = self.lock_sessions();
         if !matches!(sessions.get(id), Some(PtySlot::Starting(current)) if *current == ticket) {
             return false;
         }
         sessions.insert(id.to_string(), PtySlot::Running(live));
+        self.settled.notify_all();
         true
     }
 
     fn cancel_spawn(&self, id: &str, ticket: u64) {
-        let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let mut sessions = self.lock_sessions();
         if matches!(sessions.get(id), Some(PtySlot::Starting(current)) if *current == ticket) {
             sessions.remove(id);
+            self.settled.notify_all();
         }
     }
 
@@ -128,12 +201,9 @@ impl PtyHost {
     }
 
     fn remove(&self, id: &str) -> Option<Arc<LivePty>> {
-        match self
-            .sessions
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(id)
-        {
+        let removed = self.lock_sessions().remove(id);
+        self.settled.notify_all();
+        match removed {
             Some(PtySlot::Running(live)) => Some(live),
             _ => None,
         }
@@ -152,13 +222,16 @@ impl PtyHost {
 
     pub(crate) fn kill_all(&self) {
         let kids: Vec<Arc<LivePty>> = {
-            let mut map = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-            map.drain()
+            let mut map = self.lock_sessions();
+            let kids = map
+                .drain()
                 .filter_map(|(_, slot)| match slot {
                     PtySlot::Running(live) => Some(live),
                     PtySlot::Starting(_) => None,
                 })
-                .collect()
+                .collect();
+            self.settled.notify_all();
+            kids
         };
         let pids: Vec<u32> = kids.iter().map(|live| live.pid).collect();
         for live in kids {
@@ -193,15 +266,33 @@ pub async fn pty_spawn(
 ) -> Result<(), String> {
     let work = crate::window::begin_runtime_work(&app)?;
     let host = app.state::<PtyHost>();
-    if reuse_existing == Some(true) && host.get(&id).is_some() {
-        return pty_resize(host, id, cols, rows);
-    }
     // Reserve before waiting for a blocking worker, so Close can cancel a
     // startup that has not reached fork/exec yet.
-    let (ticket, previous) = host.begin_spawn(&id);
+    let (ticket, previous) = match host.plan_spawn(&id, reuse_existing == Some(true)) {
+        SpawnPlan::Reuse => return pty_resize(host, id, cols, rows),
+        SpawnPlan::Wait => {
+            let waiter = app.clone();
+            let waiting_id = id.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                let _work = work;
+                waiter
+                    .state::<PtyHost>()
+                    .wait_for_startup(&waiting_id, STARTUP_WAIT)
+            })
+            .await
+            .map_err(|error| format!("Terminal startup was interrupted: {error}"))??;
+            return pty_resize(app.state::<PtyHost>(), id, cols, rows);
+        }
+        SpawnPlan::Start(ticket, previous) => (ticket, previous),
+    };
     tauri::async_runtime::spawn_blocking(move || {
         let _work = work;
         let host = app.state::<PtyHost>();
+        let _reservation = StartupReservation {
+            host: &host,
+            id: &id,
+            ticket,
+        };
         if let Some(prev) = previous {
             terminate(prev.pid);
         }
@@ -233,9 +324,6 @@ pub async fn pty_spawn(
             let _ = (cwd, cols, rows);
             Err("Terminals are not supported on this platform.".into())
         };
-        if result.is_err() {
-            host.cancel_spawn(&id, ticket);
-        }
         result
     })
     .await
@@ -1092,6 +1180,78 @@ mod tests {
         assert!(!host.install_spawn("term", old, fixture_pty()));
         assert!(host.install_spawn("term", new, fixture_pty()));
         assert!(host.get("term").is_some());
+        host.remove("term");
+    }
+
+    #[test]
+    fn reattaching_during_startup_waits_and_reuses_the_first_shell() {
+        let host = Arc::new(PtyHost::new());
+        let SpawnPlan::Start(ticket, None) = host.plan_spawn("term", true) else {
+            panic!("first view should start the shell");
+        };
+        // A remounted view must not replace the pending startup.
+        assert!(matches!(host.plan_spawn("term", true), SpawnPlan::Wait));
+        let waiter = {
+            let host = host.clone();
+            thread::spawn(move || host.wait_for_startup("term", Duration::from_secs(5)))
+        };
+        thread::sleep(Duration::from_millis(20));
+        let live = fixture_pty();
+        assert!(host.install_spawn("term", ticket, live.clone()));
+        assert_eq!(waiter.join().unwrap(), Ok(()));
+        assert!(Arc::ptr_eq(&host.get("term").unwrap(), &live));
+        assert!(matches!(host.plan_spawn("term", true), SpawnPlan::Reuse));
+        // An explicit restart (no reuse) still replaces the running shell.
+        let SpawnPlan::Start(_, Some(previous)) = host.plan_spawn("term", false) else {
+            panic!("restart should replace the running shell");
+        };
+        assert!(Arc::ptr_eq(&previous, &live));
+        host.remove("term");
+    }
+
+    #[test]
+    fn reattaching_waiter_is_released_when_startup_fails_or_closes() {
+        let host = Arc::new(PtyHost::new());
+        for close in [false, true] {
+            let SpawnPlan::Start(ticket, _) = host.plan_spawn("term", true) else {
+                panic!("expected a fresh startup");
+            };
+            let waiter = {
+                let host = host.clone();
+                thread::spawn(move || host.wait_for_startup("term", Duration::from_secs(5)))
+            };
+            thread::sleep(Duration::from_millis(20));
+            if close {
+                host.remove("term");
+            } else {
+                // A failed or panicked worker drops its reservation.
+                drop(StartupReservation {
+                    host: &host,
+                    id: "term",
+                    ticket,
+                });
+            }
+            let started = Instant::now();
+            assert!(waiter.join().unwrap().is_err());
+            assert!(started.elapsed() < Duration::from_secs(2));
+            assert!(!host.install_spawn("term", ticket, fixture_pty()));
+            assert!(matches!(
+                host.plan_spawn("term", true),
+                SpawnPlan::Start(_, None)
+            ));
+            host.remove("term");
+        }
+    }
+
+    #[test]
+    fn reattaching_waiter_times_out_without_replacing_the_startup() {
+        let host = PtyHost::new();
+        let (ticket, _) = host.begin_spawn("term");
+        assert!(host
+            .wait_for_startup("term", Duration::from_millis(20))
+            .unwrap_err()
+            .contains("still starting"));
+        assert!(host.install_spawn("term", ticket, fixture_pty()));
         host.remove("term");
     }
 

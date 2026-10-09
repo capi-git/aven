@@ -20,6 +20,9 @@ const openedPtys = new Set<string>();
 // Explicit Run clicks queue one command until this terminal's native PTY exists.
 // In-memory only: reopening the application never replays a saved run command.
 const initialCommands = new Map<string, string>();
+// Concurrent spawns for one id (a view remounting during startup) all attach
+// to the same native shell; any of them may still deliver the queued command.
+const startingSpawns = new Map<string, number>();
 const pendingWrites = new Map<string, Promise<void>>();
 const writeGenerations = new Map<string, symbol>();
 export function queueTerminalCommand(id: string, command: string): void {
@@ -149,15 +152,26 @@ export async function spawnPty(
   cols: number,
   rows: number,
 ): Promise<void> {
+  startingSpawns.set(id, (startingSpawns.get(id) ?? 0) + 1);
   try {
     await invoke("pty_spawn", { id, cwd, cols, rows, reuseExisting: true });
-    const command = initialCommands.get(id);
-    initialCommands.delete(id);
-    if (command) await writePty(id, command.replace(/\r?\n/g, "\r") + "\r");
   } catch (error) {
-    initialCommands.delete(id);
+    // Another attach to the same shell may still succeed and run the command.
+    if (!finishSpawn(id)) initialCommands.delete(id);
     throw error;
   }
+  finishSpawn(id);
+  const command = initialCommands.get(id);
+  initialCommands.delete(id);
+  if (command) await writePty(id, command.replace(/\r?\n/g, "\r") + "\r");
+}
+
+/** Returns whether another spawn for this id is still in flight. */
+function finishSpawn(id: string): boolean {
+  const remaining = (startingSpawns.get(id) ?? 1) - 1;
+  if (remaining > 0) startingSpawns.set(id, remaining);
+  else startingSpawns.delete(id);
+  return remaining > 0;
 }
 
 export async function writePty(id: string, data: string): Promise<void> {
