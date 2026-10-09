@@ -22,6 +22,7 @@ import { restoreOrchestrationProposal } from "./orchestrationPlan";
 import type { OrchestrationSummary } from "./orchestrationSummary";
 
 export type SessionSummary = {
+  transcriptRevision?: string;
   orchestrationLeadId?: string;
   orchestration?: OrchestrationSummary;
   id: string;
@@ -132,14 +133,96 @@ export function sanitizeSessionForPersist(
     ...persistableMeta(session),
     blocks: session.blocks
       .map((block, index) =>
-        sanitizeBlock(
-          index === firstUser && session.orchestrationLeadId
-            ? { ...block, orchestrationLeadId: session.orchestrationLeadId }
-            : block,
+        cachedSanitizeBlock(
+          block,
+          index === firstUser ? session.orchestrationLeadId : undefined,
         ),
       )
       .filter((block): block is Block => block != null),
   };
+}
+
+// Streaming reducers replace blocks. Reuse sanitized unchanged blocks so delta
+// detection scans small identity tokens, not megabytes of historical JSON.
+const sanitizedBlocks = new WeakMap<
+  Block,
+  { lead?: string; value: Block | null }
+>();
+function cachedSanitizeBlock(block: Block, lead?: string): Block | null {
+  const cached = sanitizedBlocks.get(block);
+  if (cached && cached.lead === lead) return cached.value;
+  const value = sanitizeBlock(
+    lead ? { ...block, orchestrationLeadId: lead } : block,
+  );
+  sanitizedBlocks.set(block, { lead, value });
+  return value;
+}
+
+// Retain tokens only, never closed transcripts. A missing/evicted base simply
+// takes the full-snapshot compatibility path on the next save.
+const confirmedTranscripts = new Map<
+  string,
+  { revision: string; tokens: number[] }
+>();
+const MAX_TRANSCRIPT_BASES = 64;
+
+async function writeSessionSnapshot(
+  payload: SessionUpsertPayload,
+): Promise<SessionSummary> {
+  const { blocks, ...metadata } = payload;
+  const tokens = blocks.map(blockToken);
+  const base = confirmedTranscripts.get(payload.id);
+  try {
+    let summary: SessionSummary;
+    if (base) {
+      const blocksDelta = {
+        baseRevision: base.revision,
+        blockCount: blocks.length,
+        updates: blocks.flatMap((block, index) =>
+          tokens[index] === base.tokens[index] ? [] : [{ index, block }],
+        ),
+      };
+      try {
+        summary = await invoke<SessionSummary>("session_upsert", {
+          session: { ...metadata, blocksDelta },
+        });
+      } catch (error) {
+        if (!String(error).includes("TRANSCRIPT_REVISION_MISMATCH"))
+          throw error;
+        // Another window, a deleted/recreated row or a legacy writer changed the
+        // base. Retry exactly once with the authoritative complete snapshot,
+        // inside this session's ordered queue.
+        confirmedTranscripts.delete(payload.id);
+        summary = await invoke<SessionSummary>("session_upsert", {
+          session: payload,
+        });
+      }
+    } else {
+      summary = await invoke<SessionSummary>("session_upsert", {
+        session: payload,
+      });
+    }
+    confirmedTranscripts.delete(payload.id);
+    if (
+      typeof summary?.transcriptRevision === "string" &&
+      summary.transcriptRevision
+    ) {
+      confirmedTranscripts.set(payload.id, {
+        revision: summary.transcriptRevision,
+        tokens,
+      });
+      if (confirmedTranscripts.size > MAX_TRANSCRIPT_BASES) {
+        const oldest = confirmedTranscripts.keys().next().value;
+        if (oldest !== undefined) confirmedTranscripts.delete(oldest);
+      }
+    }
+    return summary;
+  } catch (error) {
+    // A rejected IPC can have an uncertain native commit outcome. Reestablish
+    // the base with a full snapshot on retry instead of trusting that revision.
+    confirmedTranscripts.delete(payload.id);
+    throw error;
+  }
 }
 
 /**
@@ -189,16 +272,14 @@ export async function upsertSession(
   const payload = sanitizeSessionForPersist(session);
   const promise = enqueueSessionWrite(session.id, async () => {
     if (deletedSessionIds.has(session.id)) return null;
-    return invoke<SessionSummary>("session_upsert", {
-      session: {
-        ...payload,
-        blocks: payload.blocks.map((block) =>
-          block.orchestrationLeadId &&
-          deletedSessionIds.has(block.orchestrationLeadId)
-            ? { ...block, orchestrationLeadId: undefined }
-            : block,
-        ),
-      },
+    return writeSessionSnapshot({
+      ...payload,
+      blocks: payload.blocks.map((block) =>
+        block.orchestrationLeadId &&
+        deletedSessionIds.has(block.orchestrationLeadId)
+          ? { ...block, orchestrationLeadId: undefined }
+          : block,
+      ),
     });
   }).then((summary) => (summary ? normalizeSummary(summary) : null));
   pendingSessionSnapshots.set(session.id, { fingerprint, promise });
@@ -303,6 +384,7 @@ export async function getSession(sessionId: string): Promise<Session | null> {
 export async function deleteSession(sessionId: string): Promise<void> {
   // Deleting a lead also changes how queued worker snapshots are sanitized.
   pendingSessionSnapshots.clear();
+  confirmedTranscripts.clear();
   deletedSessionIds.add(sessionId);
   try {
     // Drain worker snapshots before native deletion strips their lead ownership.
@@ -310,6 +392,7 @@ export async function deleteSession(sessionId: string): Promise<void> {
     await enqueueSessionWrite(sessionId, () =>
       invoke<void>("session_delete", { sessionId }),
     );
+    confirmedTranscripts.clear();
   } catch (error) {
     deletedSessionIds.delete(sessionId);
     pendingSessionSnapshots.clear();

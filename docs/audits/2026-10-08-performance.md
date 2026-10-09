@@ -41,27 +41,58 @@ The combined Aven Dev preview supplies the separate native runtime check.
 
 ## Session saves
 
-Git metadata and JSON serialization now finish before acquiring the shared
-SQLite lock. History listing also gathers Git metadata before locking. An
-unchanged upsert executes no row update; changes to metadata, context or the
-queued follow-ups still persist even when transcript text is unchanged.
-The frontend shares adjacent identical pending saves, while preserving
-A–B–A ordering, failure retries and archive/delete barriers. It does not cache
-completed writes across windows. App's existing immutable-block fingerprint
+Git metadata and JSON serialization finish before acquiring the shared SQLite
+lock. History listing also gathers Git metadata before locking. The frontend
+shares adjacent identical pending saves while preserving A–B–A ordering,
+failure retries and archive/delete barriers. App's immutable-block fingerprint
 continues to skip unchanged periodic snapshots.
+
+The follow-on v12 migration stores each transcript block in an ordered
+`session_blocks` row. It preserves duplicate or missing block IDs, unknown JSON
+fields, attachments, tools and queued follow-ups. Metadata, transcript edits and
+worker ownership commit in one transaction. A save updates only changed rows;
+metadata-only changes preserve the transcript revision and activity timestamp.
+Normal sidebar listing retains its covering index.
+
+The first save sends a full snapshot. Later saves sanitize unchanged blocks
+once and compare identity tokens, sending only changed positions plus an
+explicit new length. The native store checks an opaque base revision before
+applying each delta. A conflict retries once with the full current snapshot
+inside the same ordered queue. Failed writes discard the cached base. A bounded
+cache retains tokens rather than closed transcript objects. Legacy responses
+without a revision continue to use full snapshots.
+
+Before migrating a populated legacy file, SQLite `VACUUM INTO` writes a
+consistent adjacent backup named
+`monocode.db.pre-transcript-v12-<uuid>.db`, including committed WAL pages. Schema,
+backfill and migration version commit together; malformed legacy transcripts or
+any write failure abort the migration without deleting their original JSON.
+Reopening an already migrated database does not create another migration
+backup. Backups contain chat history and remain in the same app data directory.
+
+**Downgrade limitation:** older Aven versions cannot read the new block rows.
+A downgrade requires closing Aven and restoring the pre-v12 backup (including
+handling stale WAL/SHM files while the app is closed); that backup reflects the
+moment before migration, not subsequent chats. Never copy only a live main
+SQLite file as a backup. Use a SQLite snapshot or a cleanly closed database.
+Legacy writers that update `blocks_json` invalidate the new revision and clear
+obsolete block rows, so their writes cannot silently accept a stale delta.
 
 On disk, connections use `synchronous=NORMAL` only after SQLite confirms WAL
 mode. This avoids a disk sync on every streaming snapshot. WAL integrity is
 preserved, but the latest committed transactions can be lost after an OS crash
 or power loss before a checkpoint; this is the durability tradeoff of NORMAL.
-The fixture verifies the configured pragmas, reopening saved history and
-SQLite integrity. No schema, production data or transcript format changed.
 
-Storage is still one `blocks_json` value per session. Saving individual messages
-would require a schema/format transition and compatibility work for restore,
-search, worker ownership, backups and older records. That was explicitly
-deferred in the original audit; the changes above reduce redundant work without
-pretending to implement incremental message storage.
+Validation uses disposable databases only. All 55 native session-store tests
+pass, including v1 migration, corrupt-record and interrupted-backfill rollback,
+revision conflicts, append/reorder/truncate, worker release/delete, search,
+archive/pin, and both legacy and normalized snapshot restore. In a 1,200-block
+fixture with roughly 4.9 MB of text, changing the last block writes exactly one
+transcript row; its delta payload is over 1,000 times smaller than a full
+snapshot. A metadata-only follow-up writes zero transcript rows. All 42 focused
+web persistence tests pass, covering serialization, queue ordering, retry,
+sanitized block positions and deletion barriers. These are deterministic
+fixture checks, not a claim of measured end-to-end application latency.
 
 ## Native terminal and orchestration waits
 
