@@ -80,6 +80,7 @@ import {
   isAtEnd,
   readerScrolled,
   TRANSCRIPT_SCROLL_DRAG_EVENT,
+  type ScrollExtent,
 } from "../lib/transcriptScrollIntent";
 import type { TranscriptLayout } from "../lib/appearance";
 import { AgentMarkdown } from "./AgentMarkdown";
@@ -178,6 +179,9 @@ function AgentTranscriptComponent({
   // The offset as of the last scroll this component saw or wrote. Comparing
   // against it tells the reader moving apart from content growing under them.
   const lastScrollTop = useRef(0);
+  // The content and viewport heights at that offset, to tell content folding
+  // away under the reader from a taller viewport clamping them.
+  const lastScrollExtent = useRef<ScrollExtent | undefined>(undefined);
   // Until this time, a trackpad gesture with no direction yet owns the pin.
   const wheelHold = useRef(0);
   const prependHeight = useRef<number | null>(null);
@@ -239,6 +243,10 @@ function AgentTranscriptComponent({
   /** Record an offset this component wrote, so its event is not the reader. */
   const rememberScroll = useCallback((el: HTMLElement) => {
     lastScrollTop.current = el.scrollTop;
+    lastScrollExtent.current = {
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight,
+    };
   }, []);
 
   const pinTranscript = useCallback(
@@ -262,7 +270,12 @@ function AgentTranscriptComponent({
       const moved = readerScrolled(el, previousTop);
       stickToBottom.current =
         !scrollbarDragging.current &&
-        followsAfterScroll(el, previousTop, stickToBottom.current);
+        followsAfterScroll(
+          el,
+          previousTop,
+          stickToBottom.current,
+          lastScrollExtent.current,
+        );
       rememberScroll(el);
       setShowJump(!stickToBottom.current && el.scrollHeight > el.clientHeight);
       return moved;

@@ -81,6 +81,11 @@ function scrollMetrics(
     grow: (amount: number) => {
       total += amount;
     },
+    /** Shorter content. A browser clamps the offset to the new bottom. */
+    shrink: (amount: number) => {
+      total -= amount;
+      position = Math.max(0, Math.min(position, total - height));
+    },
     /** Change the viewport. A browser clamps the offset to the new bottom. */
     resize: (next: number) => {
       height = next;
@@ -360,6 +365,45 @@ describe("transcript bottom following", () => {
     metrics.grow(40);
     await render(answer("One\n\nTwo"));
     expect(el.scrollTop).toBe(560);
+  });
+
+  it("follows again when content folding away clamps a slightly scrolled-up reader to the end", async () => {
+    const el = await render(answer("One"));
+    const metrics = scrollMetrics(el, 400, 1000);
+    await markAtBottom(el);
+    await wheel(el, -4);
+    await scrollTo(el, 596);
+    expect(showJump).toHaveBeenLastCalledWith(true);
+
+    // Finished work folds away. The reader now sees the very end, with
+    // nothing below it, so Jump hides and the next reply is followed.
+    metrics.shrink(40);
+    expect(el.scrollTop).toBe(560);
+    await act(async () => {
+      el.dispatchEvent(new Event("scroll"));
+    });
+    expect(showJump).toHaveBeenLastCalledWith(false);
+    metrics.grow(40);
+    await render(answer("One\n\nTwo"));
+    expect(el.scrollTop).toBe(600);
+  });
+
+  it("keeps a reader scrolled well up in place when content shrinks without reaching them", async () => {
+    const el = await render(answer("One"));
+    const metrics = scrollMetrics(el, 400, 1000);
+    await markAtBottom(el);
+    await wheel(el, -40);
+    await scrollTo(el, 300);
+
+    metrics.shrink(40);
+    expect(el.scrollTop).toBe(300);
+    await act(async () => {
+      el.dispatchEvent(new Event("scroll"));
+    });
+    expect(showJump).toHaveBeenLastCalledWith(true);
+    metrics.grow(80);
+    await render(answer("One\n\nTwo"));
+    expect(el.scrollTop).toBe(300);
   });
 
   it("does not pull a reader back down when their scroll lands before its event", async () => {

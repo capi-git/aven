@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  contentShrankToEnd,
   followsAfterScroll,
   isAtEnd,
   readerScrolled,
@@ -40,6 +41,21 @@ describe("transcript follow decisions", () => {
     // A clamp to the bottom neither re-pins nor releases.
     expect(followsAfterScroll(box(560, 1000, 440), 596, false)).toBe(false);
     expect(followsAfterScroll(box(560, 1000, 440), 600, true)).toBe(true);
+  });
+
+  it("follows when content shrinking clamps the reader to the end", () => {
+    const before = { scrollHeight: 1000, clientHeight: 400 };
+    // Work folded away under a reader 4px from the end.
+    expect(contentShrankToEnd(box(560, 960), 596, before)).toBe(true);
+    expect(followsAfterScroll(box(560, 960), 596, false, before)).toBe(true);
+    // A taller viewport over the same content is layout, not following.
+    expect(contentShrankToEnd(box(560, 1000, 440), 596, before)).toBe(false);
+    expect(followsAfterScroll(box(560, 1000, 440), 596, false, before)).toBe(
+      false,
+    );
+    // Shorter content that does not reach the reader leaves them be.
+    expect(contentShrankToEnd(box(300, 960), 300, before)).toBe(false);
+    expect(followsAfterScroll(box(300, 960), 300, false, before)).toBe(false);
   });
 
   it("leaves on any upward move, however small", () => {
