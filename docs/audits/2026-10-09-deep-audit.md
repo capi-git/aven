@@ -140,8 +140,11 @@ checks that the shared directory survives. The Git test checks C-style decoding
 separately from platform-specific separator normalization. Neither change skips
 the Windows assertion or changes the corresponding production behavior.
 
-A dedicated Windows native job now runs formatting, strict Clippy and the full
+A dedicated Windows native job now runs formatting, Clippy and the full
 native test suite on pull requests, so these differences are checked before a
-release build. macOS checks retain their existing name and behavior. Final
+release build. Windows Clippy reports existing unused-code warnings for Mac-specific helpers;
+its new check does not deny those warnings. Compiler errors and failing tests
+still block the job. macOS checks retain their existing name and strict warning
+policy. Final
 Windows validation is recorded by that job and the subsequent release workflow;
 the cancelled build is not a published release.
