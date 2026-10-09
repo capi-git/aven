@@ -91,6 +91,34 @@ export type DetachedWorkspaceSnapshot = {
   returnToken?: string;
   remaining?: DetachedWorkspaceState;
 };
+export type DetachedSessionUpdate = {
+  transferToken?: string;
+  sessionIds: string[];
+  sessions: SessionPictureInPictureState[];
+};
+/** Apply owner session deltas without replacing local layout, theme or drafts. */
+export function mergeDetachedSessionUpdate(
+  current: DetachedWorkspaceSnapshot,
+  update: DetachedSessionUpdate,
+): DetachedWorkspaceSnapshot {
+  if (current.state.transferToken !== update.transferToken) return current;
+  const sessions = new Map(
+    current.state.sessions.map((entry) => [entry.session.id, entry]),
+  );
+  for (const entry of update.sessions) sessions.set(entry.session.id, entry);
+  if (
+    new Set(update.sessionIds).size !== update.sessionIds.length ||
+    update.sessionIds.some((id) => !sessions.has(id))
+  )
+    return current;
+  return {
+    ...current,
+    state: {
+      ...current.state,
+      sessions: update.sessionIds.map((id) => sessions.get(id)!),
+    },
+  };
+}
 export type WorkspaceDropPoint = { screenX: number; screenY: number };
 export const nativeWorkspaceWindow = {
   open: (
@@ -103,16 +131,8 @@ export const nativeWorkspaceWindow = {
       target,
       point,
     }),
-  update: (
-    id: string,
-    sessions: SessionPictureInPictureState[],
-    theme?: SessionPipTheme,
-  ) =>
-    invoke<void>("workspace_window_update", {
-      id,
-      sessions,
-      theme: theme ?? null,
-    }),
+  update: (id: string, update: DetachedSessionUpdate) =>
+    invoke<void>("workspace_window_update", { id, update }),
   getState: (id?: string) =>
     invoke<DetachedWorkspaceSnapshot>("workspace_window_get_state", { id }),
   ready: (token: string) => invoke<void>("workspace_window_ready", { token }),
@@ -295,6 +315,9 @@ export function useDetachedWorkspaces(options: Options) {
   const streamTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
+  const streaming = useRef(new Map<string, symbol>());
+  const streamPending = useRef(new Set<string>());
+  const streamGeneration = useRef(0);
   const sent = useRef(
     new Map<
       string,
@@ -302,6 +325,8 @@ export function useDetachedWorkspaces(options: Options) {
         sessions: Session[];
         recents: SessionPaneProps["recents"] | undefined;
         catalog: number;
+        metadata: string;
+        transferToken?: string;
       }
     >(),
   );
@@ -574,6 +599,9 @@ export function useDetachedWorkspaces(options: Options) {
     );
     return () => {
       disposed = true;
+      streamGeneration.current += 1;
+      streaming.current.clear();
+      streamPending.current.clear();
       clearTimeout(streamTimer.current);
       streamTimer.current = undefined;
       for (const request of pending.current.values()) {
@@ -594,36 +622,89 @@ export function useDetachedWorkspaces(options: Options) {
       cleanups.forEach((fn) => fn());
     };
   }, [report, returnWindow]);
+  const scheduleUpdates = useCallback(
+    function schedule() {
+      if (!entries.current.size || streamTimer.current) return;
+      streamTimer.current = setTimeout(() => {
+        streamTimer.current = undefined;
+        for (const entry of entries.current.values()) {
+          if (streaming.current.has(entry.id)) {
+            streamPending.current.add(entry.id);
+            continue;
+          }
+          const ids = new Set(detachedSessionIds(entry.state));
+          const sessions = latest.current.sessions.filter((s) => ids.has(s.id));
+          const recents = latest.current.sessionProps.recents;
+          const catalog = getModelSnapshot();
+          const metadata = JSON.stringify([
+            latest.current.sessionProps.hideProjectPicker,
+            SESSION_PIP_CALLBACKS.filter(
+              (name) => typeof latest.current.sessionProps[name] === "function",
+            ),
+          ]);
+          const transferToken = entry.state.transferToken;
+          const previous = sent.current.get(entry.id);
+          const metadataChanged =
+            !previous ||
+            previous.catalog !== catalog ||
+            previous.recents !== recents ||
+            previous.metadata !== metadata ||
+            previous.transferToken !== transferToken;
+          const prior = new Map(
+            previous?.sessions.map((session) => [session.id, session]),
+          );
+          const changed = sessions.filter(
+            (session) => metadataChanged || prior.get(session.id) !== session,
+          );
+          const sessionIds = sessions.map((session) => session.id);
+          if (
+            !changed.length &&
+            previous &&
+            previous.sessions.length === sessions.length &&
+            previous.sessions.every(
+              (session, i) => session.id === sessionIds[i],
+            )
+          )
+            continue;
+          const marker = Symbol(entry.id);
+          const generation = streamGeneration.current;
+          streaming.current.set(entry.id, marker);
+          void nativeWorkspaceWindow
+            .update(entry.id, {
+              transferToken,
+              sessionIds,
+              sessions: snapshotSessions(changed.map((session) => session.id)),
+            })
+            .then(() => {
+              if (
+                generation === streamGeneration.current &&
+                entries.current.has(entry.id)
+              )
+                sent.current.set(entry.id, {
+                  sessions,
+                  recents,
+                  catalog,
+                  metadata,
+                  transferToken,
+                });
+            })
+            .catch((reason) => {
+              if (generation === streamGeneration.current) report(reason);
+            })
+            .finally(() => {
+              if (streaming.current.get(entry.id) !== marker) return;
+              streaming.current.delete(entry.id);
+              if (streamPending.current.delete(entry.id)) schedule();
+            });
+        }
+      }, 100);
+    },
+    [snapshotSessions, report],
+  );
   useEffect(() => {
-    if (!entries.current.size || streamTimer.current) return;
-    streamTimer.current = setTimeout(() => {
-      streamTimer.current = undefined;
-      for (const entry of entries.current.values()) {
-        const ids = detachedSessionIds(entry.state);
-        const sessions = latest.current.sessions.filter((s) =>
-          ids.includes(s.id),
-        );
-        const recents = latest.current.sessionProps.recents;
-        const catalog = getModelSnapshot();
-        const previous = sent.current.get(entry.id);
-        if (
-          previous &&
-          previous.catalog === catalog &&
-          previous.recents === recents &&
-          previous.sessions.length === sessions.length &&
-          previous.sessions.every((session, i) => session === sessions[i])
-        )
-          continue;
-        sent.current.set(entry.id, { sessions, recents, catalog });
-        void nativeWorkspaceWindow
-          .update(entry.id, snapshotSessions(ids), entry.state.theme)
-          .catch((reason) => {
-            sent.current.delete(entry.id);
-            report(reason);
-          });
-      }
-    }, 100);
-  }, [options.sessions, options.sessionProps, snapshotSessions, report]);
+    // Keep streaming when the owner is unfocused: a detached child can be active.
+    scheduleUpdates();
+  }, [options.sessions, options.sessionProps, snapshots, scheduleUpdates]);
   const open = useCallback(
     async (
       input: DetachedWorkspaceState,

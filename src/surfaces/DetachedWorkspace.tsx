@@ -55,6 +55,8 @@ import {
 } from "../lib/workspaceViews";
 import {
   nativeWorkspaceWindow,
+  mergeDetachedSessionUpdate,
+  type DetachedSessionUpdate,
   detachedSessionIds,
   detachedTerminalIds,
   detachedSurfaceIds,
@@ -585,6 +587,18 @@ export function DetachedWorkspace() {
       nativeWorkspaceWindow.listen<DetachedWorkspaceSnapshot>(
         "workspace-window-state",
         accept,
+      ),
+      nativeWorkspaceWindow.listen<DetachedSessionUpdate>(
+        "workspace-window-sessions",
+        (update) => {
+          if (disposed || !current.current) return;
+          const next = mergeDetachedSessionUpdate(current.current, update);
+          if (next === current.current) return;
+          for (const session of update.sessions)
+            prepareSessionPipViewMetadata(session);
+          current.current = next;
+          setEnvelope(next);
+        },
       ),
       nativeWorkspaceWindow.listen(
         "workspace-window-return-requested",

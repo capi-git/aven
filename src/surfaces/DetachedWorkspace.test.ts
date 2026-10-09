@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { DetachedWorkspace } from "./DetachedWorkspace";
 import { nativeWorkspaceWindow } from "../lib/detachedWorkspaces";
+import { readComposerDraft, updateComposerDraft } from "../lib/composerDrafts";
 import { leaf, newTab, splitPane } from "../lib/layout";
 import { resolveWorkspaceView } from "../lib/workspaceViews";
 import { installInAppLinks } from "../lib/inAppLinks";
@@ -427,4 +428,79 @@ it("keeps selected panes mounted behind native occlusion while transfer freezing
   await act(async () => listeners.get("workspace-window-resume")!(undefined));
   expect(selected().dataset.presented).toBe("true");
   expect(background().dataset.presented).toBe("false");
+});
+
+
+it("accepts session deltas without changing the selected browser or the child's live draft", async () => {
+  const initial = await nativeWorkspaceWindow.getState();
+  initial.state.tabs = [newTab("delta-task")];
+  initial.state.sessions = [
+    {
+      session: {
+        id: "delta-task",
+        title: "Task",
+        cwd: "/project",
+        harness: "codex",
+        model: "gpt-5",
+        modelSettings: {},
+        runtimeMode: "bypass",
+        blocks: [],
+      },
+      recents: [],
+    },
+  ];
+  initial.state.view = resolveWorkspaceView(
+    initial.state.view,
+    ["selected", "background", initial.state.tabs[0].id],
+    "selected",
+  );
+  await act(async () => root.render(createElement(DetachedWorkspace)));
+  await act(async () =>
+    listeners.get("workspace-window-focus")!({ browser: { id: "background" } }),
+  );
+  updateComposerDraft("delta-task", {
+    text: "draft typed in detached window",
+    attachments: [],
+  });
+  const fresh = {
+    ...initial.state.sessions[0],
+    session: { ...initial.state.sessions[0].session, title: "Latest response" },
+    draft: {
+      text: "owner draft must not replace typing",
+      attachments: [],
+      updatedAt: Date.now() + 100_000,
+    },
+  };
+  await act(async () =>
+    listeners.get("workspace-window-sessions")!({
+      transferToken: "transfer",
+      sessionIds: ["delta-task"],
+      sessions: [fresh],
+    }),
+  );
+  expect(readComposerDraft("delta-task")?.text).toBe(
+    "draft typed in detached window",
+  );
+  expect(
+    host
+      .querySelector('[data-test-browser="background"]')
+      ?.getAttribute("data-presented"),
+  ).toBe("true");
+  await act(async () =>
+    listeners.get("workspace-window-sessions")!({
+      transferToken: "old transfer",
+      sessionIds: [],
+      sessions: [],
+    }),
+  );
+  await act(async () =>
+    listeners.get("workspace-window-freeze")!({ token: "check" }),
+  );
+  const checkpoint = vi.mocked(nativeWorkspaceWindow.checkpoint).mock
+    .lastCall![0];
+  expect(checkpoint.sessions[0].session.title).toBe("Latest response");
+  expect(checkpoint.drafts?.["delta-task"].text).toBe(
+    "draft typed in detached window",
+  );
+  expect(checkpoint.browsers).toEqual(initial.state.browsers);
 });
