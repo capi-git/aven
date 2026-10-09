@@ -1715,11 +1715,13 @@ extern "C" int sm_chromium_layout(const char *id,double x,double y,double w,doub
     cut.reserve(hole_count);
     for (int i=0;i<hole_count;++i) {
       const double *v=holes+i*5;
-      if (!std::all_of(v,v+5,[](double value){ return std::isfinite(value) && value>=0 && value<=262144; })) return Fail("Invalid browser bounds");
-      // Clamp to the page; a cut-out never extends the native view.
-      const double left=std::min(v[0],w),top=std::min(v[1],h);
-      const double width=std::min(v[0]+v[2],w)-left,height=std::min(v[1]+v[3],h)-top;
-      if (width>0 && height>0) cut.push_back({left,top,width,height,std::min({v[4],width/2,height/2})});
+      // A menu may start above or left of the page; x and y can be negative.
+      if (!std::all_of(v,v+5,[](double value){ return std::isfinite(value) && std::abs(value)<=262144; }) ||
+          v[2]<=0 || v[3]<=0 || v[4]<0) return Fail("Invalid browser bounds");
+      // Keep the menu's whole rounded shape. The mask subtracts it from the
+      // page exactly; rounding a clipped rectangle would bite into the menu.
+      if (v[0]>=w || v[1]>=h || v[0]+v[2]<=0 || v[1]+v[3]<=0) continue;
+      cut.push_back({v[0],v[1],v[2],v[3],std::min({v[4],v[2]/2,v[3]/2})});
     }
     page->x_=x; page->y_=y; page->w_=w; page->h_=h; page->clip_left_=clip_left; page->clip_right_=clip_right; page->viewport_height_=viewport_height; page->bottom_corner_radius_=bottom_corner_radius; page->holes_=std::move(cut); page->visible_=visible; page->Layout(); return 1; }
 }

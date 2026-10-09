@@ -142,7 +142,11 @@ export function browserOverlayState(
   const areaHeight = area.bottom - area.top;
   if (areaWidth < 1 || areaHeight < 1) return NONE;
   let capture = false;
-  const found: { hole: BrowserHole; element: HTMLElement }[] = [];
+  const found: {
+    hole: BrowserHole;
+    element: HTMLElement;
+    visibleArea: number;
+  }[] = [];
   for (const element of document.querySelectorAll<HTMLElement>(
     BROWSER_OVERLAYS,
   )) {
@@ -169,18 +173,22 @@ export function browserOverlayState(
       break;
     }
     const final = finalBox(element, box, style);
-    const left = Math.max(area.left, final.left);
-    const top = Math.max(area.top, final.top);
-    const right = Math.min(area.right, final.right);
-    const bottom = Math.min(area.bottom, final.bottom);
-    if (right - left < 0.5 || bottom - top < 0.5) continue;
-    const width = right - left;
-    const height = bottom - top;
+    const visibleWidth =
+      Math.min(area.right, final.right) - Math.max(area.left, final.left);
+    const visibleHeight =
+      Math.min(area.bottom, final.bottom) - Math.max(area.top, final.top);
+    if (visibleWidth < 0.5 || visibleHeight < 0.5) continue;
+    // Send the menu's whole rounded shape, not its intersection with the
+    // page: rounding a clipped rectangle bites into a menu that crosses the
+    // page edge. The native mask subtracts it from the page shape exactly.
+    const width = final.right - final.left;
+    const height = final.bottom - final.top;
     found.push({
       element,
+      visibleArea: visibleWidth * visibleHeight,
       hole: {
-        x: left - bounds.x,
-        y: top - bounds.y,
+        x: final.left - bounds.x,
+        y: final.top - bounds.y,
         width,
         height,
         radius: Math.min(cornerRadius(style), width / 2, height / 2),
@@ -190,20 +198,33 @@ export function browserOverlayState(
   if (capture) return { capture: true, holes: [], elements: [] };
   // A popover frame, its animated surface and its menu list nest. Keep only
   // the outermost cut so overlapping paths never cancel each other out.
-  const kept = found.filter(
-    (entry, index) =>
-      !found.some(
-        (other, otherIndex) =>
-          otherIndex !== index &&
-          contains(other.hole, entry.hole) &&
-          (!contains(entry.hole, other.hole) || otherIndex < index),
-      ),
-  );
+  // When a square frame and its rounded surface share one box (bare
+  // popovers), keep the rounded one so no square corner exposes the page.
+  const kept = found
+    .filter(
+      (entry, index) =>
+        !found.some(
+          (other, otherIndex) =>
+            otherIndex !== index &&
+            contains(other.hole, entry.hole) &&
+            (!contains(entry.hole, other.hole) || otherIndex < index),
+        ),
+    )
+    .map((entry) => {
+      const radius = Math.max(
+        entry.hole.radius,
+        ...found
+          .filter(
+            (other) =>
+              contains(other.hole, entry.hole) &&
+              contains(entry.hole, other.hole),
+          )
+          .map((other) => other.hole.radius),
+      );
+      return { ...entry, hole: { ...entry.hole, radius } };
+    });
   if (!kept.length) return NONE;
-  const covered = kept.reduce(
-    (sum, { hole }) => sum + hole.width * hole.height,
-    0,
-  );
+  const covered = kept.reduce((sum, entry) => sum + entry.visibleArea, 0);
   if (
     kept.length > MAX_BROWSER_HOLES ||
     covered > areaWidth * areaHeight * BROWSER_HOLE_AREA_LIMIT

@@ -106,7 +106,8 @@ describe("browser overlay cut-outs", () => {
     });
   });
 
-  it("clamps a cut-out to the visible page and its radius to the clamped size", () => {
+  it("cuts a menu crossing the page edge with its whole rounded shape", () => {
+    // Rounding only the visible part would bite into the menu at the edge.
     overlay(new DOMRect(650, 560, 200, 100), {
       style: {
         borderTopLeftRadius: "40px",
@@ -116,7 +117,39 @@ describe("browser overlay cut-outs", () => {
       },
     });
     expect(state().holes).toEqual([
-      { x: 550, y: 480, width: 50, height: 20, radius: 10 },
+      { x: 550, y: 480, width: 200, height: 100, radius: 40 },
+    ]);
+  });
+
+  it("keeps a menu that starts above the page as one shape", () => {
+    overlay(new DOMRect(300, 40, 180, 160), {
+      style: {
+        borderTopLeftRadius: "12px",
+        borderTopRightRadius: "12px",
+        borderBottomRightRadius: "12px",
+        borderBottomLeftRadius: "12px",
+      },
+    });
+    expect(state().holes).toEqual([
+      { x: 200, y: -40, width: 180, height: 160, radius: 12 },
+    ]);
+  });
+
+  it("rounds a square frame that shares its box with a rounded surface", () => {
+    const frame = overlay(new DOMRect(300, 100, 200, 240));
+    frame.dataset.popoverSide = "bottom";
+    frame.removeAttribute("role");
+    overlay(new DOMRect(300, 100, 200, 240), {
+      parent: frame,
+      style: {
+        borderTopLeftRadius: "12px",
+        borderTopRightRadius: "12px",
+        borderBottomRightRadius: "12px",
+        borderBottomLeftRadius: "12px",
+      },
+    });
+    expect(state().holes).toEqual([
+      { x: 200, y: 20, width: 200, height: 240, radius: 12 },
     ]);
   });
 

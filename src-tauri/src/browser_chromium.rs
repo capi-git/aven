@@ -167,9 +167,13 @@ impl BrowserBounds {
                 .is_some_and(|height| !height.is_finite() || height <= 0.0 || height > 32768.0)
             || self.holes.len() > MAX_BROWSER_HOLES
             || self.holes.iter().any(|hole| {
-                [hole.x, hole.y, hole.width, hole.height, hole.radius]
+                // A menu may start above or left of the page it overlaps.
+                [hole.x, hole.y]
                     .iter()
-                    .any(|value| !value.is_finite() || *value < 0.0 || *value > 32768.0)
+                    .any(|value| !value.is_finite() || value.abs() > 32768.0)
+                    || [hole.width, hole.height, hole.radius]
+                        .iter()
+                        .any(|value| !value.is_finite() || *value < 0.0 || *value > 32768.0)
             })
         {
             return Err("Invalid browser bounds".into());
@@ -198,22 +202,28 @@ impl BrowserBounds {
         let right = (self.clip_right * ratio).min(self.width * ratio - left);
         Ok([left, right])
     }
-    /// Flattened `[x, y, width, height, radius]` cut-outs in native points,
-    /// clamped to the page. Empty intersections are dropped.
+    /// Flattened `[x, y, width, height, radius]` cut-outs in native points.
+    /// Each keeps the menu's whole rounded shape, even where it extends past
+    /// the page, so the native subtraction never rounds a clipped edge.
+    /// Cut-outs that miss the page are dropped.
     fn hole_points(&self, native_scale: f64) -> Result<Vec<f64>, String> {
         self.points(native_scale)?;
         let ratio = self.scale / native_scale;
         let mut points = Vec::with_capacity(self.holes.len() * 5);
         for hole in &self.holes {
-            let left = hole.x.min(self.width);
-            let top = hole.y.min(self.height);
-            let width = (hole.x + hole.width).min(self.width) - left;
-            let height = (hole.y + hole.height).min(self.height) - top;
-            if width <= 0.0 || height <= 0.0 {
+            if hole.width <= 0.0
+                || hole.height <= 0.0
+                || hole.x >= self.width
+                || hole.y >= self.height
+                || hole.x + hole.width <= 0.0
+                || hole.y + hole.height <= 0.0
+            {
                 continue;
             }
-            let radius = hole.radius.min(width / 2.0).min(height / 2.0);
-            points.extend([left, top, width, height, radius].map(|value| value * ratio));
+            let radius = hole.radius.min(hole.width / 2.0).min(hole.height / 2.0);
+            points.extend(
+                [hole.x, hole.y, hole.width, hole.height, radius].map(|value| value * ratio),
+            );
         }
         Ok(points)
     }
@@ -2965,14 +2975,16 @@ mod tests {
         assert!(bounds.points(0.0).is_err());
     }
     #[test]
-    fn validates_and_clamps_menu_holes_in_native_points() {
+    fn validates_menu_holes_and_keeps_their_whole_shape_in_native_points() {
         let bounds: BrowserBounds = serde_json::from_value(serde_json::json!({
             "x": 100, "y": 50, "width": 800, "height": 600, "scale": 1.5,
             "holes": [
                 {"x": 10, "y": 20, "width": 200, "height": 100, "radius": 12},
                 // Extends past the right and bottom edges of the page.
                 {"x": 700, "y": 550, "width": 300, "height": 300, "radius": 80},
-                // Entirely outside the page after clamping.
+                // Starts above the page, as a title-bar menu does.
+                {"x": 40, "y": -30, "width": 180, "height": 160, "radius": 12},
+                // Entirely outside the page.
                 {"x": 800, "y": 0, "width": 50, "height": 50},
             ]
         }))
@@ -2980,7 +2992,10 @@ mod tests {
         bounds.validate().unwrap();
         assert_eq!(
             bounds.hole_points(1.0).unwrap(),
-            vec![15.0, 30.0, 300.0, 150.0, 18.0, 1050.0, 825.0, 150.0, 75.0, 37.5]
+            vec![
+                15.0, 30.0, 300.0, 150.0, 18.0, 1050.0, 825.0, 450.0, 450.0, 120.0, 60.0, -45.0,
+                270.0, 240.0, 18.0
+            ]
         );
         let legacy: BrowserBounds = serde_json::from_value(serde_json::json!({
             "x": 0, "y": 0, "width": 800, "height": 600, "scale": 2
@@ -3005,23 +3020,29 @@ mod tests {
         }
         .validate()
         .is_err());
-        for value in [f64::NAN, f64::INFINITY, -1.0, 32769.0] {
-            for field in 0..5 {
-                let mut invalid = hole.clone();
-                match field {
-                    0 => invalid.x = value,
-                    1 => invalid.y = value,
-                    2 => invalid.width = value,
-                    3 => invalid.height = value,
-                    _ => invalid.radius = value,
-                }
-                assert!(BrowserBounds {
-                    holes: vec![invalid],
-                    ..legacy.clone()
-                }
-                .validate()
-                .is_err());
+        for (value, field) in [-1.0, 32769.0]
+            .into_iter()
+            .flat_map(|value| (2..5).map(move |field| (value, field)))
+            .chain(
+                [f64::NAN, f64::INFINITY, -32769.0, 32769.0]
+                    .into_iter()
+                    .flat_map(|value| (0..5).map(move |field| (value, field))),
+            )
+        {
+            let mut invalid = hole.clone();
+            match field {
+                0 => invalid.x = value,
+                1 => invalid.y = value,
+                2 => invalid.width = value,
+                3 => invalid.height = value,
+                _ => invalid.radius = value,
             }
+            assert!(BrowserBounds {
+                holes: vec![invalid],
+                ..legacy.clone()
+            }
+            .validate()
+            .is_err());
         }
     }
     #[test]

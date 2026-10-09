@@ -241,6 +241,9 @@ static void CheckMenuHoles() {
         {250, 120, 100, 60, 0},
         // Crosses the page's rounded bottom-right corner.
         {560, 380, 40, 20, 0},
+        // A title-bar menu that starts above the page keeps its whole shape:
+        // its rounded top corners lie outside the page, not at its edge.
+        {300, -30, 120, 80, 12},
     };
     CGPathRef mask = supermono::CreateBrowserMaskPath(page, 8, holes, flipped);
     const auto y = [flipped](double top) { return flipped ? top : 400 - top; };
@@ -254,6 +257,9 @@ static void CheckMenuHoles() {
     CHECK(Contains(mask, 61, y(51)));
     CHECK(!Contains(mask, 550, y(395)));
     CHECK(!Contains(mask, 559.5, y(399.5)));
+    CHECK(!Contains(mask, 260.5, y(0.5)));  // no notch where it crosses the edge
+    CHECK(!Contains(mask, 379.5, y(0.5)));
+    CHECK(Contains(mask, 259, y(10)));
     CGPathRelease(mask);
   }
 
