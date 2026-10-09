@@ -99,6 +99,8 @@ impl SessionStore {
 /// Keep this adjacent backup before the first incompatible transcript write.
 /// A failed migration rolls back, so a backup completed by an earlier attempt
 /// still describes the legacy data; reuse it instead of adding one per launch.
+/// Backup names carry a fingerprint of the chats they hold, so a backup that
+/// predates later legacy writes (an older build after a restore) is not reused.
 fn backup_legacy_transcripts(conn: &Connection, path: &std::path::Path) -> Result<(), String> {
     let legacy: bool = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sessions')
@@ -116,6 +118,22 @@ fn backup_legacy_transcripts(conn: &Connection, path: &std::path::Path) -> Resul
     if !populated {
         return Ok(());
     }
+    // Legacy writers always bump updated_at; deletes change the count. Reading
+    // these skips the transcript overflow pages, unlike hashing blocks_json.
+    let fingerprint = conn
+        .query_row(
+            "SELECT COUNT(*), COALESCE(MAX(updated_at), 0), COALESCE(MAX(created_at), 0) FROM sessions",
+            [],
+            |row| {
+                Ok(format!(
+                    "s{}-u{}-c{}",
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?
+                ))
+            },
+        )
+        .map_err(|error| error.to_string())?;
     let filename = path
         .file_name()
         .and_then(|name| name.to_str())
@@ -135,7 +153,7 @@ fn backup_legacy_transcripts(conn: &Connection, path: &std::path::Path) -> Resul
             continue;
         };
         if rest.ends_with(".db") {
-            completed = true;
+            completed |= rest.starts_with(&format!("{fingerprint}-"));
         } else if rest.ends_with(".partial") {
             // Left by an interrupted attempt; the database is still legacy.
             let _ = std::fs::remove_file(entry.path());
@@ -144,7 +162,7 @@ fn backup_legacy_transcripts(conn: &Connection, path: &std::path::Path) -> Resul
     if completed {
         return Ok(());
     }
-    let backup = dir.join(format!("{prefix}{}.db", uuid::Uuid::new_v4()));
+    let backup = dir.join(format!("{prefix}{fingerprint}-{}.db", uuid::Uuid::new_v4()));
     let partial = backup.with_extension("partial");
     let partial_path = partial.to_str().ok_or("Invalid session backup path")?;
     let mut options = std::fs::OpenOptions::new();

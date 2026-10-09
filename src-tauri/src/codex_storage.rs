@@ -424,7 +424,47 @@ fn preserve_local_entry(destination: &Path) -> Result<bool, String> {
         "[codex-storage] Aven's local Codex {name} differed from the shared setup; kept it as {PRESERVED_SETUP}/{} and now use the shared one.",
         preserved.file_name().unwrap_or_default().to_string_lossy()
     );
+    prune_preserved(&folder, &name);
     Ok(true)
+}
+
+/// Keep the newest few set-aside copies of each entry. Some are credentials,
+/// so repeated conflicts must not accumulate them without limit.
+const PRESERVED_PER_ENTRY: usize = 3;
+
+fn prune_preserved(folder: &Path, name: &str) {
+    let prefix = format!("{name}.");
+    let Ok(entries) = fs::read_dir(folder) else {
+        return;
+    };
+    // Names end in "<unix seconds>-<id>", so they sort oldest first.
+    let mut copies = entries
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_str()
+                .and_then(|file| file.strip_prefix(&prefix))
+                .is_some_and(|rest| {
+                    rest.split('-').next().is_some_and(|stamp| {
+                        !stamp.is_empty() && stamp.bytes().all(|byte| byte.is_ascii_digit())
+                    })
+                })
+        })
+        .map(|entry| (entry.file_name(), entry.path()))
+        .collect::<Vec<_>>();
+    copies.sort();
+    let excess = copies.len().saturating_sub(PRESERVED_PER_ENTRY);
+    for (_, path) in copies.into_iter().take(excess) {
+        let removed = if path.is_dir() {
+            fs::remove_dir_all(&path)
+        } else {
+            fs::remove_file(&path)
+        };
+        if let Err(error) = removed {
+            eprintln!("[codex-storage] Could not remove an old set-aside Codex copy: {error}");
+        }
+    }
 }
 
 fn same_content(first: &Path, second: &Path) -> Result<bool, String> {
@@ -987,6 +1027,38 @@ mod tests {
                 )
             })
             .collect()
+    }
+
+    #[test]
+    fn preserved_copies_are_capped_per_entry() {
+        let fixture = Fixture::new();
+        let folder = fixture.private().join(PRESERVED_SETUP);
+        fs::create_dir_all(&folder).unwrap();
+        for stamp in 1_700_000_001..=1_700_000_004u64 {
+            fs::write(
+                folder.join(format!(".credentials.json.{stamp}-abcd1234")),
+                "old",
+            )
+            .unwrap();
+        }
+        fs::write(folder.join("config.toml.1700000000-abcd1234"), "other").unwrap();
+        fs::write(folder.join(".credentials.json.notes"), "unrelated").unwrap();
+        prune_preserved(&folder, ".credentials.json");
+        let mut names = preserved(&fixture.private())
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect::<Vec<_>>();
+        names.sort();
+        assert_eq!(
+            names,
+            [
+                ".credentials.json.1700000002-abcd1234",
+                ".credentials.json.1700000003-abcd1234",
+                ".credentials.json.1700000004-abcd1234",
+                ".credentials.json.notes",
+                "config.toml.1700000000-abcd1234",
+            ]
+        );
     }
 
     #[test]

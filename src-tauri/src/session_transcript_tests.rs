@@ -593,6 +593,38 @@ fn backup_names(dir: &std::path::Path) -> Vec<String> {
 }
 
 #[test]
+fn backup_is_not_reused_after_later_legacy_writes() {
+    let root = crate::turn_shots::tests::TemporaryDirectory::new();
+    let path = root.0.join("fixture.db");
+    {
+        let conn = Connection::open(&path).unwrap();
+        legacy(&conn, r#"[{"role":"user","text":"before"}]"#);
+        conn.execute_batch("CREATE TRIGGER fail_version BEFORE INSERT ON schema_migrations WHEN NEW.version=12 BEGIN SELECT RAISE(ABORT, 'fixture migration failure'); END;").unwrap();
+    }
+    assert!(SessionStore::open(path.clone()).is_err());
+    let first = backup_names(&root.0);
+    assert_eq!(first.len(), 1);
+    // An older build keeps writing the legacy database (for example after the
+    // user restored a backup to downgrade). The old snapshot is now stale.
+    Connection::open(&path)
+        .unwrap()
+        .execute("INSERT INTO sessions(id, cwd, harness, model, runtime_mode, title, blocks_json, created_at, updated_at) VALUES('later', '/nonexistent/fixture', 'codex', 'test', 'local', 'Later', '[]', 33, 44)", [])
+        .unwrap();
+    assert!(SessionStore::open(path.clone()).is_err());
+    let names = backup_names(&root.0);
+    assert_eq!(names.len(), 2);
+    let fresh = names.iter().find(|name| !first.contains(name)).unwrap();
+    let backup = Connection::open(root.0.join(fresh)).unwrap();
+    assert_eq!(
+        backup
+            .query_row("SELECT COUNT(*) FROM sessions", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        2
+    );
+}
+
+#[test]
 fn failed_migration_reuses_its_backup_and_leaves_aven_running() {
     let root = crate::turn_shots::tests::TemporaryDirectory::new();
     let path = root.0.join("fixture.db");
