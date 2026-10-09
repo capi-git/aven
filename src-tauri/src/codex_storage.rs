@@ -14,6 +14,13 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
 static PREPARING: Mutex<()> = Mutex::new(());
+/// Codex creates this lazily; its lock files are disposable coordination state.
+const OAUTH_LOCKS: &str = "mcp-oauth-locks";
+/// Local setup that blocked a shared link is moved here, never deleted.
+const PRESERVED_SETUP: &str = ".aven-preserved-setup";
+/// Marker keys for content digests. `/` cannot occur in a shared file name,
+/// and older Aven builds ignore keys they never look up.
+const DIGEST_KEY: &str = "/digest/";
 const MAX_SCAN_ENTRIES: usize = 100_000;
 const MAX_ROLLOUT_BYTES: u64 = 256 * 1024 * 1024;
 const SHARED_RESOURCES: &[&str] = &[
@@ -175,11 +182,15 @@ fn share_setup(source: &Path, private: &Path) -> Result<(), String> {
         if is_redirect(&metadata) || !metadata.is_file() {
             return Err("Codex MCP credentials must be a regular provider file; no credentials or history were changed".into());
         }
-        if !source.join("mcp-oauth-locks").is_dir() {
-            // Only create an empty coordination directory. Credential bytes,
-            // user settings, and shared conversations remain unchanged.
-            ensure_private_directory(&source.join("mcp-oauth-locks"))?;
-        }
+    }
+    let locks = source.join(OAUTH_LOCKS);
+    let missing = matches!(fs::symlink_metadata(&locks), Err(error) if error.kind() == std::io::ErrorKind::NotFound);
+    if source.is_dir() && missing {
+        // Codex creates this lazily in whichever home it runs. Create the
+        // shared one first so Aven's Codex never makes a private lock domain
+        // that standalone Codex cannot see. Only an empty coordination
+        // directory is created; credentials and settings remain unchanged.
+        ensure_private_directory(&locks)?;
     }
     let mut names: BTreeSet<String> = SHARED_RESOURCES.iter().map(|name| (*name).into()).collect();
     let mut configs = Vec::new();
@@ -324,11 +335,10 @@ fn share_link(origin: &Path, destination: &Path) -> Result<(), String> {
                     .into(),
             );
         }
-        Ok(_) => {
-            return Err(
-                "Aven Codex setup contains a local file; no provider configuration was replaced"
-                    .into(),
-            )
+        Ok(metadata) => {
+            if !clear_local_entry(origin, destination, &metadata)? {
+                return Ok(());
+            }
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error.to_string()),
@@ -342,6 +352,97 @@ fn share_link(origin: &Path, destination: &Path) -> Result<(), String> {
         "Shared provider setup links are unsupported",
     ));
     result.map_err(|_| "Cannot share Codex provider setup with Aven's private history; shared history was not used".into())
+}
+
+/// A real file or folder where a shared link belongs. Codex creates shared
+/// items lazily in its own home, so this appears whenever Aven's Codex wrote
+/// one before the user's home had it. Failing here would break every later
+/// Codex start, so make way for the link without losing local content.
+/// Returns false when the entry must stay for now (for example, a file still
+/// open on Windows); the caller then skips linking and retries next start.
+fn clear_local_entry(
+    origin: &Path,
+    destination: &Path,
+    metadata: &fs::Metadata,
+) -> Result<bool, String> {
+    let name = destination.file_name().and_then(|name| name.to_str());
+    if metadata.is_dir() && name == Some(OAUTH_LOCKS) {
+        // Lock files carry no data. Move the folder away atomically so a
+        // running provider cannot add entries mid-removal, then delete it.
+        let stale = destination.with_file_name(format!(".{OAUTH_LOCKS}-{}", uuid::Uuid::new_v4()));
+        if fs::rename(destination, &stale).is_err() {
+            eprintln!("[codex-storage] Aven's MCP OAuth lock folder is in use; sharing it on a later start.");
+            return Ok(false);
+        }
+        if fs::remove_dir_all(&stale).is_err() {
+            eprintln!("[codex-storage] Could not remove Aven's old MCP OAuth lock folder.");
+        }
+        return Ok(true);
+    }
+    if metadata.is_dir()
+        && fs::read_dir(destination)
+            .map_err(|e| e.to_string())?
+            .next()
+            .is_none()
+    {
+        fs::remove_dir(destination).map_err(|e| e.to_string())?;
+        return Ok(true);
+    }
+    if metadata.is_file() && origin.is_file() && same_content(origin, destination)? {
+        fs::remove_file(destination).map_err(|e| e.to_string())?;
+        return Ok(true);
+    }
+    preserve_local_entry(destination)
+}
+
+/// Move Aven's local copy aside so the user's shared setup applies, as it does
+/// for standalone Codex. The copy stays in Aven's private home for recovery.
+fn preserve_local_entry(destination: &Path) -> Result<bool, String> {
+    let private = destination
+        .parent()
+        .ok_or("Invalid shared Codex setup location")?;
+    let name = destination
+        .file_name()
+        .ok_or("Invalid shared Codex setup filename")?
+        .to_string_lossy()
+        .into_owned();
+    let folder = private.join(PRESERVED_SETUP);
+    ensure_private_directory(&folder)?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or_default();
+    let unique = uuid::Uuid::new_v4().simple().to_string();
+    let preserved = folder.join(format!("{name}.{stamp}-{}", &unique[..8]));
+    if fs::rename(destination, &preserved).is_err() {
+        eprintln!(
+            "[codex-storage] Aven's local Codex {name} is in use; keeping it until a later start."
+        );
+        return Ok(false);
+    }
+    eprintln!(
+        "[codex-storage] Aven's local Codex {name} differed from the shared setup; kept it as {PRESERVED_SETUP}/{} and now use the shared one.",
+        preserved.file_name().unwrap_or_default().to_string_lossy()
+    );
+    Ok(true)
+}
+
+fn same_content(first: &Path, second: &Path) -> Result<bool, String> {
+    let first_len = fs::metadata(first).map_err(|e| e.to_string())?.len();
+    let second_len = fs::metadata(second).map_err(|e| e.to_string())?.len();
+    Ok(first_len == second_len
+        && fs::read(first).map_err(|e| e.to_string())?
+            == fs::read(second).map_err(|e| e.to_string())?)
+}
+
+/// Change detection only (FNV-1a), not integrity: a stable, dependency-free
+/// fingerprint of a shared file as of its last confirmed link.
+fn content_digest(path: &Path) -> Result<String, String> {
+    let bytes = fs::read(path).map_err(|e| e.to_string())?;
+    let hash = bytes.iter().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3)
+    });
+    Ok(format!("{}:{hash:016x}", bytes.len()))
 }
 
 fn is_redirect(metadata: &fs::Metadata) -> bool {
@@ -420,6 +521,7 @@ fn share_hardlink(origin: &Path, destination: &Path) -> Result<(), String> {
         .to_string_lossy()
         .into_owned();
     let source = crate::fs::path_to_js(origin);
+    let digest_key = format!("{DIGEST_KEY}{name}");
     match fs::symlink_metadata(destination) {
         Ok(metadata) if is_redirect(&metadata) => {
             let destination_target = destination
@@ -438,26 +540,64 @@ fn share_hardlink(origin: &Path, destination: &Path) -> Result<(), String> {
                 return Err("Aven Codex shared setup is not a file".into());
             }
             if same_file(origin, destination)? {
+                // Writes through the link change both names; record them.
+                files.insert(digest_key, content_digest(origin)?);
                 files.insert(name, source);
                 fs::write(marker, serde_json::to_vec(&files).unwrap())
                     .map_err(|e| e.to_string())?;
                 return Ok(());
             }
-            if files.get(&name) != Some(&source) {
-                return Err("Aven Codex setup contains a local file; no provider configuration was replaced".into());
+            let cleared = if files.get(&name) == Some(&source) {
+                reconcile_broken_hardlink(origin, destination, files.get(&digest_key))?
+            } else {
+                clear_local_entry(origin, destination, &metadata)?
+            };
+            if !cleared {
+                return Ok(());
             }
-            // The source may have been atomically replaced by the provider or
-            // editor. Refresh only a link Aven previously recorded as managed.
-            fs::remove_file(destination).map_err(|e| e.to_string())?;
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error.to_string()),
     }
     let origin = origin.canonicalize().map_err(|e| e.to_string())?;
-    fs::hard_link(origin, destination).map_err(|_| "Cannot share Codex provider files across these volumes; shared conversation history was not used")?;
+    fs::hard_link(&origin, destination).map_err(|_| "Cannot share Codex provider files across these volumes; shared conversation history was not used")?;
+    files.insert(digest_key, content_digest(&origin)?);
     files.insert(name, source);
     fs::write(marker, serde_json::to_vec(&files).unwrap()).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// A managed hardlink stops being the shared file when either side is
+/// replaced atomically (temp file + rename), which Codex does for config.toml.
+/// Decide which side changed since the last confirmed link and keep that
+/// change. Returns true once `destination` is absent and ready to relink.
+fn reconcile_broken_hardlink(
+    origin: &Path,
+    destination: &Path,
+    linked: Option<&String>,
+) -> Result<bool, String> {
+    let local = content_digest(destination)?;
+    let shared = content_digest(origin)?;
+    match linked {
+        // Unchanged content, or only the shared file changed (an editor or
+        // standalone Codex replaced it): the private copy is the stale link.
+        _ if same_content(origin, destination)? => {}
+        Some(linked) if *linked == local => {}
+        // Only Aven's copy changed: its provider replaced the file. Publish
+        // it the way the provider would have, by atomic replacement.
+        Some(linked) if *linked == shared => {
+            if fs::rename(destination, origin).is_err() {
+                eprintln!("[codex-storage] Could not save Aven's Codex setup change to the shared file; keeping it until a later start.");
+                return Ok(false);
+            }
+            return Ok(true);
+        }
+        // Both changed, or a link recorded before digests existed: keep the
+        // user's shared file and preserve Aven's copy rather than delete it.
+        _ => return preserve_local_entry(destination),
+    }
+    fs::remove_file(destination).map_err(|e| e.to_string())?;
+    Ok(true)
 }
 
 fn remove_missing_managed_file(origin: &Path, destination: &Path) -> Result<(), String> {
@@ -474,6 +614,7 @@ fn remove_missing_managed_file(origin: &Path, destination: &Path) -> Result<(), 
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.to_string()),
         }
+        files.remove(&format!("{DIGEST_KEY}{name}"));
         files.remove(&name);
         fs::write(marker, serde_json::to_vec(&files).unwrap()).map_err(|e| e.to_string())?;
     }
@@ -833,19 +974,90 @@ mod tests {
         assert!(!private.exists());
     }
 
+    fn preserved(private: &Path) -> Vec<(String, PathBuf)> {
+        let Ok(entries) = fs::read_dir(private.join(PRESERVED_SETUP)) else {
+            return Vec::new();
+        };
+        entries
+            .map(|entry| {
+                let entry = entry.unwrap();
+                (
+                    entry.file_name().to_string_lossy().into_owned(),
+                    entry.path(),
+                )
+            })
+            .collect()
+    }
+
     #[test]
     fn hardlink_sharing_preserves_unmanaged_local_files() {
         let fixture = Fixture::new();
         let source = fixture.source().join(".credentials.json");
-        fs::write(source, "synthetic provider credentials").unwrap();
+        fs::write(&source, "synthetic provider credentials").unwrap();
         fs::create_dir(fixture.private()).unwrap();
         let local = fixture.private().join(".credentials.json");
         fs::write(&local, "synthetic local credentials").unwrap();
-        assert!(prepare_at(&fixture.source(), &fixture.private(), None).is_err());
+        // Codex wrote this lazily before the shared file existed. Starting
+        // must not fail forever, and the local copy must not be deleted.
+        prepare_at(&fixture.source(), &fixture.private(), None).unwrap();
+        assert!(same_file(&source, &local).unwrap());
+        let kept = preserved(&fixture.private());
+        assert_eq!(kept.len(), 1);
+        assert!(kept[0].0.starts_with(".credentials.json."));
         assert_eq!(
-            fs::read_to_string(local).unwrap(),
+            fs::read_to_string(&kept[0].1).unwrap(),
             "synthetic local credentials"
         );
+        assert_eq!(
+            fs::read_to_string(source).unwrap(),
+            "synthetic provider credentials"
+        );
+    }
+
+    #[test]
+    fn lazily_created_private_lock_folder_gives_way_to_the_shared_one() {
+        let fixture = Fixture::new();
+        let shared_locks = fixture.source().join(OAUTH_LOCKS);
+        fs::remove_dir(&shared_locks).unwrap();
+        // No credentials file: the shared lock domain is still created first.
+        prepare_at(&fixture.source(), &fixture.private(), None).unwrap();
+        assert!(shared_locks.is_dir());
+        let private_locks = fixture.private().join(OAUTH_LOCKS);
+        assert!(is_redirect(&fs::symlink_metadata(&private_locks).unwrap()));
+
+        // Older Aven builds let Aven's Codex create a real private folder,
+        // then standalone Codex created the shared one.
+        fs::remove_file(&private_locks).unwrap();
+        fs::create_dir(&private_locks).unwrap();
+        fs::write(private_locks.join("server.lock"), "").unwrap();
+        prepare_at(&fixture.source(), &fixture.private(), None).unwrap();
+        assert!(is_redirect(&fs::symlink_metadata(&private_locks).unwrap()));
+        assert_eq!(
+            private_locks.canonicalize().unwrap(),
+            shared_locks.canonicalize().unwrap()
+        );
+        assert_eq!(fs::read_dir(&shared_locks).unwrap().count(), 0);
+        assert!(preserved(&fixture.private()).is_empty());
+        let leftovers = fs::read_dir(fixture.private())
+            .unwrap()
+            .filter(|entry| {
+                entry
+                    .as_ref()
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(&format!(".{OAUTH_LOCKS}"))
+            })
+            .count();
+        assert_eq!(leftovers, 0);
+    }
+
+    #[test]
+    fn missing_shared_home_is_not_created_for_lock_coordination() {
+        let fixture = Fixture::new();
+        let absent = fixture.0.join("absent-home");
+        prepare_at(&absent, &fixture.private(), None).unwrap();
+        assert!(!absent.exists());
     }
 
     #[test]
@@ -997,11 +1209,131 @@ mod tests {
         fs::remove_file(fixture.private().join("sessions")).unwrap();
         fs::write(fixture.source().join("config.toml"), "model = 'shared'\n").unwrap();
         fs::write(fixture.private().join("config.toml"), "model = 'local'\n").unwrap();
-        assert!(prepare_at(&fixture.source(), &fixture.private(), None).is_err());
+        // A config Aven's Codex wrote before the shared one existed is kept
+        // aside; the user's shared setup then applies, as for standalone Codex.
+        prepare_at(&fixture.source(), &fixture.private(), None).unwrap();
         assert_eq!(
             fs::read_to_string(fixture.private().join("config.toml")).unwrap(),
-            "model = 'local'\n"
+            "model = 'shared'\n"
         );
+        let kept = preserved(&fixture.private());
+        assert_eq!(kept.len(), 1);
+        assert_eq!(fs::read_to_string(&kept[0].1).unwrap(), "model = 'local'\n");
+        assert_eq!(
+            fs::read_to_string(fixture.source().join("config.toml")).unwrap(),
+            "model = 'shared'\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lazily_created_private_setup_folders_are_kept_or_cleared_before_linking() {
+        let fixture = Fixture::new();
+        fs::create_dir_all(fixture.private().join("rules")).unwrap();
+        fs::write(fixture.private().join("rules/default.rules"), "local rule").unwrap();
+        fs::create_dir_all(fixture.private().join("skills")).unwrap();
+        fs::create_dir_all(fixture.source().join("rules")).unwrap();
+        fs::write(fixture.source().join("rules/default.rules"), "shared rule").unwrap();
+        fs::create_dir_all(fixture.source().join("skills")).unwrap();
+        fs::write(fixture.source().join("AGENTS.md"), "same").unwrap();
+        fs::write(fixture.private().join("AGENTS.md"), "same").unwrap();
+        prepare_at(&fixture.source(), &fixture.private(), None).unwrap();
+        for name in ["rules", "skills", "AGENTS.md"] {
+            assert!(is_redirect(
+                &fs::symlink_metadata(fixture.private().join(name)).unwrap()
+            ));
+        }
+        // Only the folder with real, different content needed preserving.
+        let kept = preserved(&fixture.private());
+        assert_eq!(kept.len(), 1);
+        assert!(kept[0].0.starts_with("rules."));
+        assert_eq!(
+            fs::read_to_string(kept[0].1.join("default.rules")).unwrap(),
+            "local rule"
+        );
+        prepare_at(&fixture.source(), &fixture.private(), None).unwrap();
+        assert_eq!(preserved(&fixture.private()).len(), 1);
+    }
+
+    /// Simulates the provider's atomic save (temp file + rename), which
+    /// replaces a path with a new file and so breaks any hardlink to it.
+    fn replace_atomically(path: &Path, text: &str) {
+        let temporary = path.with_extension("tmp-save");
+        fs::write(&temporary, text).unwrap();
+        fs::rename(temporary, path).unwrap();
+    }
+
+    fn linked_config(fixture: &Fixture) -> (PathBuf, PathBuf) {
+        fs::create_dir(fixture.private()).unwrap();
+        let shared = fixture.source().join("config.toml");
+        let private = fixture.private().join("config.toml");
+        fs::write(&shared, "model = 'first'\n").unwrap();
+        share_hardlink(&shared, &private).unwrap();
+        assert!(same_file(&shared, &private).unwrap());
+        (shared, private)
+    }
+
+    #[test]
+    fn hardlinked_config_saved_by_aven_codex_is_published_not_discarded() {
+        let fixture = Fixture::new();
+        let (shared, private) = linked_config(&fixture);
+        replace_atomically(&private, "model = 'aven'\n");
+        assert!(!same_file(&shared, &private).unwrap());
+        share_hardlink(&shared, &private).unwrap();
+        assert!(same_file(&shared, &private).unwrap());
+        assert_eq!(fs::read_to_string(&shared).unwrap(), "model = 'aven'\n");
+        assert!(preserved(&fixture.private()).is_empty());
+        // The new link is tracked, so a later shared edit still wins.
+        replace_atomically(&shared, "model = 'user'\n");
+        share_hardlink(&shared, &private).unwrap();
+        assert!(same_file(&shared, &private).unwrap());
+        assert_eq!(fs::read_to_string(&private).unwrap(), "model = 'user'\n");
+        assert!(preserved(&fixture.private()).is_empty());
+    }
+
+    #[test]
+    fn hardlinked_config_follows_a_shared_replacement() {
+        let fixture = Fixture::new();
+        let (shared, private) = linked_config(&fixture);
+        // A write through the link is recorded on the next start.
+        fs::write(&private, "model = 'in place'\n").unwrap();
+        share_hardlink(&shared, &private).unwrap();
+        replace_atomically(&shared, "model = 'user'\n");
+        share_hardlink(&shared, &private).unwrap();
+        assert!(same_file(&shared, &private).unwrap());
+        assert_eq!(fs::read_to_string(&private).unwrap(), "model = 'user'\n");
+        assert!(preserved(&fixture.private()).is_empty());
+    }
+
+    #[test]
+    fn hardlinked_config_changed_on_both_sides_keeps_both() {
+        let fixture = Fixture::new();
+        let (shared, private) = linked_config(&fixture);
+        replace_atomically(&private, "model = 'aven'\n");
+        replace_atomically(&shared, "model = 'user'\n");
+        share_hardlink(&shared, &private).unwrap();
+        assert!(same_file(&shared, &private).unwrap());
+        assert_eq!(fs::read_to_string(&shared).unwrap(), "model = 'user'\n");
+        let kept = preserved(&fixture.private());
+        assert_eq!(kept.len(), 1);
+        assert_eq!(fs::read_to_string(&kept[0].1).unwrap(), "model = 'aven'\n");
+    }
+
+    #[test]
+    fn hardlink_recorded_before_digests_preserves_a_differing_private_copy() {
+        let fixture = Fixture::new();
+        let (shared, private) = linked_config(&fixture);
+        let marker = fixture.private().join(".aven-shared-files.json");
+        let legacy = BTreeMap::from([("config.toml".to_string(), crate::fs::path_to_js(&shared))]);
+        fs::write(&marker, serde_json::to_vec(&legacy).unwrap()).unwrap();
+        replace_atomically(&private, "model = 'aven'\n");
+        share_hardlink(&shared, &private).unwrap();
+        assert_eq!(fs::read_to_string(&shared).unwrap(), "model = 'first'\n");
+        assert!(same_file(&shared, &private).unwrap());
+        assert_eq!(preserved(&fixture.private()).len(), 1);
+        let files: BTreeMap<String, String> =
+            serde_json::from_slice(&fs::read(marker).unwrap()).unwrap();
+        assert!(files.contains_key("/digest/config.toml"));
     }
 
     #[cfg(unix)]
