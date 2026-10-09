@@ -23,16 +23,21 @@ boot splash loads App dynamically. It counts each JavaScript chunk once and
 sums independently compressed gzip sizes at level 9. It excludes optional
 dynamic imports, CSS and other assets.
 
-| Startup JavaScript |  Baseline | Candidate |
-| ------------------ | --------: | --------: |
-| Minified bytes     | 3,384,118 | 3,071,022 |
-| Gzip bytes         | 1,041,354 |   989,848 |
+| Startup JavaScript | Baseline | Lazy-loading pass | Combined batch |
+| ------------------ | -------: | ----------------: | -------------: |
+| Minified bytes     | 3,384,118 | 3,071,022 | 3,085,384 |
+| Gzip bytes         | 1,041,354 | 989,848 | 994,874 |
 
 This is 313,096 fewer minified bytes (9.3%) and 51,506 fewer gzip bytes (4.9%).
 The icon lookup/subset chunk is 156,695 minified bytes; the previous icon
 package chunk loaded just after paint was 1,129,785 bytes. That deferred
 chunk is outside the static startup totals above. The full icon table remains
 available for uncommon files.
+
+The complete recovered batch, measured at `daa44f6c` with the same script,
+includes the subsequent storage and window-synchronization work. Its startup
+graph remains 298,734 minified bytes smaller (8.8%) and 46,480 gzip bytes smaller
+(4.5%) than the baseline.
 
 These are build-output measurements, not measured startup time or frame rate.
 Source tests cover preserved editor buffers, editor shortcuts, file icon
