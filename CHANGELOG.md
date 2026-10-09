@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+## [0.1.129] - 2026-10-09
+
+### Direct startup
+
+- Aven opens without the logo and “Opening Aven…” loading screen or its fade delay. Startup recovery still offers Retry if the interface cannot load.
+
+### Menus stay in Aven
+
+- Tab, group and Recent menus open inside the app, anchored to their controls like the provider details menu. They no longer create separate floating popup windows.
+- Removed moving tabs or groups to detached windows, including dragging them outside the app. Existing detached workspaces can still return their tabs.
+- Menu keyboard focus starts after placement, and delayed focus replies cannot pull the caret back after you move elsewhere.
+
+### Browsers stay organized
+
+- Agent opens reuse the same URL within a project, including across workspace windows and concurrent requests. An explicit new-tab request still opens a separate copy.
+- New pages join an existing browser pane. Existing split sizes and minimized panes stay in place; a right-hand split is created only when needed.
+
+### Keep your place while agents work
+
+- Background browser and file opens preserve your selected chat, page and editor caret. Detached agent windows no longer activate themselves for those opens.
+- Explicit file paths open without waiting for a repository-wide file scan. Delayed file and history opens yield to newer clicks or typing, and editor line jumps cannot reclaim focus after you leave.
+
 ## [0.1.128] - 2026-10-08
 
 ### Dependency maintenance
