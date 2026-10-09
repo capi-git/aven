@@ -528,7 +528,7 @@ it("accepts session deltas without changing the selected browser or the child's 
         harness: "codex",
         model: "gpt-5",
         modelSettings: {},
-        runtimeMode: "bypass",
+        runtimeMode: "full-access",
         blocks: [],
       },
       recents: [],
