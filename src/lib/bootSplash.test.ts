@@ -9,13 +9,11 @@ vi.mock("./appearance", () => ({ activateWindowAppearance: vi.fn() }));
 
 let root: Root;
 let host: HTMLDivElement;
-let splash: HTMLDivElement;
-let frames: Map<number, FrameRequestCallback>;
-let nextFrame: number;
+let recovery: HTMLDivElement;
 
 function View({ ready, native = false }: { ready: boolean; native?: boolean }) {
   useBootSplashReady(ready, native);
-  return createElement("main", null, ready ? "Themed content" : "Loading");
+  return ready ? createElement("main", null, "Themed workspace") : null;
 }
 
 const render = (ready: boolean, native = false) =>
@@ -25,83 +23,58 @@ const render = (ready: boolean, native = false) =>
     ),
   );
 
-const paint = () => {
-  const callbacks = [...frames.values()];
-  frames.clear();
-  callbacks.forEach((callback) => callback(performance.now()));
-};
-
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  frames = new Map();
-  nextFrame = 0;
-  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
-    frames.set(++nextFrame, callback);
-    return nextFrame;
-  });
-  vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
   host = document.createElement("div");
-  splash = document.createElement("div");
-  splash.id = "boot-splash";
-  document.body.append(host, splash);
+  recovery = document.createElement("div");
+  recovery.id = "boot-splash";
+  recovery.hidden = true;
+  document.body.append(host, recovery);
   root = createRoot(host);
 });
 
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
-  splash.remove();
+  recovery.remove();
   vi.clearAllTimers();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
-it("keeps the cover while state is loading, then reveals committed content after two frames", () => {
+it("leaves recovery hidden while state loads and removes it in the workspace's first commit", () => {
   render(false);
-  vi.advanceTimersByTime(1000);
-  expect(splash.dataset.dismissed).toBeUndefined();
-  expect(frames.size).toBe(0);
+  expect(recovery.hidden).toBe(true);
+  expect(recovery.dataset.dismissed).toBeUndefined();
+  expect(activateWindowAppearance).not.toHaveBeenCalled();
   render(true);
-  expect(host.textContent).toBe("Themed content");
-  expect(splash.classList.contains("boot-splash-out")).toBe(false);
-  paint();
-  expect(splash.classList.contains("boot-splash-out")).toBe(false);
-  paint();
-  expect(splash.classList.contains("boot-splash-out")).toBe(true);
-  vi.advanceTimersByTime(180);
+  expect(host.textContent).toBe("Themed workspace");
   expect(document.getElementById("boot-splash")).toBeNull();
+  expect(vi.getTimerCount()).toBe(0);
   expect(activateWindowAppearance).not.toHaveBeenCalled();
 });
 
-it("bounds the wait when an inactive child receives no animation frames", () => {
-  render(true);
-  vi.advanceTimersByTime(249);
-  expect(splash.classList.contains("boot-splash-out")).toBe(false);
-  vi.advanceTimersByTime(1);
-  expect(splash.classList.contains("boot-splash-out")).toBe(true);
-  expect(frames.size).toBe(0);
-  vi.advanceTimersByTime(180);
-  expect(splash.isConnected).toBe(false);
-  expect(activateWindowAppearance).not.toHaveBeenCalled();
+it("does not wait for animation frames or a fade to activate native appearance", () => {
+  const frame = vi.fn();
+  vi.stubGlobal("requestAnimationFrame", frame);
+  render(true, true);
+  expect(recovery.isConnected).toBe(false);
+  expect(activateWindowAppearance).toHaveBeenCalledOnce();
+  expect(frame).not.toHaveBeenCalled();
+  expect(vi.getTimerCount()).toBe(0);
 });
 
-it("preserves main-window native activation once under StrictMode and repeated ready renders", () => {
+it("activates native appearance once under StrictMode and repeated ready renders", () => {
   render(true, true);
-  expect(activateWindowAppearance).not.toHaveBeenCalled();
-  expect(frames.size).toBe(1);
   render(true, true);
-  paint();
-  paint();
-  vi.advanceTimersByTime(1000);
   expect(activateWindowAppearance).toHaveBeenCalledOnce();
 });
 
-it("does not activate native appearance when startup failure already removed the cover", () => {
-  splash.remove();
+it("leaves an existing startup failure in control of its appearance", () => {
+  recovery.remove();
   render(true, true);
-  vi.advanceTimersByTime(1000);
-  expect(frames.size).toBe(0);
   expect(activateWindowAppearance).not.toHaveBeenCalled();
+  expect(vi.getTimerCount()).toBe(0);
 });

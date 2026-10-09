@@ -7,7 +7,6 @@ import { showRenderFailure } from "./renderFailure";
 const indexHtml = readFileSync(resolve(process.cwd(), "index.html"), "utf8");
 
 let splash: HTMLElement;
-let logo: HTMLImageElement;
 let title: HTMLElement;
 let message: HTMLElement;
 let retry: HTMLButtonElement;
@@ -15,6 +14,7 @@ let entry: HTMLScriptElement;
 let reload: ReturnType<typeof vi.spyOn>;
 let disconnect: ReturnType<typeof vi.spyOn>;
 let startRecovery: () => void;
+let startupStyles: HTMLStyleElement;
 
 function isolatedStorage(): Storage {
   const values = new Map<string, string>();
@@ -55,16 +55,14 @@ beforeEach(() => {
   for (const image of markup.querySelectorAll("img"))
     image.removeAttribute("src");
   document.body.replaceChildren(...markup.body.childNodes);
+  startupStyles = document.createElement("style");
+  startupStyles.textContent = markup.querySelector("head style")!.textContent;
+  document.head.append(startupStyles);
   splash = document.getElementById("boot-splash")!;
-  logo = splash.querySelector("img")!;
   title = document.getElementById("boot-title")!;
   message = document.getElementById("boot-message")!;
   retry = document.getElementById("boot-retry") as HTMLButtonElement;
   entry = module;
-  Object.defineProperties(logo, {
-    complete: { configurable: true, value: false },
-    naturalWidth: { configurable: true, value: 0 },
-  });
   reload = vi
     .spyOn(window.location, "reload")
     .mockImplementation(() => undefined);
@@ -76,6 +74,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   document.body.replaceChildren();
+  startupStyles.remove();
   await vi.advanceTimersByTimeAsync(0);
   vi.clearAllTimers();
   vi.restoreAllMocks();
@@ -89,6 +88,8 @@ describe("pre-module boot recovery", () => {
     expect(retry.hidden).toBe(true);
     entry.dispatchEvent(new Event("error"));
 
+    expect(splash.hidden).toBe(false);
+    expect(getComputedStyle(splash).display).toBe("flex");
     expect(title.textContent).toBe("Aven couldn’t load its interface");
     expect(message.hidden).toBe(false);
     expect(message.textContent).toContain("required app file");
@@ -103,28 +104,20 @@ describe("pre-module boot recovery", () => {
     expect(reload).toHaveBeenCalledOnce();
   });
 
-  it.each(["later error", "already failed"])(
-    "hides a logo with %s without interrupting normal startup",
-    async (failure) => {
-      if (failure === "already failed") {
-        Object.defineProperty(logo, "complete", {
-          configurable: true,
-          value: true,
-        });
-      }
-      startRecovery();
-      if (failure === "later error") logo.dispatchEvent(new Event("error"));
-
-      expect(logo.hidden).toBe(true);
-      expect(title.textContent).toBe("Opening Aven…");
-      expect(message.hidden).toBe(true);
-      expect(retry.hidden).toBe(true);
-      splash.dataset.dismissed = "1";
-      await vi.advanceTimersByTimeAsync(20_000);
-      expect(retry.hidden).toBe(true);
-      expect(reload).not.toHaveBeenCalled();
-    },
-  );
+  it("shows no loading screen during normal startup", async () => {
+    startRecovery();
+    expect(splash.hidden).toBe(true);
+    expect(getComputedStyle(splash).display).toBe("none");
+    expect(splash.querySelector("img")).toBeNull();
+    expect(title.textContent).toBe("");
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(splash.hidden).toBe(true);
+    expect(retry.hidden).toBe(true);
+    splash.dataset.dismissed = "1";
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(splash.hidden).toBe(true);
+    expect(retry.hidden).toBe(true);
+  });
 
   it("offers retry after 15 seconds without restarting or discarding saved state", async () => {
     const savedWorkspace = JSON.stringify({
@@ -147,6 +140,7 @@ describe("pre-module boot recovery", () => {
     await vi.advanceTimersByTimeAsync(14_999);
     expect(retry.hidden).toBe(true);
     await vi.advanceTimersByTimeAsync(1);
+    expect(splash.hidden).toBe(false);
     expect(title.textContent).toBe("Aven is taking longer to open");
     expect(message.textContent).toContain("keep waiting");
     expect(retry.hidden).toBe(false);
@@ -171,16 +165,13 @@ describe("pre-module boot recovery", () => {
       splash.dataset.dismissed = "1";
       await vi.advanceTimersByTimeAsync(0);
       const readyText = title.textContent;
-      const readyImageVisibility = logo.hidden;
 
       expect(disconnect).toHaveBeenCalledOnce();
       expect(vi.getTimerCount()).toBe(0);
       entry.dispatchEvent(new Event("error"));
-      logo.dispatchEvent(new Event("error"));
       retry.click();
       await vi.advanceTimersByTimeAsync(30_000);
       expect(title.textContent).toBe(readyText);
-      expect(logo.hidden).toBe(readyImageVisibility);
       expect(reload).not.toHaveBeenCalled();
     },
   );
@@ -190,7 +181,7 @@ describe("pre-module boot recovery", () => {
     splash.dataset.dismissed = "1";
     entry.dispatchEvent(new Event("error"));
     expect(retry.hidden).toBe(true);
-    expect(title.textContent).toBe("Opening Aven…");
+    expect(title.textContent).toBe("");
     retry.click();
     expect(reload).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);

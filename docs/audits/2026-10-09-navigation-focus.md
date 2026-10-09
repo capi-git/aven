@@ -76,3 +76,23 @@ thermal/power target, or guaranteed smoothness for every project.
 
 The broader source audit, provider quota limit, and platform/installation
 boundaries remain documented in [the preceding audit](2026-10-09-deep-audit.md).
+
+## Startup follow-up
+
+Removed the normal startup logo, “Opening Aven…” message and cover fade. The
+workspace is no longer covered while it loads, and startup completion removes
+the hidden recovery element in the first React layout commit, without waiting
+for animation frames or a fade timer. Initial saved-theme styling, parallel
+workspace/bundle loading, and native glass activation remain in place.
+
+Recovery stays hidden during normal startup. A failed entry module or a startup
+that has not completed after 15 seconds still exposes Retry; it does not restart
+the app automatically or modify saved drafts. Tests check the actual startup CSS
+so a display rule cannot accidentally override the hidden recovery element.
+
+After this follow-up, all 4,322 web tests in 390 files, TypeScript, formatting,
+lint and the production frontend build passed. The 30 focused startup/theme/
+render-failure/detached-workspace tests passed; the recovery suite also passed
+after its computed-style assertions were added. Aven Dev was unavailable on the
+current desktop, so this does not claim an observed cold launch of the revised
+startup flow. The installed host was not restarted.

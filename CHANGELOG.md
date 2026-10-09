@@ -4,6 +4,10 @@
 
 ## [0.1.129] - 2026-10-09
 
+### Direct startup
+
+- Aven opens without the logo and “Opening Aven…” loading screen or its fade delay. Startup recovery still offers Retry if the interface cannot load.
+
 ### Browsers stay organized
 
 - Agent opens reuse the same URL within a project, including across workspace windows and concurrent requests. An explicit new-tab request still opens a separate copy.
