@@ -304,14 +304,25 @@ export function browserBounds(element: HTMLElement): BrowserBounds | null {
   };
 }
 
-/** Retained through module hot updates, replaced with the shell document itself. */
+/**
+ * Retained through module hot updates, replaced with the shell document
+ * itself. A document keeps the first epoch it receives; a failed handshake
+ * gave it none, so the next page creation asks again.
+ */
 function browserRendererEpoch(): Promise<number> {
   const shell = window as Window & {
     __avenBrowserRendererEpoch?: Promise<number>;
   };
-  return (shell.__avenBrowserRendererEpoch ??= invoke<number>(
-    "browser_renderer_epoch",
-  ));
+  if (shell.__avenBrowserRendererEpoch) return shell.__avenBrowserRendererEpoch;
+  const handshake = invoke<number>("browser_renderer_epoch").catch(
+    (error: unknown) => {
+      if (shell.__avenBrowserRendererEpoch === handshake)
+        shell.__avenBrowserRendererEpoch = undefined;
+      throw error;
+    },
+  );
+  shell.__avenBrowserRendererEpoch = handshake;
+  return handshake;
 }
 
 export const nativeBrowser = {

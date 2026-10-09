@@ -77,14 +77,32 @@ it("never upgrades an old document's epoch after a stale create rejection", asyn
   );
 });
 
-it("does not create a page or retry the handshake after a failed document handshake", async () => {
+it("does not create a page after a failed document handshake and asks again next time", async () => {
   mocks.invoke.mockRejectedValue(new Error("shell unavailable"));
   const { nativeBrowser } = await import("./browser");
-  await expect(
+  // Concurrent creations share the one failed handshake.
+  const results = await Promise.allSettled([
     nativeBrowser.create("a", "https://example.com", bounds),
-  ).rejects.toThrow("shell unavailable");
-  await expect(
     nativeBrowser.create("b", "https://example.com", bounds),
-  ).rejects.toThrow("shell unavailable");
+  ]);
+  for (const result of results) {
+    expect(result.status).toBe("rejected");
+    expect((result as PromiseRejectedResult).reason).toEqual(
+      new Error("shell unavailable"),
+    );
+  }
   expect(mocks.invoke).toHaveBeenCalledTimes(1);
+
+  // A transient failure is not cached for the life of the document.
+  mocks.invoke.mockImplementation((command) =>
+    command === "browser_renderer_epoch"
+      ? Promise.resolve(9)
+      : Promise.resolve(),
+  );
+  await nativeBrowser.create("c", "https://example.com", bounds);
+  expect(
+    mocks.invoke.mock.calls.filter(([command]) => command === "browser_create"),
+  ).toEqual([
+    ["browser_create", expect.objectContaining({ id: "c", rendererEpoch: 9 })],
+  ]);
 });
