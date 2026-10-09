@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+## [0.1.127] - 2026-10-08
+
+### Cleaner Codex history
+
+- Aven keeps its Codex conversations in separate history, so new Aven chats no longer fill Codex's Recents. Background requests for chat titles and Git text stay unsaved. Existing Aven chats can resume with their provider context, and existing Codex entries are left in place.
+- Your file-based Codex login, settings, skills and plugins remain shared. Keyring and automatic credential-store modes are not supported by the separate history yet; Aven reports that before starting a chat.
+
+### Every generated image stays visible
+
+- Replies with several generated images show every image, in order, even when **Show the work** is collapsed. Captions stay with their images.
+
+### Smoother workspaces
+
+- Load heavier editor, terminal and diff features when needed, reduce repeated work while agents stream, and pause more background polling in inactive workspaces.
+- Preserve deliberate chat scroll position during resizing, keep IME composition intact, and preserve terminal input order.
+- Refine Race and sidebar actions, browser controls, Git history, Settings and staged updates while preserving Aven's existing layout and glass appearance.
+- Close native browser pages left behind by a full workspace reload so they cannot cover Settings or another tab. Floating and detached pages stay open.
+
+### Chat storage and provider reliability
+
+- Store transcript blocks separately and send revision-checked changes between windows. Migration creates a consistent backup before upgrading the chat database. Returning to an older Aven version requires that backup and loses changes made after migration.
+- Improve provider cleanup, protocol handling and model fallbacks, and keep Git path selection literal.
+
 ## [0.1.126] - 2026-10-08
 
 ### The Aven bubble is gone for now
