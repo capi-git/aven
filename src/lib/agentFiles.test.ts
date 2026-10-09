@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { leafIds, newTab } from "./layout";
+import { leafIds, newTab, newFileTab, openEditorTab } from "./layout";
 import { openAgentFileInTabs } from "./agentFiles";
 
 describe("agent-requested files", () => {
@@ -21,6 +21,7 @@ describe("agent-requested files", () => {
         .map((file) => file.path),
     ).toEqual(["/project/My Notes.md"]);
     expect(leafIds(opened.tabs[1].layout)).toContain("own-session");
+    expect(opened.tabs[1].focusedId).toBe("own-session");
   });
 
   it("reuses an existing editor tab on repeated opens", () => {
@@ -51,5 +52,24 @@ describe("agent-requested files", () => {
     expect(() =>
       openAgentFileInTabs([own], "s", "/p", "/p/a.md", new Set([own.id])),
     ).toThrow("no longer available");
+  });
+
+  it("leaves the selected document and caret pane alone while adding agent output", () => {
+    const editing = openEditorTab(newTab("s"), newFileTab("/p/draft.md", "/p"));
+    const pane = editing.editorPanes[0];
+    const next = openAgentFileInTabs(
+      [editing],
+      "s",
+      "/p",
+      "/p/result.md",
+      new Set(),
+    ).tabs[0];
+    expect(next.focusedId).toBe(editing.focusedId);
+    expect(next.editorPanes[0].activeFileId).toBe(pane.activeFileId);
+    expect(next.editorPanes[0].files.map((file) => file.path)).toEqual([
+      "/p/draft.md",
+      "/p/result.md",
+    ]);
+    expect(editing.editorPanes[0].files).toHaveLength(1);
   });
 });

@@ -960,6 +960,7 @@ pub async fn workspace_window_focus(
     url: Option<String>,
     browser: Option<Value>,
     file: Option<WorkspaceFileRequest>,
+    activate: Option<bool>,
 ) -> Result<(), String> {
     let (_, entry) = authorized(&caller, Some(&id))?;
     if let Some(file) = &file {
@@ -1011,9 +1012,11 @@ pub async fn workspace_window_focus(
             &app,
             &id,
             "workspace-window-focus",
-            json!({"sessionId":session_id,"url":url,"browser":browser,"file":file,"requestToken":request_token,"expiresAt":expires_at}),
+            json!({"sessionId":session_id,"url":url,"browser":browser,"file":file,"activate":activate.unwrap_or(true),"requestToken":request_token,"expiresAt":expires_at}),
         )?;
-        workspace_window_show(caller, id)?;
+        if activate.unwrap_or(true) {
+            workspace_window_show(caller, id)?;
+        }
         if let (Some(token), Some(receive)) = (&request_token, receive) {
             await_ack_with_timeout(&app, token, receive, Duration::from_secs(10),
                 "The task window did not respond. Try opening the file again.").await.map_err(|error| {

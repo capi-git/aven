@@ -100,6 +100,7 @@ describe("detached workspace transactions", () => {
         line: 12,
         column: 3,
       },
+      false,
     );
     await expect(
       api.openFileForSession("b", "/project/readme.md"),
@@ -135,6 +136,8 @@ describe("detached workspace transactions", () => {
       "a",
       undefined,
       existing,
+      undefined,
+      false,
     );
     await expect(
       api.openForSession("parent-owned", existing.url),
@@ -230,6 +233,8 @@ describe("detached workspace transactions", () => {
       undefined,
       undefined,
       second,
+      undefined,
+      false,
     );
     await expect(api.focusBrowser("missing-browser")).resolves.toBe(false);
     expect(focus).toHaveBeenCalledOnce();
@@ -541,6 +546,23 @@ describe("detached workspace transactions", () => {
     expect(
       openDetachedFileForSession(original, "unknown", "/project/readme.md"),
     ).toBe(original);
+  });
+
+  it("prepares an agent file without changing the other chat or its focused pane", () => {
+    const original = mergeDetachedWorkspaces(state("a"), state("b"));
+    original.view.focusedId = "tab-b";
+    const next = openDetachedFileForSession(
+      original,
+      "a",
+      "/project/result.md",
+      false,
+    );
+    expect(next.view).toBe(original.view);
+    expect(next.tabs[0].focusedId).toBe("a");
+    expect(next.tabs[1]).toBe(original.tabs[1]);
+    expect(next.tabs[0].editorPanes[0].files[0].path).toBe(
+      "/project/result.md",
+    );
   });
   it("rolls back partial listener failure and refuses an unobserved native open", async () => {
     const cleanup = vi.fn();

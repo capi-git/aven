@@ -32,6 +32,8 @@ export type EditorNavigation = {
 export type EditorNavigationTarget = EditorNavigation & {
   path: string;
   token: number;
+  /** Agent output can reveal a line without moving the user's caret. */
+  focus?: boolean;
 };
 
 export type OpenFileFn = (path: string, navigation?: EditorNavigation) => void;
