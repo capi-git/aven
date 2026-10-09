@@ -81,6 +81,11 @@ function scrollMetrics(
     grow: (amount: number) => {
       total += amount;
     },
+    /** Shorter content. A browser clamps the offset to the new bottom. */
+    shrink: (amount: number) => {
+      total -= amount;
+      position = Math.max(0, Math.min(position, total - height));
+    },
     /** Change the viewport. A browser clamps the offset to the new bottom. */
     resize: (next: number) => {
       height = next;
@@ -156,6 +161,24 @@ describe("transcript native scrolling", () => {
     metrics.grow(100);
     await render(answer("The answer continues with following restored."));
     expect(el.scrollTop).toBe(1100);
+  });
+
+  it("keeps following after upward input that cannot scroll the transcript", async () => {
+    const el = await render(answer("One"));
+    const metrics = scrollMetrics(el, 400, 300);
+    await markAtBottom(el);
+
+    // Nothing to scroll yet, so the wheel cannot be the reader leaving.
+    await wheel(el, -40);
+    expect(showJump).not.toHaveBeenCalledWith(true);
+    metrics.grow(700);
+    await render(answer("One\n\nTwo"));
+    expect(el.scrollTop).toBe(600);
+
+    // Already at the top: upward input has nowhere to go either.
+    el.scrollTop = 0;
+    await wheel(el, -40);
+    expect(showJump).not.toHaveBeenCalledWith(true);
   });
 
   it("lets a small wheel up inside the bottom margin leave a streaming reply", async () => {
@@ -342,6 +365,45 @@ describe("transcript bottom following", () => {
     metrics.grow(40);
     await render(answer("One\n\nTwo"));
     expect(el.scrollTop).toBe(560);
+  });
+
+  it("follows again when content folding away clamps a slightly scrolled-up reader to the end", async () => {
+    const el = await render(answer("One"));
+    const metrics = scrollMetrics(el, 400, 1000);
+    await markAtBottom(el);
+    await wheel(el, -4);
+    await scrollTo(el, 596);
+    expect(showJump).toHaveBeenLastCalledWith(true);
+
+    // Finished work folds away. The reader now sees the very end, with
+    // nothing below it, so Jump hides and the next reply is followed.
+    metrics.shrink(40);
+    expect(el.scrollTop).toBe(560);
+    await act(async () => {
+      el.dispatchEvent(new Event("scroll"));
+    });
+    expect(showJump).toHaveBeenLastCalledWith(false);
+    metrics.grow(40);
+    await render(answer("One\n\nTwo"));
+    expect(el.scrollTop).toBe(600);
+  });
+
+  it("keeps a reader scrolled well up in place when content shrinks without reaching them", async () => {
+    const el = await render(answer("One"));
+    const metrics = scrollMetrics(el, 400, 1000);
+    await markAtBottom(el);
+    await wheel(el, -40);
+    await scrollTo(el, 300);
+
+    metrics.shrink(40);
+    expect(el.scrollTop).toBe(300);
+    await act(async () => {
+      el.dispatchEvent(new Event("scroll"));
+    });
+    expect(showJump).toHaveBeenLastCalledWith(true);
+    metrics.grow(80);
+    await render(answer("One\n\nTwo"));
+    expect(el.scrollTop).toBe(300);
   });
 
   it("does not pull a reader back down when their scroll lands before its event", async () => {

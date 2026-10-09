@@ -26,13 +26,14 @@ import {
   type Panel,
   type ViewUpdate,
 } from "@codemirror/view";
+import { isImeComposition } from "../lib/keyboard";
 import { MOD, ALT, SHIFT } from "../lib/platform";
 
 const MATCH_CAP = 999;
 const panels = new WeakMap<EditorView, FindPanel>();
 
 export function handleEditorFindKey(event: KeyboardEvent): boolean {
-  if (event.isComposing) return false;
+  if (isImeComposition(event)) return false;
 
   const target = event.target instanceof Element ? event.target : null;
   if (
@@ -460,7 +461,7 @@ class FindPanel implements Panel {
         return;
       }
     }
-    if (keyEvent.key !== "Enter") return;
+    if (keyEvent.key !== "Enter" || isImeComposition(keyEvent)) return;
     keyEvent.preventDefault();
     if (keyEvent.target === this.replaceField) {
       replaceNext(this.view);

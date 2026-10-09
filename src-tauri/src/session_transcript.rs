@@ -98,10 +98,15 @@ pub(super) fn prepare(full: &Value, delta: Option<&Delta>) -> rusqlite::Result<P
     }
 }
 
-/// Legacy writers replace blocks_json without knowing about the new rows. Mark
-/// their write as legacy and invalidate its revision, so a cached delta can never
-/// apply to an incompatible base. Downgrades still need the pre-migration backup:
-/// an old reader cannot reconstruct rows written only by the new version.
+/// Older builds (and MonoCode sharing this data directory) only know
+/// blocks_json. Refuse their transcript writes to migrated rows instead of
+/// letting them replace the block rows: the old build fails to save, but no
+/// history is lost. New sessions they insert stay legacy (storage 0) and are
+/// migrated on the next launch. 0.1.127 shipped a trigger that deleted the
+/// block rows on such a write; drop it on every open.
+pub(super) const LEGACY_WRITE_REJECTED: &str =
+    "This chat was saved by a newer Aven; update Aven to change it";
+
 pub(super) fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     for (name, decl) in [
         ("blocks_storage", "INTEGER NOT NULL DEFAULT 0"),
@@ -110,7 +115,7 @@ pub(super) fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     ] {
         super::ensure_session_column(conn, name, decl)?;
     }
-    conn.execute_batch(
+    conn.execute_batch(&format!(
         "CREATE TABLE IF NOT EXISTS session_blocks (
            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
            position INTEGER NOT NULL CHECK(position >= 0),
@@ -120,37 +125,55 @@ pub(super) fn migrate(conn: &Connection) -> rusqlite::Result<()> {
            PRIMARY KEY(session_id, position)
          );
          CREATE INDEX IF NOT EXISTS session_blocks_role ON session_blocks(session_id, role);
-         CREATE TRIGGER IF NOT EXISTS sessions_legacy_transcript_write
-         AFTER UPDATE OF blocks_json ON sessions
-         WHEN NEW.blocks_storage = OLD.blocks_storage
+         DROP TRIGGER IF EXISTS sessions_legacy_transcript_write;
+         CREATE TRIGGER IF NOT EXISTS sessions_reject_legacy_transcript_write
+         BEFORE UPDATE OF blocks_json ON sessions
+         WHEN OLD.blocks_storage = 1 AND NEW.blocks_storage = 1
          BEGIN
-           DELETE FROM session_blocks WHERE session_id = NEW.id;
-           UPDATE sessions SET blocks_storage = 0, blocks_revision = '', blocks_count = 0
-             WHERE id = NEW.id;
-         END;",
-    )?;
+           SELECT RAISE(ABORT, '{LEGACY_WRITE_REJECTED}');
+         END;"
+    ))?;
     let ids = conn
         .prepare("SELECT id FROM sessions WHERE blocks_storage = 0 ORDER BY id")?
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut migrated = std::collections::HashSet::new();
     for id in ids {
-        // Parse one transcript at a time; a malformed record aborts the entire
-        // migration rather than committing a partially empty chat history.
-        let full = read(conn, &id)?;
-        apply(conn, &id, prepare(&full, None)?)?;
+        // A transcript that does not parse stays in legacy storage with its
+        // original JSON: only that chat fails to open, as it did before. A
+        // database error (for example a full disk) aborts the whole migration.
+        let prepared = match read(conn, &id).and_then(|full| prepare(&full, None)) {
+            Ok(prepared) => prepared,
+            Err(error @ rusqlite::Error::SqliteFailure(..)) => return Err(error),
+            Err(error) => {
+                eprintln!("[aven] Session {id} kept in legacy transcript storage: {error}");
+                continue;
+            }
+        };
+        apply(conn, &id, prepared)?;
+        migrated.insert(id);
     }
-    let broken: bool = conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM sessions s WHERE blocks_storage != 1
-           OR blocks_count != (SELECT COUNT(*) FROM session_blocks b WHERE b.session_id = s.id)
-           OR (blocks_count > 0 AND blocks_count - 1 !=
-              (SELECT MAX(position) FROM session_blocks b WHERE b.session_id = s.id)))",
-        [],
-        |row| row.get(0),
-    )?;
-    if broken {
+    // Verify this launch's backfill before it commits. Later damage to one
+    // chat is reported when that chat is read; do not lock out all history.
+    let incomplete = conn
+        .prepare(
+            "SELECT id FROM sessions s WHERE blocks_storage = 1 AND (
+               blocks_count != (SELECT COUNT(*) FROM session_blocks b WHERE b.session_id = s.id)
+               OR (blocks_count > 0 AND blocks_count - 1 !=
+                  (SELECT MAX(position) FROM session_blocks b WHERE b.session_id = s.id)))",
+        )?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if incomplete.iter().any(|id| migrated.contains(id)) {
         return Err(invalid(
             "Transcript rows are incomplete; restore the database backup",
         ));
+    }
+    if !incomplete.is_empty() {
+        eprintln!(
+            "[aven] Transcript rows are incomplete for sessions: {}",
+            incomplete.join(", ")
+        );
     }
     Ok(())
 }

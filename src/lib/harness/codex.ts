@@ -23,6 +23,7 @@ import {
   mapApprovalRequest,
   mapCodexNotification,
   parseCodexElicitation,
+  stringField,
   toCodexApprovalDecision,
   type CodexApprovalKind,
 } from "./codexProtocol";
@@ -74,6 +75,9 @@ type Live = {
   cwd: string;
   runtimeMode: RuntimeMode;
   planning: boolean;
+  /** Last model/effort Codex reported or accepted, to restate turn modes. */
+  threadModel?: string;
+  threadEffort?: string;
   onEvent: (event: HarnessEvent) => void;
   approvals: Map<number, PendingApproval>;
   questions: Map<number, PendingQuestion>;
@@ -104,6 +108,13 @@ type Live = {
 type Resume = {
   threadId: string;
   cwd: string;
+};
+
+/** thread/start, thread/resume and thread/fork report the effective model. */
+type CodexThreadOpened = {
+  thread?: { id?: string };
+  model?: unknown;
+  reasoningEffort?: unknown;
 };
 
 const liveByThread = new Map<string, Live>();
@@ -426,14 +437,31 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     const effort = input.modelSettings?.reasoningEffort;
 
     let threadId: string | undefined;
+    let opened: CodexThreadOpened | undefined;
     let didResume = false;
     let didFork = false;
 
     if (canResume && resume) {
       try {
-        const opened = await rpc.request<{ thread?: { id?: string } }>(
-          "thread/resume",
-          {
+        opened = await rpc.request<CodexThreadOpened>("thread/resume", {
+          threadId: resume.threadId,
+          ...(storage.resumePath ? { path: storage.resumePath } : {}),
+          ...buildThreadStartParams({
+            cwd: input.cwd,
+            browserHostInstructions,
+            runtimeMode: input.runtimeMode,
+            controlsAgents: input.controlsAgents,
+            model,
+            serviceTier,
+          }),
+        });
+        threadId = opened.thread?.id ?? resume.threadId;
+        didResume = true;
+      } catch (error) {
+        if (isThreadWriterConflict(error)) {
+          // Imported conversations may still be loaded by another Codex app.
+          // Preserve its writer and history; continue on our own provider thread.
+          const forked = await rpc.request<CodexThreadOpened>("thread/fork", {
             threadId: resume.threadId,
             ...(storage.resumePath ? { path: storage.resumePath } : {}),
             ...buildThreadStartParams({
@@ -444,33 +472,12 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
               model,
               serviceTier,
             }),
-          },
-        );
-        threadId = opened.thread?.id ?? resume.threadId;
-        didResume = true;
-      } catch (error) {
-        if (isThreadWriterConflict(error)) {
-          // Imported conversations may still be loaded by another Codex app.
-          // Preserve its writer and history; continue on our own provider thread.
-          const forked = await rpc.request<{ thread?: { id?: string } }>(
-            "thread/fork",
-            {
-              threadId: resume.threadId,
-              ...(storage.resumePath ? { path: storage.resumePath } : {}),
-              ...buildThreadStartParams({
-                cwd: input.cwd,
-                browserHostInstructions,
-                runtimeMode: input.runtimeMode,
-                controlsAgents: input.controlsAgents,
-                model,
-                serviceTier,
-              }),
-              // Omit history only from the response, never from the new thread.
-              excludeTurns: true,
-              deferGoalContinuation: true,
-            },
-          );
+            // Omit history only from the response, never from the new thread.
+            excludeTurns: true,
+            deferGoalContinuation: true,
+          });
           threadId = forked.thread?.id?.trim();
+          opened = forked;
           if (!threadId || threadId === resume.threadId) {
             throw new Error(
               "Codex could not create a separate conversation. Your existing history is unchanged; please retry.",
@@ -486,7 +493,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     }
 
     if (!threadId) {
-      const opened = await rpc.request<{ thread?: { id?: string } }>(
+      opened = await rpc.request<CodexThreadOpened>(
         "thread/start",
         buildThreadStartParams({
           cwd: input.cwd,
@@ -511,6 +518,8 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       cwd: input.cwd,
       runtimeMode: input.runtimeMode,
       planning: input.intent === "plan",
+      threadModel: stringField(asRecord(opened), "model"),
+      threadEffort: stringField(asRecord(opened), "reasoningEffort"),
       onEvent: input.onEvent,
       approvals: new Map(),
       questions: new Map(),
@@ -576,6 +585,8 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
     effort,
     serviceTier,
     intent: input.intent,
+    threadModel: live.threadModel,
+    threadEffort: live.threadEffort,
   });
 
   if (
@@ -611,6 +622,12 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
       "turn/start",
       params,
     );
+    if (model) {
+      live.threadModel = model;
+      live.threadEffort = effort;
+    } else if (effort) {
+      live.threadEffort = effort;
+    }
     const turnId = response.turn?.id;
     if (live.turnDone) {
       if (!turnId) throw new Error("Codex did not return a turn id");

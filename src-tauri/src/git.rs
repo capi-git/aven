@@ -915,6 +915,7 @@ fn git_diff_stats_for(root: &Path) -> GitDiffStats {
             "diff",
             "--relative",
             "--no-ext-diff",
+            "--no-renames",
             "--numstat",
             "HEAD",
             "--",
@@ -929,6 +930,7 @@ fn git_diff_stats_for(root: &Path) -> GitDiffStats {
                 "diff",
                 "--relative",
                 "--no-ext-diff",
+                "--no-renames",
                 "--numstat",
                 "--",
                 ".",
@@ -943,6 +945,7 @@ fn git_diff_stats_for(root: &Path) -> GitDiffStats {
                 "--relative",
                 "--no-ext-diff",
                 "--cached",
+                "--no-renames",
                 "--numstat",
                 "--",
                 ".",
@@ -993,6 +996,7 @@ fn git_diff_index_with(root: &Path, include_sync: bool) -> GitDiffIndex {
             "diff",
             "--relative",
             "--no-ext-diff",
+            "--no-renames",
             "--numstat",
             "HEAD",
             "--",
@@ -1022,6 +1026,7 @@ fn git_diff_index_with(root: &Path, include_sync: bool) -> GitDiffIndex {
                 "diff",
                 "--relative",
                 "--no-ext-diff",
+                "--no-renames",
                 "--numstat",
                 "--",
                 ".",
@@ -1036,6 +1041,7 @@ fn git_diff_index_with(root: &Path, include_sync: bool) -> GitDiffIndex {
                 "--relative",
                 "--no-ext-diff",
                 "--cached",
+                "--no-renames",
                 "--numstat",
                 "--",
                 ".",
@@ -1128,7 +1134,7 @@ fn add_numstat_map(text: &str, files: &mut HashMap<String, FileAcc>) {
         let Some(add) = parts.next() else { continue };
         let Some(del) = parts.next() else { continue };
         let Some(path) = parts.next() else { continue };
-        let relative = normalize_diff_path(path);
+        let relative = parse_diff_path(path);
         if relative.is_empty() {
             continue;
         }
@@ -1151,24 +1157,66 @@ fn add_name_status(text: &str, statuses: &mut HashMap<String, &'static str>) {
             Some(b'M' | b'T') => "modified",
             _ => continue,
         };
-        let relative = normalize_diff_path(rest);
+        let relative = parse_diff_path(rest);
         if !relative.is_empty() {
             statuses.insert(relative, status);
         }
     }
 }
 
+/// Diff listings are requested with `--no-renames`, so a path is never in
+/// `old => new` form and is taken as-is.
 fn normalize_diff_path(path: &str) -> String {
     let path = path.trim();
     if path.is_empty() {
         return String::new();
     }
-    let path = if let Some((_, new)) = path.split_once(" => ") {
-        new.trim_end_matches('}')
-    } else {
-        path
-    };
     path_to_js(Path::new(path))
+}
+
+/// A path read from git's line-based output. Even with `core.quotePath=false`,
+/// git C-quotes names containing `"`, `\`, or control characters.
+fn parse_diff_path(raw: &str) -> String {
+    let raw = raw.trim();
+    match unquote_git_path(raw) {
+        Some(path) => normalize_diff_path(&path),
+        None => normalize_diff_path(raw),
+    }
+}
+
+fn unquote_git_path(raw: &str) -> Option<String> {
+    let inner = raw.strip_prefix('"')?.strip_suffix('"')?;
+    let mut out = Vec::with_capacity(inner.len());
+    let mut bytes = inner.bytes();
+    while let Some(byte) = bytes.next() {
+        if byte != b'\\' {
+            out.push(byte);
+            continue;
+        }
+        let escaped = match bytes.next()? {
+            b'a' => 0x07,
+            b'b' => 0x08,
+            b'f' => 0x0c,
+            b'n' => b'\n',
+            b'r' => b'\r',
+            b't' => b'\t',
+            b'v' => 0x0b,
+            digit @ b'0'..=b'3' => {
+                let mut value = digit - b'0';
+                for _ in 0..2 {
+                    let next = bytes.next()?;
+                    if !(b'0'..=b'7').contains(&next) {
+                        return None;
+                    }
+                    value = value * 8 + (next - b'0');
+                }
+                value
+            }
+            other => other,
+        };
+        out.push(escaped);
+    }
+    String::from_utf8(out).ok()
 }
 
 const MAX_UNTRACKED_BYTES: u64 = 1024 * 1024;
@@ -1232,7 +1280,7 @@ fn mark_cached_and_unstaged(root: &Path, files: &mut HashMap<String, FileAcc>) {
         ],
     ) {
         for line in names.lines() {
-            let relative = normalize_diff_path(line);
+            let relative = parse_diff_path(line);
             if !relative.is_empty() {
                 files.entry(relative).or_default().staged = true;
             }
@@ -1250,7 +1298,7 @@ fn mark_cached_and_unstaged(root: &Path, files: &mut HashMap<String, FileAcc>) {
         ],
     ) {
         for line in names.lines() {
-            let relative = normalize_diff_path(line);
+            let relative = parse_diff_path(line);
             if !relative.is_empty() {
                 files.entry(relative).or_default().unstaged = true;
             }
@@ -1632,7 +1680,10 @@ fn git_stage_contents_for(root: &Path, relative: &str, contents: &[u8]) -> Resul
 }
 
 fn git_index_mode(root: &Path, relative: &str) -> Option<String> {
-    let out = git_run(root, &["ls-files", "--stage", "--", relative])?;
+    let out = git_run(
+        root,
+        &["--literal-pathspecs", "ls-files", "--stage", "--", relative],
+    )?;
     let mode = out.lines().next()?.split_whitespace().next()?;
     if mode.len() == 6 && mode.bytes().all(|b| b.is_ascii_digit()) {
         Some(mode.to_string())
@@ -2859,10 +2910,19 @@ pub(crate) fn resolve_repo_path(root: &Path, relative: &str) -> Result<String, S
     Ok(relative)
 }
 
+/// Every Aven git command prints non-ASCII paths verbatim instead of as
+/// octal escapes, so line-based listings name the real file.
 pub(crate) fn git_cmd() -> Command {
     let mut cmd = Command::new("git");
     crate::hide_window_console(&mut cmd);
+    cmd.args(["-c", "core.quotePath=false"]);
     cmd
+}
+
+/// The git subcommand in `args`, past leading global flags such as
+/// `--literal-pathspecs`.
+fn git_subcommand<'a>(args: &[&'a str]) -> Option<&'a str> {
+    args.iter().copied().find(|arg| !arg.starts_with('-'))
 }
 
 /// Finder and Dock launches inherit launchd's bare PATH. Commands that can run
@@ -2871,7 +2931,7 @@ pub(crate) fn git_cmd() -> Command {
 fn git_cmd_for_args_with_path(args: &[&str], gui_path: impl FnOnce() -> String) -> Command {
     let mut cmd = git_cmd();
     if matches!(
-        args.first().copied(),
+        git_subcommand(args),
         Some("commit" | "push" | "pull" | "fetch" | "clone")
     ) {
         cmd.env("PATH", gui_path());
@@ -2931,7 +2991,7 @@ fn git_output(root: &Path, args: &[&str]) -> Option<Vec<u8>> {
         return Some(output.stdout);
     }
     // `git diff` exits 1 when the files differ.
-    if output.status.code() == Some(1) && args.first().copied() == Some("diff") {
+    if output.status.code() == Some(1) && git_subcommand(args) == Some("diff") {
         return Some(output.stdout);
     }
     None
@@ -3802,6 +3862,124 @@ mod tests {
             }
             assert!(dir.0.join("private.txt").exists());
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn git_index_mode_reads_the_named_file_not_glob_matches() {
+        let dir = tmp("git-index-mode-literal");
+        if !init_git_commit(&dir.0, &[("0.txt", "zero\n"), ("?.txt", "query\n")]) {
+            return;
+        }
+        assert!(git(&dir.0, &["update-index", "--chmod=+x", "?.txt"]));
+        assert_eq!(git_index_mode(&dir.0, "?.txt").as_deref(), Some("100755"));
+        assert_eq!(git_index_mode(&dir.0, "0.txt").as_deref(), Some("100644"));
+    }
+
+    #[test]
+    fn diff_index_lists_renames_as_one_delete_and_one_add() {
+        let dir = tmp("git-diff-renames");
+        if !init_git(&dir.0, "main", None) {
+            return;
+        }
+        let body = "one\ntwo\nthree\nfour\nfive\n";
+        for path in ["src/old.ts", "a/x/f.ts"] {
+            let path = dir.0.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, body).unwrap();
+        }
+        assert!(git(&dir.0, &["add", "."]) && git(&dir.0, &["commit", "-m", "init"]));
+        std::fs::create_dir_all(dir.0.join("a/y")).unwrap();
+        assert!(git(&dir.0, &["mv", "src/old.ts", "src/new.ts"]));
+        assert!(git(&dir.0, &["mv", "a/x/f.ts", "a/y/f.ts"]));
+
+        let index = git_diff_index_for(&dir.0);
+        let rows: Vec<_> = index
+            .files
+            .iter()
+            .map(|file| {
+                (
+                    file.relative.as_str(),
+                    file.status.as_str(),
+                    file.additions,
+                    file.deletions,
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                ("a/x/f.ts", "deleted", 0, 5),
+                ("a/y/f.ts", "added", 5, 0),
+                ("src/new.ts", "added", 5, 0),
+                ("src/old.ts", "deleted", 0, 5),
+            ]
+        );
+        assert_eq!((index.additions, index.deletions), (10, 10));
+        let stats = git_diff_stats_for(&dir.0);
+        assert_eq!((stats.files, stats.additions, stats.deletions), (4, 10, 10));
+    }
+
+    #[test]
+    fn diff_index_keeps_non_ascii_and_quoted_names() {
+        let dir = tmp("git-diff-unicode");
+        let names = ["café.ts", "日本.md"];
+        let initial: Vec<_> = names.iter().map(|name| (*name, "before\n")).collect();
+        if !init_git_commit(&dir.0, &initial) {
+            return;
+        }
+        for name in names {
+            std::fs::write(dir.0.join(name), "after\nmore\n").unwrap();
+        }
+        let index = git_diff_index_for(&dir.0);
+        let rows: Vec<_> = index
+            .files
+            .iter()
+            .map(|file| {
+                (
+                    file.relative.as_str(),
+                    file.status.as_str(),
+                    file.additions,
+                    file.deletions,
+                    file.unstaged,
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                ("café.ts", "modified", 2, 1, true),
+                ("日本.md", "modified", 2, 1, true),
+            ]
+        );
+    }
+
+    #[test]
+    fn unquote_git_path_decodes_c_style_names() {
+        assert_eq!(
+            parse_diff_path(r#""a\"b\\c\td\303\251.ts""#),
+            "a\"b\\c\tdé.ts"
+        );
+        assert_eq!(parse_diff_path("plain.ts"), "plain.ts");
+        assert_eq!(parse_diff_path("a => b.ts"), "a => b.ts");
+        assert_eq!(unquote_git_path(r#""bad\3""#), None);
+    }
+
+    #[test]
+    fn git_commands_print_paths_verbatim() {
+        let cmd = git_cmd();
+        let args: Vec<_> = cmd.get_args().collect();
+        assert_eq!(
+            args,
+            vec![
+                std::ffi::OsStr::new("-c"),
+                std::ffi::OsStr::new("core.quotePath=false")
+            ]
+        );
+        assert_eq!(
+            git_subcommand(&["--literal-pathspecs", "commit"]),
+            Some("commit")
+        );
     }
 
     fn init_git_commit(dir: &Path, files: &[(&str, &str)]) -> bool {

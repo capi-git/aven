@@ -1,5 +1,7 @@
 import "./UtilityViews.css";
 import { openInAppUrl } from "../lib/inAppLinks";
+import { retryableLazy } from "../lib/retryableLazy";
+import { SurfaceBoundary } from "../chrome/SurfaceBoundary";
 import {
   CheckCheck,
   CheckCircle,
@@ -21,7 +23,6 @@ import {
   type IconComponent,
 } from "../chrome/icons";
 import {
-  lazy,
   Suspense,
   useEffect,
   useMemo,
@@ -123,8 +124,8 @@ import {
 import { inboxAskKey } from "../lib/inboxAsk";
 
 // The diff renderer pulls in CodeMirror; load it when a PR's code is opened.
-const InboxPrDiff = lazy(() =>
-  import("./InboxPrDiff").then((module) => ({ default: module.InboxPrDiff })),
+const InboxPrDiff = retryableLazy(() =>
+  import("./InboxPrDiff").then((module) => module.InboxPrDiff),
 );
 
 const MIN_WIDTH = 240;
@@ -1376,21 +1377,23 @@ function InboxDetail({
         ) : diffError ? (
           <p className="text-ui-body text-content/50">{diffError}</p>
         ) : prDiff ? (
-          <Suspense
-            fallback={
-              <div className="flex justify-center py-10 text-content/40">
-                <LoaderCircle
-                  className="size-4 animate-spin"
-                  strokeWidth={1.75}
-                />
-              </div>
-            }
-          >
-            <InboxPrDiff
-              key={`${item.projectPath}:${item.number}:${revision}`}
-              diff={prDiff}
-            />
-          </Suspense>
+          <SurfaceBoundary label="pull request diff">
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-10 text-content/40">
+                  <LoaderCircle
+                    className="size-4 animate-spin"
+                    strokeWidth={1.75}
+                  />
+                </div>
+              }
+            >
+              <InboxPrDiff
+                key={`${item.projectPath}:${item.number}:${revision}`}
+                diff={prDiff}
+              />
+            </Suspense>
+          </SurfaceBoundary>
         ) : (
           <p className="text-ui-body text-content/45">No file changes</p>
         )

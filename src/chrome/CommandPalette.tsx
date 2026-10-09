@@ -29,6 +29,7 @@ import {
 } from "../lib/fileIndex";
 import type { ProjectFile } from "../lib/fs";
 import { fuzzyMatch } from "../lib/fuzzy";
+import { isImeComposition } from "../lib/keyboard";
 import { LAYER } from "../lib/layers";
 import { MOD } from "../lib/platform";
 import { looksLikeProject } from "../lib/recents";
@@ -370,7 +371,7 @@ function CommandPaletteBody({
       else setAgentIndex((index) => cycleIndex(agents.length, index, 1));
       return;
     }
-    if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+    if (event.key === "Enter" && !isImeComposition(event.nativeEvent)) {
       event.preventDefault();
       if (newChat && (event.metaKey || event.ctrlKey)) return start(true);
       if (canRace && event.altKey) return race();

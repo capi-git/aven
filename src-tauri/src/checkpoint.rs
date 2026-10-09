@@ -828,7 +828,10 @@ fn restore_snapshot(
     match kind {
         SnapshotKind::Skipped => Ok(()),
         SnapshotKind::Missing => {
-            let _ = git_checked(root, &["reset", "-q", "HEAD", "--", relative]);
+            let _ = git_checked(
+                root,
+                &["--literal-pathspecs", "reset", "-q", "HEAD", "--", relative],
+            );
             remove_worktree(root, relative)
         }
         SnapshotKind::Contents => {
@@ -837,7 +840,10 @@ fn restore_snapshot(
                 _ => return Ok(()),
             };
             write_worktree(&root.join(relative), &bytes)?;
-            let _ = git_checked(root, &["reset", "-q", "HEAD", "--", relative]);
+            let _ = git_checked(
+                root,
+                &["--literal-pathspecs", "reset", "-q", "HEAD", "--", relative],
+            );
             Ok(())
         }
     }
@@ -849,6 +855,7 @@ fn revert_new_change(root: &Path, relative: &str) -> Result<(), String> {
         return git_checked(
             root,
             &[
+                "--literal-pathspecs",
                 "restore",
                 "--source=HEAD",
                 "--staged",
@@ -858,7 +865,17 @@ fn revert_new_change(root: &Path, relative: &str) -> Result<(), String> {
             ],
         );
     }
-    let _ = git_checked(root, &["reset", "-q", "HEAD", "--", &relative]);
+    let _ = git_checked(
+        root,
+        &[
+            "--literal-pathspecs",
+            "reset",
+            "-q",
+            "HEAD",
+            "--",
+            &relative,
+        ],
+    );
     remove_worktree(root, &relative)
 }
 
@@ -969,7 +986,10 @@ fn remove_worktree(root: &Path, relative: &str) -> Result<(), String> {
         return Ok(());
     }
     if abs.is_dir() {
-        let _ = git_checked(root, &["clean", "-fd", "--", relative]);
+        let _ = git_checked(
+            root,
+            &["--literal-pathspecs", "clean", "-fd", "--", relative],
+        );
         if abs.exists() {
             std::fs::remove_dir_all(&abs).map_err(|e| e.to_string())?;
         }
@@ -1646,6 +1666,98 @@ mod tests {
         assert_eq!(s1.additions, 1);
         assert_eq!(s1.deletions, 0);
         assert_eq!(relatives(&store.status("s1", &cwd).unwrap()), vec!["a.txt"]);
+    }
+
+    fn staged_paths(repo: &Path) -> Vec<String> {
+        let output = Command::new("git")
+            .args(["diff", "--cached", "--name-only", "-z"])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&output.stdout)
+            .split('\0')
+            .filter(|path| !path.is_empty())
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// `[ab].txt`, `?.txt` and `*.txt` are pathspec globs that also match
+    /// `a.txt` and `b.txt`; reverting the agent's file must leave the user's
+    /// staged and unstaged edits to those siblings alone.
+    #[cfg(unix)]
+    #[test]
+    fn undo_treats_file_names_literally() {
+        for agent in ["[ab].txt", "?.txt", "*.txt"] {
+            let repo = tmp("literal-undo");
+            if !init_git_commit(
+                &repo.0,
+                &[(agent, "head\n"), ("a.txt", "head\n"), ("b.txt", "head\n")],
+            ) {
+                return;
+            }
+            std::fs::write(repo.0.join("a.txt"), "user staged\n").unwrap();
+            assert!(git(&repo.0, &["add", "a.txt"]));
+            std::fs::write(repo.0.join("b.txt"), "user\n").unwrap();
+            let cwd = repo.0.to_string_lossy().into_owned();
+            let (_root, store) = store();
+            store.ensure("s1", &cwd).unwrap();
+
+            std::fs::write(repo.0.join(agent), "agent\n").unwrap();
+            record(&store, "s1", &cwd, &[agent]);
+            store.undo("s1", &cwd, None).unwrap();
+
+            let read = |name: &str| std::fs::read_to_string(repo.0.join(name)).unwrap();
+            assert_eq!(read(agent), "head\n", "{agent}");
+            assert_eq!(read("a.txt"), "user staged\n", "{agent}");
+            assert_eq!(read("b.txt"), "user\n", "{agent}");
+            assert_eq!(staged_paths(&repo.0), vec!["a.txt"], "{agent}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn revert_and_remove_treat_names_literally() {
+        let repo = tmp("literal-revert");
+        if !init_git_commit(
+            &repo.0,
+            &[
+                ("[ab].txt", "head\n"),
+                ("a.txt", "head\n"),
+                ("b.txt", "head\n"),
+            ],
+        ) {
+            return;
+        }
+        std::fs::write(repo.0.join("[ab].txt"), "agent\n").unwrap();
+        std::fs::write(repo.0.join("a.txt"), "user staged\n").unwrap();
+        assert!(git(&repo.0, &["add", "a.txt"]));
+        std::fs::write(repo.0.join("b.txt"), "user\n").unwrap();
+
+        // Tracked in HEAD: restored from HEAD without touching a.txt or b.txt.
+        revert_new_change(&repo.0, "[ab].txt").unwrap();
+        let read = |name: &str| std::fs::read_to_string(repo.0.join(name)).unwrap();
+        assert_eq!(read("[ab].txt"), "head\n");
+        assert_eq!(read("a.txt"), "user staged\n");
+        assert_eq!(read("b.txt"), "user\n");
+        assert_eq!(staged_paths(&repo.0), vec!["a.txt"]);
+
+        // Untracked new file: unstaging it must not unstage a.txt.
+        std::fs::write(repo.0.join("[ab].md"), "agent\n").unwrap();
+        std::fs::write(repo.0.join("a.md"), "user\n").unwrap();
+        assert!(git(&repo.0, &["add", "a.md"]));
+        revert_new_change(&repo.0, "[ab].md").unwrap();
+        assert!(!repo.0.join("[ab].md").exists());
+        assert_eq!(staged_paths(&repo.0), vec!["a.md", "a.txt"]);
+
+        // New folder: cleaning it must not delete untracked sibling folders.
+        for folder in ["[ab]", "a", "b"] {
+            std::fs::create_dir(repo.0.join(folder)).unwrap();
+            std::fs::write(repo.0.join(folder).join("inside.txt"), "data\n").unwrap();
+        }
+        remove_worktree(&repo.0, "[ab]").unwrap();
+        assert!(!repo.0.join("[ab]").exists());
+        assert_eq!(read("a/inside.txt"), "data\n");
+        assert_eq!(read("b/inside.txt"), "data\n");
     }
 
     #[test]

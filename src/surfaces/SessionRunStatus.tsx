@@ -10,6 +10,7 @@ import { useActivity } from "../lib/activity";
 import type { Session, SessionAgent } from "../lib/session";
 import { sessionRunStatus } from "../lib/sessionRunStatus";
 import { sessionAgentSummary } from "../lib/sessionAgents";
+import { visibleInterval } from "../lib/visibleInterval";
 import "./SessionRunStatus.css";
 
 type Props = {
@@ -171,9 +172,8 @@ function RunClock({
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     if (!running || startedAt == null) return;
-    setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
+    // Wall time catches up on its own once the window is shown again.
+    return visibleInterval(() => setNow(Date.now()), 1000);
   }, [running, startedAt]);
   const elapsed = running && startedAt != null ? now - startedAt : durationMs;
   if (elapsed == null || !Number.isFinite(elapsed)) return null;

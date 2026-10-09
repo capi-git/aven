@@ -40,17 +40,43 @@ export function readerScrolled(el: ScrollBox, previousTop: number): boolean {
   );
 }
 
+/** The content and viewport heights as of the last offset this side saw. */
+export type ScrollExtent = Pick<ScrollBox, "scrollHeight" | "clientHeight">;
+
+/**
+ * Content shrinking under the reader, such as finished work folding away,
+ * clamped them to the end while the viewport did not grow. They now see the
+ * end and nothing is left below it, so this counts as following. A taller
+ * viewport over unchanged content is only layout and keeps the old choice.
+ */
+export function contentShrankToEnd(
+  el: ScrollBox,
+  previousTop: number,
+  previous: ScrollExtent,
+): boolean {
+  return (
+    el.scrollHeight < previous.scrollHeight &&
+    el.clientHeight <= previous.clientHeight &&
+    scrollClampedToBottom(el, previousTop)
+  );
+}
+
 /**
  * Whether to follow the end after the offset moved from `previousTop`. The
  * direction decides, not the distance: moving up leaves, and only moving down
  * all the way to the end resumes. A small downward reversal while reading
- * near the end must not snap the next chunk under the reader.
+ * near the end must not snap the next chunk under the reader. Pass the
+ * `previous` extent so a content shrink that clamps to the end follows.
  */
 export function followsAfterScroll(
   el: ScrollBox,
   previousTop: number,
   following: boolean,
+  previous?: ScrollExtent,
 ): boolean {
-  if (!readerScrolled(el, previousTop)) return following;
+  if (!readerScrolled(el, previousTop)) {
+    if (previous && contentShrankToEnd(el, previousTop, previous)) return true;
+    return following;
+  }
   return el.scrollTop > previousTop && isAtEnd(el);
 }

@@ -69,19 +69,29 @@ without a revision continue to use full snapshots.
 
 Before migrating a populated legacy file, SQLite `VACUUM INTO` writes a
 consistent adjacent backup named
-`monocode.db.pre-transcript-v12-<uuid>.db`, including committed WAL pages. Schema,
-backfill and migration version commit together; malformed legacy transcripts or
-any write failure abort the migration without deleting their original JSON.
+`monocode.db.pre-transcript-v12-<uuid>.db`, including committed WAL pages. The
+snapshot is synced to disk before it is renamed into place, and the directory
+is then synced. Schema, backfill and migration version commit together; any
+database write failure aborts the migration without deleting original JSON. A
+malformed legacy transcript stays in legacy storage with its original JSON, so
+only that chat fails to open while the rest migrate. A failed migration does
+not stop Aven from launching: chat history reports an error for that launch,
+and the next launch retries. Retries reuse the completed backup and remove
+interrupted partial files rather than adding a new backup each launch.
 Reopening an already migrated database does not create another migration
 backup. Backups contain chat history and remain in the same app data directory.
 
 **Downgrade limitation:** older Aven versions cannot read the new block rows.
-A downgrade requires closing Aven and restoring the pre-v12 backup (including
-handling stale WAL/SHM files while the app is closed); that backup reflects the
-moment before migration, not subsequent chats. Never copy only a live main
-SQLite file as a backup. Use a SQLite snapshot or a cleanly closed database.
-Legacy writers that update `blocks_json` invalidate the new revision and clear
-obsolete block rows, so their writes cannot silently accept a stale delta.
+They show migrated chats as empty, and the database refuses their writes to a
+migrated chat's transcript, so an older build fails to save that chat instead
+of replacing it. Chats an older build creates stay in legacy storage and are
+migrated on the next launch of a newer Aven. Aven 0.1.127 deleted a migrated
+transcript when an older build saved it; newer builds replace that rule each
+time they open the database. A full downgrade requires closing Aven and
+restoring the pre-v12 backup (including handling stale WAL/SHM files while the
+app is closed); that backup reflects the moment before migration, not
+subsequent chats. Never copy only a live main SQLite file as a backup. Use a
+SQLite snapshot or a cleanly closed database.
 
 On disk, connections use `synchronous=NORMAL` only after SQLite confirms WAL
 mode. This avoids a disk sync on every streaming snapshot. WAL integrity is

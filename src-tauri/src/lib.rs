@@ -273,7 +273,7 @@ pub fn run() {
             if !cfg!(debug_assertions) {
                 harness::reap_orphaned_harness_processes();
             }
-            session_store::init(app.handle())?;
+            session_store::init(app.handle());
             control::init(app.handle())?;
             checkpoint::init(app.handle())?;
             menu::install(app.handle())?;

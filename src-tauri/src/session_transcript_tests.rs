@@ -223,75 +223,191 @@ fn failed_block_write_rolls_back_earlier_blocks_and_metadata() {
     assert_eq!(current, revision(&first));
 }
 
+/// The upsert 0.1.126 and MonoCode issue; they know only `blocks_json`.
+const OLD_BUILD_UPSERT: &str = "INSERT INTO sessions(id, cwd, harness, model, runtime_mode, title, blocks_json, created_at, updated_at)
+     VALUES(?1, '/nonexistent/fixture', 'codex', 'test', 'local', 'Old build', ?2, 1, 2)
+     ON CONFLICT(id) DO UPDATE SET title = excluded.title, blocks_json = excluded.blocks_json,
+       updated_at = excluded.updated_at";
+
+/// The trigger 0.1.127 installed, which deleted block rows on a legacy write.
+const RELEASED_DESTRUCTIVE_TRIGGER: &str =
+    "CREATE TRIGGER IF NOT EXISTS sessions_legacy_transcript_write
+     AFTER UPDATE OF blocks_json ON sessions
+     WHEN NEW.blocks_storage = OLD.blocks_storage
+     BEGIN
+       DELETE FROM session_blocks WHERE session_id = NEW.id;
+       UPDATE sessions SET blocks_storage = 0, blocks_revision = '', blocks_count = 0
+         WHERE id = NEW.id;
+     END;";
+
+fn block_rows(conn: &Connection, id: &str) -> i64 {
+    conn.query_row(
+        "SELECT COUNT(*) FROM session_blocks WHERE session_id = ?1",
+        [id],
+        |row| row.get(0),
+    )
+    .unwrap()
+}
+
+fn triggers(conn: &Connection) -> Vec<String> {
+    conn.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'sessions' ORDER BY name")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap()
+}
+
 #[test]
-fn legacy_writes_invalidate_even_when_the_legacy_column_was_already_empty() {
+fn old_build_writes_to_migrated_rows_abort_and_keep_every_block() {
     let store = SessionStore::open_in_memory().unwrap();
     let conn = store.lock_conn().unwrap();
-    let session = input(
-        "legacy-write",
-        json!([{"role":"user","text":"new storage"}]),
-    );
+    let blocks =
+        json!([{"role":"user","text":"one"},{"role":"assistant","text":"two"},{"text":"three"}]);
+    let session = input("migrated", blocks.clone());
     let first = save(&conn, &session);
-    conn.execute(
-        "UPDATE sessions SET blocks_json='[]' WHERE id=?1",
-        [&session.id],
-    )
-    .unwrap();
-    assert_eq!(
-        get_session(&conn, &session.id).unwrap().unwrap().blocks,
-        json!([])
-    );
-    assert!(
-        upsert_session(&conn, &patch(&session, revision(&first), 1, json!([])))
-            .unwrap_err()
+    // Even rewriting the empty legacy column is refused, not just new content.
+    for raw in ["[]", r#"[{"role":"user","text":"old build"}]"#] {
+        let error = conn
+            .execute(OLD_BUILD_UPSERT, params![session.id, raw])
+            .unwrap_err();
+        assert!(error
             .to_string()
-            .contains(transcript::REVISION_MISMATCH)
+            .contains(transcript::LEGACY_WRITE_REJECTED));
+        assert_eq!(block_rows(&conn, "migrated"), 3);
+        let saved = get_session(&conn, "migrated").unwrap().unwrap();
+        assert_eq!(
+            (saved.blocks, saved.title.as_str()),
+            (blocks.clone(), "Fixture")
+        );
+    }
+    // The cached base is still valid, so deltas continue normally.
+    save(
+        &conn,
+        &patch(
+            &session,
+            revision(&first),
+            3,
+            json!([{"index":2,"block":{"text":"edited"}}]),
+        ),
     );
+    // A new chat created by the old build stays legacy until the next launch.
     let legacy_blocks = json!([{"id":"old","role":"user","text":"legacy writer kept"}]);
     conn.execute(
-        "UPDATE sessions SET blocks_json=?1 WHERE id=?2",
-        params![legacy_blocks.to_string(), session.id],
+        OLD_BUILD_UPSERT,
+        params!["old-new", legacy_blocks.to_string()],
     )
     .unwrap();
+    assert_eq!(
+        get_session(&conn, "old-new").unwrap().unwrap().blocks,
+        legacy_blocks
+    );
+    migrate(&conn).unwrap();
+    assert_eq!(block_rows(&conn, "old-new"), 1);
+    assert_eq!(
+        get_session(&conn, "old-new").unwrap().unwrap().blocks,
+        legacy_blocks
+    );
+    // The new build's own delete path still works on migrated rows.
+    delete_session(&conn, "migrated").unwrap();
+    assert_eq!(block_rows(&conn, "migrated"), 0);
+}
+
+#[test]
+fn already_migrated_databases_replace_the_destructive_trigger() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+    migrate(&conn).unwrap();
+    save(
+        &conn,
+        &input(
+            "released",
+            json!([{"role":"user","text":"keep"},{"text":"me"}]),
+        ),
+    );
+    // Reproduce a database left by 0.1.127, then a later reopen by 0.1.127
+    // after this build: both triggers present. The guard runs first.
+    conn.execute_batch(RELEASED_DESTRUCTIVE_TRIGGER).unwrap();
+    assert!(conn
+        .execute(OLD_BUILD_UPSERT, params!["released", "[]"])
+        .is_err());
+    assert_eq!(block_rows(&conn, "released"), 2);
+    conn.execute_batch("DROP TRIGGER sessions_reject_legacy_transcript_write;")
+        .unwrap();
+    assert_eq!(triggers(&conn), vec!["sessions_legacy_transcript_write"]);
+    migrate(&conn).unwrap();
     migrate(&conn).unwrap();
     assert_eq!(
-        get_session(&conn, &session.id).unwrap().unwrap().blocks,
-        legacy_blocks
+        triggers(&conn),
+        vec!["sessions_reject_legacy_transcript_write"]
+    );
+    assert!(conn
+        .execute(OLD_BUILD_UPSERT, params!["released", "[]"])
+        .is_err());
+    assert_eq!(
+        get_session(&conn, "released").unwrap().unwrap().blocks,
+        json!([{"role":"user","text":"keep"},{"text":"me"}])
     );
 }
 
 #[test]
-fn corrupt_legacy_rows_abort_schema_and_backfill_without_erasing_any_blob() {
+fn corrupt_legacy_rows_stay_legacy_while_other_chats_migrate() {
     for raw in ["not json", "null", "{}"] {
         let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
         legacy(&conn, raw);
-        assert!(migrate(&conn).is_err());
-        assert!(conn.is_autocommit());
-        let preserved: String = conn
+        let good = json!([{"role":"user","text":"still migrated"}]);
+        conn.execute(OLD_BUILD_UPSERT, params!["good", good.to_string()])
+            .unwrap();
+        migrate(&conn).unwrap();
+        let (storage, preserved): (i64, String) = conn
             .query_row(
-                "SELECT blocks_json FROM sessions WHERE id='saved'",
+                "SELECT blocks_storage, blocks_json FROM sessions WHERE id='saved'",
                 [],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .unwrap();
-        assert_eq!(preserved, raw);
-        let columns: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name='blocks_storage'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(columns, 0);
+        assert_eq!((storage, preserved.as_str()), (0, raw));
+        // Only the damaged chat fails to open; it can still be deleted.
+        assert!(get_session(&conn, "saved").is_err());
+        assert_eq!(get_session(&conn, "good").unwrap().unwrap().blocks, good);
+        assert_eq!(block_rows(&conn, "good"), 1);
         assert_eq!(
             conn.query_row("SELECT MAX(version) FROM schema_migrations", [], |row| row
                 .get::<_, i64>(
                 0
             ))
             .unwrap(),
-            1
+            12
         );
+        migrate(&conn).unwrap();
+        delete_session(&conn, "saved").unwrap();
     }
+}
+
+#[test]
+fn incomplete_backfill_in_this_launch_rolls_back() {
+    let conn = Connection::open_in_memory().unwrap();
+    let blocks = json!([{"role":"user","text":"one"},{"text":"two"}]);
+    legacy(&conn, &blocks.to_string());
+    // Simulate a backfill that silently loses a row.
+    conn.execute_batch(
+        "CREATE TABLE session_blocks (
+           session_id TEXT NOT NULL, position INTEGER NOT NULL, block_json TEXT NOT NULL,
+           role TEXT, worker_lead TEXT, PRIMARY KEY(session_id, position));
+         CREATE TRIGGER lose_row AFTER INSERT ON session_blocks WHEN NEW.position = 1
+         BEGIN DELETE FROM session_blocks WHERE session_id = NEW.session_id AND position = 1; END;",
+    )
+    .unwrap();
+    assert!(migrate(&conn).is_err());
+    let raw: String = conn
+        .query_row(
+            "SELECT blocks_json FROM sessions WHERE id='saved'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(raw, blocks.to_string());
 }
 
 #[test]
@@ -342,7 +458,9 @@ fn missing_rows_report_corruption_instead_of_restoring_a_shortened_chat() {
     )
     .unwrap();
     assert!(get_session(&conn, "missing").is_err());
-    assert!(migrate(&conn).is_err());
+    // Later damage affects only that chat; reopening the store still works.
+    migrate(&conn).unwrap();
+    assert!(get_session(&conn, "missing").is_err());
 }
 
 #[test]
@@ -462,4 +580,102 @@ fn file_backup_includes_wal_and_restores_legacy_and_piecewise_history() {
     assert!(get_session(&reopened.lock_conn().unwrap(), "saved")
         .unwrap()
         .is_none());
+}
+
+fn backup_names(dir: &std::path::Path) -> Vec<String> {
+    let mut names = std::fs::read_dir(dir)
+        .unwrap()
+        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+        .filter(|name| name.contains("pre-transcript-v12"))
+        .collect::<Vec<_>>();
+    names.sort();
+    names
+}
+
+#[test]
+fn backup_is_not_reused_after_later_legacy_writes() {
+    let root = crate::turn_shots::tests::TemporaryDirectory::new();
+    let path = root.0.join("fixture.db");
+    {
+        let conn = Connection::open(&path).unwrap();
+        legacy(&conn, r#"[{"role":"user","text":"before"}]"#);
+        conn.execute_batch("CREATE TRIGGER fail_version BEFORE INSERT ON schema_migrations WHEN NEW.version=12 BEGIN SELECT RAISE(ABORT, 'fixture migration failure'); END;").unwrap();
+    }
+    assert!(SessionStore::open(path.clone()).is_err());
+    let first = backup_names(&root.0);
+    assert_eq!(first.len(), 1);
+    // An older build keeps writing the legacy database (for example after the
+    // user restored a backup to downgrade). The old snapshot is now stale.
+    Connection::open(&path)
+        .unwrap()
+        .execute("INSERT INTO sessions(id, cwd, harness, model, runtime_mode, title, blocks_json, created_at, updated_at) VALUES('later', '/nonexistent/fixture', 'codex', 'test', 'local', 'Later', '[]', 33, 44)", [])
+        .unwrap();
+    assert!(SessionStore::open(path.clone()).is_err());
+    let names = backup_names(&root.0);
+    assert_eq!(names.len(), 2);
+    let fresh = names.iter().find(|name| !first.contains(name)).unwrap();
+    let backup = Connection::open(root.0.join(fresh)).unwrap();
+    assert_eq!(
+        backup
+            .query_row("SELECT COUNT(*) FROM sessions", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        2
+    );
+}
+
+#[test]
+fn failed_migration_reuses_its_backup_and_leaves_aven_running() {
+    let root = crate::turn_shots::tests::TemporaryDirectory::new();
+    let path = root.0.join("fixture.db");
+    let blocks = json!([{"role":"user","text":"survives retries"}]);
+    {
+        let conn = Connection::open(&path).unwrap();
+        legacy(&conn, &blocks.to_string());
+        conn.execute_batch("CREATE TRIGGER fail_version BEFORE INSERT ON schema_migrations WHEN NEW.version=12 BEGIN SELECT RAISE(ABORT, 'fixture migration failure'); END;").unwrap();
+    }
+    assert!(SessionStore::open(path.clone()).is_err());
+    let first = backup_names(&root.0);
+    assert_eq!(first.len(), 1);
+    assert!(first[0].ends_with(".db"));
+    // An interrupted earlier attempt leaves only a partial file behind.
+    let orphan = root
+        .0
+        .join("fixture.db.pre-transcript-v12-interrupted.partial");
+    std::fs::write(&orphan, b"partial").unwrap();
+    let store = SessionStore::open_or_unavailable(Ok(path.clone())).unwrap();
+    let error = store.lock_conn().err().unwrap();
+    assert!(error.contains("fixture migration failure"), "{error}");
+    assert_eq!(backup_names(&root.0), first);
+    let store = SessionStore::open_or_unavailable(Err("no data directory".into())).unwrap();
+    assert!(store
+        .lock_conn()
+        .err()
+        .unwrap()
+        .contains("no data directory"));
+
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch("DROP TRIGGER fail_version;")
+        .unwrap();
+    let store = SessionStore::open_or_unavailable(Ok(path.clone())).unwrap();
+    assert_eq!(
+        get_session(&store.lock_conn().unwrap(), "saved")
+            .unwrap()
+            .unwrap()
+            .blocks,
+        blocks
+    );
+    assert_eq!(backup_names(&root.0), first);
+    let backup = Connection::open(root.0.join(&first[0])).unwrap();
+    assert_eq!(
+        backup
+            .query_row(
+                "SELECT blocks_json FROM sessions WHERE id='saved'",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+        blocks.to_string()
+    );
 }

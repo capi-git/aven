@@ -105,6 +105,9 @@ export function ColorPicker({
       context.current.scope !== scope || context.current.model !== model;
     context.current = { scope, model };
     if (changedScope) editing.current = false;
+    // A drag owns the color until it ends. A value that lags behind it
+    // would snap the thumb back, and gray loses its hue on the way.
+    else if (gesture.current) return;
     if (!editing.current) {
       setEntryState(uppercase ? value.toUpperCase() : value);
       setInvalid(false);

@@ -178,6 +178,9 @@ export function buildTurnStartParams(input: {
   effort?: string;
   serviceTier?: string;
   intent?: TurnIntent;
+  /** Model and effort Codex last reported or applied for this thread. */
+  threadModel?: string;
+  threadEffort?: string;
 }): Record<string, unknown> {
   const runtimeConfig = runtimeModeToCodexConfig(
     input.runtimeMode,
@@ -204,15 +207,22 @@ export function buildTurnStartParams(input: {
   }
   // settings.model is a required string. Null is rejected
   // ("invalid type: null, expected a string") and an empty string leaves
-  // Codex without a model. Skip the override until a model is known so
-  // Codex keeps the one it chose when the thread started.
+  // Codex without a model. Omitting collaborationMode keeps the thread's
+  // previous mode, so a plan turn would run as default and a default turn
+  // after a plan would stay in plan mode. Without a selection, restate the
+  // model Codex reported for the thread so the mode still follows intent.
   const model = input.model?.trim() ?? "";
-  const collaborationMode = model
+  const modeModel = model || input.threadModel?.trim() || "";
+  // Only reachable before Codex has reported any thread model, so Aven has
+  // never changed the thread's mode. A plan turn still gets the read-only,
+  // never-escalating sandbox above, so it cannot edit files.
+  const collaborationMode = modeModel
     ? {
         mode: input.intent === "plan" ? "plan" : "default",
         settings: {
-          model,
-          reasoning_effort: input.effort ?? null,
+          model: modeModel,
+          reasoning_effort:
+            input.effort ?? (model ? null : (input.threadEffort ?? null)),
           developer_instructions: null,
         },
       }

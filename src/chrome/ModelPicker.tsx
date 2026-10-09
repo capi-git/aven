@@ -37,6 +37,7 @@ import {
   getHarnessAvailabilitySnapshot,
 } from "../lib/harness/availability";
 import { refreshHarnessCatalogs } from "../lib/harness/registry";
+import { isImeComposition } from "../lib/keyboard";
 import {
   HARNESSES,
   HARNESS_LABEL,
@@ -160,7 +161,7 @@ export function ModelPicker({
     };
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.isComposing) return;
+      if (isImeComposition(e)) return;
       const mod = e.metaKey || e.ctrlKey;
       if (
         hotkeys &&
@@ -281,6 +282,8 @@ export function ModelPicker({
   };
 
   const onSearchKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    // Enter and arrows belong to the input method while it composes.
+    if (isImeComposition(e.nativeEvent)) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setActive((i) => Math.min(visible.length - 1, i + 1));

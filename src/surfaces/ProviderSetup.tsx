@@ -1,12 +1,14 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { HarnessIcon } from "../chrome/HarnessIcon";
 import { Check, ChevronRight, Loader, RefreshCw } from "../chrome/icons";
 import { Modal } from "../chrome/Modal";
+import { SurfaceBoundary } from "../chrome/SurfaceBoundary";
 import { openInAppUrl } from "../lib/inAppLinks";
 import { IS_MAC, IS_WIN } from "../lib/platform";
 import { recordHarnessAvailability } from "../lib/harness/availability";
 import { refreshHarnessCatalogs } from "../lib/harness/registry";
+import { retryableLazy } from "../lib/retryableLazy";
 import {
   loadProviderSetup,
   saveProviderSetup,
@@ -16,8 +18,8 @@ import {
 import { HARNESSES, HARNESS_TITLE, type HarnessId } from "../lib/session";
 import "./ProviderSetup.css";
 
-const TerminalView = lazy(() =>
-  import("./TerminalView").then((module) => ({ default: module.TerminalView })),
+const TerminalView = retryableLazy(() =>
+  import("./TerminalView").then((module) => module.TerminalView),
 );
 const DESCRIPTIONS: Record<HarnessId, string> = {
   claude: "Connect your Claude Code account.",
@@ -478,16 +480,18 @@ export function ProviderSetup({ onDone, onChooseFolder }: Props) {
                 unfinished setup command.
               </p>
               <div className="provider-setup-terminal">
-                <Suspense fallback={<p>Opening terminal…</p>}>
-                  <TerminalView
-                    id={terminal.id}
-                    cwd="~"
-                    active
-                    presented
-                    ephemeral
-                    setupCommand={terminal.plan.command ?? undefined}
-                  />
-                </Suspense>
+                <SurfaceBoundary label="setup terminal">
+                  <Suspense fallback={<p>Opening terminal…</p>}>
+                    <TerminalView
+                      id={terminal.id}
+                      cwd="~"
+                      active
+                      presented
+                      ephemeral
+                      setupCommand={terminal.plan.command ?? undefined}
+                    />
+                  </Suspense>
+                </SurfaceBoundary>
               </div>
             </section>
           ) : null}

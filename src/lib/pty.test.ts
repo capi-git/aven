@@ -179,6 +179,37 @@ describe("queued terminal commands", () => {
     expect(writes()).toHaveLength(0);
   });
 
+  it("keeps a queued command for a concurrent attach when another attach fails", async () => {
+    queueTerminalCommand("remount", "npm run dev");
+    const ready = holdNextSpawn();
+    const first = spawnPty("remount", "/repo", 80, 24);
+    invoke.mockRejectedValueOnce(new Error("Terminal is still starting"));
+    await expect(spawnPty("remount", "/repo", 100, 30)).rejects.toThrow(
+      "still starting",
+    );
+    ready();
+    await first;
+    expect(writes()).toEqual([
+      ["pty_write", { id: "remount", data: "npm run dev\r" }],
+    ]);
+    await spawnPty("remount", "/repo", 80, 24);
+    expect(writes()).toHaveLength(1);
+  });
+
+  it("delivers a queued command once when concurrent attaches both succeed", async () => {
+    queueTerminalCommand("both", "npm test");
+    const first = holdNextSpawn();
+    const firstSpawn = spawnPty("both", "/repo", 80, 24);
+    const second = holdNextSpawn();
+    const secondSpawn = spawnPty("both", "/repo", 100, 30);
+    second();
+    first();
+    await Promise.all([firstSpawn, secondSpawn]);
+    expect(writes()).toEqual([
+      ["pty_write", { id: "both", data: "npm test\r" }],
+    ]);
+  });
+
   it("does not replay a command if writing it to the spawned PTY fails", async () => {
     queueTerminalCommand("write-failed", "npm test");
     invoke

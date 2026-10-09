@@ -1,6 +1,8 @@
-import { lazy, type ReactNode, Suspense, useSyncExternalStore } from "react";
+import { type ReactNode, Suspense, useSyncExternalStore } from "react";
+import { SurfaceBoundary } from "../chrome/SurfaceBoundary";
 import { basename } from "../lib/fs";
 import { looksLikeProject } from "../lib/recents";
+import { retryableLazy } from "../lib/retryableLazy";
 import { isProjectlessCwd } from "../lib/projectlessWorkspace";
 import {
   loadGridArcadeEnabled,
@@ -11,10 +13,10 @@ import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import "./EmptySession.css";
 
 // The decorative arcade (canvas games and sprites) loads after the first paint.
-const TerminalGridBackground = lazy(() =>
-  import("./TerminalGridBackground").then((module) => ({
-    default: module.TerminalGridBackground,
-  })),
+const TerminalGridBackground = retryableLazy(() =>
+  import("./TerminalGridBackground").then(
+    (module) => module.TerminalGridBackground,
+  ),
 );
 
 type Props = {
@@ -45,9 +47,11 @@ export function EmptySession({
       data-composer-docked={!composer || undefined}
     >
       {arcadeEnabled && !hasChatBackground ? (
-        <Suspense fallback={null}>
-          <TerminalGridBackground visible={visible} />
-        </Suspense>
+        <SurfaceBoundary label="arcade background" quiet>
+          <Suspense fallback={null}>
+            <TerminalGridBackground visible={visible} />
+          </Suspense>
+        </SurfaceBoundary>
       ) : null}
       <div className="personal-empty-session">
         <div className="aven-opening-heading personal-empty-session-heading">

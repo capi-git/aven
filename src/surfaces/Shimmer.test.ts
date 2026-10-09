@@ -4,9 +4,8 @@ import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import { Shimmer } from "./Shimmer";
 
-it("pauses while offscreen, hidden or unfocused and retains the same text on resume", async () => {
+it("pauses only while offscreen or hidden and retains the same text on resume", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  vi.spyOn(document, "hasFocus").mockReturnValue(true);
   let hidden = false;
   vi.spyOn(document, "hidden", "get").mockImplementation(() => hidden);
   let intersect!: (entries: { isIntersecting: boolean }[]) => void;
@@ -33,9 +32,8 @@ it("pauses while offscreen, hidden or unfocused and retains the same text on res
     expect(element.style.animationPlayState).toBe("paused");
     intersect([{ isIntersecting: true }]);
     expect(element.style.animationPlayState).toBe("running");
+    // A visible window that lost focus still shows the shimmer moving.
     window.dispatchEvent(new Event("blur"));
-    expect(element.style.animationPlayState).toBe("paused");
-    window.dispatchEvent(new Event("focus"));
     expect(element.style.animationPlayState).toBe("running");
     hidden = true;
     document.dispatchEvent(new Event("visibilitychange"));

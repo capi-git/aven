@@ -513,6 +513,45 @@ describe("Skills & Tools settings", () => {
     expect(hasButton("/mine")).toBe(false);
   });
 
+  it("renders a large catalog a page at a time and restarts paging on search", async () => {
+    mocks.listSkills.mockResolvedValue(
+      Array.from({ length: 450 }, (_, index) => ({
+        ...file,
+        name: `bulk-${String(index).padStart(4, "0")}`,
+        path: `/repo/.agents/skills/bulk-${index}/SKILL.md`,
+      })),
+    );
+    await render();
+    const rows = () => container.querySelectorAll(".skills-item").length;
+    expect(rows()).toBe(200);
+    expect(container.textContent).toMatch(/Showing 200 of 45\d skills/);
+    await click("Show 200 more");
+    expect(rows()).toBe(400);
+
+    const input = container.querySelector<HTMLInputElement>(
+      '[aria-label="Find a skill"]',
+    )!;
+    const search = (value: string) =>
+      act(async () => {
+        Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )!.set!.call(input, value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    await search("bulk-044");
+    expect(rows()).toBe(10);
+    expect(hasButton("more")).toBe(false);
+    await search("");
+    expect(rows()).toBe(200);
+    await click("Project 450");
+    expect(rows()).toBe(200);
+    await click("Show 200 more");
+    await click("Show 50 more");
+    expect(rows()).toBe(450);
+    expect(hasButton("more")).toBe(false);
+  });
+
   it("returns to all skills when a refreshed catalog no longer has the selected source", async () => {
     await render();
     await click("Project 1");
