@@ -8,6 +8,7 @@
 
 - Aven keeps its Codex conversations in separate history, so new Aven chats no longer fill Codex's Recents. Background requests for chat titles and Git text stay unsaved. Existing Aven chats can resume with their provider context, and existing Codex entries are left in place.
 - Your file-based Codex login, settings, skills and plugins remain shared. Keyring and automatic credential-store modes are not supported by the separate history yet; Aven reports that before starting a chat.
+- Windows remote MCP servers require the file credential store with Codex's default encrypted storage backend. Standard macOS MCP keyring logins remain shared; enterprise MCP keyring logins remain specific to each app's history location.
 
 ### Every generated image stays visible
 
