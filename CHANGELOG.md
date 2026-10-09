@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.1.129] - 2026-10-09
+
+### Browsers stay organized
+
+- Agent opens reuse the same URL within a project, including across workspace windows and concurrent requests. An explicit new-tab request still opens a separate copy.
+- New pages join an existing browser pane. Existing split sizes and minimized panes stay in place; a right-hand split is created only when needed.
+
+### Keep your place while agents work
+
+- Background browser and file opens preserve your selected chat, page and editor caret. Detached agent windows no longer activate themselves for those opens.
+- Explicit file paths open without waiting for a repository-wide file scan. Delayed file and history opens yield to newer clicks or typing, and editor line jumps cannot reclaim focus after you leave.
+
 ## [0.1.128] - 2026-10-08
 
 ### Dependency maintenance
