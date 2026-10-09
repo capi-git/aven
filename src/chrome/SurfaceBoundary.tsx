@@ -15,26 +15,30 @@ type Props = {
   resetKey?: unknown;
 };
 
-type State = { failed: boolean };
+type State = { failed: boolean; resetKey: unknown };
 
 /**
  * Contains a view that failed to load or render, usually a lazy chunk, so
  * the rest of the window keeps working. Retry loads the view again.
  */
 export class SurfaceBoundary extends Component<Props, State> {
-  override state: State = { failed: false };
+  override state: State = { failed: false, resetKey: this.props.resetKey };
 
-  static getDerivedStateFromError(): State {
+  static getDerivedStateFromError(): Partial<State> {
     return { failed: true };
+  }
+
+  static getDerivedStateFromProps(
+    props: Props,
+    state: State,
+  ): Partial<State> | null {
+    return props.resetKey === state.resetKey
+      ? null
+      : { failed: false, resetKey: props.resetKey };
   }
 
   override componentDidCatch(error: unknown) {
     logError(`Couldn't load the ${this.props.label} view`, error);
-  }
-
-  override componentDidUpdate(previous: Props) {
-    if (this.state.failed && previous.resetKey !== this.props.resetKey)
-      this.setState({ failed: false });
   }
 
   retry = () => {
