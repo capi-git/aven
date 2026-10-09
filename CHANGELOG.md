@@ -10,6 +10,7 @@
 
 ### Safer chat storage upgrade
 
+- Windows can write and flush the pre-upgrade backup correctly, so existing chat history can finish upgrading.
 - If the chat database upgrade from 0.1.127 cannot finish, Aven now opens and explains that chat history is unavailable instead of failing to start. It tries again on the next launch and reuses its one backup rather than writing a new copy each time.
 - A single damaged chat no longer stops the others from upgrading; it stays readable in its original format.
 - Older Aven versions can no longer erase an upgraded chat by saving to it; the save is refused instead. Do not reinstall 0.1.127 after this version. Returning to 0.1.126 or earlier still requires the pre-upgrade backup.
