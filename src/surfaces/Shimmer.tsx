@@ -6,7 +6,6 @@ import {
   type CSSProperties,
   type ElementType,
 } from "react";
-import { isWindowActive, subscribeWindowActivity } from "../lib/windowActivity";
 
 export interface ShimmerProps {
   children: string;
@@ -28,11 +27,13 @@ function ShimmerComponent({
     const element = ref.current;
     if (!element) return;
     let intersecting = typeof IntersectionObserver === "undefined";
+    // Pause only when nobody can see it. A visible but unfocused window
+    // still shows "Thinking…", so it keeps moving.
     const update = () => {
       element.style.animationPlayState =
-        intersecting && isWindowActive() ? "running" : "paused";
+        intersecting && !document.hidden ? "running" : "paused";
     };
-    const unsubscribe = subscribeWindowActivity(update);
+    document.addEventListener("visibilitychange", update);
     const observer =
       typeof IntersectionObserver === "undefined"
         ? null
@@ -44,7 +45,7 @@ function ShimmerComponent({
     update();
     return () => {
       observer?.disconnect();
-      unsubscribe();
+      document.removeEventListener("visibilitychange", update);
     };
   }, []);
   const dynamicSpread = useMemo(
