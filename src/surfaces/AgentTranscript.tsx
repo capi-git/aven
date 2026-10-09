@@ -348,6 +348,13 @@ function AgentTranscriptComponent({
     let release: ReturnType<typeof setTimeout> | undefined;
     const onWheel = (e: WheelEvent) => {
       if (e.deltaY < 0) {
+        // Upward input that cannot move the transcript, at its top or with
+        // nothing to scroll, is not the reader leaving the end.
+        if (
+          scrollerEl.scrollTop <= 0 ||
+          scrollerEl.scrollHeight <= scrollerEl.clientHeight
+        )
+          return;
         stickToBottom.current = false;
         wheelHold.current = 0;
         setShowJump(true);

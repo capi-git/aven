@@ -158,6 +158,24 @@ describe("transcript native scrolling", () => {
     expect(el.scrollTop).toBe(1100);
   });
 
+  it("keeps following after upward input that cannot scroll the transcript", async () => {
+    const el = await render(answer("One"));
+    const metrics = scrollMetrics(el, 400, 300);
+    await markAtBottom(el);
+
+    // Nothing to scroll yet, so the wheel cannot be the reader leaving.
+    await wheel(el, -40);
+    expect(showJump).not.toHaveBeenCalledWith(true);
+    metrics.grow(700);
+    await render(answer("One\n\nTwo"));
+    expect(el.scrollTop).toBe(600);
+
+    // Already at the top: upward input has nowhere to go either.
+    el.scrollTop = 0;
+    await wheel(el, -40);
+    expect(showJump).not.toHaveBeenCalledWith(true);
+  });
+
   it("lets a small wheel up inside the bottom margin leave a streaming reply", async () => {
     const el = await render(answer("One"));
     const metrics = scrollMetrics(el, 400, 1000);
