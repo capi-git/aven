@@ -1,4 +1,4 @@
-import { nativeModelId } from "../models";
+import { codexNativeModelId } from "../models";
 import type { RuntimeMode } from "../session";
 import {
   killChild,
@@ -432,7 +432,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     const browserHostInstructions =
       codexBrowserHostInstructionsFromConfig(effectiveConfig);
 
-    const model = nativeModelId(input.model);
+    const model = codexNativeModelId(input.model);
     const serviceTier = input.modelSettings?.serviceTier;
     const effort = input.modelSettings?.reasoningEffort;
 
@@ -570,7 +570,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
 }
 
 async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
-  const model = nativeModelId(input.model);
+  const model = codexNativeModelId(input.model);
   const effort = input.modelSettings?.reasoningEffort;
   const serviceTier = input.modelSettings?.serviceTier;
   const attachments = codexAttachmentInputs(input.attachments ?? []);

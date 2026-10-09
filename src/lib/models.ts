@@ -397,12 +397,23 @@ export function resolveModel(harness: HarnessId, id?: string): AgentModel {
     }
   }
   const fallbackId = defaultModelId(harness);
+  const fallback = fallbackId ? findModel(fallbackId) : undefined;
   return (
-    (fallbackId ? findModel(fallbackId) : undefined) ??
+    (fallback?.harness === harness ? fallback : undefined) ??
     available[0] ??
     MODELS.find((model) => model.harness === harness) ??
-    MODELS[0]
+    providerDefaultModel(harness)
   );
+}
+
+/**
+ * Before a provider's catalog loads, a provider without bundled models (Codex)
+ * has nothing to resolve to. Use its own default (an empty model, which lets
+ * the provider choose) rather than another provider's first model: saving a
+ * Claude id on a Codex chat made every later Codex turn fail.
+ */
+function providerDefaultModel(harness: HarnessId): AgentModel {
+  return { id: "", harness, name: "Default", nativeId: "" };
 }
 
 /**
@@ -457,6 +468,21 @@ function comparableClaudeId(id: string): string {
 export function modelContextWindow(id: string): number | undefined {
   const window = findModel(id)?.contextWindow;
   return window && window > 0 ? window : undefined;
+}
+
+/**
+ * Codex model to send. A saved id that belongs to another provider (earlier
+ * builds could store Claude's default on a Codex chat) is left empty so Codex
+ * uses its configured default instead of rejecting the turn.
+ */
+export function codexNativeModelId(model: string | undefined): string {
+  const id = model?.trim() ?? "";
+  if (!id) return "";
+  const known = lookupModel(id);
+  if (known && known.harness !== "codex") return "";
+  const colon = id.indexOf(":");
+  if (!known && colon > 0 && id.slice(0, colon) !== "codex") return "";
+  return nativeModelId(id);
 }
 
 export function nativeModelId(model: AgentModel | string): string {
