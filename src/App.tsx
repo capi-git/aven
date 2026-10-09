@@ -9459,9 +9459,7 @@ export default function App({
                                   onSideChange={onProjectTerminalSide}
                                   onSizePaint={paintDockSize}
                                   onSizeCommit={commitDockSize}
-                                  onAddTerminal={() =>
-                                    onOpenTerminal(active?.cwd ?? projectCwd)
-                                  }
+                                  onAddTerminal={onNewTerminal}
                                   onSelectTerminal={onSelectProjectTerminal}
                                   onCloseTerminal={onCloseProjectTerminal}
                                   onReorderTerminals={onReorderProjectTerminals}
