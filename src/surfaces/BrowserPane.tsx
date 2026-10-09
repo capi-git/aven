@@ -88,7 +88,9 @@ export type BrowserPaneProps = {
 
 const OVERLAYS =
   '[aria-modal="true"], [role="dialog"], [role="menu"], [role="listbox"], [data-popover-side], [data-native-browser-occluded="true"]';
-const LAYOUT_FALLBACK_MS = 100;
+// ResizeObserver also reaches this path during native window resizing. A
+// deferred WebKit frame must not leave Chromium at old bounds for 100 ms.
+const LAYOUT_FALLBACK_MS = 16;
 const OVERLAY_SNAPSHOT_DEADLINE_MS = 80;
 const SNAPSHOT_PAINT_DEADLINE_MS = 16;
 const ZOOM_SNAPSHOT_DELAY_MS = 60;

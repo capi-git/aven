@@ -606,6 +606,35 @@ html.is-mac:not(.theme-light)
   --personal-navigation-blur: none;
 }
 
+/* On a transparent Mac window, reuse the material already behind the whole
+   workspace. Cropping the covered HTML edge keeps transcript text out of the
+   navigation without another backdrop filter or an opaque charcoal card.
+   Apply this by default: WebKit versions without the reduced-transparency
+   query match neither "reduce" nor "no-preference". The explicit accessibility
+   override below still wins on engines that expose that preference. */
+html.is-mac.has-native-glass:not(.theme-light)
+  .personal-shell
+  .personal-sidebar-slot[data-floating="true"]
+  > .personal-sidebar.sidebar-glass.personal-navigation {
+  --personal-navigation-overlay: var(--personal-chrome-surface);
+}
+
+/* Uncover the workspace and dismiss its glass panel in the same paint;
+   otherwise the exiting transparent panel briefly draws over chat text. */
+html.is-mac.has-native-glass:not(.theme-light)
+  .personal-shell
+  .personal-sidebar-slot[data-floating="true"][data-open="false"]
+  > .personal-sidebar.sidebar-glass.personal-navigation {
+  visibility: hidden;
+  transition: none;
+}
+
+html.is-mac.has-native-glass:not(.theme-light)
+  .personal-shell-body[data-floating-sidebar-revealed="true"]
+  > .personal-workspace-column {
+  clip-path: inset(0 0 0 var(--floating-sidebar-right, 0px));
+}
+
 html
   .personal-shell
   .personal-sidebar-slot[data-floating="true"][data-open="false"]
@@ -627,6 +656,10 @@ html
 }
 
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  html.is-mac.has-native-glass:not(.theme-light)
+    .personal-shell
+    .personal-sidebar-slot[data-floating="true"]
+    > .personal-sidebar.sidebar-glass.personal-navigation,
   html:not(.theme-light)
     .personal-shell
     .personal-sidebar-slot[data-floating="true"]

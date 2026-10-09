@@ -1,3 +1,4 @@
+import { useFloatingSidebarClip } from "../hooks/useFloatingSidebarClip";
 import { useChromeProps } from "../hooks/useChromeProps";
 import {
   Archive,
@@ -600,6 +601,7 @@ function SidebarComponent({
   // Keep the workspace in place while a search, inbox or blank task is open.
   // Settings use this same column instead of mounting a second project rail.
   const sidebarVisible = open;
+  useFloatingSidebarClip(asideRef, floating && open);
 
   useEffect(() => {
     if (
