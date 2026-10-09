@@ -1,8 +1,8 @@
 # Sidebar material and browser resize follow-up
 
-Status: source checks and native sidebar visual checks pass. Browser drag
-performance verification is still pending. This change has not been merged
-or released.
+Pre-release audit: source checks and native sidebar visual checks pass.
+Browser drag performance verification is still pending; the source-tested
+resize deadline does not establish a measured end-to-end performance gain.
 
 Base: Aven 0.1.129, `051362101cb21b6c707eff8be6552f5e73fee872`.
 
