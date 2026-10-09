@@ -25,7 +25,19 @@ export function openAgentFileInTabs(
     throw new Error(
       "The requesting task's editor is no longer available. Reopen the task and try again.",
     );
-  const opened = openEditorTab(target, newFileTab(path, cwd));
+  const opened = {
+    ...openEditorTab(target, newFileTab(path, cwd)),
+    focusedId: target.focusedId,
+    diffFocused: target.diffFocused,
+  };
+  // An agent can add a file while the user edits another file or chats with a
+  // sibling agent. Preserve those panes' selected documents as well as focus.
+  if (target.focusedId !== sessionId) {
+    opened.editorPanes = opened.editorPanes.map((pane) => {
+      const previous = target.editorPanes.find((entry) => entry.id === pane.id);
+      return previous ? { ...pane, activeFileId: previous.activeFileId } : pane;
+    });
+  }
   return {
     tabId: target.id,
     tabs: tabs.map((tab) => (tab === target ? opened : tab)),

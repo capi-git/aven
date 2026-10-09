@@ -104,7 +104,10 @@ registerEditorCommands({
   indent: indentFocusedEditor,
 });
 
-type EditorNavigationRequest = EditorNavigation & { token: number };
+type EditorNavigationRequest = EditorNavigation & {
+  token: number;
+  focus?: boolean;
+};
 
 export const FILE_EDITOR_AUTOSAVE_DELAY_MS = 1_000;
 
@@ -982,7 +985,7 @@ function CodeMirrorEditor({
     if (!navigation) return;
     const view = viewRef.current;
     if (!view) return;
-    return scheduleEditorNavigation(view, navigation);
+    return scheduleEditorNavigation(view, navigation, () => activeRef.current);
   }, [navigation]);
 
   useEffect(() => {
@@ -1102,27 +1105,32 @@ function DiffChunkStat({
   );
 }
 
-function revealNavigation(view: EditorView, target: EditorNavigation) {
+function revealNavigation(
+  view: EditorView,
+  target: EditorNavigation & { focus?: boolean },
+  canFocus: () => boolean,
+) {
   const lineNumber = Math.min(Math.max(1, target.line), view.state.doc.lines);
   const line = view.state.doc.line(lineNumber);
   const column = Math.max(1, target.column ?? 1);
   const anchor = Math.min(line.from + column - 1, line.to);
   view.dispatch({
-    selection: { anchor },
+    ...(target.focus === false ? {} : { selection: { anchor } }),
     effects: EditorView.scrollIntoView(anchor, { y: "center" }),
   });
-  view.focus();
+  if (target.focus !== false && canFocus()) view.focus();
 }
 
 /** The loaded editor is ready here; revealNavigation clamps stale search lines. */
 export function scheduleEditorNavigation(
   view: EditorView,
-  target: EditorNavigation,
+  target: EditorNavigation & { focus?: boolean },
+  canFocus: () => boolean = () => true,
 ): () => void {
   let cancelled = false;
   let frame = requestAnimationFrame(() => {
     frame = requestAnimationFrame(() => {
-      if (!cancelled) revealNavigation(view, target);
+      if (!cancelled) revealNavigation(view, target, canFocus);
     });
   });
   return () => {

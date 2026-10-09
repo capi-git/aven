@@ -248,6 +248,9 @@ export async function resolveOpenablePath(
   if (direct === "~" || direct.startsWith("~/")) {
     return joinPath(await homeDir(), direct === "~" ? "" : direct.slice(2));
   }
+  // Explorer and absolute Markdown links already name their destination. A
+  // repository-wide scan adds latency and can even substitute another file.
+  if (resolveWorkspacePath(href)) return direct;
   // An explicit target outside the project must not be replaced by a similarly
   // named project file, or wait for an unrelated repository scan.
   if (!isEqualOrInside(direct, cwd)) return direct;

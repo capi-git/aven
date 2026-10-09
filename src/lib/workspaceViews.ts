@@ -499,6 +499,64 @@ export function revealBesideWorkspaceView(
   return selectWorkspaceView(moveWorkspaceTab(view, id, other), id);
 }
 
+/** Agent output joins the browser pane without changing the user's focus. */
+export function placeAgentBrowserView(
+  view: WorkspaceView,
+  id: string,
+  browserIds: readonly string[],
+  requesterId?: string,
+): WorkspaceView {
+  if (!view.layout) return view;
+  const peers = new Set(browserIds.filter((candidate) => candidate !== id));
+  const hidden = Object.entries(view.hiddenGroups ?? {});
+  if (hidden.some(([, members]) => members.includes(id))) return view;
+  const owner = workspaceGroupOwner(view, id);
+  if (!owner) return view;
+  const hiddenBrowser = hidden.find(([, members]) =>
+    members.some((member) => peers.has(member)),
+  );
+  const requester = requesterId && workspaceGroupOwner(view, requesterId);
+  const panes = leafIds(view.layout);
+  const browserPane = panes.find(
+    (pane) =>
+      pane !== requester &&
+      view.groups[pane]?.some((member) => peers.has(member)),
+  );
+  // A tucked browser pane remains tucked. Keep its restore snapshot in sync
+  // rather than expanding the user's current view to service a background task.
+  if (!browserPane && hiddenBrowser && view.restoreView) {
+    const [target, members] = hiddenBrowser;
+    const next = detachWorkspaceTab(view, id);
+    const restored = resolveWorkspaceView(
+      view.restoreView,
+      view.order,
+      view.restoreView.focusedId,
+    );
+    return {
+      ...next,
+      focusedId: view.focusedId,
+      hiddenGroups: { ...view.hiddenGroups, [target]: [...members, id] },
+      restoreView: moveWorkspaceTab(restored, id, target),
+    };
+  }
+  const target =
+    browserPane ??
+    (owner !== requester ? owner : panes.find((pane) => pane !== requester));
+  let next = view;
+  if (target) {
+    if (owner !== target) next = moveWorkspaceTab(view, id, target);
+    // Present beside the requesting chat, but do not replace a tab in the pane
+    // the user is currently reading or typing into for a different task.
+    if (view.focusedId === requesterId && target !== view.focusedId)
+      next = selectWorkspaceView(next, id);
+  } else if (requester) {
+    next = splitWorkspaceView(view, id, "right", requester);
+  }
+  return next.focusedId === view.focusedId
+    ? next
+    : { ...next, focusedId: view.focusedId };
+}
+
 /** Combine whole pane groups, retaining the destination's selected tab. */
 export function combineWorkspaceGroups(
   view: WorkspaceView,

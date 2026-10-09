@@ -1,4 +1,5 @@
 import { listenerGroup } from "./listenerGroup";
+import { openAgentFileInTabs } from "./agentFiles";
 import { withNewDetachedCloses } from "./detachedWorkspaceClose";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
@@ -166,6 +167,7 @@ export const nativeWorkspaceWindow = {
     url?: string,
     browser?: DetachedBrowser,
     file?: DetachedFileRequest,
+    activate?: boolean,
   ) =>
     invoke<void>("workspace_window_focus", {
       id,
@@ -173,6 +175,7 @@ export const nativeWorkspaceWindow = {
       url,
       browser,
       file,
+      ...(activate === undefined ? {} : { activate }),
     }),
   newSession: () => invoke<void>("workspace_window_new_session"),
   recover: () => invoke<void>("workspace_window_recover"),
@@ -200,6 +203,7 @@ export function openDetachedFileForSession(
   state: DetachedWorkspaceState,
   sessionId: string,
   path: string,
+  activate = true,
 ): DetachedWorkspaceState {
   const session = state.sessions.find(
     (entry) => entry.session.id === sessionId,
@@ -208,6 +212,17 @@ export function openDetachedFileForSession(
     leafIds(entry.layout).includes(sessionId),
   );
   if (!session || !tab) return state;
+  if (!activate)
+    return {
+      ...state,
+      tabs: openAgentFileInTabs(
+        state.tabs,
+        sessionId,
+        sessionWorkCwd(session),
+        path,
+        new Set(),
+      ).tabs,
+    };
   const next = openEditorTab(tab, newFileTab(path, sessionWorkCwd(session)));
   return {
     ...state,
@@ -839,6 +854,8 @@ export function useDetachedWorkspaces(options: Options) {
         undefined,
         undefined,
         browser,
+        undefined,
+        false,
       );
       return true;
     },
@@ -882,7 +899,14 @@ export function useDetachedWorkspaces(options: Options) {
           entry.state.view.focusedId,
         );
         if (existing) {
-          await nativeWorkspaceWindow.focus(entry.id, id, undefined, existing);
+          await nativeWorkspaceWindow.focus(
+            entry.id,
+            id,
+            undefined,
+            existing,
+            undefined,
+            false,
+          );
           return existing.id;
         }
       }
@@ -943,7 +967,14 @@ export function useDetachedWorkspaces(options: Options) {
             throw new Error(
               "This task is moving between windows. Try opening the browser again in a moment.",
             );
-          return nativeWorkspaceWindow.focus(entry.id, id, undefined, browser);
+          return nativeWorkspaceWindow.focus(
+            entry.id,
+            id,
+            undefined,
+            browser,
+            undefined,
+            false,
+          );
         })
         .then(
           () => {
@@ -985,10 +1016,17 @@ export function useDetachedWorkspaces(options: Options) {
         throw new Error(
           "This task is moving between windows. Try opening the file again in a moment.",
         );
-      await nativeWorkspaceWindow.focus(entry.id, id, undefined, undefined, {
-        path,
-        ...navigation,
-      });
+      await nativeWorkspaceWindow.focus(
+        entry.id,
+        id,
+        undefined,
+        undefined,
+        {
+          path,
+          ...navigation,
+        },
+        false,
+      );
       return true;
     },
     [],

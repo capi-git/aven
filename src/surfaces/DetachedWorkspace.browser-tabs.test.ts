@@ -4,14 +4,23 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { DetachedWorkspace } from "./DetachedWorkspace";
 import { nativeWorkspaceWindow } from "../lib/detachedWorkspaces";
-import { leaf, newTab } from "../lib/layout";
+import { leaf, leafIds, newTab } from "../lib/layout";
 import { installInAppLinks } from "../lib/inAppLinks";
 
 vi.mock("./BrowserPane", () => ({
-  BrowserPane: ({ id, visible }: { id: string; visible: boolean }) =>
+  BrowserPane: ({
+    id,
+    visible,
+    agentRequested,
+  }: {
+    id: string;
+    visible: boolean;
+    agentRequested?: boolean;
+  }) =>
     createElement("div", {
       "data-test-browser": id,
       "data-presented": String(visible),
+      "data-agent-requested": String(agentRequested),
     }),
 }));
 vi.mock("./SessionPane", () => ({ SessionPane: () => null }));
@@ -101,6 +110,57 @@ const tabIds = () =>
   [...host.querySelectorAll<HTMLElement>("[data-surface-tab-id]")].map(
     (tab) => tab.dataset.surfaceTabId!,
   );
+
+it("keeps the user's chat selected and groups passive agent pages in the existing browser pane", async () => {
+  const initial = await nativeWorkspaceWindow.getState();
+  const a = newTab("agent-a"),
+    b = newTab("agent-b");
+  initial.state.tabs = [a, b];
+  initial.state.view = {
+    layout: {
+      type: "split",
+      id: "three",
+      dir: "right",
+      children: [leaf(a.id), leaf(b.id), leaf("selected")],
+      sizes: [0.3, 0.3, 0.4],
+    },
+    focusedId: b.id,
+    order: [a.id, b.id, "selected", "history"],
+    groups: {
+      [a.id]: [a.id],
+      [b.id]: [b.id],
+      selected: ["selected", "history"],
+    },
+  };
+  await act(async () => root.render(createElement(DetachedWorkspace)));
+  for (let i = 0; i < 2; i++)
+    await act(async () => {
+      listeners.get("workspace-window-focus")!({
+        sessionId: "agent-a",
+        activate: false,
+        browser: { id: "agent-new", tabId: "new", url: "https://new.test" },
+      });
+    });
+  await act(async () => vi.advanceTimersByTime(150));
+  const saved = vi
+    .mocked(nativeWorkspaceWindow.checkpoint)
+    .mock.calls.at(-1)![0];
+  const page = host.querySelector<HTMLElement>(
+    '[data-test-browser="agent-new"]',
+  )!;
+  expect(page.dataset.presented).toBe("false");
+  expect(page.dataset.agentRequested).toBe("true");
+  expect(saved.view.focusedId).toBe(b.id);
+  expect(leafIds(saved.view.layout!)).toEqual([a.id, b.id, "selected"]);
+  expect(saved.view.groups.selected).toEqual([
+    "selected",
+    "history",
+    "agent-new",
+  ]);
+  expect(saved.browsers.filter((page) => page.id === "agent-new")).toHaveLength(
+    1,
+  );
+});
 
 it.each(["button", "link", "agent"] as const)(
   "keeps distinct adjacent browser tabs through the %s entrypoint",

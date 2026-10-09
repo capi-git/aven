@@ -45,6 +45,7 @@ import {
   closeWorkspaceViews,
   resolveWorkspaceView,
   selectWorkspaceView,
+  placeAgentBrowserView,
   splitWorkspaceView,
   toggleWorkspaceExpansion,
   minimizeWorkspaceSide,
@@ -138,6 +139,9 @@ export function DetachedWorkspace() {
     target: WorkspaceSurfaceDropTarget | null;
   } | null>(null);
   const [readyNatives, setReadyNatives] = useState<Set<string>>(new Set());
+  const [agentRequestedBrowsers, setAgentRequestedBrowsers] = useState<
+    Set<string>
+  >(new Set());
   const recentBrowserSelections = useRef<string[]>([]);
   useEffect(() => {
     const state = envelope?.state;
@@ -627,12 +631,25 @@ export function DetachedWorkspace() {
         file?: DetachedFileRequest;
         requestToken?: string;
         expiresAt?: number;
+        activate?: boolean;
       }>("workspace-window-focus", (value) => {
+        if (value.browser && value.activate === false)
+          setAgentRequestedBrowsers(
+            (previous) => new Set([...previous, value.browser!.id]),
+          );
         if (value.url) openUrlRef.current(value.url);
         if (value.browser)
           change((state) => {
             const browser = value.browser!;
             const exists = state.browsers.some((b) => b.id === browser.id);
+            const view = resolveWorkspaceView(
+              state.view,
+              [...detachedSurfaceIds(state), ...(exists ? [] : [browser.id])],
+              state.view.focusedId,
+            );
+            const requester = state.tabs.find((tab) =>
+              leafIds(tab.layout).includes(value.sessionId ?? ""),
+            );
             return {
               ...state,
               browsers: exists
@@ -640,17 +657,15 @@ export function DetachedWorkspace() {
                   // window. Focusing an existing tab must not restore that URL.
                   state.browsers
                 : [...retainCoveredBrowser(state), { ...browser, kept: true }],
-              view: selectWorkspaceView(
-                resolveWorkspaceView(
-                  state.view,
-                  [
-                    ...detachedSurfaceIds(state),
-                    ...(exists ? [] : [browser.id]),
-                  ],
-                  state.view.focusedId,
-                ),
-                browser.id,
-              ),
+              view:
+                value.activate === false
+                  ? placeAgentBrowserView(
+                      view,
+                      browser.id,
+                      [...state.browsers.map((page) => page.id), browser.id],
+                      requester?.id,
+                    )
+                  : selectWorkspaceView(view, browser.id),
             };
           });
         if (value.file && value.sessionId) {
@@ -671,6 +686,7 @@ export function DetachedWorkspace() {
                 before,
                 value.sessionId!,
                 file.path,
+                value.activate !== false,
               );
               if (next === before)
                 throw new Error("The task is no longer in this window.");
@@ -683,6 +699,7 @@ export function DetachedWorkspace() {
                     line: file.line,
                     column: file.column,
                     token: editorNavigationToken.current,
+                    focus: value.activate !== false,
                   });
                 }
               });
@@ -1011,6 +1028,7 @@ export function DetachedWorkspace() {
           id={browser.id}
           attachedNativeId={browser.nativeId}
           initialUrl={browser.url}
+          agentRequested={agentRequestedBrowsers.has(browser.id)}
           visible={active.has(browser.id) && !frozen}
           onClose={() => void closeSurface(browser.id).catch(report)}
           onFocus={() =>

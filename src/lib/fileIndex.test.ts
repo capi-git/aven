@@ -83,6 +83,37 @@ describe("resolveOpenablePath", () => {
     expect(resolved).toBe(files[2].path);
   });
 
+  it("opens an explicit explorer path immediately while a repository scan is pending", async () => {
+    const scanning = deferred<ProjectFile[]>();
+    list.mockReturnValue(scanning.promise);
+    const pending = loadProjectFiles(cwd);
+    expect(await resolveOpenablePath(cwd, files[2].path)).toBe(files[2].path);
+    expect(await resolveOpenablePath(cwd, `file://${files[2].path}#L12`)).toBe(
+      files[2].path,
+    );
+    // A missing explicit path belongs to the editor's missing-file state;
+    // fuzzy matching must not silently open another main.tsx instead.
+    expect(await resolveOpenablePath(cwd, `${cwd}/missing/main.tsx`)).toBe(
+      `${cwd}/missing/main.tsx`,
+    );
+    scanning.resolve(files);
+    await pending;
+    expect(list).toHaveBeenCalledOnce();
+  });
+
+  it("keeps absolute Windows and UNC explorer paths independent of the index", async () => {
+    expect(
+      await resolveOpenablePath("C:/project", "C:\\project\\src\\main.tsx:8"),
+    ).toBe("C:/project/src/main.tsx");
+    expect(
+      await resolveOpenablePath(
+        "//server/share/project",
+        "\\\\server\\share\\project\\main.tsx",
+      ),
+    ).toBe("//server/share/project/main.tsx");
+    expect(list).not.toHaveBeenCalled();
+  });
+
   it("resolves home folders and files without scanning or fuzzy-matching the project", async () => {
     list.mockRejectedValue(new Error("Unrelated project is unavailable"));
     expect(

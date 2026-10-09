@@ -76,6 +76,7 @@ import {
 import { Sidebar } from "./chrome/Sidebar";
 import type { WorkspaceProfilePreviewData } from "./chrome/ProfileCarouselPreview";
 import { projectDisplayName } from "./hooks/useProjectLabels";
+import { useNavigationIntent } from "./hooks/useNavigationIntent";
 import { loadTabGroupLabels } from "./lib/tabGroups";
 import { SESSION_LIST_PAGE } from "./lib/sessionListWindow";
 import {
@@ -90,6 +91,7 @@ import {
 import {
   useWorkspaceViews,
   revealBesideWorkspaceView,
+  placeAgentBrowserView,
   selectWorkspaceView,
   splitWorkspaceView,
   closeWorkspaceViews,
@@ -156,6 +158,8 @@ import {
 import { resolveBrowserTabTarget } from "./lib/browserTabTarget";
 import {
   openAgentBrowserTab,
+  matchingAgentBrowserTab,
+  coalesceAgentBrowserOpen,
   type AgentBrowserOpenOptions,
 } from "./lib/agentBrowserOpen";
 import {
@@ -860,6 +864,7 @@ export default function App({
   const [projectTerminals, setProjectTerminals] = useState<ProjectTerminal[]>(
     () => windowTransfer?.projectTerminals ?? resumed?.projectTerminals ?? [],
   );
+  const beginNavigation = useNavigationIntent();
   const [projectTerminalFocused, setProjectTerminalFocused] = useState(false);
   const [activeTabId, setActiveTabId] = useState(
     () => windowTransfer?.activeTabId ?? resumed?.activeTabId ?? seed.tab.id,
@@ -980,6 +985,7 @@ export default function App({
   const [agentBrowserSurfaces, setAgentBrowserSurfaces] = useState<Set<string>>(
     () => new Set(),
   );
+  const pendingAgentBrowsers = useRef(new Map<string, Promise<string>>());
   const detachedBrowserBridge = useRef<
     (
       sessionId: string,
@@ -1035,85 +1041,112 @@ export default function App({
           );
           if (!session || !sameProjectPath(sessionWorkCwd(session), cwd))
             throw new Error("The task is no longer available.");
-          const detachedSurface = await detachedBrowserBridge.current(
-            sessionId,
+          return coalesceAgentBrowserOpen(
+            pendingAgentBrowsers.current,
+            session.cwd,
             url,
             options,
-          );
-          if (detachedSurface) return detachedSurface;
-          const currentSession = sessionsRef.current.find(
-            (item) => item.id === sessionId,
-          );
-          if (
-            !currentSession ||
-            currentSession.cwd !== session.cwd ||
-            !sameProjectPath(sessionWorkCwd(currentSession), cwd)
-          )
-            throw new Error("The task is no longer available.");
-          const project = session.cwd;
-          // No await between selecting and committing: overlapping opens see the
-          // committed tab and return the same surface instead of creating copies.
-          const {
-            tab: { id },
-            workspace,
-          } = openAgentBrowserTab(
-            browserWorkspacesRef.current[project] ?? EMPTY_BROWSER,
-            url,
-            options,
-          );
-          const surfaceId = browserIdForTab(project, id);
-          if (detachedIdsRef.current.has(surfaceId)) {
-            // A browser can be detached without its chat. Select it in that
-            // window; never add its unavailable surface to the main layout.
-            if (await detachedFocusBrowser.current(surfaceId)) return surfaceId;
-            throw new Error("The browser tab moved. Try opening it again.");
-          }
-          // Commit the tab first so the workspace view knows the new surface.
-          flushSync(() => {
-            setAgentBrowserSurfaces(
-              (current) => new Set([...current, surfaceId]),
-            );
-            setBrowserWorkspaces((all) => ({
-              ...all,
-              [project]: workspace,
-            }));
-          });
-          // Show a requested page in the active project without switching
-          // profiles, beside the chat that asked for it rather than behind it.
-          if (sameProjectPath(projectCwdRef.current, project)) {
-            const requester = tabsRef.current.find((tab) =>
-              leafIds(tab.layout).includes(sessionId),
-            )?.id;
-            viewRef.current.change((view) =>
-              revealBesideWorkspaceView(view, surfaceId, requester),
-            );
-          } else {
-            // Never switch projects under the user; say where the page went.
-            const notice: AgentPageNotice = {
-              id: surfaceId,
-              project,
-              projectName: projectDisplayName(project, loadTabGroupLabels()),
-              surfaceId,
-              tabId: id,
-              sessionId,
-              harness: session.harness,
-              url,
-            };
-            setAgentPageNotices((current) =>
-              [
-                ...current.filter((item) => item.id !== notice.id),
-                notice,
-              ].slice(-3),
-            );
-            window.setTimeout(
-              () =>
+            async () => {
+              // Matching pages belong to the authorized project, even when its
+              // requesting chat and browser are in different windows.
+              const existing =
+                !options?.newTab &&
+                matchingAgentBrowserTab(
+                  normalizeBrowserWorkspace(
+                    browserWorkspacesRef.current[session.cwd] ?? EMPTY_BROWSER,
+                  ).tabs,
+                  url,
+                );
+              const detachedSurface = existing
+                ? null
+                : await detachedBrowserBridge.current(sessionId, url, options);
+              if (detachedSurface) return detachedSurface;
+              const currentSession = sessionsRef.current.find(
+                (item) => item.id === sessionId,
+              );
+              if (
+                !currentSession ||
+                currentSession.cwd !== session.cwd ||
+                !sameProjectPath(sessionWorkCwd(currentSession), cwd)
+              )
+                throw new Error("The task is no longer available.");
+              const project = session.cwd;
+              // No await between selecting and committing: overlapping opens see the
+              // committed tab and return the same surface instead of creating copies.
+              const {
+                tab: { id },
+                workspace,
+              } = openAgentBrowserTab(
+                browserWorkspacesRef.current[project] ?? EMPTY_BROWSER,
+                url,
+                { ...options, focus: false },
+              );
+              const surfaceId = browserIdForTab(project, id);
+              if (detachedIdsRef.current.has(surfaceId)) {
+                // A browser can be detached without its chat. Select it in that
+                // window; never add its unavailable surface to the main layout.
+                if (await detachedFocusBrowser.current(surfaceId))
+                  return surfaceId;
+                throw new Error("The browser tab moved. Try opening it again.");
+              }
+              // Commit the tab first so the workspace view knows the new surface.
+              flushSync(() => {
+                setAgentBrowserSurfaces(
+                  (current) => new Set([...current, surfaceId]),
+                );
+                setBrowserWorkspaces((all) => ({
+                  ...all,
+                  [project]: workspace,
+                }));
+              });
+              // Show a requested page in the active project without switching
+              // profiles, beside the chat that asked for it rather than behind it.
+              if (sameProjectPath(projectCwdRef.current, project)) {
+                const requester = tabsRef.current.find((tab) =>
+                  leafIds(tab.layout).includes(sessionId),
+                )?.id;
+                viewRef.current.change((view) =>
+                  placeAgentBrowserView(
+                    view,
+                    surfaceId,
+                    workspace.tabs.map((page) =>
+                      browserIdForTab(project, page.id),
+                    ),
+                    requester,
+                  ),
+                );
+              } else {
+                // Never switch projects under the user; say where the page went.
+                const notice: AgentPageNotice = {
+                  id: surfaceId,
+                  project,
+                  projectName: projectDisplayName(
+                    project,
+                    loadTabGroupLabels(),
+                  ),
+                  surfaceId,
+                  tabId: id,
+                  sessionId,
+                  harness: session.harness,
+                  url,
+                };
                 setAgentPageNotices((current) =>
-                  current.filter((item) => item.id !== notice.id),
-                ),
-              12_000,
-            );
-          }
-          return surfaceId;
+                  [
+                    ...current.filter((item) => item.id !== notice.id),
+                    notice,
+                  ].slice(-3),
+                );
+                window.setTimeout(
+                  () =>
+                    setAgentPageNotices((current) =>
+                      current.filter((item) => item.id !== notice.id),
+                    ),
+                  12_000,
+                );
+              }
+              return surfaceId;
+            },
+          );
         },
       }),
     [],
@@ -4313,9 +4346,11 @@ export default function App({
 
   const onSelectHistorySession = useCallback(
     async (sessionId: string) => {
+      const currentIntent = beginNavigation();
       clearReturnFocus();
       if (await activityWindowBridgeRef.current.showSession?.(sessionId))
         return;
+      if (!currentIntent()) return;
       leaveExpandedPreview();
       setSettingsOpen(false);
       setSearchViewOpen(false);
@@ -4324,14 +4359,14 @@ export default function App({
       setNotesViewOpen(false);
       if (focusOpenSession(sessionId)) return;
       let session = await ensureOpenSession(sessionId);
-      if (!session || session.inboxAsk) return;
+      if (!currentIntent() || !session || session.inboxAsk) return;
       const parentId =
         session.orchestrationLeadId ??
         orchestrator.forSession(sessionId)?.leadId;
       if (parentId && parentId !== sessionId) {
         setInspectedWorkerId(sessionId);
         session = await ensureOpenSession(parentId);
-        if (!session) return;
+        if (!currentIntent() || !session) return;
         if (focusOpenSession(session.id)) return;
       }
       revealProjectTask(session.cwd);
@@ -4355,6 +4390,7 @@ export default function App({
       focusOpenSession,
       replaceBlankPaneWithSession,
       clearReturnFocus,
+      beginNavigation,
     ],
   );
 
@@ -5268,6 +5304,7 @@ export default function App({
 
   const onOpenFile = useCallback<OpenFileFn>(
     (path, navigation) => {
+      const currentIntent = beginNavigation();
       clearReturnFocus();
       leaveExpandedPreview();
       const requestedCwd = projectCwdRef.current;
@@ -5277,6 +5314,7 @@ export default function App({
         const resolved =
           (await resolveOpenablePath(gitCwdRef.current, path)) ?? path;
         if (
+          !currentIntent() ||
           projectCwdRef.current !== requestedCwd ||
           profilesRef.current.activeProfileId !== requestedProfile
         )
@@ -5289,7 +5327,11 @@ export default function App({
         if (!tab) {
           const profileId = profilesRef.current.activeProfileId;
           ({ cwd } = await ensureProjectlessWorkspace(profileId));
-          if (profilesRef.current.activeProfileId !== profileId) return;
+          if (
+            !currentIntent() ||
+            profilesRef.current.activeProfileId !== profileId
+          )
+            return;
           const session = newDefaultSession(cwd);
           tab = openEditorTab(newTab(session.id), newFileTab(resolved, cwd));
           setSessions((previous) => [...previous, session]);
@@ -5321,11 +5363,15 @@ export default function App({
         setAutomationsViewOpen(false);
         setNotesViewOpen(false);
         viewRef.current.focus(cwd, tab.id);
-      })().catch((error) =>
-        message(String(error), { title: "Could not open file", kind: "error" }),
-      );
+      })().catch((error) => {
+        if (currentIntent())
+          void message(String(error), {
+            title: "Could not open file",
+            kind: "error",
+          });
+      });
     },
-    [profileHome, appendTab, clearReturnFocus],
+    [profileHome, appendTab, clearReturnFocus, beginNavigation],
   );
 
   agentFileBridge.current = async (sessionId, cwd, path, navigation) => {
@@ -5339,7 +5385,6 @@ export default function App({
       throw new Error("The requesting task is no longer available.");
     if (await detachedFileBridge.current(sessionId, path, navigation)) return;
     if (!ownsSession()) throw new Error("The requesting task was closed.");
-    const session = sessionsRef.current.find((item) => item.id === sessionId)!;
     const opened = openAgentFileInTabs(
       tabsRef.current,
       sessionId,
@@ -5356,23 +5401,13 @@ export default function App({
           path,
           ...navigation,
           token: editorNavigationToken.current,
+          focus: false,
         });
       }
     });
     rememberOpenedFile(cwd, path);
-    // Background tasks may prepare their own editor without changing profiles.
-    if (sameProjectPath(projectCwdRef.current, session.cwd)) {
-      clearReturnFocus();
-      leaveExpandedPreview();
-      setHomeViewOpen(false);
-      setSettingsOpen(false);
-      setSearchViewOpen(false);
-      setInboxViewOpen(false);
-      setAutomationsViewOpen(false);
-      setNotesViewOpen(false);
-      setComposerFocused(false);
-      viewRef.current.focus(session.cwd, opened.tabId);
-    }
+    // Preparing a task's editor never selects its chat, closes the user's
+    // current view, or moves the caret out of another composer.
   };
 
   useEffect(

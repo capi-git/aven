@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   matchingAgentBrowserTab,
   openAgentBrowserTab,
+  coalesceAgentBrowserOpen,
 } from "./agentBrowserOpen";
 import {
   closeBrowserTab,
@@ -11,6 +12,65 @@ import {
 
 describe("agent browser open", () => {
   const url = "http://localhost:5173/design/mocks/index.html?focus=1#editor";
+
+  it("shares concurrent same-project requests across windows but keeps explicit copies and other projects separate", async () => {
+    const pending = new Map<string, Promise<string>>();
+    let finish!: (id: string) => void;
+    const firstOpen = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const otherOpen = vi.fn(async () => "other");
+    const first = coalesceAgentBrowserOpen(
+      pending,
+      "/p",
+      "https://EXAMPLE.com:443",
+      {},
+      firstOpen,
+    );
+    const second = coalesceAgentBrowserOpen(
+      pending,
+      "/p",
+      "https://example.com/",
+      {},
+      otherOpen,
+    );
+    expect(second).toBe(first);
+    expect(
+      await coalesceAgentBrowserOpen(
+        pending,
+        "/q",
+        "https://example.com/",
+        {},
+        otherOpen,
+      ),
+    ).toBe("other");
+    expect(
+      await coalesceAgentBrowserOpen(
+        pending,
+        "/p",
+        "https://example.com/",
+        { newTab: true },
+        otherOpen,
+      ),
+    ).toBe("other");
+    finish("shared");
+    expect(await second).toBe("shared");
+    expect(firstOpen).toHaveBeenCalledOnce();
+    expect(otherOpen).toHaveBeenCalledTimes(2);
+    expect(pending.size).toBe(0);
+    await expect(
+      coalesceAgentBrowserOpen(pending, "/p", url, {}, async () => {
+        throw new Error("moving");
+      }),
+    ).rejects.toThrow("moving");
+    expect(pending.size).toBe(0);
+    expect(
+      await coalesceAgentBrowserOpen(pending, "/p", url, {}, otherOpen),
+    ).toBe("other");
+  });
 
   it("opens the same preview three times as one retained tab", () => {
     const create = vi.fn(() => "one");
@@ -92,5 +152,39 @@ describe("agent browser open", () => {
     const next = openAgentBrowserTab({ ...first.workspace, open: false }, url);
     expect(next.tab.id).toBe("one");
     expect(next.workspace.open).toBe(true);
+  });
+
+  it("prepares agent pages without changing the selected page or split mode", () => {
+    const first = openAgentBrowserTab(EMPTY_BROWSER, url, {}, () => "one");
+    const initial = {
+      ...first.workspace,
+      expanded: false,
+      mode: "split" as const,
+    };
+    const added = openAgentBrowserTab(
+      initial,
+      "https://example.com/",
+      { focus: false },
+      () => "two",
+    );
+    expect(added.workspace).toMatchObject({
+      activeTabId: "one",
+      url,
+      expanded: false,
+      mode: "split",
+    });
+    const reused = openAgentBrowserTab(
+      added.workspace,
+      "https://example.com/",
+      { focus: false },
+    );
+    expect(reused.tab.id).toBe("two");
+    expect(reused.workspace).toMatchObject({
+      activeTabId: "one",
+      url,
+      expanded: false,
+      mode: "split",
+    });
+    expect(reused.workspace.tabs).toHaveLength(2);
   });
 });
