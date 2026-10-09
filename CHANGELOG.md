@@ -2,6 +2,37 @@
 
 ## [Unreleased]
 
+## [0.1.128] - 2026-10-08
+
+### Safer chat storage upgrade
+
+- If the chat database upgrade from 0.1.127 cannot finish, Aven now opens and explains that chat history is unavailable instead of failing to start. It tries again on the next launch and reuses its one backup rather than writing a new copy each time.
+- A single damaged chat no longer stops the others from upgrading; it stays readable in its original format.
+- Older Aven versions can no longer erase an upgraded chat by saving to it; the save is refused instead. Do not reinstall 0.1.127 after this version. Returning to 0.1.126 or earlier still requires the pre-upgrade backup.
+- The backup is fully written to disk before the upgrade continues, and is only reused while it still matches your chats.
+
+### Git
+
+- Undoing an agent's change affects only the files it named, even when names contain brackets or wildcards such as Next.js `[slug]` folders.
+- Renamed files show as one removed and one added file with correct counts, and files with accented names can be opened, staged and discarded.
+- Settings → Skills stays responsive with thousands of skills, showing 200 at a time.
+
+### Providers and terminals
+
+- Codex in Aven no longer stops working when Aven and the standalone Codex app each create the same setup folder. A conflicting local copy is kept aside instead.
+- On Windows, settings Codex saves while running in Aven are no longer discarded.
+- A line of garbled output from an agent no longer ends its turn.
+- Plan and default modes apply to Codex turns even before a model is chosen.
+- Detaching a window while a new terminal is still starting no longer drops a queued Run command, and the terminal panel's + button opens in the chat's worktree.
+
+### Chat and interface
+
+- Chats keep following new replies after work folds away, and a flick upward in a short chat no longer stops following.
+- Confirming Japanese, Chinese or Korean input with Enter no longer runs a command in the command palette, model picker or find bar.
+- “Thinking…” keeps moving while Aven is visible but not focused, and the run clock pauses while Aven is hidden.
+- A view that fails to load shows a Retry button instead of blanking the window.
+- Colour picker drags no longer snap back, and browser pages recover after a failed startup handshake.
+
 ## [0.1.127] - 2026-10-08
 
 ### Cleaner Codex history
