@@ -231,6 +231,76 @@ static void CheckBottomCornerClipping() {
   std::puts("Browser bottom-corner clipping checks passed");
 }
 
+static void CheckMenuHoles() {
+  for (const bool flipped : {false, true}) {
+    // The page is shifted left by a 40pt hover-sidebar clip.
+    const NSRect page = NSMakeRect(-40, 0, 600, 400);
+    const std::vector<supermono::BrowserHole> holes = {
+        {100, 50, 200, 100, 8},
+        // Overlaps the first: the union, not an even-odd crossing, is cut.
+        {250, 120, 100, 60, 0},
+        // Crosses the page's rounded bottom-right corner.
+        {560, 380, 40, 20, 0},
+        // A title-bar menu that starts above the page keeps its whole shape:
+        // its rounded top corners lie outside the page, not at its edge.
+        {300, -30, 120, 80, 12},
+    };
+    CGPathRef mask = supermono::CreateBrowserMaskPath(page, 8, holes, flipped);
+    const auto y = [flipped](double top) { return flipped ? top : 400 - top; };
+    CHECK(Contains(mask, 10, y(10)));
+    CHECK(Contains(mask, 160, y(200)));
+    CHECK(!Contains(mask, 160, y(100)));
+    CHECK(!Contains(mask, 260, y(140)));  // inside both holes
+    CHECK(!Contains(mask, 300, y(170)));  // only the second hole
+    CHECK(Contains(mask, 300, y(190)));
+    // The hole's rounded corner leaves the page visible at its very corner.
+    CHECK(Contains(mask, 61, y(51)));
+    CHECK(!Contains(mask, 550, y(395)));
+    CHECK(!Contains(mask, 559.5, y(399.5)));
+    CHECK(!Contains(mask, 260.5, y(0.5)));  // no notch where it crosses the edge
+    CHECK(!Contains(mask, 379.5, y(0.5)));
+    CHECK(Contains(mask, 259, y(10)));
+    CGPathRelease(mask);
+  }
+
+  NSView* parent = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 700, 500)];
+  NSView* workspace = [[NSView alloc] initWithFrame:parent.bounds];
+  [parent addSubview:workspace];
+  SMBrowserClipView* clip = [[SMBrowserClipView alloc]
+      initWithFrame:NSMakeRect(50, 50, 600, 400)];
+  [parent addSubview:clip];
+  NSView* browser = [[NSView alloc] initWithFrame:clip.bounds];
+  [clip addSubview:browser];
+  supermono::BrowserCornerMaskState previous;
+  const std::vector<supermono::BrowserHole> menu = {{100, 50, 200, 100, 8}};
+  CHECK(supermono::ApplyBrowserMask(clip, browser.frame, 0, menu, previous));
+  CAShapeLayer* layer = (CAShapeLayer*)clip.layer.mask;
+  CHECK(layer && [layer isKindOfClass:CAShapeLayer.class]);
+  CHECK(!Contains(layer.path, 200, 300) && Contains(layer.path, 10, 10));
+  CHECK(!supermono::ApplyBrowserMask(clip, browser.frame, 0, menu, previous));
+  // Parent coordinates: the clip starts at (50, 50) in an unflipped parent.
+  CHECK([parent hitTest:NSMakePoint(250, 350)] == workspace);
+  CHECK([parent hitTest:NSMakePoint(60, 60)] == browser);
+  CHECK([clip holeContainsPoint:NSMakePoint(200, 300)]);
+  // A moved menu replaces its cut-out; the old region returns to the page.
+  const std::vector<supermono::BrowserHole> moved = {{300, 200, 100, 100, 0}};
+  CHECK(supermono::ApplyBrowserMask(clip, browser.frame, 0, moved, previous));
+  CHECK(clip.layer.mask == layer && Contains(layer.path, 200, 300));
+  CHECK([parent hitTest:NSMakePoint(250, 350)] == browser);
+  CHECK([parent hitTest:NSMakePoint(400, 200)] == workspace);
+  // Closing the menu removes both the mask and the pointer pass-through.
+  CHECK(supermono::ApplyBrowserMask(clip, browser.frame, 0, {}, previous));
+  CHECK(clip.layer.mask == nil);
+  CHECK(![clip holeContainsPoint:NSMakePoint(400, 200)]);
+  CHECK([parent hitTest:NSMakePoint(400, 200)] == browser);
+  // With rounded page corners, closing keeps the corner mask but no cut-out.
+  CHECK(supermono::ApplyBrowserMask(clip, browser.frame, 8, moved, previous));
+  CHECK(supermono::ApplyBrowserMask(clip, browser.frame, 8, {}, previous));
+  CHECK(clip.layer.mask != nil && Contains(((CAShapeLayer*)clip.layer.mask).path, 400, 200));
+  CHECK([parent hitTest:NSMakePoint(400, 200)] == browser);
+  std::puts("Browser menu cut-out checks passed");
+}
+
 static void CheckRepeatedBrowserLayout() {
   NSWindow* window = [[NSWindow alloc]
       initWithContentRect:NSMakeRect(0, 0, 640, 480)
@@ -327,6 +397,7 @@ int main() {
     CheckBackingAlignment();
     CheckCanonicalBackingTies();
     CheckBottomCornerClipping();
+    CheckMenuHoles();
     CheckRepeatedBrowserLayout();
     CheckHiddenBrowserFocus();
     destroyed_probes = 0;

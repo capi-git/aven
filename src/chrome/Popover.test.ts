@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { readFileSync } from "node:fs";
 import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -202,4 +203,162 @@ describe("popover autofocus", () => {
       expect(refocus).not.toHaveBeenCalled();
     },
   );
+});
+
+describe("panel popover material", () => {
+  let root: Root;
+  let anchor: HTMLButtonElement;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    anchor = document.createElement("button");
+    document.body.append(anchor);
+    root = createRoot(document.createElement("div"));
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    anchor.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("paints the panel surface on the still frame, outside the animated content", async () => {
+    await act(async () =>
+      root.render(
+        createElement(
+          Popover,
+          { anchor, panel: true, "aria-label": "Panel menu" },
+          createElement("div", {
+            className: "toolbar-panel",
+            style: { "--toolbar-panel-bg": "rgb(1, 2, 3)" },
+          }),
+        ),
+      ),
+    );
+    const content = document.querySelector<HTMLElement>(
+      '[aria-label="Panel menu"]',
+    )!;
+    const frame = content.parentElement!;
+    expect(frame.classList).toContain("aven-popover-panel");
+    const backdrop = frame.querySelector(".aven-popover-panel-backdrop");
+    expect(backdrop?.parentElement).toBe(frame);
+    expect(content.contains(backdrop)).toBe(false);
+    expect(content.classList).toContain("popover-open");
+    expect(frame.style.getPropertyValue("--aven-popover-panel-bg")).toBe(
+      "rgb(1, 2, 3)",
+    );
+    expect(frame.style.opacity).toBe("");
+  });
+
+  it("keeps the opaque backdrop for ordinary popovers", async () => {
+    await act(async () =>
+      root.render(
+        createElement(Popover, { anchor, "aria-label": "Menu" }, "Item"),
+      ),
+    );
+    const frame = document.querySelector('[aria-label="Menu"]')!.parentElement!;
+    expect(frame.querySelector(":scope > .popover-backdrop")).not.toBeNull();
+    expect(frame.querySelector(".aven-popover-panel-backdrop")).toBeNull();
+  });
+});
+
+describe("popover stylesheet", () => {
+  const index = readFileSync("src/index.css", "utf8");
+  const mac = readFileSync("src/macos-theme.css", "utf8");
+  const rule = (css: string, selector: string) => {
+    const at = css.indexOf(`${selector} {`);
+    if (at < 0) throw new Error(`Missing rule ${selector}`);
+    return css.slice(at, css.indexOf("}", at));
+  };
+
+  it("opens quickly, gently and without an empty-frame first frame", () => {
+    const open = rule(index, ".popover-open");
+    const duration = Number(/popover-open (\d+)ms/.exec(open)?.[1]);
+    expect(duration).toBeGreaterThanOrEqual(100);
+    expect(duration).toBeLessThanOrEqual(120);
+    const keyframes = index.slice(index.indexOf("@keyframes popover-open"));
+    const from = keyframes.slice(0, keyframes.indexOf("to {"));
+    expect(Number(/opacity: ([\d.]+)/.exec(from)?.[1])).toBeGreaterThan(0);
+    expect(Number(/scale\(([\d.]+)\)/.exec(from)?.[1])).toBeGreaterThanOrEqual(
+      0.98,
+    );
+    expect(index).toMatch(
+      /@media \(prefers-reduced-motion: reduce\) \{\s*\.popover-open \{\s*animation: none;/,
+    );
+  });
+
+  it("frosts a dark panel popover on its frame, never inside the animation", () => {
+    const frame = rule(mac, ".aven-popover-panel-backdrop");
+    expect(frame).toContain("backdrop-filter: var(--aven-glass-blur);");
+    expect(frame).toContain("var(--aven-glass-overlay-opacity)");
+    const inner = rule(
+      mac,
+      '.aven-popover-panel-content\n  > .toolbar-panel:not([data-theme="light"])',
+    );
+    expect(inner).toContain("backdrop-filter: none;");
+    expect(inner).toContain("background: transparent;");
+    // Declared after the shared ToolbarPanel glass, which it overrides.
+    expect(mac.indexOf(inner)).toBeGreaterThan(
+      mac.indexOf('  .toolbar-panel:not([data-theme="light"]) {'),
+    );
+  });
+});
+
+describe("popover content changes", () => {
+  let root: Root;
+  let anchor: HTMLButtonElement;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("innerHeight", 800);
+    anchor = document.createElement("button");
+    document.body.append(anchor);
+    vi.spyOn(anchor, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(20, 600, 80, 20),
+    );
+    // Layout stand-in: each row is 50px tall.
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(
+      function (this: HTMLElement) {
+        return this.querySelectorAll("li").length * 50;
+      },
+    );
+    root = createRoot(document.createElement("div"));
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    anchor.remove();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  const render = (rows: number) =>
+    act(async () =>
+      root.render(
+        createElement(
+          Popover,
+          { anchor, "aria-label": "Paged menu" },
+          createElement(
+            "ul",
+            null,
+            Array.from({ length: rows }, (_, index) =>
+              createElement("li", { key: index }, `Row ${index}`),
+            ),
+          ),
+        ),
+      ),
+    );
+
+  it("re-places a longer page in the same pass, without remounting", async () => {
+    await render(2);
+    const content = document.querySelector<HTMLElement>(
+      '[aria-label="Paged menu"]',
+    )!;
+    expect(content.parentElement!.dataset.popoverSide).toBe("bottom");
+    await render(6);
+    expect(document.querySelector('[aria-label="Paged menu"]')).toBe(content);
+    // 300px no longer fits below the trigger, so it flips above it.
+    expect(content.parentElement!.dataset.popoverSide).toBe("top");
+    expect(content.classList).toContain("popover-open");
+  });
 });

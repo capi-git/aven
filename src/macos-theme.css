@@ -392,6 +392,35 @@ html:not(.theme-light):not(.access-panel-window):not(.usage-panel-window):not(
   backdrop-filter: var(--aven-glass-blur);
 }
 
+/* A popover-hosted ToolbarPanel animates in, and an animating opacity keeps
+   its backdrop filter from sampling the page until the entrance ends. The
+   still frame carries the same tint and frost instead, so the glass is there
+   from the first frame and settles identically. */
+html:not(.theme-light):not(.access-panel-window):not(.usage-panel-window):not(
+    .workspace-menu-panel-window
+  )
+  .aven-popover-panel-backdrop {
+  background: color-mix(
+    in srgb,
+    var(--aven-popover-panel-bg, var(--aven-popup))
+      var(--aven-glass-overlay-opacity),
+    transparent
+  );
+  -webkit-backdrop-filter: var(--aven-glass-blur);
+  backdrop-filter: var(--aven-glass-blur);
+}
+
+html:not(.theme-light):not(.access-panel-window):not(.usage-panel-window):not(
+    .workspace-menu-panel-window
+  )
+  .aven-popover-frame
+  .aven-popover-panel-content
+  > .toolbar-panel:not([data-theme="light"]) {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 html:not(.theme-light)
   .personal-shell
   :is(
@@ -481,6 +510,7 @@ html:not(.theme-light)
   }
 
   .popover-backdrop,
+  .aven-popover-panel-backdrop,
   .modal-panel,
   .personal-composer,
   .personal-composer [data-composer-box] {

@@ -60,6 +60,11 @@ import {
 } from "../lib/browser";
 import { useBrowserDropIndicator } from "../hooks/useBrowserDropIndicator";
 import {
+  BROWSER_OVERLAYS,
+  browserOverlayState,
+  type BrowserOverlayState,
+} from "../lib/browserOverlays";
+import {
   beginBrowserHandoff,
   endBrowserHandoff,
   waitForBrowserHandoff,
@@ -86,8 +91,7 @@ export type BrowserPaneProps = {
   onToggleExpand?: () => void;
 };
 
-const OVERLAYS =
-  '[aria-modal="true"], [role="dialog"], [role="menu"], [role="listbox"], [data-popover-side], [data-native-browser-occluded="true"]';
+const OVERLAYS = BROWSER_OVERLAYS;
 // ResizeObserver also reaches this path during native window resizing. A
 // deferred WebKit frame must not leave Chromium at old bounds for 100 ms.
 const LAYOUT_FALLBACK_MS = 16;
@@ -253,28 +257,23 @@ function hasVisibleBrowserArea(bounds: BrowserBounds): boolean {
   return bounds.width - (bounds.clipLeft ?? 0) - (bounds.clipRight ?? 0) >= 1;
 }
 
-function hasOccludingOverlay(bounds: BrowserBounds): boolean {
-  return [...document.querySelectorAll<HTMLElement>(OVERLAYS)].some(
-    (element) => {
-      if (element.dataset.nativeBrowserEdge) return false;
-      const style = getComputedStyle(element);
-      if (style.visibility === "hidden" || style.opacity === "0") return false;
-      const rects = [...element.getClientRects()].filter(
-        (rect) => rect.width > 0 && rect.height > 0,
-      );
-      // Real modal dialogs block the entire workspace. Nonmodal surfaces only
-      // occlude the child where they overlap; a dismiss catcher is not a panel.
-      if (element.getAttribute("aria-modal") === "true")
-        return rects.length > 0;
-      return rects.some(
-        (rect) =>
-          rect.left < bounds.x + bounds.width - (bounds.clipRight ?? 0) &&
-          rect.right > bounds.x + (bounds.clipLeft ?? 0) &&
-          rect.top < bounds.y + bounds.height &&
-          rect.bottom > bounds.y,
-      );
-    },
-  );
+/**
+ * Overlays a still image must stand in for: modal dialogs, very large panels,
+ * or any overlap on an engine that cannot cut menus out of its live page.
+ */
+function hasOccludingOverlay(
+  bounds: BrowserBounds,
+  holesSupported: boolean,
+): boolean {
+  return browserOverlayState(bounds, holesSupported).capture;
+}
+
+/** Attach the live page's menu cut-outs, or none when the page is captured. */
+function withOverlayHoles(
+  bounds: BrowserBounds,
+  overlay: BrowserOverlayState,
+): BrowserBounds {
+  return overlay.holes.length ? { ...bounds, holes: overlay.holes } : bounds;
 }
 
 function startsWithUrl(value?: string): string {
@@ -335,6 +334,9 @@ function BrowserPaneSession({
     null,
   );
   const [nativeMenus, setNativeMenus] = useState(false);
+  // Read by the layout pass, which must not wait for a React render.
+  const nativeHoles = useRef(false);
+  const [holeMenus, setHoleMenus] = useState(false);
   const [nativeDropIndicator, setNativeDropIndicator] = useState(false);
   const [snapshot, setSnapshot] = useState<BrowserSnapshot | null>(null);
   const [readyId, setReadyId] = useState<string | null>(null);
@@ -814,6 +816,8 @@ function BrowserPaneSession({
       setLoadProgress(null);
       setSnapshot(null);
       setNativeMenus(false);
+      nativeHoles.current = false;
+      setHoleMenus(false);
       setNativeDropIndicator(false);
       setError(null);
       setNotice(null);
@@ -823,6 +827,8 @@ function BrowserPaneSession({
     nativePageId.current = null;
     setReadyId(null);
     setNativeMenus(false);
+    nativeHoles.current = false;
+    setHoleMenus(false);
     setNativeDropIndicator(false);
     setLoading(true);
     setNotice(null);
@@ -842,6 +848,8 @@ function BrowserPaneSession({
         setLoading(false);
         setSnapshot(null);
         setNativeMenus(false);
+        nativeHoles.current = false;
+        setHoleMenus(false);
         setNativeDropIndicator(false);
         setToolsMenu(null);
         setFindOpen(false);
@@ -868,6 +876,12 @@ function BrowserPaneSession({
       }
       browserPageHasNativeFocus.current = !!state.focused;
       setNativeMenus(state.nativeMenus === true);
+      const holes = state.nativeHoles === true;
+      setHoleMenus(holes);
+      if (nativeHoles.current !== holes) {
+        nativeHoles.current = holes;
+        scheduleLayout.current();
+      }
       setNativeDropIndicator(state.nativeDropIndicator === true);
       if (state.title !== nativeTitle) {
         nativeTitle = state.title;
@@ -1065,11 +1079,7 @@ function BrowserPaneSession({
           )
             return false;
           const bounds = currentBounds();
-          return (
-            !!bounds &&
-            hasVisibleBrowserArea(bounds) &&
-            hasOccludingOverlay(bounds)
-          );
+          return !!bounds && hasVisibleBrowserArea(bounds) && occluded(bounds);
         };
         let settled = false;
         const finish = () => {
@@ -1130,6 +1140,34 @@ function BrowserPaneSession({
         !isPaused() && host.current ? browserBounds(host.current) : null;
       return bounds ? clipHoverSidebars(bounds) : null;
     };
+    const occluded = (bounds: BrowserBounds) =>
+      hasOccludingOverlay(bounds, nativeHoles.current);
+    // Menus cut out of the live page change size without a style mutation
+    // (late content, filtering). Track exactly the surfaces that own holes.
+    let holeElements: HTMLElement[] = [];
+    const overlaySizes = new ResizeObserver(() => present());
+    const trackHoleElements = (elements: HTMLElement[]) => {
+      if (
+        elements.length === holeElements.length &&
+        elements.every((element, index) => element === holeElements[index])
+      )
+        return;
+      overlaySizes.disconnect();
+      holeElements = elements;
+      for (const element of elements) overlaySizes.observe(element);
+    };
+    const placement = (bounds: BrowserBounds | null) => {
+      if (!bounds) {
+        trackHoleElements([]);
+        return { bounds, capture: false };
+      }
+      const overlay = browserOverlayState(bounds, nativeHoles.current);
+      trackHoleElements(overlay.elements);
+      return {
+        bounds: withOverlayHoles(bounds, overlay),
+        capture: overlay.capture,
+      };
+    };
     refreshZoomSnapshot.current = (refresh) => {
       if (!refresh) {
         if (zoomRefreshActive) cancelOverlayCapture();
@@ -1147,7 +1185,7 @@ function BrowserPaneSession({
           snapshotZoom.current.menu &&
           bounds &&
           hasVisibleBrowserArea(bounds) &&
-          hasOccludingOverlay(bounds)
+          occluded(bounds)
         )
           void captureForOverlay(true);
       }, ZOOM_SNAPSHOT_DELAY_MS);
@@ -1164,7 +1202,8 @@ function BrowserPaneSession({
         placementInvalidated = false;
       }
       if (lastLayout === "hidden" && isPaused()) return;
-      let bounds = currentBounds();
+      let current = placement(currentBounds());
+      let bounds = current.bounds;
       if (bounds) lastBounds = bounds;
       // Native children are created hidden. A never-shown pane needs no work
       // until it has measurable geometry in the visible workspace.
@@ -1172,10 +1211,9 @@ function BrowserPaneSession({
         lastLayout = "hidden";
         return;
       }
-      let show =
-        !!bounds &&
-        hasVisibleBrowserArea(bounds) &&
-        !hasOccludingOverlay(bounds);
+      // Nonmodal menus are cut out of the live page in this same pass, so the
+      // page stays visible and sharp around them without a still image.
+      let show = !!bounds && hasVisibleBrowserArea(bounds) && !current.capture;
       let nextLayout = show ? JSON.stringify([lastBounds, true]) : "hidden";
       if (
         nextLayout === lastLayout &&
@@ -1203,12 +1241,10 @@ function BrowserPaneSession({
           }
           if (disposed) return;
           // Menus may close or the pane may hide while capture/paint is pending.
-          bounds = currentBounds();
+          current = placement(currentBounds());
+          bounds = current.bounds;
           if (bounds) lastBounds = bounds;
-          show =
-            !!bounds &&
-            hasVisibleBrowserArea(bounds) &&
-            !hasOccludingOverlay(bounds);
+          show = !!bounds && hasVisibleBrowserArea(bounds) && !current.capture;
           nextLayout = show ? JSON.stringify([lastBounds, true]) : "hidden";
           if (
             nextLayout === lastLayout &&
@@ -1246,12 +1282,7 @@ function BrowserPaneSession({
         lastGeometry = JSON.stringify(sentBounds);
         lastLayout = nextLayout;
         if (show && !disposed) setSnapshot(null);
-        else if (
-          !disposed &&
-          bounds &&
-          viewportChanged &&
-          hasOccludingOverlay(bounds)
-        ) {
+        else if (!disposed && bounds && viewportChanged && occluded(bounds)) {
           // A retained overlay can outlive a pane resize. Resize the hidden
           // native viewport first, then replace its backing at the new size.
           cancelOverlayCapture();
@@ -1291,11 +1322,7 @@ function BrowserPaneSession({
       if (disposed) return;
       cancelQueued();
       const bounds = currentBounds();
-      if (
-        !bounds ||
-        !hasVisibleBrowserArea(bounds) ||
-        !hasOccludingOverlay(bounds)
-      )
+      if (!bounds || !hasVisibleBrowserArea(bounds) || !occluded(bounds))
         cancelOverlayCapture();
       if (inFlight) {
         pending = true;
@@ -1360,6 +1387,7 @@ function BrowserPaneSession({
       if (isPaused()) {
         stopObserving?.();
         stopObserving = undefined;
+        trackHoleElements([]);
         return;
       }
       if (stopObserving || !host.current) return;
@@ -1415,6 +1443,8 @@ function BrowserPaneSession({
       cancelQueued();
       cancelOverlayCapture();
       stopObserving?.();
+      overlaySizes.disconnect();
+      holeElements = [];
       scheduleLayout.current = () => {};
       refreshZoomSnapshot.current = () => {};
     };
@@ -1756,11 +1786,14 @@ function BrowserPaneSession({
           setNotice(`Developer tools unavailable: ${errorMessage(reason)}`),
         );
   };
+  // With page cut-outs, the in-app menu appears over the live page on its
+  // first frame; the separate native panel is only needed without them.
+  const nativeToolsMenu = nativeMenus && !holeMenus && !!readyId;
   const openTools = (button: HTMLButtonElement) => {
     setToolsMenu(toolsMenu ? null : browserMenuPosition(button));
   };
   const utilityItems: ExplorerMenuItem[] = [
-    ...(nativeMenus && readyId
+    ...(nativeToolsMenu
       ? [
           {
             kind: "item" as const,
@@ -2012,13 +2045,13 @@ function BrowserPaneSession({
           align="end"
           gap={4}
           width={BROWSER_ACTIONS_WIDTH}
-          native={nativeMenus && !!readyId}
+          native={nativeToolsMenu}
           onError={() =>
             setNotice("Could not open browser actions. Please try again.")
           }
           className="browser-actions-menu"
           header={
-            nativeMenus && readyId ? undefined : (
+            nativeToolsMenu ? undefined : (
               <div
                 className="browser-menu-heading"
                 onKeyDown={(event) => event.stopPropagation()}

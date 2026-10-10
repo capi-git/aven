@@ -128,3 +128,53 @@ it("keeps working agents reachable without mixing in workspace appearance or uti
   host.remove();
   vi.unstubAllGlobals();
 });
+
+it("closes the working agents menu when its button is pressed again", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () =>
+    root.render(
+      createElement(PersonalWorkspaceSwitcher, {
+        profiles: DEFAULT_WORKSPACE_PROFILES,
+        activeProfileId: "personal",
+        onSelectAgent: vi.fn(),
+        liveAgents: [
+          {
+            id: "task-one",
+            cwd: "/tmp/project",
+            title: "Review changes",
+            harness: "codex",
+            activity: "Working",
+            needsApproval: false,
+            done: false,
+          },
+        ],
+      }),
+    ),
+  );
+  const button = host.querySelector<HTMLButtonElement>(
+    '[aria-label="Working agents"]',
+  )!;
+  // A real press: the pointer goes down on the trigger before it clicks.
+  const press = async () => {
+    await act(async () => {
+      button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    });
+    await act(async () => button.click());
+  };
+  const menu = () =>
+    document.querySelector('[role="menu"][aria-label="Working agents"]');
+  await press();
+  expect(menu()).not.toBeNull();
+  expect(button.getAttribute("aria-expanded")).toBe("true");
+  await press();
+  expect(menu()).toBeNull();
+  expect(button.getAttribute("aria-expanded")).toBe("false");
+  await press();
+  expect(menu()).not.toBeNull();
+  await act(async () => root.unmount());
+  host.remove();
+  vi.unstubAllGlobals();
+});

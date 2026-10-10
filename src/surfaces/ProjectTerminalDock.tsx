@@ -90,7 +90,8 @@ export function ProjectTerminalDock({
 }: Props) {
   const vertical = isVerticalDock(dock.side);
   const [dragging, setDragging] = useState(false);
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  // Anchored to the Move Terminal button, so pressing it again toggles.
+  const [menu, setMenu] = useState(false);
   const sideButton = useRef<HTMLDivElement>(null);
   const drag = useRef<{ start: number; size: number } | null>(null);
   const sizeRef = useRef(dock.size);
@@ -229,11 +230,7 @@ export function ProjectTerminalDock({
             <div ref={sideButton}>
               <IconButton
                 label="Move Terminal"
-                onClick={() => {
-                  const rect = sideButton.current?.getBoundingClientRect();
-                  if (!rect) return;
-                  setMenu({ x: rect.left, y: rect.bottom + 4 });
-                }}
+                onClick={() => setMenu((open) => !open)}
               >
                 <SideIcon className="size-3.5" strokeWidth={1.75} />
               </IconButton>
@@ -275,8 +272,10 @@ export function ProjectTerminalDock({
       </div>
       {menu ? (
         <ExplorerMenu
-          x={menu.x}
-          y={menu.y}
+          x={0}
+          y={0}
+          anchor={sideButton}
+          gap={4}
           ariaLabel="Move terminal"
           items={SIDE_ITEMS.map((item) => ({
             kind: "item" as const,
@@ -293,9 +292,9 @@ export function ProjectTerminalDock({
             ) {
               onSideChange(id);
             }
-            setMenu(null);
+            setMenu(false);
           }}
-          onClose={() => setMenu(null)}
+          onClose={() => setMenu(false)}
         />
       ) : null}
     </section>

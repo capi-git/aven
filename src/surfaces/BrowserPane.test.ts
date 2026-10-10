@@ -3545,6 +3545,131 @@ describe("native preview lifecycle", () => {
     expect(mocks.layout.mock.calls.at(-1)![2]).toBe(true);
   });
 
+  it("cuts nonmodal menus out of the live page instead of hiding it behind a still image", async () => {
+    const nativeId = await openPane();
+    await receive({ nativeHoles: true });
+    mocks.layout.mockClear();
+    const overlay = addOverlay(new DOMRect(400, 120, 224, 300));
+    // The cut-out is published in the same pass, before any animation frame.
+    await act(async () => {});
+    expect(mocks.layout).toHaveBeenLastCalledWith(
+      nativeId,
+      expect.objectContaining({
+        holes: [{ x: 300, y: 40, width: 224, height: 300, radius: 0 }],
+      }),
+      true,
+    );
+    await flushFrame();
+    await act(async () => vi.advanceTimersByTime(1_000));
+    expect(mocks.snapshot).not.toHaveBeenCalled();
+    expect(container.querySelector(".browser-page-snapshot")).toBeNull();
+    expect(mocks.layout.mock.calls.every((call) => call[2] === true)).toBe(
+      true,
+    );
+    // Menu surfaces are watched for size changes only while they own a hole.
+    expect(observedResizes.size).toBe(2);
+    vi.spyOn(overlay, "getClientRects").mockReturnValue([
+      new DOMRect(400, 160, 224, 200),
+    ] as unknown as DOMRectList);
+    mutationCallback([
+      { type: "attributes", target: overlay, attributeName: "style" },
+    ]);
+    await act(async () => {});
+    expect(mocks.layout.mock.calls.at(-1)![1].holes).toEqual([
+      { x: 300, y: 80, width: 224, height: 200, radius: 0 },
+    ]);
+    removeOverlay(overlay);
+    await act(async () => {});
+    expect(mocks.layout.mock.calls.at(-1)![1].holes).toBeUndefined();
+    expect(mocks.layout.mock.calls.at(-1)![2]).toBe(true);
+    expect(observedResizes.size).toBe(1);
+    expect(mocks.create).toHaveBeenCalledOnce();
+    expect(mocks.close).not.toHaveBeenCalled();
+  });
+
+  it("drops a cut-out when its pane hides and recomputes it on return", async () => {
+    const nativeId = await openPane();
+    await receive({ nativeHoles: true });
+    const overlay = addOverlay(new DOMRect(400, 120, 224, 300));
+    await flushFrame();
+    expect(mocks.layout.mock.calls.at(-1)![1].holes).toHaveLength(1);
+    await openPane({ visible: false });
+    expect(mocks.layout.mock.calls.at(-1)![2]).toBe(false);
+    expect(observedResizes.size).toBe(0);
+    removeOverlay(overlay);
+    mocks.layout.mockClear();
+    await openPane({ visible: true });
+    await flushFrame();
+    expect(mocks.layout).toHaveBeenLastCalledWith(
+      nativeId,
+      expect.not.objectContaining({ holes: expect.anything() }),
+      true,
+    );
+    expect(mocks.snapshot).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a true modal", "modal"],
+    ["a panel covering most of the page", "large"],
+  ])(
+    "keeps the still-image path for %s even with cut-out support",
+    async (_name, kind) => {
+      const nativeId = await openPane();
+      await receive({ nativeHoles: true });
+      const overlay =
+        kind === "modal"
+          ? addOverlay(new DOMRect(5, 5, 40, 40), "dialog")
+          : addOverlay(new DOMRect(100, 80, 500, 400), "dialog");
+      if (kind === "modal") {
+        overlay.setAttribute("aria-modal", "true");
+        mutationCallback([
+          { type: "attributes", target: overlay, attributeName: "aria-modal" },
+        ]);
+      }
+      await flushFrame();
+      await flushFrame();
+      expect(mocks.snapshot).toHaveBeenCalledExactlyOnceWith(nativeId);
+      expect(mocks.layout.mock.calls.at(-1)![2]).toBe(false);
+      expect(mocks.layout.mock.calls.at(-1)![1].holes).toBeUndefined();
+      removeOverlay(overlay);
+      await flushFrame();
+      expect(mocks.layout.mock.calls.at(-1)![2]).toBe(true);
+      expect(container.querySelector(".browser-page-snapshot")).toBeNull();
+    },
+  );
+
+  it("opens browser actions as an in-app menu over the live page when cut-outs are supported", async () => {
+    await openPane({ onAddToChat: vi.fn() });
+    await receive({ nativeMenus: true, nativeHoles: true });
+    mocks.layout.mockClear();
+    await clickControl("More browser actions");
+    expect(appMenu.open).not.toHaveBeenCalled();
+    expect(mocks.browserMenu).not.toHaveBeenCalled();
+    const menu = document.querySelector('[aria-label="Browser actions"]');
+    expect(menu).not.toBeNull();
+    expect(
+      menu!
+        .closest(".toolbar-panel")!
+        .querySelectorAll('[aria-label="Page zoom"] button'),
+    ).toHaveLength(3);
+    await flushFrame();
+    expect(mocks.snapshot).not.toHaveBeenCalled();
+    expect(mocks.layout.mock.calls.some((call) => call[2] === false)).toBe(
+      false,
+    );
+    await act(async () =>
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      ),
+    );
+    expect(document.querySelector('[aria-label="Browser actions"]')).toBeNull();
+    await clickControl("More browser actions");
+    // Clicking the live page moves native focus out of the app's webview.
+    await act(async () => window.dispatchEvent(new FocusEvent("blur")));
+    expect(document.querySelector('[aria-label="Browser actions"]')).toBeNull();
+    expect(mocks.close).not.toHaveBeenCalled();
+  });
+
   it("cancels a pending snapshot paint when the pane closes", async () => {
     await openPane();
     addOverlay(new DOMRect(120, 100, 200, 300));
