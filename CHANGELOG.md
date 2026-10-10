@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.1.131] - 2026-10-10
+
+### Menus open without flashing
+
+- Menus over the built-in browser no longer swap the page for a screenshot. The page stays live and sharp around the Recent, tab and browser "…" menus, which now appear straight away.
+- Frosted glass appears with a menu instead of popping in after it opens, and menus open faster without starting as an empty box.
+- Clicking a menu's button again closes it instead of reopening it. The model picker opens already on the current model, and moving between pages of the tab menu no longer restarts it.
+
+### Delete workspaces
+
+- Delete a workspace from the workspace switcher, or right-click any workspace in the sidebar. Its projects and standalone chats move to Personal; files and running agents are kept. Personal can't be deleted, and deleted workspaces stay deleted after restarting.
+
 ## [0.1.130] - 2026-10-09
 
 ### Consistent sidebar glass
