@@ -16,6 +16,8 @@ type Props = {
   anchor: HTMLButtonElement;
   onSelect: (id: string) => void;
   onDelete?: (profile: WorkspaceProfile) => void;
+  /** Right-click on a row opens that workspace's actions instead. */
+  onWorkspaceMenu?: (profile: WorkspaceProfile, x: number, y: number) => void;
   onDismiss: () => void;
 };
 
@@ -31,6 +33,7 @@ export function WorkspaceProfileMenu({
   anchor,
   onSelect,
   onDelete,
+  onWorkspaceMenu,
   onDismiss,
 }: Props) {
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -152,6 +155,15 @@ export function WorkspaceProfileMenu({
               onSelect(profile.id);
               close(true);
             }}
+            onContextMenu={
+              onWorkspaceMenu
+                ? (event) => {
+                    event.preventDefault();
+                    close(false);
+                    onWorkspaceMenu(profile, event.clientX, event.clientY);
+                  }
+                : undefined
+            }
           >
             <span aria-hidden="true" className="shrink-0 text-content/65">
               <WorkspaceProfileIcon profile={profile} />

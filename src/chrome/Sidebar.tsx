@@ -256,6 +256,42 @@ export type SidebarProps = {
   onDismissUpdate?: () => void;
 };
 
+/** Personal is the default home for every project, so it cannot be deleted. */
+function workspaceMenuItems(
+  profile: WorkspaceProfile,
+  activeProfileId: string,
+  canSwitch: boolean,
+  canDelete: boolean,
+): ExplorerMenuItem[] {
+  const items: ExplorerMenuItem[] = [];
+  if (canSwitch && profile.id !== activeProfileId)
+    items.push({
+      kind: "item",
+      id: "switch",
+      label: `Switch to ${profile.name}`,
+    });
+  if (canDelete) {
+    if (items.length) items.push({ kind: "sep" });
+    items.push(
+      profile.id === "personal"
+        ? {
+            kind: "item",
+            id: "delete",
+            label: "Delete workspace…",
+            description: "Personal is the default workspace",
+            disabled: true,
+          }
+        : {
+            kind: "item",
+            id: "delete",
+            label: "Delete workspace…",
+            danger: true,
+          },
+    );
+  }
+  return items;
+}
+
 function SidebarComponent({
   cwd,
   open,
@@ -334,6 +370,18 @@ function SidebarComponent({
 }: SidebarProps) {
   const [deletingProfile, setDeletingProfile] =
     useState<WorkspaceProfile | null>(null);
+  // Right-click actions for any workspace, from the footer, header or menu.
+  const [workspaceMenu, setWorkspaceMenu] = useState<{
+    profile: WorkspaceProfile;
+    x: number;
+    y: number;
+  } | null>(null);
+  useEffect(() => setWorkspaceMenu(null), [open]);
+  const openWorkspaceMenu =
+    onSelectProfile || onDeleteProfile
+      ? (profile: WorkspaceProfile, x: number, y: number) =>
+          setWorkspaceMenu({ profile, x, y })
+      : undefined;
   const [profileMenuAnchor, setProfileMenuAnchor] =
     useState<HTMLButtonElement | null>(null);
   useEffect(() => setProfileMenuAnchor(null), [activeProfileId, open]);
@@ -1391,6 +1439,11 @@ function SidebarComponent({
       profile={activeProfile}
       menuOpen={!!profileMenuAnchor}
       onMenuChange={setProfileMenuAnchor}
+      onWorkspaceMenu={
+        openWorkspaceMenu
+          ? (x, y) => openWorkspaceMenu(activeProfile, x, y)
+          : undefined
+      }
       showSearch={!!onSearch}
       searchActive={searchActive}
       onSearch={onSearch}
@@ -1466,7 +1519,28 @@ function SidebarComponent({
           anchor={profileMenuAnchor}
           onSelect={selectProfile}
           onDelete={onDeleteProfile ? setDeletingProfile : undefined}
+          onWorkspaceMenu={openWorkspaceMenu}
           onDismiss={() => setProfileMenuAnchor(null)}
+        />
+      ) : null}
+      {workspaceMenu ? (
+        <ExplorerMenu
+          x={workspaceMenu.x}
+          y={workspaceMenu.y}
+          items={workspaceMenuItems(
+            workspaceMenu.profile,
+            activeProfileId,
+            !!onSelectProfile,
+            !!onDeleteProfile,
+          )}
+          ariaLabel={`Actions for ${workspaceMenu.profile.name}`}
+          onClose={() => setWorkspaceMenu(null)}
+          onPick={(id) => {
+            const profile = workspaceMenu.profile;
+            setWorkspaceMenu(null);
+            if (id === "switch") selectProfile(profile.id);
+            else if (id === "delete") setDeletingProfile(profile);
+          }}
         />
       ) : null}
       {deletingProfile && onDeleteProfile ? (
@@ -1884,6 +1958,7 @@ function SidebarComponent({
             settingsOpen={settingsOpen}
             liveAgents={liveAgents}
             onSelectAgent={onSelectAgent}
+            onWorkspaceMenu={openWorkspaceMenu}
           />
         ) : null}
       </div>

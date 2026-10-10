@@ -109,7 +109,86 @@ function menu() {
   );
 }
 
+async function rightClick(target: HTMLElement) {
+  await act(async () => {
+    target.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 40,
+        clientY: 40,
+      }),
+    );
+  });
+}
+function actions(name: string) {
+  return document.querySelector<HTMLElement>(
+    `[role="menu"][aria-label="Actions for ${name}"]`,
+  );
+}
+function item(container: HTMLElement | null, label: string) {
+  return [
+    ...(container?.querySelectorAll<HTMLButtonElement>("button") ?? []),
+  ].find((button) => button.textContent?.startsWith(label));
+}
+
 describe("sidebar workspace navigation", () => {
+  it("deletes a workspace you are not in from its right-click menu", async () => {
+    const state = assignWorkspaceProject(
+      defaultWorkspaceProfiles(),
+      "/projects/Catalog",
+      "work",
+    );
+    saveWorkspaceProfiles(state);
+    await act(async () => root.render(createElement(ProjectNavigationSidebar)));
+    await rightClick(button("Work workspace"));
+    const workMenu = actions("Work");
+    expect(item(workMenu, "Switch to Work")).toBeDefined();
+    await click(item(workMenu, "Delete workspace…")!);
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      "Delete “Work”?",
+    );
+    const confirm = [
+      ...document.querySelectorAll('[role="dialog"] button'),
+    ].find((button) => button.textContent === "Delete workspace")!;
+    await click(confirm as HTMLElement);
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(button("Work workspace")).toBeNull();
+    expect(button("Switch workspace, Personal")).not.toBeNull();
+    expect(container.textContent).toContain("Catalog");
+  });
+
+  it("never offers to delete Personal from its right-click menu", async () => {
+    await act(async () => root.render(createElement(ProjectNavigationSidebar)));
+    await rightClick(button("Personal workspace"));
+    const remove = item(actions("Personal"), "Delete workspace…");
+    expect(
+      remove?.disabled ?? remove?.getAttribute("aria-disabled"),
+    ).toBeTruthy();
+    expect(item(actions("Personal"), "Switch to")).toBeUndefined();
+  });
+
+  it("opens workspace actions from the header and from a switcher row", async () => {
+    const state = defaultWorkspaceProfiles();
+    state.activeProfileId = "work";
+    saveWorkspaceProfiles(state);
+    await act(async () => root.render(createElement(ProjectNavigationSidebar)));
+    await rightClick(button("Switch workspace, Work"));
+    expect(actions("Work")).not.toBeNull();
+    await act(async () => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    await click(button("Switch workspace, Work"));
+    const row = [
+      ...menu()!.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]'),
+    ].find((button) => button.textContent?.includes("Personal"))!;
+    await rightClick(row);
+    expect(menu()).toBeNull();
+    expect(item(actions("Personal"), "Switch to Personal")).toBeDefined();
+  });
+
   it("deletes through the workspace menu and confirmation while retaining its projects", async () => {
     const state = assignWorkspaceProject(
       defaultWorkspaceProfiles(),

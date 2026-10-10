@@ -8,6 +8,8 @@ type Props = {
   preview?: boolean;
   menuOpen?: boolean;
   onMenuChange?: (anchor: HTMLButtonElement | null) => void;
+  /** Right-click on the workspace name, at a window point. */
+  onWorkspaceMenu?: (x: number, y: number) => void;
   showSearch?: boolean;
   searchActive?: boolean;
   onSearch?: () => void;
@@ -28,6 +30,7 @@ export function ProfileSidebarHeader({
   preview = false,
   menuOpen = false,
   onMenuChange,
+  onWorkspaceMenu,
   showSearch,
   searchActive,
   onSearch,
@@ -62,6 +65,15 @@ export function ProfileSidebarHeader({
             aria-expanded={menuOpen}
             onClick={(event) =>
               onMenuChange?.(menuOpen ? null : event.currentTarget)
+            }
+            onContextMenu={
+              onWorkspaceMenu
+                ? (event) => {
+                    event.preventDefault();
+                    onMenuChange?.(null);
+                    onWorkspaceMenu(event.clientX, event.clientY);
+                  }
+                : undefined
             }
             onKeyDown={(event) => {
               if (event.key === "ArrowDown" || event.key === "ArrowUp") {
