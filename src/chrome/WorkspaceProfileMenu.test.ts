@@ -21,8 +21,15 @@ describe("workspace profile menu", () => {
   let frames: Map<number, FrameRequestCallback>;
   const select = vi.fn();
   const dismiss = vi.fn();
+  const remove = vi.fn();
 
-  function Harness({ activeProfileId = "work" }: { activeProfileId?: string }) {
+  function Harness({
+    activeProfileId = "work",
+    deletable = false,
+  }: {
+    activeProfileId?: string;
+    deletable?: boolean;
+  }) {
     const [open, setOpen] = useState(true);
     return open
       ? createElement(WorkspaceProfileMenu, {
@@ -30,6 +37,7 @@ describe("workspace profile menu", () => {
           activeProfileId,
           anchor,
           onSelect: select,
+          onDelete: deletable ? remove : undefined,
           onDismiss: () => {
             dismiss();
             setOpen(false);
@@ -323,4 +331,31 @@ describe("workspace profile menu", () => {
     expect(document.activeElement).toBe(choices()[0]);
     expect(choices()[0].tabIndex).toBe(0);
   });
+  it("offers deletion as a separate keyboard-reachable action for the selected workspace", async () => {
+    await act(async () =>
+      root.render(createElement(Harness, { deletable: true })),
+    );
+    await key("End");
+    expect(document.activeElement?.textContent).toBe("Delete workspace…");
+    expect(remove).not.toHaveBeenCalled();
+    await act(async () =>
+      (document.activeElement as HTMLButtonElement).click(),
+    );
+    expect(remove).toHaveBeenCalledExactlyOnceWith(profiles[1]);
+    expect(select).not.toHaveBeenCalled();
+    expect(menu()).toBeNull();
+    expect(document.activeElement).toBe(anchor);
+  });
+
+  it.each(["personal", "missing"])(
+    "does not offer deletion for %s",
+    async (activeProfileId) => {
+      await act(async () =>
+        root.render(
+          createElement(Harness, { activeProfileId, deletable: true }),
+        ),
+      );
+      expect(menu()?.textContent).not.toContain("Delete workspace");
+    },
+  );
 });

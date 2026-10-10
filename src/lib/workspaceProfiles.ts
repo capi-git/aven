@@ -3,6 +3,7 @@ import { pathKey } from "./paths";
 import {
   isProjectlessCwd,
   projectlessProfileForCwd,
+  projectlessWorkspacePaths,
 } from "./projectlessWorkspace";
 import {
   resetWorkspaceTheme,
@@ -94,7 +95,15 @@ export function loadWorkspaceProfiles(
     // Startup can salvage older partial data. A live refresh may replace loaded
     // assignments only with a complete snapshot, including an explicit reset.
     if (retained && !completeWorkspaceProfiles(saved)) return retained;
-    const profiles = [...defaults.profiles];
+    // A complete saved collection is authoritative: deleted default workspaces
+    // must not reappear on restart. Personal remains the fallback destination.
+    const savedIds = completeWorkspaceProfiles(saved)
+      ? new Set(saved.profiles!.map((profile) => profile.id))
+      : null;
+    const profiles = defaults.profiles.filter(
+      (profile) =>
+        profile.id === "personal" || !savedIds || savedIds.has(profile.id),
+    );
     if (Array.isArray(saved.profiles)) {
       for (const profile of saved.profiles) {
         if (
@@ -203,7 +212,12 @@ export function workspaceProjectTarget(
 ): string {
   const projects = projectsForWorkspace(state, recents, profileId);
   const last = state.lastProjectByProfile[profileId];
-  if (last && projectlessProfileForCwd(last) === profileId) return last;
+  if (
+    last &&
+    isProjectlessCwd(last) &&
+    projectWorkspaceProfile(state, last) === profileId
+  )
+    return last;
   return (
     projects.find((project) => last && sameProjectPath(project.path, last))
       ?.path ??
@@ -235,6 +249,40 @@ export function assignWorkspaceProject(
       [profileId]: normalized,
     },
   };
+}
+
+/** Removing a collection never deletes files, chats, or running sessions. */
+export function removeWorkspaceProfile(
+  state: WorkspaceProfilesState,
+  id: string,
+): WorkspaceProfilesState {
+  if (id === "personal" || !state.profiles.some((profile) => profile.id === id))
+    return state;
+  const lastProjectByProfile = { ...state.lastProjectByProfile };
+  delete lastProjectByProfile[id];
+  return {
+    ...state,
+    profiles: state.profiles.filter((profile) => profile.id !== id),
+    activeProfileId:
+      state.activeProfileId === id ? "personal" : state.activeProfileId,
+    projectProfiles: Object.fromEntries(
+      Object.entries(state.projectProfiles).map(([path, owner]) => [
+        path,
+        owner === id ? "personal" : owner,
+      ]),
+    ),
+    lastProjectByProfile,
+  };
+}
+
+/** Deleted collections' standalone chats remain reachable in Personal. */
+export function standaloneWorkspacePaths(
+  state: Pick<WorkspaceProfilesState, "profiles" | "projectProfiles">,
+  profileId: string,
+): string[] {
+  return projectlessWorkspacePaths().filter(
+    (path) => projectWorkspaceProfile(state, path) === profileId,
+  );
 }
 
 /** An intentional horizontal gesture; normal task-list scrolling never switches profiles. */
@@ -404,6 +452,22 @@ export function useWorkspaceProfiles(
     [commit],
   );
 
+  const deleteProfile = useCallback(
+    (id: string) => {
+      const current = refresh();
+      const next = removeWorkspaceProfile(current, id);
+      if (next === current) return;
+      // Unlike a temporary navigation preference, deletion must survive restart.
+      // Keep the existing collection intact if persistence fails.
+      if (!saveWorkspaceProfiles(next))
+        throw new Error("Could not save workspace changes. Try again.");
+      persistedSnapshot.current = workspaceProfilesSnapshot(next);
+      stateRef.current = next;
+      setState(next);
+    },
+    [refresh],
+  );
+
   return {
     profiles: state.profiles,
     activeProfileId: state.activeProfileId,
@@ -418,6 +482,7 @@ export function useWorkspaceProfiles(
     assignProject,
     moveProject,
     createProfile,
+    deleteProfile,
   };
 }
 

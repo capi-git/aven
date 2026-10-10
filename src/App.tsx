@@ -129,7 +129,6 @@ import {
   ensureProjectlessWorkspace,
   isProjectlessCwd,
   projectlessCwdForProfile,
-  projectlessProfileForCwd,
 } from "./lib/projectlessWorkspace";
 import {
   EMPTY_BROWSER,
@@ -228,6 +227,8 @@ import { normalizeBrowserUrl } from "./lib/browser";
 import {
   useWorkspaceProfiles,
   restoreProfileWorkspace,
+  projectWorkspaceProfile,
+  standaloneWorkspacePaths,
 } from "./lib/workspaceProfiles";
 import { loadRunScripts, saveRunScripts } from "./lib/workspaceActions";
 import { useProjectBranches } from "./hooks/useProjectBranches";
@@ -887,8 +888,21 @@ export default function App({
   const profilesRef = useRef(profiles);
   profilesRef.current = profiles;
   const standaloneActive =
-    projectlessProfileForCwd(projectCwd) === profiles.activeProfileId;
+    isProjectlessCwd(projectCwd) &&
+    projectWorkspaceProfile(
+      { profiles: profiles.profiles, projectProfiles: {} },
+      projectCwd,
+    ) === profiles.activeProfileId;
   const standaloneCwd = projectlessCwdForProfile(profiles.activeProfileId);
+  const standaloneCwds = useMemo(() => {
+    const inherited = standaloneWorkspacePaths(
+      { profiles: profiles.profiles, projectProfiles: {} },
+      profiles.activeProfileId,
+    ).filter((cwd) => cwd !== standaloneCwd);
+    // The current workspace's folder may first become available after New
+    // session resolves. Include it immediately and retain inherited folders.
+    return standaloneCwd ? [standaloneCwd, ...inherited] : inherited;
+  }, [profiles.profiles, profiles.activeProfileId, standaloneCwd]);
   const profileHome =
     !standaloneActive &&
     !profiles.profileProjects.some((project) =>
@@ -2325,10 +2339,10 @@ export default function App({
   }, [sidebarCwd, refreshHistory]);
 
   useEffect(() => {
-    if (standaloneCwd && sidebarHover.visible) {
-      void refreshProfileHistory(standaloneCwd);
+    if (sidebarHover.visible) {
+      for (const cwd of standaloneCwds) void refreshProfileHistory(cwd);
     }
-  }, [standaloneCwd, sidebarHover.visible, refreshProfileHistory]);
+  }, [standaloneCwds, sidebarHover.visible, refreshProfileHistory]);
 
   const persistSession = useCallback((session: Session | undefined) => {
     if (
@@ -4202,8 +4216,7 @@ export default function App({
       setAutomationsViewOpen(false);
       setNotesViewOpen(false);
       profilesRef.current.selectProfile(
-        projectlessProfileForCwd(entry.cwd) ??
-          profilesRef.current.projectProfile(entry.cwd),
+        profilesRef.current.projectProfile(entry.cwd),
       );
       setProjectCwd(entry.cwd);
       viewRef.current.focus(entry.cwd, surfaceId);
@@ -8464,8 +8477,7 @@ export default function App({
       setAutomationsViewOpen(false);
       setNotesViewOpen(false);
       profilesRef.current.selectProfile(
-        projectlessProfileForCwd(cwd) ??
-          profilesRef.current.projectProfile(cwd),
+        profilesRef.current.projectProfile(cwd),
       );
       setProjectCwd(cwd);
       viewRef.current.restore(cwd, restored);
@@ -8545,31 +8557,39 @@ export default function App({
     () =>
       sessions.filter(
         (session) =>
-          projectlessProfileForCwd(session.cwd) === profiles.activeProfileId ||
+          (isProjectlessCwd(session.cwd) &&
+            projectWorkspaceProfile(
+              { profiles: profiles.profiles, projectProfiles: {} },
+              session.cwd,
+            ) === profiles.activeProfileId) ||
           profiles.profileProjects.some((project) =>
             sameProjectPath(project.path, session.cwd),
           ),
       ),
-    [profiles.profileProjects, profiles.activeProfileId, sessions],
+    [
+      profiles.profiles,
+      profiles.profileProjects,
+      profiles.activeProfileId,
+      sessions,
+    ],
   );
   const standaloneSessions = useMemo(() => {
-    if (!standaloneCwd) return [];
     const rows = new Map(
-      historyWithLiveSessions(history, sessions, standaloneCwd).map(
-        (session) => [session.id, session],
-      ),
+      standaloneCwds
+        .flatMap((cwd) => historyWithLiveSessions(history, sessions, cwd))
+        .map((session) => [session.id, session]),
     );
     for (const session of sessions) {
       if (
         !session.inboxAsk &&
-        sameProjectPath(session.cwd, standaloneCwd) &&
+        standaloneCwds.some((cwd) => sameProjectPath(session.cwd, cwd)) &&
         !rows.has(session.id)
       ) {
         rows.set(session.id, summaryFromSession(session));
       }
     }
     return [...rows.values()];
-  }, [standaloneCwd, history, sessions]);
+  }, [standaloneCwds, history, sessions]);
   // A closing sidebar keeps its last previews: clearing them would remove rows
   // during the fade and re-render the sidebar for content no longer shown.
   const lastProfileSessionSummaries = useRef<
@@ -8607,15 +8627,19 @@ export default function App({
   >(() => {
     if (!sidebarHover.visible) return lastProfilePreviews.current;
     const labels = loadTabGroupLabels();
-    const tasksFor = (cwd: string) =>
-      historyWithLiveSessions(
-        history,
-        sessions,
-        cwd,
-        undefined,
-        orchestrationRuns,
-      )
+    const tasksFor = (cwds: readonly string[]) =>
+      cwds
+        .flatMap((cwd) =>
+          historyWithLiveSessions(
+            history,
+            sessions,
+            cwd,
+            undefined,
+            orchestrationRuns,
+          ),
+        )
         .filter((session) => !session.archived && !session.orchestrationLeadId)
+        .sort((a, b) => b.updatedAt - a.updatedAt)
         .slice(0, SESSION_LIST_PAGE)
         .map((session) => ({
           id: session.id,
@@ -8624,7 +8648,10 @@ export default function App({
         }));
     return (lastProfilePreviews.current = Object.fromEntries(
       profiles.profiles.map((profile) => {
-        const standalone = projectlessCwdForProfile(profile.id);
+        const standalone = standaloneWorkspacePaths(
+          { profiles: profiles.profiles, projectProfiles: {} },
+          profile.id,
+        );
         return [
           profile.id,
           {
@@ -8636,9 +8663,9 @@ export default function App({
             ).map((project) => ({
               path: project.path,
               name: projectDisplayName(project.path, labels),
-              tasks: tasksFor(project.path),
+              tasks: tasksFor([project.path]),
             })),
-            standaloneTasks: standalone ? tasksFor(standalone) : [],
+            standaloneTasks: tasksFor(standalone),
           },
         ];
       }),
@@ -9120,6 +9147,7 @@ export default function App({
                 profilePreviews={profilePreviews}
                 activeProfileId={profiles.activeProfileId}
                 onSelectProfile={onSelectProfile}
+                onDeleteProfile={profiles.deleteProfile}
                 onCreateProfile={(name) =>
                   onSelectProfile(profiles.createProfile(name))
                 }
@@ -9284,8 +9312,9 @@ export default function App({
                           .sort((a, b) => b.updatedAt - a.updatedAt)
                           .filter(
                             (session) =>
-                              projectlessProfileForCwd(session.cwd) ===
-                                profiles.activeProfileId ||
+                              standaloneCwds.some((cwd) =>
+                                sameProjectPath(cwd, session.cwd),
+                              ) ||
                               profiles.profileProjects.some((project) =>
                                 sameProjectPath(project.path, session.cwd),
                               ),

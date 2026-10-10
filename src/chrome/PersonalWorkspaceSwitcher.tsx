@@ -24,6 +24,8 @@ type Props = {
   settingsOpen?: boolean;
   liveAgents?: LiveAgent[];
   onSelectAgent?: (sessionId: string) => void;
+  /** Right-click or the context-menu key on a workspace, at a window point. */
+  onWorkspaceMenu?: (profile: WorkspaceProfile, x: number, y: number) => void;
 };
 
 export function WorkspaceProfileIcon({
@@ -50,6 +52,7 @@ export function PersonalWorkspaceSwitcher({
   settingsOpen,
   liveAgents = [],
   onSelectAgent,
+  onWorkspaceMenu,
 }: Props) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
@@ -135,7 +138,27 @@ export function PersonalWorkspaceSwitcher({
             onClick={() => {
               onSelectProfile?.(profile.id);
             }}
-            onKeyDown={onProfileKey}
+            onContextMenu={
+              onWorkspaceMenu
+                ? (event) => {
+                    event.preventDefault();
+                    onWorkspaceMenu(profile, event.clientX, event.clientY);
+                  }
+                : undefined
+            }
+            onKeyDown={(event) => {
+              if (
+                onWorkspaceMenu &&
+                (event.key === "ContextMenu" ||
+                  (event.shiftKey && event.key === "F10"))
+              ) {
+                event.preventDefault();
+                const rect = event.currentTarget.getBoundingClientRect();
+                onWorkspaceMenu(profile, rect.left, rect.top);
+                return;
+              }
+              onProfileKey(event);
+            }}
           >
             <WorkspaceProfileIcon profile={profile} />
           </button>

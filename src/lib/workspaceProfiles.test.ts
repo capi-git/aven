@@ -9,6 +9,8 @@ import {
 } from "./workspaceThemes";
 import {
   assignWorkspaceProject,
+  removeWorkspaceProfile,
+  standaloneWorkspacePaths,
   defaultWorkspaceProfiles,
   loadWorkspaceProfiles,
   projectWorkspaceProfile,
@@ -541,5 +543,128 @@ describe("workspace swipe intent", () => {
     expect(workspaceSwipeDirection(100, 180)).toBe(0);
     expect(workspaceSwipeDirection(90, 65)).toBe(0);
     expect(workspaceSwipeDirection(70, 0, 72)).toBe(0);
+  });
+});
+
+describe("workspace deletion", () => {
+  it("removes Work durably, moves its projects to Personal, and preserves recents and unrelated preferences", () => {
+    const initial = configuredProfiles();
+    initial.activeProfileId = "work";
+    saveWorkspaceProfiles(initial);
+    localStorage.setItem("monocode.recentProjects", JSON.stringify(projects));
+    localStorage.setItem("existing.account.preference", "keep");
+    render(workPath);
+    act(() => latest.deleteProfile("work"));
+    expect(latest.activeProfileId).toBe("personal");
+    expect(latest.profileProjects.map((project) => project.path)).toEqual(
+      projects.map((project) => project.path),
+    );
+    const saved = loadWorkspaceProfiles();
+    expect(saved.profiles.map((profile) => profile.id)).toEqual(["personal"]);
+    expect(saved.lastProjectByProfile.work).toBeUndefined();
+    expect(saved.lastProjectByProfile.personal).toBe(workPath);
+    expect(projectWorkspaceProfile(saved, workPath)).toBe("personal");
+    expect(localStorage.getItem("monocode.recentProjects")).toBe(
+      JSON.stringify(projects),
+    );
+    expect(localStorage.getItem("existing.account.preference")).toBe("keep");
+  });
+
+  it("preserves standalone chat folders and their navigation after deleting their workspace", () => {
+    const work = "/Users/test/data/projectless-workspaces/work";
+    const personal = "/Users/test/data/projectless-workspaces/personal";
+    localStorage.setItem(
+      "monocode.projectlessWorkspaces.v1",
+      JSON.stringify({ work, personal }),
+    );
+    const initial = configuredProfiles();
+    initial.activeProfileId = "work";
+    saveWorkspaceProfiles(initial);
+    render(work);
+    act(() => latest.deleteProfile("work"));
+    const saved = loadWorkspaceProfiles();
+    expect(standaloneWorkspacePaths(saved, "personal")).toEqual([
+      work,
+      personal,
+    ]);
+    expect(standaloneWorkspacePaths(saved, "work")).toEqual([]);
+    expect(projectWorkspaceProfile(saved, work)).toBe("personal");
+    expect(workspaceProjectTarget(saved, projects, "personal")).toBe(work);
+    expect(
+      latest.profileProjects.every(
+        (project) => !project.path.includes("projectless-workspaces"),
+      ),
+    ).toBe(true);
+    expect(localStorage.getItem("monocode.projectlessWorkspaces.v1")).toBe(
+      JSON.stringify({ work, personal }),
+    );
+    act(() => latest.selectProjectProfile(work));
+    expect(latest.activeProfileId).toBe("personal");
+  });
+
+  it("deletes a custom collection without switching away from another active workspace", () => {
+    const initial = configuredProfiles();
+    initial.profiles.push({ id: "research", name: "Research", icon: "folder" });
+    initial.activeProfileId = "work";
+    saveWorkspaceProfiles(initial);
+    render(workPath);
+    act(() => latest.deleteProfile("research"));
+    expect(latest.activeProfileId).toBe("work");
+    expect(
+      loadWorkspaceProfiles().profiles.map((profile) => profile.id),
+    ).toEqual(["personal", "work"]);
+  });
+
+  it("protects Personal and ignores repeated or unknown deletions", () => {
+    const state = configuredProfiles();
+    expect(removeWorkspaceProfile(state, "personal")).toBe(state);
+    expect(removeWorkspaceProfile(state, "missing")).toBe(state);
+    const removed = removeWorkspaceProfile(state, "work");
+    expect(removeWorkspaceProfile(removed, "work")).toBe(removed);
+    expect(state.profiles).toHaveLength(2);
+  });
+
+  it("keeps the collection when saving fails and allows retry", () => {
+    render(workPath);
+    const original = latest.profiles;
+    const write = vi.spyOn(localStorage, "setItem").mockImplementation(() => {
+      throw new Error("quota");
+    });
+    expect(() => act(() => latest.deleteProfile("work"))).toThrow(
+      "Could not save workspace changes. Try again.",
+    );
+    expect(latest.profiles).toBe(original);
+    expect(loadWorkspaceProfiles().profiles).toHaveLength(2);
+    write.mockRestore();
+    act(() => latest.deleteProfile("work"));
+    expect(loadWorkspaceProfiles().profiles).toHaveLength(1);
+  });
+
+  it("refreshes external assignments before deleting and adopts deletion in another window", () => {
+    render(personalPath);
+    saveWorkspaceProfiles(
+      assignWorkspaceProject(configuredProfiles(), "/projects/New", "work"),
+    );
+    act(() => latest.deleteProfile("work"));
+    expect(loadWorkspaceProfiles().projectProfiles["/projects/New"]).toBe(
+      "personal",
+    );
+    saveWorkspaceProfiles(configuredProfiles());
+    act(() =>
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: WORKSPACE_PROFILES_KEY }),
+      ),
+    );
+    act(() => latest.selectProfile("work"));
+    saveWorkspaceProfiles(
+      removeWorkspaceProfile(loadWorkspaceProfiles(), "work"),
+    );
+    act(() =>
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: WORKSPACE_PROFILES_KEY }),
+      ),
+    );
+    expect(latest.activeProfileId).toBe("personal");
+    expect(latest.profiles).toHaveLength(1);
   });
 });
