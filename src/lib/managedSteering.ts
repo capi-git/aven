@@ -15,6 +15,7 @@ export async function steerManagedTurn(
     : await prepareAgentBrowserPrompt(input.text, {
         sessionId: input.sessionId,
         cwd: input.cwd,
+        harness: input.harness,
       });
   if (!isCurrentTurn())
     throw new Error("This agent's turn changed before the guidance was sent.");

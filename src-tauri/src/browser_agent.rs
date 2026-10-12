@@ -430,6 +430,7 @@ pub fn browser_agent_bind(
     caller: Webview,
     session_id: String,
     browser_ids: Vec<String>,
+    actor: Option<crate::desktop_presence::ActorInput>,
 ) -> Result<BrowserAgentBinding, String> {
     crate::browser::label(&caller, "agent-check")?;
     if !valid_id(&session_id)
@@ -451,7 +452,13 @@ pub fn browser_agent_bind(
         .grants
         .lock()
         .map_err(|_| "Browser access is unavailable")?;
-    bind_scope(&mut grants, caller.label(), session_id, browser_ids)?;
+    bind_scope(&mut grants, caller.label(), session_id.clone(), browser_ids)?;
+    if let Some((token, _)) = grants
+        .iter()
+        .find(|(_, grant)| grant.session_id == session_id)
+    {
+        crate::desktop_control::bind_session(token, actor.as_ref())?;
+    }
     Ok(BrowserAgentBinding {
         socket_path: server.socket_path.clone(),
         executable_path,
@@ -484,7 +491,7 @@ fn bind_scope(
             )
         }
     };
-    crate::desktop_control::bind_session(&token)?;
+    crate::desktop_control::bind_session(&token, None)?;
     let mut seen = HashSet::new();
     grants.insert(
         token,
@@ -793,6 +800,22 @@ fn read_line_bounded(reader: impl std::io::Read, max: usize) -> Result<String, S
     String::from_utf8(bytes).map_err(|_| "Browser request must be UTF-8".into())
 }
 
+#[cfg(all(unix, any(target_os = "macos", test)))]
+fn desktop_peer_connected(stream: &std::os::unix::net::UnixStream) -> bool {
+    use std::os::fd::AsRawFd;
+    let mut byte = 0_u8;
+    let result = unsafe {
+        libc::recv(
+            stream.as_raw_fd(),
+            std::ptr::from_mut(&mut byte).cast(),
+            1,
+            libc::MSG_PEEK | libc::MSG_DONTWAIT,
+        )
+    };
+    result > 0
+        || (result < 0 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::WouldBlock)
+}
+
 #[cfg(target_os = "macos")]
 fn serve_connection(
     server: &Arc<Server>,
@@ -809,7 +832,7 @@ fn serve_connection(
         let line = read_line_bounded(&stream, MAX_REQUEST_BYTES)?;
         let envelope: Envelope =
             serde_json::from_str(&line).map_err(|_| "Invalid browser request".to_string())?;
-        execute(server, envelope)
+        execute(server, envelope, &|| desktop_peer_connected(&stream))
     })();
     let response = match result {
         Ok(value) => json!({"ok":true,"result":value}),
@@ -825,7 +848,11 @@ fn serve_connection(
         .map_err(|error| error.to_string())
 }
 
-fn execute(server: &Arc<Server>, envelope: Envelope) -> Result<Value, String> {
+fn execute(
+    server: &Arc<Server>,
+    envelope: Envelope,
+    connected: &dyn Fn() -> bool,
+) -> Result<Value, String> {
     let (grant, _request_lease) = {
         // Same lock order as bind/sleep. A revoked grant cannot leave a gap
         // between successful authorization and protecting the active request.
@@ -846,7 +873,7 @@ fn execute(server: &Arc<Server>, envelope: Envelope) -> Result<Value, String> {
         .ok_or("The owning app window is closed")?;
     match envelope.request {
         Request::Desktop { request } => {
-            crate::desktop_control::execute(&server.app, &envelope.token, request)
+            crate::desktop_control::execute(&server.app, &envelope.token, request, connected)
         }
         Request::List {} => {
             Ok(json!({"tabs": crate::browser::agent_tab_states(&caller, &grant.ids)}))
@@ -1188,7 +1215,7 @@ fn browser_cli_request(input: &str, desktop: bool) -> Result<Value, String> {
     let mut stream = UnixStream::connect(path)
         .map_err(|_| "Aven's browser connection is unavailable; keep the app open".to_string())?;
     stream
-        .set_read_timeout(Some(Duration::from_secs(25)))
+        .set_read_timeout(Some(Duration::from_secs(if desktop { 100 } else { 25 })))
         .map_err(|error| error.to_string())?;
     stream
         .set_write_timeout(Some(Duration::from_secs(2)))
@@ -1796,5 +1823,19 @@ mod tests {
         assert_eq!(read_line_bounded(&b"ok\n"[..], 3).unwrap(), "ok\n");
         assert!(read_line_bounded(&b"toolong\n"[..], 3).is_err());
         assert!(read_line_bounded(&b"ok"[..], 3).is_err());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn desktop_consent_detects_a_disconnected_requester_without_consuming_data() {
+        use std::io::Write;
+        let (server, mut client) = std::os::unix::net::UnixStream::pair().unwrap();
+        assert!(desktop_peer_connected(&server));
+        client.write_all(b"x").unwrap();
+        assert!(desktop_peer_connected(&server));
+        let mut byte = [0];
+        std::io::Read::read_exact(&mut &server, &mut byte).unwrap();
+        assert_eq!(byte, [b'x']);
+        drop(client);
+        assert!(!desktop_peer_connected(&server));
     }
 }

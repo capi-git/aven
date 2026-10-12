@@ -622,3 +622,30 @@ describe("agent browser session connection", () => {
     expect(mocks.invoke).not.toHaveBeenCalled();
   });
 });
+
+it.each(["codex", "claude"])(
+  "binds %s identity on user turns, not passive refreshes",
+  async (harness) => {
+    const api = await import("./agentBrowser");
+    dispose = api.installAgentBrowserHost({
+      surfaces: () => [],
+      open: vi.fn(),
+    });
+    await api.prepareAgentBrowserPrompt("Work", {
+      sessionId: "identity",
+      cwd: "/p",
+      harness,
+      title: "Fix desktop control",
+    });
+    expect(mocks.invoke).toHaveBeenLastCalledWith("browser_agent_bind", {
+      sessionId: "identity",
+      browserIds: [],
+      actor: { harness, title: "Fix desktop control" },
+    });
+    await api.refreshAgentBrowserScopes();
+    expect(mocks.invoke).toHaveBeenLastCalledWith("browser_agent_bind", {
+      sessionId: "identity",
+      browserIds: [],
+    });
+  },
+);

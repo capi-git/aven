@@ -62,6 +62,9 @@ def ensure_not_running():
 
 def port_is_available():
     with socket.socket() as probe:
+        # Match Vite's bind behavior: a closed preview's TIME_WAIT sockets do
+        # not own the port. A live listener still refuses this bind.
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             probe.bind(('127.0.0.1', PORT))
             return True
@@ -103,6 +106,19 @@ def prepare_bundle():
     print(f'Ready: {APP}', flush=True)
 
 
+def prepare_desktop_fixture():
+    """A separate passive AppKit process, built only for the opt-in test."""
+    fixture = ROOT / 'target/debug/Aven Input Fixture.app/Contents'
+    (fixture / 'MacOS').mkdir(parents=True, exist_ok=True)
+    run('xcrun', 'swiftc', ROOT / 'scripts/desktop-input-fixture.swift',
+        '-o', fixture / 'MacOS/aven-input-fixture')
+    (fixture / 'Info.plist').write_bytes(plistlib.dumps({
+        'CFBundleIdentifier': 'com.capi.aven.dev.input-fixture',
+        'CFBundleName': 'Aven Input Fixture', 'CFBundleExecutable': 'aven-input-fixture',
+        'CFBundlePackageType': 'APPL', 'LSUIElement': True,
+    }))
+
+
 def launch():
     require(port_is_available(), f'Port {PORT} is in use. Close its owning preview first; no process was stopped.')
     log_path = ROOT / 'target/aven-dev-vite.log'
@@ -113,6 +129,8 @@ def launch():
     child_env.pop('TAURI_CONFIG', None)
     child_env.pop('TAURI_DEV_HOST', None)
     cursor_preview = child_env.pop('AVEN_DEV_CURSOR_PREVIEW', None) == '1'
+    presence_preview = child_env.pop('AVEN_DEV_PRESENCE_PREVIEW', None) == '1'
+    desktop_self_test = child_env.pop('AVEN_DEV_DESKTOP_SELF_TEST', None) == '1'
     browser_layout_trace = child_env.pop('AVEN_DEV_BROWSER_LAYOUT_TRACE', None) == '1'
     with log_path.open('w') as log:
         server = subprocess.Popen(['npm', 'run', 'dev', '--', '--host', '127.0.0.1'],
@@ -143,6 +161,10 @@ def launch():
             # the exact visual-only preview flag, never host control credentials.
             if cursor_preview:
                 launch_args.extend(['--env', 'AVEN_DEV_CURSOR_PREVIEW=1'])
+            if desktop_self_test:
+                launch_args.extend(['--env', 'AVEN_DEV_DESKTOP_SELF_TEST=1'])
+            if presence_preview:
+                launch_args.extend(['--env', 'AVEN_DEV_PRESENCE_PREVIEW=1'])
             if browser_layout_trace:
                 launch_args.extend(['--env', 'AVEN_DEV_BROWSER_LAYOUT_TRACE=1'])
             launch_args.extend(['-a', str(APP)])
@@ -186,6 +208,8 @@ def main():
         if not args.build_only:
             require(port_is_available(), f'Port {PORT} is in use. No process was stopped.')
         prepare_bundle()
+        if os.environ.get('AVEN_DEV_DESKTOP_SELF_TEST') == '1':
+            prepare_desktop_fixture()
         if not args.build_only:
             launch()
 

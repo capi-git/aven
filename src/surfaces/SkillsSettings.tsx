@@ -20,6 +20,7 @@ import {
   openComputerUseSettings,
   requestDesktopPermission,
   setDesktopControlEnabled,
+  setDesktopAskBeforeAppUse,
   type AgentToolStatus,
   type DesktopControlStatus,
 } from "../lib/agentTools";
@@ -282,6 +283,25 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
               ? "Desktop control requires the Aven app on macOS."
               : "Let agents see and use apps on this Mac when you ask. Off by default."}
           </p>
+          {desktop?.enabled ? (
+            <div className="skills-tool-heading">
+              <div className="skills-permission-copy">
+                <strong>Ask before an agent uses an app</strong>
+                <span>
+                  Allow each app for this chat. Taking your mouse or keyboard
+                  always asks first.
+                </span>
+              </div>
+              <Toggle
+                label="Ask before an agent uses an app"
+                on={desktop.askBeforeAppUse ?? true}
+                disabled={toolsLoading || desktopBusy}
+                onChange={(ask) =>
+                  void updateDesktop(() => setDesktopAskBeforeAppUse(ask))
+                }
+              />
+            </div>
+          ) : null}
           {missingPermissions.length ? (
             <p className="skills-note">
               Choose Allow to request macOS permissions, with Aven listed by

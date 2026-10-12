@@ -48,6 +48,7 @@ describe("managed browser steering", () => {
       expect(mocks.prepare).toHaveBeenNthCalledWith(1, first.text, {
         sessionId: first.sessionId,
         cwd: first.cwd,
+        harness: first.harness,
       });
       expect(mocks.steer).toHaveBeenNthCalledWith(2, {
         ...second,

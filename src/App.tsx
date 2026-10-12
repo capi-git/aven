@@ -5750,6 +5750,8 @@ export default function App({
             const browserPrompt = rawCommand
               ? prompt
               : await prepareAgentBrowserPrompt(prompt, {
+                  harness: current.harness,
+                  title: current.title,
                   sessionId,
                   cwd: workCwd,
                 });
@@ -6152,6 +6154,8 @@ export default function App({
           const browserPrompt = rawCommand
             ? prompt
             : await prepareAgentBrowserPrompt(prompt, {
+                harness: current.harness,
+                title: current.title,
                 sessionId,
                 cwd: workCwd,
               });

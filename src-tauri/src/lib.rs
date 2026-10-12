@@ -30,6 +30,7 @@ mod control;
 pub mod control_cli;
 mod cursor_store;
 mod desktop_control;
+mod desktop_presence;
 mod display_rate;
 mod fs;
 mod git;
@@ -446,6 +447,7 @@ pub fn run() {
             agent_tools::agent_tool_status,
             desktop_control::desktop_control_status,
             desktop_control::desktop_control_set_enabled,
+            desktop_control::desktop_control_set_ask_before_app_use,
             desktop_control::desktop_control_request_permission,
             agent_tools::open_computer_use_settings,
             search::search_project,

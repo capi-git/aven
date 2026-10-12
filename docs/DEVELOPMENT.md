@@ -66,3 +66,33 @@ MCP OAuth has a separate credential store. Ordinary macOS keyring credentials re
 Repository instructions live in [AGENTS.md](../AGENTS.md). Keep changes scoped, preserve other tasks' work, and use the supplied in-app browser connection for ordinary previews. Skills are reusable instructions, not permission grants. Enable Aven's built-in desktop control in **Settings → Skills & tools**; it is off by default. Listing windows and taking screenshots require Screen Recording; input and app activation require both Screen Recording and Accessibility, granted by the user in macOS. The separate Aven Dev app needs its own access; ad-hoc native rebuilds may reset those grants. Agents use the Aven executable's `--aven-desktop` command over the task's scoped browser connection, and their actions never trigger permission prompts. Browser inspection does not require enabling desktop control.
 
 See [AGENT-TOOLS.md](AGENT-TOOLS.md) for automatic browser routing, opening Markdown in the editor, and native desktop control. The guidance is supplied to tasks automatically; the computer-use slash command is optional.
+
+## Desktop presence preview
+
+Run `AVEN_DEV_PRESENCE_PREVIEW=1 AVEN_DEV_CURSOR_PREVIEW=1 npm run dev:app`
+for a visual-only demonstration of the consent, acting and paused states and
+provider pointer. The preview posts no input, creates no desktop grant, and
+changes no permissions. Its labels explicitly identify it as a preview. Release
+builds exclude this trigger; normal agent screenshots suppress both overlays.
+App-directed delivery and shared-input interruption require separate functional
+validation; seeing the preview does not establish input behavior in other apps.
+
+`AVEN_DEV_DESKTOP_SELF_TEST=1 npm run dev:app` runs separate debug-only native
+input checks. It requires Aven Dev's existing enabled switch and both macOS
+permissions; it never enables or requests either. The runner also builds a
+passive **Aven Input Fixture** under this checkout's `target/debug/`. The test
+uses its own disposable window and launches that receiver in the background.
+Both are test-owned; it never targets another running app or posts HID input.
+The receiver exits after the check, with a 45-second failsafe.
+
+The checks cover clicks, scrolls, drag endpoints, accessible buttons, typing,
+Backspace, and release during a deliberately interrupted drag. Consent is
+seeded only for the synthetic test scope and those verified fixture targets.
+A private receipt under Aven Dev's cache directory
+(`aven.desktop-input-self-test.json`) records received events, input results,
+and pointer/foreground stability. Event metadata contains coordinates, event
+kinds and process IDs, never typed content or key names. Keep the keyboard and
+mouse idle during this brief check; user input still interrupts it. Successful
+AppKit fixture delivery is not a promise that every third-party app accepts
+background events. Agents must inspect each result and ask before switching
+to shared-pointer input.
