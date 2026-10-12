@@ -123,7 +123,13 @@ Element actions take the same `windowId`, an `element` index and the `stateId`:
   text field or selects a row. A right click opens its menu. When the app offers no
   equivalent, Aven sends app-directed mouse events at the element's centre.
 - `typeText` inserts text at the caret of the element (or the app's focused field in
-  that window); only if the app rejects that does it fall back to key events.
+  that window); only if the app does not support that does it fall back to key
+  events. When an app accepts the text but shows it a moment later (Chromium and
+  Electron apps such as Slack and Notion), Aven waits briefly and otherwise reports
+  `"confirmed": false` instead of inserting the text a second time. To insert or
+  delete, Aven rewrites a whole value only for short single-line plain fields; text
+  areas, rich editors, web content and text over 200,000 characters are edited with
+  key events at the caret, so nothing is lost or truncated.
 - `setValue` replaces a text, number or true/false value.
 - `pressKey` maps Enter to Confirm or the default button, Escape to Cancel, arrows to
   Increment/Decrement on sliders and steppers, Space to Press, and Backspace/Delete to

@@ -1188,6 +1188,55 @@ pub(crate) fn event_delta(visible: f64, pages: u8, direction: ScrollDirection) -
     }
 }
 
+/// How an app answered an action or a write.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Outcome {
+    Confirmed,
+    /// The app did not answer in time; the change may still have happened.
+    Unconfirmed,
+    /// The app accepted a text write, but the text had not changed when Aven
+    /// last looked (some apps apply it asynchronously).
+    Accepted,
+}
+
+/// What follows a text write.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AfterWrite {
+    Done(Outcome),
+    /// The app does not support this write; the next method may run.
+    Fallback,
+}
+
+/// `written` is the app's answer to a text write (None when it does not
+/// support it). `changed` polls for the change. A write the app accepted or
+/// may have applied is never followed by another method, which could
+/// duplicate or garble text; only an unsupported write falls back.
+pub(crate) fn after_write(written: Option<Outcome>, changed: impl FnOnce() -> bool) -> AfterWrite {
+    match written {
+        None => AfterWrite::Fallback,
+        Some(Outcome::Confirmed) if changed() => AfterWrite::Done(Outcome::Confirmed),
+        Some(Outcome::Confirmed | Outcome::Accepted) => AfterWrite::Done(Outcome::Accepted),
+        Some(Outcome::Unconfirmed) => AfterWrite::Done(Outcome::Unconfirmed),
+    }
+}
+
+/// Longest text, in UTF-16 units, that Aven reads whole to edit around a
+/// selection. Longer text is never read for an edit.
+pub(crate) const REWRITE_LIMIT: usize = 200_000;
+/// Single-line, plain-text inputs whose whole value can be rewritten safely.
+const REWRITE_ROLES: &[&str] = &["AXTextField", "AXSearchField", "AXComboBox"];
+
+/// Rewriting a whole value to insert or delete at the caret is only safe for
+/// a short, plain, single-line input outside web content. Text areas, rich
+/// editors, web content and long text would lose formatting or content, so
+/// they use key events at the caret instead.
+pub(crate) fn rewrite_allowed(info: &NodeInfo, length: Option<usize>, in_web: bool) -> bool {
+    !info.is_secure()
+        && !in_web
+        && REWRITE_ROLES.contains(&info.role.as_str())
+        && length.is_some_and(|length| length <= REWRITE_LIMIT)
+}
+
 pub(crate) fn utf16_len(text: &str) -> usize {
     text.encode_utf16().count()
 }
@@ -2268,6 +2317,69 @@ mod tests {
         assert_eq!(event_delta(300.0, 1, ScrollDirection::Left), (-270, 0));
         assert_eq!(event_delta(5000.0, 10, ScrollDirection::Up), (0, -2000));
         assert_eq!(ScrollDirection::Right.page_action(), "AXScrollRightByPage");
+    }
+
+    #[test]
+    fn accepted_writes_are_never_followed_by_another_method() {
+        // Confirmed and visible.
+        assert_eq!(
+            after_write(Some(Outcome::Confirmed), || true),
+            AfterWrite::Done(Outcome::Confirmed)
+        );
+        // Confirmed but not yet visible (Chromium applies writes later):
+        // reported unconfirmed, no fallback.
+        assert_eq!(
+            after_write(Some(Outcome::Confirmed), || false),
+            AfterWrite::Done(Outcome::Accepted)
+        );
+        // A timed-out write may still apply; it is not polled or repeated.
+        let mut polled = false;
+        assert_eq!(
+            after_write(Some(Outcome::Unconfirmed), || {
+                polled = true;
+                true
+            }),
+            AfterWrite::Done(Outcome::Unconfirmed)
+        );
+        assert!(!polled);
+        // Only an unsupported write falls back.
+        assert_eq!(after_write(None, || unreachable!()), AfterWrite::Fallback);
+        // An app that applies the write asynchronously is seen by polling.
+        let mut reads = 0;
+        let seen = settle(10, Duration::ZERO, || {
+            reads += 1;
+            reads >= 4
+        });
+        assert_eq!(
+            after_write(Some(Outcome::Confirmed), || seen),
+            AfterWrite::Done(Outcome::Confirmed)
+        );
+    }
+
+    #[test]
+    fn whole_value_rewrites_are_limited_to_short_plain_inputs() {
+        let field = info("AXTextField", None);
+        assert!(rewrite_allowed(&field, Some(10), false));
+        assert!(rewrite_allowed(&field, Some(REWRITE_LIMIT), false));
+        assert!(rewrite_allowed(
+            &info("AXSearchField", None),
+            Some(0),
+            false
+        ));
+        // Long or unmeasured text, rich or multi-line editors, web content and
+        // secure fields are never rewritten.
+        assert!(!rewrite_allowed(&field, Some(REWRITE_LIMIT + 1), false));
+        assert!(!rewrite_allowed(&field, None, false));
+        assert!(!rewrite_allowed(&field, Some(10), true));
+        for role in ["AXTextArea", "AXGroup", "AXWebArea", SECURE_TEXT_FIELD] {
+            assert!(
+                !rewrite_allowed(&info(role, None), Some(10), false),
+                "{role}"
+            );
+        }
+        let mut secure = field.clone();
+        secure.subrole = Some(SECURE_TEXT_FIELD.into());
+        assert!(!rewrite_allowed(&secure, Some(10), false));
     }
 
     #[test]

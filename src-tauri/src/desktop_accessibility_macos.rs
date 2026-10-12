@@ -8,7 +8,8 @@
 //! independent `accessibility` module; this file only reads and writes AX.
 use super::*;
 use crate::desktop_control::accessibility::{
-    self as rules, ClickStep, KeyStep, KeyTarget, NodeInfo, NodeValue, ScrollDirection,
+    self as rules, AfterWrite, ClickStep, KeyStep, KeyTarget, NodeInfo, NodeValue, Outcome,
+    ScrollDirection,
 };
 
 #[link(name = "ApplicationServices", kind = "framework")]
@@ -33,6 +34,7 @@ unsafe extern "C" {
     fn CFBooleanGetTypeID() -> usize;
     fn CFBooleanGetValue(value: Cf) -> bool;
     fn CFNumberCreate(allocator: Cf, kind: isize, value: *const c_void) -> Cf;
+    fn CFStringGetLength(string: Cf) -> isize;
     static kCFBooleanFalse: Cf;
 }
 
@@ -72,6 +74,9 @@ const NO_WINDOW: &str =
 const DISABLED: &str = "That control is disabled. Call appState again after the app enables it.";
 const NO_FRAME: &str = "That element has no on-screen position, so there is no fallback for it. Call appState again or choose another element.";
 const UNCONFIRMED: &str = "The app did not confirm in time; the action may have completed (for example, a menu may be open). Call appState before acting again.";
+const ACCEPTED: &str = "The app accepted the text but had not shown the change yet; some apps apply it a moment later. Call appState to check before typing again; never repeat the text blindly.";
+/// Read-backs after an accepted text write (about 300 ms in total).
+const WRITE_POLLS: usize = 10;
 
 const ATTRIBUTES: &[&str] = &[
     "AXRole",
@@ -331,10 +336,45 @@ unsafe fn read_value(element: Cf, deadline: Instant) -> Option<NodeValue> {
     }
 }
 
-/// The full, current text of a non-secure element (for edits), bounded.
+/// The full, current text of a non-secure element (for edits). Text longer
+/// than the rewrite limit is never read: a truncated copy must never be
+/// written back or used to compute an edit.
 unsafe fn full_text(element: Cf, deadline: Instant) -> Option<String> {
     let value = copy(element, "AXValue", deadline)?;
-    string_of(value.0, 200_000)
+    if CFGetTypeID(value.0) != CFStringGetTypeID()
+        || usize::try_from(CFStringGetLength(value.0)).ok()? > rules::REWRITE_LIMIT
+    {
+        return None;
+    }
+    string_of(value.0, usize::MAX)
+}
+
+/// The exact length of an element's text in UTF-16 units, without reading it.
+unsafe fn text_length(element: Cf, deadline: Instant) -> Option<usize> {
+    let value = copy(element, "AXValue", deadline)?;
+    if CFGetTypeID(value.0) != CFStringGetTypeID() {
+        return None;
+    }
+    usize::try_from(CFStringGetLength(value.0)).ok()
+}
+
+/// Whether an element lies inside web content (a few ancestors up).
+unsafe fn in_web_area(element: Cf, deadline: Instant) -> bool {
+    let mut current = copy(element, "AXParent", deadline).and_then(|parent| Element::owned(parent));
+    for _ in 0..12 {
+        let Some(node) = current else {
+            return false;
+        };
+        let role = copy(node.0, "AXRole", deadline).and_then(|role| string_of(role.0, 64));
+        match role.as_deref() {
+            Some("AXWebArea") => return true,
+            Some("AXWindow") | None => return false,
+            _ => {}
+        }
+        current = copy(node.0, "AXParent", deadline).and_then(|parent| Element::owned(parent));
+    }
+    // Too deep to tell: treat as web content, which is never rewritten.
+    true
 }
 
 unsafe fn element_array(array: &OwnedCf, limit: usize) -> Vec<Element> {
@@ -856,18 +896,27 @@ pub(super) enum Next {
 /// a changed target, or a revoked chat.
 pub(super) type Gate<'a> = &'a dyn Fn() -> Result<(), String>;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Outcome {
-    Confirmed,
-    Unconfirmed,
-}
-
 fn result_json(mut value: Value, outcome: Outcome) -> Value {
     value["confirmed"] = json!(outcome == Outcome::Confirmed);
-    if outcome == Outcome::Unconfirmed {
-        value["note"] = json!(UNCONFIRMED);
+    match outcome {
+        Outcome::Confirmed => {}
+        Outcome::Unconfirmed => value["note"] = json!(UNCONFIRMED),
+        Outcome::Accepted => value["note"] = json!(ACCEPTED),
     }
     value
+}
+
+/// Polls an element's text for a change after a write it accepted. Secure
+/// text is never read, so its writes are taken as applied.
+unsafe fn text_changed(
+    element: &Element,
+    secure: bool,
+    changed: impl Fn(Option<&str>) -> bool,
+) -> bool {
+    secure
+        || rules::settle(WRITE_POLLS, POLL_INTERVAL, || {
+            changed(full_text(element.0, deadline()).as_deref())
+        })
 }
 
 /// Performs an action. Ok(None) means the element does not support it, so
@@ -1113,27 +1162,37 @@ pub(super) fn set_value(
                 let before = (!secure)
                     .then(|| full_text(element.0, deadline()))
                     .flatten();
-                let mut outcome = set_text(element, "AXValue", text, gate)?;
-                let applied = |outcome: Option<Outcome>| {
-                    outcome.is_some()
-                        && (secure
-                            || full_text(element.0, deadline()).as_deref() != before.as_deref()
-                            || before.as_deref() == Some(text.as_str()))
+                let changed = || {
+                    text_changed(element, secure, |now| {
+                        now != before.as_deref() || now == Some(text.as_str())
+                    })
                 };
-                if !applied(outcome) {
+                match rules::after_write(set_text(element, "AXValue", text, gate)?, changed) {
+                    AfterWrite::Done(outcome) => Some(outcome),
                     // Some editors only accept replacing their selection.
-                    let length = before.as_deref().map_or(0, rules::utf16_len);
-                    outcome = None;
-                    if settable(element, "AXSelectedText")
-                        && set_range(element, 0, length, gate)?.is_some()
-                    {
-                        outcome = set_text(element, "AXSelectedText", text, gate)?;
-                    }
-                    if !applied(outcome) {
-                        return Err("That element did not accept a text value. Try typeText, or click it and observe again.".into());
+                    // That needs the exact length; secure text is never measured.
+                    AfterWrite::Fallback => {
+                        let length = (!secure)
+                            .then(|| text_length(element.0, deadline()))
+                            .flatten();
+                        let replaced = match length {
+                            Some(length)
+                                if settable(element, "AXSelectedText")
+                                    && set_range(element, 0, length, gate)?.is_some() =>
+                            {
+                                rules::after_write(
+                                    set_text(element, "AXSelectedText", text, gate)?,
+                                    changed,
+                                )
+                            }
+                            _ => AfterWrite::Fallback,
+                        };
+                        match replaced {
+                            AfterWrite::Done(outcome) => Some(outcome),
+                            AfterWrite::Fallback => return Err("That element did not accept a text value. Try typeText, or click it and observe again.".into()),
+                        }
                     }
                 }
-                outcome
             }
             ElementValue::Number(number) => set_number(element, *number, gate)?,
             ElementValue::Bool(flag) => {
@@ -1153,7 +1212,9 @@ pub(super) fn set_value(
 }
 
 /// Inserts at the caret: replace the selection through AXSelectedText, else
-/// rewrite AXValue around the selection. None when neither applied.
+/// (only for short plain single-line inputs) rewrite AXValue around the
+/// selection. None when neither is supported, so key events at the caret are
+/// the remaining way. A write the app accepted is never repeated.
 unsafe fn insert(
     located: &Located,
     text: &str,
@@ -1165,27 +1226,35 @@ unsafe fn insert(
         .then(|| full_text(element.0, deadline()))
         .flatten();
     let range = selection(element, deadline());
-    let changed = || secure || full_text(element.0, deadline()) != before;
-    if let Some(outcome) = set_text(element, "AXSelectedText", text, gate)? {
-        // An unconfirmed attempt may still apply: never insert a second time.
-        if outcome == Outcome::Unconfirmed || changed() {
-            return Ok(Some(("AXSelectedText", outcome)));
-        }
+    let changed = || text_changed(element, secure, |now| now != before.as_deref());
+    if let AfterWrite::Done(outcome) =
+        rules::after_write(set_text(element, "AXSelectedText", text, gate)?, changed)
+    {
+        return Ok(Some(("AXSelectedText", outcome)));
     }
-    // Rewriting the whole value from the original text inserts exactly once.
-    let (Some(before), Some((location, length))) = (before.as_deref(), range) else {
+    // Rewriting the whole value from the original text inserts exactly once,
+    // but only where nothing else (formatting, text past the read limit)
+    // could be lost.
+    let (Some(before_text), Some((location, length))) = (before.as_deref(), range) else {
         return Ok(None);
     };
-    let Some((value, caret)) = rules::splice_utf16(before, location, length, text) else {
+    if !rules::rewrite_allowed(
+        &located.info,
+        text_length(element.0, deadline()),
+        in_web_area(element.0, deadline()),
+    ) {
+        return Ok(None);
+    }
+    let Some((value, caret)) = rules::splice_utf16(before_text, location, length, text) else {
         return Ok(None);
     };
-    match set_text(element, "AXValue", &value, gate)? {
-        Some(outcome) if outcome == Outcome::Unconfirmed || changed() => {
+    match rules::after_write(set_text(element, "AXValue", &value, gate)?, changed) {
+        AfterWrite::Done(outcome) => {
             // Best effort: put the caret after the inserted text.
             let _ = set_range(element, caret, 0, gate);
             Ok(Some(("AXValue", outcome)))
         }
-        _ => Ok(None),
+        AfterWrite::Fallback => Ok(None),
     }
 }
 
@@ -1233,22 +1302,30 @@ unsafe fn delete(located: &Located, backward: bool, gate: Gate) -> Result<Option
             None => return Ok(Some(Outcome::Confirmed)),
         }
     };
+    let changed = || text_changed(element, false, |now| now != Some(before.as_str()));
     if set_range(element, location, length, gate)?.is_some() {
-        if let Some(outcome) = set_text(element, "AXSelectedText", "", gate)? {
-            if full_text(element.0, deadline()).as_deref() != Some(before.as_str()) {
-                return Ok(Some(outcome));
-            }
+        if let AfterWrite::Done(outcome) =
+            rules::after_write(set_text(element, "AXSelectedText", "", gate)?, changed)
+        {
+            return Ok(Some(outcome));
         }
+    }
+    if !rules::rewrite_allowed(
+        &located.info,
+        Some(rules::utf16_len(&before)),
+        in_web_area(element.0, deadline()),
+    ) {
+        return Ok(None);
     }
     let Some((value, caret)) = rules::splice_utf16(&before, location, length, "") else {
         return Ok(None);
     };
-    match set_text(element, "AXValue", &value, gate)? {
-        Some(outcome) => {
+    match rules::after_write(set_text(element, "AXValue", &value, gate)?, changed) {
+        AfterWrite::Done(outcome) => {
             let _ = set_range(element, caret, 0, gate);
             Ok(Some(outcome))
         }
-        None => Ok(None),
+        AfterWrite::Fallback => Ok(None),
     }
 }
 

@@ -1294,7 +1294,10 @@ the pointer, activating the app or needing it frontmost. click presses the
 control (or focuses a text field, selects a row) and otherwise falls back to
 app-directed mouse events at its centre; button right shows its menu.
 typeText inserts text at the element's (or the app's focused) caret, falling
-back to key events only if the app rejects it. setValue replaces a value
+back to key events only if the app does not support the insertion. An
+insertion the app accepted is never repeated: when its text has not changed
+yet, the result is "confirmed": false; call appState before typing again.
+Long, multi-line, rich or web text is never rewritten as a whole. setValue replaces a value
 (text, number or true/false). pressKey maps Enter, Escape, Space, arrows on
 sliders and Backspace/Delete in text to equivalent actions, else sends keys;
 with element, keys (and typeText's key fallback) are sent only after that
