@@ -146,7 +146,11 @@ message) also record the text around them, so a list that changed underneath an
 index (a new message at the top) is refused instead of acting on a different row.
 Elements that cannot be told apart at all are listed in `ambiguous` and are never
 acted on by index. A labelled, unique element that was rebuilt in place is found
-again by its position and label. Each result names the `method` used;
+again by its position and label. Web pages in Safari, Mail and other WebKit apps
+can be served by a separate WebKit WebContent process; such elements are accepted
+only when they lie in the target window and macOS attributes that process to the
+app. Any other process's element is refused with "That control belongs to another
+process", so agents switch to coordinates instead of re-querying in a loop. Each result names the `method` used;
 `"confirmed": false` means the app did not confirm in time (a menu may be open) or
 Aven had to use events.
 

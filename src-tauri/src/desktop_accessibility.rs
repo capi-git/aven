@@ -1048,6 +1048,49 @@ pub(crate) fn settle(retries: usize, interval: Duration, mut check: impl FnMut()
     false
 }
 
+pub(crate) const OTHER_PROCESS: &str = "That control belongs to another process, so Aven will not act on it by index. Use x and y from appState's image for it instead.";
+
+/// What is known about a process that serves an element on the app's behalf.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Helper {
+    pub executable: Option<String>,
+    /// The process macOS holds responsible for it, when it can say.
+    pub responsible: Option<i32>,
+    /// Whether the element's window is the consented target window.
+    pub in_window: bool,
+}
+
+/// WebKit's WebContent service, which renders web pages for Safari, Mail and
+/// apps embedding WKWebView, and serves their accessibility elements.
+fn is_webkit_content(executable: &str) -> bool {
+    let name = executable.rsplit('/').next().unwrap_or_default();
+    name.starts_with("com.apple.WebKit.WebContent")
+        && executable.contains("/WebKit.framework/")
+        && executable.contains("/XPCServices/com.apple.WebKit.WebContent")
+}
+
+/// An element normally belongs to the target app's own process. The only
+/// exception is web content: WebKit serves it from a WebContent process. It
+/// is accepted only when that element's window is the consented window, the
+/// process is a WebKit WebContent service, and macOS (when it can say) holds
+/// the target app responsible for it. Anything else is another process.
+pub(crate) fn owner_allowed(
+    app: i32,
+    owner: i32,
+    helper: impl FnOnce() -> Helper,
+) -> Result<(), &'static str> {
+    if owner == app {
+        return Ok(());
+    }
+    let helper = helper();
+    let webkit = helper.executable.as_deref().is_some_and(is_webkit_content);
+    if webkit && helper.in_window && helper.responsible.is_none_or(|pid| pid == app) {
+        Ok(())
+    } else {
+        Err(OTHER_PROCESS)
+    }
+}
+
 pub(crate) const UNFOCUSED: &str = "Aven could not confirm keyboard focus on that element without bringing its app forward, so no keys were sent. Click the element, call appState again and retry, or use setValue.";
 
 /// App-directed key events go to whatever has focus in the app. For an
@@ -2145,6 +2188,45 @@ mod tests {
             false
         }));
         assert_eq!(calls, 5);
+    }
+
+    #[test]
+    fn web_content_processes_are_accepted_only_for_the_apps_own_window() {
+        const WEBCONTENT: &str = "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent";
+        let helper = |executable: &str, responsible: Option<i32>, in_window: bool| {
+            let executable = executable.to_owned();
+            move || Helper {
+                executable: Some(executable),
+                responsible,
+                in_window,
+            }
+        };
+        // The app's own elements need nothing more.
+        assert!(owner_allowed(10, 10, || unreachable!()).is_ok());
+        assert!(owner_allowed(10, 20, helper(WEBCONTENT, Some(10), true)).is_ok());
+        assert!(owner_allowed(10, 20, helper(WEBCONTENT, None, true)).is_ok());
+        let staged = "/Library/Apple/System/Library/StagedFrameworks/Safari/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent";
+        assert!(owner_allowed(10, 20, helper(staged, Some(10), true)).is_ok());
+        // Another app's web content, a window that is not the target, or any
+        // other process is refused with its own message, not "State changed".
+        for refused in [
+            helper(WEBCONTENT, Some(11), true),
+            helper(WEBCONTENT, Some(10), false),
+            helper("/Applications/Other.app/Contents/MacOS/Other", Some(10), true),
+            helper("/tmp/com.apple.WebKit.WebContent", Some(10), true),
+            helper(
+                "/tmp/WebKit.framework/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+                Some(10),
+                true,
+            ),
+        ] {
+            assert_eq!(owner_allowed(10, 20, refused).unwrap_err(), OTHER_PROCESS);
+        }
+        assert_eq!(
+            owner_allowed(10, 20, Helper::default).unwrap_err(),
+            OTHER_PROCESS
+        );
+        assert!(!OTHER_PROCESS.contains(STALE));
     }
 
     #[test]

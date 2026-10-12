@@ -1285,8 +1285,10 @@ element with the same windowId (and stateId when you have it). If the element's
 role, label or place in the window changed, or different content now surrounds
 a repeated or unlabelled element (such as an untitled row), the action fails
 with "State changed; call appState again". Indexes listed in "ambiguous" look
-like other controls and cannot be used; use coordinates for them. Re-query
-instead of guessing.
+like other controls and cannot be used; use coordinates for them. A control
+served by another process (other than the app's own WebKit web content) fails
+with "belongs to another process"; use coordinates. Re-query instead of
+guessing.
 Element actions are background actions: they use Accessibility without moving
 the pointer, activating the app or needing it frontmost. click presses the
 control (or focuses a text field, selects a row) and otherwise falls back to

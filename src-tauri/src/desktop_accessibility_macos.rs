@@ -494,6 +494,51 @@ fn executable(pid: i32) -> Option<String> {
     String::from_utf8(path[..length].to_vec()).ok()
 }
 
+type ResponsibleFor = unsafe extern "C" fn(i32) -> i32;
+
+/// The process macOS holds responsible for another (the app for its XPC
+/// services). Looked up at run time; None when unavailable.
+fn responsible_pid(pid: i32) -> Option<i32> {
+    static ADDRESS: OnceLock<usize> = OnceLock::new();
+    let address = *ADDRESS.get_or_init(|| unsafe {
+        libc::dlsym(
+            libc::RTLD_DEFAULT,
+            c"responsibility_get_pid_responsible_for_pid".as_ptr(),
+        ) as usize
+    });
+    if address == 0 {
+        return None;
+    }
+    let function = unsafe { std::mem::transmute::<usize, ResponsibleFor>(address) };
+    let responsible = unsafe { function(pid) };
+    (responsible > 0).then_some(responsible)
+}
+
+/// Whether an element's window (or top-level element) is the target window
+/// of the target app.
+unsafe fn in_window(
+    element: &Element,
+    pid: i32,
+    window_id: u32,
+    bounds: Region,
+    deadline: Instant,
+) -> bool {
+    let window = copy(element.0, "AXWindow", deadline)
+        .or_else(|| copy(element.0, "AXTopLevelUIElement", deadline))
+        .and_then(|window| Element::owned(window));
+    let Some(window) = window else {
+        return false;
+    };
+    let mut owner = 0;
+    if AXUIElementGetPid(window.0, &mut owner) != 0 || owner != pid {
+        return false;
+    }
+    match window_number(window.0) {
+        Some(id) => id == window_id,
+        None => element_frame(window.0, deadline) == Some(bounds),
+    }
+}
+
 fn engine(executable: &str) -> Option<rules::Engine> {
     let bundle = &executable[..executable.find(".app/Contents/")? + 4];
     let names: Vec<String> = std::fs::read_dir(Path::new(bundle).join("Contents/Frameworks"))
@@ -746,9 +791,14 @@ pub(super) fn locate(
         let mut source = Live::new(LOOKUP_BUDGET);
         let (element, info, reresolved) = rules::resolve(&mut source, &roots, &stored, shift)?;
         let mut owner = 0;
-        if AXUIElementGetPid(element.0, &mut owner) != 0 || owner != pid {
+        if AXUIElementGetPid(element.0, &mut owner) != 0 {
             return Err(rules::STALE.into());
         }
+        rules::owner_allowed(pid, owner, || rules::Helper {
+            executable: executable(owner),
+            responsible: responsible_pid(owner),
+            in_window: in_window(&element, pid, window_id, window, source.deadline),
+        })?;
         Ok(Located {
             element,
             info,

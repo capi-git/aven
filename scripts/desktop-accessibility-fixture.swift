@@ -5,6 +5,7 @@
 // Build: xcrun swiftc scripts/desktop-accessibility-fixture.swift -o <out>
 // Run:   <out> <receipt.json> <nonce>
 import AppKit
+import WebKit
 
 let receipt = URL(fileURLWithPath: CommandLine.arguments[1])
 let nonce = CommandLine.arguments[2]
@@ -14,6 +15,8 @@ var presses = 0
 var menuOpened = 0
 var menuChoice = ""
 var inserted = 0
+var webClicks = 0
+var web: WKWebView!
 var activeEver = false
 var keyEver = false
 var window: NSWindow!
@@ -45,6 +48,15 @@ final class Target: NSObject, NSMenuDelegate, NSTableViewDataSource {
 }
 
 let target = Target()
+
+// A local page with one button; WebKit serves its elements from a separate
+// WebContent process. It loads no network content.
+final class WebHandler: NSObject, WKScriptMessageHandler {
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        webClicks += 1
+    }
+}
+let webHandler = WebHandler()
 
 func label(_ text: String, _ frame: NSRect) -> NSTextField {
     let field = NSTextField(labelWithString: text)
@@ -112,6 +124,14 @@ final class Delegate: NSObject, NSApplicationDelegate {
         view.addSubview(scroll)
         view.addSubview(label("Passive accessibility fixture", NSRect(x: 260, y: 20, width: 240, height: 20)))
 
+        let configuration = WKWebViewConfiguration()
+        configuration.userContentController.add(webHandler, name: "aven")
+        web = WKWebView(frame: NSRect(x: 260, y: 60, width: 240, height: 120), configuration: configuration)
+        web.loadHTMLString(
+            "<html><body><button aria-label=\"Web Go\" onclick=\"window.webkit.messageHandlers.aven.postMessage(1)\">Web Go</button></body></html>",
+            baseURL: nil)
+        view.addSubview(web)
+
         // Visible but behind every other window, and never key or active.
         window.orderBack(nil)
 
@@ -124,7 +144,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
                 "name": name.stringValue, "notes": notes.string,
                 "passwordLength": password.stringValue.count, "slider": slider.doubleValue,
                 "scrollY": scroll.contentView.bounds.origin.y, "selectedRow": table.selectedRow,
-                "menuOpened": menuOpened, "menuChoice": menuChoice, "inserted": inserted,
+                "menuOpened": menuOpened, "menuChoice": menuChoice, "inserted": inserted, "webClicks": webClicks,
                 "activeEver": activeEver, "keyEver": keyEver,
             ]
             if let data = try? JSONSerialization.data(withJSONObject: values) {

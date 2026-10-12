@@ -479,6 +479,49 @@ fn live_fixture_background_element_actions() {
     evidence.insert("menuItem".into(), value);
     fixture.wait("menu choice", |value| value["menuChoice"] == "Beta");
 
+    // 8b. Web content: WebKit serves the page's elements from a WebContent
+    // process. They are accepted for this window and pressed in the
+    // background; WebKit builds its tree on first request, so observe again
+    // until the page's button appears.
+    let mut web_state = observe();
+    for _ in 0..20 {
+        if web_state["elements"]
+            .as_str()
+            .is_some_and(|outline| outline.contains("\"Web Go\""))
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+        web_state = observe();
+    }
+    let web_outline = web_state["elements"].as_str().unwrap().to_owned();
+    eprintln!("with web content:\n{web_outline}");
+    let web_button = index_of(&web_outline, "Button", "\"Web Go\"");
+    let web_button = locate(
+        scope,
+        window_id,
+        web_state["stateId"].as_u64(),
+        web_button,
+        pid,
+        bounds,
+    )
+    .unwrap();
+    let mut owner = 0;
+    unsafe { AXUIElementGetPid(web_button.element.0, &mut owner) };
+    evidence.insert(
+        "webContent".into(),
+        json!({
+            "fixturePid": pid,
+            "elementPid": owner,
+            "elementExecutable": executable(owner),
+            "responsible": responsible_pid(owner),
+        }),
+    );
+    let value = done(click(&web_button, Button::Left, 1, &gate).unwrap());
+    acted();
+    evidence.insert("webClick".into(), value);
+    fixture.wait("web click", |value| value["webClicks"] == 1);
+
     // 9. Pause refuses the next mutation before it reaches the app.
     let target = find_in(&observe(), "Button", "\"Sent\"");
     presence_state::with(|state| state.pause(presence_state::Pause::ByUser));
