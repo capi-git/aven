@@ -289,7 +289,11 @@ export function SurfaceTabs({
               {showEnd ? (
                 <div className="personal-tab-insertion pointer-events-none absolute inset-y-1.5 right-0 z-20 rounded-full" />
               ) : null}
-              <div className="aven-tab-motion" data-sortable-motion>
+              <div
+                className="aven-tab-motion"
+                data-sortable-motion
+                data-sortable-glass
+              >
                 <button
                   ref={(element) => {
                     if (element) tabButtonsRef.current.set(file.id, element);

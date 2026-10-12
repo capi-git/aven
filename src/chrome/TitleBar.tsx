@@ -422,6 +422,7 @@ function TitleTabItem({
           tabIndex={tabStop ? 0 : -1}
           aria-selected={active}
           aria-description={visible && !active ? "Visible in split" : undefined}
+          data-sortable-glass
           data-tauri-drag-region="false"
           className={`personal-title-tab-button relative flex h-7.5 min-w-0 flex-1 cursor-default items-center gap-1.5 self-center rounded-md px-2.5 text-left ${
             closable ? "pr-7" : "pr-2.5"
@@ -641,6 +642,7 @@ function BrowserTitleTabItem({
                 : undefined
           }
           aria-label={label === "Browser" ? "Browser" : `Browser: ${label}`}
+          data-sortable-glass
           title={label}
           className="personal-title-tab-button personal-title-browser-button flex min-w-0 flex-1 items-center px-2.5"
         >
