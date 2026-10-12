@@ -4469,6 +4469,15 @@ export default function App({
         await upsertSession(updated).catch(() => undefined);
         lastPersisted.current.set(sessionId, persistFingerprint(updated));
       }
+      // Rows from other projects and standalone chats are not revalidated by
+      // the current project's refresh; show the new title wherever it is listed.
+      setHistory((current) =>
+        current.map((row) =>
+          row.id === sessionId
+            ? { ...row, title: formatSessionTitle(row.harness, trimmed) }
+            : row,
+        ),
+      );
       void refreshHistory(sidebarCwd);
     },
     [persistSession, refreshHistory, sidebarCwd],

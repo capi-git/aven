@@ -937,6 +937,48 @@ function SidebarComponent({
       : []),
   ];
 
+  // Rows outside the current project's list are plain buttons; they offer
+  // only Rename, which works for any saved chat by its ID.
+  const [plainRowMenu, setPlainRowMenu] = useState<{
+    x: number;
+    y: number;
+    sessionId: string;
+  } | null>(null);
+  const plainRowProps = (sessionId: string) =>
+    onRenameSession
+      ? {
+          onContextMenu: (event: ReactMouseEvent<HTMLButtonElement>) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setPlainRowMenu({
+              x: event.clientX,
+              y: event.clientY,
+              sessionId,
+            });
+          },
+          onKeyDown: (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+            if (event.key !== "F2") return;
+            event.preventDefault();
+            setRenamingSessionId(sessionId);
+          },
+        }
+      : {};
+  const renderPlainRename = (session: SessionSummary) =>
+    renamingSessionId === session.id && onRenameSession ? (
+      <SessionRenameRow
+        key={session.id}
+        session={session}
+        isActive={session.id === activeSessionId}
+        busy={busySessionIds.has(session.id)}
+        needsApproval={approvalSessionIds.has(session.id)}
+        onCommit={(title) => {
+          onRenameSession(session.id, title);
+          setRenamingSessionId(null);
+        }}
+        onCancel={() => setRenamingSessionId(null)}
+      />
+    ) : null;
+
   const onSessionContextMenu = (
     sessionId: string,
     e: ReactMouseEvent<HTMLButtonElement>,
@@ -1670,27 +1712,30 @@ function SidebarComponent({
                                 onSelect={() => onSelectSession(session.id)}
                               />
                             ) : (
-                              <button
-                                key={session.id}
-                                type="button"
-                                className="personal-other-task personal-task-card"
-                                onClick={() => onSelectSession(session.id)}
-                              >
-                                {busySessionIds.has(session.id) ? (
-                                  <span
-                                    className="personal-task-working-dot"
-                                    aria-label="Session running"
-                                  />
-                                ) : (
-                                  <span className="personal-task-indent" />
-                                )}
-                                <span className="personal-task-title">
-                                  {sessionDisplayTitle(
-                                    session.title,
-                                    session.harness,
+                              (renderPlainRename(session) ?? (
+                                <button
+                                  key={session.id}
+                                  type="button"
+                                  className="personal-other-task personal-task-card"
+                                  onClick={() => onSelectSession(session.id)}
+                                  {...plainRowProps(session.id)}
+                                >
+                                  {busySessionIds.has(session.id) ? (
+                                    <span
+                                      className="personal-task-working-dot"
+                                      aria-label="Session running"
+                                    />
+                                  ) : (
+                                    <span className="personal-task-indent" />
                                   )}
-                                </span>
-                              </button>
+                                  <span className="personal-task-title">
+                                    {sessionDisplayTitle(
+                                      session.title,
+                                      session.harness,
+                                    )}
+                                  </span>
+                                </button>
+                              ))
                             ),
                           )}
                         {standaloneSessions.filter(
@@ -1874,44 +1919,47 @@ function SidebarComponent({
                                   }
                                 />
                               ) : (
-                                <button
-                                  key={session.id}
-                                  type="button"
-                                  className="personal-other-task personal-task-card"
-                                  onClick={() =>
-                                    onSelectProjectSession?.(
-                                      project.path,
-                                      session.id,
-                                    )
-                                  }
-                                  disabled={!onSelectProjectSession}
-                                  aria-current={
-                                    session.id === activeSessionId
-                                      ? "true"
-                                      : undefined
-                                  }
-                                >
-                                  {busySessionIds.has(session.id) ? (
-                                    <span
-                                      className="personal-task-working-dot"
-                                      aria-label="Task running"
-                                    />
-                                  ) : (
-                                    <span className="personal-task-indent" />
-                                  )}
-                                  <span className="personal-task-title">
-                                    {sessionDisplayTitle(
-                                      session.title,
-                                      session.harness,
+                                (renderPlainRename(session) ?? (
+                                  <button
+                                    key={session.id}
+                                    type="button"
+                                    className="personal-other-task personal-task-card"
+                                    onClick={() =>
+                                      onSelectProjectSession?.(
+                                        project.path,
+                                        session.id,
+                                      )
+                                    }
+                                    disabled={!onSelectProjectSession}
+                                    {...plainRowProps(session.id)}
+                                    aria-current={
+                                      session.id === activeSessionId
+                                        ? "true"
+                                        : undefined
+                                    }
+                                  >
+                                    {busySessionIds.has(session.id) ? (
+                                      <span
+                                        className="personal-task-working-dot"
+                                        aria-label="Task running"
+                                      />
+                                    ) : (
+                                      <span className="personal-task-indent" />
                                     )}
-                                  </span>
-                                  {session.pinned ? (
-                                    <Pin className="size-2.5 shrink-0 opacity-55" />
-                                  ) : null}
-                                  <span className="personal-task-status">
-                                    {formatRelative(session.updatedAt, now)}
-                                  </span>
-                                </button>
+                                    <span className="personal-task-title">
+                                      {sessionDisplayTitle(
+                                        session.title,
+                                        session.harness,
+                                      )}
+                                    </span>
+                                    {session.pinned ? (
+                                      <Pin className="size-2.5 shrink-0 opacity-55" />
+                                    ) : null}
+                                    <span className="personal-task-status">
+                                      {formatRelative(session.updatedAt, now)}
+                                    </span>
+                                  </button>
+                                ))
                               ),
                             )}
                           {otherSessions.length > SESSION_LIST_PAGE ? (
@@ -1962,6 +2010,22 @@ function SidebarComponent({
           />
         ) : null}
       </div>
+      {plainRowMenu && onRenameSession ? (
+        <ExplorerMenu
+          x={plainRowMenu.x}
+          y={plainRowMenu.y}
+          items={[
+            { kind: "item", id: "rename", label: "Rename", shortcut: "F2" },
+          ]}
+          ariaLabel="Session actions"
+          onClose={() => setPlainRowMenu(null)}
+          onPick={(id) => {
+            const sessionId = plainRowMenu.sessionId;
+            setPlainRowMenu(null);
+            if (id === "rename") setRenamingSessionId(sessionId);
+          }}
+        />
+      ) : null}
       {sessionMenu ? (
         <ExplorerMenu
           x={sessionMenu.x}

@@ -157,7 +157,22 @@ export function WorkspaceMenuPanelContent({
             ) : null}
             <button
               type="button"
-              title={snapshot.compact ? item.label : undefined}
+              // A system tooltip that repeats a fully visible label only adds a
+              // second copy, and can linger after the menu closes. Offer it
+              // just for compact labels that are actually cut off.
+              onPointerEnter={
+                snapshot.compact
+                  ? (event) => {
+                      const label = event.currentTarget.querySelector(
+                        ".workspace-menu-panel-item-label",
+                      );
+                      const clipped =
+                        !!label && label.scrollWidth > label.clientWidth;
+                      if (clipped) event.currentTarget.title = item.label;
+                      else event.currentTarget.removeAttribute("title");
+                    }
+                  : undefined
+              }
               role={item.checked == null ? "menuitem" : "menuitemcheckbox"}
               aria-checked={item.checked}
               className={`toolbar-panel-row workspace-menu-panel-item${item.danger ? " workspace-menu-panel-item-danger" : ""}`}
