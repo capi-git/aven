@@ -66,3 +66,26 @@ MCP OAuth has a separate credential store. Ordinary macOS keyring credentials re
 Repository instructions live in [AGENTS.md](../AGENTS.md). Keep changes scoped, preserve other tasks' work, and use the supplied in-app browser connection for ordinary previews. Skills are reusable instructions, not permission grants. Enable Aven's built-in desktop control in **Settings → Skills & tools**; it is off by default. Listing windows and taking screenshots require Screen Recording; input and app activation require both Screen Recording and Accessibility, granted by the user in macOS. The separate Aven Dev app needs its own access; ad-hoc native rebuilds may reset those grants. Agents use the Aven executable's `--aven-desktop` command over the task's scoped browser connection, and their actions never trigger permission prompts. Browser inspection does not require enabling desktop control.
 
 See [AGENT-TOOLS.md](AGENT-TOOLS.md) for automatic browser routing, opening Markdown in the editor, and native desktop control. The guidance is supplied to tasks automatically; the computer-use slash command is optional.
+
+## Desktop presence preview
+
+Run `AVEN_DEV_PRESENCE_PREVIEW=1 AVEN_DEV_CURSOR_PREVIEW=1 npm run dev:app`
+for a visual-only demonstration of the consent, acting and paused states and
+provider pointer. The preview posts no input, creates no desktop grant, and
+changes no permissions. Its labels explicitly identify it as a preview. Release
+builds exclude this trigger; normal agent screenshots suppress both overlays.
+App-directed delivery and shared-input interruption require separate functional
+validation; seeing the preview does not establish input behavior in other apps.
+
+`AVEN_DEV_DESKTOP_SELF_TEST=1 npm run dev:app` runs a separate debug-only input
+check. It requires Aven Dev's existing enabled switch and both macOS permissions;
+it never enables or requests either. It creates an owned disposable native
+window, seeds consent only for that synthetic test scope, then sends click,
+scroll and drag events through the app-directed route. It never uses HID input
+or targets another process. A private receipt under Aven Dev's cache directory
+(`aven.desktop-input-self-test.json`) records received event counts, pointer and
+foreground stability, or the reason the test stopped. Event metadata contains
+only event kinds, process IDs and the presence of Aven's marker, never text or
+key names. Keep the keyboard and mouse idle during this brief check; user input
+still interrupts it. This fixture does not establish compatibility with every
+third-party app or verify shared-pointer fallback.

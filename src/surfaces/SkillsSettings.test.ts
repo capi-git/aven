@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   status: vi.fn(),
   permissions: vi.fn(),
   setEnabled: vi.fn(),
+  setConsent: vi.fn(),
   requestPermission: vi.fn(),
   install: vi.fn(),
   openFile: vi.fn(),
@@ -27,6 +28,7 @@ vi.mock("../lib/agentTools", () => ({
   getAgentToolStatus: mocks.status,
   openComputerUseSettings: mocks.permissions,
   setDesktopControlEnabled: mocks.setEnabled,
+  setDesktopAskBeforeAppUse: mocks.setConsent,
   requestDesktopPermission: mocks.requestPermission,
   installPersonalComputerUseSkill: mocks.install,
 }));
@@ -646,4 +648,21 @@ it("chooses the new skill location in an app listbox without dismissing its dial
   );
   expect(document.querySelector('[role="listbox"]')).toBeNull();
   expect(document.querySelector('[role="dialog"]')).toBe(dialog);
+});
+
+it("keeps app consent on by default and only changes it on the user's toggle", async () => {
+  mocks.setConsent.mockResolvedValue({
+    ...ready.desktop,
+    askBeforeAppUse: false,
+  });
+  await render();
+  const consent = container.querySelector<HTMLButtonElement>(
+    '[role="switch"][aria-label="Ask before an agent uses an app"]',
+  )!;
+  expect(consent.getAttribute("aria-checked")).toBe("true");
+  expect(mocks.setConsent).not.toHaveBeenCalled();
+  await act(async () => consent.click());
+  expect(mocks.setConsent).toHaveBeenCalledWith(false);
+  expect(consent.getAttribute("aria-checked")).toBe("false");
+  expect(mocks.setEnabled).not.toHaveBeenCalled();
 });

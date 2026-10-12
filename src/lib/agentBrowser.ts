@@ -7,7 +7,12 @@ import type { EditorNavigation } from "./search";
 import type { AgentBrowserOpenOptions } from "./agentBrowserOpen";
 import { agentGitInstructions } from "./gitPreference";
 
-export type AgentBrowserContext = { sessionId: string; cwd: string };
+export type AgentBrowserContext = {
+  sessionId: string;
+  cwd: string;
+  harness?: string;
+  title?: string;
+};
 export type AgentBrowserHost = {
   /** Null means the session no longer belongs to this window/workspace. */
   surfaces(context: AgentBrowserContext): string[] | null;
@@ -151,7 +156,10 @@ export function waitForPage(surfaceId: string): Promise<string> {
   });
 }
 
-function bind(context: AgentBrowserContext): Promise<Binding> {
+function bind(
+  context: AgentBrowserContext,
+  userTurn = false,
+): Promise<Binding> {
   const previous = bindingTails.get(context.sessionId) ?? Promise.resolve();
   const operation = previous
     .catch(() => {})
@@ -163,6 +171,9 @@ function bind(context: AgentBrowserContext): Promise<Binding> {
         throw new Error("This task no longer owns a browser workspace.");
       return invoke<Binding>("browser_agent_bind", {
         sessionId: context.sessionId,
+        ...(userTurn && context.harness
+          ? { actor: { harness: context.harness, title: context.title } }
+          : {}),
         browserIds: surfaces.flatMap((surface) => {
           const id = nativePages.get(surface);
           return id ? [id] : [];
@@ -389,13 +400,15 @@ async function withBrowserGuidance(
   if (!host) return browserUnavailablePrompt(text);
   const previous = contexts.get(context.sessionId);
   const stored = previous?.cwd === context.cwd ? previous : context;
+  stored.harness = context.harness ?? stored.harness;
+  stored.title = context.title ?? stored.title;
   contexts.set(context.sessionId, stored);
   try {
     await hostReady;
     const release = protectSessionBrowserPages(stored);
     try {
       await wakeSessionBrowserPages(stored);
-      const binding = await bind(stored);
+      const binding = await bind(stored, true);
       return `${agentBrowserInstructions(binding.executablePath)}\n\n${agentDesktopInstructions(binding.executablePath)}\n\n${text}`;
     } finally {
       release();

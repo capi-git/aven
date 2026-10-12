@@ -15,6 +15,44 @@ use std::time::{Duration, Instant};
 
 #[path = "desktop_cursor_macos.rs"]
 mod agent_cursor;
+#[path = "desktop_input_macos.rs"]
+mod input;
+#[cfg(debug_assertions)]
+#[path = "desktop_self_test_macos.rs"]
+mod self_test;
+#[cfg(debug_assertions)]
+pub(super) fn preview_self_test(app: &AppHandle) {
+    self_test::run(app);
+}
+#[path = "desktop_presence_macos.rs"]
+mod presence_ui;
+
+pub(super) fn presence_target(
+    app: &AppHandle,
+    request: &Request,
+) -> Result<PresenceTarget, String> {
+    input::target(app, request)
+}
+pub(super) fn presence_show(anchor: Option<(f64, f64)>, input: bool) -> Result<(), String> {
+    presence_ui::show(anchor, input)
+}
+pub(super) fn presence_changed() {
+    presence_ui::changed();
+}
+pub(super) fn presence_shutdown() {
+    presence_ui::shutdown();
+}
+pub(super) fn actor_changed(actor: &presence::Actor) {
+    agent_cursor::set_actor(&actor.name, actor.color);
+}
+pub(super) fn session_alive(scope: &str) -> bool {
+    active_session(CAPTURES.get_or_init(CaptureSessions::default), scope)
+        .is_ok_and(|s| !s.revoked.load(Ordering::Acquire))
+}
+#[cfg(debug_assertions)]
+pub(super) fn preview_presence() {
+    presence_ui::preview();
+}
 
 type Cf = *const c_void;
 type Event = *mut c_void;
@@ -712,6 +750,16 @@ fn event_targets(
     points: &[(f64, f64)],
     window_id: Option<u32>,
 ) -> Result<Vec<InputTarget>, String> {
+    if let Some(targets) = input::app_targets(points, window_id) {
+        return targets;
+    }
+    for &(x, y) in points {
+        let bounds = window_id.map(window_bounds).transpose()?;
+        let (x, y) = global_point(x, y, bounds)?;
+        if presence_ui::covers(Point { x, y })? {
+            return Err("Agent input cannot target Aven desktop controls.".into());
+        }
+    }
     if let Some(id) = window_id {
         // This is a conservative rectangular hit test, not atomic input routing.
         // macOS can still change stacking order after this fresh observation.
@@ -758,7 +806,7 @@ fn move_pointer(point: Point) -> Result<(), String> {
     let moved = mouse_event(5, point, 0)?;
     unsafe {
         CGEventSetFlags(moved.event(), 0);
-        CGEventPost(0, moved.event());
+        input::post(moved.event());
     }
     Ok(())
 }
@@ -812,6 +860,9 @@ fn keyboard_event(code: u16, down: bool) -> Result<OwnedCf, String> {
 }
 
 fn click(session: &CaptureSession, point: Point, button: Button, count: u8) -> Result<(), String> {
+    if input::accessible_click(point, button, count)? {
+        return Ok(());
+    }
     let (down_kind, up_kind, button) = match button {
         Button::Left => (1, 2, 0),
         Button::Right => (3, 4, 1),
@@ -824,7 +875,7 @@ fn click(session: &CaptureSession, point: Point, button: Button, count: u8) -> R
     session.require_active()?;
     unsafe {
         CGEventSetFlags(moved.event(), 0);
-        CGEventPost(0, moved.event());
+        input::post(moved.event());
         for click in 1..=count {
             // Finish a posted down/up pair even if the scope ends during it,
             // then refuse any subsequent pair without leaving a button held.
@@ -832,7 +883,7 @@ fn click(session: &CaptureSession, point: Point, button: Button, count: u8) -> R
             for event in [&down, &up] {
                 CGEventSetFlags(event.event(), 0);
                 CGEventSetIntegerValueField(event.event(), 1, i64::from(click));
-                CGEventPost(0, event.event());
+                input::post(event.event());
                 std::thread::sleep(Duration::from_millis(15));
             }
         }
@@ -897,7 +948,7 @@ impl Drop for HeldButton<'_> {
             CGEventSetLocation(self.up.event(), self.at);
             CGEventSetFlags(self.up.event(), 0);
             CGEventSetIntegerValueField(self.up.event(), 1, 1);
-            CGEventPost(0, self.up.event());
+            input::post(self.up.event());
         }
     }
 }
@@ -930,11 +981,11 @@ fn drag(
     let result = (|| {
         unsafe {
             CGEventSetFlags(moved.event(), 0);
-            CGEventPost(0, moved.event());
+            input::post(moved.event());
             CGEventSetFlags(down.event(), 0);
             // kCGMouseEventClickState: a single press, kept for the whole drag.
             CGEventSetIntegerValueField(down.event(), 1, 1);
-            CGEventPost(0, down.event());
+            input::post(down.event());
         }
         let mut held = HeldButton { up: &up, at: from };
         let revoked = Arc::clone(&session.revoked);
@@ -958,7 +1009,7 @@ fn drag(
                 // kCGMouseEventDeltaX/Y (4, 5) for apps that track relative motion.
                 CGEventSetIntegerValueField(dragged.event(), 4, (x - previous.x).round() as i64);
                 CGEventSetIntegerValueField(dragged.event(), 5, (y - previous.y).round() as i64);
-                CGEventPost(0, dragged.event());
+                input::post(dragged.event());
             }
             held.at = point;
             previous = point;
@@ -977,6 +1028,8 @@ fn drag(
 }
 
 fn press(key: &str, modifiers: &[Modifier]) -> Result<(), String> {
+    input::check()?;
+    input::keyboard_target()?;
     let code = key_code(key)?;
     let flags = modifier_flags(modifiers)?;
     let down = keyboard_event(code, true)?;
@@ -984,8 +1037,8 @@ fn press(key: &str, modifiers: &[Modifier]) -> Result<(), String> {
     unsafe {
         CGEventSetFlags(down.event(), flags);
         CGEventSetFlags(up.event(), flags);
-        CGEventPost(0, down.event());
-        CGEventPost(0, up.event());
+        input::post(down.event());
+        input::post(up.event());
     }
     Ok(())
 }
@@ -1012,11 +1065,12 @@ fn type_text(session: &CaptureSession, text: &str) -> Result<(), String> {
     let up = keyboard_event(0, false)?;
     for chunk in unicode_chunks(text) {
         session.require_active()?;
+        input::keyboard_target()?;
         unsafe {
             for event in [&down, &up] {
                 CGEventSetFlags(event.event(), 0);
                 CGEventKeyboardSetUnicodeString(event.event(), chunk.len(), chunk.as_ptr());
-                CGEventPost(0, event.event());
+                input::post(event.event());
             }
         }
         std::thread::sleep(Duration::from_millis(2));
@@ -1033,10 +1087,10 @@ fn scroll(point: Point, delta_x: i32, delta_y: i32) -> Result<(), String> {
     let moved = mouse_event(5, point, 0)?;
     unsafe {
         CGEventSetFlags(moved.event(), 0);
-        CGEventPost(0, moved.event());
+        input::post(moved.event());
         CGEventSetLocation(event.event(), point);
         CGEventSetFlags(event.event(), 0);
-        CGEventPost(0, event.event());
+        input::post(event.event());
     }
     Ok(())
 }
@@ -1100,11 +1154,13 @@ fn activate(
     session: Arc<CaptureSession>,
     pid: Option<i32>,
     name: Option<String>,
+    ticket: presence::Ticket,
 ) -> Result<Value, String> {
     let deadline = Instant::now() + Duration::from_secs(3);
     let activation_session = Arc::clone(&session);
     let mut attempt = activation_on_main(app_handle, deadline, move || unsafe {
         activation_session.require_active()?;
+        presence::with(|state| state.check(&ticket))?;
         activate_on_main(pid, name.as_deref())
     })?;
     if !attempt.accepted {
@@ -1320,6 +1376,7 @@ struct CaptureSession {
 
 impl CaptureSession {
     fn require_active(&self) -> Result<(), String> {
+        input::check()?;
         if self.revoked.load(Ordering::Acquire) {
             Err("Desktop control session is unavailable.".into())
         } else {
@@ -1623,7 +1680,15 @@ fn screenshot(
     )
 }
 
-pub(super) fn execute(app: &AppHandle, scope: &str, request: Request) -> Result<Value, String> {
+pub(super) fn execute(
+    app: &AppHandle,
+    scope: &str,
+    request: Request,
+    ticket: &presence::Ticket,
+    target: &PresenceTarget,
+) -> Result<Value, String> {
+    let _route = input::enter(ticket, target);
+    input::check()?;
     let session = active_session(CAPTURES.get_or_init(CaptureSessions::default), scope)?;
     match request {
         Request::Status {} => {
@@ -1633,9 +1698,12 @@ pub(super) fn execute(app: &AppHandle, scope: &str, request: Request) -> Result<
         Request::Screenshot { window_id, region } => {
             agent_cursor::suspend(app)?;
             let _suppression = CursorSuppression(app);
+            presence_ui::suppress(true)?;
             screenshot(scope, window_id, region)
         }
-        Request::Move { x, y, window_id } => {
+        Request::Move {
+            x, y, window_id, ..
+        } => {
             scoped_input(
                 &session,
                 || {
@@ -1659,6 +1727,7 @@ pub(super) fn execute(app: &AppHandle, scope: &str, request: Request) -> Result<
             window_id,
             button,
             count,
+            ..
         } => {
             scoped_input(
                 &session,
@@ -1677,7 +1746,7 @@ pub(super) fn execute(app: &AppHandle, scope: &str, request: Request) -> Result<
             )?;
             Ok(json!({"clicked":true}))
         }
-        Request::Type { text } => {
+        Request::Type { text, .. } => {
             scoped_input(
                 &session,
                 || agent_cursor::activity(app, scope, Arc::clone(&session.revoked)),
@@ -1685,7 +1754,7 @@ pub(super) fn execute(app: &AppHandle, scope: &str, request: Request) -> Result<
             )?;
             Ok(json!({"typed":true}))
         }
-        Request::Press { key, modifiers } => {
+        Request::Press { key, modifiers, .. } => {
             scoped_input(
                 &session,
                 || agent_cursor::activity(app, scope, Arc::clone(&session.revoked)),
@@ -1699,6 +1768,7 @@ pub(super) fn execute(app: &AppHandle, scope: &str, request: Request) -> Result<
             window_id,
             delta_x,
             delta_y,
+            ..
         } => {
             scoped_input(
                 &session,
@@ -1724,6 +1794,7 @@ pub(super) fn execute(app: &AppHandle, scope: &str, request: Request) -> Result<
             duration_ms,
             steps,
             button,
+            ..
         } => {
             let steps = drag_steps(duration_ms, steps)?;
             scoped_input(
@@ -1739,7 +1810,7 @@ pub(super) fn execute(app: &AppHandle, scope: &str, request: Request) -> Result<
                 "durationMs": duration_ms,
             }))
         }
-        Request::Activate { pid, app: name } => activate(app, session, pid, name),
+        Request::Activate { .. } => activate(app, session, target.pid, None, ticket.clone()),
     }
 }
 
@@ -1761,6 +1832,7 @@ struct CursorSuppression<'a>(&'a AppHandle);
 impl Drop for CursorSuppression<'_> {
     fn drop(&mut self) {
         agent_cursor::resume(self.0);
+        let _ = presence_ui::suppress(false);
     }
 }
 

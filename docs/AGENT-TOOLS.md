@@ -100,15 +100,18 @@ with its `windowId`. The result is `{path,width,height,originX,originY}`; the ag
 must open the PNG at `path` with an image or file reader before acting. A successful
 JSON response alone is not visual verification. It then uses `move`, `click`,
 `drag`, `type`, `press`, `scroll`, or `activate` as needed and takes and opens a new screenshot to
-verify each result. Use `move` with `x,y` and an optional `windowId` for an
-authorized hover. Screenshot pixels equal points. With `windowId`, move, click and
-scroll `x,y` and drag `from`/`to` are that window screenshot's pixel coordinates.
-Window-targeted moves, clicks, drags and scrolling refuse points covered by
-another window. A window
-capture can still show a covered window: activate its app, then inspect a fresh display
-or region screenshot to confirm the intended window is in front. Without `windowId`,
-use global points: `originX + x, originY + y` from the screenshot used. The help command documents all fields,
-including optional screenshot regions.
+verify each result. Include the observed `windowId` for all input, including typing
+and key presses. Coordinates are in screenshot points relative to that window.
+The default `inputMode: "app"` delivers events to the target app without moving
+the user's pointer or activating another app. Accessible single-click controls
+use their semantic press action when available. Keys require that app's focused
+window. Some apps ignore process-directed input; inspect the result before retrying.
+
+Shared-pointer fallback uses `inputMode: "pointer"`. It always asks for the
+current action, even with app consent off. Covered window targets are refused;
+never drop the window ID to bypass that refusal. Activation also asks first,
+because it changes the user's foreground app. Consent is checked again against
+the target after the answer; moved or replaced windows require a fresh observation.
 
 Use `drag` to grab and move UI such as pane dividers, sidebars, window edges,
 sliders and tabs, for example to check that resizing is smooth:
@@ -126,7 +129,7 @@ uncovered, and the window must not move before the press. The button is always
 released, including when the task's access ends mid-drag. The result is
 `{dragged,from,to,steps,durationMs}`.
 
-When a targeted action is refused, its error identifies the first blocking
+When shared-pointer targeting is refused, its error identifies the first blocking
 WindowServer rectangle with bounded diagnostic metadata: window ID, owning
 process/app, layer, opacity and bounds, plus the target's local/global point.
 The normal `windows` list exposes only ordinary layer-0 windows; a menu or
@@ -149,13 +152,16 @@ is visually absent or appears mouse-transparent, report its bounded metadata for
 investigation rather than assuming it is safe to ignore. Source changes to these
 diagnostics take effect only in a rebuilt development host or installed release.
 
-A monochrome cursor with a compact **Aven** badge animates between move, click,
-drag and scroll targets, shows brief click or scroll feedback, follows a drag
-with a small pressed ring, and fades when idle. It ignores input and
-focus and is excluded from agent screenshots and window lists. The cursor is a
-visible activity cue; native input still uses the macOS pointer.
+A provider-coloured ring and name tag mark the action point. The frosted bar
+identifies the agent and app, with **Pause/Resume** and **Stop**. Esc twice stops
+the active chat. App consent is on by default and lasts for the chat in that app;
+shared control asks for every action. Shared control yields to user input;
+app-directed control yields when the user works in the same app. Paused agents
+can observe but cannot send input. Stopped agents need new consent. On pause,
+stop, denial or timeout, agents wait for the user instead of retrying in a loop.
+Both overlays are excluded from agent screenshots and cannot be input targets.
 
-Agent actions never trigger permission prompts. Agents read the status's `enabled`
+Agent actions never trigger macOS permission prompts; per-app consent is separate. Agents read the status's `enabled`
 flag and named permission grants before choosing an action; `permissionsRequired`
 does not by itself block observation. If the switch is off or access needed for
 that action is missing, the agent directs you to the Desktop control card. It must not change

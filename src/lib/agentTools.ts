@@ -16,6 +16,7 @@ export type DesktopPermission = "screenRecording" | "accessibility";
 export type DesktopControlStatus = {
   state: "ready" | "permissionsRequired" | "off" | "unsupported";
   enabled: boolean;
+  askBeforeAppUse?: boolean;
   permissions: ToolPermission[];
 };
 export type AgentToolStatus = {
@@ -47,6 +48,12 @@ export function setDesktopControlEnabled(
   enabled: boolean,
 ): Promise<DesktopControlStatus> {
   return invoke("desktop_control_set_enabled", { enabled });
+}
+
+export function setDesktopAskBeforeAppUse(
+  ask: boolean,
+): Promise<DesktopControlStatus> {
+  return invoke("desktop_control_set_ask_before_app_use", { ask });
 }
 
 export function requestDesktopPermission(
