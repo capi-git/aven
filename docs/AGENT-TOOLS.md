@@ -75,9 +75,9 @@ off from the same switch at any time.
 The card shows **Ready**, **Permissions needed**, **Off**, or **Unsupported**.
 **Permissions needed** can still allow observation: with desktop control enabled
 and Screen Recording granted, agents can list windows and take screenshots even
-if Accessibility is missing. Moving the pointer, clicking, dragging, typing,
-pressing keys, scrolling and activating apps require both permissions, so agents can observe and
-verify input.
+if Accessibility is missing. Reading an app's controls (`appState`), moving the
+pointer, clicking, dragging, typing, pressing keys, scrolling, element actions and
+activating apps require both permissions, so agents can observe and verify input.
 For a missing permission, choose **Allow** to request access, or **Open settings**
 to open its macOS pane. Use **Check again** after changing permissions. macOS may
 ask you to quit and reopen Aven after allowing Screen Recording; save your work
@@ -95,8 +95,65 @@ task's scoped in-app browser connection:
 "$AVEN_BROWSER_EXECUTABLE" --aven-desktop '{"action":"windows"}'
 ```
 
-The agent checks status once, selects an observed window, and takes a `screenshot`
-with its `windowId`. The result is `{path,width,height,originX,originY}`; the agent
+### Accessibility elements (preferred)
+
+Agents work with an app's accessibility elements first, the way assistive
+technology does. This happens in the background: Aven does not move your
+pointer, take keyboard focus from the app you are using, or bring the target app
+forward, and covered windows work.
+
+```sh
+"$AVEN_BROWSER_EXECUTABLE" --aven-desktop '{"action":"appState","windowId":123}'
+"$AVEN_BROWSER_EXECUTABLE" --aven-desktop '{"action":"click","windowId":123,"element":7,"stateId":42}'
+```
+
+`appState` returns a `stateId`, the window's bounds, an indexed outline of its
+controls and any open menu, and a fresh window image (`image`). Each outline line
+lists the role, title, description, placeholder, value, disabled/focused/selected
+state, available actions and frame in window-screenshot points, for example
+`[7] Button "Send" @412,560 64x28 actions=Press`. Values of secure text fields are
+never read; they always appear as `<redacted>`. The outline is bounded (250
+elements by default, `maxNodes` 20 to 1000, a three-second read budget and a size
+limit); `truncated` reports a cut. Slack, Notion, VS Code, Chrome, Finder, Mail,
+Messages, Music and Spotify include short `tips`.
+
+Element actions take the same `windowId`, an `element` index and the `stateId`:
+
+- `click` presses the control (`AXPress`, then `AXPick` or `AXConfirm`), focuses a
+  text field or selects a row. A right click opens its menu. When the app offers no
+  equivalent, Aven sends app-directed mouse events at the element's centre.
+- `typeText` inserts text at the caret of the element (or the app's focused field in
+  that window); only if the app rejects that does it fall back to key events.
+- `setValue` replaces a text, number or true/false value.
+- `pressKey` maps Enter to Confirm or the default button, Escape to Cancel, arrows to
+  Increment/Decrement on sliders and steppers, Space to Press, and Backspace/Delete to
+  text edits. Other keys and any modifiers use app-directed key events.
+- `scroll` with `direction` (and `pages`) pages the nearest scroll area; with only
+  `element` it scrolls that element into view.
+- `selectText` selects `text`, or `start` and `length` in UTF-16 units.
+- `secondaryAction` opens the element's menu, or runs one allow-listed action such
+  as `Increment` or `ShowAlternateUI`.
+
+Indexes belong to that state only. A newer `appState` of the same window replaces
+them, and an element whose role or label changed is refused with "State changed;
+call appState again". A labelled element that was rebuilt in place is found again by
+its position and label. Each result names the `method` used; `"confirmed": false`
+means the app did not confirm in time (a menu may be open) or Aven had to use events.
+
+Electron and Chromium apps build a complete accessibility tree only when asked.
+On first use in a chat, Aven turns on that app's `AXManualAccessibility` (Electron)
+or `AXEnhancedUserInterface` (Chromium) switch, and turns it back off when the last
+chat using it ends, if it was off before.
+
+Element actions count as input: they use the same per-app consent, appear in the bar
+with the control's title (for example “Pressing “Send””, never a typed value),
+follow Pause, Stop and yield, and move the agent ring to the control. `appState` is
+observation and remains available while paused.
+
+### Coordinates (fallback)
+
+When an element is missing or does not respond, the agent checks status once,
+selects an observed window, and takes a `screenshot` with its `windowId`. The result is `{path,width,height,originX,originY}`; the agent
 must open the PNG at `path` with an image or file reader before acting. A successful
 JSON response alone is not visual verification. It then uses `move`, `click`,
 `drag`, `type`, `press`, `scroll`, or `activate` as needed and takes and opens a new screenshot to

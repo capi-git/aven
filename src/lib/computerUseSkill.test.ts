@@ -3,6 +3,7 @@ import {
   COMPUTER_USE_SKILL_BODY,
   COMPUTER_USE_TASK_GUIDANCE,
 } from "./computerUseSkill";
+import { AVEN_BROWSER_HOST_POLICY } from "./harness/browserHostPolicy";
 
 describe("desktop control permission guidance", () => {
   it("allows observation with Screen Recording while requiring both grants for input", () => {
@@ -40,5 +41,43 @@ describe("desktop control permission guidance", () => {
         "Proceed only when `state` is `ready`",
       );
     }
+  });
+
+  it("prefers background accessibility elements and re-queries stale state", () => {
+    for (const instructions of [
+      COMPUTER_USE_TASK_GUIDANCE,
+      COMPUTER_USE_SKILL_BODY,
+    ]) {
+      expect(instructions).toContain("appState");
+      for (const action of [
+        "typeText",
+        "setValue",
+        "pressKey",
+        "selectText",
+        "secondaryAction",
+      ]) {
+        expect(instructions).toContain(action);
+      }
+      expect(instructions).toContain("stateId");
+      expect(instructions).toContain("State changed; call appState again");
+      expect(instructions).toContain("redacted");
+      expect(instructions).toMatch(/never guess/i);
+    }
+    expect(COMPUTER_USE_TASK_GUIDANCE).toContain(
+      "they do not move the pointer, activate the app or need it frontmost",
+    );
+    expect(COMPUTER_USE_TASK_GUIDANCE).toContain(
+      "Use coordinates only when the element you need is missing from appState or does not respond",
+    );
+    expect(COMPUTER_USE_SKILL_BODY).toContain(
+      "Use coordinates only when the element you need is missing from `appState` or does not respond",
+    );
+    expect(COMPUTER_USE_SKILL_BODY).toContain(
+      '"action":"appState","windowId":123',
+    );
+    expect(AVEN_BROWSER_HOST_POLICY).toContain("appState");
+    expect(AVEN_BROWSER_HOST_POLICY).toContain(
+      "call appState again instead of guessing",
+    );
   });
 });

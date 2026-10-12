@@ -96,3 +96,20 @@ mouse idle during this brief check; user input still interrupts it. Successful
 AppKit fixture delivery is not a promise that every third-party app accepts
 background events. Agents must inspect each result and ask before switching
 to shared-pointer input.
+
+The self-test also reads the receiver with `appState` and presses its button by
+element index through the same gate. For the accessibility-element adapter on
+its own, run the opt-in live check from this checkout:
+
+```sh
+AVEN_AX_LIVE=1 ./scripts/with-dev-env.sh cargo test -p aven --lib live_fixture -- --ignored --nocapture
+```
+
+It builds `scripts/desktop-accessibility-fixture.swift` into a temporary folder,
+launches it in the background with its window behind other windows, and acts only
+on that process: tree capture with secure-field redaction, button press, stale
+index refusal, text value/insertion/deletion, slider, scroll, row selection, a
+context menu (shown for under a second) and a pause refusal. A passive listen-only
+tap confirms that the test posted no pointer events; the fixture reports that it
+never became active or key. The fixture quits afterwards (60-second failsafe). The
+terminal running the test needs Accessibility access.
