@@ -86,6 +86,22 @@ function copyVisual(visual: HTMLElement): HTMLElement {
     clone.style.setProperty("transition", "none", "important");
     clone.style.setProperty("animation", "none", "important");
     clone.style.setProperty("outline", "none", "important");
+    // Paint only the tab face. Its motion container can include empty space
+    // above/below a rounded button; filling that box adds a rectangular rim.
+    if (original.hasAttribute("data-sortable-glass")) {
+      const surface =
+        computed.getPropertyValue("--aven-tab-drag-surface").trim() ||
+        computed.getPropertyValue("--color-background-base").trim();
+      const glass = computed.getPropertyValue("--aven-glass-overlay").trim();
+      const blur = computed.getPropertyValue("--aven-glass-blur").trim();
+      Object.assign(clone.style, {
+        background: glass || surface || computed.backgroundColor,
+        backdropFilter: blur && blur !== "none" ? blur : "",
+        webkitBackdropFilter: blur && blur !== "none" ? blur : "",
+        borderColor: "transparent",
+        boxShadow: "none",
+      });
+    }
   }
   Object.assign(copy.style, {
     position: "relative",
@@ -164,14 +180,6 @@ export class SortableMotion {
     const bounds = visual.getBoundingClientRect();
     const copy = copyVisual(visual);
     const computed = getComputedStyle(visual);
-    const surface =
-      computed.getPropertyValue("--aven-tab-drag-surface").trim() ||
-      computed.getPropertyValue("--color-background-base").trim();
-    // The lifted tab is attached outside the shell, so resolve the theme's
-    // glass here. Dark glass frosts like a menu; light themes, reduced
-    // transparency and glass-off resolve to the theme's opaque popup colour.
-    const glass = computed.getPropertyValue("--aven-glass-overlay").trim();
-    const blur = computed.getPropertyValue("--aven-glass-blur").trim();
     const element = document.createElement("div");
     element.dataset.sortablePreview = this.source.id;
     // Native Chromium paints above the app webview. Its existing overlay
@@ -189,9 +197,7 @@ export class SortableMotion {
       padding: "0",
       border: "0",
       borderRadius: computed.borderRadius,
-      background: glass || surface || "transparent",
-      backdropFilter: blur && blur !== "none" ? blur : "",
-      webkitBackdropFilter: blur && blur !== "none" ? blur : "",
+      background: "transparent",
       boxShadow: "none",
       pointerEvents: "none",
       userSelect: "none",
