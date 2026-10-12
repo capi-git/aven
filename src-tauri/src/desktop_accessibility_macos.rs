@@ -527,11 +527,83 @@ fn flags() -> std::sync::MutexGuard<'static, rules::FlagRegistry> {
         .unwrap_or_else(|error| error.into_inner())
 }
 
+/// Serialises turning switches on (read, write, record), so two chats never
+/// both believe they found an app's switch in its original state.
+fn preparing() -> std::sync::MutexGuard<'static, ()> {
+    static PREPARING: Mutex<()> = Mutex::new(());
+    PREPARING.lock().unwrap_or_else(|error| error.into_inner())
+}
+
+/// Where switches Aven turned on are saved, set once at launch.
+static SWITCH_FILE: OnceLock<PathBuf> = OnceLock::new();
+const SWITCH_FILE_LIMIT: u64 = 64 * 1024;
+
+/// Saves the switches to restore if Aven stops unexpectedly. Called with the
+/// registry locked, after every change. Best effort.
+fn save_switches(registry: &rules::FlagRegistry) {
+    let Some(path) = SWITCH_FILE.get() else {
+        return;
+    };
+    let saved = registry.saved();
+    if saved.switches.is_empty() {
+        let _ = std::fs::remove_file(path);
+    } else {
+        let _ = write_private_json(path, &saved);
+    }
+}
+
+fn read_switches(path: &Path) -> rules::SavedSwitches {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    let read = std::fs::File::open(path)
+        .and_then(|file| file.take(SWITCH_FILE_LIMIT + 1).read_to_end(&mut bytes));
+    read.ok()
+        .filter(|length| *length as u64 <= SWITCH_FILE_LIMIT)
+        .and_then(|_| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+/// At launch: turns off switches a previous run turned on and never restored
+/// (a crash or forced quit), when the same app process is still running.
+pub(super) fn restore_saved_switches(path: PathBuf) {
+    let _guard = preparing();
+    let saved = read_switches(&path);
+    let _ = SWITCH_FILE.set(path);
+    let restores = {
+        let registry = flags();
+        let restores = rules::stale_restores(saved, process_id, |pid| registry.holds(pid));
+        save_switches(&registry);
+        restores
+    };
+    restore_flags(restores);
+}
+
 fn executable(pid: i32) -> Option<String> {
     let mut path = [0_u8; 4096];
     let length = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), 4096) };
     let length = usize::try_from(length).ok().filter(|length| *length > 0)?;
     String::from_utf8(path[..length].to_vec()).ok()
+}
+
+/// A running process's PID, executable and start time.
+fn process_id(pid: i32) -> Option<rules::ProcessId> {
+    let executable = executable(pid)?;
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
+    let read = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            std::ptr::from_mut(&mut info).cast(),
+            size,
+        )
+    };
+    (read == size && info.pbi_pid == pid as u32).then(|| rules::ProcessId {
+        pid,
+        executable,
+        started: info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec,
+    })
 }
 
 type ResponsibleFor = unsafe extern "C" fn(i32) -> i32;
@@ -608,20 +680,29 @@ impl Prepared {
 
 /// Electron and Chromium apps only build a full tree once an assistive client
 /// asks for it. Turn their switch on once per app, remember its previous
-/// value, and restore it when the last chat using it ends.
-pub(super) fn prepare(scope: &str, pid: i32) -> Prepared {
+/// value, and restore it when the last chat using it ends. `alive` reports
+/// whether the chat still exists; it is checked under the registry lock, so a
+/// chat that ended meanwhile never leaves a switch recorded and on.
+pub(super) fn prepare(scope: &str, pid: i32, alive: &dyn Fn() -> bool) -> Prepared {
     if pid == std::process::id() as i32 {
         return Prepared::NotNeeded;
     }
-    let Some(executable) = executable(pid) else {
+    let Some(process) = process_id(pid) else {
         return Prepared::NotNeeded;
     };
-    let Some(engine) = engine(&executable) else {
+    let Some(engine) = engine(&process.executable) else {
         return Prepared::NotNeeded;
     };
     let attribute = engine.attribute();
-    if flags().join(scope, pid, &executable) {
-        return Prepared::AlreadyOn(attribute);
+    let guard = preparing();
+    {
+        let mut registry = flags();
+        if !alive() {
+            return Prepared::NotNeeded;
+        }
+        if registry.join(scope, &process) {
+            return Prepared::AlreadyOn(attribute);
+        }
     }
     let deadline = Instant::now() + Duration::from_millis(600);
     let result = objc2::rc::autoreleasepool(|_| unsafe {
@@ -635,28 +716,38 @@ pub(super) fn prepare(scope: &str, pid: i32) -> Prepared {
         (AXUIElementSetAttributeValue(app.0, Retained::as_ptr(&name).cast(), kCFBooleanTrue) == 0)
             .then_some((previous, true))
     });
-    match result {
-        Some((previous, changed)) => {
-            flags().record(scope, pid, attribute, previous, &executable);
-            if changed {
-                std::thread::sleep(ENGINE_SETTLE);
-                Prepared::TurnedOn(attribute)
-            } else {
-                Prepared::AlreadyOn(attribute)
-            }
+    let Some((previous, changed)) = result else {
+        return Prepared::NotNeeded;
+    };
+    let recorded = {
+        let mut registry = flags();
+        let recorded = registry.record_if(alive, scope, &process, attribute, previous, changed);
+        save_switches(&registry);
+        recorded
+    };
+    drop(guard);
+    if !recorded {
+        if changed {
+            restore_flags(vec![rules::Restore { process, attribute }]);
         }
-        None => Prepared::NotNeeded,
+        return Prepared::NotNeeded;
+    }
+    if changed {
+        std::thread::sleep(ENGINE_SETTLE);
+        Prepared::TurnedOn(attribute)
+    } else {
+        Prepared::AlreadyOn(attribute)
     }
 }
 
 fn restore_flags(restores: Vec<rules::Restore>) {
     for restore in restores {
-        // A reused PID belongs to another app: never write to it.
-        if executable(restore.pid).as_deref() != Some(restore.executable.as_str()) {
+        // A reused PID belongs to another process: never write to it.
+        if process_id(restore.process.pid).as_ref() != Some(&restore.process) {
             continue;
         }
         objc2::rc::autoreleasepool(|_| unsafe {
-            if let Ok(app) = application(restore.pid) {
+            if let Ok(app) = application(restore.process.pid) {
                 set_timeout(app.0, READ_TIMEOUT);
                 let name = ns(restore.attribute);
                 AXUIElementSetAttributeValue(
@@ -671,10 +762,16 @@ fn restore_flags(restores: Vec<rules::Restore>) {
 
 /// Ends a chat's element state: forgets its indexes and restores app switches
 /// no other chat needs. Shutdown restores synchronously; a single chat's
-/// cleanup runs off the caller's thread.
+/// cleanup runs off the caller's thread. Callers revoke the chat's session
+/// first, so a concurrent `prepare` sees it as ended.
 pub(super) fn forget(scope: Option<&str>) {
     lock_store().forget(scope);
-    let restores = flags().release(scope);
+    let restores = {
+        let mut registry = flags();
+        let restores = registry.release(scope);
+        save_switches(&registry);
+        restores
+    };
     if restores.is_empty() {
         return;
     }

@@ -232,6 +232,42 @@ fn done(next: Next) -> Value {
 }
 
 #[test]
+fn process_identity_includes_a_stable_start_time() {
+    let pid = std::process::id() as i32;
+    let first = process_id(pid).unwrap();
+    assert_eq!(first.pid, pid);
+    assert!(first.started > 1_600_000_000_000_000, "{first:?}");
+    assert_eq!(process_id(pid), Some(first));
+    assert_eq!(process_id(i32::MAX), None);
+}
+
+#[test]
+fn saved_switch_files_are_bounded_and_fail_closed() {
+    let directory = std::env::temp_dir().join(format!(
+        "aven-ax-switches-{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    std::fs::create_dir_all(&directory).unwrap();
+    let path = directory.join("aven.accessibility-switches.json");
+    assert!(read_switches(&path).switches.is_empty(), "missing file");
+    let saved = rules::SavedSwitches {
+        switches: vec![rules::SavedSwitch {
+            process: process_id(std::process::id() as i32).unwrap(),
+            attribute: "AXManualAccessibility".into(),
+        }],
+    };
+    write_private_json(&path, &saved).unwrap();
+    assert_eq!(read_switches(&path), saved);
+    std::fs::write(&path, b"{not json").unwrap();
+    assert!(read_switches(&path).switches.is_empty(), "corrupt file");
+    let mut huge = serde_json::to_vec(&saved).unwrap();
+    huge.resize(SWITCH_FILE_LIMIT as usize + 10, b' ');
+    std::fs::write(&path, huge).unwrap();
+    assert!(read_switches(&path).switches.is_empty(), "oversized file");
+    std::fs::remove_dir_all(&directory).unwrap();
+}
+
+#[test]
 #[ignore = "launches a disposable AppKit fixture; set AVEN_AX_LIVE=1"]
 fn live_fixture_background_element_actions() {
     if std::env::var("AVEN_AX_LIVE").as_deref() != Ok("1") {

@@ -40,6 +40,10 @@ pub(super) fn presence_target(
 pub(super) fn release_accessibility(scope: Option<&str>) {
     ax::forget(scope);
 }
+/// At launch, turns off accessibility switches a previous run left on.
+pub(super) fn restore_accessibility(path: PathBuf) {
+    ax::restore_saved_switches(path);
+}
 pub(super) fn presence_show(anchor: Option<(f64, f64)>, input: bool) -> Result<(), String> {
     presence_ui::show(anchor, input)
 }
@@ -1460,12 +1464,14 @@ fn revoke_capture_sessions(
 }
 
 pub(super) fn remove_captures(scope: Option<&str>) {
+    let revoked = CAPTURES.get().map(|sessions| {
+        let mut sessions = sessions.lock().unwrap_or_else(|error| error.into_inner());
+        revoke_capture_sessions(&mut sessions, scope)
+    });
+    // After revocation: an accessibility switch being turned on for this
+    // chat right now sees the chat as ended and is not left recorded.
     ax::forget(scope);
-    if let Some(sessions) = CAPTURES.get() {
-        let revoked = {
-            let mut sessions = sessions.lock().unwrap_or_else(|error| error.into_inner());
-            revoke_capture_sessions(&mut sessions, scope)
-        };
+    if let Some(revoked) = revoked {
         agent_cursor::clear_scope(scope);
         // Never wait for capture, scaling, or filesystem cleanup in a UI
         // bind/revoke callback. An in-flight capture owns its directory until
@@ -1932,7 +1938,8 @@ fn app_state(
     }
     session.require_active()?;
     let (bundle, name) = app_identity(app, window.pid)?;
-    let prepared = ax::prepare(scope, window.pid);
+    let alive = || !session.revoked.load(Ordering::Acquire);
+    let prepared = ax::prepare(scope, window.pid, &alive);
     session.require_active()?;
     let max_nodes = max_nodes.unwrap_or(accessibility::DEFAULT_MAX_NODES);
     let mut state = ax::capture_state(

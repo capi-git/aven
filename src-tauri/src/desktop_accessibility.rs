@@ -8,7 +8,7 @@
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
 use super::Region;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::ops::RangeInclusive;
 use std::time::Duration;
@@ -1339,19 +1339,77 @@ pub(crate) fn engine_for(frameworks: &[String]) -> Option<Engine> {
         .then_some(Engine::Chromium)
 }
 
+/// A process, identified beyond its PID: PIDs are reused.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct ProcessId {
+    pub pid: i32,
+    pub executable: String,
+    /// Process start time in microseconds since 1970.
+    pub started: u64,
+}
+
 struct FlagEntry {
     attribute: &'static str,
     previous: Option<bool>,
-    executable: String,
+    process: ProcessId,
     scopes: HashSet<String>,
 }
 
 /// A switch to turn back off once no chat uses the app any more.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Restore {
-    pub pid: i32,
+    pub process: ProcessId,
     pub attribute: &'static str,
-    pub executable: String,
+}
+
+/// A switch Aven turned on, saved so the next launch can turn it back off if
+/// Aven quit unexpectedly while the app kept running.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct SavedSwitch {
+    pub process: ProcessId,
+    pub attribute: String,
+}
+
+#[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SavedSwitches {
+    #[serde(rename = "aven.accessibilitySwitches")]
+    pub switches: Vec<SavedSwitch>,
+}
+
+fn known_attribute(name: &str) -> Option<&'static str> {
+    [Engine::Electron, Engine::Chromium]
+        .into_iter()
+        .map(Engine::attribute)
+        .find(|attribute| *attribute == name)
+}
+
+/// Switches a previous run left on, still worth turning off: the same
+/// process (PID, executable and start time) is still running and no chat in
+/// this run holds it.
+pub(crate) fn stale_restores(
+    saved: SavedSwitches,
+    running: impl Fn(i32) -> Option<ProcessId>,
+    held: impl Fn(i32) -> bool,
+) -> Vec<Restore> {
+    let mut restores: Vec<Restore> = saved
+        .switches
+        .into_iter()
+        .take(64)
+        .filter_map(|switch| {
+            let attribute = known_attribute(&switch.attribute)?;
+            (running(switch.process.pid).as_ref() == Some(&switch.process)
+                && !held(switch.process.pid))
+            .then_some(Restore {
+                process: switch.process,
+                attribute,
+            })
+        })
+        .collect();
+    restores.sort_by_key(|restore| restore.process.pid);
+    restores.dedup_by_key(|restore| restore.process.pid);
+    restores
 }
 
 /// Which apps had an accessibility switch turned on by Aven, their previous
@@ -1364,43 +1422,85 @@ pub(crate) struct FlagRegistry {
 impl FlagRegistry {
     /// Joins an existing switch for this process. False means the caller
     /// should read the previous value, turn it on, and `record` it. A reused
-    /// PID (different executable) discards the old entry without restoring.
-    pub(crate) fn join(&mut self, scope: &str, pid: i32, executable: &str) -> bool {
-        match self.entries.get_mut(&pid) {
-            Some(entry) if entry.executable == executable => {
+    /// PID (another executable or start time) discards the old entry without
+    /// restoring.
+    pub(crate) fn join(&mut self, scope: &str, process: &ProcessId) -> bool {
+        match self.entries.get_mut(&process.pid) {
+            Some(entry) if &entry.process == process => {
                 entry.scopes.insert(scope.into());
                 true
             }
             Some(_) => {
-                self.entries.remove(&pid);
+                self.entries.remove(&process.pid);
                 false
             }
             None => false,
         }
     }
 
+    /// Records a chat's use. `turned_on` is true for the caller that changed
+    /// the switch: its `previous` is the value before Aven, so it always
+    /// wins. A caller that found the switch already on (perhaps turned on by
+    /// another chat a moment earlier) never replaces it with "on".
     pub(crate) fn record(
         &mut self,
         scope: &str,
-        pid: i32,
+        process: &ProcessId,
         attribute: &'static str,
         previous: Option<bool>,
-        executable: &str,
+        turned_on: bool,
     ) {
-        let entry = self.entries.entry(pid).or_insert_with(|| FlagEntry {
-            attribute,
-            previous,
-            executable: executable.into(),
-            scopes: HashSet::new(),
-        });
+        if self
+            .entries
+            .get(&process.pid)
+            .is_some_and(|entry| &entry.process != process)
+        {
+            self.entries.remove(&process.pid);
+        }
+        let entry = self
+            .entries
+            .entry(process.pid)
+            .or_insert_with(|| FlagEntry {
+                attribute,
+                previous,
+                process: process.clone(),
+                scopes: HashSet::new(),
+            });
+        if turned_on {
+            entry.previous = previous;
+        }
         entry.scopes.insert(scope.into());
+    }
+
+    /// Records a chat's use only if the chat still exists, checked while the
+    /// caller holds the registry. A chat that ended while its switch was
+    /// being turned on is never recorded; the caller then restores the switch
+    /// itself (when it turned it on), so nothing is left on unrecorded.
+    pub(crate) fn record_if(
+        &mut self,
+        alive: impl FnOnce() -> bool,
+        scope: &str,
+        process: &ProcessId,
+        attribute: &'static str,
+        previous: Option<bool>,
+        turned_on: bool,
+    ) -> bool {
+        if !alive() {
+            return false;
+        }
+        self.record(scope, process, attribute, previous, turned_on);
+        true
+    }
+
+    pub(crate) fn holds(&self, pid: i32) -> bool {
+        self.entries.contains_key(&pid)
     }
 
     /// Ends a chat's use (or every chat's with None) and returns the switches
     /// nobody uses any more that were off before Aven turned them on.
     pub(crate) fn release(&mut self, scope: Option<&str>) -> Vec<Restore> {
         let mut restore = Vec::new();
-        self.entries.retain(|pid, entry| {
+        self.entries.retain(|_, entry| {
             match scope {
                 Some(scope) => {
                     entry.scopes.remove(scope);
@@ -1412,20 +1512,29 @@ impl FlagRegistry {
             }
             if entry.previous != Some(true) {
                 restore.push(Restore {
-                    pid: *pid,
+                    process: entry.process.clone(),
                     attribute: entry.attribute,
-                    executable: entry.executable.clone(),
                 });
             }
             false
         });
-        restore.sort_by_key(|item| item.pid);
+        restore.sort_by_key(|item| item.process.pid);
         restore
     }
 
-    #[cfg(test)]
-    fn holds(&self, pid: i32) -> bool {
-        self.entries.contains_key(&pid)
+    /// The switches to restore if Aven stopped now.
+    pub(crate) fn saved(&self) -> SavedSwitches {
+        let mut switches: Vec<SavedSwitch> = self
+            .entries
+            .values()
+            .filter(|entry| entry.previous != Some(true))
+            .map(|entry| SavedSwitch {
+                process: entry.process.clone(),
+                attribute: entry.attribute.into(),
+            })
+            .collect();
+        switches.sort_by_key(|switch| switch.process.pid);
+        SavedSwitches { switches }
     }
 }
 
@@ -2425,39 +2534,184 @@ mod tests {
         assert_eq!(Engine::Electron.attribute(), "AXManualAccessibility");
         assert_eq!(Engine::Chromium.attribute(), "AXEnhancedUserInterface");
 
+        let process = |pid: i32, executable: &str| ProcessId {
+            pid,
+            executable: executable.into(),
+            started: 1_000 + pid as u64,
+        };
+        let slack = process(10, "/Slack");
         let mut flags = FlagRegistry::default();
-        assert!(!flags.join("a", 10, "/Slack"));
-        flags.record("a", 10, "AXManualAccessibility", Some(false), "/Slack");
-        assert!(flags.join("b", 10, "/Slack"));
+        assert!(!flags.join("a", &slack));
+        flags.record("a", &slack, "AXManualAccessibility", Some(false), true);
+        assert!(flags.join("b", &slack));
         // One chat ending keeps the switch for the other.
         assert!(flags.release(Some("a")).is_empty());
         assert!(flags.holds(10));
         assert_eq!(
             flags.release(Some("b")),
             [Restore {
-                pid: 10,
+                process: slack.clone(),
                 attribute: "AXManualAccessibility",
-                executable: "/Slack".into()
             }]
         );
         assert!(!flags.holds(10));
         // A switch that was already on is left on.
-        flags.record("a", 11, "AXEnhancedUserInterface", Some(true), "/Chrome");
+        flags.record(
+            "a",
+            &process(11, "/Chrome"),
+            "AXEnhancedUserInterface",
+            Some(true),
+            false,
+        );
         // An unknown previous value (attribute absent) is restored to off.
-        flags.record("a", 12, "AXManualAccessibility", None, "/Notion");
+        flags.record(
+            "a",
+            &process(12, "/Notion"),
+            "AXManualAccessibility",
+            None,
+            true,
+        );
         assert_eq!(
             flags
                 .release(None)
                 .iter()
-                .map(|r| r.pid)
+                .map(|r| r.process.pid)
                 .collect::<Vec<_>>(),
             [12]
         );
-        // A reused PID never inherits or restores the old app's switch.
-        flags.record("a", 13, "AXManualAccessibility", Some(false), "/Old");
-        assert!(!flags.join("a", 13, "/New"));
+        // A reused PID never inherits or restores the old app's switch, even
+        // with the same executable but a different start time.
+        flags.record(
+            "a",
+            &process(13, "/Old"),
+            "AXManualAccessibility",
+            Some(false),
+            true,
+        );
+        assert!(!flags.join("a", &process(13, "/New")));
         assert!(!flags.holds(13));
+        flags.record(
+            "a",
+            &process(13, "/Old"),
+            "AXManualAccessibility",
+            Some(false),
+            true,
+        );
+        let mut restarted = process(13, "/Old");
+        restarted.started += 1;
+        assert!(!flags.join("a", &restarted));
         assert!(flags.release(None).is_empty());
+    }
+
+    #[test]
+    fn a_later_chat_never_replaces_the_value_from_before_aven() {
+        let slack = ProcessId {
+            pid: 10,
+            executable: "/Slack".into(),
+            started: 7,
+        };
+        // Two chats prepare at once: chat b reads the switch after chat a
+        // turned it on, and records first.
+        let mut flags = FlagRegistry::default();
+        flags.record("b", &slack, "AXManualAccessibility", Some(true), false);
+        flags.record("a", &slack, "AXManualAccessibility", Some(false), true);
+        assert!(flags.release(Some("a")).is_empty());
+        assert_eq!(flags.release(Some("b")).len(), 1, "restored after both");
+        // In the usual order, the joiner's "on" does not overwrite "off".
+        flags.record("a", &slack, "AXManualAccessibility", Some(false), true);
+        flags.record("b", &slack, "AXManualAccessibility", Some(true), false);
+        assert_eq!(flags.saved().switches.len(), 1);
+        assert_eq!(flags.release(None).len(), 1);
+    }
+
+    #[test]
+    fn a_chat_that_ended_while_preparing_is_never_recorded() {
+        let slack = ProcessId {
+            pid: 10,
+            executable: "/Slack".into(),
+            started: 7,
+        };
+        let mut flags = FlagRegistry::default();
+        // The chat ends (its cleanup releases nothing yet) before the switch
+        // it was turning on is recorded.
+        assert!(flags.release(Some("a")).is_empty());
+        assert!(!flags.record_if(
+            || false,
+            "a",
+            &slack,
+            "AXManualAccessibility",
+            Some(false),
+            true
+        ));
+        assert!(!flags.holds(10));
+        assert!(flags.saved().switches.is_empty());
+        // A live chat is recorded and released normally.
+        assert!(flags.record_if(
+            || true,
+            "b",
+            &slack,
+            "AXManualAccessibility",
+            Some(false),
+            true
+        ));
+        assert_eq!(flags.release(Some("b")).len(), 1);
+    }
+
+    #[test]
+    fn switches_left_on_by_a_previous_run_are_restored_only_for_the_same_process() {
+        let process = |pid: i32, started: u64| ProcessId {
+            pid,
+            executable: format!("/App{pid}"),
+            started,
+        };
+        let mut flags = FlagRegistry::default();
+        flags.record(
+            "a",
+            &process(10, 1),
+            "AXManualAccessibility",
+            Some(false),
+            true,
+        );
+        flags.record("a", &process(11, 1), "AXEnhancedUserInterface", None, true);
+        flags.record(
+            "a",
+            &process(12, 1),
+            "AXManualAccessibility",
+            Some(true),
+            false,
+        );
+        let saved = flags.saved();
+        // Only switches that were off before Aven are saved.
+        assert_eq!(saved.switches.len(), 2);
+        let text = serde_json::to_string(&saved).unwrap();
+        assert!(text.contains("aven.accessibilitySwitches"), "{text}");
+        let saved: SavedSwitches = serde_json::from_str(&text).unwrap();
+        // pid 10 still runs; pid 11 is a new process with the same PID.
+        let running = |pid: i32| match pid {
+            10 => Some(process(10, 1)),
+            11 => Some(process(11, 2)),
+            _ => None,
+        };
+        let restores = stale_restores(saved, running, |_| false);
+        assert_eq!(
+            restores,
+            [Restore {
+                process: process(10, 1),
+                attribute: "AXManualAccessibility"
+            }]
+        );
+        // A switch this run already holds again is left alone.
+        let restores = stale_restores(flags.saved(), running, |pid| pid == 10);
+        assert!(restores.is_empty());
+        // Unknown attributes are never written.
+        let forged = SavedSwitches {
+            switches: vec![SavedSwitch {
+                process: process(10, 1),
+                attribute: "AXRaise".into(),
+            }],
+        };
+        assert!(stale_restores(forged, running, |_| false).is_empty());
+        assert!(serde_json::from_str::<SavedSwitches>(r#"{"other":[]}"#).is_err());
     }
 
     #[test]

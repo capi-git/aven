@@ -163,7 +163,12 @@ Aven had to use events.
 Electron and Chromium apps build a complete accessibility tree only when asked.
 On first use in a chat, Aven turns on that app's `AXManualAccessibility` (Electron)
 or `AXEnhancedUserInterface` (Chromium) switch, and turns it back off when the last
-chat using it ends, if it was off before.
+chat using it ends, if it was off before. Only the chat that turned a switch on
+records its earlier value, and a chat that ends while its switch is being turned on
+restores it straight away. Aven also keeps a small private record of switches it
+turned on (`aven.accessibility-switches.json` in its data folder, with the app's
+process ID, path and start time); if Aven quits unexpectedly, the next launch turns
+those switches off again when the same app process is still running.
 
 Element actions count as input: they use the same per-app consent, appear in the bar
 with the control's title (for example “Pressing “Send””, never a typed value),

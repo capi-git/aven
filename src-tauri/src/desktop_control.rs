@@ -1215,6 +1215,18 @@ pub(crate) fn remove_session_captures(scope: &str) {
     platform::presence_changed();
 }
 
+/// At launch, turns off Electron/Chromium accessibility switches that a
+/// previous run turned on and could not restore (for example after a crash),
+/// when the same app process is still running. Runs off the main thread.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn init(app: &AppHandle) {
+    let Ok(directory) = app.path().app_data_dir() else {
+        return;
+    };
+    let path = directory.join("aven.accessibility-switches.json");
+    tauri::async_runtime::spawn_blocking(move || platform::restore_accessibility(path));
+}
+
 pub(crate) fn shutdown() {
     platform::remove_captures(None);
     presence::with(|state| state.forget(None));
@@ -1372,6 +1384,7 @@ mod platform {
         Err(UNSUPPORTED.into())
     }
     pub(super) fn release_accessibility(_: Option<&str>) {}
+    pub(super) fn restore_accessibility(_: PathBuf) {}
     pub(super) fn presence_show(_: Option<(f64, f64)>, _: bool) -> Result<(), String> {
         Err(UNSUPPORTED.into())
     }

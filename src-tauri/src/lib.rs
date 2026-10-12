@@ -281,6 +281,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             {
                 memory_pressure::install(app.handle());
+                desktop_control::init(app.handle());
                 window::create_main_window(app.handle())?;
                 macos::install_dock_menu(app.handle());
                 if let Some(window) = app.get_window("main") {
