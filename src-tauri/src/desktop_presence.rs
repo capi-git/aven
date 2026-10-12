@@ -714,6 +714,16 @@ impl Presence {
         }
     }
 
+    /// Whether this chat may already use an app without asking: it allowed
+    /// that app and has not been stopped since. Never prompts.
+    pub(crate) fn has_app_consent(&self, scope: &str, key: &str) -> bool {
+        !self.stopped.contains(scope)
+            && self
+                .allowed
+                .get(scope)
+                .is_some_and(|allowed| allowed.contains(key))
+    }
+
     pub(crate) fn forget_approval(&mut self, scope: &str, key: &str) {
         if let Some(allowed) = self.allowed.get_mut(scope) {
             allowed.remove(key);
@@ -1841,6 +1851,30 @@ mod tests {
         let other = Ticket::for_test("other", true);
         state.set_element(&other, Some("Delete".into()));
         assert_eq!(state.model(now).unwrap().detail, "Setting a value");
+    }
+
+    #[test]
+    fn app_consent_is_read_without_prompting_and_ends_with_stop() {
+        let now = Instant::now();
+        let slack = AppIdentity::new("com.tinyspeck.slackmacgap:9", "Slack");
+        let mut state = Presence::default();
+        assert!(!state.has_app_consent("chat", &slack.key));
+        let Admission::Ask(id) = state.admit("chat", true, Some(&slack), true, true, now) else {
+            panic!("expected a prompt");
+        };
+        assert!(
+            !state.has_app_consent("chat", &slack.key),
+            "not before an answer"
+        );
+        assert!(state.answer(id, true));
+        assert!(state.has_app_consent("chat", &slack.key));
+        assert!(!state.has_app_consent("other", &slack.key), "per chat");
+        assert!(
+            !state.has_app_consent("chat", "com.tinyspeck.slackmacgap:10"),
+            "per process"
+        );
+        state.stop("chat", now);
+        assert!(!state.has_app_consent("chat", &slack.key));
     }
 
     #[test]

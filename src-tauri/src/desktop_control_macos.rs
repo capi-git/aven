@@ -1938,8 +1938,26 @@ fn app_state(
     }
     session.require_active()?;
     let (bundle, name) = app_identity(app, window.pid)?;
+    // Observation needs no consent, but turning on an app's switch changes
+    // that app: only for apps this chat may already act in.
+    // The same key the input gate uses for this app's consent.
+    let consent_key = presence::AppIdentity::new(
+        &format!("{}:{}", bundle.as_deref().unwrap_or("process"), window.pid),
+        &name,
+    )
+    .key;
+    let ask = read_ask_before_app_use(&consent_path(app)?);
+    let consented = presence::with(|state| state.has_app_consent(scope, &consent_key));
     let alive = || !session.revoked.load(Ordering::Acquire);
-    let prepared = ax::prepare(scope, window.pid, &alive);
+    let (prepared, limited) = if accessibility::may_enable_switch(ask, consented) {
+        (ax::prepare(scope, window.pid, &alive), false)
+    } else {
+        match ax::switch_state(window.pid) {
+            Some((attribute, true)) => (ax::Prepared::AlreadyOn(attribute), false),
+            Some((_, false)) => (ax::Prepared::NotNeeded, true),
+            None => (ax::Prepared::NotNeeded, false),
+        }
+    };
     session.require_active()?;
     let max_nodes = max_nodes.unwrap_or(accessibility::DEFAULT_MAX_NODES);
     let mut state = ax::capture_state(
@@ -1959,6 +1977,9 @@ fn app_state(
         json!({"x": window.x, "y": window.y, "width": window.width, "height": window.height});
     if let Some(attribute) = prepared.attribute() {
         state["accessibilityMode"] = json!(attribute);
+    } else if limited {
+        state["accessibilityMode"] = json!(accessibility::LIMITED);
+        state["accessibilityHint"] = json!(accessibility::LIMITED_HINT);
     }
     if let Some(tips) = accessibility::app_tips(bundle.as_deref()) {
         state["tips"] = json!(tips);

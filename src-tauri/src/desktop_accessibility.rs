@@ -1538,6 +1538,16 @@ impl FlagRegistry {
     }
 }
 
+/// appState is observation: it needs no consent and runs while paused. It
+/// only turns an app's accessibility switch on (a change to that app) when
+/// the chat may already act in that app, or app consent is off.
+pub(crate) fn may_enable_switch(ask_before_app_use: bool, consented: bool) -> bool {
+    !ask_before_app_use || consented
+}
+
+pub(crate) const LIMITED: &str = "limited";
+pub(crate) const LIMITED_HINT: &str = "This Electron or Chromium app shows only part of its controls until Aven turns on its accessibility tree, which needs this chat to be allowed to use the app. After your first allowed action in it (Aven asks the user), call appState again for the full tree.";
+
 /// Short, app-specific guidance returned with appState for well-known apps.
 pub(crate) fn app_tips(bundle: Option<&str>) -> Option<&'static str> {
     let bundle = bundle?;
@@ -2712,6 +2722,14 @@ mod tests {
         };
         assert!(stale_restores(forged, running, |_| false).is_empty());
         assert!(serde_json::from_str::<SavedSwitches>(r#"{"other":[]}"#).is_err());
+    }
+
+    #[test]
+    fn observation_turns_switches_on_only_with_consent_or_consent_off() {
+        assert!(!may_enable_switch(true, false));
+        assert!(may_enable_switch(true, true));
+        assert!(may_enable_switch(false, false));
+        assert!(may_enable_switch(false, true));
     }
 
     #[test]

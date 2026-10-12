@@ -740,6 +740,23 @@ pub(super) fn prepare(scope: &str, pid: i32, alive: &dyn Fn() -> bool) -> Prepar
     }
 }
 
+/// For an Electron or Chromium app, its switch and whether it is already on
+/// (by Aven for another chat, or by assistive technology). Read only.
+pub(super) fn switch_state(pid: i32) -> Option<(&'static str, bool)> {
+    if pid == std::process::id() as i32 {
+        return None;
+    }
+    let attribute = engine(&executable(pid)?)?.attribute();
+    let deadline = Instant::now() + Duration::from_millis(300);
+    let on = objc2::rc::autoreleasepool(|_| unsafe {
+        application(pid)
+            .ok()
+            .and_then(|app| copy(app.0, attribute, deadline))
+            .and_then(|value| bool_of(value.0))
+    });
+    Some((attribute, on == Some(true)))
+}
+
 fn restore_flags(restores: Vec<rules::Restore>) {
     for restore in restores {
         // A reused PID belongs to another process: never write to it.

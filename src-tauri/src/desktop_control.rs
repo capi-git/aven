@@ -1291,6 +1291,9 @@ bounds, an indexed outline of its controls (and any open menu): role, title,
 description, placeholder, value, disabled/focused/selected, actions and frame
 "@x,y WxH" in window-screenshot points, plus a fresh window image to open.
 Secure text values are always <redacted>. Known apps include short tips.
+For Electron and Chromium apps the full tree needs the app's accessibility
+switch, which appState turns on only once this chat may act in that app (or
+app consent is off); until then accessibilityMode is "limited" with a hint.
 Indexes are valid only for that window's latest state, and any action in the
 window uses them up: call appState again before each element action. Pass
 element with the same windowId (and stateId when you have it). If the element's
