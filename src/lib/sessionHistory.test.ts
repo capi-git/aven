@@ -6,6 +6,7 @@ import {
   mergeHistorySummary,
   mergeProjectHistorySummary,
   replaceProjectHistory,
+  standaloneSessionRows,
   summaryFromSession,
 } from "./sessionHistory";
 import { newSession } from "./session";
@@ -480,5 +481,29 @@ describe("pinned sessions", () => {
     ];
     const rows = historyWithLiveSessions(history, [], "/tmp/project-a");
     expect(rows.map((row) => row.id)).toEqual(["pin", "new"]);
+  });
+});
+
+describe("standalone session rows", () => {
+  const cwd = "/tmp/standalone-sessions";
+
+  it("leaves out a blank chat nobody has used yet", () => {
+    // Archiving the open chat replaces it with a blank one; it must not
+    // reappear as a row that looks impossible to archive.
+    expect(
+      standaloneSessionRows([], [newSession("codex", cwd)], [cwd]),
+    ).toEqual([]);
+  });
+
+  it("keeps chats with messages and running chats", () => {
+    const used = {
+      ...newSession("codex", cwd),
+      blocks: [{ id: "u1", role: "user" as const, text: "Hello" }],
+    };
+    const running = { ...newSession("codex", cwd), busy: true };
+    const rows = standaloneSessionRows([], [used, running], [cwd]);
+    expect(rows.map((row) => row.id).sort()).toEqual(
+      [used.id, running.id].sort(),
+    );
   });
 });

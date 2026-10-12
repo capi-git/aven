@@ -593,6 +593,7 @@ import {
   mergeProjectHistorySummary,
   replaceProjectHistory,
   historyWithLiveSessions,
+  standaloneSessionRows,
   summaryFromSession,
 } from "./lib/sessionHistory";
 import {
@@ -4469,6 +4470,15 @@ export default function App({
         await upsertSession(updated).catch(() => undefined);
         lastPersisted.current.set(sessionId, persistFingerprint(updated));
       }
+      // Rows from other projects and standalone chats are not revalidated by
+      // the current project's refresh; show the new title wherever it is listed.
+      setHistory((current) =>
+        current.map((row) =>
+          row.id === sessionId
+            ? { ...row, title: formatSessionTitle(row.harness, trimmed) }
+            : row,
+        ),
+      );
       void refreshHistory(sidebarCwd);
     },
     [persistSession, refreshHistory, sidebarCwd],
@@ -8573,23 +8583,10 @@ export default function App({
       sessions,
     ],
   );
-  const standaloneSessions = useMemo(() => {
-    const rows = new Map(
-      standaloneCwds
-        .flatMap((cwd) => historyWithLiveSessions(history, sessions, cwd))
-        .map((session) => [session.id, session]),
-    );
-    for (const session of sessions) {
-      if (
-        !session.inboxAsk &&
-        standaloneCwds.some((cwd) => sameProjectPath(session.cwd, cwd)) &&
-        !rows.has(session.id)
-      ) {
-        rows.set(session.id, summaryFromSession(session));
-      }
-    }
-    return [...rows.values()];
-  }, [standaloneCwds, history, sessions]);
+  const standaloneSessions = useMemo(
+    () => standaloneSessionRows(history, sessions, standaloneCwds),
+    [standaloneCwds, history, sessions],
+  );
   // A closing sidebar keeps its last previews: clearing them would remove rows
   // during the fade and re-render the sidebar for content no longer shown.
   const lastProfileSessionSummaries = useRef<

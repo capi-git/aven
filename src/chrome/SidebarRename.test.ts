@@ -380,3 +380,80 @@ describe("orchestration in other workspace lists", () => {
     },
   );
 });
+
+describe("renaming chats outside the current project", () => {
+  const plain = {
+    id: "plain-1",
+    cwd: "/workspace/other",
+    harness: "codex" as const,
+    model: "",
+    runtimeMode: "supervised" as const,
+    title: formatSessionTitle("codex", "Standalone idea"),
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  function row(): HTMLButtonElement {
+    return [
+      ...container.querySelectorAll<HTMLButtonElement>(".personal-other-task"),
+    ].find((button) => button.textContent?.includes("Standalone idea"))!;
+  }
+
+  function renameInput() {
+    return container.querySelector<HTMLInputElement>("input[value]");
+  }
+
+  it.each(["standalone", "project"] as const)(
+    "renames a %s chat from its right-click menu",
+    (kind) => {
+      if (kind === "project") {
+        props.recents = [{ path: "/workspace/other", openedAt: 1 }];
+        props.projectSessions = { "/workspace/other": [plain] };
+        props.onSelectProjectSession = vi.fn();
+      } else {
+        props.standaloneSessions = [plain];
+        props.onOpenStandalone = vi.fn();
+      }
+      act(() => render());
+      if (kind === "project")
+        act(() =>
+          container
+            .querySelector<HTMLButtonElement>(
+              '[aria-label="Expand other tasks"]',
+            )!
+            .click(),
+        );
+      act(() => {
+        row().dispatchEvent(
+          new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
+        );
+      });
+      const rename = [
+        ...document.querySelectorAll<HTMLButtonElement>('[role="menu"] button'),
+      ].find((item) => item.textContent?.includes("Rename"))!;
+      act(() => rename.click());
+      const input = renameInput()!;
+      expect(input.value).toBe("Standalone idea");
+      act(() => {
+        Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )!.set!.call(input, "Renamed idea");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      pressKey(input, "Enter");
+      expect(props.onRenameSession).toHaveBeenCalledWith(
+        "plain-1",
+        "Renamed idea",
+      );
+    },
+  );
+
+  it("starts renaming a standalone chat with F2", () => {
+    props.standaloneSessions = [plain];
+    props.onOpenStandalone = vi.fn();
+    act(() => render());
+    pressKey(row(), "F2");
+    expect(renameInput()?.value).toBe("Standalone idea");
+  });
+});

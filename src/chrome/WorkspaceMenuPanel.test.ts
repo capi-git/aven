@@ -309,3 +309,52 @@ it("focuses the menu itself when every action is unavailable", async () => {
     vi.unstubAllGlobals();
   }
 });
+
+it("shows a compact row's tooltip only when its label is cut off", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(
+        createElement(WorkspaceMenuPanelContent, {
+          snapshot: {
+            title: "Workspace actions",
+            compact: true,
+            theme: {
+              mode: "dark",
+              background: "#1f1f1f",
+              accent: "#7aa2f7",
+              text: "#f5f5f5",
+            },
+            items: [
+              { id: "switch", label: "Switch to Work" },
+              { id: "long", label: "A very long action label" },
+            ],
+          },
+          onSelect: vi.fn(),
+          onClose: vi.fn(),
+        }),
+      ),
+    );
+    const [short, long] =
+      host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]');
+    expect(short.hasAttribute("title")).toBe(false);
+    const label = long.querySelector<HTMLElement>(
+      ".workspace-menu-panel-item-label",
+    )!;
+    Object.defineProperty(label, "scrollWidth", { value: 300 });
+    Object.defineProperty(label, "clientWidth", { value: 180 });
+    await act(async () => {
+      short.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
+      long.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
+    });
+    expect(short.hasAttribute("title")).toBe(false);
+    expect(long.title).toBe("A very long action label");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    vi.unstubAllGlobals();
+  }
+});
