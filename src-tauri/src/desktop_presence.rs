@@ -160,6 +160,9 @@ pub(crate) enum Step {
     Scrolling,
     Dragging,
     SwitchingApps,
+    SettingValue,
+    SelectingText,
+    OpeningMenu,
 }
 
 impl Step {
@@ -173,6 +176,27 @@ impl Step {
             Self::Scrolling => "Scrolling",
             Self::Dragging => "Dragging",
             Self::SwitchingApps => "Switching apps",
+            Self::SettingValue => "Setting a value",
+            Self::SelectingText => "Selecting text",
+            Self::OpeningMenu => "Opening a menu",
+        }
+    }
+
+    /// The bar's step text. `element` is an element's title (never its value
+    /// or anything typed), already sanitised and bounded.
+    pub(crate) fn describe(self, element: Option<&str>) -> String {
+        let Some(element) = element.filter(|label| !label.is_empty()) else {
+            return self.label().into();
+        };
+        match self {
+            Self::Clicking => format!("Pressing \u{201c}{element}\u{201d}"),
+            Self::Typing => format!("Typing in \u{201c}{element}\u{201d}"),
+            Self::PressingKey => format!("Pressing a key in \u{201c}{element}\u{201d}"),
+            Self::Scrolling => format!("Scrolling \u{201c}{element}\u{201d}"),
+            Self::SettingValue => format!("Setting \u{201c}{element}\u{201d}"),
+            Self::SelectingText => format!("Selecting text in \u{201c}{element}\u{201d}"),
+            Self::OpeningMenu => format!("Opening the menu for \u{201c}{element}\u{201d}"),
+            _ => self.label().into(),
         }
     }
 }
@@ -180,14 +204,19 @@ impl Step {
 pub(crate) fn step_for(request: &Request) -> Option<Step> {
     Some(match request {
         Request::Status {} => return None,
-        Request::Windows {} | Request::Screenshot { .. } => Step::Looking,
+        Request::Windows {} | Request::Screenshot { .. } | Request::AppState { .. } => {
+            Step::Looking
+        }
         Request::Move { .. } => Step::Moving,
         Request::Click { .. } => Step::Clicking,
-        Request::Type { .. } => Step::Typing,
-        Request::Press { .. } => Step::PressingKey,
+        Request::Type { .. } | Request::TypeText { .. } => Step::Typing,
+        Request::Press { .. } | Request::PressKey { .. } => Step::PressingKey,
         Request::Scroll { .. } => Step::Scrolling,
         Request::Drag { .. } => Step::Dragging,
         Request::Activate { .. } => Step::SwitchingApps,
+        Request::SetValue { .. } => Step::SettingValue,
+        Request::SelectText { .. } => Step::SelectingText,
+        Request::SecondaryAction { .. } => Step::OpeningMenu,
     })
 }
 
@@ -303,6 +332,8 @@ struct Activity {
     scope: String,
     app: Option<String>,
     step: Step,
+    /// The target element's title for element actions.
+    element: Option<String>,
     input: bool,
     shared_input: bool,
     target_pid: Option<i32>,
@@ -646,6 +677,7 @@ impl Presence {
             scope: scope.into(),
             app,
             step,
+            element: None,
             input,
             shared_input: true,
             target_pid: None,
@@ -668,6 +700,17 @@ impl Presence {
         {
             activity.shared_input = shared;
             activity.target_pid = pid;
+        }
+    }
+
+    /// Publishes the element an action targets. Only its title is shown.
+    pub(crate) fn set_element(&mut self, ticket: &Ticket, element: Option<String>) {
+        if let Some(activity) = self
+            .activity
+            .as_mut()
+            .filter(|activity| activity.scope == ticket.scope)
+        {
+            activity.element = element;
         }
     }
 
@@ -890,9 +933,12 @@ impl Presence {
             kind: BarKind::Acting,
             color: actor.color,
             title: format!("{} is using {app}", actor.name),
-            detail: match &actor.title {
-                Some(title) => format!("{} \u{b7} {title}", activity.step.label()),
-                None => activity.step.label().into(),
+            detail: {
+                let step = activity.step.describe(activity.element.as_deref());
+                match &actor.title {
+                    Some(title) => format!("{step} \u{b7} {title}"),
+                    None => step,
+                }
             },
             buttons: vec![
                 BarButton {
@@ -1146,6 +1192,20 @@ mod tests {
             }
         }
         assert!(step_for(&request(json!({"action":"status"}))).is_none());
+        assert!(!is_input(&request(
+            json!({"action":"appState","windowId":3})
+        )));
+        for value in [
+            json!({"action":"click","windowId":3,"element":1}),
+            json!({"action":"typeText","windowId":3,"text":secret}),
+            json!({"action":"pressKey","windowId":3,"key":"Enter"}),
+            json!({"action":"setValue","windowId":3,"element":1,"value":secret}),
+            json!({"action":"selectText","windowId":3,"element":1,"text":secret}),
+            json!({"action":"secondaryAction","windowId":3,"element":1}),
+            json!({"action":"scroll","windowId":3,"element":1,"direction":"down"}),
+        ] {
+            assert!(is_input(&request(value.clone())), "{value}");
+        }
         assert!(!is_input(&request(json!({"action":"screenshot"}))));
         assert!(!is_input(&request(json!({"action":"windows"}))));
         assert!(is_input(&request(json!({"action":"activate","pid":4}))));
@@ -1730,5 +1790,98 @@ mod tests {
                 }
             );
         }
+    }
+
+    #[test]
+    fn element_steps_name_the_control_but_never_its_value_or_typed_text() {
+        let now = Instant::now();
+        let secret = "hunter2 SECRET";
+        for (value, expected) in [
+            (
+                json!({"action":"click","windowId":3,"element":1}),
+                "Pressing \u{201c}Send\u{201d}",
+            ),
+            (
+                json!({"action":"typeText","windowId":3,"element":1,"text":secret}),
+                "Typing in \u{201c}Send\u{201d}",
+            ),
+            (
+                json!({"action":"setValue","windowId":3,"element":1,"value":secret}),
+                "Setting \u{201c}Send\u{201d}",
+            ),
+            (
+                json!({"action":"selectText","windowId":3,"element":1,"text":secret}),
+                "Selecting text in \u{201c}Send\u{201d}",
+            ),
+            (
+                json!({"action":"secondaryAction","windowId":3,"element":1}),
+                "Opening the menu for \u{201c}Send\u{201d}",
+            ),
+            (
+                json!({"action":"pressKey","windowId":3,"element":1,"key":"Enter"}),
+                "Pressing a key in \u{201c}Send\u{201d}",
+            ),
+        ] {
+            let mut state = Presence::default();
+            let step = step_for(&request(value)).unwrap();
+            let ticket = state.begin("chat", step, Some("Mail".into()), now);
+            state.set_element(&ticket, Some("Send".into()));
+            let model = state.model(now).unwrap();
+            assert_eq!(model.detail, expected);
+            assert!(!model.detail.contains("hunter2") && !model.title.contains("SECRET"));
+        }
+        // Without a label the generic step text is used, and a new action
+        // never inherits the previous element.
+        let mut state = Presence::default();
+        let ticket = state.begin("chat", Step::Clicking, None, now);
+        state.set_element(&ticket, Some("Send".into()));
+        state.begin("chat", Step::SettingValue, None, now);
+        assert_eq!(state.model(now).unwrap().detail, "Setting a value");
+        // Another chat's ticket cannot relabel the current activity.
+        let other = Ticket::for_test("other", true);
+        state.set_element(&other, Some("Delete".into()));
+        assert_eq!(state.model(now).unwrap().detail, "Setting a value");
+    }
+
+    #[test]
+    fn element_actions_are_input_for_consent_pause_and_yield() {
+        let now = Instant::now();
+        let mail = AppIdentity::new("com.apple.mail:9", "Mail");
+        let click = request(json!({"action":"click","windowId":3,"element":1}));
+        let observe = request(json!({"action":"appState","windowId":3}));
+        let mut state = Presence::default();
+        // App consent is asked before the first element action in an app.
+        assert!(matches!(
+            state.admit("chat", is_input(&click), Some(&mail), true, true, now),
+            Admission::Ask(_)
+        ));
+        state.prompt = None;
+        // appState is observation: no prompt, and allowed while paused.
+        assert_eq!(
+            state.admit("chat", is_input(&observe), None, true, true, now),
+            Admission::Go
+        );
+        state.pause(Pause::ByUser);
+        assert_eq!(
+            state.admit("chat", is_input(&click), Some(&mail), false, true, now),
+            Admission::Refuse(PAUSED_BY_USER.into())
+        );
+        assert_eq!(
+            state.admit("chat", is_input(&observe), None, true, true, now),
+            Admission::Go
+        );
+        state.resume();
+        // Working in the same app pauses an element action in flight.
+        let ticket = state.begin("chat", step_for(&click).unwrap(), Some("Mail".into()), now);
+        state.set_delivery(&ticket, false, Some(9));
+        assert_eq!(
+            state.user_input_in_app(UserEvent::Pointer, now, Some(9)),
+            InputEffect::Paused
+        );
+        assert!(state.check(&ticket).is_err());
+        // Stop revokes it until the user allows the chat again.
+        state.resume();
+        state.stop("chat", now);
+        assert_eq!(state.check(&ticket).unwrap_err(), STOPPED);
     }
 }

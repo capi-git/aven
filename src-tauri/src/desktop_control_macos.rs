@@ -15,6 +15,8 @@ use std::time::{Duration, Instant};
 
 #[path = "desktop_cursor_macos.rs"]
 mod agent_cursor;
+#[path = "desktop_accessibility_macos.rs"]
+mod ax;
 #[path = "desktop_input_macos.rs"]
 mod input;
 #[cfg(debug_assertions)]
@@ -29,9 +31,14 @@ mod presence_ui;
 
 pub(super) fn presence_target(
     app: &AppHandle,
+    scope: &str,
     request: &Request,
 ) -> Result<PresenceTarget, String> {
-    input::target(app, request)
+    input::target(app, scope, request)
+}
+/// Forgets element indexes and restores app accessibility switches.
+pub(super) fn release_accessibility(scope: Option<&str>) {
+    ax::forget(scope);
 }
 pub(super) fn presence_show(anchor: Option<(f64, f64)>, input: bool) -> Result<(), String> {
     presence_ui::show(anchor, input)
@@ -1453,6 +1460,7 @@ fn revoke_capture_sessions(
 }
 
 pub(super) fn remove_captures(scope: Option<&str>) {
+    ax::forget(scope);
     if let Some(sessions) = CAPTURES.get() {
         let revoked = {
             let mut sessions = sessions.lock().unwrap_or_else(|error| error.into_inner());
@@ -1702,6 +1710,9 @@ pub(super) fn execute(
     let _route = input::enter(ticket, target);
     input::check()?;
     let session = active_session(CAPTURES.get_or_init(CaptureSessions::default), scope)?;
+    if request.is_element_action() {
+        return element_action(app, scope, &session, request, target);
+    }
     match request {
         Request::Status {} => {
             Err("Status must be checked through the desktop control gate.".into())
@@ -1713,6 +1724,12 @@ pub(super) fn execute(
             presence_ui::suppress(true)?;
             screenshot(scope, window_id, region)
         }
+        Request::AppState {
+            window_id,
+            pid,
+            max_nodes,
+            image,
+        } => app_state(app, scope, &session, window_id, pid, max_nodes, image),
         Request::Move {
             x, y, window_id, ..
         } => {
@@ -1741,6 +1758,7 @@ pub(super) fn execute(
             count,
             ..
         } => {
+            let (x, y) = x.zip(y).ok_or(COORDINATES_REQUIRED)?;
             scoped_input(
                 &session,
                 || {
@@ -1782,6 +1800,8 @@ pub(super) fn execute(
             delta_y,
             ..
         } => {
+            let (x, y) = x.zip(y).ok_or(COORDINATES_REQUIRED)?;
+            let delta_y = delta_y.ok_or(COORDINATES_REQUIRED)?;
             scoped_input(
                 &session,
                 || {
@@ -1823,7 +1843,258 @@ pub(super) fn execute(
             }))
         }
         Request::Activate { .. } => activate(app, session, target.pid, None, ticket.clone()),
+        Request::SecondaryAction { .. }
+        | Request::SetValue { .. }
+        | Request::TypeText { .. }
+        | Request::PressKey { .. }
+        | Request::SelectText { .. } => {
+            Err("This desktop action was routed incorrectly; no input was sent.".into())
+        }
     }
+}
+
+fn need(located: Option<&ax::Located>) -> Result<&ax::Located, String> {
+    located.ok_or_else(|| INPUT_WINDOW_UNAVAILABLE.to_string())
+}
+
+const EVENTS_NOTE: &str = "The app does not support this through Accessibility, so Aven sent app-directed events. Verify with appState or a screenshot.";
+const COORDINATES_REQUIRED: &str = "This action needs x and y coordinates, or an element index.";
+
+/// Bundle ID and name of a running app, read on the main thread.
+fn app_identity(app: &AppHandle, pid: i32) -> Result<(Option<String>, String), String> {
+    activation_on_main(
+        app,
+        Instant::now() + Duration::from_secs(2),
+        move || unsafe {
+            let class =
+                AnyClass::get(c"NSRunningApplication").ok_or("App identity is unavailable.")?;
+            let running: Option<Retained<AnyObject>> =
+                msg_send![class, runningApplicationWithProcessIdentifier: pid];
+            let running = running.ok_or("That app is no longer running.")?;
+            let name: Option<Retained<NSString>> = msg_send![&*running, localizedName];
+            let bundle: Option<Retained<NSString>> = msg_send![&*running, bundleIdentifier];
+            Ok((
+                bundle.map(|bundle| bundle.to_string()),
+                name.map_or_else(
+                    || "this app".into(),
+                    |name| input_app_name(&name.to_string()),
+                ),
+            ))
+        },
+    )
+}
+
+/// Observation: an indexed accessibility tree of one window and a fresh image
+/// of it. Covered and background windows work; nothing is activated.
+#[allow(clippy::too_many_arguments)]
+fn app_state(
+    app: &AppHandle,
+    scope: &str,
+    session: &CaptureSession,
+    window_id: Option<u32>,
+    pid: Option<i32>,
+    max_nodes: Option<u32>,
+    image: bool,
+) -> Result<Value, String> {
+    let visible = windows()?;
+    let window = match (window_id, pid) {
+        (Some(id), _) => visible.into_iter().find(|window| window.window_id == id),
+        // Front-to-back order: the app's frontmost ordinary window.
+        (None, Some(pid)) => visible.into_iter().find(|window| window.pid == pid),
+        _ => None,
+    }
+    .ok_or(
+        "That window is no longer on screen. Run windows and retry with an observed windowId.",
+    )?;
+    if presence_ui::window_id() == Some(window.window_id)
+        || agent_cursor::window_id() == Some(window.window_id)
+    {
+        return Err("Aven's desktop controls cannot be inspected or targeted.".into());
+    }
+    session.require_active()?;
+    let (bundle, name) = app_identity(app, window.pid)?;
+    let prepared = ax::prepare(scope, window.pid);
+    session.require_active()?;
+    let max_nodes = max_nodes.unwrap_or(accessibility::DEFAULT_MAX_NODES);
+    let mut state = ax::capture_state(
+        scope,
+        window.pid,
+        window.window_id,
+        window.bounds(),
+        max_nodes,
+    )?;
+    session.require_active()?;
+    state["windowId"] = json!(window.window_id);
+    state["app"] = json!(name);
+    state["pid"] = json!(window.pid);
+    state["bundleId"] = json!(bundle);
+    state["title"] = json!(window.title);
+    state["window"] =
+        json!({"x": window.x, "y": window.y, "width": window.width, "height": window.height});
+    if let Some(attribute) = prepared.attribute() {
+        state["accessibilityMode"] = json!(attribute);
+    }
+    if let Some(tips) = accessibility::app_tips(bundle.as_deref()) {
+        state["tips"] = json!(tips);
+    }
+    if image {
+        agent_cursor::suspend(app)?;
+        let _suppression = CursorSuppression(app);
+        presence_ui::suppress(true)?;
+        state["image"] = screenshot(scope, Some(window.window_id), None)?;
+    }
+    Ok(state)
+}
+
+/// Background element actions. The agent ring moves to the control (drawing
+/// only); Accessibility performs the action; only when the app does not
+/// support it does the existing app-directed event path finish it.
+fn element_action(
+    app: &AppHandle,
+    scope: &str,
+    session: &CaptureSession,
+    request: Request,
+    target: &PresenceTarget,
+) -> Result<Value, String> {
+    let window_id = request.input_window().ok_or(INPUT_WINDOW_UNAVAILABLE)?;
+    let pid = target.pid.ok_or(INPUT_WINDOW_UNAVAILABLE)?;
+    let bounds = target.bounds.ok_or(INPUT_WINDOW_UNAVAILABLE)?;
+    if target.shared_input || target.window_id != Some(window_id) {
+        return Err("Element actions are background actions; no input was sent.".into());
+    }
+    let gate = || session.require_active();
+    gate()?;
+    let index = request.element();
+    let located = match index {
+        Some((index, state_id)) => Some(ax::locate(scope, window_id, state_id, index, pid)?),
+        None => ax::focused(pid, window_id, bounds),
+    };
+    let feedback = match &request {
+        Request::Click { .. } | Request::SecondaryAction { .. } => agent_cursor::Feedback::Click,
+        Request::Scroll { .. } => agent_cursor::Feedback::Scroll,
+        _ => agent_cursor::Feedback::Key,
+    };
+    let revoked = Arc::clone(&session.revoked);
+    match located.as_ref().and_then(|located| located.info.centre()) {
+        Some((x, y)) => agent_cursor::move_to(app, scope, x, y, feedback, revoked)?,
+        None => agent_cursor::activity(app, scope, revoked)?,
+    }
+    gate()?;
+    let mut pending_keys = None;
+    let next = match &request {
+        Request::Click { button, count, .. } => {
+            ax::click(need(located.as_ref())?, *button, *count, &gate)?
+        }
+        Request::SecondaryAction { name, .. } => {
+            ax::secondary(need(located.as_ref())?, name.as_deref(), &gate)?
+        }
+        Request::SetValue { value, .. } => ax::set_value(need(located.as_ref())?, value, &gate)?,
+        Request::TypeText { text, .. } => ax::type_text(located.as_ref(), text, &gate)?,
+        Request::PressKey { key, modifiers, .. } => {
+            pending_keys = Some((key.clone(), modifiers.clone()));
+            ax::press_key(
+                located.as_ref(),
+                key,
+                !modifiers.is_empty(),
+                (pid, window_id, bounds),
+                &gate,
+            )?
+        }
+        Request::SelectText {
+            text,
+            start,
+            length,
+            ..
+        } => ax::select_text(
+            need(located.as_ref())?,
+            text.as_deref(),
+            start.zip(*length),
+            &gate,
+        )?,
+        Request::Scroll {
+            direction,
+            pages,
+            delta_x,
+            delta_y,
+            ..
+        } => ax::scroll(
+            need(located.as_ref())?,
+            *direction,
+            pages.unwrap_or(1),
+            delta_y.map(|delta_y| (*delta_x, delta_y)),
+            &gate,
+        )?,
+        _ => return Err("This desktop action was routed incorrectly; no input was sent.".into()),
+    };
+    let local = |(x, y): (f64, f64)| (x - bounds.x, y - bounds.y);
+    let mut value = match next {
+        ax::Next::Done(value) => value,
+        ax::Next::ClickAt {
+            point,
+            button,
+            count,
+        } => {
+            let (x, y) = local(point);
+            scoped_input(
+                session,
+                || {
+                    cursor_target(
+                        app,
+                        scope,
+                        session,
+                        x,
+                        y,
+                        Some(window_id),
+                        agent_cursor::Feedback::Click,
+                    )
+                },
+                |point| click(session, point, button, count),
+            )?;
+            json!({"clicked": true, "method": "events", "confirmed": false, "note": EVENTS_NOTE})
+        }
+        ax::Next::ScrollAt {
+            point,
+            delta_x,
+            delta_y,
+        } => {
+            let (x, y) = local(point);
+            scoped_input(
+                session,
+                || {
+                    cursor_target(
+                        app,
+                        scope,
+                        session,
+                        x,
+                        y,
+                        Some(window_id),
+                        agent_cursor::Feedback::Scroll,
+                    )
+                },
+                |point| scroll(point, delta_x, delta_y),
+            )?;
+            json!({"scrolled": true, "method": "events", "confirmed": false, "note": EVENTS_NOTE})
+        }
+        ax::Next::Keys => {
+            let (key, modifiers) = pending_keys.ok_or(INPUT_WINDOW_UNAVAILABLE)?;
+            scoped_input(session, || Ok(()), |()| press(&key, &modifiers))?;
+            json!({"pressed": true, "method": "events", "confirmed": false, "note": EVENTS_NOTE})
+        }
+        ax::Next::TypeKeys => {
+            let Request::TypeText { text, .. } = &request else {
+                return Err(INPUT_WINDOW_UNAVAILABLE.into());
+            };
+            scoped_input(session, || Ok(()), |()| type_text(session, text))?;
+            json!({"typed": true, "method": "events", "confirmed": false, "note": EVENTS_NOTE})
+        }
+    };
+    if let Some((index, _)) = index {
+        value["element"] = json!(index);
+    }
+    if located.as_ref().is_some_and(|located| located.reresolved) {
+        value["reresolved"] = json!(true);
+    }
+    Ok(value)
 }
 
 // Scope revocation can happen while a worker animates the visualization. Hold

@@ -182,7 +182,11 @@ pub(super) fn app_targets(
     })
 }
 
-pub(super) fn target(app: &AppHandle, request: &Request) -> Result<PresenceTarget, String> {
+pub(super) fn target(
+    app: &AppHandle,
+    scope: &str,
+    request: &Request,
+) -> Result<PresenceTarget, String> {
     if !presence::is_input(request) {
         return Ok(PresenceTarget::default());
     }
@@ -248,12 +252,32 @@ pub(super) fn target(app: &AppHandle, request: &Request) -> Result<PresenceTarge
         },
     )?;
     let bounds = window.as_ref().map(DesktopWindow::bounds);
-    let anchor = match request {
-        Request::Move { x, y, .. } | Request::Click { x, y, .. } | Request::Scroll { x, y, .. } => {
-            Some(global_point(*x, *y, bounds)?)
+    let centre = bounds.map(|b| (b.x + b.width / 2.0, b.y + b.height / 2.0));
+    let mut label = None;
+    let anchor = if let (Some((index, state_id)), Some(id), Some(bounds)) =
+        (request.element(), id, bounds)
+    {
+        // Indexes resolve against this chat's latest appState before any
+        // prompt, so a stale index never asks the user for consent.
+        let element = ax::anchor(scope, id, state_id, index, bounds)?;
+        label = element.label;
+        element.point.or(centre)
+    } else {
+        match request {
+            Request::Move { x, y, .. }
+            | Request::Click {
+                x: Some(x),
+                y: Some(y),
+                ..
+            }
+            | Request::Scroll {
+                x: Some(x),
+                y: Some(y),
+                ..
+            } => Some(global_point(*x, *y, bounds)?),
+            Request::Drag { from, .. } => Some(global_point(from.x, from.y, bounds)?),
+            _ => centre,
         }
-        Request::Drag { from, .. } => Some(global_point(from.x, from.y, bounds)?),
-        _ => bounds.map(|b| (b.x + b.width / 2.0, b.y + b.height / 2.0)),
     };
     let shared_input = mode == InputMode::Pointer;
     let identity = if shared_input && id.is_none() && !matches!(request, Request::Activate { .. }) {
@@ -280,6 +304,7 @@ pub(super) fn target(app: &AppHandle, request: &Request) -> Result<PresenceTarge
         window_id: id,
         bounds,
         shared_input,
+        label,
     })
 }
 
