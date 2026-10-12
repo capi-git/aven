@@ -375,6 +375,10 @@ pub(crate) trait Source {
     fn read(&mut self, node: &Self::Node) -> Option<NodeInfo>;
     /// Must be deterministic for an unchanged element: paths index into it.
     fn children(&mut self, node: &Self::Node, info: &NodeInfo) -> Vec<Self::Node>;
+    /// Labels and value only, for context text; defaults to a full read.
+    fn read_text(&mut self, node: &Self::Node) -> Option<NodeInfo> {
+        self.read(node)
+    }
     fn parent(&mut self, node: &Self::Node) -> Option<Self::Node>;
     /// Whether two references denote the same live element.
     fn same(&self, a: &Self::Node, b: &Self::Node) -> bool;
@@ -606,7 +610,7 @@ pub(crate) fn content_text<S: Source>(source: &mut S, node: &S::Node, reads: &mu
         }
         visits += 1;
         *reads += 1;
-        let Some(info) = source.read(&current) else {
+        let Some(info) = source.read_text(&current) else {
             continue;
         };
         let value = match &info.value {
@@ -627,6 +631,15 @@ pub(crate) fn content_text<S: Source>(source: &mut S, node: &S::Node, reads: &mu
         queue.extend(source.children(&current, &info));
     }
     texts.join(" | ")
+}
+
+fn actionable(info: &NodeInfo) -> bool {
+    info.is_text_input()
+        || matches!(info.role.as_str(), "AXRow" | "AXCell" | "AXMenuItem")
+        || info
+            .actions
+            .iter()
+            .any(|action| !QUIET_ACTIONS.contains(&action.as_str()))
 }
 
 /// The element and its ancestors, nearest first, up to CONTEXT_LEVELS up.
@@ -663,7 +676,9 @@ pub(crate) fn assign_contexts<S: Source>(source: &mut S, nodes: &mut [Captured<S
             .push(index);
     }
     let mut members: Vec<Vec<usize>> = groups.into_values().collect();
-    members.sort();
+    // Controls an agent acts on come first, so a large window's plain text
+    // cannot use up the budget before its rows and buttons.
+    members.sort_by_key(|group| (!actionable(&nodes[group[0]].info), group[0]));
     let mut reads = 0;
     let mut contexts: Vec<(usize, Context)> = Vec::new();
     for group in members {
@@ -2147,6 +2162,50 @@ mod tests {
                 text: "Files".into()
             }
         );
+    }
+
+    #[test]
+    fn controls_get_contexts_before_plain_text_when_the_budget_runs_out() {
+        // Many unlabelled static texts come first in the outline, then two
+        // untitled rows. With a tiny read budget the rows still get contexts.
+        let mut infos = vec![info("AXWindow", Some("W")), info("AXTable", Some("T"))];
+        let mut window_kids = Vec::new();
+        for index in 0..40 {
+            window_kids.push(infos.len());
+            infos.push(text(&format!("note {index}")));
+        }
+        window_kids.push(1);
+        let mut rows = Vec::new();
+        for index in 0..2 {
+            let mut row = info("AXRow", None);
+            row.frame = Some(region(110.0, 220.0 + index as f64 * 30.0, 300.0, 30.0));
+            rows.push(infos.len());
+            infos.push(row);
+            infos.push(text(["Ada", "Grace"][index]));
+        }
+        let mut tree = Fake::new(
+            infos,
+            &[
+                (0, &window_kids),
+                (1, &rows),
+                (rows[0], &[rows[0] + 1]),
+                (rows[1], &[rows[1] + 1]),
+            ],
+        );
+        let mut nodes = capture(&mut tree, &[(0, None)], 200).nodes;
+        tree.budget = tree.reads + 40;
+        assign_contexts(&mut tree, &mut nodes);
+        let row = find_node(&nodes, "AXRow", 1);
+        assert_eq!(
+            row.context,
+            Context::Content {
+                level: 0,
+                text: "Grace".into()
+            }
+        );
+        assert!(nodes
+            .iter()
+            .any(|node| node.info.role == "AXStaticText" && node.context == Context::Ambiguous));
     }
 
     #[test]

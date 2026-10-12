@@ -259,6 +259,17 @@ unsafe fn action_names(element: Cf) -> Vec<String> {
 /// Reads an element through one batched request, its value (never for a
 /// secure field) and its action names.
 unsafe fn read_info(element: Cf, batch: &NSArray<NSString>, deadline: Instant) -> Option<NodeInfo> {
+    let mut info = read_attributes(element, batch, deadline)?;
+    info.actions = action_names(element);
+    Some(info)
+}
+
+/// The batched attributes and value of an element, without action names.
+unsafe fn read_attributes(
+    element: Cf,
+    batch: &NSArray<NSString>,
+    deadline: Instant,
+) -> Option<NodeInfo> {
     let remaining = deadline.saturating_duration_since(Instant::now());
     if remaining.is_zero() {
         return None;
@@ -319,8 +330,16 @@ unsafe fn read_info(element: Cf, batch: &NSArray<NSString>, deadline: Instant) -
     } else {
         read_value(element, deadline)
     };
-    info.actions = action_names(element);
     Some(info)
+}
+
+/// Like `read_info` without action names, for context text.
+unsafe fn read_text_info(
+    element: Cf,
+    batch: &NSArray<NSString>,
+    deadline: Instant,
+) -> Option<NodeInfo> {
+    read_attributes(element, batch, deadline)
 }
 
 unsafe fn read_value(element: Cf, deadline: Instant) -> Option<NodeValue> {
@@ -424,6 +443,9 @@ impl rules::Source for Live {
     }
     fn children(&mut self, node: &Element, info: &NodeInfo) -> Vec<Element> {
         unsafe { children(node.0, info, self.deadline) }
+    }
+    fn read_text(&mut self, node: &Element) -> Option<NodeInfo> {
+        unsafe { read_text_info(node.0, &self.batch, self.deadline) }
     }
     fn parent(&mut self, node: &Element) -> Option<Element> {
         unsafe { copy(node.0, "AXParent", self.deadline).and_then(|parent| Element::owned(parent)) }
