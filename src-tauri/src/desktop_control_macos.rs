@@ -2064,16 +2064,12 @@ fn element_action(
             &gate,
         )?,
         Request::Scroll {
-            direction,
-            pages,
-            delta_x,
-            delta_y,
-            ..
+            direction, pages, ..
         } => ax::scroll(
             need(located.as_ref())?,
             *direction,
             pages.unwrap_or(1),
-            delta_y.map(|delta_y| (*delta_x, delta_y)),
+            request.element_wheel_delta(),
             &gate,
         )?,
         _ => return Err("This desktop action was routed incorrectly; no input was sent.".into()),

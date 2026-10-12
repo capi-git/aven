@@ -515,6 +515,28 @@ fn live_fixture_background_element_actions() {
     evidence.insert("menuItem".into(), value);
     fixture.wait("menu choice", |value| value["menuChoice"] == "Beta");
 
+    // 8a. A disabled control, and the window's disabled default button for
+    // Enter, are refused before anything reaches the app.
+    let locked_state = observe();
+    assert!(
+        locked_state["elements"]
+            .as_str()
+            .unwrap()
+            .contains("Button \"Locked\""),
+        "{locked_state}"
+    );
+    let locked = find_in(&locked_state, "Button", "\"Locked\"");
+    let refused = secondary(&locked, None, &gate).err().unwrap();
+    assert_eq!(refused, rules::DISABLED);
+    let refused = press_key(None, false, "Enter", false, (pid, window_id, bounds), &gate)
+        .err()
+        .unwrap();
+    assert_eq!(refused, rules::DISABLED);
+    acted();
+    evidence.insert("disabledRefusal".into(), json!(refused));
+    std::thread::sleep(Duration::from_millis(150));
+    assert_eq!(fixture.read()["lockedPresses"], 0);
+
     // 8b. Web content: WebKit serves the page's elements from a WebContent
     // process. They are accepted for this window and pressed in the
     // background; WebKit builds its tree on first request, so observe again

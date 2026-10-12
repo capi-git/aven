@@ -137,11 +137,15 @@ Element actions take the same `windowId`, an `element` index and the `stateId`:
   `element`, those events (and `typeText`'s key fallback) are sent only after Aven
   focuses that element inside its app and reads its focus back; otherwise nothing
   is sent and the action fails, so keys never reach another control.
-- `scroll` with `direction` (and `pages`) pages the nearest scroll area; with only
+- `scroll` with `direction` (and `pages`) pages the nearest scroll area; with
+  `deltaX` and/or `deltaY` it sends a wheel event at the element's centre; with only
   `element` it scrolls that element into view.
 - `selectText` selects `text`, or `start` and `length` in UTF-16 units.
 - `secondaryAction` opens the element's menu, or runs one allow-listed action such
   as `Increment` or `ShowAlternateUI`.
+
+A control the app reports as disabled is refused by every element action, including
+the window's default or cancel button that Enter or Escape would press.
 
 Indexes belong to that state only, and any action in the window uses them up, so
 agents call `appState` again before each element action. A newer `appState` of the

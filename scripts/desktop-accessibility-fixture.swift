@@ -16,6 +16,7 @@ var menuOpened = 0
 var menuChoice = ""
 var inserted = 0
 var webClicks = 0
+var lockedPresses = 0
 var web: WKWebView!
 var activeEver = false
 var keyEver = false
@@ -35,6 +36,7 @@ final class Target: NSObject, NSMenuDelegate, NSTableViewDataSource {
         sender.title = "Sent"
     }
     @objc func chose(_ sender: NSMenuItem) { menuChoice = sender.title }
+    @objc func locked(_ sender: NSButton) { lockedPresses += 1 }
     func menuWillOpen(_ menu: NSMenu) {
         menuOpened += 1
         // Failsafe: never leave a menu open over the user's screen.
@@ -90,6 +92,14 @@ final class Delegate: NSObject, NSApplicationDelegate {
         options.menu = menu
         view.addSubview(options)
 
+        // A disabled default button: Enter and element actions must refuse it.
+        let locked = NSButton(title: "Locked", target: target, action: #selector(Target.locked(_:)))
+        locked.frame = NSRect(x: 300, y: 320, width: 120, height: 32)
+        locked.keyEquivalent = "\r"
+        locked.isEnabled = false
+        locked.menu = NSMenu(title: "Locked")
+        view.addSubview(locked)
+
         name = NSTextField(frame: NSRect(x: 20, y: 280, width: 220, height: 24))
         name.placeholderString = "Name"
         view.addSubview(name)
@@ -144,7 +154,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
                 "name": name.stringValue, "notes": notes.string,
                 "passwordLength": password.stringValue.count, "slider": slider.doubleValue,
                 "scrollY": scroll.contentView.bounds.origin.y, "selectedRow": table.selectedRow,
-                "menuOpened": menuOpened, "menuChoice": menuChoice, "inserted": inserted, "webClicks": webClicks,
+                "menuOpened": menuOpened, "menuChoice": menuChoice, "inserted": inserted, "webClicks": webClicks, "lockedPresses": lockedPresses,
                 "activeEver": activeEver, "keyEver": keyEver,
             ]
             if let data = try? JSONSerialization.data(withJSONObject: values) {

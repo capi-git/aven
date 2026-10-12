@@ -1048,6 +1048,19 @@ pub(crate) fn settle(retries: usize, interval: Duration, mut check: impl FnMut()
     false
 }
 
+pub(crate) const DISABLED: &str =
+    "That control is disabled. Call appState again after the app enables it.";
+
+/// Every element action refuses a control the app reports disabled,
+/// including the window's default and cancel buttons used for Enter/Escape.
+pub(crate) fn require_enabled(enabled: Option<bool>) -> Result<(), &'static str> {
+    if enabled == Some(false) {
+        Err(DISABLED)
+    } else {
+        Ok(())
+    }
+}
+
 pub(crate) const OTHER_PROCESS: &str = "That control belongs to another process, so Aven will not act on it by index. Use x and y from appState's image for it instead.";
 
 /// What is known about a process that serves an element on the app's behalf.
@@ -2356,6 +2369,14 @@ mod tests {
             false
         }));
         assert_eq!(calls, 5);
+    }
+
+    #[test]
+    fn disabled_controls_are_refused_but_unknown_state_is_allowed() {
+        assert_eq!(require_enabled(Some(false)).unwrap_err(), DISABLED);
+        assert!(require_enabled(Some(true)).is_ok());
+        // Many elements do not report AXEnabled at all.
+        assert!(require_enabled(None).is_ok());
     }
 
     #[test]

@@ -71,7 +71,6 @@ const MAX_ANCESTORS: usize = 8;
 
 const NO_WINDOW: &str =
     "Could not find that window through Accessibility. Run windows and call appState again.";
-const DISABLED: &str = "That control is disabled. Call appState again after the app enables it.";
 const NO_FRAME: &str = "That element has no on-screen position, so there is no fallback for it. Call appState again or choose another element.";
 const UNCONFIRMED: &str = "The app did not confirm in time; the action may have completed (for example, a menu may be open). Call appState before acting again.";
 const ACCEPTED: &str = "The app accepted the text but had not shown the change yet; some apps apply it a moment later. Call appState to check before typing again; never repeat the text blindly.";
@@ -1143,11 +1142,7 @@ fn deadline() -> Instant {
 }
 
 fn require_enabled(info: &NodeInfo) -> Result<(), String> {
-    if info.enabled == Some(false) {
-        Err(DISABLED.into())
-    } else {
-        Ok(())
-    }
+    rules::require_enabled(info.enabled).map_err(String::from)
 }
 
 /// Gives a text input keyboard focus inside its own app. This makes it the
@@ -1225,6 +1220,7 @@ pub(super) fn click(
 
 pub(super) fn secondary(located: &Located, name: Option<&str>, gate: Gate) -> Result<Next, String> {
     let action = rules::secondary_action(name)?;
+    require_enabled(&located.info)?;
     objc2::rc::autoreleasepool(|_| unsafe {
         if located.info.has_action(action) {
             if let Some(outcome) = perform(&located.element, action, gate)? {
@@ -1443,15 +1439,18 @@ unsafe fn delete(located: &Located, backward: bool, gate: Gate) -> Result<Option
     }
 }
 
+/// The window's default or cancel button and whether it is enabled.
 unsafe fn window_button(
     pid: i32,
     window_id: u32,
     bounds: Region,
     attribute: &str,
-) -> Option<Element> {
+) -> Option<(Element, Option<bool>)> {
     let deadline = deadline();
     let window = window_element(pid, window_id, bounds, deadline).ok()?;
-    Element::owned(copy(window.0, attribute, deadline)?)
+    let button = Element::owned(copy(window.0, attribute, deadline)?)?;
+    let enabled = copy(button.0, "AXEnabled", deadline).and_then(|value| bool_of(value.0));
+    Some((button, enabled))
 }
 
 /// `targeted` is true when the agent named the element by index; key events
@@ -1488,9 +1487,11 @@ pub(super) fn press_key(
                         "AXCancelButton"
                     };
                     let (pid, window_id, bounds) = window;
-                    let Some(button) = window_button(pid, window_id, bounds, attribute) else {
+                    let Some((button, enabled)) = window_button(pid, window_id, bounds, attribute)
+                    else {
                         continue;
                     };
+                    rules::require_enabled(enabled)?;
                     if let Some(outcome) = perform(&button, action, gate)? {
                         return done(attribute, outcome);
                     }

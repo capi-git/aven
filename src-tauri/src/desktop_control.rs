@@ -763,6 +763,19 @@ impl Request {
             _ => None,
         }
     }
+    /// The wheel deltas of an element scroll, when deltaX or deltaY is given:
+    /// scrolled at the element's centre, with a missing axis as 0.
+    pub(crate) fn element_wheel_delta(&self) -> Option<(i32, i32)> {
+        match self {
+            Self::Scroll {
+                delta_x,
+                delta_y,
+                element: Some(_),
+                ..
+            } if delta_y.is_some() || *delta_x != 0 => Some((*delta_x, delta_y.unwrap_or(0))),
+            _ => None,
+        }
+    }
     /// Element actions use Accessibility first; they never use the shared pointer.
     pub(crate) fn is_element_action(&self) -> bool {
         self.element().is_some()
@@ -1318,12 +1331,15 @@ sliders and Backspace/Delete in text to equivalent actions, else sends keys;
 with element, keys (and typeText's key fallback) are sent only after that
 element is confirmed focused, otherwise the action fails and nothing is sent.
 scroll with element and direction pages that scroll area; with only element
-it scrolls the element into view; with deltaY it scrolls at its centre.
+it scrolls the element into view; with deltaX and/or deltaY it scrolls at its
+centre.
 selectText selects text or start/length (UTF-16 units). secondaryAction runs
 ShowMenu (default) or one of ShowAlternateUI, ShowDefaultUI, Increment,
 Decrement, Pick, Confirm, Cancel, Press, ScrollToVisible. Each result reports
-the method used; "confirmed": false means the app did not answer in time (for
-example while a menu is open): call appState before acting again.
+the method used. Disabled controls, including a disabled default or cancel
+button for Enter or Escape, are refused. "confirmed": false means the app did
+not answer in time (for example while a menu is open) or had not shown an
+accepted change yet: call appState before acting again.
 Coordinate actions remain the fallback. Windows lists on-screen, layer-0
 windows: windowId, app, pid, title, x, y, width, height. Screenshot pixels
 equal points, with top-left origin. With windowId, move/click/scroll x,y and
@@ -1994,6 +2010,42 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn element_scroll_deltas_are_wheel_events_on_either_axis() {
+        let delta = |value: Value| parse(value).unwrap().element_wheel_delta();
+        assert_eq!(
+            delta(json!({"action":"scroll","windowId":3,"element":4,"deltaX":30})),
+            Some((30, 0)),
+            "a horizontal-only delta is a wheel event, not scroll-into-view"
+        );
+        assert_eq!(
+            delta(json!({"action":"scroll","windowId":3,"element":4,"deltaY":-300})),
+            Some((0, -300))
+        );
+        assert_eq!(
+            delta(json!({"action":"scroll","windowId":3,"element":4,"deltaX":5,"deltaY":6})),
+            Some((5, 6))
+        );
+        assert_eq!(
+            delta(json!({"action":"scroll","windowId":3,"element":4})),
+            None
+        );
+        assert_eq!(
+            delta(json!({"action":"scroll","windowId":3,"element":4,"direction":"left"})),
+            None
+        );
+        assert_eq!(
+            delta(json!({"action":"scroll","windowId":3,"x":1,"y":2,"deltaY":3})),
+            None
+        );
+        // deltaX with direction is still ambiguous and refused.
+        assert!(parse(
+            json!({"action":"scroll","windowId":3,"element":4,"direction":"left","deltaX":3})
+        )
+        .is_err());
+        assert!(parse(json!({"action":"scroll","windowId":3,"element":4,"deltaX":2001})).is_err());
     }
 
     #[test]
