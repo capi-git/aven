@@ -186,7 +186,9 @@ describe("sortable motion in a CSS-zoomed titlebar", () => {
     expect(preview.style.width).toBe("136px");
     expect(preview.style.height).toBe("28px");
     expect(preview.style.transform).toBe("translate3d(260px, 110px, 0)");
+    // Without theme glass (glass off), the lifted tab keeps the drag surface.
     expect(preview.style.background).toBe("rgb(12, 15, 22)");
+    expect(preview.style.backdropFilter).toBe("");
     expect(clone.style.color).toBe("rgb(120, 180, 255)");
     expect(clone.querySelector("button")!.style.fontSize).toBe("12px");
     expect(preview.inert).toBe(true);
@@ -370,5 +372,33 @@ describe("sortable motion in a CSS-zoomed titlebar", () => {
     ).toBeNull();
     expect(document.body.style.zoom).toBe("");
     observer.disconnect();
+  });
+});
+
+describe("lifted tab glass", () => {
+  it("frosts the lifted tab with the theme's glass", () => {
+    const strip = document.createElement("div");
+    const outer = document.createElement("div");
+    const visual = document.createElement("div");
+    visual.dataset.sortableMotion = "first";
+    visual.style.setProperty("--aven-glass-overlay", "rgba(30, 30, 34, 0.76)");
+    visual.style.setProperty("--aven-glass-blur", "blur(40px) saturate(125%)");
+    visual.style.setProperty("--aven-glass-edge", "rgba(255, 255, 255, 0.1)");
+    outer.append(visual);
+    strip.append(outer);
+    document.body.append(strip);
+    outer.getBoundingClientRect = () => new DOMRect(0, 0, 140, 32);
+    visual.getBoundingClientRect = () => new DOMRect(0, 0, 140, 32);
+    const motion = new SortableMotion();
+    motion.begin(new Map([["first", outer]]), "first", { x: 10, y: 10 }, "x");
+    motion.activate({ x: 20, y: 10 });
+    const preview = document.querySelector<HTMLElement>(
+      "[data-sortable-preview]",
+    )!;
+    expect(preview.style.background).toBe("rgba(30, 30, 34, 0.76)");
+    expect(preview.style.backdropFilter).toBe("blur(40px) saturate(125%)");
+    expect(preview.style.boxShadow).toContain("rgba(255, 255, 255, 0.1)");
+    motion.cancel();
+    strip.remove();
   });
 });

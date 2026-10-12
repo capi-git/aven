@@ -167,6 +167,12 @@ export class SortableMotion {
     const surface =
       computed.getPropertyValue("--aven-tab-drag-surface").trim() ||
       computed.getPropertyValue("--color-background-base").trim();
+    // The lifted tab is attached outside the shell, so resolve the theme's
+    // glass here. Dark glass frosts like a menu; light themes, reduced
+    // transparency and glass-off resolve to the theme's opaque popup colour.
+    const glass = computed.getPropertyValue("--aven-glass-overlay").trim();
+    const blur = computed.getPropertyValue("--aven-glass-blur").trim();
+    const edge = computed.getPropertyValue("--aven-glass-edge").trim();
     const element = document.createElement("div");
     element.dataset.sortablePreview = this.source.id;
     // Native Chromium paints above the app webview. Its existing overlay
@@ -184,7 +190,10 @@ export class SortableMotion {
       padding: "0",
       border: "0",
       borderRadius: computed.borderRadius,
-      background: surface || "transparent",
+      background: glass || surface || "transparent",
+      backdropFilter: blur && blur !== "none" ? blur : "",
+      webkitBackdropFilter: blur && blur !== "none" ? blur : "",
+      boxShadow: `0 6px 18px rgb(0 0 0 / 0.22)${edge ? `, inset 0 0 0 1px ${edge}` : ""}`,
       pointerEvents: "none",
       userSelect: "none",
       zIndex: "2147483647",
