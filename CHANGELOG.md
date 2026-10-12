@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [0.1.132] - 2026-10-12
+
+### Clean tab dragging
+
+- Dragged tabs keep their rounded shape and use the theme's glass without a dark rectangular outline, extra rim, or shadow.
+- Glass stays on the visible tab face, preserving the tab's size and position as it moves. Light themes and reduced transparency keep their opaque fallback.
+
+### Sidebar chats and menus
+
+- Rename chats under Sessions or in other projects with right-click or F2. Updated titles appear throughout the sidebar immediately.
+- Archiving a standalone chat no longer leaves a blank replacement in Sessions.
+- Menu tooltips appear only for truncated labels, preventing redundant labels from lingering after a menu closes.
+
 ## [0.1.131] - 2026-10-10
 
 ### Menus open without flashing
