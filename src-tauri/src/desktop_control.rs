@@ -1279,9 +1279,14 @@ bounds, an indexed outline of its controls (and any open menu): role, title,
 description, placeholder, value, disabled/focused/selected, actions and frame
 "@x,y WxH" in window-screenshot points, plus a fresh window image to open.
 Secure text values are always <redacted>. Known apps include short tips.
-Indexes are valid only for that window's latest state: pass element with the
-same windowId (and stateId when you have it). If the app changed, the action
-fails with "State changed; call appState again". Re-query instead of guessing.
+Indexes are valid only for that window's latest state, and any action in the
+window uses them up: call appState again before each element action. Pass
+element with the same windowId (and stateId when you have it). If the element's
+role, label or place in the window changed, or different content now surrounds
+a repeated or unlabelled element (such as an untitled row), the action fails
+with "State changed; call appState again". Indexes listed in "ambiguous" look
+like other controls and cannot be used; use coordinates for them. Re-query
+instead of guessing.
 Element actions are background actions: they use Accessibility without moving
 the pointer, activating the app or needing it frontmost. click presses the
 control (or focuses a text field, selects a row) and otherwise falls back to

@@ -134,11 +134,18 @@ Element actions take the same `windowId`, an `element` index and the `stateId`:
 - `secondaryAction` opens the element's menu, or runs one allow-listed action such
   as `Increment` or `ShowAlternateUI`.
 
-Indexes belong to that state only. A newer `appState` of the same window replaces
-them, and an element whose role or label changed is refused with "State changed;
-call appState again". A labelled element that was rebuilt in place is found again by
-its position and label. Each result names the `method` used; `"confirmed": false`
-means the app did not confirm in time (a menu may be open) or Aven had to use events.
+Indexes belong to that state only, and any action in the window uses them up, so
+agents call `appState` again before each element action. A newer `appState` of the
+same window also replaces them. An element is refused with "State changed; call
+appState again" when its role, label or place in the window changed. Elements that
+are unlabelled or repeated (untitled rows, a "More actions" button on every
+message) also record the text around them, so a list that changed underneath an
+index (a new message at the top) is refused instead of acting on a different row.
+Elements that cannot be told apart at all are listed in `ambiguous` and are never
+acted on by index. A labelled, unique element that was rebuilt in place is found
+again by its position and label. Each result names the `method` used;
+`"confirmed": false` means the app did not confirm in time (a menu may be open) or
+Aven had to use events.
 
 Electron and Chromium apps build a complete accessibility tree only when asked.
 On first use in a chat, Aven turns on that app's `AXManualAccessibility` (Electron)

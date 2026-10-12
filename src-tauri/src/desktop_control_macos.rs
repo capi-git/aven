@@ -1707,6 +1707,25 @@ pub(super) fn execute(
     ticket: &presence::Ticket,
     target: &PresenceTarget,
 ) -> Result<Value, String> {
+    // Any input in a window may change it: its element indexes end with the
+    // action, whether it succeeded, failed part-way or was refused.
+    let changed = presence::is_input(&request)
+        .then(|| request.input_window())
+        .flatten();
+    let result = execute_admitted(app, scope, request, ticket, target);
+    if let Some(window_id) = changed {
+        ax::invalidate(scope, window_id);
+    }
+    result
+}
+
+fn execute_admitted(
+    app: &AppHandle,
+    scope: &str,
+    request: Request,
+    ticket: &presence::Ticket,
+    target: &PresenceTarget,
+) -> Result<Value, String> {
     let _route = input::enter(ticket, target);
     input::check()?;
     let session = active_session(CAPTURES.get_or_init(CaptureSessions::default), scope)?;
@@ -1966,7 +1985,9 @@ fn element_action(
     gate()?;
     let index = request.element();
     let located = match index {
-        Some((index, state_id)) => Some(ax::locate(scope, window_id, state_id, index, pid)?),
+        Some((index, state_id)) => {
+            Some(ax::locate(scope, window_id, state_id, index, pid, bounds)?)
+        }
         None => ax::focused(pid, window_id, bounds),
     };
     let feedback = match &request {

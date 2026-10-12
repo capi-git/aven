@@ -13,6 +13,7 @@ let secret = "fixture-secret-" + String(nonce.prefix(8))
 var presses = 0
 var menuOpened = 0
 var menuChoice = ""
+var inserted = 0
 var activeEver = false
 var keyEver = false
 var window: NSWindow!
@@ -37,9 +38,9 @@ final class Target: NSObject, NSMenuDelegate, NSTableViewDataSource {
         let timer = Timer(timeInterval: 4, repeats: false) { _ in menu.cancelTracking() }
         RunLoop.main.add(timer, forMode: .common)
     }
-    func numberOfRows(in tableView: NSTableView) -> Int { 200 }
+    func numberOfRows(in tableView: NSTableView) -> Int { 200 + inserted }
     func tableView(_ tableView: NSTableView, objectValueFor column: NSTableColumn?, row: Int) -> Any? {
-        "Row \(row)"
+        row < inserted ? "New \(row)" : "Row \(row - inserted)"
     }
 }
 
@@ -123,11 +124,18 @@ final class Delegate: NSObject, NSApplicationDelegate {
                 "name": name.stringValue, "notes": notes.string,
                 "passwordLength": password.stringValue.count, "slider": slider.doubleValue,
                 "scrollY": scroll.contentView.bounds.origin.y, "selectedRow": table.selectedRow,
-                "menuOpened": menuOpened, "menuChoice": menuChoice,
+                "menuOpened": menuOpened, "menuChoice": menuChoice, "inserted": inserted,
                 "activeEver": activeEver, "keyEver": keyEver,
             ]
             if let data = try? JSONSerialization.data(withJSONObject: values) {
                 try? data.write(to: receipt, options: .atomic)
+            }
+            // A message arriving at the top of a list: rows below keep their
+            // places on screen but now show different content.
+            if FileManager.default.fileExists(atPath: receipt.path + ".insert") {
+                try? FileManager.default.removeItem(atPath: receipt.path + ".insert")
+                inserted += 1
+                table.reloadData()
             }
             if FileManager.default.fileExists(atPath: receipt.path + ".done") {
                 NSApp.terminate(nil)

@@ -29,6 +29,7 @@ unsafe extern "C" {
 #[link(name = "CoreFoundation", kind = "framework")]
 unsafe extern "C" {
     fn CFRetain(value: Cf) -> Cf;
+    fn CFEqual(a: Cf, b: Cf) -> bool;
     fn CFBooleanGetTypeID() -> usize;
     fn CFBooleanGetValue(value: Cf) -> bool;
     fn CFNumberCreate(allocator: Cf, kind: isize, value: *const c_void) -> Cf;
@@ -50,6 +51,8 @@ const AX_ERROR_VALUE: u32 = 5;
 
 /// Whole-capture budget for appState, and per-message bounds.
 const CAPTURE_BUDGET: Duration = Duration::from_millis(3000);
+/// Extra budget for telling repeated and unlabelled elements apart.
+const CONTEXT_BUDGET: Duration = Duration::from_millis(1500);
 const LOOKUP_BUDGET: Duration = Duration::from_millis(1500);
 const READ_TIMEOUT: f32 = 0.25;
 /// Actions can take longer than reads; a menu opened by an action keeps the
@@ -380,6 +383,12 @@ impl rules::Source for Live {
     fn children(&mut self, node: &Element, info: &NodeInfo) -> Vec<Element> {
         unsafe { children(node.0, info, self.deadline) }
     }
+    fn parent(&mut self, node: &Element) -> Option<Element> {
+        unsafe { copy(node.0, "AXParent", self.deadline).and_then(|parent| Element::owned(parent)) }
+    }
+    fn same(&self, a: &Element, b: &Element) -> bool {
+        unsafe { CFEqual(a.0, b.0) }
+    }
     fn expired(&self) -> bool {
         Instant::now() >= self.deadline
     }
@@ -630,6 +639,16 @@ pub(super) fn capture_state(
             capture.truncated
         };
         let count = capture.nodes.len();
+        // Repeated and unlabelled elements record what surrounds them, so a
+        // list that changes underneath an index is refused, not misread.
+        rules::assign_contexts(&mut Live::new(CONTEXT_BUDGET), &mut capture.nodes);
+        let ambiguous: Vec<usize> = capture
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, node)| node.context == rules::Context::Ambiguous)
+            .map(|(index, _)| index)
+            .collect();
         let focused = capture.nodes.iter().position(|node| node.info.focused);
         // Menus appear under their control or, for some apps, the application.
         let open_menus = capture
@@ -644,9 +663,10 @@ pub(super) fn capture_state(
             window,
             roots,
             nodes: capture.nodes,
+            consumed: false,
         };
         let id = lock_store().insert(scope, snapshot);
-        Ok(json!({
+        let mut state = json!({
             "stateId": id,
             "elements": outline,
             "count": count,
@@ -654,8 +674,17 @@ pub(super) fn capture_state(
             "openMenus": open_menus,
             "offscreenOmitted": capture.offscreen,
             "truncated": truncated,
-        }))
+        });
+        if !ambiguous.is_empty() {
+            state["ambiguous"] = json!(ambiguous);
+        }
+        Ok(state)
     })
+}
+
+/// Ends a window's indexes after an action in it.
+pub(super) fn invalidate(scope: &str, window_id: u32) {
+    lock_store().invalidate(scope, window_id);
 }
 
 /// Where Aven's bar and ring refer to an indexed element.
@@ -691,25 +720,28 @@ pub(super) struct Located {
 }
 
 /// Resolves an index from the chat's latest snapshot of this window and
-/// checks it is still the same control in the same process.
+/// checks it is still the same control, in the same place, in the same
+/// process. `window` is the window's current bounds.
 pub(super) fn locate(
     scope: &str,
     window_id: u32,
     state_id: Option<u64>,
     index: u32,
     pid: i32,
+    window: Region,
 ) -> Result<Located, String> {
-    let (roots, stored) = {
+    let (roots, stored, shift) = {
         let store = lock_store();
         let (snapshot, node) = store.lookup(scope, window_id, state_id, index)?;
         if snapshot.pid != pid {
             return Err(rules::STALE.into());
         }
-        (snapshot.roots.clone(), node.clone())
+        let shift = (window.x - snapshot.window.x, window.y - snapshot.window.y);
+        (snapshot.roots.clone(), node.clone(), shift)
     };
     objc2::rc::autoreleasepool(|_| unsafe {
         let mut source = Live::new(LOOKUP_BUDGET);
-        let (element, info, reresolved) = rules::resolve(&mut source, &roots, &stored)?;
+        let (element, info, reresolved) = rules::resolve(&mut source, &roots, &stored, shift)?;
         let mut owner = 0;
         if AXUIElementGetPid(element.0, &mut owner) != 0 || owner != pid {
             return Err(rules::STALE.into());

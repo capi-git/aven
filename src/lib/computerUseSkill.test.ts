@@ -60,6 +60,8 @@ describe("desktop control permission guidance", () => {
       }
       expect(instructions).toContain("stateId");
       expect(instructions).toContain("State changed; call appState again");
+      expect(instructions).toContain("uses them up");
+      expect(instructions).toContain("ambiguous");
       expect(instructions).toContain("redacted");
       expect(instructions).toMatch(/never guess/i);
     }
@@ -78,6 +80,9 @@ describe("desktop control permission guidance", () => {
     expect(AVEN_BROWSER_HOST_POLICY).toContain("appState");
     expect(AVEN_BROWSER_HOST_POLICY).toContain(
       "call appState again instead of guessing",
+    );
+    expect(AVEN_BROWSER_HOST_POLICY).toContain(
+      "call appState again before the next element action",
     );
   });
 });

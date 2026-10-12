@@ -282,38 +282,78 @@ fn live_fixture_background_element_actions() {
     assert!(outline.contains("SecureTextField") && outline.contains("value=<redacted>"));
     let state_id = state["stateId"].as_u64();
     let send = index_of(&outline, "Button", "\"Send\"");
-    let name = index_of(&outline, "TextField", "placeholder=\"Name\"");
-    let slider = index_of(&outline, "Slider", "Volume");
-    let options = index_of(&outline, "Button", "\"Options\"");
-    let notes = index_of(&outline, "TextArea", "Notes");
-    let rows = index_of(&outline, "Table", "Rows");
-    let find = |index| locate(scope, window_id, state_id, index, pid).unwrap();
+    let find_in = |state: &Value, role: &str, needle: &str| {
+        let index = index_of(state["elements"].as_str().unwrap(), role, needle);
+        locate(
+            scope,
+            window_id,
+            state["stateId"].as_u64(),
+            index,
+            pid,
+            bounds,
+        )
+        .unwrap()
+    };
+    // Every action uses up the window's indexes: observe before each one,
+    // and mark the end of an action the way the gate does.
+    let observe = || capture_state(scope, pid, window_id, bounds, 400).unwrap();
+    let acted = || invalidate(scope, window_id);
 
     // 2. click: AXPress.
-    let value = done(click(&find(send), Button::Left, 1, &gate).unwrap());
+    let value = done(
+        click(
+            &find_in(&state, "Button", "\"Send\""),
+            Button::Left,
+            1,
+            &gate,
+        )
+        .unwrap(),
+    );
+    acted();
     assert_eq!(value["method"], "AXPress");
     fixture.wait("button press", |value| value["presses"] == 1);
 
-    // 3. The pressed button retitled itself: its old index is now stale.
-    let error = locate(scope, window_id, state_id, send, pid).err().unwrap();
+    // 3. After an action, earlier indexes are refused even for a stateId
+    // that is still the latest; the retitled button would also be stale.
+    let error = locate(scope, window_id, state_id, send, pid, bounds)
+        .err()
+        .unwrap();
     assert!(
         error.contains("State changed; call appState again"),
         "{error}"
     );
-    evidence.insert("staleIndexError".into(), json!(error));
+    evidence.insert("usedIndexError".into(), json!(error));
+    let state = observe();
+    let error = locate(scope, window_id, state_id, send, pid, bounds)
+        .err()
+        .unwrap();
+    assert!(error.starts_with(rules::STALE), "{error}");
+    evidence.insert("supersededIndexError".into(), json!(error));
 
     // 4. setValue on a text field, then typeText at its caret.
-    let value = done(set_value(&find(name), &ElementValue::Text("Ada".into()), &gate).unwrap());
+    let value = done(
+        set_value(
+            &find_in(&state, "TextField", "placeholder=\"Name\""),
+            &ElementValue::Text("Ada".into()),
+            &gate,
+        )
+        .unwrap(),
+    );
+    acted();
     evidence.insert("setValue".into(), value);
     fixture.wait("name set", |value| value["name"] == "Ada");
-    let field = find(name);
+    let field = find_in(&observe(), "TextField", "placeholder=\"Name\"");
     done(select_text(&field, None, Some((3, 0)), &gate).unwrap());
-    let value = done(type_text(Some(&find(name)), " Lovelace", &gate).unwrap());
+    acted();
+    let field = find_in(&observe(), "TextField", "placeholder=\"Name\"");
+    let value = done(type_text(Some(&field), " Lovelace", &gate).unwrap());
+    acted();
     evidence.insert("typeText".into(), value);
     fixture.wait("typed text", |value| value["name"] == "Ada Lovelace");
+    let field = find_in(&observe(), "TextField", "placeholder=\"Name\"");
     let value = done(
         press_key(
-            Some(&find(name)),
+            Some(&field),
             "Backspace",
             false,
             (pid, window_id, bounds),
@@ -321,32 +361,33 @@ fn live_fixture_background_element_actions() {
         )
         .unwrap(),
     );
+    acted();
     evidence.insert("backspace".into(), value);
     fixture.wait("backspace", |value| value["name"] == "Ada Lovelac");
 
     // 5. Text area: Enter inserts a newline at the caret.
-    let area = find(notes);
+    let area = find_in(&observe(), "TextArea", "Notes");
     done(select_text(&area, None, Some((5, 0)), &gate).unwrap());
-    let value = done(
-        press_key(
-            Some(&find(notes)),
-            "Enter",
-            false,
-            (pid, window_id, bounds),
-            &gate,
-        )
-        .unwrap(),
-    );
+    acted();
+    let area = find_in(&observe(), "TextArea", "Notes");
+    let value =
+        done(press_key(Some(&area), "Enter", false, (pid, window_id, bounds), &gate).unwrap());
+    acted();
     evidence.insert("enterInTextArea".into(), value);
-    done(type_text(Some(&find(notes)), "World", &gate).unwrap());
+    let area = find_in(&observe(), "TextArea", "Notes");
+    done(type_text(Some(&area), "World", &gate).unwrap());
+    acted();
     fixture.wait("notes", |value| value["notes"] == "Hello\nWorld");
 
     // 6. Slider: setValue and arrow → AXIncrement.
-    done(set_value(&find(slider), &ElementValue::Number(75.0), &gate).unwrap());
+    let slider = find_in(&observe(), "Slider", "Volume");
+    done(set_value(&slider, &ElementValue::Number(75.0), &gate).unwrap());
+    acted();
     fixture.wait("slider set", |value| value["slider"] == 75.0);
+    let slider = find_in(&observe(), "Slider", "Volume");
     let value = done(
         press_key(
-            Some(&find(slider)),
+            Some(&slider),
             "ArrowUp",
             false,
             (pid, window_id, bounds),
@@ -354,25 +395,53 @@ fn live_fixture_background_element_actions() {
         )
         .unwrap(),
     );
+    acted();
     assert_eq!(value["method"], "AXIncrement");
     fixture.wait("slider increment", |value| {
         value["slider"].as_f64().unwrap() > 75.0
     });
 
     // 7. Scroll the table's scroll area by a page.
-    let value = done(scroll(&find(rows), Some(ScrollDirection::Down), 1, None, &gate).unwrap());
+    let rows = find_in(&observe(), "Table", "Rows");
+    let value = done(scroll(&rows, Some(ScrollDirection::Down), 1, None, &gate).unwrap());
+    acted();
     evidence.insert("scroll".into(), value);
     let scrolled = fixture.wait("scroll", |value| {
         value["scrollY"].as_f64().unwrap_or(0.0) > 0.0
     });
     evidence.insert("scrollY".into(), scrolled["scrollY"].clone());
 
-    // 7b. Rows have no press action: a click selects the row.
-    let rows_state = capture_state(scope, pid, window_id, bounds, 400).unwrap();
-    let rows_outline = rows_state["elements"].as_str().unwrap();
-    let row = index_of(rows_outline, "Row:TableRow", "@");
-    let row = locate(scope, window_id, rows_state["stateId"].as_u64(), row, pid).unwrap();
+    // 7b. Untitled rows are told apart by their content, not position. A row
+    // inserted above after appState makes the observed row stale.
+    let rows_state = observe();
+    let rows_outline = rows_state["elements"].as_str().unwrap().to_owned();
+    eprintln!("rows:\n{rows_outline}");
+    let first_row = index_of(&rows_outline, "Row:TableRow", "@");
+    let rows_id = rows_state["stateId"].as_u64();
+    std::fs::write(fixture.receipt.with_extension("json.insert"), []).unwrap();
+    fixture.wait("row insert", |value| value["inserted"] == 1);
+    let shifted = locate(scope, window_id, rows_id, first_row, pid, bounds)
+        .err()
+        .expect("a row whose content changed underneath its index must be refused");
+    assert!(shifted.starts_with(rules::STALE), "{shifted}");
+    evidence.insert("rowInsertedError".into(), json!(shifted));
+    assert_eq!(fixture.read()["selectedRow"], -1, "nothing was selected");
+
+    // 7c. Rows have no press action: a click selects the row.
+    let rows_state = observe();
+    let rows_outline = rows_state["elements"].as_str().unwrap().to_owned();
+    let row = index_of(&rows_outline, "Row:TableRow", "@");
+    let row = locate(
+        scope,
+        window_id,
+        rows_state["stateId"].as_u64(),
+        row,
+        pid,
+        bounds,
+    )
+    .unwrap();
     let value = done(click(&row, Button::Left, 1, &gate).unwrap());
+    acted();
     assert_eq!(value["method"], "AXSelected");
     let selected = fixture.wait("row selection", |value| {
         value["selectedRow"].as_i64() >= Some(0)
@@ -380,24 +449,12 @@ fn live_fixture_background_element_actions() {
     evidence.insert("selectedRow".into(), selected["selectedRow"].clone());
 
     // 8. Context menu: AXShowMenu, read the open menu, pick an item.
-    // The older stateId is superseded by the newer capture of this window.
-    let superseded = locate(scope, window_id, state_id, options, pid)
-        .err()
-        .unwrap();
-    assert!(superseded.starts_with(rules::STALE), "{superseded}");
-    let options = index_of(rows_outline, "Button", "\"Options\"");
-    let options = locate(
-        scope,
-        window_id,
-        rows_state["stateId"].as_u64(),
-        options,
-        pid,
-    )
-    .unwrap();
+    let options = find_in(&observe(), "Button", "\"Options\"");
     let value = done(secondary(&options, None, &gate).unwrap());
+    acted();
     evidence.insert("showMenu".into(), value);
     fixture.wait("menu open", |value| value["menuOpened"] == 1);
-    let menu_state = capture_state(scope, pid, window_id, bounds, 400).unwrap();
+    let menu_state = observe();
     let menu_outline = menu_state["elements"].as_str().unwrap();
     eprintln!("with menu open:\n{menu_outline}");
     assert!(
@@ -405,18 +462,14 @@ fn live_fixture_background_element_actions() {
         "{menu_state}"
     );
     evidence.insert("openMenus".into(), menu_state["openMenus"].clone());
-    let beta = index_of(menu_outline, "MenuItem", "\"Beta\"");
-    let menu_id = menu_state["stateId"].as_u64();
-    let item = locate(scope, window_id, menu_id, beta, pid).unwrap();
+    let item = find_in(&menu_state, "MenuItem", "\"Beta\"");
     let value = done(click(&item, Button::Left, 1, &gate).unwrap());
+    acted();
     evidence.insert("menuItem".into(), value);
     fixture.wait("menu choice", |value| value["menuChoice"] == "Beta");
 
     // 9. Pause refuses the next mutation before it reaches the app.
-    let fresh = capture_state(scope, pid, window_id, bounds, 400).unwrap();
-    let fresh_outline = fresh["elements"].as_str().unwrap();
-    let sent = index_of(fresh_outline, "Button", "\"Sent\"");
-    let target = locate(scope, window_id, fresh["stateId"].as_u64(), sent, pid).unwrap();
+    let target = find_in(&observe(), "Button", "\"Sent\"");
     presence_state::with(|state| state.pause(presence_state::Pause::ByUser));
     let paused = click(&target, Button::Left, 1, &gate).err().unwrap();
     assert!(
@@ -467,5 +520,5 @@ fn live_fixture_background_element_actions() {
         Some(secret.chars().count() as u64)
     );
     forget(Some(scope));
-    assert!(locate(scope, window_id, None, 0, pid).is_err());
+    assert!(locate(scope, window_id, None, 0, pid, bounds).is_err());
 }

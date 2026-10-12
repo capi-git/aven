@@ -30,6 +30,20 @@ const BAR_LABEL_LIMIT: usize = 40;
 /// Windows remembered per chat; older snapshots are dropped first.
 pub(crate) const SNAPSHOTS_PER_SCOPE: usize = 4;
 pub(crate) const STALE: &str = "State changed; call appState again.";
+/// An element that looks like others in its snapshot and could not be told
+/// apart by its surroundings. It is never acted on by index.
+pub(crate) const AMBIGUOUS: &str = "That element cannot be told apart from similar controls in this window, so Aven will not act on it by index. Call appState again, or use x and y from appState's image.";
+/// Window-relative frame tolerance, in points, for an element to still be the
+/// one the agent chose.
+pub(crate) const FRAME_TOLERANCE: f64 = 2.0;
+/// Ancestors examined to tell repeated or unlabelled elements apart.
+pub(crate) const CONTEXT_LEVELS: u8 = 6;
+/// Elements read, and texts kept, for one context signature.
+const CONTEXT_VISITS: usize = 24;
+const CONTEXT_TEXTS: usize = 8;
+const CONTEXT_TEXT_LIMIT: usize = 80;
+/// Total elements read while assigning contexts in one appState.
+pub(crate) const CONTEXT_READS: usize = 3000;
 pub(crate) const MAX_TEXT: usize = 4000;
 const REDACTED: &str = "<redacted>";
 
@@ -360,7 +374,27 @@ pub(crate) trait Source {
     fn read(&mut self, node: &Self::Node) -> Option<NodeInfo>;
     /// Must be deterministic for an unchanged element: paths index into it.
     fn children(&mut self, node: &Self::Node, info: &NodeInfo) -> Vec<Self::Node>;
+    fn parent(&mut self, node: &Self::Node) -> Option<Self::Node>;
+    /// Whether two references denote the same live element.
+    fn same(&self, a: &Self::Node, b: &Self::Node) -> bool;
     fn expired(&self) -> bool;
+}
+
+/// How an element is told apart from similar ones when it is used again.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) enum Context {
+    /// Its role, labels and frame identify it: it is labelled and no other
+    /// element in the snapshot shares them, or nothing more is available.
+    #[default]
+    Unique,
+    /// Unlabelled but unique: the label of its nearest labelled ancestor.
+    Ancestor { level: u8, label: String },
+    /// Repeated or unlabelled among others like it: the text content under
+    /// its ancestor `level` steps up (0 is the element itself), which differs
+    /// from every similar element in a different container.
+    Content { level: u8, text: String },
+    /// Could not be told apart; never acted on by index.
+    Ambiguous,
 }
 
 #[derive(Clone, Debug)]
@@ -372,6 +406,7 @@ pub(crate) struct Captured<N> {
     /// Child positions from that root.
     pub path: Vec<u16>,
     pub depth: usize,
+    pub context: Context,
 }
 
 #[derive(Debug)]
@@ -482,6 +517,7 @@ pub(crate) fn capture<S: Source>(
                 root: item.root,
                 path: item.path,
                 depth: item.depth,
+                context: Context::Unique,
             });
         }
     }
@@ -505,22 +541,233 @@ pub(crate) fn outline<N>(nodes: &mut Vec<Captured<N>>, origin: (f64, f64)) -> (S
 }
 
 /// The identity used to decide whether an element is still the one the agent
-/// chose. Values and frames may change; role and labels may not.
-pub(crate) fn same_identity(old: &NodeInfo, new: &NodeInfo) -> bool {
+/// chose: role and labels, and its frame relative to the window. `shift` is
+/// how far the window moved since the snapshot. Values may change.
+pub(crate) fn same_identity(old: &NodeInfo, new: &NodeInfo, shift: (f64, f64)) -> bool {
     old.role == new.role
         && old.subrole == new.subrole
         && old.title == new.title
         && old.description == new.description
         && old.identifier == new.identifier
+        && same_frame(old.frame, new.frame, shift)
 }
 
-/// Re-resolving by path is only safe for an element with a distinguishing
-/// label or identifier; an anonymous group could match a different one.
+fn same_frame(old: Option<Region>, new: Option<Region>, shift: (f64, f64)) -> bool {
+    match (old, new) {
+        (None, None) => true,
+        (Some(old), Some(new)) => [
+            (old.x + shift.0, new.x),
+            (old.y + shift.1, new.y),
+            (old.width, new.width),
+            (old.height, new.height),
+        ]
+        .iter()
+        .all(|(a, b)| (a - b).abs() <= FRAME_TOLERANCE),
+        _ => false,
+    }
+}
+
+/// Whether an element has a distinguishing label or identifier.
 pub(crate) fn reresolvable(info: &NodeInfo) -> bool {
     [&info.title, &info.description, &info.identifier]
         .into_iter()
         .flatten()
         .any(|text| !text.trim().is_empty())
+}
+
+type IdentityKey<'a> = (
+    &'a str,
+    Option<&'a str>,
+    Option<&'a str>,
+    Option<&'a str>,
+    Option<&'a str>,
+);
+
+fn identity_key(info: &NodeInfo) -> IdentityKey<'_> {
+    (
+        info.role.as_str(),
+        info.subrole.as_deref(),
+        info.title.as_deref(),
+        info.description.as_deref(),
+        info.identifier.as_deref(),
+    )
+}
+
+/// Readable text under an element (labels and text values), bounded. It is
+/// kept in memory only, never returned. Secure values never contribute.
+pub(crate) fn content_text<S: Source>(source: &mut S, node: &S::Node, reads: &mut usize) -> String {
+    let mut texts: Vec<String> = Vec::new();
+    let mut queue = std::collections::VecDeque::from([node.clone()]);
+    let mut visits = 0;
+    while let Some(current) = queue.pop_front() {
+        if visits >= CONTEXT_VISITS || texts.len() >= CONTEXT_TEXTS || source.expired() {
+            break;
+        }
+        visits += 1;
+        *reads += 1;
+        let Some(info) = source.read(&current) else {
+            continue;
+        };
+        let value = match &info.value {
+            // Table cells are often read-only text fields.
+            Some(NodeValue::Text(text)) if !info.is_secure() => Some(text.as_str()),
+            _ => None,
+        };
+        for text in [info.title.as_deref(), info.description.as_deref(), value]
+            .into_iter()
+            .flatten()
+        {
+            if let Some(text) = clean(text, CONTEXT_TEXT_LIMIT) {
+                if texts.len() < CONTEXT_TEXTS {
+                    texts.push(text);
+                }
+            }
+        }
+        queue.extend(source.children(&current, &info));
+    }
+    texts.join(" | ")
+}
+
+/// The element and its ancestors, nearest first, up to CONTEXT_LEVELS up.
+fn lineage<S: Source>(source: &mut S, node: &S::Node, reads: &mut usize) -> Vec<S::Node> {
+    let mut chain = vec![node.clone()];
+    while chain.len() <= usize::from(CONTEXT_LEVELS) && !source.expired() {
+        *reads += 1;
+        match source.parent(chain.last().expect("lineage starts with the node")) {
+            Some(parent) => chain.push(parent),
+            None => break,
+        }
+    }
+    chain
+}
+
+/// Decides how each indexed element will be recognised when it is used.
+///
+/// Labelled elements that are unique in the snapshot keep `Unique`. An
+/// unlabelled element that is unique records its nearest labelled ancestor.
+/// Elements that share role and labels with others (untitled rows, a "More
+/// actions" button on every message) record the text under the nearest
+/// ancestor (or themselves) whose text differs from that of every similar
+/// element's ancestor at the same level, unless those two ancestors are
+/// siblings in one container: those are told apart by their frames (two icon
+/// buttons in one toolbar, two identical rows in one list), and the recorded
+/// text still catches different content arriving at that frame. When nothing
+/// within bounds tells an element apart, it is `Ambiguous`.
+pub(crate) fn assign_contexts<S: Source>(source: &mut S, nodes: &mut [Captured<S::Node>]) {
+    let mut groups: HashMap<IdentityKey<'_>, Vec<usize>> = HashMap::new();
+    for (index, node) in nodes.iter().enumerate() {
+        groups
+            .entry(identity_key(&node.info))
+            .or_default()
+            .push(index);
+    }
+    let mut members: Vec<Vec<usize>> = groups.into_values().collect();
+    members.sort();
+    let mut reads = 0;
+    let mut contexts: Vec<(usize, Context)> = Vec::new();
+    for group in members {
+        let first = &nodes[group[0]];
+        if group.len() == 1 {
+            if reresolvable(&first.info) {
+                continue;
+            }
+            let chain = lineage(source, &first.node, &mut reads);
+            let mut context = Context::Unique;
+            for (level, ancestor) in chain.iter().enumerate().skip(1) {
+                reads += 1;
+                if let Some(label) = source.read(ancestor).as_ref().and_then(NodeInfo::label) {
+                    if let Some(label) = clean(label, CONTEXT_TEXT_LIMIT) {
+                        context = Context::Ancestor {
+                            level: level as u8,
+                            label,
+                        };
+                        break;
+                    }
+                }
+            }
+            contexts.push((group[0], context));
+            continue;
+        }
+        let chains: Vec<Vec<S::Node>> = group
+            .iter()
+            .map(|&index| lineage(source, &nodes[index].node, &mut reads))
+            .collect();
+        // Whether two members' ancestors at `level` share a parent.
+        let siblings = |source: &S, level: usize, a: usize, b: usize| match (
+            chains[a].get(level + 1),
+            chains[b].get(level + 1),
+        ) {
+            (Some(a), Some(b)) => source.same(a, b),
+            _ => false,
+        };
+        // Texts per level, computed only while some member still needs them.
+        let mut texts: Vec<Vec<Option<String>>> = vec![Vec::new(); group.len()];
+        let mut pending: Vec<usize> = (0..group.len()).collect();
+        for level in 0..=usize::from(CONTEXT_LEVELS) {
+            if pending.is_empty() || source.expired() || reads > CONTEXT_READS {
+                break;
+            }
+            for member in 0..group.len() {
+                let text = chains[member]
+                    .get(level)
+                    .map(|ancestor| content_text(source, ancestor, &mut reads));
+                texts[member].push(text);
+            }
+            pending.retain(|&member| {
+                // An element with no text around it has nothing to check yet.
+                let Some(Some(own)) = texts[member]
+                    .get(level)
+                    .filter(|own| own.as_ref().is_some_and(|own| !own.is_empty()))
+                else {
+                    return true;
+                };
+                let distinct = (0..group.len())
+                    .filter(|other| *other != member)
+                    .all(|other| {
+                        siblings(source, level, member, other)
+                            || texts[other].get(level).and_then(Option::as_ref) != Some(own)
+                    });
+                if distinct {
+                    contexts.push((
+                        group[member],
+                        Context::Content {
+                            level: level as u8,
+                            text: own.clone(),
+                        },
+                    ));
+                }
+                !distinct
+            });
+        }
+        for member in pending {
+            contexts.push((group[member], Context::Ambiguous));
+        }
+    }
+    for (index, context) in contexts {
+        nodes[index].context = context;
+    }
+}
+
+/// Re-reads a stored context against a live element.
+fn context_matches<S: Source>(source: &mut S, node: &S::Node, context: &Context) -> bool {
+    let mut reads = 0;
+    let ancestor = |source: &mut S, level: u8| {
+        lineage(source, node, &mut 0)
+            .into_iter()
+            .nth(usize::from(level))
+    };
+    match context {
+        Context::Unique => true,
+        Context::Ambiguous => false,
+        Context::Ancestor { level, label } => ancestor(source, *level)
+            .and_then(|ancestor| source.read(&ancestor))
+            .as_ref()
+            .and_then(NodeInfo::label)
+            .and_then(|found| clean(found, CONTEXT_TEXT_LIMIT))
+            .is_some_and(|found| &found == label),
+        Context::Content { level, text } => ancestor(source, *level)
+            .is_some_and(|ancestor| &content_text(source, &ancestor, &mut reads) == text),
+    }
 }
 
 pub(crate) struct Snapshot<N> {
@@ -530,6 +777,8 @@ pub(crate) struct Snapshot<N> {
     pub window: Region,
     pub roots: Vec<N>,
     pub nodes: Vec<Captured<N>>,
+    /// Set after any action in this window: its indexes are no longer used.
+    pub consumed: bool,
 }
 
 impl<N> Snapshot<N> {
@@ -588,7 +837,23 @@ impl<N> Store<N> {
                 "{STALE} That stateId is no longer the latest for window {window_id}."
             ));
         }
+        if snapshot.consumed {
+            return Err(format!(
+                "{STALE} An action already ran in window {window_id}, so indexes from before it are no longer used."
+            ));
+        }
         Ok(snapshot)
+    }
+
+    /// Ends a window's indexes after an action in it. Every action may have
+    /// changed the window, so the agent must observe it again.
+    pub(crate) fn invalidate(&mut self, scope: &str, window_id: u32) {
+        if let Some(snapshot) = self.scopes.get_mut(scope).and_then(|list| {
+            list.iter_mut()
+                .find(|snapshot| snapshot.window_id == window_id)
+        }) {
+            snapshot.consumed = true;
+        }
     }
 
     pub(crate) fn lookup(
@@ -617,36 +882,48 @@ impl<N> Store<N> {
 }
 
 /// Re-validates a stored element against the live app. The stored reference
-/// is preferred; when it is gone, a labelled element is found again by its
-/// path. Anything else is stale.
+/// is preferred; when it is gone, a labelled element that is unique in its
+/// snapshot is found again by its path. Either way role, labels, the
+/// window-relative frame and any recorded context must still match. `shift`
+/// is how far the window moved since the snapshot.
 pub(crate) fn resolve<S: Source>(
     source: &mut S,
     roots: &[S::Node],
     stored: &Captured<S::Node>,
+    shift: (f64, f64),
 ) -> Result<(S::Node, NodeInfo, bool), String> {
-    if let Some(fresh) = source.read(&stored.node) {
-        if same_identity(&stored.info, &fresh) {
-            return Ok((stored.node.clone(), fresh, false));
-        }
+    if stored.context == Context::Ambiguous {
+        return Err(AMBIGUOUS.into());
     }
-    if !reresolvable(&stored.info) {
+    let found = source
+        .read(&stored.node)
+        .filter(|fresh| same_identity(&stored.info, fresh, shift))
+        .map(|fresh| (stored.node.clone(), fresh, false));
+    let (node, fresh, again) = match found {
+        Some(found) => found,
+        // Repeated or unlabelled elements are never found again by position.
+        None if stored.context == Context::Unique && reresolvable(&stored.info) => {
+            let mut node = roots.get(stored.root).ok_or(STALE)?.clone();
+            for &position in &stored.path {
+                let info = source.read(&node).ok_or(STALE)?;
+                node = source
+                    .children(&node, &info)
+                    .into_iter()
+                    .nth(usize::from(position))
+                    .ok_or(STALE)?;
+            }
+            let fresh = source.read(&node).ok_or(STALE)?;
+            if !same_identity(&stored.info, &fresh, shift) {
+                return Err(STALE.into());
+            }
+            (node, fresh, true)
+        }
+        None => return Err(STALE.into()),
+    };
+    if !context_matches(source, &node, &stored.context) {
         return Err(STALE.into());
     }
-    let mut node = roots.get(stored.root).ok_or(STALE)?.clone();
-    for &position in &stored.path {
-        let info = source.read(&node).ok_or(STALE)?;
-        node = source
-            .children(&node, &info)
-            .into_iter()
-            .nth(usize::from(position))
-            .ok_or(STALE)?;
-    }
-    let fresh = source.read(&node).ok_or(STALE)?;
-    if same_identity(&stored.info, &fresh) {
-        Ok((node, fresh, true))
-    } else {
-        Err(STALE.into())
-    }
+    Ok((node, fresh, again))
 }
 
 /// How a background click is attempted, in order.
@@ -1099,6 +1376,19 @@ mod tests {
         fn children(&mut self, node: &usize, _: &NodeInfo) -> Vec<usize> {
             self.kids.get(node).cloned().unwrap_or_default()
         }
+        fn parent(&mut self, node: &usize) -> Option<usize> {
+            let mut parents: Vec<usize> = self
+                .kids
+                .iter()
+                .filter(|(_, kids)| kids.contains(node))
+                .map(|(parent, _)| *parent)
+                .collect();
+            parents.sort_unstable();
+            parents.first().copied()
+        }
+        fn same(&self, a: &usize, b: &usize) -> bool {
+            a == b
+        }
         fn expired(&self) -> bool {
             self.reads >= self.budget
         }
@@ -1306,6 +1596,7 @@ mod tests {
                     root: 0,
                     path: vec![index as u16],
                     depth: 1,
+                    context: Context::Unique,
                 }
             })
             .collect();
@@ -1322,36 +1613,50 @@ mod tests {
     }
 
     fn stored(tree: &mut Fake, index: usize) -> (Vec<usize>, Captured<usize>) {
-        let nodes = capture(tree, &[(0, None)], 100).nodes;
+        let mut nodes = capture(tree, &[(0, None)], 100).nodes;
+        assign_contexts(tree, &mut nodes);
         (vec![0], nodes[index].clone())
     }
+
+    const STILL: (f64, f64) = (0.0, 0.0);
 
     #[test]
     fn stale_elements_are_refused_or_reresolved_only_when_safe() {
         let mut tree = window_tree();
         let (roots, send) = stored(&mut tree, 1);
+        assert_eq!(send.context, Context::Unique);
         // Unchanged: the stored reference is used.
-        let (node, fresh, again) = resolve(&mut tree, &roots, &send).unwrap();
+        let (node, fresh, again) = resolve(&mut tree, &roots, &send, STILL).unwrap();
         assert_eq!((node, again), (2, false));
         assert_eq!(fresh.title.as_deref(), Some("Send"));
-        // A moved element keeps its identity.
-        tree.infos[2].as_mut().unwrap().frame = Some(region(0.0, 0.0, 9.0, 9.0));
-        assert!(resolve(&mut tree, &roots, &send).is_ok());
+        // A whole window that moved keeps its elements.
+        tree.infos[2].as_mut().unwrap().frame = Some(region(140.0, 250.0, 50.0, 20.0));
+        assert!(resolve(&mut tree, &roots, &send, (30.0, 30.0)).is_ok());
+        // An element that moved inside its window is a different place.
+        assert_eq!(resolve(&mut tree, &roots, &send, STILL).unwrap_err(), STALE);
+        // Within tolerance it is still the same element.
+        tree.infos[2].as_mut().unwrap().frame = Some(region(111.5, 221.0, 50.0, 21.0));
+        assert!(resolve(&mut tree, &roots, &send, STILL).is_ok());
+        tree.infos[2].as_mut().unwrap().frame = Some(region(110.0, 220.0, 50.0, 20.0));
         // The stored element disappeared but an identical one sits at its path.
         let replacement = tree.infos[2].clone();
         tree.infos.push(replacement);
         tree.infos[2] = None;
         tree.kids.insert(1, vec![6, 3, 4, 5]);
-        let (node, _, again) = resolve(&mut tree, &roots, &send).unwrap();
+        let (node, _, again) = resolve(&mut tree, &roots, &send, STILL).unwrap();
         assert_eq!((node, again), (6, true));
+        // ... but not when it sits somewhere else in the window.
+        tree.infos[6].as_mut().unwrap().frame = Some(region(110.0, 300.0, 50.0, 20.0));
+        assert_eq!(resolve(&mut tree, &roots, &send, STILL).unwrap_err(), STALE);
+        tree.infos[6].as_mut().unwrap().frame = Some(region(110.0, 220.0, 50.0, 20.0));
         // A relabelled control at the path is a different control.
         tree.infos[6].as_mut().unwrap().title = Some("Delete".into());
-        assert_eq!(resolve(&mut tree, &roots, &send).unwrap_err(), STALE);
+        assert_eq!(resolve(&mut tree, &roots, &send, STILL).unwrap_err(), STALE);
         // The stored reference relabelled in place is also stale.
         let mut tree = window_tree();
         let (roots, send) = stored(&mut tree, 1);
         tree.infos[2].as_mut().unwrap().title = Some("Sent".into());
-        assert_eq!(resolve(&mut tree, &roots, &send).unwrap_err(), STALE);
+        assert_eq!(resolve(&mut tree, &roots, &send, STILL).unwrap_err(), STALE);
         // Anonymous elements are never re-resolved by position.
         let mut anonymous = info("AXButton", None);
         anonymous.actions = vec!["AXPress".into()];
@@ -1363,7 +1668,249 @@ mod tests {
         assert!(!reresolvable(&item.info));
         tree.infos[1] = None;
         tree.kids.insert(0, vec![2]);
-        assert_eq!(resolve(&mut tree, &roots, &item).unwrap_err(), STALE);
+        assert_eq!(resolve(&mut tree, &roots, &item, STILL).unwrap_err(), STALE);
+    }
+
+    fn text(value: &str) -> NodeInfo {
+        NodeInfo {
+            role: "AXStaticText".into(),
+            value: Some(NodeValue::Text(value.into())),
+            frame: Some(region(0.0, 0.0, 10.0, 10.0)),
+            ..NodeInfo::default()
+        }
+    }
+
+    /// A window with a table of untitled rows, each holding a sender text and
+    /// a repeated "Archive" button.
+    fn inbox(senders: &[&str]) -> Fake {
+        let mut infos = vec![info("AXWindow", Some("Inbox")), info("AXTable", None)];
+        let mut kids: Vec<(usize, Vec<usize>)> = Vec::new();
+        let mut rows = Vec::new();
+        for (index, sender) in senders.iter().enumerate() {
+            let y = 220.0 + index as f64 * 30.0;
+            let mut row = info("AXRow", None);
+            row.frame = Some(region(110.0, y, 300.0, 30.0));
+            let mut archive = info("AXButton", Some("Archive"));
+            archive.frame = Some(region(380.0, y, 20.0, 20.0));
+            archive.actions = vec!["AXPress".into()];
+            let row_id = infos.len();
+            infos.extend([row, text(sender), archive]);
+            kids.push((row_id, vec![row_id + 1, row_id + 2]));
+            rows.push(row_id);
+        }
+        kids.push((0, vec![1]));
+        kids.push((1, rows));
+        let refs: Vec<(usize, &[usize])> = kids.iter().map(|(id, k)| (*id, k.as_slice())).collect();
+        Fake::new(infos, &refs)
+    }
+
+    fn inbox_state(tree: &mut Fake) -> Vec<Captured<usize>> {
+        let mut nodes = capture(tree, &[(0, None)], 100).nodes;
+        assign_contexts(tree, &mut nodes);
+        nodes
+    }
+
+    fn find_node<'a>(nodes: &'a [Captured<usize>], role: &str, nth: usize) -> &'a Captured<usize> {
+        nodes
+            .iter()
+            .filter(|node| node.info.role == role)
+            .nth(nth)
+            .unwrap()
+    }
+
+    #[test]
+    fn repeated_and_unlabelled_elements_record_their_surrounding_content() {
+        let mut tree = inbox(&["Ada", "Grace", "Alan"]);
+        let nodes = inbox_state(&mut tree);
+        // Untitled rows are told apart by their own content.
+        let row = find_node(&nodes, "AXRow", 1);
+        assert_eq!(
+            row.context,
+            Context::Content {
+                level: 0,
+                text: "Grace | Archive".into()
+            }
+        );
+        // Repeated "Archive" buttons by the row that contains them.
+        let archive = find_node(&nodes, "AXButton", 1);
+        assert_eq!(
+            archive.context,
+            Context::Content {
+                level: 1,
+                text: "Grace | Archive".into()
+            }
+        );
+        // A unique, unlabelled element records its labelled ancestor.
+        let table = find_node(&nodes, "AXTable", 0);
+        assert_eq!(
+            table.context,
+            Context::Ancestor {
+                level: 1,
+                label: "Inbox".into()
+            }
+        );
+        // Unique labelled elements need nothing more.
+        assert_eq!(find_node(&nodes, "AXWindow", 0).context, Context::Unique);
+    }
+
+    #[test]
+    fn a_row_inserted_above_makes_untitled_rows_and_their_buttons_stale() {
+        let mut tree = inbox(&["Ada", "Grace", "Alan"]);
+        let nodes = inbox_state(&mut tree);
+        let roots = vec![0];
+        let row = find_node(&nodes, "AXRow", 1).clone();
+        let archive = find_node(&nodes, "AXButton", 1).clone();
+        assert!(resolve(&mut tree, &roots, &row, STILL).is_ok());
+        assert!(resolve(&mut tree, &roots, &archive, STILL).is_ok());
+        // A new message arrives at the top. Rows keep their frames (the
+        // table reuses its row elements) but now show different messages.
+        let senders = ["Linus", "Ada", "Grace", "Alan"];
+        for (index, row_id) in [2usize, 5, 8].iter().enumerate() {
+            tree.infos[row_id + 1] = Some(text(senders[index]));
+        }
+        assert_eq!(resolve(&mut tree, &roots, &row, STILL).unwrap_err(), STALE);
+        assert_eq!(
+            resolve(&mut tree, &roots, &archive, STILL).unwrap_err(),
+            STALE
+        );
+        // Removing the reused element is not rescued by position either.
+        tree.infos[5] = None;
+        assert_eq!(resolve(&mut tree, &roots, &row, STILL).unwrap_err(), STALE);
+    }
+
+    #[test]
+    fn indistinguishable_elements_are_refused_and_siblings_use_their_frames() {
+        // Two identical buttons, each deep inside its own unlabelled groups:
+        // nothing within reach tells them apart.
+        let mut infos = vec![info("AXWindow", Some("W"))];
+        let mut kids: Vec<(usize, Vec<usize>)> = vec![(0, vec![])];
+        for copy in 0..2 {
+            let mut parent = 0;
+            for _ in 0..usize::from(CONTEXT_LEVELS) + 1 {
+                let id = infos.len();
+                infos.push(NodeInfo {
+                    role: "AXGroup".into(),
+                    ..NodeInfo::default()
+                });
+                match kids.iter_mut().find(|(owner, _)| *owner == parent) {
+                    Some((_, list)) => list.push(id),
+                    None => kids.push((parent, vec![id])),
+                }
+                parent = id;
+            }
+            let mut button = info("AXButton", Some("More"));
+            button.frame = Some(region(110.0, 220.0 + copy as f64 * 40.0, 50.0, 20.0));
+            let id = infos.len();
+            infos.push(button);
+            kids.push((parent, vec![id]));
+        }
+        let refs: Vec<(usize, &[usize])> = kids.iter().map(|(id, k)| (*id, k.as_slice())).collect();
+        let mut tree = Fake::new(infos, &refs);
+        let nodes = inbox_state(&mut tree);
+        let more = find_node(&nodes, "AXButton", 0).clone();
+        assert_eq!(more.context, Context::Ambiguous);
+        assert_eq!(
+            resolve(&mut tree, &[0], &more, STILL).unwrap_err(),
+            AMBIGUOUS
+        );
+
+        // Two unlabelled buttons in one toolbar are siblings: their frames
+        // tell them apart.
+        let mut left = info("AXButton", None);
+        left.actions = vec!["AXPress".into()];
+        let mut right = left.clone();
+        right.frame = Some(region(170.0, 220.0, 50.0, 20.0));
+        let mut tree = Fake::new(
+            vec![
+                info("AXWindow", Some("W")),
+                info("AXToolbar", Some("Tools")),
+                left,
+                right,
+            ],
+            &[(0, &[1]), (1, &[2, 3])],
+        );
+        let nodes = inbox_state(&mut tree);
+        let left = find_node(&nodes, "AXButton", 0).clone();
+        // With no text of their own they record their toolbar's.
+        assert_eq!(
+            left.context,
+            Context::Content {
+                level: 1,
+                text: "Tools".into()
+            }
+        );
+        assert_eq!(resolve(&mut tree, &[0], &left, STILL).unwrap().0, 2);
+        // The left button moved onto the right one's place: refused.
+        tree.infos[2].as_mut().unwrap().frame = Some(region(170.0, 220.0, 50.0, 20.0));
+        assert_eq!(resolve(&mut tree, &[0], &left, STILL).unwrap_err(), STALE);
+    }
+
+    #[test]
+    fn identical_rows_in_one_list_are_siblings_told_apart_by_frame() {
+        let mut tree = inbox(&["Ada", "Ada"]);
+        let nodes = inbox_state(&mut tree);
+        let first = find_node(&nodes, "AXRow", 0).clone();
+        let second = find_node(&nodes, "AXRow", 1).clone();
+        assert!(matches!(first.context, Context::Content { level: 0, .. }));
+        assert_eq!(resolve(&mut tree, &[0], &second, STILL).unwrap().0, 5);
+        // Their buttons sit in sibling rows: told apart by frame, with the
+        // row's content recorded so a different message there is refused.
+        let archive = find_node(&nodes, "AXButton", 1).clone();
+        assert_eq!(
+            archive.context,
+            Context::Content {
+                level: 1,
+                text: "Ada | Archive".into()
+            }
+        );
+        assert_eq!(resolve(&mut tree, &[0], &archive, STILL).unwrap().0, 7);
+        tree.infos[6] = Some(text("Linus"));
+        assert_eq!(
+            resolve(&mut tree, &[0], &archive, STILL).unwrap_err(),
+            STALE
+        );
+    }
+
+    #[test]
+    fn rows_without_text_climb_to_their_list_and_never_record_nothing() {
+        // Rows whose content is not readable fall back to their table's text
+        // rather than matching any row with an empty signature.
+        let mut infos = vec![info("AXWindow", Some("W")), info("AXTable", Some("Files"))];
+        for index in 0..3 {
+            let mut row = info("AXRow", None);
+            row.frame = Some(region(110.0, 220.0 + index as f64 * 30.0, 300.0, 30.0));
+            infos.push(row);
+        }
+        let mut tree = Fake::new(infos, &[(0, &[1]), (1, &[2, 3, 4])]);
+        let nodes = inbox_state(&mut tree);
+        let row = find_node(&nodes, "AXRow", 0);
+        assert_eq!(
+            row.context,
+            Context::Content {
+                level: 1,
+                text: "Files".into()
+            }
+        );
+    }
+
+    #[test]
+    fn context_text_never_uses_secure_values() {
+        let mut row = info("AXRow", None);
+        row.description = None;
+        let mut field = info("AXTextField", None);
+        field.value = Some(NodeValue::Text("typed draft".into()));
+        let mut secure = info(SECURE_TEXT_FIELD, None);
+        secure.value = Some(NodeValue::Text("hunter2".into()));
+        let mut tree = Fake::new(
+            vec![row, text("Subject"), field, secure],
+            &[(0, &[1, 2, 3])],
+        );
+        let mut reads = 0;
+        assert_eq!(
+            content_text(&mut tree, &0, &mut reads),
+            "Subject | typed draft"
+        );
+        assert_eq!(reads, 4);
     }
 
     #[test]
@@ -1381,7 +1928,9 @@ mod tests {
                 root: 0,
                 path: vec![0],
                 depth: 1,
+                context: Context::Unique,
             }],
+            consumed: false,
         };
         assert!(store
             .lookup("chat", 5, None, 0)
@@ -1415,6 +1964,18 @@ mod tests {
             store.lookup("chat", 5, None, 0).is_err(),
             "oldest window dropped"
         );
+        // Any action in a window uses up its indexes, but not other windows'.
+        let latest = store.insert("chat", snapshot(7));
+        store.invalidate("chat", 7);
+        let used = store.lookup("chat", 7, Some(latest), 0).err().unwrap();
+        assert!(used.starts_with(STALE) && used.contains("action"), "{used}");
+        assert!(store.lookup("chat", 7, None, 0).is_err());
+        assert!(store.lookup("chat", 8, None, 0).is_ok());
+        store.invalidate("other", 8);
+        assert!(store.lookup("chat", 8, None, 0).is_ok());
+        // A fresh appState gives the window usable indexes again.
+        store.insert("chat", snapshot(7));
+        assert!(store.lookup("chat", 7, None, 0).is_ok());
         store.forget(Some("chat"));
         assert!(store.lookup("chat", 6, None, 0).is_err());
         // Anchors follow a moved window.
