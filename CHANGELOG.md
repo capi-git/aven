@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.1.133] - 2026-10-12
+
+### Clearer control of Mac apps
+
+- Desktop control shows which agent and app are acting, with a native status bar and a labelled ring at each action.
+- Each chat asks before controlling an app. Pause, resume, or stop from the status bar, or press Escape twice to stop.
+- Input targets the selected app window without moving your pointer or changing the foreground app. Apps that need the shared mouse and keyboard require separate approval for each fallback action.
+- Your activity takes priority. Desktop control yields when you interact with its target, and interrupted drags release their held button.
+
 ## [0.1.132] - 2026-10-12
 
 ### Clean tab dragging
