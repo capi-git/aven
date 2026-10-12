@@ -1946,7 +1946,8 @@ fn app_state(
         &name,
     )
     .key;
-    let ask = read_ask_before_app_use(&consent_path(app)?);
+    // An unreadable setting fails closed: consent is required.
+    let ask = consent_path(app).map_or(true, |path| read_ask_before_app_use(&path));
     let consented = presence::with(|state| state.has_app_consent(scope, &consent_key));
     let alive = || !session.revoked.load(Ordering::Acquire);
     let (prepared, limited) = if accessibility::may_enable_switch(ask, consented) {

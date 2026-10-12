@@ -111,7 +111,8 @@ on that process: tree capture with secure-field redaction, button press, refusal
 of indexes used up by an action or superseded by a newer state, text
 value/insertion/deletion, slider, scroll, refusal of an untitled row after a row
 is inserted above it, row selection, a context menu (shown for under a second),
-a button on a local WKWebView page (no network) and a pause refusal. A passive listen-only
+refusal of a disabled button and a disabled default button for Enter, a button on
+a local WKWebView page (no network) and a pause refusal. A passive listen-only
 tap confirms that the test posted no pointer events; the fixture reports that it
 never became active or key. The fixture quits afterwards (60-second failsafe). The
 terminal running the test needs Accessibility access.
