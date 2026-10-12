@@ -61,6 +61,9 @@ const ACTION_TIMEOUT: f32 = 1.0;
 /// Chromium builds its tree asynchronously after the switch is turned on.
 const ENGINE_SETTLE: Duration = Duration::from_millis(350);
 const MAX_VALUE_CHARS: usize = 1000;
+/// Read-backs after a write some apps apply asynchronously.
+const POLL_INTERVAL: Duration = Duration::from_millis(30);
+const FOCUS_POLLS: usize = 7;
 const MAX_MENUS: usize = 4;
 const MAX_ANCESTORS: usize = 8;
 
@@ -943,6 +946,30 @@ unsafe fn focus(located: &Located, gate: Gate) -> Result<(), String> {
     Ok(())
 }
 
+/// Focuses the element inside its app (never activating it) and confirms by
+/// reading AXFocused back from the same element. Some apps apply focus
+/// asynchronously, so the read-back is retried briefly.
+unsafe fn focus_confirmed(located: &Located, gate: Gate) -> Result<bool, String> {
+    focus(located, gate)?;
+    let element = &located.element;
+    Ok(rules::settle(FOCUS_POLLS, POLL_INTERVAL, || {
+        copy(element.0, "AXFocused", deadline()).and_then(|value| bool_of(value.0)) == Some(true)
+    }))
+}
+
+/// Refuses key events for a named element unless it holds focus.
+unsafe fn keys_for(located: Option<&Located>, targeted: bool, gate: Gate) -> Result<(), String> {
+    let mut failure = None;
+    rules::require_key_focus(targeted, || match located {
+        Some(located) => focus_confirmed(located, gate).unwrap_or_else(|error| {
+            failure = Some(error);
+            false
+        }),
+        None => false,
+    })
+    .map_err(|error| failure.unwrap_or(error))
+}
+
 pub(super) fn click(
     located: &Located,
     button: Button,
@@ -1112,7 +1139,14 @@ unsafe fn insert(
     }
 }
 
-pub(super) fn type_text(located: Option<&Located>, text: &str, gate: Gate) -> Result<Next, String> {
+/// `targeted` is true when the agent named the element by index; key-event
+/// typing then requires that element to hold focus.
+pub(super) fn type_text(
+    located: Option<&Located>,
+    targeted: bool,
+    text: &str,
+    gate: Gate,
+) -> Result<Next, String> {
     let Some(located) = located else {
         return Ok(Next::TypeKeys);
     };
@@ -1124,7 +1158,10 @@ pub(super) fn type_text(located: Option<&Located>, text: &str, gate: Gate) -> Re
                 json!({"typed": true, "method": method}),
                 outcome,
             )),
-            None => Next::TypeKeys,
+            None => {
+                keys_for(Some(located), targeted, gate)?;
+                Next::TypeKeys
+            }
         })
     })
 }
@@ -1176,8 +1213,11 @@ unsafe fn window_button(
     Element::owned(copy(window.0, attribute, deadline)?)
 }
 
+/// `targeted` is true when the agent named the element by index; key events
+/// then require that element to hold focus.
 pub(super) fn press_key(
     located: Option<&Located>,
+    targeted: bool,
     key: &str,
     modifiers: bool,
     window: (i32, u32, Region),
@@ -1226,9 +1266,10 @@ pub(super) fn press_key(
                         return done("AXSelectedText", outcome);
                     }
                 }
-                KeyStep::Events => return Ok(Next::Keys),
+                KeyStep::Events => break,
             }
         }
+        keys_for(located, targeted, gate)?;
         Ok(Next::Keys)
     })
 }

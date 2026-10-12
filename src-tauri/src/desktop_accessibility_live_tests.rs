@@ -346,7 +346,7 @@ fn live_fixture_background_element_actions() {
     done(select_text(&field, None, Some((3, 0)), &gate).unwrap());
     acted();
     let field = find_in(&observe(), "TextField", "placeholder=\"Name\"");
-    let value = done(type_text(Some(&field), " Lovelace", &gate).unwrap());
+    let value = done(type_text(Some(&field), true, " Lovelace", &gate).unwrap());
     acted();
     evidence.insert("typeText".into(), value);
     fixture.wait("typed text", |value| value["name"] == "Ada Lovelace");
@@ -354,6 +354,7 @@ fn live_fixture_background_element_actions() {
     let value = done(
         press_key(
             Some(&field),
+            true,
             "Backspace",
             false,
             (pid, window_id, bounds),
@@ -370,12 +371,21 @@ fn live_fixture_background_element_actions() {
     done(select_text(&area, None, Some((5, 0)), &gate).unwrap());
     acted();
     let area = find_in(&observe(), "TextArea", "Notes");
-    let value =
-        done(press_key(Some(&area), "Enter", false, (pid, window_id, bounds), &gate).unwrap());
+    let value = done(
+        press_key(
+            Some(&area),
+            true,
+            "Enter",
+            false,
+            (pid, window_id, bounds),
+            &gate,
+        )
+        .unwrap(),
+    );
     acted();
     evidence.insert("enterInTextArea".into(), value);
     let area = find_in(&observe(), "TextArea", "Notes");
-    done(type_text(Some(&area), "World", &gate).unwrap());
+    done(type_text(Some(&area), true, "World", &gate).unwrap());
     acted();
     fixture.wait("notes", |value| value["notes"] == "Hello\nWorld");
 
@@ -388,6 +398,7 @@ fn live_fixture_background_element_actions() {
     let value = done(
         press_key(
             Some(&slider),
+            true,
             "ArrowUp",
             false,
             (pid, window_id, bounds),

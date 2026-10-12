@@ -11,6 +11,7 @@ use super::Region;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::ops::RangeInclusive;
+use std::time::Duration;
 
 pub(crate) const DEFAULT_MAX_NODES: u32 = 250;
 pub(crate) const NODE_RANGE: RangeInclusive<u32> = 20..=1000;
@@ -1030,6 +1031,37 @@ pub(crate) fn key_plan(key: &str, modifiers: bool, info: Option<&NodeInfo>) -> V
     }
     plan.push(KeyStep::Events);
     plan
+}
+
+/// Checks once, then up to `retries` more times `interval` apart, for a change
+/// an app applies asynchronously. Runs on the calling worker thread.
+pub(crate) fn settle(retries: usize, interval: Duration, mut check: impl FnMut() -> bool) -> bool {
+    if check() {
+        return true;
+    }
+    for _ in 0..retries {
+        std::thread::sleep(interval);
+        if check() {
+            return true;
+        }
+    }
+    false
+}
+
+pub(crate) const UNFOCUSED: &str = "Aven could not confirm keyboard focus on that element without bringing its app forward, so no keys were sent. Click the element, call appState again and retry, or use setValue.";
+
+/// App-directed key events go to whatever has focus in the app. For an
+/// element the agent named, they are only sent once that element holds
+/// keyboard focus, confirmed by reading it back. `confirm` is only called
+/// for a named element.
+pub(crate) fn require_key_focus(
+    targeted: bool,
+    confirm: impl FnOnce() -> bool,
+) -> Result<(), String> {
+    if targeted && !confirm() {
+        return Err(UNFOCUSED.into());
+    }
+    Ok(())
 }
 
 /// Accepts names with or without the AX prefix, limited to the allow-list.
@@ -2097,6 +2129,36 @@ mod tests {
         let mut secure = info(SECURE_TEXT_FIELD, None);
         secure.actions = vec!["AXConfirm".into()];
         assert_eq!(key_plan("Backspace", false, Some(&secure)), [Events]);
+    }
+
+    #[test]
+    fn settle_polls_a_bounded_number_of_times() {
+        let mut calls = 0;
+        assert!(settle(5, Duration::ZERO, || {
+            calls += 1;
+            calls == 3
+        }));
+        assert_eq!(calls, 3);
+        let mut calls = 0;
+        assert!(!settle(4, Duration::ZERO, || {
+            calls += 1;
+            false
+        }));
+        assert_eq!(calls, 5);
+    }
+
+    #[test]
+    fn key_events_for_a_named_element_need_confirmed_focus() {
+        assert_eq!(require_key_focus(true, || false).unwrap_err(), UNFOCUSED);
+        assert!(require_key_focus(true, || true).is_ok());
+        // The app's focused element (no index) is where the keys go anyway.
+        let mut asked = false;
+        assert!(require_key_focus(false, || {
+            asked = true;
+            false
+        })
+        .is_ok());
+        assert!(!asked);
     }
 
     #[test]

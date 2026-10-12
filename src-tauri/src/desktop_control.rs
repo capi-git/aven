@@ -1294,7 +1294,9 @@ app-directed mouse events at its centre; button right shows its menu.
 typeText inserts text at the element's (or the app's focused) caret, falling
 back to key events only if the app rejects it. setValue replaces a value
 (text, number or true/false). pressKey maps Enter, Escape, Space, arrows on
-sliders and Backspace/Delete in text to equivalent actions, else sends keys.
+sliders and Backspace/Delete in text to equivalent actions, else sends keys;
+with element, keys (and typeText's key fallback) are sent only after that
+element is confirmed focused, otherwise the action fails and nothing is sent.
 scroll with element and direction pages that scroll area; with only element
 it scrolls the element into view; with deltaY it scrolls at its centre.
 selectText selects text or start/length (UTF-16 units). secondaryAction runs

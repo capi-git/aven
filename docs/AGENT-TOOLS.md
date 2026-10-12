@@ -127,7 +127,10 @@ Element actions take the same `windowId`, an `element` index and the `stateId`:
 - `setValue` replaces a text, number or true/false value.
 - `pressKey` maps Enter to Confirm or the default button, Escape to Cancel, arrows to
   Increment/Decrement on sliders and steppers, Space to Press, and Backspace/Delete to
-  text edits. Other keys and any modifiers use app-directed key events.
+  text edits. Other keys and any modifiers use app-directed key events. For a named
+  `element`, those events (and `typeText`'s key fallback) are sent only after Aven
+  focuses that element inside its app and reads its focus back; otherwise nothing
+  is sent and the action fails, so keys never reach another control.
 - `scroll` with `direction` (and `pages`) pages the nearest scroll area; with only
   `element` it scrolls that element into view.
 - `selectText` selects `text`, or `start` and `length` in UTF-16 units.

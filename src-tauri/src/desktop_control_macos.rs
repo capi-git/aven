@@ -2010,11 +2010,14 @@ fn element_action(
             ax::secondary(need(located.as_ref())?, name.as_deref(), &gate)?
         }
         Request::SetValue { value, .. } => ax::set_value(need(located.as_ref())?, value, &gate)?,
-        Request::TypeText { text, .. } => ax::type_text(located.as_ref(), text, &gate)?,
+        Request::TypeText { text, .. } => {
+            ax::type_text(located.as_ref(), index.is_some(), text, &gate)?
+        }
         Request::PressKey { key, modifiers, .. } => {
             pending_keys = Some((key.clone(), modifiers.clone()));
             ax::press_key(
                 located.as_ref(),
+                index.is_some(),
                 key,
                 !modifiers.is_empty(),
                 (pid, window_id, bounds),
