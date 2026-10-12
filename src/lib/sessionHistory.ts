@@ -243,3 +243,33 @@ export function historyWithLiveSessions(
     })
     .sort(compareSessionSummaries);
 }
+
+/**
+ * Rows for chats without a project, across every standalone folder the
+ * workspace owns. Like project lists, blank chats nobody has used yet stay
+ * out: archiving the open chat replaces it with a blank one, and listing that
+ * made archiving look like it brought the row straight back.
+ */
+export function standaloneSessionRows(
+  history: SessionSummary[],
+  sessions: Session[],
+  cwds: readonly string[],
+): SessionSummary[] {
+  const rows = new Map(
+    cwds
+      .flatMap((cwd) => historyWithLiveSessions(history, sessions, cwd))
+      .map((session) => [session.id, session]),
+  );
+  for (const session of sessions) {
+    const live = session.busy || sessionNeedsInput(session);
+    if (
+      !session.inboxAsk &&
+      (shouldPersistSession(session) || live) &&
+      cwds.some((cwd) => sameProjectPath(session.cwd, cwd)) &&
+      !rows.has(session.id)
+    ) {
+      rows.set(session.id, summaryFromSession(session));
+    }
+  }
+  return [...rows.values()];
+}
