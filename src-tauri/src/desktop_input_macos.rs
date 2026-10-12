@@ -5,6 +5,9 @@ use std::cell::RefCell;
 #[link(name = "CoreGraphics", kind = "framework")]
 unsafe extern "C" {
     fn CGEventPostToPid(pid: i32, event: Event);
+    fn CGEventCreateCopy(event: Event) -> Event;
+    fn CGEventSetType(event: Event, kind: u32);
+    fn CGEventGetIntegerValueField(event: Cf, field: u32) -> i64;
 }
 #[link(name = "ApplicationServices", kind = "framework")]
 unsafe extern "C" {
@@ -53,6 +56,71 @@ pub(super) fn check() -> Result<(), String> {
         Ok(())
     })
 }
+
+pub(super) fn mouse_event(kind: u32, point: Point) -> Option<Result<OwnedCf, String>> {
+    let target = current_app_target()?;
+    Some((|| unsafe {
+        let bounds = target.bounds.ok_or(INPUT_WINDOW_UNAVAILABLE)?;
+        let window = target.window_id.ok_or(INPUT_WINDOW_UNAVAILABLE)?;
+        // NSEvent converts the supplied point to window-local Quartz data.
+        // It resolves only this process's NSWindows; for a foreign window
+        // its CGEvent conversion uses the main display's flip height.
+        // Keep x/y relative to the observed destination in both cases.
+        let location = if target.pid == Some(std::process::id() as i32) {
+            objc2_foundation::NSPoint::new(point.x - bounds.x, bounds.height - (point.y - bounds.y))
+        } else {
+            let main = CGDisplayBounds(CGMainDisplayID());
+            objc2_foundation::NSPoint::new(
+                point.x - bounds.x,
+                main.origin.y + main.size.height - (point.y - bounds.y),
+            )
+        };
+        let class = objc2::class!(NSEvent);
+        let native: Option<Retained<AnyObject>> = msg_send![class,
+            mouseEventWithType: kind as usize,
+            location: location,
+            modifierFlags: 0_usize,
+            timestamp: 0.0_f64,
+            windowNumber: window as isize,
+            context: std::ptr::null::<AnyObject>(),
+            eventNumber: 0_isize,
+            clickCount: 1_isize,
+            pressure: 1.0_f32
+        ];
+        let native = native.ok_or("Could not create input for the target window.")?;
+        let cg: Event = msg_send![&*native, CGEvent];
+        if cg.is_null() {
+            return Err("Could not create input for the target window.".into());
+        }
+        let event = OwnedCf::new(
+            CGEventCreateCopy(cg),
+            "Could not retain target window input.",
+        )?;
+        Ok(event)
+    })())
+}
+
+pub(super) fn scroll_event(point: Point, source: &OwnedCf) -> Result<Option<OwnedCf>, String> {
+    let Some(event) = mouse_event(5, point) else {
+        unsafe {
+            CGEventSetLocation(source.event(), point);
+        }
+        return Ok(None);
+    };
+    let event = event?;
+    unsafe {
+        CGEventSetType(event.event(), 22);
+        // Preserve the public scroll fields from the pixel-based CG event.
+        for field in [11, 12, 13, 88, 93, 94, 95, 96, 97, 98, 99, 100, 123] {
+            CGEventSetIntegerValueField(
+                event.event(),
+                field,
+                CGEventGetIntegerValueField(source.event(), field),
+            );
+        }
+    }
+    Ok(Some(event))
+}
 /// Every down event is checked by its caller. Release events deliberately keep
 /// the original route even after cancellation, so no button can remain held.
 pub(super) unsafe fn post(event: Event) {
@@ -65,6 +133,7 @@ pub(super) unsafe fn post(event: Event) {
             .filter(|target| !target.shared_input)
         {
             if let Some(pid) = target.pid {
+                CGEventSetIntegerValueField(event, 40, i64::from(pid));
                 if let Some(window) = target.window_id {
                     CGEventSetIntegerValueField(event, 91, i64::from(window));
                     CGEventSetIntegerValueField(event, 92, i64::from(window));
@@ -339,7 +408,7 @@ pub(super) fn accessible_click(point: Point, button: Button, count: u8) -> Resul
         let press = cf_string("AXPress");
         let result = AXUIElementPerformAction(element.0, Retained::as_ptr(&press).cast());
         if result != 0 {
-            return Err("The app did not confirm the accessibility action. It may have completed; inspect a fresh screenshot before deciding whether to retry.".into());
+            return Err(format!("The app did not confirm the accessibility action (AX error {result}). It may have completed; inspect a fresh screenshot before deciding whether to retry."));
         }
         Ok(true)
     }

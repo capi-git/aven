@@ -62,6 +62,9 @@ def ensure_not_running():
 
 def port_is_available():
     with socket.socket() as probe:
+        # Match Vite's bind behavior: a closed preview's TIME_WAIT sockets do
+        # not own the port. A live listener still refuses this bind.
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             probe.bind(('127.0.0.1', PORT))
             return True
@@ -101,6 +104,19 @@ def prepare_bundle():
     run('python3', ROOT / 'scripts/package-chromium.py', '--app', APP,
         '--identity', os.environ.get('AVEN_DEV_SIGNING_IDENTITY', '-'), '--execute')
     print(f'Ready: {APP}', flush=True)
+
+
+def prepare_desktop_fixture():
+    """A separate passive AppKit process, built only for the opt-in test."""
+    fixture = ROOT / 'target/debug/Aven Input Fixture.app/Contents'
+    (fixture / 'MacOS').mkdir(parents=True, exist_ok=True)
+    run('xcrun', 'swiftc', ROOT / 'scripts/desktop-input-fixture.swift',
+        '-o', fixture / 'MacOS/aven-input-fixture')
+    (fixture / 'Info.plist').write_bytes(plistlib.dumps({
+        'CFBundleIdentifier': 'com.capi.aven.dev.input-fixture',
+        'CFBundleName': 'Aven Input Fixture', 'CFBundleExecutable': 'aven-input-fixture',
+        'CFBundlePackageType': 'APPL', 'LSUIElement': True,
+    }))
 
 
 def launch():
@@ -192,6 +208,8 @@ def main():
         if not args.build_only:
             require(port_is_available(), f'Port {PORT} is in use. No process was stopped.')
         prepare_bundle()
+        if os.environ.get('AVEN_DEV_DESKTOP_SELF_TEST') == '1':
+            prepare_desktop_fixture()
         if not args.build_only:
             launch()
 

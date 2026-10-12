@@ -863,18 +863,22 @@ fn run_admitted(
     };
     let input = presence::is_input(&request);
     let ticket = presence::with(|state| {
-        state.begin(
+        let ticket = state.begin(
             scope,
             step,
             target.app.as_ref().map(|app| app.name.clone()),
             std::time::Instant::now(),
-        )
+        );
+        // Publish the destination atomically with the activity. A user event
+        // between these updates must not mistake background input for shared
+        // mouse/keyboard control.
+        state.set_delivery(&ticket, target.shared_input, target.pid);
+        ticket
     });
     // Single integration point for the agent pointer: it receives the actor
     // that this action resolved to (name and provider colour).
     let actor = presence::with(|state| state.actor(scope));
     platform::actor_changed(&actor);
-    presence::with(|state| state.set_delivery(&ticket, target.shared_input, target.pid));
     let result = platform::presence_show(target.anchor, input)
         .and_then(|()| platform::execute(app, scope, request, &ticket, &target));
     if target.shared_input {

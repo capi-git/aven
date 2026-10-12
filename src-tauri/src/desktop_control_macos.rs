@@ -796,6 +796,9 @@ fn event_target(x: f64, y: f64, window_id: Option<u32>) -> Result<InputTarget, S
 }
 
 fn mouse_event(kind: u32, point: Point, button: u32) -> Result<OwnedCf, String> {
+    if let Some(event) = input::mouse_event(kind, point) {
+        return event;
+    }
     OwnedCf::new(
         unsafe { CGEventCreateMouseEvent(std::ptr::null(), kind, point, button) },
         "Could not create mouse input. Check Aven's Accessibility permission.",
@@ -939,13 +942,11 @@ const DRAG_SLACK: Duration = Duration::from_secs(1);
 /// path: success, revoked scope, stall timeout, or an unwinding panic.
 struct HeldButton<'a> {
     up: &'a OwnedCf,
-    at: Point,
 }
 
 impl Drop for HeldButton<'_> {
     fn drop(&mut self) {
         unsafe {
-            CGEventSetLocation(self.up.event(), self.at);
             CGEventSetFlags(self.up.event(), 0);
             CGEventSetIntegerValueField(self.up.event(), 1, 1);
             input::post(self.up.event());
@@ -972,11 +973,24 @@ fn drag(
     let path = drag_path((from.x, from.y), (to.x, to.y), steps);
     let schedule = drag_schedule(duration_ms, steps);
     // Allocate every event before pressing, so no allocation can fail while
-    // the button is held. One dragged event is moved along the path.
+    // the button is held. Keep each event's native window-local coordinates:
+    // changing only its CG location discards AppKit's local position.
     let moved = mouse_event(5, from, 0)?;
     let down = mouse_event(down_kind, from, button)?;
-    let dragged = mouse_event(drag_kind, from, button)?;
-    let up = mouse_event(up_kind, to, button)?;
+    let up = mouse_event(up_kind, from, button)?;
+    let events = path
+        .into_iter()
+        .zip(schedule)
+        .map(|((x, y), due)| {
+            let point = Point { x, y };
+            Ok((
+                point,
+                due,
+                mouse_event(drag_kind, point, button)?,
+                mouse_event(up_kind, point, button)?,
+            ))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
     session.require_active()?;
     let result = (|| {
         unsafe {
@@ -987,23 +1001,22 @@ fn drag(
             CGEventSetIntegerValueField(down.event(), 1, 1);
             input::post(down.event());
         }
-        let mut held = HeldButton { up: &up, at: from };
+        let mut held = HeldButton { up: &up };
         let revoked = Arc::clone(&session.revoked);
         agent_cursor::follow(scope, from, false, Arc::clone(&revoked));
         std::thread::sleep(DRAG_HOLD);
         let started = Instant::now();
         let limit = Duration::from_millis(u64::from(duration_ms)) + DRAG_SLACK;
         let mut previous = from;
-        for ((x, y), due) in path.into_iter().zip(schedule) {
+        for (point, due, dragged, release) in &events {
             std::thread::sleep(due.saturating_sub(started.elapsed()));
             if started.elapsed() > limit {
                 return Err("The drag stalled and was released early. Take a fresh screenshot before retrying.".into());
             }
             // A revoked scope stops moving at once; the guard still releases.
             session.require_active()?;
-            let point = Point { x, y };
+            let Point { x, y } = *point;
             unsafe {
-                CGEventSetLocation(dragged.event(), point);
                 CGEventSetFlags(dragged.event(), 0);
                 CGEventSetIntegerValueField(dragged.event(), 1, 1);
                 // kCGMouseEventDeltaX/Y (4, 5) for apps that track relative motion.
@@ -1011,12 +1024,11 @@ fn drag(
                 CGEventSetIntegerValueField(dragged.event(), 5, (y - previous.y).round() as i64);
                 input::post(dragged.event());
             }
-            held.at = point;
-            previous = point;
-            agent_cursor::follow(scope, point, false, Arc::clone(&revoked));
+            held.up = release;
+            previous = *point;
+            agent_cursor::follow(scope, *point, false, Arc::clone(&revoked));
         }
         std::thread::sleep(DRAG_HOLD);
-        held.at = to;
         drop(held);
         agent_cursor::follow(scope, to, true, revoked);
         Ok(())
@@ -1084,11 +1096,11 @@ fn scroll(point: Point, delta_x: i32, delta_y: i32) -> Result<(), String> {
         unsafe { CGEventCreateScrollWheelEvent2(std::ptr::null(), 0, 2, -delta_y, -delta_x, 0) },
         "Could not create scroll input. Check Aven's Accessibility permission.",
     )?;
+    let event = input::scroll_event(point, &event)?.unwrap_or(event);
     let moved = mouse_event(5, point, 0)?;
     unsafe {
         CGEventSetFlags(moved.event(), 0);
         input::post(moved.event());
-        CGEventSetLocation(event.event(), point);
         CGEventSetFlags(event.event(), 0);
         input::post(event.event());
     }

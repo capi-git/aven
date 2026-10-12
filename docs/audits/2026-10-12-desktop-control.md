@@ -2,8 +2,8 @@
 
 This branch adds a native agent presence bar, provider-labelled pointer,
 per-chat app consent, pause/stop/yield controls, and explicit app-directed input.
-It is a draft pending complete native input QA. It does not update the installed
-Aven or publish a release.
+Source and live native checks are recorded below. A release still goes through
+the normal PR, version, build, signing and publication workflow.
 
 ## Behavior
 
@@ -33,49 +33,57 @@ Aven or publish a release.
   pending prompts. A cancelled one-action approval cannot authorize a new
   command. Button generations prevent an old Stop click becoming a new Allow.
 
-## Validation so far
+## Validation
 
-- `npm run check:web`: 395 files and 4,387 tests passed, including Claude/Codex
-  actor binding, passive refresh behavior, and the consent setting; TypeScript,
-  Prettier and lint passed. Lint retains pre-existing warnings.
-- `npm run build` and `npm run check:tooling` passed. The development runner's
-  16 focused tests also passed after adding explicit preview flag forwarding.
-- The full Chromium Rust suite passed 634 tests, followed by 97 focused desktop
-  tests after two additional consent/lifecycle regressions. Full native checks
-  also passed with Chromium disabled. Clippy passed with warnings denied in
-  both configurations; formatting passed. Final CI remains authoritative for
-  Windows and release builds.
-- A complete Aven Dev bundle passed package and strict signature checks. The
-  first visual pass showed consent, acting and paused states and the new
-  provider pointer. The consent button was clipped; its width is corrected in
-  source and needs the final rendered confirmation.
-- A debug-only self-test targets its own disposable native view through the
-  app-directed route. The first live run returned a user-activity pause before
-  completion. This is not proof of successful background input or proof of
-  genuine versus synthetic event classification. No retries were attempted
-  after that pause; the user was asked for a brief idle window. Added receipt
-  metadata distinguishes event kinds, marker presence and source processes
-  without collecting typed content.
+- `npm run check:web`: 395 files and 4,388 tests passed, including Claude/Codex
+  actor binding, passive refresh behavior and consent settings; TypeScript and
+  lint passed (lint retains pre-existing warnings).
+- `npm run check:tooling` passed. The isolated Dev runner's 17 focused tests
+  include refusing a live listener while allowing reuse after its own server
+  closes. The opt-in test builds a passive AppKit receiver outside the main app
+  bundle; ordinary previews do not build or launch it.
+- Full Chromium native tests: 636 passed; Clippy passed with warnings denied.
+  GitHub CI remains the separate macOS/Windows validation boundary.
+- A complete Aven Dev bundle passed package and strict signature checks.
+- Live app-directed input reached both an owned native view and a separate,
+  background AppKit process: two presses/releases, scrolling, a complete drag
+  to the expected endpoint, one accessible button action, typing and Backspace.
+  The pointer and foreground app stayed unchanged across the complete run.
+- Controlled Pause and Stop each interrupted an in-progress native drag. Both
+  delivered its release event. No HID input or real user document was used.
+- Native button clicks showed Pause and Resume correctly. Double Escape through
+  the native event monitor displayed the stopped-provider notice, which faded.
+  The consent label is fully visible at its final width.
 
-The screenshots, initial receipt and command logs are retained locally at
+Live QA found that raw `CGEventCreateMouseEvent` events carried no AppKit
+window number. Setting the two pointer-window metadata fields did not route
+these events into the intended view. Input now originates as an `NSEvent` with
+its destination window and the correct local-coordinate conversion for an
+owned or foreign window. Drag events and matching releases are prepared before
+pressing, preserving the native position instead of mutating only the CG point.
+Scroll events retain that routing and copy the public pixel-scroll fields.
+The cross-process fixture catches regressions in actual received coordinates.
+
+An accessibility action inside the sending app reported an AX error after its
+button ran once. Aven returned the uncertainty and did not retry it. The separate
+AppKit receiver confirmed one successful semantic press. Errors include the AX
+code and continue to require inspection before any retry or pointer fallback.
+
+The final receipt and native screenshots are retained locally at
 `~/Developer/.worktrees/Aven/scratch/desktop-control-20261012/`.
-The currently running Aven Dev bundle predates the last review fixes; source
-and rendered validation are intentionally distinct.
+`final-input-passed.json` records the completed functional run.
 
-## Remaining native checks
+## Scope of the evidence
 
-1. During a user-approved idle window, rerun the owned-window self-test and
-   inspect receipt counts plus unchanged pointer/foreground assertions. Diagnose
-   any false positive input classification before continuing.
-2. Confirm the full consent-button label and the bar's final fade behavior.
-3. Verify Pause/Resume/Stop, double Escape, cancellation during a held drag,
-   and screenshot suppression in the rebuilt host. A visual-only preview does
-   not establish actual event interception.
-4. Test app-directed keys and representative external app controls. Some apps
-   ignore process-directed events; a successful dispatch is not a guarantee
-   that the app performed the requested change. Keep fallback explicit.
+The AppKit receiver uses real native controls in another process; it does not
+establish compatibility with every third-party app. Process-directed events can
+still be ignored by particular apps. Agents must inspect the result and obtain
+one-action consent before using the shared pointer. Provider binding is tested
+for Claude and Codex through their shared frontend/native path; the checks do
+not claim a separate end-to-end provider chat run or a production app upgrade.
 
 The visual demo uses `AVEN_DEV_PRESENCE_PREVIEW=1 AVEN_DEV_CURSOR_PREVIEW=1`.
-The separate functional fixture uses `AVEN_DEV_DESKTOP_SELF_TEST=1`; it requires
-Aven Dev's existing permissions and enabled setting and never changes them.
-See [DEVELOPMENT.md](../DEVELOPMENT.md) for the isolated runner.
+It draws a labelled preview, exercises the native interruption monitor and
+posts no input. The functional check uses `AVEN_DEV_DESKTOP_SELF_TEST=1` and
+requires Aven Dev's existing permissions and enabled setting. See
+[DEVELOPMENT.md](../DEVELOPMENT.md) for the isolated runner and fixture details.

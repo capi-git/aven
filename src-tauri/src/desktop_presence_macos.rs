@@ -118,12 +118,19 @@ fn user_event(event: &AnyObject) {
         }
         let kind = CGEventGetType(cg);
         #[cfg(debug_assertions)]
-        super::self_test::record_event(
-            kind,
-            CGEventGetIntegerValueField(cg, 42) == presence::EVENT_MARKER,
-            CGEventGetIntegerValueField(cg, 41),
-            super::frontmost_pid_on_main().ok().flatten(),
-        );
+        {
+            let window: isize = msg_send![event, windowNumber];
+            let point: NSPoint = msg_send![event, locationInWindow];
+            super::self_test::record_event(serde_json::json!({
+                "kind":kind,
+                "marked":CGEventGetIntegerValueField(cg,42)==presence::EVENT_MARKER,
+                "sourcePid":CGEventGetIntegerValueField(cg,41),
+                "frontmostPid":super::frontmost_pid_on_main().ok().flatten(),
+                "eventWindow":window,"eventLocation":{"x":point.x,"y":point.y},
+                "windowUnderPointer":CGEventGetIntegerValueField(cg,91),
+                "windowHandlingEvent":CGEventGetIntegerValueField(cg,92)
+            }));
+        }
         let classified = presence::classify(
             kind,
             CGEventGetIntegerValueField(cg, 42), // kCGEventSourceUserData
@@ -515,9 +522,14 @@ pub(super) fn preview() {
             Instant::now(),
         )
     });
-    changed();
-    std::thread::sleep(Duration::from_secs(12));
-    presence::with(|state| state.pause(presence::Pause::UserActive));
+    // Exercise the actual native interruption monitor without posting input.
+    let _ = show(None, true);
+    std::thread::sleep(Duration::from_secs(60));
+    presence::with(|state| {
+        if state.check(&ticket).is_ok() {
+            state.pause(presence::Pause::UserActive);
+        }
+    });
     changed();
     std::thread::sleep(Duration::from_secs(12));
     presence::with(|state| {

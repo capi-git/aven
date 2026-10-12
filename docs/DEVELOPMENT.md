@@ -77,15 +77,22 @@ builds exclude this trigger; normal agent screenshots suppress both overlays.
 App-directed delivery and shared-input interruption require separate functional
 validation; seeing the preview does not establish input behavior in other apps.
 
-`AVEN_DEV_DESKTOP_SELF_TEST=1 npm run dev:app` runs a separate debug-only input
-check. It requires Aven Dev's existing enabled switch and both macOS permissions;
-it never enables or requests either. It creates an owned disposable native
-window, seeds consent only for that synthetic test scope, then sends click,
-scroll and drag events through the app-directed route. It never uses HID input
-or targets another process. A private receipt under Aven Dev's cache directory
-(`aven.desktop-input-self-test.json`) records received event counts, pointer and
-foreground stability, or the reason the test stopped. Event metadata contains
-only event kinds, process IDs and the presence of Aven's marker, never text or
-key names. Keep the keyboard and mouse idle during this brief check; user input
-still interrupts it. This fixture does not establish compatibility with every
-third-party app or verify shared-pointer fallback.
+`AVEN_DEV_DESKTOP_SELF_TEST=1 npm run dev:app` runs separate debug-only native
+input checks. It requires Aven Dev's existing enabled switch and both macOS
+permissions; it never enables or requests either. The runner also builds a
+passive **Aven Input Fixture** under this checkout's `target/debug/`. The test
+uses its own disposable window and launches that receiver in the background.
+Both are test-owned; it never targets another running app or posts HID input.
+The receiver exits after the check, with a 45-second failsafe.
+
+The checks cover clicks, scrolls, drag endpoints, accessible buttons, typing,
+Backspace, and release during a deliberately interrupted drag. Consent is
+seeded only for the synthetic test scope and those verified fixture targets.
+A private receipt under Aven Dev's cache directory
+(`aven.desktop-input-self-test.json`) records received events, input results,
+and pointer/foreground stability. Event metadata contains coordinates, event
+kinds and process IDs, never typed content or key names. Keep the keyboard and
+mouse idle during this brief check; user input still interrupts it. Successful
+AppKit fixture delivery is not a promise that every third-party app accepts
+background events. Agents must inspect each result and ask before switching
+to shared-pointer input.

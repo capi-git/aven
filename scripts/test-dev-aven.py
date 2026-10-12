@@ -88,6 +88,22 @@ class DevRunnerGuards(unittest.TestCase):
             with mock.patch.object(runner, 'PORT', owner.getsockname()[1]):
                 self.assertFalse(runner.port_is_available())
 
+    def test_closed_preview_connection_does_not_look_like_a_running_server(self):
+        with socket.socket() as owner, socket.socket() as client:
+            owner.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            owner.bind(('127.0.0.1', 0))
+            owner.listen(1)
+            port = owner.getsockname()[1]
+            client.settimeout(2)
+            client.connect(('127.0.0.1', port))
+            connection, _ = owner.accept()
+            connection.close()
+            self.assertEqual(client.recv(1), b'')
+            client.close()
+            owner.close()
+            with mock.patch.object(runner, 'PORT', port):
+                self.assertTrue(runner.port_is_available())
+
     def test_running_daily_app_is_allowed_but_development_helpers_block_rebuild(self):
         with mock.patch.object(runner.subprocess, 'check_output', return_value='/Applications/Aven.app/Contents/MacOS/aven\n'):
             runner.ensure_not_running()
