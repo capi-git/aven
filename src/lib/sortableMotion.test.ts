@@ -397,7 +397,7 @@ describe("lifted tab glass", () => {
     )!;
     expect(preview.style.background).toBe("rgba(30, 30, 34, 0.76)");
     expect(preview.style.backdropFilter).toBe("blur(40px) saturate(125%)");
-    expect(preview.style.boxShadow).toContain("rgba(255, 255, 255, 0.1)");
+    expect(preview.style.boxShadow).toBe("none");
     motion.cancel();
     strip.remove();
   });
