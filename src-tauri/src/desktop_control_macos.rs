@@ -1956,6 +1956,9 @@ fn app_state(
     {
         return Err("Aven's desktop controls cannot be inspected or targeted.".into());
     }
+    if window.pid == std::process::id() as i32 {
+        return Err(ax::OWN_WINDOW.into());
+    }
     session.require_active()?;
     let (bundle, name) = app_identity(app, window.pid)?;
     // Observation needs no consent, but turning on an app's switch changes
@@ -2041,6 +2044,9 @@ fn element_action(
     let window_id = request.input_window().ok_or(INPUT_WINDOW_UNAVAILABLE)?;
     let pid = target.pid.ok_or(INPUT_WINDOW_UNAVAILABLE)?;
     let bounds = target.bounds.ok_or(INPUT_WINDOW_UNAVAILABLE)?;
+    if pid == std::process::id() as i32 {
+        return Err(ax::OWN_WINDOW.into());
+    }
     if target.shared_input || target.window_id != Some(window_id) {
         return Err("Element actions are background actions; no input was sent.".into());
     }

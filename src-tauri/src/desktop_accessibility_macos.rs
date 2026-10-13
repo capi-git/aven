@@ -485,7 +485,15 @@ unsafe fn window_number(element: Cf) -> Option<u32> {
     (function(element, &mut id) == 0 && id != 0).then_some(id)
 }
 
+/// Refused for Aven itself: macOS answers Accessibility requests to the
+/// calling process on the calling thread, and WebKit terminates the app when
+/// its tree is read off the main thread.
+pub(super) const OWN_WINDOW: &str = "Aven can't read or act on its own windows through Accessibility. Take a screenshot and use coordinates instead.";
+
 unsafe fn application(pid: i32) -> Result<OwnedCf, String> {
+    if pid == std::process::id() as i32 {
+        return Err(OWN_WINDOW.into());
+    }
     OwnedCf::new(
         AXUIElementCreateApplication(pid),
         "Could not access that app through Accessibility.",
@@ -1835,3 +1843,16 @@ pub(super) fn scroll(
 #[cfg(test)]
 #[path = "desktop_accessibility_live_tests.rs"]
 mod live_tests;
+
+#[cfg(test)]
+mod own_process_tests {
+    use super::*;
+
+    #[test]
+    fn accessibility_refuses_aven_itself_before_any_request() {
+        // Reading Aven's own tree runs WebKit off the main thread, which
+        // terminates the app. No Accessibility permission is needed to refuse.
+        let result = unsafe { application(std::process::id() as i32) };
+        assert_eq!(result.err().as_deref(), Some(OWN_WINDOW));
+    }
+}
