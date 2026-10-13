@@ -61,6 +61,10 @@ elif tool == 'spctl':
     print('source=' + os.environ.get('FAKE_GATEKEEPER_SOURCE', 'Notarized Developer ID'), file=sys.stderr)
 elif args[:2] == ['stapler', 'staple']:
     sys.exit(int(os.environ.get('FAKE_STAPLE_STATUS', '0')))
+elif args[:2] == ['stapler', 'validate']:
+    status = int(os.environ.get('FAKE_VALIDATE_STATUS', '0'))
+    print('fixture validate reason' if status else 'The validate action worked!')
+    sys.exit(status)
 '''
 
 
@@ -352,6 +356,15 @@ class NotarizationTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(self.notarization()['notarized'], False)
                 self.assertFalse((self.runner / 'aven-notary-key').exists())
+
+    def test_failed_ticket_validation_shows_the_reason_and_apple_log(self):
+        result = self.notarize(FAKE_VALIDATE_STATUS='65', **FIXTURE_CREDENTIALS)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('fixture validate reason', result.stderr)
+        self.assertIn('fixture notarization issue', result.stderr)
+        self.assert_no_secret_output(result)
+        self.assertEqual(self.notarization()['notarized'], False)
+        self.assertFalse((self.runner / 'aven-notary-key').exists())
 
     def test_keychain_profile_needs_no_key_file(self):
         result = self.notarize(AVEN_NOTARY_KEYCHAIN_PROFILE='aven-notary')
