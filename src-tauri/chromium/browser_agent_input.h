@@ -41,11 +41,19 @@ inline AgentInputOutcome AgentAfterInput(bool ok, bool timed_out) {
   return timed_out ? AgentInputOutcome::kUnconfirmed : AgentInputOutcome::kFallBack;
 }
 
+// After a pointer or key press was sent: release it unless the press provably
+// never reached the page. A press whose reply timed out may be down, so it is
+// released too (never left stuck) and reported as unconfirmed.
+inline bool AgentNeedsRelease(bool pressed, bool timed_out) { return pressed || timed_out; }
+
 inline constexpr const char* kAgentClickUnconfirmed =
     "The click may have been applied, but the page did not confirm it in time. "
     "Take a snapshot before retrying.";
 inline constexpr const char* kAgentFillUnconfirmed =
     "The text may have been entered, but the page did not confirm it in time. "
+    "Take a snapshot before retrying.";
+inline constexpr const char* kAgentKeyUnconfirmed =
+    "The key press may have been applied, but the page did not confirm it in time. "
     "Take a snapshot before retrying.";
 
 }  // namespace supermono

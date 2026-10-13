@@ -1507,7 +1507,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     CefRefPtr<Page> self=this;
     Dev("Input.dispatchMouseEvent",press,[self,x,y,done](bool ok,Dict result) {
       const bool timed_out=!ok && IsTimedOut(result);
-      if (!ok && !timed_out) { done(false,result); return; }
+      if (!supermono::AgentNeedsRelease(ok,timed_out)) { done(false,result); return; }
       auto release=Object(); release->SetString("type","mouseReleased"); release->SetDouble("x",x); release->SetDouble("y",y);
       release->SetString("button","left"); release->SetInt("buttons",0); release->SetInt("clickCount",1);
       // Once pressed (or possibly pressed), always release; never re-click.
@@ -1687,9 +1687,16 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     if (key=="Enter") { params->SetString("text","\r"); params->SetString("unmodifiedText","\r"); }
     CefRefPtr<Page> self=this;
     Dev("Input.dispatchKeyEvent",params,[self,request,key,code](bool ok,Dict result) {
-      if (!ok) { Result(self->id_,request,false,result); return; }
+      const bool timed_out=!ok && IsTimedOut(result);
+      if (!supermono::AgentNeedsRelease(ok,timed_out)) { Result(self->id_,request,false,result); return; }
+      // Like a pointer press: once down (or possibly down), always release so
+      // the page never sees a stuck key. An unanswered key-down is reported as
+      // unconfirmed whatever the release does, and never repeated.
       auto up=Object(); up->SetString("type","keyUp"); up->SetString("key",key); up->SetString("code",key); up->SetInt("windowsVirtualKeyCode",code);
-      self->Dev("Input.dispatchKeyEvent",up,[self,request](bool ok,Dict result) { Result(self->id_,request,ok,result); });
+      self->Dev("Input.dispatchKeyEvent",up,[self,request,timed_out](bool ok,Dict released) {
+        if (timed_out) { Result(self->id_,request,false,Error(supermono::kAgentKeyUnconfirmed)); return; }
+        Result(self->id_,request,ok,released);
+      });
     });
   }
   void Scroll(const std::string& request,double dx,double dy) {

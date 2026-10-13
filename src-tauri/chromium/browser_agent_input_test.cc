@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
+#include <string>
 
 #define CHECK(condition) do { \
   if (!(condition)) { \
@@ -44,5 +45,14 @@ int main() {
   CHECK(AgentAfterInput(true, false) == AgentInputOutcome::kDone);
   CHECK(AgentAfterInput(false, false) == AgentInputOutcome::kFallBack);
   CHECK(AgentAfterInput(false, true) == AgentInputOutcome::kUnconfirmed);
+
+  // A sent press is always released, even when its reply timed out, so a
+  // key or button is never left down. Only a refused press is not released.
+  CHECK(AgentNeedsRelease(true, false));
+  CHECK(AgentNeedsRelease(false, true));
+  CHECK(!AgentNeedsRelease(false, false));
+  CHECK(std::string(kAgentKeyUnconfirmed).find("Take a snapshot before retrying") != std::string::npos);
+  // Passed through as is: the host rewrites only bare "timed out" errors.
+  CHECK(std::string(kAgentKeyUnconfirmed).find("timed out") == std::string::npos);
   std::printf("%d agent input checks passed\n", checks);
 }
