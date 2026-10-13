@@ -55,14 +55,6 @@
   const BOOL opening = to > from;
   const CGSize size = self.layer.bounds.size;
   CALayer* mask = [CALayer layer];
-  [CATransaction begin];
-  [CATransaction setDisableActions:YES];
-  mask.backgroundColor = NSColor.blackColor.CGColor;
-  mask.anchorPoint = CGPointZero;
-  mask.bounds = CGRectMake(0, 0, size.width, size.height);
-  mask.position = CGPointMake(to, 0);
-  self.layer.mask = mask;
-  [CATransaction commit];
   CASpringAnimation* spring =
       [CASpringAnimation animationWithKeyPath:@"position.x"];
   const double response = opening ? 0.3 : 0.2;
@@ -79,14 +71,27 @@
   const NSUInteger token = ++_slideToken;
   __weak SMBrowserClipView* weak = self;
   void (^done)(void) = [completion copy];
+  // Install the mask, its final value and the animation in one transaction.
+  // Committing the mask first would render its end position for a frame.
   [CATransaction begin];
+  [CATransaction setDisableActions:YES];
   [CATransaction setCompletionBlock:^{
     SMBrowserClipView* view = weak;
     if (!view || view->_slideToken != token) return;
+    // Lift the mask and apply the final crop in one commit, or the uncropped
+    // page covers the panel for a frame.
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
     [view cancelLeadingEdgeSlide];
     if (done) done();
+    [CATransaction commit];
   }];
+  mask.backgroundColor = NSColor.blackColor.CGColor;
+  mask.anchorPoint = CGPointZero;
+  mask.bounds = CGRectMake(0, 0, size.width, size.height);
+  mask.position = CGPointMake(to, 0);
   [mask addAnimation:spring forKey:@"slide"];
+  self.layer.mask = mask;
   [CATransaction commit];
 }
 - (void)cancelLeadingEdgeSlide {

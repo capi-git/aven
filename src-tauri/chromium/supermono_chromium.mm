@@ -754,7 +754,16 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     const bool showing=visible_ && !update_prepared_ && exposed>0;
     const bool same_place=showing && applied_showing_ && x_==applied_x_ && y_==applied_y_ &&
         w_==applied_w_ && h_==applied_h_ && right==applied_right_ && holes_.empty();
-    const bool holding=clip_host.slidingLeadingEdge && same_place && left==slide_crop_;
+    // A sidebar measured mid-slide reports its resting edge with sub-pixel
+    // jitter. Those repeats keep the slide; the final layout applies exactly.
+    const bool holding=clip_host.slidingLeadingEdge && same_place &&
+        (left==0)==(slide_crop_==0) && std::abs(left-slide_crop_)<=2;
+    // Lifting a slide's mask and applying the new crop must reach the screen
+    // together; a separate commit would show the uncropped page for a frame.
+    struct LayoutCommit {
+      LayoutCommit() { [CATransaction begin]; }
+      ~LayoutCommit() { [CATransaction commit]; }
+    } layout_commit;
     if (clip_host.slidingLeadingEdge && !holding) [clip_host cancelLeadingEdgeSlide];
     const bool sliding=holding || (clip_host && same_place && (left==0)!=(applied_left_==0) &&
         !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion);
