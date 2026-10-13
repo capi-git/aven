@@ -21,6 +21,7 @@ unsafe extern "C" {
         values: *mut Cf,
     ) -> i32;
     fn AXUIElementCopyActionNames(element: Cf, actions: *mut Cf) -> i32;
+    fn AXUIElementCopyElementAtPosition(app: Cf, x: f32, y: f32, element: *mut Cf) -> i32;
     fn AXUIElementPerformAction(element: Cf, action: Cf) -> i32;
     fn AXUIElementGetPid(element: Cf, pid: *mut i32) -> i32;
     fn AXValueCreate(kind: u32, value: *const c_void) -> Cf;
@@ -1009,7 +1010,8 @@ pub(super) fn focused(pid: i32, window_id: u32, bounds: Region) -> Option<Locate
 /// What happened, or which existing app-directed event path must finish it.
 pub(super) enum Next {
     Done(Value),
-    /// App-directed mouse events at a global point.
+    /// Plain app-directed mouse events at a global point, already checked to
+    /// reach the named element (never an Accessibility press there).
     ClickAt {
         point: (f64, f64),
         button: Button,
@@ -1200,8 +1202,59 @@ unsafe fn keys_for(located: Option<&Located>, targeted: bool, gate: Gate) -> Res
     .map_err(|error| failure.unwrap_or(error))
 }
 
+/// Before an element's event fallback: what the app hit-tests at `point`
+/// must be the element itself or plain content inside it, never another
+/// control. `pid` owns the target window.
+unsafe fn fallback_point(located: &Located, pid: i32, point: (f64, f64)) -> Result<(), String> {
+    let deadline = deadline();
+    let app = application(pid)?;
+    set_timeout(app.0, READ_TIMEOUT);
+    let mut hit: Cf = std::ptr::null();
+    let result = AXUIElementCopyElementAtPosition(app.0, point.0 as f32, point.1 as f32, &mut hit);
+    let hit = OwnedCf::new(hit, rules::HIT_UNCONFIRMED)?;
+    let mut current = Element::owned(hit)
+        .filter(|_| result == 0)
+        .ok_or(rules::HIT_UNCONFIRMED)?;
+    let mut path = Vec::new();
+    for _ in 0..rules::HIT_DEPTH {
+        let target = CFEqual(current.0, located.element.0);
+        let role = copy(current.0, "AXRole", deadline)
+            .and_then(|role| string_of(role.0, 64))
+            .unwrap_or_default();
+        let label = ["AXTitle", "AXDescription"].iter().find_map(|name| {
+            copy(current.0, name, deadline)
+                .and_then(|value| string_of(value.0, 200))
+                .filter(|text| !text.trim().is_empty())
+        });
+        let actions = if target {
+            Vec::new()
+        } else {
+            action_names(current.0)
+        };
+        let stop = target || role == "AXWindow";
+        path.push(rules::HitNode {
+            target,
+            role,
+            label,
+            actions,
+        });
+        if stop {
+            break;
+        }
+        match copy(current.0, "AXParent", deadline).and_then(|parent| Element::owned(parent)) {
+            Some(parent) => current = parent,
+            None => break,
+        }
+    }
+    rules::fallback_target(&path)
+}
+
+/// `pid` owns the target window. When no Accessibility step applies, the
+/// element is clicked with plain app-directed mouse events at its centre;
+/// they are never turned into an Accessibility press of whatever lies there.
 pub(super) fn click(
     located: &Located,
+    pid: i32,
     button: Button,
     count: u8,
     gate: Gate,
@@ -1222,6 +1275,7 @@ pub(super) fn click(
                 ),
                 ClickStep::Events => {
                     let point = located.info.centre().ok_or(NO_FRAME)?;
+                    fallback_point(located, pid, point)?;
                     return Ok(Next::ClickAt {
                         point,
                         button,
@@ -1240,7 +1294,12 @@ pub(super) fn click(
     })
 }
 
-pub(super) fn secondary(located: &Located, name: Option<&str>, gate: Gate) -> Result<Next, String> {
+pub(super) fn secondary(
+    located: &Located,
+    pid: i32,
+    name: Option<&str>,
+    gate: Gate,
+) -> Result<Next, String> {
     let action = rules::secondary_action(name)?;
     require_enabled(&located.info)?;
     objc2::rc::autoreleasepool(|_| unsafe {
@@ -1254,6 +1313,7 @@ pub(super) fn secondary(located: &Located, name: Option<&str>, gate: Gate) -> Re
         }
         if action == "AXShowMenu" {
             let point = located.info.centre().ok_or(NO_FRAME)?;
+            fallback_point(located, pid, point)?;
             return Ok(Next::ClickAt {
                 point,
                 button: Button::Right,

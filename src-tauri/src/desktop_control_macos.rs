@@ -884,8 +884,17 @@ fn keyboard_event(code: u16, down: bool) -> Result<OwnedCf, String> {
     )
 }
 
-fn click(session: &CaptureSession, point: Point, button: Button, count: u8) -> Result<(), String> {
-    if input::accessible_click(point, button, count)? {
+/// `press_at_point` lets a coordinate click press the accessible control at
+/// that point. Element fallbacks pass false: they post plain events only, so
+/// a different control at the point is never pressed through Accessibility.
+fn click(
+    session: &CaptureSession,
+    point: Point,
+    button: Button,
+    count: u8,
+    press_at_point: bool,
+) -> Result<(), String> {
+    if press_at_point && input::accessible_click(point, button, count)? {
         return Ok(());
     }
     let (down_kind, up_kind, button) = match button {
@@ -1808,7 +1817,7 @@ fn execute_admitted(
                         agent_cursor::Feedback::Click,
                     )
                 },
-                |point| click(&session, point, button, count),
+                |point| click(&session, point, button, count, true),
             )?;
             Ok(json!({"clicked":true}))
         }
@@ -2044,10 +2053,10 @@ fn element_action(
     let mut pending_keys = None;
     let next = match &request {
         Request::Click { button, count, .. } => {
-            ax::click(need(located.as_ref())?, *button, *count, &gate)?
+            ax::click(need(located.as_ref())?, pid, *button, *count, &gate)?
         }
         Request::SecondaryAction { name, .. } => {
-            ax::secondary(need(located.as_ref())?, name.as_deref(), &gate)?
+            ax::secondary(need(located.as_ref())?, pid, name.as_deref(), &gate)?
         }
         Request::SetValue { value, .. } => ax::set_value(need(located.as_ref())?, value, &gate)?,
         Request::TypeText { text, .. } => {
@@ -2108,7 +2117,7 @@ fn element_action(
                         agent_cursor::Feedback::Click,
                     )
                 },
-                |point| click(session, point, button, count),
+                |point| click(session, point, button, count, false),
             )?;
             json!({"clicked": true, "method": "events", "confirmed": false, "note": EVENTS_NOTE})
         }

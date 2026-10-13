@@ -191,7 +191,7 @@ impl Step {
             return self.label().into();
         };
         match self {
-            Self::Clicking => format!("Pressing \u{201c}{element}\u{201d}"),
+            Self::Clicking => format!("Clicking \u{201c}{element}\u{201d}"),
             Self::Typing => format!("Typing in \u{201c}{element}\u{201d}"),
             Self::PressingKey => format!("Pressing a key in \u{201c}{element}\u{201d}"),
             Self::Scrolling => format!("Scrolling \u{201c}{element}\u{201d}"),
@@ -2012,7 +2012,7 @@ mod tests {
         for (value, expected) in [
             (
                 json!({"action":"click","windowId":3,"element":1}),
-                "Pressing \u{201c}Send\u{201d}",
+                "Clicking \u{201c}Send\u{201d}",
             ),
             (
                 json!({"action":"typeText","windowId":3,"element":1,"text":secret}),

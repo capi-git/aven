@@ -978,6 +978,82 @@ pub(crate) fn click_plan(info: &NodeInfo, right: bool, count: u8) -> Vec<ClickSt
     plan
 }
 
+/// One element on the path from what an app reports at a point up through
+/// its ancestors, read before an element's event fallback.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct HitNode {
+    /// Whether this is the element the agent named.
+    pub(crate) target: bool,
+    pub(crate) role: String,
+    pub(crate) label: Option<String>,
+    pub(crate) actions: Vec<String>,
+}
+
+/// How far up from the hit element the named element is looked for.
+pub(crate) const HIT_DEPTH: usize = 12;
+/// Actions that make an element a control of its own.
+const PRESS_LIKE_ACTIONS: &[&str] = &[
+    "AXPress",
+    "AXPick",
+    "AXConfirm",
+    "AXIncrement",
+    "AXDecrement",
+    "AXOpen",
+];
+/// Roles that are controls of their own even without a listed action.
+const CONTROL_ROLES: &[&str] = &[
+    "AXButton",
+    "AXCheckBox",
+    "AXRadioButton",
+    "AXPopUpButton",
+    "AXMenuButton",
+    "AXDisclosureTriangle",
+    "AXLink",
+    "AXMenuItem",
+    "AXSwitch",
+    "AXToggle",
+    "AXSlider",
+    "AXIncrementor",
+    "AXStepper",
+    "AXComboBox",
+    "AXTextField",
+    "AXTextArea",
+    "AXSecureTextField",
+];
+pub(crate) const HIT_UNCONFIRMED: &str = "Aven could not confirm what is at the centre of that element, so it sent no click; no input was sent. Call appState again, or click a free point inside the element with x and y from a screenshot of the window.";
+
+/// An element's event fallback posts plain mouse events at its centre, which
+/// the app delivers to whatever it hit-tests there. `path` is that hit
+/// element and then its ancestors. The click is allowed only when the path
+/// reaches the named element without passing through another control (an
+/// inline button inside a row, for example); it is never pressed through
+/// Accessibility on the named element's behalf.
+pub(crate) fn fallback_target(path: &[HitNode]) -> Result<(), String> {
+    for node in path.iter().take(HIT_DEPTH) {
+        if node.target {
+            return Ok(());
+        }
+        let control = CONTROL_ROLES.contains(&node.role.as_str())
+            || node
+                .actions
+                .iter()
+                .any(|action| PRESS_LIKE_ACTIONS.contains(&action.as_str()));
+        if control {
+            let role = strip_ax(&node.role);
+            let what = match node.label.as_deref().and_then(|label| quoted(label, 60)) {
+                Some(label) if !role.is_empty() => format!("{label} ({role})"),
+                Some(label) => label,
+                None if !role.is_empty() => format!("a {role}"),
+                None => "another element".into(),
+            };
+            return Err(format!(
+                "Another control, {what}, is at the centre of that element, so Aven did not click it; no input was sent. Use that control's own index if you meant it, or click a free point inside the element with x and y from a screenshot of the window."
+            ));
+        }
+    }
+    Err(HIT_UNCONFIRMED.into())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum KeyTarget {
     /// The requested element, or the app's focused element.
@@ -2341,6 +2417,46 @@ mod tests {
     }
 
     #[test]
+    fn element_click_fallbacks_never_reach_another_control() {
+        let node = |target: bool, role: &str, label: Option<&str>, actions: &[&str]| HitNode {
+            target,
+            role: role.into(),
+            label: label.map(Into::into),
+            actions: actions.iter().map(|action| (*action).into()).collect(),
+        };
+        let row = node(true, "AXRow", Some("Invoice from Ada"), &["AXShowMenu"]);
+        // The row itself, or plain content inside it, may be clicked.
+        assert!(fallback_target(std::slice::from_ref(&row)).is_ok());
+        let text = node(false, "AXStaticText", Some("Invoice"), &[]);
+        let cell = node(false, "AXCell", None, &["AXShowMenu", "AXScrollToVisible"]);
+        assert!(fallback_target(&[text.clone(), cell.clone(), row.clone()]).is_ok());
+        // An inline button inside the row is another control: refused, and
+        // the error names it.
+        let archive = node(false, "AXButton", Some("Archive"), &["AXPress"]);
+        let error = fallback_target(&[archive, cell.clone(), row.clone()]).unwrap_err();
+        assert!(error.contains("\"Archive\" (Button)"), "{error}");
+        assert!(error.contains("no input was sent"), "{error}");
+        // A press-like action makes any role a control; so does a control role
+        // with no actions listed.
+        let pressable = node(false, "AXGroup", None, &["AXPress"]);
+        assert!(fallback_target(&[pressable, row.clone()]).is_err());
+        let field = node(false, "AXTextField", None, &[]);
+        let error = fallback_target(&[field, row.clone()]).unwrap_err();
+        assert!(error.contains("a TextField"), "{error}");
+        // Something else entirely at the point (an overlay, a neighbour), an
+        // unreadable hit test, or a path too deep: refused, nothing sent.
+        let overlay = node(false, "AXGroup", None, &[]);
+        assert_eq!(
+            fallback_target(std::slice::from_ref(&overlay)).unwrap_err(),
+            HIT_UNCONFIRMED
+        );
+        assert_eq!(fallback_target(&[]).unwrap_err(), HIT_UNCONFIRMED);
+        let mut deep = vec![overlay; HIT_DEPTH];
+        deep.push(row);
+        assert_eq!(fallback_target(&deep).unwrap_err(), HIT_UNCONFIRMED);
+    }
+
+    #[test]
     fn keys_map_to_accessibility_actions_where_equivalent() {
         use KeyStep::*;
         use KeyTarget::*;
@@ -2366,6 +2482,7 @@ mod tests {
             key_plan("Enter", false, None),
             [Perform(DefaultButton, "AXPress"), Events]
         );
+
         assert_eq!(
             key_plan("Space", false, Some(&field)),
             [Insert(" "), Events]

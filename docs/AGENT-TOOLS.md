@@ -121,7 +121,11 @@ Element actions take the same `windowId`, an `element` index and the `stateId`:
 
 - `click` presses the control (`AXPress`, then `AXPick` or `AXConfirm`), focuses a
   text field or selects a row. A right click opens its menu. When the app offers no
-  equivalent, Aven sends app-directed mouse events at the element's centre.
+  equivalent, Aven sends plain app-directed mouse events at the element's centre,
+  but only after the app's hit test there reaches that element or plain content
+  inside it. If another control sits at the centre (an inline "Archive" button in
+  a message row, for example), nothing is sent and the error names that control;
+  the fallback never presses a different control through Accessibility.
 - `typeText` inserts text at the caret of the element (or the app's focused field in
   that window); only if the app does not support that does it fall back to key
   events. When an app accepts the text but shows it a moment later (Chromium and
@@ -179,7 +183,7 @@ process ID, path and start time); if Aven quits unexpectedly, the next launch tu
 those switches off again when the same app process is still running.
 
 Element actions count as input: they use the same per-app consent, appear in the bar
-with the control's title (for example “Pressing “Send””, never a typed value),
+with the control's title (for example “Clicking “Send””, never a typed value),
 follow Pause, Stop and yield, and move the agent ring to the control. `appState` is
 observation and remains available while paused.
 

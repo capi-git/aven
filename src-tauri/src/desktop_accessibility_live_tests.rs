@@ -346,6 +346,7 @@ fn live_fixture_background_element_actions() {
     let value = done(
         click(
             &find_in(&state, "Button", "\"Send\""),
+            pid,
             Button::Left,
             1,
             &gate,
@@ -494,7 +495,7 @@ fn live_fixture_background_element_actions() {
         bounds,
     )
     .unwrap();
-    let value = done(click(&row, Button::Left, 1, &gate).unwrap());
+    let value = done(click(&row, pid, Button::Left, 1, &gate).unwrap());
     acted();
     assert_eq!(value["method"], "AXSelected");
     let selected = fixture.wait("row selection", |value| {
@@ -504,7 +505,7 @@ fn live_fixture_background_element_actions() {
 
     // 8. Context menu: AXShowMenu, read the open menu, pick an item.
     let options = find_in(&observe(), "Button", "\"Options\"");
-    let value = done(secondary(&options, None, &gate).unwrap());
+    let value = done(secondary(&options, pid, None, &gate).unwrap());
     acted();
     evidence.insert("showMenu".into(), value);
     fixture.wait("menu open", |value| value["menuOpened"] == 1);
@@ -517,7 +518,7 @@ fn live_fixture_background_element_actions() {
     );
     evidence.insert("openMenus".into(), menu_state["openMenus"].clone());
     let item = find_in(&menu_state, "MenuItem", "\"Beta\"");
-    let value = done(click(&item, Button::Left, 1, &gate).unwrap());
+    let value = done(click(&item, pid, Button::Left, 1, &gate).unwrap());
     acted();
     evidence.insert("menuItem".into(), value);
     fixture.wait("menu choice", |value| value["menuChoice"] == "Beta");
@@ -533,7 +534,7 @@ fn live_fixture_background_element_actions() {
         "{locked_state}"
     );
     let locked = find_in(&locked_state, "Button", "\"Locked\"");
-    let refused = secondary(&locked, None, &gate).err().unwrap();
+    let refused = secondary(&locked, pid, None, &gate).err().unwrap();
     assert_eq!(refused, rules::DISABLED);
     let refused = press_key(None, false, "Enter", false, (pid, window_id, bounds), &gate)
         .err()
@@ -543,6 +544,35 @@ fn live_fixture_background_element_actions() {
     evidence.insert("disabledRefusal".into(), json!(refused));
     std::thread::sleep(Duration::from_millis(150));
     assert_eq!(fixture.read()["lockedPresses"], 0);
+
+    // 8a-3. A row with an inline "Archive" button over its centre and no
+    // action of its own: the click's event fallback is refused, naming the
+    // button, and the button is never pressed. A row with plain text at its
+    // centre gets the plain event fallback (not posted by this test).
+    let message = find_in(&observe(), "Group", "Message from Ada");
+    let refused = click(&message, pid, Button::Left, 1, &gate).err().unwrap();
+    acted();
+    assert!(refused.contains("\"Archive\" (Button)"), "{refused}");
+    evidence.insert("innerButtonRefusal".into(), json!(refused));
+    let refused = secondary(&message, pid, None, &gate).err().unwrap();
+    acted();
+    assert!(refused.contains("\"Archive\""), "{refused}");
+    let plain = find_in(&observe(), "Group", "Plain row");
+    match click(&plain, pid, Button::Left, 1, &gate).unwrap() {
+        Next::ClickAt {
+            point,
+            button: Button::Left,
+            count: 1,
+        } => assert_eq!(Some(point), plain.info.centre()),
+        _ => panic!("expected the plain row's event fallback"),
+    }
+    acted();
+    std::thread::sleep(Duration::from_millis(150));
+    assert_eq!(
+        fixture.read()["archivePresses"],
+        0,
+        "the inner button was pressed"
+    );
 
     // 8b. Web content: WebKit serves the page's elements from a WebContent
     // process. They are accepted for this window and pressed in the
@@ -582,7 +612,7 @@ fn live_fixture_background_element_actions() {
             "responsible": responsible_pid(owner),
         }),
     );
-    let value = done(click(&web_button, Button::Left, 1, &gate).unwrap());
+    let value = done(click(&web_button, pid, Button::Left, 1, &gate).unwrap());
     acted();
     evidence.insert("webClick".into(), value);
     fixture.wait("web click", |value| value["webClicks"] == 1);
@@ -590,7 +620,7 @@ fn live_fixture_background_element_actions() {
     // 9. Pause refuses the next mutation before it reaches the app.
     let target = find_in(&observe(), "Button", "\"Sent\"");
     presence_state::with(|state| state.pause(presence_state::Pause::ByUser));
-    let paused = click(&target, Button::Left, 1, &gate).err().unwrap();
+    let paused = click(&target, pid, Button::Left, 1, &gate).err().unwrap();
     assert!(
         paused.starts_with(presence_state::PAUSED_BY_USER),
         "{paused}"
@@ -613,7 +643,9 @@ fn live_fixture_background_element_actions() {
     });
     let lock_gate = || presence_state::with(|state| state.check(&lock_ticket));
     presence_state::with(|state| state.set_session(presence_state::Session::Locked));
-    let locked = click(&target, Button::Left, 1, &lock_gate).err().unwrap();
+    let locked = click(&target, pid, Button::Left, 1, &lock_gate)
+        .err()
+        .unwrap();
     presence_state::with(|state| state.set_session(presence_state::Session::Active));
     assert!(
         locked.starts_with(presence_state::SCREEN_LOCKED),
