@@ -1360,7 +1360,8 @@ served by another process (other than the app's own WebKit web content) fails
 with "belongs to another process"; use coordinates. Re-query instead of
 guessing.
 Element actions are background actions: they use Accessibility without moving
-the pointer, activating the app or needing it frontmost. click presses the
+the pointer, activating the app or needing it frontmost. When the user asks to
+open, switch to or show an app, activate it so they can see it. click presses the
 control (or focuses a text field, selects a row) and otherwise falls back to
 plain app-directed mouse events at its centre, but only when that point is the
 element or plain content inside it; if another control is there (an inline

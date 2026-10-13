@@ -1830,10 +1830,32 @@ pub(super) fn scroll(
             .or(located.info.frame)
             .filter(|frame| frame.width > 0.0 && frame.height > 0.0)
             .ok_or(NO_FRAME)?;
-        let visible = if direction.vertical() {
-            target.height
+        // Web pages often expose no scroll area, and the element may be one
+        // line of text: size a page by the largest view enclosing it instead.
+        let page = if area.is_some() {
+            target
         } else {
-            target.width
+            chain
+                .iter()
+                .filter(|(_, role, _)| role != "AXWindow" && role != "AXApplication")
+                .filter_map(|(candidate, _, _)| element_frame(candidate.0, deadline))
+                .filter(|frame| frame.width > 0.0 && frame.height > 0.0)
+                .max_by(|a, b| {
+                    let size = |frame: &Region| {
+                        if direction.vertical() {
+                            frame.height
+                        } else {
+                            frame.width
+                        }
+                    };
+                    size(a).total_cmp(&size(b))
+                })
+                .unwrap_or(target)
+        };
+        let visible = if direction.vertical() {
+            page.height
+        } else {
+            page.width
         };
         let (delta_x, delta_y) = rules::event_delta(visible, pages, direction);
         Ok(Next::ScrollAt {
