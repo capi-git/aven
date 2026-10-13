@@ -316,7 +316,7 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
                     <strong>{permission.name}</strong>
                     <span>
                       {permission.name === "Accessibility"
-                        ? "Click, type, and control apps"
+                        ? "Read app controls, click, and type"
                         : "View windows and take screenshots"}
                     </span>
                   </div>
