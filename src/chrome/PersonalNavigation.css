@@ -623,17 +623,21 @@ html.is-mac.has-native-glass:not(.theme-light)
 /* The transparent panel must never draw over chat text, so the crop travels
    with it. The panel's slide distance equals its right edge, so the same
    duration and curve keep both edges together. The crop follows the panel's
-   own open state, which a dismissal sets before React commits. */
+   own open state, which a dismissal sets before React commits, and lifts
+   once the panel is out: an idle crop would make the workspace a backdrop
+   root and drop the blur behind its menus. */
 html.is-mac.has-native-glass:not(.theme-light)
-  .personal-shell[data-sidebar-pinned="false"]
-  .personal-shell-body
-  > .personal-workspace-column {
+  .personal-shell-body[data-floating-sidebar-revealed]
+  > .personal-sidebar-slot[data-floating="true"][data-open="false"]
+  ~ .personal-workspace-column {
   /* Only the left edge clips; menus may extend past the column elsewhere. */
   clip-path: inset(-100vmax -100vmax -100vmax 0);
   transition: clip-path var(--aven-peek-out-duration)
     var(--aven-peek-out-easing);
 }
 
+/* The idle workspace has no crop to transition from, so opening animates it
+   in. Later edge changes, such as a resize drag, apply directly. */
 html.is-mac.has-native-glass:not(.theme-light)
   .personal-shell-body[data-floating-sidebar-revealed="true"]
   > .personal-sidebar-slot[data-floating="true"][data-open="true"]
@@ -641,15 +645,14 @@ html.is-mac.has-native-glass:not(.theme-light)
   clip-path: inset(
     -100vmax -100vmax -100vmax var(--floating-sidebar-right, 0px)
   );
-  transition: clip-path var(--aven-peek-in-duration) var(--aven-peek-in-easing);
+  animation: aven-peek-crop-in var(--aven-peek-in-duration)
+    var(--aven-peek-in-easing);
 }
 
-/* Resizing moves the edge directly; an animated crop would trail the drag. */
-html.is-mac.has-native-glass:not(.theme-light)
-  .personal-shell-body[data-floating-sidebar-revealed="true"]
-  > .personal-sidebar-slot[data-floating="true"][data-open="true"][data-resizing="true"]
-  ~ .personal-workspace-column {
-  transition: none;
+@keyframes aven-peek-crop-in {
+  from {
+    clip-path: inset(-100vmax -100vmax -100vmax 0);
+  }
 }
 
 html
@@ -670,12 +673,13 @@ html
     > .personal-sidebar.sidebar-glass.personal-navigation {
     transition: none;
   }
-  /* Outranks the revealed crop's more specific transition. */
+  /* Outranks the more specific crop rules. */
   html.is-mac.has-native-glass:not(.theme-light)
     .personal-shell
     .personal-shell-body
     > .personal-workspace-column {
     transition: none !important;
+    animation: none !important;
   }
 }
 
