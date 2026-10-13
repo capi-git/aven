@@ -825,13 +825,12 @@ html.theme-light.is-mac
   top: 12px;
   bottom: 12px;
 }
-/* Floating panels already own an outer border. Paint the divider only while
-   resizing or targeting it, rather than adding a second straight outline. */
+/* Floating panels already own an outer border. The floating sidebar's edge
+   resizes with only the resize cursor, as in Arc; keyboard focus still
+   paints the divider. */
 .personal-shell
   .personal-sidebar-slot[data-floating="true"]
-  .personal-sidebar-divider:not(:hover):not(:focus-visible):not(
-    [data-resizing="true"]
-  )::after {
+  .personal-sidebar-divider:not(:focus-visible)::after {
   background: transparent;
 }
 .personal-shell .personal-panel-resizer:hover::after,
