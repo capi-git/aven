@@ -10,7 +10,7 @@
 //! - [`is_locked`]: locked, or this session is not on the console.
 //! - [`epoch`]: increases on every observed lock or unlock, so a caller can
 //!   remember "this already failed during the current lock".
-//! - [`install`]: idempotent, main thread. Listens for the
+//! - [`install`]: idempotent, any thread. Listens for the
 //!   `com.apple.screenIsLocked` / `com.apple.screenIsUnlocked` distributed
 //!   notifications, so transitions are seen promptly even between queries.
 //! - [`on_change`]: run a callback (main thread) on each transition.
@@ -170,13 +170,12 @@ fn notify(locked: bool) {
 
 static INSTALLED: AtomicBool = AtomicBool::new(false);
 
-/// Main thread. Observers live for the rest of the process.
+/// Observers deliver on the main queue and live for the rest of the process.
 pub(crate) fn install() {
     use block2::RcBlock;
     use objc2::{msg_send, runtime::AnyClass, runtime::AnyObject};
     use objc2_foundation::NSString;
-    if objc2_foundation::MainThreadMarker::new().is_none() || INSTALLED.swap(true, Ordering::AcqRel)
-    {
+    if INSTALLED.swap(true, Ordering::AcqRel) {
         return;
     }
     let _ = state();
@@ -253,6 +252,15 @@ mod tests {
         let fresh = Tracker::new();
         assert!(!fresh.observe(true));
         assert_eq!(fresh.epoch.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
+    fn installs_lock_observers_once() {
+        // Registers the real distributed-notification observers (debug builds
+        // verify the Objective-C signatures), then is a no-op.
+        install();
+        install();
+        assert!(INSTALLED.load(Ordering::Acquire));
     }
 
     #[test]
