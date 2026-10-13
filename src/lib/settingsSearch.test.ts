@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const platform = vi.hoisted(() => ({ nativeGlass: true }));
 vi.mock("./platform", () => ({
+  IS_MAC: true,
   get HAS_NATIVE_GLASS() {
     return platform.nativeGlass;
   },

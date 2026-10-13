@@ -11,6 +11,7 @@ endif()
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CEF_ROOT}/cmake")
 find_package(CEF REQUIRED)
 add_subdirectory("${CEF_LIBCEF_DLL_WRAPPER_PATH}" "${CMAKE_BINARY_DIR}/wrapper")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ../src/browser_agent_dom.js)
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../src/browser_agent_dom.js" AGENT_DOM_SOURCE)
 file(WRITE "${CMAKE_BINARY_DIR}/agent_dom_source.h"
   "#pragma once\nstatic constexpr const char kAgentDomSource[] = R\"SM_AGENT_DOM(${AGENT_DOM_SOURCE})SM_AGENT_DOM\";\n")
@@ -26,7 +27,7 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS browser_update_pr
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/browser_update_probe.js" UPDATE_PROBE_SOURCE)
 file(WRITE "${CMAKE_BINARY_DIR}/browser_update_source.h"
   "#pragma once\nstatic constexpr const char kBrowserUpdateProbe[] = R\"SM_UPDATE(${UPDATE_PROBE_SOURCE})SM_UPDATE\";\n")
-add_library(supermono_chromium_impl STATIC supermono_chromium.mm browser_actions_menu.mm browser_drop_indicator.mm browser_edit_annotation.mm browser_edit_image.mm)
+add_library(supermono_chromium_impl STATIC supermono_chromium.mm browser_actions_menu.mm browser_drop_indicator.mm browser_agent_marker.mm browser_edit_annotation.mm browser_edit_image.mm)
 target_include_directories(supermono_chromium_impl PRIVATE "${CEF_ROOT}" "${CMAKE_BINARY_DIR}")
 target_compile_options(supermono_chromium_impl PRIVATE -fobjc-arc -fno-rtti -Wall -Wextra -Wno-unused-parameter)
 target_compile_definitions(supermono_chromium_impl PRIVATE CEF_USE_SANDBOX)
@@ -86,6 +87,22 @@ add_executable(supermono_chromium_browser_drop_indicator_test EXCLUDE_FROM_ALL
 target_compile_options(supermono_chromium_browser_drop_indicator_test PRIVATE -fobjc-arc)
 target_link_libraries(supermono_chromium_browser_drop_indicator_test PRIVATE "-framework Cocoa")
 add_test(NAME browser_drop_indicator COMMAND supermono_chromium_browser_drop_indicator_test)
+
+# Aven's in-pane agent pointer: placement, clipping, motion and capture hiding.
+add_executable(supermono_chromium_browser_agent_marker_test EXCLUDE_FROM_ALL
+  browser_agent_marker_test.mm browser_agent_marker.mm)
+target_compile_options(supermono_chromium_browser_agent_marker_test PRIVATE -fobjc-arc)
+target_link_libraries(supermono_chromium_browser_agent_marker_test PRIVATE "-framework Cocoa" "-framework QuartzCore")
+add_test(NAME browser_agent_marker COMMAND supermono_chromium_browser_agent_marker_test)
+
+add_executable(supermono_chromium_browser_agent_marker_geometry_test EXCLUDE_FROM_ALL
+  browser_agent_marker_geometry_test.cc)
+add_test(NAME browser_agent_marker_geometry COMMAND supermono_chromium_browser_agent_marker_geometry_test)
+
+# Agent focus guard, pointer gating and unconfirmed-input decisions.
+add_executable(supermono_chromium_browser_agent_input_test EXCLUDE_FROM_ALL
+  browser_agent_input_test.cc)
+add_test(NAME browser_agent_input COMMAND supermono_chromium_browser_agent_input_test)
 
 # In-app annotation view: anchoring, clipping, input and one-shot actions.
 add_executable(supermono_chromium_browser_edit_annotation_test EXCLUDE_FROM_ALL

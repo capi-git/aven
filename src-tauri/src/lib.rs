@@ -38,6 +38,7 @@ mod git_housekeeping;
 mod github_account;
 mod harness;
 mod inbox_media;
+mod keep_awake;
 mod linear;
 #[cfg(target_os = "macos")]
 mod macos;
@@ -58,6 +59,8 @@ mod race;
 mod rate_limits;
 mod scheduled_agents;
 mod search;
+#[cfg(target_os = "macos")]
+mod session_lock_macos;
 mod session_store;
 mod shell_navigation;
 mod skills;
@@ -282,6 +285,7 @@ pub fn run() {
             {
                 memory_pressure::install(app.handle());
                 desktop_control::init(app.handle());
+                session_lock_macos::install();
                 window::create_main_window(app.handle())?;
                 macos::install_dock_menu(app.handle());
                 if let Some(window) = app.get_window("main") {
@@ -343,6 +347,7 @@ pub fn run() {
             race::race_cleanup,
             scheduled_agents::scheduled_agent_claim,
             scheduled_agents::scheduled_agents_keep_awake,
+            keep_awake::agent_keep_awake,
             browser::browser_engine_options,
             browser::browser_sleep_probe,
             browser::browser_sleep,
@@ -581,6 +586,7 @@ pub fn run() {
             } => {
                 control::window_closed(handle, &label);
                 browser_agent::window_destroyed(&label);
+                keep_awake::forget_window(&label);
                 browser::window_destroyed(handle, &label);
                 workspace_window::window_destroyed(handle, &label);
                 let other_window = handle

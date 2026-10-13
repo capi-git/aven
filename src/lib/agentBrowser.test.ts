@@ -174,6 +174,36 @@ describe("agent browser session connection", () => {
         ),
     ).toBe(true);
   });
+  it("forwards arrange:false so an open never rearranges the user's panes", async () => {
+    const api = await import("./agentBrowser");
+    let pages: string[] = [];
+    const open = vi.fn(async (..._args: unknown[]) => {
+      pages = ["quiet-surface"];
+      api.registerAgentBrowserPage("quiet-surface", "native-quiet");
+      return "quiet-surface";
+    });
+    dispose = api.installAgentBrowserHost({ surfaces: () => pages, open });
+    await api.prepareAgentBrowserPrompt("Open", {
+      sessionId: "s",
+      cwd: "/project",
+    });
+    for (const arrange of [false, true, "no"]) {
+      await mocks.handlers.get("browser-agent-open")!({
+        payload: {
+          requestId: `r-${String(arrange)}`,
+          sessionId: "s",
+          url: "http://localhost:3000/",
+          arrange,
+        },
+      });
+    }
+    // Only an explicit false is forwarded; anything else keeps the default.
+    expect(open.mock.calls.map((call) => call[2])).toEqual([
+      { newTab: false, arrange: false },
+      { newTab: false },
+      { newTab: false },
+    ]);
+  });
   it("reuses one native page for overlapping opens and forwards intentional copies", async () => {
     const api = await import("./agentBrowser");
     const { openAgentBrowserTab } = await import("./agentBrowserOpen");

@@ -1245,11 +1245,21 @@ fn wait_for_command_result(
 
 impl ChromiumPage {
     pub(crate) async fn command(&self, request: Value) -> Result<Value, String> {
-        self.request(request, None, false).await
+        self.request(request, None, false, None).await
+    }
+
+    /// A command that gives up sooner than the default wait. The native
+    /// operation may still finish later; its result is then discarded.
+    pub(crate) async fn command_within(
+        &self,
+        request: Value,
+        timeout: Duration,
+    ) -> Result<Value, String> {
+        self.request(request, None, false, Some(timeout)).await
     }
 
     async fn update_command(&self, request: Value) -> Result<Value, String> {
-        self.request(request, None, true).await
+        self.request(request, None, true, None).await
     }
 
     async fn request(
@@ -1257,6 +1267,7 @@ impl ChromiumPage {
         mut request: Value,
         menu_anchor: Option<(Window, BrowserBounds)>,
         update: bool,
+        timeout: Option<Duration>,
     ) -> Result<Value, String> {
         let _work = if update {
             None
@@ -1334,7 +1345,7 @@ impl ChromiumPage {
                 // while an asynchronous non-forced close is still pending.
                 wait_for_command_result(
                     receiver,
-                    (!is_menu && !is_sleep).then_some(Duration::from_secs(12)),
+                    (!is_menu && !is_sleep).then_some(timeout.unwrap_or(Duration::from_secs(12))),
                 )
             })
             .await
@@ -1615,6 +1626,7 @@ pub async fn browser_menu(
             serde_json::to_value(options).map_err(|error| error.to_string())?,
             Some((caller.window(), anchor)),
             false,
+            None,
         )
         .await?;
     Ok(result

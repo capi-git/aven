@@ -21,6 +21,59 @@ opening another copy. Agents inspect a snapshot and interact with elements from 
 instead of switching to another browser. Explicit requests for a different browser,
 configured browser tests, and provider sign-in flows retain their normal behavior.
 
+## Working in the background
+
+Browser actions never move your pointer, take your keyboard focus or bring Aven
+forward. Snapshots, clicks and fills run in an isolated script world inside the
+page; key presses, typing and scrolling go to the page through Chromium's own
+input channel, not the Mac's.
+
+- `fill` focuses the field inside the page, selects what it holds and types the
+  value with Chromium's trusted text input, so frameworks see ordinary
+  `beforeinput` and `input` events. A following `press` with `Enter` reaches
+  that field and submits its form. The result's `method` is `typed`. Aven types
+  only when that field really holds focus, checked again just before typing:
+  if the page moves focus elsewhere (a focus trap or redirect), if your caret
+  is in another field or an embedded cross-origin frame of the page you are
+  using, if the page refused typed text, or for selects, date and time fields
+  and clearing a field, Aven sets the value directly and reports `value`. Once
+  you click or type in the page, a field the agent filled earlier counts as
+  yours.
+- `click` presses the element like a pointer (`method: "pointer"`) when its
+  centre is really that element, in a pane on screen at 100% page zoom. If
+  something covers it, such as a cookie banner, or the pane is hidden, the tab
+  is zoomed or pinch-zoomed, or the control opens a native picker (selects,
+  colour and date inputs), Aven clicks the element directly instead
+  (`method: "element"`).
+- If a click, fill or key press gets no reply in time, the error says it may
+  have been applied. Take a snapshot before retrying, so a form is never
+  submitted twice.
+- In a visible page, Aven draws its pointer: a ring in the agent's colour with
+  its name, gliding to each click, field or focused element, with a ripple for
+  clicks and a soft pulse for typing and keys. It never shows typed text. It
+  fades about two seconds after the last action, respects Reduce Motion, is
+  clipped with the pane and is never drawn for hidden panes. It is hidden while
+  a page screenshot is taken, so screenshots never contain it.
+- `open` normally shows a new page beside the requesting chat. Pass
+  `"arrange":false` to leave your panes exactly as they are: a new page waits as
+  a background tab in the focused pane, and an existing page stays where it is.
+  Pages in detached windows keep that window's own placement.
+
+While a chat is working, Aven keeps the Mac from idle sleep and from App Nap
+(**Settings → Tasks → Keep the Mac awake while agents work**, on by default).
+The display can still sleep and the screen can still lock; closing the lid or
+choosing Sleep still sleeps the Mac. This shares one hold with the automations
+setting, which only prevents idle sleep while automations wait. A chat waiting
+for your approval or answer does not keep the Mac awake, and a turn that shows
+no progress for four hours stops holding it until it makes progress again.
+
+Agents never unlock or bypass a locked screen. While the Mac is locked, browser
+results include `"screenLocked":true` and a short `lockNote`. Hidden and locked
+pages run with Chromium's background throttling, and a locked display may not
+render new pixels: a screenshot waits at most four seconds, then later
+screenshots fail at once with a clear message until the lock changes. Snapshot,
+click, fill, press and scroll keep working.
+
 ## Before and after screenshots
 
 When a task changes how a page looks, the agent captures the preview before
