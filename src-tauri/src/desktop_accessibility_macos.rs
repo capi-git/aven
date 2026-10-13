@@ -850,6 +850,10 @@ fn restore_unclaimed(restores: Vec<rules::Restore>) {
 }
 
 /// Captures and stores an indexed tree of one window plus any open menus.
+/// Waits for WebKit to build Aven's own page tree on a first read.
+const OWN_TREE_RETRIES: usize = 4;
+const OWN_TREE_WAIT: Duration = Duration::from_millis(250);
+
 pub(super) fn capture_state(
     scope: &str,
     pid: i32,
@@ -862,6 +866,27 @@ pub(super) fn capture_state(
         let root = window_element(pid, window_id, window, source.deadline)?;
         let mut roots = vec![root.clone()];
         let mut capture = rules::capture(&mut source, &[(root, Some(window))], max_nodes as usize);
+        // WebKit builds Aven's own page tree only after an assistive client
+        // first asks, so that first answer is just the window frame. Give it
+        // a moment on this worker; the main thread stays free to build it.
+        if pid == std::process::id() as i32 {
+            for _ in 0..OWN_TREE_RETRIES {
+                if capture
+                    .nodes
+                    .iter()
+                    .any(|node| node.info.role == "AXWebArea")
+                {
+                    break;
+                }
+                std::thread::sleep(OWN_TREE_WAIT);
+                source = Live::new(CAPTURE_BUDGET);
+                capture = rules::capture(
+                    &mut source,
+                    &[(roots[0].clone(), Some(window))],
+                    max_nodes as usize,
+                );
+            }
+        }
         // Most menus appear under the control that opened them. Some apps
         // attach an open context menu to the application instead.
         let has_menu = capture.nodes.iter().any(|node| node.info.role == "AXMenu");
