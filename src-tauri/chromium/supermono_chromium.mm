@@ -710,6 +710,12 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     geometry->SetBool("clipAttached",clip_view_.superview==parent_);
     geometry->SetBool("autoResize",auto_resize_); geometry->SetBool("updatePrepared",update_prepared_);
     geometry->SetBool("hasBrowser",browser_!=nullptr);
+    if ([clip_view_ isKindOfClass:SMBrowserClipView.class]) {
+      SMBrowserClipView *clip=(SMBrowserClipView*)clip_view_;
+      geometry->SetBool("edgeSliding",clip.slidingLeadingEdge);
+      if (clip.slidingLeadingEdge) geometry->SetDouble("edgeSlideTarget",clip.slideTarget);
+    }
+    geometry->SetDouble("clipLeft",clip_left_);
     geometry->SetDouble("viewportHeight",viewport_height_);
     event->SetDictionary("geometry",geometry); Emit(id_,event);
   }
@@ -730,10 +736,29 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     const double left=auto_resize_ ? 0 : clip_left_;
     const double right=auto_resize_ ? 0 : clip_right_;
     const double exposed=std::max(0.0,w_-left-right);
+    // A hover sidebar sliding over an unmoved page uncovers or covers its
+    // leading edge with the sidebar. Resizes and moves still apply at once.
+    SMBrowserClipView *clip_host=[clip_view_ isKindOfClass:SMBrowserClipView.class] ? (SMBrowserClipView*)clip_view_ : nil;
+    const bool showing=visible_ && !update_prepared_ && exposed>0;
+    const bool same_place=showing && applied_showing_ && x_==applied_x_ && y_==applied_y_ &&
+        w_==applied_w_ && h_==applied_h_ && right==applied_right_ && holes_.empty();
+    const bool holding=clip_host.slidingLeadingEdge && same_place && left==slide_crop_;
+    if (clip_host.slidingLeadingEdge && !holding) [clip_host cancelLeadingEdgeSlide];
+    const bool sliding=holding || (clip_host && same_place && (left==0)!=(applied_left_==0) &&
+        !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion);
+    // The sidebar travels from the workspace's leading edge, webview x 0. Track
+    // that edge rather than the page's own, or the page runs ahead of it.
+    const double slide_from=applied_left_==0 ? -x_ : applied_left_;
+    const double slide_to=left==0 ? -x_ : left;
+    if (sliding && !holding) slide_crop_=left;
+    applied_x_=x_; applied_y_=y_; applied_w_=w_; applied_h_=h_;
+    applied_left_=left; applied_right_=right; applied_showing_=showing;
+    const double frame_left=sliding ? 0 : left;
+    const double frame_exposed=std::max(0.0,w_-frame_left-right);
     const NSRect full_frame=auto_resize_ ? Frame(parent_,x_,y_,w_,h_)
                                         : WorkspaceFrame(parent_,x_,y_,w_,h_,viewport_height_);
-    const NSRect clip_frame=auto_resize_ ? Frame(parent_,x_+left,y_,exposed,h_)
-                                        : WorkspaceFrame(parent_,x_+left,y_,exposed,h_,viewport_height_);
+    const NSRect clip_frame=auto_resize_ ? Frame(parent_,x_+frame_left,y_,frame_exposed,h_)
+                                        : WorkspaceFrame(parent_,x_+frame_left,y_,frame_exposed,h_,viewport_height_);
     const auto aligned=supermono::AlignedBrowserHostFrames(parent_,full_frame,clip_frame);
     // A comment refers to the captured element, not a new layout of the page.
     // Keep the live browser attached; retire the annotation if its viewport changes.
@@ -745,9 +770,17 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     supermono::ApplyBrowserHostFrames(clip_view_,view,aligned,auto_resize_);
     // Menus cut out of the live page keep it rendering around them. Floating
     // windows contain only the page, so they never carry workspace cut-outs.
+    // A slide owns the mask until it finishes and lays the page out again.
     static const std::vector<supermono::BrowserHole> no_holes;
-    supermono::ApplyBrowserMask(clip_view_,aligned.browser,
-      auto_resize_ ? 0 : bottom_corner_radius_,auto_resize_ ? no_holes : holes_,corner_mask_);
+    if (!sliding)
+      supermono::ApplyBrowserMask(clip_view_,aligned.browser,
+        auto_resize_ ? 0 : bottom_corner_radius_,auto_resize_ ? no_holes : holes_,corner_mask_);
+    else if (!holding) {
+      CefRefPtr<Page> self=this;
+      [clip_host slideLeadingEdgeFrom:slide_from to:slide_to completion:^{
+        if (!self->closing_) self->Layout();
+      }];
+    }
     if (!visible_ || update_prepared_ || exposed<=0)
       supermono::ReturnHiddenBrowserFocus(clip_view_,WorkspaceWebView(parent_));
     const bool was_hidden=clip_view_.hidden;
@@ -1503,6 +1536,10 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   __strong SMBrowserDropIndicator *drop_indicator_=nil;
   __strong SMBrowserEditAnnotation *edit_annotation_=nil;
   double x_=0,y_=0,w_=1,h_=1,clip_left_=0,clip_right_=0,viewport_height_=0,bottom_corner_radius_=0;
+  // The geometry the previous Layout applied, to recognize a hover slide.
+  double applied_x_=0,applied_y_=0,applied_w_=0,applied_h_=0,applied_left_=0,applied_right_=0;
+  bool applied_showing_=false;
+  double slide_crop_=0;  // The crop a running edge slide settles on.
   std::vector<supermono::BrowserHole> holes_;
   bool visible_=false, auto_resize_=false;
 
@@ -1689,6 +1726,12 @@ extern "C" int sm_chromium_create(const char *id,void *parent,const char *url,co
     CefRefPtr<Page> page=new Page(id); page->parent_=(__bridge NSView*)parent; page->x_=x; page->y_=y; page->w_=w; page->h_=h;
     page->parent_.wantsLayer=YES;
     page->clip_view_=[[SMBrowserClipView alloc] initWithFrame:WorkspaceFrame(page->parent_,x,y,w,h)];
+    {
+      const std::string page_id=page->id_;
+      ((SMBrowserClipView*)page->clip_view_).pointerEntered=^{
+        auto d=Object(); d->SetString("type","pointer"); Emit(page_id,d);
+      };
+    }
     page->clip_view_.wantsLayer=YES;
     page->clip_view_.clipsToBounds=YES; page->clip_view_.hidden=YES;
     [page->parent_ addSubview:page->clip_view_];

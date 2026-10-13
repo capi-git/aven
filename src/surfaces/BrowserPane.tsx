@@ -209,13 +209,17 @@ function clipHoverSidebars(bounds: BrowserBounds): BrowserBounds {
     const style = getComputedStyle(element);
     if (
       style.visibility === "hidden" ||
-      element.closest('[hidden], [inert], [aria-hidden="true"]')
+      // A dismissed peek starts closing before React removes its markers.
+      element.closest(
+        '[hidden], [inert], [aria-hidden="true"], [data-open="false"]',
+      )
     )
       continue;
-    // The active marker is authoritative even at opacity zero on the first
-    // reveal frame; waiting for the fade would paint Chromium over the panel.
-    // Reserve the final edge during the short reveal animation. The page
-    // stays in place instead of reflowing or being captured as a still image.
+    // The active marker is authoritative even while the panel is still off
+    // its edge on the first reveal frame; waiting for the slide would paint
+    // Chromium over the panel. Reserve the final edge for the whole reveal
+    // animation. The page stays in place instead of reflowing or being
+    // captured as a still image.
     const shift =
       style.transform && style.transform !== "none"
         ? new DOMMatrixReadOnly(style.transform).m41
@@ -228,24 +232,20 @@ function clipHoverSidebars(bounds: BrowserBounds): BrowserBounds {
         rect.top >= bounds.y + bounds.height
       )
         continue;
-      if (
-        element.dataset.nativeBrowserEdge === "left" &&
-        rect.left < bounds.x + bounds.width &&
-        rect.right > bounds.x
-      )
-        clipLeft = Math.max(
-          clipLeft,
-          rect.right - Math.min(0, shift) - bounds.x,
-        );
-      if (
-        element.dataset.nativeBrowserEdge === "right" &&
-        rect.right > bounds.x &&
-        rect.left < bounds.x + bounds.width
-      )
-        clipRight = Math.max(
-          clipRight,
-          bounds.x + bounds.width - rect.left + Math.max(0, shift),
-        );
+      if (element.dataset.nativeBrowserEdge === "left") {
+        // A full-width slide starts entirely past the edge; test overlap at
+        // the panel's resting place.
+        const left = rect.left - Math.min(0, shift);
+        const right = rect.right - Math.min(0, shift);
+        if (left < bounds.x + bounds.width && right > bounds.x)
+          clipLeft = Math.max(clipLeft, right - bounds.x);
+      }
+      if (element.dataset.nativeBrowserEdge === "right") {
+        const left = rect.left - Math.max(0, shift);
+        const right = rect.right - Math.max(0, shift);
+        if (right > bounds.x && left < bounds.x + bounds.width)
+          clipRight = Math.max(clipRight, bounds.x + bounds.width - left);
+      }
     }
   }
   clipLeft = Math.min(bounds.width, Math.max(0, clipLeft));
@@ -1367,6 +1367,11 @@ function BrowserPaneSession({
             ].includes(record.attributeName ?? "")
           )
             return true;
+          if (record.attributeName === "data-open")
+            return (
+              record.target instanceof HTMLElement &&
+              !!record.target.querySelector("[data-native-browser-edge]")
+            );
           if (styled.has(record.target)) return false;
           styled.add(record.target);
           return overlayNode(record.target);
@@ -1408,6 +1413,7 @@ function BrowserPaneSession({
           "style",
           "data-native-browser-occluded",
           "data-native-browser-edge",
+          "data-open",
         ],
       });
       document.addEventListener("visibilitychange", present);

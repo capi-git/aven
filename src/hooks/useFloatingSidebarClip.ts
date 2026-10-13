@@ -1,4 +1,4 @@
-import { useLayoutEffect, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 import { effectiveCssZoom } from "../lib/drag";
 
 /** Expose the window's existing glass behind a revealed sidebar without
@@ -8,10 +8,29 @@ export function useFloatingSidebarClip(
   sidebar: RefObject<HTMLElement | null>,
   revealed: boolean,
 ) {
+  // The crop slides out with the panel, then lifts entirely. An idle crop
+  // would make the workspace a backdrop root and drop its menus' blur.
+  const lift = useRef<{
+    body: HTMLElement;
+    timer: ReturnType<typeof setTimeout>;
+  } | null>(null);
+  const cancelLift = () => {
+    if (lift.current) clearTimeout(lift.current.timer);
+    lift.current = null;
+  };
+  useEffect(
+    () => () => {
+      if (lift.current)
+        delete lift.current.body.dataset.floatingSidebarRevealed;
+      cancelLift();
+    },
+    [],
+  );
   useLayoutEffect(() => {
     const panel = sidebar.current;
     const body = panel?.closest<HTMLElement>(".personal-shell-body");
     if (!panel || !body || !revealed) return;
+    cancelLift();
     const update = () => {
       // Ignore the panel's reveal transform, as native browser clipping does.
       const rect = panel.getBoundingClientRect();
@@ -37,8 +56,24 @@ export function useFloatingSidebarClip(
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", update);
-      delete body.dataset.floatingSidebarRevealed;
+      body.dataset.floatingSidebarRevealed = "closing";
       body.style.removeProperty("--floating-sidebar-right");
+      const duration = Number.parseFloat(
+        getComputedStyle(body).getPropertyValue?.("--aven-peek-out-duration") ??
+          "",
+      );
+      cancelLift();
+      lift.current = {
+        body,
+        timer: setTimeout(
+          () => {
+            lift.current = null;
+            if (body.dataset.floatingSidebarRevealed === "closing")
+              delete body.dataset.floatingSidebarRevealed;
+          },
+          (Number.isFinite(duration) ? duration : 240) + 50,
+        ),
+      };
     };
   }, [sidebar, revealed]);
 }

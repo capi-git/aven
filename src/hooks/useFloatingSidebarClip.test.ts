@@ -71,6 +71,7 @@ describe("floating sidebar window material", () => {
     vi.unstubAllGlobals();
   });
   it("crops only while revealed and removes geometry and observers on close", async () => {
+    vi.useFakeTimers();
     await act(async () =>
       root.render(createElement(Fixture, { revealed: false })),
     );
@@ -90,12 +91,31 @@ describe("floating sidebar window material", () => {
     await act(async () =>
       root.render(createElement(Fixture, { revealed: false })),
     );
-    expect(body().dataset.floatingSidebarRevealed).toBeUndefined();
+    // The crop slides out with the panel before it lifts.
+    expect(body().dataset.floatingSidebarRevealed).toBe("closing");
     expect(body().style.getPropertyValue("--floating-sidebar-right")).toBe("");
     expect(disconnect).toHaveBeenCalledOnce();
+    await act(async () => vi.advanceTimersByTime(290));
+    expect(body().dataset.floatingSidebarRevealed).toBeUndefined();
+    vi.useRealTimers();
     width = 250;
     window.dispatchEvent(new Event("resize"));
     expect(body().style.getPropertyValue("--floating-sidebar-right")).toBe("");
+  });
+  it("keeps the crop when the panel returns before it lifts", async () => {
+    vi.useFakeTimers();
+    await act(async () =>
+      root.render(createElement(Fixture, { revealed: true })),
+    );
+    await act(async () =>
+      root.render(createElement(Fixture, { revealed: false })),
+    );
+    await act(async () =>
+      root.render(createElement(Fixture, { revealed: true })),
+    );
+    await act(async () => vi.advanceTimersByTime(1000));
+    expect(body().dataset.floatingSidebarRevealed).toBe("true");
+    vi.useRealTimers();
   });
   it.each([0.8, 1, 1.25])(
     "matches native edge clipping during reveal at %s interface zoom",

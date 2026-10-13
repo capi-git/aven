@@ -282,6 +282,30 @@ static void CheckMenuHoles() {
   CHECK([parent hitTest:NSMakePoint(250, 350)] == workspace);
   CHECK([parent hitTest:NSMakePoint(60, 60)] == browser);
   CHECK([clip holeContainsPoint:NSMakePoint(200, 300)]);
+  // Entering the page reports the pointer leaving the workspace; entering a
+  // menu cut out of it does not.
+  {
+    __block int entered = 0;
+    clip.pointerEntered = ^{ entered += 1; };
+    auto enter = [&](NSPoint point) {
+      [clip mouseEntered:[NSEvent enterExitEventWithType:NSEventTypeMouseEntered
+                                                location:point
+                                           modifierFlags:0
+                                               timestamp:0
+                                            windowNumber:0
+                                                 context:nil
+                                             eventNumber:0
+                                          trackingNumber:0
+                                                userData:nullptr]];
+    };
+    enter(NSMakePoint(250, 350));
+    CHECK(entered == 0);
+    enter(NSMakePoint(60, 60));
+    CHECK(entered == 1);
+    clip.pointerEntered = nil;
+    enter(NSMakePoint(60, 60));
+    CHECK(entered == 1);
+  }
   // A moved menu replaces its cut-out; the old region returns to the page.
   const std::vector<supermono::BrowserHole> moved = {{300, 200, 100, 100, 0}};
   CHECK(supermono::ApplyBrowserMask(clip, browser.frame, 0, moved, previous));
@@ -298,6 +322,23 @@ static void CheckMenuHoles() {
   CHECK(supermono::ApplyBrowserMask(clip, browser.frame, 8, {}, previous));
   CHECK(clip.layer.mask != nil && Contains(((CAShapeLayer*)clip.layer.mask).path, 400, 200));
   CHECK([parent hitTest:NSMakePoint(400, 200)] == browser);
+  // A hover slide masks the covered leading strip and passes its pointer
+  // events through; cancelling restores the page's own mask state.
+  {
+    CHECK(supermono::ApplyBrowserMask(clip, browser.frame, 0, {}, previous));
+    CHECK(clip.layer.mask == nil);
+    __block bool finished = false;
+    [clip slideLeadingEdgeFrom:0 to:100 completion:^{ finished = true; }];
+    CHECK(clip.slidingLeadingEdge && clip.slideTarget == 100);
+    CHECK(clip.layer.mask != nil && clip.layer.mask.position.x == 100);
+    CHECK([clip.layer.mask animationForKey:@"slide"] != nil);
+    // Without a running render server the model value is the visible edge.
+    CHECK([parent hitTest:NSMakePoint(100, 300)] == workspace);
+    CHECK([parent hitTest:NSMakePoint(200, 300)] == browser);
+    [clip cancelLeadingEdgeSlide];
+    CHECK(!clip.slidingLeadingEdge && clip.layer.mask == nil && !finished);
+    CHECK([parent hitTest:NSMakePoint(100, 300)] == browser);
+  }
   std::puts("Browser menu cut-out checks passed");
 }
 
