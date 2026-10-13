@@ -1,4 +1,5 @@
 import { useFloatingSidebarClip } from "../hooks/useFloatingSidebarClip";
+import { usePanelDockHandoff } from "../hooks/usePanelDockHandoff";
 import { useChromeProps } from "../hooks/useChromeProps";
 import {
   Archive,
@@ -655,6 +656,7 @@ function SidebarComponent({
   // Settings use this same column instead of mounting a second project rail.
   const sidebarVisible = open;
   useFloatingSidebarClip(asideRef, floating && open);
+  usePanelDockHandoff(asideRef, floating);
 
   useEffect(() => {
     if (

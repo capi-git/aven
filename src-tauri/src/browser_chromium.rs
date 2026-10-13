@@ -1042,6 +1042,22 @@ fn handle_event(native_id: &str, event: Value) {
                 );
             }
         }
+        "pointer" => {
+            // A hover panel beside the page cannot see the pointer leave for it.
+            if let Some(id) = context.state.lock().ok().map(|state| state.id.clone()) {
+                let label = context
+                    .delegate
+                    .lock()
+                    .ok()
+                    .and_then(|d| d.clone())
+                    .unwrap_or_else(|| context.caller.label().into());
+                let _ = context.caller.emit_to(
+                    EventTarget::webview(label),
+                    "browser-pointer",
+                    json!({ "id": id }),
+                );
+            }
+        }
         "toolbar" => {
             if let Some(action @ ("find" | "address")) = event.get("action").and_then(Value::as_str)
             {

@@ -171,7 +171,7 @@ fn external_receiver(app: &AppHandle, scope: &str) -> Result<Value, String> {
     ];
     for value in actions {
         let request: Request = serde_json::from_value(value).map_err(|e| e.to_string())?;
-        let target = presence_target(app, &request)?;
+        let target = presence_target(app, scope, &request)?;
         if target.pid != Some(pid) || target.window_id != Some(window) || target.shared_input {
             return Err("Test refused an unexpected receiver target".into());
         }
@@ -203,6 +203,43 @@ fn external_receiver(app: &AppHandle, scope: &str) -> Result<Value, String> {
         record_event(json!({"externalReceiverFailed":result}));
         return Err("The separate AppKit receiver did not confirm every input.".into());
     }
+    // Accessibility-element path through the same gate: observe, then press
+    // the receiver's button by index without pointer or key events.
+    let state = super::super::execute(
+        app,
+        scope,
+        serde_json::from_value(json!({"action":"appState","windowId":window,"image":false}))
+            .map_err(|e| e.to_string())?,
+        &|| true,
+    )?;
+    let button = state["elements"]
+        .as_str()
+        .and_then(|outline| {
+            outline
+                .lines()
+                .find(|line| line.contains("] Button \"Test button\""))
+        })
+        .and_then(|line| {
+            line.trim_start()
+                .strip_prefix('[')?
+                .split(']')
+                .next()?
+                .parse::<u32>()
+                .ok()
+        })
+        .ok_or("appState did not list the receiver's button.")?;
+    let request: Request = serde_json::from_value(
+        json!({"action":"click","windowId":window,"element":button,"stateId":state["stateId"]}),
+    )
+    .map_err(|e| e.to_string())?;
+    let clicked = super::super::execute(app, scope, request, &|| true)?;
+    std::thread::sleep(Duration::from_millis(300));
+    let mut result = read()?;
+    if result["buttonPresses"] != 2 || clicked["method"] != "AXPress" {
+        record_event(json!({"elementClickFailed":clicked,"receipt":result}));
+        return Err("The receiver did not confirm the accessibility-element click.".into());
+    }
+    result["elementClick"] = clicked;
     Ok(result)
 }
 pub(super) fn run(app: &AppHandle) {
@@ -232,7 +269,7 @@ pub(super) fn run(app: &AppHandle) {
         });
         let perform = |value: Value| -> Result<Value, String> {
             let request: Request = serde_json::from_value(value).map_err(|e| e.to_string())?;
-            let target = presence_target(app, &request)?;
+            let target = presence_target(app, scope, &request)?;
             if target.pid != Some(std::process::id() as i32) || target.shared_input {
                 return Err("Self-test refused a target outside its own app.".into());
             }
@@ -245,7 +282,7 @@ pub(super) fn run(app: &AppHandle) {
         ];
         for value in actions {
             let request: Request = serde_json::from_value(value).map_err(|e| e.to_string())?;
-            let target = presence_target(app, &request)?;
+            let target = presence_target(app, scope, &request)?;
             if target.pid != Some(std::process::id() as i32) || target.shared_input {
                 return Err("Self-test refused a target outside its own app.".into());
             }
@@ -274,7 +311,7 @@ pub(super) fn run(app: &AppHandle) {
             .unwrap()
             .is_some_and(|(x, y)| (x - 160.0).abs() < 0.01 && (y - expected_y).abs() < 0.01);
         let external = external_receiver(app, scope)?;
-        let button_pressed = external["buttonPresses"] == 1;
+        let button_pressed = external["buttonPresses"] == 2;
         let typed = external["typedAndBackspace"] == true;
         let mut interruptions = Vec::new();
         for mode in [1, 2] {

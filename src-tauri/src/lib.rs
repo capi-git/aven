@@ -284,6 +284,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             {
                 memory_pressure::install(app.handle());
+                desktop_control::init(app.handle());
                 session_lock_macos::install();
                 window::create_main_window(app.handle())?;
                 macos::install_dock_menu(app.handle());

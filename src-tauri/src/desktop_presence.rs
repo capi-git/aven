@@ -20,6 +20,11 @@ pub(crate) const IDLE_FADE: Duration = Duration::from_secs(4);
 pub(crate) const STOP_NOTICE: Duration = Duration::from_millis(2500);
 /// Genuine user input this soon after an agent action pauses agents.
 pub(crate) const YIELD_WINDOW: Duration = Duration::from_millis(1500);
+/// Shared-pointer control yields only to sustained use: a bump or a single
+/// nudge of the mouse is ignored. The user must keep using the mouse or
+/// keyboard for this long, with no gap longer than `SUSTAINED_GAP`.
+pub(crate) const SUSTAINED_INPUT: Duration = Duration::from_secs(3);
+pub(crate) const SUSTAINED_GAP: Duration = Duration::from_millis(500);
 /// An unanswered consent prompt expires after this long.
 pub(crate) const CONSENT_TIMEOUT: Duration = Duration::from_secs(90);
 /// Two Escape presses this close together stop the acting agent.
@@ -37,6 +42,8 @@ pub(crate) const CONSENT_BUSY: &str =
     "Aven is waiting for the user to answer another desktop request. Wait, then retry.";
 pub(crate) const CANCELLED: &str =
     "The desktop request was cancelled before the user answered. Observe the desktop before retrying.";
+pub(crate) const SCREEN_LOCKED: &str = "The Mac is locked. Desktop control is paused until the user unlocks; keep working in Aven's browser or code, or wait.";
+pub(crate) const SESSION_AWAY: &str = "The user's Mac session is not on screen (another user may be signed in). Desktop control is paused until the user returns; keep working in Aven's browser or code, or wait.";
 const TARGET_CHANGED: &str =
     "The target app changed while waiting for the user. Take a fresh screenshot and retry.";
 const INTERRUPTED: &str =
@@ -160,6 +167,9 @@ pub(crate) enum Step {
     Scrolling,
     Dragging,
     SwitchingApps,
+    SettingValue,
+    SelectingText,
+    OpeningMenu,
 }
 
 impl Step {
@@ -173,6 +183,27 @@ impl Step {
             Self::Scrolling => "Scrolling",
             Self::Dragging => "Dragging",
             Self::SwitchingApps => "Switching apps",
+            Self::SettingValue => "Setting a value",
+            Self::SelectingText => "Selecting text",
+            Self::OpeningMenu => "Opening a menu",
+        }
+    }
+
+    /// The bar's step text. `element` is an element's title (never its value
+    /// or anything typed), already sanitised and bounded.
+    pub(crate) fn describe(self, element: Option<&str>) -> String {
+        let Some(element) = element.filter(|label| !label.is_empty()) else {
+            return self.label().into();
+        };
+        match self {
+            Self::Clicking => format!("Clicking \u{201c}{element}\u{201d}"),
+            Self::Typing => format!("Typing in \u{201c}{element}\u{201d}"),
+            Self::PressingKey => format!("Pressing a key in \u{201c}{element}\u{201d}"),
+            Self::Scrolling => format!("Scrolling \u{201c}{element}\u{201d}"),
+            Self::SettingValue => format!("Setting \u{201c}{element}\u{201d}"),
+            Self::SelectingText => format!("Selecting text in \u{201c}{element}\u{201d}"),
+            Self::OpeningMenu => format!("Opening the menu for \u{201c}{element}\u{201d}"),
+            _ => self.label().into(),
         }
     }
 }
@@ -180,14 +211,19 @@ impl Step {
 pub(crate) fn step_for(request: &Request) -> Option<Step> {
     Some(match request {
         Request::Status {} => return None,
-        Request::Windows {} | Request::Screenshot { .. } => Step::Looking,
+        Request::Windows {} | Request::Screenshot { .. } | Request::AppState { .. } => {
+            Step::Looking
+        }
         Request::Move { .. } => Step::Moving,
         Request::Click { .. } => Step::Clicking,
-        Request::Type { .. } => Step::Typing,
-        Request::Press { .. } => Step::PressingKey,
+        Request::Type { .. } | Request::TypeText { .. } => Step::Typing,
+        Request::Press { .. } | Request::PressKey { .. } => Step::PressingKey,
         Request::Scroll { .. } => Step::Scrolling,
         Request::Drag { .. } => Step::Dragging,
         Request::Activate { .. } => Step::SwitchingApps,
+        Request::SetValue { .. } => Step::SettingValue,
+        Request::SelectText { .. } => Step::SelectingText,
+        Request::SecondaryAction { .. } => Step::OpeningMenu,
     })
 }
 
@@ -239,6 +275,58 @@ impl Pause {
     }
 }
 
+/// The user's login session, as macOS reports it. Desktop control observes
+/// and acts only while it is `Active`: on the console and unlocked.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Session {
+    #[default]
+    Active,
+    /// The screen is locked: keys could reach the login window's password field.
+    Locked,
+    /// Another user's session is on screen, or no GUI session could be read.
+    Away,
+}
+
+impl Session {
+    /// Interprets CGSessionCopyCurrentDictionary: whether it returned a
+    /// dictionary, kCGSessionOnConsoleKey and "CGSSessionScreenIsLocked".
+    /// Anything unreadable fails closed.
+    pub(crate) fn from_dictionary(
+        present: bool,
+        on_console: Option<bool>,
+        screen_locked: Option<bool>,
+    ) -> Self {
+        if !present || on_console != Some(true) {
+            Self::Away
+        } else if screen_locked == Some(true) {
+            Self::Locked
+        } else {
+            Self::Active
+        }
+    }
+
+    pub(crate) fn refusal(self) -> Option<&'static str> {
+        match self {
+            Self::Active => None,
+            Self::Locked => Some(SCREEN_LOCKED),
+            Self::Away => Some(SESSION_AWAY),
+        }
+    }
+}
+
+/// A lock reported by the screen-lock notification. CoreGraphics can lag
+/// behind it, so a read that still says `Active` must not undo it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum LockLatch {
+    #[default]
+    Clear,
+    /// Notified; no read has shown the session unavailable yet.
+    Notified,
+    /// Notified, and a later read showed it unavailable: a read of `Active`
+    /// after this is a real unlock (even if its notification never arrives).
+    Observed,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PromptKind {
     App(AppIdentity),
@@ -278,6 +366,8 @@ pub(crate) enum Outcome {
     Declined(String),
     NoAnswer,
     Cancelled,
+    /// The Mac locked (or left the console) while the prompt was open.
+    Unavailable(&'static str),
 }
 
 impl Outcome {
@@ -287,6 +377,7 @@ impl Outcome {
             Self::Declined(message) => Err(message),
             Self::NoAnswer => Err(NO_ANSWER.into()),
             Self::Cancelled => Err(CANCELLED.into()),
+            Self::Unavailable(message) => Err(message.into()),
         }
     }
 }
@@ -303,6 +394,8 @@ struct Activity {
     scope: String,
     app: Option<String>,
     step: Step,
+    /// The target element's title for element actions.
+    element: Option<String>,
     input: bool,
     shared_input: bool,
     target_pid: Option<i32>,
@@ -448,6 +541,10 @@ pub(crate) struct Presence {
     next_prompt: u64,
     epoch: u64,
     esc: EscDetector,
+    session: Session,
+    lock: LockLatch,
+    /// Start and latest event of the user's current run of input.
+    user_run: Option<(Instant, Instant)>,
 }
 
 impl Presence {
@@ -511,6 +608,11 @@ impl Presence {
         may_prompt: bool,
         now: Instant,
     ) -> Admission {
+        // Nobody can answer a prompt at the lock screen, and observation would
+        // only capture it: refuse before any prompt, bar or native call.
+        if let Some(refusal) = self.session.refusal() {
+            return Admission::Refuse(refusal.into());
+        }
         if input && self.prompt.is_some() {
             return Admission::Refuse(CONSENT_BUSY.into());
         }
@@ -646,6 +748,7 @@ impl Presence {
             scope: scope.into(),
             app,
             step,
+            element: None,
             input,
             shared_input: true,
             target_pid: None,
@@ -671,6 +774,34 @@ impl Presence {
         }
     }
 
+    /// Publishes the element an action targets. Only its title is shown.
+    pub(crate) fn set_element(&mut self, ticket: &Ticket, element: Option<String>) {
+        if let Some(activity) = self
+            .activity
+            .as_mut()
+            .filter(|activity| activity.scope == ticket.scope)
+        {
+            activity.element = element;
+        }
+    }
+
+    /// Whether this chat may already use an app without asking: it allowed
+    /// that app and has not been stopped since. Never prompts.
+    pub(crate) fn has_app_consent(&self, scope: &str, key: &str) -> bool {
+        !self.stopped.contains(scope)
+            && self
+                .allowed
+                .get(scope)
+                .is_some_and(|allowed| allowed.contains(key))
+    }
+
+    /// Whether changes to apps on this chat's behalf are held: desktop
+    /// control is paused, the chat was stopped, or the session is not
+    /// active. Observation still runs; it just changes nothing.
+    pub(crate) fn changes_held(&self, scope: &str) -> bool {
+        self.paused.is_some() || self.stopped.contains(scope) || self.session != Session::Active
+    }
+
     pub(crate) fn forget_approval(&mut self, scope: &str, key: &str) {
         if let Some(allowed) = self.allowed.get_mut(scope) {
             allowed.remove(key);
@@ -686,8 +817,79 @@ impl Presence {
         }
     }
 
+    /// Records the login session. Leaving `Active` interrupts in-flight
+    /// actions at their next check (drags release their button on that error
+    /// path), cancels an open prompt and hides the bar. Returns whether the
+    /// session changed.
+    pub(crate) fn set_session(&mut self, session: Session) -> bool {
+        if self.session == session {
+            return false;
+        }
+        let was_active = self.session == Session::Active;
+        self.session = session;
+        if let (true, Some(refusal)) = (was_active, session.refusal()) {
+            self.epoch = self.epoch.wrapping_add(1);
+            if let Some(prompt) = self.prompt.take() {
+                self.resolved
+                    .insert(prompt.id, Outcome::Unavailable(refusal));
+            }
+        }
+        true
+    }
+
+    /// The session as recorded, after any lock notification.
+    pub(crate) fn session(&self) -> Session {
+        self.session
+    }
+
+    /// Records a CoreGraphics session read. After a lock notification, a
+    /// read of `Active` is stale until a read has shown the session
+    /// unavailable (or the unlock notification arrives): only unavailable
+    /// states are recorded over the notified lock. Returns whether the
+    /// recorded session changed.
+    pub(crate) fn observe_session(&mut self, read: Session) -> bool {
+        match (self.lock, read) {
+            (LockLatch::Clear, read) => self.set_session(read),
+            (LockLatch::Notified, Session::Active) => false,
+            (LockLatch::Observed, Session::Active) => {
+                self.lock = LockLatch::Clear;
+                self.set_session(Session::Active)
+            }
+            (_, unavailable) => {
+                self.lock = LockLatch::Observed;
+                self.set_session(unavailable)
+            }
+        }
+    }
+
+    /// The screen-lock notification, with a session read taken at the same
+    /// time. It records a lock even when that read has not caught up.
+    pub(crate) fn notify_locked(&mut self, read: Session) -> bool {
+        if read == Session::Active {
+            self.lock = LockLatch::Notified;
+            self.set_session(Session::Locked)
+        } else {
+            self.lock = LockLatch::Observed;
+            self.set_session(read)
+        }
+    }
+
+    /// The screen-unlock notification ends a notified lock; the read taken
+    /// with it is recorded as is (a later read corrects a lagging one).
+    pub(crate) fn notify_unlocked(&mut self, read: Session) -> bool {
+        self.lock = LockLatch::Clear;
+        self.set_session(read)
+    }
+
     /// Called before every native event of an admitted action.
     pub(crate) fn check(&self, ticket: &Ticket) -> Result<(), String> {
+        if let Some(refusal) = self.session.refusal() {
+            return Err(if ticket.input {
+                format!("{refusal}{INTERRUPTED_SUFFIX}")
+            } else {
+                refusal.into()
+            });
+        }
         if self.stopped.contains(&ticket.scope) {
             return Err(STOPPED.into());
         }
@@ -764,6 +966,10 @@ impl Presence {
         now: Instant,
         frontmost_pid: Option<i32>,
     ) -> InputEffect {
+        // Typing at the lock screen is not working alongside an agent.
+        if self.session != Session::Active {
+            return InputEffect::None;
+        }
         if event == UserEvent::Escape && (self.acting_recently(now) || self.paused.is_some()) {
             if let Some(scope) = self
                 .activity
@@ -780,14 +986,28 @@ impl Presence {
         if self.prompt.is_some() || self.paused.is_some() {
             return InputEffect::None;
         }
-        let yield_now = self.activity.as_ref().is_some_and(|activity| {
-            !activity.stopped
-                && activity.input
-                && (activity.shared_input
-                    || (activity.target_pid.is_some() && activity.target_pid == frontmost_pid))
-                && (activity.in_flight
-                    || now.saturating_duration_since(activity.last) <= YIELD_WINDOW)
-        });
+        // Once the user has allowed an agent, only the bar's Pause/Stop (or Esc
+        // twice) stops it. App-directed and element input never touch the
+        // user's pointer or keyboard, so the user's own clicks and typing, even
+        // in the same app, must not pause it. Only shared-pointer input, where
+        // both would steer one cursor, yields to the user.
+        let _ = frontmost_pid;
+        // A run of user input continues while events keep arriving within
+        // SUSTAINED_GAP of each other.
+        let started = match self.user_run {
+            Some((start, last)) if now.saturating_duration_since(last) <= SUSTAINED_GAP => start,
+            _ => now,
+        };
+        self.user_run = Some((started, now));
+        let sustained = now.saturating_duration_since(started) >= SUSTAINED_INPUT;
+        let yield_now = sustained
+            && self.activity.as_ref().is_some_and(|activity| {
+                !activity.stopped
+                    && activity.input
+                    && activity.shared_input
+                    && (activity.in_flight
+                        || now.saturating_duration_since(activity.last) <= YIELD_WINDOW)
+            });
         if yield_now {
             self.pause(Pause::UserActive);
             return InputEffect::Paused;
@@ -796,6 +1016,10 @@ impl Presence {
     }
 
     pub(crate) fn model(&self, now: Instant) -> Option<BarModel> {
+        // Never draw over the lock screen or another user's session.
+        if self.session != Session::Active {
+            return None;
+        }
         if let Some(prompt) = &self.prompt {
             let actor = self.actor(&prompt.scope);
             let shared = matches!(&prompt.kind,PromptKind::App(app) if app.key.starts_with("pointer:") || app.key.starts_with("focus:"));
@@ -890,9 +1114,12 @@ impl Presence {
             kind: BarKind::Acting,
             color: actor.color,
             title: format!("{} is using {app}", actor.name),
-            detail: match &actor.title {
-                Some(title) => format!("{} \u{b7} {title}", activity.step.label()),
-                None => activity.step.label().into(),
+            detail: {
+                let step = activity.step.describe(activity.element.as_deref());
+                match &actor.title {
+                    Some(title) => format!("{step} \u{b7} {title}"),
+                    None => step,
+                }
             },
             buttons: vec![
                 BarButton {
@@ -1006,16 +1233,19 @@ pub(crate) fn with<T>(operation: impl FnOnce(&mut Presence) -> T) -> T {
 
 /// Blocks a socket worker (never the main thread) until the user answers,
 /// the prompt expires, or `alive` reports that the chat's scope has ended.
+/// `alive` may read the login session from CoreGraphics, so it runs without
+/// the presence lock held; an answer that arrives meanwhile still wins.
 pub(crate) fn wait_for_answer(id: u64, alive: impl Fn() -> bool) -> Result<(), String> {
-    let mut state = lock();
     loop {
+        let alive = alive();
+        let mut state = lock();
         let now = Instant::now();
         if let Some(outcome) = state.take_outcome(id, now) {
             drop(state);
             CHANGED.notify_all();
             return outcome.into_result();
         }
-        if !alive() {
+        if !alive {
             state.withdraw(id);
             drop(state);
             CHANGED.notify_all();
@@ -1024,10 +1254,10 @@ pub(crate) fn wait_for_answer(id: u64, alive: impl Fn() -> bool) -> Result<(), S
         let remaining = state.prompt.as_ref().map_or(Duration::ZERO, |prompt| {
             prompt.deadline.saturating_duration_since(now)
         });
-        state = CHANGED
+        let (state, _) = CHANGED
             .wait_timeout(state, remaining.min(Duration::from_millis(250)))
-            .unwrap_or_else(|error| error.into_inner())
-            .0;
+            .unwrap_or_else(|error| error.into_inner());
+        drop(state);
     }
 }
 
@@ -1146,6 +1376,20 @@ mod tests {
             }
         }
         assert!(step_for(&request(json!({"action":"status"}))).is_none());
+        assert!(!is_input(&request(
+            json!({"action":"appState","windowId":3})
+        )));
+        for value in [
+            json!({"action":"click","windowId":3,"element":1}),
+            json!({"action":"typeText","windowId":3,"text":secret}),
+            json!({"action":"pressKey","windowId":3,"key":"Enter"}),
+            json!({"action":"setValue","windowId":3,"element":1,"value":secret}),
+            json!({"action":"selectText","windowId":3,"element":1,"text":secret}),
+            json!({"action":"secondaryAction","windowId":3,"element":1}),
+            json!({"action":"scroll","windowId":3,"element":1,"direction":"down"}),
+        ] {
+            assert!(is_input(&request(value.clone())), "{value}");
+        }
         assert!(!is_input(&request(json!({"action":"screenshot"}))));
         assert!(!is_input(&request(json!({"action":"windows"}))));
         assert!(is_input(&request(json!({"action":"activate","pid":4}))));
@@ -1320,6 +1564,169 @@ mod tests {
     }
 
     #[test]
+    fn session_dictionary_fails_closed() {
+        assert_eq!(
+            Session::from_dictionary(true, Some(true), None),
+            Session::Active
+        );
+        assert_eq!(
+            Session::from_dictionary(true, Some(true), Some(false)),
+            Session::Active
+        );
+        assert_eq!(
+            Session::from_dictionary(true, Some(true), Some(true)),
+            Session::Locked
+        );
+        // Fast user switching: another session owns the screen.
+        assert_eq!(
+            Session::from_dictionary(true, Some(false), None),
+            Session::Away
+        );
+        assert_eq!(
+            Session::from_dictionary(true, Some(false), Some(true)),
+            Session::Away
+        );
+        // No GUI session, or an unreadable console flag.
+        assert_eq!(Session::from_dictionary(false, None, None), Session::Away);
+        assert_eq!(
+            Session::from_dictionary(true, None, Some(false)),
+            Session::Away
+        );
+        assert_eq!(Session::Active.refusal(), None);
+        assert_eq!(Session::Locked.refusal(), Some(SCREEN_LOCKED));
+        assert_eq!(Session::Away.refusal(), Some(SESSION_AWAY));
+    }
+
+    #[test]
+    fn lock_notifications_outlast_lagging_session_reads() {
+        let mut presence = Presence::default();
+        // Ordinary reads are recorded as they are.
+        assert!(presence.observe_session(Session::Locked));
+        assert!(presence.observe_session(Session::Active));
+        assert_eq!(presence.session(), Session::Active);
+        // Notified while CoreGraphics still says Active: locked, and every
+        // later Active read is stale until macOS confirms the unlock.
+        assert!(presence.notify_locked(Session::Active));
+        assert_eq!(presence.session(), Session::Locked);
+        for _ in 0..3 {
+            assert!(!presence.observe_session(Session::Active));
+            assert_eq!(presence.session(), Session::Locked);
+        }
+        // The read catches up (Locked), then the user unlocks without the
+        // notification arriving: the Active read after it is real.
+        assert!(!presence.observe_session(Session::Locked));
+        assert!(presence.observe_session(Session::Active));
+        assert_eq!(presence.session(), Session::Active);
+        // Unavailable states may be recorded over a notified lock.
+        assert!(presence.notify_locked(Session::Active));
+        assert!(presence.observe_session(Session::Away));
+        assert_eq!(presence.session(), Session::Away);
+        // The unlock notification ends the latch; a lagging Locked read
+        // with it is corrected by the next read.
+        assert!(presence.notify_unlocked(Session::Locked));
+        assert_eq!(presence.session(), Session::Locked);
+        assert!(presence.observe_session(Session::Active));
+        assert_eq!(presence.session(), Session::Active);
+        // A notification whose read already shows the lock needs no wait.
+        assert!(presence.notify_locked(Session::Locked));
+        assert!(presence.observe_session(Session::Active));
+        // A lock notification also cancels an open prompt.
+        let app = AppIdentity::new("com.example:1", "Example");
+        let Admission::Ask(id) =
+            presence.admit("chat", true, Some(&app), true, true, Instant::now())
+        else {
+            panic!("expected a prompt");
+        };
+        assert!(presence.notify_locked(Session::Active));
+        assert!(presence.prompt.is_none());
+        assert!(presence.resolved.contains_key(&id));
+    }
+
+    #[test]
+    fn locked_session_refuses_every_request_before_any_prompt_or_bar() {
+        let mut presence = Presence::default();
+        let now = Instant::now();
+        presence.begin("chat", Step::Clicking, Some("Safari".into()), now);
+        assert!(presence.model(now).is_some());
+        assert!(presence.set_session(Session::Locked));
+        assert!(!presence.set_session(Session::Locked));
+        // Input with app consent on, shared input, and observation are all
+        // refused without opening a prompt.
+        for (input, ask) in [(true, true), (true, false), (false, false)] {
+            assert_eq!(
+                presence.admit("chat", input, Some(&safari()), ask, true, now),
+                Admission::Refuse(SCREEN_LOCKED.into())
+            );
+        }
+        assert_eq!(presence.prompt_id(), None);
+        // The bar never draws over the lock screen, even mid-action.
+        assert_eq!(presence.model(now), None);
+        // Typing the password is not user activity to yield to.
+        assert_eq!(presence.user_input(UserEvent::Key, now), InputEffect::None);
+        assert_eq!(
+            presence.user_input(UserEvent::Escape, now),
+            InputEffect::None
+        );
+        assert_eq!(
+            presence.user_input(UserEvent::Escape, now),
+            InputEffect::None
+        );
+        assert!(presence.paused.is_none() && presence.stopped.is_empty());
+        assert!(presence.set_session(Session::Away));
+        assert_eq!(
+            presence.admit("chat", false, None, false, true, now),
+            Admission::Refuse(SESSION_AWAY.into())
+        );
+        assert!(presence.set_session(Session::Active));
+        assert_eq!(presence.session, Session::Active);
+        assert!(matches!(
+            presence.admit("chat", true, Some(&safari()), true, true, now),
+            Admission::Ask(_)
+        ));
+        assert!(presence.model(now).is_some());
+    }
+
+    #[test]
+    fn locking_interrupts_in_flight_actions_and_cancels_the_open_prompt() {
+        let mut presence = Presence::default();
+        let now = Instant::now();
+        let Admission::Ask(id) = presence.admit("asker", true, Some(&safari()), true, true, now)
+        else {
+            panic!("expected a prompt");
+        };
+        let drag = presence.begin("chat", Step::Dragging, None, now);
+        let look = Ticket::for_test("chat", false);
+        assert!(presence.check(&drag).is_ok());
+        presence.set_session(Session::Locked);
+        let error = presence.check(&drag).unwrap_err();
+        assert!(error.starts_with(SCREEN_LOCKED) && error.ends_with(INTERRUPTED_SUFFIX));
+        assert_eq!(presence.check(&look).unwrap_err(), SCREEN_LOCKED);
+        // The waiter learns why its prompt went away; nobody answered it.
+        assert_eq!(presence.prompt_id(), None);
+        let outcome = presence.take_outcome(id, now).unwrap();
+        assert_eq!(outcome.into_result().unwrap_err(), SCREEN_LOCKED);
+        assert!(!presence.answer(id, true));
+        assert!(!presence.has_app_consent("asker", &safari().key));
+        // Unlocking never resumes an interrupted action.
+        presence.set_session(Session::Active);
+        assert_eq!(presence.check(&drag).unwrap_err(), INTERRUPTED);
+        assert!(presence.check(&look).is_ok());
+        let next = presence.begin("chat", Step::Typing, None, now);
+        assert!(presence.check(&next).is_ok());
+        // Leaving the console interrupts too; moving between unavailable
+        // states keeps the action refused with the latest reason.
+        presence.set_session(Session::Away);
+        assert!(presence.check(&next).unwrap_err().starts_with(SESSION_AWAY));
+        presence.set_session(Session::Locked);
+        assert!(presence
+            .check(&next)
+            .unwrap_err()
+            .starts_with(SCREEN_LOCKED));
+        presence.set_session(Session::Active);
+        assert_eq!(presence.check(&next).unwrap_err(), INTERRUPTED);
+    }
+
+    #[test]
     fn stop_revokes_input_and_observation_until_the_user_allows_again() {
         let mut presence = Presence::default();
         let now = Instant::now();
@@ -1408,17 +1815,43 @@ mod tests {
         }
     }
 
+    /// Feeds the user's input every 100 ms from `from` to `to` inclusive and
+    /// returns the effect of the last event.
+    fn feed(presence: &mut Presence, event: UserEvent, from: Instant, to: Instant) -> InputEffect {
+        let mut at = from;
+        loop {
+            let effect = presence.user_input(event, at);
+            if at >= to {
+                return effect;
+            }
+            at = (at + Duration::from_millis(100)).min(to);
+        }
+    }
+
     #[test]
     fn user_input_during_or_just_after_an_action_pauses_agents() {
         let mut presence = Presence::default();
         let now = Instant::now();
+        let ms = Duration::from_millis;
         assert_eq!(
             presence.user_input(UserEvent::Pointer, now),
             InputEffect::None
         );
+        presence.user_run = None;
         let ticket = presence.begin("chat", Step::Clicking, None, now);
+        // A single touch is ignored; three seconds of continuous use pauses.
         assert_eq!(
             presence.user_input(UserEvent::Pointer, now),
+            InputEffect::None
+        );
+        assert!(presence.check(&ticket).is_ok());
+        assert_eq!(
+            feed(
+                &mut presence,
+                UserEvent::Pointer,
+                now,
+                now + SUSTAINED_INPUT
+            ),
             InputEffect::Paused
         );
         assert!(presence
@@ -1431,15 +1864,27 @@ mod tests {
         assert_eq!(presence.user_input(UserEvent::Key, now), InputEffect::None);
         presence.resume();
         presence.end(&ticket, now);
-        let later = now + YIELD_WINDOW;
+        // A run that began during an action and carries on just after it ends
+        // still yields.
+        let t = now + ms(10_000);
+        presence.user_run = None;
+        let ticket = presence.begin("chat", Step::Clicking, None, t);
+        presence.end(&ticket, t + ms(2_000));
         assert_eq!(
-            presence.user_input(UserEvent::Key, later),
+            feed(&mut presence, UserEvent::Key, t + ms(100), t + ms(3_100)),
             InputEffect::Paused
         );
         presence.resume();
-        let idle = now + YIELD_WINDOW + Duration::from_millis(1);
+        // Once the agent has been idle past the yield window, use is not a conflict.
+        let idle = t + ms(2_000) + YIELD_WINDOW + Duration::from_millis(1);
+        presence.user_run = None;
         assert_eq!(
-            presence.user_input(UserEvent::Pointer, idle),
+            feed(
+                &mut presence,
+                UserEvent::Pointer,
+                idle,
+                idle + SUSTAINED_INPUT
+            ),
             InputEffect::None
         );
         // Observation alone does not make the user's input a conflict.
@@ -1464,9 +1909,10 @@ mod tests {
         let mut presence = Presence::default();
         let now = Instant::now();
         let ticket = presence.begin("chat", Step::Typing, None, now);
+        // A single Esc is a brief touch; it does not pause on its own.
         assert_eq!(
             presence.user_input(UserEvent::Escape, now),
-            InputEffect::Paused
+            InputEffect::None
         );
         assert_eq!(
             presence.user_input(UserEvent::Escape, now + Duration::from_millis(200)),
@@ -1612,29 +2058,90 @@ mod tests {
         });
         assert_eq!(wait_for_answer(id, || false).unwrap_err(), CANCELLED);
         assert!(with(|presence| presence.prompt.is_none()));
+        // `alive` runs without the presence lock: it may read shared state
+        // (or the slow session) without blocking answers or deadlocking.
+        let id = with(|presence| {
+            match presence.admit(
+                "wait-test-3",
+                true,
+                Some(&safari()),
+                true,
+                true,
+                Instant::now(),
+            ) {
+                Admission::Ask(id) => id,
+                other => panic!("{other:?}"),
+            }
+        });
+        let answer = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(30));
+            with(|presence| presence.answer(id, true));
+        });
+        assert!(wait_for_answer(
+            id,
+            || with(|presence| presence.session() == Session::Active)
+        )
+        .is_ok());
+        answer.join().unwrap();
         with(|presence| presence.forget(None));
     }
     #[test]
-    fn app_delivery_yields_only_when_the_user_works_in_the_same_app() {
+    fn app_delivery_never_yields_to_the_users_own_input() {
         let now = Instant::now();
         let mut state = Presence::default();
         let ticket = state.begin("chat", Step::Typing, Some("Notes".into()), now);
         state.set_delivery(&ticket, false, Some(42));
-        assert_eq!(
-            state.user_input_in_app(UserEvent::Pointer, now, Some(99)),
-            InputEffect::None
-        );
-        assert!(state.check(&ticket).is_ok());
-        assert_eq!(
-            state.user_input_in_app(UserEvent::Key, now, Some(42)),
-            InputEffect::Paused
-        );
+        // Other apps, and the very app the agent is driving: clicks, typing
+        // and movement all leave an allowed agent running.
+        for (event, front) in [
+            (UserEvent::Pointer, Some(99)),
+            (UserEvent::Pointer, Some(42)),
+            (UserEvent::Key, Some(42)),
+        ] {
+            assert_eq!(
+                state.user_input_in_app(event, now, front),
+                InputEffect::None
+            );
+            assert!(state.check(&ticket).is_ok());
+        }
+        // Only the user's explicit Pause stops it; resuming does not revive the
+        // interrupted action.
+        state.pause(Pause::ByUser);
         assert!(state.check(&ticket).is_err());
         state.resume();
         assert!(
             state.check(&ticket).is_err(),
             "resuming must not revive an interrupted action"
         );
+    }
+
+    #[test]
+    fn shared_pointer_yields_only_to_sustained_user_input() {
+        let start = Instant::now();
+        let mut state = Presence::default();
+        let ticket = state.begin("chat", Step::Clicking, Some("Notes".into()), start);
+        state.set_delivery(&ticket, true, Some(42));
+        let at = |ms: u64, state: &mut Presence| {
+            let now = start + Duration::from_millis(ms);
+            // Keep the agent's action current so only the user's run decides.
+            state.activity.as_mut().unwrap().last = now;
+            state.user_input_in_app(UserEvent::Pointer, now, Some(99))
+        };
+        // A bump, then a pause longer than the gap: the run restarts.
+        assert_eq!(at(0, &mut state), InputEffect::None);
+        assert_eq!(at(200, &mut state), InputEffect::None);
+        assert_eq!(at(1_000, &mut state), InputEffect::None);
+        assert!(state.check(&ticket).is_ok());
+        // Continuous movement for just under three seconds is still ignored.
+        let mut t = 1_000;
+        while t < 3_900 {
+            t += 100;
+            assert_eq!(at(t, &mut state), InputEffect::None, "at {t} ms");
+        }
+        assert!(state.check(&ticket).is_ok());
+        // Three seconds of continuous movement pauses shared control.
+        assert_eq!(at(4_000, &mut state), InputEffect::Paused);
+        assert!(state.check(&ticket).is_err());
     }
 
     #[test]
@@ -1730,5 +2237,139 @@ mod tests {
                 }
             );
         }
+    }
+
+    #[test]
+    fn element_steps_name_the_control_but_never_its_value_or_typed_text() {
+        let now = Instant::now();
+        let secret = "hunter2 SECRET";
+        for (value, expected) in [
+            (
+                json!({"action":"click","windowId":3,"element":1}),
+                "Clicking \u{201c}Send\u{201d}",
+            ),
+            (
+                json!({"action":"typeText","windowId":3,"element":1,"text":secret}),
+                "Typing in \u{201c}Send\u{201d}",
+            ),
+            (
+                json!({"action":"setValue","windowId":3,"element":1,"value":secret}),
+                "Setting \u{201c}Send\u{201d}",
+            ),
+            (
+                json!({"action":"selectText","windowId":3,"element":1,"text":secret}),
+                "Selecting text in \u{201c}Send\u{201d}",
+            ),
+            (
+                json!({"action":"secondaryAction","windowId":3,"element":1}),
+                "Opening the menu for \u{201c}Send\u{201d}",
+            ),
+            (
+                json!({"action":"pressKey","windowId":3,"element":1,"key":"Enter"}),
+                "Pressing a key in \u{201c}Send\u{201d}",
+            ),
+        ] {
+            let mut state = Presence::default();
+            let step = step_for(&request(value)).unwrap();
+            let ticket = state.begin("chat", step, Some("Mail".into()), now);
+            state.set_element(&ticket, Some("Send".into()));
+            let model = state.model(now).unwrap();
+            assert_eq!(model.detail, expected);
+            assert!(!model.detail.contains("hunter2") && !model.title.contains("SECRET"));
+        }
+        // Without a label the generic step text is used, and a new action
+        // never inherits the previous element.
+        let mut state = Presence::default();
+        let ticket = state.begin("chat", Step::Clicking, None, now);
+        state.set_element(&ticket, Some("Send".into()));
+        state.begin("chat", Step::SettingValue, None, now);
+        assert_eq!(state.model(now).unwrap().detail, "Setting a value");
+        // Another chat's ticket cannot relabel the current activity.
+        let other = Ticket::for_test("other", true);
+        state.set_element(&other, Some("Delete".into()));
+        assert_eq!(state.model(now).unwrap().detail, "Setting a value");
+    }
+
+    #[test]
+    fn app_consent_is_read_without_prompting_and_ends_with_stop() {
+        let now = Instant::now();
+        let slack = AppIdentity::new("com.tinyspeck.slackmacgap:9", "Slack");
+        let mut state = Presence::default();
+        assert!(!state.has_app_consent("chat", &slack.key));
+        let Admission::Ask(id) = state.admit("chat", true, Some(&slack), true, true, now) else {
+            panic!("expected a prompt");
+        };
+        assert!(
+            !state.has_app_consent("chat", &slack.key),
+            "not before an answer"
+        );
+        assert!(state.answer(id, true));
+        assert!(state.has_app_consent("chat", &slack.key));
+        assert!(!state.has_app_consent("other", &slack.key), "per chat");
+        assert!(
+            !state.has_app_consent("chat", "com.tinyspeck.slackmacgap:10"),
+            "per process"
+        );
+        // Pause, a lock or a stop hold app changes (such as turning on an
+        // accessibility switch) without forgetting the consent.
+        assert!(!state.changes_held("chat"));
+        state.pause(Pause::ByUser);
+        assert!(state.changes_held("chat") && state.changes_held("other"));
+        assert!(state.has_app_consent("chat", &slack.key));
+        state.resume();
+        assert!(!state.changes_held("chat"));
+        state.pause(Pause::UserActive);
+        assert!(state.changes_held("chat"));
+        state.resume();
+        state.set_session(Session::Locked);
+        assert!(state.changes_held("chat"));
+        state.set_session(Session::Active);
+        assert!(!state.changes_held("chat"));
+        state.stop("chat", now);
+        assert!(!state.has_app_consent("chat", &slack.key));
+        assert!(state.changes_held("chat"));
+        assert!(!state.changes_held("other"));
+    }
+
+    #[test]
+    fn element_actions_are_input_for_consent_pause_and_yield() {
+        let now = Instant::now();
+        let mail = AppIdentity::new("com.apple.mail:9", "Mail");
+        let click = request(json!({"action":"click","windowId":3,"element":1}));
+        let observe = request(json!({"action":"appState","windowId":3}));
+        let mut state = Presence::default();
+        // App consent is asked before the first element action in an app.
+        assert!(matches!(
+            state.admit("chat", is_input(&click), Some(&mail), true, true, now),
+            Admission::Ask(_)
+        ));
+        state.prompt = None;
+        // appState is observation: no prompt, and allowed while paused.
+        assert_eq!(
+            state.admit("chat", is_input(&observe), None, true, true, now),
+            Admission::Go
+        );
+        state.pause(Pause::ByUser);
+        assert_eq!(
+            state.admit("chat", is_input(&click), Some(&mail), false, true, now),
+            Admission::Refuse(PAUSED_BY_USER.into())
+        );
+        assert_eq!(
+            state.admit("chat", is_input(&observe), None, true, true, now),
+            Admission::Go
+        );
+        state.resume();
+        // The user working in the same app leaves an allowed element action
+        // running; only the bar's Pause or Stop interrupts it.
+        let ticket = state.begin("chat", step_for(&click).unwrap(), Some("Mail".into()), now);
+        state.set_delivery(&ticket, false, Some(9));
+        assert_eq!(
+            state.user_input_in_app(UserEvent::Pointer, now, Some(9)),
+            InputEffect::None
+        );
+        assert!(state.check(&ticket).is_ok());
+        // Stop revokes it until the user allows the chat again.
+        state.stop("chat", now);
+        assert_eq!(state.check(&ticket).unwrap_err(), STOPPED);
     }
 }

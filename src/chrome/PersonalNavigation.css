@@ -550,8 +550,9 @@
 
 /* Keep the frost separate from the navigation text. Fading a whole floating
    panel also changes the backdrop root while its filter is sampling the
-   transcript; use a short slide and delayed visibility instead. Visibility
-   is theme-independent so a palette change cannot flash a closed panel. */
+   transcript; slide it fully in and out and delay visibility instead.
+   Visibility is theme-independent so a palette change cannot flash a closed
+   panel. */
 html
   .personal-shell
   .personal-sidebar-slot[data-floating="true"]
@@ -559,7 +560,7 @@ html
   opacity: 1;
   visibility: visible;
   transition:
-    transform var(--personal-panel-duration) cubic-bezier(0.22, 1, 0.36, 1),
+    transform var(--aven-peek-in-duration) var(--aven-peek-in-easing),
     visibility 0s;
 }
 
@@ -619,20 +620,39 @@ html.is-mac.has-native-glass:not(.theme-light)
   --personal-navigation-overlay: var(--personal-chrome-surface);
 }
 
-/* Uncover the workspace and dismiss its glass panel in the same paint;
-   otherwise the exiting transparent panel briefly draws over chat text. */
+/* The transparent panel must never draw over chat text, so the crop travels
+   with it. The panel's slide distance equals its right edge, so the same
+   duration and curve keep both edges together. The crop follows the panel's
+   own open state, which a dismissal sets before React commits, and lifts
+   once the panel is out: an idle crop would make the workspace a backdrop
+   root and drop the blur behind its menus. */
 html.is-mac.has-native-glass:not(.theme-light)
-  .personal-shell
-  .personal-sidebar-slot[data-floating="true"][data-open="false"]
-  > .personal-sidebar.sidebar-glass.personal-navigation {
-  visibility: hidden;
-  transition: none;
+  .personal-shell-body[data-floating-sidebar-revealed]
+  > .personal-sidebar-slot[data-floating="true"][data-open="false"]
+  ~ .personal-workspace-column {
+  /* Only the left edge clips; menus may extend past the column elsewhere. */
+  clip-path: inset(-100vmax -100vmax -100vmax 0);
+  transition: clip-path var(--aven-peek-out-duration)
+    var(--aven-peek-out-easing);
 }
 
+/* The idle workspace has no crop to transition from, so opening animates it
+   in. Later edge changes, such as a resize drag, apply directly. */
 html.is-mac.has-native-glass:not(.theme-light)
   .personal-shell-body[data-floating-sidebar-revealed="true"]
-  > .personal-workspace-column {
-  clip-path: inset(0 0 0 var(--floating-sidebar-right, 0px));
+  > .personal-sidebar-slot[data-floating="true"][data-open="true"]
+  ~ .personal-workspace-column {
+  clip-path: inset(
+    -100vmax -100vmax -100vmax var(--floating-sidebar-right, 0px)
+  );
+  animation: aven-peek-crop-in var(--aven-peek-in-duration)
+    var(--aven-peek-in-easing);
+}
+
+@keyframes aven-peek-crop-in {
+  from {
+    clip-path: inset(-100vmax -100vmax -100vmax 0);
+  }
 }
 
 html
@@ -642,8 +662,8 @@ html
   opacity: 1;
   visibility: hidden;
   transition:
-    transform 120ms ease-in,
-    visibility 0s linear 120ms;
+    transform var(--aven-peek-out-duration) var(--aven-peek-out-easing),
+    visibility 0s linear var(--aven-peek-out-duration);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -652,6 +672,14 @@ html
     .personal-sidebar-slot[data-floating="true"]
     > .personal-sidebar.sidebar-glass.personal-navigation {
     transition: none;
+  }
+  /* Outranks the more specific crop rules. */
+  html.is-mac.has-native-glass:not(.theme-light)
+    .personal-shell
+    .personal-shell-body
+    > .personal-workspace-column {
+    transition: none !important;
+    animation: none !important;
   }
 }
 

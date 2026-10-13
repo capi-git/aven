@@ -128,9 +128,9 @@ off from the same switch at any time.
 The card shows **Ready**, **Permissions needed**, **Off**, or **Unsupported**.
 **Permissions needed** can still allow observation: with desktop control enabled
 and Screen Recording granted, agents can list windows and take screenshots even
-if Accessibility is missing. Moving the pointer, clicking, dragging, typing,
-pressing keys, scrolling and activating apps require both permissions, so agents can observe and
-verify input.
+if Accessibility is missing. Reading an app's controls (`appState`), moving the
+pointer, clicking, dragging, typing, pressing keys, scrolling, element actions and
+activating apps require both permissions, so agents can observe and verify input.
 For a missing permission, choose **Allow** to request access, or **Open settings**
 to open its macOS pane. Use **Check again** after changing permissions. macOS may
 ask you to quit and reopen Aven after allowing Screen Recording; save your work
@@ -148,8 +148,109 @@ task's scoped in-app browser connection:
 "$AVEN_BROWSER_EXECUTABLE" --aven-desktop '{"action":"windows"}'
 ```
 
-The agent checks status once, selects an observed window, and takes a `screenshot`
-with its `windowId`. The result is `{path,width,height,originX,originY}`; the agent
+### Accessibility elements (preferred)
+
+Agents work with an app's accessibility elements first, the way assistive
+technology does. This happens in the background: Aven does not move your
+pointer, take keyboard focus from the app you are using, or bring the target app
+forward, and covered windows work.
+
+```sh
+"$AVEN_BROWSER_EXECUTABLE" --aven-desktop '{"action":"appState","windowId":123}'
+"$AVEN_BROWSER_EXECUTABLE" --aven-desktop '{"action":"click","windowId":123,"element":7,"stateId":42}'
+```
+
+`appState` returns a `stateId`, the window's bounds, an indexed outline of its
+controls and any open menu, and a fresh window image (`image`). Each outline line
+lists the role, title, description, placeholder, value, disabled/focused/selected
+state, available actions and frame in window-screenshot points, for example
+`[7] Button "Send" @412,560 64x28 actions=Press`. Values of secure text fields are
+never read; they always appear as `<redacted>`. The outline is bounded (250
+elements by default, `maxNodes` 20 to 1000, a three-second read budget and a size
+limit); `truncated` reports a cut. Slack, Notion, VS Code, Chrome, Finder, Mail,
+Messages, Music and Spotify include short `tips`.
+
+Element actions take the same `windowId`, an `element` index and the `stateId`:
+
+- `click` presses the control (`AXPress`, then `AXPick` or `AXConfirm`), focuses a
+  text field or selects a row. A right click opens its menu. When the app offers no
+  equivalent, Aven sends plain app-directed mouse events at the element's centre,
+  but only after the app's hit test there reaches that element or plain content
+  inside it. If another control sits at the centre (an inline "Archive" button in
+  a message row, for example), nothing is sent and the error names that control;
+  the fallback never presses a different control through Accessibility.
+- `typeText` inserts text at the caret of the element (or the app's focused field in
+  that window); only if the app does not support that does it fall back to key
+  events. When an app accepts the text but shows it a moment later (Chromium and
+  Electron apps such as Slack and Notion), Aven waits briefly and otherwise reports
+  `"confirmed": false` instead of inserting the text a second time. To insert or
+  delete, Aven rewrites a whole value only for short single-line plain fields; text
+  areas, rich editors, web content and text over 200,000 characters are edited with
+  key events at the caret, so nothing is lost or truncated.
+- `setValue` replaces a text, number or true/false value.
+- `pressKey` maps Enter to Confirm, Escape to Cancel, arrows to
+  Increment/Decrement on sliders and steppers, Space to Press, and Backspace/Delete to
+  text edits. Without an `element`, Enter and Escape may instead press the window's
+  default or cancel button, and the result names it in `button`; with an `element`
+  they act only on that element (its own Confirm or Cancel, else focus-confirmed key
+  events) and never press the window's buttons. Other keys and any modifiers use app-directed key events. For a named
+  `element`, those events (and `typeText`'s key fallback) are sent only after Aven
+  focuses that element inside its app and reads its focus back; otherwise nothing
+  is sent and the action fails, so keys never reach another control.
+- `scroll` with `direction` (and `pages`) pages the nearest scroll area; with
+  `deltaX` and/or `deltaY` it sends a wheel event at the element's centre; with only
+  `element` it scrolls that element into view.
+- `selectText` selects `text`, or `start` and `length` in UTF-16 units.
+- `secondaryAction` opens the element's menu, or runs one allow-listed action such
+  as `Increment` or `ShowAlternateUI`.
+
+A control the app reports as disabled is refused by every element action, including
+`selectText` and every `pressKey` key. Without an `element`, a disabled default or
+cancel button refuses Enter or Escape with an error that names that button.
+
+Indexes belong to that state only, and any action in the window uses them up, so
+agents call `appState` again before each element action. A newer `appState` of the
+same window also replaces them. An element is refused with "State changed; call
+appState again" when its role, label or place in the window changed. Elements that
+are unlabelled or repeated (untitled rows, a "More actions" button on every
+message) also record the text around them, so a list that changed underneath an
+index (a new message at the top) is refused instead of acting on a different row.
+Elements that cannot be told apart at all are listed in `ambiguous` and are never
+acted on by index. A labelled, unique element that was rebuilt in place is found
+again by its position and label. Web pages in Safari, Mail and other WebKit apps
+can be served by a separate WebKit WebContent process; such elements are accepted
+only when they lie in the target window and macOS attributes that process to the
+app. Any other process's element is refused with "That control belongs to another
+process", so agents switch to coordinates instead of re-querying in a loop. Each result names the `method` used;
+`"confirmed": false` means the app did not confirm in time (a menu may be open) or
+Aven had to use events.
+
+Electron and Chromium apps build a complete accessibility tree only when asked.
+Because that changes the app, `appState` (which needs no consent and works while
+paused) turns the switch on only for an app this chat is already allowed to use, or
+when app consent is off, and never while desktop control is paused, the chat is
+stopped or the Mac is locked (a pause or stop during the change turns it straight
+back off). Before that it returns the tree the app already exposes, with
+`accessibilityMode: "limited"` and a hint to call `appState` again after the first
+allowed action (or, while paused, after the user resumes). Once allowed, Aven turns on that app's `AXManualAccessibility` (Electron)
+or `AXEnhancedUserInterface` (Chromium) switch, and turns it back off when the last
+chat using it ends, if it was off before. Only the chat that turned a switch on
+records its earlier value, and a chat that ends while its switch is being turned on
+restores it straight away. A chat's restore and another chat's switch-on for the
+same app never overlap, so a switch another chat still needs is not turned off. Aven also keeps a small private record of switches it
+turned on (`aven.accessibility-switches.json` in its data folder, with the app's
+process ID, path and start time); if Aven quits unexpectedly, the next launch turns
+those switches off again when the same app process is still running.
+
+Element actions count as input: they use the same per-app consent, appear in the bar
+with the control's title (for example “Clicking “Send””, never a typed value),
+follow Pause, Stop and yield, and move the agent ring to the control. `appState` is
+observation and remains available while paused.
+
+### Coordinates (fallback)
+
+When an element is missing or does not respond, the agent checks status once,
+selects an observed window, and takes a `screenshot` with its `windowId`. The result is `{path,width,height,originX,originY}`; the agent
 must open the PNG at `path` with an image or file reader before acting. A successful
 JSON response alone is not visual verification. It then uses `move`, `click`,
 `drag`, `type`, `press`, `scroll`, or `activate` as needed and takes and opens a new screenshot to
@@ -208,11 +309,27 @@ diagnostics take effect only in a rebuilt development host or installed release.
 A provider-coloured ring and name tag mark the action point. The frosted bar
 identifies the agent and app, with **Pause/Resume** and **Stop**. Esc twice stops
 the active chat. App consent is on by default and lasts for the chat in that app;
-shared control asks for every action. Shared control yields to user input;
-app-directed control yields when the user works in the same app. Paused agents
+shared control asks for every action. Shared control pauses once the user keeps using the mouse or keyboard for about 3 seconds; a brief bump is ignored. App-directed and
+element control keep running while the user works, even in the same app; only
+Pause, Stop or Esc twice stops them. Paused agents
 can observe but cannot send input. Stopped agents need new consent. On pause,
 stop, denial or timeout, agents wait for the user instead of retrying in a loop.
 Both overlays are excluded from agent screenshots and cannot be input targets.
+
+While the Mac is locked, or another user's session is on screen, desktop control
+is paused completely: Aven reads the login session immediately before every
+action, consent prompt and native event, and refuses observation as well as
+input with "The Mac is locked. Desktop control is paused until the user
+unlocks; keep working in Aven's browser or code, or wait." (or, when another
+user's session is on screen, "The user's Mac session is not on screen"). A lock
+reported by macOS's lock notification stays in force until the unlock
+notification arrives or a later session read shows the lock and then the
+unlock, so a session read that has not caught up cannot undo it. Nothing is typed into
+the login window, no consent prompt waits for nobody, and the bar stays hidden.
+Locking during a drag, typing or a multi-page scroll stops it at its next step
+and releases any held button; an open consent prompt is cancelled with the same
+message. `status` still reports settings and permissions. Agents continue other
+work or wait, and observe again after the user unlocks.
 
 Agent actions never trigger macOS permission prompts; per-app consent is separate. Agents read the status's `enabled`
 flag and named permission grants before choosing an action; `permissionsRequired`

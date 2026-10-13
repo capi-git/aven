@@ -158,6 +158,14 @@ export function useHoverRevealPanel({
     else leaveTimer.current = setTimeout(close, wait);
   }, [cancelLeave, containsFocus, dismiss]);
 
+  /** The pointer moved somewhere this document cannot see, such as a native
+   * page drawn above it. Treat it as leaving both the edge and the panel. */
+  const pointerLeft = useCallback(() => {
+    pointer.current = { edge: false, panel: false };
+    cancelEnter();
+    scheduleClose();
+  }, [cancelEnter, scheduleClose]);
+
   const edgeHandlers = useMemo<HoverRevealPanelHandlers>(
     () => ({
       onPointerEnter: (event) => {
@@ -344,5 +352,6 @@ export function useHoverRevealPanel({
     panelHandlers,
     reveal,
     dismiss,
+    pointerLeft,
   };
 }
