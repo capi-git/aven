@@ -209,7 +209,10 @@ function clipHoverSidebars(bounds: BrowserBounds): BrowserBounds {
     const style = getComputedStyle(element);
     if (
       style.visibility === "hidden" ||
-      element.closest('[hidden], [inert], [aria-hidden="true"]')
+      // A dismissed peek starts closing before React removes its markers.
+      element.closest(
+        '[hidden], [inert], [aria-hidden="true"], [data-open="false"]',
+      )
     )
       continue;
     // The active marker is authoritative even while the panel is still off
@@ -1364,6 +1367,11 @@ function BrowserPaneSession({
             ].includes(record.attributeName ?? "")
           )
             return true;
+          if (record.attributeName === "data-open")
+            return (
+              record.target instanceof HTMLElement &&
+              !!record.target.querySelector("[data-native-browser-edge]")
+            );
           if (styled.has(record.target)) return false;
           styled.add(record.target);
           return overlayNode(record.target);
@@ -1405,6 +1413,7 @@ function BrowserPaneSession({
           "style",
           "data-native-browser-occluded",
           "data-native-browser-edge",
+          "data-open",
         ],
       });
       document.addEventListener("visibilitychange", present);

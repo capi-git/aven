@@ -393,6 +393,12 @@ export const nativeBrowser = {
       "browser-open-tab",
       ({ payload }) => callback(payload),
     ),
+  /** The pointer moved onto a live page, out of sight of this document. */
+  listenPointer: (callback: (event: { id: string }) => void) =>
+    getCurrentWebview().listen<{ id: string }>(
+      "browser-pointer",
+      ({ payload }) => callback(payload),
+    ),
   layout: (id: string, bounds: BrowserBounds, visible: boolean) =>
     invoke<void>("browser_layout", { id, bounds, visible }),
   snapshot: (id: string) => invoke<string>("browser_snapshot", { id }),

@@ -3382,6 +3382,29 @@ describe("native preview lifecycle", () => {
     expect(mocks.snapshot).not.toHaveBeenCalled();
   });
 
+  it("uncovers the page as soon as a dismissed peek starts closing", async () => {
+    const id = await openPane();
+    const slot = document.createElement("div");
+    slot.dataset.open = "true";
+    container.appendChild(slot);
+    const sidebar = addHoverSidebar("left", new DOMRect(5, 0, 295, 700));
+    slot.appendChild(sidebar);
+    await act(async () => {});
+    await flushFrame();
+    expect(mocks.layout).toHaveBeenLastCalledWith(
+      id,
+      expect.objectContaining({ clipLeft: 200 }),
+      true,
+    );
+    // The hover hook closes the slot before React removes the markers.
+    slot.dataset.open = "false";
+    mutationCallback([
+      { type: "attributes", target: slot, attributeName: "data-open" },
+    ]);
+    await act(async () => {});
+    expect(mocks.layout.mock.calls.at(-1)![1]).not.toHaveProperty("clipLeft");
+  });
+
   it("hides only a fully covered browser pane and reveals its same page when the hover sidebar leaves", async () => {
     const id = await openPane();
     const sidebar = addHoverSidebar("left", new DOMRect(5, 0, 795, 700));

@@ -12,10 +12,110 @@
 // Cut-outs in this view's coordinates, or NULL. The view retains the path.
 - (void)setHolePath:(CGPathRef)path;
 - (BOOL)holeContainsPoint:(NSPoint)point;
+// Called when the pointer moves onto the live page. The workspace webview
+// beneath never sees the pointer cross into this view, so a hover panel
+// beside the page would otherwise stay open.
+@property(nonatomic, copy) void (^pointerEntered)(void);
+// Slides the page's visible leading edge, in this view's coordinates, on the
+// same springs as the workspace hover sidebar (--aven-peek-in/out in
+// personal-shell.css). The caller keeps the uncropped frame meanwhile and
+// applies its final crop in `completion`, which a cancelled slide never runs.
+- (void)slideLeadingEdgeFrom:(CGFloat)from
+                          to:(CGFloat)to
+                  completion:(void (^)(void))completion;
+- (void)cancelLeadingEdgeSlide;
+@property(nonatomic, readonly) BOOL slidingLeadingEdge;
+@property(nonatomic, readonly) CGFloat slideTarget;
 @end
 
 @implementation SMBrowserClipView {
   CGPathRef _holes;
+  NSTrackingArea* _tracking;
+  CALayer* _slideMask;
+  NSUInteger _slideToken;
+  CGFloat _slideTarget;
+}
+- (BOOL)slidingLeadingEdge {
+  return _slideMask != nil;
+}
+- (CGFloat)slideTarget {
+  return _slideTarget;
+}
+// Where the page currently starts on screen during a slide, else 0.
+- (CGFloat)visibleLeadingEdge {
+  if (!_slideMask) return 0;
+  CALayer* shown = _slideMask.presentationLayer ?: _slideMask;
+  return shown.position.x;
+}
+- (void)slideLeadingEdgeFrom:(CGFloat)from
+                          to:(CGFloat)to
+                  completion:(void (^)(void))completion {
+  [self cancelLeadingEdgeSlide];
+  self.wantsLayer = YES;
+  const BOOL opening = to > from;
+  const CGSize size = self.layer.bounds.size;
+  CALayer* mask = [CALayer layer];
+  [CATransaction begin];
+  [CATransaction setDisableActions:YES];
+  mask.backgroundColor = NSColor.blackColor.CGColor;
+  mask.anchorPoint = CGPointZero;
+  mask.bounds = CGRectMake(0, 0, size.width, size.height);
+  mask.position = CGPointMake(to, 0);
+  self.layer.mask = mask;
+  [CATransaction commit];
+  CASpringAnimation* spring =
+      [CASpringAnimation animationWithKeyPath:@"position.x"];
+  const double response = opening ? 0.3 : 0.2;
+  const double damping = opening ? 0.88 : 1.0;
+  spring.mass = 1;
+  spring.stiffness = std::pow(2 * M_PI / response, 2);
+  spring.damping = 4 * M_PI * damping / response;
+  spring.fromValue = @(from);
+  spring.toValue = @(to);
+  // The CSS curves are sampled over these durations.
+  spring.duration = opening ? 0.37 : 0.24;
+  _slideMask = mask;
+  _slideTarget = to;
+  const NSUInteger token = ++_slideToken;
+  __weak SMBrowserClipView* weak = self;
+  void (^done)(void) = [completion copy];
+  [CATransaction begin];
+  [CATransaction setCompletionBlock:^{
+    SMBrowserClipView* view = weak;
+    if (!view || view->_slideToken != token) return;
+    [view cancelLeadingEdgeSlide];
+    if (done) done();
+  }];
+  [mask addAnimation:spring forKey:@"slide"];
+  [CATransaction commit];
+}
+- (void)cancelLeadingEdgeSlide {
+  ++_slideToken;
+  if (!_slideMask) return;
+  [CATransaction begin];
+  [CATransaction setDisableActions:YES];
+  if (self.layer.mask == _slideMask) self.layer.mask = nil;
+  [CATransaction commit];
+  _slideMask = nil;
+}
+- (void)updateTrackingAreas {
+  [super updateTrackingAreas];
+  if (_tracking) [self removeTrackingArea:_tracking];
+  _tracking = [[NSTrackingArea alloc]
+      initWithRect:NSZeroRect
+           options:NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways |
+                   NSTrackingInVisibleRect
+             owner:self
+          userInfo:nil];
+  [self addTrackingArea:_tracking];
+}
+- (void)mouseEntered:(NSEvent*)event {
+  // A menu cut out of the page, or the part a slide has not uncovered, still
+  // belongs to the workspace webview.
+  const NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+  if (self.pointerEntered && ![self holeContainsPoint:point] &&
+      point.x >= [self visibleLeadingEdge])
+    self.pointerEntered();
 }
 - (void)dealloc {
   if (_holes) CGPathRelease(_holes);
@@ -31,9 +131,12 @@
 - (NSView*)hitTest:(NSPoint)point {
   // AppKit passes the point in the superview's coordinate system. Returning
   // nil lets the window continue to the workspace webview under the menu.
-  if (_holes && self.superview &&
-      [self holeContainsPoint:[self convertPoint:point fromView:self.superview]])
-    return nil;
+  if (self.superview) {
+    const NSPoint local = [self convertPoint:point fromView:self.superview];
+    if ((_holes && [self holeContainsPoint:local]) ||
+        local.x < [self visibleLeadingEdge])
+      return nil;
+  }
   return [super hitTest:point];
 }
 @end

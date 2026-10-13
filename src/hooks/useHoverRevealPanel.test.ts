@@ -167,6 +167,22 @@ describe("temporary hover panels", () => {
     expect(latest.visible).toBe(false);
   });
 
+  it("closes when the pointer leaves the panel for a native page", async () => {
+    await render();
+    await reveal();
+    leave("[data-edge]");
+    enter("[data-panel]");
+    await advance(500);
+    expect(latest.visible).toBe(true);
+    // The native page draws above this document, so no pointerout arrives.
+    act(() => latest.pointerLeft());
+    await advance(179);
+    expect(latest.visible).toBe(true);
+    await advance(1);
+    expect(latest.visible).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("starts a zero-delay close after pointer leave without waiting for a timer", async () => {
     await render({ enterDelay: 45, leaveDelay: 0 });
     enter("[data-edge]");

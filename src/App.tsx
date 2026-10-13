@@ -223,7 +223,7 @@ import { BranchPicker } from "./chrome/BranchPicker";
 import { Popover } from "./chrome/Popover";
 import { FolderPlus, ArrowDownCircle, Folder } from "./chrome/icons";
 import { installInAppLinks } from "./lib/inAppLinks";
-import { normalizeBrowserUrl } from "./lib/browser";
+import { nativeBrowser, normalizeBrowserUrl } from "./lib/browser";
 import {
   useWorkspaceProfiles,
   restoreProfileWorkspace,
@@ -1590,6 +1590,15 @@ export default function App({
     leaveDelay: 90,
   });
   const inspectorVisible = workspaceVisible && inspector.open;
+  useEffect(() => {
+    if (!sidebarHover.revealed) return;
+    // Native pages draw above the workspace, so leaving the peek for one
+    // never reaches this document as a pointer event.
+    const unlisten = Promise.resolve()
+      .then(() => nativeBrowser.listenPointer(sidebarHover.pointerLeft))
+      .catch(() => undefined);
+    return () => void unlisten.then((stop) => stop?.());
+  }, [sidebarHover.revealed, sidebarHover.pointerLeft]);
   useLayoutEffect(() => {
     // Publish the committed panel geometry before paint. Native browser children
     // can throttle WK animation frames, so ResizeObserver alone trails toggles.

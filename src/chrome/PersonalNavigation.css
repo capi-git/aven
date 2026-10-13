@@ -644,6 +644,14 @@ html.is-mac.has-native-glass:not(.theme-light)
   transition: clip-path var(--aven-peek-in-duration) var(--aven-peek-in-easing);
 }
 
+/* Resizing moves the edge directly; an animated crop would trail the drag. */
+html.is-mac.has-native-glass:not(.theme-light)
+  .personal-shell-body[data-floating-sidebar-revealed="true"]
+  > .personal-sidebar-slot[data-floating="true"][data-open="true"][data-resizing="true"]
+  ~ .personal-workspace-column {
+  transition: none;
+}
+
 html
   .personal-shell
   .personal-sidebar-slot[data-floating="true"][data-open="false"]
