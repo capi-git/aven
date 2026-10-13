@@ -18,6 +18,8 @@
 #include "browser_tab_zoom.h"
 #include "browser_actions_menu.h"
 #include "browser_drop_indicator.h"
+#include "browser_agent_marker.h"
+#include "browser_agent_marker_geometry.h"
 #include "browser_edit_capture.h"
 #include "browser_edit_image.h"
 #include "browser_edit_annotation.h"
@@ -334,7 +336,12 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     // API does not expose every screen/WebRTC capture lifetime reliably.
     if (video || audio) { media_access_seen_=true; sleep_.Invalidate(); }
   }
-  bool OnSetFocus(CefRefPtr<CefBrowser> browser,FocusSource source) override { return Main(browser) && (!visible_ || closing_ || update_prepared_); }
+  bool OnSetFocus(CefRefPtr<CefBrowser> browser,FocusSource source) override {
+    // An agent's fill or click focuses an element inside the page only. Never
+    // let that become an app-level focus change that takes the user's keyboard.
+    if (Main(browser) && source==FOCUS_SOURCE_SYSTEM && AgentFocusGuarded() && !Focused()) return true;
+    return Main(browser) && (!visible_ || closing_ || update_prepared_);
+  }
   void OnGotFocus(CefRefPtr<CefBrowser> browser) override { if (Main(browser)) State(); }
   void OnTakeFocus(CefRefPtr<CefBrowser> browser,bool next) override {
     if (!Main(browser)) return;
@@ -360,6 +367,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       TraceLayout("native-before-close");
       registration_=nullptr; browser_=nullptr; context_id_=0;
       [drop_indicator_ clear]; drop_indicator_=nil;
+      [agent_marker_ clear]; [agent_marker_ removeFromSuperview]; agent_marker_=nil;
       [edit_annotation_ clear]; [edit_annotation_ removeFromSuperview]; edit_annotation_=nil;
       [clip_view_ removeFromSuperview]; clip_view_=nil;
       TraceLayout("native-closed-detached");
@@ -755,6 +763,9 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     if (was_hidden && !clip_view_.hidden) SchedulePump(0);
     if (clip_view_.hidden) [drop_indicator_ clear];
     [drop_indicator_ placeAboveBrowser:view frame:aligned.browser];
+    // The agent pointer is drawn only while this pane is on screen.
+    if (clip_view_.hidden || !visible_ || update_prepared_) [agent_marker_ clear];
+    [agent_marker_ placeAboveBrowser:view frame:aligned.browser];
     // Covers reparenting to a different-density display. Ordinary layouts do
     // not issue another metrics request when the physical scale is unchanged.
     RefreshBackingScale();
@@ -922,8 +933,15 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     else if (action=="snapshot") { Screenshot(request); return; }
     else if (action=="agent-screenshot") { PageScreenshot(request); return; }
     else if (action=="dom") { Dom(request,cmd->GetDictionary("request")); return; }
-    else if (action=="press") { user_input_=true; Press(request,Text(cmd,"key")); return; }
-    else if (action=="scroll") { Scroll(request,Number(cmd,"deltaX"),Number(cmd,"deltaY")); return; }
+    else if (action=="press") {
+      user_input_=true;
+      if (cmd->GetType("actor")==VTYPE_DICTIONARY) ApplyAgentActor(cmd->GetDictionary("actor")->Copy(false));
+      Press(request,Text(cmd,"key")); return;
+    }
+    else if (action=="scroll") {
+      if (cmd->GetType("actor")==VTYPE_DICTIONARY) ApplyAgentActor(cmd->GetDictionary("actor")->Copy(false));
+      Scroll(request,Number(cmd,"deltaX"),Number(cmd,"deltaY")); return;
+    }
     else { Result(id_,request,false,Error("Unknown Chromium command")); return; }
     Result(id_,request,true,Object());
   }
@@ -1357,26 +1375,159 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       });
     });
   }
+  // Aven's in-pane agent pointer. Identity arrives with each agent command.
+  void ApplyAgentActor(Dict actor) {
+    if (!actor) return;
+    auto color=actor->GetList("color");
+    if (!color || color->GetSize()!=3 || actor->GetType("name")!=VTYPE_STRING) return;
+    double rgb[3];
+    for (size_t i=0;i<3;++i) {
+      if (color->GetType(i)==VTYPE_DOUBLE) rgb[i]=color->GetDouble(i);
+      else if (color->GetType(i)==VTYPE_INT) rgb[i]=color->GetInt(i);
+      else return;
+    }
+    if (!agent_marker_) {
+      NSView *view=browser_ ? (__bridge NSView*)browser_->GetHost()->GetWindowHandle() : nil;
+      agent_marker_=[[SMBrowserAgentMarker alloc] initWithFrame:view ? view.frame : NSZeroRect];
+    }
+    [agent_marker_ setActorName:Ns(Text(actor,"name")) red:rgb[0] green:rgb[1] blue:rgb[2]];
+  }
+  supermono::AgentMarkerPane MarkerPane() const {
+    supermono::AgentMarkerPane pane;
+    if (!browser_ || closing_) return pane;
+    NSView *view=(__bridge NSView*)browser_->GetHost()->GetWindowHandle();
+    NSWindow *window=view.window;
+    pane.width=view.frame.size.width; pane.height=view.frame.size.height;
+    pane.clip_left=auto_resize_ ? 0 : clip_left_; pane.clip_right=auto_resize_ ? 0 : clip_right_;
+    pane.shown=visible_ && !update_prepared_ && clip_view_ && !clip_view_.hidden && window &&
+      window.visible && (window.occlusionState & NSWindowOcclusionStateVisible);
+    return pane;
+  }
+  void ShowMarker(SMAgentMarkerAction action,std::optional<supermono::AgentMarkerPoint> point) {
+    if (!agent_marker_ || !browser_ || closing_) return;
+    if (!point) return;
+    NSView *view=(__bridge NSView*)browser_->GetHost()->GetWindowHandle();
+    [agent_marker_ placeAboveBrowser:view frame:view.frame];
+    if (agent_marker_.superview) [agent_marker_ showAction:action at:NSMakePoint(point->x,point->y)];
+  }
+  // `target`/`viewport` come from the DOM script in CSS pixels.
+  void ShowMarkerAtPageRect(SMAgentMarkerAction action,Dict result) {
+    auto target=result ? result->GetDictionary("target") : nullptr;
+    auto viewport=result ? result->GetDictionary("viewport") : nullptr;
+    if (!target || !viewport) { ShowMarker(action,supermono::AgentMarkerPaneCentre(MarkerPane())); return; }
+    const double nan=std::numeric_limits<double>::quiet_NaN();
+    ShowMarker(action,supermono::AgentMarkerFromPage(Number(target,"x",nan),Number(target,"y",nan),
+      Number(target,"width",nan),Number(target,"height",nan),
+      Number(viewport,"width",nan),Number(viewport,"height",nan),MarkerPane()));
+  }
+  static Dict AgentResult(Dict result,const std::string& method) {
+    // Geometry is for the native pointer only; agents receive the plain result.
+    auto clean=result ? result->Copy(false) : Object();
+    for (const char *key:{"target","viewport","point","matches"}) clean->Remove(key);
+    if (!method.empty()) clean->SetString("method",method);
+    return clean;
+  }
+  bool AgentFocusGuarded() const { return CFAbsoluteTimeGetCurrent()<agent_focus_guard_until_; }
+  void GuardAgentFocus(double seconds=1.5) {
+    agent_focus_guard_until_=std::max(agent_focus_guard_until_,CFAbsoluteTimeGetCurrent()+seconds);
+  }
+  // Runs one fixed DOM operation in the isolated world and decodes its JSON.
+  void RunAgentDom(Dict operation,Completion done) {
+    CefRefPtr<Page> self=this;
+    EnsureWorld([self,operation,done](bool ok,Dict world) {
+      if (!ok) { done(false,world); return; }
+      auto params=Object(); params->SetString("expression",std::string(kAgentDomSource)+"("+Json(operation)+")");
+      params->SetInt("contextId",self->context_id_); params->SetBool("returnByValue",true); params->SetBool("awaitPromise",false);
+      params->SetBool("userGesture",true); params->SetInt("timeout",5000);
+      self->Dev("Runtime.evaluate",params,[self,done](bool ok,Dict value) {
+        if (!ok) { self->context_id_=0; done(false,value); return; }
+        if (value->HasKey("exceptionDetails")) { done(false,Error("Page changed during the operation. Take a new snapshot.")); return; }
+        auto remote=value->GetDictionary("result"); const auto serialized=Text(remote,"value");
+        if (serialized.size()>512*1024) { done(false,Error("Browser snapshot exceeded its limit")); return; }
+        auto result=Parse(serialized);
+        if (!result) { done(false,Error("Browser returned an invalid action result")); return; }
+        auto error=Text(result,"__supermonoAgentError");
+        if (!error.empty()) { done(false,Error(error)); return; }
+        done(true,result);
+      });
+    });
+  }
   void Dom(const std::string& request,Dict operation) {
     operation=supermono::OwnAgentDomRequest(operation);
     const auto action=Text(operation,"action");
     if (!operation || (action!="snapshot"&&action!="fill"&&action!="click") || Json(operation).size()>70000) { Result(id_,request,false,Error("Invalid browser action")); return; }
-    if (action!="snapshot") user_input_=true;
+    if (operation->GetType("actor")==VTYPE_DICTIONARY) ApplyAgentActor(operation->GetDictionary("actor")->Copy(false));
+    operation->Remove("actor");
+    operation->Remove("native"); operation->Remove("pointer");
     CefRefPtr<Page> self=this;
-    EnsureWorld([self,request,operation](bool ok,Dict world) {
-      if (!ok) { Result(self->id_,request,false,world); return; }
-      auto params=Object(); params->SetString("expression",std::string(kAgentDomSource)+"("+Json(operation)+")");
-      params->SetInt("contextId",self->context_id_); params->SetBool("returnByValue",true); params->SetBool("awaitPromise",false);
-      params->SetBool("userGesture",true); params->SetInt("timeout",5000);
-      self->Dev("Runtime.evaluate",params,[self,request](bool ok,Dict value) {
-        if (!ok) { self->context_id_=0; Result(self->id_,request,false,value); return; }
-        if (value->HasKey("exceptionDetails")) { Result(self->id_,request,false,Error("Page changed during the operation. Take a new snapshot.")); return; }
-        auto remote=value->GetDictionary("result"); const auto serialized=Text(remote,"value");
-        if (serialized.size()>512*1024) { Result(self->id_,request,false,Error("Browser snapshot exceeded its limit")); return; }
-        auto result=Parse(serialized);
-        if (!result) { Result(self->id_,request,false,Error("Browser returned an invalid action result")); return; }
-        auto error=Text(result,"__supermonoAgentError");
-        Result(self->id_,request,error.empty(),error.empty()?result:Error(error));
+    if (action=="snapshot") {
+      RunAgentDom(operation,[self,request](bool ok,Dict result) { Result(self->id_,request,ok,result); });
+      return;
+    }
+    user_input_=true;
+    GuardAgentFocus();
+    if (action=="fill") { FillElement(request,operation); return; }
+    // A trusted pointer press only at 100% zoom, where the page's CSS pixels and
+    // the input coordinate space agree exactly. Zoomed tabs keep element.click().
+    operation->SetBool("pointer",!zoom_.pending() && std::abs(zoom_.factor()-1)<1e-6);
+    RunAgentDom(operation,[self,request,operation](bool ok,Dict result) {
+      if (!ok) { Result(self->id_,request,false,result); return; }
+      self->ShowMarkerAtPageRect(SMAgentMarkerActionClick,result);
+      if (Text(result,"method")!="pointer") { Result(self->id_,request,true,AgentResult(result,"")); return; }
+      auto point=result->GetDictionary("point");
+      const double x=Number(point,"x",-1),y=Number(point,"y",-1);
+      self->PointerClick(x,y,[self,request,operation,result](bool ok,Dict error) {
+        self->GuardAgentFocus();
+        if (ok) { Result(self->id_,request,true,AgentResult(result,"pointer")); return; }
+        // The press never reached the page: click the element itself instead.
+        auto fallback=operation->Copy(false); fallback->SetBool("pointer",false);
+        self->RunAgentDom(fallback,[self,request](bool ok,Dict result) {
+          Result(self->id_,request,ok,ok ? AgentResult(result,"") : result);
+        });
+      });
+    });
+  }
+  // Press and release at one page point, in CSS pixels of the main frame.
+  void PointerClick(double x,double y,Completion done) {
+    if (!std::isfinite(x) || !std::isfinite(y) || x<0 || y<0) { done(false,Error("Invalid click point")); return; }
+    auto press=Object(); press->SetString("type","mousePressed"); press->SetDouble("x",x); press->SetDouble("y",y);
+    press->SetString("button","left"); press->SetInt("buttons",1); press->SetInt("clickCount",1);
+    CefRefPtr<Page> self=this;
+    Dev("Input.dispatchMouseEvent",press,[self,x,y,done](bool ok,Dict result) {
+      if (!ok) { done(false,result); return; }
+      auto release=Object(); release->SetString("type","mouseReleased"); release->SetDouble("x",x); release->SetDouble("y",y);
+      release->SetString("button","left"); release->SetInt("buttons",0); release->SetInt("clickCount",1);
+      // Once pressed, always release; report the release outcome, never re-click.
+      self->Dev("Input.dispatchMouseEvent",release,[done](bool ok,Dict result) { done(true,ok ? Object() : result); });
+    });
+  }
+  // Focus the field in the page, select what it holds, then type with Chromium's
+  // trusted text input so frameworks see real beforeinput/input events. Verify
+  // the value; fall back to the direct value setter for anything that refused.
+  void FillElement(const std::string& request,Dict operation) {
+    auto native=operation->Copy(false); native->SetBool("native",true);
+    const auto value=Text(operation,"value");
+    CefRefPtr<Page> self=this;
+    RunAgentDom(native,[self,request,operation,value](bool ok,Dict result) {
+      if (!ok) { Result(self->id_,request,false,result); return; }
+      self->ShowMarkerAtPageRect(SMAgentMarkerActionType,result);
+      if (Text(result,"method")!="insert") { Result(self->id_,request,true,AgentResult(result,"")); return; }
+      const auto fallback=[self,request,operation]() {
+        self->RunAgentDom(operation,[self,request](bool ok,Dict result) {
+          Result(self->id_,request,ok,ok ? AgentResult(result,"") : result);
+        });
+      };
+      auto text=Object(); text->SetString("text",value);
+      self->Dev("Input.insertText",text,[self,request,operation,result,fallback](bool ok,Dict) {
+        self->GuardAgentFocus();
+        if (!ok) { fallback(); return; }
+        auto verify=operation->Copy(false); verify->SetString("action","fill-verify");
+        self->RunAgentDom(verify,[self,request,result,fallback](bool ok,Dict verified) {
+          if (ok && verified->GetType("matches")==VTYPE_BOOL && verified->GetBool("matches")) {
+            Result(self->id_,request,true,AgentResult(result,"typed")); return;
+          }
+          fallback();
+        });
       });
     });
   }
@@ -1456,13 +1607,17 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     screenshot_running_=true;
     const bool restores_geometry=params->GetType("fromSurface")!=VTYPE_BOOL || params->GetBool("fromSurface");
     CefRefPtr<Page> self=this;
+    // A view capture copies on-screen pixels; keep Aven's pointer out of them.
+    const bool view_capture=!restores_geometry;
+    if (view_capture) [agent_marker_ suspendForCapture];
     auto delivered=std::make_shared<bool>(false);
     const auto notify=[delivered,callback](bool ok,Dict result) {
       if (*delivered) return;
       *delivered=true;
       callback(ok,result);
     };
-    Dev("Page.captureScreenshot",params,[self,notify,restores_geometry](bool ok,Dict result) {
+    Dev("Page.captureScreenshot",params,[self,notify,restores_geometry,view_capture](bool ok,Dict result) {
+      if (view_capture) [self->agent_marker_ resumeAfterCapture];
       self->ScreenshotFinished(restores_geometry);
       notify(ok,result);
     },notify);
@@ -1479,11 +1634,25 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       {"ArrowUp",38},{"ArrowDown",40},{"ArrowLeft",37},{"ArrowRight",39},{"Home",36},{"End",35},{"PageUp",33},{"PageDown",34}};
     auto found=keys.find(key);
     if (found==keys.end()) { Result(id_,request,false,Error("Unsupported browser key")); return; }
+    GuardAgentFocus();
+    CefRefPtr<Page> self=this;
+    const auto dispatch=[self,request,key,code=found->second]() {
+      self->DispatchKey(request,key,code);
+    };
+    // Show the key at the focused element; skip the lookup for hidden panes.
+    if (!agent_marker_ || !MarkerPane().shown) { dispatch(); return; }
+    auto focus=Object(); focus->SetString("action","focus-rect");
+    RunAgentDom(focus,[self,dispatch](bool ok,Dict result) {
+      self->ShowMarkerAtPageRect(SMAgentMarkerActionKey,ok ? result : nullptr);
+      dispatch();
+    });
+  }
+  void DispatchKey(const std::string& request,const std::string& key,int code) {
     auto params=Object(); params->SetString("type","keyDown"); params->SetString("key",key); params->SetString("code",key);
-    params->SetInt("windowsVirtualKeyCode",found->second);
+    params->SetInt("windowsVirtualKeyCode",code);
     if (key=="Enter") { params->SetString("text","\r"); params->SetString("unmodifiedText","\r"); }
     CefRefPtr<Page> self=this;
-    Dev("Input.dispatchKeyEvent",params,[self,request,key,code=found->second](bool ok,Dict result) {
+    Dev("Input.dispatchKeyEvent",params,[self,request,key,code](bool ok,Dict result) {
       if (!ok) { Result(self->id_,request,false,result); return; }
       auto up=Object(); up->SetString("type","keyUp"); up->SetString("key",key); up->SetString("code",key); up->SetInt("windowsVirtualKeyCode",code);
       self->Dev("Input.dispatchKeyEvent",up,[self,request](bool ok,Dict result) { Result(self->id_,request,ok,result); });
@@ -1491,6 +1660,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   }
   void Scroll(const std::string& request,double dx,double dy) {
     if (!std::isfinite(dx)||!std::isfinite(dy)||std::abs(dx)>2000||std::abs(dy)>2000) { Result(id_,request,false,Error("Scroll distances must be finite and at most 2000 pixels")); return; }
+    ShowMarker(SMAgentMarkerActionScroll,supermono::AgentMarkerPaneCentre(MarkerPane()));
     auto params=Object(); params->SetString("type","mouseWheel"); params->SetDouble("x",std::max(1.0,w_/2)); params->SetDouble("y",std::max(1.0,h_/2));
     params->SetDouble("deltaX",dx); params->SetDouble("deltaY",dy);
     CefRefPtr<Page> self=this;
@@ -1501,6 +1671,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   __strong NSView *parent_=nil;
   __strong NSView *clip_view_=nil;
   __strong SMBrowserDropIndicator *drop_indicator_=nil;
+  __strong SMBrowserAgentMarker *agent_marker_=nil;
   __strong SMBrowserEditAnnotation *edit_annotation_=nil;
   double x_=0,y_=0,w_=1,h_=1,clip_left_=0,clip_right_=0,viewport_height_=0,bottom_corner_radius_=0;
   std::vector<supermono::BrowserHole> holes_;
@@ -1560,6 +1731,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   bool editing_=false;
   bool edit_selection_pending_=false;
   bool screenshot_running_=false;
+  double agent_focus_guard_until_=0;
   uint64_t edit_generation_=0;
   std::string edit_token_;
   std::string title_,error_,notice_,find_query_;
@@ -1730,6 +1902,7 @@ extern "C" int sm_chromium_reparent(const char *id,void *parent,double x,double 
     if (!parent || !Geometry(x,y,w,h) || !std::isfinite(inset)) return Fail("Invalid browser parent or bounds");
     if (!page->PrepareReparent()) return Fail("This page is going to sleep. Wait for it to reopen.");
     [page->drop_indicator_ clear];
+    [page->agent_marker_ clear];
     if (page->EditActive()) page->EditMode(false);
     page->parent_=(__bridge NSView*)parent; page->x_=x; page->y_=y; page->w_=w; page->h_=h; page->clip_left_=page->clip_right_=page->viewport_height_=page->bottom_corner_radius_=0; page->holes_.clear(); page->auto_resize_=inset>=0; page->Layout(); return 1; }
 }

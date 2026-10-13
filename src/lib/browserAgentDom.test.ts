@@ -6,10 +6,11 @@ type Snapshot = {
   elements: { ref: string; label: string; value?: string; type?: string }[];
   text: string;
 };
+type Request = Record<string, string | boolean>;
 const evaluate = new Function(`return (${script})`)() as (
-  request: Record<string, string>,
+  request: Request,
 ) => string;
-function operate(request: Record<string, string>): string {
+function operate(request: Request): string {
   const result = evaluate(request);
   const decoded = JSON.parse(result);
   if (typeof decoded.__supermonoAgentError === "string")
@@ -145,5 +146,140 @@ describe("native agent browser fixed DOM actions", () => {
     expect(
       (globalThis as unknown as { compromised?: boolean }).compromised,
     ).toBeUndefined();
+  });
+
+  const ref = (label: string) =>
+    snapshot().elements.find((item) => item.label === label)!.ref;
+  const decode = (request: Request) => JSON.parse(operate(request));
+
+  it("focuses the field inside the page so a following key press reaches it", () => {
+    const input = document.querySelector<HTMLInputElement>("#name")!;
+    const result = decode({ action: "fill", ref: ref("Name"), value: "x" });
+    expect(document.activeElement).toBe(input);
+    expect(input.value).toBe("x");
+    expect(result.method).toBe("value");
+    expect(result.target).toEqual({ x: 0, y: 0, width: 100, height: 20 });
+    expect(result.viewport.width).toBeGreaterThan(0);
+  });
+
+  it("selects existing text for the host's trusted typing, then verifies it", () => {
+    const input = document.querySelector<HTMLInputElement>("#name")!;
+    const changed = vi.fn();
+    input.addEventListener("change", changed);
+    const name = ref("Name");
+    const result = decode({
+      action: "fill",
+      ref: name,
+      value: "typed",
+      native: true,
+    });
+    expect(result.method).toBe("insert");
+    // Nothing is written by the script; the host replaces the selection.
+    expect(input.value).toBe("before");
+    expect(document.activeElement).toBe(input);
+    expect([input.selectionStart, input.selectionEnd]).toEqual([0, 6]);
+    const verify = { action: "fill-verify", ref: name, value: "typed" };
+    expect(decode(verify).matches).toBe(false);
+    expect(changed).not.toHaveBeenCalled();
+    input.value = "typed";
+    expect(decode(verify).matches).toBe(true);
+    expect(changed).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the direct value path for selects, dates and clearing", () => {
+    document.body.innerHTML =
+      '<select aria-label="Size"><option value="s">S</option><option value="m">M</option></select>' +
+      '<input type="date" aria-label="When"><input aria-label="Note" value="old">';
+    const select = decode({
+      action: "fill",
+      ref: ref("Size"),
+      value: "m",
+      native: true,
+    });
+    expect(select.method).toBe("value");
+    expect(document.querySelector("select")!.value).toBe("m");
+    const date = decode({
+      action: "fill",
+      ref: ref("When"),
+      value: "2026-10-12",
+      native: true,
+    });
+    expect(date.method).toBe("value");
+    const clear = decode({
+      action: "fill",
+      ref: ref("Note"),
+      value: "",
+      native: true,
+    });
+    expect(clear.method).toBe("value");
+    expect(
+      document.querySelector<HTMLInputElement>('[aria-label="Note"]')!.value,
+    ).toBe("");
+  });
+
+  it("types into rich text editors through a selection of their content", () => {
+    document.body.innerHTML =
+      '<div contenteditable="true" aria-label="Body">Old text</div>';
+    const result = decode({
+      action: "fill",
+      ref: ref("Body"),
+      value: "New",
+      native: true,
+    });
+    expect(result.method).toBe("insert");
+    expect(getSelection()!.toString()).toBe("Old text");
+  });
+
+  it("asks for a pointer press only when the element itself is under its centre", () => {
+    const button = document.querySelector("button")!;
+    const clicked = vi.fn();
+    button.addEventListener("click", clicked);
+    const hit = vi.spyOn(document, "elementFromPoint").mockReturnValue(button);
+    const pointer = decode({
+      action: "click",
+      ref: ref("Save"),
+      pointer: true,
+    });
+    expect(pointer.method).toBe("pointer");
+    expect(pointer.point).toEqual({ x: 50, y: 10 });
+    expect(clicked).not.toHaveBeenCalled();
+    // Covered by an overlay: click the element directly instead.
+    const banner = document.createElement("div");
+    document.body.append(banner);
+    hit.mockReturnValue(banner);
+    expect(
+      decode({ action: "click", ref: ref("Save"), pointer: true }).method,
+    ).toBe("element");
+    expect(clicked).toHaveBeenCalledOnce();
+    // Without the host's request (zoomed tab, WebKit), never a pointer press.
+    hit.mockReturnValue(button);
+    expect(decode({ action: "click", ref: ref("Save") }).method).toBe(
+      "element",
+    );
+    expect(clicked).toHaveBeenCalledTimes(2);
+  });
+
+  it("never presses controls whose pointer press opens a native picker", () => {
+    document.body.innerHTML =
+      '<select aria-label="Size"><option value="s">S</option></select><input type="color" aria-label="Tint">';
+    const hit = vi.spyOn(document, "elementFromPoint");
+    for (const label of ["Size", "Tint"]) {
+      const element = document.querySelector(`[aria-label="${label}"]`)!;
+      hit.mockReturnValue(element);
+      expect(
+        decode({ action: "click", ref: ref(label), pointer: true }).method,
+      ).toBe("element");
+    }
+  });
+
+  it("reports the focused element for key presses without a snapshot", () => {
+    expect(decode({ action: "focus-rect" }).target).toBeUndefined();
+    document.querySelector<HTMLInputElement>("#name")!.focus();
+    expect(decode({ action: "focus-rect" }).target).toEqual({
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 20,
+    });
   });
 });
