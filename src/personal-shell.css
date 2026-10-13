@@ -499,6 +499,9 @@ html.has-native-glass.glass-body:not(.theme-light)
   height: calc(100% - 10px);
   background: var(--personal-navigation-surface);
   z-index: 50;
+  /* The border alone defines the edge, as Arc's floating sidebar does. A
+     wide drop shadow darkens the window edge and the content beside it. */
+  box-shadow: none;
 }
 .personal-shell
   .personal-inspector-slot[data-floating="true"]
