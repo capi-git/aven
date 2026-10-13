@@ -186,6 +186,28 @@ describe("native agent browser fixed DOM actions", () => {
     expect(changed).toHaveBeenCalledOnce();
   });
 
+  it("accepts a page's own formatting of typed text but not ignored or appended text", () => {
+    const input = document.querySelector<HTMLInputElement>("#name")!;
+    const name = ref("Name");
+    const verify = (value: string) =>
+      decode({ action: "fill-verify", ref: name, value }).matches;
+    // A phone mask reformats the typed digits.
+    decode({ action: "fill", ref: name, value: "5551234567", native: true });
+    input.value = "(555) 123-4567";
+    expect(verify("5551234567")).toBe(true);
+    // Typing ignored: the old value is still there.
+    decode({ action: "fill", ref: name, value: "5551234567", native: true });
+    expect(verify("5551234567")).toBe(false);
+    // Typing appended instead of replacing.
+    input.value = "before";
+    decode({ action: "fill", ref: name, value: "new", native: true });
+    input.value = "beforenew";
+    expect(verify("new")).toBe(false);
+    // A verify without its fill never infers success.
+    input.value = "other";
+    expect(verify("new")).toBe(false);
+  });
+
   it("keeps the direct value path for selects, dates and clearing", () => {
     document.body.innerHTML =
       '<select aria-label="Size"><option value="s">S</option><option value="m">M</option></select>' +

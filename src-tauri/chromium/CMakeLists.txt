@@ -11,6 +11,7 @@ endif()
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CEF_ROOT}/cmake")
 find_package(CEF REQUIRED)
 add_subdirectory("${CEF_LIBCEF_DLL_WRAPPER_PATH}" "${CMAKE_BINARY_DIR}/wrapper")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ../src/browser_agent_dom.js)
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../src/browser_agent_dom.js" AGENT_DOM_SOURCE)
 file(WRITE "${CMAKE_BINARY_DIR}/agent_dom_source.h"
   "#pragma once\nstatic constexpr const char kAgentDomSource[] = R\"SM_AGENT_DOM(${AGENT_DOM_SOURCE})SM_AGENT_DOM\";\n")

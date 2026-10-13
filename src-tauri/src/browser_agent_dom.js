@@ -64,7 +64,14 @@
     // The native host typed with trusted input events; confirm the result.
     const actual = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement ? element.value
       : element.isContentEditable ? element.innerText.replace(/\n$/, '') : null;
-    const matches = actual === request.value;
+    // Pages may reformat typed text (phone or card masks); accept a real
+    // replacement, but not text that was ignored or appended to the old value.
+    const pending = globalThis.__supermonoAgentFill;
+    globalThis.__supermonoAgentFill = undefined;
+    const before = pending && pending.ref === request.ref && pending.element === element ? pending.before : null;
+    const replaced = before !== null && typeof actual === 'string' && actual !== '' && actual !== before &&
+      !(before !== '' && actual.includes(before));
+    const matches = actual === request.value || replaced;
     // Keep the change notification that earlier fills always sent.
     if (matches && !element.isContentEditable) element.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
     return JSON.stringify({ ok: true, matches });
@@ -114,6 +121,9 @@
     element.focus({ preventScroll: true });
     if (request.native === true && insertable && request.value !== '') {
       // Select existing content; the host replaces it with trusted text input.
+      // The old value stays in this isolated world; it is never returned.
+      globalThis.__supermonoAgentFill = { ref: request.ref, element,
+        before: element.isContentEditable ? element.innerText.replace(/\n$/, '') : element.value };
       if (element.isContentEditable) {
         const range = document.createRange();
         range.selectNodeContents(element);
