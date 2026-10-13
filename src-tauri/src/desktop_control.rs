@@ -1262,6 +1262,12 @@ pub(crate) fn bind_session(
     Ok(())
 }
 
+/// A chat's reply ended or was stopped: its agent pointer leaves the screen
+/// now instead of lingering. Consent and captures are unaffected.
+pub(crate) fn turn_finished(scope: &str) {
+    platform::turn_finished(scope);
+}
+
 pub(crate) fn remove_session_captures(scope: &str) {
     platform::remove_captures(Some(scope));
     presence::with(|state| state.forget(Some(scope)));
@@ -1436,6 +1442,7 @@ mod platform {
         Ok(())
     }
     pub(super) fn remove_captures(_: Option<&str>) {}
+    pub(super) fn turn_finished(_: &str) {}
     pub(super) fn permissions() -> (bool, bool) {
         (false, false)
     }

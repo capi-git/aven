@@ -1686,6 +1686,10 @@ fn revoke_capture_sessions(
     revoked
 }
 
+pub(super) fn turn_finished(scope: &str) {
+    agent_cursor::clear_scope(Some(scope));
+}
+
 pub(super) fn remove_captures(scope: Option<&str>) {
     let revoked = CAPTURES.get().map(|sessions| {
         let mut sessions = sessions.lock().unwrap_or_else(|error| error.into_inner());
