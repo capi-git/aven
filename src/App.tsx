@@ -7613,12 +7613,14 @@ export default function App({
   useAutomaticModelCatalogs(sessions);
 
   const onToggleSidebar = useCallback(() => {
-    sidebarHover.dismiss();
+    // Pinning a peeked sidebar keeps it on screen. Dismissing first would start
+    // its slide out; the pin itself ends the peek without closing it.
+    if (!sidebarHover.revealed) sidebarHover.dismiss();
     setSidebarOpen((open) => {
       savePersonalSidebar(!open);
       return !open;
     });
-  }, [sidebarHover.dismiss]);
+  }, [sidebarHover.revealed, sidebarHover.dismiss]);
   const onToggleProjectRail = onToggleSidebar;
 
   const onGoToFile = useCallback(() => {

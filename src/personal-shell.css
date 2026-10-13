@@ -54,6 +54,13 @@
     var(--color-content)
   );
   --personal-panel-duration: 200ms;
+  /* Edge peek motion after Arc: the floating sidebar slides its full width on
+     a spring. Opening is lightly underdamped (damping 0.88, response 0.3s);
+     closing is critically damped and quicker (damping 1, response 0.2s). */
+  --aven-peek-in-duration: 370ms;
+  --aven-peek-in-easing: cubic-bezier(0.22, 1, 0.36, 1);
+  --aven-peek-out-duration: 240ms;
+  --aven-peek-out-easing: cubic-bezier(0.25, 0.6, 0.3, 1);
   --color-accent: var(--personal-accent);
   --color-background-base: var(--personal-main-surface);
   position: relative;
@@ -181,6 +188,64 @@ html.has-native-glass.glass-body:not(.theme-light)
   /* Match Tailwind's important hidden rule in its own cascade layer. */
   .personal-workspace-content[hidden] {
     display: flex !important;
+  }
+}
+
+/* Sampled spring curves; the cubic-bezier fallbacks above approximate them. */
+@supports (transition-timing-function: linear(0, 1)) {
+  .personal-shell {
+    --aven-peek-in-easing: linear(
+      0,
+      0.0466,
+      0.1532,
+      0.284,
+      0.417,
+      0.54,
+      0.647,
+      0.736,
+      0.8077,
+      0.8636,
+      0.906,
+      0.9375,
+      0.9602,
+      0.9761,
+      0.9869,
+      0.994,
+      0.9984,
+      1.001,
+      1.0023,
+      1.0029,
+      1.0029,
+      1.0027,
+      1.0024,
+      1
+    );
+    --aven-peek-out-easing: linear(
+      0,
+      0.0424,
+      0.1378,
+      0.2536,
+      0.3714,
+      0.4811,
+      0.5782,
+      0.6612,
+      0.7306,
+      0.7876,
+      0.8336,
+      0.8704,
+      0.8996,
+      0.9225,
+      0.9405,
+      0.9544,
+      0.9652,
+      0.9735,
+      0.9799,
+      0.9848,
+      0.9885,
+      0.9913,
+      0.9934,
+      1
+    );
   }
 }
 
@@ -441,10 +506,12 @@ html.has-native-glass.glass-body:not(.theme-light)
   inset: 0 5px 0 auto;
   padding: 0;
 }
+/* Slide fully past the window edge. Including the 5px inset makes the travel
+   equal the panel's right edge, so the workspace crop can follow it exactly. */
 .personal-shell
   .personal-sidebar-slot[data-floating="true"][data-open="false"]
   > .personal-sidebar {
-  transform: translateX(-28px);
+  transform: translateX(calc(-100% - 5px));
 }
 .personal-shell
   .personal-inspector-slot[data-floating="true"][data-open="false"]
@@ -464,6 +531,11 @@ html.has-native-glass.glass-body:not(.theme-light)
 }
 .personal-panel-edge-left {
   left: 0;
+  /* A wider hover target for throwing the pointer at the window edge, with
+     the same 6px visible strip. */
+  width: 10px;
+  padding-right: 4px;
+  background-clip: content-box;
 }
 .personal-panel-edge-right {
   right: 0;

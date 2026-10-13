@@ -3349,6 +3349,39 @@ describe("native preview lifecycle", () => {
     expect(mocks.snapshot).not.toHaveBeenCalled();
   });
 
+  it("reserves the hover sidebar edge while it is still past the window edge", async () => {
+    vi.stubGlobal(
+      "DOMMatrixReadOnly",
+      class {
+        m41 = -300;
+      },
+    );
+    const id = await openPane();
+    // First frame of a full-width slide: the panel's rect ends at x = 0.
+    const sidebar = document.createElement("aside");
+    sidebar.style.transform = "translateX(-300px)";
+    sidebar.dataset.nativeBrowserOccluded = "true";
+    sidebar.dataset.nativeBrowserEdge = "left";
+    vi.spyOn(sidebar, "getClientRects").mockReturnValue([
+      new DOMRect(-295, 0, 295, 700),
+    ] as unknown as DOMRectList);
+    container.appendChild(sidebar);
+    mutationCallback([
+      {
+        type: "attributes",
+        target: sidebar,
+        attributeName: "data-native-browser-occluded",
+      },
+    ]);
+    await act(async () => {});
+    expect(mocks.layout).toHaveBeenLastCalledWith(
+      id,
+      expect.objectContaining({ clipLeft: 200 }),
+      true,
+    );
+    expect(mocks.snapshot).not.toHaveBeenCalled();
+  });
+
   it("hides only a fully covered browser pane and reveals its same page when the hover sidebar leaves", async () => {
     const id = await openPane();
     const sidebar = addHoverSidebar("left", new DOMRect(5, 0, 795, 700));
