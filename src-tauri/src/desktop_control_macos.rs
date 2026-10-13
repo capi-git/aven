@@ -1968,9 +1968,19 @@ fn app_state(
     .key;
     // An unreadable setting fails closed: consent is required.
     let ask = consent_path(app).map_or(true, |path| read_ask_before_app_use(&path));
-    let consented = presence::with(|state| state.has_app_consent(scope, &consent_key));
-    let alive = || !session.revoked.load(Ordering::Acquire);
-    let (prepared, limited) = if accessibility::may_enable_switch(ask, consented) {
+    let (consented, held) = presence::with(|state| {
+        (
+            state.has_app_consent(scope, &consent_key),
+            state.changes_held(scope),
+        )
+    });
+    // Checked again under the switch registry lock: a pause, stop or lock
+    // while the switch is being turned on restores it straight away.
+    let alive = || {
+        !session.revoked.load(Ordering::Acquire)
+            && !presence::with(|state| state.changes_held(scope))
+    };
+    let (prepared, limited) = if accessibility::may_enable_switch(ask, consented, held) {
         (ax::prepare(scope, window.pid, &alive), false)
     } else {
         match ax::switch_state(window.pid) {
@@ -2000,7 +2010,11 @@ fn app_state(
         state["accessibilityMode"] = json!(attribute);
     } else if limited {
         state["accessibilityMode"] = json!(accessibility::LIMITED);
-        state["accessibilityHint"] = json!(accessibility::LIMITED_HINT);
+        state["accessibilityHint"] = json!(if held {
+            accessibility::LIMITED_HELD_HINT
+        } else {
+            accessibility::LIMITED_HINT
+        });
     }
     if let Some(tips) = accessibility::app_tips(bundle.as_deref()) {
         state["tips"] = json!(tips);

@@ -788,6 +788,13 @@ impl Presence {
                 .is_some_and(|allowed| allowed.contains(key))
     }
 
+    /// Whether changes to apps on this chat's behalf are held: desktop
+    /// control is paused, the chat was stopped, or the session is not
+    /// active. Observation still runs; it just changes nothing.
+    pub(crate) fn changes_held(&self, scope: &str) -> bool {
+        self.paused.is_some() || self.stopped.contains(scope) || self.session != Session::Active
+    }
+
     pub(crate) fn forget_approval(&mut self, scope: &str, key: &str) {
         if let Some(allowed) = self.allowed.get_mut(scope) {
             allowed.remove(key);
@@ -2207,8 +2214,25 @@ mod tests {
             !state.has_app_consent("chat", "com.tinyspeck.slackmacgap:10"),
             "per process"
         );
+        // Pause, a lock or a stop hold app changes (such as turning on an
+        // accessibility switch) without forgetting the consent.
+        assert!(!state.changes_held("chat"));
+        state.pause(Pause::ByUser);
+        assert!(state.changes_held("chat") && state.changes_held("other"));
+        assert!(state.has_app_consent("chat", &slack.key));
+        state.resume();
+        assert!(!state.changes_held("chat"));
+        state.pause(Pause::UserActive);
+        assert!(state.changes_held("chat"));
+        state.resume();
+        state.set_session(Session::Locked);
+        assert!(state.changes_held("chat"));
+        state.set_session(Session::Active);
+        assert!(!state.changes_held("chat"));
         state.stop("chat", now);
         assert!(!state.has_app_consent("chat", &slack.key));
+        assert!(state.changes_held("chat"));
+        assert!(!state.changes_held("other"));
     }
 
     #[test]

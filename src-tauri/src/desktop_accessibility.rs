@@ -1689,12 +1689,15 @@ impl FlagRegistry {
 
 /// appState is observation: it needs no consent and runs while paused. It
 /// only turns an app's accessibility switch on (a change to that app) when
-/// the chat may already act in that app, or app consent is off.
-pub(crate) fn may_enable_switch(ask_before_app_use: bool, consented: bool) -> bool {
-    !ask_before_app_use || consented
+/// the chat may already act in that app, or app consent is off, and never
+/// while desktop control is paused, the chat is stopped or the Mac is
+/// locked (`held`).
+pub(crate) fn may_enable_switch(ask_before_app_use: bool, consented: bool, held: bool) -> bool {
+    !held && (!ask_before_app_use || consented)
 }
 
 pub(crate) const LIMITED: &str = "limited";
+pub(crate) const LIMITED_HELD_HINT: &str = "This Electron or Chromium app shows only part of its controls until Aven turns on its accessibility tree, which Aven does not do while desktop control is paused or stopped. After the user resumes, call appState again for the full tree.";
 pub(crate) const LIMITED_HINT: &str = "This Electron or Chromium app shows only part of its controls until Aven turns on its accessibility tree, which needs this chat to be allowed to use the app. After your first allowed action in it (Aven asks the user), call appState again for the full tree.";
 
 /// Short, app-specific guidance returned with appState for well-known apps.
@@ -3020,10 +3023,14 @@ mod tests {
 
     #[test]
     fn observation_turns_switches_on_only_with_consent_or_consent_off() {
-        assert!(!may_enable_switch(true, false));
-        assert!(may_enable_switch(true, true));
-        assert!(may_enable_switch(false, false));
-        assert!(may_enable_switch(false, true));
+        assert!(!may_enable_switch(true, false, false));
+        assert!(may_enable_switch(true, true, false));
+        assert!(may_enable_switch(false, false, false));
+        assert!(may_enable_switch(false, true, false));
+        // Paused, stopped or locked: never, even with consent or consent off.
+        for (ask, consented) in [(true, true), (false, false), (false, true)] {
+            assert!(!may_enable_switch(ask, consented, true));
+        }
     }
 
     #[test]

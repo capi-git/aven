@@ -175,9 +175,11 @@ Aven had to use events.
 Electron and Chromium apps build a complete accessibility tree only when asked.
 Because that changes the app, `appState` (which needs no consent and works while
 paused) turns the switch on only for an app this chat is already allowed to use, or
-when app consent is off. Before that it returns the tree the app already exposes,
-with `accessibilityMode: "limited"` and a hint to call `appState` again after the
-first allowed action. Once allowed, Aven turns on that app's `AXManualAccessibility` (Electron)
+when app consent is off, and never while desktop control is paused, the chat is
+stopped or the Mac is locked (a pause or stop during the change turns it straight
+back off). Before that it returns the tree the app already exposes, with
+`accessibilityMode: "limited"` and a hint to call `appState` again after the first
+allowed action (or, while paused, after the user resumes). Once allowed, Aven turns on that app's `AXManualAccessibility` (Electron)
 or `AXEnhancedUserInterface` (Chromium) switch, and turns it back off when the last
 chat using it ends, if it was off before. Only the chat that turned a switch on
 records its earlier value, and a chat that ends while its switch is being turned on
