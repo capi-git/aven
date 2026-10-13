@@ -775,11 +775,24 @@ fn live_fixture_background_element_actions() {
         )
     });
     let lock_gate = || presence_state::with(|state| state.check(&lock_ticket));
-    presence_state::with(|state| state.set_session(presence_state::Session::Locked));
+    // The notification arrives while CoreGraphics still reports this
+    // (unlocked) session as active: that real read must not undo the lock.
+    let real_read = crate::desktop_control::platform::session::current();
+    assert_eq!(real_read, presence_state::Session::Active);
+    presence_state::with(|state| state.notify_locked(real_read));
+    let undone = presence_state::with(|state| {
+        state.observe_session(crate::desktop_control::platform::session::current());
+        state.session()
+    });
+    assert_eq!(
+        undone,
+        presence_state::Session::Locked,
+        "a stale read undid the lock"
+    );
     let locked = click(&target, pid, Button::Left, 1, &lock_gate)
         .err()
         .unwrap();
-    presence_state::with(|state| state.set_session(presence_state::Session::Active));
+    presence_state::with(|state| state.notify_unlocked(presence_state::Session::Active));
     assert!(
         locked.starts_with(presence_state::SCREEN_LOCKED),
         "{locked}"

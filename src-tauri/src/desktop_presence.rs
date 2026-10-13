@@ -309,6 +309,19 @@ impl Session {
     }
 }
 
+/// A lock reported by the screen-lock notification. CoreGraphics can lag
+/// behind it, so a read that still says `Active` must not undo it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum LockLatch {
+    #[default]
+    Clear,
+    /// Notified; no read has shown the session unavailable yet.
+    Notified,
+    /// Notified, and a later read showed it unavailable: a read of `Active`
+    /// after this is a real unlock (even if its notification never arrives).
+    Observed,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PromptKind {
     App(AppIdentity),
@@ -524,6 +537,7 @@ pub(crate) struct Presence {
     epoch: u64,
     esc: EscDetector,
     session: Session,
+    lock: LockLatch,
 }
 
 impl Presence {
@@ -807,6 +821,50 @@ impl Presence {
             }
         }
         true
+    }
+
+    /// The session as recorded, after any lock notification.
+    pub(crate) fn session(&self) -> Session {
+        self.session
+    }
+
+    /// Records a CoreGraphics session read. After a lock notification, a
+    /// read of `Active` is stale until a read has shown the session
+    /// unavailable (or the unlock notification arrives): only unavailable
+    /// states are recorded over the notified lock. Returns whether the
+    /// recorded session changed.
+    pub(crate) fn observe_session(&mut self, read: Session) -> bool {
+        match (self.lock, read) {
+            (LockLatch::Clear, read) => self.set_session(read),
+            (LockLatch::Notified, Session::Active) => false,
+            (LockLatch::Observed, Session::Active) => {
+                self.lock = LockLatch::Clear;
+                self.set_session(Session::Active)
+            }
+            (_, unavailable) => {
+                self.lock = LockLatch::Observed;
+                self.set_session(unavailable)
+            }
+        }
+    }
+
+    /// The screen-lock notification, with a session read taken at the same
+    /// time. It records a lock even when that read has not caught up.
+    pub(crate) fn notify_locked(&mut self, read: Session) -> bool {
+        if read == Session::Active {
+            self.lock = LockLatch::Notified;
+            self.set_session(Session::Locked)
+        } else {
+            self.lock = LockLatch::Observed;
+            self.set_session(read)
+        }
+    }
+
+    /// The screen-unlock notification ends a notified lock; the read taken
+    /// with it is recorded as is (a later read corrects a lagging one).
+    pub(crate) fn notify_unlocked(&mut self, read: Session) -> bool {
+        self.lock = LockLatch::Clear;
+        self.set_session(read)
     }
 
     /// Called before every native event of an admitted action.
@@ -1147,16 +1205,19 @@ pub(crate) fn with<T>(operation: impl FnOnce(&mut Presence) -> T) -> T {
 
 /// Blocks a socket worker (never the main thread) until the user answers,
 /// the prompt expires, or `alive` reports that the chat's scope has ended.
+/// `alive` may read the login session from CoreGraphics, so it runs without
+/// the presence lock held; an answer that arrives meanwhile still wins.
 pub(crate) fn wait_for_answer(id: u64, alive: impl Fn() -> bool) -> Result<(), String> {
-    let mut state = lock();
     loop {
+        let alive = alive();
+        let mut state = lock();
         let now = Instant::now();
         if let Some(outcome) = state.take_outcome(id, now) {
             drop(state);
             CHANGED.notify_all();
             return outcome.into_result();
         }
-        if !alive() {
+        if !alive {
             state.withdraw(id);
             drop(state);
             CHANGED.notify_all();
@@ -1165,10 +1226,10 @@ pub(crate) fn wait_for_answer(id: u64, alive: impl Fn() -> bool) -> Result<(), S
         let remaining = state.prompt.as_ref().map_or(Duration::ZERO, |prompt| {
             prompt.deadline.saturating_duration_since(now)
         });
-        state = CHANGED
+        let (state, _) = CHANGED
             .wait_timeout(state, remaining.min(Duration::from_millis(250)))
-            .unwrap_or_else(|error| error.into_inner())
-            .0;
+            .unwrap_or_else(|error| error.into_inner());
+        drop(state);
     }
 }
 
@@ -1506,6 +1567,51 @@ mod tests {
         assert_eq!(Session::Active.refusal(), None);
         assert_eq!(Session::Locked.refusal(), Some(SCREEN_LOCKED));
         assert_eq!(Session::Away.refusal(), Some(SESSION_AWAY));
+    }
+
+    #[test]
+    fn lock_notifications_outlast_lagging_session_reads() {
+        let mut presence = Presence::default();
+        // Ordinary reads are recorded as they are.
+        assert!(presence.observe_session(Session::Locked));
+        assert!(presence.observe_session(Session::Active));
+        assert_eq!(presence.session(), Session::Active);
+        // Notified while CoreGraphics still says Active: locked, and every
+        // later Active read is stale until macOS confirms the unlock.
+        assert!(presence.notify_locked(Session::Active));
+        assert_eq!(presence.session(), Session::Locked);
+        for _ in 0..3 {
+            assert!(!presence.observe_session(Session::Active));
+            assert_eq!(presence.session(), Session::Locked);
+        }
+        // The read catches up (Locked), then the user unlocks without the
+        // notification arriving: the Active read after it is real.
+        assert!(!presence.observe_session(Session::Locked));
+        assert!(presence.observe_session(Session::Active));
+        assert_eq!(presence.session(), Session::Active);
+        // Unavailable states may be recorded over a notified lock.
+        assert!(presence.notify_locked(Session::Active));
+        assert!(presence.observe_session(Session::Away));
+        assert_eq!(presence.session(), Session::Away);
+        // The unlock notification ends the latch; a lagging Locked read
+        // with it is corrected by the next read.
+        assert!(presence.notify_unlocked(Session::Locked));
+        assert_eq!(presence.session(), Session::Locked);
+        assert!(presence.observe_session(Session::Active));
+        assert_eq!(presence.session(), Session::Active);
+        // A notification whose read already shows the lock needs no wait.
+        assert!(presence.notify_locked(Session::Locked));
+        assert!(presence.observe_session(Session::Active));
+        // A lock notification also cancels an open prompt.
+        let app = AppIdentity::new("com.example:1", "Example");
+        let Admission::Ask(id) =
+            presence.admit("chat", true, Some(&app), true, true, Instant::now())
+        else {
+            panic!("expected a prompt");
+        };
+        assert!(presence.notify_locked(Session::Active));
+        assert!(presence.prompt.is_none());
+        assert!(presence.resolved.contains_key(&id));
     }
 
     #[test]
@@ -1885,6 +1991,31 @@ mod tests {
         });
         assert_eq!(wait_for_answer(id, || false).unwrap_err(), CANCELLED);
         assert!(with(|presence| presence.prompt.is_none()));
+        // `alive` runs without the presence lock: it may read shared state
+        // (or the slow session) without blocking answers or deadlocking.
+        let id = with(|presence| {
+            match presence.admit(
+                "wait-test-3",
+                true,
+                Some(&safari()),
+                true,
+                true,
+                Instant::now(),
+            ) {
+                Admission::Ask(id) => id,
+                other => panic!("{other:?}"),
+            }
+        });
+        let answer = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(30));
+            with(|presence| presence.answer(id, true));
+        });
+        assert!(wait_for_answer(
+            id,
+            || with(|presence| presence.session() == Session::Active)
+        )
+        .is_ok());
+        answer.join().unwrap();
         with(|presence| presence.forget(None));
     }
     #[test]

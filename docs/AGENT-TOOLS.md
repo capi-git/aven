@@ -263,7 +263,11 @@ While the Mac is locked, or another user's session is on screen, desktop control
 is paused completely: Aven reads the login session immediately before every
 action, consent prompt and native event, and refuses observation as well as
 input with "The Mac is locked. Desktop control is paused until the user
-unlocks; keep working in Aven's browser or code, or wait." Nothing is typed into
+unlocks; keep working in Aven's browser or code, or wait." (or, when another
+user's session is on screen, "The user's Mac session is not on screen"). A lock
+reported by macOS's lock notification stays in force until the unlock
+notification arrives or a later session read shows the lock and then the
+unlock, so a session read that has not caught up cannot undo it. Nothing is typed into
 the login window, no consent prompt waits for nobody, and the bar stays hidden.
 Locking during a drag, typing or a multi-page scroll stops it at its next step
 and releases any held button; an open consent prompt is cancelled with the same

@@ -75,26 +75,28 @@ pub(super) fn changed() {
 }
 
 /// Records an unavailable session read during an action. Only admission
-/// records a return to `Active`, so a lagging read can never undo a lock
-/// notification while an action is in flight.
+/// records a return to `Active`, and a lock notification stays in force
+/// until macOS confirms the unlock, so a lagging read never undoes it.
 pub(super) fn record_unavailable(session: presence::Session) {
-    if session != presence::Session::Active && presence::with(|state| state.set_session(session)) {
+    if session != presence::Session::Active
+        && presence::with(|state| state.observe_session(session))
+    {
         changed();
     }
 }
 
 unsafe extern "C" fn screen_locked(_: Cf, _: *mut c_void, _: Cf, _: *const c_void, _: Cf) {
     // The notification is the earliest signal; record it before CoreGraphics
-    // necessarily reports the lock.
-    let session = match current() {
-        presence::Session::Active => presence::Session::Locked,
-        unavailable => unavailable,
-    };
-    record_unavailable(session);
+    // necessarily reports the lock. The read happens outside the state lock.
+    let read = current();
+    if presence::with(|state| state.notify_locked(read)) {
+        changed();
+    }
 }
 
 unsafe extern "C" fn screen_unlocked(_: Cf, _: *mut c_void, _: Cf, _: *const c_void, _: Cf) {
-    if presence::with(|state| state.set_session(current())) {
+    let read = current();
+    if presence::with(|state| state.notify_unlocked(read)) {
         changed();
     }
 }

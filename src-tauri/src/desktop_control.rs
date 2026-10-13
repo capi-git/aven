@@ -1077,17 +1077,19 @@ pub(crate) struct PresenceTarget {
 }
 
 /// Reads the login session immediately before an action or consent prompt and
-/// records it. `read` is CoreGraphics in Aven and a fake in tests; `record`
-/// returns whether the session changed, and `changed` then hides the bar and
-/// agent pointer. Refuses while the Mac is locked or another session is on
-/// screen, where keys could reach the login window and nobody can answer.
+/// records it. `read` is CoreGraphics in Aven and a fake in tests; it runs
+/// outside the presence lock. `record` returns whether the recorded session
+/// changed and the session now in force (a lock notification outlasts a
+/// lagging read), and `changed` then hides the bar and agent pointer.
+/// Refuses while the Mac is locked or another session is on screen, where
+/// keys could reach the login window and nobody can answer.
 fn gate_session(
     read: &dyn Fn() -> presence::Session,
-    record: &dyn Fn(presence::Session) -> bool,
+    record: &dyn Fn(presence::Session) -> (bool, presence::Session),
     changed: &dyn Fn(),
 ) -> Result<(), String> {
-    let session = read();
-    if record(session) {
+    let (did_change, session) = record(read());
+    if did_change {
         changed();
     }
     session
@@ -1098,7 +1100,7 @@ fn gate_session(
 fn gate_current_session() -> Result<(), String> {
     gate_session(
         &platform::session_state,
-        &|session| presence::with(|state| state.set_session(session)),
+        &|read| presence::with(|state| (state.observe_session(read), state.session())),
         &platform::session_changed,
     )
 }
@@ -1404,7 +1406,8 @@ the target app pauses app-directed and element input. On pause, stop, denial or
 timeout, wait for the user without retrying in a loop. Observation remains
 available while paused. While the Mac is locked (or another user's session is
 on screen) every action except status, observation included, fails with "The
-Mac is locked. Desktop control is paused until the user unlocks"; a lock also
+Mac is locked. Desktop control is paused until the user unlocks" (or "The
+user's Mac session is not on screen"); a lock also
 stops an action in progress and cancels an open prompt. Keep working in Aven's
 browser or code, or wait; observe again after the user unlocks. App consent is on by default, per app and chat.
 Settings can turn it off; shared input always asks. Interrupted drags release
@@ -1494,7 +1497,10 @@ mod tests {
         let gate = || {
             gate_session(
                 &|| source.get(),
-                &|session| state.borrow_mut().set_session(session),
+                &|read| {
+                    let mut state = state.borrow_mut();
+                    (state.observe_session(read), state.session())
+                },
                 &|| changes.set(changes.get() + 1),
             )
         };
@@ -1526,6 +1532,46 @@ mod tests {
         source.set(Session::Locked);
         assert!(gate().is_err());
         assert!(matches!(admit(false), Admission::Refuse(_)));
+        source.set(Session::Active);
+        assert!(gate().is_ok());
+    }
+
+    #[test]
+    fn a_stale_session_read_never_undoes_a_lock_notification() {
+        use presence::{Presence, Session};
+        use std::cell::{Cell, RefCell};
+        let source = Cell::new(Session::Active);
+        let state = RefCell::new(Presence::default());
+        let gate = || {
+            gate_session(
+                &|| source.get(),
+                &|read| {
+                    let mut state = state.borrow_mut();
+                    (state.observe_session(read), state.session())
+                },
+                &|| {},
+            )
+        };
+        assert!(gate().is_ok());
+        // The lock notification arrives before CoreGraphics reports it.
+        assert!(state.borrow_mut().notify_locked(Session::Active));
+        // The next action's admission reads the lagging session: still
+        // locked, refused, and nothing recorded over the notification.
+        assert_eq!(gate().unwrap_err(), presence::SCREEN_LOCKED);
+        assert_eq!(gate().unwrap_err(), presence::SCREEN_LOCKED);
+        assert_eq!(state.borrow().session(), Session::Locked);
+        // An unavailable read may be recorded over it.
+        source.set(Session::Away);
+        assert_eq!(gate().unwrap_err(), presence::SESSION_AWAY);
+        // Having seen the session unavailable, a read of Active is a real
+        // unlock even when its notification never arrives.
+        source.set(Session::Active);
+        assert!(gate().is_ok());
+        // Or the unlock notification ends the lock directly.
+        assert!(state.borrow_mut().notify_locked(Session::Active));
+        assert!(gate().is_err());
+        assert!(state.borrow_mut().notify_unlocked(Session::Active));
+        assert!(gate().is_ok());
     }
 
     #[test]

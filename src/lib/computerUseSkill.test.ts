@@ -94,6 +94,7 @@ describe("desktop control permission guidance", () => {
       expect(instructions).toContain(
         "The Mac is locked. Desktop control is paused until the user unlocks",
       );
+      expect(instructions).toContain("The user's Mac session is not on screen");
       expect(instructions).toContain(
         "Keep working in Aven's browser or code, or wait",
       );
