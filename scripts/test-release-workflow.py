@@ -340,7 +340,7 @@ class WindowsArtifactTests(WorkflowFixture):
     def test_windows_upload_and_release_download_use_the_same_regular_artifact(self):
         producer = re.search(r'- name: Upload Windows package\n.*?\n\s+name: ([^\n]+)',
                              WINDOWS_WORKFLOW.read_text(), re.S)
-        consumer = re.search(r'- uses: actions/download-artifact@v4\n\s+if: inputs.windows\n\s+with:\n\s+name: ([^\n]+)',
+        consumer = re.search(r'- uses: actions/download-artifact@v7\n\s+if: inputs.windows\n\s+with:\n\s+name: ([^\n]+)',
                              WORKFLOW.read_text())
         self.assertIsNotNone(producer)
         self.assertIsNotNone(consumer)
@@ -572,7 +572,7 @@ class CheckoutCredentialTests(unittest.TestCase):
             match = re.fullmatch(r'  ([a-z0-9-]+):', line)
             if match:
                 job = match.group(1)
-            if line.strip() == '- uses: actions/checkout@v4':
+            if line.strip() == '- uses: actions/checkout@v5':
                 options = []
                 for nested in lines[index + 1:]:
                     if nested.strip() in ('', 'with:'):
