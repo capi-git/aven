@@ -9,13 +9,6 @@ unsafe extern "C" {
     fn CGEventSetType(event: Event, kind: u32);
     fn CGEventGetIntegerValueField(event: Cf, field: u32) -> i64;
 }
-#[link(name = "ApplicationServices", kind = "framework")]
-unsafe extern "C" {
-    fn AXUIElementCopyElementAtPosition(app: Cf, x: f32, y: f32, element: *mut Cf) -> i32;
-    fn AXUIElementCopyActionNames(element: Cf, actions: *mut Cf) -> i32;
-    fn AXUIElementPerformAction(element: Cf, action: Cf) -> i32;
-    fn AXUIElementGetPid(element: Cf, pid: *mut i32) -> i32;
-}
 #[derive(Clone)]
 struct Route {
     ticket: presence::Ticket,
@@ -218,12 +211,16 @@ pub(super) fn target(
     } else if let Some(pid) = specified.0 {
         pid
     } else if let Some(name) = specified.1 {
-        let matches: Vec<_> = windows()?
+        let mut unique: std::collections::HashSet<_> = windows()?
             .into_iter()
             .filter(|w| w.app.eq_ignore_ascii_case(&name))
             .map(|w| w.pid)
             .collect();
-        let unique: std::collections::HashSet<_> = matches.into_iter().collect();
+        if unique.is_empty() {
+            // An app with no window open (Finder, a menu-bar-less utility)
+            // can still be brought forward: match running apps by name.
+            unique = running_apps_named(app, &name)?.into_iter().collect();
+        }
         if unique.len() != 1 {
             return Err("Use an unambiguous pid from windows to activate an app.".into());
         }
@@ -309,6 +306,36 @@ pub(super) fn target(
         shared_input,
         label,
     })
+}
+
+/// Regular (Dock) apps whose name matches, whether or not they have a window.
+fn running_apps_named(app: &AppHandle, name: &str) -> Result<Vec<i32>, String> {
+    let name = name.to_owned();
+    activation_on_main(
+        app,
+        Instant::now() + Duration::from_secs(2),
+        move || unsafe {
+            let class = AnyClass::get(c"NSWorkspace").ok_or("App identity is unavailable.")?;
+            let workspace: Retained<AnyObject> = msg_send![class, sharedWorkspace];
+            let running: Retained<AnyObject> = msg_send![&*workspace, runningApplications];
+            let count: usize = msg_send![&*running, count];
+            let mut pids = Vec::new();
+            for index in 0..count {
+                let item: Retained<AnyObject> = msg_send![&*running, objectAtIndex: index];
+                // NSApplicationActivationPolicyRegular
+                let policy: isize = msg_send![&*item, activationPolicy];
+                if policy != 0 {
+                    continue;
+                }
+                let localized: Option<Retained<NSString>> = msg_send![&*item, localizedName];
+                if localized.is_some_and(|value| value.to_string().eq_ignore_ascii_case(&name)) {
+                    let pid: i32 = msg_send![&*item, processIdentifier];
+                    pids.push(pid);
+                }
+            }
+            Ok(pids)
+        },
+    )
 }
 
 fn cf_string(value: &str) -> Retained<NSString> {

@@ -79,6 +79,164 @@ pub(super) fn preview_presence() {
 type Cf = *const c_void;
 type Event = *mut c_void;
 
+mod ax_raw {
+    use super::Cf;
+    #[link(name = "ApplicationServices", kind = "framework")]
+    unsafe extern "C" {
+        pub(super) fn AXUIElementSetMessagingTimeout(element: Cf, seconds: f32) -> i32;
+        pub(super) fn AXUIElementIsAttributeSettable(
+            element: Cf,
+            attribute: Cf,
+            settable: *mut u8,
+        ) -> i32;
+        pub(super) fn AXUIElementSetAttributeValue(element: Cf, attribute: Cf, value: Cf) -> i32;
+        pub(super) fn AXUIElementCopyAttributeValue(
+            element: Cf,
+            attribute: Cf,
+            value: *mut Cf,
+        ) -> i32;
+        pub(super) fn AXUIElementCopyMultipleAttributeValues(
+            element: Cf,
+            attributes: Cf,
+            options: u32,
+            values: *mut Cf,
+        ) -> i32;
+        pub(super) fn AXUIElementCopyActionNames(element: Cf, actions: *mut Cf) -> i32;
+        pub(super) fn AXUIElementCopyElementAtPosition(
+            app: Cf,
+            x: f32,
+            y: f32,
+            element: *mut Cf,
+        ) -> i32;
+        pub(super) fn AXUIElementPerformAction(element: Cf, action: Cf) -> i32;
+        pub(super) fn AXUIElementGetPid(element: Cf, pid: *mut i32) -> i32;
+    }
+}
+
+/// kAXErrorCannotComplete: the owning thread did not serve the request.
+const AX_CANNOT_COMPLETE: i32 = -25204;
+/// How long a worker waits for the main thread to serve one request.
+const OWNER_WAIT: Duration = Duration::from_secs(2);
+/// After a request to Aven's own window goes unserved, later ones in this
+/// window fail at once instead of each waiting again.
+static OWNER_BUSY_UNTIL: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
+
+struct AssertSend<T>(T);
+// SAFETY: only used to hand a call to the main thread while its caller waits;
+// see `on_owner_thread`.
+unsafe impl<T> Send for AssertSend<T> {}
+
+/// macOS answers Accessibility requests to the calling process synchronously,
+/// on the calling thread, and WebKit serves its tree only on the main thread:
+/// reading Aven's own window from a worker terminates the app. Requests to
+/// Aven's own elements therefore run on the main thread while the worker
+/// waits; every other app is served where the caller already is.
+unsafe fn on_owner_thread(element: Cf, call: impl FnOnce() -> i32) -> i32 {
+    let mut pid = 0;
+    if element.is_null()
+        || objc2_foundation::MainThreadMarker::new().is_some()
+        || ax_raw::AXUIElementGetPid(element, &mut pid) != 0
+        || pid != std::process::id() as i32
+    {
+        return call();
+    }
+    {
+        let busy = OWNER_BUSY_UNTIL.lock().unwrap_or_else(|e| e.into_inner());
+        if busy.is_some_and(|until| Instant::now() < until) {
+            return AX_CANNOT_COMPLETE;
+        }
+    }
+    // The call borrows the caller's stack. It runs only while this worker is
+    // waiting for it: an abandoned call is skipped, and a running one is
+    // waited for under the lock before this function returns.
+    let call: Box<dyn FnOnce() -> i32 + '_> = Box::new(call);
+    let call: Box<dyn FnOnce() -> i32 + 'static> = std::mem::transmute(call);
+    let abandoned = Arc::new(std::sync::Mutex::new(false));
+    let (sender, receiver) = mpsc::sync_channel(1);
+    let job = AssertSend((call, Arc::clone(&abandoned), sender));
+    dispatch2::DispatchQueue::main().exec_async(move || {
+        let job = job;
+        let AssertSend((call, abandoned, sender)) = job;
+        let gone = abandoned.lock().unwrap_or_else(|e| e.into_inner());
+        if *gone {
+            return;
+        }
+        let _ = sender.send(call());
+        drop(gone);
+    });
+    match receiver.recv_timeout(OWNER_WAIT) {
+        Ok(result) => result,
+        Err(_) => {
+            let mut gone = abandoned.lock().unwrap_or_else(|e| e.into_inner());
+            *gone = true;
+            drop(gone);
+            receiver.try_recv().unwrap_or_else(|_| {
+                *OWNER_BUSY_UNTIL.lock().unwrap_or_else(|e| e.into_inner()) =
+                    Some(Instant::now() + OWNER_WAIT);
+                AX_CANNOT_COMPLETE
+            })
+        }
+    }
+}
+
+#[allow(non_snake_case)]
+unsafe fn AXUIElementSetMessagingTimeout(element: Cf, seconds: f32) -> i32 {
+    on_owner_thread(element, || {
+        ax_raw::AXUIElementSetMessagingTimeout(element, seconds)
+    })
+}
+#[allow(non_snake_case)]
+unsafe fn AXUIElementIsAttributeSettable(element: Cf, attribute: Cf, settable: *mut u8) -> i32 {
+    on_owner_thread(element, || {
+        ax_raw::AXUIElementIsAttributeSettable(element, attribute, settable)
+    })
+}
+#[allow(non_snake_case)]
+unsafe fn AXUIElementSetAttributeValue(element: Cf, attribute: Cf, value: Cf) -> i32 {
+    on_owner_thread(element, || {
+        ax_raw::AXUIElementSetAttributeValue(element, attribute, value)
+    })
+}
+#[allow(non_snake_case)]
+unsafe fn AXUIElementCopyAttributeValue(element: Cf, attribute: Cf, value: *mut Cf) -> i32 {
+    on_owner_thread(element, || {
+        ax_raw::AXUIElementCopyAttributeValue(element, attribute, value)
+    })
+}
+#[allow(non_snake_case)]
+unsafe fn AXUIElementCopyMultipleAttributeValues(
+    element: Cf,
+    attributes: Cf,
+    options: u32,
+    values: *mut Cf,
+) -> i32 {
+    on_owner_thread(element, || {
+        ax_raw::AXUIElementCopyMultipleAttributeValues(element, attributes, options, values)
+    })
+}
+#[allow(non_snake_case)]
+unsafe fn AXUIElementCopyActionNames(element: Cf, actions: *mut Cf) -> i32 {
+    on_owner_thread(element, || {
+        ax_raw::AXUIElementCopyActionNames(element, actions)
+    })
+}
+#[allow(non_snake_case)]
+unsafe fn AXUIElementCopyElementAtPosition(app: Cf, x: f32, y: f32, element: *mut Cf) -> i32 {
+    on_owner_thread(app, || {
+        ax_raw::AXUIElementCopyElementAtPosition(app, x, y, element)
+    })
+}
+#[allow(non_snake_case)]
+unsafe fn AXUIElementPerformAction(element: Cf, action: Cf) -> i32 {
+    on_owner_thread(element, || {
+        ax_raw::AXUIElementPerformAction(element, action)
+    })
+}
+#[allow(non_snake_case)]
+unsafe fn AXUIElementGetPid(element: Cf, pid: *mut i32) -> i32 {
+    ax_raw::AXUIElementGetPid(element, pid)
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Point {
@@ -148,10 +306,6 @@ unsafe extern "C" {
     fn AXIsProcessTrustedWithOptions(options: Cf) -> u8;
     static kAXTrustedCheckOptionPrompt: Cf;
     fn AXUIElementCreateApplication(pid: i32) -> Cf;
-    fn AXUIElementSetMessagingTimeout(element: Cf, seconds: f32) -> i32;
-    fn AXUIElementIsAttributeSettable(element: Cf, attribute: Cf, settable: *mut u8) -> i32;
-    fn AXUIElementSetAttributeValue(element: Cf, attribute: Cf, value: Cf) -> i32;
-    fn AXUIElementCopyAttributeValue(element: Cf, attribute: Cf, value: *mut Cf) -> i32;
     fn AXUIElementGetTypeID() -> usize;
     fn AXValueGetTypeID() -> usize;
     fn AXValueGetValue(value: Cf, kind: u32, output: *mut c_void) -> bool;
@@ -1956,9 +2110,6 @@ fn app_state(
     {
         return Err("Aven's desktop controls cannot be inspected or targeted.".into());
     }
-    if window.pid == std::process::id() as i32 {
-        return Err(ax::OWN_WINDOW.into());
-    }
     session.require_active()?;
     let (bundle, name) = app_identity(app, window.pid)?;
     // Observation needs no consent, but turning on an app's switch changes
@@ -2044,9 +2195,6 @@ fn element_action(
     let window_id = request.input_window().ok_or(INPUT_WINDOW_UNAVAILABLE)?;
     let pid = target.pid.ok_or(INPUT_WINDOW_UNAVAILABLE)?;
     let bounds = target.bounds.ok_or(INPUT_WINDOW_UNAVAILABLE)?;
-    if pid == std::process::id() as i32 {
-        return Err(ax::OWN_WINDOW.into());
-    }
     if target.shared_input || target.window_id != Some(window_id) {
         return Err("Element actions are background actions; no input was sent.".into());
     }
@@ -2257,6 +2405,33 @@ pub(super) fn preview_cursor(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn own_window_requests_never_run_on_a_worker_thread() {
+        // The test harness never serves the main queue, so a request to this
+        // process must wait for it and fail cleanly instead of running here,
+        // and the next one fails at once rather than waiting again.
+        std::thread::spawn(|| unsafe {
+            let app = AXUIElementCreateApplication(std::process::id() as i32);
+            assert!(!app.is_null());
+            let role = NSString::from_str("AXRole");
+            let mut value: Cf = std::ptr::null();
+            let started = Instant::now();
+            let result =
+                AXUIElementCopyAttributeValue(app, Retained::as_ptr(&role).cast(), &mut value);
+            assert_eq!(result, AX_CANNOT_COMPLETE);
+            assert!(value.is_null());
+            assert!(started.elapsed() >= OWNER_WAIT);
+            let started = Instant::now();
+            let result =
+                AXUIElementCopyAttributeValue(app, Retained::as_ptr(&role).cast(), &mut value);
+            assert_eq!(result, AX_CANNOT_COMPLETE);
+            assert!(started.elapsed() < Duration::from_millis(100));
+            CFRelease(app);
+        })
+        .join()
+        .unwrap();
+    }
 
     #[test]
     fn input_is_not_posted_when_scope_is_revoked_during_cursor_animation() {
