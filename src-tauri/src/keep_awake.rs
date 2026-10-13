@@ -113,15 +113,19 @@ impl Demand {
     }
 }
 
+/// Each call returns whether the platform is now in the requested state, so a
+/// failed acquisition is retried on the next apply rather than recorded.
 pub(crate) trait Backend: Send {
-    fn set_system(&mut self, on: bool);
-    fn set_activity(&mut self, on: bool);
+    fn set_system(&mut self, on: bool) -> bool;
+    fn set_activity(&mut self, on: bool) -> bool;
 }
 
 struct Keeper<B: Backend> {
     demand: Demand,
     applied: Want,
     backend: B,
+    /// A failed change was logged; stay quiet while retries keep failing.
+    failure_logged: bool,
 }
 
 impl<B: Backend> Keeper<B> {
@@ -130,20 +134,35 @@ impl<B: Backend> Keeper<B> {
             demand: Demand::default(),
             applied: Want::default(),
             backend,
+            failure_logged: false,
         }
     }
 
-    /// Apply only the changes, so repeated identical reports are free.
+    /// Apply only the changes, so repeated identical reports are free. Only
+    /// a change the platform accepted is recorded; a failed one is retried on
+    /// the next report or watchdog tick.
     fn apply(&mut self, now: Instant) -> Want {
         self.demand.prune(now);
         let want = self.demand.want(now);
+        let mut failed = false;
         if want.system != self.applied.system {
-            self.backend.set_system(want.system);
+            if self.backend.set_system(want.system) {
+                self.applied.system = want.system;
+            } else {
+                failed = true;
+            }
         }
         if want.activity != self.applied.activity {
-            self.backend.set_activity(want.activity);
+            if self.backend.set_activity(want.activity) {
+                self.applied.activity = want.activity;
+            } else {
+                failed = true;
+            }
         }
-        self.applied = want;
+        if failed && !self.failure_logged {
+            eprintln!("[keep-awake] The system did not accept a sleep hold change; retrying.");
+        }
+        self.failure_logged = failed;
         want
     }
 
@@ -214,6 +233,10 @@ fn with<T>(operation: impl FnOnce(&mut Keeper<platform::Native>) -> T) -> T {
 /// Automations waiting to run (system sleep only).
 pub(crate) fn set_automations(on: bool) {
     with(|keeper| keeper.set_automations(on, Instant::now()));
+    // Also retries a hold the system refused.
+    if on {
+        ensure_watchdog();
+    }
 }
 
 /// The window closed; its busy chats no longer hold the Mac awake.
@@ -267,7 +290,8 @@ pub fn agent_keep_awake(
     Ok(())
 }
 
-/// Expire silent windows without waiting for another report.
+/// Expire silent windows and retry refused holds without waiting for another
+/// report.
 fn ensure_watchdog() {
     static STARTED: OnceLock<()> = OnceLock::new();
     STARTED.get_or_init(|| {
@@ -331,7 +355,7 @@ mod platform {
     }
 
     impl super::Backend for Native {
-        fn set_system(&mut self, on: bool) {
+        fn set_system(&mut self, on: bool) -> bool {
             if on && self.assertion.is_none() {
                 let kind = cf_string(c"PreventUserIdleSystemSleep");
                 let name = cf_string(c"Aven agents or automations are working");
@@ -354,10 +378,13 @@ mod platform {
                     unsafe { IOPMAssertionRelease(id) };
                 }
             }
+            self.assertion.is_some() == on
         }
 
-        fn set_activity(&mut self, on: bool) {
-            let Some(info) = process_info() else { return };
+        fn set_activity(&mut self, on: bool) -> bool {
+            let Some(info) = process_info() else {
+                return !on;
+            };
             if on && self.activity.is_none() {
                 let reason = NSString::from_str("Aven agents are working");
                 let token: Option<Retained<AnyObject>> = unsafe {
@@ -369,6 +396,7 @@ mod platform {
                     let _: () = unsafe { msg_send![info, endActivity: &*token] };
                 }
             }
+            self.activity.is_some() == on
         }
     }
 }
@@ -388,7 +416,7 @@ mod platform {
     }
 
     impl super::Backend for Native {
-        fn set_system(&mut self, on: bool) {
+        fn set_system(&mut self, on: bool) -> bool {
             if on && self.hold.is_none() {
                 let (release, released) = channel::<()>();
                 let spawned = std::thread::Builder::new()
@@ -404,9 +432,12 @@ mod platform {
             } else if !on {
                 self.hold.take();
             }
+            self.hold.is_some() == on
         }
 
-        fn set_activity(&mut self, _: bool) {}
+        fn set_activity(&mut self, _: bool) -> bool {
+            true
+        }
     }
 }
 
@@ -416,8 +447,12 @@ mod platform {
     pub(super) struct Native;
 
     impl super::Backend for Native {
-        fn set_system(&mut self, _: bool) {}
-        fn set_activity(&mut self, _: bool) {}
+        fn set_system(&mut self, _: bool) -> bool {
+            true
+        }
+        fn set_activity(&mut self, _: bool) -> bool {
+            true
+        }
     }
 }
 
@@ -430,18 +465,26 @@ mod tests {
         system: bool,
         activity: bool,
         calls: usize,
+        /// Fail this many system acquisitions, like a refused power assertion.
+        refuse_system: usize,
     }
 
     impl Backend for Fake {
-        fn set_system(&mut self, on: bool) {
+        fn set_system(&mut self, on: bool) -> bool {
             assert_ne!(self.system, on, "redundant system change");
-            self.system = on;
             self.calls += 1;
+            if on && self.refuse_system > 0 {
+                self.refuse_system -= 1;
+                return false;
+            }
+            self.system = on;
+            true
         }
-        fn set_activity(&mut self, on: bool) {
+        fn set_activity(&mut self, on: bool) -> bool {
             assert_ne!(self.activity, on, "redundant activity change");
             self.activity = on;
             self.calls += 1;
+            true
         }
     }
 
@@ -599,6 +642,31 @@ mod tests {
         assert!(keeper.backend.system && !keeper.backend.activity);
         keeper.begin_request(start + MAX_UNCHANGED_HOLD);
         assert!(keeper.backend.activity);
+    }
+
+    #[test]
+    fn a_refused_power_assertion_is_retried_instead_of_recorded() {
+        let start = Instant::now();
+        let mut keeper = Keeper::new(Fake {
+            refuse_system: 2,
+            ..Fake::default()
+        });
+        keeper.set_window("main", true, set(&["a"]), "p".into(), start);
+        assert!(!keeper.backend.system && keeper.backend.activity);
+        assert!(!keeper.applied.system && keeper.applied.activity);
+        assert!(keeper.failure_logged);
+        // The next heartbeat (or watchdog tick) retries.
+        keeper.apply(start + Duration::from_secs(60));
+        assert!(!keeper.backend.system);
+        keeper.apply(start + Duration::from_secs(120));
+        assert!(keeper.backend.system && keeper.applied.system);
+        assert!(!keeper.failure_logged);
+        // Once held, identical reports make no further calls.
+        let calls = keeper.backend.calls;
+        keeper.apply(start + Duration::from_secs(180));
+        assert_eq!(keeper.backend.calls, calls);
+        keeper.set_window("main", true, set(&[]), String::new(), start);
+        assert!(!keeper.backend.system && !keeper.applied.system);
     }
 
     #[test]
