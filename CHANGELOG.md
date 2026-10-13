@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+## [0.1.135] - 2026-10-13
+
+### One approval to use your Mac
+
+- An agent asks once per chat. That answer covers every app, your mouse and keyboard, and bringing apps forward until you press Stop. Declining once covers the chat too.
+- Agents can open an installed app that isn't running, and bring apps forward even when they have no window open, such as Finder.
+- When you ask an agent to open or switch to an app, it brings that app to the front instead of working behind your windows.
+
+### See where the agent is working
+
+- The agent's ring stays on screen while it works instead of fading between steps, glides to each window it reads, and disappears as soon as the reply ends or you press Stop.
+
+### Agents can use Aven itself
+
+- Agents can read and use Aven's own window without crashing it. Requests to Aven's interface now run where it can safely answer them, and the first read waits for the full interface instead of returning only the window frame.
+- Scrolling pages that don't expose a scroll area now moves about a screen instead of a few points.
+
+### Sidebar over the browser
+
+- Opening and closing the floating sidebar over a browser page no longer shows a dark strip or a flash: the page edge follows the sidebar the whole way.
+
 ## [0.1.134] - 2026-10-12
 
 ### Agents work in the background
