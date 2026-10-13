@@ -645,7 +645,7 @@ function recordToSession(record: SessionRecord): Session {
       : {}),
     ...(record.branch ? { branch: record.branch } : {}),
     ...(record.worktreeCwd ? { worktreeCwd: record.worktreeCwd } : {}),
-    ...(contextFromRecord(record) ?? {}),
+    ...contextFromRecord(record),
   };
 }
 

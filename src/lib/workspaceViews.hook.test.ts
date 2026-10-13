@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { restoreProfileWorkspace } from "./workspaceProfiles";
-import { act, createElement, useLayoutEffect, useState } from "react";
+import { act, createElement, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -190,9 +190,12 @@ describe("useWorkspaceViews project and explicit focus lifecycle", () => {
       const [browser, setBrowser] = useState(true);
       current = useWorkspaceViews(projectA, ids, browser ? "a-web" : session);
       const focusedId = current.view.focusedId;
+      // Like App, mirror only focus changes; closing a tab must not re-run this.
+      const idsRef = useRef(ids);
+      idsRef.current = ids;
       useLayoutEffect(() => {
         if (focusedId === "a-web") setBrowser(true);
-        else if (ids.includes(focusedId)) {
+        else if (idsRef.current.includes(focusedId)) {
           setSession(focusedId);
           setBrowser(false);
         }

@@ -30,8 +30,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -46,8 +46,8 @@ jobs:
       RUST_BACKTRACE: 1
       PYTHONUTF8: 1
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -70,7 +70,7 @@ jobs:
       - name: Build NSIS installer
         run: npm run build:windows
       - name: Preserve built installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: Aven-windows-x64-installer
           path: |
@@ -131,7 +131,7 @@ jobs:
             if ($actual -ine $entry.Groups[1].Value) { throw "Checksum mismatch: $_" }
           }
       - name: Upload Windows package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: Aven-windows-x64
           path: target/releases/Aven-*-windows-x64/
@@ -139,7 +139,7 @@ jobs:
           retention-days: 30
       - name: Upload startup evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: Aven-windows-startup-evidence
           path: target/windows-smoke/
