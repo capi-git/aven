@@ -31,9 +31,12 @@ input channel, not the Mac's.
 - `fill` focuses the field inside the page, selects what it holds and types the
   value with Chromium's trusted text input, so frameworks see ordinary
   `beforeinput` and `input` events. A following `press` with `Enter` reaches
-  that field and submits its form. The result's `method` is `typed`; if the
-  page refused typed text, or for selects, date and time fields and clearing a
-  field, Aven sets the value directly and reports `value`.
+  that field and submits its form. The result's `method` is `typed`. Aven types
+  only when that field really holds focus: if the page moves focus elsewhere
+  (a focus trap or redirect), if your caret is in another field of the page
+  you are using, if the page refused typed text, or for selects, date and time
+  fields and clearing a field, Aven sets the value directly and reports
+  `value`.
 - `click` presses the element like a pointer (`method: "pointer"`) when its
   centre is really that element at 100% page zoom. If something covers it,
   such as a cookie banner, or the tab is zoomed, or the control opens a native

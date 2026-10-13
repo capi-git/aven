@@ -304,4 +304,122 @@ describe("native agent browser fixed DOM actions", () => {
       height: 20,
     });
   });
+
+  describe("typing only into the field that really has focus", () => {
+    const fillNative = (label: string, value: string) =>
+      decode({ action: "fill", ref: ref(label), value, native: true });
+
+    it("sets the value directly when a focus trap redirects focus to another field", () => {
+      document.body.innerHTML =
+        '<input aria-label="Card" value="old"><input type="password" aria-label="Password">';
+      const [card, password] = document.querySelectorAll("input");
+      card.addEventListener("focus", () => password.focus());
+      const result = fillNative("Card", "4242");
+      expect(result.method).toBe("value");
+      expect(card.value).toBe("4242");
+      expect(password.value).toBe("");
+      // No pending trusted typing is left for a later verify to accept.
+      expect(
+        decode({ action: "fill-verify", ref: ref("Card"), value: "x" }).matches,
+      ).toBe(false);
+    });
+
+    it("follows focus into shadow roots before typing", () => {
+      document.body.innerHTML =
+        '<input aria-label="Name" value="old"><div id="host"></div>';
+      const host = document.querySelector("#host")!;
+      const inner = document.createElement("input");
+      host.attachShadow({ mode: "open" }).append(inner);
+      const name = document.querySelector<HTMLInputElement>("input")!;
+      name.addEventListener("focus", () => inner.focus());
+      expect(fillNative("Name", "typed").method).toBe("value");
+      expect(name.value).toBe("typed");
+      expect(inner.value).toBe("");
+    });
+
+    it("types into a rich text editor only when the selection is inside it", () => {
+      document.body.innerHTML =
+        '<div contenteditable="true" aria-label="Body">Old</div><input aria-label="Other">';
+      const body = document.querySelector<HTMLElement>("[contenteditable]")!;
+      const other = document.querySelector("input")!;
+      body.addEventListener("focus", () => other.focus(), { once: true });
+      expect(fillNative("Body", "New").method).toBe("value");
+      expect(body.textContent).toBe("New");
+      expect(fillNative("Body", "Newer").method).toBe("insert");
+    });
+
+    it("leaves the user's caret in another field of the page they are using", () => {
+      document.body.innerHTML =
+        '<input aria-label="Search" value=""><input aria-label="Name" value="old">';
+      const [search, name] = document.querySelectorAll("input");
+      vi.spyOn(document, "hasFocus").mockReturnValue(true);
+      search.focus();
+      const result = fillNative("Name", "typed");
+      expect(result.method).toBe("value");
+      expect(name.value).toBe("typed");
+      expect(document.activeElement).toBe(search);
+    });
+
+    it("still types after the agent's own earlier fill holds focus", () => {
+      document.body.innerHTML =
+        '<input aria-label="First" value=""><input aria-label="Last" value="">';
+      const [, last] = document.querySelectorAll("input");
+      vi.spyOn(document, "hasFocus").mockReturnValue(true);
+      expect(fillNative("First", "Ada").method).toBe("insert");
+      expect(fillNative("Last", "Lovelace").method).toBe("insert");
+      expect(document.activeElement).toBe(last);
+    });
+
+    it("types when the page is not the one the user is in", () => {
+      document.body.innerHTML =
+        '<input aria-label="Search" value=""><input aria-label="Name" value="old">';
+      const [search, name] = document.querySelectorAll("input");
+      vi.spyOn(document, "hasFocus").mockReturnValue(false);
+      search.focus();
+      expect(fillNative("Name", "typed").method).toBe("insert");
+      expect(document.activeElement).toBe(name);
+    });
+  });
+
+  it("scrolls instantly, even under CSS smooth scrolling", () => {
+    const scroll = vi.mocked(HTMLElement.prototype.scrollIntoView);
+    decode({ action: "click", ref: ref("Save") });
+    expect(scroll).toHaveBeenLastCalledWith(
+      expect.objectContaining({ behavior: "instant" }),
+    );
+  });
+
+  it("maps pinch zoom for the pointer marker and never presses through it", () => {
+    const button = document.querySelector("button")!;
+    vi.spyOn(document, "elementFromPoint").mockReturnValue(button);
+    vi.stubGlobal("visualViewport", { scale: 2, offsetLeft: 10, offsetTop: 5 });
+    try {
+      const result = decode({
+        action: "click",
+        ref: ref("Save"),
+        pointer: true,
+      });
+      expect(result.method).toBe("element");
+      // On screen: (layout - offset) * scale.
+      expect(result.target).toEqual({ x: -20, y: -10, width: 200, height: 40 });
+      vi.stubGlobal("visualViewport", {
+        scale: 1,
+        offsetLeft: 0,
+        offsetTop: 30,
+      });
+      expect(
+        decode({ action: "click", ref: ref("Save"), pointer: true }).method,
+      ).toBe("element");
+      vi.stubGlobal("visualViewport", {
+        scale: 1,
+        offsetLeft: 0,
+        offsetTop: 0,
+      });
+      expect(
+        decode({ action: "click", ref: ref("Save"), pointer: true }).method,
+      ).toBe("pointer");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
