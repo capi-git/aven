@@ -38,10 +38,14 @@ input channel, not the Mac's.
   fields and clearing a field, Aven sets the value directly and reports
   `value`.
 - `click` presses the element like a pointer (`method: "pointer"`) when its
-  centre is really that element at 100% page zoom. If something covers it,
-  such as a cookie banner, or the tab is zoomed, or the control opens a native
-  picker (selects, colour and date inputs), Aven clicks the element directly
-  instead (`method: "element"`).
+  centre is really that element, in a pane on screen at 100% page zoom. If
+  something covers it, such as a cookie banner, or the pane is hidden, the tab
+  is zoomed or pinch-zoomed, or the control opens a native picker (selects,
+  colour and date inputs), Aven clicks the element directly instead
+  (`method: "element"`).
+- If a click, fill or key press gets no reply in time, the error says it may
+  have been applied. Take a snapshot before retrying, so a form is never
+  submitted twice.
 - In a visible page, Aven draws its pointer: a ring in the agent's colour with
   its name, gliding to each click, field or focused element, with a ripple for
   clicks and a soft pulse for typing and keys. It never shows typed text. It

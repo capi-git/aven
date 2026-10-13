@@ -20,6 +20,7 @@
 #include "browser_drop_indicator.h"
 #include "browser_agent_marker.h"
 #include "browser_agent_marker_geometry.h"
+#include "browser_agent_input.h"
 #include "browser_edit_capture.h"
 #include "browser_edit_image.h"
 #include "browser_edit_annotation.h"
@@ -89,6 +90,9 @@ double Number(Dict d, const char *key, double fallback = 0) {
 }
 bool Boolean(Dict d, const char *key, bool fallback = false) { return d && d->GetType(key) == VTYPE_BOOL ? d->GetBool(key) : fallback; }
 Dict Error(const std::string& error) { auto d=Object(); d->SetString("error",error.substr(0,500)); return d; }
+// A command with no reply in time: it may still have reached the page.
+Dict TimedOut() { auto d=Error("Browser operation timed out"); d->SetBool("timedOut",true); return d; }
+bool IsTimedOut(Dict d) { return d && d->GetType("timedOut")==VTYPE_BOOL && d->GetBool("timedOut"); }
 void Emit(const std::string& id, Dict d) {
   if (event_callback) { const auto json=Json(d); event_callback(id.c_str(),json.c_str(),event_context); }
 }
@@ -339,7 +343,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   bool OnSetFocus(CefRefPtr<CefBrowser> browser,FocusSource source) override {
     // An agent's fill or click focuses an element inside the page only. Never
     // let that become an app-level focus change that takes the user's keyboard.
-    if (Main(browser) && source==FOCUS_SOURCE_SYSTEM && AgentFocusGuarded() && !Focused()) return true;
+    if (Main(browser) && agent_focus_guard_.Blocks(source==FOCUS_SOURCE_SYSTEM,Focused(),CFAbsoluteTimeGetCurrent())) return true;
     return Main(browser) && (!visible_ || closing_ || update_prepared_);
   }
   void OnGotFocus(CefRefPtr<CefBrowser> browser) override { if (Main(browser)) State(); }
@@ -915,7 +919,10 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     else if (action=="forward") browser_->GoForward();
     else if (action=="reload") { error_.clear(); browser_->Reload(); }
     else if (action=="stop") browser_->StopLoad();
-    else if (action=="focus") { host->SetFocus(true); [parent_.window makeFirstResponder:(__bridge NSView*)host->GetWindowHandle()]; }
+    else if (action=="focus") {
+      // The user asked for this page: an agent's recent action must not block it.
+      agent_focus_guard_.Release();
+      host->SetFocus(true); [parent_.window makeFirstResponder:(__bridge NSView*)host->GetWindowHandle()]; }
     else if (action=="zoom") {
       const auto factor=Number(cmd,"factor",1);
       CefRefPtr<Page> self=this;
@@ -1146,8 +1153,8 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       auto found=self->pending_.find(sequence); if (found==self->pending_.end()) return;
       // Captures may restore Chromium's viewport after this user-facing timeout.
       // Keep their real completion registered until the reply or browser close.
-      if (timeout) { timeout(false,Error("Browser operation timed out")); return; }
-      auto done=std::move(found->second); self->pending_.erase(found); done(false,Error("Browser operation timed out"));
+      if (timeout) { timeout(false,TimedOut()); return; }
+      auto done=std::move(found->second); self->pending_.erase(found); done(false,TimedOut());
     });
   }
   void EnsureWorld(Completion done) {
@@ -1427,10 +1434,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     if (!method.empty()) clean->SetString("method",method);
     return clean;
   }
-  bool AgentFocusGuarded() const { return CFAbsoluteTimeGetCurrent()<agent_focus_guard_until_; }
-  void GuardAgentFocus(double seconds=1.5) {
-    agent_focus_guard_until_=std::max(agent_focus_guard_until_,CFAbsoluteTimeGetCurrent()+seconds);
-  }
+  void GuardAgentFocus() { agent_focus_guard_.Hold(CFAbsoluteTimeGetCurrent()); }
   // Runs one fixed DOM operation in the isolated world and decodes its JSON.
   void RunAgentDom(Dict operation,Completion done) {
     CefRefPtr<Page> self=this;
@@ -1467,9 +1471,10 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     user_input_=true;
     GuardAgentFocus();
     if (action=="fill") { FillElement(request,operation); return; }
-    // A trusted pointer press only at 100% zoom, where the page's CSS pixels and
-    // the input coordinate space agree exactly. Zoomed tabs keep element.click().
-    operation->SetBool("pointer",!zoom_.pending() && std::abs(zoom_.factor()-1)<1e-6);
+    // A trusted pointer press only in a pane on screen at 100% zoom, where the
+    // page's CSS pixels and the input coordinate space agree exactly. Hidden,
+    // occluded and zoomed panes keep element.click().
+    operation->SetBool("pointer",supermono::AgentPointerAllowed(MarkerPane().shown,zoom_.pending(),zoom_.factor()));
     RunAgentDom(operation,[self,request,operation](bool ok,Dict result) {
       if (!ok) { Result(self->id_,request,false,result); return; }
       self->ShowMarkerAtPageRect(SMAgentMarkerActionClick,result);
@@ -1478,7 +1483,14 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       const double x=Number(point,"x",-1),y=Number(point,"y",-1);
       self->PointerClick(x,y,[self,request,operation,result](bool ok,Dict error) {
         self->GuardAgentFocus();
-        if (ok) { Result(self->id_,request,true,AgentResult(result,"pointer")); return; }
+        switch (supermono::AgentAfterInput(ok,IsTimedOut(error))) {
+          case supermono::AgentInputOutcome::kDone:
+            Result(self->id_,request,true,AgentResult(result,"pointer")); return;
+          case supermono::AgentInputOutcome::kUnconfirmed:
+            // The press may still land: never click a second time.
+            Result(self->id_,request,false,Error(supermono::kAgentClickUnconfirmed)); return;
+          case supermono::AgentInputOutcome::kFallBack: break;
+        }
         // The press never reached the page: click the element itself instead.
         auto fallback=operation->Copy(false); fallback->SetBool("pointer",false);
         self->RunAgentDom(fallback,[self,request](bool ok,Dict result) {
@@ -1494,11 +1506,16 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     press->SetString("button","left"); press->SetInt("buttons",1); press->SetInt("clickCount",1);
     CefRefPtr<Page> self=this;
     Dev("Input.dispatchMouseEvent",press,[self,x,y,done](bool ok,Dict result) {
-      if (!ok) { done(false,result); return; }
+      const bool timed_out=!ok && IsTimedOut(result);
+      if (!ok && !timed_out) { done(false,result); return; }
       auto release=Object(); release->SetString("type","mouseReleased"); release->SetDouble("x",x); release->SetDouble("y",y);
       release->SetString("button","left"); release->SetInt("buttons",0); release->SetInt("clickCount",1);
-      // Once pressed, always release; report the release outcome, never re-click.
-      self->Dev("Input.dispatchMouseEvent",release,[done](bool ok,Dict result) { done(true,ok ? Object() : result); });
+      // Once pressed (or possibly pressed), always release; never re-click.
+      // An unanswered press is reported as such, whatever the release does.
+      self->Dev("Input.dispatchMouseEvent",release,[done,timed_out,result](bool ok,Dict released) {
+        if (timed_out) { done(false,result); return; }
+        done(true,ok ? Object() : released);
+      });
     });
   }
   // Focus the field in the page, select what it holds, then type with Chromium's
@@ -1518,14 +1535,19 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
         });
       };
       auto text=Object(); text->SetString("text",value);
-      self->Dev("Input.insertText",text,[self,request,operation,result,fallback](bool ok,Dict) {
+      self->Dev("Input.insertText",text,[self,request,operation,result,fallback](bool ok,Dict inserted) {
         self->GuardAgentFocus();
-        if (!ok) { fallback(); return; }
+        const auto outcome=supermono::AgentAfterInput(ok,IsTimedOut(inserted));
+        // Unanswered typing may still arrive: setting the value as well could
+        // double it. Report it instead.
+        if (outcome==supermono::AgentInputOutcome::kUnconfirmed) { Result(self->id_,request,false,Error(supermono::kAgentFillUnconfirmed)); return; }
+        if (outcome==supermono::AgentInputOutcome::kFallBack) { fallback(); return; }
         auto verify=operation->Copy(false); verify->SetString("action","fill-verify");
         self->RunAgentDom(verify,[self,request,result,fallback](bool ok,Dict verified) {
           if (ok && verified->GetType("matches")==VTYPE_BOOL && verified->GetBool("matches")) {
             Result(self->id_,request,true,AgentResult(result,"typed")); return;
           }
+          if (!ok && IsTimedOut(verified)) { Result(self->id_,request,false,Error(supermono::kAgentFillUnconfirmed)); return; }
           fallback();
         });
       });
@@ -1731,7 +1753,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   bool editing_=false;
   bool edit_selection_pending_=false;
   bool screenshot_running_=false;
-  double agent_focus_guard_until_=0;
+  supermono::AgentFocusGuard agent_focus_guard_;
   uint64_t edit_generation_=0;
   std::string edit_token_;
   std::string title_,error_,notice_,find_query_;

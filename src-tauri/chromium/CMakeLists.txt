@@ -99,6 +99,11 @@ add_executable(supermono_chromium_browser_agent_marker_geometry_test EXCLUDE_FRO
   browser_agent_marker_geometry_test.cc)
 add_test(NAME browser_agent_marker_geometry COMMAND supermono_chromium_browser_agent_marker_geometry_test)
 
+# Agent focus guard, pointer gating and unconfirmed-input decisions.
+add_executable(supermono_chromium_browser_agent_input_test EXCLUDE_FROM_ALL
+  browser_agent_input_test.cc)
+add_test(NAME browser_agent_input COMMAND supermono_chromium_browser_agent_input_test)
+
 # In-app annotation view: anchoring, clipping, input and one-shot actions.
 add_executable(supermono_chromium_browser_edit_annotation_test EXCLUDE_FROM_ALL
   browser_edit_annotation_test.mm browser_edit_annotation.mm)

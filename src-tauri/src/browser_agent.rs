@@ -974,6 +974,17 @@ fn locked_capture() -> std::sync::MutexGuard<'static, LockedCaptureGate> {
         .unwrap_or_else(|error| error.into_inner())
 }
 
+/// A click, fill or key press whose reply timed out may still reach the page,
+/// so never suggest repeating it blindly: a second click could submit twice.
+fn unconfirmed_input(action: &str, result: Result<Value, String>) -> Result<Value, String> {
+    match result {
+        Err(error) if error.contains("timed out") => Err(format!(
+            "The {action} may have been applied, but Aven did not get confirmation in time. Take a snapshot before retrying."
+        )),
+        other => other,
+    }
+}
+
 /// The acting agent's name and colour for Aven's in-pane browser pointer.
 #[cfg_attr(not(all(feature = "chromium", target_os = "macos")), allow(dead_code))]
 fn marker_actor(grant: &Grant) -> Value {
@@ -1155,10 +1166,13 @@ fn dispatch(
         }
         Request::Click { id, reference } => {
             let view = crate::browser::preview(&caller, &id)?;
-            tauri::async_runtime::block_on(crate::browser_agent_dom::operate(
-                view,
-                json!({"action":"click","ref":reference,"actor":marker_actor(grant)}),
-            ))
+            unconfirmed_input(
+                "click",
+                tauri::async_runtime::block_on(crate::browser_agent_dom::operate(
+                    view,
+                    json!({"action":"click","ref":reference,"actor":marker_actor(grant)}),
+                )),
+            )
         }
         Request::Fill {
             id,
@@ -1166,17 +1180,25 @@ fn dispatch(
             value,
         } => {
             let view = crate::browser::preview(&caller, &id)?;
-            tauri::async_runtime::block_on(crate::browser_agent_dom::operate(
-                view,
-                json!({"action":"fill","ref":reference,"value":value,"actor":marker_actor(grant)}),
-            ))
+            unconfirmed_input(
+                "fill",
+                tauri::async_runtime::block_on(crate::browser_agent_dom::operate(
+                    view,
+                    json!({"action":"fill","ref":reference,"value":value,"actor":marker_actor(grant)}),
+                )),
+            )
         }
         Request::Press { id, key } => {
             let page = crate::browser::preview(&caller, &id)?;
             #[cfg(all(feature = "chromium", target_os = "macos"))]
             {
-                tauri::async_runtime::block_on(
-                    page.command(json!({"action":"press","key":key,"actor":marker_actor(grant)})),
+                unconfirmed_input(
+                    "key press",
+                    tauri::async_runtime::block_on(
+                        page.command(
+                            json!({"action":"press","key":key,"actor":marker_actor(grant)}),
+                        ),
+                    ),
                 )
             }
             #[cfg(not(all(feature = "chromium", target_os = "macos")))]
@@ -1971,6 +1993,36 @@ mod tests {
             LOCKED_SCREENSHOT
         );
         assert_eq!(with_lock_note(Err("x".into()), false).unwrap_err(), "x");
+    }
+
+    #[test]
+    fn timed_out_input_is_reported_as_unconfirmed_not_retryable() {
+        for error in [
+            "Browser operation timed out. Retry after the page finishes loading.",
+            "Browser operation timed out",
+        ] {
+            let message = unconfirmed_input("click", Err(error.into())).unwrap_err();
+            assert_eq!(
+                message,
+                "The click may have been applied, but Aven did not get confirmation in time. Take a snapshot before retrying."
+            );
+            assert!(!message.contains("Retry after"));
+        }
+        assert!(
+            unconfirmed_input("fill", Err("Browser operation timed out".into()))
+                .unwrap_err()
+                .starts_with("The fill may have been applied")
+        );
+        // Other failures and successes pass through unchanged.
+        assert_eq!(
+            unconfirmed_input("click", Err("Stale reference. Take a new snapshot.".into()))
+                .unwrap_err(),
+            "Stale reference. Take a new snapshot."
+        );
+        assert_eq!(
+            unconfirmed_input("click", Ok(json!({"ok":true}))).unwrap(),
+            json!({"ok":true})
+        );
     }
 
     #[test]

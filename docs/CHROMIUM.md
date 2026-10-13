@@ -118,8 +118,8 @@ The comment card appears after capture so it is excluded from the image. Navigat
 After building the wrapper, run the focused native checks with the same CMake installation:
 
 ```bash
-cmake --build "$CEF_BUILD_DIR" --target supermono_chromium_browser_edit_image_test supermono_chromium_browser_edit_capture_test supermono_chromium_browser_edit_annotation_test supermono_chromium_request_lifetime_test supermono_chromium_browser_agent_marker_test supermono_chromium_browser_agent_marker_geometry_test
-ctest --test-dir "$CEF_BUILD_DIR" -R 'browser_edit_|agent_dom_request_lifetime|browser_agent_marker' --output-on-failure
+cmake --build "$CEF_BUILD_DIR" --target supermono_chromium_browser_edit_image_test supermono_chromium_browser_edit_capture_test supermono_chromium_browser_edit_annotation_test supermono_chromium_request_lifetime_test supermono_chromium_browser_agent_marker_test supermono_chromium_browser_agent_marker_geometry_test supermono_chromium_browser_agent_input_test
+ctest --test-dir "$CEF_BUILD_DIR" -R 'browser_edit_|agent_dom_request_lifetime|browser_agent_marker|browser_agent_input' --output-on-failure
 ```
 
 In the packaged app, also verify picking and changing an element, correct screenshot crops at different zoom levels, Escape/Done cancellation, and adding the comment/image to the draft without sending it.
