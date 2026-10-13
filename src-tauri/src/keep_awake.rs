@@ -4,7 +4,10 @@
 //! - Automations waiting to run (Settings: keep awake for automations). Only
 //!   idle system sleep is held off; App Nap is unchanged while merely waiting.
 //! - Agent sessions that are working, reported by each window as its set of
-//!   busy chats (Settings: keep the Mac awake while agents work).
+//!   working chats (Settings: keep the Mac awake while agents work). Chats
+//!   waiting for the user are not reported. A window whose chats show no
+//!   progress for [`MAX_UNCHANGED_HOLD`] loses its claim, so a stuck turn
+//!   cannot hold the Mac awake indefinitely.
 //! - In-flight browser-agent requests, counted by an RAII guard so every exit
 //!   path, including a panic, releases them.
 //!
@@ -21,7 +24,12 @@ use std::time::{Duration, Instant};
 /// sent its empty set) loses its claim after this long. Windows refresh a
 /// non-empty set every minute.
 const STALE_AFTER: Duration = Duration::from_secs(5 * 60);
+/// A window reporting the same chats with the same progress fingerprint for
+/// this long is treated as stuck and stops holding the Mac awake until its
+/// chats change or make progress. Real turns stream output well within this.
+const MAX_UNCHANGED_HOLD: Duration = Duration::from_secs(4 * 60 * 60);
 const MAX_SESSIONS: usize = 512;
+const MAX_PROGRESS: usize = 64;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Want {
@@ -31,11 +39,34 @@ pub(crate) struct Want {
     pub activity: bool,
 }
 
+/// One window's working chats.
+#[derive(Debug)]
+struct Claim {
+    sessions: HashSet<String>,
+    progress: String,
+    /// Last report from the window.
+    seen: Instant,
+    /// When these chats or their progress last changed.
+    since: Instant,
+    /// The unchanged-hold limit was reached and logged.
+    capped: bool,
+}
+
+impl Claim {
+    fn fresh(&self, now: Instant) -> bool {
+        !self.sessions.is_empty() && now.duration_since(self.seen) < STALE_AFTER
+    }
+
+    fn holds(&self, now: Instant) -> bool {
+        self.fresh(now) && now.duration_since(self.since) < MAX_UNCHANGED_HOLD
+    }
+}
+
 #[derive(Debug)]
 struct Demand {
     automations: bool,
     agents_enabled: bool,
-    windows: HashMap<String, (HashSet<String>, Instant)>,
+    windows: HashMap<String, Claim>,
     requests: usize,
 }
 
@@ -54,10 +85,7 @@ impl Default for Demand {
 impl Demand {
     fn agents_working(&self, now: Instant) -> bool {
         self.agents_enabled
-            && (self.requests > 0
-                || self.windows.values().any(|(sessions, seen)| {
-                    !sessions.is_empty() && now.duration_since(*seen) < STALE_AFTER
-                }))
+            && (self.requests > 0 || self.windows.values().any(|claim| claim.holds(now)))
     }
 
     fn want(&self, now: Instant) -> Want {
@@ -69,9 +97,19 @@ impl Demand {
     }
 
     fn prune(&mut self, now: Instant) {
-        self.windows.retain(|_, (sessions, seen)| {
-            !sessions.is_empty() && now.duration_since(*seen) < STALE_AFTER
-        });
+        // A capped claim stays (while its window keeps reporting) so the same
+        // unchanged report cannot restart the hold.
+        self.windows.retain(|_, claim| claim.fresh(now));
+        for (window, claim) in &mut self.windows {
+            if !claim.capped && !claim.holds(now) {
+                claim.capped = true;
+                eprintln!(
+                    "[keep-awake] Released the hold for window {window}: its {} working chat(s) showed no progress for {} hours.",
+                    claim.sessions.len(),
+                    MAX_UNCHANGED_HOLD.as_secs() / 3600
+                );
+            }
+        }
     }
 }
 
@@ -119,15 +157,30 @@ impl<B: Backend> Keeper<B> {
         window: &str,
         enabled: bool,
         sessions: HashSet<String>,
+        progress: String,
         now: Instant,
     ) -> Want {
         self.demand.agents_enabled = enabled;
         if sessions.is_empty() {
             self.demand.windows.remove(window);
         } else {
-            self.demand
-                .windows
-                .insert(window.to_owned(), (sessions, now));
+            match self.demand.windows.get_mut(window) {
+                Some(claim) if claim.sessions == sessions && claim.progress == progress => {
+                    claim.seen = now;
+                }
+                _ => {
+                    self.demand.windows.insert(
+                        window.to_owned(),
+                        Claim {
+                            sessions,
+                            progress,
+                            seen: now,
+                            since: now,
+                            capped: false,
+                        },
+                    );
+                }
+            }
         }
         self.apply(now)
     }
@@ -186,20 +239,30 @@ fn valid_session(id: &str) -> bool {
     !id.is_empty() && id.len() <= 80 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
 
+fn valid_progress(progress: &str) -> bool {
+    progress.len() <= MAX_PROGRESS && progress.chars().all(|c| c.is_ascii_alphanumeric())
+}
+
 /// Each window reports its working chats; an empty list releases its claim.
 /// Declarative rather than acquire/release, so a reload or crash cannot leave
 /// an unbalanced count: a closed window is forgotten, and a silent one expires.
+/// `progress` is an opaque fingerprint of the chats' latest output.
 #[tauri::command]
 pub fn agent_keep_awake(
     caller: tauri::Webview,
     enabled: bool,
     session_ids: Vec<String>,
+    progress: Option<String>,
 ) -> Result<(), String> {
     if session_ids.len() > MAX_SESSIONS || !session_ids.iter().all(|id| valid_session(id)) {
         return Err("Invalid agent sessions".into());
     }
+    let progress = progress.unwrap_or_default();
+    if !valid_progress(&progress) {
+        return Err("Invalid agent progress".into());
+    }
     let sessions = session_ids.into_iter().collect();
-    with(|keeper| keeper.set_window(caller.label(), enabled, sessions, Instant::now()));
+    with(|keeper| keeper.set_window(caller.label(), enabled, sessions, progress, Instant::now()));
     ensure_watchdog();
     Ok(())
 }
@@ -390,7 +453,7 @@ mod tests {
     fn busy_sessions_hold_both_and_release_when_idle() {
         let now = Instant::now();
         let mut keeper = Keeper::new(Fake::default());
-        let want = keeper.set_window("main", true, set(&["a", "b"]), now);
+        let want = keeper.set_window("main", true, set(&["a", "b"]), String::new(), now);
         assert_eq!(
             want,
             Want {
@@ -400,12 +463,12 @@ mod tests {
         );
         // Identical reports change nothing.
         let calls = keeper.backend.calls;
-        keeper.set_window("main", true, set(&["a", "b"]), now);
-        keeper.set_window("main", true, set(&["b"]), now);
+        keeper.set_window("main", true, set(&["a", "b"]), String::new(), now);
+        keeper.set_window("main", true, set(&["b"]), String::new(), now);
         assert_eq!(keeper.backend.calls, calls);
         // A second window keeps the hold while the first goes idle.
-        keeper.set_window("window-2", true, set(&["c"]), now);
-        keeper.set_window("main", true, set(&[]), now);
+        keeper.set_window("window-2", true, set(&["c"]), String::new(), now);
+        keeper.set_window("main", true, set(&[]), String::new(), now);
         assert!(keeper.backend.system && keeper.backend.activity);
         keeper.forget_window("window-2", now);
         assert!(!keeper.backend.system && !keeper.backend.activity);
@@ -438,16 +501,16 @@ mod tests {
                 activity: false
             }
         );
-        keeper.set_window("main", true, set(&["a"]), now);
+        keeper.set_window("main", true, set(&["a"]), String::new(), now);
         assert!(keeper.backend.system && keeper.backend.activity);
         // Agents finishing must not release the automations' hold.
-        keeper.set_window("main", true, set(&[]), now);
+        keeper.set_window("main", true, set(&[]), String::new(), now);
         assert!(keeper.backend.system && !keeper.backend.activity);
         // Turning automations off while agents work keeps the agents' hold.
-        keeper.set_window("main", true, set(&["a"]), now);
+        keeper.set_window("main", true, set(&["a"]), String::new(), now);
         keeper.set_automations(false, now);
         assert!(keeper.backend.system && keeper.backend.activity);
-        keeper.set_window("main", true, set(&[]), now);
+        keeper.set_window("main", true, set(&[]), String::new(), now);
         assert!(!keeper.backend.system);
     }
 
@@ -456,12 +519,12 @@ mod tests {
         let now = Instant::now();
         let mut keeper = Keeper::new(Fake::default());
         keeper.set_automations(true, now);
-        keeper.set_window("main", false, set(&["a"]), now);
+        keeper.set_window("main", false, set(&["a"]), String::new(), now);
         assert!(keeper.backend.system && !keeper.backend.activity);
         keeper.begin_request(now);
         assert!(!keeper.backend.activity);
         keeper.end_request(now);
-        keeper.set_window("main", true, set(&["a"]), now);
+        keeper.set_window("main", true, set(&["a"]), String::new(), now);
         assert!(keeper.backend.activity);
     }
 
@@ -469,13 +532,73 @@ mod tests {
     fn silent_windows_expire() {
         let start = Instant::now();
         let mut keeper = Keeper::new(Fake::default());
-        keeper.set_window("main", true, set(&["a"]), start);
+        keeper.set_window("main", true, set(&["a"]), String::new(), start);
         assert!(keeper.backend.activity);
         keeper.apply(start + STALE_AFTER - Duration::from_secs(1));
         assert!(keeper.backend.activity);
         keeper.apply(start + STALE_AFTER);
         assert!(!keeper.backend.activity && !keeper.backend.system);
         assert!(keeper.demand.windows.is_empty());
+    }
+
+    #[test]
+    fn a_hold_without_progress_for_hours_is_released_until_progress() {
+        let start = Instant::now();
+        let mut keeper = Keeper::new(Fake::default());
+        let report = |keeper: &mut Keeper<Fake>, ids: &[&str], progress: &str, at: Duration| {
+            keeper.set_window("main", true, set(ids), progress.into(), start + at);
+        };
+        // Heartbeats with the same chats and the same progress keep the
+        // original start time.
+        let minute = Duration::from_secs(60);
+        let mut at = Duration::ZERO;
+        while at < MAX_UNCHANGED_HOLD - minute {
+            report(&mut keeper, &["a"], "p1", at);
+            at += minute;
+        }
+        assert!(keeper.backend.system && keeper.backend.activity);
+        report(&mut keeper, &["a"], "p1", MAX_UNCHANGED_HOLD);
+        assert!(!keeper.backend.system && !keeper.backend.activity);
+        assert!(keeper.demand.windows["main"].capped);
+        // Further identical reports cannot restart the hold.
+        report(&mut keeper, &["a"], "p1", MAX_UNCHANGED_HOLD + minute);
+        assert!(!keeper.backend.activity);
+        // Progress restarts it.
+        report(&mut keeper, &["a"], "p2", MAX_UNCHANGED_HOLD + 2 * minute);
+        assert!(keeper.backend.system && keeper.backend.activity);
+        // So does a change in the working chats.
+        report(
+            &mut keeper,
+            &["a"],
+            "p2",
+            MAX_UNCHANGED_HOLD * 2 + 2 * minute,
+        );
+        assert!(!keeper.backend.activity);
+        report(
+            &mut keeper,
+            &["a", "b"],
+            "p2",
+            MAX_UNCHANGED_HOLD * 2 + 3 * minute,
+        );
+        assert!(keeper.backend.activity);
+    }
+
+    #[test]
+    fn the_unchanged_hold_limit_does_not_affect_automations_or_requests() {
+        let start = Instant::now();
+        let mut keeper = Keeper::new(Fake::default());
+        keeper.set_automations(true, start);
+        keeper.set_window("main", true, set(&["a"]), "p".into(), start);
+        keeper.set_window(
+            "main",
+            true,
+            set(&["a"]),
+            "p".into(),
+            start + MAX_UNCHANGED_HOLD,
+        );
+        assert!(keeper.backend.system && !keeper.backend.activity);
+        keeper.begin_request(start + MAX_UNCHANGED_HOLD);
+        assert!(keeper.backend.activity);
     }
 
     #[test]
@@ -492,6 +615,10 @@ mod tests {
 
     #[test]
     fn rejects_invalid_session_ids() {
+        assert!(valid_progress(""));
+        assert!(valid_progress("8f3a91c2"));
+        assert!(!valid_progress("a b"));
+        assert!(!valid_progress(&"f".repeat(65)));
         assert!(valid_session("4b0e-12"));
         assert!(!valid_session(""));
         assert!(!valid_session("a/b"));

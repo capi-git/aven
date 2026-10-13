@@ -71,6 +71,10 @@ import {
   useScheduledAgents,
 } from "./hooks/useScheduledAgents";
 import { useAgentKeepAwake } from "./hooks/useAgentKeepAwake";
+import {
+  agentKeepAwakeProgress,
+  agentKeepAwakeSessionIds,
+} from "./lib/agentKeepAwake";
 import { Sidebar } from "./chrome/Sidebar";
 import type { WorkspaceProfilePreviewData } from "./chrome/ProfileCarouselPreview";
 import { projectDisplayName } from "./hooks/useProjectLabels";
@@ -2050,8 +2054,17 @@ export default function App({
     busySessionIdsRef.current = nextBusySessionIds;
   }
   const busySessionIds = busySessionIdsRef.current;
-  // Working chats hold off idle sleep (Settings > Tasks), shared with automations.
-  useAgentKeepAwake(busySessionIds);
+  // Working chats hold off idle sleep (Settings > Tasks), shared with
+  // automations. Chats waiting for the user's answer or approval do not.
+  const keepAwakeSessionIds = useMemo(
+    () => agentKeepAwakeSessionIds(sessions),
+    [sessions],
+  );
+  const keepAwakeProgress = useMemo(
+    () => agentKeepAwakeProgress(sessions, keepAwakeSessionIds),
+    [sessions, keepAwakeSessionIds],
+  );
+  useAgentKeepAwake(keepAwakeSessionIds, keepAwakeProgress);
 
   // Restored and newly selected providers may arrive after the boot refresh.
   // Catalog loaders deduplicate already loaded catalogs and in-flight probes.

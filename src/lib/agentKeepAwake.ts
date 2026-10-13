@@ -1,5 +1,7 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { IS_MAC } from "./platform";
+import { sessionNeedsInput, type Session } from "./session";
+import { activeSessionAgents } from "./sessionAgents";
 
 // Keep the computer from idle sleep while agents work. On by default; the
 // display can still sleep, the screen can still lock, and closing a Mac's lid
@@ -54,13 +56,69 @@ export function agentKeepAwakeSessions(ids: Iterable<string>): string[] {
     .slice(0, MAX_SESSIONS);
 }
 
+/**
+ * Chats that are really working: a running turn or sub-agent. A chat waiting
+ * for the user's approval or answer is not working, so it never holds the
+ * computer awake while the user is away.
+ */
+export function agentKeepAwakeSessionIds(
+  sessions: readonly Session[],
+): Set<string> {
+  const ids = new Set<string>();
+  for (const session of sessions) {
+    if (sessionNeedsInput(session)) continue;
+    if (!session.busy && activeSessionAgents(session).length === 0) continue;
+    ids.add(session.id);
+    if (session.orchestrationLeadId) ids.add(session.orchestrationLeadId);
+  }
+  return ids;
+}
+
+/**
+ * A short fingerprint that changes whenever a working chat shows progress:
+ * new or growing output, a tool's status, or a sub-agent's status. The host
+ * releases a hold whose chats show no progress for hours (a stuck turn).
+ */
+export function agentKeepAwakeProgress(
+  sessions: readonly Session[],
+  ids: ReadonlySet<string>,
+): string {
+  let hash = 0x811c9dc5;
+  const mix = (text: string) => {
+    for (let index = 0; index < text.length; index++) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 0x01000193);
+    }
+  };
+  for (const session of sessions) {
+    if (!ids.has(session.id)) continue;
+    const last = session.blocks[session.blocks.length - 1];
+    mix(
+      [
+        session.id,
+        session.blocks.length,
+        last?.id ?? "",
+        last?.text.length ?? 0,
+        last?.tool?.status ?? "",
+        last?.tool?.detail?.length ?? 0,
+        ...(session.liveAgents ?? []).map(
+          (agent) => `${agent.id}:${agent.status}:${agent.detail?.length ?? 0}`,
+        ),
+      ].join("|"),
+    );
+    mix("\n");
+  }
+  return (hash >>> 0).toString(16);
+}
+
 export async function reportAgentKeepAwake(
   enabled: boolean,
   sessionIds: readonly string[],
+  progress = "",
 ) {
   if (!isTauri()) return;
   try {
-    await invoke("agent_keep_awake", { enabled, sessionIds });
+    await invoke("agent_keep_awake", { enabled, sessionIds, progress });
   } catch {
     // An older host without the command just sleeps as before.
   }

@@ -54,7 +54,9 @@ While a chat is working, Aven keeps the Mac from idle sleep and from App Nap
 (**Settings → Tasks → Keep the Mac awake while agents work**, on by default).
 The display can still sleep and the screen can still lock; closing the lid or
 choosing Sleep still sleeps the Mac. This shares one hold with the automations
-setting, which only prevents idle sleep while automations wait.
+setting, which only prevents idle sleep while automations wait. A chat waiting
+for your approval or answer does not keep the Mac awake, and a turn that shows
+no progress for four hours stops holding it until it makes progress again.
 
 Agents never unlock or bypass a locked screen. While the Mac is locked, browser
 results include `"screenLocked":true` and a short `lockNote`. Hidden and locked
