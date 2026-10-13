@@ -278,6 +278,13 @@ fn live_fixture_background_element_actions() {
         permissions().1,
         "the test process needs Accessibility access"
     );
+    // The real CoreGraphics session read that gates every admission and
+    // native event: it must recognise this unlocked console session.
+    assert_eq!(
+        crate::desktop_control::platform::session::current(),
+        presence_state::Session::Active,
+        "unlock the Mac before running the live fixture"
+    );
     let nonce = uuid::Uuid::new_v4().simple().to_string();
     let secret = format!("fixture-secret-{}", &nonce[..8]);
     let fixture = launch(&nonce);
@@ -591,6 +598,34 @@ fn live_fixture_background_element_actions() {
     std::thread::sleep(Duration::from_millis(200));
     assert_eq!(fixture.read()["presses"], 1, "paused input reached the app");
     evidence.insert("pausedError".into(), json!(paused));
+    presence_state::with(|state| state.forget(None));
+
+    // 9b. A screen lock, recorded as the lock notification records it,
+    // refuses the next mutation before it reaches the app.
+    let target = find_in(&observe(), "Button", "\"Sent\"");
+    let lock_ticket = presence_state::with(|state| {
+        state.begin(
+            scope,
+            Step::Clicking,
+            Some("Fixture".into()),
+            Instant::now(),
+        )
+    });
+    let lock_gate = || presence_state::with(|state| state.check(&lock_ticket));
+    presence_state::with(|state| state.set_session(presence_state::Session::Locked));
+    let locked = click(&target, Button::Left, 1, &lock_gate).err().unwrap();
+    presence_state::with(|state| state.set_session(presence_state::Session::Active));
+    assert!(
+        locked.starts_with(presence_state::SCREEN_LOCKED),
+        "{locked}"
+    );
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(
+        fixture.read()["presses"],
+        1,
+        "input reached the app while locked"
+    );
+    evidence.insert("lockedError".into(), json!(locked));
     presence_state::with(|state| state.forget(None));
 
     // 10. The pointer never moved; the fixture never became active or key.

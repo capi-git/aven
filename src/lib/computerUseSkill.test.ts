@@ -85,4 +85,22 @@ describe("desktop control permission guidance", () => {
       "call appState again before the next element action",
     );
   });
+
+  it("pauses all desktop control while the Mac is locked", () => {
+    for (const instructions of [
+      COMPUTER_USE_TASK_GUIDANCE,
+      COMPUTER_USE_SKILL_BODY,
+    ]) {
+      expect(instructions).toContain(
+        "The Mac is locked. Desktop control is paused until the user unlocks",
+      );
+      expect(instructions).toContain(
+        "Keep working in Aven's browser or code, or wait",
+      );
+      expect(instructions).toMatch(/do not retry in a loop/i);
+    }
+    expect(AVEN_BROWSER_HOST_POLICY).toContain(
+      "While the Mac is locked, desktop actions (observation included) are refused",
+    );
+  });
 });

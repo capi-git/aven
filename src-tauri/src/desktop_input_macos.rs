@@ -43,6 +43,9 @@ pub(super) fn check() -> Result<(), String> {
         let Some(route) = slot.as_ref() else {
             return Ok(());
         };
+        // Read before every native event: a lock between events stops the
+        // action here, and its error path releases any held button.
+        super::session::record_unavailable(super::session::current());
         presence::with(|state| state.check(&route.ticket))?;
         if let Some(id) = route.target.window_id {
             let current = windows()?.into_iter().find(|w| w.window_id == id);

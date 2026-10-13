@@ -1076,6 +1076,33 @@ pub(crate) struct PresenceTarget {
     pub(crate) label: Option<String>,
 }
 
+/// Reads the login session immediately before an action or consent prompt and
+/// records it. `read` is CoreGraphics in Aven and a fake in tests; `record`
+/// returns whether the session changed, and `changed` then hides the bar and
+/// agent pointer. Refuses while the Mac is locked or another session is on
+/// screen, where keys could reach the login window and nobody can answer.
+fn gate_session(
+    read: &dyn Fn() -> presence::Session,
+    record: &dyn Fn(presence::Session) -> bool,
+    changed: &dyn Fn(),
+) -> Result<(), String> {
+    let session = read();
+    if record(session) {
+        changed();
+    }
+    session
+        .refusal()
+        .map_or(Ok(()), |refusal| Err(refusal.into()))
+}
+
+fn gate_current_session() -> Result<(), String> {
+    gate_session(
+        &platform::session_state,
+        &|session| presence::with(|state| state.set_session(session)),
+        &platform::session_changed,
+    )
+}
+
 // The opaque scope identifies one authenticated grant generation. It must never
 // appear in diagnostics, responses, or screenshot paths.
 pub(crate) fn execute(
@@ -1115,6 +1142,9 @@ pub(crate) fn execute(
                 return serde_json::to_value(status).map_err(|error| error.to_string());
             }
             require_action_access(&status, &request)?;
+            // Before the target is resolved, any prompt is shown, or the bar
+            // appears; admission also refuses on a session recorded as locked.
+            gate_current_session()?;
             let input = presence::is_input(&request);
             let target = platform::presence_target(app, scope, &request)?;
             if input
@@ -1162,9 +1192,17 @@ pub(crate) fn execute(
             }
         };
         may_prompt = false;
-        let answer =
-            presence::wait_for_answer(prompt, || connected() && platform::session_alive(scope));
+        // A lock notification cancels the prompt; the session read also ends
+        // the wait if that notification never arrives.
+        let answer = presence::wait_for_answer(prompt, || {
+            connected()
+                && platform::session_alive(scope)
+                && platform::session_state() == presence::Session::Active
+        });
         platform::presence_changed();
+        if answer.is_err() {
+            gate_current_session()?;
+        }
         answer?;
     }
 }
@@ -1233,6 +1271,7 @@ pub(crate) fn remove_session_captures(scope: &str) {
 /// when the same app process is still running. Runs off the main thread.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) fn init(app: &AppHandle) {
+    platform::observe_session();
     let Ok(directory) = app.path().app_data_dir() else {
         return;
     };
@@ -1357,7 +1396,11 @@ Aven's bar identifies the agent, app and control, with Pause/Resume and Stop.
 Esc twice stops the active chat. User input pauses shared control; working in
 the target app pauses app-directed and element input. On pause, stop, denial or
 timeout, wait for the user without retrying in a loop. Observation remains
-available while paused. App consent is on by default, per app and chat.
+available while paused. While the Mac is locked (or another user's session is
+on screen) every action except status, observation included, fails with "The
+Mac is locked. Desktop control is paused until the user unlocks"; a lock also
+stops an action in progress and cancels an open prompt. Keep working in Aven's
+browser or code, or wait; observe again after the user unlocks. App consent is on by default, per app and chat.
 Settings can turn it off; shared input always asks. Interrupted drags release
 their held button. The provider-coloured ring and name tag glide between
 targets and fade when idle. Both overlays are excluded from agent
@@ -1413,6 +1456,11 @@ mod platform {
     pub(super) fn session_alive(_: &str) -> bool {
         false
     }
+    pub(super) fn session_state() -> presence::Session {
+        presence::Session::Active
+    }
+    pub(super) fn session_changed() {}
+    pub(super) fn observe_session() {}
 }
 
 #[cfg(target_os = "macos")]
@@ -1428,6 +1476,50 @@ mod tests {
         let request: Request = serde_json::from_value(value).map_err(|e| e.to_string())?;
         request.validate()?;
         Ok(request)
+    }
+
+    #[test]
+    fn session_gate_reads_the_injected_source_before_every_admission() {
+        use presence::{Admission, Presence, Session};
+        use std::cell::{Cell, RefCell};
+        let source = Cell::new(Session::Locked);
+        let state = RefCell::new(Presence::default());
+        let changes = Cell::new(0);
+        let gate = || {
+            gate_session(
+                &|| source.get(),
+                &|session| state.borrow_mut().set_session(session),
+                &|| changes.set(changes.get() + 1),
+            )
+        };
+        let admit = |input: bool| {
+            state.borrow_mut().admit(
+                "chat",
+                input,
+                Some(&presence::AppIdentity::new("com.example:1", "Example")),
+                true,
+                true,
+                std::time::Instant::now(),
+            )
+        };
+        assert_eq!(gate().unwrap_err(), presence::SCREEN_LOCKED);
+        assert_eq!(changes.get(), 1);
+        // A second read of the same state does not redraw anything.
+        assert_eq!(gate().unwrap_err(), presence::SCREEN_LOCKED);
+        assert_eq!(changes.get(), 1);
+        // Even a caller that skipped the gate cannot prompt or observe.
+        assert!(matches!(admit(true), Admission::Refuse(_)));
+        assert!(matches!(admit(false), Admission::Refuse(_)));
+        source.set(Session::Away);
+        assert_eq!(gate().unwrap_err(), presence::SESSION_AWAY);
+        source.set(Session::Active);
+        assert!(gate().is_ok());
+        assert_eq!(changes.get(), 3);
+        assert!(matches!(admit(true), Admission::Ask(_)));
+        // A later lock is read and enforced again.
+        source.set(Session::Locked);
+        assert!(gate().is_err());
+        assert!(matches!(admit(false), Admission::Refuse(_)));
     }
 
     #[test]

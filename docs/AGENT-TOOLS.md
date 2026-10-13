@@ -251,6 +251,17 @@ can observe but cannot send input. Stopped agents need new consent. On pause,
 stop, denial or timeout, agents wait for the user instead of retrying in a loop.
 Both overlays are excluded from agent screenshots and cannot be input targets.
 
+While the Mac is locked, or another user's session is on screen, desktop control
+is paused completely: Aven reads the login session immediately before every
+action, consent prompt and native event, and refuses observation as well as
+input with "The Mac is locked. Desktop control is paused until the user
+unlocks; keep working in Aven's browser or code, or wait." Nothing is typed into
+the login window, no consent prompt waits for nobody, and the bar stays hidden.
+Locking during a drag, typing or a multi-page scroll stops it at its next step
+and releases any held button; an open consent prompt is cancelled with the same
+message. `status` still reports settings and permissions. Agents continue other
+work or wait, and observe again after the user unlocks.
+
 Agent actions never trigger macOS permission prompts; per-app consent is separate. Agents read the status's `enabled`
 flag and named permission grants before choosing an action; `permissionsRequired`
 does not by itself block observation. If the switch is off or access needed for

@@ -28,6 +28,8 @@ pub(super) fn preview_self_test(app: &AppHandle) {
 }
 #[path = "desktop_presence_macos.rs"]
 mod presence_ui;
+#[path = "desktop_session_macos.rs"]
+mod session;
 
 pub(super) fn presence_target(
     app: &AppHandle,
@@ -55,6 +57,15 @@ pub(super) fn presence_shutdown() {
 }
 pub(super) fn actor_changed(actor: &presence::Actor) {
     agent_cursor::set_actor(&actor.name, actor.color);
+}
+pub(super) fn session_state() -> presence::Session {
+    session::current()
+}
+pub(super) fn session_changed() {
+    session::changed();
+}
+pub(super) fn observe_session() {
+    session::observe();
 }
 pub(super) fn session_alive(scope: &str) -> bool {
     active_session(CAPTURES.get_or_init(CaptureSessions::default), scope)

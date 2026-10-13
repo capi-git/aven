@@ -37,6 +37,8 @@ pub(crate) const CONSENT_BUSY: &str =
     "Aven is waiting for the user to answer another desktop request. Wait, then retry.";
 pub(crate) const CANCELLED: &str =
     "The desktop request was cancelled before the user answered. Observe the desktop before retrying.";
+pub(crate) const SCREEN_LOCKED: &str = "The Mac is locked. Desktop control is paused until the user unlocks; keep working in Aven's browser or code, or wait.";
+pub(crate) const SESSION_AWAY: &str = "The user's Mac session is not on screen (another user may be signed in). Desktop control is paused until the user returns; keep working in Aven's browser or code, or wait.";
 const TARGET_CHANGED: &str =
     "The target app changed while waiting for the user. Take a fresh screenshot and retry.";
 const INTERRUPTED: &str =
@@ -268,6 +270,45 @@ impl Pause {
     }
 }
 
+/// The user's login session, as macOS reports it. Desktop control observes
+/// and acts only while it is `Active`: on the console and unlocked.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Session {
+    #[default]
+    Active,
+    /// The screen is locked: keys could reach the login window's password field.
+    Locked,
+    /// Another user's session is on screen, or no GUI session could be read.
+    Away,
+}
+
+impl Session {
+    /// Interprets CGSessionCopyCurrentDictionary: whether it returned a
+    /// dictionary, kCGSessionOnConsoleKey and "CGSSessionScreenIsLocked".
+    /// Anything unreadable fails closed.
+    pub(crate) fn from_dictionary(
+        present: bool,
+        on_console: Option<bool>,
+        screen_locked: Option<bool>,
+    ) -> Self {
+        if !present || on_console != Some(true) {
+            Self::Away
+        } else if screen_locked == Some(true) {
+            Self::Locked
+        } else {
+            Self::Active
+        }
+    }
+
+    pub(crate) fn refusal(self) -> Option<&'static str> {
+        match self {
+            Self::Active => None,
+            Self::Locked => Some(SCREEN_LOCKED),
+            Self::Away => Some(SESSION_AWAY),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PromptKind {
     App(AppIdentity),
@@ -307,6 +348,8 @@ pub(crate) enum Outcome {
     Declined(String),
     NoAnswer,
     Cancelled,
+    /// The Mac locked (or left the console) while the prompt was open.
+    Unavailable(&'static str),
 }
 
 impl Outcome {
@@ -316,6 +359,7 @@ impl Outcome {
             Self::Declined(message) => Err(message),
             Self::NoAnswer => Err(NO_ANSWER.into()),
             Self::Cancelled => Err(CANCELLED.into()),
+            Self::Unavailable(message) => Err(message.into()),
         }
     }
 }
@@ -479,6 +523,7 @@ pub(crate) struct Presence {
     next_prompt: u64,
     epoch: u64,
     esc: EscDetector,
+    session: Session,
 }
 
 impl Presence {
@@ -542,6 +587,11 @@ impl Presence {
         may_prompt: bool,
         now: Instant,
     ) -> Admission {
+        // Nobody can answer a prompt at the lock screen, and observation would
+        // only capture it: refuse before any prompt, bar or native call.
+        if let Some(refusal) = self.session.refusal() {
+            return Admission::Refuse(refusal.into());
+        }
         if input && self.prompt.is_some() {
             return Admission::Refuse(CONSENT_BUSY.into());
         }
@@ -739,8 +789,35 @@ impl Presence {
         }
     }
 
+    /// Records the login session. Leaving `Active` interrupts in-flight
+    /// actions at their next check (drags release their button on that error
+    /// path), cancels an open prompt and hides the bar. Returns whether the
+    /// session changed.
+    pub(crate) fn set_session(&mut self, session: Session) -> bool {
+        if self.session == session {
+            return false;
+        }
+        let was_active = self.session == Session::Active;
+        self.session = session;
+        if let (true, Some(refusal)) = (was_active, session.refusal()) {
+            self.epoch = self.epoch.wrapping_add(1);
+            if let Some(prompt) = self.prompt.take() {
+                self.resolved
+                    .insert(prompt.id, Outcome::Unavailable(refusal));
+            }
+        }
+        true
+    }
+
     /// Called before every native event of an admitted action.
     pub(crate) fn check(&self, ticket: &Ticket) -> Result<(), String> {
+        if let Some(refusal) = self.session.refusal() {
+            return Err(if ticket.input {
+                format!("{refusal}{INTERRUPTED_SUFFIX}")
+            } else {
+                refusal.into()
+            });
+        }
         if self.stopped.contains(&ticket.scope) {
             return Err(STOPPED.into());
         }
@@ -817,6 +894,10 @@ impl Presence {
         now: Instant,
         frontmost_pid: Option<i32>,
     ) -> InputEffect {
+        // Typing at the lock screen is not working alongside an agent.
+        if self.session != Session::Active {
+            return InputEffect::None;
+        }
         if event == UserEvent::Escape && (self.acting_recently(now) || self.paused.is_some()) {
             if let Some(scope) = self
                 .activity
@@ -849,6 +930,10 @@ impl Presence {
     }
 
     pub(crate) fn model(&self, now: Instant) -> Option<BarModel> {
+        // Never draw over the lock screen or another user's session.
+        if self.session != Session::Active {
+            return None;
+        }
         if let Some(prompt) = &self.prompt {
             let actor = self.actor(&prompt.scope);
             let shared = matches!(&prompt.kind,PromptKind::App(app) if app.key.starts_with("pointer:") || app.key.starts_with("focus:"));
@@ -1387,6 +1472,124 @@ mod tests {
         assert_eq!(presence.check(&other).unwrap_err(), STOPPED);
         let unrelated = Ticket::for_test("third", false);
         assert!(presence.check(&unrelated).is_ok());
+    }
+
+    #[test]
+    fn session_dictionary_fails_closed() {
+        assert_eq!(
+            Session::from_dictionary(true, Some(true), None),
+            Session::Active
+        );
+        assert_eq!(
+            Session::from_dictionary(true, Some(true), Some(false)),
+            Session::Active
+        );
+        assert_eq!(
+            Session::from_dictionary(true, Some(true), Some(true)),
+            Session::Locked
+        );
+        // Fast user switching: another session owns the screen.
+        assert_eq!(
+            Session::from_dictionary(true, Some(false), None),
+            Session::Away
+        );
+        assert_eq!(
+            Session::from_dictionary(true, Some(false), Some(true)),
+            Session::Away
+        );
+        // No GUI session, or an unreadable console flag.
+        assert_eq!(Session::from_dictionary(false, None, None), Session::Away);
+        assert_eq!(
+            Session::from_dictionary(true, None, Some(false)),
+            Session::Away
+        );
+        assert_eq!(Session::Active.refusal(), None);
+        assert_eq!(Session::Locked.refusal(), Some(SCREEN_LOCKED));
+        assert_eq!(Session::Away.refusal(), Some(SESSION_AWAY));
+    }
+
+    #[test]
+    fn locked_session_refuses_every_request_before_any_prompt_or_bar() {
+        let mut presence = Presence::default();
+        let now = Instant::now();
+        presence.begin("chat", Step::Clicking, Some("Safari".into()), now);
+        assert!(presence.model(now).is_some());
+        assert!(presence.set_session(Session::Locked));
+        assert!(!presence.set_session(Session::Locked));
+        // Input with app consent on, shared input, and observation are all
+        // refused without opening a prompt.
+        for (input, ask) in [(true, true), (true, false), (false, false)] {
+            assert_eq!(
+                presence.admit("chat", input, Some(&safari()), ask, true, now),
+                Admission::Refuse(SCREEN_LOCKED.into())
+            );
+        }
+        assert_eq!(presence.prompt_id(), None);
+        // The bar never draws over the lock screen, even mid-action.
+        assert_eq!(presence.model(now), None);
+        // Typing the password is not user activity to yield to.
+        assert_eq!(presence.user_input(UserEvent::Key, now), InputEffect::None);
+        assert_eq!(
+            presence.user_input(UserEvent::Escape, now),
+            InputEffect::None
+        );
+        assert_eq!(
+            presence.user_input(UserEvent::Escape, now),
+            InputEffect::None
+        );
+        assert!(presence.paused.is_none() && presence.stopped.is_empty());
+        assert!(presence.set_session(Session::Away));
+        assert_eq!(
+            presence.admit("chat", false, None, false, true, now),
+            Admission::Refuse(SESSION_AWAY.into())
+        );
+        assert!(presence.set_session(Session::Active));
+        assert_eq!(presence.session, Session::Active);
+        assert!(matches!(
+            presence.admit("chat", true, Some(&safari()), true, true, now),
+            Admission::Ask(_)
+        ));
+        assert!(presence.model(now).is_some());
+    }
+
+    #[test]
+    fn locking_interrupts_in_flight_actions_and_cancels_the_open_prompt() {
+        let mut presence = Presence::default();
+        let now = Instant::now();
+        let Admission::Ask(id) = presence.admit("asker", true, Some(&safari()), true, true, now)
+        else {
+            panic!("expected a prompt");
+        };
+        let drag = presence.begin("chat", Step::Dragging, None, now);
+        let look = Ticket::for_test("chat", false);
+        assert!(presence.check(&drag).is_ok());
+        presence.set_session(Session::Locked);
+        let error = presence.check(&drag).unwrap_err();
+        assert!(error.starts_with(SCREEN_LOCKED) && error.ends_with(INTERRUPTED_SUFFIX));
+        assert_eq!(presence.check(&look).unwrap_err(), SCREEN_LOCKED);
+        // The waiter learns why its prompt went away; nobody answered it.
+        assert_eq!(presence.prompt_id(), None);
+        let outcome = presence.take_outcome(id, now).unwrap();
+        assert_eq!(outcome.into_result().unwrap_err(), SCREEN_LOCKED);
+        assert!(!presence.answer(id, true));
+        assert!(!presence.has_app_consent("asker", &safari().key));
+        // Unlocking never resumes an interrupted action.
+        presence.set_session(Session::Active);
+        assert_eq!(presence.check(&drag).unwrap_err(), INTERRUPTED);
+        assert!(presence.check(&look).is_ok());
+        let next = presence.begin("chat", Step::Typing, None, now);
+        assert!(presence.check(&next).is_ok());
+        // Leaving the console interrupts too; moving between unavailable
+        // states keeps the action refused with the latest reason.
+        presence.set_session(Session::Away);
+        assert!(presence.check(&next).unwrap_err().starts_with(SESSION_AWAY));
+        presence.set_session(Session::Locked);
+        assert!(presence
+            .check(&next)
+            .unwrap_err()
+            .starts_with(SCREEN_LOCKED));
+        presence.set_session(Session::Active);
+        assert_eq!(presence.check(&next).unwrap_err(), INTERRUPTED);
     }
 
     #[test]
