@@ -1,11 +1,15 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import {
   AGENT_KEEP_AWAKE_HEARTBEAT_MS,
+  type AgentKeepAwakeProgress,
+  agentKeepAwakeProgressFor,
   agentKeepAwakeSessions,
   loadAgentKeepAwake,
   reportAgentKeepAwake,
   subscribeAgentKeepAwake,
 } from "../lib/agentKeepAwake";
+
+const NO_PROGRESS: AgentKeepAwakeProgress = Object.freeze({});
 
 export function useAgentKeepAwakeSetting(): boolean {
   return useSyncExternalStore(subscribeAgentKeepAwake, loadAgentKeepAwake);
@@ -16,15 +20,15 @@ export function useAgentKeepAwakeSetting(): boolean {
  * The host counts every window's chats together; an empty list (including on
  * unmount) releases this window's claim, and a refresh each minute keeps a
  * long turn's claim from expiring. Each refresh carries the chats' latest
- * progress fingerprint, so the host can release a turn stuck for hours.
+ * progress fingerprints, so the host can release a turn stuck for hours.
  */
 export function useAgentKeepAwake(
   workingSessionIds: ReadonlySet<string>,
-  progress = "",
+  progress: AgentKeepAwakeProgress = NO_PROGRESS,
   report: (
     enabled: boolean,
     sessionIds: readonly string[],
-    progress: string,
+    progress: AgentKeepAwakeProgress,
   ) => Promise<void> | void = reportAgentKeepAwake,
 ) {
   const enabled = useAgentKeepAwakeSetting();
@@ -41,7 +45,7 @@ export function useAgentKeepAwake(
       void reportRef.current(
         enabled,
         sessions,
-        sessions.length ? progressRef.current : "",
+        agentKeepAwakeProgressFor(progressRef.current, sessions),
       );
     send();
     if (!sessions.length) return;
@@ -49,7 +53,7 @@ export function useAgentKeepAwake(
     return () => window.clearInterval(timer);
   }, [enabled, key]);
   useEffect(
-    () => () => void reportRef.current(loadAgentKeepAwake(), [], ""),
+    () => () => void reportRef.current(loadAgentKeepAwake(), [], NO_PROGRESS),
     [],
   );
 }

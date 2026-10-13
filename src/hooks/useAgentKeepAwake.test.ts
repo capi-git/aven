@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AGENT_KEEP_AWAKE_HEARTBEAT_MS,
+  type AgentKeepAwakeProgress,
   agentKeepAwakeProgress,
   agentKeepAwakeSessionIds,
   agentKeepAwakeSessions,
@@ -40,14 +41,26 @@ describe("keeping the Mac awake while agents work", () => {
     progress,
   }: {
     busy: ReadonlySet<string>;
-    progress: string;
+    progress: AgentKeepAwakeProgress;
   }) {
     useAgentKeepAwake(busy, progress, report);
     return null;
   }
-  const render = (busy: string[], progress = "p1") =>
+  // Every chat gets the same fingerprint unless a test says otherwise.
+  const render = (
+    busy: string[],
+    progress: string | AgentKeepAwakeProgress = "p1",
+  ) =>
     act(() =>
-      root.render(createElement(Harness, { busy: new Set(busy), progress })),
+      root.render(
+        createElement(Harness, {
+          busy: new Set(busy),
+          progress:
+            typeof progress === "string"
+              ? Object.fromEntries(busy.map((id) => [id, progress]))
+              : progress,
+        }),
+      ),
     );
 
   beforeEach(() => {
@@ -72,18 +85,24 @@ describe("keeping the Mac awake while agents work", () => {
 
   it("reports working chats, releases when idle, and refreshes long turns", () => {
     render([]);
-    expect(report).toHaveBeenLastCalledWith(true, [], "");
+    expect(report).toHaveBeenLastCalledWith(true, [], {});
     render(["b", "a"]);
-    expect(report).toHaveBeenLastCalledWith(true, ["a", "b"], "p1");
+    expect(report).toHaveBeenLastCalledWith(true, ["a", "b"], {
+      a: "p1",
+      b: "p1",
+    });
     const calls = report.mock.calls.length;
     // Same set in another order: no extra report.
     render(["a", "b"]);
     expect(report.mock.calls.length).toBe(calls);
     act(() => vi.advanceTimersByTime(AGENT_KEEP_AWAKE_HEARTBEAT_MS));
-    expect(report).toHaveBeenLastCalledWith(true, ["a", "b"], "p1");
+    expect(report).toHaveBeenLastCalledWith(true, ["a", "b"], {
+      a: "p1",
+      b: "p1",
+    });
     expect(report.mock.calls.length).toBe(calls + 1);
     render([]);
-    expect(report).toHaveBeenLastCalledWith(true, [], "");
+    expect(report).toHaveBeenLastCalledWith(true, [], {});
     // Idle: no heartbeat.
     const idle = report.mock.calls.length;
     act(() => vi.advanceTimersByTime(AGENT_KEEP_AWAKE_HEARTBEAT_MS * 3));
@@ -93,11 +112,11 @@ describe("keeping the Mac awake while agents work", () => {
   it("follows the setting and releases on unmount", () => {
     render(["a"]);
     act(() => saveAgentKeepAwake(false));
-    expect(report).toHaveBeenLastCalledWith(false, ["a"], "p1");
+    expect(report).toHaveBeenLastCalledWith(false, ["a"], { a: "p1" });
     act(() => saveAgentKeepAwake(true));
-    expect(report).toHaveBeenLastCalledWith(true, ["a"], "p1");
+    expect(report).toHaveBeenLastCalledWith(true, ["a"], { a: "p1" });
     act(() => root.unmount());
-    expect(report).toHaveBeenLastCalledWith(true, [], "");
+    expect(report).toHaveBeenLastCalledWith(true, [], {});
     root = createRoot(container);
   });
 
@@ -108,7 +127,12 @@ describe("keeping the Mac awake while agents work", () => {
     render(["a"], "p3");
     expect(report.mock.calls.length).toBe(calls);
     act(() => vi.advanceTimersByTime(AGENT_KEEP_AWAKE_HEARTBEAT_MS));
-    expect(report).toHaveBeenLastCalledWith(true, ["a"], "p3");
+    expect(report).toHaveBeenLastCalledWith(true, ["a"], { a: "p3" });
+  });
+
+  it("reports each chat's own progress, and only for reported chats", () => {
+    render(["a", "bad id"], { a: "f1", "bad id": "f2", gone: "f3" });
+    expect(report).toHaveBeenLastCalledWith(true, ["a"], { a: "f1" });
   });
 
   it("sends only identifiers the host accepts", () => {
@@ -165,46 +189,38 @@ describe("which chats keep the Mac awake", () => {
     ).toEqual(["worker", "lead"]);
   });
 
-  it("fingerprints progress of working chats only", () => {
+  it("fingerprints each working chat's progress separately", () => {
     const text = (value: string) =>
       [{ id: "b", role: "assistant", text: value }] as Session["blocks"];
+    const of = (sessions: Session[], ids = ["a"]) =>
+      agentKeepAwakeProgress(sessions, new Set(ids));
     const working = session("a", { busy: true, blocks: text("Hel") });
-    const before = agentKeepAwakeProgress([working], new Set(["a"]));
+    const before = of([working]).a;
     expect(before).toMatch(/^[0-9a-f]{1,8}$/);
     // Same content, new objects: unchanged.
+    expect(of([session("a", { busy: true, blocks: text("Hel") })]).a).toBe(
+      before,
+    );
+    // Streamed output changes it; an idle chat is not reported.
     expect(
-      agentKeepAwakeProgress(
-        [session("a", { busy: true, blocks: text("Hel") })],
-        new Set(["a"]),
-      ),
-    ).toBe(before);
-    // Streamed output changes it; an idle chat's activity does not.
-    expect(
-      agentKeepAwakeProgress(
-        [session("a", { busy: true, blocks: text("Hello") })],
-        new Set(["a"]),
-      ),
+      of([session("a", { busy: true, blocks: text("Hello") })]).a,
     ).not.toBe(before);
-    expect(
-      agentKeepAwakeProgress(
-        [working, session("idle", { blocks: text("x") })],
-        new Set(["a"]),
-      ),
-    ).toBe(before);
+    expect(of([working, session("idle", { blocks: text("x") })])).toEqual({
+      a: before,
+    });
+    // Another working chat's output never changes this chat's fingerprint.
+    const other = (value: string) =>
+      session("b", { busy: true, blocks: text(value) });
+    const both = of([working, other("1")], ["a", "b"]);
+    const later = of([working, other("12")], ["a", "b"]);
+    expect(later.a).toBe(both.a);
+    expect(later.b).not.toBe(both.b);
     const tool = (status: string) =>
       [
         { id: "t", role: "tool", text: "", tool: { status } },
       ] as Session["blocks"];
     expect(
-      agentKeepAwakeProgress(
-        [session("a", { busy: true, blocks: tool("running") })],
-        new Set(["a"]),
-      ),
-    ).not.toBe(
-      agentKeepAwakeProgress(
-        [session("a", { busy: true, blocks: tool("completed") })],
-        new Set(["a"]),
-      ),
-    );
+      of([session("a", { busy: true, blocks: tool("running") })]).a,
+    ).not.toBe(of([session("a", { busy: true, blocks: tool("completed") })]).a);
   });
 });

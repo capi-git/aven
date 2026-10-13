@@ -74,47 +74,59 @@ export function agentKeepAwakeSessionIds(
   return ids;
 }
 
+/** Each working chat's progress fingerprint, keyed by chat id. */
+export type AgentKeepAwakeProgress = Readonly<Record<string, string>>;
+
 /**
- * A short fingerprint that changes whenever a working chat shows progress:
- * new or growing output, a tool's status, or a sub-agent's status. The host
- * releases a hold whose chats show no progress for hours (a stuck turn).
+ * A short fingerprint per working chat that changes whenever that chat shows
+ * progress: new or growing output, a tool's status, or a sub-agent's status.
+ * The host releases a chat's hold once it shows no progress for hours (a
+ * stuck turn), however busy the window's other chats are.
  */
 export function agentKeepAwakeProgress(
   sessions: readonly Session[],
   ids: ReadonlySet<string>,
-): string {
-  let hash = 0x811c9dc5;
-  const mix = (text: string) => {
+): AgentKeepAwakeProgress {
+  const progress: Record<string, string> = {};
+  for (const session of sessions) {
+    if (!ids.has(session.id)) continue;
+    const last = session.blocks[session.blocks.length - 1];
+    const text = [
+      session.blocks.length,
+      last?.id ?? "",
+      last?.text.length ?? 0,
+      last?.tool?.status ?? "",
+      last?.tool?.detail?.length ?? 0,
+      ...(session.liveAgents ?? []).map(
+        (agent) => `${agent.id}:${agent.status}:${agent.detail?.length ?? 0}`,
+      ),
+    ].join("|");
+    let hash = 0x811c9dc5;
     for (let index = 0; index < text.length; index++) {
       hash ^= text.charCodeAt(index);
       hash = Math.imul(hash, 0x01000193);
     }
-  };
-  for (const session of sessions) {
-    if (!ids.has(session.id)) continue;
-    const last = session.blocks[session.blocks.length - 1];
-    mix(
-      [
-        session.id,
-        session.blocks.length,
-        last?.id ?? "",
-        last?.text.length ?? 0,
-        last?.tool?.status ?? "",
-        last?.tool?.detail?.length ?? 0,
-        ...(session.liveAgents ?? []).map(
-          (agent) => `${agent.id}:${agent.status}:${agent.detail?.length ?? 0}`,
-        ),
-      ].join("|"),
-    );
-    mix("\n");
+    progress[session.id] = (hash >>> 0).toString(16);
   }
-  return (hash >>> 0).toString(16);
+  return progress;
+}
+
+/** Only the reported chats' fingerprints, so the host accepts every key. */
+export function agentKeepAwakeProgressFor(
+  progress: AgentKeepAwakeProgress,
+  sessionIds: readonly string[],
+): AgentKeepAwakeProgress {
+  const reported: Record<string, string> = {};
+  for (const id of sessionIds) {
+    if (Object.hasOwn(progress, id)) reported[id] = progress[id];
+  }
+  return reported;
 }
 
 export async function reportAgentKeepAwake(
   enabled: boolean,
   sessionIds: readonly string[],
-  progress = "",
+  progress: AgentKeepAwakeProgress = {},
 ) {
   if (!isTauri()) return;
   try {

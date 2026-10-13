@@ -5,9 +5,10 @@
 //!   idle system sleep is held off; App Nap is unchanged while merely waiting.
 //! - Agent sessions that are working, reported by each window as its set of
 //!   working chats (Settings: keep the Mac awake while agents work). Chats
-//!   waiting for the user are not reported. A window whose chats show no
-//!   progress for [`MAX_UNCHANGED_HOLD`] loses its claim, so a stuck turn
-//!   cannot hold the Mac awake indefinitely.
+//!   waiting for the user are not reported. Each chat carries its own progress
+//!   fingerprint; a chat that shows no progress for [`MAX_UNCHANGED_HOLD`]
+//!   stops holding, so a stuck turn cannot hold the Mac awake indefinitely,
+//!   however busy the other chats in its window are.
 //! - In-flight browser-agent requests, counted by an RAII guard so every exit
 //!   path, including a panic, releases them.
 //!
@@ -16,7 +17,7 @@
 //! Nap from slowing Aven's timers. The display may still sleep and the screen
 //! may still lock; closing the lid or choosing Sleep still sleeps the Mac.
 //! macOS drops both automatically if Aven exits or crashes.
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -24,9 +25,9 @@ use std::time::{Duration, Instant};
 /// sent its empty set) loses its claim after this long. Windows refresh a
 /// non-empty set every minute.
 const STALE_AFTER: Duration = Duration::from_secs(5 * 60);
-/// A window reporting the same chats with the same progress fingerprint for
-/// this long is treated as stuck and stops holding the Mac awake until its
-/// chats change or make progress. Real turns stream output well within this.
+/// A chat reported with the same progress fingerprint for this long is
+/// treated as stuck and stops holding the Mac awake until it makes progress
+/// or stops and starts working again. Real turns stream output well within this.
 const MAX_UNCHANGED_HOLD: Duration = Duration::from_secs(4 * 60 * 60);
 const MAX_SESSIONS: usize = 512;
 const MAX_PROGRESS: usize = 64;
@@ -39,17 +40,36 @@ pub(crate) struct Want {
     pub activity: bool,
 }
 
-/// One window's working chats.
+/// One working chat in a window's report.
 #[derive(Debug)]
-struct Claim {
-    sessions: HashSet<String>,
+struct Turn {
     progress: String,
-    /// Last report from the window.
-    seen: Instant,
-    /// When these chats or their progress last changed.
+    /// When this chat started working or last made progress.
     since: Instant,
     /// The unchanged-hold limit was reached and logged.
     capped: bool,
+}
+
+impl Turn {
+    fn new(progress: String, now: Instant) -> Self {
+        Self {
+            progress,
+            since: now,
+            capped: false,
+        }
+    }
+
+    fn holds(&self, now: Instant) -> bool {
+        now.duration_since(self.since) < MAX_UNCHANGED_HOLD
+    }
+}
+
+/// One window's working chats, each with its own progress.
+#[derive(Debug)]
+struct Claim {
+    sessions: HashMap<String, Turn>,
+    /// Last report from the window.
+    seen: Instant,
 }
 
 impl Claim {
@@ -58,7 +78,7 @@ impl Claim {
     }
 
     fn holds(&self, now: Instant) -> bool {
-        self.fresh(now) && now.duration_since(self.since) < MAX_UNCHANGED_HOLD
+        self.fresh(now) && self.sessions.values().any(|turn| turn.holds(now))
     }
 }
 
@@ -97,17 +117,18 @@ impl Demand {
     }
 
     fn prune(&mut self, now: Instant) {
-        // A capped claim stays (while its window keeps reporting) so the same
-        // unchanged report cannot restart the hold.
+        // A capped chat stays (while its window keeps reporting it) so the
+        // same unchanged report cannot restart its hold.
         self.windows.retain(|_, claim| claim.fresh(now));
         for (window, claim) in &mut self.windows {
-            if !claim.capped && !claim.holds(now) {
-                claim.capped = true;
-                eprintln!(
-                    "[keep-awake] Released the hold for window {window}: its {} working chat(s) showed no progress for {} hours.",
-                    claim.sessions.len(),
-                    MAX_UNCHANGED_HOLD.as_secs() / 3600
-                );
+            for (session, turn) in &mut claim.sessions {
+                if !turn.capped && !turn.holds(now) {
+                    turn.capped = true;
+                    eprintln!(
+                        "[keep-awake] Chat {session} in window {window} showed no progress for {} hours; it no longer keeps the computer awake.",
+                        MAX_UNCHANGED_HOLD.as_secs() / 3600
+                    );
+                }
             }
         }
     }
@@ -171,35 +192,43 @@ impl<B: Backend> Keeper<B> {
         self.apply(now)
     }
 
+    /// `sessions` maps each working chat to its progress fingerprint. A chat
+    /// keeps its start time while its fingerprint is unchanged; chats that
+    /// join, leave or progress never reset the others.
     fn set_window(
         &mut self,
         window: &str,
         enabled: bool,
-        sessions: HashSet<String>,
-        progress: String,
+        sessions: HashMap<String, String>,
         now: Instant,
     ) -> Want {
         self.demand.agents_enabled = enabled;
         if sessions.is_empty() {
             self.demand.windows.remove(window);
         } else {
-            match self.demand.windows.get_mut(window) {
-                Some(claim) if claim.sessions == sessions && claim.progress == progress => {
-                    claim.seen = now;
-                }
-                _ => {
-                    self.demand.windows.insert(
-                        window.to_owned(),
-                        Claim {
-                            sessions,
-                            progress,
-                            seen: now,
-                            since: now,
-                            capped: false,
-                        },
-                    );
-                }
-            }
+            let mut previous = self
+                .demand
+                .windows
+                .remove(window)
+                .map(|claim| claim.sessions)
+                .unwrap_or_default();
+            let sessions = sessions
+                .into_iter()
+                .map(|(id, progress)| {
+                    let turn = match previous.remove(&id) {
+                        Some(turn) if turn.progress == progress => turn,
+                        _ => Turn::new(progress, now),
+                    };
+                    (id, turn)
+                })
+                .collect();
+            self.demand.windows.insert(
+                window.to_owned(),
+                Claim {
+                    sessions,
+                    seen: now,
+                },
+            );
         }
         self.apply(now)
     }
@@ -266,26 +295,44 @@ fn valid_progress(progress: &str) -> bool {
     progress.len() <= MAX_PROGRESS && progress.chars().all(|c| c.is_ascii_alphanumeric())
 }
 
+/// Pair each reported chat with its progress fingerprint (empty if none).
+fn session_progress(
+    session_ids: Vec<String>,
+    progress: Option<HashMap<String, String>>,
+) -> Result<HashMap<String, String>, String> {
+    if session_ids.len() > MAX_SESSIONS || !session_ids.iter().all(|id| valid_session(id)) {
+        return Err("Invalid agent sessions".into());
+    }
+    let mut progress = progress.unwrap_or_default();
+    if progress.len() > MAX_SESSIONS
+        || !progress
+            .iter()
+            .all(|(id, value)| valid_session(id) && valid_progress(value))
+    {
+        return Err("Invalid agent progress".into());
+    }
+    Ok(session_ids
+        .into_iter()
+        .map(|id| {
+            let value = progress.remove(&id).unwrap_or_default();
+            (id, value)
+        })
+        .collect())
+}
+
 /// Each window reports its working chats; an empty list releases its claim.
 /// Declarative rather than acquire/release, so a reload or crash cannot leave
 /// an unbalanced count: a closed window is forgotten, and a silent one expires.
-/// `progress` is an opaque fingerprint of the chats' latest output.
+/// `progress` maps each chat to an opaque fingerprint of its latest output.
 #[tauri::command]
 pub fn agent_keep_awake(
     caller: tauri::Webview,
     enabled: bool,
     session_ids: Vec<String>,
-    progress: Option<String>,
+    progress: Option<HashMap<String, String>>,
 ) -> Result<(), String> {
-    if session_ids.len() > MAX_SESSIONS || !session_ids.iter().all(|id| valid_session(id)) {
-        return Err("Invalid agent sessions".into());
-    }
-    let progress = progress.unwrap_or_default();
-    if !valid_progress(&progress) {
-        return Err("Invalid agent progress".into());
-    }
-    let sessions = session_ids.into_iter().collect();
-    with(|keeper| keeper.set_window(caller.label(), enabled, sessions, progress, Instant::now()));
+    let sessions = session_progress(session_ids, progress)?;
+    with(|keeper| keeper.set_window(caller.label(), enabled, sessions, Instant::now()));
     ensure_watchdog();
     Ok(())
 }
@@ -488,15 +535,29 @@ mod tests {
         }
     }
 
-    fn set(ids: &[&str]) -> HashSet<String> {
-        ids.iter().map(|id| (*id).to_owned()).collect()
+    /// Working chats that share one progress fingerprint.
+    fn progressed(ids: &[&str], progress: &str) -> HashMap<String, String> {
+        ids.iter()
+            .map(|id| ((*id).to_owned(), progress.to_owned()))
+            .collect()
+    }
+
+    fn set(ids: &[&str]) -> HashMap<String, String> {
+        progressed(ids, "")
+    }
+
+    fn chats(entries: &[(&str, &str)]) -> HashMap<String, String> {
+        entries
+            .iter()
+            .map(|(id, progress)| ((*id).to_owned(), (*progress).to_owned()))
+            .collect()
     }
 
     #[test]
     fn busy_sessions_hold_both_and_release_when_idle() {
         let now = Instant::now();
         let mut keeper = Keeper::new(Fake::default());
-        let want = keeper.set_window("main", true, set(&["a", "b"]), String::new(), now);
+        let want = keeper.set_window("main", true, set(&["a", "b"]), now);
         assert_eq!(
             want,
             Want {
@@ -506,12 +567,12 @@ mod tests {
         );
         // Identical reports change nothing.
         let calls = keeper.backend.calls;
-        keeper.set_window("main", true, set(&["a", "b"]), String::new(), now);
-        keeper.set_window("main", true, set(&["b"]), String::new(), now);
+        keeper.set_window("main", true, set(&["a", "b"]), now);
+        keeper.set_window("main", true, set(&["b"]), now);
         assert_eq!(keeper.backend.calls, calls);
         // A second window keeps the hold while the first goes idle.
-        keeper.set_window("window-2", true, set(&["c"]), String::new(), now);
-        keeper.set_window("main", true, set(&[]), String::new(), now);
+        keeper.set_window("window-2", true, set(&["c"]), now);
+        keeper.set_window("main", true, set(&[]), now);
         assert!(keeper.backend.system && keeper.backend.activity);
         keeper.forget_window("window-2", now);
         assert!(!keeper.backend.system && !keeper.backend.activity);
@@ -544,16 +605,16 @@ mod tests {
                 activity: false
             }
         );
-        keeper.set_window("main", true, set(&["a"]), String::new(), now);
+        keeper.set_window("main", true, set(&["a"]), now);
         assert!(keeper.backend.system && keeper.backend.activity);
         // Agents finishing must not release the automations' hold.
-        keeper.set_window("main", true, set(&[]), String::new(), now);
+        keeper.set_window("main", true, set(&[]), now);
         assert!(keeper.backend.system && !keeper.backend.activity);
         // Turning automations off while agents work keeps the agents' hold.
-        keeper.set_window("main", true, set(&["a"]), String::new(), now);
+        keeper.set_window("main", true, set(&["a"]), now);
         keeper.set_automations(false, now);
         assert!(keeper.backend.system && keeper.backend.activity);
-        keeper.set_window("main", true, set(&[]), String::new(), now);
+        keeper.set_window("main", true, set(&[]), now);
         assert!(!keeper.backend.system);
     }
 
@@ -562,12 +623,12 @@ mod tests {
         let now = Instant::now();
         let mut keeper = Keeper::new(Fake::default());
         keeper.set_automations(true, now);
-        keeper.set_window("main", false, set(&["a"]), String::new(), now);
+        keeper.set_window("main", false, set(&["a"]), now);
         assert!(keeper.backend.system && !keeper.backend.activity);
         keeper.begin_request(now);
         assert!(!keeper.backend.activity);
         keeper.end_request(now);
-        keeper.set_window("main", true, set(&["a"]), String::new(), now);
+        keeper.set_window("main", true, set(&["a"]), now);
         assert!(keeper.backend.activity);
     }
 
@@ -575,7 +636,7 @@ mod tests {
     fn silent_windows_expire() {
         let start = Instant::now();
         let mut keeper = Keeper::new(Fake::default());
-        keeper.set_window("main", true, set(&["a"]), String::new(), start);
+        keeper.set_window("main", true, set(&["a"]), start);
         assert!(keeper.backend.activity);
         keeper.apply(start + STALE_AFTER - Duration::from_secs(1));
         assert!(keeper.backend.activity);
@@ -589,7 +650,7 @@ mod tests {
         let start = Instant::now();
         let mut keeper = Keeper::new(Fake::default());
         let report = |keeper: &mut Keeper<Fake>, ids: &[&str], progress: &str, at: Duration| {
-            keeper.set_window("main", true, set(ids), progress.into(), start + at);
+            keeper.set_window("main", true, progressed(ids, progress), start + at);
         };
         // Heartbeats with the same chats and the same progress keep the
         // original start time.
@@ -602,7 +663,7 @@ mod tests {
         assert!(keeper.backend.system && keeper.backend.activity);
         report(&mut keeper, &["a"], "p1", MAX_UNCHANGED_HOLD);
         assert!(!keeper.backend.system && !keeper.backend.activity);
-        assert!(keeper.demand.windows["main"].capped);
+        assert!(keeper.demand.windows["main"].sessions["a"].capped);
         // Further identical reports cannot restart the hold.
         report(&mut keeper, &["a"], "p1", MAX_UNCHANGED_HOLD + minute);
         assert!(!keeper.backend.activity);
@@ -627,16 +688,74 @@ mod tests {
     }
 
     #[test]
+    fn each_chat_has_its_own_no_progress_limit() {
+        let start = Instant::now();
+        let minute = Duration::from_secs(60);
+        let mut keeper = Keeper::new(Fake::default());
+        // "stuck" never progresses while "busy" streams output and other chats
+        // come and go in the same window. None of that restarts "stuck".
+        let mut at = Duration::ZERO;
+        let mut step = 0;
+        while at < MAX_UNCHANGED_HOLD + minute {
+            let busy = format!("p{step}");
+            let mut report = vec![("stuck", "s"), ("busy", busy.as_str())];
+            if step % 2 == 0 {
+                report.push(("brief", "b"));
+            }
+            keeper.set_window("main", true, chats(&report), start + at);
+            assert!(keeper.backend.activity, "a progressing chat holds");
+            at += minute;
+            step += 1;
+        }
+        let claim = &keeper.demand.windows["main"];
+        assert!(claim.sessions["stuck"].capped);
+        assert!(!claim.sessions["busy"].capped);
+        // The progressing chat finishes: the stuck one alone does not hold.
+        keeper.set_window("main", true, chats(&[("stuck", "s")]), start + at);
+        assert!(!keeper.backend.system && !keeper.backend.activity);
+        // Another chat starting does not revive it, but holds on its own.
+        at += minute;
+        keeper.set_window(
+            "main",
+            true,
+            chats(&[("stuck", "s"), ("new", "n")]),
+            start + at,
+        );
+        assert!(keeper.backend.activity);
+        assert!(keeper.demand.windows["main"].sessions["stuck"].capped);
+        // Its own progress restarts it.
+        keeper.set_window("main", true, chats(&[("stuck", "s2")]), start + at);
+        assert!(keeper.backend.activity);
+        assert!(!keeper.demand.windows["main"].sessions["stuck"].capped);
+    }
+
+    #[test]
+    fn pairs_each_chat_with_its_own_progress() {
+        let ids = |list: &[&str]| list.iter().map(|id| (*id).to_owned()).collect::<Vec<_>>();
+        let sessions =
+            session_progress(ids(&["a", "b"]), Some(chats(&[("a", "f1"), ("z", "f9")]))).unwrap();
+        // Missing progress is empty; progress for unreported chats is ignored.
+        assert_eq!(sessions, chats(&[("a", "f1"), ("b", "")]));
+        assert_eq!(session_progress(ids(&["a"]), None).unwrap(), set(&["a"]));
+        assert!(session_progress(ids(&["a b"]), None).is_err());
+        assert!(session_progress(ids(&["a"]), Some(chats(&[("a", "not hex!")]))).is_err());
+        assert!(session_progress(ids(&["a"]), Some(chats(&[("a/b", "f")]))).is_err());
+        let many = (0..=MAX_SESSIONS)
+            .map(|index| (format!("s{index}"), String::new()))
+            .collect();
+        assert!(session_progress(ids(&["a"]), Some(many)).is_err());
+    }
+
+    #[test]
     fn the_unchanged_hold_limit_does_not_affect_automations_or_requests() {
         let start = Instant::now();
         let mut keeper = Keeper::new(Fake::default());
         keeper.set_automations(true, start);
-        keeper.set_window("main", true, set(&["a"]), "p".into(), start);
+        keeper.set_window("main", true, progressed(&["a"], "p"), start);
         keeper.set_window(
             "main",
             true,
-            set(&["a"]),
-            "p".into(),
+            progressed(&["a"], "p"),
             start + MAX_UNCHANGED_HOLD,
         );
         assert!(keeper.backend.system && !keeper.backend.activity);
@@ -651,7 +770,7 @@ mod tests {
             refuse_system: 2,
             ..Fake::default()
         });
-        keeper.set_window("main", true, set(&["a"]), "p".into(), start);
+        keeper.set_window("main", true, progressed(&["a"], "p"), start);
         assert!(!keeper.backend.system && keeper.backend.activity);
         assert!(!keeper.applied.system && keeper.applied.activity);
         assert!(keeper.failure_logged);
@@ -665,7 +784,7 @@ mod tests {
         let calls = keeper.backend.calls;
         keeper.apply(start + Duration::from_secs(180));
         assert_eq!(keeper.backend.calls, calls);
-        keeper.set_window("main", true, set(&[]), String::new(), start);
+        keeper.set_window("main", true, set(&[]), start);
         assert!(!keeper.backend.system && !keeper.applied.system);
     }
 
