@@ -1671,6 +1671,26 @@ impl FlagRegistry {
         restore
     }
 
+    /// Re-checks released switches just before they are turned off, which
+    /// happens later than `release`. A switch some chat claimed meanwhile
+    /// stays on. That chat found it on only because Aven had turned it on,
+    /// so the claim takes over turning it off when it ends. A PID now held by
+    /// another process means the released app has quit: nothing to write.
+    pub(crate) fn unclaimed(&mut self, restores: Vec<Restore>) -> Vec<Restore> {
+        restores
+            .into_iter()
+            .filter(|restore| match self.entries.get_mut(&restore.process.pid) {
+                Some(entry) => {
+                    if entry.process == restore.process {
+                        entry.previous = entry.previous.filter(|on| !on);
+                    }
+                    false
+                }
+                None => true,
+            })
+            .collect()
+    }
+
     /// The switches to restore if Aven stopped now.
     pub(crate) fn saved(&self) -> SavedSwitches {
         let mut switches: Vec<SavedSwitch> = self
@@ -2962,6 +2982,75 @@ mod tests {
             true
         ));
         assert_eq!(flags.release(Some("b")).len(), 1);
+    }
+
+    #[test]
+    fn a_late_restore_never_turns_off_a_switch_a_rebound_chat_claimed() {
+        let slack = ProcessId {
+            pid: 10,
+            executable: "/Slack".into(),
+            started: 7,
+        };
+        // Models one app's switch and `prepare`: join, else read the switch,
+        // turn it on if off, and record.
+        let prepare = |flags: &mut FlagRegistry, switch: &mut bool, scope: &str| {
+            if !flags.join(scope, &slack) {
+                let previous = *switch;
+                *switch = true;
+                flags.record(
+                    scope,
+                    &slack,
+                    "AXManualAccessibility",
+                    Some(previous),
+                    !previous,
+                );
+            }
+        };
+        let write_off = |restores: Vec<Restore>, switch: &mut bool| {
+            if !restores.is_empty() {
+                *switch = false;
+            }
+        };
+        let mut flags = FlagRegistry::default();
+        let mut switch = false;
+        prepare(&mut flags, &mut switch, "chat");
+        // Stop: the claim is released at once; turning off waits.
+        let pending = flags.release(Some("chat"));
+        assert_eq!(pending.len(), 1);
+        assert!(!flags.holds(10) && flags.saved().switches.is_empty());
+        // Rebind: the new session prepares before the late restore runs and
+        // finds the switch still on.
+        prepare(&mut flags, &mut switch, "chat");
+        assert!(switch && flags.holds(10));
+        // The late restore sees the new claim and leaves the switch on.
+        write_off(flags.unclaimed(pending), &mut switch);
+        assert!(switch && flags.holds(10));
+        // The new claim now owns turning it off, also after a crash.
+        assert_eq!(flags.saved().switches.len(), 1);
+        let pending = flags.release(Some("chat"));
+        write_off(flags.unclaimed(pending), &mut switch);
+        assert!(!switch && !flags.holds(10));
+
+        // Without a rebind the late restore turns the switch off.
+        prepare(&mut flags, &mut switch, "chat");
+        let pending = flags.release(Some("chat"));
+        write_off(flags.unclaimed(pending), &mut switch);
+        assert!(!switch);
+
+        // A PID now used by another process is never written, and that
+        // process keeps its own value.
+        let pending = vec![Restore {
+            process: slack.clone(),
+            attribute: "AXManualAccessibility",
+        }];
+        let mut other = slack.clone();
+        other.started += 1;
+        flags.record("b", &other, "AXManualAccessibility", Some(true), false);
+        assert!(flags.unclaimed(pending).is_empty());
+        assert!(
+            flags.saved().switches.is_empty(),
+            "the new process keeps its value"
+        );
     }
 
     #[test]

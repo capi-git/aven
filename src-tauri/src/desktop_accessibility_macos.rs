@@ -809,30 +809,50 @@ fn restore_flags(restores: Vec<rules::Restore>) {
 
 /// Ends a chat's element state: forgets its indexes and restores app switches
 /// no other chat needs. Shutdown restores synchronously (bounded by the AX
-/// timeouts); a single chat's cleanup runs off the caller's thread. Callers
-/// revoke the chat's session first, so a concurrent `prepare` sees it as
-/// ended.
+/// timeouts). A single chat's claims are released at once, so a rebound
+/// session's `prepare` never finds (or loses) them, and only turning
+/// switches off runs off the caller's thread. Callers revoke the chat's
+/// session first, so a concurrent `prepare` sees it as ended.
 pub(super) fn forget(scope: Option<&str>) {
     lock_store().forget(scope);
     match scope {
         None => release_switches(None),
         Some(scope) => {
-            let scope = scope.to_owned();
-            tauri::async_runtime::spawn_blocking(move || release_switches(Some(&scope)));
+            // The registry lock alone orders this with `prepare`, which joins
+            // and records under it; waiting for `preparing` here would block
+            // the caller's revoke callback on another chat's AX call.
+            let restores = release_claims(Some(scope));
+            if !restores.is_empty() {
+                tauri::async_runtime::spawn_blocking(move || restore_unclaimed(restores));
+            }
         }
     }
 }
 
-/// Releases a chat's (or every) switch and restores those no other chat
-/// needs. Runs under the same guard as `prepare`, so another chat's
-/// `prepare` for the same app happens wholly before (and keeps the switch)
-/// or wholly after (and turns it on again): it never records a switch as
-/// already on that this restore is about to turn off.
+/// Releases a chat's (or every) claim and returns the switches no chat
+/// needs any more.
+fn release_claims(scope: Option<&str>) -> Vec<rules::Restore> {
+    let mut registry = flags();
+    let restores = registry.release(scope);
+    save_switches(&registry);
+    restores
+}
+
+/// Releases every claim and restores the switches, before Aven exits.
 fn release_switches(scope: Option<&str>) {
+    let _guard = preparing();
+    restore_flags(release_claims(scope));
+}
+
+/// Turns off released switches no chat has claimed since. Runs under the
+/// same guard as `prepare`, so another chat's `prepare` for the same app
+/// happens wholly before (its claim keeps the switch on and takes over
+/// restoring it) or wholly after (it turns the switch on again).
+fn restore_unclaimed(restores: Vec<rules::Restore>) {
     let _guard = preparing();
     let restores = {
         let mut registry = flags();
-        let restores = registry.release(scope);
+        let restores = registry.unclaimed(restores);
         save_switches(&registry);
         restores
     };
