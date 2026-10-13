@@ -183,7 +183,8 @@ allowed action (or, while paused, after the user resumes). Once allowed, Aven tu
 or `AXEnhancedUserInterface` (Chromium) switch, and turns it back off when the last
 chat using it ends, if it was off before. Only the chat that turned a switch on
 records its earlier value, and a chat that ends while its switch is being turned on
-restores it straight away. Aven also keeps a small private record of switches it
+restores it straight away. A chat's restore and another chat's switch-on for the
+same app never overlap, so a switch another chat still needs is not turned off. Aven also keeps a small private record of switches it
 turned on (`aven.accessibility-switches.json` in its data folder, with the app's
 process ID, path and start time); if Aven quits unexpectedly, the next launch turns
 those switches off again when the same app process is still running.

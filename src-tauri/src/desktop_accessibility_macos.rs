@@ -808,25 +808,35 @@ fn restore_flags(restores: Vec<rules::Restore>) {
 }
 
 /// Ends a chat's element state: forgets its indexes and restores app switches
-/// no other chat needs. Shutdown restores synchronously; a single chat's
-/// cleanup runs off the caller's thread. Callers revoke the chat's session
-/// first, so a concurrent `prepare` sees it as ended.
+/// no other chat needs. Shutdown restores synchronously (bounded by the AX
+/// timeouts); a single chat's cleanup runs off the caller's thread. Callers
+/// revoke the chat's session first, so a concurrent `prepare` sees it as
+/// ended.
 pub(super) fn forget(scope: Option<&str>) {
     lock_store().forget(scope);
+    match scope {
+        None => release_switches(None),
+        Some(scope) => {
+            let scope = scope.to_owned();
+            tauri::async_runtime::spawn_blocking(move || release_switches(Some(&scope)));
+        }
+    }
+}
+
+/// Releases a chat's (or every) switch and restores those no other chat
+/// needs. Runs under the same guard as `prepare`, so another chat's
+/// `prepare` for the same app happens wholly before (and keeps the switch)
+/// or wholly after (and turns it on again): it never records a switch as
+/// already on that this restore is about to turn off.
+fn release_switches(scope: Option<&str>) {
+    let _guard = preparing();
     let restores = {
         let mut registry = flags();
         let restores = registry.release(scope);
         save_switches(&registry);
         restores
     };
-    if restores.is_empty() {
-        return;
-    }
-    if scope.is_none() {
-        restore_flags(restores);
-    } else {
-        tauri::async_runtime::spawn_blocking(move || restore_flags(restores));
-    }
+    restore_flags(restores);
 }
 
 /// Captures and stores an indexed tree of one window plus any open menus.
