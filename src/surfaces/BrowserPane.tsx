@@ -69,6 +69,11 @@ import {
   endBrowserHandoff,
   waitForBrowserHandoff,
 } from "../lib/browserHandoff";
+import {
+  NATIVE_SLIDE_CLOSE_LEAD_MS,
+  startSharedSlide,
+  type SharedSlide,
+} from "../lib/peekSlideSync";
 import "./BrowserPane.css";
 import type { Attachment } from "../lib/session";
 
@@ -251,6 +256,38 @@ function clipHoverSidebars(bounds: BrowserBounds): BrowserBounds {
   clipLeft = Math.min(bounds.width, Math.max(0, clipLeft));
   clipRight = Math.min(bounds.width - clipLeft, Math.max(0, clipRight));
   return clipLeft || clipRight ? { ...bounds, clipLeft, clipRight } : bounds;
+}
+
+const HOVER_EDGES = "[data-native-browser-hover-edge]";
+
+/**
+ * The workspace's hover edge over the page, relative to its origin. The page
+ * draws above it and keeps its clicks; native layout reports the pointer
+ * resting there, so a hidden sidebar still peeks over a browser page.
+ */
+function withHoverEdge(bounds: BrowserBounds): BrowserBounds {
+  for (const element of document.querySelectorAll<HTMLElement>(HOVER_EDGES)) {
+    const rect = element.getBoundingClientRect();
+    if (
+      rect.width <= 0 ||
+      rect.height <= 0 ||
+      rect.right <= bounds.x ||
+      rect.left >= bounds.x + bounds.width ||
+      rect.bottom <= bounds.y ||
+      rect.top >= bounds.y + bounds.height
+    )
+      continue;
+    return {
+      ...bounds,
+      hoverEdge: {
+        x: rect.left - bounds.x,
+        y: rect.top - bounds.y,
+        width: rect.width,
+        height: rect.height,
+      },
+    };
+  }
+  return bounds;
 }
 
 function hasVisibleBrowserArea(bounds: BrowserBounds): boolean {
@@ -1029,6 +1066,8 @@ function BrowserPaneSession({
     let lastGeometry = "";
     let lastBounds: BrowserBounds | null = null;
     let lastNativeBounds: BrowserBounds | null = null;
+    // The hover sidebar's slide that the next crop change follows.
+    let edgeSlide: SharedSlide | null = null;
     // WK may report itself occluded by the native Chromium child. Presentation
     // belongs to the selected workspace pane; macOS hides minimized windows.
     const isPaused = () =>
@@ -1138,7 +1177,31 @@ function BrowserPaneSession({
     const currentBounds = () => {
       const bounds =
         !isPaused() && host.current ? browserBounds(host.current) : null;
-      return bounds ? clipHoverSidebars(bounds) : null;
+      return bounds ? withHoverEdge(clipHoverSidebars(bounds)) : null;
+    };
+    /** Times a layout whose crop starts or ends a hover sidebar's cover of
+     * the page, so native slides the page's edge with the sidebar. */
+    const withEdgeSlide = (bounds: BrowserBounds): BrowserBounds => {
+      const covered = (value: BrowserBounds | null) =>
+        (value?.clipLeft ?? 0) > 0;
+      const changed = covered(bounds) !== covered(lastNativeBounds);
+      // The owner's layout effect can publish the new crop before our
+      // mutation observer sees its open-state change. Collect the slide now,
+      // so this first layout already carries its shared start time. Recheck
+      // even after an observer report: a rapid reversal owns a new transition.
+      if (changed)
+        for (const slot of document.querySelectorAll<HTMLElement>(
+          '.personal-sidebar-slot[data-floating="true"]',
+        ))
+          followPanelSlide(slot);
+      const slide = edgeSlide;
+      edgeSlide = null;
+      if (!slide || Date.now() - slide.at > 1000 || !changed) return bounds;
+      return {
+        ...bounds,
+        edgeSlideAt: slide.at,
+        edgeSlideDuration: slide.duration,
+      };
     };
     const occluded = (bounds: BrowserBounds) =>
       hasOccludingOverlay(bounds, nativeHoles.current);
@@ -1277,7 +1340,7 @@ function BrowserPaneSession({
             snapshotViewport(lastNativeBounds),
             snapshotViewport(sentBounds),
           );
-        await nativeBrowser.layout(readyId, sentBounds, show);
+        await nativeBrowser.layout(readyId, withEdgeSlide(sentBounds), show);
         lastNativeBounds = sentBounds;
         lastGeometry = JSON.stringify(sentBounds);
         lastLayout = nextLayout;
@@ -1343,8 +1406,39 @@ function BrowserPaneSession({
     const overlayNode = (node: Node) =>
       node instanceof HTMLElement &&
       (node.matches(OVERLAYS) || node.querySelector(OVERLAYS));
+    const hoverEdgeNode = (node: Node) =>
+      node instanceof HTMLElement &&
+      (node.matches(HOVER_EDGES) || !!node.querySelector(HOVER_EDGES));
+    /**
+     * A hover sidebar just opened or closed over this page. Start its CSS
+     * slide and this page's edge at one moment; a close waits briefly so the
+     * page's layout arrives first and its edge never trails the sidebar's.
+     */
+    const followPanelSlide = (slot: HTMLElement) => {
+      // React removes the active occlusion markers on a committed close;
+      // the retained sidebar still owns its closing transform transition.
+      const panel = slot.querySelector(
+        '[data-native-browser-edge="left"], .personal-sidebar',
+      );
+      if (!panel || !host.current) return;
+      const opening = slot.dataset.open === "true";
+      const cropped = opening
+        ? (currentBounds()?.clipLeft ?? 0) > 0
+        : (lastNativeBounds?.clipLeft ?? 0) > 0;
+      if (!cropped) return;
+      edgeSlide = startSharedSlide(
+        [panel, host.current.closest(".personal-workspace-column")],
+        opening ? 0 : NATIVE_SLIDE_CLOSE_LEAD_MS,
+      );
+    };
     const overlays = new MutationObserver((records) => {
       if (lastLayout === "hidden" && isPaused()) return;
+      for (const record of records)
+        if (
+          record.attributeName === "data-open" &&
+          record.target instanceof HTMLElement
+        )
+          followPanelSlide(record.target);
       // A pane or panel drag writes several style properties on the same
       // elements every frame. Search each changed subtree for overlays once.
       const styled = new Set<Node>();
@@ -1352,7 +1446,7 @@ function BrowserPaneSession({
         records.some((record) => {
           if (record.type !== "attributes")
             return [...record.addedNodes, ...record.removedNodes].some(
-              overlayNode,
+              (node) => overlayNode(node) || hoverEdgeNode(node),
             );
           // A retained floating panel may remove its occlusion marker.
           // Its new selector state alone cannot tell us to restore the page.

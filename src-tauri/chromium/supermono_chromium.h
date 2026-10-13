@@ -13,9 +13,15 @@ int sm_chromium_create(const char *id, void *parent_nsview, const char *url,
 // `holes` holds `hole_count` (at most 8) [x, y, width, height, radius] groups
 // in points, relative to the page's top-left corner. Pointer events and
 // pixels inside them belong to the workspace webview beneath the page.
+// `hover_edge` is NULL or one [x, y, width, height] group, located the same
+// way: the workspace's hover edge, reported when the pointer rests there.
+// `edge_slide_at` (seconds since 1970) and `edge_slide_duration` (seconds)
+// time a hover sidebar's slide that this layout's crop follows; 0 if unknown.
 int sm_chromium_layout(const char *id, double x, double y, double w, double h,
                        int visible, double clip_left, double clip_right, double viewport_height,
-                       double bottom_corner_radius, const double *holes, int hole_count);
+                       double bottom_corner_radius, const double *holes, int hole_count,
+                       const double *hover_edge, double edge_slide_at,
+                       double edge_slide_duration);
 int sm_chromium_reparent(const char *id, void *parent_nsview, double x, double y,
                         double w, double h, double auto_resize_top_inset);
 int sm_chromium_command(const char *id, const char *request_id, const char *request_json);
