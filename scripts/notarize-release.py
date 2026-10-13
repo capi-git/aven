@@ -167,13 +167,22 @@ def submit(archive, authentication):
                       + (status or 'unknown') + '). See the notarization log above.')
 
 
-def staple_and_assess(app):
+def tool_output(result):
+    # stapler reports its reasons on stdout, codesign on stderr.
+    return '\n'.join(text.strip() for text in (result.stdout, result.stderr) if text.strip())
+
+
+def staple_and_assess(app, submission, authentication):
     for arguments, failure in (
-            (['xcrun', 'stapler', 'staple', app], 'Stapling the notarization ticket failed.'),
-            (['xcrun', 'stapler', 'validate', app], 'The stapled notarization ticket did not validate.'),
+            (['xcrun', 'stapler', 'staple', '-v', app], 'Stapling the notarization ticket failed.'),
+            (['xcrun', 'stapler', 'validate', '-v', app], 'The stapled notarization ticket did not validate.'),
             (['codesign', '--verify', '--deep', '--strict', app], 'The signature changed while stapling.')):
         result = run(arguments)
-        require(result.returncode == 0, failure + '\n' + result.stderr.strip())
+        if result.returncode != 0:
+            # Apple's log lists the code hashes it ticketed and any warnings.
+            log = run(['xcrun', 'notarytool', 'log', submission, *authentication])
+            print(tool_output(log), file=sys.stderr)
+            raise NotaryError(failure + '\n' + tool_output(result))
     result = run(['spctl', '-a', '-vvv', '-t', 'exec', app])
     output = result.stdout + result.stderr
     require(result.returncode == 0 and NOTARIZED_SOURCE in output,
@@ -202,9 +211,9 @@ def notarize(app, report_path, environment):
             result = run(['ditto', '-c', '-k', '--keepParent', app, archive])
             require(result.returncode == 0, 'Could not create the notarization upload archive.')
             submission = submit(archive, authentication)
+        staple_and_assess(app, submission, authentication)
     finally:
         remove_key_directory(key_directory)
-    staple_and_assess(app)
     write_report(report_path, report, {
         'notarized': True, 'status': 'accepted', 'submissionId': submission, 'stapled': True,
         'stapleValidation': 'passed', 'gatekeeper': 'accepted', 'gatekeeperSource': 'Notarized Developer ID',
