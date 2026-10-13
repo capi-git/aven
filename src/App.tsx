@@ -1598,15 +1598,20 @@ export default function App({
     leaveDelay: 90,
   });
   const inspectorVisible = workspaceVisible && inspector.open;
+  const sidebarNativePointer = sidebarHover.nativePointer;
   useEffect(() => {
-    if (!sidebarHover.revealed) return;
-    // Native pages draw above the workspace, so leaving the peek for one
-    // never reaches this document as a pointer event.
+    // Native pages draw above the workspace, so the pointer moving onto one,
+    // resting on the hover edge over it, or leaving it never reaches this
+    // document as a pointer event. Listen throughout, so no report is missed.
     const unlisten = Promise.resolve()
-      .then(() => nativeBrowser.listenPointer(sidebarHover.pointerLeft))
+      .then(() =>
+        nativeBrowser.listenPointer(({ id, region }) =>
+          sidebarNativePointer(id, region),
+        ),
+      )
       .catch(() => undefined);
     return () => void unlisten.then((stop) => stop?.());
-  }, [sidebarHover.revealed, sidebarHover.pointerLeft]);
+  }, [sidebarNativePointer]);
   useLayoutEffect(() => {
     // Publish the committed panel geometry before paint. Native browser children
     // can throttle WK animation frames, so ResizeObserver alone trails toggles.
@@ -9167,6 +9172,7 @@ export default function App({
                   type="button"
                   className="personal-panel-edge personal-panel-edge-left"
                   aria-label="Show workspace sidebar"
+                  data-native-browser-hover-edge="left"
                   {...sidebarHover.edgeHandlers}
                   onClick={onToggleSidebar}
                 />

@@ -5,6 +5,18 @@
 #include <cmath>
 #include <vector>
 
+// Where the pointer is relative to the live page. The workspace webview
+// beneath sees nothing while the pointer is over the page.
+typedef NS_ENUM(NSInteger, SMBrowserPointerRegion) {
+  // Off the page: workspace content beside it, a menu cut out of it, or
+  // outside the window.
+  SMBrowserPointerRegionAway = 0,
+  SMBrowserPointerRegionPage,
+  // On the page within the workspace's hover edge, where a hidden sidebar
+  // peeks out.
+  SMBrowserPointerRegionEdge,
+};
+
 // The clipping host of a live browser. In-app menus drawn by the workspace
 // webview beneath it are cut out of the page's mask; pointer events in those
 // cut-outs must reach that webview rather than the page.
@@ -12,20 +24,31 @@
 // Cut-outs in this view's coordinates, or NULL. The view retains the path.
 - (void)setHolePath:(CGPathRef)path;
 - (BOOL)holeContainsPoint:(NSPoint)point;
-// Called when the pointer moves onto the live page. The workspace webview
-// beneath never sees the pointer cross into this view, so a hover panel
-// beside the page would otherwise stay open.
-@property(nonatomic, copy) void (^pointerEntered)(void);
+// Called whenever the pointer moves between regions, including onto the page
+// while a slide uncovers it. A hover panel beside the page would otherwise
+// stay open, and the hover edge under the page would never reveal it.
+@property(nonatomic, copy) void (^pointerRegionChanged)(SMBrowserPointerRegion region);
+// The workspace's hover edge over this page, in this view's coordinates, or
+// empty. The page keeps its clicks there; only resting the pointer counts.
+@property(nonatomic) NSRect hoverEdge;
 // Slides the page's visible leading edge, in this view's coordinates, on the
 // same springs as the workspace hover sidebar (--aven-peek-in/out in
 // personal-shell.css). The caller keeps the uncropped frame meanwhile and
 // applies its final crop in `completion`, which a cancelled slide never runs.
+// `start` is the CACurrentMediaTime() at which the sidebar's own slide
+// begins, or 0 for now; a past start catches up. `duration` is that slide's
+// length, or 0 for the CSS default; a shortened (reversed) slide plays the
+// same spring faster.
 - (void)slideLeadingEdgeFrom:(CGFloat)from
                           to:(CGFloat)to
+                  startingAt:(CFTimeInterval)start
+                    duration:(CFTimeInterval)duration
                   completion:(void (^)(void))completion;
 - (void)cancelLeadingEdgeSlide;
 @property(nonatomic, readonly) BOOL slidingLeadingEdge;
 @property(nonatomic, readonly) CGFloat slideTarget;
+// Where the page currently starts on screen during a slide, else 0.
+@property(nonatomic, readonly) CGFloat visibleLeadingEdge;
 @end
 
 @implementation SMBrowserClipView {
@@ -34,6 +57,7 @@
   CALayer* _slideMask;
   NSUInteger _slideToken;
   CGFloat _slideTarget;
+  SMBrowserPointerRegion _pointerRegion;
 }
 - (BOOL)slidingLeadingEdge {
   return _slideMask != nil;
@@ -41,7 +65,6 @@
 - (CGFloat)slideTarget {
   return _slideTarget;
 }
-// Where the page currently starts on screen during a slide, else 0.
 - (CGFloat)visibleLeadingEdge {
   if (!_slideMask) return 0;
   CALayer* shown = _slideMask.presentationLayer ?: _slideMask;
@@ -49,6 +72,8 @@
 }
 - (void)slideLeadingEdgeFrom:(CGFloat)from
                           to:(CGFloat)to
+                  startingAt:(CFTimeInterval)start
+                    duration:(CFTimeInterval)duration
                   completion:(void (^)(void))completion {
   [self cancelLeadingEdgeSlide];
   self.wantsLayer = YES;
@@ -66,6 +91,13 @@
   spring.toValue = @(to);
   // The CSS curves are sampled over these durations.
   spring.duration = opening ? 0.37 : 0.24;
+  if (std::isfinite(duration) && duration > 0)
+    spring.speed = std::clamp(spring.duration / duration, 0.25, 8.0);
+  if (std::isfinite(start) && start > 0) {
+    spring.beginTime = [self.layer convertTime:start fromLayer:nil];
+    // Hold the starting edge until then; the model value is the final one.
+    spring.fillMode = kCAFillModeBackwards;
+  }
   _slideMask = mask;
   _slideTarget = to;
   const NSUInteger token = ++_slideToken;
@@ -88,7 +120,11 @@
   }];
   mask.backgroundColor = NSColor.blackColor.CGColor;
   mask.anchorPoint = CGPointZero;
-  mask.bounds = CGRectMake(0, 0, size.width, size.height);
+  // The slide can start or finish left of this page's origin when the page
+  // sits in a split pane. Keep the mask past its right edge throughout, or
+  // moving the leading edge left also blanks the page's trailing strip.
+  const CGFloat trailing = std::max<CGFloat>(0, -std::min(from, to));
+  mask.bounds = CGRectMake(0, 0, size.width + trailing, size.height);
   mask.position = CGPointMake(to, 0);
   [mask addAnimation:spring forKey:@"slide"];
   self.layer.mask = mask;
@@ -106,21 +142,51 @@
 - (void)updateTrackingAreas {
   [super updateTrackingAreas];
   if (_tracking) [self removeTrackingArea:_tracking];
+  // Moves too: the region under the pointer changes within this view when it
+  // crosses the hover edge or a sliding leading edge. Only changes report.
   _tracking = [[NSTrackingArea alloc]
       initWithRect:NSZeroRect
-           options:NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways |
-                   NSTrackingInVisibleRect
+           options:NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved |
+                   NSTrackingActiveAlways | NSTrackingInVisibleRect
              owner:self
           userInfo:nil];
   [self addTrackingArea:_tracking];
 }
-- (void)mouseEntered:(NSEvent*)event {
+- (SMBrowserPointerRegion)pointerRegionAt:(NSPoint)point {
   // A menu cut out of the page, or the part a slide has not uncovered, still
   // belongs to the workspace webview.
-  const NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
-  if (self.pointerEntered && ![self holeContainsPoint:point] &&
-      point.x >= [self visibleLeadingEdge])
-    self.pointerEntered();
+  if (!NSPointInRect(point, self.bounds) || [self holeContainsPoint:point] ||
+      point.x < [self visibleLeadingEdge])
+    return SMBrowserPointerRegionAway;
+  return NSPointInRect(point, _hoverEdge) ? SMBrowserPointerRegionEdge
+                                          : SMBrowserPointerRegionPage;
+}
+- (void)reportPointerRegion:(SMBrowserPointerRegion)region {
+  if (region == _pointerRegion) return;
+  _pointerRegion = region;
+  if (self.pointerRegionChanged) self.pointerRegionChanged(region);
+}
+- (void)reportPointer:(NSEvent*)event {
+  [self reportPointerRegion:[self pointerRegionAt:[self convertPoint:event.locationInWindow
+                                                             fromView:nil]]];
+}
+- (void)mouseEntered:(NSEvent*)event {
+  [self reportPointer:event];
+}
+- (void)mouseMoved:(NSEvent*)event {
+  [self reportPointer:event];
+}
+- (void)mouseExited:(NSEvent*)event {
+  [self reportPointerRegion:SMBrowserPointerRegionAway];
+}
+// A hidden or detached page no longer holds the pointer.
+- (void)viewDidHide {
+  [super viewDidHide];
+  [self reportPointerRegion:SMBrowserPointerRegionAway];
+}
+- (void)viewDidMoveToWindow {
+  [super viewDidMoveToWindow];
+  if (!self.window) [self reportPointerRegion:SMBrowserPointerRegionAway];
 }
 - (void)dealloc {
   if (_holes) CGPathRelease(_holes);
@@ -230,21 +296,29 @@ inline CGPathRef CreateBrowserBottomCornerPath(NSRect frame, double radius,
   return reflected;
 }
 
-// Menu cut-outs in the clipping host's coordinates. The page's top edge is
-// the browser frame's top edge in either AppKit orientation. All rounded
-// rectangles share one winding direction, so overlaps form a union.
+// A rectangle given relative to the page's top-left corner, in the clipping
+// host's coordinates. The page's top edge is the browser frame's top edge in
+// either AppKit orientation. Empty for a missing or invalid rectangle.
+inline NSRect BrowserPageRect(NSRect browser_frame, const BrowserHole& rect,
+                              bool flipped) {
+  if (!std::isfinite(rect.x) || !std::isfinite(rect.y) ||
+      !std::isfinite(rect.width) || !std::isfinite(rect.height) ||
+      rect.width <= 0 || rect.height <= 0) return NSZeroRect;
+  const double y = flipped ? NSMinY(browser_frame) + rect.y
+                           : NSMaxY(browser_frame) - rect.y - rect.height;
+  return NSMakeRect(NSMinX(browser_frame) + rect.x, y, rect.width, rect.height);
+}
+
+// Menu cut-outs in the clipping host's coordinates. All rounded rectangles
+// share one winding direction, so overlaps form a union.
 inline CGPathRef CreateBrowserHolesPath(NSRect browser_frame,
                                         const std::vector<BrowserHole>& holes,
                                         bool flipped) {
   CGMutablePathRef path = CGPathCreateMutable();
   for (const auto& hole : holes) {
-    if (!std::isfinite(hole.x) || !std::isfinite(hole.y) ||
-        !std::isfinite(hole.width) || !std::isfinite(hole.height) ||
-        hole.width <= 0 || hole.height <= 0) continue;
-    const double y = flipped ? NSMinY(browser_frame) + hole.y
-                             : NSMaxY(browser_frame) - hole.y - hole.height;
-    const CGRect rect = CGRectMake(NSMinX(browser_frame) + hole.x, y,
-                                   hole.width, hole.height);
+    const NSRect frame = BrowserPageRect(browser_frame, hole, flipped);
+    if (NSIsEmptyRect(frame)) continue;
+    const CGRect rect = NSRectToCGRect(frame);
     const double r = std::isfinite(hole.radius)
         ? std::clamp(hole.radius, 0.0, std::min(hole.width, hole.height) / 2)
         : 0;
