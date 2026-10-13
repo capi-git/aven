@@ -1395,8 +1395,9 @@ app's focused window. Apps may ignore these events; inspect each result.
 Shared input requires inputMode: "pointer" and the user's consent, even when
 app consent is disabled. Window-targeted pointer input refuses covered points.
 Keep windowId; never drop it or change modes to bypass a refusal. Activate also
-requires consent because it changes foreground focus. Each consent lasts for
-this chat in that app until the user presses Stop; do not ask again.
+requires consent because it changes foreground focus. Aven asks the user once
+per chat; that answer covers every app, the shared pointer and activation until
+the user presses Stop. Do not ask again.
 Aven's bar identifies the agent, app and control, with Pause/Resume and Stop.
 Esc twice stops the active chat. User input pauses shared control; working in
 the target app pauses app-directed and element input. On pause, stop, denial or
@@ -1406,7 +1407,7 @@ on screen) every action except status, observation included, fails with "The
 Mac is locked. Desktop control is paused until the user unlocks" (or "The
 user's Mac session is not on screen"); a lock also
 stops an action in progress and cancels an open prompt. Keep working in Aven's
-browser or code, or wait; observe again after the user unlocks. App consent is on by default, per app and chat.
+browser or code, or wait; observe again after the user unlocks. App consent is on by default and asked once per chat.
 Settings can turn it off; shared input always asks. Interrupted drags release
 their held button. The provider-coloured ring and name tag glide between
 targets and fade when idle. Both overlays are excluded from agent

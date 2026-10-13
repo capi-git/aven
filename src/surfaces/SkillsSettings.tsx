@@ -288,8 +288,8 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
               <div className="skills-permission-copy">
                 <strong>Ask before an agent uses an app</strong>
                 <span>
-                  Allow each app for this chat. Taking your mouse or keyboard
-                  always asks the first time.
+                  Asks once per chat. One answer covers every app, your mouse
+                  and keyboard, until you press Stop.
                 </span>
               </div>
               <Toggle

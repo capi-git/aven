@@ -55,6 +55,9 @@ const FALLBACK_NAME: &str = "An agent";
 const UNKNOWN_APP_NAME: &str = "your Mac";
 const ANY_APP_KEY: &str = "*";
 const RESUME_KEY: &str = "\u{0}resume";
+/// One answer covers the whole Mac for a chat: every app, the shared pointer
+/// and bringing apps forward, until the user presses Stop.
+const MAC_KEY: &str = "\u{0}mac";
 const TITLE_LIMIT: usize = 60;
 const APP_NAME_LIMIT: usize = 60;
 
@@ -624,14 +627,9 @@ impl Presence {
         let stopped = self.stopped.contains(scope);
         let kind = if input && ask {
             let app = app.cloned().unwrap_or_else(AppIdentity::any);
-            // Every approval, including the shared pointer and bringing an
-            // app forward, lasts for this chat until the user stops it.
-            if !stopped
-                && self
-                    .allowed
-                    .get(scope)
-                    .is_some_and(|allowed| allowed.contains(&app.key))
-            {
+            // One approval covers this chat's use of the whole Mac until the
+            // user stops it; the prompt names the app that asked first.
+            if !stopped && self.has_app_consent(scope, &app.key) {
                 return Admission::Go;
             }
             PromptKind::App(app)
@@ -640,11 +638,10 @@ impl Presence {
         } else {
             return Admission::Go;
         };
-        if self
-            .denied
-            .get(scope)
-            .is_some_and(|denied| denied.contains(kind.key()))
-        {
+        if self.denied.get(scope).is_some_and(|denied| {
+            denied.contains(kind.key())
+                || (matches!(kind, PromptKind::App(_)) && denied.contains(MAC_KEY))
+        }) {
             return Admission::Refuse(kind.declined());
         }
         if !may_prompt {
@@ -674,18 +671,21 @@ impl Presence {
         };
         let outcome = if allow {
             self.stopped.remove(&prompt.scope);
-            if let PromptKind::App(app) = &prompt.kind {
+            if let PromptKind::App(_) = &prompt.kind {
                 self.allowed
                     .entry(prompt.scope.clone())
                     .or_default()
-                    .insert(app.key.clone());
+                    .insert(MAC_KEY.into());
             }
             Outcome::Allowed
         } else {
             self.denied
                 .entry(prompt.scope.clone())
                 .or_default()
-                .insert(prompt.kind.key().into());
+                .insert(match prompt.kind {
+                    PromptKind::App(_) => MAC_KEY.into(),
+                    PromptKind::Resume => prompt.kind.key().into(),
+                });
             Outcome::Declined(prompt.kind.declined())
         };
         self.resolved.insert(id, outcome);
@@ -777,14 +777,14 @@ impl Presence {
         }
     }
 
-    /// Whether this chat may already use an app without asking: it allowed
-    /// that app and has not been stopped since. Never prompts.
+    /// Whether this chat may already use an app without asking: it was
+    /// allowed to use the Mac and has not been stopped since. Never prompts.
     pub(crate) fn has_app_consent(&self, scope: &str, key: &str) -> bool {
         !self.stopped.contains(scope)
             && self
                 .allowed
                 .get(scope)
-                .is_some_and(|allowed| allowed.contains(key))
+                .is_some_and(|allowed| allowed.contains(MAC_KEY) || allowed.contains(key))
     }
 
     /// Whether changes to apps on this chat's behalf are held: desktop
@@ -1014,27 +1014,28 @@ impl Presence {
         }
         if let Some(prompt) = &self.prompt {
             let actor = self.actor(&prompt.scope);
-            let shared = matches!(&prompt.kind,PromptKind::App(app) if app.key.starts_with("pointer:") || app.key.starts_with("focus:"));
             let title = match &prompt.kind {
-                PromptKind::App(app) => format!("{} wants to use {}", actor.name, app.name),
+                PromptKind::App(_) => format!("{} wants to use your Mac", actor.name),
                 PromptKind::Resume => format!("{} wants to use your Mac again", actor.name),
+            };
+            // One answer covers every app; name the one that asked first.
+            let start = match &prompt.kind {
+                PromptKind::App(app) if app.key.starts_with("pointer:") => {
+                    "Starting with your mouse and keyboard".to_string()
+                }
+                PromptKind::App(app) if app.key.starts_with("focus:") => {
+                    format!("Starting by bringing {} forward", app.name)
+                }
+                PromptKind::App(app) => format!("Starting with {}", app.name),
+                PromptKind::Resume => "Apps, mouse and keyboard".to_string(),
             };
             return Some(BarModel {
                 kind: BarKind::Consent,
                 color: actor.color,
                 title,
-                detail: if shared {
-                    if matches!(&prompt.kind,PromptKind::App(app) if app.key.starts_with("focus:"))
-                    {
-                        "Brings this app forward · For this chat".into()
-                    } else {
-                        "Your mouse and keyboard · For this chat".into()
-                    }
-                } else {
-                    actor.title.map_or_else(
-                        || "For this chat".into(),
-                        |title| format!("For this chat · {title}"),
-                    )
+                detail: match actor.title {
+                    Some(title) => format!("{start} · For this chat · {title}"),
+                    None => format!("{start} · For this chat"),
                 },
                 buttons: vec![
                     BarButton {
@@ -1385,7 +1386,7 @@ mod tests {
     }
 
     #[test]
-    fn consent_allow_is_remembered_per_chat_and_app() {
+    fn consent_allow_covers_the_whole_mac_for_that_chat_only() {
         let mut presence = Presence::default();
         let now = Instant::now();
         let id = match presence.admit("chat", true, Some(&safari()), true, true, now) {
@@ -1394,23 +1395,26 @@ mod tests {
         };
         let model = presence.model(now).unwrap();
         assert_eq!(model.kind, BarKind::Consent);
-        assert_eq!(model.title, "An agent wants to use Safari");
+        assert_eq!(model.title, "An agent wants to use your Mac");
+        assert!(model.detail.starts_with("Starting with Safari"));
         assert_eq!(model.buttons[1].action, ButtonAction::Allow(id));
         assert!(presence.take_outcome(id, now).is_none());
         assert!(!presence.answer(id + 1, true), "stale answers are ignored");
         assert!(presence.answer(id, true));
         assert_eq!(presence.take_outcome(id, now), Some(Outcome::Allowed));
-        assert_eq!(
-            presence.admit("chat", true, Some(&safari()), true, false, now),
-            Admission::Go
-        );
-        // Another app, and another chat, each need their own answer.
-        let notes = AppIdentity::new("com.apple.Notes", "Notes");
-        assert!(matches!(
-            presence.admit("chat", true, Some(&notes), true, true, now),
-            Admission::Ask(_)
-        ));
-        presence.prompt = None;
+        // Every app, the shared pointer and bringing apps forward go ahead.
+        for app in [
+            safari(),
+            AppIdentity::new("com.apple.Notes", "Notes"),
+            AppIdentity::new("pointer:42", "Notes with your mouse and keyboard"),
+            AppIdentity::new("focus:42", "Notes"),
+        ] {
+            assert_eq!(
+                presence.admit("chat", true, Some(&app), true, true, now),
+                Admission::Go
+            );
+        }
+        // Another chat needs its own answer.
         assert!(matches!(
             presence.admit("other", true, Some(&safari()), true, true, now),
             Admission::Ask(_)
@@ -2133,47 +2137,43 @@ mod tests {
     }
 
     #[test]
-    fn shared_pointer_and_focus_approvals_last_for_the_chat_until_stopped() {
+    fn one_answer_lasts_until_stop_and_a_decline_covers_the_chat() {
         let mut state = Presence::default();
         let now = Instant::now();
-        for app in [
-            AppIdentity::new("pointer:42", "Notes with your mouse and keyboard"),
-            AppIdentity::new("focus:42", "Notes"),
-        ] {
-            let Admission::Ask(id) = state.admit("chat", true, Some(&app), true, true, now) else {
-                panic!()
-            };
-            let model = state.model(now).unwrap();
-            assert!(model.detail.ends_with("For this chat"));
-            assert_eq!(model.buttons[1].label, "Allow for chat");
-            state.answer(id, true);
-            assert_eq!(state.take_outcome(id, now), Some(Outcome::Allowed));
-            // Later commands in this chat go ahead without asking again.
-            for _ in 0..3 {
-                assert_eq!(
-                    state.admit("chat", true, Some(&app), true, true, now),
-                    Admission::Go
-                );
-            }
-            // Another chat still needs its own answer.
-            assert!(matches!(
-                state.admit("other", true, Some(&app), true, true, now),
-                Admission::Ask(_)
-            ));
-            state.prompt = None;
+        let pointer = AppIdentity::new("pointer:42", "Notes with your mouse and keyboard");
+        let Admission::Ask(id) = state.admit("chat", true, Some(&pointer), true, true, now) else {
+            panic!()
+        };
+        let model = state.model(now).unwrap();
+        assert!(model
+            .detail
+            .starts_with("Starting with your mouse and keyboard"));
+        assert_eq!(model.buttons[1].label, "Allow for chat");
+        state.answer(id, true);
+        assert_eq!(state.take_outcome(id, now), Some(Outcome::Allowed));
+        for _ in 0..3 {
+            assert_eq!(
+                state.admit("chat", true, Some(&pointer), true, true, now),
+                Admission::Go
+            );
         }
-        // Stop revokes them; the next command asks to resume first.
+        // Stop revokes it; the next command asks to resume first.
         state.stop("chat", now);
         assert!(!matches!(
-            state.admit(
-                "chat",
-                true,
-                Some(&AppIdentity::new("pointer:42", "Notes")),
-                true,
-                true,
-                now
-            ),
+            state.admit("chat", true, Some(&pointer), true, true, now),
             Admission::Go
+        ));
+        // Declining once covers every app in that chat.
+        state.prompt = None;
+        let Admission::Ask(id) = state.admit("other", true, Some(&safari()), true, true, now)
+        else {
+            panic!()
+        };
+        state.answer(id, false);
+        state.take_outcome(id, now);
+        assert!(matches!(
+            state.admit("other", true, Some(&pointer), true, true, now),
+            Admission::Refuse(_)
         ));
     }
 
@@ -2303,8 +2303,8 @@ mod tests {
         assert!(state.has_app_consent("chat", &slack.key));
         assert!(!state.has_app_consent("other", &slack.key), "per chat");
         assert!(
-            !state.has_app_consent("chat", "com.tinyspeck.slackmacgap:10"),
-            "per process"
+            state.has_app_consent("chat", "com.tinyspeck.slackmacgap:10"),
+            "one answer covers the whole Mac"
         );
         // Pause, a lock or a stop hold app changes (such as turning on an
         // accessibility switch) without forgetting the consent.
