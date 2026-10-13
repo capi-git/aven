@@ -146,6 +146,12 @@ import {
   subscribePickerVisibility,
 } from "../lib/models";
 import { prettyCwd, projectKey, projectName } from "../lib/paths";
+import {
+  AGENT_KEEP_AWAKE_DESCRIPTION,
+  AGENT_KEEP_AWAKE_LABEL,
+  saveAgentKeepAwake,
+} from "../lib/agentKeepAwake";
+import { useAgentKeepAwakeSetting } from "../hooks/useAgentKeepAwake";
 import { HAS_NATIVE_GLASS, IS_MAC } from "../lib/platform";
 import {
   loadArchivedProjects,
@@ -911,6 +917,7 @@ function PreferencesPage({
           />
         </Row>
         <AutosaveRow />
+        <AgentKeepAwakeRow />
       </SettingsGroup>
       <SettingsGroup
         title="Advanced"
@@ -929,6 +936,22 @@ function PreferencesPage({
         </Row>
       </SettingsGroup>
     </>
+  );
+}
+
+function AgentKeepAwakeRow() {
+  const on = useAgentKeepAwakeSetting();
+  return (
+    <Row
+      label={AGENT_KEEP_AWAKE_LABEL}
+      description={AGENT_KEEP_AWAKE_DESCRIPTION}
+    >
+      <Toggle
+        label={AGENT_KEEP_AWAKE_LABEL}
+        on={on}
+        onChange={saveAgentKeepAwake}
+      />
+    </Row>
   );
 }
 

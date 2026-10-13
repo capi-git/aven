@@ -1,3 +1,7 @@
+import {
+  AGENT_KEEP_AWAKE_DESCRIPTION,
+  AGENT_KEEP_AWAKE_LABEL,
+} from "./agentKeepAwake";
 import { HAS_NATIVE_GLASS } from "./platform";
 import type { SettingsSectionId } from "./settings";
 
@@ -93,6 +97,12 @@ const SETTINGS_SEARCH_ENTRIES: readonly SearchEntry[] = [
     "Diff view",
     "Review changes in the editor or a unified view.",
     "code review files inline patch",
+  ),
+  setting(
+    "tasks",
+    AGENT_KEEP_AWAKE_LABEL,
+    AGENT_KEEP_AWAKE_DESCRIPTION,
+    "sleep idle caffeinate power lock locked screen background energy app nap awake",
   ),
   setting(
     "tasks",

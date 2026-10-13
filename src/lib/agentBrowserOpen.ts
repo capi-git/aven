@@ -7,7 +7,12 @@ import {
   type BrowserWorkspace,
 } from "./personalWorkspace";
 
-export type AgentBrowserOpenOptions = { newTab?: boolean; focus?: boolean };
+export type AgentBrowserOpenOptions = {
+  newTab?: boolean;
+  focus?: boolean;
+  /** False keeps the user's panes as they are: no move, split or selection. */
+  arrange?: boolean;
+};
 
 /** Concurrent tasks in one project share an in-flight open, including transfers. */
 export function coalesceAgentBrowserOpen(
