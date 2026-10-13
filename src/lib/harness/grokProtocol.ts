@@ -664,7 +664,7 @@ function mergePreview(
   kind?: string,
 ): ToolPreview | undefined {
   if (query && (!preview || preview.kind === "search" || !preview.path)) {
-    return { kind: "search", ...(preview ?? {}), query };
+    return { kind: "search", ...preview, query };
   }
   if (!path) return preview;
   const fileName = basename(path);
