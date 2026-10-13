@@ -1521,18 +1521,24 @@ unsafe fn delete(located: &Located, backward: bool, gate: Gate) -> Result<Option
     }
 }
 
-/// The window's default or cancel button and whether it is enabled.
+/// The window's default or cancel button, whether it is enabled, and its
+/// title for the result.
 unsafe fn window_button(
     pid: i32,
     window_id: u32,
     bounds: Region,
     attribute: &str,
-) -> Option<(Element, Option<bool>)> {
+) -> Option<(Element, Option<bool>, Option<String>)> {
     let deadline = deadline();
     let window = window_element(pid, window_id, bounds, deadline).ok()?;
     let button = Element::owned(copy(window.0, attribute, deadline)?)?;
     let enabled = copy(button.0, "AXEnabled", deadline).and_then(|value| bool_of(value.0));
-    Some((button, enabled))
+    let label = ["AXTitle", "AXDescription"].iter().find_map(|name| {
+        copy(button.0, name, deadline)
+            .and_then(|value| string_of(value.0, 200))
+            .filter(|text| !text.trim().is_empty())
+    });
+    Some((button, enabled, label))
 }
 
 /// `targeted` is true when the agent named the element by index; key events
@@ -1546,8 +1552,13 @@ pub(super) fn press_key(
     gate: Gate,
 ) -> Result<Next, String> {
     let info = located.map(|located| &located.info);
+    // A named element that is disabled is refused before any step, whether
+    // its key would be an action, a text edit or a key event.
+    if targeted {
+        require_enabled(&need(located)?.info)?;
+    }
     objc2::rc::autoreleasepool(|_| unsafe {
-        for step in rules::key_plan(key, modifiers, info) {
+        for step in rules::key_plan(key, modifiers, info, targeted) {
             let done = |method: &str, outcome: Outcome| {
                 Ok(Next::Done(result_json(
                     json!({"pressed": true, "method": method}),
@@ -1569,23 +1580,32 @@ pub(super) fn press_key(
                         "AXCancelButton"
                     };
                     let (pid, window_id, bounds) = window;
-                    let Some((button, enabled)) = window_button(pid, window_id, bounds, attribute)
+                    let Some((button, enabled, label)) =
+                        window_button(pid, window_id, bounds, attribute)
                     else {
                         continue;
                     };
-                    rules::require_enabled(enabled)?;
+                    if enabled == Some(false) {
+                        return Err(rules::window_button_disabled(target, label.as_deref()));
+                    }
                     if let Some(outcome) = perform(&button, action, gate)? {
-                        return done(attribute, outcome);
+                        // Say which button the key pressed.
+                        let mut value =
+                            result_json(json!({"pressed": true, "method": attribute}), outcome);
+                        value["button"] = json!(label);
+                        return Ok(Next::Done(value));
                     }
                 }
                 KeyStep::Insert(text) => {
                     let Some(located) = located else { continue };
+                    require_enabled(&located.info)?;
                     if let Some((method, outcome)) = insert(located, text, gate)? {
                         return done(method, outcome);
                     }
                 }
                 KeyStep::DeleteBackward | KeyStep::DeleteForward => {
                     let Some(located) = located else { continue };
+                    require_enabled(&located.info)?;
                     if let Some(outcome) = delete(located, step == KeyStep::DeleteBackward, gate)? {
                         return done("AXSelectedText", outcome);
                     }
@@ -1604,6 +1624,7 @@ pub(super) fn select_text(
     range: Option<(u32, u32)>,
     gate: Gate,
 ) -> Result<Next, String> {
+    require_enabled(&located.info)?;
     let element = &located.element;
     objc2::rc::autoreleasepool(|_| unsafe {
         let (location, length) = match (text, range) {

@@ -1359,15 +1359,20 @@ guessing.
 Element actions are background actions: they use Accessibility without moving
 the pointer, activating the app or needing it frontmost. click presses the
 control (or focuses a text field, selects a row) and otherwise falls back to
-app-directed mouse events at its centre; button right shows its menu.
+plain app-directed mouse events at its centre, but only when that point is the
+element or plain content inside it; if another control is there (an inline
+button in a row), nothing is sent and the error names it. button right shows
+its menu.
 typeText inserts text at the element's (or the app's focused) caret, falling
 back to key events only if the app does not support the insertion. An
 insertion the app accepted is never repeated: when its text has not changed
 yet, the result is "confirmed": false; call appState before typing again.
 Long, multi-line, rich or web text is never rewritten as a whole. setValue replaces a value
 (text, number or true/false). pressKey maps Enter, Escape, Space, arrows on
-sliders and Backspace/Delete in text to equivalent actions, else sends keys;
-with element, keys (and typeText's key fallback) are sent only after that
+sliders and Backspace/Delete in text to equivalent actions, else sends keys.
+Without element, Enter/Escape may press the window's default/cancel button and
+the result names it ("button"); with element, they use only that element's
+own Confirm/Cancel or keys, never the window's buttons. With element, keys (and typeText's key fallback) are sent only after that
 element is confirmed focused, otherwise the action fails and nothing is sent.
 scroll with element and direction pages that scroll area; with only element
 it scrolls the element into view; with deltaX and/or deltaY it scrolls at its
@@ -1375,8 +1380,9 @@ centre.
 selectText selects text or start/length (UTF-16 units). secondaryAction runs
 ShowMenu (default) or one of ShowAlternateUI, ShowDefaultUI, Increment,
 Decrement, Pick, Confirm, Cancel, Press, ScrollToVisible. Each result reports
-the method used. Disabled controls, including a disabled default or cancel
-button for Enter or Escape, are refused. "confirmed": false means the app did
+the method used. Disabled controls are refused by every element action,
+selectText and pressKey included; a disabled default or cancel button refuses
+Enter or Escape without element and names that button. "confirmed": false means the app did
 not answer in time (for example while a menu is open) or had not shown an
 accepted change yet: call appState before acting again.
 Coordinate actions remain the fallback. Windows lists on-screen, layer-0

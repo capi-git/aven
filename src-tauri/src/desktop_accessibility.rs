@@ -1076,8 +1076,16 @@ pub(crate) enum KeyStep {
 
 /// Maps a key to Accessibility actions where one has the same meaning, in
 /// order. Keys with modifiers, and keys with no semantic equivalent, use the
-/// existing key-event path.
-pub(crate) fn key_plan(key: &str, modifiers: bool, info: Option<&NodeInfo>) -> Vec<KeyStep> {
+/// existing key-event path. `targeted` is true when the agent named the
+/// element: Enter and Escape then act only on that element (its own Confirm
+/// or Cancel, else focus-confirmed key events), never on the window's default
+/// or cancel button.
+pub(crate) fn key_plan(
+    key: &str,
+    modifiers: bool,
+    info: Option<&NodeInfo>,
+    targeted: bool,
+) -> Vec<KeyStep> {
     let mut plan = Vec::new();
     if modifiers {
         return vec![KeyStep::Events];
@@ -1092,13 +1100,17 @@ pub(crate) fn key_plan(key: &str, modifiers: bool, info: Option<&NodeInfo>) -> V
             if has("AXConfirm") {
                 plan.push(KeyStep::Perform(KeyTarget::Element, "AXConfirm"));
             }
-            plan.push(KeyStep::Perform(KeyTarget::DefaultButton, "AXPress"));
+            if !targeted {
+                plan.push(KeyStep::Perform(KeyTarget::DefaultButton, "AXPress"));
+            }
         }
         "Escape" => {
             if has("AXCancel") {
                 plan.push(KeyStep::Perform(KeyTarget::Element, "AXCancel"));
             }
-            plan.push(KeyStep::Perform(KeyTarget::CancelButton, "AXPress"));
+            if !targeted {
+                plan.push(KeyStep::Perform(KeyTarget::CancelButton, "AXPress"));
+            }
         }
         "ArrowUp" | "ArrowRight" | "ArrowDown" | "ArrowLeft"
             if ADJUSTABLE_ROLES.contains(&role) =>
@@ -1141,6 +1153,20 @@ pub(crate) fn settle(retries: usize, interval: Duration, mut check: impl FnMut()
 
 pub(crate) const DISABLED: &str =
     "That control is disabled. Call appState again after the app enables it.";
+
+/// A window's default (Enter) or cancel (Escape) button that is disabled,
+/// when no element was named. Names the button, so it is never mistaken for
+/// a refusal of another control.
+pub(crate) fn window_button_disabled(target: KeyTarget, label: Option<&str>) -> String {
+    let (which, key) = match target {
+        KeyTarget::CancelButton => ("cancel", "Escape"),
+        _ => ("default", "Enter"),
+    };
+    let name = label
+        .and_then(|label| quoted(label, 60))
+        .map_or_else(String::new, |label| format!(" {label}"));
+    format!("The window's {which} button{name} is disabled, so {key} was not sent; no input was sent. Call appState again after the app enables it, or name the element the key is for.")
+}
 
 /// Every element action refuses a control the app reports disabled,
 /// including the window's default and cancel buttons used for Enter/Escape.
@@ -2462,8 +2488,10 @@ mod tests {
         use KeyTarget::*;
         let mut field = info("AXTextField", None);
         field.actions = vec!["AXConfirm".into(), "AXCancel".into()];
+        // The app's focused element (none named): Enter and Escape may fall
+        // back to the window's default and cancel buttons, as the keys would.
         assert_eq!(
-            key_plan("Enter", false, Some(&field)),
+            key_plan("Enter", false, Some(&field), false),
             [
                 Perform(Element, "AXConfirm"),
                 Perform(DefaultButton, "AXPress"),
@@ -2471,7 +2499,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            key_plan("Escape", false, Some(&field)),
+            key_plan("Escape", false, Some(&field), false),
             [
                 Perform(Element, "AXCancel"),
                 Perform(CancelButton, "AXPress"),
@@ -2479,25 +2507,37 @@ mod tests {
             ]
         );
         assert_eq!(
-            key_plan("Enter", false, None),
+            key_plan("Enter", false, None, false),
             [Perform(DefaultButton, "AXPress"), Events]
         );
-
+        // A named element: only its own Confirm/Cancel, then focus-confirmed
+        // key events; never the window's default or cancel button.
         assert_eq!(
-            key_plan("Space", false, Some(&field)),
+            key_plan("Enter", false, Some(&field), true),
+            [Perform(Element, "AXConfirm"), Events]
+        );
+        assert_eq!(
+            key_plan("Escape", false, Some(&field), true),
+            [Perform(Element, "AXCancel"), Events]
+        );
+        let plain = info("AXTextField", Some("Name"));
+        assert_eq!(key_plan("Enter", false, Some(&plain), true), [Events]);
+        assert_eq!(key_plan("Escape", false, Some(&plain), true), [Events]);
+        assert_eq!(
+            key_plan("Space", false, Some(&field), true),
             [Insert(" "), Events]
         );
         assert_eq!(
-            key_plan("Backspace", false, Some(&field)),
+            key_plan("Backspace", false, Some(&field), true),
             [DeleteBackward, Events]
         );
         assert_eq!(
-            key_plan("Delete", false, Some(&field)),
+            key_plan("Delete", false, Some(&field), true),
             [DeleteForward, Events]
         );
         let area = info("AXTextArea", None);
         assert_eq!(
-            key_plan("Enter", false, Some(&area)),
+            key_plan("Enter", false, Some(&area), true),
             [Insert("\n"), Events]
         );
         let mut slider = info("AXSlider", None);
@@ -2509,26 +2549,26 @@ mod tests {
             ("ArrowLeft", "AXDecrement"),
         ] {
             assert_eq!(
-                key_plan(key, false, Some(&slider)),
+                key_plan(key, false, Some(&slider), true),
                 [Perform(Element, action), Events]
             );
         }
         // Arrows elsewhere move a caret or selection: real key events.
-        assert_eq!(key_plan("ArrowDown", false, Some(&field)), [Events]);
+        assert_eq!(key_plan("ArrowDown", false, Some(&field), true), [Events]);
         let mut checkbox = info("AXCheckBox", Some("Agree"));
         checkbox.actions = vec!["AXPress".into()];
         assert_eq!(
-            key_plan("Space", false, Some(&checkbox)),
+            key_plan("Space", false, Some(&checkbox), true),
             [Perform(Element, "AXPress"), Events]
         );
         // Modifiers, Tab and letters keep the key-event path.
-        assert_eq!(key_plan("Enter", true, Some(&field)), [Events]);
-        assert_eq!(key_plan("a", false, Some(&field)), [Events]);
-        assert_eq!(key_plan("Tab", false, Some(&field)), [Events]);
+        assert_eq!(key_plan("Enter", true, Some(&field), true), [Events]);
+        assert_eq!(key_plan("a", false, Some(&field), true), [Events]);
+        assert_eq!(key_plan("Tab", false, Some(&field), true), [Events]);
         // Secure fields are never edited by computing their (unread) value.
         let mut secure = info(SECURE_TEXT_FIELD, None);
         secure.actions = vec!["AXConfirm".into()];
-        assert_eq!(key_plan("Backspace", false, Some(&secure)), [Events]);
+        assert_eq!(key_plan("Backspace", false, Some(&secure), true), [Events]);
     }
 
     #[test]
@@ -2553,6 +2593,19 @@ mod tests {
         assert!(require_enabled(Some(true)).is_ok());
         // Many elements do not report AXEnabled at all.
         assert!(require_enabled(None).is_ok());
+        // A disabled window button names itself and the key, so it is never
+        // read as a refusal of another control.
+        let default = window_button_disabled(KeyTarget::DefaultButton, Some("Save"));
+        assert!(
+            default.starts_with("The window's default button \"Save\" is disabled, so Enter"),
+            "{default}"
+        );
+        let cancel = window_button_disabled(KeyTarget::CancelButton, None);
+        assert!(
+            cancel.starts_with("The window's cancel button is disabled, so Escape"),
+            "{cancel}"
+        );
+        assert_ne!(default, DISABLED);
     }
 
     #[test]

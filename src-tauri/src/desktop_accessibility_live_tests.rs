@@ -231,6 +231,17 @@ fn done(next: Next) -> Value {
     }
 }
 
+/// What an element step returned, for the evidence log.
+fn next_summary(next: &Next) -> Value {
+    match next {
+        Next::Done(value) => value.clone(),
+        Next::ClickAt { .. } => json!("clickEvents"),
+        Next::ScrollAt { .. } => json!("scrollEvents"),
+        Next::Keys => json!("keyEvents"),
+        Next::TypeKeys => json!("typingEvents"),
+    }
+}
+
 #[test]
 fn process_identity_includes_a_stable_start_time() {
     let pid = std::process::id() as i32;
@@ -539,11 +550,54 @@ fn live_fixture_background_element_actions() {
     let refused = press_key(None, false, "Enter", false, (pid, window_id, bounds), &gate)
         .err()
         .unwrap();
-    assert_eq!(refused, rules::DISABLED);
+    assert!(
+        refused.starts_with("The window's default button \"Locked\" is disabled, so Enter"),
+        "{refused}"
+    );
     acted();
     evidence.insert("disabledRefusal".into(), json!(refused));
+    // A named field's Enter never involves the window's (disabled) default
+    // button, so it is not refused on that button's account.
+    let name_field = find_in(&observe(), "TextField", "placeholder=\"Name\"");
+    let named = press_key(
+        Some(&name_field),
+        true,
+        "Enter",
+        false,
+        (pid, window_id, bounds),
+        &gate,
+    )
+    .unwrap();
+    acted();
+    evidence.insert("namedEnter".into(), next_summary(&named));
+    if let Next::Done(value) = &named {
+        assert_ne!(value["method"], "AXDefaultButton", "{value}");
+    }
     std::thread::sleep(Duration::from_millis(150));
     assert_eq!(fixture.read()["lockedPresses"], 0);
+
+    // 8a-2. A disabled text field is refused by selection and by every key,
+    // before anything reaches the app.
+    let frozen = find_in(&observe(), "TextField", "placeholder=\"Frozen\"");
+    assert_eq!(frozen.info.enabled, Some(false));
+    let refused = select_text(&frozen, None, Some((0, 1)), &gate)
+        .err()
+        .unwrap();
+    assert_eq!(refused, rules::DISABLED);
+    for key in ["Backspace", "Delete", "Space", "a", "Enter"] {
+        let refused = press_key(
+            Some(&frozen),
+            true,
+            key,
+            false,
+            (pid, window_id, bounds),
+            &gate,
+        )
+        .err()
+        .unwrap_or_else(|| panic!("{key} reached a disabled field"));
+        assert_eq!(refused, rules::DISABLED, "{key}");
+    }
+    acted();
 
     // 8a-3. A row with an inline "Archive" button over its centre and no
     // action of its own: the click's event fallback is refused, naming the
@@ -573,6 +627,85 @@ fn live_fixture_background_element_actions() {
         0,
         "the inner button was pressed"
     );
+
+    // 8a-4. A dialog: Enter with no element presses its enabled default
+    // button and names it; Enter and Escape on its named field never press
+    // the dialog's buttons.
+    let dialog_id = start["dialogWindowId"].as_u64().unwrap() as u32;
+    let dialog_bounds = windows()
+        .unwrap()
+        .into_iter()
+        .find(|window| window.window_id == dialog_id && window.pid == pid)
+        .expect("fixture dialog is on screen")
+        .bounds();
+    let dialog_state = || capture_state(scope, pid, dialog_id, dialog_bounds, 200).unwrap();
+    let dialog_field = |state: &Value| {
+        let index = index_of(
+            state["elements"].as_str().unwrap(),
+            "TextField",
+            "placeholder=\"Dialog name\"",
+        );
+        locate(
+            scope,
+            dialog_id,
+            state["stateId"].as_u64(),
+            index,
+            pid,
+            dialog_bounds,
+        )
+        .unwrap()
+    };
+    let dialog_window = (pid, dialog_id, dialog_bounds);
+    let mut named_keys = serde_json::Map::new();
+    for key in ["Enter", "Escape"] {
+        let field = dialog_field(&dialog_state());
+        // A refusal (for example, focus could not be confirmed in the
+        // background) is fine as long as it is not about the dialog's buttons.
+        let summary = match press_key(Some(&field), true, key, false, dialog_window, &gate) {
+            Ok(next) => {
+                if let Next::Done(value) = &next {
+                    assert!(
+                        value["method"] != "AXDefaultButton" && value["method"] != "AXCancelButton",
+                        "{value}"
+                    );
+                }
+                next_summary(&next)
+            }
+            Err(error) => {
+                assert!(
+                    error != rules::DISABLED && !error.contains("button"),
+                    "{error}"
+                );
+                json!({ "error": error })
+            }
+        };
+        invalidate(scope, dialog_id);
+        named_keys.insert(key.into(), summary);
+    }
+    std::thread::sleep(Duration::from_millis(200));
+    let receipt = fixture.read();
+    evidence.insert("dialogNamedKeys".into(), Value::Object(named_keys));
+    assert_eq!(receipt["dialogOk"], 0, "a named field's Enter pressed OK");
+    assert_eq!(
+        receipt["dialogCancels"], 0,
+        "a named field's Escape pressed Cancel"
+    );
+    dialog_state();
+    let value = done(press_key(None, false, "Enter", false, dialog_window, &gate).unwrap());
+    invalidate(scope, dialog_id);
+    assert_eq!(value["method"], "AXDefaultButton", "{value}");
+    assert_eq!(value["button"], "OK", "{value}");
+    evidence.insert("dialogDefaultButton".into(), value);
+    fixture.wait("dialog OK", |value| value["dialogOk"] == 1);
+    dialog_state();
+    let escape = press_key(None, false, "Escape", false, dialog_window, &gate).unwrap();
+    invalidate(scope, dialog_id);
+    if let Next::Done(value) = &escape {
+        assert_eq!(value["method"], "AXCancelButton", "{value}");
+        assert_eq!(value["button"], "Cancel", "{value}");
+        fixture.wait("dialog cancel", |value| value["dialogCancels"] == 1);
+    }
+    evidence.insert("dialogCancelButton".into(), next_summary(&escape));
 
     // 8b. Web content: WebKit serves the page's elements from a WebContent
     // process. They are accepted for this window and pressed in the

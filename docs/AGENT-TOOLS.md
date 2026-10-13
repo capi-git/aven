@@ -135,9 +135,12 @@ Element actions take the same `windowId`, an `element` index and the `stateId`:
   areas, rich editors, web content and text over 200,000 characters are edited with
   key events at the caret, so nothing is lost or truncated.
 - `setValue` replaces a text, number or true/false value.
-- `pressKey` maps Enter to Confirm or the default button, Escape to Cancel, arrows to
+- `pressKey` maps Enter to Confirm, Escape to Cancel, arrows to
   Increment/Decrement on sliders and steppers, Space to Press, and Backspace/Delete to
-  text edits. Other keys and any modifiers use app-directed key events. For a named
+  text edits. Without an `element`, Enter and Escape may instead press the window's
+  default or cancel button, and the result names it in `button`; with an `element`
+  they act only on that element (its own Confirm or Cancel, else focus-confirmed key
+  events) and never press the window's buttons. Other keys and any modifiers use app-directed key events. For a named
   `element`, those events (and `typeText`'s key fallback) are sent only after Aven
   focuses that element inside its app and reads its focus back; otherwise nothing
   is sent and the action fails, so keys never reach another control.
@@ -149,7 +152,8 @@ Element actions take the same `windowId`, an `element` index and the `stateId`:
   as `Increment` or `ShowAlternateUI`.
 
 A control the app reports as disabled is refused by every element action, including
-the window's default or cancel button that Enter or Escape would press.
+`selectText` and every `pressKey` key. Without an `element`, a disabled default or
+cancel button refuses Enter or Escape with an error that names that button.
 
 Indexes belong to that state only, and any action in the window uses them up, so
 agents call `appState` again before each element action. A newer `appState` of the
