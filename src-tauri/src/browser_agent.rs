@@ -526,6 +526,20 @@ fn bind_scope(
     Ok(())
 }
 
+/// A chat's reply ended or was stopped in `owner`'s window: hide its agent
+/// pointer now. Safe under the grant lock, like revocation.
+pub(crate) fn turn_finished(owner: &str, session_id: &str) {
+    if let Some(Ok(server)) = SERVER.get() {
+        if let Ok(grants) = server.grants.lock() {
+            for (token, grant) in grants.iter() {
+                if grant.owner == owner && grant.session_id == session_id {
+                    crate::desktop_control::turn_finished(token);
+                }
+            }
+        }
+    }
+}
+
 #[tauri::command]
 pub fn browser_agent_revoke(caller: Webview, session_id: String) -> Result<(), String> {
     crate::browser::label(&caller, "agent-check")?;

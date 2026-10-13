@@ -9,13 +9,6 @@ unsafe extern "C" {
     fn CGEventSetType(event: Event, kind: u32);
     fn CGEventGetIntegerValueField(event: Cf, field: u32) -> i64;
 }
-#[link(name = "ApplicationServices", kind = "framework")]
-unsafe extern "C" {
-    fn AXUIElementCopyElementAtPosition(app: Cf, x: f32, y: f32, element: *mut Cf) -> i32;
-    fn AXUIElementCopyActionNames(element: Cf, actions: *mut Cf) -> i32;
-    fn AXUIElementPerformAction(element: Cf, action: Cf) -> i32;
-    fn AXUIElementGetPid(element: Cf, pid: *mut i32) -> i32;
-}
 #[derive(Clone)]
 struct Route {
     ticket: presence::Ticket,
@@ -218,12 +211,33 @@ pub(super) fn target(
     } else if let Some(pid) = specified.0 {
         pid
     } else if let Some(name) = specified.1 {
-        let matches: Vec<_> = windows()?
+        let mut unique: std::collections::HashSet<_> = windows()?
             .into_iter()
             .filter(|w| w.app.eq_ignore_ascii_case(&name))
             .map(|w| w.pid)
             .collect();
-        let unique: std::collections::HashSet<_> = matches.into_iter().collect();
+        if unique.is_empty() {
+            // An app with no window open (Finder, a menu-bar-less utility)
+            // can still be brought forward: match running apps by name.
+            unique = running_apps_named(app, &name)?.into_iter().collect();
+        }
+        if unique.is_empty() && matches!(request, Request::Activate { .. }) {
+            // Not running: an installed app of that name is opened, under the
+            // same consent as bringing an app forward, after the user allows it.
+            let path = installed_app_named(&name)
+                .ok_or("No app with that name is running or installed in Applications.")?;
+            let title = path
+                .file_stem()
+                .map_or_else(|| name.clone(), |stem| stem.to_string_lossy().into_owned());
+            return Ok(PresenceTarget {
+                app: Some(presence::AppIdentity::new(
+                    &format!("focus:open:{}", path.display()),
+                    &title,
+                )),
+                shared_input: true,
+                ..PresenceTarget::default()
+            });
+        }
         if unique.len() != 1 {
             return Err("Use an unambiguous pid from windows to activate an app.".into());
         }
@@ -308,6 +322,64 @@ pub(super) fn target(
         bounds,
         shared_input,
         label,
+    })
+}
+
+/// Regular (Dock) apps whose name matches, whether or not they have a window.
+pub(super) fn running_apps_named(app: &AppHandle, name: &str) -> Result<Vec<i32>, String> {
+    let name = name.to_owned();
+    activation_on_main(
+        app,
+        Instant::now() + Duration::from_secs(2),
+        move || unsafe {
+            let class = AnyClass::get(c"NSWorkspace").ok_or("App identity is unavailable.")?;
+            let workspace: Retained<AnyObject> = msg_send![class, sharedWorkspace];
+            let running: Retained<AnyObject> = msg_send![&*workspace, runningApplications];
+            let count: usize = msg_send![&*running, count];
+            let mut pids = Vec::new();
+            for index in 0..count {
+                let item: Retained<AnyObject> = msg_send![&*running, objectAtIndex: index];
+                // NSApplicationActivationPolicyRegular
+                let policy: isize = msg_send![&*item, activationPolicy];
+                if policy != 0 {
+                    continue;
+                }
+                let localized: Option<Retained<NSString>> = msg_send![&*item, localizedName];
+                if localized.is_some_and(|value| value.to_string().eq_ignore_ascii_case(&name)) {
+                    let pid: i32 = msg_send![&*item, processIdentifier];
+                    pids.push(pid);
+                }
+            }
+            Ok(pids)
+        },
+    )
+}
+
+/// An installed app bundle named `name` (with or without ".app") in the
+/// standard Applications folders. Never searches elsewhere.
+pub(super) fn installed_app_named(name: &str) -> Option<std::path::PathBuf> {
+    let wanted = name.trim().trim_end_matches(".app");
+    if wanted.is_empty() || wanted.contains('/') {
+        return None;
+    }
+    let mut folders = vec![
+        std::path::PathBuf::from("/Applications"),
+        std::path::PathBuf::from("/Applications/Utilities"),
+        std::path::PathBuf::from("/System/Applications"),
+        std::path::PathBuf::from("/System/Applications/Utilities"),
+    ];
+    if let Some(home) = std::env::var_os("HOME") {
+        folders.push(std::path::PathBuf::from(home).join("Applications"));
+    }
+    folders.into_iter().find_map(|folder| {
+        std::fs::read_dir(folder).ok()?.flatten().find_map(|entry| {
+            let path = entry.path();
+            let matches = path.extension().is_some_and(|ext| ext == "app")
+                && path
+                    .file_stem()
+                    .is_some_and(|stem| stem.to_string_lossy().eq_ignore_ascii_case(wanted));
+            matches.then_some(path)
+        })
     })
 }
 
@@ -439,5 +511,22 @@ pub(super) fn accessible_click(point: Point, button: Button, count: u8) -> Resul
             return Err(format!("The app did not confirm the accessibility action (AX error {result}). It may have completed; inspect a fresh screenshot before deciding whether to retry."));
         }
         Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn opens_only_apps_installed_in_applications_by_exact_name() {
+        // Finder is always installed in /System/Library/CoreServices, outside
+        // the folders searched; TextEdit ships in /System/Applications.
+        assert!(installed_app_named("TextEdit").is_some_and(|path| path.ends_with("TextEdit.app")));
+        assert!(installed_app_named("textedit.app").is_some());
+        assert!(installed_app_named("Finder").is_none());
+        assert!(installed_app_named("").is_none());
+        assert!(installed_app_named("../TextEdit").is_none());
+        assert!(installed_app_named("Text").is_none(), "no partial matches");
     }
 }

@@ -453,6 +453,7 @@ pub fn control_turn_finished(
     if let Ok(mut inner) = host.inner.lock() {
         inner.finish_turn(window.label(), &session_id);
     }
+    crate::browser_agent::turn_finished(window.label(), &session_id);
 }
 
 pub fn window_closed(app: &AppHandle, label: &str) {

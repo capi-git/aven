@@ -79,6 +79,164 @@ pub(super) fn preview_presence() {
 type Cf = *const c_void;
 type Event = *mut c_void;
 
+mod ax_raw {
+    use super::Cf;
+    #[link(name = "ApplicationServices", kind = "framework")]
+    unsafe extern "C" {
+        pub(super) fn AXUIElementSetMessagingTimeout(element: Cf, seconds: f32) -> i32;
+        pub(super) fn AXUIElementIsAttributeSettable(
+            element: Cf,
+            attribute: Cf,
+            settable: *mut u8,
+        ) -> i32;
+        pub(super) fn AXUIElementSetAttributeValue(element: Cf, attribute: Cf, value: Cf) -> i32;
+        pub(super) fn AXUIElementCopyAttributeValue(
+            element: Cf,
+            attribute: Cf,
+            value: *mut Cf,
+        ) -> i32;
+        pub(super) fn AXUIElementCopyMultipleAttributeValues(
+            element: Cf,
+            attributes: Cf,
+            options: u32,
+            values: *mut Cf,
+        ) -> i32;
+        pub(super) fn AXUIElementCopyActionNames(element: Cf, actions: *mut Cf) -> i32;
+        pub(super) fn AXUIElementCopyElementAtPosition(
+            app: Cf,
+            x: f32,
+            y: f32,
+            element: *mut Cf,
+        ) -> i32;
+        pub(super) fn AXUIElementPerformAction(element: Cf, action: Cf) -> i32;
+        pub(super) fn AXUIElementGetPid(element: Cf, pid: *mut i32) -> i32;
+    }
+}
+
+/// kAXErrorCannotComplete: the owning thread did not serve the request.
+const AX_CANNOT_COMPLETE: i32 = -25204;
+/// How long a worker waits for the main thread to serve one request.
+const OWNER_WAIT: Duration = Duration::from_secs(2);
+/// After a request to Aven's own window goes unserved, later ones in this
+/// window fail at once instead of each waiting again.
+static OWNER_BUSY_UNTIL: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
+
+struct AssertSend<T>(T);
+// SAFETY: only used to hand a call to the main thread while its caller waits;
+// see `on_owner_thread`.
+unsafe impl<T> Send for AssertSend<T> {}
+
+/// macOS answers Accessibility requests to the calling process synchronously,
+/// on the calling thread, and WebKit serves its tree only on the main thread:
+/// reading Aven's own window from a worker terminates the app. Requests to
+/// Aven's own elements therefore run on the main thread while the worker
+/// waits; every other app is served where the caller already is.
+unsafe fn on_owner_thread(element: Cf, call: impl FnOnce() -> i32) -> i32 {
+    let mut pid = 0;
+    if element.is_null()
+        || objc2_foundation::MainThreadMarker::new().is_some()
+        || ax_raw::AXUIElementGetPid(element, &mut pid) != 0
+        || pid != std::process::id() as i32
+    {
+        return call();
+    }
+    {
+        let busy = OWNER_BUSY_UNTIL.lock().unwrap_or_else(|e| e.into_inner());
+        if busy.is_some_and(|until| Instant::now() < until) {
+            return AX_CANNOT_COMPLETE;
+        }
+    }
+    // The call borrows the caller's stack. It runs only while this worker is
+    // waiting for it: an abandoned call is skipped, and a running one is
+    // waited for under the lock before this function returns.
+    let call: Box<dyn FnOnce() -> i32 + '_> = Box::new(call);
+    let call: Box<dyn FnOnce() -> i32 + 'static> = std::mem::transmute(call);
+    let abandoned = Arc::new(std::sync::Mutex::new(false));
+    let (sender, receiver) = mpsc::sync_channel(1);
+    let job = AssertSend((call, Arc::clone(&abandoned), sender));
+    dispatch2::DispatchQueue::main().exec_async(move || {
+        let job = job;
+        let AssertSend((call, abandoned, sender)) = job;
+        let gone = abandoned.lock().unwrap_or_else(|e| e.into_inner());
+        if *gone {
+            return;
+        }
+        let _ = sender.send(call());
+        drop(gone);
+    });
+    match receiver.recv_timeout(OWNER_WAIT) {
+        Ok(result) => result,
+        Err(_) => {
+            let mut gone = abandoned.lock().unwrap_or_else(|e| e.into_inner());
+            *gone = true;
+            drop(gone);
+            receiver.try_recv().unwrap_or_else(|_| {
+                *OWNER_BUSY_UNTIL.lock().unwrap_or_else(|e| e.into_inner()) =
+                    Some(Instant::now() + OWNER_WAIT);
+                AX_CANNOT_COMPLETE
+            })
+        }
+    }
+}
+
+#[allow(non_snake_case)]
+unsafe fn AXUIElementSetMessagingTimeout(element: Cf, seconds: f32) -> i32 {
+    on_owner_thread(element, || {
+        ax_raw::AXUIElementSetMessagingTimeout(element, seconds)
+    })
+}
+#[allow(non_snake_case)]
+unsafe fn AXUIElementIsAttributeSettable(element: Cf, attribute: Cf, settable: *mut u8) -> i32 {
+    on_owner_thread(element, || {
+        ax_raw::AXUIElementIsAttributeSettable(element, attribute, settable)
+    })
+}
+#[allow(non_snake_case)]
+unsafe fn AXUIElementSetAttributeValue(element: Cf, attribute: Cf, value: Cf) -> i32 {
+    on_owner_thread(element, || {
+        ax_raw::AXUIElementSetAttributeValue(element, attribute, value)
+    })
+}
+#[allow(non_snake_case)]
+unsafe fn AXUIElementCopyAttributeValue(element: Cf, attribute: Cf, value: *mut Cf) -> i32 {
+    on_owner_thread(element, || {
+        ax_raw::AXUIElementCopyAttributeValue(element, attribute, value)
+    })
+}
+#[allow(non_snake_case)]
+unsafe fn AXUIElementCopyMultipleAttributeValues(
+    element: Cf,
+    attributes: Cf,
+    options: u32,
+    values: *mut Cf,
+) -> i32 {
+    on_owner_thread(element, || {
+        ax_raw::AXUIElementCopyMultipleAttributeValues(element, attributes, options, values)
+    })
+}
+#[allow(non_snake_case)]
+unsafe fn AXUIElementCopyActionNames(element: Cf, actions: *mut Cf) -> i32 {
+    on_owner_thread(element, || {
+        ax_raw::AXUIElementCopyActionNames(element, actions)
+    })
+}
+#[allow(non_snake_case)]
+unsafe fn AXUIElementCopyElementAtPosition(app: Cf, x: f32, y: f32, element: *mut Cf) -> i32 {
+    on_owner_thread(app, || {
+        ax_raw::AXUIElementCopyElementAtPosition(app, x, y, element)
+    })
+}
+#[allow(non_snake_case)]
+unsafe fn AXUIElementPerformAction(element: Cf, action: Cf) -> i32 {
+    on_owner_thread(element, || {
+        ax_raw::AXUIElementPerformAction(element, action)
+    })
+}
+#[allow(non_snake_case)]
+unsafe fn AXUIElementGetPid(element: Cf, pid: *mut i32) -> i32 {
+    ax_raw::AXUIElementGetPid(element, pid)
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Point {
@@ -148,10 +306,6 @@ unsafe extern "C" {
     fn AXIsProcessTrustedWithOptions(options: Cf) -> u8;
     static kAXTrustedCheckOptionPrompt: Cf;
     fn AXUIElementCreateApplication(pid: i32) -> Cf;
-    fn AXUIElementSetMessagingTimeout(element: Cf, seconds: f32) -> i32;
-    fn AXUIElementIsAttributeSettable(element: Cf, attribute: Cf, settable: *mut u8) -> i32;
-    fn AXUIElementSetAttributeValue(element: Cf, attribute: Cf, value: Cf) -> i32;
-    fn AXUIElementCopyAttributeValue(element: Cf, attribute: Cf, value: *mut Cf) -> i32;
     fn AXUIElementGetTypeID() -> usize;
     fn AXValueGetTypeID() -> usize;
     fn AXValueGetValue(value: Cf, kind: u32, output: *mut c_void) -> bool;
@@ -1199,6 +1353,10 @@ fn activate(
     name: Option<String>,
     ticket: presence::Ticket,
 ) -> Result<Value, String> {
+    let pid = match (pid, name.as_deref()) {
+        (None, Some(wanted)) => Some(open_app(app_handle, &session, &ticket, wanted)?),
+        _ => pid,
+    };
     let deadline = Instant::now() + Duration::from_secs(3);
     let activation_session = Arc::clone(&session);
     let mut attempt = activation_on_main(app_handle, deadline, move || unsafe {
@@ -1222,6 +1380,51 @@ fn activate(
         session.require_active()?;
         activation_on_main(app_handle, deadline, || unsafe { frontmost_pid_on_main() })
     })
+}
+
+/// Opens an installed app the user allowed this chat to bring forward, then
+/// waits for it to be running. Only the standard Applications folders.
+fn open_app(
+    app_handle: &AppHandle,
+    session: &CaptureSession,
+    ticket: &presence::Ticket,
+    name: &str,
+) -> Result<i32, String> {
+    if let Some(pid) = input::running_apps_named(app_handle, name)?.first() {
+        return Ok(*pid);
+    }
+    let path = input::installed_app_named(name)
+        .ok_or("No app with that name is running or installed in Applications.")?;
+    session.require_active()?;
+    presence::with(|state| state.check(ticket))?;
+    let target = path.to_string_lossy().into_owned();
+    let opened = activation_on_main(
+        app_handle,
+        Instant::now() + Duration::from_secs(3),
+        move || unsafe {
+            let url_class = AnyClass::get(c"NSURL").ok_or("macOS workspace is unavailable.")?;
+            let workspace_class =
+                AnyClass::get(c"NSWorkspace").ok_or("macOS workspace is unavailable.")?;
+            let path = NSString::from_str(&target);
+            let url: Retained<AnyObject> = msg_send![url_class, fileURLWithPath: &*path];
+            let workspace: Retained<AnyObject> = msg_send![workspace_class, sharedWorkspace];
+            let opened: Bool = msg_send![&*workspace, openURL: &*url];
+            Ok(opened.as_bool())
+        },
+    )?;
+    if !opened {
+        return Err("macOS could not open that app.".into());
+    }
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_secs(10) {
+        session.require_active()?;
+        presence::with(|state| state.check(ticket))?;
+        if let Some(pid) = input::running_apps_named(app_handle, name)?.first() {
+            return Ok(*pid);
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    Err("The app was opened but did not start in time. Run windows and retry.".into())
 }
 
 fn accessibility_activation_timeout(deadline: Instant) -> Result<f32, String> {
@@ -1481,6 +1684,10 @@ fn revoke_capture_sessions(
         sessions.retired.extend(revoked.iter().cloned());
     }
     revoked
+}
+
+pub(super) fn turn_finished(scope: &str) {
+    agent_cursor::clear_scope(Some(scope));
 }
 
 pub(super) fn remove_captures(scope: Option<&str>) {
@@ -1762,8 +1969,17 @@ fn execute_admitted(
         Request::Status {} => {
             Err("Status must be checked through the desktop control gate.".into())
         }
-        Request::Windows {} => Ok(json!({"windows":windows()?})),
+        Request::Windows {} => {
+            agent_cursor::keep_alive(scope);
+            Ok(json!({"windows":windows()?}))
+        }
         Request::Screenshot { window_id, region } => {
+            if let Some(window) =
+                window_id.and_then(|id| windows().ok()?.into_iter().find(|w| w.window_id == id))
+            {
+                look_at(app, scope, &session, &window);
+            }
+            agent_cursor::keep_alive(scope);
             agent_cursor::suspend(app)?;
             let _suppression = CursorSuppression(app);
             presence_ui::suppress(true)?;
@@ -1887,7 +2103,9 @@ fn execute_admitted(
                 "durationMs": duration_ms,
             }))
         }
-        Request::Activate { .. } => activate(app, session, target.pid, None, ticket.clone()),
+        Request::Activate {
+            app: ref wanted, ..
+        } => activate(app, session, target.pid, wanted.clone(), ticket.clone()),
         Request::SecondaryAction { .. }
         | Request::SetValue { .. }
         | Request::TypeText { .. }
@@ -1957,6 +2175,7 @@ fn app_state(
         return Err("Aven's desktop controls cannot be inspected or targeted.".into());
     }
     session.require_active()?;
+    look_at(app, scope, session, &window);
     let (bundle, name) = app_identity(app, window.pid)?;
     // Observation needs no consent, but turning on an app's switch changes
     // that app: only for apps this chat may already act in.
@@ -2026,6 +2245,25 @@ fn app_state(
         state["image"] = screenshot(scope, Some(window.window_id), None)?;
     }
     Ok(state)
+}
+
+/// The agent marker glides to the window the agent is reading, so the user
+/// can follow where it is looking. Drawing only; a failure changes nothing.
+fn look_at(app: &AppHandle, scope: &str, session: &CaptureSession, window: &DesktopWindow) {
+    if presence_ui::window_id() == Some(window.window_id)
+        || agent_cursor::window_id() == Some(window.window_id)
+    {
+        return;
+    }
+    let bounds = window.bounds();
+    let _ = agent_cursor::move_to(
+        app,
+        scope,
+        bounds.x + bounds.width / 2.0,
+        bounds.y + bounds.height / 2.0,
+        agent_cursor::Feedback::Move,
+        Arc::clone(&session.revoked),
+    );
 }
 
 /// Background element actions. The agent ring moves to the control (drawing
@@ -2251,6 +2489,33 @@ pub(super) fn preview_cursor(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn own_window_requests_never_run_on_a_worker_thread() {
+        // The test harness never serves the main queue, so a request to this
+        // process must wait for it and fail cleanly instead of running here,
+        // and the next one fails at once rather than waiting again.
+        std::thread::spawn(|| unsafe {
+            let app = AXUIElementCreateApplication(std::process::id() as i32);
+            assert!(!app.is_null());
+            let role = NSString::from_str("AXRole");
+            let mut value: Cf = std::ptr::null();
+            let started = Instant::now();
+            let result =
+                AXUIElementCopyAttributeValue(app, Retained::as_ptr(&role).cast(), &mut value);
+            assert_eq!(result, AX_CANNOT_COMPLETE);
+            assert!(value.is_null());
+            assert!(started.elapsed() >= OWNER_WAIT);
+            let started = Instant::now();
+            let result =
+                AXUIElementCopyAttributeValue(app, Retained::as_ptr(&role).cast(), &mut value);
+            assert_eq!(result, AX_CANNOT_COMPLETE);
+            assert!(started.elapsed() < Duration::from_millis(100));
+            CFRelease(app);
+        })
+        .join()
+        .unwrap();
+    }
 
     #[test]
     fn input_is_not_posted_when_scope_is_revoked_during_cursor_animation() {

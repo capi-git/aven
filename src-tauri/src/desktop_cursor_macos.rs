@@ -53,7 +53,10 @@ const NAME_MAX_CHARS: usize = 24;
 
 /// The longest glide. Short hops are quicker; see `travel_seconds`.
 const TRAVEL: Duration = Duration::from_millis(280);
-const LINGER: Duration = Duration::from_millis(2400);
+/// How long the marker stays after the agent's last action or look. Agents
+/// pause to think between steps; the marker stays put meanwhile, so the user
+/// can see the agent is still working, and fades once it has stopped.
+const LINGER: Duration = Duration::from_secs(30);
 const UI_TIMEOUT: Duration = Duration::from_secs(1);
 const FRAME: Duration = Duration::from_millis(16);
 const FADE_IN: f64 = 0.16;
@@ -1248,6 +1251,13 @@ fn schedule_fade(generation: u64, delay: Duration) {
         if !gate.authorized(generation) || gate.suspended {
             return;
         }
+        // A later look or action extended the stay; its own countdown fades.
+        if gate
+            .expires
+            .is_some_and(|expires| Instant::now() + FRAME < expires)
+        {
+            return;
+        }
         existing_overlay(|overlay| {
             if overlay.motion.generation == generation {
                 overlay.motion.fade_out(CACurrentMediaTime());
@@ -1386,6 +1396,21 @@ pub(super) fn follow(scope: &str, point: Point, released: bool, revoked: Arc<Ato
 pub(super) fn window_id() -> Option<u32> {
     let id = WINDOW_ID.load(Ordering::Acquire);
     (id != 0).then_some(id)
+}
+
+/// An observation (windows, a screenshot, appState) keeps this chat's shown
+/// marker on screen without moving it. Never shows a hidden marker.
+pub(super) fn keep_alive(scope: &str) {
+    let generation = {
+        let mut gate = GATE.lock().unwrap_or_else(|error| error.into_inner());
+        let now = Instant::now();
+        if gate.owner.as_deref() != Some(scope) || !gate.current(gate.generation, now) {
+            return;
+        }
+        gate.expires = Some(now + LINGER);
+        gate.generation
+    };
+    schedule_fade(generation, LINGER);
 }
 
 /// Keyboard activity refreshes the visible agent marker without exposing the
