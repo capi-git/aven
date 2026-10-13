@@ -979,11 +979,16 @@ impl Presence {
         if self.prompt.is_some() || self.paused.is_some() {
             return InputEffect::None;
         }
+        // Once the user has allowed an agent, only the bar's Pause/Stop (or Esc
+        // twice) stops it. App-directed and element input never touch the
+        // user's pointer or keyboard, so the user's own clicks and typing, even
+        // in the same app, must not pause it. Only shared-pointer input, where
+        // both would steer one cursor, yields to the user.
+        let _ = frontmost_pid;
         let yield_now = self.activity.as_ref().is_some_and(|activity| {
             !activity.stopped
                 && activity.input
-                && (activity.shared_input
-                    || (activity.target_pid.is_some() && activity.target_pid == frontmost_pid))
+                && activity.shared_input
                 && (activity.in_flight
                     || now.saturating_duration_since(activity.last) <= YIELD_WINDOW)
         });
@@ -2026,26 +2031,46 @@ mod tests {
         with(|presence| presence.forget(None));
     }
     #[test]
-    fn app_delivery_yields_only_when_the_user_works_in_the_same_app() {
+    fn app_delivery_never_yields_to_the_users_own_input() {
         let now = Instant::now();
         let mut state = Presence::default();
         let ticket = state.begin("chat", Step::Typing, Some("Notes".into()), now);
         state.set_delivery(&ticket, false, Some(42));
-        assert_eq!(
-            state.user_input_in_app(UserEvent::Pointer, now, Some(99)),
-            InputEffect::None
-        );
-        assert!(state.check(&ticket).is_ok());
-        assert_eq!(
-            state.user_input_in_app(UserEvent::Key, now, Some(42)),
-            InputEffect::Paused
-        );
+        // Other apps, and the very app the agent is driving: clicks, typing
+        // and movement all leave an allowed agent running.
+        for (event, front) in [
+            (UserEvent::Pointer, Some(99)),
+            (UserEvent::Pointer, Some(42)),
+            (UserEvent::Key, Some(42)),
+        ] {
+            assert_eq!(
+                state.user_input_in_app(event, now, front),
+                InputEffect::None
+            );
+            assert!(state.check(&ticket).is_ok());
+        }
+        // Only the user's explicit Pause stops it; resuming does not revive the
+        // interrupted action.
+        state.pause(Pause::ByUser);
         assert!(state.check(&ticket).is_err());
         state.resume();
         assert!(
             state.check(&ticket).is_err(),
             "resuming must not revive an interrupted action"
         );
+    }
+
+    #[test]
+    fn shared_pointer_input_still_yields_to_the_user() {
+        let now = Instant::now();
+        let mut state = Presence::default();
+        let ticket = state.begin("chat", Step::Clicking, Some("Notes".into()), now);
+        state.set_delivery(&ticket, true, Some(42));
+        assert_eq!(
+            state.user_input_in_app(UserEvent::Pointer, now, Some(99)),
+            InputEffect::Paused
+        );
+        assert!(state.check(&ticket).is_err());
     }
 
     #[test]
@@ -2263,16 +2288,16 @@ mod tests {
             Admission::Go
         );
         state.resume();
-        // Working in the same app pauses an element action in flight.
+        // The user working in the same app leaves an allowed element action
+        // running; only the bar's Pause or Stop interrupts it.
         let ticket = state.begin("chat", step_for(&click).unwrap(), Some("Mail".into()), now);
         state.set_delivery(&ticket, false, Some(9));
         assert_eq!(
             state.user_input_in_app(UserEvent::Pointer, now, Some(9)),
-            InputEffect::Paused
+            InputEffect::None
         );
-        assert!(state.check(&ticket).is_err());
+        assert!(state.check(&ticket).is_ok());
         // Stop revokes it until the user allows the chat again.
-        state.resume();
         state.stop("chat", now);
         assert_eq!(state.check(&ticket).unwrap_err(), STOPPED);
     }
