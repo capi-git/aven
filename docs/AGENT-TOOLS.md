@@ -261,10 +261,11 @@ the user's pointer or activating another app. Accessible single-click controls
 use their semantic press action when available. Keys require that app's focused
 window. Some apps ignore process-directed input; inspect the result before retrying.
 
-Shared-pointer fallback uses `inputMode: "pointer"`. It always asks for the
-current action, even with app consent off. Covered window targets are refused;
-never drop the window ID to bypass that refusal. Activation also asks first,
-because it changes the user's foreground app. Consent is checked again against
+Shared-pointer fallback uses `inputMode: "pointer"`. It asks the first time in
+each app, even with app consent off, and the answer lasts for the chat. Covered
+window targets are refused; never drop the window ID to bypass that refusal.
+Activation also asks the first time, because it changes the user's foreground
+app. Consent is checked again against
 the target after the answer; moved or replaced windows require a fresh observation.
 
 Use `drag` to grab and move UI such as pane dividers, sidebars, window edges,
@@ -309,7 +310,7 @@ diagnostics take effect only in a rebuilt development host or installed release.
 A provider-coloured ring and name tag mark the action point. The frosted bar
 identifies the agent and app, with **Pause/Resume** and **Stop**. Esc twice stops
 the active chat. App consent is on by default and lasts for the chat in that app;
-shared control asks for every action. Shared control pauses once the user keeps using the mouse or keyboard for about 3 seconds; a brief bump is ignored. App-directed and
+shared control and activation ask once per app and also last for the chat. Shared control pauses once the user keeps using the mouse or keyboard for about 3 seconds; a brief bump is ignored. App-directed and
 element control keep running while the user works, even in the same app; only
 Pause, Stop or Esc twice stops them. Paused agents
 can observe but cannot send input. Stopped agents need new consent. On pause,

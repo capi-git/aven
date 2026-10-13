@@ -624,23 +624,15 @@ impl Presence {
         let stopped = self.stopped.contains(scope);
         let kind = if input && ask {
             let app = app.cloned().unwrap_or_else(AppIdentity::any);
-            let once = app.key.starts_with("pointer:") || app.key.starts_with("focus:");
+            // Every approval, including the shared pointer and bringing an
+            // app forward, lasts for this chat until the user stops it.
             if !stopped
                 && self
                     .allowed
                     .get(scope)
                     .is_some_and(|allowed| allowed.contains(&app.key))
-                && (!once || !may_prompt)
             {
-                if once {
-                    self.forget_approval(scope, &app.key);
-                }
                 return Admission::Go;
-            }
-            // One-action consent cannot outlive its waiting request, including
-            // when its CLI exits just after the user clicks Allow.
-            if once {
-                self.forget_approval(scope, &app.key);
             }
             PromptKind::App(app)
         } else if stopped {
@@ -1034,9 +1026,9 @@ impl Presence {
                 detail: if shared {
                     if matches!(&prompt.kind,PromptKind::App(app) if app.key.starts_with("focus:"))
                     {
-                        "Brings this app forward · This action only".into()
+                        "Brings this app forward · For this chat".into()
                     } else {
-                        "Your mouse and keyboard · This action only".into()
+                        "Your mouse and keyboard · For this chat".into()
                     }
                 } else {
                     actor.title.map_or_else(
@@ -1051,11 +1043,7 @@ impl Presence {
                         style: ButtonStyle::Plain,
                     },
                     BarButton {
-                        label: if shared {
-                            "Allow once"
-                        } else {
-                            "Allow for chat"
-                        },
+                        label: "Allow for chat",
                         action: ButtonAction::Allow(prompt.id),
                         style: ButtonStyle::Prominent,
                     },
@@ -2145,23 +2133,47 @@ mod tests {
     }
 
     #[test]
-    fn shared_pointer_approval_is_consumed_after_one_action() {
+    fn shared_pointer_and_focus_approvals_last_for_the_chat_until_stopped() {
         let mut state = Presence::default();
         let now = Instant::now();
-        let app = AppIdentity::new("pointer:42", "Notes with your mouse and keyboard");
-        let Admission::Ask(id) = state.admit("chat", true, Some(&app), true, true, now) else {
-            panic!()
-        };
-        state.answer(id, true);
-        assert_eq!(state.take_outcome(id, now), Some(Outcome::Allowed));
-        assert_eq!(
-            state.admit("chat", true, Some(&app), true, false, now),
+        for app in [
+            AppIdentity::new("pointer:42", "Notes with your mouse and keyboard"),
+            AppIdentity::new("focus:42", "Notes"),
+        ] {
+            let Admission::Ask(id) = state.admit("chat", true, Some(&app), true, true, now) else {
+                panic!()
+            };
+            let model = state.model(now).unwrap();
+            assert!(model.detail.ends_with("For this chat"));
+            assert_eq!(model.buttons[1].label, "Allow for chat");
+            state.answer(id, true);
+            assert_eq!(state.take_outcome(id, now), Some(Outcome::Allowed));
+            // Later commands in this chat go ahead without asking again.
+            for _ in 0..3 {
+                assert_eq!(
+                    state.admit("chat", true, Some(&app), true, true, now),
+                    Admission::Go
+                );
+            }
+            // Another chat still needs its own answer.
+            assert!(matches!(
+                state.admit("other", true, Some(&app), true, true, now),
+                Admission::Ask(_)
+            ));
+            state.prompt = None;
+        }
+        // Stop revokes them; the next command asks to resume first.
+        state.stop("chat", now);
+        assert!(!matches!(
+            state.admit(
+                "chat",
+                true,
+                Some(&AppIdentity::new("pointer:42", "Notes")),
+                true,
+                true,
+                now
+            ),
             Admission::Go
-        );
-        state.forget_approval("chat", &app.key);
-        assert!(matches!(
-            state.admit("chat", true, Some(&app), true, true, now),
-            Admission::Ask(_)
         ));
     }
 
@@ -2203,22 +2215,6 @@ mod tests {
             state.admit("a", false, None, true, true, now),
             Admission::Go
         );
-    }
-    #[test]
-    fn abandoned_shared_approval_cannot_authorize_a_later_request() {
-        let now = Instant::now();
-        let mut state = Presence::default();
-        let app = AppIdentity::new("pointer:42", "Notes");
-        let Admission::Ask(id) = state.admit("chat", true, Some(&app), true, true, now) else {
-            panic!()
-        };
-        state.answer(id, true);
-        state.take_outcome(id, now);
-        // The waiting command disconnected: a new command must ask again.
-        assert!(matches!(
-            state.admit("chat", true, Some(&app), true, true, now),
-            Admission::Ask(_)
-        ));
     }
     #[test]
     fn finishing_the_interrupted_chat_clears_only_an_automatic_pause() {

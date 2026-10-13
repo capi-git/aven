@@ -1241,11 +1241,6 @@ fn run_admitted(
     platform::actor_changed(&actor);
     let result = platform::presence_show(target.anchor, input)
         .and_then(|()| platform::execute(app, scope, request, &ticket, &target));
-    if target.shared_input {
-        if let Some(identity) = &target.app {
-            presence::with(|state| state.forget_approval(scope, &identity.key));
-        }
-    }
     presence::with(|state| state.end(&ticket, std::time::Instant::now()));
     platform::presence_changed();
     result
@@ -1397,10 +1392,11 @@ App-directed input is the default (inputMode: "app"). Use an observed windowId
 for move, click, drag, scroll, type and press. Events go to that app without
 moving the system pointer or automatically activating it. Keys require that
 app's focused window. Apps may ignore these events; inspect each result.
-Shared input requires inputMode: "pointer" and one-action user consent, even
-when app consent is disabled. Window-targeted pointer input refuses covered
-points. Keep windowId; never drop it or change modes to bypass a refusal.
-Activate also requires one-action consent because it changes foreground focus.
+Shared input requires inputMode: "pointer" and the user's consent, even when
+app consent is disabled. Window-targeted pointer input refuses covered points.
+Keep windowId; never drop it or change modes to bypass a refusal. Activate also
+requires consent because it changes foreground focus. Each consent lasts for
+this chat in that app until the user presses Stop; do not ask again.
 Aven's bar identifies the agent, app and control, with Pause/Resume and Stop.
 Esc twice stops the active chat. User input pauses shared control; working in
 the target app pauses app-directed and element input. On pause, stop, denial or

@@ -289,7 +289,7 @@ export function SkillsSettings({ cwd }: { cwd: string }) {
                 <strong>Ask before an agent uses an app</strong>
                 <span>
                   Allow each app for this chat. Taking your mouse or keyboard
-                  always asks first.
+                  always asks the first time.
                 </span>
               </div>
               <Toggle
