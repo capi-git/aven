@@ -20,6 +20,11 @@ pub(crate) const IDLE_FADE: Duration = Duration::from_secs(4);
 pub(crate) const STOP_NOTICE: Duration = Duration::from_millis(2500);
 /// Genuine user input this soon after an agent action pauses agents.
 pub(crate) const YIELD_WINDOW: Duration = Duration::from_millis(1500);
+/// Shared-pointer control yields only to sustained use: a bump or a single
+/// nudge of the mouse is ignored. The user must keep using the mouse or
+/// keyboard for this long, with no gap longer than `SUSTAINED_GAP`.
+pub(crate) const SUSTAINED_INPUT: Duration = Duration::from_secs(3);
+pub(crate) const SUSTAINED_GAP: Duration = Duration::from_millis(500);
 /// An unanswered consent prompt expires after this long.
 pub(crate) const CONSENT_TIMEOUT: Duration = Duration::from_secs(90);
 /// Two Escape presses this close together stop the acting agent.
@@ -538,6 +543,8 @@ pub(crate) struct Presence {
     esc: EscDetector,
     session: Session,
     lock: LockLatch,
+    /// Start and latest event of the user's current run of input.
+    user_run: Option<(Instant, Instant)>,
 }
 
 impl Presence {
@@ -985,13 +992,22 @@ impl Presence {
         // in the same app, must not pause it. Only shared-pointer input, where
         // both would steer one cursor, yields to the user.
         let _ = frontmost_pid;
-        let yield_now = self.activity.as_ref().is_some_and(|activity| {
-            !activity.stopped
-                && activity.input
-                && activity.shared_input
-                && (activity.in_flight
-                    || now.saturating_duration_since(activity.last) <= YIELD_WINDOW)
-        });
+        // A run of user input continues while events keep arriving within
+        // SUSTAINED_GAP of each other.
+        let started = match self.user_run {
+            Some((start, last)) if now.saturating_duration_since(last) <= SUSTAINED_GAP => start,
+            _ => now,
+        };
+        self.user_run = Some((started, now));
+        let sustained = now.saturating_duration_since(started) >= SUSTAINED_INPUT;
+        let yield_now = sustained
+            && self.activity.as_ref().is_some_and(|activity| {
+                !activity.stopped
+                    && activity.input
+                    && activity.shared_input
+                    && (activity.in_flight
+                        || now.saturating_duration_since(activity.last) <= YIELD_WINDOW)
+            });
         if yield_now {
             self.pause(Pause::UserActive);
             return InputEffect::Paused;
@@ -1799,17 +1815,43 @@ mod tests {
         }
     }
 
+    /// Feeds the user's input every 100 ms from `from` to `to` inclusive and
+    /// returns the effect of the last event.
+    fn feed(presence: &mut Presence, event: UserEvent, from: Instant, to: Instant) -> InputEffect {
+        let mut at = from;
+        loop {
+            let effect = presence.user_input(event, at);
+            if at >= to {
+                return effect;
+            }
+            at = (at + Duration::from_millis(100)).min(to);
+        }
+    }
+
     #[test]
     fn user_input_during_or_just_after_an_action_pauses_agents() {
         let mut presence = Presence::default();
         let now = Instant::now();
+        let ms = Duration::from_millis;
         assert_eq!(
             presence.user_input(UserEvent::Pointer, now),
             InputEffect::None
         );
+        presence.user_run = None;
         let ticket = presence.begin("chat", Step::Clicking, None, now);
+        // A single touch is ignored; three seconds of continuous use pauses.
         assert_eq!(
             presence.user_input(UserEvent::Pointer, now),
+            InputEffect::None
+        );
+        assert!(presence.check(&ticket).is_ok());
+        assert_eq!(
+            feed(
+                &mut presence,
+                UserEvent::Pointer,
+                now,
+                now + SUSTAINED_INPUT
+            ),
             InputEffect::Paused
         );
         assert!(presence
@@ -1822,15 +1864,27 @@ mod tests {
         assert_eq!(presence.user_input(UserEvent::Key, now), InputEffect::None);
         presence.resume();
         presence.end(&ticket, now);
-        let later = now + YIELD_WINDOW;
+        // A run that began during an action and carries on just after it ends
+        // still yields.
+        let t = now + ms(10_000);
+        presence.user_run = None;
+        let ticket = presence.begin("chat", Step::Clicking, None, t);
+        presence.end(&ticket, t + ms(2_000));
         assert_eq!(
-            presence.user_input(UserEvent::Key, later),
+            feed(&mut presence, UserEvent::Key, t + ms(100), t + ms(3_100)),
             InputEffect::Paused
         );
         presence.resume();
-        let idle = now + YIELD_WINDOW + Duration::from_millis(1);
+        // Once the agent has been idle past the yield window, use is not a conflict.
+        let idle = t + ms(2_000) + YIELD_WINDOW + Duration::from_millis(1);
+        presence.user_run = None;
         assert_eq!(
-            presence.user_input(UserEvent::Pointer, idle),
+            feed(
+                &mut presence,
+                UserEvent::Pointer,
+                idle,
+                idle + SUSTAINED_INPUT
+            ),
             InputEffect::None
         );
         // Observation alone does not make the user's input a conflict.
@@ -1855,9 +1909,10 @@ mod tests {
         let mut presence = Presence::default();
         let now = Instant::now();
         let ticket = presence.begin("chat", Step::Typing, None, now);
+        // A single Esc is a brief touch; it does not pause on its own.
         assert_eq!(
             presence.user_input(UserEvent::Escape, now),
-            InputEffect::Paused
+            InputEffect::None
         );
         assert_eq!(
             presence.user_input(UserEvent::Escape, now + Duration::from_millis(200)),
@@ -2061,15 +2116,31 @@ mod tests {
     }
 
     #[test]
-    fn shared_pointer_input_still_yields_to_the_user() {
-        let now = Instant::now();
+    fn shared_pointer_yields_only_to_sustained_user_input() {
+        let start = Instant::now();
         let mut state = Presence::default();
-        let ticket = state.begin("chat", Step::Clicking, Some("Notes".into()), now);
+        let ticket = state.begin("chat", Step::Clicking, Some("Notes".into()), start);
         state.set_delivery(&ticket, true, Some(42));
-        assert_eq!(
-            state.user_input_in_app(UserEvent::Pointer, now, Some(99)),
-            InputEffect::Paused
-        );
+        let at = |ms: u64, state: &mut Presence| {
+            let now = start + Duration::from_millis(ms);
+            // Keep the agent's action current so only the user's run decides.
+            state.activity.as_mut().unwrap().last = now;
+            state.user_input_in_app(UserEvent::Pointer, now, Some(99))
+        };
+        // A bump, then a pause longer than the gap: the run restarts.
+        assert_eq!(at(0, &mut state), InputEffect::None);
+        assert_eq!(at(200, &mut state), InputEffect::None);
+        assert_eq!(at(1_000, &mut state), InputEffect::None);
+        assert!(state.check(&ticket).is_ok());
+        // Continuous movement for just under three seconds is still ignored.
+        let mut t = 1_000;
+        while t < 3_900 {
+            t += 100;
+            assert_eq!(at(t, &mut state), InputEffect::None, "at {t} ms");
+        }
+        assert!(state.check(&ticket).is_ok());
+        // Three seconds of continuous movement pauses shared control.
+        assert_eq!(at(4_000, &mut state), InputEffect::Paused);
         assert!(state.check(&ticket).is_err());
     }
 

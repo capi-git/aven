@@ -256,7 +256,7 @@ diagnostics take effect only in a rebuilt development host or installed release.
 A provider-coloured ring and name tag mark the action point. The frosted bar
 identifies the agent and app, with **Pause/Resume** and **Stop**. Esc twice stops
 the active chat. App consent is on by default and lasts for the chat in that app;
-shared control asks for every action. Shared control yields to user input. App-directed and
+shared control asks for every action. Shared control pauses once the user keeps using the mouse or keyboard for about 3 seconds; a brief bump is ignored. App-directed and
 element control keep running while the user works, even in the same app; only
 Pause, Stop or Esc twice stops them. Paused agents
 can observe but cannot send input. Stopped agents need new consent. On pause,
