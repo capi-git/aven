@@ -1353,6 +1353,10 @@ fn activate(
     name: Option<String>,
     ticket: presence::Ticket,
 ) -> Result<Value, String> {
+    let pid = match (pid, name.as_deref()) {
+        (None, Some(wanted)) => Some(open_app(app_handle, &session, &ticket, wanted)?),
+        _ => pid,
+    };
     let deadline = Instant::now() + Duration::from_secs(3);
     let activation_session = Arc::clone(&session);
     let mut attempt = activation_on_main(app_handle, deadline, move || unsafe {
@@ -1376,6 +1380,51 @@ fn activate(
         session.require_active()?;
         activation_on_main(app_handle, deadline, || unsafe { frontmost_pid_on_main() })
     })
+}
+
+/// Opens an installed app the user allowed this chat to bring forward, then
+/// waits for it to be running. Only the standard Applications folders.
+fn open_app(
+    app_handle: &AppHandle,
+    session: &CaptureSession,
+    ticket: &presence::Ticket,
+    name: &str,
+) -> Result<i32, String> {
+    if let Some(pid) = input::running_apps_named(app_handle, name)?.first() {
+        return Ok(*pid);
+    }
+    let path = input::installed_app_named(name)
+        .ok_or("No app with that name is running or installed in Applications.")?;
+    session.require_active()?;
+    presence::with(|state| state.check(ticket))?;
+    let target = path.to_string_lossy().into_owned();
+    let opened = activation_on_main(
+        app_handle,
+        Instant::now() + Duration::from_secs(3),
+        move || unsafe {
+            let url_class = AnyClass::get(c"NSURL").ok_or("macOS workspace is unavailable.")?;
+            let workspace_class =
+                AnyClass::get(c"NSWorkspace").ok_or("macOS workspace is unavailable.")?;
+            let path = NSString::from_str(&target);
+            let url: Retained<AnyObject> = msg_send![url_class, fileURLWithPath: &*path];
+            let workspace: Retained<AnyObject> = msg_send![workspace_class, sharedWorkspace];
+            let opened: Bool = msg_send![&*workspace, openURL: &*url];
+            Ok(opened.as_bool())
+        },
+    )?;
+    if !opened {
+        return Err("macOS could not open that app.".into());
+    }
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_secs(10) {
+        session.require_active()?;
+        presence::with(|state| state.check(ticket))?;
+        if let Some(pid) = input::running_apps_named(app_handle, name)?.first() {
+            return Ok(*pid);
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    Err("The app was opened but did not start in time. Run windows and retry.".into())
 }
 
 fn accessibility_activation_timeout(deadline: Instant) -> Result<f32, String> {
@@ -2041,7 +2090,9 @@ fn execute_admitted(
                 "durationMs": duration_ms,
             }))
         }
-        Request::Activate { .. } => activate(app, session, target.pid, None, ticket.clone()),
+        Request::Activate {
+            app: ref wanted, ..
+        } => activate(app, session, target.pid, wanted.clone(), ticket.clone()),
         Request::SecondaryAction { .. }
         | Request::SetValue { .. }
         | Request::TypeText { .. }
