@@ -24,7 +24,9 @@ static CALayer *Anchor(SMBrowserAgentMarker *marker) { return marker.layer.subla
 // Visual-only: no input, focus or accessibility; inert until an action.
 static void Inert() {
   SMBrowserAgentMarker *marker = [[SMBrowserAgentMarker alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)];
-  CHECK(marker.hidden && !marker.active && marker.isFlipped && !marker.isOpaque);
+  CHECK(marker.hidden && !marker.active && !marker.isOpaque);
+  // A flipped host would make AppKit flip the hosted layers (mirrored text).
+  CHECK(!marker.isFlipped && !marker.layer.geometryFlipped && !marker.layer.contentsAreFlipped);
   CHECK(!marker.acceptsFirstResponder && !marker.isAccessibilityElement);
   CHECK([marker hitTest:NSMakePoint(10, 10)] == nil);
   CHECK([marker.name isEqualToString:@"Agent"]);
@@ -75,7 +77,7 @@ static void ShowFadeAndClear() {
   CHECK([marker showAction:SMAgentMarkerActionClick at:NSMakePoint(100, 50)]);
   CHECK(marker.active && !marker.hidden);
   CHECK(NSEqualPoints(marker.point, NSMakePoint(100, 50)));
-  // Flipped view point -> unflipped hosted layer.
+  // Top-left action point -> unflipped hosted layer.
   CHECK(CGPointEqualToPoint(Anchor(marker).position, CGPointMake(100, 550)));
   CHECK(marker.tagRight && marker.tagBelow);
   // A second action glides there (Core Animation, no app timer).

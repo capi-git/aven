@@ -19,7 +19,7 @@ typedef NS_ENUM(NSInteger, SMAgentMarkerAction) {
 @interface SMBrowserAgentMarker : NSView
 // Visible or fading out.
 @property(nonatomic, readonly) BOOL active;
-// The last action point, in this view's (flipped) coordinates.
+// The last action point, top-left origin (the browser view's page points).
 @property(nonatomic, readonly) NSPoint point;
 @property(nonatomic, readonly) NSString *name;
 @property(nonatomic, readonly) SMAgentMarkerAction lastAction;
@@ -33,7 +33,7 @@ typedef NS_ENUM(NSInteger, SMAgentMarkerAction) {
 // Rejects invalid colours or empty names, keeping the previous identity.
 - (BOOL)setActorName:(NSString *)name red:(double)red green:(double)green blue:(double)blue;
 - (void)placeAboveBrowser:(NSView *)browser frame:(NSRect)frame;
-// Glides (or appears) at `point` and plays the action's feedback. Returns NO
+// Glides (or appears) at `point` (top-left origin) and plays the action's feedback. Returns NO
 // and draws nothing for a non-finite point.
 - (BOOL)showAction:(SMAgentMarkerAction)action at:(NSPoint)point;
 // Immediately hides and forgets the marker (pane hidden, closed or moved).

@@ -151,7 +151,10 @@ NSString *CleanName(NSString *name) {
   [CATransaction commit];
   return self;
 }
-- (BOOL)isFlipped { return YES; }
+// Unflipped on purpose: AppKit marks a flipped view's hosted root layer
+// geometryFlipped, which would mirror positions and turn the tag text upside
+// down. Action points are converted from top-left coordinates explicitly.
+- (BOOL)isFlipped { return NO; }
 - (BOOL)isOpaque { return NO; }
 - (BOOL)acceptsFirstResponder { return NO; }
 - (NSView *)hitTest:(NSPoint)point { return nil; }
@@ -177,7 +180,7 @@ NSString *CleanName(NSString *name) {
   [CATransaction commit];
 }
 - (CGPoint)layerPoint:(NSPoint)point {
-  // The hosted root layer is unflipped; action points use the view's flipped space.
+  // The hosted root layer is unflipped; action points use top-left coordinates.
   return CGPointMake(point.x, self.bounds.size.height - point.y);
 }
 - (BOOL)reduceMotion {
@@ -227,13 +230,9 @@ NSString *CleanName(NSString *name) {
   NSFont *font = [NSFont systemFontOfSize:11 weight:high ? .4 : .3];
   NSColor *ink = [NSColor colorWithSRGBRed:palette.ink.r green:palette.ink.g
                                       blue:palette.ink.b alpha:1];
-  NSAttributedString *label = [[NSAttributedString alloc] initWithString:_name attributes:@{
-    NSFontAttributeName: font,
-    NSForegroundColorAttributeName: ink,
-    // CATextLayer renders through Core Text; supply its colour key too.
-    @"CTForegroundColor": (__bridge id)ink.CGColor,
-  }];
-  const NSSize measured = label.size;
+  // Measure with AppKit; draw a plain string with layer font properties,
+  // which CATextLayer renders upright in any host geometry.
+  const NSSize measured = [_name sizeWithAttributes:@{NSFontAttributeName: font}];
   const double textWidth = std::min(std::ceil(measured.width), kTagTextMax);
   const double textHeight = std::ceil(measured.height);
   _tagSize = NSMakeSize(textWidth + kTagPadding * 2, kTagHeight);
@@ -263,7 +262,10 @@ NSString *CleanName(NSString *name) {
   _tag.borderColor = Color(kWhite, high ? .9 : .45);
   _tag.shadowOpacity = high ? .45 : .28;
   _text.contentsScale = scale;
-  _text.string = label;
+  _text.font = (__bridge CFTypeRef)font;
+  _text.fontSize = font.pointSize;
+  _text.foregroundColor = ink.CGColor;
+  _text.string = _name;
   _text.frame = CGRectMake(kTagPadding, std::round((kTagHeight - textHeight) / 2),
                            textWidth, textHeight);
   [self placeTag];
