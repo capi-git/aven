@@ -531,19 +531,14 @@ html.has-native-glass.glass-body:not(.theme-light)
 }
 .personal-panel-edge-left {
   left: 0;
-  /* A wider hover target for throwing the pointer at the window edge, with
-     the same 6px visible strip. */
+  /* A wider hover target for throwing the pointer at the window edge. */
   width: 10px;
-  padding-right: 4px;
-  background-clip: content-box;
 }
 .personal-panel-edge-right {
   right: 0;
 }
-.personal-panel-edge:hover,
-.personal-panel-edge:focus-visible {
-  background: color-mix(in srgb, var(--personal-accent) 30%, transparent);
-}
+/* Hovering the edge reveals the panel itself, as in Arc; the strip stays
+   invisible. Keyboard focus still draws its outline. */
 .personal-panel-edge:focus-visible {
   outline: 1px solid var(--personal-accent);
   outline-offset: -1px;
