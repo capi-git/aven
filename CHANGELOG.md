@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+## [0.1.134] - 2026-10-12
+
+### Agents work in the background
+
+- Agents can operate Mac apps through Accessibility: they read an app's controls, then press, type, scroll and open menus directly, without moving your pointer or bringing the app to the front. Coordinate input remains as a fallback and never presses a different control than the one named.
+- Electron and Chromium apps such as Slack, Notion and VS Code expose their full controls while an allowed agent uses them, and return to normal afterwards.
+- Once you allow an agent, it keeps working while you use your Mac, even in the same app. Only Pause or Stop in the status bar, or Escape twice, stops it. Shared-pointer control pauses only after about three seconds of continuous mouse or keyboard use.
+
+### Built-in browser
+
+- Agents' clicks and typing appear as a ring with the agent's name inside the browser pane.
+- Filling a field focuses it inside the page and types real text, so pressing Enter afterwards submits forms. Agents never take your caret, including in embedded payment fields.
+- Agents can open pages without rearranging your panes.
+
+### Working while your Mac is locked
+
+- Your Mac stays properly locked. Agents keep working in the built-in browser and in code while it is locked, and the Mac stays awake while agents work (lid close and Sleep still sleep it). Turn this off in Settings → Tasks.
+- Desktop control of other apps pauses completely while the Mac is locked: no input, prompts or status bar until you unlock.
+
+### Arc-style sidebar
+
+- The floating sidebar slides fully in and out on a spring, including over browser panes, and hands off smoothly when you pin it. Menus keep their blur.
+
 ## [0.1.133] - 2026-10-12
 
 ### Clearer control of Mac apps
