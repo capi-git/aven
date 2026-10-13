@@ -134,16 +134,26 @@ function RaceBody({
   const rows = useMemo(() => raceFileRows(diffs), [diffs]);
   const current =
     focus ?? (rows[0] ? { path: rows[0].path, lane: rows[0].lanes[0] } : null);
+  // `current` is rebuilt every render; the diff follows only its file and lane.
+  const currentPath = current?.path;
+  const currentLane = current?.lane;
 
   const [fileModel, setFileModel] = useState<UnifiedDiffFileModel | null>(null);
   useEffect(() => {
-    if (!current || !visible || !running || working || finishingRef.current) {
+    if (
+      currentPath === undefined ||
+      currentLane === undefined ||
+      !visible ||
+      !running ||
+      working ||
+      finishingRef.current
+    ) {
       setFileModel(null);
       return;
     }
-    const lane = race.lanes[current.lane];
-    const stats = diffs[current.lane]?.files.find(
-      (file) => file.path === current.path,
+    const lane = race.lanes[currentLane];
+    const stats = diffs[currentLane]?.files.find(
+      (file) => file.path === currentPath,
     );
     if (!lane || !stats) {
       setFileModel(null);
@@ -151,7 +161,7 @@ function RaceBody({
     }
     let cancelled = false;
     void raceHost
-      .fileDiff(lane.path, race.base, current.path)
+      .fileDiff(lane.path, race.base, currentPath)
       .then((result) => {
         if (
           cancelled ||
@@ -167,9 +177,9 @@ function RaceBody({
           ? null
           : buildUnifiedFile(result.original ?? "", result.current ?? "");
         setFileModel({
-          id: `${current.lane}:${current.path}`,
-          path: current.path,
-          label: current.path,
+          id: `${currentLane}:${currentPath}`,
+          path: currentPath,
+          label: currentPath,
           binary: stats.binary,
           emptyMessage: unreadable
             ? "No text preview for this file."
@@ -186,9 +196,9 @@ function RaceBody({
           getRace(race.id)?.state === "running"
         )
           setFileModel({
-            id: `${current.lane}:${current.path}`,
-            path: current.path,
-            label: current.path,
+            id: `${currentLane}:${currentPath}`,
+            path: currentPath,
+            label: currentPath,
             emptyMessage: `Couldn’t load diff: ${String(error)}`,
             additions: stats.additions,
             deletions: stats.deletions,
@@ -198,7 +208,7 @@ function RaceBody({
     return () => {
       cancelled = true;
     };
-  }, [current?.path, current?.lane, diffs, race, visible, running, working]);
+  }, [currentPath, currentLane, diffs, race, visible, running, working]);
 
   const finish = async (label: string, keep: RaceSelection | null) => {
     if (finishingRef.current) return;

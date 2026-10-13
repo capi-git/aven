@@ -188,6 +188,8 @@ export function TerminalView({
   const applySizeRef = useRef<() => void>(() => {});
   const onMetaChangeRef = useRef(onMetaChange);
   onMetaChangeRef.current = onMetaChange;
+  const cwdRef = useRef(cwd);
+  cwdRef.current = cwd;
   const runningProcessRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -197,6 +199,9 @@ export function TerminalView({
     // StrictMode replays effects. A setup effect owns its own native shell, so
     // an old spawn/cleanup cannot execute in or kill the replay's live shell.
     const ptyId = ephemeral ? `${id}-setup-${crypto.randomUUID()}` : id;
+    // The shell starts in the tab's current directory. A later cwd change must
+    // not restart this effect, which would kill the running shell.
+    const startCwd = cwdRef.current;
 
     const term = new Terminal({
       cursorBlink: true,
@@ -297,7 +302,7 @@ export function TerminalView({
         },
       );
       didStart = true;
-      return spawnPty(ptyId, cwd, term.cols, term.rows);
+      return spawnPty(ptyId, startCwd, term.cols, term.rows);
     };
 
     const starting = (stoppingPtys.get(ptyId) ?? Promise.resolve())

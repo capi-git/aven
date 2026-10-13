@@ -620,14 +620,19 @@ export function useDetachedWorkspaces(options: Options) {
         await Promise.all([...entries.current.keys()].map(returnWindow));
       }),
     );
+    // Each of these refs holds one collection for the hook's whole lifetime.
+    const streams = streaming.current;
+    const queuedStreams = streamPending.current;
+    const returns = pending.current;
+    const browserOpens = pendingBrowserOpens.current;
     return () => {
       disposed = true;
       streamGeneration.current += 1;
-      streaming.current.clear();
-      streamPending.current.clear();
+      streams.clear();
+      queuedStreams.clear();
       clearTimeout(streamTimer.current);
       streamTimer.current = undefined;
-      for (const request of pending.current.values()) {
+      for (const request of returns.values()) {
         clearTimeout(request.timer);
         request.reject(
           new Error(
@@ -635,8 +640,8 @@ export function useDetachedWorkspaces(options: Options) {
           ),
         );
       }
-      pending.current.clear();
-      for (const request of pendingBrowserOpens.current.values())
+      returns.clear();
+      for (const request of browserOpens.values())
         request.fail(
           new Error(
             "The workspace owner was disposed before opening completed.",

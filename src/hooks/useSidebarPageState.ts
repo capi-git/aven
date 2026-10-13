@@ -172,9 +172,12 @@ export function useSidebarPageState({
   );
   const captureScroll = useCallback(() => binding.current?.capture(), []);
 
+  // Prune when the ids change, not whenever the caller passes a new array.
   const profileIdentity = profileIds.join("\0");
+  const profileIdsRef = useRef(profileIds);
+  profileIdsRef.current = profileIds;
   useEffect(() => {
-    const available = new Set(profileIds);
+    const available = new Set(profileIdsRef.current);
     setPages((current) => {
       const kept = [...current].filter(([, entry]) =>
         available.has(entry.profileId),
