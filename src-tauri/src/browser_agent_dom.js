@@ -2,6 +2,16 @@
 // Native code supplies a JSON argument. No arbitrary script/selector is accepted.
 ((request) => {
   try {
+  // A trusted press or key in the page means the user has taken over (or the
+  // agent pressed deliberately): no field focused earlier stays agent-owned,
+  // so a later fill never mistakes the user's field for the agent's. Installed
+  // once per document in this isolated world; the page cannot fake isTrusted.
+  if (!globalThis.__supermonoAgentReleaseInstalled) {
+    globalThis.__supermonoAgentReleaseInstalled = true;
+    const release = (event) => { if (event.isTrusted) globalThis.__supermonoAgentFocused = undefined; };
+    addEventListener('pointerdown', release, true);
+    addEventListener('keydown', release, true);
+  }
   const limit = (value, size = 240) => String(value || '').replace(/\s+/g, ' ').trim().slice(0, size);
   const visible = (element) => {
     const rect = element.getBoundingClientRect();
@@ -70,6 +80,12 @@
       return focused;
     }
   };
+  // A focused frame this script cannot look inside (cross-origin): the caret
+  // may be in one of its fields, so it is treated as one.
+  const opaqueFrame = (node) => {
+    if (!node || (node.tagName !== 'IFRAME' && node.tagName !== 'FRAME')) return false;
+    try { return !node.contentDocument; } catch { return true; }
+  };
   const editable = (node) => !!node && (node.isContentEditable || node.tagName === 'TEXTAREA' ||
     (node.tagName === 'INPUT' && !['button', 'submit', 'reset', 'checkbox', 'radio', 'file', 'image', 'range', 'color', 'hidden'].includes((node.type || '').toLowerCase())));
   if (request.action === 'focus-rect') {
@@ -84,10 +100,36 @@
   if (!element || !visible(element)) throw new Error('Element changed or is no longer visible. Take a new snapshot.');
   if (element.disabled || element.getAttribute('aria-disabled') === 'true') throw new Error('This control is disabled.');
   const textTypes = ['text', 'search', 'email', 'url', 'tel', 'number', 'password'];
+  const textOf = (node) => node.isContentEditable ? node.innerText.replace(/\n$/, '') : node.value;
+  // Trusted typing goes wherever focus really is. It replaces this field's
+  // content only while the field holds focus (through shadow roots and
+  // same-origin frames) and its whole content is selected.
+  const readyToType = (node) => {
+    if (focusedElement(true) !== node) return false;
+    if (node.isContentEditable) {
+      const selection = getSelection();
+      return selection.rangeCount > 0 && node.contains(selection.anchorNode) && node.contains(selection.focusNode);
+    }
+    try {
+      if (typeof node.selectionStart === 'number') return node.selectionStart === 0 && node.selectionEnd === node.value.length;
+    } catch { /* Types without a text selection (email, number). */ }
+    return true;
+  };
+  if (request.action === 'fill-check') {
+    // Immediately before the host types: focus, content and selection are
+    // still as the fill left them. Otherwise the host sets the value instead
+    // of typing, so a later focus trap never receives the text.
+    const pending = globalThis.__supermonoAgentFill;
+    const ready = !!pending && pending.ref === request.ref && pending.element === element &&
+      textOf(element) === pending.before && readyToType(element) &&
+      (!element.isContentEditable || getSelection().toString() === pending.selected);
+    if (!ready) globalThis.__supermonoAgentFill = undefined;
+    return JSON.stringify({ ok: true, ready });
+  }
   if (request.action === 'fill-verify') {
     // The native host typed with trusted input events; confirm the result.
-    const actual = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement ? element.value
-      : element.isContentEditable ? element.innerText.replace(/\n$/, '') : null;
+    const actual = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element.isContentEditable
+      ? textOf(element) : null;
     // Pages may reformat typed text (phone or card masks); accept a real
     // replacement, but not text that was ignored or appended to the old value.
     const pending = globalThis.__supermonoAgentFill;
@@ -145,11 +187,13 @@
       insertable = true;
     } else throw new Error('This element is not an editable control.');
     globalThis.__supermonoAgentFill = undefined;
-    // While the user is in this page with their caret in another field, leave
-    // their caret alone: set the value directly instead of focusing. A field
-    // the agent focused earlier is not the user's.
+    // While the user is in this page with their caret in another field, or in
+    // a cross-origin frame whose fields are out of sight, leave their caret
+    // alone: set the value directly instead of focusing. A field the agent
+    // focused earlier is not the user's, until the user presses in the page.
     const current = document.hasFocus() && document.visibilityState === 'visible' ? focusedElement(true) : null;
-    const userCaret = editable(current) && current !== element && current !== globalThis.__supermonoAgentFocused;
+    const userCaret = (editable(current) || opaqueFrame(current)) && current !== element &&
+      current !== globalThis.__supermonoAgentFocused;
     if (!userCaret) {
       // Focus only inside the page, so a following key press reaches this field.
       // This never activates Aven or moves the user's keyboard focus.
@@ -160,7 +204,7 @@
     if (!userCaret && request.native === true && insertable && request.value !== '') {
       // Select existing content; the host replaces it with trusted text input.
       // The old value stays in this isolated world; it is never returned.
-      const before = element.isContentEditable ? element.innerText.replace(/\n$/, '') : element.value;
+      const before = textOf(element);
       const selection = getSelection();
       if (element.isContentEditable) {
         const range = document.createRange();
@@ -168,20 +212,12 @@
         selection.removeAllRanges();
         selection.addRange(range);
       } else element.select();
-      // Trusted typing goes wherever focus really is. Type only if this field
-      // has it: a focus trap or focusin redirect may have moved it elsewhere,
-      // possibly into a different field. Otherwise set the value directly.
-      let selected = focusedElement(true) === element;
-      if (selected && element.isContentEditable) {
-        selected = selection.rangeCount > 0 && element.contains(selection.anchorNode) && element.contains(selection.focusNode);
-      } else if (selected) {
-        try {
-          if (typeof element.selectionStart === 'number')
-            selected = element.selectionStart === 0 && element.selectionEnd === element.value.length;
-        } catch { /* Types without a text selection (email, number). */ }
-      }
-      if (selected) {
-        globalThis.__supermonoAgentFill = { ref: request.ref, element, before };
+      // Type only if this field has focus: a focus trap or focusin redirect
+      // may have moved it elsewhere, possibly into a different field.
+      // Otherwise set the value directly.
+      if (readyToType(element)) {
+        globalThis.__supermonoAgentFill = { ref: request.ref, element, before,
+          selected: element.isContentEditable ? selection.toString() : '' };
         return JSON.stringify({ ok: true, url: location.href, method: 'insert', ...geometry(element),
           note: 'Action dispatched. Take a fresh snapshot to verify the result.' });
       }

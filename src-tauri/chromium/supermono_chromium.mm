@@ -1534,22 +1534,34 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
           Result(self->id_,request,ok,ok ? AgentResult(result,"") : result);
         });
       };
-      auto text=Object(); text->SetString("text",value);
-      self->Dev("Input.insertText",text,[self,request,operation,result,fallback](bool ok,Dict inserted) {
-        self->GuardAgentFocus();
-        const auto outcome=supermono::AgentAfterInput(ok,IsTimedOut(inserted));
-        // Unanswered typing may still arrive: setting the value as well could
-        // double it. Report it instead.
-        if (outcome==supermono::AgentInputOutcome::kUnconfirmed) { Result(self->id_,request,false,Error(supermono::kAgentFillUnconfirmed)); return; }
-        if (outcome==supermono::AgentInputOutcome::kFallBack) { fallback(); return; }
-        auto verify=operation->Copy(false); verify->SetString("action","fill-verify");
-        self->RunAgentDom(verify,[self,request,result,fallback](bool ok,Dict verified) {
-          if (ok && verified->GetType("matches")==VTYPE_BOOL && verified->GetBool("matches")) {
-            Result(self->id_,request,true,AgentResult(result,"typed")); return;
-          }
-          if (!ok && IsTimedOut(verified)) { Result(self->id_,request,false,Error(supermono::kAgentFillUnconfirmed)); return; }
-          fallback();
-        });
+      // A focus trap or the user may have moved focus or the selection since
+      // the fill step. Re-check in the same isolated world right before typing;
+      // if anything changed, set the value instead and never type as well.
+      auto check=operation->Copy(false); check->SetString("action","fill-check");
+      self->RunAgentDom(check,[self,request,operation,result,fallback,value](bool ok,Dict checked) {
+        if (!ok || checked->GetType("ready")!=VTYPE_BOOL || !checked->GetBool("ready")) { fallback(); return; }
+        self->InsertAgentText(request,operation,result,value,fallback);
+      });
+    });
+  }
+  // Type with Chromium's trusted text input, then verify the field's value.
+  void InsertAgentText(const std::string& request,Dict operation,Dict result,const std::string& value,std::function<void()> fallback) {
+    auto text=Object(); text->SetString("text",value);
+    CefRefPtr<Page> self=this;
+    Dev("Input.insertText",text,[self,request,operation,result,fallback](bool ok,Dict inserted) {
+      self->GuardAgentFocus();
+      const auto outcome=supermono::AgentAfterInput(ok,IsTimedOut(inserted));
+      // Unanswered typing may still arrive: setting the value as well could
+      // double it. Report it instead.
+      if (outcome==supermono::AgentInputOutcome::kUnconfirmed) { Result(self->id_,request,false,Error(supermono::kAgentFillUnconfirmed)); return; }
+      if (outcome==supermono::AgentInputOutcome::kFallBack) { fallback(); return; }
+      auto verify=operation->Copy(false); verify->SetString("action","fill-verify");
+      self->RunAgentDom(verify,[self,request,result,fallback](bool ok,Dict verified) {
+        if (ok && verified->GetType("matches")==VTYPE_BOOL && verified->GetBool("matches")) {
+          Result(self->id_,request,true,AgentResult(result,"typed")); return;
+        }
+        if (!ok && IsTimedOut(verified)) { Result(self->id_,request,false,Error(supermono::kAgentFillUnconfirmed)); return; }
+        fallback();
       });
     });
   }

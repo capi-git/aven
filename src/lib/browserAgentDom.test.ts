@@ -370,6 +370,110 @@ describe("native agent browser fixed DOM actions", () => {
       expect(document.activeElement).toBe(last);
     });
 
+    it("leaves the user's caret in a cross-origin frame it cannot see into", () => {
+      document.body.innerHTML =
+        '<iframe title="Payment"></iframe><input aria-label="Name" value="old">';
+      const frame = document.querySelector("iframe")!;
+      const name = document.querySelector("input")!;
+      vi.spyOn(document, "hasFocus").mockReturnValue(true);
+      const active = vi
+        .spyOn(document, "activeElement", "get")
+        .mockReturnValue(frame);
+      // Cross-origin: no contentDocument, or one that throws.
+      const inner = vi
+        .spyOn(frame, "contentDocument", "get")
+        .mockReturnValue(null);
+      const focus = vi.spyOn(name, "focus");
+      const result = fillNative("Name", "typed");
+      expect(result.method).toBe("value");
+      expect(name.value).toBe("typed");
+      expect(focus).not.toHaveBeenCalled();
+      inner.mockImplementation(() => {
+        throw new DOMException("Blocked", "SecurityError");
+      });
+      expect(fillNative("Name", "again").method).toBe("value");
+      expect(focus).not.toHaveBeenCalled();
+      // Not the page the user is in: the frame is nobody's caret.
+      vi.mocked(document.hasFocus).mockReturnValue(false);
+      active.mockRestore();
+      expect(fillNative("Name", "typed").method).toBe("insert");
+      expect(focus).toHaveBeenCalledOnce();
+    });
+
+    it("hands a field back to the user after their own press or key", () => {
+      document.body.innerHTML =
+        '<input aria-label="First" value=""><input aria-label="Last" value="">';
+      const [first] = document.querySelectorAll("input");
+      vi.spyOn(document, "hasFocus").mockReturnValue(true);
+      const trusted = (type: string, trustedEvent: boolean) => {
+        const event = new Event(type, { bubbles: true, composed: true });
+        Object.defineProperty(event, "isTrusted", { value: trustedEvent });
+        first.dispatchEvent(event);
+      };
+      expect(fillNative("First", "Ada").method).toBe("insert");
+      // A script's synthetic events cannot hand the field over.
+      trusted("pointerdown", false);
+      trusted("keydown", false);
+      expect(fillNative("First", "Ada").method).toBe("insert");
+      // The user clicks into the field the agent filled: it is theirs now.
+      trusted("pointerdown", true);
+      expect(fillNative("Last", "Lovelace").method).toBe("value");
+      expect(document.activeElement).toBe(first);
+      // Likewise for a key press.
+      first.blur();
+      expect(fillNative("First", "Ada").method).toBe("insert");
+      trusted("keydown", true);
+      expect(fillNative("Last", "Byron").method).toBe("value");
+      expect(document.activeElement).toBe(first);
+    });
+
+    it("re-checks focus and selection immediately before typing", () => {
+      document.body.innerHTML =
+        '<input aria-label="Name" value="old"><input aria-label="Other">' +
+        '<div contenteditable="true" aria-label="Body">Old text</div>';
+      const [name, other] = document.querySelectorAll("input");
+      // A background page: no caret of the user's to leave alone.
+      vi.spyOn(document, "hasFocus").mockReturnValue(false);
+      const check = (label: string) =>
+        decode({ action: "fill-check", ref: ref(label), value: "x" }).ready;
+      const fill = (label: string) => {
+        const target = ref(label);
+        expect(
+          decode({ action: "fill", ref: target, value: "x", native: true })
+            .method,
+        ).toBe("insert");
+        return () =>
+          decode({ action: "fill-check", ref: target, value: "x" }).ready;
+      };
+      // Nothing pending: never type.
+      expect(check("Name")).toBe(false);
+      expect(fill("Name")()).toBe(true);
+      // A trap moves focus after the fill step.
+      let ready = fill("Name");
+      other.focus();
+      expect(ready()).toBe(false);
+      // The pending typing is dropped, so it can never be verified as typed.
+      expect(ready()).toBe(false);
+      // The selection collapsed.
+      ready = fill("Name");
+      name.setSelectionRange(1, 1);
+      expect(ready()).toBe(false);
+      // The value changed meanwhile.
+      ready = fill("Name");
+      name.value = "older";
+      name.select();
+      expect(ready()).toBe(false);
+      // A rich text editor whose selection moved.
+      ready = fill("Body");
+      expect(ready()).toBe(true);
+      ready = fill("Body");
+      getSelection()!.collapse(
+        document.querySelector("[contenteditable]")!.firstChild!,
+        2,
+      );
+      expect(ready()).toBe(false);
+    });
+
     it("types when the page is not the one the user is in", () => {
       document.body.innerHTML =
         '<input aria-label="Search" value=""><input aria-label="Name" value="old">';
