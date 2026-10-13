@@ -1367,6 +1367,25 @@ pub(crate) fn rewrite_allowed(info: &NodeInfo, length: Option<usize>, in_web: bo
         && length.is_some_and(|length| length <= REWRITE_LIMIT)
 }
 
+/// How many ancestors are read when deciding whether text is web content.
+pub(crate) const WEB_DEPTH: usize = 12;
+
+/// Whether an element is (or may be) inside web content, from its ancestors'
+/// roles nearest first: `None` is a parent or role that could not be read.
+/// Only reaching the window (or app) without a web area counts as native;
+/// an unreadable or too-deep chain is treated as web, which is never
+/// rewritten as a whole.
+pub(crate) fn web_ancestry(roles: impl IntoIterator<Item = Option<String>>) -> bool {
+    for role in roles.into_iter().take(WEB_DEPTH) {
+        match role.as_deref() {
+            Some("AXWebArea") | None => return true,
+            Some("AXWindow" | "AXApplication") => return false,
+            Some(_) => {}
+        }
+    }
+    true
+}
+
 pub(crate) fn utf16_len(text: &str) -> usize {
     text.encode_utf16().count()
 }
@@ -2740,6 +2759,31 @@ mod tests {
         assert!(!rewrite_allowed(&field, Some(REWRITE_LIMIT + 1), false));
         assert!(!rewrite_allowed(&field, None, false));
         assert!(!rewrite_allowed(&field, Some(10), true));
+        // Web content is decided from the ancestors; a failed read before the
+        // window fails closed (treated as web).
+        let roles = |roles: &[Option<&str>]| {
+            roles
+                .iter()
+                .map(|role| role.map(String::from))
+                .collect::<Vec<_>>()
+        };
+        assert!(!web_ancestry(roles(&[Some("AXGroup"), Some("AXWindow")])));
+        assert!(!web_ancestry(roles(&[
+            Some("AXSheet"),
+            Some("AXApplication")
+        ])));
+        assert!(web_ancestry(roles(&[Some("AXGroup"), Some("AXWebArea")])));
+        assert!(web_ancestry(roles(&[
+            Some("AXGroup"),
+            None,
+            Some("AXWindow")
+        ])));
+        assert!(web_ancestry(roles(&[None])));
+        assert!(web_ancestry(roles(&[Some("AXGroup")])), "chain ended early");
+        assert!(web_ancestry(roles(&[])), "no parent at all");
+        let mut deep = vec![Some("AXGroup"); WEB_DEPTH];
+        deep.push(Some("AXWindow"));
+        assert!(web_ancestry(roles(&deep)), "too deep to tell");
         for role in ["AXTextArea", "AXGroup", "AXWebArea", SECURE_TEXT_FIELD] {
             assert!(
                 !rewrite_allowed(&info(role, None), Some(10), false),

@@ -377,23 +377,31 @@ unsafe fn text_length(element: Cf, deadline: Instant) -> Option<usize> {
     usize::try_from(CFStringGetLength(value.0)).ok()
 }
 
-/// Whether an element lies inside web content (a few ancestors up).
+/// Whether an element lies inside web content (a few ancestors up). A
+/// parent or role that cannot be read counts as web: never rewritten.
 unsafe fn in_web_area(element: Cf, deadline: Instant) -> bool {
-    let mut current = copy(element, "AXParent", deadline).and_then(|parent| Element::owned(parent));
-    for _ in 0..12 {
-        let Some(node) = current else {
-            return false;
+    let mut roles = Vec::new();
+    let mut node: Option<Element> = None;
+    for _ in 0..rules::WEB_DEPTH {
+        let base = node.as_ref().map_or(element, |node| node.0);
+        let Some(parent) =
+            copy(base, "AXParent", deadline).and_then(|parent| Element::owned(parent))
+        else {
+            roles.push(None);
+            break;
         };
-        let role = copy(node.0, "AXRole", deadline).and_then(|role| string_of(role.0, 64));
-        match role.as_deref() {
-            Some("AXWebArea") => return true,
-            Some("AXWindow") | None => return false,
-            _ => {}
+        let role = copy(parent.0, "AXRole", deadline).and_then(|role| string_of(role.0, 64));
+        let stop = matches!(
+            role.as_deref(),
+            None | Some("AXWebArea" | "AXWindow" | "AXApplication")
+        );
+        roles.push(role);
+        if stop {
+            break;
         }
-        current = copy(node.0, "AXParent", deadline).and_then(|parent| Element::owned(parent));
+        node = Some(parent);
     }
-    // Too deep to tell: treat as web content, which is never rewritten.
-    true
+    rules::web_ancestry(roles)
 }
 
 unsafe fn element_array(array: &OwnedCf, limit: usize) -> Vec<Element> {
