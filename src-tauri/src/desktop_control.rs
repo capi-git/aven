@@ -1413,7 +1413,8 @@ stops an action in progress and cancels an open prompt. Keep working in Aven's
 browser or code, or wait; observe again after the user unlocks. App consent is on by default, per app and chat.
 Settings can turn it off; shared input always asks. Interrupted drags release
 their held button. The provider-coloured ring and name tag glide between
-targets and fade when idle. Both overlays are excluded from agent
+targets, including windows the agent reads, and stay on screen while the agent
+works, fading about 30 seconds after its last action or look. Both overlays are excluded from agent
 screenshots/window lists and cannot be agent input targets. Typed content,
 values and key names are never shown in the bar.
 Modifiers: cmd, shift, option, control. Use type for literal Unicode text.

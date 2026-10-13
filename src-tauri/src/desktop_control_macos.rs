@@ -1965,8 +1965,17 @@ fn execute_admitted(
         Request::Status {} => {
             Err("Status must be checked through the desktop control gate.".into())
         }
-        Request::Windows {} => Ok(json!({"windows":windows()?})),
+        Request::Windows {} => {
+            agent_cursor::keep_alive(scope);
+            Ok(json!({"windows":windows()?}))
+        }
         Request::Screenshot { window_id, region } => {
+            if let Some(window) =
+                window_id.and_then(|id| windows().ok()?.into_iter().find(|w| w.window_id == id))
+            {
+                look_at(app, scope, &session, &window);
+            }
+            agent_cursor::keep_alive(scope);
             agent_cursor::suspend(app)?;
             let _suppression = CursorSuppression(app);
             presence_ui::suppress(true)?;
@@ -2162,6 +2171,7 @@ fn app_state(
         return Err("Aven's desktop controls cannot be inspected or targeted.".into());
     }
     session.require_active()?;
+    look_at(app, scope, session, &window);
     let (bundle, name) = app_identity(app, window.pid)?;
     // Observation needs no consent, but turning on an app's switch changes
     // that app: only for apps this chat may already act in.
@@ -2231,6 +2241,25 @@ fn app_state(
         state["image"] = screenshot(scope, Some(window.window_id), None)?;
     }
     Ok(state)
+}
+
+/// The agent marker glides to the window the agent is reading, so the user
+/// can follow where it is looking. Drawing only; a failure changes nothing.
+fn look_at(app: &AppHandle, scope: &str, session: &CaptureSession, window: &DesktopWindow) {
+    if presence_ui::window_id() == Some(window.window_id)
+        || agent_cursor::window_id() == Some(window.window_id)
+    {
+        return;
+    }
+    let bounds = window.bounds();
+    let _ = agent_cursor::move_to(
+        app,
+        scope,
+        bounds.x + bounds.width / 2.0,
+        bounds.y + bounds.height / 2.0,
+        agent_cursor::Feedback::Move,
+        Arc::clone(&session.revoked),
+    );
 }
 
 /// Background element actions. The agent ring moves to the control (drawing
