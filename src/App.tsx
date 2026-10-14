@@ -1530,6 +1530,14 @@ export default function App({
     enterDelay: 150,
     leaveDelay: 90,
   });
+  // Whether the sidebar is on screen, so its project lists and previews stay
+  // current. With the native layer the DOM peek above is disabled and its
+  // `visible` is always false, which left other projects' tasks frozen
+  // (usually empty) in both the docked and the floating sidebar.
+  const [floatingSidebarRevealed, setFloatingSidebarRevealed] = useState(false);
+  const sidebarShown =
+    sidebarHover.visible ||
+    (nativeSidebar && (sidebarOpen || floatingSidebarRevealed));
   const inspectorVisible = workspaceVisible && inspector.open;
   useEffect(() => {
     if (!sidebarHover.revealed) return;
@@ -2303,10 +2311,10 @@ export default function App({
   }, [sidebarCwd, refreshHistory]);
 
   useEffect(() => {
-    if (sidebarHover.visible) {
+    if (sidebarShown) {
       for (const cwd of standaloneCwds) void refreshProfileHistory(cwd);
     }
-  }, [standaloneCwds, sidebarHover.visible, refreshProfileHistory]);
+  }, [standaloneCwds, sidebarShown, refreshProfileHistory]);
 
   const persistSession = useCallback((session: Session | undefined) => {
     if (
@@ -8557,7 +8565,7 @@ export default function App({
   >({});
   const profileSessionSummaries = useMemo(
     () =>
-      !sidebarHover.visible
+      !sidebarShown
         ? lastProfileSessionSummaries.current
         : (lastProfileSessionSummaries.current = Object.fromEntries(
             profiles.profileProjects.map((project) => [
@@ -8572,7 +8580,7 @@ export default function App({
             ]),
           )),
     [
-      sidebarHover.visible,
+      sidebarShown,
       profiles.profileProjects,
       history,
       sessions,
@@ -8585,7 +8593,7 @@ export default function App({
   const profilePreviews = useMemo<
     Readonly<Record<string, WorkspaceProfilePreviewData>>
   >(() => {
-    if (!sidebarHover.visible) return lastProfilePreviews.current;
+    if (!sidebarShown) return lastProfilePreviews.current;
     const labels = loadTabGroupLabels();
     const tasksFor = (cwds: readonly string[]) =>
       cwds
@@ -8631,7 +8639,7 @@ export default function App({
       }),
     ));
   }, [
-    sidebarHover.visible,
+    sidebarShown,
     profiles.profiles,
     profiles.projectsByProfile,
     history,
@@ -9202,6 +9210,10 @@ export default function App({
     onToggleSidebar,
     onRefreshSidebar: () => setSidebarGeneration((current) => current + 1),
   });
+  useEffect(
+    () => setFloatingSidebarRevealed(floatingSidebar.revealed),
+    [floatingSidebar.revealed],
+  );
 
   return (
     <LiveSessionsContext.Provider value={liveSessions}>
