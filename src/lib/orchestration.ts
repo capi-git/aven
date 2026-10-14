@@ -245,6 +245,12 @@ export class Orchestrator {
     };
   };
   snapshot = () => this.runs;
+  /** Display-only renderers, such as the macOS floating sidebar, show another window's runs. */
+  mirror(runs: OrchestrationRun[]) {
+    if (runs === this.runs) return;
+    this.runs = runs;
+    this.emit();
+  }
   run(id: string) {
     return this.runs.find((run) => run.leadId === id);
   }

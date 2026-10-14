@@ -45,7 +45,19 @@ function BootGate({ children }: { children: React.ReactNode }) {
   return children;
 }
 
-if (new URLSearchParams(window.location.search).has("workspaceMenuPanel")) {
+if (new URLSearchParams(window.location.search).has("floatingSidebar")) {
+  // The workspace owns the sidebar's state; this webview only renders it.
+  void import("./surfaces/FloatingSidebarWindow")
+    .then(({ FloatingSidebarWindow }) => {
+      ReactDOM.createRoot(
+        document.getElementById("root") as HTMLElement,
+        rootOptions,
+      ).render(<FloatingSidebarWindow />);
+    })
+    .catch(showStartupFailure);
+} else if (
+  new URLSearchParams(window.location.search).has("workspaceMenuPanel")
+) {
   // Controlled menu only: never restore an App, workspace, or harness here.
   void import("./surfaces/WorkspaceMenuPanelWindow")
     .then(({ WorkspaceMenuPanelWindow }) => {

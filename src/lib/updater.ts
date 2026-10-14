@@ -77,6 +77,24 @@ let installing: Promise<UpdaterSnapshot> | null = null;
 let lastAutomaticCheck = -Infinity;
 let developmentBuild = false;
 
+/**
+ * A display-only renderer (the macOS floating sidebar) shows its workspace's
+ * updater and asks it to act. It never checks, downloads or installs itself.
+ */
+export type UpdaterMirror = {
+  refresh(manual: boolean): Promise<UpdaterSnapshot>;
+  install(): Promise<UpdaterSnapshot>;
+};
+let mirror: UpdaterMirror | null = null;
+
+export function mirrorUpdater(next: UpdaterMirror | null) {
+  mirror = next;
+}
+
+export function showMirroredUpdater(next: UpdaterSnapshot) {
+  if (mirror && next !== snapshot) publish(next);
+}
+
 export function getUpdaterSnapshot(): UpdaterSnapshot {
   return snapshot;
 }
@@ -263,6 +281,7 @@ export async function runUpdateFlow(
   manual: boolean,
   onProgress?: (snapshot: UpdaterSnapshot) => void,
 ): Promise<UpdaterSnapshot> {
+  if (mirror) return mirror.refresh(manual);
   const unsubscribe = onProgress
     ? subscribeUpdater(() => onProgress(snapshot))
     : () => {};
@@ -293,6 +312,7 @@ export async function runUpdateFlow(
 
 /** Startup, foreground, network recovery and periodic checks share one request. */
 export function startAutomaticUpdates(target: Window = window): () => void {
+  if (mirror) return () => {};
   let disposed = false;
   const checkNow = () => {
     if (disposed || Date.now() - lastAutomaticCheck < UPDATE_FOCUS_THROTTLE_MS)
@@ -322,6 +342,7 @@ export function startAutomaticUpdates(target: Window = window): () => void {
 export function installPendingUpdate(
   onProgress?: (snapshot: UpdaterSnapshot) => void,
 ): Promise<UpdaterSnapshot> {
+  if (mirror) return mirror.install();
   if (installing) return installing;
   // Do not install or close an archive while a refresh is replacing it.
   if (checking) return checking.then(() => installPendingUpdate(onProgress));

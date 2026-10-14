@@ -27,7 +27,7 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS browser_update_pr
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/browser_update_probe.js" UPDATE_PROBE_SOURCE)
 file(WRITE "${CMAKE_BINARY_DIR}/browser_update_source.h"
   "#pragma once\nstatic constexpr const char kBrowserUpdateProbe[] = R\"SM_UPDATE(${UPDATE_PROBE_SOURCE})SM_UPDATE\";\n")
-add_library(supermono_chromium_impl STATIC supermono_chromium.mm browser_actions_menu.mm browser_drop_indicator.mm browser_agent_marker.mm browser_edit_annotation.mm browser_edit_image.mm)
+add_library(supermono_chromium_impl STATIC supermono_chromium.mm floating_sidebar.mm browser_actions_menu.mm browser_drop_indicator.mm browser_agent_marker.mm browser_edit_annotation.mm browser_edit_image.mm)
 target_include_directories(supermono_chromium_impl PRIVATE "${CEF_ROOT}" "${CMAKE_BINARY_DIR}")
 target_compile_options(supermono_chromium_impl PRIVATE -fobjc-arc -fno-rtti -Wall -Wextra -Wno-unused-parameter)
 target_compile_definitions(supermono_chromium_impl PRIVATE CEF_USE_SANDBOX)
@@ -66,6 +66,13 @@ add_executable(supermono_chromium_browser_host_view_test EXCLUDE_FROM_ALL browse
 target_compile_options(supermono_chromium_browser_host_view_test PRIVATE -fobjc-arc)
 target_link_libraries(supermono_chromium_browser_host_view_test PRIVATE "-framework Cocoa" "-framework QuartzCore")
 add_test(NAME browser_host_view_reparent COMMAND supermono_chromium_browser_host_view_test)
+
+# The floating sidebar's native host: hit regions, pointer, open and close.
+add_executable(supermono_chromium_floating_sidebar_test EXCLUDE_FROM_ALL
+  floating_sidebar_test.mm floating_sidebar.mm)
+target_compile_options(supermono_chromium_floating_sidebar_test PRIVATE -fobjc-arc)
+target_link_libraries(supermono_chromium_floating_sidebar_test PRIVATE "-framework Cocoa" "-framework QuartzCore")
+add_test(NAME floating_sidebar_host COMMAND supermono_chromium_floating_sidebar_test)
 
 # Per-tab command ordering, coalescing, navigation reapply and failure recovery.
 add_executable(supermono_chromium_browser_tab_zoom_test EXCLUDE_FROM_ALL browser_tab_zoom_test.cc)

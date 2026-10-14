@@ -10,6 +10,20 @@ export type PaneDrop = {
 let drop: PaneDrop | null = null;
 const listeners = new Set<() => void>();
 
+/**
+ * A sidebar rendered in another webview (the macOS floating sidebar) finds
+ * panes from the workspace's geometry and shows its drop in the workspace.
+ */
+export type PaneDropBridge = {
+  resolve(x: number, y: number): { id: string; edge: PaneEdge } | null;
+  publish(next: PaneDrop | null): void;
+};
+let bridge: PaneDropBridge | null = null;
+
+export function setPaneDropBridge(next: PaneDropBridge | null) {
+  bridge = next;
+}
+
 function subscribeNoop() {
   return () => {};
 }
@@ -28,6 +42,7 @@ export function setExternalPaneDrop(next: PaneDrop | null) {
   }
   if (drop == null && next == null) return;
   drop = next;
+  bridge?.publish(next);
   for (const listener of listeners) listener();
 }
 
@@ -54,6 +69,7 @@ export function paneDropFromPoint(
   x: number,
   y: number,
 ): { id: string; edge: PaneEdge } | null {
+  if (bridge) return bridge.resolve(x, y);
   const el = document.elementFromPoint(x, y);
   const pane = el?.closest("[data-pane-id]") as HTMLElement | null;
   const id = pane?.dataset.paneId;

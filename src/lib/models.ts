@@ -275,6 +275,11 @@ export function setHarnessModels(harness: HarnessId, models: AgentModel[]) {
   emit();
 }
 
+/** The live CLI catalogs, for a renderer that mirrors this window's models. */
+export function liveHarnessModels(): Partial<Record<HarnessId, AgentModel[]>> {
+  return overlays;
+}
+
 /** True after a live CLI catalog has replaced the built-in fallback list. */
 export function hasLiveCatalog(harness: HarnessId): boolean {
   return overlays[harness] != null;

@@ -227,7 +227,8 @@ export type SidebarProps = {
   onSelectProject?: (path: string) => void;
   onOpenProject?: () => void;
   onRemoveProject?: (path: string, options: { purgeData: boolean }) => void;
-  onNew?: () => string | void;
+  /** The macOS floating sidebar resolves this in its workspace window. */
+  onNew?: () => string | void | Promise<string | void>;
   onNewStandalone?: () => void;
   startingStandalone?: boolean;
   standaloneActive?: boolean;
@@ -797,8 +798,15 @@ function SidebarComponent({
   };
 
   const onNewInFolder = (folderId: string) => {
-    const sessionId = onNew?.();
-    if (!sessionId) return;
+    const created = onNew?.();
+    if (created instanceof Promise) void created.then(addNewToFolder);
+    else addNewToFolder(created);
+    function addNewToFolder(sessionId: string | void) {
+      if (sessionId) placeNewInFolder(folderId, sessionId);
+    }
+  };
+
+  const placeNewInFolder = (folderId: string, sessionId: string) => {
     pendingFolderSessionIds.current.add(sessionId);
     setSearchQuery("");
     setSessionFolders((current) => {

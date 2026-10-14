@@ -1,0 +1,17 @@
+/* The overlay webview paints only the card and its menus. The workspace,
+   live pages and the window's glass show through everywhere else. */
+html.aven-floating-sidebar-overlay,
+html.aven-floating-sidebar-overlay body,
+html.aven-floating-sidebar-overlay #root,
+html.aven-floating-sidebar-overlay .personal-shell {
+  background: transparent !important;
+}
+
+/* Native code slides the whole overlay; the card itself stays at rest. */
+html.aven-floating-sidebar-overlay
+  .personal-shell
+  .personal-sidebar-slot[data-floating="true"]
+  > .personal-sidebar {
+  transform: none !important;
+  transition: none !important;
+}

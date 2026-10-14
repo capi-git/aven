@@ -431,6 +431,38 @@ static void CheckHiddenBrowserFocus() {
   std::puts("Hidden browser responder checks passed");
 }
 
+// The macOS floating sidebar's host draws above every live page in its window.
+static void CheckFloatingSidebarStaysOnTop() {
+  NSView* parent = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)];
+  NSView* workspace = [[NSView alloc] initWithFrame:parent.bounds];
+  NSView* sidebar = [[NSView alloc] initWithFrame:parent.bounds];
+  sidebar.identifier = supermono::kFloatingSidebarHostIdentifier;
+  [parent addSubview:workspace];
+  [parent addSubview:sidebar];
+  const auto index = [&](NSView* view) {
+    return [parent.subviews indexOfObjectIdenticalTo:view];
+  };
+  NSView* first = [[NSView alloc] initWithFrame:parent.bounds];
+  NSView* first_page = [[NSView alloc] initWithFrame:first.bounds];
+  supermono::EnsureBrowserHost(parent, first, first_page, workspace);
+  CHECK(first.superview == parent && first_page.superview == first);
+  CHECK(index(workspace) < index(first) && index(first) < index(sidebar));
+
+  // A page attached by other code above the host returns beneath it.
+  NSView* second = [[NSView alloc] initWithFrame:parent.bounds];
+  NSView* second_page = [[NSView alloc] initWithFrame:second.bounds];
+  [parent addSubview:second];
+  [second addSubview:second_page];
+  CHECK(parent.subviews.lastObject == second);
+  supermono::EnsureBrowserHost(parent, second, second_page, workspace);
+  CHECK(parent.subviews.lastObject == sidebar);
+  CHECK(index(workspace) < index(second) && index(second) < index(sidebar));
+
+  // The host's own webview is not taken for the workspace document.
+  CHECK(supermono::FloatingSidebarHost(parent) == sidebar);
+  std::puts("Floating sidebar ordering checks passed");
+}
+
 int main() {
   @autoreleasepool {
     [NSApplication sharedApplication];
@@ -441,6 +473,7 @@ int main() {
     CheckMenuHoles();
     CheckRepeatedBrowserLayout();
     CheckHiddenBrowserFocus();
+    CheckFloatingSidebarStaysOnTop();
     destroyed_probes = 0;
     NSWindow* owner = [[NSWindow alloc]
         initWithContentRect:NSMakeRect(0, 0, 640, 480)
