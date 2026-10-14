@@ -185,6 +185,12 @@ def transient_ticket_failure(result):
     return result.returncode == 68 and bool(network or pending)
 
 
+def pause(seconds):
+    # Retry waits go through here so tests can replace them without also
+    # replacing the time.sleep that subprocess uses while waiting for tools.
+    time.sleep(seconds)
+
+
 def stapler(action, app):
     # Stapling and validating both fetch the ticket from Apple's ticket service.
     for attempt in range(len(STAPLE_RETRY_DELAYS) + 1):
@@ -194,7 +200,7 @@ def stapler(action, app):
         delay = STAPLE_RETRY_DELAYS[attempt]
         print(f'Temporary notarization ticket service failure; retrying stapler {action} in {delay} '
               f'seconds (attempt {attempt + 2}/{len(STAPLE_RETRY_DELAYS) + 1}).', file=sys.stderr)
-        time.sleep(delay)
+        pause(delay)
 
 
 def staple_and_assess(app, submission, authentication):
