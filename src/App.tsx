@@ -66,6 +66,7 @@ import { PersonalInspectorDock } from "./chrome/PersonalInspectorDock";
 import { WorkspaceHome } from "./surfaces/WorkspaceHome";
 import { useNativeFloatingSidebar } from "./hooks/useNativeFloatingSidebar";
 import { useSidebarVisibility } from "./hooks/useSidebarVisibility";
+import { useSidebarData } from "./hooks/useSidebarData";
 import { encodeSidebarValue } from "./lib/floatingSidebar";
 import { setExternalPaneDrop, type PaneDrop } from "./lib/paneDrop";
 import { useWorkspaceSnapshotPersistence } from "./hooks/useWorkspaceSnapshotPersistence";
@@ -80,11 +81,9 @@ import {
   agentKeepAwakeSessionIds,
 } from "./lib/agentKeepAwake";
 import { Sidebar, type SidebarProps } from "./chrome/Sidebar";
-import type { WorkspaceProfilePreviewData } from "./chrome/ProfileCarouselPreview";
 import { projectDisplayName } from "./hooks/useProjectLabels";
 import { useNavigationIntent } from "./hooks/useNavigationIntent";
 import { loadTabGroupLabels } from "./lib/tabGroups";
-import { SESSION_LIST_PAGE } from "./lib/sessionListWindow";
 import {
   WorkspaceBrowserSurface,
   type BrowserSurfaceActions,
@@ -430,7 +429,6 @@ import {
   lastProjectPath,
   looksLikeProject,
   normalizeProjectPath,
-  projectRailItems,
   sameProjectPath,
 } from "./lib/recents";
 import {
@@ -597,7 +595,6 @@ import {
   mergeProjectHistorySummary,
   replaceProjectHistory,
   historyWithLiveSessions,
-  standaloneSessionRows,
   summaryFromSession,
 } from "./lib/sessionHistory";
 import {
@@ -2228,34 +2225,6 @@ export default function App({
     };
   }, [flushHarnessEvents]);
 
-  const [profileHistoryErrors, setProfileHistoryErrors] = useState<
-    ReadonlySet<string>
-  >(new Set());
-  const profileHistoryRequests = useRef(new Set<string>());
-  const refreshProfileHistory = useCallback(async (cwd: string) => {
-    const key = normalizeProjectPath(cwd);
-    if (
-      loadedProjectsRef.current.has(key) ||
-      profileHistoryRequests.current.has(key)
-    )
-      return;
-    profileHistoryRequests.current.add(key);
-    setProfileHistoryErrors((previous) => {
-      const next = new Set(previous);
-      next.delete(key);
-      return next;
-    });
-    try {
-      const rows = await listSessionsByProject(cwd);
-      setHistory((current) => replaceProjectHistory(current, cwd, rows));
-      setLoadedProjects((previous) => new Set(previous).add(key));
-    } catch {
-      setProfileHistoryErrors((previous) => new Set(previous).add(key));
-    } finally {
-      profileHistoryRequests.current.delete(key);
-    }
-  }, []);
-
   const refreshHistory = useCallback(async (cwd: string) => {
     if (!cwd || cwd === "~") return;
     // `history` holds every visited project's rows and the sidebar filters it
@@ -2285,11 +2254,24 @@ export default function App({
     void refreshHistory(sidebarCwd);
   }, [sidebarCwd, refreshHistory]);
 
-  useEffect(() => {
-    if (sidebarShown) {
-      for (const cwd of standaloneCwds) void refreshProfileHistory(cwd);
-    }
-  }, [standaloneCwds, sidebarShown, refreshProfileHistory]);
+  const {
+    profileHistoryErrors,
+    refreshProfileHistory,
+    standaloneSessions,
+    profileSessionSummaries,
+    profilePreviews,
+  } = useSidebarData({
+    onScreen: sidebarShown,
+    profiles,
+    standaloneCwds,
+    history,
+    sessions,
+    orchestrationRuns,
+    busySessionIds,
+    setHistory,
+    setLoadedProjects,
+    loadedProjectsRef,
+  });
 
   const persistSession = useCallback((session: Session | undefined) => {
     if (
@@ -8529,99 +8511,6 @@ export default function App({
       sessions,
     ],
   );
-  const standaloneSessions = useMemo(
-    () => standaloneSessionRows(history, sessions, standaloneCwds),
-    [standaloneCwds, history, sessions],
-  );
-  // A closing sidebar keeps its last previews: clearing them would remove rows
-  // during the fade and re-render the sidebar for content no longer shown.
-  const lastProfileSessionSummaries = useRef<
-    Record<string, ReturnType<typeof historyWithLiveSessions>>
-  >({});
-  const profileSessionSummaries = useMemo(
-    () =>
-      !sidebarShown
-        ? lastProfileSessionSummaries.current
-        : (lastProfileSessionSummaries.current = Object.fromEntries(
-            profiles.profileProjects.map((project) => [
-              project.path,
-              historyWithLiveSessions(
-                history,
-                sessions,
-                project.path,
-                undefined,
-                orchestrationRuns,
-              ),
-            ]),
-          )),
-    [
-      sidebarShown,
-      profiles.profileProjects,
-      history,
-      sessions,
-      orchestrationRuns,
-    ],
-  );
-  const lastProfilePreviews = useRef<
-    Readonly<Record<string, WorkspaceProfilePreviewData>>
-  >({});
-  const profilePreviews = useMemo<
-    Readonly<Record<string, WorkspaceProfilePreviewData>>
-  >(() => {
-    if (!sidebarShown) return lastProfilePreviews.current;
-    const labels = loadTabGroupLabels();
-    const tasksFor = (cwds: readonly string[]) =>
-      cwds
-        .flatMap((cwd) =>
-          historyWithLiveSessions(
-            history,
-            sessions,
-            cwd,
-            undefined,
-            orchestrationRuns,
-          ),
-        )
-        .filter((session) => !session.archived && !session.orchestrationLeadId)
-        .sort((a, b) => b.updatedAt - a.updatedAt)
-        .slice(0, SESSION_LIST_PAGE)
-        .map((session) => ({
-          id: session.id,
-          title: sessionDisplayTitle(session.title, session.harness),
-          busy: busySessionIds.has(session.id),
-        }));
-    return (lastProfilePreviews.current = Object.fromEntries(
-      profiles.profiles.map((profile) => {
-        const standalone = standaloneWorkspacePaths(
-          { profiles: profiles.profiles, projectProfiles: {} },
-          profile.id,
-        );
-        return [
-          profile.id,
-          {
-            id: profile.id,
-            name: profile.name,
-            projects: projectRailItems(
-              profiles.projectsByProfile[profile.id] ?? [],
-              "~",
-            ).map((project) => ({
-              path: project.path,
-              name: projectDisplayName(project.path, labels),
-              tasks: tasksFor([project.path]),
-            })),
-            standaloneTasks: tasksFor(standalone),
-          },
-        ];
-      }),
-    ));
-  }, [
-    sidebarShown,
-    profiles.profiles,
-    profiles.projectsByProfile,
-    history,
-    sessions,
-    orchestrationRuns,
-    busySessionIds,
-  ]);
   const browserSurfaceActions = useRef<BrowserSurfaceActions>(null!);
   browserSurfaceActions.current = {
     focus: (project, id) => {
