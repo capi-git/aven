@@ -22,6 +22,7 @@
     "build:windows": "tauri build --ci --target x86_64-pc-windows-msvc --bundles nsis -- --locked --no-default-features",
     "dev:doctor": "bash scripts/with-dev-env.sh python3 scripts/dev-aven.py --doctor",
     "dev:app": "bash scripts/with-dev-env.sh python3 scripts/dev-aven.py",
+    "check:app": "bash scripts/with-dev-env.sh python3 scripts/dev-aven.py --smoke",
     "lint": "oxlint src",
     "format": "prettier --write src",
     "format:check": "prettier --check src"

@@ -1,5 +1,6 @@
 import { failureText, logError } from "./lib/errors";
 import { useWorkspaceSessions } from "./hooks/useWorkspaceSessions";
+import { useDevSmoke } from "./hooks/useDevSmoke";
 import { discardEditorDrafts } from "./lib/workspaceTransfers";
 import { useFixedDeadline } from "./hooks/useFixedDeadline";
 import { useReturnFocus } from "./hooks/useReturnFocus";
@@ -9209,6 +9210,14 @@ export default function App({
     windowFocused: notificationWindowFocused,
     onToggleSidebar,
     onRefreshSidebar: () => setSidebarGeneration((current) => current + 1),
+  });
+  // Aven Dev's real-app check; inert unless `dev-aven.py --smoke` launched it.
+  useDevSmoke({
+    sessions,
+    floatingSidebarLabel: floatingSidebarLayer,
+    expectFloatingSidebar: IS_MAC,
+    newProjectTask: onNewProjectTask,
+    submit: (sessionId, text) => void onSubmit(sessionId, text, []),
   });
   useEffect(
     () => setFloatingSidebarRevealed(floatingSidebar.revealed),

@@ -22,6 +22,12 @@ For small CSS and React changes, keep this preview running and edit the source i
 
 For a visual check of the native agent cursor, run `AVEN_DEV_CURSOR_PREVIEW=1 npm run dev:app`. The debug build animates the cursor over its own Dev window for about a minute, then fades it. This preview only draws the marker; it sends no mouse or keyboard input and changes no permissions. It also permits another host to capture the marker for visual QA; normal builds retain the window-sharing exclusion, and authenticated desktop screenshots always suppress the marker. Real desktop actions still require an enabled, authenticated task and the applicable macOS grants.
 
+## Real-app check
+
+`npm run check:app` builds Aven Dev and runs it once in a throwaway profile, without a window you need to touch. A stand-in `claude` (`scripts/smoke/fake-claude.py`) answers instead of a real provider, so nothing reaches an account or a network. The workspace sends one turn through the normal send path with the floating sidebar attached, then the floating sidebar opens Settings and presses Back in its own page. The runner prints each step, exits non-zero on a failure, and keeps the throwaway folder for inspection when something fails.
+
+The run uses its own home folder for chats, settings and the browser profile, and keeps web storage in memory, so your Aven Dev data is not read or changed. It refuses to send anything unless Aven resolved `claude` to the stand-in. Quit Aven Dev first; the check needs the preview port. The **Release Aven** workflow runs the same check and will not publish unless it passes.
+
 ## Machine setup
 
 Install the prerequisites and verified SDK in [CHROMIUM.md](CHROMIUM.md). Standard tools on `PATH` work. Optional machine-specific paths belong in `~/.config/aven/development.env`, outside the checkout:

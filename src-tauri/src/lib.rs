@@ -31,6 +31,7 @@ pub mod control_cli;
 mod cursor_store;
 mod desktop_control;
 mod desktop_presence;
+mod dev_smoke;
 mod display_rate;
 mod floating_sidebar;
 mod fs;
@@ -321,6 +322,8 @@ pub fn run() {
             workspace_menu_panel::workspace_menu_panel_ready,
             workspace_menu_panel::workspace_menu_panel_action,
             workspace_menu_panel::workspace_menu_panel_close,
+            dev_smoke::dev_smoke_config,
+            dev_smoke::dev_smoke_finish,
             floating_sidebar::floating_sidebar_attach,
             floating_sidebar::floating_sidebar_workspace,
             floating_sidebar::floating_sidebar_regions,
