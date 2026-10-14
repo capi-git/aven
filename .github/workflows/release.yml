@@ -125,7 +125,7 @@ jobs:
           # A notarized build's update archive must contain the stapled ticket.
           task_notarized="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("notarization", {}).get("notarized") is True)' "target/releases/v$task_version/signing-verification.json")"
           if [[ "$task_notarized" == True ]]; then
-            xcrun stapler validate target/release/bundle/macos/Aven.app
+            python3 -B scripts/notarize-release.py validate --app target/release/bundle/macos/Aven.app
           fi
           python3 scripts/package-update.py --app target/release/bundle/macos/Aven.app --out "target/releases/v$task_version"
           cd "target/releases/v$task_version"

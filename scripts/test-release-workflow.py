@@ -496,9 +496,16 @@ class MacosNotarizationTests(WorkflowFixture):
         result = self.run_step('Sign final Chromium update archive')
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         calls = self.logged()
-        validate = next(index for index, line in enumerate(calls) if line.endswith('stapler validate target/release/bundle/macos/Aven.app'))
+        validate = next(index for index, line in enumerate(calls) if line.endswith('stapler validate -v target/release/bundle/macos/Aven.app'))
         package = next(index for index, line in enumerate(calls) if 'package-update.py' in line)
         self.assertLess(validate, package)
+
+    def test_update_signing_validates_the_ticket_with_the_retrying_notarizer(self):
+        # The 0.1.138 run lost its connection to Apple's ticket service here
+        # after notarization had already succeeded.
+        step = step_block('Sign final Chromium update archive')
+        self.assertIn('scripts/notarize-release.py validate --app target/release/bundle/macos/Aven.app', step)
+        self.assertNotIn('xcrun stapler', step)
 
     def test_missing_ticket_on_notarized_build_blocks_update_signing(self):
         self.write_report(NOTARIZED)
