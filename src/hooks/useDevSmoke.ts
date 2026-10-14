@@ -12,6 +12,7 @@ import {
 import { errorText } from "../lib/errors";
 import { nativeFloatingSidebar } from "../lib/floatingSidebar";
 import { resolveClaudeBinary } from "../lib/harness/child";
+import { IS_MAC } from "../lib/platform";
 import { sameProjectPath } from "../lib/recents";
 import type { Session } from "../lib/session";
 
@@ -58,6 +59,18 @@ function workspaceOnScreen(): boolean {
   return content instanceof HTMLElement && !content.hidden;
 }
 
+function pressShortcut(key: string) {
+  window.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key,
+      metaKey: IS_MAC,
+      ctrlKey: !IS_MAC,
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+}
+
 /** Wait until only `view` is on screen, or only the workspace when null. */
 async function expectOnScreen(view: UtilityView | null) {
   try {
@@ -89,8 +102,8 @@ let started = false;
  * Aven Dev's real-app check, run by the workspace only when the debug app was
  * launched by `scripts/dev-aven.py --smoke`: send one turn to a stand-in
  * provider through the normal send path with the floating sidebar attached,
- * open and close the utility views, then have the floating sidebar open
- * Settings and press Back, then report.
+ * open and close the utility views by handler and by shortcut, then have the
+ * floating sidebar open Settings and press Back, then report.
  */
 export function useDevSmoke(options: Options) {
   const latest = useRef(options);
@@ -213,6 +226,17 @@ export async function runDevSmoke(
         }
       },
     );
+
+  // The workspace's own key listener, as a key press reaches it: Cmd+, opens
+  // Settings and Cmd+W closes the open utility rather than a pane.
+  if (utilities)
+    await step("keyboard shortcuts open Settings and close it", async () => {
+      await expectOnScreen(null);
+      pressShortcut(",");
+      await expectOnScreen("settings");
+      pressShortcut("w");
+      await expectOnScreen(null);
+    });
 
   const label = get().floatingSidebarLabel;
   if (label)
