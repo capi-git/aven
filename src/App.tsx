@@ -67,6 +67,8 @@ import { WorkspaceHome } from "./surfaces/WorkspaceHome";
 import { useNativeFloatingSidebar } from "./hooks/useNativeFloatingSidebar";
 import { useSidebarVisibility } from "./hooks/useSidebarVisibility";
 import { useSidebarData } from "./hooks/useSidebarData";
+import { useSessionModelControls } from "./hooks/useSessionModelControls";
+import { withPlanBuildTarget } from "./lib/sessionModelChoice";
 import { encodeSidebarValue } from "./lib/floatingSidebar";
 import { setExternalPaneDrop, type PaneDrop } from "./lib/paneDrop";
 import { useWorkspaceSnapshotPersistence } from "./hooks/useWorkspaceSnapshotPersistence";
@@ -159,10 +161,7 @@ import {
   type AgentBrowserPlacement,
   type AgentBrowserOpenOptions,
 } from "./lib/agentBrowserOpen";
-import {
-  loadDefaultRuntimeMode,
-  saveDefaultRuntimeMode,
-} from "./lib/runtimeMode";
+import { loadDefaultRuntimeMode } from "./lib/runtimeMode";
 import { ApprovalToasts } from "./chrome/ApprovalToasts";
 import {
   AgentPageNotices,
@@ -376,7 +375,6 @@ import {
   handoffTurnCard,
   isPreparingHandoff,
   pendingHandoff,
-  planComposerSwitch,
   sessionChildHarnesses,
   sessionThroughTurn,
   shouldAskOutgoingAgent,
@@ -463,7 +461,6 @@ import {
   type Block,
   type HarnessId,
   type PlanBuildTarget,
-  type RuntimeMode,
   type PlanStatus,
   type SecondOpinionMeta,
   type Session,
@@ -476,7 +473,6 @@ import {
   queuedMessageForSubmit,
   shouldEnqueueSubmission,
 } from "./lib/messageQueue";
-import { dropContextWindow } from "./lib/contextUsage";
 import {
   deleteSession,
   getSession,
@@ -685,63 +681,6 @@ function userTurnCards(
     ...(secondOpinion ? { secondOpinion } : {}),
     ...(noteCard ? { noteCard: noteCardMeta(noteCard) } : {}),
   };
-}
-
-function withHarnessChoice(
-  session: Session,
-  harness: HarnessId,
-  model: string,
-  modelSettings: Record<string, string>,
-): Session {
-  return {
-    ...session,
-    harness,
-    model,
-    modelSettings,
-    title:
-      session.blocks.length === 0
-        ? HARNESS_LABEL[harness]
-        : formatSessionTitle(
-            harness,
-            sessionDisplayTitle(session.title, session.harness),
-          ),
-    ...(session.model === model
-      ? {}
-      : { context: dropContextWindow(session.context) }),
-    ...(session.harness === harness ? {} : { providerSessionId: undefined }),
-  };
-}
-
-function withPlanBuildTarget(
-  session: Session,
-  target: PlanBuildTarget,
-): Session {
-  const resolved = resolveModel(target.harness, target.model);
-  const modelSettings = preferredModelSettings(resolved, session.modelSettings);
-  const plan = planComposerSwitch(session, target.harness);
-  const next = withHarnessChoice(
-    session,
-    target.harness,
-    resolved.id,
-    modelSettings,
-  );
-
-  if (plan.kind === "arm") {
-    return { ...next, pendingSwitch: plan.pending };
-  }
-  if (plan.kind === "revert") {
-    return {
-      ...next,
-      pendingSwitch: undefined,
-      ...(plan.restoreProviderSessionId
-        ? { providerSessionId: plan.restoreProviderSessionId }
-        : { providerSessionId: undefined }),
-    };
-  }
-  if (plan.kind === "empty") {
-    return { ...next, pendingSwitch: undefined };
-  }
-  return next;
 }
 
 function openSessionIds(tabs: WorkspaceTab[]): Set<string> {
@@ -5419,73 +5358,8 @@ export default function App({
     setComposerFocused(false);
   }, []);
 
-  const onModelChange = useCallback(
-    (sessionId: string, harness: HarnessId, model: string) => {
-      const current = sessionsRef.current.find((s) => s.id === sessionId);
-      if (!current) return;
-      if (isPreparingHandoff(current)) return;
-      const resolved = resolveModel(harness, model);
-      if (current.modelSettings) {
-        saveLastModelSettings(current.modelSettings, "fill");
-      }
-      const modelSettings = preferredModelSettings(
-        resolved,
-        current.modelSettings,
-      );
-      const plan = planComposerSwitch(current, harness);
-      if (plan.kind === "empty") {
-        void forgetHarnessSession(plan.forget, sessionId);
-      }
-      setSessions((prev) =>
-        prev.map((s) => {
-          if (s.id !== sessionId) return s;
-          const next = withHarnessChoice(
-            s,
-            harness,
-            resolved.id,
-            modelSettings,
-          );
-          if (plan.kind === "arm") {
-            return { ...next, pendingSwitch: plan.pending };
-          }
-          if (plan.kind === "revert") {
-            return {
-              ...next,
-              pendingSwitch: undefined,
-              ...(plan.restoreProviderSessionId
-                ? { providerSessionId: plan.restoreProviderSessionId }
-                : { providerSessionId: undefined }),
-            };
-          }
-          if (plan.kind === "empty") {
-            return { ...next, pendingSwitch: undefined };
-          }
-          return next;
-        }),
-      );
-    },
-    [],
-  );
-
-  const onModelSettingsChange = useCallback(
-    (sessionId: string, modelSettings: Record<string, string>) => {
-      saveLastModelSettings(modelSettings);
-      setSessions((prev) =>
-        prev.map((s) => (s.id === sessionId ? { ...s, modelSettings } : s)),
-      );
-    },
-    [],
-  );
-
-  const onRuntimeModeChange = useCallback(
-    (sessionId: string, runtimeMode: RuntimeMode) => {
-      saveDefaultRuntimeMode(runtimeMode);
-      setSessions((prev) =>
-        prev.map((s) => (s.id === sessionId ? { ...s, runtimeMode } : s)),
-      );
-    },
-    [],
-  );
+  const { onModelChange, onModelSettingsChange, onRuntimeModeChange } =
+    useSessionModelControls({ sessionsRef, setSessions });
 
   const onSubmit = useCallback(
     (
