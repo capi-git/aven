@@ -636,6 +636,37 @@ pub fn control_scopes(cwd: String, files: Vec<String>) -> Result<Vec<String>, St
 mod tests {
     use super::*;
 
+    /// Workspace windows hold more than one webview on macOS (the floating
+    /// sidebar), and Tauri refuses a `WebviewWindow` command argument for
+    /// every webview in such a window. Take `Webview` or `Window` instead.
+    #[test]
+    fn no_command_requires_a_single_webview_window() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut found = Vec::new();
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_none_or(|ext| ext != "rs") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap();
+            for (index, line) in text.lines().enumerate() {
+                let line = line.trim();
+                let parameter = line.split_once(':').is_some_and(|(name, kind)| {
+                    !name.contains(' ')
+                        && kind
+                            .trim()
+                            .trim_end_matches(',')
+                            .starts_with("WebviewWindow")
+                        && !kind.contains("Builder")
+                });
+                if parameter && !line.starts_with("//") {
+                    found.push(format!("{}:{}", path.display(), index + 1));
+                }
+            }
+        }
+        assert!(found.is_empty(), "WebviewWindow arguments: {found:?}");
+    }
+
     #[test]
     fn save_validates_before_mutating_the_previous_run() {
         let store = crate::session_store::SessionStore::open_in_memory().unwrap();
