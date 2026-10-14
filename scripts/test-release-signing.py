@@ -76,8 +76,12 @@ elif args[:2] == ['stapler', 'staple']:
         print(os.environ.get('FAKE_STAPLE_OUTPUT', 'fixture staple reason'))
     sys.exit(status)
 elif args[:2] == ['stapler', 'validate']:
-    status = int(os.environ.get('FAKE_VALIDATE_STATUS', '0'))
-    print('fixture validate reason' if status else 'The validate action worked!')
+    attempts = sum(call['args'][:2] == ['stapler', 'validate']
+                   for call in map(json.loads, Path(os.environ['FAKE_APPLE_LOG']).read_text().splitlines()))
+    statuses = os.environ.get('FAKE_VALIDATE_STATUSES', os.environ.get('FAKE_VALIDATE_STATUS', '0')).split(',')
+    status = int(statuses[min(attempts - 1, len(statuses) - 1)])
+    print(os.environ.get('FAKE_VALIDATE_OUTPUT', 'fixture validate reason') if status
+          else 'The validate action worked!')
     sys.exit(status)
 '''
 
@@ -466,6 +470,45 @@ class NotarizationTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assert_staple_attempts(2)
                 sleep.assert_called_once_with(5)
+                self.assertEqual(self.notarization()['notarized'], False)
+                self.assert_no_secret_output(result)
+
+    def validate_attempts(self):
+        return sum(call['args'][:2] == ['stapler', 'validate'] for call in self.calls())
+
+    def test_lost_network_during_ticket_validation_retries_validation_only(self):
+        # Seen in the 0.1.137 release run: CloudKit dropped the connection
+        # while validating the ticket that had just been stapled.
+        result, sleep = self.notarize_with_retries(
+            FAKE_VALIDATE_STATUSES='68,0',
+            FAKE_VALIDATE_OUTPUT='Error Domain=NSURLErrorDomain Code=-1005 "The network connection was lost."\n'
+                                 "CloudKit's response is inconsistent with expections: (null)\n"
+                                 'The validate action failed! Error 68.',
+            **FIXTURE_CREDENTIALS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_staple_attempts(1)
+        self.assertEqual(self.validate_attempts(), 2)
+        sleep.assert_called_once_with(5)
+        self.assertEqual(self.notarization()['notarized'], True)
+        self.assert_no_secret_output(result)
+        self.assertEqual([call['args'][:2] for call in self.calls()][-2:], [
+            ['--verify', '--deep'], ['-a', '-vvv']])
+
+    def test_exhausted_or_permanent_validation_failures_never_record_success(self):
+        for statuses, output, attempts, sleeps in [
+                ('68', 'NSURLErrorDomain Code=-1005', 4, [mock.call(5), mock.call(15), mock.call(30)]),
+                ('68', 'Unexpected ticket service response.', 1, []),
+                ('65', 'NSURLErrorDomain Code=-1005', 1, [])]:
+            with self.subTest(statuses=statuses, output=output):
+                self.log.unlink(missing_ok=True)
+                result, sleep = self.notarize_with_retries(
+                    FAKE_VALIDATE_STATUSES=statuses, FAKE_VALIDATE_OUTPUT=output, **FIXTURE_CREDENTIALS)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(self.validate_attempts(), attempts)
+                self.assertEqual(sleep.call_args_list, sleeps)
+                self.assertIn('The stapled notarization ticket did not validate.', result.stderr)
+                self.assertIn('fixture notarization issue', result.stderr)
+                self.assertFalse(any(call['args'][:2] == ['--verify', '--deep'] for call in self.calls()))
                 self.assertEqual(self.notarization()['notarized'], False)
                 self.assert_no_secret_output(result)
 

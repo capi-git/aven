@@ -175,34 +175,39 @@ def tool_output(result):
     return '\n'.join(text.strip() for text in (result.stdout, result.stderr) if text.strip())
 
 
-def staple(app):
+def transient_ticket_failure(result):
+    # EX_NOHOST also covers permanent unexpected responses. Retry only
+    # known network failures or a ticket Apple has not delivered yet.
+    output = tool_output(result)
+    network = re.search(r'NSURLErrorDomain\s+Code=-(?:1001|1003|1004|1005|1006|1009)\b', output)
+    pending = ('cloudkit' in output.lower() and 'record not found' in output.lower()
+               or 'could not find ticket in response' in output.lower())
+    return result.returncode == 68 and bool(network or pending)
+
+
+def stapler(action, app):
+    # Stapling and validating both fetch the ticket from Apple's ticket service.
     for attempt in range(len(STAPLE_RETRY_DELAYS) + 1):
-        result = run(['xcrun', 'stapler', 'staple', '-v', app], timeout=STAPLE_TIMEOUT)
-        output = tool_output(result)
-        # EX_NOHOST also covers permanent unexpected responses. Retry only
-        # known network failures or a ticket Apple has not delivered yet.
-        network = re.search(r'NSURLErrorDomain\s+Code=-(?:1001|1003|1004|1005|1006|1009)\b', output)
-        pending = ('cloudkit' in output.lower() and 'record not found' in output.lower()
-                   or 'could not find ticket in response' in output.lower())
-        if (result.returncode != 68 or not (network or pending)
-                or attempt == len(STAPLE_RETRY_DELAYS)):
+        result = run(['xcrun', 'stapler', action, '-v', app], timeout=STAPLE_TIMEOUT)
+        if not transient_ticket_failure(result) or attempt == len(STAPLE_RETRY_DELAYS):
             return result
         delay = STAPLE_RETRY_DELAYS[attempt]
-        print(f'Temporary notarization ticket delivery failure; retrying stapling in {delay} seconds '
-              f'(attempt {attempt + 2}/{len(STAPLE_RETRY_DELAYS) + 1}).', file=sys.stderr)
+        print(f'Temporary notarization ticket service failure; retrying stapler {action} in {delay} '
+              f'seconds (attempt {attempt + 2}/{len(STAPLE_RETRY_DELAYS) + 1}).', file=sys.stderr)
         time.sleep(delay)
 
 
 def staple_and_assess(app, submission, authentication):
-    result = staple(app)
+    result = stapler('staple', app)
     if result.returncode != 0:
         log = run(['xcrun', 'notarytool', 'log', submission, *authentication])
         print(tool_output(log), file=sys.stderr)
         raise NotaryError('Stapling the notarization ticket failed.\n' + tool_output(result))
-    for arguments, failure in (
-            (['xcrun', 'stapler', 'validate', '-v', app], 'The stapled notarization ticket did not validate.'),
-            (['codesign', '--verify', '--deep', '--strict', app], 'The signature changed while stapling.')):
-        result = run(arguments)
+    for check, failure in (
+            (lambda: stapler('validate', app), 'The stapled notarization ticket did not validate.'),
+            (lambda: run(['codesign', '--verify', '--deep', '--strict', app]),
+             'The signature changed while stapling.')):
+        result = check()
         if result.returncode != 0:
             # Apple's log lists the code hashes it ticketed and any warnings.
             log = run(['xcrun', 'notarytool', 'log', submission, *authentication])
