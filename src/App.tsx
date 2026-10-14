@@ -64,11 +64,9 @@ import {
 } from "react";
 import { PersonalInspectorDock } from "./chrome/PersonalInspectorDock";
 import { WorkspaceHome } from "./surfaces/WorkspaceHome";
-import { useHoverRevealPanel } from "./hooks/useHoverRevealPanel";
-import {
-  useFloatingSidebarLayer,
-  useNativeFloatingSidebar,
-} from "./hooks/useNativeFloatingSidebar";
+import { useNativeFloatingSidebar } from "./hooks/useNativeFloatingSidebar";
+import { useSidebarVisibility } from "./hooks/useSidebarVisibility";
+import { useSidebarData } from "./hooks/useSidebarData";
 import { encodeSidebarValue } from "./lib/floatingSidebar";
 import { setExternalPaneDrop, type PaneDrop } from "./lib/paneDrop";
 import { useWorkspaceSnapshotPersistence } from "./hooks/useWorkspaceSnapshotPersistence";
@@ -83,11 +81,9 @@ import {
   agentKeepAwakeSessionIds,
 } from "./lib/agentKeepAwake";
 import { Sidebar, type SidebarProps } from "./chrome/Sidebar";
-import type { WorkspaceProfilePreviewData } from "./chrome/ProfileCarouselPreview";
 import { projectDisplayName } from "./hooks/useProjectLabels";
 import { useNavigationIntent } from "./hooks/useNavigationIntent";
 import { loadTabGroupLabels } from "./lib/tabGroups";
-import { SESSION_LIST_PAGE } from "./lib/sessionListWindow";
 import {
   WorkspaceBrowserSurface,
   type BrowserSurfaceActions,
@@ -229,7 +225,7 @@ import {
 import { BranchPicker } from "./chrome/BranchPicker";
 import { AddProjectMenu } from "./chrome/AddProjectMenu";
 import { installInAppLinks } from "./lib/inAppLinks";
-import { nativeBrowser, normalizeBrowserUrl } from "./lib/browser";
+import { normalizeBrowserUrl } from "./lib/browser";
 import {
   useWorkspaceProfiles,
   restoreProfileWorkspace,
@@ -433,7 +429,6 @@ import {
   lastProjectPath,
   looksLikeProject,
   normalizeProjectPath,
-  projectRailItems,
   sameProjectPath,
 } from "./lib/recents";
 import {
@@ -600,7 +595,6 @@ import {
   mergeProjectHistorySummary,
   replaceProjectHistory,
   historyWithLiveSessions,
-  standaloneSessionRows,
   summaryFromSession,
 } from "./lib/sessionHistory";
 import {
@@ -1515,40 +1509,17 @@ export default function App({
     !inboxViewOpen &&
     !automationsViewOpen &&
     !notesViewOpen;
-  // On macOS the hover peek is a native layer above live browser pages; the
-  // DOM peek below remains for other platforms and builds without it.
-  const floatingSidebarLayer = useFloatingSidebarLayer(IS_MAC);
-  const nativeSidebar = floatingSidebarLayer !== null;
+  const {
+    floatingSidebarLayer,
+    nativeSidebar,
+    sidebarHover,
+    sidebarShown,
+    setFloatingSidebarRevealed,
+  } = useSidebarVisibility({ pinned: sidebarOpen, allowNativeLayer: IS_MAC });
   // Remounts the workspace's own sidebar so it reloads what the native
   // floating sidebar saved (folders, filters, width) before it shows again.
   const [sidebarGeneration, setSidebarGeneration] = useState(0);
-  // Rest on the edge briefly before revealing, so a pointer passing the edge
-  // does not flash the sidebar; a short grace on leave absorbs the gap
-  // between the edge strip and the panel without feeling laggy.
-  const sidebarHover = useHoverRevealPanel({
-    pinned: sidebarOpen,
-    enabled: !nativeSidebar,
-    enterDelay: 150,
-    leaveDelay: 90,
-  });
-  // Whether the sidebar is on screen, so its project lists and previews stay
-  // current. With the native layer the DOM peek above is disabled and its
-  // `visible` is always false, which left other projects' tasks frozen
-  // (usually empty) in both the docked and the floating sidebar.
-  const [floatingSidebarRevealed, setFloatingSidebarRevealed] = useState(false);
-  const sidebarShown =
-    sidebarHover.visible ||
-    (nativeSidebar && (sidebarOpen || floatingSidebarRevealed));
   const inspectorVisible = workspaceVisible && inspector.open;
-  useEffect(() => {
-    if (!sidebarHover.revealed) return;
-    // Native pages draw above the workspace, so leaving the peek for one
-    // never reaches this document as a pointer event.
-    const unlisten = Promise.resolve()
-      .then(() => nativeBrowser.listenPointer(sidebarHover.pointerLeft))
-      .catch(() => undefined);
-    return () => void unlisten.then((stop) => stop?.());
-  }, [sidebarHover.revealed, sidebarHover.pointerLeft]);
   useLayoutEffect(() => {
     // Publish the committed panel geometry before paint. Native browser children
     // can throttle WK animation frames, so ResizeObserver alone trails toggles.
@@ -2254,34 +2225,6 @@ export default function App({
     };
   }, [flushHarnessEvents]);
 
-  const [profileHistoryErrors, setProfileHistoryErrors] = useState<
-    ReadonlySet<string>
-  >(new Set());
-  const profileHistoryRequests = useRef(new Set<string>());
-  const refreshProfileHistory = useCallback(async (cwd: string) => {
-    const key = normalizeProjectPath(cwd);
-    if (
-      loadedProjectsRef.current.has(key) ||
-      profileHistoryRequests.current.has(key)
-    )
-      return;
-    profileHistoryRequests.current.add(key);
-    setProfileHistoryErrors((previous) => {
-      const next = new Set(previous);
-      next.delete(key);
-      return next;
-    });
-    try {
-      const rows = await listSessionsByProject(cwd);
-      setHistory((current) => replaceProjectHistory(current, cwd, rows));
-      setLoadedProjects((previous) => new Set(previous).add(key));
-    } catch {
-      setProfileHistoryErrors((previous) => new Set(previous).add(key));
-    } finally {
-      profileHistoryRequests.current.delete(key);
-    }
-  }, []);
-
   const refreshHistory = useCallback(async (cwd: string) => {
     if (!cwd || cwd === "~") return;
     // `history` holds every visited project's rows and the sidebar filters it
@@ -2311,11 +2254,24 @@ export default function App({
     void refreshHistory(sidebarCwd);
   }, [sidebarCwd, refreshHistory]);
 
-  useEffect(() => {
-    if (sidebarShown) {
-      for (const cwd of standaloneCwds) void refreshProfileHistory(cwd);
-    }
-  }, [standaloneCwds, sidebarShown, refreshProfileHistory]);
+  const {
+    profileHistoryErrors,
+    refreshProfileHistory,
+    standaloneSessions,
+    profileSessionSummaries,
+    profilePreviews,
+  } = useSidebarData({
+    onScreen: sidebarShown,
+    profiles,
+    standaloneCwds,
+    history,
+    sessions,
+    orchestrationRuns,
+    busySessionIds,
+    setHistory,
+    setLoadedProjects,
+    loadedProjectsRef,
+  });
 
   const persistSession = useCallback((session: Session | undefined) => {
     if (
@@ -8555,99 +8511,6 @@ export default function App({
       sessions,
     ],
   );
-  const standaloneSessions = useMemo(
-    () => standaloneSessionRows(history, sessions, standaloneCwds),
-    [standaloneCwds, history, sessions],
-  );
-  // A closing sidebar keeps its last previews: clearing them would remove rows
-  // during the fade and re-render the sidebar for content no longer shown.
-  const lastProfileSessionSummaries = useRef<
-    Record<string, ReturnType<typeof historyWithLiveSessions>>
-  >({});
-  const profileSessionSummaries = useMemo(
-    () =>
-      !sidebarShown
-        ? lastProfileSessionSummaries.current
-        : (lastProfileSessionSummaries.current = Object.fromEntries(
-            profiles.profileProjects.map((project) => [
-              project.path,
-              historyWithLiveSessions(
-                history,
-                sessions,
-                project.path,
-                undefined,
-                orchestrationRuns,
-              ),
-            ]),
-          )),
-    [
-      sidebarShown,
-      profiles.profileProjects,
-      history,
-      sessions,
-      orchestrationRuns,
-    ],
-  );
-  const lastProfilePreviews = useRef<
-    Readonly<Record<string, WorkspaceProfilePreviewData>>
-  >({});
-  const profilePreviews = useMemo<
-    Readonly<Record<string, WorkspaceProfilePreviewData>>
-  >(() => {
-    if (!sidebarShown) return lastProfilePreviews.current;
-    const labels = loadTabGroupLabels();
-    const tasksFor = (cwds: readonly string[]) =>
-      cwds
-        .flatMap((cwd) =>
-          historyWithLiveSessions(
-            history,
-            sessions,
-            cwd,
-            undefined,
-            orchestrationRuns,
-          ),
-        )
-        .filter((session) => !session.archived && !session.orchestrationLeadId)
-        .sort((a, b) => b.updatedAt - a.updatedAt)
-        .slice(0, SESSION_LIST_PAGE)
-        .map((session) => ({
-          id: session.id,
-          title: sessionDisplayTitle(session.title, session.harness),
-          busy: busySessionIds.has(session.id),
-        }));
-    return (lastProfilePreviews.current = Object.fromEntries(
-      profiles.profiles.map((profile) => {
-        const standalone = standaloneWorkspacePaths(
-          { profiles: profiles.profiles, projectProfiles: {} },
-          profile.id,
-        );
-        return [
-          profile.id,
-          {
-            id: profile.id,
-            name: profile.name,
-            projects: projectRailItems(
-              profiles.projectsByProfile[profile.id] ?? [],
-              "~",
-            ).map((project) => ({
-              path: project.path,
-              name: projectDisplayName(project.path, labels),
-              tasks: tasksFor([project.path]),
-            })),
-            standaloneTasks: tasksFor(standalone),
-          },
-        ];
-      }),
-    ));
-  }, [
-    sidebarShown,
-    profiles.profiles,
-    profiles.projectsByProfile,
-    history,
-    sessions,
-    orchestrationRuns,
-    busySessionIds,
-  ]);
   const browserSurfaceActions = useRef<BrowserSurfaceActions>(null!);
   browserSurfaceActions.current = {
     focus: (project, id) => {
@@ -9221,7 +9084,7 @@ export default function App({
   });
   useEffect(
     () => setFloatingSidebarRevealed(floatingSidebar.revealed),
-    [floatingSidebar.revealed],
+    [floatingSidebar.revealed, setFloatingSidebarRevealed],
   );
 
   return (
