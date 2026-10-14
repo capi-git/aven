@@ -64,11 +64,8 @@ import {
 } from "react";
 import { PersonalInspectorDock } from "./chrome/PersonalInspectorDock";
 import { WorkspaceHome } from "./surfaces/WorkspaceHome";
-import { useHoverRevealPanel } from "./hooks/useHoverRevealPanel";
-import {
-  useFloatingSidebarLayer,
-  useNativeFloatingSidebar,
-} from "./hooks/useNativeFloatingSidebar";
+import { useNativeFloatingSidebar } from "./hooks/useNativeFloatingSidebar";
+import { useSidebarVisibility } from "./hooks/useSidebarVisibility";
 import { encodeSidebarValue } from "./lib/floatingSidebar";
 import { setExternalPaneDrop, type PaneDrop } from "./lib/paneDrop";
 import { useWorkspaceSnapshotPersistence } from "./hooks/useWorkspaceSnapshotPersistence";
@@ -229,7 +226,7 @@ import {
 import { BranchPicker } from "./chrome/BranchPicker";
 import { AddProjectMenu } from "./chrome/AddProjectMenu";
 import { installInAppLinks } from "./lib/inAppLinks";
-import { nativeBrowser, normalizeBrowserUrl } from "./lib/browser";
+import { normalizeBrowserUrl } from "./lib/browser";
 import {
   useWorkspaceProfiles,
   restoreProfileWorkspace,
@@ -1515,40 +1512,17 @@ export default function App({
     !inboxViewOpen &&
     !automationsViewOpen &&
     !notesViewOpen;
-  // On macOS the hover peek is a native layer above live browser pages; the
-  // DOM peek below remains for other platforms and builds without it.
-  const floatingSidebarLayer = useFloatingSidebarLayer(IS_MAC);
-  const nativeSidebar = floatingSidebarLayer !== null;
+  const {
+    floatingSidebarLayer,
+    nativeSidebar,
+    sidebarHover,
+    sidebarShown,
+    setFloatingSidebarRevealed,
+  } = useSidebarVisibility({ pinned: sidebarOpen, allowNativeLayer: IS_MAC });
   // Remounts the workspace's own sidebar so it reloads what the native
   // floating sidebar saved (folders, filters, width) before it shows again.
   const [sidebarGeneration, setSidebarGeneration] = useState(0);
-  // Rest on the edge briefly before revealing, so a pointer passing the edge
-  // does not flash the sidebar; a short grace on leave absorbs the gap
-  // between the edge strip and the panel without feeling laggy.
-  const sidebarHover = useHoverRevealPanel({
-    pinned: sidebarOpen,
-    enabled: !nativeSidebar,
-    enterDelay: 150,
-    leaveDelay: 90,
-  });
-  // Whether the sidebar is on screen, so its project lists and previews stay
-  // current. With the native layer the DOM peek above is disabled and its
-  // `visible` is always false, which left other projects' tasks frozen
-  // (usually empty) in both the docked and the floating sidebar.
-  const [floatingSidebarRevealed, setFloatingSidebarRevealed] = useState(false);
-  const sidebarShown =
-    sidebarHover.visible ||
-    (nativeSidebar && (sidebarOpen || floatingSidebarRevealed));
   const inspectorVisible = workspaceVisible && inspector.open;
-  useEffect(() => {
-    if (!sidebarHover.revealed) return;
-    // Native pages draw above the workspace, so leaving the peek for one
-    // never reaches this document as a pointer event.
-    const unlisten = Promise.resolve()
-      .then(() => nativeBrowser.listenPointer(sidebarHover.pointerLeft))
-      .catch(() => undefined);
-    return () => void unlisten.then((stop) => stop?.());
-  }, [sidebarHover.revealed, sidebarHover.pointerLeft]);
   useLayoutEffect(() => {
     // Publish the committed panel geometry before paint. Native browser children
     // can throttle WK animation frames, so ResizeObserver alone trails toggles.
@@ -9221,7 +9195,7 @@ export default function App({
   });
   useEffect(
     () => setFloatingSidebarRevealed(floatingSidebar.revealed),
-    [floatingSidebar.revealed],
+    [floatingSidebar.revealed, setFloatingSidebarRevealed],
   );
 
   return (
