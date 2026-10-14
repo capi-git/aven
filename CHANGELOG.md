@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.1.137] - 2026-10-14
+
+### Floating sidebar over browser pages
+
+- On macOS, the hover sidebar now slides in above browser pages as its own native layer. The sidebar, the page's edge and the workspace beneath move as one, so the dark strip beside the sidebar is gone and it closes reliably when you move onto a page.
+- The slide runs at your display's full refresh rate, and the sidebar is ready the moment the pointer rests on the window edge.
+- Menus, dragging chats onto panes, adding projects, agent runs and the update button all work from the floating sidebar. Pinning it docks the sidebar from where it is on screen.
+
 ## [0.1.136] - 2026-10-13
 
 ### Sidebar and workspace reliability
