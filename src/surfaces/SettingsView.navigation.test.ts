@@ -4,6 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsView } from "./SettingsView";
 import { SettingsNav } from "../chrome/SettingsRail";
+import { SETTINGS } from "../lib/settingDefinitions";
+import { searchSettings } from "../lib/settingsSearch";
 import {
   loadFollowUpBehavior,
   loadNotesEnabled,
@@ -230,6 +232,36 @@ function focusIsWithin(element: HTMLElement) {
 }
 
 describe("settings navigation", () => {
+  it("renders every searchable definition at its matching row or card anchor", async () => {
+    await mount();
+    for (const setting of Object.values(SETTINGS)) {
+      expect(searchSettings(setting.label), setting.label).toContainEqual({
+        id: setting.id,
+        label: setting.label,
+        description: setting.description,
+        section: setting.section,
+      });
+      await act(async () => externalSelectSection(setting.section));
+      const destinations = container.querySelectorAll(`#${setting.id}`);
+      expect(destinations, setting.label).toHaveLength(1);
+      expect((destinations[0] as HTMLElement).tabIndex, setting.label).toBe(-1);
+      const label = destinations[0].querySelector(".settings-row-label");
+      if (
+        label &&
+        destinations[0].classList.contains("settings-row") &&
+        setting !== SETTINGS.version
+      ) {
+        expect(label.textContent, setting.label).toBe(setting.label);
+        if (setting !== SETTINGS.gitFinish)
+          expect(
+            destinations[0].querySelector(".settings-row-description")
+              ?.textContent,
+            setting.label,
+          ).toBe(setting.row.description);
+      }
+    }
+  });
+
   it("retains its own toolbar and close action when no host supplies one", async () => {
     await mount("appearance");
     const toolbar = container.querySelector(".settings-toolbar")!;

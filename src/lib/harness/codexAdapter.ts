@@ -1,3 +1,4 @@
+import { harnessDescriptor } from "./descriptors";
 import {
   bindCodexSession,
   cancelCodexTurn,
@@ -21,6 +22,7 @@ import { registerHarness, type HarnessAdapter } from "./registry";
 
 export const codexAdapter: HarnessAdapter = {
   id: "codex",
+  descriptor: harnessDescriptor("codex"),
   live: true,
   sendTurn: sendCodexTurn,
   compactContext: compactCodexContext,

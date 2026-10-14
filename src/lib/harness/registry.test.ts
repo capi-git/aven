@@ -1,3 +1,4 @@
+import { harnessDescriptor } from "./descriptors";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   modelsFor,
@@ -45,6 +46,7 @@ function stub(
 ): HarnessAdapter {
   return {
     id,
+    descriptor: harnessDescriptor(id),
     live: true,
     async sendTurn(_input: SendTurnInput) {},
     async steerTurn(_input: SteerTurnInput) {},
@@ -190,6 +192,8 @@ describe("harness registry", () => {
 
   it("exposes the native compaction support matrix", () => {
     registerBuiltinHarnesses();
+    for (const adapter of listHarnesses())
+      expect(adapter.descriptor).toBe(harnessDescriptor(adapter.id));
     const ids: HarnessId[] = [
       "claude",
       "codex",

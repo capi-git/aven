@@ -1,3 +1,4 @@
+import { harnessDescriptor } from "../lib/harness/descriptors";
 import { useEffect, useRef } from "react";
 import {
   isHarnessAvailable,
@@ -49,7 +50,7 @@ export function useAutomaticModelCatalogs(
           // workspace. Other CLIs are discovered only after the user uses them;
           // probing unused extension hosts such as Pi can be expensive.
           return (
-            (harness === "codex" || harness === "claude") &&
+            harnessDescriptor(harness).automaticCatalog &&
             isHarnessAvailable(harness) &&
             isPickerProviderVisible(harness)
           );

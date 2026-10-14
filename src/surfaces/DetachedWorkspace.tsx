@@ -1,3 +1,4 @@
+import { presentAgentBrowserView } from "../lib/agentBrowserOpen";
 import { discardEditorDrafts } from "../lib/workspaceTransfers";
 import { sessionNeedsInput, sessionWorkCwd } from "../lib/session";
 import { useBootSplashReady } from "../lib/bootSplash";
@@ -45,15 +46,13 @@ import {
   closeWorkspaceViews,
   resolveWorkspaceView,
   selectWorkspaceView,
-  placeAgentBrowserView,
-  splitWorkspaceView,
   toggleWorkspaceExpansion,
-  minimizeWorkspaceSide,
-  restoreWorkspaceSplit,
-  moveWorkspaceTab,
-  reorderWorkspaceGroup,
-  combineWorkspaceGroups,
 } from "../lib/workspaceViews";
+import {
+  applyWorkspaceIntent,
+  hiddenSplitStatus,
+  type WorkspaceIntent,
+} from "../lib/workspaceIntents";
 import {
   nativeWorkspaceWindow,
   mergeDetachedSessionUpdate,
@@ -105,6 +104,16 @@ function sameDropTarget(
     (next.edge === "tab" &&
       previous.index === next.index &&
       previous.orderIndex === next.orderIndex)
+  );
+}
+
+/** A kept page stays in the strip instead of being replaced as a preview. */
+function keepBrowsers(
+  browsers: DetachedWorkspaceState["browsers"],
+  ids: readonly string[],
+): DetachedWorkspaceState["browsers"] {
+  return browsers.map((browser) =>
+    ids.includes(browser.id) ? { ...browser, kept: true } : browser,
   );
 }
 
@@ -213,6 +222,18 @@ export function DetachedWorkspace() {
       scheduleCheckpoint();
     },
     [scheduleCheckpoint],
+  );
+  const arrange = useCallback(
+    (intent: WorkspaceIntent) =>
+      change((s) => {
+        const { view, keep } = applyWorkspaceIntent(s.view, intent);
+        return {
+          ...s,
+          browsers: keep.length ? keepBrowsers(s.browsers, keep) : s.browsers,
+          view,
+        };
+      }),
+    [change],
   );
   const leave = useCallback(async () => {
     if (leaving.current) return;
@@ -632,6 +653,7 @@ export function DetachedWorkspace() {
         requestToken?: string;
         expiresAt?: number;
         activate?: boolean;
+        arrange?: boolean;
       }>("workspace-window-focus", (value) => {
         if (value.browser && value.activate === false)
           setAgentRequestedBrowsers(
@@ -659,11 +681,12 @@ export function DetachedWorkspace() {
                 : [...retainCoveredBrowser(state), { ...browser, kept: true }],
               view:
                 value.activate === false
-                  ? placeAgentBrowserView(
+                  ? presentAgentBrowserView(
                       view,
                       browser.id,
                       [...state.browsers.map((page) => page.id), browser.id],
                       requester?.id,
+                      value.arrange !== false,
                     )
                   : selectWorkspaceView(view, browser.id),
             };
@@ -869,15 +892,6 @@ export function DetachedWorkspace() {
       needsInput: sessions.some(sessionNeedsInput),
     };
   });
-  const hiddenSplitIds = new Set(
-    Object.values(state.view.hiddenGroups ?? {}).flat(),
-  );
-  const hiddenSplitTabs = titleTabs.filter((tab) => hiddenSplitIds.has(tab.id));
-  const hiddenSplitStatus = hiddenSplitTabs.some((tab) => tab.needsInput)
-    ? "attention"
-    : hiddenSplitTabs.some((tab) => tab.busyHarnesses.length > 0)
-      ? "working"
-      : undefined;
   const dragMove = (id: string, x: number, y: number) => {
     const stage = stageHost.current?.querySelector<HTMLElement>(
       ":scope > [data-workspace-stage]",
@@ -896,21 +910,7 @@ export function DetachedWorkspace() {
     dragRef.current = null;
     setDrag(null);
     if (cancelled || !target) return false;
-    change((s) => ({
-      ...s,
-      browsers: s.browsers.map((browser) =>
-        browser.id === id ? { ...browser, kept: true } : browser,
-      ),
-      view:
-        target.edge === "tab"
-          ? moveWorkspaceTab(
-              s.view,
-              id,
-              target.id,
-              target.orderIndex ?? target.index,
-            )
-          : splitWorkspaceView(s.view, id, target.edge, target.id),
-    }));
+    arrange({ type: "drop", id, target });
     return true;
   };
   const headers = Object.entries(state.view.groups).map(([id, members]) => ({
@@ -957,9 +957,7 @@ export function DetachedWorkspace() {
         onKeepBrowser={(selected) =>
           change((s) => ({
             ...s,
-            browsers: s.browsers.map((browser) =>
-              browser.id === selected ? { ...browser, kept: true } : browser,
-            ),
+            browsers: keepBrowsers(s.browsers, [selected]),
           }))
         }
         onCloseMany={(ids) =>
@@ -967,29 +965,15 @@ export function DetachedWorkspace() {
             for (const id of ids) await closeSurface(id);
           })().catch(report)
         }
-        onReorder={(ids) =>
-          change((s) => ({
-            ...s,
-            view: reorderWorkspaceGroup(s.view, id, ids),
-          }))
-        }
+        onReorder={(ids) => arrange({ type: "reorder", group: id, ids })}
         onReorderSurfaces={(ids) =>
-          change((s) => ({
-            ...s,
-            view: reorderWorkspaceGroup(s.view, id, ids),
-          }))
+          arrange({ type: "reorder", group: id, ids })
         }
-        onSplitTab={(selected, edge, target) =>
-          change((s) => ({
-            ...s,
-            view: splitWorkspaceView(s.view, selected, edge, target ?? id),
-          }))
+        onSplitTab={(selected, edge, beside) =>
+          arrange({ type: "split", id: selected, edge, beside: beside ?? id })
         }
         onNewView={(selected) =>
-          change((s) => ({
-            ...s,
-            view: splitWorkspaceView(s.view, selected, "right", id),
-          }))
+          arrange({ type: "split", id: selected, edge: "right", beside: id })
         }
         onSurfaceDragMove={dragMove}
         onSurfaceDragEnd={dragEnd}
@@ -1002,17 +986,7 @@ export function DetachedWorkspace() {
               titleTabs.find((t) => t.id === other)?.title ??
               "Tab group",
           }))}
-        onCombineWith={(target) =>
-          change((s) => ({
-            ...s,
-            browsers: s.browsers.map((browser) =>
-              browser.id === id || browser.id === target
-                ? { ...browser, kept: true }
-                : browser,
-            ),
-            view: combineWorkspaceGroups(s.view, id, target),
-          }))
-        }
+        onCombineWith={(into) => arrange({ type: "combine", group: id, into })}
         onReturnTabToWindow={(selected) => void returnSelection([selected])}
         onReturnGroupToWindow={() => void returnSelection(members)}
         onNew={() => void nativeWorkspaceWindow.newSession().catch(report)}
@@ -1258,23 +1232,17 @@ export function DetachedWorkspace() {
           onFocus={(id) =>
             change((s) => ({ ...s, view: selectWorkspaceView(s.view, id) }))
           }
-          onLayoutChange={(layout) =>
-            change((s) => ({ ...s, view: { ...s.view, layout } }))
-          }
-          onMinimizeSide={(splitId, index, side) =>
-            change((s) => ({
-              ...s,
-              view: minimizeWorkspaceSide(s.view, splitId, index, side),
-            }))
+          onLayoutChange={(layout) => arrange({ type: "resize", layout })}
+          onMinimizeSide={(split, index, side) =>
+            arrange({ type: "minimize", split, index, side })
           }
           onRestoreSplit={
             state.view.restoreView
-              ? () =>
-                  change((s) => ({ ...s, view: restoreWorkspaceSplit(s.view) }))
+              ? () => arrange({ type: "restore" })
               : undefined
           }
           restoreEdge={state.view.minimizedEdge}
-          restoreStatus={hiddenSplitStatus}
+          restoreStatus={hiddenSplitStatus(state.view, titleTabs)}
           dragTarget={drag?.target ?? null}
           dragging={!!drag}
           headers={headers}

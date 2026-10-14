@@ -1,3 +1,4 @@
+import { harnessDescriptor } from "./descriptors";
 import {
   bindPiSession,
   cancelPiTurn,
@@ -16,6 +17,7 @@ import { discoverPiSkills } from "./piSkills";
 
 export const piAdapter: HarnessAdapter = {
   id: "pi",
+  descriptor: harnessDescriptor("pi"),
   live: true,
   commands: { discover: ({ cwd }) => discoverPiSkills(cwd) },
   sendTurn: sendPiTurn,

@@ -1,3 +1,4 @@
+import { harnessDescriptor } from "./descriptors";
 import {
   bindClaudeSession,
   cancelClaudeTurn,
@@ -22,6 +23,7 @@ import { registerHarness, type HarnessAdapter } from "./registry";
 
 export const claudeAdapter: HarnessAdapter = {
   id: "claude",
+  descriptor: harnessDescriptor("claude"),
   live: true,
   sendTurn: sendClaudeTurn,
   compactContext: compactClaudeContext,

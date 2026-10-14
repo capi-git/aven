@@ -1,36 +1,10 @@
 import type { HarnessId } from "../session";
 import { HARNESSES } from "../session";
-import {
-  resolveClaudeBinary,
-  resolveCodexBinary,
-  resolveCursorBinary,
-  resolveFxBinary,
-  resolveGrokBinary,
-  resolveOmpBinary,
-  resolveOpenCodeBinary,
-  resolvePiBinary,
-} from "./child";
+import * as binaryResolvers from "./child";
+import { harnessDescriptor } from "./descriptors";
 import { isLiveHarness } from "./registry";
 
 export type HarnessAvailability = Record<HarnessId, boolean>;
-
-/**
- * We only ever check whether the binary exists, never whether it is
- * authenticated, so the hint must not blame a login.
- */
-const CLI: Record<HarnessId, { name: string; install?: string }> = {
-  claude: { name: "Claude Code CLI" },
-  codex: { name: "Codex CLI" },
-  cursor: { name: "Cursor CLI" },
-  grok: {
-    name: "Grok Build CLI",
-    install: "curl -fsSL https://x.ai/cli/install.sh | bash",
-  },
-  opencode: { name: "OpenCode CLI" },
-  pi: { name: "Pi CLI", install: "npm i -g @earendil-works/pi-coding-agent" },
-  omp: { name: "omp CLI", install: "curl -fsSL https://omp.sh/install | sh" },
-  fx: { name: "fx CLI", install: "curl -fsSL https://fx.sh/setup.sh | bash" },
-};
 
 let availability: HarnessAvailability = {
   claude: false,
@@ -97,7 +71,7 @@ export function recordHarnessAvailability(
 }
 
 export function harnessUnavailableHint(id: HarnessId): string {
-  const { name, install } = CLI[id];
+  const { name, install } = harnessDescriptor(id).cli;
   const how = install ? ` (\`${install}\`)` : "";
   return `${name} not found${how}. Install it, or restart Aven if it is already installed.`;
 }
@@ -113,71 +87,12 @@ export function probeHarnessAvailability(options?: {
   inflight = Promise.all(
     HARNESSES.map(async (id) => {
       if (!isLiveHarness(id)) return [id, false] as const;
-      if (id === "cursor") {
-        try {
-          await resolveCursorBinary();
-          return [id, true] as const;
-        } catch {
-          return [id, false] as const;
-        }
+      try {
+        await binaryResolvers[harnessDescriptor(id).cli.resolve]();
+        return [id, true] as const;
+      } catch {
+        return [id, false] as const;
       }
-      if (id === "claude") {
-        try {
-          await resolveClaudeBinary();
-          return [id, true] as const;
-        } catch {
-          return [id, false] as const;
-        }
-      }
-      if (id === "codex") {
-        try {
-          await resolveCodexBinary();
-          return [id, true] as const;
-        } catch {
-          return [id, false] as const;
-        }
-      }
-      if (id === "opencode") {
-        try {
-          await resolveOpenCodeBinary();
-          return [id, true] as const;
-        } catch {
-          return [id, false] as const;
-        }
-      }
-      if (id === "pi") {
-        try {
-          await resolvePiBinary();
-          return [id, true] as const;
-        } catch {
-          return [id, false] as const;
-        }
-      }
-      if (id === "omp") {
-        try {
-          await resolveOmpBinary();
-          return [id, true] as const;
-        } catch {
-          return [id, false] as const;
-        }
-      }
-      if (id === "fx") {
-        try {
-          await resolveFxBinary();
-          return [id, true] as const;
-        } catch {
-          return [id, false] as const;
-        }
-      }
-      if (id === "grok") {
-        try {
-          await resolveGrokBinary();
-          return [id, true] as const;
-        } catch {
-          return [id, false] as const;
-        }
-      }
-      return [id, false] as const;
     }),
   )
     .then((entries) => {

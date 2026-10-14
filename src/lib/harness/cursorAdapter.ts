@@ -1,3 +1,4 @@
+import { harnessDescriptor } from "./descriptors";
 import {
   bindCursorSession,
   cancelCursorTurn,
@@ -20,6 +21,7 @@ import { registerHarness, type HarnessAdapter } from "./registry";
 
 export const cursorAdapter: HarnessAdapter = {
   id: "cursor",
+  descriptor: harnessDescriptor("cursor"),
   live: true,
   sendTurn: sendCursorTurn,
   steerTurn: steerCursorTurn,

@@ -1,3 +1,4 @@
+import { harnessDescriptor } from "../lib/harness/descriptors";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   errorRateLimits,
@@ -62,9 +63,8 @@ export function useProviderUsage(
           });
           const fetchers = await api.current;
           if (!alive.current) return;
-          const value = await (provider === "claude"
-            ? fetchers.fetchClaudeRateLimits()
-            : fetchers.fetchCodexRateLimits());
+          const value =
+            await fetchers[harnessDescriptor(provider).usage!.fetch]();
           publish(value);
         } catch (error) {
           publish(

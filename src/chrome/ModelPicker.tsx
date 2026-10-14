@@ -1,3 +1,4 @@
+import { harnessDescriptor } from "../lib/harness/descriptors";
 import { ChevronDown, Search, Star } from "./icons";
 import "./ModelControls.css";
 import {
@@ -420,8 +421,10 @@ export function ModelPicker({
                   : visibleTab !== "favorites" &&
                       !isHarnessAvailable(visibleTab)
                     ? harnessUnavailableHint(visibleTab)
-                    : visibleTab === "codex" && !query.trim()
-                      ? "Loading Codex models…"
+                    : visibleTab !== "favorites" &&
+                        harnessDescriptor(visibleTab).emptyCatalogLabel &&
+                        !query.trim()
+                      ? harnessDescriptor(visibleTab).emptyCatalogLabel!
                       : "No matching models"
               }
               onActive={setActive}

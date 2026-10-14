@@ -4,8 +4,74 @@
 //! Run with: AVEN_AX_LIVE=1 cargo test -p aven --lib live_fixture -- --ignored --nocapture
 //! Requires the test process to be trusted for Accessibility.
 use super::*;
-use crate::desktop_presence::{self as presence_state, Step};
+use crate::desktop_presence as presence_state;
 use std::sync::atomic::AtomicUsize;
+
+// The opt-in fixture invokes AX helpers directly. Acquire its proof through
+// the same admission interface, while leaving drawing and event execution to
+// the individual assertions below.
+struct FixtureDesktop {
+    target: PresenceTarget,
+    admitted: Mutex<Option<gate::Guard>>,
+}
+
+impl gate::Port for FixtureDesktop {
+    fn status(&self) -> Result<DesktopStatus, String> {
+        Ok(status_from(true, true, true, true, false))
+    }
+    fn hide_cursor(&self) {}
+    fn session_state(&self) -> presence::Session {
+        session::current()
+    }
+    fn session_changed(&self) {
+        session::changed();
+    }
+    fn target(&self, _: &str, _: &Request) -> Result<PresenceTarget, String> {
+        Ok(self.target.clone())
+    }
+    fn confirm_target(&self, target: &PresenceTarget) -> Result<(), String> {
+        crate::desktop_control::platform::confirm_target(target)
+    }
+    fn show(&self, _: Option<(f64, f64)>, _: bool) -> Result<(), String> {
+        Ok(())
+    }
+    fn presence_changed(&self) {}
+    fn actor_changed(&self, _: &presence::Actor) {}
+    fn session_alive(&self, scope: &str) -> bool {
+        crate::desktop_control::platform::session_alive(scope)
+    }
+    fn execute(&self, _: &str, _: Request, guard: &gate::Guard) -> Result<Value, String> {
+        *self.admitted.lock().unwrap() = Some(guard.clone());
+        Ok(Value::Null)
+    }
+}
+
+fn fixture_guard(scope: &str, pid: i32, window_id: u32, bounds: Region) -> gate::Guard {
+    let port = Arc::new(FixtureDesktop {
+        target: PresenceTarget {
+            pid: Some(pid),
+            window_id: Some(window_id),
+            bounds: Some(bounds),
+            ..PresenceTarget::default()
+        },
+        admitted: Mutex::new(None),
+    });
+    let request = serde_json::from_value(json!({
+        "action": "click", "windowId": window_id, "x": 0, "y": 0
+    }))
+    .unwrap();
+    gate::execute(
+        Arc::clone(&port) as Arc<dyn gate::Port>,
+        Arc::clone(presence::store()),
+        &Mutex::new(()),
+        scope,
+        request,
+        &|| true,
+    )
+    .unwrap();
+    let guard = port.admitted.lock().unwrap().take().unwrap();
+    guard
+}
 
 type TapCallback = unsafe extern "C" fn(*mut c_void, u32, Event, *mut c_void) -> Event;
 
@@ -313,16 +379,9 @@ fn live_fixture_background_element_actions() {
     assert!(window.title.contains(&nonce));
     let bounds = window.bounds();
     let scope = "aven-ax-live-fixture";
-    let ticket = presence_state::with(|state| {
-        state.forget(None);
-        state.begin(
-            scope,
-            Step::Clicking,
-            Some("Fixture".into()),
-            Instant::now(),
-        )
-    });
-    let gate = || presence_state::with(|state| state.check(&ticket));
+    presence_state::with(|state| state.forget(None));
+    crate::desktop_control::bind_session(scope, None).unwrap();
+    let gate = fixture_guard(scope, pid, window_id, bounds);
     let mut evidence = serde_json::Map::new();
 
     // 1. appState: indexed controls, secure value never read.
@@ -766,15 +825,7 @@ fn live_fixture_background_element_actions() {
     // 9b. A screen lock, recorded as the lock notification records it,
     // refuses the next mutation before it reaches the app.
     let target = find_in(&observe(), "Button", "\"Sent\"");
-    let lock_ticket = presence_state::with(|state| {
-        state.begin(
-            scope,
-            Step::Clicking,
-            Some("Fixture".into()),
-            Instant::now(),
-        )
-    });
-    let lock_gate = || presence_state::with(|state| state.check(&lock_ticket));
+    let lock_gate = fixture_guard(scope, pid, window_id, bounds);
     // The notification arrives while CoreGraphics still reports this
     // (unlocked) session as active: that real read must not undo the lock.
     let real_read = crate::desktop_control::platform::session::current();
@@ -845,5 +896,6 @@ fn live_fixture_background_element_actions() {
         Some(secret.chars().count() as u64)
     );
     forget(Some(scope));
+    crate::desktop_control::remove_session_captures(scope);
     assert!(locate(scope, window_id, None, 0, pid, bounds).is_err());
 }

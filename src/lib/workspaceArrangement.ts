@@ -1,15 +1,12 @@
-import { leafIds, placePane, type LayoutNode } from "./layout";
+import { leafIds, type LayoutNode } from "./layout";
 import {
   closeWorkspaceViews,
-  combineWorkspaceGroups,
   resolveWorkspaceView,
-  reorderWorkspaceGroup,
   workspaceGroupOwner,
   selectWorkspaceView,
   restoreWorkspaceSplit,
   type WorkspaceView,
   type WorkspaceViewSnapshot,
-  type ViewEdge,
 } from "./workspaceViews";
 
 /** Keep the actual split arrangement and tab order for a transferred selection. */
@@ -138,40 +135,4 @@ export function mergeWorkspaceArrangements(
     order,
     incoming.focusedId,
   );
-}
-
-export function moveWorkspaceGroup(
-  view: WorkspaceView,
-  groupId: string,
-  targetId: string,
-  edge: ViewEdge | "tab",
-  index?: number,
-): WorkspaceView {
-  const original = view;
-  if (Object.keys(view.hiddenGroups ?? {}).length)
-    view = restoreWorkspaceSplit(view);
-  const owner = workspaceGroupOwner(view, groupId);
-  const target = workspaceGroupOwner(view, targetId);
-  if (!owner || !target || owner === target || !view.layout) return original;
-  if (edge === "tab") {
-    const combined = combineWorkspaceGroups(view, owner, target);
-    if (index === undefined) return combined;
-    const members = [...view.groups[target]];
-    const at = Number.isFinite(index)
-      ? Math.max(0, Math.min(members.length, Math.trunc(index)))
-      : members.length;
-    members.splice(at, 0, ...view.groups[owner]);
-    return reorderWorkspaceGroup(combined, target, members);
-  }
-  return {
-    ...view,
-    restoreView: undefined,
-    layout: placePane(
-      view.layout,
-      owner,
-      target,
-      edge === "up" ? "top" : edge === "down" ? "bottom" : edge,
-    ),
-    focusedId: owner,
-  };
 }

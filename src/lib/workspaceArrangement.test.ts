@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { leaf, leafIds } from "./layout";
+import { leaf, leafIds, placePane } from "./layout";
 import {
   closeWorkspaceViews,
   resolveWorkspaceView,
@@ -11,7 +11,6 @@ import {
   mergeWorkspaceArrangements,
   captureWorkspaceReturnPlacement,
   restoreWorkspaceArrangement,
-  moveWorkspaceGroup,
   selectWorkspaceArrangement,
 } from "./workspaceArrangement";
 
@@ -76,19 +75,6 @@ describe("workspace arrangement transfers", () => {
     expect(restored).toEqual(minimized);
     expect(restored.groups).toEqual({ c: ["c"] });
     expect(restored.hiddenGroups).toEqual({ a: ["a", "b"] });
-  });
-  it("reveals hidden groups before a deliberate group move replaces restoration geometry", () => {
-    const minimized = minimizeWorkspaceSide(view(), "split", 0, "before");
-    expect(moveWorkspaceGroup(minimized, "missing", "c", "left")).toBe(
-      minimized,
-    );
-    expect(moveWorkspaceGroup(minimized, "c", "c", "left")).toBe(minimized);
-    const moved = moveWorkspaceGroup(minimized, "c", "a", "left");
-    expect(leafIds(moved.layout!)).toEqual(["c", "a"]);
-    expect(moved.groups.a).toEqual(["a", "b"]);
-    expect(moved.groups.c).toEqual(["c"]);
-    expect(moved.restoreView).toBeUndefined();
-    expect(moved.hiddenGroups).toBeUndefined();
   });
   const roundTrip = () => {
     const original = resolveWorkspaceView(
@@ -168,7 +154,16 @@ describe("workspace arrangement transfers", () => {
       const checkpoint = roundTrip();
       const parent =
         change === "reorder"
-          ? moveWorkspaceGroup(checkpoint.remaining, "right", "left", "left")
+          ? {
+              ...checkpoint.remaining,
+              layout: placePane(
+                checkpoint.remaining.layout!,
+                "right",
+                "left",
+                "left",
+              ),
+              focusedId: "right",
+            }
           : {
               ...checkpoint.remaining,
               layout: { ...checkpoint.remaining.layout!, sizes: [0.7, 0.3] },
@@ -249,56 +244,5 @@ describe("workspace arrangement transfers", () => {
         checkpoint,
       ),
     ).toEqual(original);
-  });
-  it("moves a group together and ignores a drop on itself", () => {
-    const original = view();
-    expect(moveWorkspaceGroup(original, "b", "a", "right")).toBe(original);
-    const split = moveWorkspaceGroup(original, "a", "c", "down");
-    expect(split.groups.a).toEqual(["a", "b"]);
-    expect(leafIds(split.layout!)).toEqual(["c", "a"]);
-    expect(moveWorkspaceGroup(original, "a", "c", "tab").groups.c).toEqual([
-      "c",
-      "a",
-      "b",
-    ]);
-  });
-  it("inserts a moved group as an ordered block at the previewed header slot", () => {
-    const original = resolveWorkspaceView(
-      {
-        ...view(),
-        order: ["a", "b", "c", "d"],
-        groups: { a: ["a", "b"], c: ["c", "d"] },
-      },
-      ["a", "b", "c", "d"],
-      "a",
-    );
-    const joined = moveWorkspaceGroup(original, "a", "c", "tab", 1);
-    expect(joined.groups.c).toEqual(["c", "a", "b", "d"]);
-    expect(joined.order).toEqual(["c", "a", "b", "d"]);
-    expect(joined.focusedId).toBe("c");
-    expect(leafIds(joined.layout!)).toEqual(["c"]);
-    expect(original.groups.a).toEqual(["a", "b"]);
-  });
-  it("clamps header slots and leaves center joins as append", () => {
-    expect(moveWorkspaceGroup(view(), "a", "c", "tab", -1).groups.c).toEqual([
-      "a",
-      "b",
-      "c",
-    ]);
-    expect(moveWorkspaceGroup(view(), "a", "c", "tab", 99).groups.c).toEqual([
-      "c",
-      "a",
-      "b",
-    ]);
-    expect(moveWorkspaceGroup(view(), "a", "c", "tab", NaN).groups.c).toEqual([
-      "c",
-      "a",
-      "b",
-    ]);
-    expect(moveWorkspaceGroup(view(), "a", "c", "tab").groups.c).toEqual([
-      "c",
-      "a",
-      "b",
-    ]);
   });
 });

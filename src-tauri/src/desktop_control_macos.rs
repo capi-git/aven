@@ -38,6 +38,17 @@ pub(super) fn presence_target(
 ) -> Result<PresenceTarget, String> {
     input::target(app, scope, request)
 }
+pub(super) fn confirm_target(target: &PresenceTarget) -> Result<(), String> {
+    if let Some(id) = target.window_id {
+        let current = windows()?.into_iter().find(|window| window.window_id == id);
+        if current.is_none_or(|window| Some(window.pid) != target.pid) {
+            return Err(
+                "The target app or window changed. Take a fresh screenshot before retrying.".into(),
+            );
+        }
+    }
+    Ok(())
+}
 /// Forgets element indexes and restores app accessibility switches.
 pub(super) fn release_accessibility(scope: Option<&str>) {
     ax::forget(scope);
@@ -123,7 +134,7 @@ static OWNER_BUSY_UNTIL: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::n
 
 struct AssertSend<T>(T);
 // SAFETY: only used to hand a call to the main thread while its caller waits;
-// see `on_owner_thread`.
+// see `owner_call`.
 unsafe impl<T> Send for AssertSend<T> {}
 
 /// macOS answers Accessibility requests to the calling process synchronously,
@@ -132,6 +143,14 @@ unsafe impl<T> Send for AssertSend<T> {}
 /// Aven's own elements therefore run on the main thread while the worker
 /// waits; every other app is served where the caller already is.
 unsafe fn on_owner_thread(element: Cf, call: impl FnOnce() -> i32) -> i32 {
+    owner_call(element, || AX_CANNOT_COMPLETE, call)
+}
+
+unsafe fn owner_call<T: Send + 'static>(
+    element: Cf,
+    unavailable: impl FnOnce() -> T,
+    call: impl FnOnce() -> T,
+) -> T {
     let mut pid = 0;
     if element.is_null()
         || objc2_foundation::MainThreadMarker::new().is_some()
@@ -143,14 +162,14 @@ unsafe fn on_owner_thread(element: Cf, call: impl FnOnce() -> i32) -> i32 {
     {
         let busy = OWNER_BUSY_UNTIL.lock().unwrap_or_else(|e| e.into_inner());
         if busy.is_some_and(|until| Instant::now() < until) {
-            return AX_CANNOT_COMPLETE;
+            return unavailable();
         }
     }
     // The call borrows the caller's stack. It runs only while this worker is
     // waiting for it: an abandoned call is skipped, and a running one is
     // waited for under the lock before this function returns.
-    let call: Box<dyn FnOnce() -> i32 + '_> = Box::new(call);
-    let call: Box<dyn FnOnce() -> i32 + 'static> = std::mem::transmute(call);
+    let call: Box<dyn FnOnce() -> T + '_> = Box::new(call);
+    let call: Box<dyn FnOnce() -> T + 'static> = std::mem::transmute(call);
     let abandoned = Arc::new(std::sync::Mutex::new(false));
     let (sender, receiver) = mpsc::sync_channel(1);
     let job = AssertSend((call, Arc::clone(&abandoned), sender));
@@ -173,7 +192,7 @@ unsafe fn on_owner_thread(element: Cf, call: impl FnOnce() -> i32) -> i32 {
             receiver.try_recv().unwrap_or_else(|_| {
                 *OWNER_BUSY_UNTIL.lock().unwrap_or_else(|e| e.into_inner()) =
                     Some(Instant::now() + OWNER_WAIT);
-                AX_CANNOT_COMPLETE
+                unavailable()
             })
         }
     }
@@ -227,10 +246,37 @@ unsafe fn AXUIElementCopyElementAtPosition(app: Cf, x: f32, y: f32, element: *mu
     })
 }
 #[allow(non_snake_case)]
-unsafe fn AXUIElementPerformAction(element: Cf, action: Cf) -> i32 {
-    on_owner_thread(element, || {
-        ax_raw::AXUIElementPerformAction(element, action)
-    })
+unsafe fn AXUIElementPerformAction(
+    guard: &gate::Guard,
+    element: Cf,
+    action: Cf,
+) -> Result<i32, String> {
+    owner_call(
+        element,
+        || Ok(AX_CANNOT_COMPLETE),
+        || {
+            guard.check()?;
+            Ok(ax_raw::AXUIElementPerformAction(element, action))
+        },
+    )
+}
+
+unsafe fn admitted_set_attribute(
+    guard: &gate::Guard,
+    element: Cf,
+    attribute: Cf,
+    value: Cf,
+) -> Result<i32, String> {
+    owner_call(
+        element,
+        || Ok(AX_CANNOT_COMPLETE),
+        || {
+            guard.check()?;
+            Ok(ax_raw::AXUIElementSetAttributeValue(
+                element, attribute, value,
+            ))
+        },
+    )
 }
 #[allow(non_snake_case)]
 unsafe fn AXUIElementGetPid(element: Cf, pid: *mut i32) -> i32 {
@@ -923,10 +969,11 @@ struct InputTarget {
 }
 
 fn event_targets(
+    guard: &gate::Guard,
     points: &[(f64, f64)],
     window_id: Option<u32>,
 ) -> Result<Vec<InputTarget>, String> {
-    if let Some(targets) = input::app_targets(points, window_id) {
+    if let Some(targets) = input::app_targets(guard, points, window_id) {
         return targets;
     }
     for &(x, y) in points {
@@ -965,14 +1012,24 @@ fn event_targets(
         .collect()
 }
 
-fn event_target(x: f64, y: f64, window_id: Option<u32>) -> Result<InputTarget, String> {
-    event_targets(&[(x, y)], window_id)?
+fn event_target(
+    guard: &gate::Guard,
+    x: f64,
+    y: f64,
+    window_id: Option<u32>,
+) -> Result<InputTarget, String> {
+    event_targets(guard, &[(x, y)], window_id)?
         .pop()
         .ok_or_else(|| INPUT_WINDOW_UNAVAILABLE.into())
 }
 
-fn mouse_event(kind: u32, point: Point, button: u32) -> Result<OwnedCf, String> {
-    if let Some(event) = input::mouse_event(kind, point) {
+fn mouse_event(
+    guard: &gate::Guard,
+    kind: u32,
+    point: Point,
+    button: u32,
+) -> Result<OwnedCf, String> {
+    if let Some(event) = input::mouse_event(guard, kind, point) {
         return event;
     }
     OwnedCf::new(
@@ -981,16 +1038,18 @@ fn mouse_event(kind: u32, point: Point, button: u32) -> Result<OwnedCf, String> 
     )
 }
 
-fn move_pointer(point: Point) -> Result<(), String> {
-    let moved = mouse_event(5, point, 0)?;
+fn move_pointer(guard: &gate::Guard, point: Point) -> Result<(), String> {
+    let moved = mouse_event(guard, 5, point, 0)?;
     unsafe {
         CGEventSetFlags(moved.event(), 0);
-        input::post(moved.event());
+        input::post(guard, moved.event())?;
     }
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn cursor_target(
+    guard: &gate::Guard,
     app: &AppHandle,
     scope: &str,
     session: &CaptureSession,
@@ -999,8 +1058,8 @@ fn cursor_target(
     window_id: Option<u32>,
     feedback: agent_cursor::Feedback,
 ) -> Result<Point, String> {
-    session.require_active()?;
-    let target = event_target(x, y, window_id)?;
+    session.require_admitted(guard)?;
+    let target = event_target(guard, x, y, window_id)?;
     agent_cursor::move_to(
         app,
         scope,
@@ -1011,8 +1070,8 @@ fn cursor_target(
     )?;
     // Animation gives the desktop time to change. Recheck the window and any
     // covering menus immediately before emitting the actual native input.
-    session.require_active()?;
-    let latest = event_target(x, y, window_id);
+    session.require_admitted(guard)?;
+    let latest = event_target(guard, x, y, window_id);
     let result = unchanged_target(target, latest);
     if result.is_err() {
         agent_cursor::hide(app);
@@ -1031,7 +1090,7 @@ fn unchanged_target(
     Ok(latest.point)
 }
 
-fn keyboard_event(code: u16, down: bool) -> Result<OwnedCf, String> {
+fn keyboard_event(_: &gate::Guard, code: u16, down: bool) -> Result<OwnedCf, String> {
     OwnedCf::new(
         unsafe { CGEventCreateKeyboardEvent(std::ptr::null(), code, down) },
         "Could not create keyboard input. Check Aven's Accessibility permission.",
@@ -1042,13 +1101,14 @@ fn keyboard_event(code: u16, down: bool) -> Result<OwnedCf, String> {
 /// that point. Element fallbacks pass false: they post plain events only, so
 /// a different control at the point is never pressed through Accessibility.
 fn click(
+    guard: &gate::Guard,
     session: &CaptureSession,
     point: Point,
     button: Button,
     count: u8,
     press_at_point: bool,
 ) -> Result<(), String> {
-    if press_at_point && input::accessible_click(point, button, count)? {
+    if press_at_point && input::accessible_click(guard, point, button, count)? {
         return Ok(());
     }
     let (down_kind, up_kind, button) = match button {
@@ -1057,21 +1117,25 @@ fn click(
     };
     // Allocate every event before posting to avoid a failed allocation leaving
     // the mouse button held down. Post at kCGHIDEventTap (0).
-    let down = mouse_event(down_kind, point, button)?;
-    let up = mouse_event(up_kind, point, button)?;
-    let moved = mouse_event(5, point, 0)?;
-    session.require_active()?;
+    let down = mouse_event(guard, down_kind, point, button)?;
+    let up = mouse_event(guard, up_kind, point, button)?;
+    let moved = mouse_event(guard, 5, point, 0)?;
+    session.require_admitted(guard)?;
     unsafe {
         CGEventSetFlags(moved.event(), 0);
-        input::post(moved.event());
+        input::post(guard, moved.event())?;
         for click in 1..=count {
             // Finish a posted down/up pair even if the scope ends during it,
             // then refuse any subsequent pair without leaving a button held.
-            session.require_active()?;
+            session.require_admitted(guard)?;
             for event in [&down, &up] {
                 CGEventSetFlags(event.event(), 0);
                 CGEventSetIntegerValueField(event.event(), 1, i64::from(click));
-                input::post(event.event());
+                if std::ptr::eq(event, &up) {
+                    input::release(guard, event.event());
+                } else {
+                    input::post(guard, event.event())?;
+                }
                 std::thread::sleep(Duration::from_millis(15));
             }
         }
@@ -1082,6 +1146,7 @@ fn click(
 /// Resolves both drag endpoints against one window-list snapshot, animates the
 /// Aven cursor to the start, then rechecks both before any button is pressed.
 fn drag_targets(
+    guard: &gate::Guard,
     app: &AppHandle,
     scope: &str,
     session: &CaptureSession,
@@ -1090,8 +1155,8 @@ fn drag_targets(
     window_id: Option<u32>,
 ) -> Result<(Point, Point), String> {
     let points = [(from.x, from.y), (to.x, to.y)];
-    session.require_active()?;
-    let targets = event_targets(&points, window_id)?;
+    session.require_admitted(guard)?;
+    let targets = event_targets(guard, &points, window_id)?;
     let [start, end] = targets[..] else {
         return Err(INPUT_WINDOW_UNAVAILABLE.into());
     };
@@ -1103,8 +1168,8 @@ fn drag_targets(
         agent_cursor::Feedback::Move,
         Arc::clone(&session.revoked),
     )?;
-    session.require_active()?;
-    let result = event_targets(&points, window_id).and_then(|latest| match latest[..] {
+    session.require_admitted(guard)?;
+    let result = event_targets(guard, &points, window_id).and_then(|latest| match latest[..] {
         [latest_start, latest_end] => Ok((
             unchanged_target(start, Ok(latest_start))?,
             unchanged_target(end, Ok(latest_end))?,
@@ -1127,6 +1192,7 @@ const DRAG_SLACK: Duration = Duration::from_secs(1);
 /// path: success, revoked scope, stall timeout, or an unwinding panic.
 struct HeldButton<'a> {
     up: &'a OwnedCf,
+    guard: &'a gate::Guard,
 }
 
 impl Drop for HeldButton<'_> {
@@ -1134,13 +1200,14 @@ impl Drop for HeldButton<'_> {
         unsafe {
             CGEventSetFlags(self.up.event(), 0);
             CGEventSetIntegerValueField(self.up.event(), 1, 1);
-            input::post(self.up.event());
+            input::release(self.guard, self.up.event());
         }
     }
 }
 
 #[allow(clippy::too_many_arguments)]
 fn drag(
+    guard: &gate::Guard,
     app: &AppHandle,
     scope: &str,
     session: &CaptureSession,
@@ -1160,9 +1227,9 @@ fn drag(
     // Allocate every event before pressing, so no allocation can fail while
     // the button is held. Keep each event's native window-local coordinates:
     // changing only its CG location discards AppKit's local position.
-    let moved = mouse_event(5, from, 0)?;
-    let down = mouse_event(down_kind, from, button)?;
-    let up = mouse_event(up_kind, from, button)?;
+    let moved = mouse_event(guard, 5, from, 0)?;
+    let down = mouse_event(guard, down_kind, from, button)?;
+    let up = mouse_event(guard, up_kind, from, button)?;
     let events = path
         .into_iter()
         .zip(schedule)
@@ -1171,22 +1238,22 @@ fn drag(
             Ok((
                 point,
                 due,
-                mouse_event(drag_kind, point, button)?,
-                mouse_event(up_kind, point, button)?,
+                mouse_event(guard, drag_kind, point, button)?,
+                mouse_event(guard, up_kind, point, button)?,
             ))
         })
         .collect::<Result<Vec<_>, String>>()?;
-    session.require_active()?;
+    session.require_admitted(guard)?;
     let result = (|| {
         unsafe {
             CGEventSetFlags(moved.event(), 0);
-            input::post(moved.event());
+            input::post(guard, moved.event())?;
             CGEventSetFlags(down.event(), 0);
             // kCGMouseEventClickState: a single press, kept for the whole drag.
             CGEventSetIntegerValueField(down.event(), 1, 1);
-            input::post(down.event());
+            input::post(guard, down.event())?;
         }
-        let mut held = HeldButton { up: &up };
+        let mut held = HeldButton { up: &up, guard };
         let revoked = Arc::clone(&session.revoked);
         agent_cursor::follow(scope, from, false, Arc::clone(&revoked));
         std::thread::sleep(DRAG_HOLD);
@@ -1199,7 +1266,7 @@ fn drag(
                 return Err("The drag stalled and was released early. Take a fresh screenshot before retrying.".into());
             }
             // A revoked scope stops moving at once; the guard still releases.
-            session.require_active()?;
+            session.require_admitted(guard)?;
             let Point { x, y } = *point;
             unsafe {
                 CGEventSetFlags(dragged.event(), 0);
@@ -1207,7 +1274,7 @@ fn drag(
                 // kCGMouseEventDeltaX/Y (4, 5) for apps that track relative motion.
                 CGEventSetIntegerValueField(dragged.event(), 4, (x - previous.x).round() as i64);
                 CGEventSetIntegerValueField(dragged.event(), 5, (y - previous.y).round() as i64);
-                input::post(dragged.event());
+                input::post(guard, dragged.event())?;
             }
             held.up = release;
             previous = *point;
@@ -1224,18 +1291,18 @@ fn drag(
     result
 }
 
-fn press(key: &str, modifiers: &[Modifier]) -> Result<(), String> {
-    input::check()?;
-    input::keyboard_target()?;
+fn press(guard: &gate::Guard, key: &str, modifiers: &[Modifier]) -> Result<(), String> {
+    guard.check()?;
+    input::keyboard_target(guard)?;
     let code = key_code(key)?;
     let flags = modifier_flags(modifiers)?;
-    let down = keyboard_event(code, true)?;
-    let up = keyboard_event(code, false)?;
+    let down = keyboard_event(guard, code, true)?;
+    let up = keyboard_event(guard, code, false)?;
     unsafe {
         CGEventSetFlags(down.event(), flags);
         CGEventSetFlags(up.event(), flags);
-        input::post(down.event());
-        input::post(up.event());
+        input::post(guard, down.event())?;
+        input::release(guard, up.event());
     }
     Ok(())
 }
@@ -1257,17 +1324,21 @@ fn unicode_chunks(text: &str) -> Vec<Vec<u16>> {
     result
 }
 
-fn type_text(session: &CaptureSession, text: &str) -> Result<(), String> {
-    let down = keyboard_event(0, true)?;
-    let up = keyboard_event(0, false)?;
+fn type_text(guard: &gate::Guard, session: &CaptureSession, text: &str) -> Result<(), String> {
+    let down = keyboard_event(guard, 0, true)?;
+    let up = keyboard_event(guard, 0, false)?;
     for chunk in unicode_chunks(text) {
-        session.require_active()?;
-        input::keyboard_target()?;
+        session.require_admitted(guard)?;
+        input::keyboard_target(guard)?;
         unsafe {
             for event in [&down, &up] {
                 CGEventSetFlags(event.event(), 0);
                 CGEventKeyboardSetUnicodeString(event.event(), chunk.len(), chunk.as_ptr());
-                input::post(event.event());
+                if std::ptr::eq(event, &up) {
+                    input::release(guard, event.event());
+                } else {
+                    input::post(guard, event.event())?;
+                }
             }
         }
         std::thread::sleep(Duration::from_millis(2));
@@ -1275,19 +1346,19 @@ fn type_text(session: &CaptureSession, text: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn scroll(point: Point, delta_x: i32, delta_y: i32) -> Result<(), String> {
+fn scroll(guard: &gate::Guard, point: Point, delta_x: i32, delta_y: i32) -> Result<(), String> {
     // CG uses positive up/left; CLI uses positive down/right, like the browser.
     let event = OwnedCf::new(
         unsafe { CGEventCreateScrollWheelEvent2(std::ptr::null(), 0, 2, -delta_y, -delta_x, 0) },
         "Could not create scroll input. Check Aven's Accessibility permission.",
     )?;
-    let event = input::scroll_event(point, &event)?.unwrap_or(event);
-    let moved = mouse_event(5, point, 0)?;
+    let event = input::scroll_event(guard, point, &event)?.unwrap_or(event);
+    let moved = mouse_event(guard, 5, point, 0)?;
     unsafe {
         CGEventSetFlags(moved.event(), 0);
-        input::post(moved.event());
+        input::post(guard, moved.event())?;
         CGEventSetFlags(event.event(), 0);
-        input::post(event.event());
+        input::post(guard, event.event())?;
     }
     Ok(())
 }
@@ -1347,22 +1418,22 @@ fn confirm_activation(
 }
 
 fn activate(
+    guard: &gate::Guard,
     app_handle: &AppHandle,
     session: Arc<CaptureSession>,
     pid: Option<i32>,
     name: Option<String>,
-    ticket: presence::Ticket,
 ) -> Result<Value, String> {
     let pid = match (pid, name.as_deref()) {
-        (None, Some(wanted)) => Some(open_app(app_handle, &session, &ticket, wanted)?),
+        (None, Some(wanted)) => Some(open_app(guard, app_handle, &session, wanted)?),
         _ => pid,
     };
     let deadline = Instant::now() + Duration::from_secs(3);
     let activation_session = Arc::clone(&session);
+    let activation_guard = guard.clone();
     let mut attempt = activation_on_main(app_handle, deadline, move || unsafe {
-        activation_session.require_active()?;
-        presence::with(|state| state.check(&ticket))?;
-        activate_on_main(pid, name.as_deref())
+        activation_session.require_admitted(&activation_guard)?;
+        activate_on_main(&activation_guard, pid, name.as_deref())
     })?;
     if !attempt.accepted {
         let frontmost =
@@ -1372,12 +1443,12 @@ fn activate(
             // Native automation already requires explicit Accessibility access;
             // use its target-specific focus attribute, never a synthetic click
             // or an application launch, then independently observe the result.
-            activate_with_accessibility(&session, attempt.pid, deadline)?;
+            activate_with_accessibility(guard, &session, attempt.pid, deadline)?;
         }
         attempt.accepted = true;
     }
     confirm_activation(attempt.pid, attempt.accepted, deadline, || {
-        session.require_active()?;
+        session.require_admitted(guard)?;
         activation_on_main(app_handle, deadline, || unsafe { frontmost_pid_on_main() })
     })
 }
@@ -1385,9 +1456,9 @@ fn activate(
 /// Opens an installed app the user allowed this chat to bring forward, then
 /// waits for it to be running. Only the standard Applications folders.
 fn open_app(
+    guard: &gate::Guard,
     app_handle: &AppHandle,
-    session: &CaptureSession,
-    ticket: &presence::Ticket,
+    session: &Arc<CaptureSession>,
     name: &str,
 ) -> Result<i32, String> {
     if let Some(pid) = input::running_apps_named(app_handle, name)?.first() {
@@ -1395,13 +1466,16 @@ fn open_app(
     }
     let path = input::installed_app_named(name)
         .ok_or("No app with that name is running or installed in Applications.")?;
-    session.require_active()?;
-    presence::with(|state| state.check(ticket))?;
+    session.require_admitted(guard)?;
+    guard.check()?;
     let target = path.to_string_lossy().into_owned();
+    let open_guard = guard.clone();
+    let open_session = Arc::clone(session);
     let opened = activation_on_main(
         app_handle,
         Instant::now() + Duration::from_secs(3),
         move || unsafe {
+            open_session.require_admitted(&open_guard)?;
             let url_class = AnyClass::get(c"NSURL").ok_or("macOS workspace is unavailable.")?;
             let workspace_class =
                 AnyClass::get(c"NSWorkspace").ok_or("macOS workspace is unavailable.")?;
@@ -1417,8 +1491,8 @@ fn open_app(
     }
     let started = Instant::now();
     while started.elapsed() < Duration::from_secs(10) {
-        session.require_active()?;
-        presence::with(|state| state.check(ticket))?;
+        session.require_admitted(guard)?;
+        guard.check()?;
         if let Some(pid) = input::running_apps_named(app_handle, name)?.first() {
             return Ok(*pid);
         }
@@ -1459,6 +1533,7 @@ fn activation_ax_result(result: i32, operation: &str) -> Result<(), String> {
 }
 
 fn activate_with_accessibility(
+    guard: &gate::Guard,
     session: &CaptureSession,
     pid: i32,
     deadline: Instant,
@@ -1475,7 +1550,7 @@ fn activate_with_accessibility(
         accessibility_activation_steps(
             deadline,
             |timeout| {
-                session.require_active()?;
+                session.require_admitted(guard)?;
                 activation_ax_result(
                     AXUIElementSetMessagingTimeout(application.0, timeout),
                     "set the target app's focus timeout",
@@ -1495,8 +1570,8 @@ fn activate_with_accessibility(
                 activation_ax_result(
                     // The scope can end during the preceding AX query.
                     {
-                        session.require_active()?;
-                        AXUIElementSetAttributeValue(application.0, attribute, kCFBooleanTrue)
+                        session.require_admitted(guard)?;
+                        admitted_set_attribute(guard, application.0, attribute, kCFBooleanTrue)?
                     },
                     "focus the target app",
                 )
@@ -1518,6 +1593,7 @@ struct ActivationAttempt {
 }
 
 unsafe fn activate_on_main(
+    guard: &gate::Guard,
     pid: Option<i32>,
     name: Option<&str>,
 ) -> Result<ActivationAttempt, String> {
@@ -1568,8 +1644,10 @@ unsafe fn activate_on_main(
         msg_send![&*host, respondsToSelector: objc2::sel!(yieldActivationToApplication:)];
     let can_activate_from: Bool =
         msg_send![&*application, respondsToSelector: objc2::sel!(activateFromApplication:options:)];
+    guard.check()?;
     let accepted: Bool = if can_yield.as_bool() && can_activate_from.as_bool() {
         let _: () = msg_send![&*host, yieldActivationToApplication: &*application];
+        guard.check()?;
         msg_send![&*application, activateFromApplication: &*current, options: 0usize]
     } else {
         // Older macOS has no cooperative API; keep the target-only request.
@@ -1621,8 +1699,12 @@ struct CaptureSession {
 }
 
 impl CaptureSession {
+    fn require_admitted(&self, guard: &gate::Guard) -> Result<(), String> {
+        guard.check()?;
+        self.require_active()
+    }
+
     fn require_active(&self) -> Result<(), String> {
-        input::check()?;
         if self.revoked.load(Ordering::Acquire) {
             Err("Desktop control session is unavailable.".into())
         } else {
@@ -1840,6 +1922,7 @@ fn validate_capture_scale(pixels: (u32, u32), points: (u32, u32)) -> Result<(), 
 }
 
 fn screenshot(
+    guard: &gate::Guard,
     scope: &str,
     window_id: Option<u32>,
     region: Option<Region>,
@@ -1865,6 +1948,7 @@ fn screenshot(
         CAPTURES.get_or_init(CaptureSessions::default),
         scope,
         |captures| {
+            guard.check()?;
             let path = captures
                 .directory
                 .join(format!("{}.png", uuid::Uuid::new_v4()));
@@ -1920,6 +2004,7 @@ fn screenshot(
                 }
                 std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
                     .map_err(|_| "Could not protect the screenshot file.")?;
+                guard.check()?;
                 captures.retain(&path)?;
                 Ok(
                     json!({"path":path,"width":width,"height":height,"originX":bounds.x,"originY":bounds.y}),
@@ -1937,15 +2022,14 @@ pub(super) fn execute(
     app: &AppHandle,
     scope: &str,
     request: Request,
-    ticket: &presence::Ticket,
-    target: &PresenceTarget,
+    guard: &gate::Guard,
 ) -> Result<Value, String> {
     // Any input in a window may change it: its element indexes end with the
     // action, whether it succeeded, failed part-way or was refused.
     let changed = presence::is_input(&request)
         .then(|| request.input_window())
         .flatten();
-    let result = execute_admitted(app, scope, request, ticket, target);
+    let result = execute_admitted(app, scope, request, guard);
     if let Some(window_id) = changed {
         ax::invalidate(scope, window_id);
     }
@@ -1956,14 +2040,13 @@ fn execute_admitted(
     app: &AppHandle,
     scope: &str,
     request: Request,
-    ticket: &presence::Ticket,
-    target: &PresenceTarget,
+    guard: &gate::Guard,
 ) -> Result<Value, String> {
-    let _route = input::enter(ticket, target);
-    input::check()?;
+    let target = guard.target();
+    guard.check()?;
     let session = active_session(CAPTURES.get_or_init(CaptureSessions::default), scope)?;
     if request.is_element_action() {
-        return element_action(app, scope, &session, request, target);
+        return element_action(guard, app, scope, &session, request, target);
     }
     match request {
         Request::Status {} => {
@@ -1983,21 +2066,25 @@ fn execute_admitted(
             agent_cursor::suspend(app)?;
             let _suppression = CursorSuppression(app);
             presence_ui::suppress(true)?;
-            screenshot(scope, window_id, region)
+            screenshot(guard, scope, window_id, region)
         }
         Request::AppState {
             window_id,
             pid,
             max_nodes,
             image,
-        } => app_state(app, scope, &session, window_id, pid, max_nodes, image),
+        } => app_state(
+            guard, app, scope, &session, window_id, pid, max_nodes, image,
+        ),
         Request::Move {
             x, y, window_id, ..
         } => {
             scoped_input(
+                guard,
                 &session,
                 || {
                     cursor_target(
+                        guard,
                         app,
                         scope,
                         &session,
@@ -2007,7 +2094,7 @@ fn execute_admitted(
                         agent_cursor::Feedback::Move,
                     )
                 },
-                move_pointer,
+                |point| move_pointer(guard, point),
             )?;
             Ok(json!({"moved":true}))
         }
@@ -2021,9 +2108,11 @@ fn execute_admitted(
         } => {
             let (x, y) = x.zip(y).ok_or(COORDINATES_REQUIRED)?;
             scoped_input(
+                guard,
                 &session,
                 || {
                     cursor_target(
+                        guard,
                         app,
                         scope,
                         &session,
@@ -2033,23 +2122,25 @@ fn execute_admitted(
                         agent_cursor::Feedback::Click,
                     )
                 },
-                |point| click(&session, point, button, count, true),
+                |point| click(guard, &session, point, button, count, true),
             )?;
             Ok(json!({"clicked":true}))
         }
         Request::Type { text, .. } => {
             scoped_input(
+                guard,
                 &session,
                 || agent_cursor::activity(app, scope, Arc::clone(&session.revoked)),
-                |()| type_text(&session, &text),
+                |()| type_text(guard, &session, &text),
             )?;
             Ok(json!({"typed":true}))
         }
         Request::Press { key, modifiers, .. } => {
             scoped_input(
+                guard,
                 &session,
                 || agent_cursor::activity(app, scope, Arc::clone(&session.revoked)),
-                |()| press(&key, &modifiers),
+                |()| press(guard, &key, &modifiers),
             )?;
             Ok(json!({"pressed":true}))
         }
@@ -2064,9 +2155,11 @@ fn execute_admitted(
             let (x, y) = x.zip(y).ok_or(COORDINATES_REQUIRED)?;
             let delta_y = delta_y.ok_or(COORDINATES_REQUIRED)?;
             scoped_input(
+                guard,
                 &session,
                 || {
                     cursor_target(
+                        guard,
                         app,
                         scope,
                         &session,
@@ -2076,7 +2169,7 @@ fn execute_admitted(
                         agent_cursor::Feedback::Scroll,
                     )
                 },
-                |point| scroll(point, delta_x, delta_y),
+                |point| scroll(guard, point, delta_x, delta_y),
             )?;
             Ok(json!({"scrolled":true}))
         }
@@ -2091,9 +2184,22 @@ fn execute_admitted(
         } => {
             let steps = drag_steps(duration_ms, steps)?;
             scoped_input(
+                guard,
                 &session,
-                || drag_targets(app, scope, &session, from, to, window_id),
-                |(start, end)| drag(app, scope, &session, start, end, button, duration_ms, steps),
+                || drag_targets(guard, app, scope, &session, from, to, window_id),
+                |(start, end)| {
+                    drag(
+                        guard,
+                        app,
+                        scope,
+                        &session,
+                        start,
+                        end,
+                        button,
+                        duration_ms,
+                        steps,
+                    )
+                },
             )?;
             Ok(json!({
                 "dragged": true,
@@ -2105,7 +2211,7 @@ fn execute_admitted(
         }
         Request::Activate {
             app: ref wanted, ..
-        } => activate(app, session, target.pid, wanted.clone(), ticket.clone()),
+        } => activate(guard, app, session, target.pid, wanted.clone()),
         Request::SecondaryAction { .. }
         | Request::SetValue { .. }
         | Request::TypeText { .. }
@@ -2151,6 +2257,7 @@ fn app_identity(app: &AppHandle, pid: i32) -> Result<(Option<String>, String), S
 /// of it. Covered and background windows work; nothing is activated.
 #[allow(clippy::too_many_arguments)]
 fn app_state(
+    guard: &gate::Guard,
     app: &AppHandle,
     scope: &str,
     session: &CaptureSession,
@@ -2174,7 +2281,7 @@ fn app_state(
     {
         return Err("Aven's desktop controls cannot be inspected or targeted.".into());
     }
-    session.require_active()?;
+    session.require_admitted(guard)?;
     look_at(app, scope, session, &window);
     let (bundle, name) = app_identity(app, window.pid)?;
     // Observation needs no consent, but turning on an app's switch changes
@@ -2208,7 +2315,7 @@ fn app_state(
             None => (ax::Prepared::NotNeeded, false),
         }
     };
-    session.require_active()?;
+    session.require_admitted(guard)?;
     let max_nodes = max_nodes.unwrap_or(accessibility::DEFAULT_MAX_NODES);
     let mut state = ax::capture_state(
         scope,
@@ -2217,7 +2324,7 @@ fn app_state(
         window.bounds(),
         max_nodes,
     )?;
-    session.require_active()?;
+    session.require_admitted(guard)?;
     state["windowId"] = json!(window.window_id);
     state["app"] = json!(name);
     state["pid"] = json!(window.pid);
@@ -2242,7 +2349,7 @@ fn app_state(
         agent_cursor::suspend(app)?;
         let _suppression = CursorSuppression(app);
         presence_ui::suppress(true)?;
-        state["image"] = screenshot(scope, Some(window.window_id), None)?;
+        state["image"] = screenshot(guard, scope, Some(window.window_id), None)?;
     }
     Ok(state)
 }
@@ -2270,6 +2377,7 @@ fn look_at(app: &AppHandle, scope: &str, session: &CaptureSession, window: &Desk
 /// only); Accessibility performs the action; only when the app does not
 /// support it does the existing app-directed event path finish it.
 fn element_action(
+    guard: &gate::Guard,
     app: &AppHandle,
     scope: &str,
     session: &CaptureSession,
@@ -2282,8 +2390,7 @@ fn element_action(
     if target.shared_input || target.window_id != Some(window_id) {
         return Err("Element actions are background actions; no input was sent.".into());
     }
-    let gate = || session.require_active();
-    gate()?;
+    session.require_admitted(guard)?;
     let index = request.element();
     let located = match index {
         Some((index, state_id)) => {
@@ -2301,18 +2408,18 @@ fn element_action(
         Some((x, y)) => agent_cursor::move_to(app, scope, x, y, feedback, revoked)?,
         None => agent_cursor::activity(app, scope, revoked)?,
     }
-    gate()?;
+    guard.check()?;
     let mut pending_keys = None;
     let next = match &request {
         Request::Click { button, count, .. } => {
-            ax::click(need(located.as_ref())?, pid, *button, *count, &gate)?
+            ax::click(need(located.as_ref())?, pid, *button, *count, guard)?
         }
         Request::SecondaryAction { name, .. } => {
-            ax::secondary(need(located.as_ref())?, pid, name.as_deref(), &gate)?
+            ax::secondary(need(located.as_ref())?, pid, name.as_deref(), guard)?
         }
-        Request::SetValue { value, .. } => ax::set_value(need(located.as_ref())?, value, &gate)?,
+        Request::SetValue { value, .. } => ax::set_value(need(located.as_ref())?, value, guard)?,
         Request::TypeText { text, .. } => {
-            ax::type_text(located.as_ref(), index.is_some(), text, &gate)?
+            ax::type_text(located.as_ref(), index.is_some(), text, guard)?
         }
         Request::PressKey { key, modifiers, .. } => {
             pending_keys = Some((key.clone(), modifiers.clone()));
@@ -2322,7 +2429,7 @@ fn element_action(
                 key,
                 !modifiers.is_empty(),
                 (pid, window_id, bounds),
-                &gate,
+                guard,
             )?
         }
         Request::SelectText {
@@ -2334,7 +2441,7 @@ fn element_action(
             need(located.as_ref())?,
             text.as_deref(),
             start.zip(*length),
-            &gate,
+            guard,
         )?,
         Request::Scroll {
             direction, pages, ..
@@ -2343,7 +2450,7 @@ fn element_action(
             *direction,
             pages.unwrap_or(1),
             request.element_wheel_delta(),
-            &gate,
+            guard,
         )?,
         _ => return Err("This desktop action was routed incorrectly; no input was sent.".into()),
     };
@@ -2357,9 +2464,11 @@ fn element_action(
         } => {
             let (x, y) = local(point);
             scoped_input(
+                guard,
                 session,
                 || {
                     cursor_target(
+                        guard,
                         app,
                         scope,
                         session,
@@ -2369,7 +2478,7 @@ fn element_action(
                         agent_cursor::Feedback::Click,
                     )
                 },
-                |point| click(session, point, button, count, false),
+                |point| click(guard, session, point, button, count, false),
             )?;
             json!({"clicked": true, "method": "events", "confirmed": false, "note": EVENTS_NOTE})
         }
@@ -2380,9 +2489,11 @@ fn element_action(
         } => {
             let (x, y) = local(point);
             scoped_input(
+                guard,
                 session,
                 || {
                     cursor_target(
+                        guard,
                         app,
                         scope,
                         session,
@@ -2392,20 +2503,30 @@ fn element_action(
                         agent_cursor::Feedback::Scroll,
                     )
                 },
-                |point| scroll(point, delta_x, delta_y),
+                |point| scroll(guard, point, delta_x, delta_y),
             )?;
             json!({"scrolled": true, "method": "events", "confirmed": false, "note": EVENTS_NOTE})
         }
         ax::Next::Keys => {
             let (key, modifiers) = pending_keys.ok_or(INPUT_WINDOW_UNAVAILABLE)?;
-            scoped_input(session, || Ok(()), |()| press(&key, &modifiers))?;
+            scoped_input(
+                guard,
+                session,
+                || Ok(()),
+                |()| press(guard, &key, &modifiers),
+            )?;
             json!({"pressed": true, "method": "events", "confirmed": false, "note": EVENTS_NOTE})
         }
         ax::Next::TypeKeys => {
             let Request::TypeText { text, .. } = &request else {
                 return Err(INPUT_WINDOW_UNAVAILABLE.into());
             };
-            scoped_input(session, || Ok(()), |()| type_text(session, text))?;
+            scoped_input(
+                guard,
+                session,
+                || Ok(()),
+                |()| type_text(guard, session, text),
+            )?;
             json!({"typed": true, "method": "events", "confirmed": false, "note": EVENTS_NOTE})
         }
     };
@@ -2421,13 +2542,14 @@ fn element_action(
 // Scope revocation can happen while a worker animates the visualization. Hold
 // the original generation and recheck it immediately before posting OS input.
 fn scoped_input<T>(
+    guard: &gate::Guard,
     session: &CaptureSession,
     prepare: impl FnOnce() -> Result<T, String>,
     send: impl FnOnce(T) -> Result<(), String>,
 ) -> Result<(), String> {
-    session.require_active()?;
+    session.require_admitted(guard)?;
     let ready = prepare()?;
-    session.require_active()?;
+    session.require_admitted(guard)?;
     send(ready)
 }
 
@@ -2518,33 +2640,27 @@ mod tests {
     }
 
     #[test]
-    fn input_is_not_posted_when_scope_is_revoked_during_cursor_animation() {
+    fn revoked_capture_session_keeps_its_original_generation() {
         let sessions = Mutex::new(CaptureRegistry {
             active: HashMap::from([("old".into(), Arc::new(CaptureSession::default()))]),
             ..CaptureRegistry::default()
         });
         let session = active_session(&sessions, "old").unwrap();
-        let result = scoped_input(
-            &session,
-            || {
-                let mut sessions = sessions.lock().unwrap();
-                revoke_capture_sessions(&mut sessions, Some("old"));
-                sessions
-                    .active
-                    .insert("new".into(), Arc::new(CaptureSession::default()));
-                Ok(())
-            },
-            |()| panic!("revoked input must never be sent"),
-        );
-        assert!(result.unwrap_err().contains("session is unavailable"));
+        let removed = {
+            let mut sessions = sessions.lock().unwrap();
+            let removed = revoke_capture_sessions(&mut sessions, Some("old"));
+            sessions
+                .active
+                .insert("new".into(), Arc::new(CaptureSession::default()));
+            removed
+        };
+        assert!(session
+            .require_active()
+            .unwrap_err()
+            .contains("session is unavailable"));
         assert!(active_session(&sessions, "old").is_err());
         assert!(active_session(&sessions, "new").is_ok());
-        assert!(scoped_input(
-            &session,
-            || panic!("stale session must never animate"),
-            |()| Ok(())
-        )
-        .is_err());
+        finish_capture_cleanup(removed);
     }
 
     #[test]

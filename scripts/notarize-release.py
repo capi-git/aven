@@ -24,6 +24,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 
 API_NAMES = ('APPLE_API_KEY_P8_BASE64', 'APPLE_API_KEY_ID', 'APPLE_API_ISSUER_ID')
 PROFILE_NAME = 'AVEN_NOTARY_KEYCHAIN_PROFILE'
@@ -31,6 +32,8 @@ KEY_DIRECTORY = 'aven-notary-key'
 WAIT_TIMEOUT = '45m'
 PROCESS_TIMEOUT = 50 * 60
 MAX_KEY_BYTES = 16 * 1024
+STAPLE_RETRY_DELAYS = (5, 15, 30)
+STAPLE_TIMEOUT = 120
 NOTARIZED_SOURCE = 'source=Notarized Developer ID'
 SUBMISSION_ID = re.compile(r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}')
 SKIPPED_REASON = ('No notarization credentials were supplied. The app is Developer ID signed '
@@ -172,9 +175,31 @@ def tool_output(result):
     return '\n'.join(text.strip() for text in (result.stdout, result.stderr) if text.strip())
 
 
+def staple(app):
+    for attempt in range(len(STAPLE_RETRY_DELAYS) + 1):
+        result = run(['xcrun', 'stapler', 'staple', '-v', app], timeout=STAPLE_TIMEOUT)
+        output = tool_output(result)
+        # EX_NOHOST also covers permanent unexpected responses. Retry only
+        # known network failures or a ticket Apple has not delivered yet.
+        network = re.search(r'NSURLErrorDomain\s+Code=-(?:1001|1003|1004|1005|1006|1009)\b', output)
+        pending = ('cloudkit' in output.lower() and 'record not found' in output.lower()
+                   or 'could not find ticket in response' in output.lower())
+        if (result.returncode != 68 or not (network or pending)
+                or attempt == len(STAPLE_RETRY_DELAYS)):
+            return result
+        delay = STAPLE_RETRY_DELAYS[attempt]
+        print(f'Temporary notarization ticket delivery failure; retrying stapling in {delay} seconds '
+              f'(attempt {attempt + 2}/{len(STAPLE_RETRY_DELAYS) + 1}).', file=sys.stderr)
+        time.sleep(delay)
+
+
 def staple_and_assess(app, submission, authentication):
+    result = staple(app)
+    if result.returncode != 0:
+        log = run(['xcrun', 'notarytool', 'log', submission, *authentication])
+        print(tool_output(log), file=sys.stderr)
+        raise NotaryError('Stapling the notarization ticket failed.\n' + tool_output(result))
     for arguments, failure in (
-            (['xcrun', 'stapler', 'staple', '-v', app], 'Stapling the notarization ticket failed.'),
             (['xcrun', 'stapler', 'validate', '-v', app], 'The stapled notarization ticket did not validate.'),
             (['codesign', '--verify', '--deep', '--strict', app], 'The signature changed while stapling.')):
         result = run(arguments)

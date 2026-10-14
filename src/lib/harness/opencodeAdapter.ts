@@ -1,3 +1,4 @@
+import { harnessDescriptor } from "./descriptors";
 import {
   bindOpenCodeSession,
   cancelOpenCodeTurn,
@@ -21,6 +22,7 @@ import { registerHarness, type HarnessAdapter } from "./registry";
 
 export const openCodeAdapter: HarnessAdapter = {
   id: "opencode",
+  descriptor: harnessDescriptor("opencode"),
   live: true,
   sendTurn: sendOpenCodeTurn,
   compactContext: compactOpenCodeContext,

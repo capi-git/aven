@@ -282,58 +282,29 @@ static void CheckMenuHoles() {
   CHECK([parent hitTest:NSMakePoint(250, 350)] == workspace);
   CHECK([parent hitTest:NSMakePoint(60, 60)] == browser);
   CHECK([clip holeContainsPoint:NSMakePoint(200, 300)]);
-  // The page reports where the pointer is whenever that changes: onto the
-  // page, onto the workspace's hover edge over it, or away. A menu cut out of
-  // the page belongs to the workspace.
+  // Entering the page reports the pointer leaving the workspace; entering a
+  // menu cut out of it does not.
   {
-    __block std::vector<SMBrowserPointerRegion> reported;
-    clip.pointerRegionChanged = ^(SMBrowserPointerRegion region) {
-      reported.push_back(region);
+    __block int entered = 0;
+    clip.pointerEntered = ^{ entered += 1; };
+    auto enter = [&](NSPoint point) {
+      [clip mouseEntered:[NSEvent enterExitEventWithType:NSEventTypeMouseEntered
+                                                location:point
+                                           modifierFlags:0
+                                               timestamp:0
+                                            windowNumber:0
+                                                 context:nil
+                                             eventNumber:0
+                                          trackingNumber:0
+                                                userData:nullptr]];
     };
-    auto event = [](NSEventType type, NSPoint point) {
-      return type == NSEventTypeMouseMoved
-          ? [NSEvent mouseEventWithType:type location:point modifierFlags:0
-                              timestamp:0 windowNumber:0 context:nil
-                            eventNumber:0 clickCount:0 pressure:0]
-          : [NSEvent enterExitEventWithType:type location:point modifierFlags:0
-                                  timestamp:0 windowNumber:0 context:nil
-                                eventNumber:0 trackingNumber:0 userData:nullptr];
-    };
-    using Region = std::vector<SMBrowserPointerRegion>;
-    const auto page = SMBrowserPointerRegionPage, edge = SMBrowserPointerRegionEdge,
-               away = SMBrowserPointerRegionAway;
-    [clip mouseEntered:event(NSEventTypeMouseEntered, NSMakePoint(250, 350))];
-    CHECK(reported.empty());
-    [clip mouseMoved:event(NSEventTypeMouseMoved, NSMakePoint(60, 60))];
-    CHECK((reported == Region{page}));
-    // Moving within the page reports nothing new.
-    [clip mouseMoved:event(NSEventTypeMouseMoved, NSMakePoint(70, 80))];
-    CHECK((reported == Region{page}));
-    // The hover edge: the window's leftmost 10pt, located like a menu, with
-    // the page 50pt in from its parent's edge.
-    const supermono::BrowserHole hover = {-50, 20, 60, 360, 0};
-    clip.hoverEdge = supermono::BrowserPageRect(browser.frame, hover, clip.flipped);
-    CHECK(NSEqualRects(clip.hoverEdge, NSMakeRect(-50, 20, 60, 360)));
-    [clip mouseMoved:event(NSEventTypeMouseMoved, NSMakePoint(55, 200))];
-    CHECK((reported == Region{page, edge}));
-    [clip mouseMoved:event(NSEventTypeMouseMoved, NSMakePoint(65, 200))];
-    CHECK((reported == Region{page, edge, page}));
-    // Into the menu cut-out, then out of the page altogether.
-    [clip mouseMoved:event(NSEventTypeMouseMoved, NSMakePoint(250, 350))];
-    CHECK((reported == Region{page, edge, page, away}));
-    [clip mouseMoved:event(NSEventTypeMouseMoved, NSMakePoint(55, 200))];
-    [clip mouseExited:event(NSEventTypeMouseExited, NSMakePoint(40, 200))];
-    CHECK((reported == Region{page, edge, page, away, edge, away}));
-    // A page hidden under the pointer gives it back.
-    [clip mouseEntered:event(NSEventTypeMouseEntered, NSMakePoint(60, 60))];
-    clip.hidden = YES;
-    clip.hidden = NO;
-    CHECK((reported == Region{page, edge, page, away, edge, away, page, away}));
-    clip.pointerRegionChanged = nil;
-    [clip mouseEntered:event(NSEventTypeMouseEntered, NSMakePoint(60, 60))];
-    CHECK(reported.size() == 8);
-    clip.hoverEdge = NSZeroRect;
-    [clip mouseExited:event(NSEventTypeMouseExited, NSMakePoint(40, 200))];
+    enter(NSMakePoint(250, 350));
+    CHECK(entered == 0);
+    enter(NSMakePoint(60, 60));
+    CHECK(entered == 1);
+    clip.pointerEntered = nil;
+    enter(NSMakePoint(60, 60));
+    CHECK(entered == 1);
   }
   // A moved menu replaces its cut-out; the old region returns to the page.
   const std::vector<supermono::BrowserHole> moved = {{300, 200, 100, 100, 0}};
@@ -357,36 +328,16 @@ static void CheckMenuHoles() {
     CHECK(supermono::ApplyBrowserMask(clip, browser.frame, 0, {}, previous));
     CHECK(clip.layer.mask == nil);
     __block bool finished = false;
-    [clip slideLeadingEdgeFrom:0 to:100 startingAt:0 duration:0
-                    completion:^{ finished = true; }];
+    [clip slideLeadingEdgeFrom:0 to:100 completion:^{ finished = true; }];
     CHECK(clip.slidingLeadingEdge && clip.slideTarget == 100);
     CHECK(clip.layer.mask != nil && clip.layer.mask.position.x == 100);
-    CAAnimation* slide = [clip.layer.mask animationForKey:@"slide"];
-    CHECK(slide != nil && slide.speed == 1);
-    CHECK([slide.fillMode isEqualToString:kCAFillModeRemoved]);
+    CHECK([clip.layer.mask animationForKey:@"slide"] != nil);
     // Without a running render server the model value is the visible edge.
     CHECK([parent hitTest:NSMakePoint(100, 300)] == workspace);
     CHECK([parent hitTest:NSMakePoint(200, 300)] == browser);
     [clip cancelLeadingEdgeSlide];
     CHECK(!clip.slidingLeadingEdge && clip.layer.mask == nil && !finished);
     CHECK([parent hitTest:NSMakePoint(100, 300)] == browser);
-
-    // A slide timed to the sidebar holds its starting edge until then and
-    // plays a shortened sidebar slide at the matching speed.
-    const CFTimeInterval start = CACurrentMediaTime() + 0.05;
-    [clip slideLeadingEdgeFrom:100 to:-50 startingAt:start duration:0.12
-                    completion:^{ finished = true; }];
-    slide = [clip.layer.mask animationForKey:@"slide"];
-    CHECK(slide != nil && std::abs(slide.beginTime - start) < 1e-6);
-    CHECK([slide.fillMode isEqualToString:kCAFillModeBackwards]);
-    CHECK(std::abs(slide.speed - 2) < 1e-6);  // 240ms over 120ms
-    // A page to the right of the workspace closes past its own origin. Only
-    // its leading edge moves: the mask must cover the trailing edge at both
-    // ends and while moving between them.
-    for (const CGFloat leading : {100.0, 25.0, -50.0})
-      CHECK(leading + CGRectGetMaxX(clip.layer.mask.bounds) >= clip.bounds.size.width);
-    [clip cancelLeadingEdgeSlide];
-    CHECK(!clip.slidingLeadingEdge && !finished);
   }
   std::puts("Browser menu cut-out checks passed");
 }

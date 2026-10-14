@@ -1,3 +1,4 @@
+import { harnessDescriptor } from "./descriptors";
 import {
   bindFxSession,
   cancelFxTurn,
@@ -12,6 +13,7 @@ import { registerHarness, type HarnessAdapter } from "./registry";
 
 export const fxAdapter: HarnessAdapter = {
   id: "fx",
+  descriptor: harnessDescriptor("fx"),
   live: true,
   canSteer: false,
   sendTurn: sendFxTurn,

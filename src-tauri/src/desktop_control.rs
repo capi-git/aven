@@ -1076,34 +1076,8 @@ pub(crate) struct PresenceTarget {
     pub(crate) label: Option<String>,
 }
 
-/// Reads the login session immediately before an action or consent prompt and
-/// records it. `read` is CoreGraphics in Aven and a fake in tests; it runs
-/// outside the presence lock. `record` returns whether the recorded session
-/// changed and the session now in force (a lock notification outlasts a
-/// lagging read), and `changed` then hides the bar and agent pointer.
-/// Refuses while the Mac is locked or another session is on screen, where
-/// keys could reach the login window and nobody can answer.
-fn gate_session(
-    read: &dyn Fn() -> presence::Session,
-    record: &dyn Fn(presence::Session) -> (bool, presence::Session),
-    changed: &dyn Fn(),
-) -> Result<(), String> {
-    let (did_change, session) = record(read());
-    if did_change {
-        changed();
-    }
-    session
-        .refusal()
-        .map_or(Ok(()), |refusal| Err(refusal.into()))
-}
-
-fn gate_current_session() -> Result<(), String> {
-    gate_session(
-        &platform::session_state,
-        &|read| presence::with(|state| (state.observe_session(read), state.session())),
-        &platform::session_changed,
-    )
-}
+#[path = "desktop_gate.rs"]
+mod gate;
 
 // The opaque scope identifies one authenticated grant generation. It must never
 // appear in diagnostics, responses, or screenshot paths.
@@ -1113,137 +1087,52 @@ pub(crate) fn execute(
     request: Request,
     connected: &dyn Fn() -> bool,
 ) -> Result<Value, String> {
-    // A request shows at most one consent prompt. The wait happens outside the
-    // execution lock, so Settings and other agents are never blocked by it;
-    // afterwards the request is admitted again from scratch with fresh status.
-    let mut may_prompt = true;
-    let mut approved_target: Option<PresenceTarget> = None;
-    loop {
-        if !connected() {
-            return Err(presence::CANCELLED.into());
-        }
-        let prompt = {
-            let _guard = CONTROL_LOCK.try_lock().map_err(|_| "Desktop control is busy. Wait for the current action or Settings prompt to finish, then retry.")?;
-            // Every request reads the native switch. Status only reports readiness;
-            // observation and input never reach the OS while access for that action is
-            // off or missing. Aggregate readiness also reports input permissions.
-            let status = current_status(app)?;
-            if !status.enabled
-                || status
-                    .permissions
-                    .iter()
-                    .any(|permission| !permission.granted)
-            {
-                platform::hide_cursor(app);
-            }
-            if status.state == "unsupported" {
-                return Err(UNSUPPORTED.into());
-            }
-            request.validate()?;
-            if matches!(request, Request::Status {}) {
-                return serde_json::to_value(status).map_err(|error| error.to_string());
-            }
-            require_action_access(&status, &request)?;
-            // Before the target is resolved, any prompt is shown, or the bar
-            // appears; admission also refuses on a session recorded as locked.
-            gate_current_session()?;
-            let input = presence::is_input(&request);
-            let target = platform::presence_target(app, scope, &request)?;
-            if input
-                && (target.shared_input != (request.input_mode() == InputMode::Pointer)
-                    || target.window_id != request.input_window())
-            {
-                return Err(
-                    "Desktop input target could not be confirmed. No input was sent.".into(),
-                );
-            }
-            if approved_target
-                .as_ref()
-                .is_some_and(|expected| expected != &target)
-            {
-                if let Some(expected) = &approved_target {
-                    if expected.shared_input {
-                        if let Some(identity) = &expected.app {
-                            presence::with(|state| state.forget_approval(scope, &identity.key));
-                        }
-                    }
-                }
-                return Err("The target changed while waiting for consent. Take a fresh screenshot before retrying.".into());
-            }
-            let admission = presence::with(|state| {
-                state.admit(
-                    scope,
-                    input,
-                    target.app.as_ref(),
-                    status.ask_before_app_use || target.shared_input,
-                    may_prompt,
-                    std::time::Instant::now(),
-                )
-            });
-            match admission {
-                presence::Admission::Go => return run_admitted(app, scope, request, target),
-                presence::Admission::Refuse(error) => return Err(error),
-                presence::Admission::Ask(id) => {
-                    if let Err(error) = platform::presence_show(target.anchor, false) {
-                        presence::with(|state| state.withdraw(id));
-                        return Err(error);
-                    }
-                    approved_target = Some(target);
-                    id
-                }
-            }
-        };
-        may_prompt = false;
-        // A lock notification cancels the prompt; the session read also ends
-        // the wait if that notification never arrives.
-        let answer = presence::wait_for_answer(prompt, || {
-            connected()
-                && platform::session_alive(scope)
-                && platform::session_state() == presence::Session::Active
-        });
-        platform::presence_changed();
-        if answer.is_err() {
-            gate_current_session()?;
-        }
-        answer?;
-    }
+    gate::execute(
+        std::sync::Arc::new(NativeDesktop(app.clone())),
+        std::sync::Arc::clone(presence::store()),
+        &CONTROL_LOCK,
+        scope,
+        request,
+        connected,
+    )
 }
 
-/// Runs one admitted action with its presence ticket. Called with the
-/// execution lock held; the bar shows the actor before any native event.
-fn run_admitted(
-    app: &AppHandle,
-    scope: &str,
-    request: Request,
-    target: PresenceTarget,
-) -> Result<Value, String> {
-    let Some(step) = presence::step_for(&request) else {
-        return Err("Status must be checked through the desktop control gate.".into());
-    };
-    let input = presence::is_input(&request);
-    let ticket = presence::with(|state| {
-        let ticket = state.begin(
-            scope,
-            step,
-            target.app.as_ref().map(|app| app.name.clone()),
-            std::time::Instant::now(),
-        );
-        // Publish the destination atomically with the activity. A user event
-        // between these updates must not mistake background input for shared
-        // mouse/keyboard control.
-        state.set_delivery(&ticket, target.shared_input, target.pid);
-        state.set_element(&ticket, target.label.clone());
-        ticket
-    });
-    // Single integration point for the agent pointer: it receives the actor
-    // that this action resolved to (name and provider colour).
-    let actor = presence::with(|state| state.actor(scope));
-    platform::actor_changed(&actor);
-    let result = platform::presence_show(target.anchor, input)
-        .and_then(|()| platform::execute(app, scope, request, &ticket, &target));
-    presence::with(|state| state.end(&ticket, std::time::Instant::now()));
-    platform::presence_changed();
-    result
+struct NativeDesktop(AppHandle);
+
+impl gate::Port for NativeDesktop {
+    fn status(&self) -> Result<DesktopStatus, String> {
+        current_status(&self.0)
+    }
+    fn hide_cursor(&self) {
+        platform::hide_cursor(&self.0);
+    }
+    fn session_state(&self) -> presence::Session {
+        platform::session_state()
+    }
+    fn session_changed(&self) {
+        platform::session_changed();
+    }
+    fn target(&self, scope: &str, request: &Request) -> Result<PresenceTarget, String> {
+        platform::presence_target(&self.0, scope, request)
+    }
+    fn confirm_target(&self, target: &PresenceTarget) -> Result<(), String> {
+        platform::confirm_target(target)
+    }
+    fn show(&self, anchor: Option<(f64, f64)>, input: bool) -> Result<(), String> {
+        platform::presence_show(anchor, input)
+    }
+    fn presence_changed(&self) {
+        platform::presence_changed();
+    }
+    fn actor_changed(&self, actor: &presence::Actor) {
+        platform::actor_changed(actor);
+    }
+    fn session_alive(&self, scope: &str) -> bool {
+        platform::session_alive(scope)
+    }
+    fn execute(&self, scope: &str, request: Request, guard: &gate::Guard) -> Result<Value, String> {
+        platform::execute(&self.0, scope, request, guard)
+    }
 }
 
 /// Binds a chat's scope. `actor` is supplied by the frontend once per user
@@ -1450,9 +1339,11 @@ mod platform {
         _: &AppHandle,
         _: &str,
         _: Request,
-        _: &presence::Ticket,
-        _: &PresenceTarget,
+        _: &gate::Guard,
     ) -> Result<Value, String> {
+        Err(UNSUPPORTED.into())
+    }
+    pub(super) fn confirm_target(_: &PresenceTarget) -> Result<(), String> {
         Err(UNSUPPORTED.into())
     }
     pub(super) fn presence_target(
@@ -1493,93 +1384,6 @@ mod tests {
         let request: Request = serde_json::from_value(value).map_err(|e| e.to_string())?;
         request.validate()?;
         Ok(request)
-    }
-
-    #[test]
-    fn session_gate_reads_the_injected_source_before_every_admission() {
-        use presence::{Admission, Presence, Session};
-        use std::cell::{Cell, RefCell};
-        let source = Cell::new(Session::Locked);
-        let state = RefCell::new(Presence::default());
-        let changes = Cell::new(0);
-        let gate = || {
-            gate_session(
-                &|| source.get(),
-                &|read| {
-                    let mut state = state.borrow_mut();
-                    (state.observe_session(read), state.session())
-                },
-                &|| changes.set(changes.get() + 1),
-            )
-        };
-        let admit = |input: bool| {
-            state.borrow_mut().admit(
-                "chat",
-                input,
-                Some(&presence::AppIdentity::new("com.example:1", "Example")),
-                true,
-                true,
-                std::time::Instant::now(),
-            )
-        };
-        assert_eq!(gate().unwrap_err(), presence::SCREEN_LOCKED);
-        assert_eq!(changes.get(), 1);
-        // A second read of the same state does not redraw anything.
-        assert_eq!(gate().unwrap_err(), presence::SCREEN_LOCKED);
-        assert_eq!(changes.get(), 1);
-        // Even a caller that skipped the gate cannot prompt or observe.
-        assert!(matches!(admit(true), Admission::Refuse(_)));
-        assert!(matches!(admit(false), Admission::Refuse(_)));
-        source.set(Session::Away);
-        assert_eq!(gate().unwrap_err(), presence::SESSION_AWAY);
-        source.set(Session::Active);
-        assert!(gate().is_ok());
-        assert_eq!(changes.get(), 3);
-        assert!(matches!(admit(true), Admission::Ask(_)));
-        // A later lock is read and enforced again.
-        source.set(Session::Locked);
-        assert!(gate().is_err());
-        assert!(matches!(admit(false), Admission::Refuse(_)));
-        source.set(Session::Active);
-        assert!(gate().is_ok());
-    }
-
-    #[test]
-    fn a_stale_session_read_never_undoes_a_lock_notification() {
-        use presence::{Presence, Session};
-        use std::cell::{Cell, RefCell};
-        let source = Cell::new(Session::Active);
-        let state = RefCell::new(Presence::default());
-        let gate = || {
-            gate_session(
-                &|| source.get(),
-                &|read| {
-                    let mut state = state.borrow_mut();
-                    (state.observe_session(read), state.session())
-                },
-                &|| {},
-            )
-        };
-        assert!(gate().is_ok());
-        // The lock notification arrives before CoreGraphics reports it.
-        assert!(state.borrow_mut().notify_locked(Session::Active));
-        // The next action's admission reads the lagging session: still
-        // locked, refused, and nothing recorded over the notification.
-        assert_eq!(gate().unwrap_err(), presence::SCREEN_LOCKED);
-        assert_eq!(gate().unwrap_err(), presence::SCREEN_LOCKED);
-        assert_eq!(state.borrow().session(), Session::Locked);
-        // An unavailable read may be recorded over it.
-        source.set(Session::Away);
-        assert_eq!(gate().unwrap_err(), presence::SESSION_AWAY);
-        // Having seen the session unavailable, a read of Active is a real
-        // unlock even when its notification never arrives.
-        source.set(Session::Active);
-        assert!(gate().is_ok());
-        // Or the unlock notification ends the lock directly.
-        assert!(state.borrow_mut().notify_locked(Session::Active));
-        assert!(gate().is_err());
-        assert!(state.borrow_mut().notify_unlocked(Session::Active));
-        assert!(gate().is_ok());
     }
 
     #[test]
