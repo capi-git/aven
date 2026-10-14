@@ -1,3 +1,4 @@
+import { harnessDescriptor } from "./descriptors";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   modelsFor,
@@ -43,6 +44,7 @@ beforeEach(() => {
   vi.spyOn(console, "debug").mockImplementation(() => {});
   registerHarness({
     id: "grok",
+    descriptor: harnessDescriptor("grok"),
     live: true,
     async sendTurn() {},
     async steerTurn() {},

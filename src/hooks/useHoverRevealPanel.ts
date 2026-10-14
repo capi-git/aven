@@ -7,19 +7,13 @@ import {
   useRef,
   useState,
   type HTMLAttributes,
-  type RefCallback,
 } from "react";
 
 export type HoverRevealPanelHandlers = Pick<
   HTMLAttributes<HTMLElement>,
   "onPointerEnter" | "onPointerLeave" | "onFocusCapture" | "onBlurCapture"
-> & { ref?: RefCallback<HTMLElement> };
+>;
 export type HoverRevealHandlers = HoverRevealPanelHandlers;
-
-/** Where a native page drawn above this document sees the pointer: on the
- * page, resting on the hover edge over it, or away from it. */
-export type NativePointerRegion = "page" | "edge" | "away";
-type Point = { x: number; y: number };
 
 export type HoverRevealPanelOptions = {
   /** Persistent layout state belongs to the caller; hovering never changes it. */
@@ -68,30 +62,6 @@ export function useHoverRevealPanel({
   const keyboardInteraction = useRef(true);
   /** A panel closed ahead of the owner's re-render, until that commits. */
   const uncommittedClose = useRef<HTMLElement | null>(null);
-  /** Native pages drawn above this document report the pointer while it is
-   * over them. Meanwhile this document's own last position is stale. */
-  const native = useRef({
-    regions: new Map<string, NativePointerRegion>(),
-    region: "away" as NativePointerRegion,
-    owns: false,
-    stale: null as Point | null,
-    last: null as Point | null,
-  });
-  /** Whether a document pointer event reflects the real pointer. While a
-   * native page holds it, WebKit replays its last position after layout
-   * changes; a replay must not count as hovering the edge or the panel. */
-  const live = useCallback((event: { clientX: number; clientY: number }) => {
-    const state = native.current;
-    if (
-      state.owns &&
-      state.stale &&
-      event.clientX === state.stale.x &&
-      event.clientY === state.stale.y
-    )
-      return false;
-    state.owns = false;
-    return true;
-  }, []);
 
   const cancelEnter = useCallback(() => {
     if (enterTimer.current !== undefined) clearTimeout(enterTimer.current);
@@ -196,70 +166,21 @@ export function useHoverRevealPanel({
     scheduleClose();
   }, [cancelEnter, scheduleClose]);
 
-  /** The pointer reached the edge; a short rest there reveals the panel. */
-  const enterEdge = useCallback(() => {
-    if (!options.current.enabled) return;
-    if (!shown.current) keyboardInteraction.current = false;
-    pointer.current.edge = true;
-    cancelLeave();
-    cancelEnter();
-    if (!options.current.pinned && !shown.current)
-      enterTimer.current = setTimeout(() => {
-        enterTimer.current = undefined;
-        if (pointer.current.edge) reveal();
-      }, delay(options.current.enterDelay));
-  }, [cancelEnter, cancelLeave, reveal]);
-
-  /** A native page reports where it sees the pointer; `source` names the
-   * page. Any page's hover edge counts as the edge, any page holding the
-   * pointer as leaving the panel, and none as the pointer coming back here. */
-  const nativePointer = useCallback(
-    (source: string, region: NativePointerRegion) => {
-      const state = native.current;
-      if (region === "away") state.regions.delete(source);
-      else state.regions.set(source, region);
-      const regions = [...state.regions.values()];
-      const next: NativePointerRegion = regions.includes("edge")
-        ? "edge"
-        : regions.length
-          ? "page"
-          : "away";
-      if (next === state.region) return;
-      state.region = next;
-      if (next === "away") {
-        // Off the page: onto this document, which places the pointer with its
-        // next live event, or out of the window. Off the edge either way.
-        if (state.owns) pointerLeft();
-        return;
-      }
-      if (!state.owns) {
-        state.owns = true;
-        state.stale = state.last;
-      }
-      if (next === "edge") enterEdge();
-      else pointerLeft();
-    },
-    [enterEdge, pointerLeft],
-  );
-
-  // The hook tracks its edge and panel from mount, not only once hovered, so
-  // a pointer returning from a native page can be placed on either.
-  const edgeRef = useCallback<RefCallback<HTMLElement>>((element) => {
-    edge.current = element;
-  }, []);
-  const panelRef = useCallback<RefCallback<HTMLElement>>((element) => {
-    panel.current = element;
-  }, []);
-
   const edgeHandlers = useMemo<HoverRevealPanelHandlers>(
     () => ({
-      ref: edgeRef,
       onPointerEnter: (event) => {
         if (event.pointerType === "touch" || !options.current.enabled) return;
         if (!event.currentTarget.contains(event.target as Node)) return;
-        if (!live(event)) return;
         edge.current = event.currentTarget;
-        enterEdge();
+        if (!shown.current) keyboardInteraction.current = false;
+        pointer.current.edge = true;
+        cancelLeave();
+        cancelEnter();
+        if (!options.current.pinned && !shown.current)
+          enterTimer.current = setTimeout(() => {
+            enterTimer.current = undefined;
+            if (pointer.current.edge) reveal();
+          }, delay(options.current.enterDelay));
       },
       onPointerLeave: () => {
         pointer.current.edge = false;
@@ -273,15 +194,13 @@ export function useHoverRevealPanel({
       },
       onBlurCapture: () => queueMicrotask(scheduleClose),
     }),
-    [cancelEnter, edgeRef, enterEdge, live, reveal, scheduleClose],
+    [cancelEnter, cancelLeave, reveal, scheduleClose],
   );
 
   const panelHandlers = useMemo<HoverRevealPanelHandlers>(
     () => ({
-      ref: panelRef,
       onPointerEnter: (event) => {
         if (!event.currentTarget.contains(event.target as Node)) return;
-        if (!live(event)) return;
         panel.current = event.currentTarget;
         pointer.current.panel = true;
         cancelLeave();
@@ -299,33 +218,8 @@ export function useHoverRevealPanel({
       },
       onBlurCapture: () => queueMicrotask(scheduleClose),
     }),
-    [cancelLeave, live, panelRef, reveal, scheduleClose],
+    [cancelLeave, reveal, scheduleClose],
   );
-
-  useEffect(() => {
-    if (!enabled) return;
-    // Remember where this document last saw the pointer. After a native page
-    // held it, the first live event places it again: WebKit sends no enter
-    // event for an element it still believes is under the pointer.
-    const remember = (event: PointerEvent) => {
-      const state = native.current;
-      const reclaimed = state.owns && live(event);
-      state.last = { x: event.clientX, y: event.clientY };
-      if (!reclaimed || !(event.target instanceof Node)) return;
-      if (edge.current?.contains(event.target)) {
-        if (!pointer.current.edge) enterEdge();
-      } else if (panel.current?.contains(event.target)) {
-        pointer.current.panel = true;
-        cancelLeave();
-      }
-    };
-    document.addEventListener("pointermove", remember, true);
-    document.addEventListener("pointerdown", remember, true);
-    return () => {
-      document.removeEventListener("pointermove", remember, true);
-      document.removeEventListener("pointerdown", remember, true);
-    };
-  }, [enabled, cancelLeave, enterEdge, live]);
 
   useEffect(() => {
     if (!enabled || pinned) return;
@@ -428,12 +322,9 @@ export function useHoverRevealPanel({
       if (!next.edge) cancelEnter();
       scheduleClose();
     };
-    const pointerOver = (event: PointerEvent) => {
-      if (live(event)) trackPointer(event.target);
-    };
-    const pointerOut = (event: PointerEvent) => {
-      if (live(event)) trackPointer(event.relatedTarget);
-    };
+    const pointerOver = (event: PointerEvent) => trackPointer(event.target);
+    const pointerOut = (event: PointerEvent) =>
+      trackPointer(event.relatedTarget);
     const keyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented || interactionOpen())
         return;
@@ -452,7 +343,7 @@ export function useHoverRevealPanel({
       document.removeEventListener("pointerover", pointerOver, true);
       document.removeEventListener("pointerout", pointerOut, true);
     };
-  }, [temporary, enabled, pinned, cancelEnter, dismiss, live, scheduleClose]);
+  }, [temporary, enabled, pinned, cancelEnter, dismiss, scheduleClose]);
 
   return {
     visible,
@@ -462,6 +353,5 @@ export function useHoverRevealPanel({
     reveal,
     dismiss,
     pointerLeft,
-    nativePointer,
   };
 }

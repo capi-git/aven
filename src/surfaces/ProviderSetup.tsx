@@ -1,3 +1,4 @@
+import { harnessDescriptor } from "../lib/harness/descriptors";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { HarnessIcon } from "../chrome/HarnessIcon";
@@ -21,16 +22,6 @@ import "./ProviderSetup.css";
 const TerminalView = retryableLazy(() =>
   import("./TerminalView").then((module) => module.TerminalView),
 );
-const DESCRIPTIONS: Record<HarnessId, string> = {
-  claude: "Connect your Claude Code account.",
-  codex: "Connect with ChatGPT or your OpenAI API account.",
-  cursor: "Use the Cursor agent CLI.",
-  grok: "Connect Grok Build from xAI.",
-  opencode: "Connect the models you use in OpenCode.",
-  pi: "Use your Pi provider configuration.",
-  omp: "Use your oh-my-pi provider configuration.",
-  fx: "Connect your fx CLI configuration.",
-};
 const LABELS: Record<ProviderSetupCheck["status"], string> = {
   missing: "Not installed",
   installed: "Installed · connection not checked",
@@ -306,8 +297,7 @@ export function ProviderSetup({ onDone, onChooseFolder }: Props) {
             {selected.map((harness) => {
               const result = checks[harness];
               const checking = pending[harness];
-              const guided = harness === "claude" || harness === "codex";
-              const supportsTest = harness === "claude";
+              const { guided, supportsTest } = harnessDescriptor(harness).setup;
               return (
                 <section
                   className="provider-setup-check"
@@ -611,7 +601,7 @@ function ProviderChoice({
       </span>
       <span className="provider-setup-choice-copy">
         <strong>{HARNESS_TITLE[harness]}</strong>
-        <span>{DESCRIPTIONS[harness]}</span>
+        <span>{harnessDescriptor(harness).setup.description}</span>
       </span>
       <span className="provider-setup-checkbox" aria-hidden>
         {selected ? <Check className="size-3" /> : null}

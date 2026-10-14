@@ -764,19 +764,12 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       LayoutCommit() { [CATransaction begin]; }
       ~LayoutCommit() { [CATransaction commit]; }
     } layout_commit;
-    // A reversed slide turns around where its edge is now.
-    const double interrupted=clip_host.slidingLeadingEdge && !holding ? clip_host.visibleLeadingEdge : NAN;
     if (clip_host.slidingLeadingEdge && !holding) [clip_host cancelLeadingEdgeSlide];
-    // The sidebar's slide starts at a moment the workspace chose, usually a
-    // little after this layout arrives; a late layout catches up instead.
-    const double slide_delay=edge_slide_at_>0 ? edge_slide_at_-NSDate.date.timeIntervalSince1970 : 0;
-    const double slide_length=edge_slide_duration_>0 ? edge_slide_duration_ : left==0 ? 0.24 : 0.37;
-    const bool slide_over=edge_slide_at_>0 && slide_delay<=-slide_length;
-    const bool sliding=holding || (clip_host && same_place && (left==0)!=(applied_left_==0) && !slide_over &&
+    const bool sliding=holding || (clip_host && same_place && (left==0)!=(applied_left_==0) &&
         !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion);
     // The sidebar travels from the workspace's leading edge, webview x 0. Track
     // that edge rather than the page's own, or the page runs ahead of it.
-    const double slide_from=std::isfinite(interrupted) ? interrupted : applied_left_==0 ? -x_ : applied_left_;
+    const double slide_from=applied_left_==0 ? -x_ : applied_left_;
     const double slide_to=left==0 ? -x_ : left;
     if (sliding && !holding) slide_crop_=left;
     applied_x_=x_; applied_y_=y_; applied_w_=w_; applied_h_=h_;
@@ -796,9 +789,6 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
         !NSEqualSizes(clip_view_.bounds.size,aligned.clip.size)))
       EditMode(false);
     supermono::ApplyBrowserHostFrames(clip_view_,view,aligned,auto_resize_);
-    if (clip_host)
-      clip_host.hoverEdge=auto_resize_ ? NSZeroRect
-          : supermono::BrowserPageRect(aligned.browser,hover_edge_,clip_view_.flipped);
     // Menus cut out of the live page keep it rendering around them. Floating
     // windows contain only the page, so they never carry workspace cut-outs.
     // A slide owns the mask until it finishes and lays the page out again.
@@ -808,10 +798,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
         auto_resize_ ? 0 : bottom_corner_radius_,auto_resize_ ? no_holes : holes_,corner_mask_);
     else if (!holding) {
       CefRefPtr<Page> self=this;
-      [clip_host slideLeadingEdgeFrom:slide_from to:slide_to
-                           startingAt:edge_slide_at_>0 ? CACurrentMediaTime()+std::min(slide_delay,1.0) : 0
-                             duration:edge_slide_duration_
-                           completion:^{
+      [clip_host slideLeadingEdgeFrom:slide_from to:slide_to completion:^{
         if (!self->closing_) self->Layout();
       }];
     }
@@ -1774,11 +1761,6 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   double applied_x_=0,applied_y_=0,applied_w_=0,applied_h_=0,applied_left_=0,applied_right_=0;
   bool applied_showing_=false;
   double slide_crop_=0;  // The crop a running edge slide settles on.
-  // For the layout in progress only: when the sidebar's slide starts, in
-  // seconds since 1970, and how long it lasts; 0 when unknown.
-  double edge_slide_at_=0,edge_slide_duration_=0;
-  // The workspace's hover edge, relative to the page; zero size for none.
-  supermono::BrowserHole hover_edge_;
   std::vector<supermono::BrowserHole> holes_;
   bool visible_=false, auto_resize_=false;
 
@@ -1968,11 +1950,8 @@ extern "C" int sm_chromium_create(const char *id,void *parent,const char *url,co
     page->clip_view_=[[SMBrowserClipView alloc] initWithFrame:WorkspaceFrame(page->parent_,x,y,w,h)];
     {
       const std::string page_id=page->id_;
-      ((SMBrowserClipView*)page->clip_view_).pointerRegionChanged=^(SMBrowserPointerRegion region){
-        auto d=Object(); d->SetString("type","pointer");
-        d->SetString("region",region==SMBrowserPointerRegionPage ? "page"
-            : region==SMBrowserPointerRegionEdge ? "edge" : "away");
-        Emit(page_id,d);
+      ((SMBrowserClipView*)page->clip_view_).pointerEntered=^{
+        auto d=Object(); d->SetString("type","pointer"); Emit(page_id,d);
       };
     }
     page->clip_view_.wantsLayer=YES;
@@ -1993,17 +1972,10 @@ extern "C" int sm_chromium_create(const char *id,void *parent,const char *url,co
     last_error.clear(); return 1;
   } catch (const std::exception& e) { return Fail(e.what()); } catch (...) { return Fail("Chromium tab creation failed"); } }
 }
-extern "C" int sm_chromium_layout(const char *id,double x,double y,double w,double h,int visible,double clip_left,double clip_right,double viewport_height,double bottom_corner_radius,const double *holes,int hole_count,const double *hover_edge,double edge_slide_at,double edge_slide_duration) {
+extern "C" int sm_chromium_layout(const char *id,double x,double y,double w,double h,int visible,double clip_left,double clip_right,double viewport_height,double bottom_corner_radius,const double *holes,int hole_count) {
   @autoreleasepool { if (!MainThread()) return 0; auto page=FindPage(id); if (!page) return 0;
     if (!Geometry(x,y,w,h) || !std::isfinite(clip_left) || !std::isfinite(clip_right) || clip_left<0 || clip_right<0 || clip_left+clip_right>w || !std::isfinite(viewport_height) || viewport_height<0 || viewport_height>262144 || !std::isfinite(bottom_corner_radius) || bottom_corner_radius<0 || bottom_corner_radius>262144) return Fail("Invalid browser bounds");
     if (hole_count<0 || hole_count>kMaxBrowserHoles || (hole_count>0 && !holes)) return Fail("Invalid browser bounds");
-    if (!std::isfinite(edge_slide_at) || edge_slide_at<0 || !std::isfinite(edge_slide_duration) || edge_slide_duration<0 || edge_slide_duration>4) return Fail("Invalid browser bounds");
-    supermono::BrowserHole edge;
-    if (hover_edge) {
-      if (!std::all_of(hover_edge,hover_edge+4,[](double value){ return std::isfinite(value) && std::abs(value)<=262144; }) ||
-          hover_edge[2]<0 || hover_edge[3]<0) return Fail("Invalid browser bounds");
-      edge={hover_edge[0],hover_edge[1],hover_edge[2],hover_edge[3],0};
-    }
     std::vector<supermono::BrowserHole> cut;
     cut.reserve(hole_count);
     for (int i=0;i<hole_count;++i) {
@@ -2016,12 +1988,7 @@ extern "C" int sm_chromium_layout(const char *id,double x,double y,double w,doub
       if (v[0]>=w || v[1]>=h || v[0]+v[2]<=0 || v[1]+v[3]<=0) continue;
       cut.push_back({v[0],v[1],v[2],v[3],std::min({v[4],v[2]/2,v[3]/2})});
     }
-    page->x_=x; page->y_=y; page->w_=w; page->h_=h; page->clip_left_=clip_left; page->clip_right_=clip_right; page->viewport_height_=viewport_height; page->bottom_corner_radius_=bottom_corner_radius; page->holes_=std::move(cut); page->hover_edge_=edge; page->visible_=visible;
-    // Slide timing belongs to this layout; later internal layouts start now.
-    page->edge_slide_at_=edge_slide_at; page->edge_slide_duration_=edge_slide_duration;
-    page->Layout();
-    page->edge_slide_at_=page->edge_slide_duration_=0;
-    return 1; }
+    page->x_=x; page->y_=y; page->w_=w; page->h_=h; page->clip_left_=clip_left; page->clip_right_=clip_right; page->viewport_height_=viewport_height; page->bottom_corner_radius_=bottom_corner_radius; page->holes_=std::move(cut); page->visible_=visible; page->Layout(); return 1; }
 }
 extern "C" int sm_chromium_reparent(const char *id,void *parent,double x,double y,double w,double h,double inset) {
   @autoreleasepool { if (!MainThread()) return 0; auto page=FindPage(id); if (!page) return 0;
@@ -2030,7 +1997,7 @@ extern "C" int sm_chromium_reparent(const char *id,void *parent,double x,double 
     [page->drop_indicator_ clear];
     [page->agent_marker_ clear];
     if (page->EditActive()) page->EditMode(false);
-    page->parent_=(__bridge NSView*)parent; page->x_=x; page->y_=y; page->w_=w; page->h_=h; page->clip_left_=page->clip_right_=page->viewport_height_=page->bottom_corner_radius_=0; page->holes_.clear(); page->hover_edge_={}; page->auto_resize_=inset>=0; page->Layout(); return 1; }
+    page->parent_=(__bridge NSView*)parent; page->x_=x; page->y_=y; page->w_=w; page->h_=h; page->clip_left_=page->clip_right_=page->viewport_height_=page->bottom_corner_radius_=0; page->holes_.clear(); page->auto_resize_=inset>=0; page->Layout(); return 1; }
 }
 extern "C" int sm_chromium_command(const char *id,const char *request_id,const char *json) {
   @autoreleasepool { try {

@@ -93,24 +93,19 @@ import {
 import {
   useWorkspaceViews,
   revealBesideWorkspaceView,
-  placeAgentBrowserView,
   selectWorkspaceView,
-  splitWorkspaceView,
   closeWorkspaceViews,
-  moveWorkspaceTab,
-  reorderWorkspaceGroup,
-  collapseWorkspaceView,
-  combineWorkspaceGroups,
-  minimizeWorkspaceSide,
-  restoreWorkspaceSplit,
   toggleWorkspaceExpansion,
   resolveWorkspaceView,
   type WorkspaceView,
 } from "./lib/workspaceViews";
 import {
-  restoreWorkspaceArrangement,
-  moveWorkspaceGroup,
-} from "./lib/workspaceArrangement";
+  applyWorkspaceIntent,
+  hiddenSplitStatus,
+  neighborCombineTargets,
+  type WorkspaceIntent,
+} from "./lib/workspaceIntents";
+import { restoreWorkspaceArrangement } from "./lib/workspaceArrangement";
 import {
   loadWorkspaceRecovery,
   saveWorkspaceRecovery,
@@ -126,7 +121,6 @@ import { flushSync } from "react-dom";
 import {
   useDetachedWorkspaces,
   type DetachedWorkspaceState,
-  type WorkspaceDropPoint,
 } from "./lib/detachedWorkspaces";
 import { useWorkspaceHeaderKeys } from "./hooks/useWorkspaceHeaderKeys";
 import { requestAddToChat } from "./lib/quoteDraft";
@@ -157,8 +151,9 @@ import {
 import { resolveBrowserTabTarget } from "./lib/browserTabTarget";
 import {
   openAgentBrowserTab,
-  matchingAgentBrowserTab,
-  coalesceAgentBrowserOpen,
+  createAgentBrowserRouter,
+  presentAgentBrowserView,
+  type AgentBrowserPlacement,
   type AgentBrowserOpenOptions,
 } from "./lib/agentBrowserOpen";
 import {
@@ -1001,7 +996,7 @@ export default function App({
   const [agentBrowserSurfaces, setAgentBrowserSurfaces] = useState<Set<string>>(
     () => new Set(),
   );
-  const pendingAgentBrowsers = useRef(new Map<string, Promise<string>>());
+  const [agentBrowserRouter] = useState(createAgentBrowserRouter);
   const detachedBrowserBridge = useRef<
     (
       sessionId: string,
@@ -1009,9 +1004,9 @@ export default function App({
       options?: AgentBrowserOpenOptions,
     ) => Promise<string | null>
   >(async () => null);
-  const detachedFocusBrowser = useRef<(surfaceId: string) => Promise<boolean>>(
-    async () => false,
-  );
+  const detachedFocusBrowser = useRef<
+    (surfaceId: string, options?: AgentBrowserOpenOptions) => Promise<boolean>
+  >(async () => false);
   const agentFileBridge = useRef<
     (
       sessionId: string,
@@ -1057,118 +1052,110 @@ export default function App({
           );
           if (!session || !sameProjectPath(sessionWorkCwd(session), cwd))
             throw new Error("The task is no longer available.");
-          return coalesceAgentBrowserOpen(
-            pendingAgentBrowsers.current,
-            session.cwd,
-            url,
-            options,
-            async () => {
-              // Matching pages belong to the authorized project, even when its
-              // requesting chat and browser are in different windows.
-              const existing =
-                !options?.newTab &&
-                matchingAgentBrowserTab(
-                  normalizeBrowserWorkspace(
-                    browserWorkspacesRef.current[session.cwd] ?? EMPTY_BROWSER,
-                  ).tabs,
-                  url,
-                );
-              const detachedSurface = existing
-                ? null
-                : await detachedBrowserBridge.current(sessionId, url, options);
-              if (detachedSurface) return detachedSurface;
-              const currentSession = sessionsRef.current.find(
-                (item) => item.id === sessionId,
+          const open = async (
+            existing: boolean,
+            placement: AgentBrowserPlacement,
+          ) => {
+            const detachedSurface = existing
+              ? null
+              : await detachedBrowserBridge.current(sessionId, url, options);
+            if (detachedSurface) return detachedSurface;
+            const currentSession = sessionsRef.current.find(
+              (item) => item.id === sessionId,
+            );
+            if (
+              !currentSession ||
+              currentSession.cwd !== session.cwd ||
+              !sameProjectPath(sessionWorkCwd(currentSession), cwd)
+            )
+              throw new Error("The task is no longer available.");
+            const project = session.cwd;
+            // No await between selecting and committing: overlapping opens see the
+            // committed tab and return the same surface instead of creating copies.
+            const {
+              tab: { id },
+              workspace,
+            } = openAgentBrowserTab(
+              browserWorkspacesRef.current[project] ?? EMPTY_BROWSER,
+              url,
+              { ...options, focus: placement.activate },
+            );
+            const surfaceId = browserIdForTab(project, id);
+            if (detachedIdsRef.current.has(surfaceId)) {
+              // A browser can be detached without its chat. Select it in that
+              // window; never add its unavailable surface to the main layout.
+              if (await detachedFocusBrowser.current(surfaceId, options))
+                return surfaceId;
+              throw new Error("The browser tab moved. Try opening it again.");
+            }
+            // Commit the tab first so the workspace view knows the new surface.
+            flushSync(() => {
+              setAgentBrowserSurfaces(
+                (current) => new Set([...current, surfaceId]),
               );
-              if (
-                !currentSession ||
-                currentSession.cwd !== session.cwd ||
-                !sameProjectPath(sessionWorkCwd(currentSession), cwd)
-              )
-                throw new Error("The task is no longer available.");
-              const project = session.cwd;
-              // No await between selecting and committing: overlapping opens see the
-              // committed tab and return the same surface instead of creating copies.
-              const {
-                tab: { id },
-                workspace,
-              } = openAgentBrowserTab(
-                browserWorkspacesRef.current[project] ?? EMPTY_BROWSER,
-                url,
-                { ...options, focus: false },
-              );
-              const surfaceId = browserIdForTab(project, id);
-              if (detachedIdsRef.current.has(surfaceId)) {
-                // A browser can be detached without its chat. Select it in that
-                // window; never add its unavailable surface to the main layout.
-                if (await detachedFocusBrowser.current(surfaceId))
-                  return surfaceId;
-                throw new Error("The browser tab moved. Try opening it again.");
-              }
-              // Commit the tab first so the workspace view knows the new surface.
-              flushSync(() => {
-                setAgentBrowserSurfaces(
-                  (current) => new Set([...current, surfaceId]),
-                );
-                setBrowserWorkspaces((all) => ({
-                  ...all,
-                  [project]: workspace,
-                }));
-              });
-              // Show a requested page in the active project without switching
-              // profiles, beside the chat that asked for it rather than behind it.
-              // arrange:false leaves the panes alone; a new page waits as a
-              // background tab in the focused pane.
-              if (sameProjectPath(projectCwdRef.current, project)) {
-                if (options?.arrange === false) return surfaceId;
-                const requester = tabsRef.current.find((tab) =>
-                  leafIds(tab.layout).includes(sessionId),
-                )?.id;
-                viewRef.current.change((view) =>
-                  placeAgentBrowserView(
-                    view,
-                    surfaceId,
-                    workspace.tabs.map((page) =>
-                      browserIdForTab(project, page.id),
-                    ),
-                    requester,
-                  ),
-                );
-              } else {
-                // Never switch projects under the user; say where the page went.
-                const notice: AgentPageNotice = {
-                  id: surfaceId,
-                  project,
-                  projectName: projectDisplayName(
-                    project,
-                    loadTabGroupLabels(),
-                  ),
+              setBrowserWorkspaces((all) => ({
+                ...all,
+                [project]: workspace,
+              }));
+            });
+            // Show a requested page in the active project without switching
+            // profiles, beside the chat that asked for it rather than behind it.
+            // arrange:false leaves the panes alone; a new page waits as a
+            // background tab in the focused pane.
+            if (sameProjectPath(projectCwdRef.current, project)) {
+              const requester = tabsRef.current.find((tab) =>
+                leafIds(tab.layout).includes(sessionId),
+              )?.id;
+              viewRef.current.change((view) =>
+                presentAgentBrowserView(
+                  view,
                   surfaceId,
-                  tabId: id,
-                  sessionId,
-                  harness: session.harness,
-                  url,
-                };
-                setAgentPageNotices((current) =>
-                  [
-                    ...current.filter((item) => item.id !== notice.id),
-                    notice,
-                  ].slice(-3),
-                );
-                window.setTimeout(
-                  () =>
-                    setAgentPageNotices((current) =>
-                      current.filter((item) => item.id !== notice.id),
-                    ),
-                  12_000,
-                );
-              }
-              return surfaceId;
-            },
-          );
+                  workspace.tabs.map((page) =>
+                    browserIdForTab(project, page.id),
+                  ),
+                  requester,
+                  placement.arrange,
+                ),
+              );
+            } else {
+              // Never switch projects under the user; say where the page went.
+              const notice: AgentPageNotice = {
+                id: surfaceId,
+                project,
+                projectName: projectDisplayName(project, loadTabGroupLabels()),
+                surfaceId,
+                tabId: id,
+                sessionId,
+                harness: session.harness,
+                url,
+              };
+              setAgentPageNotices((current) =>
+                [
+                  ...current.filter((item) => item.id !== notice.id),
+                  notice,
+                ].slice(-3),
+              );
+              window.setTimeout(
+                () =>
+                  setAgentPageNotices((current) =>
+                    current.filter((item) => item.id !== notice.id),
+                  ),
+                12_000,
+              );
+            }
+            return surfaceId;
+          };
+          return agentBrowserRouter.open(session.cwd, url, options, {
+            tabs: () =>
+              normalizeBrowserWorkspace(
+                browserWorkspacesRef.current[session.cwd] ?? EMPTY_BROWSER,
+              ).tabs,
+            reuse: (_, placement) => open(true, placement),
+            create: (_, placement) => open(false, placement),
+          });
         },
       }),
-    [],
+    [agentBrowserRouter],
   );
   const agentBrowserSessionKeys = sessions
     .map((session) => `${session.id}:${session.cwd}:${sessionWorkCwd(session)}`)
@@ -1281,6 +1268,26 @@ export default function App({
     const restored = result.view;
     viewRef.current.change(() => restored);
   }, []);
+  const onKeepBrowser = useCallback((surfaceId: string) => {
+    const cwd = projectCwdRef.current;
+    setBrowserWorkspaces((all) => {
+      const current = all[cwd];
+      if (!current) return all;
+      const target = normalizeBrowserWorkspace(current).tabs.find(
+        (tab) => browserIdForTab(cwd, tab.id) === surfaceId,
+      );
+      if (!target || target.kept) return all;
+      return { ...all, [cwd]: keepBrowserTab(current, target.id) };
+    });
+  }, []);
+  const onWorkspaceIntent = useCallback(
+    (intent: WorkspaceIntent) => {
+      const result = applyWorkspaceIntent(viewRef.current.view, intent);
+      result.keep.forEach(onKeepBrowser);
+      changeLayout(() => result.view);
+    },
+    [changeLayout, onKeepBrowser],
+  );
   const visibleSurfaceIds = view.layout ? leafIds(view.layout) : [];
   const browserFocused = browserSurfaces.some(
     (tab) => tab.surfaceId === view.focusedId,
@@ -1319,55 +1326,25 @@ export default function App({
   const [surfaceDrop, setSurfaceDrop] =
     useState<WorkspaceSurfaceDropTarget | null>(null);
   const surfaceDropRef = useRef<WorkspaceSurfaceDropTarget | null>(null);
-  const [dragKind, setDragKind] = useState<"tab" | "group">("tab");
-  const onDragMove = useCallback(
-    (id: string, x: number, y: number, group = false) => {
+  const onSurfaceDragMove = useCallback((id: string, x: number, y: number) => {
+    const stage = document.querySelector<HTMLElement>("[data-workspace-stage]");
+    const target = stage
+      ? workspaceSurfaceDropAt(stage, x, y, id, surfaceDropRef.current)
+      : null;
+    surfaceDropRef.current = target;
+    setSurfaceDragging(true);
+    setSurfaceDrop((previous) =>
+      JSON.stringify(previous) === JSON.stringify(target) ? previous : target,
+    );
+  }, []);
+  const onSurfaceDragEnd = useCallback(
+    (id: string, x: number, y: number, cancelled: boolean) => {
       const stage = document.querySelector<HTMLElement>(
         "[data-workspace-stage]",
       );
-      const members = group ? (viewRef.current.view.groups[id] ?? [id]) : [id];
-      const target = stage
-        ? workspaceSurfaceDropAt(
-            stage,
-            x,
-            y,
-            id,
-            surfaceDropRef.current,
-            members,
-          )
-        : null;
-      surfaceDropRef.current = target;
-      setSurfaceDragging(true);
-      setDragKind(group ? "group" : "tab");
-      setSurfaceDrop((previous) =>
-        JSON.stringify(previous) === JSON.stringify(target) ? previous : target,
-      );
-    },
-    [],
-  );
-  const onDragEnd = useCallback(
-    (
-      id: string,
-      x: number,
-      y: number,
-      cancelled: boolean,
-      _point?: WorkspaceDropPoint,
-      group = false,
-    ) => {
-      const stage = document.querySelector<HTMLElement>(
-        "[data-workspace-stage]",
-      );
-      const members = group ? (viewRef.current.view.groups[id] ?? [id]) : [id];
       const target =
         !cancelled && stage
-          ? workspaceSurfaceDropAt(
-              stage,
-              x,
-              y,
-              id,
-              surfaceDropRef.current,
-              members,
-            )
+          ? workspaceSurfaceDropAt(stage, x, y, id, surfaceDropRef.current)
           : null;
       surfaceDropRef.current = null;
       setSurfaceDragging(false);
@@ -1375,56 +1352,10 @@ export default function App({
       if (cancelled) return false;
       // Outside drops cancel. Splits and tab moves stay inside this workspace.
       if (!target) return false;
-      // A deliberate move keeps the page visible in its destination group.
-      setBrowserWorkspaces((all) => {
-        const cwd = projectCwdRef.current;
-        const state = all[cwd];
-        if (!state) return all;
-        let next = normalizeBrowserWorkspace(state);
-        const moving = next.tabs.filter(
-          (tab) => browserIdForTab(cwd, tab.id) === id && !tab.kept,
-        );
-        if (!moving.length) return all;
-        for (const tab of moving) next = keepBrowserTab(next, tab.id);
-        return { ...all, [cwd]: next };
-      });
-      changeLayout((value) =>
-        group
-          ? moveWorkspaceGroup(
-              value,
-              id,
-              target.id,
-              target.edge,
-              target.edge === "tab"
-                ? (target.orderIndex ?? target.index)
-                : undefined,
-            )
-          : target.edge === "tab"
-            ? moveWorkspaceTab(
-                value,
-                id,
-                target.id,
-                target.orderIndex ?? target.index,
-              )
-            : splitWorkspaceView(value, id, target.edge, target.id),
-      );
+      onWorkspaceIntent({ type: "drop", id, target });
       return true;
     },
-    [changeLayout],
-  );
-  const onSurfaceDragMove = useCallback(
-    (id: string, x: number, y: number) => onDragMove(id, x, y),
-    [onDragMove],
-  );
-  const onSurfaceDragEnd = useCallback(
-    (
-      id: string,
-      x: number,
-      y: number,
-      cancelled: boolean,
-      point?: WorkspaceDropPoint,
-    ) => onDragEnd(id, x, y, cancelled, point),
-    [onDragEnd],
+    [onWorkspaceIntent],
   );
   const onNewBrowserTab = useCallback(() => {
     setHomeViewOpen(false);
@@ -1503,18 +1434,6 @@ export default function App({
     },
     [projectCwd, browserState],
   );
-  const onKeepBrowser = useCallback((surfaceId: string) => {
-    const cwd = projectCwdRef.current;
-    setBrowserWorkspaces((all) => {
-      const current = all[cwd];
-      if (!current) return all;
-      const target = normalizeBrowserWorkspace(current).tabs.find(
-        (tab) => browserIdForTab(cwd, tab.id) === surfaceId,
-      );
-      if (!target || target.kept) return all;
-      return { ...all, [cwd]: keepBrowserTab(current, target.id) };
-    });
-  }, []);
   useEffect(() => {
     saveBrowserWorkspaces(browserWorkspaces);
   }, [browserWorkspaces]);
@@ -1599,20 +1518,15 @@ export default function App({
     leaveDelay: 90,
   });
   const inspectorVisible = workspaceVisible && inspector.open;
-  const sidebarNativePointer = sidebarHover.nativePointer;
   useEffect(() => {
-    // Native pages draw above the workspace, so the pointer moving onto one,
-    // resting on the hover edge over it, or leaving it never reaches this
-    // document as a pointer event. Listen throughout, so no report is missed.
+    if (!sidebarHover.revealed) return;
+    // Native pages draw above the workspace, so leaving the peek for one
+    // never reaches this document as a pointer event.
     const unlisten = Promise.resolve()
-      .then(() =>
-        nativeBrowser.listenPointer(({ id, region }) =>
-          sidebarNativePointer(id, region),
-        ),
-      )
+      .then(() => nativeBrowser.listenPointer(sidebarHover.pointerLeft))
       .catch(() => undefined);
     return () => void unlisten.then((stop) => stop?.());
-  }, [sidebarNativePointer]);
+  }, [sidebarHover.revealed, sidebarHover.pointerLeft]);
   useLayoutEffect(() => {
     // Publish the committed panel geometry before paint. Native browser children
     // can throttle WK animation frames, so ResizeObserver alone trails toggles.
@@ -7588,13 +7502,7 @@ export default function App({
     titleTabsRef.current = nextTitleTabs;
   }
   const titleTabs = titleTabsRef.current;
-  const hiddenSplitIds = new Set(Object.values(view.hiddenGroups ?? {}).flat());
-  const hiddenSplitTabs = titleTabs.filter((tab) => hiddenSplitIds.has(tab.id));
-  const hiddenSplitStatus = hiddenSplitTabs.some((tab) => tab.needsInput)
-    ? "attention"
-    : hiddenSplitTabs.some((tab) => tab.busyHarnesses.length > 0)
-      ? "working"
-      : undefined;
+  const restoreStatus = hiddenSplitStatus(view, titleTabs);
 
   // `history` now spans every visited project; consumers that expect the
   // current project only get this slice.
@@ -9175,7 +9083,6 @@ export default function App({
                   type="button"
                   className="personal-panel-edge personal-panel-edge-left"
                   aria-label="Show workspace sidebar"
-                  data-native-browser-hover-edge="left"
                   {...sidebarHover.edgeHandlers}
                   onClick={onToggleSidebar}
                 />
@@ -9537,13 +9444,11 @@ export default function App({
                                       visibleIds={visibleSurfaceIds}
                                       surfaceOrder={members}
                                       onReorderSurfaces={(ids, movedId) => {
-                                        changeLayout((view) =>
-                                          reorderWorkspaceGroup(
-                                            view,
-                                            owner,
-                                            ids,
-                                          ),
-                                        );
+                                        onWorkspaceIntent({
+                                          type: "reorder",
+                                          group: owner,
+                                          ids,
+                                        });
                                         onReorderTabs(
                                           ids.filter((id) =>
                                             tabs.some((tab) => tab.id === id),
@@ -9556,70 +9461,31 @@ export default function App({
                                             : undefined,
                                         );
                                       }}
-                                      onSplitTab={(id, edge, targetId) =>
-                                        changeLayout((view) =>
-                                          splitWorkspaceView(
-                                            view,
-                                            id,
-                                            edge,
-                                            targetId,
-                                          ),
-                                        )
+                                      onSplitTab={(id, edge, beside) =>
+                                        onWorkspaceIntent({
+                                          type: "split",
+                                          id,
+                                          edge,
+                                          beside,
+                                        })
                                       }
-                                      onUnsplit={() => {
-                                        visibleSurfaceIds.forEach(
-                                          onKeepBrowser,
-                                        );
-                                        changeLayout((view) =>
-                                          collapseWorkspaceView(view, owner),
-                                        );
-                                      }}
-                                      combineTargets={
-                                        view.layout
-                                          ? (
-                                              [
-                                                ["left", "left pane"],
-                                                ["right", "right pane"],
-                                                ["up", "pane above"],
-                                                ["down", "pane below"],
-                                              ] as const
-                                            )
-                                              .map(([direction, label]) => ({
-                                                id: neighborLeafId(
-                                                  view.layout!,
-                                                  owner,
-                                                  direction,
-                                                ),
-                                                label: String(label),
-                                              }))
-                                              .filter(
-                                                (
-                                                  target,
-                                                  index,
-                                                  all,
-                                                ): target is {
-                                                  id: string;
-                                                  label: string;
-                                                } =>
-                                                  !!target.id &&
-                                                  all.findIndex(
-                                                    (entry) =>
-                                                      entry.id === target.id,
-                                                  ) === index,
-                                              )
-                                          : []
+                                      onUnsplit={() =>
+                                        onWorkspaceIntent({
+                                          type: "unsplit",
+                                          group: owner,
+                                        })
                                       }
-                                      onCombineWith={(targetId) => {
-                                        onKeepBrowser(owner);
-                                        onKeepBrowser(targetId);
-                                        changeLayout((view) =>
-                                          combineWorkspaceGroups(
-                                            view,
-                                            owner,
-                                            targetId,
-                                          ),
-                                        );
-                                      }}
+                                      combineTargets={neighborCombineTargets(
+                                        view,
+                                        owner,
+                                      )}
+                                      onCombineWith={(into) =>
+                                        onWorkspaceIntent({
+                                          type: "combine",
+                                          group: owner,
+                                          into,
+                                        })
+                                      }
                                       groupId={owner}
                                       onReopenClosedTab={() => {
                                         void onReopenClosedTab();
@@ -9643,14 +9509,12 @@ export default function App({
                                         members.length > 1 ||
                                         visibleSurfaceIds.length > 1
                                           ? (id) =>
-                                              changeLayout((view) =>
-                                                splitWorkspaceView(
-                                                  view,
-                                                  id,
-                                                  "right",
-                                                  owner,
-                                                ),
-                                              )
+                                              onWorkspaceIntent({
+                                                type: "split",
+                                                id,
+                                                edge: "right",
+                                                beside: owner,
+                                              })
                                           : undefined
                                       }
                                       onSelectBrowser={onSelectBrowserTab}
@@ -9717,30 +9581,25 @@ export default function App({
                                 }
                               }}
                               onLayoutChange={(layout) =>
-                                changeLayout((view) => ({ ...view, layout }))
+                                onWorkspaceIntent({ type: "resize", layout })
                               }
-                              onMinimizeSide={(splitId, index, side) =>
-                                changeLayout((view) =>
-                                  minimizeWorkspaceSide(
-                                    view,
-                                    splitId,
-                                    index,
-                                    side,
-                                  ),
-                                )
+                              onMinimizeSide={(split, index, side) =>
+                                onWorkspaceIntent({
+                                  type: "minimize",
+                                  split,
+                                  index,
+                                  side,
+                                })
                               }
                               onRestoreSplit={
                                 view.restoreView
-                                  ? () => changeLayout(restoreWorkspaceSplit)
+                                  ? () => onWorkspaceIntent({ type: "restore" })
                                   : undefined
                               }
                               restoreEdge={view.minimizedEdge}
-                              restoreStatus={hiddenSplitStatus}
+                              restoreStatus={restoreStatus}
                               dragging={surfaceDragging}
-                              dragKind={dragKind}
-                              dragLabel={
-                                dragKind === "group" ? "Move group" : "Move tab"
-                              }
+                              dragLabel="Move tab"
                               dragTarget={surfaceDrop}
                               surfaces={[
                                 ...tabs

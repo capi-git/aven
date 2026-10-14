@@ -1,0 +1,136 @@
+import type { Tab } from "../chrome/TitleBar";
+import type { WorkspaceSurfaceDropTarget } from "../surfaces/WorkspaceStage";
+import { leafIds, neighborLeafId, type LayoutNode } from "./layout";
+import {
+  collapseWorkspaceView,
+  combineWorkspaceGroups,
+  minimizeWorkspaceSide,
+  moveWorkspaceTab,
+  reorderWorkspaceGroup,
+  restoreWorkspaceSplit,
+  splitWorkspaceView,
+  type ViewEdge,
+  type WorkspaceView,
+} from "./workspaceViews";
+
+/**
+ * An arrangement change asked for by a pane header, the stage or a tab drag.
+ * The main window and detached windows apply these through one function, so
+ * the move-or-split and keep-open rules cannot drift between them.
+ */
+export type WorkspaceIntent =
+  | { type: "drop"; id: string; target: WorkspaceSurfaceDropTarget }
+  | { type: "split"; id: string; edge: ViewEdge; beside?: string }
+  | { type: "reorder"; group: string; ids: string[] }
+  | { type: "combine"; group: string; into: string }
+  | { type: "unsplit"; group: string }
+  | {
+      type: "minimize";
+      split: string;
+      index: number;
+      side: "before" | "after";
+    }
+  | { type: "restore" }
+  | { type: "resize"; layout: LayoutNode };
+
+export type WorkspaceIntentResult = {
+  view: WorkspaceView;
+  /**
+   * Browser pages to keep open. A deliberate move must not leave a page as
+   * the preview that the next opened link replaces.
+   */
+  keep: string[];
+};
+
+export function applyWorkspaceIntent(
+  view: WorkspaceView,
+  intent: WorkspaceIntent,
+): WorkspaceIntentResult {
+  switch (intent.type) {
+    case "drop": {
+      const { target } = intent;
+      return {
+        view:
+          target.edge === "tab"
+            ? moveWorkspaceTab(
+                view,
+                intent.id,
+                target.id,
+                // Hidden Recent tabs can precede the visible slot.
+                target.orderIndex ?? target.index,
+              )
+            : splitWorkspaceView(view, intent.id, target.edge, target.id),
+        keep: [intent.id],
+      };
+    }
+    case "split":
+      return {
+        view: splitWorkspaceView(view, intent.id, intent.edge, intent.beside),
+        keep: [],
+      };
+    case "reorder":
+      return {
+        view: reorderWorkspaceGroup(view, intent.group, intent.ids),
+        keep: [],
+      };
+    case "combine":
+      return {
+        view: combineWorkspaceGroups(view, intent.group, intent.into),
+        keep: [intent.group, intent.into],
+      };
+    case "unsplit":
+      return {
+        view: collapseWorkspaceView(view, intent.group),
+        keep: view.layout ? leafIds(view.layout) : [],
+      };
+    case "minimize":
+      return {
+        view: minimizeWorkspaceSide(
+          view,
+          intent.split,
+          intent.index,
+          intent.side,
+        ),
+        keep: [],
+      };
+    case "restore":
+      return { view: restoreWorkspaceSplit(view), keep: [] };
+    case "resize":
+      return { view: { ...view, layout: intent.layout }, keep: [] };
+  }
+}
+
+const NEIGHBORS = [
+  ["left", "left pane"],
+  ["right", "right pane"],
+  ["up", "pane above"],
+  ["down", "pane below"],
+] as const;
+
+/** Adjacent panes that `group` can combine with, each listed once. */
+export function neighborCombineTargets(
+  view: WorkspaceView,
+  group: string,
+): Array<{ id: string; label: string }> {
+  const { layout } = view;
+  if (!layout) return [];
+  const targets: Array<{ id: string; label: string }> = [];
+  for (const [direction, label] of NEIGHBORS) {
+    const id = neighborLeafId(layout, group, direction);
+    if (id && !targets.some((target) => target.id === id))
+      targets.push({ id, label });
+  }
+  return targets;
+}
+
+/** Restore-control status for tabs tucked away by a minimized split. */
+export function hiddenSplitStatus(
+  view: WorkspaceView,
+  tabs: ReadonlyArray<Pick<Tab, "id" | "needsInput" | "busyHarnesses">>,
+): "attention" | "working" | undefined {
+  const hidden = new Set(Object.values(view.hiddenGroups ?? {}).flat());
+  const tucked = tabs.filter((tab) => hidden.has(tab.id));
+  if (tucked.some((tab) => tab.needsInput)) return "attention";
+  if (tucked.some((tab) => tab.busyHarnesses.length > 0)) return "working";
+  return undefined;
+}

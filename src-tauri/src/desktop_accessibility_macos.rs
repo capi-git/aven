@@ -1084,7 +1084,7 @@ pub(super) enum Next {
 
 /// Called immediately before every mutation; it refuses after pause, stop,
 /// a changed target, or a revoked chat.
-pub(super) type Gate<'a> = &'a dyn Fn() -> Result<(), String>;
+pub(super) type Gate<'a> = &'a gate::Guard;
 
 fn result_json(mut value: Value, outcome: Outcome) -> Value {
     value["confirmed"] = json!(outcome == Outcome::Confirmed);
@@ -1112,10 +1112,10 @@ unsafe fn text_changed(
 /// Performs an action. Ok(None) means the element does not support it, so
 /// the next fallback may run. Once attempted, a timeout is never retried.
 unsafe fn perform(element: &Element, action: &str, gate: Gate) -> Result<Option<Outcome>, String> {
-    gate()?;
+    gate.check()?;
     set_timeout(element.0, ACTION_TIMEOUT);
     let name = ns(action);
-    match AXUIElementPerformAction(element.0, Retained::as_ptr(&name).cast()) {
+    match AXUIElementPerformAction(gate, element.0, Retained::as_ptr(&name).cast())? {
         0 => Ok(Some(Outcome::Confirmed)),
         AX_CANNOT_COMPLETE => Ok(Some(Outcome::Unconfirmed)),
         AX_ACTION_UNSUPPORTED | AX_ATTRIBUTE_UNSUPPORTED | AX_NOT_IMPLEMENTED => Ok(None),
@@ -1143,10 +1143,10 @@ unsafe fn set(
     if !settable(element, attribute) {
         return Ok(None);
     }
-    gate()?;
+    gate.check()?;
     set_timeout(element.0, ACTION_TIMEOUT);
     let name = ns(attribute);
-    match AXUIElementSetAttributeValue(element.0, Retained::as_ptr(&name).cast(), value) {
+    match admitted_set_attribute(gate, element.0, Retained::as_ptr(&name).cast(), value)? {
         0 => Ok(Some(Outcome::Confirmed)),
         AX_CANNOT_COMPLETE => Ok(Some(Outcome::Unconfirmed)),
         AX_ATTRIBUTE_UNSUPPORTED | AX_NOT_IMPLEMENTED | AX_FAILURE => Ok(None),

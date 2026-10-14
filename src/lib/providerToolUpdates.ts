@@ -1,3 +1,4 @@
+import { harnessDescriptor } from "./harness/descriptors";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { HarnessId } from "./session";
 
@@ -44,7 +45,7 @@ export async function refreshAutomaticProviderTools(
   if (!loadProviderToolAutoUpdates() || !isTauri()) return updated;
   await Promise.all(
     [...new Set(providers)].map(async (provider) => {
-      if (provider !== "codex" && provider !== "claude") return;
+      if (!harnessDescriptor(provider).automaticToolUpdates) return;
       try {
         const result = await invoke<{ updated: boolean }>(
           "provider_refresh_cli",

@@ -17,11 +17,9 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { SETTINGS } from "../lib/settingDefinitions";
 import { SettingsNav } from "../chrome/SettingsRail";
-import {
-  settingSearchAnchor,
-  subscribeSettingsAnchor,
-} from "../lib/settingsSearch";
+import { subscribeSettingsAnchor } from "../lib/settingsSearch";
 import {
   GIT_FINISH_BEHAVIOR_DEFAULT,
   GIT_FINISH_BEHAVIOR_OPTIONS,
@@ -44,12 +42,7 @@ import {
 } from "./SettingsControls";
 import type { ColorChoice } from "../lib/colorChoice";
 import "./SettingsView.css";
-import {
-  AUTOSAVE_DEFAULT,
-  loadAutosave,
-  saveAutosave,
-  subscribeAutosave,
-} from "../lib/settings";
+import { saveAutosave } from "../lib/settings";
 import { HarnessIcon } from "../chrome/HarnessIcon";
 import { OverlayNav } from "../chrome/TitleBar";
 import {
@@ -65,6 +58,7 @@ import {
 import { InboxProviderMark } from "../chrome/InboxProviderMark";
 import { RemoveProjectDialog } from "../chrome/RemoveProjectDialog";
 import { WindowControls } from "../chrome/WindowControls";
+import { useSetting } from "../hooks/useSetting";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useColorScheme } from "../hooks/useColorScheme";
 import {
@@ -146,11 +140,7 @@ import {
   subscribePickerVisibility,
 } from "../lib/models";
 import { prettyCwd, projectKey, projectName } from "../lib/paths";
-import {
-  AGENT_KEEP_AWAKE_DESCRIPTION,
-  AGENT_KEEP_AWAKE_LABEL,
-  saveAgentKeepAwake,
-} from "../lib/agentKeepAwake";
+import { saveAgentKeepAwake } from "../lib/agentKeepAwake";
 import { useAgentKeepAwakeSetting } from "../hooks/useAgentKeepAwake";
 import { HAS_NATIVE_GLASS, IS_MAC } from "../lib/platform";
 import {
@@ -187,9 +177,6 @@ import {
   filterKeybindings,
   formatKeybindingContext,
   KEYBINDINGS,
-  BROWSER_MEMORY_SAVER_DEFAULT,
-  loadBrowserMemorySaver,
-  loadBrowserLowMemory,
   loadClaudeHooks,
   loadComposerRunner,
   loadDiffViewer,
@@ -205,10 +192,7 @@ import {
   saveLiveAgentsEnabled,
   saveNotesEnabled,
   saveBrowserMemorySaver,
-  subscribeBrowserMemorySaver,
   saveBrowserLowMemory,
-  subscribeBrowserLowMemory,
-  BROWSER_LOW_MEMORY_DEFAULT,
   settingsSectionDescription,
   settingsSectionLabel,
   type DiffViewer,
@@ -454,7 +438,7 @@ export function SettingsView({
             {section === "git" ? <GitPage /> : null}
             {section === "providers" ? <ProvidersPage /> : null}
             {section === "provider-setup" ? (
-              <div id="setting-provider-setup" tabIndex={-1}>
+              <div id={SETTINGS.providerSetup.id} tabIndex={-1}>
                 <ProviderSetup />
               </div>
             ) : null}
@@ -510,9 +494,9 @@ function GitPage() {
       description="Applies to every agent in every project from its next turn. Asking for something different in a chat still wins."
       scope="Device"
     >
-      <Row label="When an agent finishes" description={selected?.description}>
+      <Row label={SETTINGS.gitFinish.label} description={selected?.description}>
         <Select
-          label="When an agent finishes"
+          label={SETTINGS.gitFinish.label}
           value={behavior}
           options={GIT_FINISH_BEHAVIOR_OPTIONS.map(({ value, label }) => ({
             value,
@@ -552,16 +536,8 @@ function PreferencesPage({
     loadGridArcadeEnabled,
   );
   const [notesEnabled, setNotesEnabled] = useState(loadNotesEnabled);
-  const browserMemorySaver = useSyncExternalStore(
-    subscribeBrowserMemorySaver,
-    loadBrowserMemorySaver,
-    () => BROWSER_MEMORY_SAVER_DEFAULT,
-  );
-  const browserLowMemory = useSyncExternalStore(
-    subscribeBrowserLowMemory,
-    loadBrowserLowMemory,
-    () => BROWSER_LOW_MEMORY_DEFAULT,
-  );
+  const browserMemorySaver = useSetting(SETTINGS.browserMemorySaver);
+  const browserLowMemory = useSetting(SETTINGS.browserLowMemory);
   const browserEngineRestart = useSyncExternalStore(
     subscribeBrowserEngineRestart,
     browserEngineRestartNeeded,
@@ -683,38 +659,30 @@ function PreferencesPage({
       description="Choose what appears around your work."
       scope="Device"
     >
-      <Row
-        label="Notes"
-        description="Keep reusable notes in the sidebar. Add them to a conversation with @note."
-      >
-        <Toggle label="Notes" on={notesEnabled} onChange={onNotesEnabled} />
-      </Row>
-      <Row
-        label="Working agents"
-        description="Show running agents together in the sidebar when multiple tasks are active."
-      >
+      <Row {...SETTINGS.notesEnabled.row}>
         <Toggle
-          label="Working agents"
+          label={SETTINGS.notesEnabled.label}
+          on={notesEnabled}
+          onChange={onNotesEnabled}
+        />
+      </Row>
+      <Row {...SETTINGS.liveAgentsEnabled.row}>
+        <Toggle
+          label={SETTINGS.liveAgentsEnabled.label}
           on={liveAgentsEnabled}
           onChange={onLiveAgentsEnabled}
         />
       </Row>
-      <Row
-        label="Composer mascot"
-        description="Show a small animated mascot while an agent is working."
-      >
+      <Row {...SETTINGS.composerRunner.row}>
         <Toggle
-          label="Composer mascot"
+          label={SETTINGS.composerRunner.label}
           on={composerRunner}
           onChange={onComposerRunner}
         />
       </Row>
-      <Row
-        label="Empty session games"
-        description="Show interactive games in empty sessions. Turn off for a quieter workspace."
-      >
+      <Row {...SETTINGS.gridArcadeEnabled.row}>
         <Toggle
-          label="Empty session games"
+          label={SETTINGS.gridArcadeEnabled.label}
           on={gridArcadeEnabled}
           onChange={onGridArcadeEnabled}
         />
@@ -728,10 +696,7 @@ function PreferencesPage({
       description="Decide what needs your attention."
       scope="Device"
     >
-      <Row
-        label="Notifications"
-        description="Send macOS notifications when a task needs attention while you are elsewhere. Activity keeps a local history even when these are off."
-      >
+      <Row {...SETTINGS.notifications.row}>
         {notificationsEnabled && notificationPermission === "denied" ? (
           <NotificationsBlocked />
         ) : null}
@@ -741,31 +706,26 @@ function PreferencesPage({
           </span>
         ) : null}
         <Toggle
-          label="Notifications"
+          label={SETTINGS.notifications.label}
           on={notificationsEnabled}
           onChange={onNotificationsEnabled}
         />
       </Row>
-      <Row
-        label="Quiet mode"
-        description="Keep recording Activity without task banners or task sounds. Your other sound settings stay unchanged."
-      >
+      <Row {...SETTINGS.quietMode.row}>
         <Toggle
-          label="Quiet mode"
+          label={SETTINGS.quietMode.label}
           on={notificationPreferences.quiet}
           onChange={(value) => onNotificationPreference("quiet", value)}
         />
       </Row>
-      <Row
-        label="Sounds"
-        description="Play short cues for task completion, inbox items, updates, and interactions."
-      >
-        <Toggle label="Sounds" on={soundsEnabled} onChange={onSoundsEnabled} />
+      <Row {...SETTINGS.sounds.row}>
+        <Toggle
+          label={SETTINGS.sounds.label}
+          on={soundsEnabled}
+          onChange={onSoundsEnabled}
+        />
       </Row>
-      <Row
-        label="Activity alerts"
-        description="Choose which outcomes can interrupt you. Every outcome still appears in Activity."
-      >
+      <Row {...SETTINGS.activityAlerts.row}>
         <div className="settings-alert-options">
           {(
             [
@@ -813,26 +773,23 @@ function PreferencesPage({
         description="Keep browser tabs ready while managing memory."
         scope="Device"
       >
-        <Row
-          label="Memory saver"
-          description="Keep your three most recent browser tabs ready. Older inactive tabs can sleep after five minutes and reload when reopened. Pages in use stay awake."
-        >
+        <Row {...SETTINGS.browserMemorySaver.row}>
           <Toggle
-            label="Memory saver"
+            label={SETTINGS.browserMemorySaver.label}
             on={browserMemorySaver}
             onChange={saveBrowserMemorySaver}
           />
         </Row>
         <Row
-          label="Lightweight browser"
+          label={SETTINGS.browserLowMemory.label}
           description={
             browserEngineRestart
-              ? "Uses Chromium's reduced-memory mode for web pages. Restart Aven to apply this change."
-              : "Uses Chromium's reduced-memory mode for web pages. With Memory saver on, keeps only your most recent inactive tab ready and sleeps others after two minutes. For laptops with little memory; the engine mode applies when Aven starts."
+              ? SETTINGS.browserLowMemory.restartDescription
+              : SETTINGS.browserLowMemory.row.description
           }
         >
           <Toggle
-            label="Lightweight browser"
+            label={SETTINGS.browserLowMemory.label}
             on={browserLowMemory}
             onChange={saveBrowserLowMemory}
           />
@@ -849,21 +806,15 @@ function PreferencesPage({
         description="Task defaults and behavior."
         scope="Device"
       >
-        <Row
-          label="Default task access"
-          description="Applies to new tasks. Existing tasks keep their own access setting."
-        >
+        <Row {...SETTINGS.defaultTaskAccess.row}>
           <AccessPicker
             value={defaultAccess}
             onChange={saveDefaultRuntimeMode}
           />
         </Row>
-        <Row
-          label="Follow-up behavior"
-          description="Queue follow-ups until the active turn finishes, or steer the active turn immediately."
-        >
+        <Row {...SETTINGS.followUpBehavior.row}>
           <Segmented
-            label="Follow-up behavior"
+            label={SETTINGS.followUpBehavior.label}
             value={followUpBehavior}
             options={[
               { value: "queue", label: "Queue" },
@@ -878,12 +829,9 @@ function PreferencesPage({
         description="Read and review in the way that works for you."
         scope="Device"
       >
-        <Row
-          label="Transcript layout"
-          description="Choose full-width prompts or a familiar chat layout."
-        >
+        <Row {...SETTINGS.transcriptLayout.row}>
           <Segmented
-            label="Transcript layout"
+            label={SETTINGS.transcriptLayout.label}
             value={transcriptLayout}
             options={[
               { value: "full", label: "Full width" },
@@ -892,22 +840,16 @@ function PreferencesPage({
             onChange={onTranscriptLayout}
           />
         </Row>
-        <Row
-          label="Anchor prompts to top"
-          description="Keep your latest prompt at the top while the response grows below it."
-        >
+        <Row {...SETTINGS.transcriptAnchor.row}>
           <Toggle
-            label="Anchor prompts to top"
+            label={SETTINGS.transcriptAnchor.label}
             on={transcriptAnchor}
             onChange={onTranscriptAnchor}
           />
         </Row>
-        <Row
-          label="Diff view"
-          description="Review changes in the editor or together in one unified view."
-        >
+        <Row {...SETTINGS.diffViewer.row}>
           <Segmented
-            label="Diff view"
+            label={SETTINGS.diffViewer.label}
             value={diffViewer}
             options={[
               { value: "editor", label: "Editor" },
@@ -924,12 +866,9 @@ function PreferencesPage({
         description="Provider-specific behavior."
         scope="Device"
       >
-        <Row
-          label="Claude Code hooks"
-          description="Run your configured Claude Code hooks. Changes apply on the next turn."
-        >
+        <Row {...SETTINGS.claudeHooks.row}>
           <Toggle
-            label="Claude Code hooks"
+            label={SETTINGS.claudeHooks.label}
             on={claudeHooks}
             onChange={onClaudeHooks}
           />
@@ -942,12 +881,9 @@ function PreferencesPage({
 function AgentKeepAwakeRow() {
   const on = useAgentKeepAwakeSetting();
   return (
-    <Row
-      label={AGENT_KEEP_AWAKE_LABEL}
-      description={AGENT_KEEP_AWAKE_DESCRIPTION}
-    >
+    <Row {...SETTINGS.agentKeepAwake.row}>
       <Toggle
-        label={AGENT_KEEP_AWAKE_LABEL}
+        label={SETTINGS.agentKeepAwake.label}
         on={on}
         onChange={saveAgentKeepAwake}
       />
@@ -956,18 +892,11 @@ function AgentKeepAwakeRow() {
 }
 
 function AutosaveRow() {
-  const autosave = useSyncExternalStore(
-    subscribeAutosave,
-    loadAutosave,
-    () => AUTOSAVE_DEFAULT,
-  );
+  const autosave = useSetting(SETTINGS.autosave);
   return (
-    <Row
-      label="Autosave files"
-      description="Save edited files shortly after you stop typing."
-    >
+    <Row {...SETTINGS.autosave.row}>
       <Toggle
-        label="Autosave files"
+        label={SETTINGS.autosave.label}
         on={autosave}
         onChange={(next) => void saveAutosave(next)}
       />
@@ -980,9 +909,9 @@ function ConnectionsPage({ cwd }: { cwd: string }) {
   return (
     <>
       <SettingsGroup
-        title="Agent connections"
-        id={settingSearchAnchor("Agent connections")}
-        description="Add, remove, and sign in to the MCP servers Claude and Codex can reach. Each provider keeps its own settings and sign-in."
+        title={SETTINGS.agentConnections.label}
+        id={SETTINGS.agentConnections.id}
+        description={SETTINGS.agentConnections.row.description}
         scope="Project"
       >
         <ProviderConnections cwd={cwd} />
@@ -992,7 +921,7 @@ function ConnectionsPage({ cwd }: { cwd: string }) {
         description="Bring Linear issues into your inbox."
         scope="Device"
       >
-        <div id="setting-linear-api-key" tabIndex={-1}>
+        <div id={SETTINGS.linearApiKey.id} tabIndex={-1}>
           <LinearSettings />
         </div>
       </SettingsGroup>
@@ -1108,7 +1037,7 @@ function LinearSettings() {
                   if (event.key === "Enter") void onSave();
                 }}
                 placeholder="lin_api_…"
-                aria-label="Linear API key"
+                aria-label={SETTINGS.linearApiKey.label}
                 autoComplete="off"
                 spellCheck={false}
                 className="min-w-0 flex-1 bg-transparent text-ui-label text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
@@ -1206,10 +1135,10 @@ function UpdateRow({
 
   return (
     <Row
-      id="setting-version"
+      id={SETTINGS.version.id}
       label={
         <span className="flex items-baseline gap-2">
-          Version
+          {SETTINGS.version.label}
           <span className="font-mono text-ui-label text-content/45">
             {snapshot.currentVersion}
           </span>
@@ -1470,12 +1399,9 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         description="Set the mood for this workspace."
         scope="Workspace"
       >
-        <Row
-          label="Theme"
-          description="Follow your system, or choose a light or dark appearance."
-        >
+        <Row {...SETTINGS.theme.row}>
           <Segmented
-            label="Theme"
+            label={SETTINGS.theme.label}
             value={appearance.themePreference}
             options={[
               { value: "system", label: "System" },
@@ -1485,7 +1411,7 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
             onChange={appearance.onThemePreference}
           />
         </Row>
-        <div id="setting-workspace-colors" tabIndex={-1}>
+        <div id={SETTINGS.workspaceColors.id} tabIndex={-1}>
           <SettingsColorPicker
             scopeKey={`${appearance.profileId}:${appearance.colorScheme}`}
             targets={COLOR_TARGETS}
@@ -1503,14 +1429,11 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         description="Comfortable reading and quieter window controls."
         scope="Device"
       >
-        <Row
-          label="Interface scale"
-          description="Resize the whole interface. Use Cmd +/− and Cmd 0 on Mac, or Ctrl on Windows and Linux."
-        >
+        <Row {...SETTINGS.uiScale.row}>
           {/* A menu, not a live slider: rescaling the page while dragging
               moves the control out from under the pointer (MonoCode b4f5befb). */}
           <Select
-            label="Interface scale"
+            label={SETTINGS.uiScale.label}
             value={String(Math.round(appearance.uiScale * 100))}
             options={UI_SCALE_PERCENTS.map((percent) => ({
               value: String(percent),
@@ -1519,12 +1442,9 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
             onChange={(value) => appearance.onUiScale(Number(value))}
           />
         </Row>
-        <Row
-          label="Status bar opacity"
-          description="Background strength of the bottom bar when the sidebar is hidden. Text and controls stay solid."
-        >
+        <Row {...SETTINGS.statusBarOpacity.row}>
           <Slider
-            label="Status bar opacity"
+            label={SETTINGS.statusBarOpacity.label}
             value={Math.round(appearance.statusBarOpacity * 100)}
             display={`${Math.round(appearance.statusBarOpacity * 100)}%`}
             min={Math.round(STATUS_BAR_OPACITY_MIN * 100)}
@@ -1538,27 +1458,24 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         description="Balance focus, transparency, and a consistent workspace."
         scope="Workspace"
       >
-        <Row
-          label="Match sidebars to workspace"
-          description="Use the same background and transparency across the workspace and sidebars."
-        >
+        <Row {...SETTINGS.matchPanels.row}>
           <Toggle
-            label="Match sidebars to workspace"
+            label={SETTINGS.matchPanels.label}
             on={appearance.matchPanels}
             onChange={appearance.onMatchPanels}
           />
         </Row>
         {HAS_NATIVE_GLASS && (
           <Row
-            label="Background opacity"
+            label={SETTINGS.backgroundOpacity.label}
             description={
               glassDisabled
-                ? "Light mode always uses an opaque window. Your dark-mode value is preserved."
-                : "Background opacity for this workspace. Lower values show more of the desktop; text remains solid."
+                ? SETTINGS.backgroundOpacity.disabledDescription
+                : SETTINGS.backgroundOpacity.row.description
             }
           >
             <Slider
-              label="Background opacity"
+              label={SETTINGS.backgroundOpacity.label}
               value={percent}
               display={`${percent}%`}
               min={Math.round(SIDEBAR_OPACITY_MIN * 100)}
@@ -1570,17 +1487,17 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         )}
         {HAS_NATIVE_GLASS && (
           <Row
-            label="Blur radius"
+            label={SETTINGS.blurRadius.label}
             description={
               glassDisabled
-                ? "Background blur is unavailable while light mode uses an opaque window."
+                ? SETTINGS.blurRadius.disabledDescription
                 : appearance.opacity >= 1
-                  ? "Lower background opacity to see desktop blur. At 100% opacity, the window covers it."
-                  : "Desktop blur for this workspace. Zero turns blur off; higher values cost more to composite."
+                  ? SETTINGS.blurRadius.opaqueDescription
+                  : SETTINGS.blurRadius.row.description
             }
           >
             <Slider
-              label="Blur radius"
+              label={SETTINGS.blurRadius.label}
               value={appearance.blur}
               display={appearance.blur === 0 ? "Off" : String(appearance.blur)}
               min={SIDEBAR_BLUR_MIN}
@@ -1592,15 +1509,15 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         )}
         {HAS_NATIVE_GLASS && (
           <Row
-            label="Include workspace"
+            label={SETTINGS.bodyGlass.label}
             description={
               glassDisabled
-                ? "Main pane glass is unavailable while light mode uses an opaque window."
-                : "Also show the desktop behind sessions and editors in this workspace."
+                ? SETTINGS.bodyGlass.disabledDescription
+                : SETTINGS.bodyGlass.row.description
             }
           >
             <Toggle
-              label="Include workspace"
+              label={SETTINGS.bodyGlass.label}
               on={appearance.bodyGlass}
               onChange={appearance.onBodyGlass}
               disabled={glassDisabled}
@@ -1644,10 +1561,7 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         title="Reuse this appearance"
         description="A one-time copy; each workspace can still be customized later."
       >
-        <Row
-          label="Same appearance across workspaces"
-          description="Copy these colors, transparency, blur, and sidebar styles to your other workspaces."
-        >
+        <Row {...SETTINGS.sameAppearance.row}>
           <ApplyWorkspaceThemeButton profileId={appearance.profileId} />
         </Row>
       </SettingsGroup>
@@ -1677,17 +1591,17 @@ function ChatBackgroundCard({
 
   return (
     <div
-      id="setting-chat-background"
+      id={SETTINGS.chatBackground.id}
       className="settings-background-card"
       tabIndex={-1}
     >
       <div className="settings-background-heading">
         <div className="min-w-0 flex-1">
           <div className="text-ui-body font-medium text-content">
-            Chat background
+            {SETTINGS.chatBackground.label}
           </div>
           <p className="mt-1 text-ui-label leading-relaxed text-content/65">
-            An image behind your chat panes. It stays on this device.
+            {SETTINGS.chatBackground.row.description}
           </p>
         </div>
         {hasImage ? (
@@ -1796,7 +1710,7 @@ function KeybindingsPage() {
   const rows = useMemo(() => filterKeybindings(KEYBINDINGS, query), [query]);
   return (
     <section
-      id="setting-keybindings"
+      id={SETTINGS.keybindings.id}
       className="settings-shortcuts"
       tabIndex={-1}
       aria-label="Keyboard shortcuts"
@@ -1927,7 +1841,11 @@ function ProvidersPage() {
 
   return (
     <>
-      <div id="setting-providers" className="settings-providers" tabIndex={-1}>
+      <div
+        id={SETTINGS.providers.id}
+        className="settings-providers"
+        tabIndex={-1}
+      >
         <Heading title="Providers & models" />
         <p className="settings-section-note">
           Choose what appears in the model picker. Hiding a provider keeps its
@@ -1951,12 +1869,9 @@ function ProvidersPage() {
         description="Stay current without changing the models selected for your tasks."
         scope="Device"
       >
-        <Row
-          label="Keep provider tools up to date"
-          description="Check supported Codex and Claude installations daily so newly released models appear automatically. Model lists also refresh while Aven is open. Your selected models stay the same."
-        >
+        <Row {...SETTINGS.providerToolAutoUpdates.row}>
           <Toggle
-            label="Keep provider tools up to date"
+            label={SETTINGS.providerToolAutoUpdates.label}
             on={autoUpdateTools}
             onChange={saveProviderToolAutoUpdates}
           />
@@ -2243,7 +2158,10 @@ function ArchivePage({
 
   return (
     <>
-      <SettingsGroup title="Archived projects" id="setting-archived-projects">
+      <SettingsGroup
+        title={SETTINGS.archivedProjects.label}
+        id={SETTINGS.archivedProjects.id}
+      >
         {archivedProjects.length === 0 ? (
           <p className="py-4 text-ui-label text-content/50">
             Archive a project from the rail to keep its chats without listing it
@@ -2279,12 +2197,9 @@ function ArchivePage({
       </SettingsGroup>
 
       <SettingsGroup title="Sidebar">
-        <Row
-          label="Show archived in the sidebar"
-          description="Keep archived conversations listed alongside the active ones."
-        >
+        <Row {...SETTINGS.showArchived.row}>
           <Toggle
-            label="Show archived in the sidebar"
+            label={SETTINGS.showArchived.label}
             on={filters.showArchived}
             onChange={onShowArchived}
           />
@@ -2295,9 +2210,9 @@ function ArchivePage({
         title={
           looksLikeProject(cwd)
             ? `Archived in ${projectName(cwd)}`
-            : "Archived conversations"
+            : SETTINGS.archivedConversations.label
         }
-        id="setting-archived-conversations"
+        id={SETTINGS.archivedConversations.id}
       >
         {!looksLikeProject(cwd) ? (
           <p className="py-4 text-ui-label text-content/50">

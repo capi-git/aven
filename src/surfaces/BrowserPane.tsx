@@ -52,28 +52,18 @@ import {
   nativeBrowser,
   openBrowserExternally,
   resolveBrowserAddress,
-  type BrowserBounds,
   type BrowserAction,
   type BrowserDownload,
   type BrowserFindResult,
   type BrowserState,
 } from "../lib/browser";
 import { useBrowserDropIndicator } from "../hooks/useBrowserDropIndicator";
+import { beginBrowserHandoff, endBrowserHandoff } from "../lib/browserHandoff";
 import {
-  BROWSER_OVERLAYS,
-  browserOverlayState,
-  type BrowserOverlayState,
-} from "../lib/browserOverlays";
-import {
-  beginBrowserHandoff,
-  endBrowserHandoff,
-  waitForBrowserHandoff,
-} from "../lib/browserHandoff";
-import {
-  NATIVE_SLIDE_CLOSE_LEAD_MS,
-  startSharedSlide,
-  type SharedSlide,
-} from "../lib/peekSlideSync";
+  createBrowserPresentation,
+  type BrowserSnapshot,
+  type BrowserPresentation,
+} from "../lib/browserPresentation";
 import "./BrowserPane.css";
 import type { Attachment } from "../lib/session";
 
@@ -96,106 +86,7 @@ export type BrowserPaneProps = {
   onToggleExpand?: () => void;
 };
 
-const OVERLAYS = BROWSER_OVERLAYS;
-// ResizeObserver also reaches this path during native window resizing. A
-// deferred WebKit frame must not leave Chromium at old bounds for 100 ms.
-const LAYOUT_FALLBACK_MS = 16;
-const OVERLAY_SNAPSHOT_DEADLINE_MS = 80;
-const SNAPSHOT_PAINT_DEADLINE_MS = 16;
-const ZOOM_SNAPSHOT_DELAY_MS = 60;
 const BROWSER_ACTIONS_WIDTH = 224;
-
-type BrowserSnapshot = {
-  src: string;
-  width: number;
-  height: number;
-  scale: number;
-  left: number;
-  top: number;
-};
-type SnapshotRequest = {
-  capture: () => Promise<BrowserSnapshot>;
-  relevant: () => boolean;
-  resolve: (snapshot: BrowserSnapshot | null) => void;
-};
-const snapshotRequests = new Map<
-  string,
-  { running: boolean; queued: SnapshotRequest | null }
->();
-
-/** Keep expensive native captures bounded even when a renderer is replaced. */
-function requestBrowserSnapshot(
-  id: string,
-  capture: SnapshotRequest["capture"],
-  relevant: SnapshotRequest["relevant"],
-): Promise<BrowserSnapshot | null> {
-  let slot = snapshotRequests.get(id);
-  if (!slot) {
-    slot = { running: false, queued: null };
-    snapshotRequests.set(id, slot);
-  }
-  const state = slot;
-  return new Promise((resolve) => {
-    const request = { capture, relevant, resolve };
-    const finish = () => {
-      state.running = false;
-      const next = state.queued;
-      state.queued = null;
-      if (next) run(next);
-      else if (snapshotRequests.get(id) === state) snapshotRequests.delete(id);
-    };
-    const run = (next: SnapshotRequest) => {
-      state.running = true;
-      try {
-        if (!next.relevant()) {
-          next.resolve(null);
-          finish();
-          return;
-        }
-        void next
-          .capture()
-          .then(next.resolve, () => next.resolve(null))
-          .finally(finish);
-      } catch {
-        next.resolve(null);
-        finish();
-      }
-    };
-    if (state.running) {
-      state.queued?.resolve(null);
-      state.queued = request;
-    } else run(request);
-  });
-}
-
-function snapshotViewport(bounds: BrowserBounds) {
-  const left = Math.round(bounds.x * bounds.scale) / bounds.scale;
-  const top = Math.round(bounds.y * bounds.scale) / bounds.scale;
-  const right =
-    Math.round((bounds.x + bounds.width) * bounds.scale) / bounds.scale;
-  const bottom =
-    Math.round((bounds.y + bounds.height) * bounds.scale) / bounds.scale;
-  return {
-    width: right - left,
-    height: bottom - top,
-    scale: bounds.scale,
-    left: left - bounds.x,
-    top: top - bounds.y,
-  };
-}
-
-function sameSnapshotViewport(
-  a: Omit<BrowserSnapshot, "src">,
-  b: Omit<BrowserSnapshot, "src">,
-) {
-  return (
-    a.scale === b.scale &&
-    Math.abs(a.width - b.width) < 0.00001 &&
-    Math.abs(a.height - b.height) < 0.00001 &&
-    Math.abs(a.left - b.left) < 0.00001 &&
-    Math.abs(a.top - b.top) < 0.00001
-  );
-}
 
 function browserMenuPosition(button: HTMLButtonElement) {
   const rect = button.getBoundingClientRect();
@@ -203,114 +94,6 @@ function browserMenuPosition(button: HTMLButtonElement) {
     x: Math.max(8, rect.right - BROWSER_ACTIONS_WIDTH),
     y: rect.bottom + 4,
   };
-}
-
-function clipHoverSidebars(bounds: BrowserBounds): BrowserBounds {
-  let clipLeft = 0;
-  let clipRight = 0;
-  for (const element of document.querySelectorAll<HTMLElement>(
-    '[data-native-browser-occluded="true"][data-native-browser-edge]',
-  )) {
-    const style = getComputedStyle(element);
-    if (
-      style.visibility === "hidden" ||
-      // A dismissed peek starts closing before React removes its markers.
-      element.closest(
-        '[hidden], [inert], [aria-hidden="true"], [data-open="false"]',
-      )
-    )
-      continue;
-    // The active marker is authoritative even while the panel is still off
-    // its edge on the first reveal frame; waiting for the slide would paint
-    // Chromium over the panel. Reserve the final edge for the whole reveal
-    // animation. The page stays in place instead of reflowing or being
-    // captured as a still image.
-    const shift =
-      style.transform && style.transform !== "none"
-        ? new DOMMatrixReadOnly(style.transform).m41
-        : 0;
-    for (const rect of element.getClientRects()) {
-      if (
-        rect.width <= 0 ||
-        rect.height <= 0 ||
-        rect.bottom <= bounds.y ||
-        rect.top >= bounds.y + bounds.height
-      )
-        continue;
-      if (element.dataset.nativeBrowserEdge === "left") {
-        // A full-width slide starts entirely past the edge; test overlap at
-        // the panel's resting place.
-        const left = rect.left - Math.min(0, shift);
-        const right = rect.right - Math.min(0, shift);
-        if (left < bounds.x + bounds.width && right > bounds.x)
-          clipLeft = Math.max(clipLeft, right - bounds.x);
-      }
-      if (element.dataset.nativeBrowserEdge === "right") {
-        const left = rect.left - Math.max(0, shift);
-        const right = rect.right - Math.max(0, shift);
-        if (right > bounds.x && left < bounds.x + bounds.width)
-          clipRight = Math.max(clipRight, bounds.x + bounds.width - left);
-      }
-    }
-  }
-  clipLeft = Math.min(bounds.width, Math.max(0, clipLeft));
-  clipRight = Math.min(bounds.width - clipLeft, Math.max(0, clipRight));
-  return clipLeft || clipRight ? { ...bounds, clipLeft, clipRight } : bounds;
-}
-
-const HOVER_EDGES = "[data-native-browser-hover-edge]";
-
-/**
- * The workspace's hover edge over the page, relative to its origin. The page
- * draws above it and keeps its clicks; native layout reports the pointer
- * resting there, so a hidden sidebar still peeks over a browser page.
- */
-function withHoverEdge(bounds: BrowserBounds): BrowserBounds {
-  for (const element of document.querySelectorAll<HTMLElement>(HOVER_EDGES)) {
-    const rect = element.getBoundingClientRect();
-    if (
-      rect.width <= 0 ||
-      rect.height <= 0 ||
-      rect.right <= bounds.x ||
-      rect.left >= bounds.x + bounds.width ||
-      rect.bottom <= bounds.y ||
-      rect.top >= bounds.y + bounds.height
-    )
-      continue;
-    return {
-      ...bounds,
-      hoverEdge: {
-        x: rect.left - bounds.x,
-        y: rect.top - bounds.y,
-        width: rect.width,
-        height: rect.height,
-      },
-    };
-  }
-  return bounds;
-}
-
-function hasVisibleBrowserArea(bounds: BrowserBounds): boolean {
-  return bounds.width - (bounds.clipLeft ?? 0) - (bounds.clipRight ?? 0) >= 1;
-}
-
-/**
- * Overlays a still image must stand in for: modal dialogs, very large panels,
- * or any overlap on an engine that cannot cut menus out of its live page.
- */
-function hasOccludingOverlay(
-  bounds: BrowserBounds,
-  holesSupported: boolean,
-): boolean {
-  return browserOverlayState(bounds, holesSupported).capture;
-}
-
-/** Attach the live page's menu cut-outs, or none when the page is captured. */
-function withOverlayHoles(
-  bounds: BrowserBounds,
-  overlay: BrowserOverlayState,
-): BrowserBounds {
-  return overlay.holes.length ? { ...bounds, holes: overlay.holes } : bounds;
 }
 
 function startsWithUrl(value?: string): string {
@@ -396,8 +179,6 @@ function BrowserPaneSession({
   const urlRef = useRef(url);
   const snapshotZoom = useRef({ factor: zoomFactor, menu: toolsMenu });
   snapshotZoom.current = { factor: zoomFactor, menu: toolsMenu };
-  const previousSnapshotZoom = useRef(zoomFactor);
-  const refreshZoomSnapshot = useRef<(refresh: boolean) => void>(() => {});
   const updatePaused = useSyncExternalStore(
     subscribeBrowserUpdate,
     browserUpdatePaused,
@@ -655,7 +436,7 @@ function BrowserPaneSession({
   useEffect(() => {
     setToolsMenu(null);
   }, [readyId, visible]);
-  const scheduleLayout = useRef<() => void>(() => {});
+  const presentationController = useRef<BrowserPresentation | null>(null);
   const hasUrl = !!url;
   const focusNewAddress = useRef(!hasUrl);
   const sleepProtection =
@@ -789,10 +570,7 @@ function BrowserPaneSession({
   }, [readyId]);
 
   useEffect(() => {
-    const changed = previousSnapshotZoom.current !== zoomFactor;
-    previousSnapshotZoom.current = zoomFactor;
-    if (!toolsMenu) refreshZoomSnapshot.current(false);
-    else if (changed) refreshZoomSnapshot.current(true);
+    presentationController.current?.updateZoom();
   }, [toolsMenu, zoomFactor]);
 
   useEffect(() => {
@@ -917,7 +695,7 @@ function BrowserPaneSession({
       setHoleMenus(holes);
       if (nativeHoles.current !== holes) {
         nativeHoles.current = holes;
-        scheduleLayout.current();
+        presentationController.current?.update();
       }
       setNativeDropIndicator(state.nativeDropIndicator === true);
       if (state.title !== nativeTitle) {
@@ -1048,505 +826,29 @@ function BrowserPaneSession({
 
   useEffect(() => {
     if (!readyId || !host.current) return;
-    let disposed = false;
-    let frame: number | null = null;
-    let fallback: number | null = null;
-    let paintFrame: number | null = null;
-    let paintFallback: number | null = null;
-    let finishPaint: (() => void) | null = null;
-    let finishCapture: (() => void) | null = null;
-    let captureGeneration = 0;
-    let zoomRefreshTimer: number | null = null;
-    let zoomRefreshActive = false;
-    let inFlight = false;
-    let pending = false;
-    let pendingImmediate = false;
-    let placementInvalidated = false;
-    let lastLayout = "";
-    let lastGeometry = "";
-    let lastBounds: BrowserBounds | null = null;
-    let lastNativeBounds: BrowserBounds | null = null;
-    // The hover sidebar's slide that the next crop change follows.
-    let edgeSlide: SharedSlide | null = null;
-    // WK may report itself occluded by the native Chromium child. Presentation
-    // belongs to the selected workspace pane; macOS hides minimized windows.
-    const isPaused = () =>
-      !presentation.current.visible || !!presentation.current.error;
-    const cancelQueued = () => {
-      if (frame !== null) cancelAnimationFrame(frame);
-      if (fallback !== null) window.clearTimeout(fallback);
-      frame = null;
-      fallback = null;
-    };
-    const waitForSnapshotPaint = () =>
-      new Promise<void>((resolve) => {
-        const finish = () => {
-          if (paintFrame !== null) cancelAnimationFrame(paintFrame);
-          if (paintFallback !== null) window.clearTimeout(paintFallback);
-          paintFrame = null;
-          paintFallback = null;
-          finishPaint = null;
-          resolve();
-        };
-        finishPaint = finish;
-        paintFrame = requestAnimationFrame(finish);
-        paintFallback = window.setTimeout(finish, SNAPSHOT_PAINT_DEADLINE_MS);
-      });
-    const cancelOverlayCapture = () => {
-      ++captureGeneration;
-      if (zoomRefreshTimer !== null) window.clearTimeout(zoomRefreshTimer);
-      zoomRefreshTimer = null;
-      zoomRefreshActive = false;
-      finishCapture?.();
-      finishPaint?.();
-    };
-    const captureForOverlay = (zoomRefresh = false) =>
-      new Promise<void>((resolve) => {
-        const generation = ++captureGeneration;
-        const capturedUrl = urlRef.current;
-        const navigation = navigationSequence.current;
-        const capturedZoom = snapshotZoom.current;
-        const stillRelevant = () => {
-          if (
-            disposed ||
-            generation !== captureGeneration ||
-            nativePageId.current !== readyId ||
-            urlRef.current !== capturedUrl ||
-            navigationSequence.current !== navigation ||
-            snapshotZoom.current.factor !== capturedZoom.factor ||
-            (zoomRefresh && snapshotZoom.current.menu !== capturedZoom.menu)
-          )
-            return false;
-          const bounds = currentBounds();
-          return !!bounds && hasVisibleBrowserArea(bounds) && occluded(bounds);
-        };
-        let settled = false;
-        const finish = () => {
-          if (settled) return;
-          settled = true;
-          window.clearTimeout(deadline);
-          finishCapture = null;
-          resolve();
-        };
-        const deadline = window.setTimeout(
-          finish,
-          OVERLAY_SNAPSHOT_DEADLINE_MS,
-        );
-        finishCapture = finish;
-        // A slow capture must not block the menu. It can still fill the backing
-        // after the deadline, provided this exact page and overlay remain open.
-        void requestBrowserSnapshot(
-          readyId,
-          () => {
-            // The queued request may begin after a resize. Record the latest
-            // committed native viewport at the moment capture actually starts.
-            const viewport = snapshotViewport(lastNativeBounds ?? lastBounds!);
-            return nativeBrowser
-              .snapshot(readyId)
-              .then((src) => ({ src, ...viewport }));
-          },
-          stillRelevant,
-        )
-          .then(async (captured) => {
-            if (!captured || !stillRelevant()) return;
-            const matchesViewport = () => {
-              const bounds = currentBounds();
-              return (
-                !!bounds &&
-                sameSnapshotViewport(captured, snapshotViewport(bounds))
-              );
-            };
-            if (!matchesViewport()) return;
-            const image = new Image();
-            image.src = captured.src;
-            await image.decode();
-            if (!stillRelevant() || !matchesViewport()) return;
-            // Once decoded, allow the short paint handoff to finish instead of
-            // letting the capture deadline hide Chromium between these steps.
-            if (!settled) window.clearTimeout(deadline);
-            // Decode first: committing an <img> and waiting one frame does not
-            // guarantee its pixels are ready before Chromium is hidden.
-            flushSync(() => setSnapshot(captured));
-            await waitForSnapshotPaint();
-          })
-          .catch(() => {
-            // Keep the overlay usable even if capture or decoding fails.
-          })
-          .finally(finish);
-      });
-    const currentBounds = () => {
-      const bounds =
-        !isPaused() && host.current ? browserBounds(host.current) : null;
-      return bounds ? withHoverEdge(clipHoverSidebars(bounds)) : null;
-    };
-    /** Times a layout whose crop starts or ends a hover sidebar's cover of
-     * the page, so native slides the page's edge with the sidebar. */
-    const withEdgeSlide = (bounds: BrowserBounds): BrowserBounds => {
-      const covered = (value: BrowserBounds | null) =>
-        (value?.clipLeft ?? 0) > 0;
-      const changed = covered(bounds) !== covered(lastNativeBounds);
-      // The owner's layout effect can publish the new crop before our
-      // mutation observer sees its open-state change. Collect the slide now,
-      // so this first layout already carries its shared start time. Recheck
-      // even after an observer report: a rapid reversal owns a new transition.
-      if (changed)
-        for (const slot of document.querySelectorAll<HTMLElement>(
-          '.personal-sidebar-slot[data-floating="true"]',
-        ))
-          followPanelSlide(slot);
-      const slide = edgeSlide;
-      edgeSlide = null;
-      if (!slide || Date.now() - slide.at > 1000 || !changed) return bounds;
-      return {
-        ...bounds,
-        edgeSlideAt: slide.at,
-        edgeSlideDuration: slide.duration,
-      };
-    };
-    const occluded = (bounds: BrowserBounds) =>
-      hasOccludingOverlay(bounds, nativeHoles.current);
-    // Menus cut out of the live page change size without a style mutation
-    // (late content, filtering). Track exactly the surfaces that own holes.
-    let holeElements: HTMLElement[] = [];
-    const overlaySizes = new ResizeObserver(() => present());
-    const trackHoleElements = (elements: HTMLElement[]) => {
-      if (
-        elements.length === holeElements.length &&
-        elements.every((element, index) => element === holeElements[index])
-      )
-        return;
-      overlaySizes.disconnect();
-      holeElements = elements;
-      for (const element of elements) overlaySizes.observe(element);
-    };
-    const placement = (bounds: BrowserBounds | null) => {
-      if (!bounds) {
-        trackHoleElements([]);
-        return { bounds, capture: false };
-      }
-      const overlay = browserOverlayState(bounds, nativeHoles.current);
-      trackHoleElements(overlay.elements);
-      return {
-        bounds: withOverlayHoles(bounds, overlay),
-        capture: overlay.capture,
-      };
-    };
-    refreshZoomSnapshot.current = (refresh) => {
-      if (!refresh) {
-        if (zoomRefreshActive) cancelOverlayCapture();
-        return;
-      }
-      cancelOverlayCapture();
-      zoomRefreshActive = true;
-      // Native-confirmed changes only. Briefly coalesce repeated +/- presses;
-      // retain the existing decoded backing until the latest zoom is ready.
-      zoomRefreshTimer = window.setTimeout(() => {
-        zoomRefreshTimer = null;
-        const bounds = currentBounds();
-        if (
-          !disposed &&
-          snapshotZoom.current.menu &&
-          bounds &&
-          hasVisibleBrowserArea(bounds) &&
-          occluded(bounds)
-        )
-          void captureForOverlay(true);
-      }, ZOOM_SNAPSHOT_DELAY_MS);
-    };
-    const update = async () => {
-      cancelQueued();
-      if (disposed) return;
-      if (inFlight) {
-        pending = true;
-        return;
-      }
-      if (placementInvalidated) {
-        lastLayout = "";
-        placementInvalidated = false;
-      }
-      if (lastLayout === "hidden" && isPaused()) return;
-      let current = placement(currentBounds());
-      let bounds = current.bounds;
-      if (bounds) lastBounds = bounds;
-      // Native children are created hidden. A never-shown pane needs no work
-      // until it has measurable geometry in the visible workspace.
-      if (!lastBounds) {
-        lastLayout = "hidden";
-        return;
-      }
-      // Nonmodal menus are cut out of the live page in this same pass, so the
-      // page stays visible and sharp around them without a still image.
-      let show = !!bounds && hasVisibleBrowserArea(bounds) && !current.capture;
-      let nextLayout = show ? JSON.stringify([lastBounds, true]) : "hidden";
-      if (
-        nextLayout === lastLayout &&
-        (!bounds || JSON.stringify(lastBounds) === lastGeometry)
-      ) {
-        endBrowserHandoff(id);
-        return;
-      }
-      inFlight = true;
-      try {
-        if (
-          !show &&
-          bounds &&
-          hasVisibleBrowserArea(bounds) &&
-          lastLayout &&
-          lastLayout !== "hidden"
-        ) {
-          // The native child must move behind HTML overlays. Take one still
-          // image for that transition, never during resize or workspace hide.
-          try {
-            await captureForOverlay();
-          } catch {
-            // A failed snapshot cannot destroy the valid native page. The
-            // obscured fallback keeps the overlay accessible until it closes.
-          }
-          if (disposed) return;
-          // Menus may close or the pane may hide while capture/paint is pending.
-          current = placement(currentBounds());
-          bounds = current.bounds;
-          if (bounds) lastBounds = bounds;
-          show = !!bounds && hasVisibleBrowserArea(bounds) && !current.capture;
-          nextLayout = show ? JSON.stringify([lastBounds, true]) : "hidden";
-          if (
-            nextLayout === lastLayout &&
-            (!bounds || JSON.stringify(lastBounds) === lastGeometry)
-          ) {
-            if (show) setSnapshot(null);
-            return;
-          }
-        }
-        if (
-          !show &&
-          !presentation.current.visible &&
-          lastLayout &&
-          lastLayout !== "hidden"
-        ) {
-          // Leaving this page for another tab. If that tab is a native page
-          // still on its way in, keep this one painted until it arrives so
-          // the window background never shows between them.
-          await waitForBrowserHandoff();
-          if (disposed) return;
-          if (!isPaused()) {
-            pending = true;
-            return;
-          }
-        }
-        const sentBounds = lastBounds;
-        const viewportChanged =
-          !!lastNativeBounds &&
-          !sameSnapshotViewport(
-            snapshotViewport(lastNativeBounds),
-            snapshotViewport(sentBounds),
-          );
-        await nativeBrowser.layout(readyId, withEdgeSlide(sentBounds), show);
-        lastNativeBounds = sentBounds;
-        lastGeometry = JSON.stringify(sentBounds);
-        lastLayout = nextLayout;
-        if (show && !disposed) setSnapshot(null);
-        else if (!disposed && bounds && viewportChanged && occluded(bounds)) {
-          // A retained overlay can outlive a pane resize. Resize the hidden
-          // native viewport first, then replace its backing at the new size.
-          cancelOverlayCapture();
-          void captureForOverlay();
-        }
-      } catch (reason) {
-        if (!disposed)
-          setNotice(
-            `Could not update preview placement: ${errorMessage(reason)}`,
-          );
-      } finally {
-        inFlight = false;
-        if (!show || lastLayout !== "hidden") endBrowserHandoff(id);
-        if (pending && !disposed) {
-          pending = false;
-          if (pendingImmediate) {
-            pendingImmediate = false;
-            present();
-          } else schedule();
-        }
-      }
-    };
-    const schedule = () => {
-      if (disposed || (lastLayout === "hidden" && isPaused())) return;
-      if (inFlight) {
-        pending = true;
-        return;
-      }
-      if (frame !== null || fallback !== null) return;
-      const flush = () => void update();
-      frame = requestAnimationFrame(flush);
-      // WKWebView may defer animation frames while native children cover it.
-      // One bounded fallback restores visibility without an idle polling loop.
-      fallback = window.setTimeout(flush, LAYOUT_FALLBACK_MS);
-    };
-    const present = () => {
-      if (disposed) return;
-      cancelQueued();
-      const bounds = currentBounds();
-      if (!bounds || !hasVisibleBrowserArea(bounds) || !occluded(bounds))
-        cancelOverlayCapture();
-      if (inFlight) {
-        pending = true;
-        pendingImmediate = true;
-        return;
-      }
-      // Explicit tab/visibility changes must not wait for a host animation
-      // frame, which WKWebView can throttle behind native child pages.
-      void update();
-    };
-    const resetPlacement = () => {
-      // A native reparent may invalidate a layout the retained renderer already
-      // sent while another window owned the page. Republish it even unchanged.
-      placementInvalidated = true;
-      present();
-    };
-    const resize = new ResizeObserver(schedule);
-    const overlayNode = (node: Node) =>
-      node instanceof HTMLElement &&
-      (node.matches(OVERLAYS) || node.querySelector(OVERLAYS));
-    const hoverEdgeNode = (node: Node) =>
-      node instanceof HTMLElement &&
-      (node.matches(HOVER_EDGES) || !!node.querySelector(HOVER_EDGES));
-    /**
-     * A hover sidebar just opened or closed over this page. Start its CSS
-     * slide and this page's edge at one moment; a close waits briefly so the
-     * page's layout arrives first and its edge never trails the sidebar's.
-     */
-    const followPanelSlide = (slot: HTMLElement) => {
-      // React removes the active occlusion markers on a committed close;
-      // the retained sidebar still owns its closing transform transition.
-      const panel = slot.querySelector(
-        '[data-native-browser-edge="left"], .personal-sidebar',
-      );
-      if (!panel || !host.current) return;
-      const opening = slot.dataset.open === "true";
-      const cropped = opening
-        ? (currentBounds()?.clipLeft ?? 0) > 0
-        : (lastNativeBounds?.clipLeft ?? 0) > 0;
-      if (!cropped) return;
-      edgeSlide = startSharedSlide(
-        [panel, host.current.closest(".personal-workspace-column")],
-        opening ? 0 : NATIVE_SLIDE_CLOSE_LEAD_MS,
-      );
-    };
-    const overlays = new MutationObserver((records) => {
-      if (lastLayout === "hidden" && isPaused()) return;
-      for (const record of records)
-        if (
-          record.attributeName === "data-open" &&
-          record.target instanceof HTMLElement
-        )
-          followPanelSlide(record.target);
-      // A pane or panel drag writes several style properties on the same
-      // elements every frame. Search each changed subtree for overlays once.
-      const styled = new Set<Node>();
-      if (
-        records.some((record) => {
-          if (record.type !== "attributes")
-            return [...record.addedNodes, ...record.removedNodes].some(
-              (node) => overlayNode(node) || hoverEdgeNode(node),
-            );
-          // A retained floating panel may remove its occlusion marker.
-          // Its new selector state alone cannot tell us to restore the page.
-          if (
-            [
-              "aria-modal",
-              "role",
-              "open",
-              "hidden",
-              "data-native-browser-occluded",
-              "data-native-browser-edge",
-            ].includes(record.attributeName ?? "")
-          )
-            return true;
-          if (record.attributeName === "data-open")
-            return (
-              record.target instanceof HTMLElement &&
-              !!record.target.querySelector("[data-native-browser-edge]")
-            );
-          if (styled.has(record.target)) return false;
-          styled.add(record.target);
-          return overlayNode(record.target);
-        })
-      )
-        present();
+    const controller = createBrowserPresentation({
+      surfaceId: id,
+      pageId: readyId,
+      element: host.current,
+      readState: () => ({
+        visible: presentation.current.visible,
+        paused: !!presentation.current.error,
+        nativeId: nativePageId.current,
+        holesSupported: nativeHoles.current,
+        url: urlRef.current,
+        navigation: navigationSequence.current,
+        zoom: snapshotZoom.current,
+      }),
+      onSnapshot: (captured) => {
+        if (captured) flushSync(() => setSnapshot(captured));
+        else setSnapshot(null);
+      },
+      onNotice: setNotice,
     });
-    const transitionEnded = (event: Event) => {
-      const target = event.target;
-      if (
-        target instanceof HTMLElement &&
-        (target.contains(host.current) || overlayNode(target))
-      )
-        schedule();
-    };
-    let stopObserving: (() => void) | undefined;
-    const observePresentation = () => {
-      if (isPaused()) {
-        stopObserving?.();
-        stopObserving = undefined;
-        trackHoleElements([]);
-        return;
-      }
-      if (stopObserving || !host.current) return;
-      // Retain the native page, its agent binding and navigation state while
-      // hidden, without asking WebKit to collect whole-app mutation records
-      // for every visited tab. Reconnect before publishing the visible layout.
-      resize.observe(host.current);
-      overlays.observe(document.body, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: [
-          "aria-modal",
-          "role",
-          "open",
-          "hidden",
-          "class",
-          "style",
-          "data-native-browser-occluded",
-          "data-native-browser-edge",
-          "data-open",
-        ],
-      });
-      document.addEventListener("visibilitychange", present);
-      document.addEventListener("transitionend", transitionEnded, true);
-      document.addEventListener("animationend", transitionEnded, true);
-      window.addEventListener("resize", schedule);
-      window.addEventListener("supermono:workspace-layout", present);
-      window.addEventListener("supermono:browser-layout-reset", resetPlacement);
-      const focusListener = getCurrentWindow().onFocusChanged(schedule);
-      stopObserving = () => {
-        resize.disconnect();
-        overlays.disconnect();
-        document.removeEventListener("visibilitychange", present);
-        document.removeEventListener("transitionend", transitionEnded, true);
-        document.removeEventListener("animationend", transitionEnded, true);
-        window.removeEventListener("resize", schedule);
-        window.removeEventListener("supermono:workspace-layout", present);
-        window.removeEventListener(
-          "supermono:browser-layout-reset",
-          resetPlacement,
-        );
-        void focusListener.then((unlisten) => unlisten()).catch(() => {});
-      };
-    };
-    scheduleLayout.current = () => {
-      observePresentation();
-      present();
-    };
-    scheduleLayout.current();
+    presentationController.current = controller;
     return () => {
-      disposed = true;
-      endBrowserHandoff(id);
-      cancelQueued();
-      cancelOverlayCapture();
-      stopObserving?.();
-      overlaySizes.disconnect();
-      holeElements = [];
-      scheduleLayout.current = () => {};
-      refreshZoomSnapshot.current = () => {};
+      controller.dispose();
+      presentationController.current = null;
     };
   }, [readyId]);
 
@@ -1561,7 +863,7 @@ function BrowserPaneSession({
     if (visible && !error && hasUrl && !sleeping && isTauri())
       beginBrowserHandoff(id);
     else endBrowserHandoff(id);
-    scheduleLayout.current();
+    presentationController.current?.update();
   }, [visible, error, hasUrl, sleeping, expanded, id]);
 
   useEffect(() => {
@@ -1664,7 +966,7 @@ function BrowserPaneSession({
     }
   }, [findOpen]);
   useLayoutEffect(() => {
-    scheduleLayout.current();
+    presentationController.current?.update();
   }, [findOpen, downloadsOpen]);
 
   useEffect(() => {

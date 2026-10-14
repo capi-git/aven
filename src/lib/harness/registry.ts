@@ -2,6 +2,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { forgetAgentBrowser } from "../agentBrowser";
 import type { Block, HarnessId, TaskListMeta } from "../session";
 import type { PrContent } from "../gitText";
+import type { HarnessDescriptor } from "./descriptors";
 import { hasLiveCatalog, modelsFor } from "../models";
 import type { UserQuestionReply } from "../userQuestion";
 import type { NativeCommandProvider } from "./nativeCommands";
@@ -25,6 +26,7 @@ export type TitleInput = {
  */
 export type HarnessAdapter = {
   id: HarnessId;
+  descriptor: HarnessDescriptor;
   /** True when this adapter can run live turns. */
   live: boolean;
   /** False when the harness cannot accept a follow-up while a turn is running. Default: same as live. */

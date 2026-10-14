@@ -1,3 +1,7 @@
+import {
+  HARNESS_IDS as HARNESSES,
+  harnessDescriptor,
+} from "./harness/descriptors";
 import type { ContextUsage } from "./contextUsage";
 import { isBlockingQuestion, type UserQuestionPrompt } from "./userQuestion";
 import type { HandoffComposerCard } from "./handoff";
@@ -23,16 +27,7 @@ import {
 export type HarnessId =
   "claude" | "codex" | "cursor" | "grok" | "opencode" | "pi" | "omp" | "fx";
 
-export const HARNESSES: HarnessId[] = [
-  "claude",
-  "codex",
-  "cursor",
-  "grok",
-  "opencode",
-  "pi",
-  "omp",
-  "fx",
-];
+export { HARNESSES };
 
 export type BlockRole =
   | "user"
@@ -271,31 +266,17 @@ export type PendingHarnessSwitch = {
   fromProviderSessionId?: string;
 };
 
-export const HARNESS_LABEL: Record<HarnessId, string> = {
-  claude: "claude",
-  codex: "codex",
-  cursor: "cursor",
-  grok: "grok",
-  opencode: "opencode",
-  pi: "pi",
-  omp: "omp",
-  fx: "fx",
-};
+export const HARNESS_LABEL: Record<HarnessId, string> = Object.fromEntries(
+  HARNESSES.map((id) => [id, id]),
+) as Record<HarnessId, string>;
 
-export const HARNESS_TITLE: Record<HarnessId, string> = {
-  claude: "Claude Code",
-  codex: "Codex",
-  cursor: "Cursor",
-  grok: "Grok Build",
-  opencode: "OpenCode",
-  pi: "Pi",
-  omp: "omp",
-  fx: "fx",
-};
+export const HARNESS_TITLE: Record<HarnessId, string> = Object.fromEntries(
+  HARNESSES.map((id) => [id, harnessDescriptor(id).title]),
+) as Record<HarnessId, string>;
 
 /** fx ACP rejects attachment prompt blocks. */
 export function harnessSupportsAttachments(id: HarnessId): boolean {
-  return id !== "fx";
+  return harnessDescriptor(id).supportsAttachments;
 }
 
 export function newSession(

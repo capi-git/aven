@@ -288,6 +288,69 @@ describe("detached workspace transactions", () => {
     ).resolves.toBe(browser.id);
     expect(focus).toHaveBeenCalledTimes(2);
   });
+  it("reuses an explicit copy that is still waiting for its opening checkpoint", async () => {
+    const entry = { id: "window-a", state: state("a"), pinned: false };
+    vi.mocked(nativeWorkspaceWindow.list).mockResolvedValue([entry]);
+    const focus = vi
+      .spyOn(nativeWorkspaceWindow, "focus")
+      .mockResolvedValue(undefined);
+    await render();
+    let copy!: Promise<string | null>, ordinary!: Promise<string | null>;
+    await act(async () => {
+      copy = api.openForSession("a", "https://example.com/mock", {
+        newTab: true,
+      });
+      void copy.catch(() => undefined);
+    });
+    await act(async () => {
+      ordinary = api.openForSession("a", "https://example.com/mock");
+      void ordinary.catch(() => undefined);
+    });
+    expect(focus).toHaveBeenCalledOnce();
+    const browser = focus.mock.calls[0][3]!;
+    await act(async () =>
+      listeners.get("workspace-window-checkpoint")!({
+        ...entry,
+        state: { ...entry.state, browsers: [browser] },
+      }),
+    );
+    await expect(Promise.all([copy, ordinary])).resolves.toEqual([
+      browser.id,
+      browser.id,
+    ]);
+  });
+  it("carries arrange:false to detached placement for new and existing pages", async () => {
+    const entry = { id: "window-a", state: state("a"), pinned: false };
+    vi.mocked(nativeWorkspaceWindow.list).mockResolvedValue([entry]);
+    const focus = vi
+      .spyOn(nativeWorkspaceWindow, "focus")
+      .mockResolvedValue(undefined);
+    await render();
+    let opening!: Promise<string | null>;
+    await act(async () => {
+      opening = api.openForSession("a", "https://example.com/mock", {
+        arrange: false,
+      });
+    });
+    const browser = focus.mock.calls[0][3]!;
+    expect(focus.mock.calls[0].slice(5)).toEqual([false, false]);
+    await act(async () =>
+      listeners.get("workspace-window-checkpoint")!({
+        ...entry,
+        state: { ...entry.state, browsers: [browser] },
+      }),
+    );
+    await expect(opening).resolves.toBe(browser.id);
+    await expect(
+      api.openForSession("a", browser.url, { arrange: false }),
+    ).resolves.toBe(browser.id);
+    await expect(
+      api.focusBrowser(browser.id, { arrange: false }),
+    ).resolves.toBe(true);
+    expect(
+      focus.mock.calls.every((call) => call[5] === false && call[6] === false),
+    ).toBe(true);
+  });
   it("commits the owner's browser scope before a checkpoint-confirmed open resolves", async () => {
     const entry = { id: "window-a", state: state("a"), pinned: false };
     vi.mocked(nativeWorkspaceWindow.list).mockResolvedValue([entry]);

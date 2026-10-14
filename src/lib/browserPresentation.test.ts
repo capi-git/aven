@@ -1,0 +1,369 @@
+// @vitest-environment happy-dom
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { BrowserBounds } from "./browser";
+import {
+  createBrowserPresentation,
+  type BrowserPresentation,
+  type BrowserPresentationAdapter,
+  type BrowserPresentationState,
+  type BrowserSnapshot,
+} from "./browserPresentation";
+import { resetBrowserHandoff } from "./browserHandoff";
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+class FakeNativePage implements BrowserPresentationAdapter {
+  measured: BrowserBounds = {
+    x: 100,
+    y: 80,
+    width: 600,
+    height: 500,
+    scale: 2,
+  };
+  page = { bounds: this.measured, visible: false };
+  reads = 0;
+  layouts: Array<{ id: string; bounds: BrowserBounds; visible: boolean }> = [];
+  captures: BrowserBounds[] = [];
+  decodes: string[] = [];
+  focus: (() => void) | undefined;
+  stoppedFocus = 0;
+  nextLayout: ReturnType<typeof deferred<void>> | undefined;
+  nextCapture: ReturnType<typeof deferred<string>> | undefined;
+  nextDecode: ReturnType<typeof deferred<void>> | undefined;
+
+  bounds() {
+    this.reads += 1;
+    return this.measured;
+  }
+  async layout(id: string, bounds: BrowserBounds, visible: boolean) {
+    this.layouts.push({ id, bounds, visible });
+    const pending = this.nextLayout;
+    this.nextLayout = undefined;
+    if (pending) await pending.promise;
+    this.page.bounds = bounds;
+    this.page.visible = visible;
+  }
+  async snapshot() {
+    this.captures.push(this.page.bounds);
+    const pending = this.nextCapture;
+    this.nextCapture = undefined;
+    return pending
+      ? pending.promise
+      : `data:image/png;base64,capture-${this.captures.length}`;
+  }
+  async decode(src: string) {
+    this.decodes.push(src);
+    const pending = this.nextDecode;
+    this.nextDecode = undefined;
+    if (pending) await pending.promise;
+  }
+  async onFocusChanged(callback: () => void) {
+    this.focus = callback;
+    return () => {
+      this.focus = undefined;
+      this.stoppedFocus += 1;
+    };
+  }
+}
+
+describe("browser presentation", () => {
+  let element: HTMLDivElement;
+  let native: FakeNativePage;
+  let state: BrowserPresentationState;
+  let controller: BrowserPresentation;
+  let snapshots: Array<BrowserSnapshot | null>;
+  let notices: string[];
+  let frames: Map<number, FrameRequestCallback>;
+  let resizeObservers: Set<{ targets: Set<Element>; callback: () => void }>;
+  let mutationObservers: Set<(records: Partial<MutationRecord>[]) => void>;
+  let pageSequence = 0;
+  const settle = async () => {
+    for (let count = 0; count < 12; count += 1) await Promise.resolve();
+  };
+  const paint = async () => {
+    const pending = [...frames.values()];
+    frames.clear();
+    for (const callback of pending) callback(0);
+    await settle();
+  };
+  const resize = () => {
+    for (const observer of resizeObservers)
+      if (observer.targets.has(element)) observer.callback();
+  };
+  const overlay = (modal = false) => {
+    const menu = document.createElement("div");
+    menu.setAttribute("role", modal ? "dialog" : "menu");
+    if (modal) menu.setAttribute("aria-modal", "true");
+    vi.spyOn(menu, "getClientRects").mockReturnValue([
+      new DOMRect(120, 100, 200, 150),
+    ] as unknown as DOMRectList);
+    element.append(menu);
+    for (const callback of mutationObservers)
+      callback([
+        {
+          type: "childList",
+          addedNodes: [menu] as unknown as NodeList,
+          removedNodes: [] as unknown as NodeList,
+        },
+      ]);
+    return menu;
+  };
+
+  beforeEach(async () => {
+    vi.useFakeTimers();
+    frames = new Map();
+    let frame = 0;
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frames.set(++frame, callback);
+      return frame;
+    });
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
+    resizeObservers = new Set();
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        targets = new Set<Element>();
+        constructor(public callback: () => void) {}
+        observe(target: Element) {
+          this.targets.add(target);
+          resizeObservers.add(this);
+        }
+        disconnect() {
+          this.targets.clear();
+          resizeObservers.delete(this);
+        }
+      },
+    );
+    mutationObservers = new Set();
+    vi.stubGlobal(
+      "MutationObserver",
+      class {
+        constructor(
+          private callback: (records: Partial<MutationRecord>[]) => void,
+        ) {}
+        observe() {
+          mutationObservers.add(this.callback);
+        }
+        disconnect() {
+          mutationObservers.delete(this.callback);
+        }
+      },
+    );
+    element = document.createElement("div");
+    document.body.append(element);
+    native = new FakeNativePage();
+    state = {
+      visible: true,
+      paused: false,
+      nativeId: `page-${++pageSequence}`,
+      holesSupported: false,
+      url: "https://example.com/",
+      navigation: 0,
+      zoom: { factor: 1, menu: null },
+    };
+    snapshots = [];
+    notices = [];
+    controller = createBrowserPresentation({
+      surfaceId: "surface",
+      pageId: state.nativeId!,
+      element,
+      readState: () => state,
+      adapter: native,
+      onSnapshot: (snapshot) => snapshots.push(snapshot),
+      onNotice: (notice) => notices.push(notice),
+    });
+    await settle();
+    snapshots.length = 0;
+  });
+  afterEach(async () => {
+    controller.dispose();
+    await settle();
+    element.remove();
+    resetBrowserHandoff();
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("retains the page and suppresses repeated placement until a transfer invalidates it", async () => {
+    const page = native.page;
+    for (let count = 0; count < 10; count += 1) controller.update();
+    await settle();
+    expect(native.layouts).toHaveLength(1);
+    expect(native.page.visible).toBe(true);
+    window.dispatchEvent(new Event("supermono:browser-layout-reset"));
+    await settle();
+    expect(native.layouts).toHaveLength(2);
+    expect(native.page).toBe(page);
+    expect(native.captures).toEqual([]);
+  });
+
+  it("serializes native layouts and sends the latest pending bounds", async () => {
+    const pending = deferred<void>();
+    native.nextLayout = pending;
+    native.measured = { ...native.measured, width: 700 };
+    controller.update();
+    native.measured = { ...native.measured, width: 900 };
+    for (let count = 0; count < 10; count += 1) controller.update();
+    expect(native.layouts).toHaveLength(2);
+    pending.resolve();
+    await settle();
+    expect(native.layouts).toHaveLength(3);
+    expect(native.page.bounds.width).toBe(900);
+    expect(native.page.visible).toBe(true);
+  });
+
+  it("updates resize bounds within one frame when animation frames are deferred", async () => {
+    native.measured = { ...native.measured, height: 550 };
+    for (let count = 0; count < 10; count += 1) resize();
+    expect(frames.size).toBe(1);
+    expect(native.layouts).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(16);
+    expect(native.page.bounds.height).toBe(550);
+    expect(native.layouts).toHaveLength(2);
+    expect(frames.size).toBe(0);
+  });
+
+  it("disconnects hidden panes and rechecks overlays before returning", async () => {
+    state.visible = false;
+    state.paused = true;
+    controller.update();
+    await settle();
+    expect(native.page.visible).toBe(false);
+    expect(resizeObservers.size).toBe(0);
+    expect(mutationObservers.size).toBe(0);
+    const reads = native.reads;
+    overlay();
+    resize();
+    expect(native.reads).toBe(reads);
+    state.visible = true;
+    state.paused = false;
+    state.holesSupported = true;
+    controller.update();
+    await settle();
+    expect(native.page.visible).toBe(true);
+    expect(native.page.bounds.holes).toHaveLength(1);
+    expect(mutationObservers.size).toBe(1);
+    expect(native.captures).toEqual([]);
+  });
+
+  it("cuts menus out of the live page and captures true modals", async () => {
+    state.holesSupported = true;
+    const menu = overlay();
+    await settle();
+    expect(native.page.bounds.holes).toEqual([
+      { x: 20, y: 20, width: 200, height: 150, radius: 0 },
+    ]);
+    expect(native.page.visible).toBe(true);
+    expect(native.captures).toHaveLength(0);
+    menu.remove();
+    overlay(true);
+    await settle();
+    expect(native.captures).toHaveLength(1);
+    await paint();
+    expect(native.page.visible).toBe(false);
+    expect(snapshots.at(-1)?.width).toBe(600);
+  });
+
+  it("decodes and commits backing pixels before hiding Chromium", async () => {
+    const pending = deferred<void>();
+    native.nextDecode = pending;
+    overlay();
+    await settle();
+    expect(native.decodes).toHaveLength(1);
+    expect(snapshots).toHaveLength(0);
+    expect(native.page.visible).toBe(true);
+    pending.resolve();
+    await settle();
+    expect(snapshots.at(-1)).toMatchObject({
+      width: 600,
+      height: 500,
+      scale: 2,
+      left: 0,
+      top: 0,
+    });
+    expect(native.page.visible).toBe(true);
+    await paint();
+    expect(native.page.visible).toBe(false);
+  });
+
+  it.each(["navigation", "zoom", "replacement"] as const)(
+    "ignores a capture invalidated by %s while native work finishes",
+    async (change) => {
+      const pending = deferred<string>();
+      native.nextCapture = pending;
+      overlay();
+      await settle();
+      if (change === "navigation") {
+        state.url = "https://example.org/";
+        state.navigation += 1;
+      } else if (change === "zoom") {
+        state.zoom = { factor: 1.25, menu: null };
+        controller.updateZoom();
+      } else state.nativeId = "replacement";
+      pending.resolve("data:image/png;base64,obsolete");
+      await settle();
+      expect(native.decodes).toHaveLength(0);
+      expect(snapshots).toHaveLength(0);
+    },
+  );
+
+  it("reveals overlays at the deadline and accepts a still-relevant late backing", async () => {
+    const pending = deferred<string>();
+    native.nextCapture = pending;
+    overlay();
+    await vi.advanceTimersByTimeAsync(80);
+    expect(native.page.visible).toBe(false);
+    expect(snapshots).toHaveLength(0);
+    pending.resolve("data:image/png;base64,late");
+    await settle();
+    expect(snapshots.at(-1)?.src).toBe("data:image/png;base64,late");
+    await paint();
+    expect(notices).toEqual([]);
+  });
+
+  it("cancels timers and observations while a disposed native layout settles", async () => {
+    const pending = deferred<void>();
+    native.nextLayout = pending;
+    native.measured = { ...native.measured, width: 700 };
+    controller.update();
+    native.measured = { ...native.measured, width: 900 };
+    resize();
+    controller.dispose();
+    controller.dispose();
+    controller.update();
+    controller.updateZoom();
+    pending.resolve();
+    await settle();
+    expect(native.layouts).toHaveLength(2);
+    expect(snapshots).toHaveLength(0);
+    expect(mutationObservers.size).toBe(0);
+    expect(resizeObservers.size).toBe(0);
+    expect(native.stoppedFocus).toBe(1);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(frames.size).toBe(0);
+  });
+
+  it("ignores capture completion after disposal without reviving observers", async () => {
+    const pending = deferred<string>();
+    native.nextCapture = pending;
+    overlay();
+    await settle();
+    controller.dispose();
+    pending.resolve("data:image/png;base64,disposed");
+    await settle();
+    expect(native.decodes).toHaveLength(0);
+    expect(snapshots).toHaveLength(0);
+    expect(native.layouts).toHaveLength(1);
+    expect(mutationObservers.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(notices).toEqual([]);
+  });
+});

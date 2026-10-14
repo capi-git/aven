@@ -1,6 +1,7 @@
 import { ALT, IS_MAC, MOD, SHIFT } from "./platform";
-
-const SECTION_KEY = "monocode.settingsSection";
+import { SETTINGS } from "./settingDefinitions";
+import { defineStoredSetting } from "./settingsRegistry";
+export { SETTINGS } from "./settingDefinitions";
 
 export type SettingsSectionId =
   | "general"
@@ -122,394 +123,83 @@ export function settingsSectionDescription(id: SettingsSectionId): string {
   );
 }
 
-export function loadSettingsSection(): SettingsSectionId {
-  try {
-    const raw = localStorage.getItem(SECTION_KEY);
-    return isSettingsSectionId(raw) ? raw : SETTINGS_SECTION_DEFAULT;
-  } catch {
-    return SETTINGS_SECTION_DEFAULT;
-  }
-}
+const settingsSection = defineStoredSetting<SettingsSectionId>({
+  key: "monocode.settingsSection",
+  defaultValue: SETTINGS_SECTION_DEFAULT,
+  parse: (raw) => (isSettingsSectionId(raw) ? raw : SETTINGS_SECTION_DEFAULT),
+  serialize: (value) => value,
+});
 
-export function saveSettingsSection(id: SettingsSectionId) {
-  try {
-    localStorage.setItem(SECTION_KEY, id);
-  } catch {
-    // private mode / quota
-  }
-}
-
-const COMPOSER_RUNNER_KEY = "monocode.composerRunner";
-
-const FOLLOW_UP_BEHAVIOR_KEY = "monocode.followUpBehavior";
+export const loadSettingsSection = settingsSection.load;
+export const saveSettingsSection = settingsSection.save;
 
 export type FollowUpBehavior = "steer" | "queue";
-
-export const FOLLOW_UP_BEHAVIOR_DEFAULT: FollowUpBehavior = "queue";
-const FOLLOW_UP_BEHAVIOR_CHANGE_EVENT = "monocode:follow-up-behavior-change";
-
-export function loadFollowUpBehavior(): FollowUpBehavior {
-  try {
-    const raw = localStorage.getItem(FOLLOW_UP_BEHAVIOR_KEY);
-    return raw === "queue" || raw === "steer"
-      ? raw
-      : FOLLOW_UP_BEHAVIOR_DEFAULT;
-  } catch {
-    return FOLLOW_UP_BEHAVIOR_DEFAULT;
-  }
-}
-
-export function saveFollowUpBehavior(value: FollowUpBehavior) {
-  try {
-    localStorage.setItem(FOLLOW_UP_BEHAVIOR_KEY, value);
-  } catch {
-    // private mode / quota
-  }
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event(FOLLOW_UP_BEHAVIOR_CHANGE_EVENT));
-  }
-}
-
-export function subscribeFollowUpBehavior(onChange: () => void) {
-  if (typeof window === "undefined") return () => {};
-  const onStorage = (event: StorageEvent) => {
-    if (!event.key || event.key === FOLLOW_UP_BEHAVIOR_KEY) onChange();
-  };
-  window.addEventListener(FOLLOW_UP_BEHAVIOR_CHANGE_EVENT, onChange);
-  window.addEventListener("storage", onStorage);
-  return () => {
-    window.removeEventListener(FOLLOW_UP_BEHAVIOR_CHANGE_EVENT, onChange);
-    window.removeEventListener("storage", onStorage);
-  };
-}
-
-export const COMPOSER_RUNNER_DEFAULT = false;
-
-/** Fired on `window` when the composer mascot setting flips. */
-export const COMPOSER_RUNNER_CHANGE_EVENT = "monocode:composer-runner-change";
-
-export function loadComposerRunner(): boolean {
-  try {
-    const raw = localStorage.getItem(COMPOSER_RUNNER_KEY);
-    if (raw == null) return COMPOSER_RUNNER_DEFAULT;
-    return raw === "1" || raw === "true";
-  } catch {
-    return COMPOSER_RUNNER_DEFAULT;
-  }
-}
-
-export function saveComposerRunner(value: boolean) {
-  try {
-    localStorage.setItem(COMPOSER_RUNNER_KEY, value ? "1" : "0");
-  } catch {
-    // private mode / quota
-  }
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(
-    new CustomEvent<boolean>(COMPOSER_RUNNER_CHANGE_EVENT, { detail: value }),
-  );
-}
-
-const NOTES_ENABLED_KEY = "monocode.notesEnabled";
-
-export const NOTES_ENABLED_DEFAULT = true;
-
-/** Fired on `window` when the Notes UI setting flips. */
-export const NOTES_ENABLED_CHANGE_EVENT = "monocode:notes-enabled-change";
-
-export function loadNotesEnabled(): boolean {
-  try {
-    const raw = localStorage.getItem(NOTES_ENABLED_KEY);
-    if (raw == null) return NOTES_ENABLED_DEFAULT;
-    return raw === "1" || raw === "true";
-  } catch {
-    return NOTES_ENABLED_DEFAULT;
-  }
-}
-
-export function saveNotesEnabled(value: boolean) {
-  try {
-    localStorage.setItem(NOTES_ENABLED_KEY, value ? "1" : "0");
-  } catch {
-    // private mode / quota
-  }
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(
-    new CustomEvent<boolean>(NOTES_ENABLED_CHANGE_EVENT, { detail: value }),
-  );
-}
-
-export function subscribeNotesEnabled(onStoreChange: () => void) {
-  if (typeof window === "undefined") return () => {};
-  window.addEventListener(NOTES_ENABLED_CHANGE_EVENT, onStoreChange);
-  return () =>
-    window.removeEventListener(NOTES_ENABLED_CHANGE_EVENT, onStoreChange);
-}
-
-const LIVE_AGENTS_ENABLED_KEY = "monocode.liveAgentsEnabled";
-
-export const LIVE_AGENTS_ENABLED_DEFAULT = true;
-
-/** Fired on `window` when the working-agents rail card setting flips. */
-export const LIVE_AGENTS_ENABLED_CHANGE_EVENT =
-  "monocode:live-agents-enabled-change";
-
-export function loadLiveAgentsEnabled(): boolean {
-  try {
-    const raw = localStorage.getItem(LIVE_AGENTS_ENABLED_KEY);
-    if (raw == null) return LIVE_AGENTS_ENABLED_DEFAULT;
-    return raw === "1" || raw === "true";
-  } catch {
-    return LIVE_AGENTS_ENABLED_DEFAULT;
-  }
-}
-
-export function saveLiveAgentsEnabled(value: boolean) {
-  try {
-    localStorage.setItem(LIVE_AGENTS_ENABLED_KEY, value ? "1" : "0");
-  } catch {
-    // private mode / quota
-  }
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(
-    new CustomEvent<boolean>(LIVE_AGENTS_ENABLED_CHANGE_EVENT, {
-      detail: value,
-    }),
-  );
-}
-
-export function subscribeLiveAgentsEnabled(onStoreChange: () => void) {
-  if (typeof window === "undefined") return () => {};
-  window.addEventListener(LIVE_AGENTS_ENABLED_CHANGE_EVENT, onStoreChange);
-  return () =>
-    window.removeEventListener(LIVE_AGENTS_ENABLED_CHANGE_EVENT, onStoreChange);
-}
-
-const BROWSER_MEMORY_SAVER_KEY = "aven.browserMemorySaver";
-const BROWSER_MEMORY_SAVER_CHANGE_EVENT = "aven:browser-memory-saver-change";
-
-export const BROWSER_MEMORY_SAVER_DEFAULT = true;
-
-export function loadBrowserMemorySaver(): boolean {
-  try {
-    const raw = localStorage.getItem(BROWSER_MEMORY_SAVER_KEY);
-    if (raw === "0" || raw === "false") return false;
-    if (raw === "1" || raw === "true") return true;
-    return BROWSER_MEMORY_SAVER_DEFAULT;
-  } catch {
-    return BROWSER_MEMORY_SAVER_DEFAULT;
-  }
-}
-
-export function saveBrowserMemorySaver(value: boolean) {
-  try {
-    localStorage.setItem(BROWSER_MEMORY_SAVER_KEY, value ? "1" : "0");
-  } catch {
-    // private mode / quota
-  }
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event(BROWSER_MEMORY_SAVER_CHANGE_EVENT));
-  }
-}
-
-export function subscribeBrowserMemorySaver(onChange: () => void) {
-  if (typeof window === "undefined") return () => {};
-  const onStorage = (event: StorageEvent) => {
-    if (!event.key || event.key === BROWSER_MEMORY_SAVER_KEY) onChange();
-  };
-  window.addEventListener(BROWSER_MEMORY_SAVER_CHANGE_EVENT, onChange);
-  window.addEventListener("storage", onStorage);
-  return () => {
-    window.removeEventListener(BROWSER_MEMORY_SAVER_CHANGE_EVENT, onChange);
-    window.removeEventListener("storage", onStorage);
-  };
-}
-
-const BROWSER_LOW_MEMORY_KEY = "aven.browserLowMemory";
-const BROWSER_LOW_MEMORY_CHANGE_EVENT = "aven:browser-low-memory-change";
-
-/** Chromium's reduced-memory mode for web pages; applies at the next launch. */
-export const BROWSER_LOW_MEMORY_DEFAULT = false;
-
-export function loadBrowserLowMemory(): boolean {
-  try {
-    const raw = localStorage.getItem(BROWSER_LOW_MEMORY_KEY);
-    if (raw === "1" || raw === "true") return true;
-    if (raw === "0" || raw === "false") return false;
-    return BROWSER_LOW_MEMORY_DEFAULT;
-  } catch {
-    return BROWSER_LOW_MEMORY_DEFAULT;
-  }
-}
-
-export function saveBrowserLowMemory(value: boolean) {
-  try {
-    localStorage.setItem(BROWSER_LOW_MEMORY_KEY, value ? "1" : "0");
-  } catch {
-    // private mode / quota
-  }
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event(BROWSER_LOW_MEMORY_CHANGE_EVENT));
-  }
-}
-
-export function subscribeBrowserLowMemory(onChange: () => void) {
-  if (typeof window === "undefined") return () => {};
-  const onStorage = (event: StorageEvent) => {
-    if (!event.key || event.key === BROWSER_LOW_MEMORY_KEY) onChange();
-  };
-  window.addEventListener(BROWSER_LOW_MEMORY_CHANGE_EVENT, onChange);
-  window.addEventListener("storage", onStorage);
-  return () => {
-    window.removeEventListener(BROWSER_LOW_MEMORY_CHANGE_EVENT, onChange);
-    window.removeEventListener("storage", onStorage);
-  };
-}
-
-const GRID_ARCADE_ENABLED_KEY = "monocode.gridArcadeEnabled";
-
-export const GRID_ARCADE_ENABLED_DEFAULT = false;
-
-/** Fired on `window` when the empty-session games setting flips. */
-export const GRID_ARCADE_ENABLED_CHANGE_EVENT =
-  "monocode:grid-arcade-enabled-change";
-
-export function loadGridArcadeEnabled(): boolean {
-  try {
-    const raw = localStorage.getItem(GRID_ARCADE_ENABLED_KEY);
-    if (raw == null) return GRID_ARCADE_ENABLED_DEFAULT;
-    return raw === "1" || raw === "true";
-  } catch {
-    return GRID_ARCADE_ENABLED_DEFAULT;
-  }
-}
-
-export function saveGridArcadeEnabled(value: boolean) {
-  try {
-    localStorage.setItem(GRID_ARCADE_ENABLED_KEY, value ? "1" : "0");
-  } catch {
-    // private mode / quota
-  }
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(
-    new CustomEvent<boolean>(GRID_ARCADE_ENABLED_CHANGE_EVENT, {
-      detail: value,
-    }),
-  );
-}
-
-export function subscribeGridArcadeEnabled(onStoreChange: () => void) {
-  if (typeof window === "undefined") return () => {};
-  window.addEventListener(GRID_ARCADE_ENABLED_CHANGE_EVENT, onStoreChange);
-  return () =>
-    window.removeEventListener(GRID_ARCADE_ENABLED_CHANGE_EVENT, onStoreChange);
-}
-
-const DIFF_VIEWER_KEY = "monocode.diffViewer";
-
 export type DiffViewer = "editor" | "unified";
 
-export const DIFF_VIEWER_DEFAULT: DiffViewer = "editor";
+export const FOLLOW_UP_BEHAVIOR_DEFAULT =
+  SETTINGS.followUpBehavior.defaultValue;
+export const loadFollowUpBehavior = SETTINGS.followUpBehavior.load;
+export const saveFollowUpBehavior = SETTINGS.followUpBehavior.save;
+export const subscribeFollowUpBehavior = SETTINGS.followUpBehavior.subscribe;
 
-/** Fired on `window` when the working-tree diff layout flips. */
-export const DIFF_VIEWER_CHANGE_EVENT = "monocode:diff-viewer-change";
+export const COMPOSER_RUNNER_DEFAULT = SETTINGS.composerRunner.defaultValue;
+export const COMPOSER_RUNNER_CHANGE_EVENT =
+  SETTINGS.composerRunner.changeEvent!;
+export const loadComposerRunner = SETTINGS.composerRunner.load;
+export const saveComposerRunner = SETTINGS.composerRunner.save;
 
-function isDiffViewer(value: unknown): value is DiffViewer {
-  return value === "editor" || value === "unified";
-}
+export const NOTES_ENABLED_DEFAULT = SETTINGS.notesEnabled.defaultValue;
+export const NOTES_ENABLED_CHANGE_EVENT = SETTINGS.notesEnabled.changeEvent!;
+export const loadNotesEnabled = SETTINGS.notesEnabled.load;
+export const saveNotesEnabled = SETTINGS.notesEnabled.save;
+export const subscribeNotesEnabled = SETTINGS.notesEnabled.subscribe;
 
-export function loadDiffViewer(): DiffViewer {
-  try {
-    const raw = localStorage.getItem(DIFF_VIEWER_KEY);
-    return isDiffViewer(raw) ? raw : DIFF_VIEWER_DEFAULT;
-  } catch {
-    return DIFF_VIEWER_DEFAULT;
-  }
-}
+export const LIVE_AGENTS_ENABLED_DEFAULT =
+  SETTINGS.liveAgentsEnabled.defaultValue;
+export const LIVE_AGENTS_ENABLED_CHANGE_EVENT =
+  SETTINGS.liveAgentsEnabled.changeEvent!;
+export const loadLiveAgentsEnabled = SETTINGS.liveAgentsEnabled.load;
+export const saveLiveAgentsEnabled = SETTINGS.liveAgentsEnabled.save;
+export const subscribeLiveAgentsEnabled = SETTINGS.liveAgentsEnabled.subscribe;
 
-export function saveDiffViewer(value: DiffViewer) {
-  const next = isDiffViewer(value) ? value : DIFF_VIEWER_DEFAULT;
-  try {
-    localStorage.setItem(DIFF_VIEWER_KEY, next);
-  } catch {
-    // private mode / quota
-  }
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(
-    new CustomEvent<DiffViewer>(DIFF_VIEWER_CHANGE_EVENT, { detail: next }),
-  );
-}
+export const BROWSER_MEMORY_SAVER_DEFAULT =
+  SETTINGS.browserMemorySaver.defaultValue;
+export const loadBrowserMemorySaver = SETTINGS.browserMemorySaver.load;
+export const saveBrowserMemorySaver = SETTINGS.browserMemorySaver.save;
+export const subscribeBrowserMemorySaver =
+  SETTINGS.browserMemorySaver.subscribe;
 
-export function subscribeDiffViewer(onStoreChange: () => void) {
-  if (typeof window === "undefined") return () => {};
-  window.addEventListener(DIFF_VIEWER_CHANGE_EVENT, onStoreChange);
-  return () =>
-    window.removeEventListener(DIFF_VIEWER_CHANGE_EVENT, onStoreChange);
-}
+export const BROWSER_LOW_MEMORY_DEFAULT =
+  SETTINGS.browserLowMemory.defaultValue;
+export const loadBrowserLowMemory = SETTINGS.browserLowMemory.load;
+export const saveBrowserLowMemory = SETTINGS.browserLowMemory.save;
+export const subscribeBrowserLowMemory = SETTINGS.browserLowMemory.subscribe;
 
-const AUTOSAVE_KEY = "aven.fileEditorAutosave";
-const AUTOSAVE_CHANGE_EVENT = "aven:file-editor-autosave-change";
+export const GRID_ARCADE_ENABLED_DEFAULT =
+  SETTINGS.gridArcadeEnabled.defaultValue;
+export const GRID_ARCADE_ENABLED_CHANGE_EVENT =
+  SETTINGS.gridArcadeEnabled.changeEvent!;
+export const loadGridArcadeEnabled = SETTINGS.gridArcadeEnabled.load;
+export const saveGridArcadeEnabled = SETTINGS.gridArcadeEnabled.save;
+export const subscribeGridArcadeEnabled = SETTINGS.gridArcadeEnabled.subscribe;
 
-/** Save edited files shortly after typing stops. Off unless chosen. */
-export const AUTOSAVE_DEFAULT = false;
+export const DIFF_VIEWER_DEFAULT = SETTINGS.diffViewer.defaultValue;
+export const DIFF_VIEWER_CHANGE_EVENT = SETTINGS.diffViewer.changeEvent!;
+export const loadDiffViewer = SETTINGS.diffViewer.load;
+export const saveDiffViewer = SETTINGS.diffViewer.save;
+export const subscribeDiffViewer = SETTINGS.diffViewer.subscribe;
 
-export function loadAutosave(): boolean {
-  try {
-    const raw = localStorage.getItem(AUTOSAVE_KEY);
-    if (raw === "1" || raw === "true") return true;
-    if (raw === "0" || raw === "false") return false;
-    return AUTOSAVE_DEFAULT;
-  } catch {
-    return AUTOSAVE_DEFAULT;
-  }
-}
-
+export const AUTOSAVE_DEFAULT = SETTINGS.autosave.defaultValue;
+export const loadAutosave = SETTINGS.autosave.load;
 export function saveAutosave(value: boolean): boolean {
-  try {
-    localStorage.setItem(AUTOSAVE_KEY, value ? "1" : "0");
-  } catch {
-    // private mode / quota
-  }
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event(AUTOSAVE_CHANGE_EVENT));
-  }
+  SETTINGS.autosave.save(value);
   return loadAutosave();
 }
+export const subscribeAutosave = SETTINGS.autosave.subscribe;
 
-export function subscribeAutosave(onChange: () => void) {
-  if (typeof window === "undefined") return () => {};
-  const onStorage = (event: StorageEvent) => {
-    if (!event.key || event.key === AUTOSAVE_KEY) onChange();
-  };
-  window.addEventListener(AUTOSAVE_CHANGE_EVENT, onChange);
-  window.addEventListener("storage", onStorage);
-  return () => {
-    window.removeEventListener(AUTOSAVE_CHANGE_EVENT, onChange);
-    window.removeEventListener("storage", onStorage);
-  };
-}
-
-const CLAUDE_HOOKS_KEY = "monocode.claudeHooks";
-
-export const CLAUDE_HOOKS_DEFAULT = true;
-
-export function loadClaudeHooks(): boolean {
-  try {
-    const raw = localStorage.getItem(CLAUDE_HOOKS_KEY);
-    if (raw == null) return CLAUDE_HOOKS_DEFAULT;
-    return raw === "1" || raw === "true";
-  } catch {
-    return CLAUDE_HOOKS_DEFAULT;
-  }
-}
-
-export function saveClaudeHooks(value: boolean) {
-  try {
-    localStorage.setItem(CLAUDE_HOOKS_KEY, value ? "1" : "0");
-  } catch {
-    // private mode / quota
-  }
-}
+export const CLAUDE_HOOKS_DEFAULT = SETTINGS.claudeHooks.defaultValue;
+export const loadClaudeHooks = SETTINGS.claudeHooks.load;
+export const saveClaudeHooks = SETTINGS.claudeHooks.save;
 
 const CTRL = IS_MAC ? "⌃" : "Ctrl+";
 

@@ -490,7 +490,6 @@ html.has-native-glass.glass-body:not(.theme-light)
   background: var(--personal-sidebar-surface);
   border: 1px solid var(--personal-line);
   border-radius: 12px;
-  box-shadow: var(--aven-shadow);
 }
 .personal-shell
   .personal-sidebar-slot[data-floating="true"]
@@ -498,6 +497,7 @@ html.has-native-glass.glass-body:not(.theme-light)
   inset: 5px auto 5px 5px;
   height: calc(100% - 10px);
   background: var(--personal-navigation-surface);
+  box-shadow: none;
   z-index: 50;
 }
 .personal-shell
@@ -505,6 +505,7 @@ html.has-native-glass.glass-body:not(.theme-light)
   > .personal-inspector-dock {
   inset: 0 5px 0 auto;
   padding: 0;
+  box-shadow: var(--aven-shadow);
 }
 /* Slide fully past the window edge. Including the 5px inset makes the travel
    equal the panel's right edge, so the workspace crop can follow it exactly. */

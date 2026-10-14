@@ -22,22 +22,7 @@ export type BrowserBounds = {
    * show through. CSS pixels relative to the page origin (`x`, `y`).
    */
   holes?: BrowserHole[];
-  /**
-   * The workspace's hover edge over the page, relative to its origin. The
-   * page keeps its clicks there; native reports when the pointer rests on it.
-   */
-  hoverEdge?: { x: number; y: number; width: number; height: number };
-  /**
-   * When the hover sidebar's slide that this layout's crop follows starts
-   * (milliseconds since 1970) and how long it lasts, so the page's edge
-   * moves with it.
-   */
-  edgeSlideAt?: number;
-  edgeSlideDuration?: number;
 };
-
-/** Where a native page last saw the pointer, which this document cannot. */
-export type BrowserPointerRegion = "page" | "edge" | "away";
 
 /** A rounded rectangle cut out of the native page, relative to its origin. */
 export type BrowserHole = {
@@ -408,15 +393,11 @@ export const nativeBrowser = {
       "browser-open-tab",
       ({ payload }) => callback(payload),
     ),
-  /** The pointer moved onto, within or off a live page, out of sight of this
-   * document. Older native builds report only `page`, without a region. */
-  listenPointer: (
-    callback: (event: { id: string; region: BrowserPointerRegion }) => void,
-  ) =>
-    getCurrentWebview().listen<{ id: string; region?: BrowserPointerRegion }>(
+  /** The pointer moved onto a live page, out of sight of this document. */
+  listenPointer: (callback: (event: { id: string }) => void) =>
+    getCurrentWebview().listen<{ id: string }>(
       "browser-pointer",
-      ({ payload }) =>
-        callback({ id: payload.id, region: payload.region ?? "page" }),
+      ({ payload }) => callback(payload),
     ),
   layout: (id: string, bounds: BrowserBounds, visible: boolean) =>
     invoke<void>("browser_layout", { id, bounds, visible }),

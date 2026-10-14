@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   matchingAgentBrowserTab,
   openAgentBrowserTab,
-  coalesceAgentBrowserOpen,
+  createAgentBrowserRouter,
+  reserveAgentBrowserOpen,
 } from "./agentBrowserOpen";
 import {
   closeBrowserTab,
@@ -13,8 +14,93 @@ import {
 describe("agent browser open", () => {
   const url = "http://localhost:5173/design/mocks/index.html?focus=1#editor";
 
+  it("uses one background policy for reuse and creation and reserves until placement finishes", async () => {
+    const router = createAgentBrowserRouter();
+    let finish!: (id: string) => void;
+    const create = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const reuse = vi.fn(async (tab: { id: string; url: string }) => tab.id);
+    const pages: Array<{ id: string; url: string }> = [];
+    const adapter = { tabs: () => pages, create, reuse };
+    const first = router.open("/p", url, { arrange: false }, adapter);
+    const second = router.open("/p", url, { arrange: false }, adapter);
+    expect(second).toBe(first);
+    await Promise.resolve();
+    expect(create).toHaveBeenCalledExactlyOnceWith(url, {
+      activate: false,
+      arrange: false,
+    });
+    pages.push({ id: "one", url });
+    finish("one");
+    await expect(first).resolves.toBe("one");
+    await expect(router.open("/p", url, {}, adapter)).resolves.toBe("one");
+    expect(reuse).toHaveBeenCalledExactlyOnceWith(pages[0], {
+      activate: false,
+      arrange: true,
+    });
+  });
+
+  it("requires both native delivery and a checkpoint before releasing a reservation", async () => {
+    let deliver!: () => void;
+    const release = vi.fn();
+    const operation = reserveAgentBrowserOpen(
+      "one",
+      () =>
+        new Promise<void>((resolve) => {
+          deliver = resolve;
+        }),
+      release,
+    );
+    const finished = vi.fn();
+    void operation.promise.then(finished);
+    await Promise.resolve();
+    operation.confirm();
+    expect(release).not.toHaveBeenCalled();
+    expect(finished).not.toHaveBeenCalled();
+    deliver();
+    await expect(operation.promise).resolves.toBe("one");
+    expect(release).toHaveBeenCalledOnce();
+    operation.confirm();
+    operation.fail(new Error("late close"));
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it("reuses pending explicit copies without preventing another deliberate copy", async () => {
+    const router = createAgentBrowserRouter();
+    const deliveries: Array<(id: string) => void> = [];
+    const create = vi.fn(
+      () => new Promise<string>((resolve) => deliveries.push(resolve)),
+    );
+    const adapter = { tabs: () => [], reuse: async () => "unused", create };
+    const first = router.open("/p", url, { newTab: true }, adapter);
+    const second = router.open("/p", url, { newTab: true }, adapter);
+    expect(router.open("/p", url, {}, adapter)).toBe(first);
+    await Promise.resolve();
+    expect(create).toHaveBeenCalledTimes(2);
+    deliveries[0]("first");
+    await expect(first).resolves.toBe("first");
+    expect(router.open("/p", url, {}, adapter)).toBe(second);
+    deliveries[1]("second");
+    await expect(second).resolves.toBe("second");
+  });
+
   it("shares concurrent same-project requests across windows but keeps explicit copies and other projects separate", async () => {
-    const pending = new Map<string, Promise<string>>();
+    const router = createAgentBrowserRouter();
+    const open = (
+      project: string,
+      target: string,
+      options: { newTab?: boolean },
+      open: () => Promise<string>,
+    ) =>
+      router.open(project, target, options, {
+        tabs: () => [],
+        reuse: async () => "unused",
+        create: open,
+      });
     let finish!: (id: string) => void;
     const firstOpen = vi.fn(
       () =>
@@ -23,53 +109,27 @@ describe("agent browser open", () => {
         }),
     );
     const otherOpen = vi.fn(async () => "other");
-    const first = coalesceAgentBrowserOpen(
-      pending,
-      "/p",
-      "https://EXAMPLE.com:443",
-      {},
-      firstOpen,
-    );
-    const second = coalesceAgentBrowserOpen(
-      pending,
-      "/p",
-      "https://example.com/",
-      {},
-      otherOpen,
-    );
+    const first = open("/p", "https://EXAMPLE.com:443", {}, firstOpen);
+    const second = open("/p", "https://example.com/", {}, otherOpen);
     expect(second).toBe(first);
+    expect(await open("/q", "https://example.com/", {}, otherOpen)).toBe(
+      "other",
+    );
     expect(
-      await coalesceAgentBrowserOpen(
-        pending,
-        "/q",
-        "https://example.com/",
-        {},
-        otherOpen,
-      ),
-    ).toBe("other");
-    expect(
-      await coalesceAgentBrowserOpen(
-        pending,
-        "/p",
-        "https://example.com/",
-        { newTab: true },
-        otherOpen,
-      ),
+      await open("/p", "https://example.com/", { newTab: true }, otherOpen),
     ).toBe("other");
     finish("shared");
     expect(await second).toBe("shared");
     expect(firstOpen).toHaveBeenCalledOnce();
     expect(otherOpen).toHaveBeenCalledTimes(2);
-    expect(pending.size).toBe(0);
+
     await expect(
-      coalesceAgentBrowserOpen(pending, "/p", url, {}, async () => {
+      open("/p", url, {}, async () => {
         throw new Error("moving");
       }),
     ).rejects.toThrow("moving");
-    expect(pending.size).toBe(0);
-    expect(
-      await coalesceAgentBrowserOpen(pending, "/p", url, {}, otherOpen),
-    ).toBe("other");
+
+    expect(await open("/p", url, {}, otherOpen)).toBe("other");
   });
 
   it("opens the same preview three times as one retained tab", () => {

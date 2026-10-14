@@ -1,3 +1,4 @@
+import { harnessDescriptor } from "./descriptors";
 import {
   bindGrokSession,
   cancelGrokTurn,
@@ -21,6 +22,7 @@ import { registerHarness, type HarnessAdapter } from "./registry";
 
 export const grokAdapter: HarnessAdapter = {
   id: "grok",
+  descriptor: harnessDescriptor("grok"),
   live: true,
   canSteer: false,
   sendTurn: sendGrokTurn,

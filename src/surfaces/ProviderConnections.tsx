@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { Plus, RefreshCw } from "../chrome/icons";
 import { homeDir } from "../lib/fs";
-import {
-  listClaudeConnections,
-  listCodexConnections,
-  type ConnectionState,
-  type ProviderConnection,
+import { harnessDescriptor } from "../lib/harness/descriptors";
+import * as connectionLists from "../lib/harness/providerConnections";
+import type {
+  ConnectionState,
+  ProviderConnection,
 } from "../lib/harness/providerConnections";
 import {
   EMPTY_MCP_DRAFT,
@@ -27,27 +27,10 @@ export type Inventory =
   | { status: "loaded"; connections: ProviderConnection[] }
   | { status: "error"; message: string };
 
-const PROVIDERS: Array<{
-  id: Provider;
-  label: string;
-  list: (cwd: string) => Promise<ProviderConnection[]>;
-  manage: string;
-}> = [
-  {
-    id: "claude",
-    label: "Claude",
-    list: listClaudeConnections,
-    manage:
-      "claude.ai connectors appear when Claude Code is signed in with a claude.ai account; manage them on claude.ai.",
-  },
-  {
-    id: "codex",
-    label: "Codex",
-    list: listCodexConnections,
-    manage:
-      "ChatGPT apps appear when Codex is signed in with ChatGPT; manage them in ChatGPT.",
-  },
-];
+const PROVIDERS = (["claude", "codex"] as const).map((id) => {
+  const connections = harnessDescriptor(id).connections!;
+  return { id, ...connections, list: connectionLists[connections.list] };
+});
 
 const STATE_LABEL: Record<ConnectionState, string> = {
   ready: "Connected",
@@ -216,7 +199,7 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
           },
           folder,
         );
-        return `Removed ${row.name} from ${provider === "claude" ? "Claude" : "Codex"}.`;
+        return `Removed ${row.name} from ${harnessDescriptor(provider).connections!.label}.`;
       },
       [provider],
     );
@@ -292,16 +275,19 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
                         action: "add",
                         provider,
                         name: draft.name.trim(),
-                        ...(provider === "claude" ? { scope } : {}),
+                        ...(harnessDescriptor(provider).connections!
+                          .supportsScope
+                          ? { scope }
+                          : {}),
                         server: draftToSpec(draft, provider),
                       },
                       folder,
                     );
-                    done.push(provider === "claude" ? "Claude" : "Codex");
+                    done.push(harnessDescriptor(provider).connections!.label);
                   } catch (error) {
                     const reason =
                       error instanceof Error ? error.message : String(error);
-                    const who = provider === "claude" ? "Claude" : "Codex";
+                    const who = harnessDescriptor(provider).connections!.label;
                     throw new Error(
                       done.length
                         ? `Added to ${done.join(" and ")}, but ${who} failed: ${reason}`

@@ -953,6 +953,7 @@ pub fn workspace_window_visibility(
     )
 }
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Keep the existing IPC fields independently optional.
 pub async fn workspace_window_focus(
     caller: Webview,
     id: String,
@@ -961,6 +962,7 @@ pub async fn workspace_window_focus(
     browser: Option<Value>,
     file: Option<WorkspaceFileRequest>,
     activate: Option<bool>,
+    arrange: Option<bool>,
 ) -> Result<(), String> {
     let (_, entry) = authorized(&caller, Some(&id))?;
     if let Some(file) = &file {
@@ -1012,7 +1014,7 @@ pub async fn workspace_window_focus(
             &app,
             &id,
             "workspace-window-focus",
-            json!({"sessionId":session_id,"url":url,"browser":browser,"file":file,"activate":activate.unwrap_or(true),"requestToken":request_token,"expiresAt":expires_at}),
+            json!({"sessionId":session_id,"url":url,"browser":browser,"file":file,"activate":activate.unwrap_or(true),"arrange":arrange.unwrap_or(true),"requestToken":request_token,"expiresAt":expires_at}),
         )?;
         if activate.unwrap_or(true) {
             workspace_window_show(caller, id)?;

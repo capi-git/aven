@@ -1,3 +1,4 @@
+import { harnessDescriptor } from "../lib/harness/descriptors";
 import { visibleInterval } from "../lib/visibleInterval";
 import { useEffect, useState } from "react";
 import { formatTokens } from "../lib/contextUsage";
@@ -129,7 +130,7 @@ function ProviderUsage({
   limits: ProviderRateLimits;
   now: number;
 }) {
-  const name = limits.provider === "claude" ? "Claude Code" : "Codex";
+  const name = harnessDescriptor(limits.provider).title;
   const cached = hasRateLimitWindows(limits);
   const failed = limits.status === "error" || limits.status === "unavailable";
   const status =
@@ -174,7 +175,7 @@ function ProviderUsage({
         status={limits.status}
         now={now}
       />
-      {limits.provider === "claude" &&
+      {harnessDescriptor(limits.provider).usage?.scopedWeekly &&
         limits.scopedWeekly?.map((limit, index) => (
           <RateWindow
             key={`${limit.model}-${index}`}

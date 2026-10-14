@@ -1,3 +1,4 @@
+import { harnessDescriptor } from "../lib/harness/descriptors";
 import {
   ArrowUp,
   AiIdea,
@@ -1684,7 +1685,7 @@ function ComposerComponent({
               }}
             >
               <div className="personal-composer-options flex shrink-0 items-center gap-1">
-                {harness !== "fx" ? (
+                {harnessDescriptor(harness).supportsAccessMode ? (
                   <div className="personal-composer-capsule personal-composer-access">
                     <AccessPicker
                       value={runtimeMode}

@@ -111,6 +111,48 @@ const tabIds = () =>
     (tab) => tab.dataset.surfaceTabId!,
   );
 
+it("leaves every pane selected when an agent opens or reuses a page with arrange:false", async () => {
+  const initial = await nativeWorkspaceWindow.getState();
+  const chat = newTab("agent-a");
+  initial.state.tabs = [chat];
+  initial.state.view = {
+    layout: {
+      type: "split",
+      id: "two",
+      dir: "right",
+      children: [leaf(chat.id), leaf("selected")],
+      sizes: [0.5, 0.5],
+    },
+    focusedId: chat.id,
+    order: [chat.id, "selected", "history"],
+    groups: { [chat.id]: [chat.id], selected: ["selected", "history"] },
+  };
+  await act(async () => root.render(createElement(DetachedWorkspace)));
+  for (const browser of [
+    { id: "agent-new", tabId: "new", url: "https://new.test" },
+    initial.state.browsers[1],
+  ]) {
+    await act(async () => {
+      listeners.get("workspace-window-focus")!({
+        sessionId: "agent-a",
+        activate: false,
+        arrange: false,
+        browser,
+      });
+      await vi.advanceTimersByTimeAsync(150);
+    });
+    const saved = vi
+      .mocked(nativeWorkspaceWindow.checkpoint)
+      .mock.calls.at(-1)![0];
+    expect(saved.view.focusedId).toBe(chat.id);
+    expect(saved.view.layout).toEqual(initial.state.view.layout);
+    expect(
+      host.querySelector<HTMLElement>(`[data-test-browser="${browser.id}"]`)!
+        .dataset.presented,
+    ).toBe("false");
+  }
+});
+
 it("keeps the user's chat selected and groups passive agent pages in the existing browser pane", async () => {
   const initial = await nativeWorkspaceWindow.getState();
   const a = newTab("agent-a"),

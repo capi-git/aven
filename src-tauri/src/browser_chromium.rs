@@ -34,8 +34,7 @@ fn trace_layout(
                 "x": bounds.x, "y": bounds.y, "width": bounds.width, "height": bounds.height,
                 "scale": bounds.scale, "viewportHeight": bounds.viewport_height,
                 "clipLeft": bounds.clip_left, "clipRight": bounds.clip_right,
-                "holes": bounds.holes.len(), "hoverEdge": bounds.hover_edge.is_some(),
-                "edgeSlideAt": bounds.edge_slide_at, "flags": flags,
+                "holes": bounds.holes.len(), "flags": flags,
             }),
         );
     }
@@ -71,9 +70,6 @@ extern "C" {
         bottom_corner_radius: f64,
         holes: *const f64,
         hole_count: c_int,
-        hover_edge: *const f64,
-        edge_slide_at: f64,
-        edge_slide_duration: f64,
     ) -> c_int;
     fn sm_chromium_reparent(
         id: *const c_char,
@@ -122,29 +118,10 @@ pub struct BrowserBounds {
     /// In-app menus cut out of the live page, relative to its origin.
     #[serde(default)]
     holes: Vec<BrowserHole>,
-    /// The workspace's hover edge over the page, relative to its origin.
-    /// The page keeps its pointer events there; native reports a rest.
-    #[serde(default)]
-    hover_edge: Option<BrowserRect>,
-    /// When the hover sidebar's slide that this layout's crop follows
-    /// starts, in milliseconds since 1970, and how long it lasts.
-    #[serde(default)]
-    edge_slide_at: Option<f64>,
-    #[serde(default)]
-    edge_slide_duration: Option<f64>,
 }
 
 /// Upper bound on page cut-outs; more surfaces use the still-image path.
 const MAX_BROWSER_HOLES: usize = 8;
-
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BrowserRect {
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
-}
 
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -198,21 +175,6 @@ impl BrowserBounds {
                         .iter()
                         .any(|value| !value.is_finite() || *value < 0.0 || *value > 32768.0)
             })
-            || self.hover_edge.as_ref().is_some_and(|edge| {
-                // The window's edge usually lies just left of the page.
-                [edge.x, edge.y]
-                    .iter()
-                    .any(|value| !value.is_finite() || value.abs() > 32768.0)
-                    || [edge.width, edge.height]
-                        .iter()
-                        .any(|value| !value.is_finite() || *value < 0.0 || *value > 32768.0)
-            })
-            || self
-                .edge_slide_at
-                .is_some_and(|at| !at.is_finite() || at <= 0.0)
-            || self.edge_slide_duration.is_some_and(|duration| {
-                !duration.is_finite() || duration <= 0.0 || duration > 4000.0
-            })
         {
             return Err("Invalid browser bounds".into());
         }
@@ -264,27 +226,6 @@ impl BrowserBounds {
             );
         }
         Ok(points)
-    }
-    /// The hover edge as `[x, y, width, height]` in native points, if any.
-    fn hover_edge_points(&self, native_scale: f64) -> Result<Option<[f64; 4]>, String> {
-        self.points(native_scale)?;
-        let ratio = self.scale / native_scale;
-        Ok(self
-            .hover_edge
-            .as_ref()
-            .filter(|edge| edge.width > 0.0 && edge.height > 0.0)
-            .map(|edge| [edge.x, edge.y, edge.width, edge.height].map(|value| value * ratio)))
-    }
-    /// The sidebar slide's start in seconds since 1970 and its length in
-    /// seconds; zero for whichever is unknown.
-    fn edge_slide_seconds(&self) -> [f64; 2] {
-        match self.edge_slide_at {
-            Some(at) => [
-                at / 1000.0,
-                self.edge_slide_duration.unwrap_or(0.0) / 1000.0,
-            ],
-            None => [0.0, 0.0],
-        }
     }
     fn viewport_points(&self, native_scale: f64) -> Result<f64, String> {
         self.points(native_scale)?;
@@ -1102,13 +1043,7 @@ fn handle_event(native_id: &str, event: Value) {
             }
         }
         "pointer" => {
-            // A hover panel beside the page cannot see the pointer leave for
-            // it, nor rest on its hover edge over the page.
-            let region = event
-                .get("region")
-                .and_then(Value::as_str)
-                .filter(|region| matches!(*region, "page" | "edge" | "away"))
-                .unwrap_or("page");
+            // A hover panel beside the page cannot see the pointer leave for it.
             if let Some(id) = context.state.lock().ok().map(|state| state.id.clone()) {
                 let label = context
                     .delegate
@@ -1119,7 +1054,7 @@ fn handle_event(native_id: &str, event: Value) {
                 let _ = context.caller.emit_to(
                     EventTarget::webview(label),
                     "browser-pointer",
-                    json!({ "id": id, "region": region }),
+                    json!({ "id": id }),
                 );
             }
         }
@@ -1894,8 +1829,6 @@ pub async fn browser_layout(
         let viewport_height = bounds.viewport_points(scale)?;
         let bottom_corner_radius = bounds.bottom_radius_points(scale)?;
         let holes = bounds.hole_points(scale)?;
-        let hover_edge = bounds.hover_edge_points(scale)?;
-        let [edge_slide_at, edge_slide_duration] = bounds.edge_slide_seconds();
         trace_layout(
             "layout-accepted",
             &context.native_id,
@@ -1919,11 +1852,6 @@ pub async fn browser_layout(
                 bottom_corner_radius,
                 holes.as_ptr(),
                 (holes.len() / 5) as c_int,
-                hover_edge
-                    .as_ref()
-                    .map_or(std::ptr::null(), |edge| edge.as_ptr()),
-                edge_slide_at,
-                edge_slide_duration,
             )
         })
     })
@@ -2004,10 +1932,6 @@ async fn move_page(
                 // after a reparent rather than reusing stale rectangles.
                 std::ptr::null(),
                 0,
-                // So is the hover edge; a reparent never slides.
-                std::ptr::null(),
-                0.0,
-                0.0,
             )
         })
     })
@@ -3026,9 +2950,6 @@ mod tests {
             viewport_height: Some(860.0),
             bottom_corner_radius: 8.0,
             holes: Vec::new(),
-            hover_edge: None,
-            edge_slide_at: None,
-            edge_slide_duration: None,
         };
         assert_eq!(bounds.points(2.0).unwrap(), [80.0, 40.0, 640.0, 480.0]);
         assert_eq!(bounds.viewport_points(2.0).unwrap(), 688.0);
@@ -3146,84 +3067,6 @@ mod tests {
             }
             assert!(BrowserBounds {
                 holes: vec![invalid],
-                ..legacy.clone()
-            }
-            .validate()
-            .is_err());
-        }
-    }
-    #[test]
-    fn converts_the_hover_edge_and_times_the_sidebar_slide() {
-        let bounds: BrowserBounds = serde_json::from_value(serde_json::json!({
-            "x": 1, "y": 40, "width": 800, "height": 600, "scale": 1.5,
-            // The window's edge lies a pixel left of the page.
-            "hoverEdge": {"x": -1, "y": -2, "width": 10, "height": 560},
-            "edgeSlideAt": 1_791_927_275_625.0_f64, "edgeSlideDuration": 120
-        }))
-        .unwrap();
-        bounds.validate().unwrap();
-        assert_eq!(
-            bounds.hover_edge_points(1.0).unwrap(),
-            Some([-1.5, -3.0, 15.0, 840.0])
-        );
-        assert_eq!(bounds.edge_slide_seconds(), [1_791_927_275.625, 0.12]);
-        let legacy: BrowserBounds = serde_json::from_value(serde_json::json!({
-            "x": 0, "y": 0, "width": 800, "height": 600, "scale": 2
-        }))
-        .unwrap();
-        assert_eq!(legacy.hover_edge_points(2.0).unwrap(), None);
-        assert_eq!(legacy.edge_slide_seconds(), [0.0, 0.0]);
-        // An empty edge reports nothing; a duration alone has no start.
-        let empty = BrowserBounds {
-            hover_edge: Some(BrowserRect {
-                x: 0.0,
-                y: 0.0,
-                width: 0.0,
-                height: 560.0,
-            }),
-            edge_slide_duration: Some(240.0),
-            ..legacy.clone()
-        };
-        assert!(empty.validate().is_ok());
-        assert_eq!(empty.hover_edge_points(2.0).unwrap(), None);
-        assert_eq!(empty.edge_slide_seconds(), [0.0, 0.0]);
-        let edge = BrowserRect {
-            x: 0.0,
-            y: 0.0,
-            width: 10.0,
-            height: 10.0,
-        };
-        // Negative offsets are valid positions; negative sizes are not.
-        for (field, value) in (0..4)
-            .flat_map(|field| [f64::NAN, f64::INFINITY, 32769.0].map(move |value| (field, value)))
-            .chain([(0, -32769.0), (1, -32769.0), (2, -1.0), (3, -1.0)])
-        {
-            let mut invalid = edge.clone();
-            match field {
-                0 => invalid.x = value,
-                1 => invalid.y = value,
-                2 => invalid.width = value,
-                _ => invalid.height = value,
-            }
-            assert!(BrowserBounds {
-                hover_edge: Some(invalid),
-                ..legacy.clone()
-            }
-            .validate()
-            .is_err());
-        }
-        for at in [f64::NAN, f64::INFINITY, 0.0, -1.0] {
-            assert!(BrowserBounds {
-                edge_slide_at: Some(at),
-                ..legacy.clone()
-            }
-            .validate()
-            .is_err());
-        }
-        for duration in [f64::NAN, 0.0, -1.0, 4000.5] {
-            assert!(BrowserBounds {
-                edge_slide_at: Some(1.0),
-                edge_slide_duration: Some(duration),
                 ..legacy.clone()
             }
             .validate()

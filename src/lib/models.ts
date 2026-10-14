@@ -1,5 +1,9 @@
+import {
+  HARNESS_IDS as HARNESSES,
+  harnessDescriptor,
+  pickHarnessDefaultModel,
+} from "./harness/descriptors";
 import type { HarnessId } from "./session";
-import { HARNESSES } from "./session";
 
 export type ModelSettingChoice = {
   value: string;
@@ -214,16 +218,9 @@ export const MODELS: AgentModel[] = [
   },
 ];
 
-export const DEFAULT_MODEL_ID: Record<HarnessId, string> = {
-  claude: "claude:sonnet-5",
-  codex: "",
-  cursor: "cursor:composer-2.5",
-  grok: "grok:grok-4.6",
-  opencode: "opencode:glm-5",
-  pi: "pi:default",
-  omp: "omp:default",
-  fx: "fx:zai/glm-5.2-fast",
-};
+export const DEFAULT_MODEL_ID: Record<HarnessId, string> = Object.fromEntries(
+  HARNESSES.map((id) => [id, harnessDescriptor(id).defaultModel.id]),
+) as Record<HarnessId, string>;
 
 const FAVORITES_KEY = "monocode.favoriteModels";
 const MODEL_PICKER_TAB_KEY = "monocode.modelPickerTab";
@@ -240,16 +237,7 @@ export type LastModelChoice = {
   model: string;
 };
 
-const HARNESS_ORDER: HarnessId[] = [
-  "claude",
-  "codex",
-  "cursor",
-  "grok",
-  "opencode",
-  "pi",
-  "omp",
-  "fx",
-];
+const HARNESS_ORDER = HARNESSES;
 
 const EMPTY_MODELS: AgentModel[] = [];
 
@@ -999,57 +987,5 @@ function nativeIdFrom(id: string): string {
 }
 
 function pickDefaultId(harness: HarnessId, models: AgentModel[]): string {
-  if (harness === "claude") {
-    return (
-      models.find((model) => model.nativeId === "claude-sonnet-5")?.id ??
-      models.find((model) => model.nativeId === "sonnet")?.id ??
-      models.find((model) => model.id === DEFAULT_MODEL_ID.claude)?.id ??
-      models[0]?.id ??
-      DEFAULT_MODEL_ID.claude
-    );
-  }
-  if (harness === "cursor") {
-    return (
-      models.find((model) => model.nativeId === "composer-2.5")?.id ??
-      models.find(
-        (model) => model.nativeId === "default" || model.nativeId === "auto",
-      )?.id ??
-      models[0]?.id ??
-      DEFAULT_MODEL_ID.cursor
-    );
-  }
-  if (harness === "codex") {
-    return models[0]?.id ?? "";
-  }
-  if (harness === "grok") {
-    return (
-      models.find((model) => model.nativeId === "grok-4.6")?.id ??
-      models.find((model) => model.id === DEFAULT_MODEL_ID.grok)?.id ??
-      models[0]?.id ??
-      DEFAULT_MODEL_ID.grok
-    );
-  }
-  if (harness === "fx") {
-    const preferred = [
-      "zai/glm-5.2-fast",
-      "zai/glm-5.2",
-      "zai/glm-4.7-flash",
-      "zai/glm-4.7",
-      "openai/gpt-5.2",
-    ];
-    for (const nativeId of preferred) {
-      const hit = models.find((model) => model.nativeId === nativeId);
-      if (hit) return hit.id;
-    }
-    return (
-      models.find((model) => model.id === DEFAULT_MODEL_ID.fx)?.id ??
-      models[0]?.id ??
-      DEFAULT_MODEL_ID.fx
-    );
-  }
-  return (
-    models.find((model) => model.id === DEFAULT_MODEL_ID[harness])?.id ??
-    models[0]?.id ??
-    DEFAULT_MODEL_ID[harness]
-  );
+  return pickHarnessDefaultModel(harness, models);
 }

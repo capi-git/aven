@@ -1,3 +1,4 @@
+import { harnessDescriptor } from "./descriptors";
 import {
   bindOmpSession,
   cancelOmpTurn,
@@ -17,6 +18,7 @@ import { OMP_FLAVOR } from "./piFlavor";
 
 export const ompAdapter: HarnessAdapter = {
   id: "omp",
+  descriptor: harnessDescriptor("omp"),
   live: true,
   commands: ompCommandProvider,
   respondQuestion: (sessionId, requestId, reply) =>

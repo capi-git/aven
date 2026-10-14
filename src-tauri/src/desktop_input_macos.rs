@@ -1,6 +1,5 @@
 //! Explicit app delivery, with no silent fall back to the shared pointer.
 use super::*;
-use std::cell::RefCell;
 
 #[link(name = "CoreGraphics", kind = "framework")]
 unsafe extern "C" {
@@ -9,52 +8,12 @@ unsafe extern "C" {
     fn CGEventSetType(event: Event, kind: u32);
     fn CGEventGetIntegerValueField(event: Cf, field: u32) -> i64;
 }
-#[derive(Clone)]
-struct Route {
-    ticket: presence::Ticket,
-    target: PresenceTarget,
-}
-thread_local! { static ROUTE: RefCell<Option<Route>> = const { RefCell::new(None) }; }
-pub(super) struct Guard;
-impl Drop for Guard {
-    fn drop(&mut self) {
-        ROUTE.with(|slot| slot.borrow_mut().take());
-    }
-}
-pub(super) fn enter(ticket: &presence::Ticket, target: &PresenceTarget) -> Guard {
-    ROUTE.with(|slot| {
-        *slot.borrow_mut() = Some(Route {
-            ticket: ticket.clone(),
-            target: target.clone(),
-        })
-    });
-    Guard
-}
-pub(super) fn check() -> Result<(), String> {
-    ROUTE.with(|slot| {
-        let slot = slot.borrow();
-        let Some(route) = slot.as_ref() else {
-            return Ok(());
-        };
-        // Read before every native event: a lock between events stops the
-        // action here, and its error path releases any held button.
-        super::session::record_unavailable(super::session::current());
-        presence::with(|state| state.check(&route.ticket))?;
-        if let Some(id) = route.target.window_id {
-            let current = windows()?.into_iter().find(|w| w.window_id == id);
-            if current.is_none_or(|w| Some(w.pid) != route.target.pid) {
-                return Err(
-                    "The target app or window changed. Take a fresh screenshot before retrying."
-                        .into(),
-                );
-            }
-        }
-        Ok(())
-    })
-}
-
-pub(super) fn mouse_event(kind: u32, point: Point) -> Option<Result<OwnedCf, String>> {
-    let target = current_app_target()?;
+pub(super) fn mouse_event(
+    guard: &gate::Guard,
+    kind: u32,
+    point: Point,
+) -> Option<Result<OwnedCf, String>> {
+    let target = current_app_target(guard)?;
     Some((|| unsafe {
         let bounds = target.bounds.ok_or(INPUT_WINDOW_UNAVAILABLE)?;
         let window = target.window_id.ok_or(INPUT_WINDOW_UNAVAILABLE)?;
@@ -96,8 +55,12 @@ pub(super) fn mouse_event(kind: u32, point: Point) -> Option<Result<OwnedCf, Str
     })())
 }
 
-pub(super) fn scroll_event(point: Point, source: &OwnedCf) -> Result<Option<OwnedCf>, String> {
-    let Some(event) = mouse_event(5, point) else {
+pub(super) fn scroll_event(
+    guard: &gate::Guard,
+    point: Point,
+    source: &OwnedCf,
+) -> Result<Option<OwnedCf>, String> {
+    let Some(event) = mouse_event(guard, 5, point) else {
         unsafe {
             CGEventSetLocation(source.event(), point);
         }
@@ -117,65 +80,64 @@ pub(super) fn scroll_event(point: Point, source: &OwnedCf) -> Result<Option<Owne
     }
     Ok(Some(event))
 }
-/// Every down event is checked by its caller. Release events deliberately keep
-/// the original route even after cancellation, so no button can remain held.
-pub(super) unsafe fn post(event: Event) {
-    CGEventSetIntegerValueField(event, 42, presence::EVENT_MARKER);
-    ROUTE.with(|slot| {
-        let slot = slot.borrow();
-        if let Some(target) = slot
-            .as_ref()
-            .map(|route| &route.target)
-            .filter(|target| !target.shared_input)
-        {
-            if let Some(pid) = target.pid {
-                CGEventSetIntegerValueField(event, 40, i64::from(pid));
-                if let Some(window) = target.window_id {
-                    CGEventSetIntegerValueField(event, 91, i64::from(window));
-                    CGEventSetIntegerValueField(event, 92, i64::from(window));
-                }
-                CGEventPostToPid(pid, event);
-            }
-        } else if slot.as_ref().is_some_and(|route| route.target.shared_input) {
-            CGEventPost(0, event);
-        }
-    });
+/// Release events retain the admitted destination after cancellation, so no
+/// button or key can remain held. Every other event rechecks before posting.
+pub(super) unsafe fn post(guard: &gate::Guard, event: Event) -> Result<(), String> {
+    guard.check()?;
+    release(guard, event);
+    Ok(())
 }
+
+pub(super) unsafe fn release(guard: &gate::Guard, event: Event) {
+    CGEventSetIntegerValueField(event, 42, presence::EVENT_MARKER);
+    let target = guard.target();
+    if !target.shared_input {
+        if let Some(pid) = target.pid {
+            CGEventSetIntegerValueField(event, 40, i64::from(pid));
+            if let Some(window) = target.window_id {
+                CGEventSetIntegerValueField(event, 91, i64::from(window));
+                CGEventSetIntegerValueField(event, 92, i64::from(window));
+            }
+            CGEventPostToPid(pid, event);
+        }
+    } else {
+        CGEventPost(0, event);
+    }
+}
+
 pub(super) fn app_targets(
+    guard: &gate::Guard,
     points: &[(f64, f64)],
     window_id: Option<u32>,
 ) -> Option<Result<Vec<InputTarget>, String>> {
-    ROUTE.with(|slot| {
-        let slot = slot.borrow();
-        let target = &slot.as_ref()?.target;
-        if target.shared_input {
-            return None;
+    let target = guard.target();
+    if target.shared_input {
+        return None;
+    }
+    Some((|| {
+        if target.window_id != window_id || window_id.is_none() {
+            return Err("App-directed input requires the observed windowId.".into());
         }
-        Some((|| {
-            if target.window_id != window_id || window_id.is_none() {
-                return Err("App-directed input requires the observed windowId.".into());
-            }
-            check()?;
-            let bounds = target.bounds.ok_or(INPUT_WINDOW_UNAVAILABLE)?;
-            if window_bounds(window_id.ok_or(INPUT_WINDOW_UNAVAILABLE)?)? != bounds {
-                return Err("The target window moved. Take a fresh screenshot and retry.".into());
-            }
-            points
-                .iter()
-                .map(|&(x, y)| {
-                    let (x, y) = global_point(x, y, Some(bounds))?;
-                    let point = Point { x, y };
-                    if presence_ui::covers(point)? {
-                        return Err("Agent input cannot target Aven's desktop controls.".into());
-                    }
-                    Ok(InputTarget {
-                        point,
-                        bounds: Some(bounds),
-                    })
+        guard.check()?;
+        let bounds = target.bounds.ok_or(INPUT_WINDOW_UNAVAILABLE)?;
+        if window_bounds(window_id.ok_or(INPUT_WINDOW_UNAVAILABLE)?)? != bounds {
+            return Err("The target window moved. Take a fresh screenshot and retry.".into());
+        }
+        points
+            .iter()
+            .map(|&(x, y)| {
+                let (x, y) = global_point(x, y, Some(bounds))?;
+                let point = Point { x, y };
+                if presence_ui::covers(point)? {
+                    return Err("Agent input cannot target Aven's desktop controls.".into());
+                }
+                Ok(InputTarget {
+                    point,
+                    bounds: Some(bounds),
                 })
-                .collect()
-        })())
-    })
+            })
+            .collect()
+    })())
 }
 
 pub(super) fn target(
@@ -394,25 +356,20 @@ unsafe fn attribute(element: Cf, name: &str) -> Result<OwnedCf, String> {
     }
     OwnedCf::new(value, "The accessibility target is no longer available.")
 }
-fn current_app_target() -> Option<PresenceTarget> {
-    ROUTE.with(|slot| {
-        slot.borrow()
-            .as_ref()
-            .map(|r| r.target.clone())
-            .filter(|t| !t.shared_input)
-    })
+fn current_app_target(guard: &gate::Guard) -> Option<&PresenceTarget> {
+    Some(guard.target()).filter(|target| !target.shared_input)
 }
 /// Keys go only to the requested app's focused window. Process-directed events
 /// do not promise a particular window merely because a window number is set.
-pub(super) fn keyboard_target() -> Result<(), String> {
-    let Some(target) = current_app_target() else {
-        let expected = ROUTE.with(|slot| slot.borrow().as_ref().and_then(|r| r.target.pid));
+pub(super) fn keyboard_target(guard: &gate::Guard) -> Result<(), String> {
+    let Some(target) = current_app_target(guard) else {
+        let expected = guard.target().pid;
         if expected.is_some() && presence_ui::frontmost_pid()? != expected {
             return Err("The foreground app changed. No keyboard input was sent.".into());
         }
         return Ok(());
     };
-    check()?;
+    guard.check()?;
     unsafe {
         let app = OwnedCf::new(
             AXUIElementCreateApplication(target.pid.ok_or(INPUT_WINDOW_UNAVAILABLE)?),
@@ -420,7 +377,7 @@ pub(super) fn keyboard_target() -> Result<(), String> {
         )?;
         AXUIElementSetMessagingTimeout(app.0, 0.3);
         let focused = attribute(app.0, "AXFocusedWindow")?;
-        verify_window(focused.0, &target)
+        verify_window(focused.0, target)
     }
 }
 unsafe fn verify_window(window: Cf, target: &PresenceTarget) -> Result<(), String> {
@@ -456,14 +413,19 @@ unsafe fn verify_window(window: Cf, target: &PresenceTarget) -> Result<(), Strin
 }
 /// Prefer a semantic press for an accessible control. Once attempted, even an
 /// AX timeout is never retried as a click: the action may already have run.
-pub(super) fn accessible_click(point: Point, button: Button, count: u8) -> Result<bool, String> {
-    let Some(target) = current_app_target() else {
+pub(super) fn accessible_click(
+    guard: &gate::Guard,
+    point: Point,
+    button: Button,
+    count: u8,
+) -> Result<bool, String> {
+    let Some(target) = current_app_target(guard) else {
         return Ok(false);
     };
     if !matches!(button, Button::Left) || count != 1 {
         return Ok(false);
     }
-    check()?;
+    guard.check()?;
     unsafe {
         let app = OwnedCf::new(
             AXUIElementCreateApplication(target.pid.ok_or(INPUT_WINDOW_UNAVAILABLE)?),
@@ -480,7 +442,7 @@ pub(super) fn accessible_click(point: Point, button: Button, count: u8) -> Resul
         let Ok(window) = attribute(element.0, "AXWindow") else {
             return Ok(false);
         };
-        if verify_window(window.0, &target).is_err() {
+        if verify_window(window.0, target).is_err() {
             return Ok(false);
         }
         let mut actions = std::ptr::null();
@@ -504,9 +466,9 @@ pub(super) fn accessible_click(point: Point, button: Button, count: u8) -> Resul
         if !has_press {
             return Ok(false);
         }
-        check()?;
+        guard.check()?;
         let press = cf_string("AXPress");
-        let result = AXUIElementPerformAction(element.0, Retained::as_ptr(&press).cast());
+        let result = AXUIElementPerformAction(guard, element.0, Retained::as_ptr(&press).cast())?;
         if result != 0 {
             return Err(format!("The app did not confirm the accessibility action (AX error {result}). It may have completed; inspect a fresh screenshot before deciding whether to retry."));
         }

@@ -5,7 +5,9 @@ Notarization runs against fake xcrun, ditto, codesign and spctl executables; no
 request reaches Apple and no real credential is used.
 """
 import base64
+from contextlib import redirect_stderr, redirect_stdout
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -27,6 +29,9 @@ FINGERPRINT = 'A' * 40
 NAME = 'Developer ID Application: Example Developer (' + TEAM + ')'
 IDENTITY = '  1) ' + FINGERPRINT + ' "' + NAME + '"\n     1 valid identities found\n'
 NOTARIZER = ROOT / 'scripts/notarize-release.py'
+NOTARY_SPEC = importlib.util.spec_from_file_location('notarize_release', NOTARIZER)
+notarizer = importlib.util.module_from_spec(NOTARY_SPEC)
+NOTARY_SPEC.loader.exec_module(notarizer)
 NOTARY_API_NAMES = ('APPLE_API_KEY_P8_BASE64', 'APPLE_API_KEY_ID', 'APPLE_API_ISSUER_ID')
 FIXTURE_KEY = '-----BEGIN PRIVATE KEY-----\nZml4dHVyZS1vbmx5\n-----END PRIVATE KEY-----\n'
 FIXTURE_CREDENTIALS = {
@@ -59,8 +64,17 @@ elif args[:2] == ['notarytool', 'log']:
 elif tool == 'spctl':
     print(args[-1] + ': accepted', file=sys.stderr)
     print('source=' + os.environ.get('FAKE_GATEKEEPER_SOURCE', 'Notarized Developer ID'), file=sys.stderr)
+elif tool == 'codesign':
+    print('fixture signature reason', file=sys.stderr)
+    sys.exit(int(os.environ.get('FAKE_CODESIGN_STATUS', '0')))
 elif args[:2] == ['stapler', 'staple']:
-    sys.exit(int(os.environ.get('FAKE_STAPLE_STATUS', '0')))
+    attempts = sum(call['args'][:2] == ['stapler', 'staple']
+                   for call in map(json.loads, Path(os.environ['FAKE_APPLE_LOG']).read_text().splitlines()))
+    statuses = os.environ.get('FAKE_STAPLE_STATUSES', os.environ.get('FAKE_STAPLE_STATUS', '0')).split(',')
+    status = int(statuses[min(attempts - 1, len(statuses) - 1)])
+    if status:
+        print(os.environ.get('FAKE_STAPLE_OUTPUT', 'fixture staple reason'))
+    sys.exit(status)
 elif args[:2] == ['stapler', 'validate']:
     status = int(os.environ.get('FAKE_VALIDATE_STATUS', '0'))
     print('fixture validate reason' if status else 'The validate action worked!')
@@ -283,6 +297,16 @@ class NotarizationTests(unittest.TestCase):
             return []
         return [json.loads(line) for line in self.log.read_text().splitlines()]
 
+    def notarize_with_retries(self, **extra):
+        arguments = [str(NOTARIZER), 'notarize', '--app', str(self.app), '--report', str(self.report)]
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with mock.patch.dict(os.environ, {**self.environment, **extra}, clear=True), \
+                mock.patch.object(sys, 'argv', arguments), \
+                mock.patch.object(notarizer.time, 'sleep') as sleep, \
+                redirect_stdout(stdout), redirect_stderr(stderr):
+            code = notarizer.main()
+        return subprocess.CompletedProcess(arguments, code, stdout.getvalue(), stderr.getvalue()), sleep
+
     def notarization(self):
         return json.loads(self.report.read_text())['notarization']
 
@@ -365,6 +389,102 @@ class NotarizationTests(unittest.TestCase):
         self.assert_no_secret_output(result)
         self.assertEqual(self.notarization()['notarized'], False)
         self.assertFalse((self.runner / 'aven-notary-key').exists())
+
+    def assert_staple_attempts(self, count):
+        calls = self.calls()
+        self.assertEqual(sum(call['args'][:2] == ['notarytool', 'submit'] for call in calls), 1)
+        attempts = [call for call in calls if call['args'][:2] == ['stapler', 'staple']]
+        self.assertEqual(len(attempts), count)
+        self.assertTrue(all(call['args'][-1] == str(self.app) for call in attempts))
+        self.assertFalse(any(call['encodedKeyInEnvironment'] for call in calls))
+        self.assertFalse((self.runner / 'aven-notary-key').exists())
+
+    def test_lost_network_connection_retries_the_same_accepted_app_without_resubmitting(self):
+        result, sleep = self.notarize_with_retries(
+            FAKE_STAPLE_STATUSES='68,0',
+            FAKE_STAPLE_OUTPUT='Domain is api.apple-cloudkit.com\n'
+                              'Error Domain=NSURLErrorDomain Code=-1005 "The network connection was lost."',
+            **FIXTURE_CREDENTIALS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_staple_attempts(2)
+        sleep.assert_called_once_with(5)
+        self.assertEqual(self.notarization()['notarized'], True)
+        self.assert_no_secret_output(result)
+        self.assertEqual([call['args'][:2] for call in self.calls()][-3:], [
+            ['stapler', 'validate'], ['--verify', '--deep'], ['-a', '-vvv']])
+
+    def test_pending_cloudkit_ticket_retries_with_bounded_backoff(self):
+        result, sleep = self.notarize_with_retries(
+            FAKE_STAPLE_STATUSES='68,68,0',
+            FAKE_STAPLE_OUTPUT='CloudKit query failed due to "Record not found".',
+            **FIXTURE_CREDENTIALS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_staple_attempts(3)
+        self.assertEqual(sleep.call_args_list, [mock.call(5), mock.call(15)])
+        self.assertEqual(self.notarization()['notarized'], True)
+        self.assert_no_secret_output(result)
+
+    def test_permanent_staple_errors_and_unknown_responses_are_not_retried(self):
+        for status, output in [(65, 'NSURLErrorDomain Code=-1005'),
+                               (66, 'The app is not signed.'),
+                               (73, 'The ticket could not be written.'),
+                               (77, 'The ticket has been revoked.'),
+                               (68, 'NSURLErrorDomain Code=-1202 "The certificate is not trusted."'),
+                               (68, 'Unexpected ticket service response.')]:
+            with self.subTest(status=status):
+                self.log.unlink(missing_ok=True)
+                result, sleep = self.notarize_with_retries(
+                    FAKE_STAPLE_STATUS=str(status), FAKE_STAPLE_OUTPUT=output, **FIXTURE_CREDENTIALS)
+                self.assertNotEqual(result.returncode, 0)
+                self.assert_staple_attempts(1)
+                sleep.assert_not_called()
+                self.assertEqual(self.notarization()['notarized'], False)
+                self.assertFalse(any(call['args'][:2] == ['stapler', 'validate'] for call in self.calls()))
+                self.assert_no_secret_output(result)
+
+    def test_exhausted_transient_staple_retries_never_record_success(self):
+        result, sleep = self.notarize_with_retries(
+            FAKE_STAPLE_STATUS='68', FAKE_STAPLE_OUTPUT='NSURLErrorDomain Code=-1005',
+            **FIXTURE_CREDENTIALS)
+        self.assertNotEqual(result.returncode, 0)
+        self.assert_staple_attempts(4)
+        self.assertEqual(sleep.call_args_list, [mock.call(5), mock.call(15), mock.call(30)])
+        self.assertEqual(self.notarization()['notarized'], False)
+        self.assertIn('Stapling the notarization ticket failed.', result.stderr)
+        self.assertIn('fixture notarization issue', result.stderr)
+        self.assertFalse(any(call['args'][:2] == ['stapler', 'validate'] for call in self.calls()))
+        self.assert_no_secret_output(result)
+
+    def test_successful_staple_retry_still_requires_ticket_signature_and_gatekeeper_validation(self):
+        for failure in ({'FAKE_VALIDATE_STATUS': '65'}, {'FAKE_CODESIGN_STATUS': '1'},
+                        {'FAKE_GATEKEEPER_SOURCE': 'Developer ID'}):
+            with self.subTest(failure=failure):
+                self.log.unlink(missing_ok=True)
+                result, sleep = self.notarize_with_retries(
+                    FAKE_STAPLE_STATUSES='68,0', FAKE_STAPLE_OUTPUT='NSURLErrorDomain Code=-1005',
+                    **failure, **FIXTURE_CREDENTIALS)
+                self.assertNotEqual(result.returncode, 0)
+                self.assert_staple_attempts(2)
+                sleep.assert_called_once_with(5)
+                self.assertEqual(self.notarization()['notarized'], False)
+                self.assert_no_secret_output(result)
+
+    def test_staple_process_timeout_is_bounded_and_does_not_record_success(self):
+        original_run = notarizer.run
+        def run(arguments, **options):
+            if arguments[:3] == ['xcrun', 'stapler', 'staple']:
+                self.assertEqual(options['timeout'], 120)
+                raise notarizer.NotaryError('xcrun stapler staple timed out.')
+            return original_run(arguments, **options)
+        with mock.patch.object(notarizer, 'run', side_effect=run):
+            result, sleep = self.notarize_with_retries(**FIXTURE_CREDENTIALS)
+        self.assertNotEqual(result.returncode, 0)
+        sleep.assert_not_called()
+        self.assertEqual(sum(call['args'][:2] == ['notarytool', 'submit'] for call in self.calls()), 1)
+        self.assertFalse(any(call['args'][:2] == ['stapler', 'validate'] for call in self.calls()))
+        self.assertEqual(self.notarization()['notarized'], False)
+        self.assertFalse((self.runner / 'aven-notary-key').exists())
+        self.assert_no_secret_output(result)
 
     def test_keychain_profile_needs_no_key_file(self):
         result = self.notarize(AVEN_NOTARY_KEYCHAIN_PROFILE='aven-notary')

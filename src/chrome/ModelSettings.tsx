@@ -1,3 +1,4 @@
+import { harnessDescriptor } from "../lib/harness/descriptors";
 import { AiIdea, ChevronDown, Gauge, Maximize2, Zap } from "./icons";
 import "./ModelControls.css";
 import {
@@ -89,7 +90,8 @@ export function ModelSettings({
   const settings = useMemo(() => {
     void catalog;
     const list = (resolveModel(harness, model).settings ?? []).filter(
-      (setting) => !(harness === "opencode" && setting.id === "agent"),
+      (setting) =>
+        !harnessDescriptor(harness).hiddenModelSettings?.includes(setting.id),
     );
     const order = [
       "variant",

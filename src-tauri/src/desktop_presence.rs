@@ -11,7 +11,7 @@
 use crate::desktop_control::Request;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Condvar, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
 /// The bar fades this long after an agent's last action.
@@ -1203,51 +1203,78 @@ pub(crate) fn place_bar(
     order.into_iter().find(|(frame, _)| clear(frame))
 }
 
-static STATE: OnceLock<Mutex<Presence>> = OnceLock::new();
-static CHANGED: Condvar = Condvar::new();
-
-fn lock() -> MutexGuard<'static, Presence> {
-    STATE
-        .get_or_init(Mutex::default)
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
+/// Presence state shared by the desktop control gate, the bar and the session
+/// observers, and the condition a consent waiter sleeps on. Aven has one,
+/// [`store`]; tests of the gate make their own.
+pub(crate) struct Store {
+    state: OnceLock<Mutex<Presence>>,
+    changed: Condvar,
 }
 
-/// Mutates shared presence state and wakes any consent waiter.
-pub(crate) fn with<T>(operation: impl FnOnce(&mut Presence) -> T) -> T {
-    let result = operation(&mut lock());
-    CHANGED.notify_all();
-    result
-}
-
-/// Blocks a socket worker (never the main thread) until the user answers,
-/// the prompt expires, or `alive` reports that the chat's scope has ended.
-/// `alive` may read the login session from CoreGraphics, so it runs without
-/// the presence lock held; an answer that arrives meanwhile still wins.
-pub(crate) fn wait_for_answer(id: u64, alive: impl Fn() -> bool) -> Result<(), String> {
-    loop {
-        let alive = alive();
-        let mut state = lock();
-        let now = Instant::now();
-        if let Some(outcome) = state.take_outcome(id, now) {
-            drop(state);
-            CHANGED.notify_all();
-            return outcome.into_result();
+impl Store {
+    pub(crate) const fn new() -> Self {
+        Self {
+            state: OnceLock::new(),
+            changed: Condvar::new(),
         }
-        if !alive {
-            state.withdraw(id);
-            drop(state);
-            CHANGED.notify_all();
-            return Err(CANCELLED.into());
-        }
-        let remaining = state.prompt.as_ref().map_or(Duration::ZERO, |prompt| {
-            prompt.deadline.saturating_duration_since(now)
-        });
-        let (state, _) = CHANGED
-            .wait_timeout(state, remaining.min(Duration::from_millis(250)))
-            .unwrap_or_else(|error| error.into_inner());
-        drop(state);
     }
+
+    fn lock(&self) -> MutexGuard<'_, Presence> {
+        self.state
+            .get_or_init(Mutex::default)
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+    }
+
+    /// Mutates shared presence state and wakes any consent waiter.
+    pub(crate) fn with<T>(&self, operation: impl FnOnce(&mut Presence) -> T) -> T {
+        let result = operation(&mut self.lock());
+        self.changed.notify_all();
+        result
+    }
+
+    /// Blocks a socket worker (never the main thread) until the user answers,
+    /// the prompt expires, or `alive` reports that the chat's scope has ended.
+    /// `alive` may read the login session from CoreGraphics, so it runs without
+    /// the presence lock held; an answer that arrives meanwhile still wins.
+    pub(crate) fn wait_for_answer(&self, id: u64, alive: impl Fn() -> bool) -> Result<(), String> {
+        loop {
+            let alive = alive();
+            let mut state = self.lock();
+            let now = Instant::now();
+            if let Some(outcome) = state.take_outcome(id, now) {
+                drop(state);
+                self.changed.notify_all();
+                return outcome.into_result();
+            }
+            if !alive {
+                state.withdraw(id);
+                drop(state);
+                self.changed.notify_all();
+                return Err(CANCELLED.into());
+            }
+            let remaining = state.prompt.as_ref().map_or(Duration::ZERO, |prompt| {
+                prompt.deadline.saturating_duration_since(now)
+            });
+            let (state, _) = self
+                .changed
+                .wait_timeout(state, remaining.min(Duration::from_millis(250)))
+                .unwrap_or_else(|error| error.into_inner());
+            drop(state);
+        }
+    }
+}
+
+static STORE: OnceLock<Arc<Store>> = OnceLock::new();
+
+/// Aven's presence state.
+pub(crate) fn store() -> &'static Arc<Store> {
+    STORE.get_or_init(|| Arc::new(Store::new()))
+}
+
+/// Mutates Aven's presence state and wakes any consent waiter.
+pub(crate) fn with<T>(operation: impl FnOnce(&mut Presence) -> T) -> T {
+    store().with(operation)
 }
 
 #[cfg(test)]
@@ -2033,7 +2060,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(30));
             with(|presence| presence.answer(id, true));
         });
-        assert!(wait_for_answer(id, || true).is_ok());
+        assert!(store().wait_for_answer(id, || true).is_ok());
         answer.join().unwrap();
         let id = with(|presence| {
             match presence.admit(
@@ -2048,7 +2075,10 @@ mod tests {
                 other => panic!("{other:?}"),
             }
         });
-        assert_eq!(wait_for_answer(id, || false).unwrap_err(), CANCELLED);
+        assert_eq!(
+            store().wait_for_answer(id, || false).unwrap_err(),
+            CANCELLED
+        );
         assert!(with(|presence| presence.prompt.is_none()));
         // `alive` runs without the presence lock: it may read shared state
         // (or the slow session) without blocking answers or deadlocking.
@@ -2069,11 +2099,12 @@ mod tests {
             std::thread::sleep(Duration::from_millis(30));
             with(|presence| presence.answer(id, true));
         });
-        assert!(wait_for_answer(
-            id,
-            || with(|presence| presence.session() == Session::Active)
-        )
-        .is_ok());
+        assert!(store()
+            .wait_for_answer(
+                id,
+                || with(|presence| presence.session() == Session::Active)
+            )
+            .is_ok());
         answer.join().unwrap();
         with(|presence| presence.forget(None));
     }

@@ -1,3 +1,4 @@
+import { harnessDescriptor } from "./harness/descriptors";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HarnessAdapter } from "./harness/registry";
 
@@ -60,6 +61,7 @@ afterEach(async () => {
 function adapter(overrides: Partial<HarnessAdapter>): HarnessAdapter {
   return {
     id: "claude",
+    descriptor: harnessDescriptor("claude"),
     live: true,
     async sendTurn() {},
     async steerTurn() {},
