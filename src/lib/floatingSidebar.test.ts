@@ -9,6 +9,32 @@ import {
 } from "./floatingSidebar";
 
 describe("floating sidebar bridge", () => {
+  it("drops a React click event instead of walking the whole window", () => {
+    // What a button passes to a handler given straight to `onClick`.
+    const click = {
+      type: "click",
+      nativeEvent: new MouseEvent("click"),
+      view: window,
+      target: document.body,
+      isDefaultPrevented: () => false,
+    };
+    const started = performance.now();
+    expect(encodeSidebarValue([click])).toEqual([null]);
+    expect(encodeSidebarValue({ view: window })).toEqual({});
+    expect(performance.now() - started).toBeLessThan(250);
+  });
+
+  it("cuts reference cycles but keeps values shared by two branches", () => {
+    const shared = { id: "s" };
+    const looped: Record<string, unknown> = { id: "loop" };
+    looped.self = looped;
+    expect(encodeSidebarValue({ a: shared, b: [shared], looped })).toEqual({
+      a: { id: "s" },
+      b: [{ id: "s" }],
+      looped: { id: "loop" },
+    });
+  });
+
   it("round-trips the sidebar's structured data and drops callbacks", () => {
     const props = {
       busySessionIds: new Set(["a", "b"]),

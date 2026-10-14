@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, State, Webview, Window};
 
 pub(crate) const ENV_KEYS: [&str; 4] = [
     "AVEN_CONTROL_ENDPOINT",
@@ -308,13 +308,29 @@ fn serve_request(
     let _ = writeln!(stream, "{response}");
 }
 
+/// The workspace window a control command acts for. Only the window's own
+/// webview may act for it; an overlay that shares the window, such as the
+/// macOS floating sidebar, may not.
+///
+/// Commands used to take Tauri's `WebviewWindow` argument for this. Tauri
+/// refuses that argument for every webview once a window holds a second one,
+/// so attaching the floating sidebar made every agent turn fail.
+fn owning_window(webview: &Webview) -> Result<Window, String> {
+    let window = webview.window();
+    if webview.label() != window.label() {
+        return Err("Only the workspace can control its agents".into());
+    }
+    Ok(window)
+}
+
 #[tauri::command]
 pub fn control_enable(
-    window: WebviewWindow,
+    webview: Webview,
     host: State<'_, ControlHost>,
     session_id: String,
     cwd: String,
 ) -> Result<String, String> {
+    let window = owning_window(&webview)?;
     let _work = crate::window::begin_runtime_work(window.app_handle())?;
     let cwd = std::fs::canonicalize(crate::fs::expand_home(&cwd)).map_err(|e| e.to_string())?;
     if !cwd.is_dir() {
@@ -360,10 +376,11 @@ pub fn control_enable(
 
 #[tauri::command]
 pub fn control_disable(
-    window: WebviewWindow,
+    webview: Webview,
     host: State<'_, ControlHost>,
     session_id: String,
 ) -> Result<(), String> {
+    let window = owning_window(&webview)?;
     let mut inner = host
         .inner
         .lock()
@@ -374,11 +391,12 @@ pub fn control_disable(
 
 #[tauri::command]
 pub fn control_attach_worker(
-    window: WebviewWindow,
+    webview: Webview,
     host: State<'_, ControlHost>,
     lead_id: String,
     session_id: String,
 ) -> Result<(), String> {
+    let window = owning_window(&webview)?;
     let _work = crate::window::begin_runtime_work(window.app_handle())?;
     let mut inner = host
         .inner
@@ -407,11 +425,12 @@ pub fn control_attach_worker(
 
 #[tauri::command]
 pub fn control_authorize_turn(
-    window: WebviewWindow,
+    webview: Webview,
     host: State<'_, ControlHost>,
     session_id: String,
     cwd: String,
 ) -> Result<(), String> {
+    let window = owning_window(&webview)?;
     let _work = crate::window::begin_runtime_work(window.app_handle())?;
     let cwd = std::fs::canonicalize(crate::fs::expand_home(&cwd))
         .map_err(|e| e.to_string())?
@@ -445,11 +464,10 @@ pub fn control_authorize_turn(
 }
 
 #[tauri::command]
-pub fn control_turn_finished(
-    window: WebviewWindow,
-    host: State<'_, ControlHost>,
-    session_id: String,
-) {
+pub fn control_turn_finished(webview: Webview, host: State<'_, ControlHost>, session_id: String) {
+    let Ok(window) = owning_window(&webview) else {
+        return;
+    };
     if let Ok(mut inner) = host.inner.lock() {
         inner.finish_turn(window.label(), &session_id);
     }
@@ -505,11 +523,12 @@ fn configure_environment(
 
 #[tauri::command]
 pub fn control_reply(
-    window: WebviewWindow,
+    webview: Webview,
     host: State<'_, ControlHost>,
     id: String,
     response: Value,
 ) -> Result<(), String> {
+    let window = owning_window(&webview)?;
     let mut inner = host
         .inner
         .lock()
@@ -616,6 +635,37 @@ pub fn control_scopes(cwd: String, files: Vec<String>) -> Result<Vec<String>, St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Workspace windows hold more than one webview on macOS (the floating
+    /// sidebar), and Tauri refuses a `WebviewWindow` command argument for
+    /// every webview in such a window. Take `Webview` or `Window` instead.
+    #[test]
+    fn no_command_requires_a_single_webview_window() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut found = Vec::new();
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_none_or(|ext| ext != "rs") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap();
+            for (index, line) in text.lines().enumerate() {
+                let line = line.trim();
+                let parameter = line.split_once(':').is_some_and(|(name, kind)| {
+                    !name.contains(' ')
+                        && kind
+                            .trim()
+                            .trim_end_matches(',')
+                            .starts_with("WebviewWindow")
+                        && !kind.contains("Builder")
+                });
+                if parameter && !line.starts_with("//") {
+                    found.push(format!("{}:{}", path.display(), index + 1));
+                }
+            }
+        }
+        assert!(found.is_empty(), "WebviewWindow arguments: {found:?}");
+    }
 
     #[test]
     fn save_validates_before_mutating_the_previous_run() {

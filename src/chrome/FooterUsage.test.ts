@@ -40,7 +40,16 @@ const claudeLimits = (): ProviderRateLimits => ({
 let root: Root;
 let container: HTMLDivElement;
 let hidden = false;
+let stored: Map<string, string>;
 beforeEach(() => {
+  // Usage is saved for restarts; each test starts as a first launch. Some
+  // Node versions give tests a working localStorage and some do not.
+  stored = new Map();
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => stored.get(key) ?? null,
+    setItem: (key: string, value: string) => stored.set(key, value),
+    removeItem: (key: string) => stored.delete(key),
+  });
   vi.clearAllMocks();
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
@@ -117,6 +126,40 @@ describe("footer usage", () => {
     });
     expect(api.claude).toHaveBeenCalledTimes(2);
     expect(api.codex).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows the last saved usage after a restart without asking again", async () => {
+    await render({ providers: ["claude"] });
+    expect(api.claude).toHaveBeenCalledOnce();
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    // A minute later, a new window starts with what the last one saved.
+    vi.setSystemTime(minutes(1));
+    await render({ providers: ["claude"] });
+    expect(api.claude).toHaveBeenCalledOnce();
+    expect(container.querySelector(".footer-usage-account")?.textContent).toBe(
+      "2% 3h 56m · 15% 4d 16h",
+    );
+  });
+
+  it("keeps the last known usage when a refresh is throttled", async () => {
+    await render({ providers: ["claude"] });
+    api.claude.mockResolvedValueOnce({
+      provider: "claude",
+      session: null,
+      weekly: null,
+      updatedAt: NOW,
+      error: "Claude is limiting usage checks right now.",
+      status: "error",
+    });
+    await act(async () => button(/^Refresh usage$/).click());
+    await act(async () => {
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    });
+    expect(api.claude).toHaveBeenCalledTimes(2);
+    expect(container.querySelector(".footer-usage-account")?.textContent).toBe(
+      "2% 3h 57m · 15% 4d 17h",
+    );
   });
 
   it("shows the task context beside the account usage", async () => {

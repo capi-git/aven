@@ -2,9 +2,12 @@ import { harnessDescriptor } from "../lib/harness/descriptors";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   errorRateLimits,
+  failedRefresh,
   fetchingRateLimits,
   idleRateLimits,
+  loadSavedRateLimits,
   RATE_LIMIT_POLL_MS,
+  saveRateLimits,
   shouldFetchProvider,
   type ProviderRateLimits,
   type RateLimitProvider,
@@ -31,7 +34,8 @@ export function useProviderUsage(
     null,
   );
   const inflight = useRef(new Map<RateLimitProvider, Promise<void>>());
-  const [limits, setLimits] = useState<ProviderUsage["limits"]>({});
+  const [limits, setLimits] =
+    useState<ProviderUsage["limits"]>(loadSavedRateLimits);
   const limitsRef = useRef(limits);
 
   useEffect(() => {
@@ -65,7 +69,8 @@ export function useProviderUsage(
           if (!alive.current) return;
           const value =
             await fetchers[harnessDescriptor(provider).usage!.fetch]();
-          publish(value);
+          saveRateLimits(value);
+          publish(failedRefresh(value, current));
         } catch (error) {
           publish(
             errorRateLimits(

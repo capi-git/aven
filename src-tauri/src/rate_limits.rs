@@ -1,5 +1,6 @@
 use std::path::PathBuf;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::Mutex;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use serde_json::Value;
@@ -10,6 +11,12 @@ const OAUTH_USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 const OAUTH_BETA: &str = "oauth-2025-04-20";
 const USER_AGENT: &str = "claude-code/2.1.0";
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
+/// A good answer serves every window for this long.
+const FRESH_FOR: Duration = Duration::from_secs(60);
+/// How long to wait after Anthropic throttles usage checks without saying.
+const THROTTLED_DEFAULT: Duration = Duration::from_secs(10 * 60);
+const THROTTLED_MIN: Duration = Duration::from_secs(60);
+const THROTTLED_MAX: Duration = Duration::from_secs(60 * 60);
 
 #[cfg(target_os = "macos")]
 const KEYCHAIN_TIMEOUT: Duration = Duration::from_secs(5);
@@ -18,7 +25,7 @@ const LEGACY_KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
 #[cfg(target_os = "macos")]
 const KEYCHAIN_FALLBACK_USER: &str = "claude-code-user";
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaudeUsageFetch {
     pub status: String,
@@ -55,7 +62,95 @@ pub async fn fetch_claude_usage() -> Result<ClaudeUsageFetch, String> {
         .map_err(|e| e.to_string())?
 }
 
+/// Usage checks share one account-wide limit at Anthropic. Every window and
+/// the usage panel ask through this gate, so one answer serves them all for
+/// a minute, and a throttled answer pauses every window until Anthropic's
+/// `Retry-After` instead of each one asking again.
+struct UsageGate {
+    fresh: Option<(Instant, ClaudeUsageFetch)>,
+    retry_at: Option<Instant>,
+}
+
+impl UsageGate {
+    const fn new() -> Self {
+        Self {
+            fresh: None,
+            retry_at: None,
+        }
+    }
+
+    /// An answer that needs no request, if there is one.
+    fn answer(&self, now: Instant) -> Option<ClaudeUsageFetch> {
+        if let Some(retry_at) = self.retry_at {
+            if now < retry_at {
+                return Some(throttled(retry_at - now));
+            }
+        }
+        self.fresh
+            .as_ref()
+            .filter(|(at, _)| now.duration_since(*at) < FRESH_FOR)
+            .map(|(_, answer)| answer.clone())
+    }
+
+    /// Remember what Anthropic said and return what the window should show.
+    fn record(
+        &mut self,
+        now: Instant,
+        answer: ClaudeUsageFetch,
+        retry_after: Option<Duration>,
+    ) -> ClaudeUsageFetch {
+        if answer.status == "ok" {
+            self.fresh = Some((now, answer.clone()));
+            self.retry_at = None;
+            return answer;
+        }
+        if answer.http_status == Some(429) {
+            let wait = retry_after
+                .unwrap_or(THROTTLED_DEFAULT)
+                .clamp(THROTTLED_MIN, THROTTLED_MAX);
+            self.retry_at = Some(now + wait);
+            return throttled(wait);
+        }
+        answer
+    }
+}
+
+static GATE: Mutex<UsageGate> = Mutex::new(UsageGate::new());
+/// One request at a time; a window that waited reuses the answer it got.
+static ASKING: Mutex<()> = Mutex::new(());
+
+fn gate_answer() -> Option<ClaudeUsageFetch> {
+    GATE.lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .answer(Instant::now())
+}
+
+fn throttled(wait: Duration) -> ClaudeUsageFetch {
+    let minutes = wait.as_secs().div_ceil(60).max(1);
+    usage_result(
+        "error",
+        Some(429),
+        None,
+        Some(format!(
+            "Claude is limiting usage checks right now. Aven will try again in about {minutes} min."
+        )),
+    )
+}
+
+/// Anthropic sends `Retry-After` in seconds.
+fn retry_after(header: Option<&str>) -> Option<Duration> {
+    header?.trim().parse::<u64>().ok().map(Duration::from_secs)
+}
+
 fn fetch_claude_usage_sync() -> Result<ClaudeUsageFetch, String> {
+    if let Some(answer) = gate_answer() {
+        return Ok(answer);
+    }
+    let _asking = ASKING.lock().unwrap_or_else(|error| error.into_inner());
+    // Another window may have asked while this one waited.
+    if let Some(answer) = gate_answer() {
+        return Ok(answer);
+    }
     let Some(creds) = read_claude_credentials() else {
         return Ok(usage_result(
             "unavailable",
@@ -73,10 +168,14 @@ fn fetch_claude_usage_sync() -> Result<ClaudeUsageFetch, String> {
         return Ok(usage_error(401));
     }
 
-    Ok(fetch_usage_with_token(&creds.access_token))
+    let (answer, wait) = fetch_usage_with_token(&creds.access_token);
+    Ok(GATE
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .record(Instant::now(), answer, wait))
 }
 
-fn fetch_usage_with_token(token: &str) -> ClaudeUsageFetch {
+fn fetch_usage_with_token(token: &str) -> (ClaudeUsageFetch, Option<Duration>) {
     let agent = ureq::AgentBuilder::new().timeout(HTTP_TIMEOUT).build();
     let result = agent
         .get(OAUTH_USAGE_URL)
@@ -90,20 +189,27 @@ fn fetch_usage_with_token(token: &str) -> ClaudeUsageFetch {
             let http_status = response.status();
             let body = response.into_string().unwrap_or_default();
             if (200..300).contains(&http_status) {
-                usage_result("ok", Some(http_status), Some(body), None)
+                (
+                    usage_result("ok", Some(http_status), Some(body), None),
+                    None,
+                )
             } else {
-                usage_error(http_status)
+                (usage_error(http_status), None)
             }
         }
         Err(ureq::Error::Status(status, response)) => {
+            let wait = retry_after(response.header("retry-after"));
             let _ = response.into_string();
-            usage_error(status)
+            (usage_error(status), wait)
         }
-        Err(error) => usage_result(
-            "error",
+        Err(error) => (
+            usage_result(
+                "error",
+                None,
+                None,
+                Some(format!("Claude usage request failed: {error}")),
+            ),
             None,
-            None,
-            Some(format!("Claude usage request failed: {error}")),
         ),
     }
 }
@@ -346,6 +452,78 @@ mod tests {
         .expect("usage only needs the current access token");
         assert_eq!(creds.access_token, "access-only");
         assert_eq!(creds.expires_at_ms, Some(1000));
+    }
+
+    fn ok() -> ClaudeUsageFetch {
+        usage_result("ok", Some(200), Some("{}".into()), None)
+    }
+
+    #[test]
+    fn one_good_answer_serves_every_window_for_a_minute() {
+        let start = Instant::now();
+        let mut gate = UsageGate::new();
+        assert!(gate.answer(start).is_none());
+        gate.record(start, ok(), None);
+        let reused = gate.answer(start + Duration::from_secs(59)).unwrap();
+        assert_eq!(reused.status, "ok");
+        assert_eq!(reused.body.as_deref(), Some("{}"));
+        assert!(gate.answer(start + FRESH_FOR).is_none());
+    }
+
+    #[test]
+    fn throttling_pauses_every_window_until_retry_after() {
+        let start = Instant::now();
+        let mut gate = UsageGate::new();
+        let shown = gate.record(start, usage_error(429), Some(Duration::from_secs(150)));
+        assert_eq!(shown.http_status, Some(429));
+        let message = shown.error.unwrap();
+        assert!(message.contains("limiting usage checks"), "{message}");
+        assert!(message.contains("about 3 min"), "{message}");
+
+        let waiting = gate.answer(start + Duration::from_secs(100)).unwrap();
+        assert!(waiting.error.unwrap().contains("about 1 min"));
+        assert!(gate.answer(start + Duration::from_secs(150)).is_none());
+
+        // A good answer ends the pause.
+        gate.record(start + Duration::from_secs(150), ok(), None);
+        assert_eq!(
+            gate.answer(start + Duration::from_secs(151))
+                .unwrap()
+                .status,
+            "ok"
+        );
+    }
+
+    #[test]
+    fn throttling_without_retry_after_waits_a_bounded_time() {
+        let start = Instant::now();
+        let mut gate = UsageGate::new();
+        gate.record(start, usage_error(429), None);
+        assert!(gate
+            .answer(start + THROTTLED_DEFAULT - Duration::from_secs(1))
+            .is_some());
+        assert!(gate.answer(start + THROTTLED_DEFAULT).is_none());
+
+        gate.record(start, usage_error(429), Some(Duration::from_secs(5)));
+        assert!(gate.answer(start + Duration::from_secs(30)).is_some());
+        gate.record(start, usage_error(429), Some(Duration::from_secs(86_400)));
+        assert!(gate.answer(start + THROTTLED_MAX).is_none());
+    }
+
+    #[test]
+    fn other_failures_are_not_remembered() {
+        let start = Instant::now();
+        let mut gate = UsageGate::new();
+        let shown = gate.record(start, usage_error(500), None);
+        assert_eq!(shown.http_status, Some(500));
+        assert!(gate.answer(start).is_none());
+    }
+
+    #[test]
+    fn retry_after_reads_seconds() {
+        assert_eq!(retry_after(Some(" 120 ")), Some(Duration::from_secs(120)));
+        assert_eq!(retry_after(Some("Wed, 21 Oct 2026 07:28:00 GMT")), None);
+        assert_eq!(retry_after(None), None);
     }
 
     #[test]
