@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+## [0.1.136] - 2026-10-13
+
+### Sidebar and workspace reliability
+
+- Remove the floating sidebar's outer shadow while keeping its familiar motion, glass and pinning behavior.
+- Keep pane selections in place when agents open background browser pages, including in detached windows.
+- Reuse browser pages reliably when several agent requests arrive together, while preserving explicitly requested copies.
+- Share tab and pane handling across windows, with consistent browser presentation, settings definitions and provider information.
+
+### Agent questions and desktop controls
+
+- Answer Codex's background questions while it continues working. Question cards queue, retain replies for retry, and stay visible until the answer is accepted.
+- Recheck desktop consent, Pause, Stop and the target window immediately before native input, including actions queued on Aven's own interface.
+
+### macOS release reliability
+
+- Retry temporary Apple notarization ticket delivery failures on the accepted app, while retaining signature, stapling and Gatekeeper checks.
+
 ## [0.1.135] - 2026-10-13
 
 ### One approval to use your Mac
