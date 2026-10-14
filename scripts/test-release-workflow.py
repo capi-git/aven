@@ -559,7 +559,7 @@ class WindowsUpdateSigningTests(unittest.TestCase):
         self.assertIn('if: inputs.sign_updates', body)
         self.assertIn('signer sign', body)
         self.assertIn('*> $null', body, 'signer output may contain key diagnostics')
-        self.assertIn('--example verify_update', body)
+        self.assertIn('-p aven-verify-update', body)
         # The secret is scoped to this step, never to the build or tests.
         self.assertEqual(text.count('secrets.TAURI_SIGNING_PRIVATE_KEY }}'), 1)
         order = [text.index('- name: ' + name) for name in (

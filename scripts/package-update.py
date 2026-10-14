@@ -62,7 +62,7 @@ def main():
         if not signature.is_file() or not signature.read_text().strip():
             raise SystemExit("Signer did not produce a signature")
         subprocess.run([
-            "cargo", "run", "--locked", "--release", "-p", "aven", "--example", "verify_update", "--",
+            "cargo", "run", "--locked", "--release", "-p", "aven-verify-update", "--",
             str(ROOT / "src-tauri/tauri.conf.json"), str(archive), str(signature),
         ], cwd=ROOT, check=True)
         changelog = (ROOT / "CHANGELOG.md").read_text()

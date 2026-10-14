@@ -231,7 +231,6 @@ dependencies = [
  "dispatch2",
  "junction",
  "libc",
- "minisign-verify",
  "notify-rust",
  "objc2",
  "objc2-app-kit",
@@ -254,6 +253,15 @@ dependencies = [
  "ureq",
  "uuid",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "aven-verify-update"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "minisign-verify",
+ "serde_json",
 ]
 
 [[package]]
