@@ -238,7 +238,7 @@ mod imp {
                 let window = caller.window();
                 let overlay_label = label.clone();
                 let builder_app = app.clone();
-                crate::usage_panel::on_main(&app, move || {
+                crate::native_popup::on_main(&app, move || {
                     let scale = window.scale_factor().map_err(|error| error.to_string())?;
                     let size = window
                         .inner_size()
@@ -268,7 +268,7 @@ mod imp {
         .await
         .map_err(|error| error.to_string())??;
         let name = owner_name(&owner)?;
-        let attached = crate::usage_panel::on_main(&app, move || {
+        let attached = crate::native_popup::on_main(&app, move || {
             let attached = unsafe {
                 sm_sidebar_attach(
                     name.as_ptr(),

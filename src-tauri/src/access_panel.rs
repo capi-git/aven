@@ -1,14 +1,12 @@
 //! App-rendered access controls in an owned window above native browser children.
 //! The panel only reports a validated selection to its originating workspace;
 //! it never changes browser visibility or applies permission settings itself.
-use crate::display_rate::FullRefreshRate;
+use crate::native_popup::on_main;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{collections::HashMap, sync::Mutex};
 use tauri::{
-    window::{Color, WindowBuilder},
-    AppHandle, Emitter, EventTarget, LogicalPosition, LogicalSize, Manager, PhysicalPosition, Url,
-    Webview, WebviewBuilder, WebviewUrl, WindowEvent,
+    AppHandle, Emitter, EventTarget, LogicalSize, Manager, PhysicalPosition, Webview, WindowEvent,
 };
 
 const STATE_EVENT: &str = "access-panel-state";
@@ -129,33 +127,6 @@ impl Panel {
 
 // Serialize native visibility and state on the event thread: a late ready,
 // update or cleanup from the preceding opening cannot affect its replacement.
-async fn on_main<T: Send + 'static>(
-    app: &AppHandle,
-    operation: impl FnOnce() -> Result<T, String> + Send + 'static,
-) -> Result<T, String> {
-    let (send, receive) = std::sync::mpsc::sync_channel(1);
-    let run = move || {
-        let _ = send.send(operation());
-    };
-    // AppKit may synchronously reenter Tao while showing or creating a window.
-    // The main queue runs outside Tao's event-handler lock (as in pip_group).
-    #[cfg(target_os = "macos")]
-    {
-        let _ = app;
-        dispatch2::DispatchQueue::main().exec_async(run);
-    }
-    #[cfg(not(target_os = "macos"))]
-    app.run_on_main_thread(run)
-        .map_err(|error| error.to_string())?;
-    tauri::async_runtime::spawn_blocking(move || {
-        receive
-            .recv()
-            .map_err(|_| "Panel operation was interrupted".to_string())?
-    })
-    .await
-    .map_err(|error| error.to_string())?
-}
-
 fn dismiss(app: &AppHandle, label: &str, destroy: bool, open_id: Option<&str>) {
     let dismissed = with_panels(app, |entries| {
         let Some(panel) = entries.get_mut(label) else {
@@ -180,9 +151,9 @@ fn dismiss(app: &AppHandle, label: &str, destroy: bool, open_id: Option<&str>) {
     let Some(notice) = dismissed else { return };
     if let Some(window) = app.get_window(label) {
         if destroy {
-            let _ = window.destroy();
+            crate::native_popup::destroy(&window);
         } else {
-            let _ = window.hide();
+            crate::native_popup::hide(&window);
         }
     }
     if let Some((owner, open_id)) = notice {
@@ -192,14 +163,6 @@ fn dismiss(app: &AppHandle, label: &str, destroy: bool, open_id: Option<&str>) {
             json!({ "label": open_id }),
         );
     }
-}
-
-fn allowed_url(url: &Url, expected: &Url) -> bool {
-    let mut url = url.clone();
-    url.set_fragment(None);
-    let mut expected = expected.clone();
-    expected.set_fragment(None);
-    url == expected
 }
 
 /// Return physical placement and logical size, clamped to the anchor's display.
@@ -329,42 +292,19 @@ fn open_panel(
         );
         Ok(())
     })?;
-    let build = (|| {
-        let window = WindowBuilder::new(app, &label)
-            .title("Access")
-            .inner_size(size.width, size.height)
-            .decorations(false)
-            .resizable(false)
-            .maximizable(false)
-            .minimizable(false)
-            .skip_taskbar(true)
-            .visible(false)
-            .focused(false)
-            .shadow(true)
-            .transparent(true)
-            .background_color(Color(0, 0, 0, 0))
-            .parent(&owner)
-            .map_err(|error| error.to_string())?
-            .build()
-            .map_err(|error| error.to_string())?;
-        window
-            .set_position(position)
-            .map_err(|error| error.to_string())?;
-        window.set_size(size).map_err(|error| error.to_string())?;
-        let child = WebviewBuilder::new(&label, WebviewUrl::App("index.html?accessPanel=1".into()))
-            .full_refresh_rate(app)
-            .focused(false)
-            .auto_resize()
-            .disable_drag_drop_handler()
-            .transparent(true)
-            .background_color(Color(0, 0, 0, 0))
-            .on_navigation(move |url| allowed_url(url, &expected))
-            .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny);
-        window
-            .add_child(child, LogicalPosition::new(0.0, 0.0), size)
-            .map_err(|error| error.to_string())?;
-        Ok::<(), String>(())
-    })();
+    let build = crate::native_popup::build(
+        app,
+        &owner,
+        crate::native_popup::PopupSpec {
+            label: &label,
+            title: "Access",
+            entry: "index.html?accessPanel=1",
+            expected,
+            position,
+            size,
+        },
+    )
+    .map(|_| ());
     if let Err(error) = build {
         dismiss(app, &label, true, None);
         return Err(error);
@@ -423,23 +363,20 @@ pub async fn access_panel_ready(
     let app = caller.app_handle().clone();
     on_main(&app, move || {
         let app = caller.app_handle();
-        let show = with_panels(app, |entries| {
+        let owner = with_panels(app, |entries| {
             let Some(panel) = entries.get_mut(caller.label()) else {
-                return Ok(false);
+                return Ok(None);
             };
-            if app.get_window(&panel.owner_window).is_none() {
-                return Ok(false);
-            }
-            Ok(panel.accept_ready(&open_id, revision))
+            let Some(owner) = app.get_window(&panel.owner_window) else {
+                return Ok(None);
+            };
+            Ok(panel.accept_ready(&open_id, revision).then_some(owner))
         })?;
-        if !show {
+        let Some(owner) = owner else {
             return Ok(());
-        }
+        };
         let window = caller.window();
-        let result = window
-            .show()
-            .and_then(|()| window.set_focus())
-            .and_then(|()| caller.set_focus());
+        let result = crate::native_popup::show_focused(&window, &caller, Some(&owner));
         if result.is_err() {
             dismiss(app, caller.label(), true, None);
         }
@@ -554,6 +491,8 @@ pub fn window_event(app: &AppHandle, label: &str, event: &WindowEvent) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::native_popup::allowed_url;
+    use tauri::Url;
     #[test]
     fn rejects_invalid_anchors() {
         let anchor = AccessPanelAnchor {

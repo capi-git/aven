@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Opening the usage panel, the access picker or a workspace menu no longer makes the workspace window flash inactive. These popups take the keyboard without taking over as the app's main window.
+- A popup that was hidden and shown again stays above its workspace instead of slipping behind it.
+
 ## [0.1.139] - 2026-10-14
 
 ### Fixed
