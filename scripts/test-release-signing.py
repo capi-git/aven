@@ -306,7 +306,7 @@ class NotarizationTests(unittest.TestCase):
         stdout, stderr = io.StringIO(), io.StringIO()
         with mock.patch.dict(os.environ, {**self.environment, **extra}, clear=True), \
                 mock.patch.object(sys, 'argv', arguments), \
-                mock.patch.object(notarizer.time, 'sleep') as sleep, \
+                mock.patch.object(notarizer, 'pause') as sleep, \
                 redirect_stdout(stdout), redirect_stderr(stderr):
             code = notarizer.main()
         return subprocess.CompletedProcess(arguments, code, stdout.getvalue(), stderr.getvalue()), sleep
@@ -499,7 +499,7 @@ class NotarizationTests(unittest.TestCase):
         stdout, stderr = io.StringIO(), io.StringIO()
         with mock.patch.dict(os.environ, {**self.environment, **extra}, clear=True), \
                 mock.patch.object(sys, 'argv', arguments), \
-                mock.patch.object(notarizer.time, 'sleep') as sleep, \
+                mock.patch.object(notarizer, 'pause') as sleep, \
                 redirect_stdout(stdout), redirect_stderr(stderr):
             code = notarizer.main()
         return subprocess.CompletedProcess(arguments, code, stdout.getvalue(), stderr.getvalue()), sleep
