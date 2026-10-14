@@ -10,6 +10,10 @@
 - The slide runs at your display's full refresh rate, and the sidebar is ready the moment the pointer rests on the window edge.
 - Menus, dragging chats onto panes, adding projects, agent runs and the update button all work from the floating sidebar. Pinning it docks the sidebar from where it is on screen.
 
+### macOS release reliability
+
+- Retry the final check of Apple's notarization ticket when Apple's service drops the connection, as stapling already did.
+
 ## [0.1.136] - 2026-10-13
 
 ### Sidebar and workspace reliability

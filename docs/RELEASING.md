@@ -105,7 +105,7 @@ The NSIS installer installs for the current user, so updates need no administrat
 
 Notarization lets a downloaded Aven open normally instead of showing macOS's "Apple could not verify" warning. When credentials are supplied, the release script submits the final signed Chromium app to Apple and waits up to 45 minutes for the result. It then staples the ticket to the app and checks it with `xcrun stapler validate` and `spctl` before it creates the ZIP and the updater archive, so both carry the ticket. If Apple rejects the submission, the script prints Apple's notarization log and stops; nothing is packaged.
 
-After Apple accepts a submission, transient network or ticket-delivery failures allow up to four stapling attempts on the same app, waiting 5, 15 and 30 seconds between attempts. Each attempt has a two-minute timeout. Permanent errors, exhausted retries, or failed ticket, signature or Gatekeeper checks stop packaging.
+After Apple accepts a submission, transient network or ticket-delivery failures allow up to four attempts on the same app, waiting 5, 15 and 30 seconds between attempts, both for stapling the ticket and for validating it afterwards. Each attempt has a two-minute timeout. Permanent errors, exhausted retries, or failed ticket, signature or Gatekeeper checks stop packaging.
 
 `signing-verification.json` records the result under `notarization`: whether the app is notarized, Apple's submission ID, and the stapling and Gatekeeper checks. The publish job reads it to choose the release notes, and refuses an incomplete record.
 
