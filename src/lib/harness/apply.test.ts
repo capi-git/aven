@@ -923,6 +923,34 @@ describe("clarifying questions", () => {
     expect(session.pendingQuestion).toBeUndefined();
   });
 
+  it("keeps an async question answerable while more work streams", () => {
+    let session = appendUser(newSession("codex", "/repo"), "Review this");
+    session = applyHarnessEvent(session, {
+      type: "question.asked",
+      requestId: 4,
+      questions,
+      blocking: false,
+    });
+    const prompt = session.pendingQuestion;
+    session = applyHarnessEvent(session, {
+      type: "message.delta",
+      text: "I am checking the remaining files.",
+    });
+    expect(session.busy).toBe(true);
+    expect(session.pendingQuestion).toBe(prompt);
+    expect(session.pendingQuestion?.blocking).toBe(false);
+    expect(session.blocks.at(-1)?.text).toBe(
+      "I am checking the remaining files.",
+    );
+    session = applyHarnessEvent(session, {
+      type: "question.resolved",
+      requestId: 4,
+      decision: "answered",
+    });
+    expect(session.pendingQuestion).toBeUndefined();
+    expect(session.busy).toBe(true);
+  });
+
   it("drops a parked prompt when the turn stops", () => {
     let session = newSession("claude", "/repo");
     session = applyHarnessEvent(session, {
@@ -932,6 +960,48 @@ describe("clarifying questions", () => {
     });
     session = stopStreaming(session);
     expect(session.pendingQuestion).toBeUndefined();
+  });
+
+  it("retains the active turn and question when an async answer needs a retry", () => {
+    let session = appendUser(newSession("codex", "/repo"), "Review this");
+    session = applyHarnessEvent(session, {
+      type: "question.asked",
+      requestId: 4,
+      questions,
+      blocking: false,
+    });
+    session = applyHarnessEvent(session, {
+      type: "question.submitting",
+      requestId: 4,
+    });
+    expect(session.pendingQuestion?.submitting).toBe(true);
+    session = applyHarnessEvent(session, {
+      type: "question.failed",
+      requestId: 4,
+      message: "Could not send your answer. Try again.",
+    });
+    expect(session.busy).toBe(true);
+    expect(session.pendingQuestion).toMatchObject({
+      requestId: 4,
+      questions,
+      blocking: false,
+      submitting: false,
+      error: "Could not send your answer. Try again.",
+    });
+    expect(session.blocks.some((block) => block.role === "system")).toBe(false);
+    const unchanged = applyHarnessEvent(session, {
+      type: "question.failed",
+      requestId: 3,
+      message: "Old failure",
+    });
+    expect(unchanged).toBe(session);
+    session = applyHarnessEvent(session, {
+      type: "question.submitting",
+      requestId: 4,
+    });
+    expect(session.pendingQuestion?.error).toBeUndefined();
+    expect(session.pendingQuestion?.submitting).toBe(true);
+    expect(session.busy).toBe(true);
   });
 });
 

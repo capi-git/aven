@@ -36,6 +36,7 @@ import {
   type ComposerTurnOptions,
 } from "../lib/session";
 import { AgentTranscript } from "./AgentTranscript";
+import { isBlockingQuestion } from "../lib/userQuestion";
 import { SessionRunStatus } from "./SessionRunStatus";
 import { EmptySession } from "./EmptySession";
 import { MOD } from "../lib/platform";
@@ -665,7 +666,7 @@ export const SessionPane = memo(function SessionPane({
               cwd={workCwd}
               harness={session.harness}
               model={session.model}
-              pendingQuestion={!!session.pendingQuestion}
+              pendingQuestion={isBlockingQuestion(session.pendingQuestion)}
               onApproval={approve}
               onAddToChat={addSelectionToChat}
               onSaveNote={notesEnabled ? saveNote : undefined}

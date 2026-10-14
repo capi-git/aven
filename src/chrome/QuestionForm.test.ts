@@ -3,9 +3,10 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QuestionForm } from "./QuestionForm";
-import type {
-  UserQuestionPrompt,
-  UserQuestionReply,
+import {
+  CUSTOM_OPTION_ID,
+  type UserQuestionPrompt,
+  type UserQuestionReply,
 } from "../lib/userQuestion";
 
 let container: HTMLDivElement;
@@ -46,11 +47,12 @@ function prompt(multiSelect = false): UserQuestionPrompt {
 function renderQuestion(
   onReply: (requestId: number, reply: UserQuestionReply) => void = vi.fn(),
   multiSelect = false,
+  patch: Partial<UserQuestionPrompt> = {},
 ) {
   act(() =>
     root.render(
       createElement(QuestionForm, {
-        prompt: prompt(multiSelect),
+        prompt: { ...prompt(multiSelect), ...patch },
         onReply,
       }),
     ),
@@ -134,5 +136,97 @@ describe("QuestionForm keyboard navigation", () => {
 
     keyDown(options[1], " ");
     expect(options[1].getAttribute("aria-pressed")).toBe("false");
+  });
+});
+
+describe("QuestionForm answer delivery", () => {
+  const next = () =>
+    container.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+  const skip = () =>
+    [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent === "Skip",
+    )!;
+  const customPrompt = () => {
+    const value = prompt();
+    value.questions[0].allowCustom = true;
+    return value;
+  };
+  const typeCustom = (value: string) => {
+    const input = container.querySelector<HTMLInputElement>("input")!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    return input;
+  };
+  const submit = () =>
+    container
+      .querySelector("form")!
+      .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+  it("disables answers and Skip while sending and guards manual duplicate submissions", () => {
+    const onReply = vi.fn();
+    const question = customPrompt();
+    const options = renderQuestion(onReply, false, question);
+    act(() => options.at(-1)!.click());
+    typeCustom("Purple");
+    act(() => next().click());
+    expect(onReply).toHaveBeenCalledOnce();
+    renderQuestion(onReply, false, { ...question, submitting: true });
+    expect(container.querySelector("form")?.getAttribute("aria-busy")).toBe(
+      "true",
+    );
+    expect(next().textContent).toBe("Sending…");
+    for (const control of container.querySelectorAll<
+      HTMLButtonElement | HTMLInputElement
+    >("button, input"))
+      expect(control.disabled).toBe(true);
+    act(() => {
+      submit();
+      skip().click();
+    });
+    keyDown(options[0], "1");
+    expect(options.at(-1)!.getAttribute("aria-pressed")).toBe("true");
+    expect(onReply).toHaveBeenCalledOnce();
+  });
+
+  it("retains a custom answer after delivery fails and retries the same request once", () => {
+    const onReply = vi.fn();
+    const question = customPrompt();
+    const options = renderQuestion(onReply, false, question);
+    act(() => options.at(-1)!.click());
+    const input = typeCustom("Purple");
+    act(() => {
+      submit();
+      submit();
+      skip().click();
+    });
+    expect(onReply).toHaveBeenCalledOnce();
+    renderQuestion(onReply, false, { ...question, submitting: true });
+    renderQuestion(onReply, false, {
+      ...question,
+      submitting: false,
+      error: "Could not send your answer. Try again.",
+    });
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "Could not send your answer. Try again.",
+    );
+    expect(input.value).toBe("Purple");
+    expect(input.disabled).toBe(false);
+    expect(options.at(-1)!.getAttribute("aria-pressed")).toBe("true");
+    expect(next().disabled).toBe(false);
+    act(() => {
+      submit();
+      submit();
+    });
+    expect(onReply).toHaveBeenCalledTimes(2);
+    expect(onReply).toHaveBeenLastCalledWith(7, {
+      kind: "answered",
+      answers: { colour: [CUSTOM_OPTION_ID] },
+      custom: { colour: "Purple" },
+    });
   });
 });

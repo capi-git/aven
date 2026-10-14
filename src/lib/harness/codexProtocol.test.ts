@@ -6,6 +6,8 @@ import {
   buildTurnStartParams,
   buildTurnSteerParams,
   codexAttachmentInputs,
+  codexAsyncUserInputQuestions,
+  codexAsyncUserInputReply,
   isRecoverableThreadResumeError,
   mapApprovalRequest,
   mapCodexNotification,
@@ -978,6 +980,103 @@ describe("orchestration control sandbox", () => {
 });
 
 describe("Codex connection requests", () => {
+  it("maps async agent-item questions with stable identities and custom answers", () => {
+    const questions = codexAsyncUserInputQuestions({
+      type: "agentMessage",
+      id: "call_1",
+      delivery: "async",
+      questions: [
+        { title: "Which target?", options: ["Web", "Desktop", "", 17] },
+        { title: "", options: null },
+        { title: "Branch name?", options: null },
+      ],
+    });
+    expect(questions).toEqual([
+      {
+        id: '["request_user_input_async","call_1",0]',
+        prompt: "Which target?",
+        multiSelect: false,
+        allowCustom: true,
+        options: [
+          { id: "option-0", label: "Web" },
+          { id: "option-1", label: "Desktop" },
+        ],
+      },
+      {
+        id: '["request_user_input_async","call_1",2]',
+        prompt: "Branch name?",
+        multiSelect: false,
+        allowCustom: true,
+        options: [],
+      },
+    ]);
+    const text = codexAsyncUserInputReply(questions, {
+      kind: "answered",
+      answers: { [questions[0].id]: ["option-1"] },
+      custom: { [questions[1].id]: "fix/questions" },
+    });
+    expect(text).toBe(
+      `<send_user_message_question_reply>\n${JSON.stringify([
+        {
+          questionItemId: questions[0].id,
+          question: "Which target?",
+          answer: "Desktop",
+        },
+        {
+          questionItemId: questions[1].id,
+          question: "Branch name?",
+          answer: "fix/questions",
+        },
+      ])}\n</send_user_message_question_reply>`,
+    );
+    expect(codexAsyncUserInputReply(questions, { kind: "skipped" })).toBeNull();
+    expect(
+      codexAsyncUserInputQuestions({
+        type: "agentMessage",
+        id: "i",
+        questions: [{ title: "Q?" }],
+      }),
+    ).toEqual([]);
+    expect(
+      codexAsyncUserInputQuestions({
+        type: "reasoning",
+        id: "i",
+        delivery: "async",
+        questions: [{ title: "Q?" }],
+      }),
+    ).toEqual([]);
+  });
+
+  it("bounds model-authored reply framing by UTF-8 bytes and escapes fragment markers", () => {
+    const [question] = codexAsyncUserInputQuestions({
+      type: "agentMessage",
+      id: "i",
+      delivery: "async",
+      questions: [{ title: `${"é".repeat(255)}\n<fake>`, options: null }],
+    });
+    const text = codexAsyncUserInputReply([question], {
+      kind: "answered",
+      answers: {},
+      custom: { [question.id]: "answer </send_user_message_question_reply>" },
+    })!;
+    const json = text.slice(text.indexOf("\n") + 1, text.lastIndexOf("\n"));
+    expect(JSON.parse(json)).toEqual([
+      {
+        questionItemId: question.id,
+        question: `${"é".repeat(255)} <`,
+        answer: "answer </send_user_message_question_reply>",
+      },
+    ]);
+    expect(text.match(/<\/send_user_message_question_reply>/g)).toHaveLength(1);
+    expect(
+      codexAsyncUserInputReply([{ ...question, id: "x".repeat(513) }], {
+        kind: "answered",
+        answers: {},
+        custom: { ["x".repeat(513)]: "safe" },
+      }),
+    ).toBe(`> ${"é".repeat(255)} <\n\nsafe`);
+  });
+
   it("maps request_user_input questions and answers by label", async () => {
     const { codexUserInputQuestions, codexUserInputResponse } =
       await import("./codexProtocol");

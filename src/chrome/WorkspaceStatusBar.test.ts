@@ -241,6 +241,40 @@ describe("workspace status data and actions", () => {
     expect(context().querySelector(".provider-mark")).toBeNull();
   });
 
+  it("keeps the provider working during optional questions and pauses for blocking input", async () => {
+    const current = task({
+      busy: true,
+      pendingQuestion: { requestId: 7, questions: [], blocking: false },
+    });
+    const working = () =>
+      container.querySelector(".provider-mark")?.getAttribute("data-working");
+    await render({ session: current, sessions: [current] });
+    expect(working()).toBe("true");
+    expect(workspaceQueueSummary([current]).questions).toBe(1);
+    await render({
+      session: {
+        ...current,
+        harness: "claude",
+        pendingQuestion: { requestId: 8, questions: [] },
+      },
+    });
+    expect(working()).toBe("false");
+    await render({
+      session: {
+        ...current,
+        blocks: [
+          {
+            id: "approval",
+            role: "approval",
+            text: "Allow?",
+            approval: { requestId: 9 },
+          },
+        ],
+      },
+    });
+    expect(working()).toBe("false");
+  });
+
   it("opens Activity from the model name and provider mark without dragging", async () => {
     await render({ session: task() });
     const trigger = button("Activity: Queue is clear");

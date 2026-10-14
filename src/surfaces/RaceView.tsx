@@ -20,7 +20,7 @@ import {
   type RaceRecord,
   type RaceSelection,
 } from "../lib/race";
-import { sessionNeedsInput, type Session } from "../lib/session";
+import { sessionIsWaitingForInput, type Session } from "../lib/session";
 import { buildUnifiedFile } from "../lib/unifiedDiff";
 import { UnifiedDiffView, type UnifiedDiffFileModel } from "./UnifiedDiffView";
 
@@ -50,7 +50,7 @@ export function RaceView({ raceId, sessions, visible }: Props) {
 
 function laneStatus(session: Session | undefined) {
   if (!session) return { label: "Closed", tone: "muted" as const };
-  if (sessionNeedsInput(session))
+  if (sessionIsWaitingForInput(session))
     return { label: "Needs you", tone: "warn" as const };
   if (session.busy) return { label: "Working", tone: "busy" as const };
   return { label: "Done", tone: "done" as const };

@@ -2,12 +2,23 @@ import { describe, expect, it } from "vitest";
 import {
   CUSTOM_OPTION_ID,
   buildQuestionReply,
+  isBlockingQuestion,
   questionAnswersComplete,
   questionIsComplete,
   questionPromptTitle,
   questionsFromUnknown,
   selectedAnswerLabels,
 } from "./userQuestion";
+
+describe("isBlockingQuestion", () => {
+  it("preserves legacy blocking requests and distinguishes async prompts", () => {
+    const prompt = { requestId: 1, questions: [] };
+    expect(isBlockingQuestion(undefined)).toBe(false);
+    expect(isBlockingQuestion(prompt)).toBe(true);
+    expect(isBlockingQuestion({ ...prompt, blocking: true })).toBe(true);
+    expect(isBlockingQuestion({ ...prompt, blocking: false })).toBe(false);
+  });
+});
 
 describe("questionsFromUnknown", () => {
   it("parses Claude-style AskUserQuestion input", () => {

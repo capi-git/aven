@@ -4,6 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { registerHarness } from "../lib/harness/registry";
 import { codexAdapter } from "../lib/harness/codexAdapter";
+import { claudeAdapter } from "../lib/harness/claudeAdapter";
+import { CUSTOM_OPTION_ID } from "../lib/userQuestion";
 import { Composer } from "./Composer";
 
 const picker = vi.hoisted(() => ({ pick: vi.fn(), createSkill: vi.fn() }));
@@ -37,6 +39,7 @@ beforeEach(() => {
     setItem: (key: string, value: string) => values.set(key, value),
   });
   registerHarness(codexAdapter);
+  registerHarness(claudeAdapter);
   picker.pick.mockReset();
   picker.createSkill.mockReset();
   container = document.createElement("div");
@@ -88,6 +91,84 @@ async function press(key: string) {
     );
   });
 }
+
+it.each(["codex", "claude"] as const)(
+  "answers %s choices and a custom response while the turn stays busy",
+  async (harness) => {
+    props.harness = harness;
+    props.busy = true;
+    props.focused = true;
+    props.onQuestionReply = vi.fn();
+    props.question = {
+      requestId: 7,
+      ...(harness === "codex" ? { blocking: false } : {}),
+      questions: [
+        {
+          id: "scope",
+          prompt: "Which scope should I use?",
+          multiSelect: false,
+          allowCustom: true,
+          options: [
+            { id: "focused", label: "Focused change" },
+            { id: "broad", label: "Broader change" },
+          ],
+        },
+        {
+          id: "destination",
+          prompt: "Where should I save it?",
+          multiSelect: false,
+          allowCustom: true,
+          options: [{ id: "project", label: "Project folder" }],
+        },
+      ],
+    };
+    await render();
+    const form = () => container.querySelector<HTMLFormElement>("form")!;
+    const next = () =>
+      form().querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    const option = (label: string) =>
+      [
+        ...form().querySelectorAll<HTMLButtonElement>("button[aria-pressed]"),
+      ].find((button) => button.textContent?.includes(label))!;
+    expect(next().disabled).toBe(true);
+    expect(option("Focused change").disabled).toBe(false);
+    await act(async () => option("Focused change").click());
+    // Streaming can re-render the composer without dismissing the prompt or
+    // resetting a choice the user is in the middle of answering.
+    await render();
+    expect(option("Focused change").getAttribute("aria-pressed")).toBe("true");
+    expect(next().disabled).toBe(false);
+    await act(async () => next().click());
+    expect(props.onQuestionReply).not.toHaveBeenCalled();
+    expect(form().textContent).toContain("Where should I save it?");
+    await act(async () => option("Other").click());
+    const custom = form().querySelector<HTMLInputElement>("input")!;
+    expect(custom.disabled).toBe(false);
+    expect(next().disabled).toBe(true);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(custom, "docs/decision.md");
+      custom.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(next().disabled).toBe(false);
+    await act(async () => next().click());
+    expect(props.onQuestionReply).toHaveBeenCalledExactlyOnceWith(7, {
+      kind: "answered",
+      answers: {
+        scope: ["focused"],
+        destination: [CUSTOM_OPTION_ID],
+      },
+      custom: { destination: "docs/decision.md" },
+    });
+    expect(props.onSubmit).not.toHaveBeenCalled();
+    props.question = undefined;
+    await render();
+    expect(container.querySelector("[data-question-form]")).toBeNull();
+    expect(container.querySelector('[aria-label="Stop"]')).not.toBeNull();
+  },
+);
 
 it("explains why /compact did nothing while a reply is running", async () => {
   props.busy = true;

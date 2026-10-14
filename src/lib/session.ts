@@ -1,5 +1,5 @@
 import type { ContextUsage } from "./contextUsage";
-import type { UserQuestionPrompt } from "./userQuestion";
+import { isBlockingQuestion, type UserQuestionPrompt } from "./userQuestion";
 import type { HandoffComposerCard } from "./handoff";
 import type { InboxComposerCard } from "./githubTasks";
 import type { InboxAskContext } from "./inboxAsk";
@@ -382,6 +382,14 @@ export function hasPendingApproval(blocks: Block[]): boolean {
 
 export function sessionNeedsInput(session: Session): boolean {
   return hasPendingApproval(session.blocks) || session.pendingQuestion != null;
+}
+
+/** Input that pauses work, rather than an optional question answered in parallel. */
+export function sessionIsWaitingForInput(session: Session): boolean {
+  return (
+    hasPendingApproval(session.blocks) ||
+    isBlockingQuestion(session.pendingQuestion)
+  );
 }
 
 /** Title without the harness prefix stored for the tab strip. */

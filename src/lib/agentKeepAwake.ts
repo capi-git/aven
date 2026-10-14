@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { IS_MAC } from "./platform";
-import { sessionNeedsInput, type Session } from "./session";
+import { sessionIsWaitingForInput, type Session } from "./session";
 import { activeSessionAgents } from "./sessionAgents";
 
 // Keep the computer from idle sleep while agents work. On by default; the
@@ -66,7 +66,7 @@ export function agentKeepAwakeSessionIds(
 ): Set<string> {
   const ids = new Set<string>();
   for (const session of sessions) {
-    if (sessionNeedsInput(session)) continue;
+    if (sessionIsWaitingForInput(session)) continue;
     if (!session.busy && activeSessionAgents(session).length === 0) continue;
     ids.add(session.id);
     if (session.orchestrationLeadId) ids.add(session.orchestrationLeadId);

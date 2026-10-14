@@ -66,7 +66,18 @@ export type HarnessEvent =
       requestId: number;
       title?: string;
       questions: UserQuestion[];
+      /** False when the agent can keep working while the user answers. */
+      blocking?: boolean;
       callId?: string;
+    }
+  | {
+      type: "question.submitting";
+      requestId: number;
+    }
+  | {
+      type: "question.failed";
+      requestId: number;
+      message: string;
     }
   | {
       type: "question.resolved";

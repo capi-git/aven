@@ -25,12 +25,18 @@ export function QuestionForm({ prompt, onReply }: Props) {
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
   const [custom, setCustom] = useState<Record<string, string>>({});
+  const sending = useRef(false);
+  const submitting = !!prompt.submitting;
 
   useEffect(() => {
     setStep(0);
     setAnswers({});
     setCustom({});
   }, [prompt.requestId]);
+
+  useEffect(() => {
+    sending.current = submitting;
+  }, [prompt.requestId, submitting, prompt.error]);
 
   const questions = prompt.questions;
   const total = questions.length;
@@ -43,6 +49,10 @@ export function QuestionForm({ prompt, onReply }: Props) {
   );
 
   const finish = (nextAnswers = answers, nextCustom = custom) => {
+    if (submitting || sending.current) return;
+    // Hold immediately too: another click can arrive before the provider's
+    // submitting event has committed the disabled controls.
+    sending.current = true;
     onReply(
       prompt.requestId,
       buildQuestionReply(questions, nextAnswers, nextCustom),
@@ -50,6 +60,7 @@ export function QuestionForm({ prompt, onReply }: Props) {
   };
 
   const skipCurrent = () => {
+    if (submitting || sending.current) return;
     if (!question) {
       finish();
       return;
@@ -68,7 +79,7 @@ export function QuestionForm({ prompt, onReply }: Props) {
   };
 
   const continueCurrent = () => {
-    if (!question || !ready) return;
+    if (submitting || sending.current || !question || !ready) return;
     if (last) {
       finish();
       return;
@@ -84,6 +95,7 @@ export function QuestionForm({ prompt, onReply }: Props) {
     <div className="px-1.5 pb-1.5" data-question-form>
       <form
         className="aven-inset-card px-3 py-2.5"
+        aria-busy={submitting}
         onSubmit={(event) => {
           event.preventDefault();
           continueCurrent();
@@ -104,7 +116,8 @@ export function QuestionForm({ prompt, onReply }: Props) {
           ) : null}
           <button
             type="button"
-            className="h-6 shrink-0 rounded-md px-1.5 text-ui-caption text-content/55 hover:bg-content/10 hover:text-content"
+            disabled={submitting}
+            className="h-6 shrink-0 rounded-md px-1.5 text-ui-caption text-content/55 hover:bg-content/10 hover:text-content disabled:opacity-40"
             onClick={skipCurrent}
           >
             Skip
@@ -116,6 +129,7 @@ export function QuestionForm({ prompt, onReply }: Props) {
             question={question}
             selected={answers[question.id] ?? []}
             custom={custom[question.id] ?? ""}
+            disabled={submitting}
             onSelect={(optionId) =>
               setAnswers((current) => ({
                 ...current,
@@ -147,13 +161,18 @@ export function QuestionForm({ prompt, onReply }: Props) {
             }}
           />
         </div>
+        {prompt.error ? (
+          <p role="alert" className="mt-2 text-ui-label text-content/80">
+            {prompt.error}
+          </p>
+        ) : null}
         <div className="mt-2.5 flex justify-end">
           <button
             type="submit"
-            disabled={!ready}
+            disabled={submitting || !ready}
             className="h-6 rounded-md bg-content px-2.5 text-ui-caption font-medium text-background-base hover:bg-content/80 disabled:opacity-40"
           >
-            Continue
+            {submitting ? "Sending…" : "Continue"}
           </button>
         </div>
       </form>
@@ -165,12 +184,14 @@ function QuestionFields({
   question,
   selected,
   custom,
+  disabled,
   onSelect,
   onCustom,
 }: {
   question: UserQuestion;
   selected: string[];
   custom: string;
+  disabled: boolean;
   onSelect: (optionId: string) => void;
   onCustom: (value: string) => void;
 }) {
@@ -194,7 +215,7 @@ function QuestionFields({
     event: ReactKeyboardEvent<HTMLButtonElement>,
     index: number,
   ) => {
-    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    if (disabled || event.altKey || event.ctrlKey || event.metaKey) return;
 
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
@@ -242,6 +263,7 @@ function QuestionFields({
       {options.length === 0 && question.allowCustom ? (
         <input
           value={custom}
+          disabled={disabled}
           onChange={(event) => onCustom(event.target.value)}
           placeholder="Type your answer"
           className="mt-1.5 w-full rounded-md border border-content/15 bg-transparent px-2 py-1 text-ui-label text-content outline-none placeholder:text-content/35 focus:border-content/30"
@@ -262,6 +284,7 @@ function QuestionFields({
                     optionButtons.current[optionIndex] = button;
                   }}
                   type="button"
+                  disabled={disabled}
                   aria-pressed={active}
                   aria-keyshortcuts={
                     optionIndex < 9 ? String(optionIndex + 1) : undefined
@@ -310,6 +333,7 @@ function QuestionFields({
                 {isCustom && (active || customSelected) ? (
                   <input
                     value={custom}
+                    disabled={disabled}
                     onChange={(event) => onCustom(event.target.value)}
                     placeholder="Type your answer"
                     className="mt-1 w-full rounded-md border border-content/15 bg-transparent px-2 py-1 text-ui-label text-content outline-none placeholder:text-content/35 focus:border-content/30"

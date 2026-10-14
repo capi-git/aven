@@ -34,7 +34,7 @@ import {
 import {
   HARNESS_TITLE,
   sessionDisplayTitle,
-  sessionNeedsInput,
+  sessionIsWaitingForInput,
   type Session,
 } from "../lib/session";
 import "./WorkspaceStatusBar.css";
@@ -444,7 +444,7 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
             <ProviderMarks
               harnesses={session ? [sessionModelIdentity(session).harness] : []}
               busyHarnesses={
-                session?.busy && !sessionNeedsInput(session)
+                session?.busy && !sessionIsWaitingForInput(session)
                   ? [sessionModelIdentity(session).harness]
                   : []
               }
