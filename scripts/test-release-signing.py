@@ -494,6 +494,42 @@ class NotarizationTests(unittest.TestCase):
         self.assertEqual([call['args'][:2] for call in self.calls()][-2:], [
             ['--verify', '--deep'], ['-a', '-vvv']])
 
+    def validate_with_retries(self, **extra):
+        arguments = [str(NOTARIZER), 'validate', '--app', str(self.app)]
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with mock.patch.dict(os.environ, {**self.environment, **extra}, clear=True), \
+                mock.patch.object(sys, 'argv', arguments), \
+                mock.patch.object(notarizer.time, 'sleep') as sleep, \
+                redirect_stdout(stdout), redirect_stderr(stderr):
+            code = notarizer.main()
+        return subprocess.CompletedProcess(arguments, code, stdout.getvalue(), stderr.getvalue()), sleep
+
+    def test_workflow_ticket_check_retries_a_lost_connection(self):
+        # Seen in the 0.1.138 release run, in the workflow's own ticket check
+        # before signing the update archive.
+        result, sleep = self.validate_with_retries(
+            FAKE_VALIDATE_STATUSES='68,0',
+            FAKE_VALIDATE_OUTPUT='Error Domain=NSURLErrorDomain Code=-1005 "The network connection was lost."\n'
+                                 "CloudKit's response is inconsistent with expections: (null)\n"
+                                 'The validate action failed! Error 68.')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.validate_attempts(), 2)
+        sleep.assert_called_once_with(5)
+        self.assertIn('Stapled notarization ticket validated.', result.stdout)
+        self.assertFalse(any(call['args'][:2] == ['notarytool', 'submit'] for call in self.calls()))
+
+    def test_workflow_ticket_check_fails_on_exhausted_or_permanent_failures(self):
+        for statuses, output, attempts in [
+                ('68', 'NSURLErrorDomain Code=-1005', 4),
+                ('65', 'The validate action failed! Error 65.', 1)]:
+            with self.subTest(statuses=statuses):
+                self.log.unlink(missing_ok=True)
+                result, _ = self.validate_with_retries(
+                    FAKE_VALIDATE_STATUSES=statuses, FAKE_VALIDATE_OUTPUT=output)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(self.validate_attempts(), attempts)
+                self.assertIn('The stapled notarization ticket did not validate.', result.stderr)
+
     def test_exhausted_or_permanent_validation_failures_never_record_success(self):
         for statuses, output, attempts, sleeps in [
                 ('68', 'NSURLErrorDomain Code=-1005', 4, [mock.call(5), mock.call(15), mock.call(30)]),

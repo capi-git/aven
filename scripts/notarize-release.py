@@ -263,6 +263,9 @@ def main():
     notarize_parser = commands.add_parser('notarize', help='Notarize, staple and record the result')
     notarize_parser.add_argument('--app', type=Path, required=True)
     notarize_parser.add_argument('--report', type=Path, required=True)
+    validate_parser = commands.add_parser(
+        'validate', help="Check an app's stapled ticket, retrying temporary ticket service failures")
+    validate_parser.add_argument('--app', type=Path, required=True)
     commands.add_parser('cleanup', help='Remove the runner key directory, if any')
     args = parser.parse_args()
     for signum in (signal.SIGTERM, signal.SIGHUP):
@@ -273,6 +276,13 @@ def main():
             print(selected['kind'] if selected else 'not-configured')
         elif args.action == 'notarize':
             print(notarize(args.app, args.report, os.environ))
+        elif args.action == 'validate':
+            # The release workflow checks the ticket again before signing the
+            # update archive; that check meets the same ticket service.
+            result = stapler('validate', args.app)
+            if result.returncode != 0:
+                raise NotaryError('The stapled notarization ticket did not validate.\n' + tool_output(result))
+            print('Stapled notarization ticket validated.')
         else:
             remove_key_directory(runner_key_directory(os.environ))
     except (NotaryError, OSError, ValueError) as error:
