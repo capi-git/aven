@@ -251,6 +251,10 @@ fn take_selection(
 }
 
 fn validate_owner(caller: &Webview) -> Result<(), String> {
+    // The macOS floating sidebar renders its workspace's own menus.
+    if crate::floating_sidebar::overlay_owner(caller.label()).is_some() {
+        return Ok(());
+    }
     crate::browser::label(caller, "workspace-menu-panel")?;
     Ok(())
 }

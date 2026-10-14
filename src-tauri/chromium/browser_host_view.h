@@ -5,6 +5,8 @@
 #include <cmath>
 #include <vector>
 
+#include "floating_sidebar.h"
+
 // The clipping host of a live browser. In-app menus drawn by the workspace
 // webview beneath it are cut out of the page's mask; pointer events in those
 // cut-outs must reach that webview rather than the page.
@@ -26,6 +28,8 @@
 - (void)cancelLeadingEdgeSlide;
 @property(nonatomic, readonly) BOOL slidingLeadingEdge;
 @property(nonatomic, readonly) CGFloat slideTarget;
+// Where the page currently starts on screen during a slide, else 0.
+@property(nonatomic, readonly) CGFloat visibleLeadingEdge;
 @end
 
 @implementation SMBrowserClipView {
@@ -41,7 +45,6 @@
 - (CGFloat)slideTarget {
   return _slideTarget;
 }
-// Where the page currently starts on screen during a slide, else 0.
 - (CGFloat)visibleLeadingEdge {
   if (!_slideMask) return 0;
   CALayer* shown = _slideMask.presentationLayer ?: _slideMask;
@@ -66,6 +69,9 @@
   spring.toValue = @(to);
   // The CSS curves are sampled over these durations.
   spring.duration = opening ? 0.37 : 0.24;
+  // ProMotion displays run the slide at their full rate, as the sidebar does.
+  if (@available(macOS 12.0, *))
+    spring.preferredFrameRateRange = CAFrameRateRangeMake(80, 120, 120);
   _slideMask = mask;
   _slideTarget = to;
   const NSUInteger token = ++_slideToken;
@@ -377,6 +383,13 @@ inline BrowserHostFrames AlignedBrowserHostFrames(NSView* parent,
                            browser.size.width, browser.size.height)};
 }
 
+// The workspace's floating sidebar host, which stays above every live page.
+inline NSView* FloatingSidebarHost(NSView* parent) {
+  for (NSView* child in parent.subviews)
+    if ([child.identifier isEqualToString:kFloatingSidebarHostIdentifier]) return child;
+  return nil;
+}
+
 // Keep the live browser and its native descendants attached through their own
 // AppKit move callbacks. Moving only an outer clip can leave the renderer's
 // window/visibility bookkeeping behind during a cross-window transfer.
@@ -390,7 +403,10 @@ inline void EnsureBrowserHost(NSView* parent, NSView* clip, NSView* browser,
     [retained_browser removeFromSuperview];
     if (clip.superview != parent) {
       [clip removeFromSuperview];
-      [parent addSubview:clip];
+      if (NSView* sidebar = FloatingSidebarHost(parent))
+        [parent addSubview:clip positioned:NSWindowBelow relativeTo:sidebar];
+      else
+        [parent addSubview:clip];
     }
     [clip addSubview:retained_browser];
   }
@@ -411,6 +427,11 @@ inline void EnsureBrowserHost(NSView* parent, NSView* clip, NSView* browser,
   if (browser_index != NSNotFound && workspace_index != NSNotFound &&
       browser_index < workspace_index)
     [parent addSubview:clip positioned:NSWindowAbove relativeTo:workspace_peer];
+  NSView* sidebar = FloatingSidebarHost(parent);
+  if (sidebar && sidebar != workspace_peer &&
+      [parent.subviews indexOfObjectIdenticalTo:clip] >
+          [parent.subviews indexOfObjectIdenticalTo:sidebar])
+    [parent addSubview:clip positioned:NSWindowBelow relativeTo:sidebar];
 }
 
 }  // namespace supermono

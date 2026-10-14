@@ -109,6 +109,19 @@ Interactive Codex and Claude sessions receive Aven's browser preference at start
 
 For an ordinary project preview, start the development server without browser auto-open, then open its URL through the supplied `--aven-browser` CLI and verify the page with a fresh snapshot. Agents should pass the same routing when delegating browser work. An unavailable connection is reported instead of silently switching to an external browser. Explicit external-browser requests, configured browser tests, and provider sign-in flows retain their normal behavior; Aven does not change the system default browser or global provider configuration.
 
+### Floating sidebar over live pages
+
+Live Chromium pages are native views above the workspace webview. On macOS the hover (unpinned) sidebar therefore runs as a native layer above them: a transparent overlay webview renders the same `Sidebar` component from the workspace's snapshot and calls its callbacks back by name, and `floating_sidebar.mm` hosts it in the window. One Core Animation commit slides the card, the cut-out of the workspace webview beneath it, and the leading edge of every page in that window on the same springs, so nothing trails the card. Native code reports where the pointer is (the reveal edge, the card and its menus); the workspace decides when the card opens and closes. Builds without Chromium, and Windows, keep the workspace's own DOM sidebar.
+
+Run its focused native checks after building the wrapper:
+
+```bash
+cmake --build "$CEF_BUILD_DIR" --target supermono_chromium_floating_sidebar_test supermono_chromium_browser_host_view_test
+ctest --test-dir "$CEF_BUILD_DIR" -R 'floating_sidebar_host|browser_host_view' --output-on-failure
+```
+
+In Aven Dev, also check hovering the left edge over a page and over a chat, leaving to a page, reversing mid-slide, a session's context menu, dragging a session onto a pane, and pinning while the card is out.
+
 ### Browser element comments
 
 Element selection captures the current native browser view with CDP `fromSurface: false`, then crops the PNG locally with ImageIO. Do not substitute a clipped surface capture: [Chromium's screenshot implementation](https://chromium.googlesource.com/chromium/src/+/152.0.7977.83/content/browser/devtools/protocol/page_handler.cc) temporarily resizes the visible widget and changes emulation for that path, causing a flash. An unclipped surface capture also changes geometry while per-tab zoom emulation is active.

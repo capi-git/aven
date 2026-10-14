@@ -32,6 +32,7 @@ mod cursor_store;
 mod desktop_control;
 mod desktop_presence;
 mod display_rate;
+mod floating_sidebar;
 mod fs;
 mod git;
 mod git_housekeeping;
@@ -319,6 +320,11 @@ pub fn run() {
             workspace_menu_panel::workspace_menu_panel_ready,
             workspace_menu_panel::workspace_menu_panel_action,
             workspace_menu_panel::workspace_menu_panel_close,
+            floating_sidebar::floating_sidebar_attach,
+            floating_sidebar::floating_sidebar_workspace,
+            floating_sidebar::floating_sidebar_regions,
+            floating_sidebar::floating_sidebar_set_open,
+            floating_sidebar::floating_sidebar_focus_workspace,
             usage_panel::usage_panel_open,
             usage_panel::usage_panel_update,
             usage_panel::usage_panel_get_state,
@@ -588,6 +594,7 @@ pub fn run() {
                 browser_agent::window_destroyed(&label);
                 keep_awake::forget_window(&label);
                 browser::window_destroyed(handle, &label);
+                floating_sidebar::window_destroyed(handle, &label);
                 workspace_window::window_destroyed(handle, &label);
                 let other_window = handle
                     .windows()

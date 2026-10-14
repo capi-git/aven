@@ -64,6 +64,12 @@ import {
 import { PersonalInspectorDock } from "./chrome/PersonalInspectorDock";
 import { WorkspaceHome } from "./surfaces/WorkspaceHome";
 import { useHoverRevealPanel } from "./hooks/useHoverRevealPanel";
+import {
+  useFloatingSidebarLayer,
+  useNativeFloatingSidebar,
+} from "./hooks/useNativeFloatingSidebar";
+import { encodeSidebarValue } from "./lib/floatingSidebar";
+import { setExternalPaneDrop, type PaneDrop } from "./lib/paneDrop";
 import { useWorkspaceSnapshotPersistence } from "./hooks/useWorkspaceSnapshotPersistence";
 import { useRecentProjects } from "./hooks/useRecentProjects";
 import {
@@ -75,7 +81,7 @@ import {
   agentKeepAwakeProgress,
   agentKeepAwakeSessionIds,
 } from "./lib/agentKeepAwake";
-import { Sidebar } from "./chrome/Sidebar";
+import { Sidebar, type SidebarProps } from "./chrome/Sidebar";
 import type { WorkspaceProfilePreviewData } from "./chrome/ProfileCarouselPreview";
 import { projectDisplayName } from "./hooks/useProjectLabels";
 import { useNavigationIntent } from "./hooks/useNavigationIntent";
@@ -220,8 +226,7 @@ import {
   type WorkspaceActionKind,
 } from "./chrome/WorkspaceActionDialog";
 import { BranchPicker } from "./chrome/BranchPicker";
-import { Popover } from "./chrome/Popover";
-import { FolderPlus, ArrowDownCircle, Folder } from "./chrome/icons";
+import { AddProjectMenu } from "./chrome/AddProjectMenu";
 import { installInAppLinks } from "./lib/inAppLinks";
 import { nativeBrowser, normalizeBrowserUrl } from "./lib/browser";
 import {
@@ -1509,11 +1514,19 @@ export default function App({
     !inboxViewOpen &&
     !automationsViewOpen &&
     !notesViewOpen;
+  // On macOS the hover peek is a native layer above live browser pages; the
+  // DOM peek below remains for other platforms and builds without it.
+  const floatingSidebarLayer = useFloatingSidebarLayer(IS_MAC);
+  const nativeSidebar = floatingSidebarLayer !== null;
+  // Remounts the workspace's own sidebar so it reloads what the native
+  // floating sidebar saved (folders, filters, width) before it shows again.
+  const [sidebarGeneration, setSidebarGeneration] = useState(0);
   // Rest on the edge briefly before revealing, so a pointer passing the edge
   // does not flash the sidebar; a short grace on leave absorbs the gap
   // between the edge strip and the panel without feeling laggy.
   const sidebarHover = useHoverRevealPanel({
     pinned: sidebarOpen,
+    enabled: !nativeSidebar,
     enterDelay: 150,
     leaveDelay: 90,
   });
@@ -9042,6 +9055,154 @@ export default function App({
     );
   };
 
+  const sidebarProps: Omit<
+    SidebarProps,
+    "open" | "floating" | "hoverHandlers"
+  > = {
+    cwd: profileHome ? "~" : sidebarCwd,
+    gitCwd: profileHome ? "~" : gitCwd,
+    profiles: profiles.profiles,
+    profilePreviews,
+    activeProfileId: profiles.activeProfileId,
+    onSelectProfile,
+    onDeleteProfile: profiles.deleteProfile,
+    onCreateProfile: (name) => onSelectProfile(profiles.createProfile(name)),
+    onMoveProject: (path, id) => {
+      const next = profiles.moveProject(path, id);
+      if (looksLikeProject(next)) onSelectProject(next);
+    },
+    onAddProject: (anchor) =>
+      anchor ? setAddProjectAnchor(anchor) : void pickProject(),
+    projectSessions: profileSessionSummaries,
+    onExpandProject: refreshProfileHistory,
+    loadedProjectPaths: loadedProjects,
+    projectHistoryErrors: profileHistoryErrors,
+    onSelectProjectSession: (_path, id) => void onSelectHistorySession(id),
+    onNewProjectTask,
+    tab: sidebarTab,
+    onTabChange: (tab) => {
+      setSidebarTab(tab);
+      setSearchViewOpen(false);
+      setInboxViewOpen(false);
+      setAutomationsViewOpen(false);
+      setNotesViewOpen(false);
+    },
+    filesSearchOpen,
+    onFilesSearchOpenChange: setFilesSearchOpen,
+    onOpenFilesSearch: onFindInProject,
+    searchFocusToken,
+    sessions: profileHome
+      ? []
+      : standaloneActive
+        ? standaloneSessions
+        : sidebarHistory,
+    busySessionIds,
+    approvalSessionIds,
+    activeSessionId: profileHome ? undefined : active?.id,
+    status: historyFailed ? "error" : "idle",
+    pending: historyPending,
+    onSelectSession: onSelectHistorySession,
+    onSessionNavigationOrder,
+    onPlaceSessionOnPane,
+    onRenameSession: onRenameHistorySession,
+    onArchiveSession: onArchiveHistorySession,
+    onArchiveSessions: onArchiveHistorySessions,
+    onPinSession: onPinHistorySession,
+    onPinSessions: onPinHistorySessions,
+    onDeleteSession: onDeleteHistorySession,
+    onDeleteSessions: onDeleteHistorySessions,
+    onOpenFile,
+    onOpenTerminal,
+    onFileMoved,
+    onFileDeleted,
+    canGoBack: tabVisitNav.canBack,
+    canGoForward: tabVisitNav.canForward,
+    onGoBack: onRailBack,
+    onGoForward: onRailForward,
+    onOpenDiff: onOpenWorkingTreeDiff,
+    onOpenAllChanges,
+    onOpenCommit,
+    onShowSourceControl: onToggleChanges,
+    selectedDiffPath: activeTab
+      ? selectedChangePath(activeTab, gitCwd)
+      : undefined,
+    selectedDiffKind: activeTab ? selectedChangeKind(activeTab) : undefined,
+    selectedCommitSha: activeTab ? selectedCommitSha(activeTab) : undefined,
+    textHarness: pickTextHarness(active?.harness),
+    recents: profiles.profileProjects,
+    busyProjectPaths: sessions.flatMap((session) =>
+      isInFlightSession(session) && session.cwd ? [session.cwd] : [],
+    ),
+    liveAgents,
+    onSelectAgent: onSelectLiveAgent,
+    onSelectProject,
+    onOpenProject: pickProject,
+    onRemoveProject,
+    onNew,
+    onNewStandalone: () => void onNewStandalone(),
+    startingStandalone,
+    standaloneActive,
+    standaloneSessions,
+    onOpenStandalone: standaloneCwd
+      ? () => onSelectProject(standaloneCwd)
+      : undefined,
+    openSessions: profileHome ? [] : openProjectSessions,
+    onNewTerminal,
+    onSearch: onOpenSearch,
+    onOpenInbox,
+    onOpenAutomations,
+    onOpenNotes: notesEnabled ? onOpenNotes : undefined,
+    onGoToFile,
+    searchActive: searchViewOpen,
+    inboxActive: inboxViewOpen,
+    automationsActive: automationsViewOpen,
+    notesActive: notesViewOpen,
+    notesEnabled,
+    projectRailOpen,
+    onToggleProjectRail,
+    unseenFinishedIds,
+    settingsOpen,
+    settingsSection,
+    onOpenSettings,
+    onSelectSettingsSection,
+    onCloseSettings,
+    updateNotice,
+    onOpenWhatsNew,
+    onDismissUpdate: () => setUpdateNotice(null),
+  };
+  const floatingSidebar = useNativeFloatingSidebar({
+    label: floatingSidebarLayer,
+    props: sidebarProps,
+    handlers: {
+      addExistingProject: () => void pickProject(),
+      cloneProject: () => openWorkspaceAction("clone"),
+      createProject: () => openWorkspaceAction("create"),
+      cancelOrchestrationTask: (leadId: string, taskId: string) =>
+        orchestrator.cancelTask(leadId, taskId),
+      startOrchestration: (...args: Parameters<typeof orchestrator.start>) =>
+        orchestrator.start(...args),
+      inspectWorker: (sessionId: string | null) =>
+        orchestrationWorkers.inspect(sessionId),
+      openWorkerDetails: orchestrationWorkers.openDetails
+        ? (worker: OrchestrationWorkerDetail) =>
+            orchestrationWorkers.openDetails?.(worker)
+        : undefined,
+      showPaneDrop: (drop: PaneDrop | null) => setExternalPaneDrop(drop),
+    },
+    extra: () => ({
+      orchestration: {
+        runs: encodeSidebarValue(orchestrator.snapshot()),
+        agentsByLead: encodeSidebarValue(orchestrationWorkers.agentsByLead),
+        selectedId: orchestrationWorkers.selectedId,
+        details: !!orchestrationWorkers.openDetails,
+      },
+    }),
+    pinned: sidebarOpen,
+    windowFocused: notificationWindowFocused,
+    onToggleSidebar,
+    onRefreshSidebar: () => setSidebarGeneration((current) => current + 1),
+  });
+
   return (
     <LiveSessionsContext.Provider value={liveSessions}>
       <OrchestrationActions.Provider value={orchestrationActions}>
@@ -9083,139 +9244,22 @@ export default function App({
                   type="button"
                   className="personal-panel-edge personal-panel-edge-left"
                   aria-label="Show workspace sidebar"
-                  {...sidebarHover.edgeHandlers}
+                  {...(nativeSidebar ? {} : sidebarHover.edgeHandlers)}
                   onClick={onToggleSidebar}
                 />
               ) : null}
               <Sidebar
-                cwd={profileHome ? "~" : sidebarCwd}
-                gitCwd={profileHome ? "~" : gitCwd}
-                profiles={profiles.profiles}
-                profilePreviews={profilePreviews}
-                activeProfileId={profiles.activeProfileId}
-                onSelectProfile={onSelectProfile}
-                onDeleteProfile={profiles.deleteProfile}
-                onCreateProfile={(name) =>
-                  onSelectProfile(profiles.createProfile(name))
+                key={sidebarGeneration}
+                {...sidebarProps}
+                open={
+                  nativeSidebar
+                    ? sidebarOpen && !floatingSidebar.dockHidden
+                    : sidebarHover.visible
                 }
-                onMoveProject={(path, id) => {
-                  const next = profiles.moveProject(path, id);
-                  if (looksLikeProject(next)) onSelectProject(next);
-                }}
-                onAddProject={(anchor) =>
-                  anchor ? setAddProjectAnchor(anchor) : void pickProject()
-                }
-                projectSessions={profileSessionSummaries}
-                onExpandProject={refreshProfileHistory}
-                loadedProjectPaths={loadedProjects}
-                projectHistoryErrors={profileHistoryErrors}
-                onSelectProjectSession={(_path, id) =>
-                  void onSelectHistorySession(id)
-                }
-                onNewProjectTask={onNewProjectTask}
-                open={sidebarHover.visible}
                 floating={!sidebarOpen}
-                hoverHandlers={sidebarHover.panelHandlers}
-                tab={sidebarTab}
-                onTabChange={(tab) => {
-                  setSidebarTab(tab);
-                  setSearchViewOpen(false);
-                  setInboxViewOpen(false);
-                  setAutomationsViewOpen(false);
-                  setNotesViewOpen(false);
-                }}
-                filesSearchOpen={filesSearchOpen}
-                onFilesSearchOpenChange={setFilesSearchOpen}
-                onOpenFilesSearch={onFindInProject}
-                searchFocusToken={searchFocusToken}
-                sessions={
-                  profileHome
-                    ? []
-                    : standaloneActive
-                      ? standaloneSessions
-                      : sidebarHistory
+                hoverHandlers={
+                  nativeSidebar ? undefined : sidebarHover.panelHandlers
                 }
-                busySessionIds={busySessionIds}
-                approvalSessionIds={approvalSessionIds}
-                activeSessionId={profileHome ? undefined : active?.id}
-                status={historyFailed ? "error" : "idle"}
-                pending={historyPending}
-                onSelectSession={onSelectHistorySession}
-                onSessionNavigationOrder={onSessionNavigationOrder}
-                onPlaceSessionOnPane={onPlaceSessionOnPane}
-                onRenameSession={onRenameHistorySession}
-                onArchiveSession={onArchiveHistorySession}
-                onArchiveSessions={onArchiveHistorySessions}
-                onPinSession={onPinHistorySession}
-                onPinSessions={onPinHistorySessions}
-                onDeleteSession={onDeleteHistorySession}
-                onDeleteSessions={onDeleteHistorySessions}
-                onOpenFile={onOpenFile}
-                onOpenTerminal={onOpenTerminal}
-                onFileMoved={onFileMoved}
-                onFileDeleted={onFileDeleted}
-                canGoBack={tabVisitNav.canBack}
-                canGoForward={tabVisitNav.canForward}
-                onGoBack={onRailBack}
-                onGoForward={onRailForward}
-                onOpenDiff={onOpenWorkingTreeDiff}
-                onOpenAllChanges={onOpenAllChanges}
-                onOpenCommit={onOpenCommit}
-                onShowSourceControl={onToggleChanges}
-                selectedDiffPath={
-                  activeTab ? selectedChangePath(activeTab, gitCwd) : undefined
-                }
-                selectedDiffKind={
-                  activeTab ? selectedChangeKind(activeTab) : undefined
-                }
-                selectedCommitSha={
-                  activeTab ? selectedCommitSha(activeTab) : undefined
-                }
-                textHarness={pickTextHarness(active?.harness)}
-                recents={profiles.profileProjects}
-                busyProjectPaths={sessions.flatMap((session) =>
-                  isInFlightSession(session) && session.cwd
-                    ? [session.cwd]
-                    : [],
-                )}
-                liveAgents={liveAgents}
-                onSelectAgent={onSelectLiveAgent}
-                onSelectProject={onSelectProject}
-                onOpenProject={pickProject}
-                onRemoveProject={onRemoveProject}
-                onNew={onNew}
-                onNewStandalone={() => void onNewStandalone()}
-                startingStandalone={startingStandalone}
-                standaloneActive={standaloneActive}
-                standaloneSessions={standaloneSessions}
-                onOpenStandalone={
-                  standaloneCwd
-                    ? () => onSelectProject(standaloneCwd)
-                    : undefined
-                }
-                openSessions={profileHome ? [] : openProjectSessions}
-                onNewTerminal={onNewTerminal}
-                onSearch={onOpenSearch}
-                onOpenInbox={onOpenInbox}
-                onOpenAutomations={onOpenAutomations}
-                onOpenNotes={notesEnabled ? onOpenNotes : undefined}
-                onGoToFile={onGoToFile}
-                searchActive={searchViewOpen}
-                inboxActive={inboxViewOpen}
-                automationsActive={automationsViewOpen}
-                notesActive={notesViewOpen}
-                notesEnabled={notesEnabled}
-                projectRailOpen={projectRailOpen}
-                onToggleProjectRail={onToggleProjectRail}
-                unseenFinishedIds={unseenFinishedIds}
-                settingsOpen={settingsOpen}
-                settingsSection={settingsSection}
-                onOpenSettings={onOpenSettings}
-                onSelectSettingsSection={onSelectSettingsSection}
-                onCloseSettings={onCloseSettings}
-                updateNotice={updateNotice}
-                onOpenWhatsNew={onOpenWhatsNew}
-                onDismissUpdate={() => setUpdateNotice(null)}
               />
 
               <div
@@ -9881,36 +9925,13 @@ export default function App({
               </div>
             </div>
             {addProjectAnchor ? (
-              <Popover
+              <AddProjectMenu
                 anchor={addProjectAnchor}
-                side="top"
-                align="start"
-                width={228}
-                autoFocus
                 onDismiss={() => setAddProjectAnchor(null)}
-              >
-                <div
-                  className="personal-project-menu"
-                  role="menu"
-                  aria-label="Add project"
-                >
-                  <button role="menuitem" onClick={() => void pickProject()}>
-                    <FolderPlus className="size-3.5" /> Add existing project
-                  </button>
-                  <button
-                    role="menuitem"
-                    onClick={() => openWorkspaceAction("clone")}
-                  >
-                    <ArrowDownCircle className="size-3.5" /> Clone from URL
-                  </button>
-                  <button
-                    role="menuitem"
-                    onClick={() => openWorkspaceAction("create")}
-                  >
-                    <Folder className="size-3.5" /> Quick start new project
-                  </button>
-                </div>
-              </Popover>
+                onAddExisting={() => void pickProject()}
+                onClone={() => openWorkspaceAction("clone")}
+                onCreate={() => openWorkspaceAction("create")}
+              />
             ) : null}
             {branchAnchor && !profileHome ? (
               <BranchPicker
