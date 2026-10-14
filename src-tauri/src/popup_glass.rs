@@ -134,7 +134,7 @@ pub async fn popup_glass_set(
     #[cfg(target_os = "macos")]
     let applied = {
         let app = caller.app_handle().clone();
-        crate::usage_panel::on_main(&app, move || crate::macos::set_popup_glass(&window, frame))
+        crate::native_popup::on_main(&app, move || crate::macos::set_popup_glass(&window, frame))
             .await?
     };
     #[cfg(not(target_os = "macos"))]

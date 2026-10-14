@@ -46,6 +46,7 @@ mod macos;
 mod mcp_manage;
 mod memory_pressure;
 mod menu;
+mod native_popup;
 mod notes;
 mod notifications;
 mod personal_project;

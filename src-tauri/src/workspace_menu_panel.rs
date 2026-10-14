@@ -1,7 +1,7 @@
 //! App-rendered workspace actions in an owned window above native browser children.
 //! The panel only reports a validated selection to its originating workspace;
 //! it never changes browser visibility or executes actions itself.
-use crate::display_rate::FullRefreshRate;
+use crate::native_popup::on_main;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -9,9 +9,7 @@ use std::{
     sync::Mutex,
 };
 use tauri::{
-    window::{Color, WindowBuilder},
-    AppHandle, Emitter, EventTarget, LogicalPosition, LogicalSize, Manager, PhysicalPosition, Url,
-    Webview, WebviewBuilder, WebviewUrl, WindowEvent,
+    AppHandle, Emitter, EventTarget, LogicalSize, Manager, PhysicalPosition, Webview, WindowEvent,
 };
 
 const STATE_EVENT: &str = "workspace-menu-panel-state";
@@ -305,22 +303,14 @@ fn dismiss(app: &AppHandle, label: &str, destroy: bool, expected: Option<&str>) 
     let Some(notify) = dismissed else { return };
     if let Some(window) = app.get_window(label) {
         if destroy {
-            let _ = window.destroy();
+            crate::native_popup::destroy(&window);
         } else {
-            let _ = window.hide();
+            crate::native_popup::hide(&window);
         }
     }
     if let Some((owner, presentation)) = notify {
         notify_closed(app, label, &owner, &presentation);
     }
-}
-
-fn allowed_url(url: &Url, expected: &Url) -> bool {
-    let mut url = url.clone();
-    url.set_fragment(None);
-    let mut expected = expected.clone();
-    expected.set_fragment(None);
-    url == expected
 }
 
 /// Return physical placement and logical size, clamped to the anchor's display.
@@ -414,33 +404,6 @@ fn clamped_placement(
 
 // Serialize native visibility and state on the event thread: a late ready,
 // update or cleanup from the preceding opening cannot affect its replacement.
-async fn on_main<T: Send + 'static>(
-    app: &AppHandle,
-    operation: impl FnOnce() -> Result<T, String> + Send + 'static,
-) -> Result<T, String> {
-    let (send, receive) = std::sync::mpsc::sync_channel(1);
-    let run = move || {
-        let _ = send.send(operation());
-    };
-    // AppKit may synchronously reenter Tao while showing or creating a window.
-    // The main queue runs outside Tao's event-handler lock (as in pip_group).
-    #[cfg(target_os = "macos")]
-    {
-        let _ = app;
-        dispatch2::DispatchQueue::main().exec_async(run);
-    }
-    #[cfg(not(target_os = "macos"))]
-    app.run_on_main_thread(run)
-        .map_err(|error| error.to_string())?;
-    tauri::async_runtime::spawn_blocking(move || {
-        receive
-            .recv()
-            .map_err(|_| "Panel operation was interrupted".to_string())?
-    })
-    .await
-    .map_err(|error| error.to_string())?
-}
-
 #[tauri::command]
 pub async fn workspace_menu_panel_open(
     caller: Webview,
@@ -533,45 +496,20 @@ fn open_on_main(
             presentation,
         });
     }
-    let build = (|| {
-        let window = WindowBuilder::new(app, &label)
-            .title(snapshot["title"].as_str().unwrap_or("Open"))
-            .inner_size(size.width, size.height)
-            .decorations(false)
-            .resizable(false)
-            .maximizable(false)
-            .minimizable(false)
-            .skip_taskbar(true)
-            .visible(false)
-            .focused(false)
-            .shadow(true)
-            .transparent(true)
-            .background_color(Color(0, 0, 0, 0))
-            .parent(&owner)
-            .map_err(|error| error.to_string())?
-            .build()
-            .map_err(|error| error.to_string())?;
-        window
-            .set_position(position)
-            .map_err(|error| error.to_string())?;
-        window.set_size(size).map_err(|error| error.to_string())?;
-        let child = WebviewBuilder::new(
-            &label,
-            WebviewUrl::App("index.html?workspaceMenuPanel=1".into()),
-        )
-        .full_refresh_rate(app)
-        .focused(false)
-        .auto_resize()
-        .disable_drag_drop_handler()
-        .transparent(true)
-        .background_color(Color(0, 0, 0, 0))
-        .on_navigation(move |url| allowed_url(url, &expected))
-        .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny);
-        window
-            .add_child(child, LogicalPosition::new(0.0, 0.0), size)
-            .map_err(|error| error.to_string())?;
-        Ok::<(), String>(())
-    })();
+    let title = snapshot["title"].as_str().unwrap_or("Open").to_string();
+    let build = crate::native_popup::build(
+        app,
+        &owner,
+        crate::native_popup::PopupSpec {
+            label: &label,
+            title: &title,
+            entry: "index.html?workspaceMenuPanel=1",
+            expected,
+            position,
+            size,
+        },
+    )
+    .map(|_| ());
     if let Err(error) = build {
         dismiss(app, &label, true, None);
         return Err(error);
@@ -678,25 +616,22 @@ pub async fn workspace_menu_panel_ready(
 
 fn ready_on_main(caller: Webview, presentation: String) -> Result<bool, String> {
     let app = caller.app_handle();
-    let show = with_panels(app, |entries| {
+    let owner = with_panels(app, |entries| {
         let Some(panel) = entries.get_mut(caller.label()) else {
-            return Ok(false);
+            return Ok(None);
         };
-        if app.get_window(&panel.owner_window).is_none() {
-            return Ok(false);
-        }
-        Ok(accept_ready(panel, &presentation))
+        let Some(owner) = app.get_window(&panel.owner_window) else {
+            return Ok(None);
+        };
+        Ok(accept_ready(panel, &presentation).then_some(owner))
     })?;
-    if !show {
+    let Some(owner) = owner else {
         return Ok(false);
-    }
+    };
     let window = caller.window();
     // The renderer acknowledges the current presentation after painting it.
     // Focus both views so Escape works immediately, including on warm reopen.
-    let result = window
-        .show()
-        .and_then(|()| window.set_focus())
-        .and_then(|()| caller.set_focus());
+    let result = crate::native_popup::show_focused(&window, &caller, Some(&owner));
     if result.is_err() {
         dismiss(app, caller.label(), true, Some(&presentation));
     }
@@ -719,7 +654,7 @@ fn action_on_main(caller: Webview, presentation: String, action: String) -> Resu
         take_selection(entries, caller.label(), &presentation, &action)
     })?;
     if let Some(window) = app.get_window(caller.label()) {
-        let _ = window.hide();
+        crate::native_popup::hide(&window);
     }
     let result = if action != "close" {
         app.emit_to(EventTarget::webview(&selection.owner), ACTION_EVENT,
@@ -820,6 +755,8 @@ pub fn window_event(app: &AppHandle, label: &str, event: &WindowEvent) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::native_popup::allowed_url;
+    use tauri::Url;
 
     fn snapshot() -> Value {
         json!({
