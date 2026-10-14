@@ -23,7 +23,64 @@ type Options = {
   expectFloatingSidebar: boolean;
   newProjectTask: (path: string) => void;
   submit: (sessionId: string, text: string) => void;
+  /** The workspace's own utility views, opened as their buttons would. */
+  utilities?: SmokeUtilities;
 };
+
+type SmokeUtilities = {
+  openSearch: () => void;
+  openInbox: () => void;
+  openAutomations: () => void;
+  openNotes: () => void;
+  openSettings: () => void;
+  closeSettings: () => void;
+  leaveNotes: () => void;
+};
+
+/** Each utility view's root carries `data-app-<name>`. */
+const UTILITY_VIEWS = [
+  "search",
+  "inbox",
+  "automations",
+  "notes",
+  "settings",
+] as const;
+type UtilityView = (typeof UTILITY_VIEWS)[number];
+
+function utilitiesOnScreen(): UtilityView[] {
+  return UTILITY_VIEWS.filter((view) =>
+    document.querySelector(`[data-app-${view}]`),
+  );
+}
+
+function workspaceOnScreen(): boolean {
+  const content = document.querySelector(".personal-workspace-content");
+  return content instanceof HTMLElement && !content.hidden;
+}
+
+/** Wait until only `view` is on screen, or only the workspace when null. */
+async function expectOnScreen(view: UtilityView | null) {
+  try {
+    await waitFor(
+      () => {
+        const shown = utilitiesOnScreen();
+        return view
+          ? shown.length === 1 && shown[0] === view && !workspaceOnScreen()
+          : shown.length === 0 && workspaceOnScreen();
+      },
+      5_000,
+      view ? `only ${view} on screen` : "the workspace on screen",
+    );
+  } catch (error) {
+    const shown = utilitiesOnScreen();
+    throw new Error(
+      `${errorText(error)}; showing ${
+        [...shown, ...(workspaceOnScreen() ? ["workspace"] : [])].join(", ") ||
+        "nothing"
+      }`,
+    );
+  }
+}
 
 /** One run per app, even when React mounts the workspace twice. */
 let started = false;
@@ -32,7 +89,8 @@ let started = false;
  * Aven Dev's real-app check, run by the workspace only when the debug app was
  * launched by `scripts/dev-aven.py --smoke`: send one turn to a stand-in
  * provider through the normal send path with the floating sidebar attached,
- * then have the floating sidebar open Settings and press Back, then report.
+ * open and close the utility views, then have the floating sidebar open
+ * Settings and press Back, then report.
  */
 export function useDevSmoke(options: Options) {
   const latest = useRef(options);
@@ -131,6 +189,30 @@ export async function runDevSmoke(
         );
       }
     });
+
+  // One utility at a time, Settings returns to the one it replaced, and
+  // leaving the last one shows the workspace again.
+  const utilities = get().utilities;
+  if (utilities)
+    await step(
+      "utility views open, return from Settings and close",
+      async () => {
+        await expectOnScreen(null);
+        const sequence: [() => void, UtilityView | null][] = [
+          [utilities.openSearch, "search"],
+          [utilities.openInbox, "inbox"],
+          [utilities.openAutomations, "automations"],
+          [utilities.openNotes, "notes"],
+          [utilities.openSettings, "settings"],
+          [utilities.closeSettings, "notes"],
+          [utilities.leaveNotes, null],
+        ];
+        for (const [action, view] of sequence) {
+          action();
+          await expectOnScreen(view);
+        }
+      },
+    );
 
   const label = get().floatingSidebarLabel;
   if (label)
