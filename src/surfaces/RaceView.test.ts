@@ -172,6 +172,23 @@ it("shows each lane's status and changes and explains what was copied", async ()
   expect(stop).toHaveBeenCalledWith(["s1"]);
 });
 
+it("keeps a lane working during an optional question while blocking questions wait", async () => {
+  const view = await render([
+    {
+      ...session("s0", true),
+      pendingQuestion: { requestId: 7, questions: [] },
+    },
+    {
+      ...session("s1", true),
+      harness: "codex",
+      pendingQuestion: { requestId: 8, questions: [], blocking: false },
+    },
+  ]);
+  const lanes = view.querySelectorAll("section");
+  expect(lanes[0].textContent).toContain("Needs you");
+  expect(lanes[1].textContent).toContain("Working");
+});
+
 it("keeps one lane: applies its files, stops the lanes and removes the copies", async () => {
   const view = await render([session("s0"), session("s1")]);
   await act(async () => button(view, "Keep this").click());

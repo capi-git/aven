@@ -133,8 +133,31 @@ export function applyHarnessEvent(
           requestId: event.requestId,
           questions: event.questions,
           ...(event.title ? { title: event.title } : {}),
+          ...(event.blocking !== undefined ? { blocking: event.blocking } : {}),
         },
       };
+    case "question.submitting":
+      return session.pendingQuestion?.requestId === event.requestId
+        ? {
+            ...session,
+            pendingQuestion: {
+              ...session.pendingQuestion,
+              submitting: true,
+              error: undefined,
+            },
+          }
+        : session;
+    case "question.failed":
+      return session.pendingQuestion?.requestId === event.requestId
+        ? {
+            ...session,
+            pendingQuestion: {
+              ...session.pendingQuestion,
+              submitting: false,
+              error: event.message,
+            },
+          }
+        : session;
     case "question.resolved":
       return session.pendingQuestion?.requestId === event.requestId
         ? { ...session, pendingQuestion: undefined }

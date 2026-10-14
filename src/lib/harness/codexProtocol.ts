@@ -1038,6 +1038,79 @@ export function mapApprovalRequest(
   return null;
 }
 
+/** Codex's nonblocking question tool is delivered as an ordinary agent item. */
+export function codexAsyncUserInputQuestions(item: unknown): UserQuestion[] {
+  const rec = asRecord(item);
+  const itemId = stringField(rec, "id");
+  if (
+    rec?.type !== "agentMessage" ||
+    rec.delivery !== "async" ||
+    !itemId ||
+    !Array.isArray(rec.questions)
+  )
+    return [];
+  return rec.questions.flatMap((raw, index) => {
+    const question = asRecord(raw);
+    const title = stringField(question, "title");
+    if (!title?.trim()) return [];
+    return [
+      {
+        // Match the CLI/desktop identity so replay and committed replies agree.
+        id: JSON.stringify(["request_user_input_async", itemId, index]),
+        prompt: title,
+        multiSelect: false,
+        allowCustom: true,
+        options: (Array.isArray(question?.options) ? question.options : [])
+          .slice(0, 32)
+          .flatMap((label, optionIndex) =>
+            typeof label === "string" &&
+            label.trim() &&
+            new TextEncoder().encode(label).length <= 512
+              ? [{ id: `option-${optionIndex}`, label }]
+              : [],
+          ),
+      },
+    ];
+  });
+}
+
+/** Match Codex's AnsweredQuestion context fragment; this is ordinary user input. */
+export function codexAsyncUserInputReply(
+  questions: UserQuestion[],
+  reply: UserQuestionReply,
+): string | null {
+  if (reply.kind === "skipped") return null;
+  const replies: Array<{
+    questionItemId: string;
+    question: string;
+    answer: string;
+  }> = [];
+  const fallback: string[] = [];
+  for (const question of questions) {
+    const answer = selectedAnswerLabels(question, reply).join("\n").trim();
+    if (!answer) continue;
+    let title = "";
+    let bytes = 0;
+    for (const character of question.prompt) {
+      bytes += new TextEncoder().encode(character).length;
+      if (bytes > 512) break;
+      title += character;
+    }
+    title = title.replace(/[\r\n]/g, " ");
+    if (new TextEncoder().encode(question.id).length > 512)
+      fallback.push(`> ${title}\n\n${answer}`);
+    else replies.push({ questionItemId: question.id, question: title, answer });
+  }
+  if (replies.length > 0) {
+    // Keep model-authored framing from closing its own context fragment.
+    const json = JSON.stringify(replies).replace(/</g, "\\u003c");
+    fallback.unshift(
+      `<send_user_message_question_reply>\n${json}\n</send_user_message_question_reply>`,
+    );
+  }
+  return fallback.length > 0 ? fallback.join("\n\n") : null;
+}
+
 /** Codex `item/tool/requestUserInput` questions, as Aven's shared question card. */
 export function codexUserInputQuestions(params: unknown): UserQuestion[] {
   const rec = asRecord(params);

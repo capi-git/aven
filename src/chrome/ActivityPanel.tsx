@@ -10,7 +10,7 @@ import {
 import {
   HARNESS_TITLE,
   sessionDisplayTitle,
-  sessionNeedsInput,
+  sessionIsWaitingForInput,
   type Session,
 } from "../lib/session";
 import { HarnessIcon } from "./HarnessIcon";
@@ -90,7 +90,7 @@ export function ActivityPanel({
       sessions.filter(
         (session) =>
           !session.inboxAsk &&
-          !sessionNeedsInput(session) &&
+          !sessionIsWaitingForInput(session) &&
           (session.busy || session.queuedMessages?.length),
       ),
     [sessions],

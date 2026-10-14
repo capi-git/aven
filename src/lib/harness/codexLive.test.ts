@@ -65,6 +65,7 @@ const {
   cancelCodexTurn,
   compactCodexContext,
   sendCodexTurn,
+  respondCodexQuestion,
   steerCodexTurn,
   stopCodexSession,
   __codexTestReset,
@@ -85,6 +86,32 @@ function reply(id: number, result: unknown) {
 
 function notify(method: string, params: unknown) {
   onLine!(JSON.stringify({ method, params }));
+}
+
+function asyncQuestion(
+  itemId: string,
+  title = "Which target?",
+  turnId = "turn_1",
+) {
+  notify("item/completed", {
+    threadId: "thr_1",
+    turnId,
+    item: {
+      type: "agentMessage",
+      id: itemId,
+      text: title,
+      phase: "final_answer",
+      delivery: "async",
+      questions: [{ title, options: ["Web", "Desktop"] }],
+    },
+  });
+}
+
+function askedQuestions(events: HarnessEvent[]) {
+  return events.filter(
+    (event): event is Extract<HarnessEvent, { type: "question.asked" }> =>
+      event.type === "question.asked",
+  );
 }
 
 const waitFor = async (pred: () => boolean, label: string) => {
@@ -1710,53 +1737,349 @@ describe("Codex connection prompts", () => {
     await turn;
   });
 
-  it("asks Codex's own clarifying questions instead of answering them blank", async () => {
-    const { respondCodexQuestion } = await import("./codex");
-    const { events, turn } = await startTurn("codex-user-input");
+  it("queues async questions without stopping progress, deduplicates items, and steers accepted answers", async () => {
+    const { events, turn } = await startTurn("codex-async");
+    let completed = false;
+    void turn.then(() => {
+      completed = true;
+    });
+    asyncQuestion("q1");
+    asyncQuestion("q1");
+    asyncQuestion("q2", "Which platform?");
+    expect(askedQuestions(events)).toHaveLength(1);
+    const first = askedQuestions(events)[0];
+    expect(first.blocking).toBe(false);
+    notify("item/agentMessage/delta", {
+      threadId: "thr_1",
+      turnId: "turn_1",
+      itemId: "progress",
+      delta: "Continuing independent work.",
+    });
+    expect(
+      events.some(
+        (event) =>
+          event.type === "message.delta" &&
+          event.text === "Continuing independent work.",
+      ),
+    ).toBe(true);
+    await Promise.resolve();
+    expect(completed).toBe(false);
+    const answer = {
+      kind: "answered" as const,
+      answers: { [first.questions[0].id]: ["option-1"] },
+    };
+    respondCodexQuestion("codex-async", first.requestId, answer);
+    respondCodexQuestion("codex-async", first.requestId, answer);
+    await waitFor(
+      () => parse().some((message) => message.method === "turn/steer"),
+      "async answer steer",
+    );
+    const steers = parse().filter((message) => message.method === "turn/steer");
+    expect(steers).toHaveLength(1);
+    expect(steers[0].params).toEqual({
+      threadId: "thr_1",
+      expectedTurnId: "turn_1",
+      input: [
+        {
+          type: "text",
+          text: `<send_user_message_question_reply>\n${JSON.stringify([{ questionItemId: first.questions[0].id, question: "Which target?", answer: "Desktop" }])}\n</send_user_message_question_reply>`,
+        },
+      ],
+    });
+    expect(events.some((event) => event.type === "question.resolved")).toBe(
+      false,
+    );
+    reply(steers[0].id as number, { turnId: "turn_1" });
+    await waitFor(
+      () => askedQuestions(events).length === 2,
+      "next queued question",
+    );
+    expect(events).toContainEqual({
+      type: "question.resolved",
+      requestId: first.requestId,
+      decision: "answered",
+    });
+    const second = askedQuestions(events)[1];
+    expect(second.questions[0].prompt).toBe("Which platform?");
+    const sentBeforeSkip = sent.length;
+    respondCodexQuestion("codex-async", second.requestId, { kind: "skipped" });
+    expect(sent).toHaveLength(sentBeforeSkip);
+    asyncQuestion("q1");
+    asyncQuestion("q2");
+    expect(askedQuestions(events)).toHaveLength(2);
+    notify("turn/completed", {
+      threadId: "thr_1",
+      turn: { id: "turn_1", status: "completed" },
+    });
+    await turn;
+  });
+
+  it("retains a rejected async answer for retry without duplicating its prompt", async () => {
+    const logged = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const { events, turn } = await startTurn("codex-async-retry");
+    asyncQuestion("q1");
+    const first = askedQuestions(events)[0];
+    const answer = {
+      kind: "answered" as const,
+      answers: {},
+      custom: { [first.questions[0].id]: "Tablet" },
+    };
+    respondCodexQuestion("codex-async-retry", first.requestId, answer);
+    await waitFor(
+      () => parse().some((message) => message.method === "turn/steer"),
+      "first steer",
+    );
+    const sending = events.reduce(applyHarnessEvent, {
+      ...newSession("codex", "/tmp"),
+      busy: true,
+    });
+    expect(sending.pendingQuestion).toMatchObject({
+      requestId: first.requestId,
+      submitting: true,
+    });
+    const rejected = parse().find(
+      (message) => message.method === "turn/steer",
+    )!;
     onLine!(
       JSON.stringify({
-        id: 305,
+        id: rejected.id,
+        error: { code: -32000, message: "temporarily unavailable" },
+      }),
+    );
+    await waitFor(
+      () => events.some((event) => event.type === "question.failed"),
+      "answer failure",
+    );
+    expect(events.some((event) => event.type === "question.resolved")).toBe(
+      false,
+    );
+    expect(askedQuestions(events)).toHaveLength(1);
+    expect(
+      events.find((event) => event.type === "question.failed"),
+    ).toMatchObject({
+      requestId: first.requestId,
+      message: expect.stringContaining("Try sending it again"),
+    });
+    const failed = events.reduce(applyHarnessEvent, {
+      ...newSession("codex", "/tmp"),
+      busy: true,
+    });
+    expect(failed.busy).toBe(true);
+    expect(failed.pendingQuestion).toMatchObject({
+      requestId: first.requestId,
+      submitting: false,
+      error: expect.stringContaining("Try sending it again"),
+    });
+    expect(events.some((event) => event.type === "session.error")).toBe(false);
+    respondCodexQuestion("codex-async-retry", first.requestId, answer);
+    await waitFor(
+      () =>
+        parse().filter((message) => message.method === "turn/steer").length ===
+        2,
+      "retry steer",
+    );
+    const retrying = events.reduce(applyHarnessEvent, {
+      ...newSession("codex", "/tmp"),
+      busy: true,
+    });
+    expect(retrying.pendingQuestion).toMatchObject({
+      requestId: first.requestId,
+      submitting: true,
+    });
+    expect(retrying.pendingQuestion?.error).toBeUndefined();
+    const retry = parse().filter(
+      (message) => message.method === "turn/steer",
+    )[1];
+    reply(retry.id as number, { turnId: "turn_1" });
+    await waitFor(
+      () => events.some((event) => event.type === "question.resolved"),
+      "accepted answer",
+    );
+    expect(events).toContainEqual({
+      type: "question.resolved",
+      requestId: first.requestId,
+      decision: "answered",
+    });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+    logged.mockRestore();
+  });
+
+  it("queues legacy RPC questions behind async cards and preserves their original reply path", async () => {
+    const { events, turn } = await startTurn("codex-question-queue");
+    asyncQuestion("async1");
+    onLine!(
+      JSON.stringify({
+        id: 701,
         method: "item/tool/requestUserInput",
         params: {
           threadId: "thr_1",
           turnId: "turn_1",
-          itemId: "i1",
+          itemId: "legacy1",
           isBlocking: true,
-          autoResolutionMs: null,
           questions: [
             {
-              id: "q1",
-              header: "Target",
-              question: "Which target?",
-              isOther: false,
+              id: "legacy",
+              header: "Scope",
+              question: "Which scope?",
+              isOther: true,
               isSecret: false,
-              options: [
-                { label: "Web", description: "" },
-                { label: "Desktop", description: "" },
-              ],
+              options: null,
             },
           ],
         },
       }),
     );
-    await waitFor(
-      () => events.some((e) => e.type === "question.asked"),
-      "question card",
+    expect(askedQuestions(events)).toHaveLength(1);
+    respondCodexQuestion(
+      "codex-question-queue",
+      askedQuestions(events)[0].requestId,
+      { kind: "skipped" },
     );
-    const asked = events.find((e) => e.type === "question.asked") as {
-      requestId: number;
-    };
-    respondCodexQuestion("codex-user-input", asked.requestId, {
+    expect(askedQuestions(events)).toHaveLength(2);
+    const legacy = askedQuestions(events)[1];
+    expect(legacy.blocking).toBeUndefined();
+    respondCodexQuestion("codex-question-queue", legacy.requestId, {
       kind: "answered",
-      answers: { q1: ["Desktop"] },
+      answers: {},
+      custom: { legacy: "Repository" },
     });
-    await waitFor(() => parse().some((m) => m.id === 305), "answer");
-    expect(parse().find((m) => m.id === 305)?.result).toEqual({
-      answers: { q1: { answers: ["Desktop"] } },
+    await waitFor(
+      () => parse().some((message) => message.id === 701),
+      "legacy RPC answer",
+    );
+    expect(parse().find((message) => message.id === 701)?.result).toEqual({
+      answers: { legacy: { answers: ["Repository"] } },
     });
+    expect(parse().some((message) => message.method === "turn/steer")).toBe(
+      false,
+    );
     notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
     await turn;
   });
+
+  it("expires all async questions at turn completion and never starts an idle answer turn", async () => {
+    const { events, turn } = await startTurn("codex-async-end");
+    asyncQuestion("q1");
+    asyncQuestion("q2");
+    const first = askedQuestions(events)[0];
+    notify("turn/completed", {
+      threadId: "thr_1",
+      turn: { id: "turn_1", status: "completed" },
+    });
+    await turn;
+    expect(
+      events.filter(
+        (event) =>
+          event.type === "question.resolved" && event.decision === "cancelled",
+      ),
+    ).toHaveLength(2);
+    const before = sent.length;
+    respondCodexQuestion("codex-async-end", first.requestId, {
+      kind: "answered",
+      answers: {},
+      custom: { [first.questions[0].id]: "late" },
+    });
+    asyncQuestion("q1");
+    asyncQuestion("stale", "Old question?", "unrelated_turn");
+    await Promise.resolve();
+    expect(sent).toHaveLength(before);
+    expect(askedQuestions(events)).toHaveLength(1);
+  });
+
+  it("clears async questions on cancellation and ignores a late steer result", async () => {
+    const { events, turn } = await startTurn("codex-async-cancel");
+    asyncQuestion("q1");
+    asyncQuestion("q2");
+    const first = askedQuestions(events)[0];
+    respondCodexQuestion("codex-async-cancel", first.requestId, {
+      kind: "answered",
+      answers: {},
+      custom: { [first.questions[0].id]: "Desktop" },
+    });
+    await waitFor(
+      () => parse().some((message) => message.method === "turn/steer"),
+      "pending answer",
+    );
+    const steering = parse().find(
+      (message) => message.method === "turn/steer",
+    )!;
+    const cancelling = cancelCodexTurn("codex-async-cancel");
+    await waitFor(
+      () => parse().some((message) => message.method === "turn/interrupt"),
+      "interrupt",
+    );
+    const interrupt = parse().find(
+      (message) => message.method === "turn/interrupt",
+    )!;
+    reply(interrupt.id as number, {});
+    await cancelling;
+    await turn;
+    reply(steering.id as number, { turnId: "turn_1" });
+    await Promise.resolve();
+    expect(
+      events.filter((event) => event.type === "question.resolved"),
+    ).toHaveLength(2);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "question.resolved" && event.decision === "answered",
+      ),
+    ).toBe(false);
+    expect(askedQuestions(events)).toHaveLength(1);
+  });
+
+  it.each([undefined, true, false])(
+    "answers legacy clarifying requests with isBlocking=%s through their original RPC",
+    async (isBlocking) => {
+      const { respondCodexQuestion } = await import("./codex");
+      const { events, turn } = await startTurn("codex-user-input");
+      onLine!(
+        JSON.stringify({
+          id: 305,
+          method: "item/tool/requestUserInput",
+          params: {
+            threadId: "thr_1",
+            turnId: "turn_1",
+            itemId: "i1",
+            isBlocking,
+            autoResolutionMs: null,
+            questions: [
+              {
+                id: "q1",
+                header: "Target",
+                question: "Which target?",
+                isOther: false,
+                isSecret: false,
+                options: [
+                  { label: "Web", description: "" },
+                  { label: "Desktop", description: "" },
+                ],
+              },
+            ],
+          },
+        }),
+      );
+      await waitFor(
+        () => events.some((e) => e.type === "question.asked"),
+        "question card",
+      );
+      const asked = askedQuestions(events)[0];
+      expect(asked.blocking).toBe(isBlocking === false ? false : undefined);
+      respondCodexQuestion("codex-user-input", asked.requestId, {
+        kind: "answered",
+        answers: { q1: ["Desktop"] },
+      });
+      await waitFor(() => parse().some((m) => m.id === 305), "answer");
+      expect(parse().find((m) => m.id === 305)?.result).toEqual({
+        answers: { q1: { answers: ["Desktop"] } },
+      });
+      notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+      await turn;
+    },
+  );
 
   it("retires a question card when Codex resolves the request itself", async () => {
     const { events, turn } = await startTurn("codex-user-input-resolved");

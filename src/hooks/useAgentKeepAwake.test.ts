@@ -189,6 +189,27 @@ describe("which chats keep the Mac awake", () => {
     ).toEqual(["worker", "lead"]);
   });
 
+  it("keeps working through an optional question but releases blocking input", () => {
+    expect(
+      ids([
+        session("optional", {
+          busy: true,
+          pendingQuestion: { requestId: 1, questions: [], blocking: false },
+        }),
+        session("blocking", {
+          harness: "claude",
+          busy: true,
+          pendingQuestion: { requestId: 2, questions: [] },
+        }),
+        session("approval", {
+          busy: true,
+          pendingQuestion: { requestId: 3, questions: [], blocking: false },
+          blocks: [approval],
+        }),
+      ]),
+    ).toEqual(["optional"]);
+  });
+
   it("fingerprints each working chat's progress separately", () => {
     const text = (value: string) =>
       [{ id: "b", role: "assistant", text: value }] as Session["blocks"];

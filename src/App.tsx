@@ -456,6 +456,7 @@ import {
   canReplaceSessionTitle,
   formatSessionTitle,
   sessionNeedsInput,
+  sessionIsWaitingForInput,
   newDefaultSession,
   newSession,
   newSplitSession,
@@ -1893,6 +1894,8 @@ export default function App({
         event.type === "approval.requested" ||
         event.type === "approval.resolved" ||
         event.type === "question.asked" ||
+        event.type === "question.submitting" ||
+        event.type === "question.failed" ||
         event.type === "question.resolved"
       ) {
         applyApprovalEvent(sessionId, event);
@@ -10275,7 +10278,7 @@ function toTitleTab(
     const { harness } = sessionModelIdentity(session);
     if (
       isInFlightSession(session) &&
-      !sessionNeedsInput(session) &&
+      !sessionIsWaitingForInput(session) &&
       !busySeen.has(harness)
     ) {
       busySeen.add(harness);

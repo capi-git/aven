@@ -204,6 +204,41 @@ describe("sessionRunStatus", () => {
     });
   });
 
+  it("keeps optional questions available while the agent continues working", () => {
+    expect(
+      sessionRunStatus(
+        session({
+          busy: true,
+          blocks: [user(), tool("execute")],
+          pendingQuestion: { requestId: 7, questions: [], blocking: false },
+        }),
+        [activity()],
+      ),
+    ).toMatchObject({
+      kind: "working",
+      label: "Working",
+      detail: "Running command",
+      canStop: true,
+    });
+  });
+
+  it("names a blocking approval when an optional question is also open", () => {
+    expect(
+      sessionRunStatus(
+        session({
+          busy: true,
+          pendingQuestion: { requestId: 7, questions: [], blocking: false },
+          blocks: [user(), { ...tool("execute"), approval: { requestId: 8 } }],
+        }),
+        [],
+      ),
+    ).toMatchObject({
+      kind: "waiting",
+      detail: "Approval needed",
+      canStop: true,
+    });
+  });
+
   it("shows pending approvals even when busy is false, without offering Stop", () => {
     expect(
       sessionRunStatus(

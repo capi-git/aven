@@ -21,7 +21,18 @@ export type UserQuestionPrompt = {
   requestId: number;
   title?: string;
   questions: UserQuestion[];
+  /** Older provider requests pause the turn; async questions let it continue. */
+  blocking?: boolean;
+  /** A reply is awaiting provider acknowledgement; selections stay visible. */
+  submitting?: boolean;
+  error?: string;
 };
+
+export function isBlockingQuestion(
+  prompt: UserQuestionPrompt | undefined,
+): boolean {
+  return prompt != null && prompt.blocking !== false;
+}
 
 export type UserQuestionReply =
   | {

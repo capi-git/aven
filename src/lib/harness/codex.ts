@@ -1,4 +1,5 @@
 import { codexNativeModelId } from "../models";
+import { logError } from "../errors";
 import type { RuntimeMode } from "../session";
 import {
   killChild,
@@ -14,6 +15,8 @@ import {
   buildTurnStartParams,
   buildTurnSteerParams,
   codexAttachmentInputs,
+  codexAsyncUserInputQuestions,
+  codexAsyncUserInputReply,
   codexBrowserHostInstructionsFromConfig,
   codexToolApprovalEvent,
   codexUserInputQuestions,
@@ -59,9 +62,19 @@ type PendingApproval = {
 
 type PendingQuestion = {
   rpcId: JsonRpcId;
+  title: string;
+  questions: UserQuestion[];
+  blocking: boolean;
   resolve: (reply: UserQuestionReply | "cancelled") => void;
   /** Codex already settled the request; it must not receive a late reply. */
   settled?: boolean;
+};
+
+type PendingAsyncQuestion = {
+  turnId: string;
+  title: string;
+  questions: UserQuestion[];
+  submitting: boolean;
 };
 
 /** Terminal notifications report their error before rejecting the active turn. */
@@ -81,6 +94,10 @@ type Live = {
   onEvent: (event: HarnessEvent) => void;
   approvals: Map<number, PendingApproval>;
   questions: Map<number, PendingQuestion>;
+  asyncQuestions: Map<number, PendingAsyncQuestion>;
+  questionQueue: number[];
+  shownQuestionId: number | null;
+  seenAsyncQuestionItems: Set<string>;
   nextApprovalUiId: number;
   cancelled: boolean;
   muteUpdates: boolean;
@@ -236,6 +253,12 @@ export function respondCodexQuestion(
   reply: UserQuestionReply,
 ): void {
   const live = liveByThread.get(sessionId);
+  if (!live || live.shownQuestionId !== requestId) return;
+  const asynchronous = live.asyncQuestions.get(requestId);
+  if (asynchronous) {
+    void respondAsyncQuestion(live, requestId, asynchronous, reply);
+    return;
+  }
   const pending = live?.questions.get(requestId);
   if (!pending) return;
   pending.resolve(reply);
@@ -257,6 +280,7 @@ export async function cancelCodexTurn(sessionId: string): Promise<void> {
     pending.resolve("cancelled");
   }
   live.questions.clear();
+  retireAsyncQuestions(live);
   // A prompt may not have its authoritative turn ID yet. Wait for that RPC
   // response before interrupting so Stop cannot leave an unseen turn running.
   await live.turnReady;
@@ -523,6 +547,10 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       onEvent: input.onEvent,
       approvals: new Map(),
       questions: new Map(),
+      asyncQuestions: new Map(),
+      questionQueue: [],
+      shownQuestionId: null,
+      seenAsyncQuestionItems: new Set(),
       nextApprovalUiId: 1,
       cancelled: false,
       muteUpdates: didResume,
@@ -746,6 +774,7 @@ function handleNotification(live: Live, method: string, params: unknown): void {
   const mapped = mapCodexNotification(method, params);
   const snapshot = method === "item/completed";
   const item = asRecord(record?.item);
+  if (snapshot && !live.muteUpdates) enqueueAsyncQuestions(live, record, item);
   const itemId =
     typeof record?.itemId === "string"
       ? record.itemId
@@ -893,6 +922,7 @@ function finishActiveTurn(
 ): void {
   const done = live.turnDone;
   const failed = live.turnFailed;
+  retireAsyncQuestions(live);
   resetActiveTurn(live);
   live.emittedAssistant = "";
   live.assistantItems.clear();
@@ -911,6 +941,7 @@ function finishActiveTurn(
 }
 
 function resetActiveTurn(live: Live): void {
+  live.seenAsyncQuestionItems.clear();
   markTurnReady(live);
   live.turnReady = null;
   if (live.activeTurnId) {
@@ -1063,6 +1094,7 @@ async function handleUserInputRequest(
     id,
     questionPromptTitle(questions),
     questions,
+    asRecord(params)?.isBlocking !== false,
   );
   if (reply === null) return;
   await live.rpc
@@ -1119,38 +1151,193 @@ async function handleElicitationRequest(
   await respond(result.action, result.content);
 }
 
+function showNextQuestion(live: Live): void {
+  if (
+    live.shownQuestionId !== null ||
+    live.cancelled ||
+    live.retired ||
+    live.rpc.isClosed
+  )
+    return;
+  while (live.questionQueue.length > 0) {
+    const requestId = live.questionQueue[0];
+    const asynchronous = live.asyncQuestions.get(requestId);
+    const pending = asynchronous ?? live.questions.get(requestId);
+    const blocking = asynchronous
+      ? false
+      : live.questions.get(requestId)?.blocking;
+    if (!pending) {
+      live.questionQueue.shift();
+      continue;
+    }
+    live.shownQuestionId = requestId;
+    live.onEvent({
+      type: "question.asked",
+      requestId,
+      title: pending.title,
+      questions: pending.questions,
+      ...(blocking === false ? { blocking: false } : {}),
+    });
+    return;
+  }
+}
+
+function finishQuestion(
+  live: Live,
+  requestId: number,
+  decision: "answered" | "skipped" | "cancelled",
+): void {
+  live.questionQueue = live.questionQueue.filter((id) => id !== requestId);
+  if (live.shownQuestionId === requestId) live.shownQuestionId = null;
+  live.onEvent({ type: "question.resolved", requestId, decision });
+  showNextQuestion(live);
+}
+
+function enqueueAsyncQuestions(
+  live: Live,
+  params: Record<string, unknown> | null,
+  item: Record<string, unknown> | null,
+): void {
+  const turnId = stringField(params, "turnId");
+  const itemId = stringField(item, "id");
+  if (
+    !turnId ||
+    !itemId ||
+    live.cancelled ||
+    live.retired ||
+    live.turnMode !== "prompt" ||
+    !live.turnDone ||
+    live.finishedTurnIds.has(turnId) ||
+    (live.activeTurnId !== null && live.activeTurnId !== turnId) ||
+    (live.activeTurnId === null && !live.turnStartPending)
+  )
+    return;
+  const key = JSON.stringify([turnId, itemId]);
+  if (live.seenAsyncQuestionItems.has(key)) return;
+  const questions = codexAsyncUserInputQuestions(item);
+  if (questions.length === 0) return;
+  live.seenAsyncQuestionItems.add(key);
+  const requestId = live.nextApprovalUiId++;
+  live.asyncQuestions.set(requestId, {
+    turnId,
+    title: questionPromptTitle(questions),
+    questions,
+    submitting: false,
+  });
+  live.questionQueue.push(requestId);
+  showNextQuestion(live);
+}
+
+async function respondAsyncQuestion(
+  live: Live,
+  requestId: number,
+  pending: PendingAsyncQuestion,
+  reply: UserQuestionReply,
+): Promise<void> {
+  if (pending.submitting || live.cancelled || live.retired) return;
+  if (reply.kind === "skipped") {
+    live.asyncQuestions.delete(requestId);
+    finishQuestion(live, requestId, "skipped");
+    return;
+  }
+  pending.submitting = true;
+  live.onEvent({ type: "question.submitting", requestId });
+  try {
+    const prompt = codexAsyncUserInputReply(pending.questions, reply);
+    if (!prompt)
+      throw new Error("Choose an answer or enter a reply before sending.");
+    await live.turnReady;
+    if (
+      live.cancelled ||
+      live.retired ||
+      live.asyncQuestions.get(requestId) !== pending
+    )
+      return;
+    if (live.activeTurnId !== pending.turnId || live.turnMode !== "prompt") {
+      live.asyncQuestions.delete(requestId);
+      finishQuestion(live, requestId, "cancelled");
+      return;
+    }
+    await live.rpc.request(
+      "turn/steer",
+      buildTurnSteerParams({
+        threadId: live.threadId,
+        expectedTurnId: pending.turnId,
+        prompt,
+      }),
+    );
+    if (live.asyncQuestions.get(requestId) !== pending) return;
+    live.asyncQuestions.delete(requestId);
+    finishQuestion(live, requestId, "answered");
+  } catch (error) {
+    if (
+      live.asyncQuestions.get(requestId) !== pending ||
+      live.cancelled ||
+      live.retired
+    )
+      return;
+    logError("Codex question answer failed", error);
+    live.onEvent({
+      type: "question.failed",
+      requestId,
+      message: "Codex could not receive your answer. Try sending it again.",
+    });
+  } finally {
+    pending.submitting = false;
+  }
+}
+
+/** Async question items have no outstanding provider RPC to answer or cancel. */
+function retireAsyncQuestions(live: Live): void {
+  const requestIds = new Set(live.asyncQuestions.keys());
+  if (requestIds.size === 0) return;
+  live.asyncQuestions.clear();
+  live.questionQueue = live.questionQueue.filter((id) => !requestIds.has(id));
+  if (live.shownQuestionId !== null && requestIds.has(live.shownQuestionId))
+    live.shownQuestionId = null;
+  for (const requestId of requestIds)
+    live.onEvent({
+      type: "question.resolved",
+      requestId,
+      decision: "cancelled",
+    });
+  showNextQuestion(live);
+}
+
 async function askQuestions(
   live: Live,
   rpcId: JsonRpcId,
   title: string,
   questions: UserQuestion[],
+  blocking = true,
 ): Promise<UserQuestionReply | "cancelled" | null> {
   const uiId = live.nextApprovalUiId++;
-  live.onEvent({ type: "question.asked", requestId: uiId, title, questions });
   let pending: PendingQuestion | undefined;
   const reply = await new Promise<UserQuestionReply | "cancelled">(
     (resolve) => {
-      pending = { rpcId, resolve };
+      pending = { rpcId, resolve, title, questions, blocking };
       live.questions.set(uiId, pending);
+      live.questionQueue.push(uiId);
+      showNextQuestion(live);
     },
   ).finally(() => {
     live.questions.delete(uiId);
   });
-  live.onEvent({
-    type: "question.resolved",
-    requestId: uiId,
-    decision:
-      reply === "cancelled"
-        ? "cancelled"
-        : reply.kind === "answered"
-          ? "answered"
-          : "skipped",
-  });
+  finishQuestion(
+    live,
+    uiId,
+    reply === "cancelled"
+      ? "cancelled"
+      : reply.kind === "answered"
+        ? "answered"
+        : "skipped",
+  );
   return pending?.settled ? null : reply;
 }
 
 /** The process is gone: close open cards without replying to it. */
 function retirePendingRequests(live: Live): void {
+  retireAsyncQuestions(live);
   for (const [, pending] of live.questions) {
     pending.settled = true;
     pending.resolve("cancelled");

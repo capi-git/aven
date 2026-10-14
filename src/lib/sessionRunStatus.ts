@@ -6,7 +6,8 @@ import {
   isReadTool,
   isSearchTool,
 } from "./harness/preview";
-import { hasPendingApproval, type Block, type Session } from "./session";
+import { sessionIsWaitingForInput, type Block, type Session } from "./session";
+import { isBlockingQuestion } from "./userQuestion";
 import {
   activeSessionAgents,
   uncertainSessionAgents,
@@ -148,11 +149,11 @@ export function sessionRunStatus(
   const unknownAgents = uncertainSessionAgents(session);
   const canStop =
     !!session.busy || agents.length > 0 || unknownAgents.length > 0;
-  if (session.pendingQuestion || hasPendingApproval(session.blocks)) {
+  if (sessionIsWaitingForInput(session)) {
     return {
       kind: "waiting",
       label: "Waiting for you",
-      detail: session.pendingQuestion
+      detail: isBlockingQuestion(session.pendingQuestion)
         ? "Answer the question below"
         : "Approval needed",
       ...(startedAt !== undefined ? { startedAt } : {}),

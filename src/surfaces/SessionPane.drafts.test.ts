@@ -16,6 +16,7 @@ import { requestAddToChat } from "../lib/quoteDraft";
 
 const mock = vi.hoisted(() => ({
   composer: vi.fn(),
+  transcript: vi.fn(),
   read: vi.fn(),
   update: vi.fn(),
   release: vi.fn(),
@@ -31,7 +32,7 @@ vi.mock("./EmptySession", () => ({
   EmptySession: ({ composer }: { composer?: ReactNode }) => composer ?? null,
 }));
 vi.mock("../chrome/SessionReview", () => ({ SessionReview: () => null }));
-vi.mock("./AgentTranscript", () => ({ AgentTranscript: () => null }));
+vi.mock("./AgentTranscript", () => ({ AgentTranscript: mock.transcript }));
 vi.mock("../chrome/PromptOutline", () => ({ PromptOutline: () => null }));
 
 const attachment: Attachment = {
@@ -55,6 +56,7 @@ describe("session pane draft and header ownership", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
     mock.composer.mockReturnValue(null);
+    mock.transcript.mockReturnValue(null);
     mock.retain.mockReturnValue(mock.release);
     container = document.createElement("div");
     document.body.append(container);
@@ -115,6 +117,28 @@ describe("session pane draft and header ownership", () => {
     props = { ...props, inSplit, session: { ...props.session, ...session } };
     await act(async () => root.render(createElement(SessionPane, props)));
   }
+
+  it("keeps optional questions in the composer without pausing transcript activity", async () => {
+    const question = { requestId: 7, questions: [], blocking: false };
+    await render({
+      busy: true,
+      blocks: [{ id: "user", role: "user", text: "Run" }],
+      pendingQuestion: question,
+    });
+    expect(composerProps().question).toBe(question);
+    expect(mock.transcript.mock.calls.at(-1)![0]).toMatchObject({
+      busy: true,
+      pendingQuestion: false,
+    });
+    await render({
+      harness: "claude",
+      pendingQuestion: { requestId: 8, questions: [] },
+    });
+    expect(mock.transcript.mock.calls.at(-1)![0]).toMatchObject({
+      busy: true,
+      pendingQuestion: true,
+    });
+  });
 
   it("shows the model for a fresh split pane, then preserves a generated title with model context", async () => {
     await render({ model: "codex:qa-model", title: "codex" }, true);

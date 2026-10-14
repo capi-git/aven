@@ -138,6 +138,32 @@ describe("Activity panel", () => {
     await act(async () => button("Open Working task").click());
     expect(openSession).toHaveBeenCalledWith("running");
   });
+
+  it("lists optional questions as running while keeping their request actionable", async () => {
+    record("optional", "question");
+    const optional = {
+      ...newSession("codex", "/tmp/project"),
+      id: "optional",
+      title: "Parallel work",
+      busy: true,
+      pendingQuestion: { requestId: 7, questions: [], blocking: false },
+    };
+    await mount([
+      optional,
+      {
+        ...newSession("claude", "/tmp/project"),
+        title: "Blocking question",
+        busy: true,
+        pendingQuestion: { requestId: 8, questions: [] },
+      },
+    ]);
+    const running = host.querySelector('[aria-label="Running"]')!;
+    expect(running.textContent).toContain("Parallel work");
+    expect(running.textContent).not.toContain("Blocking question");
+    expect(
+      host.querySelector('[aria-label="Needs you"]')?.textContent,
+    ).toContain("optional");
+  });
   it("keeps failed navigation unread and acknowledges successful presentation only", async () => {
     record("Result", "completed");
     open.mockReturnValue(false);
