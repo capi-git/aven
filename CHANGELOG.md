@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.139] - 2026-10-14
+
 ### Fixed
 
 - On macOS, other projects in the sidebar list their tasks again. Since 0.1.137 a project you were not in could say "No tasks yet" until you opened it, in both the docked and the floating sidebar.
