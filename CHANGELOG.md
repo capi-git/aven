@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Agents work again on macOS. In 0.1.137 every message failed with "adapter failed" for every provider, because the floating sidebar's layer stopped Aven from authorizing turns in that window.
+- Pressing Back, or another button that closes Settings, in the floating sidebar no longer freezes the sidebar.
+- When a provider fails, the chat now shows the actual reason instead of a generic "adapter failed".
+
 ## [0.1.137] - 2026-10-14
 
 ### Floating sidebar over browser pages

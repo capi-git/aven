@@ -1,4 +1,4 @@
-import { logError } from "./lib/errors";
+import { failureText, logError } from "./lib/errors";
 import { useWorkspaceSessions } from "./hooks/useWorkspaceSessions";
 import { discardEditorDrafts } from "./lib/workspaceTransfers";
 import { useFixedDeadline } from "./hooks/useFixedDeadline";
@@ -6225,10 +6225,10 @@ export default function App({
         } catch (error: unknown) {
           if (turnGen.current.get(sessionId) !== gen) return;
           if (wrap) revealHandoff(wrap.text);
-          const message =
-            error instanceof Error
-              ? error.message
-              : `${current.harness} adapter failed`;
+          const message = failureText(
+            error,
+            `${current.harness} adapter failed`,
+          );
           controlOutcome.error = message;
           providerFailureSeen = true;
           failureSummary = message;
@@ -6809,10 +6809,10 @@ export default function App({
           if (turnGen.current.get(sessionId) !== gen) return;
           enqueueHarnessEvent(sessionId, {
             type: "session.error",
-            message:
-              error instanceof Error
-                ? error.message
-                : `${current.harness} could not compact this context`,
+            message: failureText(
+              error,
+              `${current.harness} could not compact this context`,
+            ),
           });
         } finally {
           if (turnGen.current.get(sessionId) === gen) {

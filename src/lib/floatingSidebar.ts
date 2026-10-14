@@ -93,36 +93,69 @@ export type FloatingSidebarPointer = { inside: boolean; edge: boolean };
 const SET = "$set";
 const MAP = "$map";
 
-/** JSON-safe structured data: Sets and Maps survive, functions and DOM nodes do not. */
-export function encodeSidebarValue(value: unknown, depth = 0): unknown {
+/**
+ * Values that describe the page rather than data: a browser window, or an
+ * event. React's click events are not `Event`s, and each one reaches the
+ * whole `window` through `view`, which in turn refers to itself through
+ * `self`, `top` and `parent`. Walking one never finished and froze the card.
+ */
+function isPageObject(value: object): boolean {
+  if (typeof Event !== "undefined" && value instanceof Event) return true;
+  if (typeof Node !== "undefined" && value instanceof Node) return true;
+  // A window, from this or any other frame.
+  if ((value as { window?: unknown }).window === value) return true;
+  // A React synthetic event wraps a native one.
+  const synthetic = value as {
+    nativeEvent?: unknown;
+    isDefaultPrevented?: unknown;
+  };
+  return (
+    synthetic.nativeEvent !== undefined &&
+    typeof synthetic.isDefaultPrevented === "function"
+  );
+}
+
+/** JSON-safe structured data: Sets and Maps survive; functions, DOM nodes,
+ * windows, events and reference cycles do not. */
+export function encodeSidebarValue(value: unknown): unknown {
+  return encode(value, 0, new Set());
+}
+
+function encode(value: unknown, depth: number, path: Set<object>): unknown {
   if (depth > 32) return undefined;
   if (value === null || typeof value !== "object") {
     return typeof value === "function" || typeof value === "symbol"
       ? undefined
       : value;
   }
-  if (typeof Node !== "undefined" && value instanceof Node) return undefined;
-  if (typeof Event !== "undefined" && value instanceof Event) return undefined;
-  if (value instanceof Set)
-    return {
-      [SET]: [...value].map((item) => encodeSidebarValue(item, depth + 1)),
-    };
-  if (value instanceof Map)
-    return {
-      [MAP]: [...value].map(([key, item]) => [
-        encodeSidebarValue(key, depth + 1),
-        encodeSidebarValue(item, depth + 1),
-      ]),
-    };
+  // A cycle repeats what is already being encoded; a value shared by two
+  // branches is not a cycle and is kept in both.
+  if (path.has(value) || isPageObject(value)) return undefined;
   if (value instanceof Date) return value.toISOString();
-  if (Array.isArray(value))
-    return value.map((item) => encodeSidebarValue(item, depth + 1) ?? null);
-  const result: Record<string, unknown> = {};
-  for (const [key, item] of Object.entries(value)) {
-    const encoded = encodeSidebarValue(item, depth + 1);
-    if (encoded !== undefined) result[key] = encoded;
+  path.add(value);
+  try {
+    if (value instanceof Set)
+      return {
+        [SET]: [...value].map((item) => encode(item, depth + 1, path)),
+      };
+    if (value instanceof Map)
+      return {
+        [MAP]: [...value].map(([key, item]) => [
+          encode(key, depth + 1, path),
+          encode(item, depth + 1, path),
+        ]),
+      };
+    if (Array.isArray(value))
+      return value.map((item) => encode(item, depth + 1, path) ?? null);
+    const result: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) {
+      const encoded = encode(item, depth + 1, path);
+      if (encoded !== undefined) result[key] = encoded;
+    }
+    return result;
+  } finally {
+    path.delete(value);
   }
-  return result;
 }
 
 export function decodeSidebarValue(value: unknown): unknown {
