@@ -10,7 +10,13 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { AddProjectMenu } from "../chrome/AddProjectMenu";
 import { OrchestrationWorkers } from "../chrome/OrchestrationActions";
 import { Sidebar, type SidebarProps } from "../chrome/Sidebar";
-import { logError } from "../lib/errors";
+import {
+  devSmokeConfig,
+  SMOKE_OVERLAY_EVENT,
+  SMOKE_OVERLAY_RESULT_EVENT,
+  waitFor,
+} from "../lib/devSmoke";
+import { errorText, logError } from "../lib/errors";
 import {
   ACTIVITY_EVENT,
   CALL_EVENT,
@@ -74,6 +80,17 @@ export function FloatingSidebarWindow() {
   );
   const latest = useRef(snapshot);
   latest.current = snapshot;
+
+  // Aven Dev's real-app check: press this page's own Settings and Back
+  // buttons. A page that freezes on Back never answers, and the workspace
+  // reports that.
+  useEffect(() => {
+    if (!devSmokeConfig()) return;
+    const stop = nativeFloatingSidebar.listen(SMOKE_OVERLAY_EVENT, () => {
+      void runOverlaySmoke(owner);
+    });
+    return () => void stop.then((unlisten) => unlisten()).catch(() => {});
+  }, [owner]);
 
   // --- Calls into the workspace ----------------------------------------------
   const pending = useRef(new Map<number, Pending>());
@@ -431,4 +448,42 @@ export function FloatingSidebarWindow() {
       </div>
     </OrchestrationWorkers.Provider>
   );
+}
+
+async function runOverlaySmoke(owner: string) {
+  const answer = (result: { ok: boolean; error?: string }) =>
+    void nativeFloatingSidebar
+      .send(owner, SMOKE_OVERLAY_RESULT_EVENT, result)
+      .catch(() => {});
+  try {
+    const settings = await waitFor(
+      () =>
+        document.querySelector<HTMLButtonElement>(
+          '.personal-workspace-switcher button[aria-label^="Settings"]',
+        ),
+      10_000,
+      "the Settings button",
+    );
+    settings.click();
+    const back = await waitFor(
+      () =>
+        [
+          ...document.querySelectorAll<HTMLButtonElement>(
+            ".settings-nav button",
+          ),
+        ].find((button) => button.textContent?.trim() === "Back"),
+      10_000,
+      "Settings in the floating sidebar",
+    );
+    // React hands this click event to the relayed callback; 0.1.137 froze here.
+    back.click();
+    await waitFor(
+      () => !document.querySelector(".settings-nav"),
+      10_000,
+      "Back to close Settings",
+    );
+    answer({ ok: true });
+  } catch (error) {
+    answer({ ok: false, error: errorText(error) });
+  }
 }

@@ -543,6 +543,21 @@ class MacosNotarizationTests(WorkflowFixture):
         self.assertNotIn('RUNNER_TEMP', upload)
 
 
+class RealAppCheckGateTests(unittest.TestCase):
+    def test_publishing_waits_for_the_real_app_check(self):
+        workflow = WORKFLOW.read_text()
+        publish = workflow[workflow.index('\n  publish:\n'):]
+        self.assertIn("needs.real-app-check.result == 'success'", publish)
+        self.assertIn('real-app-check', re.search(r'needs: \[(.*?)\]', publish).group(1))
+
+    def test_the_check_runs_aven_dev_without_secrets(self):
+        workflow = WORKFLOW.read_text()
+        job = re.search(r'\n  real-app-check:\n(.*?)\n\n  windows:', workflow, re.S).group(1)
+        self.assertIn('python3 -B scripts/dev-aven.py --smoke', job)
+        self.assertNotIn('secrets.', job)
+        self.assertIn('persist-credentials: false', job)
+
+
 class WindowsUpdateSigningTests(unittest.TestCase):
     def test_release_signs_windows_updates_only_when_publishing(self):
         job = re.search(r'\n  windows:\n(.*?)\n\n  publish:', WORKFLOW.read_text(), re.S)

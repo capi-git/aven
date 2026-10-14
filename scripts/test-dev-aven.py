@@ -328,5 +328,90 @@ class DevRunnerGuards(unittest.TestCase):
         server.wait.assert_called_once_with(timeout=5)
 
 
+
+class RealAppCheck(unittest.TestCase):
+    """The --smoke runner's folder, cleanup and scoring; never launches apps."""
+
+    def setUp(self):
+        self.checkout = Path(__file__).resolve().parent.parent
+        patcher = mock.patch.object(runner, 'ROOT', self.checkout)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.root = runner.prepare_smoke_folder()
+        self.addCleanup(lambda: runner.remove_smoke_folder(self.root))
+
+    def test_folder_puts_only_the_stand_in_on_the_login_shell_path(self):
+        stand_in = self.root / 'home/.local/bin/claude'
+        self.assertTrue((self.root / runner.SMOKE_MARKER).is_file())
+        self.assertTrue(os.access(stand_in, os.X_OK))
+        self.assertTrue((self.root / 'project/README.md').is_file())
+        zshrc = (self.root / 'home/.zshrc').read_text()
+        self.assertIn(f'export PATH="{stand_in.parent}:/usr/bin:/bin:/usr/sbin:/sbin"', zshrc)
+        # Homebrew and the developer's own folders are not on it.
+        self.assertNotIn('homebrew', zshrc)
+        self.assertNotIn(str(Path.home()), zshrc)
+
+    def test_stand_in_answers_one_turn_with_the_smoke_word(self):
+        stand_in = self.root / 'home/.local/bin/claude'
+        version = subprocess.run([str(stand_in), '--version'], capture_output=True, text=True, timeout=10)
+        self.assertRegex(version.stdout, r'\d+\.\d+\.\d+')
+        auth = subprocess.run([str(stand_in), 'auth', 'status'], capture_output=True, text=True, timeout=10)
+        self.assertTrue(json.loads(auth.stdout)['loggedIn'])
+        requests = '\n'.join(json.dumps(line) for line in [
+            {'type': 'control_request', 'request_id': 'aven_2', 'request': {'subtype': 'initialize'}},
+            {'type': 'user', 'uuid': 'turn-1', 'message': {'role': 'user', 'content': []}},
+        ]) + '\n'
+        chat = subprocess.run([str(stand_in), '--input-format', 'stream-json', '--replay-user-messages',
+                               '--session-id', 'SID'], input=requests, capture_output=True, text=True, timeout=10)
+        messages = [json.loads(line) for line in chat.stdout.splitlines()]
+        self.assertEqual([m['type'] for m in messages],
+                         ['system', 'control_response', 'user', 'stream_event', 'assistant', 'result'])
+        self.assertEqual(messages[1]['response']['request_id'], 'aven_2')
+        self.assertTrue(messages[2]['isReplay'])
+        self.assertEqual(messages[-1]['result'], 'AVEN_SMOKE_OK')
+        self.assertTrue(all(m.get('session_id', 'SID') == 'SID' for m in messages))
+
+    def test_unmarked_folders_are_never_removed(self):
+        other = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: other.rmdir() if other.exists() else None)
+        runner.remove_smoke_folder(other)
+        self.assertTrue(other.exists())
+
+    def write_run(self, steps, spawned):
+        (self.root / 'result.json').write_text(json.dumps({
+            'passed': all(step['passed'] for step in steps), 'steps': steps}))
+        log = self.root / 'home/.local/bin/fake-claude.log'
+        log.write_text(''.join(json.dumps(entry) + '\n' for entry in spawned))
+
+    def score(self, exit_code=0):
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return runner.report_smoke(self.root, exit_code)
+
+    def test_passes_only_when_a_chat_process_received_the_turn(self):
+        chat = {'pid': 1, 'args': ['--input-format', 'stream-json', '--replay-user-messages'],
+                'harnessParent': True}
+        helper = {'pid': 2, 'args': ['--input-format', 'stream-json', '--no-session-persistence'],
+                  'harnessParent': True}
+        steps = [{'name': 'agent turn', 'passed': True}]
+        self.write_run(steps, [chat, {'pid': 1, 'turn': 't'}])
+        self.assertTrue(self.score())
+        # A background helper's message is not the chat turn.
+        self.write_run(steps, [chat, helper, {'pid': 2, 'turn': 't'}])
+        self.assertFalse(self.score())
+        # Not spawned by Aven's harness.
+        self.write_run(steps, [{**chat, 'harnessParent': False}, {'pid': 1, 'turn': 't'}])
+        self.assertFalse(self.score())
+
+    def test_fails_on_a_failed_step_a_missing_result_or_a_bad_exit(self):
+        chat = {'pid': 1, 'args': ['--replay-user-messages'], 'harnessParent': True}
+        self.write_run([{'name': 'floating sidebar', 'passed': False, 'detail': 'stopped responding'}],
+                       [chat, {'pid': 1, 'turn': 't'}])
+        self.assertFalse(self.score())
+        self.write_run([{'name': 'agent turn', 'passed': True}], [chat, {'pid': 1, 'turn': 't'}])
+        self.assertFalse(self.score(exit_code=1))
+        (self.root / 'result.json').unlink()
+        self.assertFalse(self.score())
+
+
 if __name__ == '__main__':
     unittest.main()

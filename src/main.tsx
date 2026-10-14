@@ -9,6 +9,7 @@ import { consumeInstalledUpdate } from "./lib/updateNotice";
 import { showRenderFailure } from "./lib/renderFailure";
 import { preventFileDropNavigation } from "./lib/attachments";
 import { watchWindowResize } from "./lib/windowResizeFlag";
+import { loadDevSmoke } from "./lib/devSmoke";
 import "./index.css";
 import "./personal-shell.css";
 import "./macos-theme.css";
@@ -47,7 +48,8 @@ function BootGate({ children }: { children: React.ReactNode }) {
 
 if (new URLSearchParams(window.location.search).has("floatingSidebar")) {
   // The workspace owns the sidebar's state; this webview only renders it.
-  void import("./surfaces/FloatingSidebarWindow")
+  void loadDevSmoke()
+    .then(() => import("./surfaces/FloatingSidebarWindow"))
     .then(({ FloatingSidebarWindow }) => {
       ReactDOM.createRoot(
         document.getElementById("root") as HTMLElement,
@@ -101,6 +103,11 @@ if (new URLSearchParams(window.location.search).has("floatingSidebar")) {
     })
     .catch(showStartupFailure);
 } else {
+  // Aven Dev's real-app check swaps storage before anything reads it.
+  void loadDevSmoke().then(startWorkspace);
+}
+
+function startWorkspace() {
   initAppearance();
   initSounds();
   syncBrowserEngineOptions();

@@ -5,6 +5,7 @@ Never replaces, launches, stops, or reads the data of the installed Aven app.
 The only server this runner stops is its own Vite child.
 """
 import argparse
+from contextlib import contextmanager
 import fcntl
 import json
 import os
@@ -15,6 +16,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 
@@ -119,19 +121,22 @@ def prepare_desktop_fixture():
     }))
 
 
-def launch():
-    require(port_is_available(), f'Port {PORT} is in use. Close its owning preview first; no process was stopped.')
-    log_path = ROOT / 'target/aven-dev-vite.log'
+def host_scoped_environment():
+    """This shell's environment without the installed host's credentials."""
     # Provider-scoped control credentials belong to the installed host, not the
     # development host. Aven Dev provisions its own connections for its agents.
     child_env = {key: value for key, value in os.environ.items()
                  if not key.startswith(('AVEN_BROWSER_', 'AVEN_CONTROL_', 'SUPERMONO_', 'MONOCODE_'))}
     child_env.pop('TAURI_CONFIG', None)
     child_env.pop('TAURI_DEV_HOST', None)
-    cursor_preview = child_env.pop('AVEN_DEV_CURSOR_PREVIEW', None) == '1'
-    presence_preview = child_env.pop('AVEN_DEV_PRESENCE_PREVIEW', None) == '1'
-    desktop_self_test = child_env.pop('AVEN_DEV_DESKTOP_SELF_TEST', None) == '1'
-    browser_layout_trace = child_env.pop('AVEN_DEV_BROWSER_LAYOUT_TRACE', None) == '1'
+    return child_env
+
+
+@contextmanager
+def development_server(child_env):
+    """Run this checkout's Vite server; only this child is ever stopped."""
+    require(port_is_available(), f'Port {PORT} is in use. Close its owning preview first; no process was stopped.')
+    log_path = ROOT / 'target/aven-dev-vite.log'
     with log_path.open('w') as log:
         server = subprocess.Popen(['npm', 'run', 'dev', '--', '--host', '127.0.0.1'],
                                   cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
@@ -147,40 +152,7 @@ def launch():
                     time.sleep(.1)
             else:
                 raise RuntimeError(f'Development server did not become ready; inspect {log_path}')
-            # Recheck immediately before -n so an app opened while the server
-            # was starting does not get a second instance.
-            ensure_not_running()
-            print('Opening Aven Dev. Quit its window to stop this preview. Installed Aven stays running.', flush=True)
-            # A GUI app must enter through LaunchServices so privacy requests
-            # are attributed to Aven Dev instead of the app hosting this shell.
-            # start_new_session alone isolates signals, not TCC responsibility.
-            # An absolute bundle path also avoids resolving another checkout or
-            # the installed app by its shared executable name.
-            launch_args = ['/usr/bin/open', '-W', '-n']
-            # LaunchServices does not inherit this shell's opt-in. Forward only
-            # the exact visual-only preview flag, never host control credentials.
-            if cursor_preview:
-                launch_args.extend(['--env', 'AVEN_DEV_CURSOR_PREVIEW=1'])
-            if desktop_self_test:
-                launch_args.extend(['--env', 'AVEN_DEV_DESKTOP_SELF_TEST=1'])
-            if presence_preview:
-                launch_args.extend(['--env', 'AVEN_DEV_PRESENCE_PREVIEW=1'])
-            if browser_layout_trace:
-                launch_args.extend(['--env', 'AVEN_DEV_BROWSER_LAYOUT_TRACE=1'])
-            launch_args.extend(['-a', str(APP)])
-            launcher = subprocess.Popen(launch_args,
-                                        cwd=ROOT, env=child_env, start_new_session=True)
-            # Control-C must not force-quit a desktop app that may contain work.
-            while launcher.poll() is None:
-                try:
-                    launcher.wait(timeout=.5)
-                except subprocess.TimeoutExpired:
-                    pass
-                except KeyboardInterrupt:
-                    print('Quit the Aven Dev window normally to finish this preview.', flush=True)
-            # open reports launch/wait errors, not the app's process exit code.
-            require(launcher.returncode == 0,
-                    f'Could not open or wait for Aven Dev (status {launcher.returncode}).')
+            yield server
         finally:
             if server.poll() is None:
                 os.killpg(server.pid, signal.SIGTERM)
@@ -190,10 +162,167 @@ def launch():
                     print(f'Preview server {server.pid} is still stopping; no unrelated process was touched.', file=sys.stderr)
 
 
+def launch():
+    child_env = host_scoped_environment()
+    cursor_preview = child_env.pop('AVEN_DEV_CURSOR_PREVIEW', None) == '1'
+    presence_preview = child_env.pop('AVEN_DEV_PRESENCE_PREVIEW', None) == '1'
+    desktop_self_test = child_env.pop('AVEN_DEV_DESKTOP_SELF_TEST', None) == '1'
+    browser_layout_trace = child_env.pop('AVEN_DEV_BROWSER_LAYOUT_TRACE', None) == '1'
+    with development_server(child_env):
+        # Recheck immediately before -n so an app opened while the server
+        # was starting does not get a second instance.
+        ensure_not_running()
+        print('Opening Aven Dev. Quit its window to stop this preview. Installed Aven stays running.', flush=True)
+        # A GUI app must enter through LaunchServices so privacy requests
+        # are attributed to Aven Dev instead of the app hosting this shell.
+        # start_new_session alone isolates signals, not TCC responsibility.
+        # An absolute bundle path also avoids resolving another checkout or
+        # the installed app by its shared executable name.
+        launch_args = ['/usr/bin/open', '-W', '-n']
+        # LaunchServices does not inherit this shell's opt-in. Forward only
+        # the exact visual-only preview flag, never host control credentials.
+        if cursor_preview:
+            launch_args.extend(['--env', 'AVEN_DEV_CURSOR_PREVIEW=1'])
+        if desktop_self_test:
+            launch_args.extend(['--env', 'AVEN_DEV_DESKTOP_SELF_TEST=1'])
+        if presence_preview:
+            launch_args.extend(['--env', 'AVEN_DEV_PRESENCE_PREVIEW=1'])
+        if browser_layout_trace:
+            launch_args.extend(['--env', 'AVEN_DEV_BROWSER_LAYOUT_TRACE=1'])
+        launch_args.extend(['-a', str(APP)])
+        launcher = subprocess.Popen(launch_args,
+                                    cwd=ROOT, env=child_env, start_new_session=True)
+        # Control-C must not force-quit a desktop app that may contain work.
+        while launcher.poll() is None:
+            try:
+                launcher.wait(timeout=.5)
+            except subprocess.TimeoutExpired:
+                pass
+            except KeyboardInterrupt:
+                print('Quit the Aven Dev window normally to finish this preview.', flush=True)
+        # open reports launch/wait errors, not the app's process exit code.
+        require(launcher.returncode == 0,
+                f'Could not open or wait for Aven Dev (status {launcher.returncode}).')
+
+
+SMOKE_MARKER = '.aven-smoke'
+SMOKE_TIMEOUT = 240
+
+
+def prepare_smoke_folder():
+    """A throwaway home with a stand-in `claude` and an empty project.
+
+    Aven finds providers through the login shell's PATH and then fixed folders
+    such as ~/.local/bin; both lead to the stand-in. Nothing here touches the
+    developer's own home, chats, settings or provider accounts.
+    """
+    root = Path(tempfile.mkdtemp(prefix='aven-smoke-'))
+    (root / SMOKE_MARKER).write_text('Aven Dev real-app check\n')
+    home = root / 'home'
+    stand_in_dir = home / '.local/bin'
+    stand_in_dir.mkdir(parents=True)
+    (root / 'project').mkdir()
+    (root / 'project/README.md').write_text('Aven Dev real-app check project.\n')
+    stand_in = stand_in_dir / 'claude'
+    shutil.copy2(ROOT / 'scripts/smoke/fake-claude.py', stand_in)
+    stand_in.chmod(0o755)
+    (home / '.zshrc').write_text(f'export PATH="{stand_in_dir}:/usr/bin:/bin:/usr/sbin:/sbin"\n')
+    return root
+
+
+def remove_smoke_folder(root):
+    # Only a folder this runner created and marked.
+    if root.is_dir() and (root / SMOKE_MARKER).is_file():
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def stop_stand_ins(root):
+    """End any stand-in still running from this run's folder."""
+    marker = str(root / 'home/.local/bin/claude')
+    for line in subprocess.check_output(['ps', '-axo', 'pid=,command='], text=True).splitlines():
+        pid, _, command = line.strip().partition(' ')
+        if marker in command and pid.isdigit():
+            try:
+                os.kill(int(pid), signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+
+
+def smoke(keep=False):
+    """Run Aven Dev's real-app check and return whether it passed."""
+    root = prepare_smoke_folder()
+    passed = False
+    try:
+        child_env = host_scoped_environment()
+        with development_server(child_env):
+            ensure_not_running()
+            print('Running the real-app check in a throwaway profile...', flush=True)
+            app_env = {
+                **child_env,
+                'HOME': str(root / 'home'),
+                'SHELL': '/bin/zsh',
+                'PATH': f'{root / "home/.local/bin"}:/usr/bin:/bin:/usr/sbin:/sbin',
+                'AVEN_DEV_SMOKE_DIR': str(root),
+            }
+            # Launched directly: the check needs no privacy permission, and this
+            # keeps the throwaway HOME and a timeout under the runner's control.
+            with (root / 'app.log').open('w') as log:
+                app = subprocess.Popen([str(APP / 'Contents/MacOS/aven')], env=app_env,
+                                       stdout=log, stderr=subprocess.STDOUT,
+                                       start_new_session=True)
+                try:
+                    app.wait(timeout=SMOKE_TIMEOUT)
+                except subprocess.TimeoutExpired:
+                    os.killpg(app.pid, signal.SIGTERM)
+                    try:
+                        app.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        os.killpg(app.pid, signal.SIGKILL)
+                    print(f'The check did not finish within {SMOKE_TIMEOUT} seconds.', file=sys.stderr)
+        stop_stand_ins(root)
+        passed = report_smoke(root, app.returncode)
+        return passed
+    finally:
+        if passed and not keep:
+            remove_smoke_folder(root)
+        else:
+            print(f'Kept the check\'s folder for inspection: {root}', flush=True)
+
+
+def report_smoke(root, exit_code):
+    result_path = root / 'result.json'
+    try:
+        result = json.loads(result_path.read_text())
+    except (OSError, ValueError):
+        print(f'No result was written (app exit status {exit_code}); see {root / "app.log"}.', file=sys.stderr)
+        return False
+    for step in result.get('steps', []):
+        mark = 'PASS' if step.get('passed') else 'FAIL'
+        detail = f' - {step["detail"]}' if step.get('detail') else ''
+        print(f'  {mark}  {step.get("name")}{detail}', flush=True)
+    # Evidence that the turn went through Aven's own native harness spawn.
+    log_path = root / 'home/.local/bin/fake-claude.log'
+    spawned = []
+    if log_path.is_file():
+        spawned = [json.loads(line) for line in log_path.read_text().splitlines() if line.strip()]
+    # A chat process (not a background helper) that Aven's harness spawned
+    # and that then received the message.
+    chats = {entry['pid'] for entry in spawned
+             if entry.get('harnessParent') and '--replay-user-messages' in entry.get('args', [])}
+    native_turn = any(entry.get('turn') and entry.get('pid') in chats for entry in spawned)
+    print(f'  {"PASS" if native_turn else "FAIL"}  stand-in chat received the turn from Aven\'s harness', flush=True)
+    passed = result.get('passed') is True and native_turn and exit_code == 0
+    print('Real-app check passed.' if passed else 'Real-app check FAILED.', flush=True)
+    return passed
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--doctor', action='store_true', help='Check local prerequisites without building or opening anything')
     parser.add_argument('--build-only', action='store_true', help='Build and package without opening the development app')
+    parser.add_argument('--smoke', action='store_true',
+                        help='Run the real-app check in a throwaway profile, then exit with its result')
+    parser.add_argument('--keep-smoke-folder', action='store_true', help='Keep the check\'s throwaway folder')
     args = parser.parse_args()
     doctor()
     if args.doctor:
@@ -210,7 +339,10 @@ def main():
         prepare_bundle()
         if os.environ.get('AVEN_DEV_DESKTOP_SELF_TEST') == '1':
             prepare_desktop_fixture()
-        if not args.build_only:
+        if args.smoke:
+            if not smoke(keep=args.keep_smoke_folder):
+                raise RuntimeError('The real-app check failed.')
+        elif not args.build_only:
             launch()
 
 

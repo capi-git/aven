@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Development
+
+- Releases now wait for a real-app check: Aven Dev runs once against a stand-in provider, sends a message with the floating sidebar attached, and opens and closes Settings from the floating sidebar. Both 0.1.137 regressions fail this check. Run it locally with `npm run check:app`.
+
 ### Fixed
 
 - Opening the usage panel, the access picker or a workspace menu no longer makes the workspace window flash inactive. These popups take the keyboard without taking over as the app's main window.
