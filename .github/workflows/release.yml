@@ -80,6 +80,13 @@ jobs:
           node-version: 22
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
+      # Reuse compiled dependencies from the previous release; Aven's own
+      # crates are always rebuilt. Only release runs write this cache, and a
+      # run that fails late (for example at notarization) still keeps it.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-macos
+          cache-on-failure: true
       - name: Import Developer ID into an isolated signing keychain
         env:
           APPLE_DEVELOPER_ID_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}

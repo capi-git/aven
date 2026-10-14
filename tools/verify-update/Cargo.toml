@@ -1,0 +1,19 @@
+[package]
+name = "aven-verify-update"
+# Fixed on purpose: release version bumps only rewrite Aven's own entries.
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Release gate: checks an update's signature with the verifier Tauri's updater uses."
+
+# Its own small crate, so checking a release's signature compiles a few
+# libraries instead of rebuilding Aven and Tauri with different features.
+[[bin]]
+name = "verify_update"
+path = "src/main.rs"
+
+[dependencies]
+base64 = "0.22"
+minisign-verify = "0.2.5"
+serde_json.workspace = true
