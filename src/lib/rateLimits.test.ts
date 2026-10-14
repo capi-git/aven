@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clampUsedPercent,
   errorRateLimits,
+  failedRefresh,
+  loadSavedRateLimits,
+  saveRateLimits,
+  USAGE_STORAGE_KEY,
   fetchingRateLimits,
   formatRateLimitWindowChipLabel,
   formatResetCountdown,
@@ -433,5 +437,61 @@ describe("shouldFetchRateLimits", () => {
     expect(
       shouldFetchProvider(disconnected, { force: true, visible: true, now }),
     ).toBe(true);
+  });
+});
+
+describe("usage kept between refreshes and restarts", () => {
+  beforeEach(() => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const window = { usedPercent: 51, windowMinutes: 300, resetsAt: 1_000 };
+  const good = {
+    provider: "claude" as const,
+    session: window,
+    weekly: null,
+    updatedAt: 500,
+    error: null,
+    status: "ok" as const,
+  };
+
+  it("keeps the last known usage when a refresh fails", () => {
+    const throttled = errorRateLimits(
+      "claude",
+      "Claude is limiting usage checks right now.",
+    );
+    const shown = failedRefresh(throttled, good);
+    expect(shown.status).toBe("error");
+    expect(shown.session).toEqual(window);
+    expect(shown.error).toBe("Claude is limiting usage checks right now.");
+    expect(failedRefresh(good, null)).toBe(good);
+    expect(failedRefresh(throttled, null).session).toBeNull();
+  });
+
+  it("saves good usage and loads it after a restart", () => {
+    expect(loadSavedRateLimits()).toEqual({});
+    saveRateLimits(good);
+    saveRateLimits(errorRateLimits("codex", "Codex CLI not found"));
+    expect(loadSavedRateLimits()).toEqual({ claude: good });
+  });
+
+  it("ignores saved usage it cannot trust", () => {
+    localStorage.setItem(USAGE_STORAGE_KEY, "{broken");
+    expect(loadSavedRateLimits()).toEqual({});
+    localStorage.setItem(
+      USAGE_STORAGE_KEY,
+      JSON.stringify({
+        claude: { ...good, status: "error" },
+        codex: { ...good },
+        other: { ...good, provider: "other" },
+      }),
+    );
+    expect(loadSavedRateLimits()).toEqual({});
   });
 });

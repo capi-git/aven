@@ -100,6 +100,72 @@ export function idleRateLimits(
   };
 }
 
+/** The last good usage per provider, kept across restarts. */
+export const USAGE_STORAGE_KEY = "aven.providerUsage";
+
+const RATE_LIMIT_PROVIDERS = new Set<string>(["claude", "codex"]);
+
+/**
+ * Usage saved by an earlier run. A restart shows it straight away, and
+ * because it keeps its own time, it is not asked for again any sooner than
+ * a running window would ask.
+ */
+export function loadSavedRateLimits(): Partial<
+  Record<RateLimitProvider, ProviderRateLimits>
+> {
+  let saved: unknown;
+  try {
+    saved = JSON.parse(localStorage.getItem(USAGE_STORAGE_KEY) ?? "null");
+  } catch {
+    return {};
+  }
+  if (!saved || typeof saved !== "object") return {};
+  const result: Partial<Record<RateLimitProvider, ProviderRateLimits>> = {};
+  for (const [provider, value] of Object.entries(saved)) {
+    const limits = value as ProviderRateLimits | null;
+    if (
+      !RATE_LIMIT_PROVIDERS.has(provider) ||
+      !limits ||
+      typeof limits !== "object" ||
+      limits.provider !== provider ||
+      limits.status !== "ok" ||
+      typeof limits.updatedAt !== "number" ||
+      !hasRateLimitWindows(limits)
+    )
+      continue;
+    result[provider as RateLimitProvider] = limits;
+  }
+  return result;
+}
+
+/** Remember a good answer; anything else leaves the saved one alone. */
+export function saveRateLimits(limits: ProviderRateLimits): void {
+  if (limits.status !== "ok" || !hasRateLimitWindows(limits)) return;
+  try {
+    const saved = loadSavedRateLimits();
+    saved[limits.provider] = limits;
+    localStorage.setItem(USAGE_STORAGE_KEY, JSON.stringify(saved));
+  } catch {
+    // Storage is a convenience; usage still loads without it.
+  }
+}
+
+/**
+ * A refresh that failed keeps the usage already known beside its error, so
+ * a throttled or offline check shows "Last known usage" instead of nothing.
+ */
+export function failedRefresh(
+  value: ProviderRateLimits,
+  previous: ProviderRateLimits | null | undefined,
+): ProviderRateLimits {
+  if (value.status !== "error") return value;
+  return errorRateLimits(
+    value.provider,
+    value.error ?? "Usage unavailable",
+    previous,
+  );
+}
+
 export function fetchingRateLimits(
   provider: RateLimitProvider,
   previous?: ProviderRateLimits | null,
