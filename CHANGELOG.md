@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.138] - 2026-10-14
+
 ### Fixed
 
 - Agents work again on macOS. In 0.1.137 every message failed with "adapter failed" for every provider, because the floating sidebar's layer stopped Aven from authorizing turns in that window.
