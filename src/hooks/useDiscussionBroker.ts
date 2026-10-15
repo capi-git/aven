@@ -210,7 +210,10 @@ export function useDiscussionBroker({
           deliver(action.id, action.sessionId);
           break;
         case "pause":
-          store.pause(action.id, action.reason);
+          store.pause(action.id, action.reason, action.blockedBy);
+          break;
+        case "ready":
+          store.ready(action.id);
           break;
         case "note":
           if (action.sessionId) postNote(action.sessionId, action.text);

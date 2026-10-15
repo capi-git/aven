@@ -77,6 +77,8 @@ export type Discussion = {
   status: DiscussionStatus;
   /** Why it is paused, in plain language. */
   reason?: string;
+  /** The chat it paused for; once that chat is free the reason says so. */
+  blockedBy?: string;
   ended?: DiscussionEnding;
   /** Chats still owed the closing note (posted once each is idle). */
   notes?: DiscussionSide[];
@@ -332,13 +334,24 @@ export function settleDiscussion(
   return next;
 }
 
+export const READY_REASON = "Ready to continue.";
+
 export function pauseDiscussion(
   discussion: Discussion,
   reason: string,
   now: number,
+  blockedBy?: string,
 ): Discussion {
   if (discussion.status !== "active") return discussion;
-  return { ...discussion, status: "paused", reason, updatedAt: now };
+  const paused: Discussion = {
+    ...discussion,
+    status: "paused",
+    reason,
+    updatedAt: now,
+  };
+  if (blockedBy) paused.blockedBy = blockedBy;
+  else delete paused.blockedBy;
+  return paused;
 }
 
 export function resumeDiscussion(
@@ -346,7 +359,14 @@ export function resumeDiscussion(
   now: number,
 ): Discussion {
   if (discussion.status !== "paused") return discussion;
-  return { ...discussion, status: "active", reason: undefined, updatedAt: now };
+  const resumed: Discussion = {
+    ...discussion,
+    status: "active",
+    reason: undefined,
+    updatedAt: now,
+  };
+  delete resumed.blockedBy;
+  return resumed;
 }
 
 // --- Transcript --------------------------------------------------------------
@@ -494,7 +514,14 @@ export type DiscussionHost = {
 
 export type DiscussionAction =
   | { kind: "deliver"; id: string; sessionId: string }
-  | { kind: "pause"; id: string; reason: string }
+  | {
+      kind: "pause";
+      id: string;
+      reason: string;
+      /** The chat it waits for, so the reason can change once it is free. */
+      blockedBy?: string;
+    }
+  | { kind: "ready"; id: string }
   | {
       kind: "note";
       id: string;
@@ -537,6 +564,14 @@ export function planDiscussions(
       }
       continue;
     }
+    if (discussion.status === "paused") {
+      const waitedFor = discussion.blockedBy
+        ? byId.get(discussion.blockedBy)
+        : undefined;
+      if (waitedFor && !deliveryBlocker(waitedFor))
+        actions.push({ kind: "ready", id });
+      continue;
+    }
     if (discussion.status !== "active") continue;
     const a = byId.get(discussion.a.sessionId);
     const b = byId.get(discussion.b.sessionId);
@@ -546,6 +581,7 @@ export function planDiscussions(
         kind: "pause",
         id,
         reason: `“${missing.title}” isn't open in this window. Open it to continue.`,
+        blockedBy: missing.sessionId,
       });
       continue;
     }
@@ -561,6 +597,7 @@ export function planDiscussions(
         reason: `“${discussionParty(discussion, waiting).title}” ${deliveryBlocker(
           waiting === "a" ? a : b,
         )}.`,
+        blockedBy: (waiting === "a" ? a : b).id,
       });
       continue;
     }
@@ -571,7 +608,12 @@ export function planDiscussions(
       const blocker = deliveryBlocker(speaker);
       actions.push(
         blocker
-          ? { kind: "pause", id, reason: `“${party.title}” ${blocker}.` }
+          ? {
+              kind: "pause",
+              id,
+              reason: `“${party.title}” ${blocker}.`,
+              blockedBy: speaker.id,
+            }
           : { kind: "deliver", id, sessionId: speaker.id },
       );
       continue;
@@ -583,6 +625,7 @@ export function planDiscussions(
         kind: "pause",
         id,
         reason: `“${party.title}” is busy with another turn.`,
+        blockedBy: speaker.id,
       });
       continue;
     }
@@ -701,6 +744,7 @@ export function readDiscussion(value: unknown): Discussion | null {
       )
     : undefined;
   const reason = text(record.reason, 1000);
+  const blockedBy = text(record.blockedBy, 200);
   return {
     id,
     owner,
@@ -714,6 +758,7 @@ export function readDiscussion(value: unknown): Discussion | null {
     delivered: record.delivered === true,
     status,
     ...(reason ? { reason } : {}),
+    ...(blockedBy && status === "paused" ? { blockedBy } : {}),
     ...(status === "ended" && ended ? { ended } : {}),
     ...(status === "ended" ? { notes: notes ?? [] } : {}),
     startedAt: Number(record.startedAt) || 0,
@@ -898,10 +943,21 @@ export class DiscussionStore {
     );
   }
 
-  pause(id: string, reason: string) {
+  pause(id: string, reason: string, blockedBy?: string) {
     this.change(id, (discussion) =>
-      pauseDiscussion(discussion, reason, this.now()),
+      pauseDiscussion(discussion, reason, this.now(), blockedBy),
     );
+  }
+
+  /** The chat it paused for is free again. */
+  ready(id: string) {
+    this.change(id, (discussion) => {
+      if (discussion.status !== "paused" || !discussion.blockedBy)
+        return discussion;
+      const ready = { ...discussion, reason: READY_REASON };
+      delete ready.blockedBy;
+      return ready;
+    });
   }
 
   /** This window is going away: its turns in flight go with it. */

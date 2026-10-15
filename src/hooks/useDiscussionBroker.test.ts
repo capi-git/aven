@@ -197,7 +197,12 @@ describe("useDiscussionBroker", () => {
 
     await finish("a", "Done thinking.");
     expect(sent).toHaveLength(1);
-    expect(store.snapshot()[0]).toMatchObject({ settled: 1, status: "paused" });
+    // The pause now says it can go on, rather than asking for approval.
+    expect(store.snapshot()[0]).toMatchObject({
+      settled: 1,
+      status: "paused",
+      reason: "Ready to continue.",
+    });
     await act(async () => store.resume(store.snapshot()[0].id));
     expect(sent).toHaveLength(2);
     expect(sent[1].sessionId).toBe("b");

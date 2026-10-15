@@ -8,7 +8,9 @@ import {
   DiscussionStore,
   DISCUSSIONS_KEY,
   discussionRound,
+  pauseDiscussion,
   planDiscussions,
+  READY_REASON,
   readDiscussion,
   relayBlockMeta,
   relayPrompt,
@@ -280,7 +282,12 @@ describe("planning the broker's work", () => {
     expect(
       planDiscussions([fresh()], "main", [chat("chat-a"), approval], new Set()),
     ).toEqual([
-      { kind: "pause", id: "d1", reason: "“Review” needs your approval." },
+      {
+        kind: "pause",
+        id: "d1",
+        reason: "“Review” needs your approval.",
+        blockedBy: "chat-b",
+      },
     ]);
     const question = chat("chat-a", {
       pendingQuestion: {
@@ -295,6 +302,7 @@ describe("planning the broker's work", () => {
         kind: "pause",
         id: "d1",
         reason: "“Caching plan” has a question for you.",
+        blockedBy: "chat-a",
       },
     ]);
   });
@@ -306,6 +314,7 @@ describe("planning the broker's work", () => {
         kind: "pause",
         id: "d1",
         reason: "“Caching plan” is busy with another turn.",
+        blockedBy: "chat-a",
       },
     ]);
     const queued = [
@@ -318,6 +327,7 @@ describe("planning the broker's work", () => {
       kind: "pause",
       id: "d1",
       reason: "“Caching plan” has your messages queued.",
+      blockedBy: "chat-a",
     });
   });
 
@@ -332,6 +342,7 @@ describe("planning the broker's work", () => {
       kind: "pause",
       id: "d1",
       reason: "“Caching plan” has a card waiting to be sent.",
+      blockedBy: "chat-a",
     });
   });
 
@@ -343,8 +354,36 @@ describe("planning the broker's work", () => {
         kind: "pause",
         id: "d1",
         reason: "“Review” isn't open in this window. Open it to continue.",
+        blockedBy: "chat-b",
       },
     ]);
+  });
+
+  it("says when the chat it paused for is free again", () => {
+    const paused = pauseDiscussion(
+      fresh(),
+      "“Review” needs your approval.",
+      2,
+      "chat-b",
+    );
+    const waiting = chat("chat-b", { busy: true });
+    expect(
+      planDiscussions([paused], "main", [chat("chat-a"), waiting], new Set()),
+    ).toEqual([]);
+    expect(planDiscussions([paused], "main", idle(), new Set())).toEqual([
+      { kind: "ready", id: "d1" },
+    ]);
+    const store = new DiscussionStore(memoryStorage(), "main");
+    store.start({ id: "d1", a: A, b: B, topic: "Topic", rounds: 2 });
+    store.pause("d1", "“Review” needs your approval.", "chat-b");
+    store.ready("d1");
+    expect(store.get("d1")).toMatchObject({
+      status: "paused",
+      reason: READY_REASON,
+    });
+    expect(store.get("d1")?.blockedBy).toBeUndefined();
+    store.resume("d1");
+    expect(store.get("d1")?.status).toBe("active");
   });
 
   it("waits for its own turn, and recovers one lost to a reload", () => {
