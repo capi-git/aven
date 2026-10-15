@@ -65,6 +65,7 @@ import { WorkspaceHome } from "./surfaces/WorkspaceHome";
 import { useNativeFloatingSidebar } from "./hooks/useNativeFloatingSidebar";
 import { useProjectStatus } from "./hooks/useProjectStatus";
 import { useWorkspaceHomeData } from "./hooks/useWorkspaceHomeData";
+import { usePresenceTracking } from "./hooks/useHomeBriefing";
 import { useSidebarVisibility } from "./hooks/useSidebarVisibility";
 import { useSidebarData } from "./hooks/useSidebarData";
 import { useSessionModelControls } from "./hooks/useSessionModelControls";
@@ -8269,6 +8270,8 @@ export default function App({
     !inboxViewOpen &&
     !automationsViewOpen &&
     !notesViewOpen;
+  // When the user was last here, for Home's "While you were away" card.
+  usePresenceTracking();
   // Built only while Home is on screen; keeps its identity across streaming
   // flushes that change nothing it shows.
   const homeData = useWorkspaceHomeData({
@@ -8532,6 +8535,7 @@ export default function App({
                         projects={homeData.projects}
                         recent={homeData.recent}
                         finished={homeData.finished}
+                        activeDays={homeData.activeDays}
                         projectStatus={projectStatus}
                         usageProviders={usageProviders}
                         windows={detached.windows}

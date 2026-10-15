@@ -11,6 +11,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceHome } from "./WorkspaceHome";
 import { useWorkspaceHomeData } from "../hooks/useWorkspaceHomeData";
 import type { ActivityEntry } from "../lib/activity";
+import { dayKey } from "../lib/activityStreak";
+import { HOME_VISIT_KEY } from "../lib/homeBriefing";
 import { projectKey } from "../lib/paths";
 import type { ProjectAppearance } from "../lib/projectAppearance";
 import type { Session } from "../lib/session";
@@ -56,6 +58,32 @@ vi.mock("../chrome/ProjectMark", async () => {
   };
 });
 
+// Pull requests come from the GitHub CLI; the briefing tests say what it finds.
+const reviews = vi.hoisted(() => ({
+  items: [] as {
+    repo: string;
+    number: number;
+    title: string;
+    url: string;
+    updatedAt: string;
+  }[],
+  load: vi.fn(),
+}));
+vi.mock("../lib/reviewRequests", () => ({
+  peekReviewRequests: () => null,
+  loadReviewRequests: (paths: readonly string[]) => {
+    reviews.load(paths);
+    return Promise.resolve(reviews.items);
+  },
+}));
+const links = vi.hoisted(() => ({ open: vi.fn() }));
+vi.mock("../lib/inAppLinks", () => ({
+  openInAppUrl: (url: string) => {
+    links.open(url);
+    return Promise.resolve();
+  },
+}));
+
 // The customize popover belongs to the identity work and has its own tests.
 vi.mock("../chrome/ProjectCustomizePopover", async () => {
   const react = await import("react");
@@ -94,6 +122,9 @@ beforeEach(() => {
     removeItem: (key: string) => storage.delete(key),
   });
   marks.commits = 0;
+  reviews.items = [];
+  reviews.load.mockClear();
+  links.open.mockClear();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -203,6 +234,8 @@ const projects: HomeProject[] = [
 const tiles = () => [
   ...container.querySelectorAll<HTMLElement>(".workspace-home-agent"),
 ];
+const recap = () =>
+  container.querySelector(".workspace-home-recap")?.textContent ?? null;
 const pulse = () =>
   [
     ...container.querySelectorAll<HTMLElement>(".workspace-home-pulse > li"),
@@ -291,13 +324,13 @@ describe("right now", () => {
       "2 need you",
       "1 unread",
       "7 files changed in 2 projects",
-      "1 done today · 1 failed",
     ]);
     const chip = (key: string) =>
       container.querySelector(`.workspace-home-pulse > [data-pulse="${key}"]`);
     expect(chip("waiting")?.getAttribute("data-tone")).toBe("amber");
-    expect(chip("today")?.getAttribute("data-tone")).toBe("danger");
     expect(chip("files")?.querySelector("button")).toBeNull();
+    // What finished today moved to the recap line.
+    expect(recap()).toBe("Today: 1 task done · 1 failed");
   });
 
   it("leads to the section behind a chip", async () => {
@@ -309,8 +342,199 @@ describe("right now", () => {
     );
     await act(async () => button("1 needs you").click());
     expect(document.activeElement?.textContent).toBe("Needs you");
-    await act(async () => button("1 done today").click());
+    await act(async () => button("Today: 1 task done").click());
     expect(document.activeElement?.textContent).toBe("Activity");
+  });
+});
+
+describe("today", () => {
+  const today = Date.now();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const twoDaysAgo = new Date(today);
+  twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+  const day = (date: Date | number) => dayKey(new Date(date).getTime());
+
+  it("sums up today's tasks across projects", async () => {
+    await render(
+      props({
+        finished: [
+          finishedRow({ id: "1", at: Date.now() - MINUTE }),
+          finishedRow({ id: "2", at: Date.now() - MINUTE, cwd: SITE }),
+          finishedRow({ id: "3", at: Date.now() - MINUTE, kind: "failed" }),
+          finishedRow({ id: "4", at: Date.now() - MINUTE, kind: "stopped" }),
+          finishedRow({ id: "5", at: Date.now() - 3 * 86_400_000 }),
+        ],
+      }),
+    );
+    expect(recap()).toBe(
+      "Today: 2 tasks done in 2 projects · 1 failed · 1 stopped",
+    );
+  });
+
+  it("shows a streak of two days or more with a pixel flame", async () => {
+    await render(
+      props({ activeDays: [day(twoDaysAgo), day(yesterday), day(today)] }),
+    );
+    const streak = container.querySelector(".workspace-home-streak")!;
+    expect(streak.textContent).toBe("3-day streak");
+    expect(streak.hasAttribute("data-pending")).toBe(false);
+    expect(streak.querySelector("svg")?.getAttribute("shape-rendering")).toBe(
+      "crispEdges",
+    );
+  });
+
+  it("keeps yesterday's streak alive until today has a task", async () => {
+    await render(props({ activeDays: [day(twoDaysAgo), day(yesterday)] }));
+    const streak = container.querySelector(".workspace-home-streak")!;
+    expect(streak.textContent).toBe("2-day streak");
+    expect(streak.getAttribute("data-pending")).toBe("true");
+    expect(streak.getAttribute("title")).toContain("keep your streak going");
+  });
+
+  it("says nothing for a single day or a quiet one", async () => {
+    await render(props({ activeDays: [day(today)] }));
+    expect(container.querySelector(".workspace-home-recap")).toBeNull();
+    await render(props({ activeDays: [day(twoDaysAgo)] }));
+    expect(container.querySelector(".workspace-home-recap")).toBeNull();
+  });
+});
+
+describe("While you were away", () => {
+  const HOUR = 60 * MINUTE;
+  const away = (hours: number) =>
+    storage.set(
+      HOME_VISIT_KEY,
+      JSON.stringify({ seenAt: Date.now() - hours * HOUR, briefing: null }),
+    );
+  const briefing = () => section("While you were away");
+  const lines = () =>
+    [
+      ...(briefing()?.querySelectorAll(".workspace-home-briefing-list > li") ??
+        []),
+    ].map((line) => line.getAttribute("data-kind"));
+  const news = () =>
+    props({
+      projects,
+      needsYou: [
+        attention({ id: "a", kind: "approval" }),
+        attention({ id: "u", kind: "completed" }),
+      ],
+      finished: [
+        finishedRow({ id: "1", title: "Ship it", at: Date.now() - 2 * HOUR }),
+        finishedRow({
+          id: "2",
+          sessionId: "s2",
+          title: "Flaky test",
+          kind: "failed",
+          at: Date.now() - 3 * HOUR,
+        }),
+        finishedRow({ id: "3", kind: "stopped", at: Date.now() - 3 * HOUR }),
+        finishedRow({ id: "4", title: "Before", at: Date.now() - 9 * HOUR }),
+      ],
+    });
+
+  it("is not shown on the first visit or after a short break", async () => {
+    await render(news());
+    expect(briefing()).toBeUndefined();
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    away(1);
+    await render(news());
+    expect(briefing()).toBeUndefined();
+    expect(reviews.load).not.toHaveBeenCalled();
+  });
+
+  it("says what finished, what waits, what ran and what wants review", async () => {
+    away(8);
+    storage.set(
+      "aven.scheduledRuns.v1",
+      JSON.stringify([
+        {
+          id: "run",
+          scheduleId: "nightly",
+          name: "Nightly triage",
+          project: APP,
+          status: "completed",
+          summary: "",
+          startedAt: Date.now() - 4 * HOUR,
+        },
+      ]),
+    );
+    reviews.items = [
+      {
+        repo: "me/app",
+        number: 7,
+        title: "Fix login",
+        url: "https://github.com/me/app/pull/7",
+        updatedAt: "2026-10-15T00:00:00Z",
+      },
+    ];
+    const value = news();
+    await render(value);
+    expect(lines()).toEqual(["finished", "waiting", "automations", "reviews"]);
+    const card = briefing()!;
+    expect(
+      card.querySelector(".workspace-home-briefing-since")?.textContent,
+    ).toMatch(/^since /);
+    expect(card.textContent).toContain("1 task finished · 1 failed");
+    const titles = [
+      ...card.querySelectorAll(".workspace-home-briefing-title"),
+    ].map((title) => title.textContent);
+    expect(titles).toEqual(["Ship it", "Flaky test", "Fix login"]);
+    expect(card.textContent).toContain("1 automation run — Nightly triage");
+    expect(card.textContent).toContain("1 pull request wants your review");
+    expect(card.textContent).toContain("me/app#7");
+
+    await act(async () =>
+      (
+        card.querySelector('[data-outcome="failed"]') as HTMLButtonElement
+      ).click(),
+    );
+    expect(value.onSession).toHaveBeenCalledExactlyOnceWith("s2");
+    await act(async () => button("1 waiting for you", card).click());
+    expect(document.activeElement?.textContent).toBe("Needs you");
+    await act(async () => button("me/app#7Fix login", card).click());
+    expect(links.open).toHaveBeenCalledExactlyOnceWith(
+      "https://github.com/me/app/pull/7",
+    );
+    expect(reviews.load).toHaveBeenCalledExactlyOnceWith([APP, SITE]);
+  });
+
+  it("asks GitHub once per open and stays dismissed", async () => {
+    away(8);
+    await render(news());
+    await render(news());
+    expect(reviews.load).toHaveBeenCalledOnce();
+    await act(async () =>
+      button("Dismiss While you were away", briefing()!).click(),
+    );
+    expect(briefing()).toBeUndefined();
+    await render(news());
+    expect(briefing()).toBeUndefined();
+  });
+
+  it("stays out of the way when nothing happened", async () => {
+    away(12);
+    await render(props({ projects }));
+    expect(briefing()).toBeUndefined();
+    expect(reviews.load).toHaveBeenCalledOnce();
+  });
+
+  it("appears when only pull requests are waiting", async () => {
+    away(12);
+    reviews.items = [
+      {
+        repo: "",
+        number: 3,
+        title: "Docs",
+        url: "https://github.com/me/docs/pull/3",
+        updatedAt: "",
+      },
+    ];
+    await render(props({ projects }));
+    expect(lines()).toEqual(["reviews"]);
+    expect(briefing()?.textContent).toContain("#3");
   });
 });
 

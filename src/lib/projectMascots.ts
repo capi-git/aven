@@ -329,3 +329,18 @@ export function projectMascot(
   }
   return PROJECT_MASCOTS[hash % PROJECT_MASCOTS.length];
 }
+
+/** The streak's pixel flame: an amber body around a pale core. */
+export const STREAK_FLAME_PATHS = {
+  body: mascotPath([
+    "...#....",
+    "...##...",
+    "..###.#.",
+    ".######.",
+    ".##..##.",
+    ".#....#.",
+    ".##..##.",
+    "..####..",
+  ]),
+  core: mascotPath(["...##...", "..####..", "...##..."], 0, 4),
+} as const;
