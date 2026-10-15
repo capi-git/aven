@@ -898,7 +898,14 @@ function ChangedFiles({
             ) : null}
           </>
         )}
-        <GitCopies cwd={cwd} enabled={enabled} onWorktrees={onWorktrees} />
+        <GitCopies
+          cwd={cwd}
+          enabled={enabled}
+          projectCwd={projectCwd}
+          base={index?.defaultBranch ?? undefined}
+          textHarness={textHarness}
+          onWorktrees={onWorktrees}
+        />
         <GitHousekeeping cwd={cwd} enabled={enabled} />
       </div>
     </aside>

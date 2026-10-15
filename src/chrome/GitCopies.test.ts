@@ -3,13 +3,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GitWorktree } from "../lib/fs";
 import { finishRace, type RaceRecord } from "../lib/race";
 import { newSession, type Session } from "../lib/session";
+import type { SessionSummary } from "../lib/sessionStore";
 import {
+  chatForCopy,
   cleanUpCopies,
-  copiesCountLabel,
   copyInUse,
   copyName,
-  copyStatusLabel,
+  copyStatus,
   currentCopyLabel,
+  describeCopyChat,
+  parallelWorkCount,
   partitionCopies,
   planCleanup,
   removalWarning,
@@ -137,13 +140,13 @@ describe("other copies", () => {
     expect(copies.map((entry) => [entry.name, entry.finished])).toEqual([
       ["Race safety", false],
       ["Next", false],
-      ["Main copy", false],
+      ["Main folder", false],
       ["Squashed", true],
       ["Tab groups", true],
     ]);
   });
 
-  it("calls squash-merged copies finished and counts only copies with work", () => {
+  it("calls squash-merged copies merged and counts only work in progress", () => {
     const copies = summarizeCopies([
       copy({ path: "/repo", branch: "main", primary: true }),
       copy({ path: "/ahead", branch: "feat/next", aheadOfDefault: 2 }),
@@ -156,23 +159,58 @@ describe("other copies", () => {
       copy({ path: "/done", branch: "feat/done" }),
     ]);
     const { active, finished } = partitionCopies(copies);
-    expect(active.map((entry) => [entry.name, copyStatusLabel(entry)])).toEqual(
+    expect(active.map((entry) => [entry.name, copyStatus(entry).text])).toEqual(
       [
-        ["Next", "2 commits"],
-        ["Main copy", "Up to date"],
+        ["Next", "2 commits not in main yet"],
+        ["Main folder", "Up to date with main"],
       ],
     );
     expect(
-      finished.map((entry) => [entry.name, copyStatusLabel(entry)]),
+      finished.map((entry) => [entry.name, copyStatus(entry, "trunk").text]),
     ).toEqual([
-      ["Squashed", "Merged"],
-      ["Done", "Merged"],
+      ["Squashed", "Merged into trunk"],
+      ["Done", "Merged into trunk"],
     ]);
-    // The clean main copy is listed but holds no work.
-    expect(copiesCountLabel(active, finished)).toBe("1 with work · 2 finished");
-    expect(copiesCountLabel(active.slice(1), finished)).toBe("2 finished");
-    expect(copiesCountLabel(active, [])).toBe("2 copies");
-    expect(copiesCountLabel(active.slice(0, 1), [])).toBe("1 copy");
+    // The clean main folder is listed but is not work in progress.
+    expect(parallelWorkCount(active)).toBe(1);
+    expect(parallelWorkCount(active.slice(1))).toBe(0);
+  });
+
+  it("says what a copy holds in plain words", () => {
+    const [entry] = summarizeCopies([
+      copy({
+        path: "/x",
+        branch: "feat/x",
+        aheadOfDefault: 40,
+        behindDefault: 2,
+        files: [file("a.ts"), file("b.ts")],
+        mergedIntoDefault: false,
+      }),
+    ]);
+    expect(copyStatus(entry)).toEqual({
+      text: "40 commits not in main yet · main has 2 newer commits · 2 files uncommitted",
+      tone: "uncommitted",
+    });
+    const [ahead] = summarizeCopies([
+      copy({
+        path: "/y",
+        aheadOfDefault: 1,
+        behindDefault: 1,
+        mergedIntoDefault: false,
+      }),
+    ]);
+    expect(copyStatus(ahead)).toMatchObject({
+      text: "1 commit not in main yet · main has 1 newer commit",
+      tone: "ahead",
+      hint: "If this branch was squash-merged, its changes may already be in main.",
+    });
+    const [fresh] = summarizeCopies([
+      copy({ path: "/z", mergedIntoDefault: false }),
+    ]);
+    expect(copyStatus(fresh)).toEqual({
+      text: "No changes yet",
+      tone: "quiet",
+    });
   });
 
   it("never calls the main copy, unsaved work or unmerged commits finished", () => {
@@ -186,10 +224,10 @@ describe("other copies", () => {
       copy({ path: "/partial", aheadOfDefault: 2, mergedIntoDefault: false }),
     ]);
     expect(copies.every((entry) => !entry.finished)).toBe(true);
-    expect(copies.map(copyStatusLabel)).toEqual([
-      "1 unsaved",
-      "2 commits",
-      "Up to date",
+    expect(copies.map((entry) => copyStatus(entry).text)).toEqual([
+      "1 file uncommitted",
+      "2 commits not in main yet",
+      "Up to date with main",
     ]);
   });
 
@@ -344,7 +382,7 @@ describe("other copies", () => {
       "Squashed",
     ]);
     expect(plan.skip.map(({ copy, reason }) => [copy.name, reason])).toEqual([
-      ["Main", "it's the main copy"],
+      ["Main", "it's the main folder"],
       ["Open", "it's open here"],
       ["Dirty", "it has unsaved files"],
       ["Partial", "main doesn't have all of it"],
@@ -441,11 +479,81 @@ describe("currentCopyLabel", () => {
     });
     expect(currentCopyLabel([{ ...main, current: true }])).toBeNull();
     expect(currentCopyLabel([{ ...main, current: true }, feature])).toBe(
-      "Main copy",
+      "Main folder",
     );
     expect(currentCopyLabel([main, { ...feature, current: true }])).toBe(
-      "Copy · Race safety",
+      "Parallel · Race safety",
     );
     expect(currentCopyLabel([main, feature])).toBeNull();
+  });
+});
+
+describe("chatForCopy", () => {
+  const summaryRow = (
+    id: string,
+    title: string,
+    updatedAt: number,
+    archived = false,
+  ) =>
+    ({
+      id,
+      cwd: "/copies/x",
+      harness: "claude",
+      model: "opus",
+      runtimeMode: "supervised",
+      title,
+      createdAt: 0,
+      updatedAt,
+      archived,
+    }) as SessionSummary;
+
+  it("prefers a chat with an agent working there, then the latest one", () => {
+    const working = session({
+      id: "w",
+      cwd: "/repo",
+      worktreeCwd: "/copies/x",
+      title: "Mascot briefing",
+      busy: true,
+    });
+    const other = session({ id: "o", cwd: "/copies/y", busy: true });
+    expect(chatForCopy("/copies/x", [working, other])).toMatchObject({
+      id: "w",
+      title: "Mascot briefing",
+      state: "working",
+    });
+    expect(
+      chatForCopy(
+        "/copies/x",
+        [other],
+        [
+          summaryRow("old", "Older chat", 10),
+          summaryRow("new", "Newer chat", 20),
+          summaryRow("gone", "Archived chat", 30, true),
+        ],
+      ),
+    ).toMatchObject({ id: "new", state: "idle", at: 20 });
+    expect(chatForCopy("/copies/z", [working])).toBeNull();
+  });
+
+  it("describes the chat in words", () => {
+    const now = Date.UTC(2026, 9, 15, 12);
+    expect(
+      describeCopyChat(
+        { id: "a", title: "Mascot briefing", state: "working", at: 0 },
+        now,
+      ),
+    ).toBe("Mascot briefing — agent working");
+    expect(
+      describeCopyChat(
+        { id: "a", title: "Fix tabs", state: "waiting", at: 0 },
+        now,
+      ),
+    ).toBe("Fix tabs — waiting for you");
+    expect(
+      describeCopyChat(
+        { id: "a", title: "Fix tabs", state: "idle", at: now - 2 * 3_600_000 },
+        now,
+      ),
+    ).toBe("Fix tabs · last active 2h ago");
   });
 });
