@@ -14,11 +14,11 @@ Follow-ups default to **Queue** while an agent is working. Explicit **Steer** re
 
 Choose **Discuss with…** in the composer's add menu, or type `/discuss` and a topic, to have this chat talk a topic through with another open chat or a new chat with the model you choose. Set the rounds (one to six, three by default); each round is one reply from each chat. Starting waits until both chats are idle with nothing waiting for you.
 
-Aven brokers the conversation; neither agent gets a way to message the other, and an agent can never start one. The first chat receives the topic. Each time a chat finishes its turn, Aven sends that chat's final reply to the other one as a labelled message, shortened past 8,000 characters with a note. Relayed messages appear in the receiving transcript with the sender's marks. When the rounds are used up, Aven posts a short note in both chats; it never asks a model to summarise.
+Aven brokers the conversation; neither agent gets a way to message the other, and an agent can never start one. The first chat receives the topic. Each time a chat finishes its turn, Aven sends that chat's final reply to the other one as a labelled message, shortened past 8,000 characters with a note. A relayed reply is passed as written: its `/` skills and `@` references are not expanded in the receiving chat. Relayed messages appear in the receiving transcript with the sender's marks. When the rounds are used up, Aven posts a short note in both chats; it never asks a model to summarise.
 
 A discussion pauses when either chat needs an approval or has a question, when a chat refuses or cannot take the message, and when the chat that should answer next is busy with your own turn, has your messages queued or has a card waiting in its message box. Your own work comes first; the relay never joins the queue or steers a running turn. Press **Resume** in the bar above either chat's message box to continue, or **Stop** to end it; a reply already in progress finishes but is not passed on. Stopping either chat's turn, or an error, ends the discussion.
 
-Discussions are saved locally and stay with the window that started them. A reload shows them paused. Stop a discussion before moving its chats to another window.
+Discussions are saved locally and are driven by the window that started them. Reloading or closing that window pauses them. If a chat moves to another window, its bar there can stop the discussion, or resume it once both chats are open in that window.
 
 ## Access and review
 

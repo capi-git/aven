@@ -753,16 +753,21 @@ function readAll(storage: DiscussionStorage | undefined): Discussion[] {
   }
 }
 
-export const RELOAD_REASON = "Paused when Aven reloaded. Resume to continue.";
+export const RELOAD_REASON =
+  "Paused when its window reloaded or closed. Resume to continue.";
 
 /**
- * Discussions for every window, shared through `aven.discussions`. Only the
- * owner window changes its own entries; the rest are mirrored for display and
- * refreshed from the storage event.
+ * Discussions for every window, shared through `aven.discussions`. A window
+ * changes only the discussions it owns and mirrors the rest for display. One
+ * owned by another window is adopted when the user stops or resumes it here,
+ * so a discussion never stays stuck to a window that closed. Concurrent
+ * writes to the same discussion resolve to the newest.
  */
 export class DiscussionStore {
   private list: readonly Discussion[];
   private readonly listeners = new Set<() => void>();
+  /** This window's discussions as last written, to notice removals elsewhere. */
+  private persisted = new Set<string>();
 
   constructor(
     private readonly storage: DiscussionStorage | undefined,
@@ -778,6 +783,11 @@ export class DiscussionStore {
       changed = true;
       return pauseDiscussion(discussion, RELOAD_REASON, this.now());
     });
+    this.persisted = new Set(
+      this.list
+        .filter((discussion) => this.owns(discussion))
+        .map((discussion) => discussion.id),
+    );
     if (changed) this.save();
   }
 
@@ -840,26 +850,42 @@ export class DiscussionStore {
     if (!current || !this.owns(current)) return;
     const updated = next(current);
     if (updated === current) return;
+    const stamped = {
+      ...updated,
+      updatedAt: Math.max(this.now(), current.updatedAt),
+    };
     this.commit(
       this.list.map((discussion) =>
-        discussion.id === id ? updated : discussion,
+        discussion.id === id ? stamped : discussion,
+      ),
+    );
+  }
+
+  /** Take over a discussion another window owns. */
+  adopt(id: string) {
+    const current = this.get(id);
+    if (!current || this.owns(current)) return;
+    const adopted = {
+      ...current,
+      owner: this.owner,
+      updatedAt: Math.max(this.now(), current.updatedAt + 1),
+    };
+    this.commit(
+      this.list.map((discussion) =>
+        discussion.id === id ? adopted : discussion,
       ),
     );
   }
 
   markDelivered(id: string) {
     this.change(id, (discussion) =>
-      discussion.delivered
-        ? discussion
-        : { ...discussion, delivered: true, updatedAt: this.now() },
+      discussion.delivered ? discussion : { ...discussion, delivered: true },
     );
   }
 
   redeliver(id: string) {
     this.change(id, (discussion) =>
-      discussion.delivered
-        ? { ...discussion, delivered: false, updatedAt: this.now() }
-        : discussion,
+      discussion.delivered ? { ...discussion, delivered: false } : discussion,
     );
   }
 
@@ -878,7 +904,19 @@ export class DiscussionStore {
     );
   }
 
+  /** This window is going away: its turns in flight go with it. */
+  pauseAll(reason = RELOAD_REASON) {
+    for (const discussion of this.list)
+      if (
+        this.owns(discussion) &&
+        !discussion.preview &&
+        discussion.status === "active"
+      )
+        this.pause(discussion.id, reason);
+  }
+
   resume(id: string) {
+    this.adopt(id);
     this.change(id, (discussion) => resumeDiscussion(discussion, this.now()));
   }
 
@@ -889,6 +927,7 @@ export class DiscussionStore {
       this.remove(id);
       return;
     }
+    this.adopt(id);
     this.end(id, { kind: "stopped" });
   }
 
@@ -938,15 +977,34 @@ export class DiscussionStore {
       this.commit(list);
   }
 
-  /** Another window changed `aven.discussions`: mirror its entries. */
+  /** Another window changed `aven.discussions`: mirror it. */
   sync() {
-    const others = readAll(this.storage).filter(
-      (discussion) => discussion.owner !== this.owner,
+    const stored = new Map(
+      readAll(this.storage).map((discussion) => [discussion.id, discussion]),
     );
-    const mine = this.list.filter((discussion) => this.owns(discussion));
-    const before = this.list.filter((discussion) => !this.owns(discussion));
-    if (JSON.stringify(before) === JSON.stringify(others)) return;
-    this.list = [...others, ...mine];
+    const next: Discussion[] = [];
+    for (const discussion of this.list) {
+      if (discussion.preview) {
+        next.push(discussion);
+        continue;
+      }
+      if (!this.owns(discussion)) continue;
+      const there = stored.get(discussion.id);
+      // Adopted by another window, or ended and cleared there.
+      if (taken(there, discussion, this.owner)) continue;
+      if (!there && this.persisted.has(discussion.id)) continue;
+      next.push(discussion);
+      stored.delete(discussion.id);
+    }
+    for (const discussion of stored.values())
+      if (discussion.owner !== this.owner) next.push(discussion);
+    if (JSON.stringify(next) === JSON.stringify(this.list)) return;
+    this.list = next;
+    this.persisted = new Set(
+      next
+        .filter((discussion) => this.owns(discussion) && !discussion.preview)
+        .map((discussion) => discussion.id),
+    );
     this.emit();
   }
 
@@ -959,16 +1017,34 @@ export class DiscussionStore {
   private save() {
     if (!this.storage) return;
     try {
-      const others = readAll(this.storage).filter(
-        (discussion) => discussion.owner !== this.owner,
+      const mine = new Map(
+        this.list
+          .filter((discussion) => this.owns(discussion) && !discussion.preview)
+          .map((discussion) => [discussion.id, discussion]),
       );
-      const mine = this.list.filter(
-        (discussion) => this.owns(discussion) && !discussion.preview,
-      );
-      const all = [...others, ...mine];
-      if (all.length)
-        this.storage.setItem(DISCUSSIONS_KEY, JSON.stringify(all));
+      const written: Discussion[] = [];
+      const yielded = new Map<string, Discussion>();
+      for (const there of readAll(this.storage)) {
+        const own = mine.get(there.id);
+        if (own) {
+          if (taken(there, own, this.owner)) yielded.set(there.id, there);
+          continue;
+        }
+        // This window's own entries that are gone here were removed here.
+        if (there.owner !== this.owner) written.push(there);
+      }
+      for (const discussion of mine.values())
+        written.push(yielded.get(discussion.id) ?? discussion);
+      if (written.length)
+        this.storage.setItem(DISCUSSIONS_KEY, JSON.stringify(written));
       else this.storage.removeItem(DISCUSSIONS_KEY);
+      this.persisted = new Set(
+        [...mine.keys()].filter((id) => !yielded.has(id)),
+      );
+      if (yielded.size)
+        this.list = this.list.map(
+          (discussion) => yielded.get(discussion.id) ?? discussion,
+        );
     } catch {
       // Storage full or unavailable: the discussion still runs in this window.
     }
@@ -977,6 +1053,15 @@ export class DiscussionStore {
   private emit() {
     for (const listener of this.listeners) listener();
   }
+}
+
+/** Another window wrote this discussion as its own, at least as recently. */
+function taken(
+  there: Discussion | undefined,
+  own: Discussion,
+  owner: string,
+): boolean {
+  return !!there && there.owner !== owner && there.updatedAt >= own.updatedAt;
 }
 
 function samePartyLabel(left: DiscussionParty, right: DiscussionParty) {

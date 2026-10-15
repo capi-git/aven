@@ -15,6 +15,8 @@ import {
   relayBlockMeta,
   relayPrompt,
   sidebarDiscussions,
+  type Discussion,
+  type DiscussionBlocker,
   type DiscussionCandidate,
   type DiscussionHost,
   type DiscussionOutcome,
@@ -23,6 +25,7 @@ import {
   type SidebarDiscussion,
 } from "../lib/discussions";
 import { errorText, logError } from "../lib/errors";
+import { orchestrator } from "../lib/orchestration";
 import { resolveModel } from "../lib/models";
 import { sameProjectPath } from "../lib/recents";
 import {
@@ -77,6 +80,17 @@ export function discussionParty(session: Session): DiscussionParty {
     title: sessionDisplayTitle(session.title, session.harness),
     cwd: session.cwd,
   };
+}
+
+/** Orchestration leads answer to their run, so they sit discussions out. */
+function joinBlocker(
+  session: Session,
+  discussions: readonly Discussion[],
+): DiscussionBlocker | null {
+  const run = orchestrator.forSession(session.id);
+  if (run && (run.status === "active" || run.status === "paused"))
+    return "unsupported";
+  return discussionBlocker(session, discussions);
 }
 
 /** A new partner chat is named after the topic's first line. */
@@ -222,6 +236,13 @@ export function useDiscussionBroker({
     if (driving) run();
   }, [driving, list, run, sessions]);
 
+  // A closing or reloading window takes its turns in flight with it.
+  useEffect(() => {
+    const hide = () => store.pauseAll();
+    window.addEventListener("pagehide", hide);
+    return () => window.removeEventListener("pagehide", hide);
+  }, [store]);
+
   // Development preview only: swap who answers so the pulse changes direction.
   const previewing = list.some(
     (discussion) => discussion.preview && store.owns(discussion),
@@ -243,7 +264,7 @@ export function useDiscussionBroker({
         const discussions = store.snapshot();
         const source = sessions.find((session) => session.id === sessionId);
         const blocked = source
-          ? discussionBlocker(source, discussions)
+          ? joinBlocker(source, discussions)
           : "unsupported";
         const candidates = sessions
           .filter(
@@ -254,7 +275,7 @@ export function useDiscussionBroker({
           )
           .map((session): DiscussionCandidate => {
             const party = discussionParty(session);
-            const reason = discussionBlocker(session, discussions);
+            const reason = joinBlocker(session, discussions);
             return {
               sessionId: session.id,
               title: party.title,
@@ -285,7 +306,7 @@ export function useDiscussionBroker({
           (session) => session.id === request.sessionId,
         );
         if (!source) return "This chat is no longer open.";
-        const sourceBlocked = discussionBlocker(source, discussions);
+        const sourceBlocked = joinBlocker(source, discussions);
         if (sourceBlocked) return `This chat ${BLOCKER_PHRASE[sourceBlocked]}.`;
         const topic = request.topic.trim();
         if (!topic) return "Add a topic to discuss.";
@@ -294,7 +315,7 @@ export function useDiscussionBroker({
           const id = request.partner.sessionId;
           partner = sessionsRef.current.find((session) => session.id === id);
           if (!partner) return "That chat is no longer open.";
-          const blocked = discussionBlocker(partner, discussions);
+          const blocked = joinBlocker(partner, discussions);
           if (blocked)
             return `“${discussionParty(partner).title}” ${BLOCKER_PHRASE[blocked]}.`;
         } else {

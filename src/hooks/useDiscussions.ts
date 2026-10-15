@@ -11,21 +11,23 @@ export function useDiscussionList(): readonly Discussion[] {
   return useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot);
 }
 
-/** The unfinished discussion this window drives for `sessionId`, if any. */
+/**
+ * The unfinished discussion `sessionId` is in, if any. Shown wherever the chat
+ * is open; stopping or resuming it there moves it to that window.
+ */
 export function useSessionDiscussion(sessionId?: string): Discussion | null {
   const list = useDiscussionList();
-  return useMemo(() => {
-    if (!sessionId) return null;
-    const store = discussionStore();
-    return (
-      list.find(
-        (discussion) =>
-          discussion.status !== "ended" &&
-          store.owns(discussion) &&
-          discussionSideOf(discussion, sessionId) !== null,
-      ) ?? null
-    );
-  }, [list, sessionId]);
+  return useMemo(
+    () =>
+      (sessionId &&
+        list.find(
+          (discussion) =>
+            discussion.status !== "ended" &&
+            discussionSideOf(discussion, sessionId) !== null,
+        )) ||
+      null,
+    [list, sessionId],
+  );
 }
 
 /** Chats in an unfinished discussion, in any window. */

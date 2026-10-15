@@ -88,16 +88,17 @@ describe("DiscussionBar", () => {
     );
   });
 
-  it("stays out of chats whose discussion another window drives", async () => {
-    new DiscussionStore(localStorage, "other").start({
-      id: "theirs",
-      a: A,
-      b: B,
-      topic: "Topic",
-      rounds: 2,
-    });
+  it("lets a chat moved here stop or resume another window's discussion", async () => {
+    const theirs = new DiscussionStore(localStorage, "other");
+    theirs.start({ id: "theirs", a: A, b: B, topic: "Topic", rounds: 2 });
+    theirs.pause("theirs", "“Review” isn't open in this window.");
     resetDiscussionStore("main");
-    await render("a");
-    expect(container.querySelector("[data-discussion-bar]")).toBeNull();
+    await render("b");
+    expect(container.textContent).toContain("isn't open in this window");
+    await act(async () => button("Resume")!.click());
+    expect(discussionStore().get("theirs")).toMatchObject({
+      owner: "main",
+      status: "active",
+    });
   });
 });

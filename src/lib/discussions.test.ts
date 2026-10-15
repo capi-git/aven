@@ -414,11 +414,15 @@ describe("DiscussionStore", () => {
     const theirs = new DiscussionStore(storage, "other");
     theirs.start({ id: "d1", a: A, b: B, topic: "Topic", rounds: 3 });
     const mine = new DiscussionStore(storage, "main");
-    // Another window's active discussion is not paused by this one loading.
+    // Another window's active discussion is not paused by this one loading,
+    // and this window does not drive it.
     expect(mine.get("d1")?.status).toBe("active");
     mine.pause("d1", "nope");
-    mine.stop("d1");
-    expect(mine.get("d1")?.status).toBe("active");
+    mine.markDelivered("d1");
+    expect(mine.get("d1")).toMatchObject({
+      status: "active",
+      delivered: false,
+    });
 
     mine.start({
       id: "d2",
@@ -437,6 +441,61 @@ describe("DiscussionStore", () => {
     mine.sync();
     expect(mine.get("d1")?.status).toBe("paused");
     expect(mine.get("d2")?.status).toBe("active");
+  });
+
+  it("is adopted by the window where the user resumes or stops it", () => {
+    let clock = 10;
+    const storage = memoryStorage();
+    const theirs = new DiscussionStore(storage, "other", () => clock);
+    theirs.start({ id: "d1", a: A, b: B, topic: "Topic", rounds: 3 });
+    theirs.start({
+      id: "d3",
+      a: { ...A, sessionId: "e" },
+      b: { ...B, sessionId: "f" },
+      topic: "Theirs",
+      rounds: 3,
+    });
+    theirs.pause("d1", "“Review” isn't open in this window.");
+    const mine = new DiscussionStore(storage, "main", () => clock);
+    clock = 20;
+    mine.resume("d1");
+    expect(mine.get("d1")).toMatchObject({ owner: "main", status: "active" });
+
+    // The old owner writes before it hears about the adoption: it yields.
+    clock = 21;
+    theirs.pause("d3", "Busy");
+    const stored = JSON.parse(storage.values.get(DISCUSSIONS_KEY)!);
+    expect(stored.find((entry: Discussion) => entry.id === "d1")).toMatchObject(
+      { owner: "main", status: "active" },
+    );
+    expect(theirs.get("d1")?.owner).toBe("main");
+    theirs.pause("d1", "Not mine any more");
+    expect(theirs.get("d1")?.status).toBe("active");
+
+    mine.sync();
+    expect(mine.get("d3")?.status).toBe("paused");
+    clock = 30;
+    mine.stop("d1");
+    expect(mine.get("d1")?.status).toBe("ended");
+    mine.notePosted("d1", "a");
+    mine.notePosted("d1", "b");
+    theirs.sync();
+    expect(theirs.get("d1")).toBeUndefined();
+    expect(theirs.get("d3")?.status).toBe("paused");
+  });
+
+  it("pauses its own discussions when its window goes away", () => {
+    const storage = memoryStorage();
+    const store = new DiscussionStore(storage, "main");
+    store.start({ id: "d1", a: A, b: B, topic: "Topic", rounds: 3 });
+    store.pauseAll();
+    expect(store.get("d1")).toMatchObject({
+      status: "paused",
+      reason: RELOAD_REASON,
+    });
+    expect(JSON.parse(storage.values.get(DISCUSSIONS_KEY)!)[0].status).toBe(
+      "paused",
+    );
   });
 
   it("refuses a chat that is already discussing", () => {
