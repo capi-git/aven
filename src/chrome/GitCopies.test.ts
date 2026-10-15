@@ -116,6 +116,11 @@ describe("other copies", () => {
     expect(copyName({ branch: null, path: "/work/tab_groups" })).toBe(
       "Tab groups",
     );
+    expect(copyName({ branch: "preview/ui", path: "/a" })).toBe("Preview UI");
+    expect(copyName({ branch: "codex/feat/usage-forecast", path: "/a" })).toBe(
+      "Usage forecast",
+    );
+    expect(copyName({ branch: "main", path: "/a" })).toBe("Main");
   });
 
   it("hides the open copy and lists unsaved work first, finished copies last", () => {

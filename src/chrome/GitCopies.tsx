@@ -400,16 +400,29 @@ function firstLine(text: string): string {
   );
 }
 
-/** "fix/race-safety" → "Race safety"; falls back to the folder name. */
+// Branch prefixes that say what kind of change or which tool made it, not
+// what the work is: "feat/tab-groups" is about tab groups.
+const BRANCH_KIND =
+  /^(?:feat|feature|fix|bugfix|hotfix|chore|refactor|docs|test|tests|perf|build|ci|style|wip|codex|claude|cursor|copilot|agent)$/i;
+
+/**
+ * A friendly name from the branch: "fix/race-safety" → "Race safety",
+ * "preview/ui" → "Preview UI". Falls back to the folder name.
+ */
 export function copyName(
   worktree: Pick<GitWorktree, "branch" | "path">,
 ): string {
   const branch = worktree.branch ?? "";
   if (branch.startsWith("aven/race/")) return "Race copy";
-  const leaf = (branch.split("/").pop() || basename(worktree.path))
-    .replace(/[-_]+/g, " ")
-    .trim();
-  return leaf ? leaf[0].toUpperCase() + leaf.slice(1) : "Copy";
+  const segments = branch.split("/").filter(Boolean);
+  while (segments.length > 1 && BRANCH_KIND.test(segments[0])) segments.shift();
+  const words = (segments.join(" ") || basename(worktree.path))
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    // Two-letter words such as "ui" or "db" read as abbreviations.
+    .map((word) => (word.length <= 2 ? word.toUpperCase() : word));
+  const text = words.join(" ");
+  return text ? text[0].toUpperCase() + text.slice(1) : "Copy";
 }
 
 function useWorktrees(
