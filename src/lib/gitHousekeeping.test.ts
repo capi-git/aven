@@ -30,21 +30,24 @@ function status(overrides: Partial<ReleaseStatus> = {}): ReleaseStatus {
 }
 
 describe("release summary", () => {
-  it("is up to date when main has nothing new", () => {
+  it("says the live release covers everything on main", () => {
     expect(summarizeRelease(status())).toMatchObject({
       tone: "ok",
-      title: "v0.1.107 is up to date",
+      title: "v0.1.107 is live · everything on main is released",
       publish: null,
     });
   });
 
-  it("asks for a new version before unreleased changes can publish", () => {
+  it("counts unreleased changes without telling you to do something it can't", () => {
     const summary = summarizeRelease(status({ unreleased: 3 }));
-    expect(summary.title).toBe("v0.1.107 is the latest release");
-    expect(summary.detail).toBe(
-      "3 changes on main since v0.1.107. Set a new version to publish them.",
+    expect(summary.title).toBe(
+      "v0.1.107 is live · 3 changes since then aren't released yet",
     );
+    expect(summary.detail).toBe("");
     expect(summary.publish).toBeNull();
+    expect(summarizeRelease(status({ unreleased: 1 })).title).toBe(
+      "v0.1.107 is live · 1 change since then isn't released yet",
+    );
   });
 
   it("offers to publish a version that has no tag yet", () => {
@@ -53,8 +56,9 @@ describe("release summary", () => {
     );
     expect(summary).toMatchObject({
       tone: "info",
-      title: "Version 0.1.108 is ready to publish",
-      detail: "1 change on main since v0.1.107.",
+      title: "0.1.108 is ready to publish",
+      detail:
+        "v0.1.107 is live now. 1 change since v0.1.107 isn't released yet.",
       publish: "0.1.108",
     });
     // A workflow without a publish input cannot be driven from the card.
@@ -77,7 +81,11 @@ describe("release summary", () => {
         run: { ...status().run!, status: "in_progress", conclusion: "" },
       }),
     );
-    expect(running).toMatchObject({ tone: "busy", publish: null });
+    expect(running).toMatchObject({
+      tone: "busy",
+      title: "Publishing a release on GitHub…",
+      publish: null,
+    });
     const failed = summarizeRelease(
       status({
         version: "0.1.108",
@@ -85,7 +93,13 @@ describe("release summary", () => {
         run: { ...status().run!, conclusion: "failure" },
       }),
     );
-    expect(failed).toMatchObject({ tone: "warn", publish: "0.1.108" });
+    expect(failed).toMatchObject({
+      tone: "warn",
+      title: "The last release didn't finish",
+      detail:
+        "Open the run on GitHub to see what stopped it. v0.1.107 is still the live release.",
+      publish: "0.1.108",
+    });
   });
 
   it("does not offer publication without a verified source commit", () => {
@@ -104,8 +118,8 @@ describe("release summary", () => {
         status({ latest: null, unreleased: null, workflow: null }),
       ),
     ).toMatchObject({
-      title: "No releases yet",
-      detail: "This project has no release workflow.",
+      title: "Nothing released yet",
+      detail: "",
     });
   });
 });
