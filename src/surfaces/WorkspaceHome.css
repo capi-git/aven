@@ -8,9 +8,9 @@
 .workspace-home-content {
   flex: 0 0 auto;
   width: 100%;
-  max-width: 840px;
+  max-width: 1000px;
   margin: 0 auto auto;
-  padding-block: clamp(16px, 4vh, 40px);
+  padding-block: clamp(12px, 3vh, 32px);
 }
 
 /* Only a user-selected image decorates Home; the default is the workspace theme. */
@@ -30,14 +30,14 @@ html.has-chat-background .workspace-home::before {
   }
 }
 
-/* Header: the workspace, what is happening, and the three starts. */
+/* Header: the workspace, a greeting with how things stand, three starts. */
 .workspace-home-header {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 14px 20px;
-  margin-bottom: 28px;
+  gap: 12px 20px;
+  margin-bottom: 18px;
 }
 
 .workspace-home-title {
@@ -54,14 +54,10 @@ html.has-chat-background .workspace-home::before {
 }
 
 .workspace-home-summary {
-  margin: 6px 0 0;
-  color: var(--color-content);
+  margin: 4px 0 0;
+  color: var(--aven-muted);
   font-size: var(--text-ui-body);
   line-height: 1.45;
-}
-
-.workspace-home-summary[data-quiet] {
-  color: var(--aven-muted);
 }
 
 .workspace-home-actions {
@@ -110,7 +106,7 @@ html.has-chat-background .workspace-home::before {
 
 /* Sections */
 .workspace-home-section {
-  margin-bottom: 26px;
+  margin-bottom: 22px;
 }
 
 .workspace-home h2 {
@@ -120,6 +116,13 @@ html.has-chat-background .workspace-home::before {
   font-weight: 600;
 }
 
+.workspace-home h2:focus {
+  outline: none;
+}
+
+/* Cards share the workspace's glass. Only the list panels blur (see
+   macos-theme.css); tiles are tints, so a full grid adds no compositor
+   layers. */
 .workspace-home-panel {
   min-width: 0;
   padding: 4px;
@@ -128,6 +131,423 @@ html.has-chat-background .workspace-home::before {
   background: var(--aven-glass-card, var(--aven-hover));
   box-shadow:
     var(--aven-glass-sheen, none), var(--aven-glass-card-shadow, none);
+}
+
+.workspace-home-stat > button,
+.workspace-home-stat > div,
+.workspace-home-agent {
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: var(--aven-radius-card, 12px);
+  background: var(--aven-glass-card, var(--aven-hover));
+  box-shadow: var(--aven-glass-sheen, none);
+}
+
+/* Stat tiles: a big number and a label, calm at zero. */
+.workspace-home-stats {
+  margin-bottom: 22px;
+}
+
+.workspace-home-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+  gap: 8px;
+  margin: 0;
+  list-style: none;
+}
+
+.workspace-home-stat {
+  display: flex;
+  min-width: 0;
+}
+
+.workspace-home-stat > button,
+.workspace-home-stat > div {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 0;
+  padding: 11px 14px 12px;
+  text-align: left;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+
+.workspace-home .workspace-home-stat > button:hover:not(:disabled) {
+  background: var(--aven-glass-card-hover, var(--aven-hover));
+}
+
+.workspace-home-stat-value {
+  color: var(--color-content);
+  font-size: 26px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.workspace-home-stat-label {
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  font-weight: 500;
+}
+
+.workspace-home-stat-note {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-home-stat[data-zero] .workspace-home-stat-value {
+  color: color-mix(in srgb, var(--color-content) 34%, transparent);
+}
+
+.workspace-home-stat[data-tone="amber"] > * {
+  border-color: color-mix(in srgb, var(--color-amber-400) 48%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--color-amber-400) 10%,
+    var(--aven-glass-card, transparent)
+  );
+}
+
+.workspace-home .workspace-home-stat[data-tone="amber"] > button:hover {
+  background: color-mix(
+    in srgb,
+    var(--color-amber-400) 16%,
+    var(--aven-glass-card, transparent)
+  );
+}
+
+.workspace-home-stat[data-tone="amber"] .workspace-home-stat-value {
+  color: color-mix(in srgb, var(--color-content) 22%, var(--color-amber-400));
+}
+
+.workspace-home-stat[data-tone="accent"] .workspace-home-stat-value {
+  color: color-mix(in srgb, var(--color-content) 55%, var(--color-accent));
+}
+
+/* Your agents: each project's mascot, large, with what it is up to. */
+.workspace-home-agents {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(156px, 100%), 1fr));
+  gap: 10px;
+  margin: 0;
+  list-style: none;
+}
+
+.workspace-home-agent {
+  --project-color: var(--color-accent);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px 10px 12px;
+  border-radius: 14px;
+  text-align: center;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+
+.workspace-home-agent:hover {
+  background: var(--aven-glass-card-hover, var(--aven-hover));
+}
+
+.workspace-home-agent:has(.workspace-home-agent-open:focus-visible) {
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: 2px;
+}
+
+.workspace-home-agent[data-state="running"] {
+  border-color: color-mix(
+    in srgb,
+    var(--project-color) 42%,
+    var(--aven-glass-card-edge, transparent)
+  );
+}
+
+.workspace-home-agent[data-state="waiting"] {
+  border-color: color-mix(in srgb, var(--color-amber-400) 55%, transparent);
+}
+
+.workspace-home-agent-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  min-height: 96px;
+}
+
+.workspace-home-agent-figure {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--project-color) 20%, transparent),
+    transparent
+  );
+}
+
+.workspace-home-agent[data-state="running"] .workspace-home-agent-figure {
+  background: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--project-color) 36%, transparent),
+    transparent
+  );
+}
+
+.workspace-home-agent[data-state="resting"] .workspace-home-agent-figure {
+  opacity: 0.45;
+  filter: saturate(0.4);
+}
+
+.workspace-home-agent .project-mark.workspace-home-agent-mark {
+  width: 48px;
+  height: 48px;
+}
+
+/* Eight pixels across, so 48px keeps every pixel crisp. */
+.workspace-home-agent .workspace-home-agent-mark .project-mark-mascot {
+  width: 48px;
+  height: 48px;
+}
+
+.workspace-home-agent .workspace-home-agent-mark .project-mark-logo {
+  border-radius: 11px;
+}
+
+/* The same stepped beat as everywhere else, with a hop sized for a big mascot.
+   Reduced motion keeps the mark's own "no animation" rule. */
+@media (prefers-reduced-motion: no-preference) {
+  .workspace-home-agent .workspace-home-agent-mark .mascot-active {
+    animation-name: workspace-home-agent-hop;
+  }
+}
+
+@keyframes workspace-home-agent-hop {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-4px);
+  }
+}
+
+.workspace-home-agent-bubble {
+  position: relative;
+  max-width: 100%;
+  min-width: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: 8px;
+  background: var(--aven-popup, var(--aven-control-bg));
+  color: var(--color-content);
+  font-size: var(--text-ui-caption);
+  line-height: 1.35;
+}
+
+.workspace-home-agent-bubble::after {
+  content: "";
+  position: absolute;
+  bottom: -4px;
+  left: 50%;
+  width: 7px;
+  height: 7px;
+  border-right: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-bottom: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  background: inherit;
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.workspace-home-agent-bubble-text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-home-agent-bubble[data-kind="asking"] {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-color: transparent;
+  border-radius: 50%;
+  background: var(--color-amber-400);
+  color: color-mix(in srgb, black 82%, var(--color-amber-400));
+  font-size: var(--text-ui-label);
+  font-weight: 700;
+}
+
+.workspace-home-agent-bubble[data-kind="asking"]::after {
+  border-color: transparent;
+}
+
+.workspace-home-agent-badge {
+  position: absolute;
+  top: 4px;
+  right: 0;
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: 9px;
+  background: color-mix(
+    in srgb,
+    var(--color-accent) 45%,
+    var(--color-background-base)
+  );
+  color: var(--color-content);
+  font-size: var(--text-ui-micro);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The name is the tile's button; its hit area covers the whole tile. */
+.workspace-home-agent-open {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0 2px;
+  color: var(--color-content);
+  font-size: var(--text-ui-body);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-home-agent-open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 14px;
+}
+
+.workspace-home .workspace-home-agent-open:hover:not(:disabled) {
+  background: none;
+}
+
+.workspace-home .workspace-home-agent-open:focus-visible {
+  outline: none;
+}
+
+.workspace-home-agent-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 1px 8px;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+}
+
+.workspace-home-agent-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.workspace-home-agent-branch svg {
+  flex-shrink: 0;
+}
+
+.workspace-home-agent-branch span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-home-agent-files {
+  color: color-mix(in srgb, var(--color-content) 45%, var(--color-emerald-400));
+  font-variant-numeric: tabular-nums;
+}
+
+.workspace-home-agent-tools {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 1;
+  display: flex;
+  gap: 1px;
+  opacity: 0.5;
+  transition: opacity 120ms ease;
+}
+
+.workspace-home-agent:hover .workspace-home-agent-tools,
+.workspace-home-agent-tools:focus-within {
+  opacity: 1;
+}
+
+.workspace-home-agent-tools button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  color: var(--aven-muted);
+}
+
+.workspace-home .workspace-home-agent-tools button:hover {
+  color: var(--color-content);
+}
+
+.workspace-home-agent-add {
+  display: flex;
+  min-width: 0;
+}
+
+.workspace-home-agent-add button {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 150px;
+  padding: 12px;
+  border: 1px dashed var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: 14px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  font-weight: 500;
+}
+
+.workspace-home .workspace-home-agent-add button:hover {
+  color: var(--color-content);
+}
+
+/* Panels: two columns when there is room. */
+.workspace-home-panels {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 0 18px;
+}
+
+.workspace-home-column {
+  min-width: 0;
 }
 
 .workspace-home-list {
@@ -141,12 +561,21 @@ html.has-chat-background .workspace-home::before {
   width: 100%;
   align-items: center;
   gap: 10px;
-  min-height: 44px;
-  padding: 7px 10px;
+  min-height: 42px;
+  padding: 6px 10px;
   border-radius: 8px;
   text-align: left;
   font-size: var(--text-ui-body);
   transition: background-color 120ms ease;
+}
+
+.workspace-home-row-mark {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
 }
 
 .workspace-home-row-text {
@@ -203,14 +632,42 @@ html.has-chat-background .workspace-home::before {
 }
 
 .workspace-home-mark .project-mark-mascot {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
 
 .workspace-home-mark-none {
   display: inline-grid;
   place-items: center;
   color: var(--aven-muted);
+}
+
+.workspace-home-outcome {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  display: grid;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--color-background-base);
+  color: var(--aven-muted);
+}
+
+.workspace-home-outcome[data-outcome="completed"] {
+  color: color-mix(in srgb, var(--color-content) 30%, var(--color-emerald-400));
+}
+
+.workspace-home-outcome[data-outcome="failed"] {
+  color: color-mix(in srgb, var(--color-content) 30%, var(--color-red-400));
+}
+
+.workspace-home-unread {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent);
 }
 
 /* Waiting reads amber, unread replies the accent, as in the sidebar. */
@@ -243,178 +700,69 @@ html.has-chat-background .workspace-home::before {
   color: var(--color-content);
 }
 
-/* Projects: one card each, wrapping to a single column when narrow. */
-.workspace-home-projects {
+/* Usage: the footer's last saved figures, as meters. */
+.workspace-home-usage {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(232px, 100%), 1fr));
-  gap: 10px;
-  margin: 0;
-  list-style: none;
+  gap: 12px;
+  padding: 12px 14px;
 }
 
-.workspace-home-project {
-  --project-color: var(--color-accent);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-  padding: 12px;
-  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
-  border-radius: var(--aven-radius-card, 12px);
-  /* A tint without a backdrop pass of its own: one blur per card would add a
-     compositor layer for each project. */
-  background: var(--aven-glass-card, var(--aven-hover));
-  box-shadow: var(--aven-glass-sheen, none);
-}
-
-.workspace-home-project-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.workspace-home-project-chip {
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--project-color) 18%, transparent);
-  box-shadow: inset 0 0 0 1px
-    color-mix(in srgb, var(--project-color) 26%, transparent);
-}
-
-.workspace-home-project-name {
-  min-width: 0;
-}
-
-.workspace-home-project h3 {
-  margin: 0;
-  overflow: hidden;
-  font-size: var(--text-ui-body);
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.workspace-home-project-name p {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  margin: 2px 0 0;
-  color: var(--aven-muted);
-  font-size: var(--text-ui-caption);
-  white-space: nowrap;
-}
-
-.workspace-home-project-branch {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  min-width: 0;
-}
-
-.workspace-home-project-branch svg {
-  flex-shrink: 0;
-}
-
-.workspace-home-project-branch span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.workspace-home-project-last {
-  margin: 0;
-  overflow: hidden;
-  color: color-mix(in srgb, var(--color-content) 82%, transparent);
+.workspace-home-usage-account h3 {
+  margin: 0 0 6px;
   font-size: var(--text-ui-label);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-weight: 600;
 }
 
-.workspace-home-project-status {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin: 0;
-  font-size: var(--text-ui-caption);
-  font-variant-numeric: tabular-nums;
-}
-
-.workspace-home-project-status span {
-  display: inline-flex;
+.workspace-home-usage-window {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  grid-template-areas:
+    "label meter"
+    ". value";
   align-items: center;
-  gap: 5px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--aven-hover);
+  gap: 2px 10px;
+  margin-top: 6px;
+  font-size: var(--text-ui-caption);
+}
+
+.workspace-home-usage-label {
+  grid-area: label;
   color: var(--aven-muted);
 }
 
-.workspace-home-project-status [data-status="running"]::before,
-.workspace-home-project-status [data-status="waiting"]::before {
-  content: "";
-  width: 5px;
+.workspace-home-usage-meter {
+  grid-area: meter;
   height: 5px;
-  border-radius: 50%;
-  background: var(--color-accent);
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--aven-hover);
 }
 
-.workspace-home-project-status [data-status="waiting"]::before {
+.workspace-home-usage-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--color-content) 55%, transparent);
+}
+
+.workspace-home-usage-meter[data-high] > span {
   background: var(--color-amber-400);
 }
 
-.workspace-home-project-status [data-status="unread"] {
-  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+.workspace-home-usage-value {
+  grid-area: value;
   color: var(--color-content);
+  font-variant-numeric: tabular-nums;
 }
 
-.workspace-home-project-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: auto;
-}
-
-.workspace-home-project-actions button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-height: 26px;
-  padding: 3px 10px;
-  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
-  border-radius: var(--aven-radius-control, 8px);
-  background: var(--aven-control-bg, var(--aven-hover));
-  color: var(--color-content);
-  font-size: var(--text-ui-label);
-  font-weight: 500;
-}
-
-.workspace-home-project-add {
-  display: flex;
-  min-width: 0;
-}
-
-.workspace-home-project-add button {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 72px;
-  padding: 12px;
-  border: 1px dashed var(--aven-glass-card-edge, var(--aven-line));
-  border-radius: var(--aven-radius-card, 12px);
+.workspace-home-usage-reset,
+.workspace-home-usage-note {
   color: var(--aven-muted);
-  font-size: var(--text-ui-label);
-  font-weight: 500;
 }
 
-.workspace-home .workspace-home-project-add button:hover {
-  color: var(--color-content);
+.workspace-home-usage-note {
+  margin: 0;
+  font-size: var(--text-ui-caption);
 }
 
 /* Shared states */
@@ -463,18 +811,27 @@ html.has-chat-background .workspace-home::before {
   font-size: var(--text-ui-label);
 }
 
-@container aven-opening (max-width: 580px) {
+@container aven-opening (max-width: 720px) {
+  .workspace-home-panels {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container aven-opening (max-width: 480px) {
   .workspace-home-content {
     padding-block: 8px;
   }
 
   .workspace-home-header {
     align-items: flex-start;
-    margin-bottom: 22px;
   }
 
-  .workspace-home-projects {
-    grid-template-columns: minmax(0, 1fr);
+  .workspace-home-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .workspace-home-agents {
+    grid-template-columns: repeat(auto-fill, minmax(min(132px, 100%), 1fr));
   }
 
   .workspace-home-row-aside {

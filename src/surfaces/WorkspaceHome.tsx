@@ -1,7 +1,28 @@
-import { memo, useEffect, useId, useState, type CSSProperties } from "react";
-import { GitBranch, Globe, MessageSquare, Plus, Search } from "../chrome/icons";
+import {
+  memo,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import {
+  CheckCircle,
+  CircleX,
+  GitBranch,
+  Globe,
+  MessageSquare,
+  MoreHorizontal,
+  Plus,
+  Search,
+  Square,
+} from "../chrome/icons";
+import type { PopoverAnchor } from "../chrome/Popover";
+import { ProjectCustomizePopover } from "../chrome/ProjectCustomizePopover";
 import { ProjectMark } from "../chrome/ProjectMark";
-import { useChromeProps } from "../hooks/useChromeProps";
+import { equalChromeData, useChromeProps } from "../hooks/useChromeProps";
 import { useMinuteClock } from "../hooks/useMinuteClock";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import {
@@ -16,13 +37,24 @@ import {
   type ProjectStatus,
   type ProjectStatusMap,
 } from "../lib/projectStatus";
+import {
+  formatResetDuration,
+  formatUsagePercent,
+  loadSavedRateLimits,
+  type ProviderRateLimits,
+  type RateLimitProvider,
+  type RateLimitWindow,
+} from "../lib/rateLimits";
 import { HARNESS_TITLE } from "../lib/session";
 import {
   homeElapsed,
-  homeSummary,
+  homeGreeting,
+  homeStatusLine,
   homeTimeAgo,
+  homeTodayCounts,
   isWaitingAttention,
   type HomeAttention,
+  type HomeFinished,
   type HomeProject,
   type HomeRunning,
   type HomeSession,
@@ -40,8 +72,12 @@ export type WorkspaceHomeProps = {
   projects: readonly HomeProject[];
   /** Most recent sessions first. */
   recent: readonly HomeSession[];
+  /** Finished turns, newest first. */
+  finished?: readonly HomeFinished[];
   /** The sidebar's per-project status, so both always agree. */
   projectStatus?: ProjectStatusMap;
+  /** Accounts whose last saved usage is shown; nothing is fetched here. */
+  usageProviders?: readonly RateLimitProvider[];
   starting?: boolean;
   windows?: readonly { id: string; label: string }[];
   onShowWindow?: (id: string) => void;
@@ -58,17 +94,25 @@ export type WorkspaceHomeProps = {
 };
 
 /** Rows of Needs you shown before "Show more". */
-const NEEDS_YOU_ROWS = 6;
-const RECENT_ROWS = 8;
+const NEEDS_YOU_ROWS = 5;
+const RECENT_ROWS = 5;
+const ACTIVITY_ROWS = 8;
+/** A project untouched this long rests: its mascot dims. */
+const RESTING_MS = 3 * 24 * 60 * 60 * 1000;
 
 const HOME_DATA: readonly (keyof WorkspaceHomeProps)[] = [
   "needsYou",
   "running",
   "projects",
   "recent",
+  "finished",
   "projectStatus",
+  "usageProviders",
   "windows",
 ];
+
+const NO_FINISHED: readonly HomeFinished[] = [];
+const NO_PROVIDERS: readonly RateLimitProvider[] = [];
 
 const ATTENTION_LABEL: Record<HomeAttention["kind"], string> = {
   approval: "Needs approval",
@@ -79,8 +123,8 @@ const ATTENTION_LABEL: Record<HomeAttention["kind"], string> = {
 };
 
 /**
- * The workspace's home: what needs the user, what is running, their projects
- * and where they left off. Callbacks are proxied and the lists compared by
+ * The workspace dashboard: how things stand, each project's agent, what needs
+ * the user and what happened. Callbacks are proxied and the lists compared by
  * value, so App's streaming re-renders skip it unless something shown changes.
  */
 export function WorkspaceHome(props: WorkspaceHomeProps) {
@@ -91,6 +135,20 @@ export function WorkspaceHome(props: WorkspaceHomeProps) {
   );
 }
 
+/** Scroll a dashboard section into view and move focus to its heading. */
+function reveal(ref: RefObject<HTMLElement | null>) {
+  const target = ref.current;
+  if (!target) return;
+  const reduce =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  target.scrollIntoView?.({
+    behavior: reduce ? "auto" : "smooth",
+    block: "start",
+  });
+  target.querySelector<HTMLElement>("h2")?.focus({ preventScroll: true });
+}
+
 // Lists keep `role="list"`: WebKit drops list semantics for VoiceOver once
 // `list-style: none` hides the markers.
 const MemoWorkspaceHome = memo(function WorkspaceHomeView({
@@ -99,7 +157,9 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
   running,
   projects,
   recent,
+  finished = NO_FINISHED,
   projectStatus,
+  usageProviders = NO_PROVIDERS,
   starting,
   windows = [],
   onShowWindow,
@@ -115,6 +175,9 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
 }: WorkspaceHomeProps) {
   const labels = useProjectLabels();
   const ids = useId();
+  const agentsRef = useRef<HTMLElement>(null);
+  const needsRef = useRef<HTMLElement>(null);
+  const activityRef = useRef<HTMLElement>(null);
   const [showAllNeeds, setShowAllNeeds] = useState(false);
   const projectPaths = projects.map((project) => project.path).join("\n");
   useEffect(() => {
@@ -126,11 +189,15 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
       ? "No project"
       : projectDisplayName(cwd, labels, basename(cwd));
   const waiting = needsYou.filter(isWaitingAttention).length;
-  const summary = homeSummary({
-    running: running.length,
-    waiting,
-    unread: needsYou.length - waiting,
-  });
+  const unread = needsYou.length - waiting;
+  let files = 0;
+  let changedProjects = 0;
+  for (const project of projects) {
+    const count = projectStatusFor(projectStatus, project.path)?.files ?? 0;
+    files += count;
+    if (count) changedProjects += 1;
+  }
+  const busyProjects = new Set(running.map((row) => row.cwd)).size;
   const listed = new Set([
     ...needsYou.map((item) => item.id),
     ...running.map((item) => item.id),
@@ -140,6 +207,7 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
     .slice(0, RECENT_ROWS);
   const needsRows = showAllNeeds ? needsYou : needsYou.slice(0, NEEDS_YOU_ROWS);
   const hiddenNeeds = needsYou.length - needsRows.length;
+  const activityRows = finished.slice(0, ACTIVITY_ROWS);
 
   return (
     <section
@@ -150,14 +218,9 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
         <header className="workspace-home-header">
           <div className="workspace-home-title">
             <h1>{profile}</h1>
-            <p
-              className="workspace-home-summary"
-              data-quiet={!summary || undefined}
-            >
-              {summary ||
-                (projects.length || recent.length
-                  ? "All quiet — pick up where you left off."
-                  : "Start a task, or add a project to work in.")}
+            <p className="workspace-home-summary">
+              <Greeting />.{" "}
+              {homeStatusLine({ running: running.length, waiting, unread })}
             </p>
           </div>
           <div className="workspace-home-actions">
@@ -181,164 +244,247 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
           </div>
         </header>
 
-        {needsYou.length ? (
-          <section
-            className="workspace-home-section"
-            aria-labelledby={`${ids}-needs`}
-          >
-            <h2 id={`${ids}-needs`}>Needs you</h2>
-            <ul
-              className="workspace-home-panel workspace-home-list"
-              role="list"
-            >
-              {needsRows.map((item) => (
-                <li key={item.id}>
-                  <button
-                    type="button"
-                    className="workspace-home-row"
-                    data-attention={item.kind}
-                    onClick={() => onSession(item.id)}
-                  >
-                    <HomeMark cwd={item.cwd} />
-                    <span className="workspace-home-row-text">
-                      <strong>{item.title}</strong>
-                      <small>
-                        <span className="workspace-home-kind">
-                          {ATTENTION_LABEL[item.kind]}
-                        </span>
-                        {item.detail ? ` · ${item.detail}` : ""}
-                      </small>
-                    </span>
-                    <span className="workspace-home-row-aside">
-                      <span className="workspace-home-row-project">
-                        {nameFor(item.cwd)}
-                      </span>
-                      <TimeAgo at={item.at} />
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-            {hiddenNeeds > 0 ? (
-              <button
-                type="button"
-                className="workspace-home-more"
-                onClick={() => setShowAllNeeds(true)}
-              >
-                Show {hiddenNeeds} more
-              </button>
-            ) : null}
-          </section>
-        ) : null}
-
-        {running.length ? (
-          <section
-            className="workspace-home-section"
-            aria-labelledby={`${ids}-running`}
-          >
-            <h2 id={`${ids}-running`}>Running now</h2>
-            <ul
-              className="workspace-home-panel workspace-home-list"
-              role="list"
-            >
-              {running.map((item) => (
-                <li key={item.id}>
-                  <button
-                    type="button"
-                    className="workspace-home-row"
-                    onClick={() => onSession(item.id)}
-                  >
-                    <HomeMark cwd={item.cwd} active />
-                    <span className="workspace-home-row-text">
-                      <strong>{item.title}</strong>
-                      <small>{nameFor(item.cwd)}</small>
-                    </span>
-                    <span className="workspace-home-row-aside">
-                      {item.startedAt !== undefined ? (
-                        <Elapsed since={item.startedAt} />
-                      ) : (
-                        <span className="workspace-home-time">Working</span>
-                      )}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
+        <section
+          className="workspace-home-stats"
+          aria-labelledby={`${ids}-glance`}
+        >
+          <h2 id={`${ids}-glance`} className="sr-only">
+            At a glance
+          </h2>
+          <ul className="workspace-home-stat-grid" role="list">
+            <StatTile
+              value={running.length}
+              label={running.length === 1 ? "Agent running" : "Agents running"}
+              note={
+                busyProjects > 1 ? `in ${busyProjects} projects` : undefined
+              }
+              onClick={running.length ? () => reveal(agentsRef) : undefined}
+            />
+            <StatTile
+              value={waiting}
+              label="Needs you"
+              tone="amber"
+              onClick={waiting ? () => reveal(needsRef) : undefined}
+            />
+            <StatTile
+              value={unread}
+              label={unread === 1 ? "Unread reply" : "Unread replies"}
+              tone="accent"
+              onClick={unread ? () => reveal(needsRef) : undefined}
+            />
+            <StatTile
+              value={files}
+              label={files === 1 ? "File changed" : "Files changed"}
+              note={
+                changedProjects > 1
+                  ? `in ${changedProjects} projects`
+                  : undefined
+              }
+            />
+            <TodayTile
+              finished={finished}
+              onReveal={() => reveal(activityRef)}
+            />
+          </ul>
+        </section>
 
         <section
+          ref={agentsRef}
           className="workspace-home-section"
-          aria-labelledby={`${ids}-projects`}
+          aria-labelledby={`${ids}-agents`}
         >
-          <h2 id={`${ids}-projects`}>Projects</h2>
-          <ul className="workspace-home-projects" role="list">
+          <h2 id={`${ids}-agents`} tabIndex={-1}>
+            Your agents
+          </h2>
+          <ul className="workspace-home-agents" role="list">
             {projects.map((project) => (
-              <ProjectCard
+              <AgentTile
                 key={project.path}
                 project={project}
                 name={projectDisplayName(project.path, labels, project.name)}
                 status={projectStatusFor(projectStatus, project.path)}
-                onResume={() =>
-                  project.resumeId
-                    ? onSession(project.resumeId)
-                    : onProject(project.path)
-                }
-                onNewTask={
-                  onNewProjectTask
-                    ? () => onNewProjectTask(project.path)
-                    : undefined
-                }
+                onSession={onSession}
+                onProject={onProject}
+                onNewProjectTask={onNewProjectTask}
               />
             ))}
-            <li className="workspace-home-project-add">
+            <li className="workspace-home-agent-add">
               <button type="button" onClick={onAddProject}>
-                <Plus size={15} />
+                <Plus size={16} />
                 {projects.length ? "Add project" : "Add your first project"}
               </button>
             </li>
           </ul>
         </section>
 
-        <section
-          className="workspace-home-section"
-          aria-labelledby={`${ids}-recent`}
-        >
-          <h2 id={`${ids}-recent`}>Recent sessions</h2>
-          {recentRows.length ? (
-            <ul
-              className="workspace-home-panel workspace-home-list"
-              role="list"
-            >
-              {recentRows.map((row) => (
-                <li key={row.id}>
+        <div className="workspace-home-panels">
+          <div className="workspace-home-column">
+            {needsYou.length ? (
+              <section
+                ref={needsRef}
+                className="workspace-home-section"
+                aria-labelledby={`${ids}-needs`}
+              >
+                <h2 id={`${ids}-needs`} tabIndex={-1}>
+                  Needs you
+                </h2>
+                <ul
+                  className="workspace-home-panel workspace-home-list"
+                  role="list"
+                >
+                  {needsRows.map((item) => (
+                    <li key={item.id}>
+                      <SessionRow
+                        cwd={item.cwd}
+                        title={item.title}
+                        attention={item.kind}
+                        line={
+                          <>
+                            <span className="workspace-home-kind">
+                              {ATTENTION_LABEL[item.kind]}
+                            </span>
+                            {item.detail ? ` · ${item.detail}` : ""}
+                          </>
+                        }
+                        aside={
+                          <>
+                            <span className="workspace-home-row-project">
+                              {nameFor(item.cwd)}
+                            </span>
+                            <TimeAgo at={item.at} />
+                          </>
+                        }
+                        onClick={() => onSession(item.id)}
+                      />
+                    </li>
+                  ))}
+                </ul>
+                {hiddenNeeds > 0 ? (
                   <button
                     type="button"
-                    className="workspace-home-row"
-                    onClick={() => onSession(row.id)}
+                    className="workspace-home-more"
+                    onClick={() => setShowAllNeeds(true)}
                   >
-                    <HomeMark cwd={row.cwd} active={row.running} />
-                    <span className="workspace-home-row-text">
-                      <strong>{row.title}</strong>
-                      <small>
-                        {nameFor(row.cwd)} · {HARNESS_TITLE[row.harness]}
-                      </small>
-                    </span>
-                    <span className="workspace-home-row-aside">
-                      <TimeAgo at={row.updatedAt} />
-                    </span>
+                    Show {hiddenNeeds} more
                   </button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="workspace-home-empty">
-              {recent.length
-                ? "Everything recent is listed above."
-                : "Your sessions will appear here. Start one with or without a project."}
-            </p>
-          )}
-        </section>
+                ) : null}
+              </section>
+            ) : null}
+
+            {running.length ? (
+              <section
+                className="workspace-home-section"
+                aria-labelledby={`${ids}-running`}
+              >
+                <h2 id={`${ids}-running`}>Running now</h2>
+                <ul
+                  className="workspace-home-panel workspace-home-list"
+                  role="list"
+                >
+                  {running.map((item) => (
+                    <li key={item.id}>
+                      <SessionRow
+                        cwd={item.cwd}
+                        title={item.title}
+                        active
+                        line={
+                          item.doing
+                            ? `${nameFor(item.cwd)} · ${item.doing}`
+                            : nameFor(item.cwd)
+                        }
+                        aside={
+                          item.startedAt !== undefined ? (
+                            <Elapsed since={item.startedAt} />
+                          ) : (
+                            <span className="workspace-home-time">Working</span>
+                          )
+                        }
+                        onClick={() => onSession(item.id)}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+
+            <section
+              className="workspace-home-section"
+              aria-labelledby={`${ids}-recent`}
+            >
+              <h2 id={`${ids}-recent`}>Recent sessions</h2>
+              {recentRows.length ? (
+                <ul
+                  className="workspace-home-panel workspace-home-list"
+                  role="list"
+                >
+                  {recentRows.map((row) => (
+                    <li key={row.id}>
+                      <SessionRow
+                        cwd={row.cwd}
+                        title={row.title}
+                        active={row.running}
+                        line={`${nameFor(row.cwd)} · ${HARNESS_TITLE[row.harness]}`}
+                        aside={<TimeAgo at={row.updatedAt} />}
+                        onClick={() => onSession(row.id)}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="workspace-home-empty">
+                  {recent.length
+                    ? "Everything recent is listed above."
+                    : "Your sessions will appear here. Start one with or without a project."}
+                </p>
+              )}
+            </section>
+          </div>
+
+          <div className="workspace-home-column">
+            <section
+              ref={activityRef}
+              className="workspace-home-section"
+              aria-labelledby={`${ids}-activity`}
+            >
+              <h2 id={`${ids}-activity`} tabIndex={-1}>
+                Activity
+              </h2>
+              {activityRows.length ? (
+                <ul
+                  className="workspace-home-panel workspace-home-list"
+                  role="list"
+                >
+                  {activityRows.map((row) => (
+                    <li key={row.id}>
+                      <SessionRow
+                        cwd={row.cwd}
+                        title={row.title}
+                        outcome={row.kind}
+                        line={row.detail || ATTENTION_LABEL[row.kind]}
+                        aside={
+                          <>
+                            {row.unread ? (
+                              <span className="workspace-home-unread">
+                                <span className="sr-only">Unread</span>
+                              </span>
+                            ) : null}
+                            <TimeAgo at={row.at} />
+                          </>
+                        }
+                        onClick={() => onSession(row.sessionId)}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="workspace-home-empty">
+                  Finished turns will show up here.
+                </p>
+              )}
+            </section>
+            <UsagePanel providers={usageProviders} headingId={`${ids}-usage`} />
+          </div>
+        </div>
 
         {windows.length > 0 ? (
           <section
@@ -367,6 +513,304 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
   );
 });
 
+function Greeting() {
+  return <>{homeGreeting(useMinuteClock())}</>;
+}
+
+/** A big number and its label; a button when it leads somewhere. */
+function StatTile({
+  value,
+  label,
+  note,
+  tone,
+  onClick,
+}: {
+  value: number;
+  label: string;
+  note?: string;
+  tone?: "amber" | "accent";
+  onClick?: () => void;
+}) {
+  const content = (
+    <>
+      <span className="workspace-home-stat-value">{value}</span>
+      <span className="workspace-home-stat-label">{label}</span>
+      {note ? <span className="workspace-home-stat-note">{note}</span> : null}
+    </>
+  );
+  return (
+    <li
+      className="workspace-home-stat"
+      data-zero={value === 0 || undefined}
+      data-tone={value > 0 ? tone : undefined}
+    >
+      {onClick ? (
+        <button
+          type="button"
+          onClick={onClick}
+          aria-label={`${label}: ${value}${note ? `, ${note}` : ""}`}
+        >
+          {content}
+        </button>
+      ) : (
+        <div>{content}</div>
+      )}
+    </li>
+  );
+}
+
+/** Turns finished since midnight; turns over by itself at the day's end. */
+function TodayTile({
+  finished,
+  onReveal,
+}: {
+  finished: readonly HomeFinished[];
+  onReveal: () => void;
+}) {
+  const now = useMinuteClock();
+  const { done, failed, stopped } = homeTodayCounts(finished, now);
+  const note = [
+    failed ? `${failed} failed` : "",
+    stopped ? `${stopped} stopped` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <StatTile
+      value={done}
+      label="Done today"
+      note={note || undefined}
+      onClick={done + failed + stopped ? onReveal : undefined}
+    />
+  );
+}
+
+type AgentTileProps = {
+  project: HomeProject;
+  name: string;
+  status?: ProjectStatus;
+  onSession: (id: string) => void;
+  onProject: (path: string) => void;
+  onNewProjectTask?: (path: string) => void;
+};
+
+/**
+ * A project's agent: its mascot (or logo) large, stepping while an agent
+ * works, with what it is doing in a speech bubble, an amber "!" while it
+ * waits on the user, and an unread count. The whole tile opens the project.
+ */
+const AgentTile = memo(
+  function AgentTile({
+    project,
+    name,
+    status,
+    onSession,
+    onProject,
+    onNewProjectTask,
+  }: AgentTileProps) {
+    const appearance = useProjectAppearance(project.path);
+    const now = useMinuteClock();
+    const metaId = useId();
+    const moreRef = useRef<HTMLButtonElement>(null);
+    const [customize, setCustomize] = useState<PopoverAnchor>(null);
+    const running = status?.running ?? 0;
+    const waiting = status?.waiting ?? 0;
+    const unread = status?.unread ?? 0;
+    const files = status?.files ?? 0;
+    const state = waiting
+      ? "waiting"
+      : running
+        ? "running"
+        : unread
+          ? "unread"
+          : !project.lastActivity || now - project.lastActivity > RESTING_MS
+            ? "resting"
+            : "idle";
+    const described = describeProjectStatus(status);
+    const saying = waiting
+      ? `Waiting for you${project.asking ? `: ${project.asking}` : ""}`
+      : running
+        ? (project.doing ?? "Working")
+        : "";
+    return (
+      <li
+        className="workspace-home-agent"
+        data-state={state}
+        style={
+          appearance
+            ? ({ "--project-color": appearance.color } as CSSProperties)
+            : undefined
+        }
+        onContextMenu={(event) => {
+          event.preventDefault();
+          setCustomize({ x: event.clientX, y: event.clientY });
+        }}
+      >
+        <div className="workspace-home-agent-stage" aria-hidden>
+          {waiting ? (
+            <span
+              className="workspace-home-agent-bubble"
+              data-kind="asking"
+              title={saying}
+            >
+              !
+            </span>
+          ) : running ? (
+            <span
+              className="workspace-home-agent-bubble"
+              data-kind="doing"
+              title={saying}
+            >
+              <span className="workspace-home-agent-bubble-text">{saying}</span>
+            </span>
+          ) : null}
+          <span className="workspace-home-agent-figure">
+            <ProjectMark
+              appearance={appearance}
+              active={running > 0}
+              className="workspace-home-agent-mark"
+            />
+            {unread ? (
+              <span className="workspace-home-agent-badge">{unread}</span>
+            ) : null}
+          </span>
+        </div>
+        <button
+          type="button"
+          className="workspace-home-agent-open"
+          aria-label={
+            project.resumeTitle
+              ? `Open ${project.resumeTitle} in ${name}`
+              : `Open ${name}`
+          }
+          aria-describedby={metaId}
+          onClick={() =>
+            project.resumeId
+              ? onSession(project.resumeId)
+              : onProject(project.path)
+          }
+        >
+          {name}
+        </button>
+        <p className="workspace-home-agent-meta" id={metaId}>
+          {saying ? <span className="sr-only">{saying}. </span> : null}
+          {project.branch ? (
+            <span className="workspace-home-agent-branch">
+              <GitBranch size={11} aria-hidden />
+              <span>{project.branch}</span>
+            </span>
+          ) : null}
+          {files ? (
+            <span className="workspace-home-agent-files">
+              +{files}
+              <span className="sr-only">
+                {files === 1 ? " changed file" : " changed files"}
+              </span>
+            </span>
+          ) : null}
+          {project.lastActivity ? (
+            <TimeAgo at={project.lastActivity} />
+          ) : (
+            <span>No sessions yet</span>
+          )}
+          {described ? <span className="sr-only">. {described}</span> : null}
+        </p>
+        <div className="workspace-home-agent-tools">
+          {onNewProjectTask ? (
+            <button
+              type="button"
+              aria-label={`New task in ${name}`}
+              title={`New task in ${name}`}
+              onClick={() => onNewProjectTask(project.path)}
+            >
+              <Plus size={13} />
+            </button>
+          ) : null}
+          <button
+            ref={moreRef}
+            type="button"
+            aria-label={`Customize ${name}`}
+            title={`Customize ${name}`}
+            aria-haspopup="dialog"
+            aria-expanded={customize != null}
+            onClick={() =>
+              setCustomize((open) => (open ? null : moreRef.current))
+            }
+          >
+            <MoreHorizontal size={13} />
+          </button>
+        </div>
+        {customize ? (
+          <ProjectCustomizePopover
+            path={project.path}
+            anchor={customize}
+            onClose={() => setCustomize(null)}
+          />
+        ) : null}
+      </li>
+    );
+  },
+  (a, b) =>
+    a.name === b.name &&
+    a.onSession === b.onSession &&
+    a.onProject === b.onProject &&
+    a.onNewProjectTask === b.onNewProjectTask &&
+    equalChromeData(a.project, b.project) &&
+    equalChromeData(a.status, b.status),
+);
+
+/** One session in a dashboard list: mark, title over a quiet line, aside. */
+function SessionRow({
+  cwd,
+  title,
+  line,
+  aside,
+  active = false,
+  attention,
+  outcome,
+  onClick,
+}: {
+  cwd: string;
+  title: string;
+  line: ReactNode;
+  aside: ReactNode;
+  active?: boolean;
+  attention?: HomeAttention["kind"];
+  outcome?: HomeFinished["kind"];
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="workspace-home-row"
+      data-attention={attention}
+      data-outcome={outcome}
+      onClick={onClick}
+    >
+      <span className="workspace-home-row-mark">
+        <HomeMark cwd={cwd} active={active} />
+        {outcome ? <OutcomeIcon kind={outcome} /> : null}
+      </span>
+      <span className="workspace-home-row-text">
+        <strong>{title}</strong>
+        <small>{line}</small>
+      </span>
+      <span className="workspace-home-row-aside">{aside}</span>
+    </button>
+  );
+}
+
+function OutcomeIcon({ kind }: { kind: HomeFinished["kind"] }) {
+  const Icon =
+    kind === "completed" ? CheckCircle : kind === "failed" ? CircleX : Square;
+  return (
+    <span className="workspace-home-outcome" data-outcome={kind}>
+      <Icon size={10} aria-hidden />
+      <span className="sr-only">{ATTENTION_LABEL[kind]}</span>
+    </span>
+  );
+}
+
 /** A session's project mark, or a quiet chat glyph for tasks without a project. */
 function HomeMark({ cwd, active = false }: { cwd: string; active?: boolean }) {
   const appearance = useProjectAppearance(cwd);
@@ -383,102 +827,88 @@ function HomeMark({ cwd, active = false }: { cwd: string; active?: boolean }) {
   );
 }
 
-function ProjectCard({
-  project,
-  name,
-  status,
-  onResume,
-  onNewTask,
+const USAGE_WINDOWS = [
+  ["session", "5-hour"],
+  ["weekly", "Weekly"],
+  ["monthly", "30-day"],
+] as const;
+
+/**
+ * The last usage the footer saved for each account. Read once when Home
+ * opens; Home never asks a provider itself.
+ */
+function UsagePanel({
+  providers,
+  headingId,
 }: {
-  project: HomeProject;
-  name: string;
-  status?: ProjectStatus;
-  onResume: () => void;
-  onNewTask?: () => void;
+  providers: readonly RateLimitProvider[];
+  headingId: string;
 }) {
-  const appearance = useProjectAppearance(project.path);
-  const described = describeProjectStatus(status);
+  const [saved] = useState(loadSavedRateLimits);
+  const accounts = providers.flatMap((provider) => {
+    const limits = saved[provider];
+    return limits ? [limits] : [];
+  });
+  if (!accounts.length) return null;
+  const asOf = Math.min(...accounts.map((account) => account.updatedAt));
   return (
-    <li
-      className="workspace-home-project"
-      style={
-        appearance
-          ? ({ "--project-color": appearance.color } as CSSProperties)
-          : undefined
-      }
-    >
-      <div className="workspace-home-project-head">
-        <span className="workspace-home-project-chip">
-          <ProjectMark
-            appearance={appearance}
-            active={(status?.running ?? 0) > 0}
-            className="project-mark-large"
-          />
-        </span>
-        <div className="workspace-home-project-name">
-          <h3 title={project.path}>{name}</h3>
-          <p>
-            {project.branch ? (
-              <span className="workspace-home-project-branch">
-                <GitBranch size={11} />
-                <span>{project.branch}</span>
-              </span>
-            ) : null}
-            {project.lastActivity ? (
-              <TimeAgo at={project.lastActivity} prefix="Active " />
-            ) : (
-              <span>No sessions yet</span>
-            )}
-          </p>
-        </div>
-      </div>
-      {project.resumeTitle ? (
-        <p className="workspace-home-project-last" title={project.resumeTitle}>
-          {project.resumeTitle}
+    <section className="workspace-home-section" aria-labelledby={headingId}>
+      <h2 id={headingId}>Usage</h2>
+      <div className="workspace-home-panel workspace-home-usage">
+        {accounts.map((account) => (
+          <UsageAccount key={account.provider} account={account} />
+        ))}
+        <p className="workspace-home-usage-note">
+          <TimeAgo at={asOf} prefix="Last checked " />
         </p>
-      ) : null}
-      {described ? (
-        <p className="workspace-home-project-status" title={described}>
-          {status?.running ? (
-            <span data-status="running">{status.running} running</span>
-          ) : null}
-          {status?.waiting ? (
-            <span data-status="waiting">{status.waiting} waiting</span>
-          ) : null}
-          {status?.unread ? (
-            <span data-status="unread">{status.unread} unread</span>
-          ) : null}
-          {status?.files ? (
-            <span data-status="files">
-              +{status.files} {status.files === 1 ? "file" : "files"}
+      </div>
+    </section>
+  );
+}
+
+function UsageAccount({ account }: { account: ProviderRateLimits }) {
+  const now = useMinuteClock();
+  const windows = USAGE_WINDOWS.flatMap(([key, label]) => {
+    const window = account[key] as RateLimitWindow | null | undefined;
+    return window ? [{ key, label, window }] : [];
+  });
+  return (
+    <div className="workspace-home-usage-account">
+      <h3>{HARNESS_TITLE[account.provider]}</h3>
+      {windows.map(({ key, label, window }) => {
+        const used = Math.round(Math.min(100, Math.max(0, window.usedPercent)));
+        const resets =
+          window.resetsAt != null && Number.isFinite(window.resetsAt)
+            ? formatResetDuration(window.resetsAt - now)
+            : null;
+        return (
+          <div className="workspace-home-usage-window" key={key}>
+            <span className="workspace-home-usage-label">{label}</span>
+            <span
+              className="workspace-home-usage-meter"
+              role="meter"
+              aria-label={`${HARNESS_TITLE[account.provider]} ${label.toLowerCase()} usage`}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={used}
+              data-high={used >= 80 || undefined}
+            >
+              <span style={{ width: `${Math.max(used, 2)}%` }} />
             </span>
-          ) : null}
-        </p>
-      ) : null}
-      <div className="workspace-home-project-actions">
-        <button
-          type="button"
-          onClick={onResume}
-          aria-label={
-            project.resumeTitle
-              ? `Resume ${project.resumeTitle} in ${name}`
-              : `Open ${name}`
-          }
-        >
-          {project.resumeId ? "Resume" : "Open"}
-        </button>
-        {onNewTask ? (
-          <button
-            type="button"
-            onClick={onNewTask}
-            aria-label={`New task in ${name}`}
-          >
-            <Plus size={13} />
-            New task
-          </button>
-        ) : null}
-      </div>
-    </li>
+            <span className="workspace-home-usage-value">
+              {formatUsagePercent(window.usedPercent)}
+              {resets ? (
+                <span className="workspace-home-usage-reset">
+                  {resets === "now"
+                    ? " · resets now"
+                    : ` · resets in ${resets}`}
+                </span>
+              ) : null}
+            </span>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

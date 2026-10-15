@@ -98,7 +98,11 @@ it("keeps its result through streaming flushes that change nothing shown", async
     sessions: [session("a", [user, reply("Hel")], true), session("b", [user])],
     inFlightIds: busy,
   });
-  expect(first.running.map((row) => row.id)).toEqual(["a"]);
+  expect(first.running).toMatchObject([{ id: "a", doing: "Writing a reply" }]);
+  expect(first.projects[0]).toMatchObject({
+    doing: "Writing a reply",
+    resumeId: "a",
+  });
   expect(first.recent.map((row) => row.id).sort()).toEqual(["a", "b"]);
   expect(first.projects.map((card) => card.path)).toEqual([APP, SITE]);
 
@@ -124,6 +128,12 @@ it("keeps its result through streaming flushes that change nothing shown", async
   expect(third.needsYou).toMatchObject([
     { id: "a", kind: "approval", detail: "Run npm test" },
   ]);
+  // The project's tile opens the waiting session and shows what it asks.
+  expect(third.projects[0]).toMatchObject({
+    path: APP,
+    resumeId: "a",
+    asking: "Run npm test",
+  });
 });
 
 it("does no work and returns one empty value while Home is hidden", async () => {
@@ -143,5 +153,6 @@ it("does no work and returns one empty value while Home is hidden", async () => 
     running: [],
     projects: [],
     recent: [],
+    finished: [],
   });
 });
