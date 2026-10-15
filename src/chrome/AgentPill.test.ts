@@ -238,10 +238,19 @@ describe("the agent pill", () => {
     await render();
     await act(async () => composer.focus());
     const press = () => keyOnWindow({ key: ".", metaKey: true });
-    expect((await press()).defaultPrevented).toBe(true);
-    expect(panel()).not.toBeNull();
-    // The menu command and the key can both arrive for one press.
-    await act(async () => window.dispatchEvent(new Event("open_model_picker")));
+    // The menu command and the key can both arrive for one press. They are
+    // sent together so a slow machine can't push them 80 ms apart.
+    const both = new KeyboardEvent("keydown", {
+      key: ".",
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => {
+      (document.activeElement ?? document.body).dispatchEvent(both);
+      window.dispatchEvent(new Event("open_model_picker"));
+    });
+    expect(both.defaultPrevented).toBe(true);
     expect(panel()).not.toBeNull();
     await new Promise((resolve) => setTimeout(resolve, 100));
     await press();
