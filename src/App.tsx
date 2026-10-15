@@ -8575,6 +8575,7 @@ export default function App({
       openHome: onOpenHome,
       showChanges: onShowSourceControl,
       hideChanges: onCloseInspector,
+      showWorkspace,
     },
     projects: recents,
     projectPanel: {

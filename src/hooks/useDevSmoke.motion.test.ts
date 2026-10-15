@@ -110,11 +110,12 @@ function app(flaws: Flaws = {}) {
       draw();
     }, REACTION_MS);
   }
-  const mark = (working: boolean) => {
+  // Home's large tiles run their own, bigger hop.
+  const mark = (working: boolean, hop = "project-mark-hop") => {
     if (reaction)
       return `<span class="project-mark" data-kind="mascot" data-reaction="${reaction}"><svg class="mascot-reacting" data-reaction="${reaction}"><g class="mascot-body" style="animation-name: mascot-${reaction}"></g></svg></span>`;
     if (working)
-      return `<span class="project-mark" data-kind="mascot" data-active="true"><svg class="mascot-active" style="animation-name: ${flaws.stillWhileWorking ? "none" : "project-mark-hop"}"></svg></span>`;
+      return `<span class="project-mark" data-kind="mascot" data-active="true"><svg class="mascot-active" style="animation-name: ${flaws.stillWhileWorking ? "none" : hop}"></svg></span>`;
     return `<span class="project-mark" data-kind="mascot"><svg></svg></span>`;
   };
   function draw() {
@@ -128,7 +129,7 @@ function app(flaws: Flaws = {}) {
         homeOpen
           ? `<section class="workspace-home">
               <ul>
-                <li class="workspace-home-agent" data-project-path="${PROJECT}" data-state="${working ? "running" : "idle"}">${mark(working)}</li>
+                <li class="workspace-home-agent" data-project-path="${PROJECT}" data-state="${working ? "running" : "idle"}">${mark(working, "workspace-home-agent-hop")}</li>
                 <li class="workspace-home-agent" data-project-path="/tmp/check/other" data-state="idle">${mark(false)}</li>
               </ul>
               ${working ? `<ul><li data-pulse="running"><button>1 agent working</button></li></ul>` : ""}

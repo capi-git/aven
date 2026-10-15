@@ -64,6 +64,8 @@ type SmokeMotion = {
   showChanges: () => void;
   /** Close the panel on the right. */
   hideChanges: () => void;
+  /** Leave Home and any utility view for the workspace. */
+  showWorkspace?: () => void;
 };
 
 /** How long the stand-in holds a turn open while the checks watch it. */
@@ -143,7 +145,10 @@ function homeAgentTile(path: string): HTMLElement | null {
  * in its working state, with its two-frame hop running unless reduced motion
  * stops it.
  */
-function workingMarkProblem(mark: Element | null): string | null {
+function workingMarkProblem(
+  mark: Element | null,
+  hop = "project-mark-hop",
+): string | null {
   if (!mark) return "is missing";
   if (mark.getAttribute("data-kind") !== "mascot") return "is not a mascot";
   if (!mark.hasAttribute("data-active")) return "is not in its working state";
@@ -151,7 +156,7 @@ function workingMarkProblem(mark: Element | null): string | null {
   if (!sprite) return "has no working sprite";
   return animationProblem(
     getComputedStyle(sprite).animationName,
-    "project-mark-hop",
+    hop,
     prefersReducedMotion(),
   );
 }
@@ -574,78 +579,98 @@ export async function runDevSmoke(
           typedTask.id,
           "Take a moment while Home is open.",
         );
-        motion.openHome();
-        const home = await waitFor(homeOnScreen, 5_000, "Home");
-        const tiles = [
-          ...home.querySelectorAll<HTMLElement>(
-            ".workspace-home-agent[data-project-path]",
-          ),
-        ];
-        if (tiles.length === 0) throw new Error("Home shows no agents");
-        const bare = tiles.filter(
-          (tile) => !tile.querySelector(".project-mark svg, .project-mark img"),
-        );
-        if (bare.length)
-          throw new Error(
-            `${bare.length} of ${tiles.length} agents have no mascot or logo`,
-          );
-        const tile = await waitFor(
-          () => {
-            const found = homeAgentTile(config.projectPath);
-            return found?.dataset.state === "running" && found;
-          },
-          5_000,
-          "the project's agent to show it is working",
-        );
-        const working = workingMarkProblem(tile.querySelector(".project-mark"));
-        if (working)
-          throw new Error(`On Home, the working agent's mark ${working}`);
-        const chip = await waitFor(
-          () => homeOnScreen()?.querySelector('[data-pulse="running"]'),
-          5_000,
-          "Right now to count the working agent",
-        );
-        const chipText = chip.textContent?.trim() ?? "";
-        if (!/^\d+ agents? working/.test(chipText))
-          throw new Error(`Right now reads "${chipText}"`);
-        await reply();
-        const recap = await waitFor(
-          () => homeOnScreen()?.querySelector(".workspace-home-today"),
-          5_000,
-          "today's recap",
-        );
-        const recapText = recap.textContent?.trim() ?? "";
-        if (!/^Today: \d+ tasks? done/.test(recapText))
-          throw new Error(`Today's recap reads "${recapText}"`);
-
-        const before = new Set(get().sessions.map((session) => session.id));
-        get().newProjectTask(config.projectPath);
-        const created = await waitFor(
-          () =>
-            get().sessions.find(
-              (session) =>
-                !before.has(session.id) &&
-                sameProjectPath(session.cwd, config.projectPath),
-            ),
-          5_000,
-          "the new task",
-        );
-        await waitFor(
-          () => !homeOnScreen() && workspaceOnScreen(),
-          5_000,
-          "Home to give way to the new task",
-        );
-        await waitFor(
-          () =>
-            visibleComposer()
-              ?.closest("[data-session-drop]")
-              ?.getAttribute("data-session-drop") === created.id,
-          5_000,
-          "the new task's message box",
-        );
-        return `${tiles.length} ${tiles.length === 1 ? "agent" : "agents"}; ${chipText}; ${recapText}`;
+        try {
+          return await homeChecks(reply);
+        } catch (error) {
+          // Leave the app as the later steps expect it: the turn finished and
+          // the workspace, not Home, on screen.
+          await reply().catch(() => undefined);
+          motion.showWorkspace?.();
+          throw error;
+        }
       },
     );
+
+  async function homeChecks(reply: () => Promise<unknown>) {
+    if (!motion || !typedTask)
+      throw new Error("Home checks need the workspace");
+    {
+      motion.openHome();
+      const home = await waitFor(homeOnScreen, 5_000, "Home");
+      const tiles = [
+        ...home.querySelectorAll<HTMLElement>(
+          ".workspace-home-agent[data-project-path]",
+        ),
+      ];
+      if (tiles.length === 0) throw new Error("Home shows no agents");
+      const bare = tiles.filter(
+        (tile) => !tile.querySelector(".project-mark svg, .project-mark img"),
+      );
+      if (bare.length)
+        throw new Error(
+          `${bare.length} of ${tiles.length} agents have no mascot or logo`,
+        );
+      const tile = await waitFor(
+        () => {
+          const found = homeAgentTile(config.projectPath);
+          return found?.dataset.state === "running" && found;
+        },
+        5_000,
+        "the project's agent to show it is working",
+      );
+      // Home's large tiles hop further than the sidebar's mark.
+      const working = workingMarkProblem(
+        tile.querySelector(".project-mark"),
+        "workspace-home-agent-hop",
+      );
+      if (working)
+        throw new Error(`On Home, the working agent's mark ${working}`);
+      const chip = await waitFor(
+        () => homeOnScreen()?.querySelector('[data-pulse="running"]'),
+        5_000,
+        "Right now to count the working agent",
+      );
+      const chipText = chip.textContent?.trim() ?? "";
+      if (!/^\d+ agents? working/.test(chipText))
+        throw new Error(`Right now reads "${chipText}"`);
+      await reply();
+      const recap = await waitFor(
+        () => homeOnScreen()?.querySelector(".workspace-home-today"),
+        5_000,
+        "today's recap",
+      );
+      const recapText = recap.textContent?.trim() ?? "";
+      if (!/^Today: \d+ tasks? done/.test(recapText))
+        throw new Error(`Today's recap reads "${recapText}"`);
+
+      const before = new Set(get().sessions.map((session) => session.id));
+      get().newProjectTask(config.projectPath);
+      const created = await waitFor(
+        () =>
+          get().sessions.find(
+            (session) =>
+              !before.has(session.id) &&
+              sameProjectPath(session.cwd, config.projectPath),
+          ),
+        5_000,
+        "the new task",
+      );
+      await waitFor(
+        () => !homeOnScreen() && workspaceOnScreen(),
+        5_000,
+        "Home to give way to the new task",
+      );
+      await waitFor(
+        () =>
+          visibleComposer()
+            ?.closest("[data-session-drop]")
+            ?.getAttribute("data-session-drop") === created.id,
+        5_000,
+        "the new task's message box",
+      );
+      return `${tiles.length} ${tiles.length === 1 ? "agent" : "agents"}; ${chipText}; ${recapText}`;
+    }
+  }
 
   // Parallel work in the Changes panel starts folded to its header line.
   if (safe && typedTask && motion)
