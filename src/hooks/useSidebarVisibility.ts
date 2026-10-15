@@ -21,8 +21,15 @@ export function useSidebarVisibility({
   allowNativeLayer: boolean;
 }) {
   // On macOS the hover peek is a native layer above live browser pages; the
-  // DOM peek below remains for other platforms and builds without it.
-  const floatingSidebarLayer = useFloatingSidebarLayer(allowNativeLayer);
+  // DOM peek below remains for other platforms and builds without it. While
+  // the sidebar is pinned its card cannot open, so the layer (a WebKit
+  // process of its own) is only created once the sidebar is first unpinned;
+  // the DOM peek covers the moment it takes to attach. Then it stays.
+  const [layerWanted, setLayerWanted] = useState(!pinned);
+  if (!pinned && !layerWanted) setLayerWanted(true);
+  const floatingSidebarLayer = useFloatingSidebarLayer(
+    allowNativeLayer && layerWanted,
+  );
   const nativeSidebar = floatingSidebarLayer !== null;
   // Rest on the edge briefly before revealing, so a pointer passing the edge
   // does not flash the sidebar; a short grace on leave absorbs the gap
