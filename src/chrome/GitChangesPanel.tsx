@@ -227,7 +227,7 @@ export function GitChangesPanel({
         onOpenAllChanges={onOpenAllChanges}
         onMutated={(paths) => {
           reload();
-          notifyGitChanged();
+          notifyGitChanged(cwd);
           invalidateWatchedFiles(paths);
           window.setTimeout(() => invalidateWatchedFiles(paths), 150);
         }}
@@ -551,7 +551,7 @@ function ChangedFiles({
     try {
       await gitPrSquashMerge(cwd, pr.number);
       onMutated();
-      notifyGitChanged();
+      notifyGitChanged(cwd);
       reloadPr();
     } catch (error) {
       fail(error);
@@ -1580,7 +1580,7 @@ function useDiffIndex(
           invalidateWatchedFiles(paths);
           publishing = true;
           try {
-            notifyGitChanged();
+            notifyGitChanged(cwd);
           } finally {
             publishing = false;
           }

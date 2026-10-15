@@ -220,7 +220,7 @@ export function WorkingTreeDiff({ cwd, focusPath, focusKind }: Props) {
       setBusyId(id);
       try {
         await gitStageFile(cwd, entry.file.relative);
-        notifyGitChanged();
+        notifyGitChanged(cwd);
       } finally {
         setBusyId(null);
       }
@@ -235,7 +235,7 @@ export function WorkingTreeDiff({ cwd, focusPath, focusKind }: Props) {
       setBusyId(id);
       try {
         await gitDiscardFile(cwd, entry.file.relative);
-        notifyGitChanged();
+        notifyGitChanged(cwd);
       } finally {
         setBusyId(null);
       }
@@ -261,7 +261,7 @@ export function WorkingTreeDiff({ cwd, focusPath, focusKind }: Props) {
       setBusyId(id);
       try {
         await gitStageContents(cwd, entry.file.relative, next);
-        notifyGitChanged();
+        notifyGitChanged(cwd);
       } finally {
         setBusyId(null);
       }

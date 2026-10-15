@@ -6132,7 +6132,7 @@ export default function App({
               activityTurnIds.current.delete(sessionId);
               failedActivityTurns.current.delete(sessionId);
               notifyReviewChanged(sessionId);
-              notifyGitChanged();
+              notifyGitChanged(workCwd);
               nudgeWorkspace(workCwd);
               nudgeWatchedFiles();
               window.setTimeout(() => nudgeWatchedFiles(), 150);
@@ -6769,7 +6769,7 @@ export default function App({
         }
         notifyReviewChanged(sessionId);
         nudgeWorkspace(sessionWorkCwd(session));
-        notifyGitChanged();
+        notifyGitChanged(sessionWorkCwd(session));
         nudgeWatchedFiles();
         window.setTimeout(() => nudgeWatchedFiles(), 150);
       } else {
@@ -9577,7 +9577,7 @@ function nudgeOpenEditors(event: HarnessEvent, cwd: string) {
     if (!completed) return;
     nudgeWatchedFiles();
     window.setTimeout(() => nudgeWatchedFiles(), 150);
-    notifyGitChanged();
+    notifyGitChanged(cwd);
     nudgeWorkspace(cwd);
     window.setTimeout(() => nudgeWorkspace(cwd), 150);
     return;
@@ -9602,7 +9602,7 @@ function nudgeOpenEditors(event: HarnessEvent, cwd: string) {
       () => nudgeWatchedFiles(resolved.length > 0 ? resolved : undefined),
       150,
     );
-    notifyGitChanged();
+    notifyGitChanged(cwd);
     nudgeWorkspace(cwd);
   }
 }
