@@ -1,6 +1,7 @@
 import type { ActivityEntry } from "./activity";
 import { basename } from "./fs";
-import { projectKey } from "./paths";
+import { composeToolTitle, isWeakToolTitle } from "./harness/preview";
+import { displayPath, projectKey } from "./paths";
 import {
   HARNESS_TITLE,
   sessionDisplayTitle,
@@ -29,6 +30,8 @@ export type HomeLiveSession = {
   running?: true;
   /** When the current turn started, for elapsed time. */
   startedAt?: number;
+  /** While running: what the agent is doing now, e.g. "Edit App.tsx". */
+  doing?: string;
   /** Paused on an approval or a question, with what it asks. */
   waiting?: { kind: "approval" | "question"; detail: string };
 };
@@ -61,6 +64,7 @@ export type HomeRunning = {
   title: string;
   cwd: string;
   startedAt?: number;
+  doing?: string;
 };
 
 export type HomeProject = {
@@ -69,9 +73,30 @@ export type HomeProject = {
   name: string;
   branch?: string;
   lastActivity?: number;
-  /** The project's most recent session, which Resume opens. */
+  /**
+   * The session the project opens to: one waiting on the user, else one at
+   * work, else the most recent.
+   */
   resumeId?: string;
   resumeTitle?: string;
+  /** What its newest running agent is doing now. */
+  doing?: string;
+  /** What a session in it is waiting on the user for. */
+  asking?: string;
+};
+
+/** A finished turn from the activity ledger. */
+export type HomeFinished = {
+  /** Activity entry id. */
+  id: string;
+  sessionId: string;
+  kind: "completed" | "failed" | "stopped";
+  title: string;
+  cwd: string;
+  /** First line of the reply. */
+  detail: string;
+  at: number;
+  unread: boolean;
 };
 
 /** Which folders belong to the workspace: its projects and its no-project folders. */
@@ -116,6 +141,44 @@ function pendingApproval(blocks: readonly Block[]): Block | undefined {
 }
 
 /**
+ * What a working session is doing now, from its current turn only: the
+ * latest tool call (worded as the live agents list words it), a reply being
+ * written, or thinking. A turn's earlier tools never stand in for it.
+ */
+export function currentActivity(session: Session): string {
+  const blocks = session.blocks;
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const block = blocks[i];
+    if (block.role === "user") break;
+    if (block.role === "reasoning") return "Thinking";
+    if (block.role === "assistant") return "Writing a reply";
+    if (block.role === "handoff" && block.handoff?.status === "preparing")
+      return "Preparing a handoff";
+    if (block.role !== "tool") continue;
+    const preview = block.tool?.preview;
+    const path = preview?.path
+      ? displayPath(preview.path, session.cwd)
+      : preview?.fileName;
+    const label = composeToolTitle({
+      kind: block.tool?.kind,
+      title: block.text || block.tool?.title,
+      path,
+      query: preview?.query,
+      previewKind: preview?.kind,
+      cwd: session.cwd,
+    });
+    // A bare verb ("Edit") gains the file it acts on; a bubble is narrow, so
+    // the file name rather than its path.
+    if (label && path && isWeakToolTitle(label))
+      return clip(`${label} ${basename(path)}`);
+    return clip(label || "Working");
+  }
+  if (!session.busy && session.liveAgents?.some(isActiveSessionAgent))
+    return "Background agents working";
+  return "Thinking";
+}
+
+/**
  * Running and waiting, as the sidebar's project status defines them
  * (`sessionProjectCounts`): waiting on any approval or question; running while
  * busy or with background agents, unless an approval or blocking question
@@ -147,6 +210,7 @@ function applyActivity(row: HomeLiveSession, session: Session) {
     !!session.busy || (session.liveAgents?.some(isActiveSessionAgent) ?? false);
   if (working && !approval && !isBlockingQuestion(question)) {
     row.running = true;
+    if (row.doing === undefined) row.doing = currentActivity(session);
     if (row.startedAt === undefined) {
       const startedAt = turnOf(session.blocks).startedAt;
       if (startedAt !== undefined) row.startedAt = startedAt;
@@ -330,6 +394,7 @@ export function homeRunning(
       ...(session.startedAt !== undefined
         ? { startedAt: session.startedAt }
         : {}),
+      ...(session.doing ? { doing: session.doing } : {}),
     }))
     .sort(
       (a, b) =>
@@ -339,14 +404,16 @@ export function homeRunning(
 }
 
 /**
- * One card per project, in the order given (the sidebar's): its latest
- * session to resume, the branch that session last saw, and when anything last
- * happened there, including activity from sessions not loaded.
+ * One tile per project, in the order given (the sidebar's): the session it
+ * opens to, what its agents are doing or asking, the branch its latest
+ * session saw, and when anything last happened there, including activity
+ * from sessions not loaded.
  */
 export function homeProjects(
   projects: readonly { path: string }[],
   recent: readonly HomeSession[],
   activity: readonly ActivityEntry[],
+  live: readonly HomeLiveSession[] = [],
 ): HomeProject[] {
   const latest = new Map<string, HomeSession>();
   const branches = new Map<string, string>();
@@ -354,6 +421,21 @@ export function homeProjects(
     const key = projectKey(session.cwd);
     if (!latest.has(key)) latest.set(key, session);
     if (session.branch && !branches.has(key)) branches.set(key, session.branch);
+  }
+  const working = new Map<string, HomeLiveSession>();
+  const waiting = new Map<string, HomeLiveSession>();
+  for (const session of live) {
+    const key = projectKey(session.cwd);
+    if (session.waiting) {
+      const prior = waiting.get(key);
+      if (!prior || session.updatedAt > prior.updatedAt)
+        waiting.set(key, session);
+    }
+    if (session.running) {
+      const prior = working.get(key);
+      if (!prior || (session.startedAt ?? 0) > (prior.startedAt ?? 0))
+        working.set(key, session);
+    }
   }
   const lastEvent = new Map<string, number>();
   for (const entry of activity) {
@@ -364,10 +446,13 @@ export function homeProjects(
   }
   return projects.map((project) => {
     const key = projectKey(project.path);
-    const session = latest.get(key);
+    const recentSession = latest.get(key);
+    const asking = waiting.get(key);
+    const doing = working.get(key);
+    const opens = asking ?? doing ?? recentSession;
     const branch = branches.get(key);
     const lastActivity = Math.max(
-      session?.updatedAt ?? 0,
+      recentSession?.updatedAt ?? 0,
       lastEvent.get(key) ?? 0,
     );
     return {
@@ -375,17 +460,73 @@ export function homeProjects(
       name: basename(project.path),
       ...(branch ? { branch } : {}),
       ...(lastActivity > 0 ? { lastActivity } : {}),
-      ...(session ? { resumeId: session.id, resumeTitle: session.title } : {}),
+      ...(opens ? { resumeId: opens.id, resumeTitle: opens.title } : {}),
+      ...(doing?.doing ? { doing: doing.doing } : {}),
+      ...(asking?.waiting ? { asking: asking.waiting.detail } : {}),
     };
   });
+}
+
+/** Finished turns in the workspace, newest first, from the activity ledger. */
+export function homeFinished(
+  activity: readonly ActivityEntry[],
+  scope: HomeScope,
+): HomeFinished[] {
+  const rows: HomeFinished[] = [];
+  for (const entry of activity) {
+    if (!FINISHED.has(entry.outcome) || !inHomeScope(scope, entry.cwd))
+      continue;
+    rows.push({
+      id: entry.id,
+      sessionId: entry.sessionId,
+      kind: entry.outcome as HomeFinished["kind"],
+      title: entry.title,
+      cwd: entry.cwd,
+      detail: clip(entry.summary),
+      at: entry.createdAt,
+      unread: entry.readAt === null,
+    });
+  }
+  return rows.sort(newestFirst);
+}
+
+/** Local midnight before `now`. */
+export function startOfDay(now: number): number {
+  const day = new Date(now);
+  day.setHours(0, 0, 0, 0);
+  return day.getTime();
+}
+
+/** Turns finished since local midnight, by outcome. */
+export function homeTodayCounts(
+  finished: readonly Pick<HomeFinished, "kind" | "at">[],
+  now: number,
+): { done: number; failed: number; stopped: number } {
+  const since = startOfDay(now);
+  const counts = { done: 0, failed: 0, stopped: 0 };
+  for (const row of finished) {
+    if (row.at < since || row.at > now + 60_000) continue;
+    if (row.kind === "completed") counts.done += 1;
+    else if (row.kind === "failed") counts.failed += 1;
+    else counts.stopped += 1;
+  }
+  return counts;
 }
 
 function plural(count: number, one: string, many: string): string {
   return `${count} ${count === 1 ? one : many}`;
 }
 
-/** "2 agents running · 1 needs you · 3 unread", or "" when nothing is. */
-export function homeSummary({
+function sentence(parts: readonly string[]): string {
+  if (parts.length < 2) return parts[0] ?? "";
+  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
+/**
+ * One line on what is happening: "2 agents are working and 1 thing needs
+ * you." When nothing is, an invitation to carry on.
+ */
+export function homeStatusLine({
   running,
   waiting,
   unread,
@@ -395,10 +536,28 @@ export function homeSummary({
   unread: number;
 }): string {
   const parts: string[] = [];
-  if (running) parts.push(`${plural(running, "agent", "agents")} running`);
-  if (waiting) parts.push(`${waiting} ${waiting === 1 ? "needs" : "need"} you`);
-  if (unread) parts.push(`${unread} unread`);
-  return parts.join(" · ");
+  if (running)
+    parts.push(
+      `${plural(running, "agent", "agents")} ${running === 1 ? "is" : "are"} working`,
+    );
+  if (waiting)
+    parts.push(
+      `${plural(waiting, "thing", "things")} ${waiting === 1 ? "needs" : "need"} you`,
+    );
+  if (unread)
+    parts.push(`${plural(unread, "new reply", "new replies")} to read`);
+  return parts.length
+    ? `${sentence(parts)}.`
+    : "All quiet — pick up where you left off.";
+}
+
+/** "Good morning" and so on, by the local hour. */
+export function homeGreeting(now: number): string {
+  const hour = new Date(now).getHours();
+  if (hour < 5) return "Working late";
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
 }
 
 /** "just now", "5m ago", "3h ago", "2d ago", then the date. */

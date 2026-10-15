@@ -4,6 +4,7 @@ import { projectRailItems, type RecentProject } from "../lib/recents";
 import type { Session } from "../lib/session";
 import type { SessionSummary } from "../lib/sessionStore";
 import {
+  homeFinished,
   homeLiveSessions,
   homeNeedsYou,
   homeProjects,
@@ -11,6 +12,7 @@ import {
   homeRunning,
   homeScope,
   type HomeAttention,
+  type HomeFinished,
   type HomeLiveSession,
   type HomeProject,
   type HomeRunning,
@@ -23,6 +25,8 @@ export type WorkspaceHomeData = {
   running: readonly HomeRunning[];
   projects: readonly HomeProject[];
   recent: readonly HomeSession[];
+  /** Finished turns, newest first, for Activity and Today. */
+  finished: readonly HomeFinished[];
 };
 
 const RECENT_ROWS = 24;
@@ -32,6 +36,7 @@ const EMPTY: WorkspaceHomeData = Object.freeze({
   running: Object.freeze([]),
   projects: Object.freeze([]),
   recent: Object.freeze([]),
+  finished: Object.freeze([]),
 });
 
 /**
@@ -92,16 +97,21 @@ export function useWorkspaceHomeData({
     [enabled, live, scope],
   );
   const cards = useMemo(
-    () => (enabled ? homeProjects(ordered, recent, activity) : EMPTY.projects),
-    [enabled, ordered, recent, activity],
+    () =>
+      enabled ? homeProjects(ordered, recent, activity, live) : EMPTY.projects,
+    [enabled, ordered, recent, activity, live],
+  );
+  const finished = useMemo(
+    () => (enabled ? homeFinished(activity, scope) : EMPTY.finished),
+    [enabled, activity, scope],
   );
   // Recent shows a few rows after leaving out those listed above it.
   const recentRows = useMemo(() => recent.slice(0, RECENT_ROWS), [recent]);
   return useMemo(
     () =>
       enabled
-        ? { needsYou, running, projects: cards, recent: recentRows }
+        ? { needsYou, running, projects: cards, recent: recentRows, finished }
         : EMPTY,
-    [enabled, needsYou, running, cards, recentRows],
+    [enabled, needsYou, running, cards, recentRows, finished],
   );
 }

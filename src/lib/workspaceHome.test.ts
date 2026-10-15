@@ -4,16 +4,21 @@ import { sessionProjectCounts } from "./projectStatus";
 import type { Session } from "./session";
 import type { SessionSummary } from "./sessionStore";
 import {
+  currentActivity,
   homeElapsed,
+  homeFinished,
+  homeGreeting,
   homeLiveSessions,
   homeNeedsYou,
   homeProjects,
   homeRecentSessions,
   homeRunning,
   homeScope,
-  homeSummary,
+  homeStatusLine,
   homeTimeAgo,
+  homeTodayCounts,
   inHomeScope,
+  startOfDay,
   type HomeLiveSession,
 } from "./workspaceHome";
 
@@ -109,7 +114,11 @@ describe("homeLiveSessions", () => {
       new Set(["run", "ask"]),
     );
     const byId = Object.fromEntries(rows.map((row) => [row.id, row]));
-    expect(byId.run).toMatchObject({ running: true, startedAt: 5_000 });
+    expect(byId.run).toMatchObject({
+      running: true,
+      startedAt: 5_000,
+      doing: "Thinking",
+    });
     expect(byId.run.waiting).toBeUndefined();
     expect(byId.ask).toMatchObject({
       waiting: { kind: "approval", detail: "Run npm test" },
@@ -187,6 +196,57 @@ describe("homeLiveSessions", () => {
         waiting: mine.filter((row) => row.waiting).length,
       }).toEqual(counts[path]);
     }
+  });
+});
+
+describe("currentActivity", () => {
+  const block = (overrides: object) =>
+    ({ id: "b", text: "", ...overrides }) as BlockList[number];
+
+  it("says what the current turn is doing, newest step first", () => {
+    const tool = block({
+      role: "tool",
+      tool: {
+        kind: "edit",
+        title: "Edit",
+        preview: { path: `${APP}/src/App.tsx` },
+      },
+    });
+    expect(currentActivity(session({ blocks: [user(1), tool] }))).toBe(
+      "Edit App.tsx",
+    );
+    const named = block({ role: "tool", tool: { title: "Run npm test" } });
+    expect(currentActivity(session({ blocks: [user(1), named] }))).toBe(
+      "Run npm test",
+    );
+    expect(
+      currentActivity(
+        session({ blocks: [user(1), tool, block({ role: "assistant" })] }),
+      ),
+    ).toBe("Writing a reply");
+    expect(
+      currentActivity(
+        session({ blocks: [user(1), block({ role: "reasoning" })] }),
+      ),
+    ).toBe("Thinking");
+  });
+
+  it("never reports a tool from an earlier turn", () => {
+    const old = block({ role: "tool", tool: { title: "Run npm test" } });
+    expect(currentActivity(session({ blocks: [user(1), old, user(2)] }))).toBe(
+      "Thinking",
+    );
+  });
+
+  it("names background agents when no turn is running", () => {
+    expect(
+      currentActivity(
+        session({
+          busy: false,
+          liveAgents: [{ id: "x", status: "running" }] as Session["liveAgents"],
+        }),
+      ),
+    ).toBe("Background agents working");
   });
 });
 
@@ -335,15 +395,117 @@ describe("homeProjects", () => {
   });
 });
 
+describe("homeProjects with live sessions", () => {
+  it("opens to what waits on the user, then what is at work, then the latest", () => {
+    const recent = homeRecentSessions(
+      [summary({ id: "latest", updatedAt: 50, title: "Latest" })],
+      [],
+      scope,
+    );
+    const [busy] = homeProjects(
+      [{ path: APP }],
+      recent,
+      [],
+      [
+        live({ id: "a", running: true, startedAt: 10, doing: "Read a.ts" }),
+        live({ id: "b", running: true, startedAt: 20, doing: "Edit b.ts" }),
+      ],
+    );
+    expect(busy).toMatchObject({
+      resumeId: "b",
+      doing: "Edit b.ts",
+    });
+    expect(busy.asking).toBeUndefined();
+    const [asking] = homeProjects(
+      [{ path: APP }],
+      recent,
+      [],
+      [
+        live({ id: "b", running: true, startedAt: 20, doing: "Edit b.ts" }),
+        live({
+          id: "q",
+          title: "Question",
+          waiting: { kind: "question", detail: "Which one?" },
+        }),
+      ],
+    );
+    expect(asking).toMatchObject({
+      resumeId: "q",
+      resumeTitle: "Question",
+      doing: "Edit b.ts",
+      asking: "Which one?",
+    });
+    const [quiet] = homeProjects([{ path: APP }], recent, [], []);
+    expect(quiet).toMatchObject({ resumeId: "latest" });
+  });
+});
+
+describe("finished turns", () => {
+  it("lists the workspace's finished turns, newest first, marking unread ones", () => {
+    const rows = homeFinished(
+      [
+        entry({ id: "1", sessionId: "a", createdAt: 10, readAt: 11 }),
+        entry({ id: "2", sessionId: "b", createdAt: 30, outcome: "failed" }),
+        entry({ id: "3", sessionId: "c", createdAt: 20, outcome: "approval" }),
+        entry({ id: "4", sessionId: "d", createdAt: 40, cwd: OTHER }),
+        entry({
+          id: "5",
+          sessionId: "a",
+          createdAt: 25,
+          summary: "Line one\nmore",
+        }),
+      ],
+      scope,
+    );
+    expect(rows.map((row) => [row.id, row.kind, row.unread])).toEqual([
+      ["2", "failed", true],
+      ["5", "completed", true],
+      ["1", "completed", false],
+    ]);
+    expect(rows[1].detail).toBe("Line one more");
+  });
+
+  it("counts today's turns from local midnight", () => {
+    const now = new Date(2026, 9, 15, 14, 30).getTime();
+    const midnight = startOfDay(now);
+    expect(midnight).toBe(new Date(2026, 9, 15).getTime());
+    expect(
+      homeTodayCounts(
+        [
+          { kind: "completed", at: now - 60_000 },
+          { kind: "completed", at: midnight + 1 },
+          { kind: "failed", at: midnight + 2 },
+          { kind: "stopped", at: midnight + 3 },
+          { kind: "completed", at: midnight - 1 },
+        ],
+        now,
+      ),
+    ).toEqual({ done: 2, failed: 1, stopped: 1 });
+  });
+});
+
 describe("text", () => {
-  it("summarizes what is happening, or nothing when quiet", () => {
-    expect(homeSummary({ running: 2, waiting: 1, unread: 3 })).toBe(
-      "2 agents running · 1 needs you · 3 unread",
+  it("says what is happening in a sentence, or that it is quiet", () => {
+    expect(homeStatusLine({ running: 2, waiting: 1, unread: 3 })).toBe(
+      "2 agents are working, 1 thing needs you and 3 new replies to read.",
     );
-    expect(homeSummary({ running: 1, waiting: 2, unread: 0 })).toBe(
-      "1 agent running · 2 need you",
+    expect(homeStatusLine({ running: 1, waiting: 0, unread: 1 })).toBe(
+      "1 agent is working and 1 new reply to read.",
     );
-    expect(homeSummary({ running: 0, waiting: 0, unread: 0 })).toBe("");
+    expect(homeStatusLine({ running: 0, waiting: 2, unread: 0 })).toBe(
+      "2 things need you.",
+    );
+    expect(homeStatusLine({ running: 0, waiting: 0, unread: 0 })).toBe(
+      "All quiet — pick up where you left off.",
+    );
+  });
+
+  it("greets by the local hour", () => {
+    const at = (hour: number) => new Date(2026, 9, 15, hour).getTime();
+    expect(homeGreeting(at(3))).toBe("Working late");
+    expect(homeGreeting(at(9))).toBe("Good morning");
+    expect(homeGreeting(at(13))).toBe("Good afternoon");
+    expect(homeGreeting(at(20))).toBe("Good evening");
   });
 
   it("formats times at minute resolution", () => {
