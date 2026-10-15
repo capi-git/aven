@@ -9,6 +9,7 @@
 
 ### Changed
 
+- Aven's windows open faster. The workspace loads about a third less code before it appears, and the floating sidebar and the usage, access and menu popups load less than half of what they did. The code highlighter now loads with the first code block, and Settings, Search, Inbox, Automations, Notes and the command palette load in the background just after startup.
 - Switching between chats, tabs and the browser, showing or hiding the sidebar, and opening or closing Settings are faster: measured in the speed test, Settings takes about a third less time, the sidebar about a fifth less, and the slowest tab switches about a quarter less. Aven no longer stops to measure the window in the middle of these changes, and opening Settings no longer restyles the whole workspace.
 
 ### Fixed
