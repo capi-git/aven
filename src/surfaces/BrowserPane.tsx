@@ -66,6 +66,8 @@ import {
 } from "../lib/browserPresentation";
 import "./BrowserPane.css";
 import type { Attachment } from "../lib/session";
+import { useProjectAppearance } from "../hooks/useProjectAppearance";
+import { ProjectMark } from "../chrome/ProjectMark";
 
 export type BrowserPaneProps = {
   id: string;
@@ -84,9 +86,27 @@ export type BrowserPaneProps = {
   onOpenTab?: (url: string, background: boolean) => void;
   expanded?: boolean;
   onToggleExpand?: () => void;
+  /** The project this browser belongs to; its mark sits beside the address. */
+  project?: string;
 };
 
 const BROWSER_ACTIONS_WIDTH = 224;
+
+/** The owning project's mark, named in its tooltip. Projectless pages show none. */
+function BrowserProjectMark({ project }: { project?: string }) {
+  const appearance = useProjectAppearance(project);
+  if (!appearance) return null;
+  return (
+    <span
+      className="browser-project-mark"
+      role="img"
+      aria-label={`Project ${appearance.label}`}
+      title={appearance.label}
+    >
+      <ProjectMark appearance={appearance} />
+    </span>
+  );
+}
 
 function browserMenuPosition(button: HTMLButtonElement) {
   const rect = button.getBoundingClientRect();
@@ -126,6 +146,7 @@ function BrowserPaneSession({
   onNativeReady,
   expanded = false,
   onToggleExpand,
+  project,
 }: BrowserPaneProps) {
   const [url, setUrl] = useState(() => startsWithUrl(initialUrl));
   const [address, setAddress] = useState(initialUrl ?? "");
@@ -1323,6 +1344,7 @@ function BrowserPaneSession({
             {loading && !error ? <X size={14} /> : <RefreshCw size={14} />}
           </button>
         </div>
+        <BrowserProjectMark project={project} />
         <input
           ref={addressInput}
           className="browser-address"

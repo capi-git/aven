@@ -90,6 +90,23 @@ html.theme-light .personal-shell {
 .personal-shell .personal-title-tab[data-active="true"]::after {
   content: none;
 }
+/* The active tab carries its project's colour as a short underline, so the
+   project in front is always named. A tab group's colour wins inside it. */
+.personal-shell
+  .personal-title-tab-slot:not([data-tab-group])
+  > .personal-title-tab[data-active="true"][data-project-accent="true"]
+  .personal-title-tab-button::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--tab-project-color);
+  opacity: 0.8;
+  pointer-events: none;
+}
 .personal-shell
   .personal-title-tab[data-visible="true"][data-active="false"]
   .personal-title-tab-button {

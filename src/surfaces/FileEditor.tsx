@@ -398,7 +398,7 @@ export function FileEditor({
       try {
         await operation;
         await syncWatchedMtime(path);
-        notifyGitChanged();
+        notifyGitChanged(path);
         if (generation === saveGeneration.current) {
           setSaveState({ status: "saved" });
         }
@@ -429,7 +429,7 @@ export function FileEditor({
           relative,
           restoreLineEnding(contents, gitDiff.lineEnding),
         );
-        notifyGitChanged();
+        notifyGitChanged(cwd);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         setSaveState({ status: "error", message });

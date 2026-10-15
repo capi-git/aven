@@ -1000,6 +1000,7 @@ export function DetachedWorkspace() {
       content: (
         <BrowserPane
           id={browser.id}
+          project={browser.project}
           attachedNativeId={browser.nativeId}
           initialUrl={browser.url}
           agentRequested={agentRequestedBrowsers.has(browser.id)}

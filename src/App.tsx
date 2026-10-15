@@ -63,6 +63,7 @@ import {
 import { PersonalInspectorDock } from "./chrome/PersonalInspectorDock";
 import { WorkspaceHome } from "./surfaces/WorkspaceHome";
 import { useNativeFloatingSidebar } from "./hooks/useNativeFloatingSidebar";
+import { useProjectStatus } from "./hooks/useProjectStatus";
 import { useSidebarVisibility } from "./hooks/useSidebarVisibility";
 import { useSidebarData } from "./hooks/useSidebarData";
 import { useSessionModelControls } from "./hooks/useSessionModelControls";
@@ -6132,7 +6133,7 @@ export default function App({
               activityTurnIds.current.delete(sessionId);
               failedActivityTurns.current.delete(sessionId);
               notifyReviewChanged(sessionId);
-              notifyGitChanged();
+              notifyGitChanged(workCwd);
               nudgeWorkspace(workCwd);
               nudgeWatchedFiles();
               window.setTimeout(() => nudgeWatchedFiles(), 150);
@@ -6769,7 +6770,7 @@ export default function App({
         }
         notifyReviewChanged(sessionId);
         nudgeWorkspace(sessionWorkCwd(session));
-        notifyGitChanged();
+        notifyGitChanged(sessionWorkCwd(session));
         nudgeWatchedFiles();
         window.setTimeout(() => nudgeWatchedFiles(), 150);
       } else {
@@ -8255,6 +8256,11 @@ export default function App({
     );
   };
 
+  const projectStatus = useProjectStatus({
+    sessions,
+    activity: activityEntries,
+    projectPaths: profiles.profileProjects.map((project) => project.path),
+  });
   const sidebarProps: Omit<
     SidebarProps,
     "open" | "floating" | "hoverHandlers"
@@ -8330,9 +8336,7 @@ export default function App({
     selectedCommitSha: activeTab ? selectedCommitSha(activeTab) : undefined,
     textHarness: pickTextHarness(active?.harness),
     recents: profiles.profileProjects,
-    busyProjectPaths: sessions.flatMap((session) =>
-      isInFlightSession(session) && session.cwd ? [session.cwd] : [],
-    ),
+    projectStatus,
     liveAgents,
     onSelectAgent: onSelectLiveAgent,
     onSelectProject,
@@ -9577,7 +9581,7 @@ function nudgeOpenEditors(event: HarnessEvent, cwd: string) {
     if (!completed) return;
     nudgeWatchedFiles();
     window.setTimeout(() => nudgeWatchedFiles(), 150);
-    notifyGitChanged();
+    notifyGitChanged(cwd);
     nudgeWorkspace(cwd);
     window.setTimeout(() => nudgeWorkspace(cwd), 150);
     return;
@@ -9602,7 +9606,7 @@ function nudgeOpenEditors(event: HarnessEvent, cwd: string) {
       () => nudgeWatchedFiles(resolved.length > 0 ? resolved : undefined),
       150,
     );
-    notifyGitChanged();
+    notifyGitChanged(cwd);
     nudgeWorkspace(cwd);
   }
 }

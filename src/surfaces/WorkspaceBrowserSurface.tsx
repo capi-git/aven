@@ -76,6 +76,7 @@ export const WorkspaceBrowserSurface = memo(function WorkspaceBrowserSurface({
   return (
     <RetainedBrowserPane
       id={id}
+      project={project}
       initialUrl={url}
       attachedNativeId={attachedNativeId}
       visible={visible}

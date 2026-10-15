@@ -156,7 +156,7 @@ export function BranchPicker({
       : gitCheckout(cwd, pending.name, pending.remote);
 
   const finishSwitch = () => {
-    notifyGitChanged();
+    notifyGitChanged(cwd);
     onChangeRef.current?.();
     dismiss(true);
   };

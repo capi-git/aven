@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { basename, revealPath } from "../lib/fs";
 import { projectName } from "../lib/paths";
 import {
@@ -10,22 +10,23 @@ import {
   projectDisplayName,
   useProjectLabels,
 } from "../hooks/useProjectLabels";
-import type { WorkspaceProfile } from "../lib/workspaceProfiles";
 import {
-  ChevronDown,
-  ChevronRight,
-  Folder,
-  MoreHorizontal,
-  Plus,
-} from "./icons";
+  describeProjectStatus,
+  type ProjectStatus,
+} from "../lib/projectStatus";
+import type { WorkspaceProfile } from "../lib/workspaceProfiles";
+import { ChevronDown, ChevronRight, MoreHorizontal, Plus } from "./icons";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
+import { ProjectCustomizePopover } from "./ProjectCustomizePopover";
+import { ProjectMark } from "./ProjectMark";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
 
 type Props = {
   path: string;
   active: boolean;
   expanded: boolean;
-  busy?: boolean;
+  /** Agents, questions, unread replies and changed files in this project. */
+  status?: ProjectStatus;
   profiles: readonly WorkspaceProfile[];
   activeProfileId: string;
   onSelect: () => void;
@@ -41,7 +42,7 @@ export function PersonalProjectRow({
   path,
   active,
   expanded,
-  busy,
+  status,
   profiles,
   activeProfileId,
   onSelect,
@@ -62,10 +63,13 @@ export function PersonalProjectRow({
     anchor?: HTMLElement;
   } | null>(null);
   const [removing, setRemoving] = useState(false);
+  const [customizing, setCustomizing] = useState(false);
+  const rowRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (visible) return;
     setMenu(null);
     setRemoving(false);
+    setCustomizing(false);
   }, [visible]);
   const label = projectDisplayName(
     path,
@@ -80,6 +84,7 @@ export function PersonalProjectRow({
       id: "pin",
       label: isPinned ? "Unpin project" : "Pin project",
     },
+    { kind: "item", id: "customize", label: "Customize project…" },
     { kind: "item", id: "reveal", label: "Reveal in Finder" },
     ...(onMove
       ? profiles
@@ -110,14 +115,20 @@ export function PersonalProjectRow({
     const rect = event.currentTarget.getBoundingClientRect();
     setMenu({ x: rect.left, y: rect.bottom });
   };
+  const running = (status?.running ?? 0) > 0;
+  const summary = describeProjectStatus(status);
   return (
     <>
-      <div className="personal-project-row" data-active={active || undefined}>
+      <div
+        ref={rowRef}
+        className="personal-project-row"
+        data-active={active || undefined}
+      >
         <button
           type="button"
           className="personal-project-open"
-          title={path}
-          aria-label={`Open ${label} project`}
+          title={summary ? `${summary}\n${path}` : path}
+          aria-label={`Open ${label} project${summary ? `, ${summary}` : ""}`}
           onClick={onSelect}
           onContextMenu={(event) => {
             event.preventDefault();
@@ -125,17 +136,13 @@ export function PersonalProjectRow({
           }}
           onKeyDown={contextKey}
         >
-          <Folder
-            className="personal-project-symbol size-3.5"
-            strokeWidth={1.75}
+          <ProjectMark
+            path={path}
+            active={running}
+            className="personal-project-symbol"
           />
-          <span>{label}</span>
-          {busy ? (
-            <span
-              className="personal-task-working-dot"
-              aria-label="Task running"
-            />
-          ) : null}
+          <span className="personal-project-label">{label}</span>
+          <ProjectRowStatus status={status} />
         </button>
         <button
           type="button"
@@ -189,6 +196,7 @@ export function PersonalProjectRow({
           onPick={(id) => {
             setMenu(null);
             if (id === "open") onSelect();
+            else if (id === "customize") setCustomizing(true);
             else if (id === "reveal") void revealPath(path);
             else if (id === "archive") onRemove?.(path, { purgeData: false });
             else if (id === "delete") setRemoving(true);
@@ -204,6 +212,13 @@ export function PersonalProjectRow({
           }}
         />
       ) : null}
+      {customizing ? (
+        <ProjectCustomizePopover
+          path={path}
+          anchor={rowRef}
+          onClose={() => setCustomizing(false)}
+        />
+      ) : null}
       {removing ? (
         <RemoveProjectDialog
           name={label}
@@ -216,5 +231,26 @@ export function PersonalProjectRow({
         />
       ) : null}
     </>
+  );
+}
+
+/**
+ * Quiet, right-aligned status: an amber dot while something waits for the
+ * user, the unread reply count, and the changed-file count. A running agent
+ * shows on the mark itself (or as the accent dot beside a logo).
+ */
+function ProjectRowStatus({ status }: { status?: ProjectStatus }) {
+  if (!status) return null;
+  const { running, waiting, unread, files } = status;
+  if (!running && !waiting && !unread && !files) return null;
+  return (
+    <span className="personal-project-status" aria-hidden>
+      {running ? <span className="personal-project-running" /> : null}
+      {waiting ? <span className="personal-project-waiting" /> : null}
+      {unread ? (
+        <span className="personal-project-unread">{unread}</span>
+      ) : null}
+      {files ? <span className="personal-project-files">+{files}</span> : null}
+    </span>
   );
 }

@@ -197,3 +197,69 @@ it("lets a nested dialog handle Escape before closing Search", async () => {
     vi.unstubAllGlobals();
   }
 });
+
+it("marks a project hit with the project's own logo, not its folder path", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const data = new Map([
+    [
+      "monocode:tab-group:logos",
+      JSON.stringify({ "/Users/me/Developer/gamma": "/logos/gamma.png" }),
+    ],
+  ]);
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => data.get(key) ?? null,
+    setItem: (key: string, value: string) => data.set(key, value),
+  });
+  vi.stubGlobal("__TAURI_INTERNALS__", {
+    convertFileSrc: (path: string) => `asset://localhost${path}`,
+  });
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () =>
+      root.render(
+        createElement(SearchView, {
+          open: true,
+          cwd: "/project",
+          recents: [
+            { path: "/Users/me/Developer/gamma", openedAt: 2 },
+            { path: "/Users/me/Developer/gamut", openedAt: 1 },
+          ],
+          history: [],
+          sessions: [],
+          onClose: vi.fn(),
+          onOpenFile: vi.fn(),
+          onOpenSession: vi.fn(),
+          onOpenProject: vi.fn(),
+        }),
+      ),
+    );
+    const input = container.querySelector(
+      'input[aria-label="Search"]',
+    )! as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, "gam");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 230));
+    });
+    const sources = [...container.querySelectorAll("img")].map(
+      (image) => image.getAttribute("src") ?? "",
+    );
+    expect(sources.some((src) => src.includes("/logos/gamma.png"))).toBe(true);
+    expect(sources.some((src) => src.includes("/Developer/gam"))).toBe(false);
+    // A project without a logo shows its mascot.
+    expect(
+      container.querySelector('.project-mark[data-kind="mascot"]'),
+    ).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  }
+});
