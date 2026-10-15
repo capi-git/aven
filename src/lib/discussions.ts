@@ -390,6 +390,7 @@ export type DiscussionBlocker =
   | "question"
   | "working"
   | "queued"
+  | "card"
   | "switching";
 
 /** Completes "“Title” …" or "This chat …". */
@@ -400,6 +401,7 @@ export const BLOCKER_PHRASE: Record<DiscussionBlocker, string> = {
   question: "has a question for you",
   working: "is busy with another turn",
   queued: "has your messages queued",
+  card: "has a card waiting to be sent",
   switching: "is switching providers",
 };
 
@@ -411,6 +413,7 @@ export const BLOCKER_LABEL: Record<DiscussionBlocker, string> = {
   question: "Has a question",
   working: "Working",
   queued: "Messages queued",
+  card: "Card waiting",
   switching: "Switching provider",
 };
 
@@ -419,6 +422,9 @@ function turnBlocker(session: Session): DiscussionBlocker | null {
   if (session.pendingQuestion) return "question";
   if (session.busy) return "working";
   if (session.queuedMessages?.length) return "queued";
+  // A relay is sent like a message, which would use up the chip.
+  if (session.handoffCard || session.noteCard || session.inboxCard)
+    return "card";
   if (isPreparingHandoff(session)) return "switching";
   return null;
 }

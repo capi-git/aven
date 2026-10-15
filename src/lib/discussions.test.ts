@@ -321,6 +321,20 @@ describe("planning the broker's work", () => {
     });
   });
 
+  it("pauses rather than using up a card waiting in the composer", () => {
+    const carded = [
+      chat("chat-a", {
+        noteCard: { id: "n", slug: "n", title: "Note", body: "" },
+      } as Partial<Session>),
+      chat("chat-b"),
+    ];
+    expect(planDiscussions([fresh()], "main", carded, new Set())[0]).toEqual({
+      kind: "pause",
+      id: "d1",
+      reason: "“Caching plan” has a card waiting to be sent.",
+    });
+  });
+
   it("pauses when a chat is no longer open here", () => {
     expect(
       planDiscussions([fresh()], "main", [chat("chat-a")], new Set()),
