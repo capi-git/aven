@@ -357,7 +357,7 @@ def static_page_server(folder):
             server.kill()
 
 
-def perf(keep=False, compare=None):
+def perf(keep=False, compare=None, only=None):
     """Run Aven Dev's speed test and print what each scenario cost."""
     # macOS scans a newly signed app on its first launch (about 1.5 s here),
     # which users pay once per update. Absorb it so launch time is Aven's own.
@@ -371,7 +371,10 @@ def perf(keep=False, compare=None):
     try:
         child_env = host_scoped_environment()
         with production_preview_server(child_env), static_page_server(root / 'site') as page_url:
-            (root / 'perf.json').write_text(json.dumps({'pageUrl': page_url}))
+            settings = {'pageUrl': page_url}
+            if only:
+                settings['only'] = [part.strip() for part in only.split(',') if part.strip()]
+            (root / 'perf.json').write_text(json.dumps(settings))
             ensure_not_running()
             print('Running the speed test in a throwaway profile (a few minutes)...', flush=True)
             app_env = {
@@ -505,6 +508,8 @@ def main():
     parser.add_argument('--perf', action='store_true',
                         help='Run the speed test (production interface, throwaway profile) and print what each scenario cost')
     parser.add_argument('--perf-compare', metavar='FILE', help='A saved speed test result to compare against')
+    parser.add_argument('--perf-only', metavar='NAMES',
+                        help='Comma-separated parts of scenario names to run, e.g. "switching,sidebar,Settings"')
     args = parser.parse_args()
     doctor()
     if args.doctor:
@@ -525,7 +530,7 @@ def main():
             if not smoke(keep=args.keep_smoke_folder):
                 raise RuntimeError('The real-app check failed.')
         elif args.perf:
-            if not perf(keep=args.keep_smoke_folder, compare=args.perf_compare):
+            if not perf(keep=args.keep_smoke_folder, compare=args.perf_compare, only=args.perf_only):
                 raise RuntimeError('The speed test did not finish cleanly.')
         elif not args.build_only:
             launch()

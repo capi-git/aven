@@ -46,6 +46,8 @@ type PerfSettings = {
   streamChunks?: number;
   /** Seconds of idle to measure. */
   idleSeconds?: number;
+  /** Run only scenarios whose names contain one of these (setup always runs). */
+  only?: string[];
 };
 
 export type ScenarioResult = {
@@ -165,8 +167,14 @@ export async function runDevPerf(
   const scenario = async (
     name: string,
     body: (measure: Measure) => Promise<void>,
-    options: { frames?: boolean } = {},
+    options: { frames?: boolean; setup?: boolean } = {},
   ) => {
+    if (
+      settings.only?.length &&
+      !options.setup &&
+      !settings.only.some((part) => name.includes(part))
+    )
+      return;
     const before = await sampleProcesses();
     const frames = options.frames === false ? null : recordFrames(refreshMs);
     const longTasks = recordLongTasks();
@@ -264,12 +272,16 @@ export async function runDevPerf(
     refreshMs = await measureRefresh();
 
     // Several chats with real transcripts, so switching and memory reflect use.
-    await scenario("open six chats with replies", async (measure) => {
-      for (let index = 0; index < 6; index += 1) {
-        const id = await openChat(measure);
-        await turn(id, `Explain the change. AVEN_PERF_STREAM 120`, 1);
-      }
-    });
+    await scenario(
+      "open six chats with replies",
+      async (measure) => {
+        for (let index = 0; index < 6; index += 1) {
+          const id = await openChat(measure);
+          await turn(id, `Explain the change. AVEN_PERF_STREAM 120`, 1);
+        }
+      },
+      { setup: true },
+    );
 
     const streaming = chatIds[chatIds.length - 1];
     await scenario("agent streaming a long reply", async () => {
