@@ -6,7 +6,6 @@ import {
   type DownloadEvent,
   type Update,
 } from "@tauri-apps/plugin-updater";
-import { prepareUpdateRestart } from "./appLifecycle";
 import { lockUpdateInput } from "./updateInputLock";
 import { announceUpdateAvailable } from "./sounds";
 import { forgetInstalledUpdate, rememberInstalledUpdate } from "./updateNotice";
@@ -363,6 +362,10 @@ export function installPendingUpdate(
     let installed = pendingInstalled;
     let installerPrepared = false;
     try {
+      // Imported here because the floating sidebar's window shares this
+      // module but only mirrors the workspace's updater; a static import
+      // brought every agent harness into that window's startup.
+      const { prepareUpdateRestart } = await import("./appLifecycle");
       // Acquires the native restart guard and saves drafts/session state. It
       // refuses active tasks and extra windows, without stopping their work.
       if (!(await prepareUpdateRestart())) {

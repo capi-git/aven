@@ -10,7 +10,16 @@ const directory = resolve(process.argv[2] ?? "dist");
 const manifest = JSON.parse(
   readFileSync(resolve(directory, ".vite/manifest.json"), "utf8"),
 );
-const roots = ["index.html", "src/App.tsx"];
+// Vite keys App's chunk by its source file only while the chunk exports just
+// App's own exports. Once lazily loaded views import shared modules from it,
+// the key is the chunk's file name, so find it by chunk name as well.
+const appKey =
+  "src/App.tsx" in manifest
+    ? "src/App.tsx"
+    : Object.keys(manifest).find(
+        (key) => manifest[key].isDynamicEntry && manifest[key].name === "App",
+      );
+const roots = ["index.html", appKey ?? "src/App.tsx"];
 const visited = new Set();
 function visit(key) {
   if (visited.has(key)) return;

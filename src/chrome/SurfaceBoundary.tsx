@@ -41,6 +41,12 @@ export class SurfaceBoundary extends Component<Props, State> {
     logError(`Couldn't load the ${this.props.label} view`, error);
   }
 
+  override componentWillUnmount() {
+    // A slot that closed after a failure, such as a quiet overlay with no
+    // Retry, loads its view again the next time it opens.
+    if (this.state.failed) retryFailedLazyImports();
+  }
+
   retry = () => {
     retryFailedLazyImports();
     this.setState({ failed: false });

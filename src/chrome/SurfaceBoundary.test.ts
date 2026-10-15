@@ -97,3 +97,34 @@ it("clears a failure when the slot moves on, and stays silent when quiet", async
   await renderSlot(true, "c", true);
   expect(container.innerHTML).toBe("");
 });
+
+it("loads a quiet slot's view again the next time the slot opens", async () => {
+  const load = vi
+    .fn<() => Promise<typeof View>>()
+    .mockRejectedValueOnce(new Error("Failed to fetch dynamically imported"))
+    .mockResolvedValue(View);
+  const Lazy = retryableLazy(load);
+  const renderSlot = (open: boolean) =>
+    act(async () =>
+      root.render(
+        open
+          ? createElement(
+              SurfaceBoundary,
+              { label: "command palette", quiet: true },
+              createElement(
+                Suspense,
+                { fallback: null },
+                createElement(Lazy, { text: "Palette" }),
+              ),
+            )
+          : null,
+      ),
+    );
+
+  await renderSlot(true);
+  expect(container.innerHTML).toBe("");
+  await renderSlot(false);
+  await renderSlot(true);
+  expect(load).toHaveBeenCalledTimes(2);
+  expect(container.textContent).toBe("Palette");
+});

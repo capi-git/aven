@@ -183,7 +183,9 @@
   cursor: default;
 }
 .provider-setup button:focus-visible,
-.provider-setup summary:focus-visible {
+.provider-setup summary:focus-visible,
+/* Settings' own focus ring loads after this file; this one still wins there. */
+.settings-view .provider-setup :is(button, summary):focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 3px;
 }
