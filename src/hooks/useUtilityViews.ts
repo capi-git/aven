@@ -71,6 +71,17 @@ export function useUtilityViews() {
     setNotesViewOpen(false);
   }, []);
 
+  /**
+   * Leave Home and close every utility, so the workspace, and whatever was
+   * just opened or started in it, is on screen. Actions that open or start a
+   * chat, browser or terminal from outside the workspace (the sidebar, Home,
+   * the Inbox or Notes) use this; a utility left over Home returns to Home.
+   */
+  const showWorkspace = useCallback(() => {
+    closeUtilityViews();
+    setHomeViewOpen(false);
+  }, [closeUtilityViews]);
+
   const captureUtilityFocus = useCallback(() => {
     if (
       !settingsOpenRef.current &&
@@ -231,6 +242,7 @@ export function useUtilityViews() {
     restoreReturnFocus,
     clearReturnFocus,
     closeUtilityViews,
+    showWorkspace,
     onOpenSearch,
     onLeaveSearch,
     onOpenInbox,
