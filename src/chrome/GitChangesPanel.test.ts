@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   squashMerge: vi.fn(),
   ask: vi.fn(),
   history: vi.fn(),
+  graph: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -52,7 +53,10 @@ vi.mock("./GitCopies", () => ({ GitCopies: () => null }));
 vi.mock("./GitHousekeeping", () => ({ GitHousekeeping: () => null }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: mocks.ask }));
 vi.mock("./GitHistoryGraph", () => ({
-  GitHistoryGraph: () => null,
+  GitHistoryGraph: (props: unknown) => {
+    mocks.graph(props);
+    return null;
+  },
   GraphResizeSash: () => null,
   GRAPH_PANEL_DEFAULT: 240,
   GRAPH_PANEL_MIN: 120,
@@ -571,6 +575,28 @@ describe("Ship it", () => {
     );
     expect(container.querySelector('[aria-label="Ship it"]')).toBeNull();
     expect(shipButton()).toBeDefined();
+  });
+
+  it("lets the history yield its room to the flow until it is opened again", async () => {
+    index.files = [changed("a.ts", false, true)];
+    await render();
+    const graph = () =>
+      mocks.graph.mock.lastCall?.[0] as {
+        expanded: boolean;
+        onToggleExpanded: () => void;
+      };
+    expect(graph().expanded).toBe(true);
+    await act(async () => shipButton()!.click());
+    expect(graph().expanded).toBe(false);
+    await act(async () => graph().onToggleExpanded());
+    expect(graph().expanded).toBe(true);
+    expect(container.querySelector('[aria-label="Ship it"]')).not.toBeNull();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Close Ship it"]')!
+        .click(),
+    );
+    expect(graph().expanded).toBe(true);
   });
 
   it("opens the flow for a request made for this folder elsewhere", async () => {

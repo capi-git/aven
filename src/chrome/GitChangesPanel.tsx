@@ -106,6 +106,9 @@ function confirmNative(message: string, okLabel?: string): Promise<boolean> {
   });
 }
 
+/** An open Ship flow, and the conversation it describes when one was named. */
+type ShipState = { sessionId?: string };
+
 let stagedOpen = true;
 let changesOpen = true;
 let graphOpen = true;
@@ -166,9 +169,30 @@ export function GitChangesPanel({
   const graphRef = useRef<HTMLDivElement>(null);
   const [graphHeight, setGraphHeight] = useState(loadGraphPanelHeight);
   const [graphExpanded, setGraphExpanded] = useState(graphOpen);
+  // Ship it: open from the button here, or from a request elsewhere (a
+  // finished turn's changes in the chat) for this folder.
+  const [ship, setShipState] = useState<ShipState | null>(null);
+  // The Ship card takes the history's room when it opens, until the history
+  // is opened again; the history's own setting is left as it was.
+  const [historyYields, setHistoryYields] = useState(false);
+  const setShip = useCallback((next: ShipState | null) => {
+    setShipState(next);
+    setHistoryYields(next !== null);
+  }, []);
+  useEffect(() => {
+    if (!enabled) return;
+    const pick = () => {
+      const request = takeShipRequest(cwd);
+      if (request) setShip({ sessionId: request.sessionId });
+    };
+    pick();
+    return subscribeShipRequests(pick);
+  }, [cwd, enabled, setShip]);
+  const historyShown = graphExpanded && !(ship && historyYields);
   const showHistory = useCallback(() => {
     graphOpen = true;
     setGraphExpanded(true);
+    setHistoryYields(false);
     window.requestAnimationFrame(() => {
       const graph = graphRef.current;
       graph?.scrollIntoView({ block: "nearest" });
@@ -222,6 +246,8 @@ export function GitChangesPanel({
         lastCommit={lastCommit}
         now={now}
         noGit={noGit}
+        ship={ship}
+        onShipChange={setShip}
         onShowHistory={showHistory}
         onOpenBranchPicker={onOpenBranchPicker}
         onWorktrees={onWorktrees}
@@ -234,7 +260,7 @@ export function GitChangesPanel({
           window.setTimeout(() => invalidateWatchedFiles(paths), 150);
         }}
       />
-      {graphExpanded && !clean ? (
+      {historyShown && !clean ? (
         <GraphResizeSash
           height={graphHeight}
           onHeightPaint={setGraphHeight}
@@ -253,23 +279,24 @@ export function GitChangesPanel({
         ref={graphRef}
         hidden={noGit}
         className={`overflow-hidden border-t border-content/10 ${
-          !graphExpanded
+          !historyShown
             ? "h-7 shrink-0"
             : clean
               ? "min-h-40 flex-1"
               : "min-h-0 shrink-0"
         }`}
-        style={graphExpanded && !clean ? { height: graphHeight } : undefined}
+        style={historyShown && !clean ? { height: graphHeight } : undefined}
       >
         <GitHistoryGraph
           cwd={cwd}
           enabled={enabled}
-          expanded={graphExpanded}
+          expanded={historyShown}
           selectedSha={selectedSha}
           branch={index ? index.branch : undefined}
           onToggleExpanded={() => {
-            graphOpen = !graphExpanded;
+            graphOpen = !historyShown;
             setGraphExpanded(graphOpen);
+            setHistoryYields(false);
           }}
           onOpenCommit={onOpenCommit}
         />
@@ -291,6 +318,8 @@ function ChangedFiles({
   lastCommit,
   now,
   noGit,
+  ship,
+  onShipChange,
   onShowHistory,
   onOpenBranchPicker,
   onWorktrees,
@@ -310,6 +339,8 @@ function ChangedFiles({
   lastCommit: GitHistoryCommit | null;
   now: number;
   noGit: boolean;
+  ship: ShipState | null;
+  onShipChange: (ship: ShipState | null) => void;
   onShowHistory: () => void;
   onOpenBranchPicker?: (anchor: HTMLButtonElement) => void;
   onWorktrees: (worktrees: Parameters<typeof currentCopyLabel>[0]) => void;
@@ -335,18 +366,6 @@ function ChangedFiles({
   );
   const largest = useMemo(() => largestChurn(files), [files]);
   const totals = useMemo(() => lineTotals(files), [files]);
-  // Ship it: open from the button here, or from a request elsewhere (a
-  // finished turn's changes in the chat) for this folder.
-  const [ship, setShip] = useState<{ sessionId?: string } | null>(null);
-  useEffect(() => {
-    if (!enabled) return;
-    const pick = () => {
-      const request = takeShipRequest(cwd);
-      if (request) setShip({ sessionId: request.sessionId });
-    };
-    pick();
-    return subscribeShipRequests(pick);
-  }, [cwd, enabled]);
   const onShipBusy = useCallback((shipping: boolean) => {
     setBusy((current) =>
       shipping ? (current ?? "ship") : current === "ship" ? null : current,
@@ -637,7 +656,7 @@ function ChangedFiles({
             onBusyChange={onShipBusy}
             onMutated={onMutated}
             onPrChanged={reloadPr}
-            onClose={() => setShip(null)}
+            onClose={() => onShipChange(null)}
           />
         ) : files.length === 0 && index ? (
           <CleanState
@@ -656,7 +675,7 @@ function ChangedFiles({
             additions={totals.additions}
             deletions={totals.deletions}
             disabled={!!busy}
-            onShip={() => setShip({})}
+            onShip={() => onShipChange({})}
           />
         ) : null}
         <div className={files.length === 0 || ship ? "hidden" : "relative"}>
