@@ -3,13 +3,12 @@ import type {
   HighlightResult,
   ThemeInput,
 } from "@streamdown/code";
+import type { BundledLanguage } from "shiki";
 import {
-  bundledLanguages,
-  bundledLanguagesInfo,
-  createHighlighter,
-  type BundledLanguage,
-} from "shiki";
-import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
+  CODE_LANGUAGES,
+  isCodeLanguage,
+  normalizeCodeLanguage,
+} from "../lib/codeLanguages";
 
 /**
  * `@streamdown/code` keeps every token result in a module-level Map that is
@@ -22,6 +21,9 @@ import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
  *
  * Mounted blocks hold their tokens in component state, so eviction only means
  * a remounted block briefly shows plain text while it is highlighted again.
+ *
+ * Shiki itself loads with the first block to highlight rather than with every
+ * window; until then blocks show plain text, as they do while a language loads.
  */
 const DEFAULT_THEMES: [ThemeInput, ThemeInput] = [
   "github-light",
@@ -30,26 +32,15 @@ const DEFAULT_THEMES: [ThemeInput, ThemeInput] = [
 const MAX_ENTRIES = 100;
 const MAX_CACHED_CHARS = 500_000;
 
-type Highlighter = Awaited<ReturnType<typeof createHighlighter>>;
+type Highlighter = Awaited<
+  ReturnType<typeof import("shiki").createHighlighter>
+>;
 type HighlightCallback = (result: HighlightResult) => void;
 
 export type BoundedCodePlugin = CodeHighlighterPlugin & {
   /** Number of token results currently cached. */
   cachedResults(): number;
 };
-
-const engine = createJavaScriptRegexEngine({ forgiving: true });
-const aliases: Record<string, string> = Object.fromEntries(
-  bundledLanguagesInfo.flatMap((info) =>
-    (info.aliases ?? []).map((alias) => [alias, info.id]),
-  ),
-);
-const supported = new Set(Object.keys(bundledLanguages));
-
-function normalizeLanguage(language: string): string {
-  const lower = language.trim().toLowerCase();
-  return aliases[lower] ?? lower;
-}
 
 function themeName(theme: ThemeInput): string {
   return typeof theme === "string" ? theme : (theme.name ?? "custom");
@@ -74,7 +65,11 @@ export function createBoundedCodePlugin(
     const key = `${themeName(pair[0])}\u0000${themeName(pair[1])}`;
     let highlighter = highlighters.get(key);
     if (!highlighter) {
-      highlighter = createHighlighter({ themes: pair, langs: [], engine });
+      // A failed load is forgotten, so the next block tries Shiki again.
+      highlighter = import("./shikiHighlighter").then(
+        ({ createHighlighter, engine }) =>
+          createHighlighter({ themes: pair, langs: [], engine }),
+      );
       highlighters.set(key, highlighter);
       highlighter.catch(() => highlighters.delete(key));
     }
@@ -98,12 +93,12 @@ export function createBoundedCodePlugin(
   return {
     name: "shiki",
     type: "code-highlighter",
-    supportsLanguage: (language) => supported.has(normalizeLanguage(language)),
-    getSupportedLanguages: () => Array.from(supported) as BundledLanguage[],
+    supportsLanguage: (language) => isCodeLanguage(language),
+    getSupportedLanguages: () => [...CODE_LANGUAGES] as BundledLanguage[],
     getThemes: () => themes,
     cachedResults: () => results.size,
     highlight({ code, language, themes: pair }, callback) {
-      const lang = normalizeLanguage(language);
+      const lang = normalizeCodeLanguage(language);
       const names = [themeName(pair[0]), themeName(pair[1])] as const;
       const key = `${lang}\u0000${names[0]}\u0000${names[1]}\u0000${code}`;
       const cached = results.get(key);
@@ -122,7 +117,7 @@ export function createBoundedCodePlugin(
       void highlighterFor(pair)
         .then(async (highlighter) => {
           if (
-            supported.has(lang) &&
+            isCodeLanguage(lang) &&
             !highlighter.getLoadedLanguages().includes(lang)
           ) {
             await highlighter.loadLanguage(lang as BundledLanguage);

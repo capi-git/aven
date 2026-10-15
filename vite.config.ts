@@ -31,6 +31,12 @@ function perfReactHook(): Plugin {
 // met first. Only packages that load together belong in one group; lazily
 // loaded parts (editor and highlighter languages, themes, Mermaid diagrams)
 // keep their own chunks so the boot path does not grow.
+//
+// Rollup also moves every static dependency of a grouped module into its
+// group. Shiki is not grouped for that reason: a vendor-shiki group took the
+// HTML utilities Streamdown shares with it, so the workspace loaded the whole
+// highlighter (and Oniguruma's 600 KB inlined WebAssembly) at startup. Shiki
+// now loads through `shikiHighlighter.ts` with the first code block.
 const VENDOR_CHUNKS: [string, RegExp][] = [
   ["vendor-react", /\/node_modules\/(react|react-dom|scheduler)\//],
   ["vendor-tauri", /\/node_modules\/@tauri-apps\//],
@@ -39,13 +45,15 @@ const VENDOR_CHUNKS: [string, RegExp][] = [
     "vendor-codemirror",
     /\/node_modules\/(codemirror|@codemirror\/(state|view|language|commands|search|autocomplete|lint|merge)|@lezer\/(common|highlight|lr)|@marijn\/find-cluster-break|crelt|style-mod|w3c-keyname)\//,
   ],
-  [
-    "vendor-shiki",
-    /\/node_modules\/(shiki|@shikijs\/(core|engine-oniguruma|engine-javascript|vscode-textmate|types)|oniguruma-to-es|oniguruma-parser|regex|regex-recursion|regex-utilities)\//,
-  ],
 ];
 
+// Vite's dynamic import helper is a dependency of every package that loads
+// parts lazily, so a vendor group could take it in and put itself on every
+// window's startup path (vendor-shiki did). Keep it in a tiny chunk of its own.
+const PRELOAD_HELPER = "\0vite/preload-helper.js";
+
 function vendorChunk(id: string): string | undefined {
+  if (id === PRELOAD_HELPER) return "preload-helper";
   for (const [name, pattern] of VENDOR_CHUNKS) {
     if (pattern.test(id)) return name;
   }
