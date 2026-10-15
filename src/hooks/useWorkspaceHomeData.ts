@@ -1,5 +1,11 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { ActivityEntry } from "../lib/activity";
+import {
+  completedDays,
+  loadStreakDays,
+  mergeDays,
+  noteActiveDays,
+} from "../lib/activityStreak";
 import { projectRailItems, type RecentProject } from "../lib/recents";
 import type { Session } from "../lib/session";
 import type { SessionSummary } from "../lib/sessionStore";
@@ -27,6 +33,8 @@ export type WorkspaceHomeData = {
   recent: readonly HomeSession[];
   /** Finished turns, newest first, for Activity and Today. */
   finished: readonly HomeFinished[];
+  /** Days with a completed task in any workspace, oldest first, for the streak. */
+  activeDays: readonly string[];
 };
 
 const RECENT_ROWS = 24;
@@ -37,6 +45,7 @@ const EMPTY: WorkspaceHomeData = Object.freeze({
   projects: Object.freeze([]),
   recent: Object.freeze([]),
   finished: Object.freeze([]),
+  activeDays: Object.freeze([]),
 });
 
 /**
@@ -107,11 +116,35 @@ export function useWorkspaceHomeData({
   );
   // Recent shows a few rows after leaving out those listed above it.
   const recentRows = useMemo(() => recent.slice(0, RECENT_ROWS), [recent]);
+  // The ledger keeps only its newest entries; days it shows are remembered
+  // so the streak outlives them. The ledger changes at turn ends, not flushes.
+  const ledgerDays = useMemo(
+    () => (enabled ? completedDays(activity) : EMPTY.activeDays),
+    [enabled, activity],
+  );
+  const days = useMemo(
+    () =>
+      enabled ? mergeDays(loadStreakDays(), ledgerDays) : EMPTY.activeDays,
+    [enabled, ledgerDays],
+  );
+  const stableDays = useRef(days);
+  if (!equalChromeData(stableDays.current, days)) stableDays.current = days;
+  const activeDays = stableDays.current;
+  useEffect(() => {
+    if (enabled && ledgerDays.length) noteActiveDays(ledgerDays);
+  }, [enabled, ledgerDays]);
   return useMemo(
     () =>
       enabled
-        ? { needsYou, running, projects: cards, recent: recentRows, finished }
+        ? {
+            needsYou,
+            running,
+            projects: cards,
+            recent: recentRows,
+            finished,
+            activeDays,
+          }
         : EMPTY,
-    [enabled, needsYou, running, cards, recentRows, finished],
+    [enabled, needsYou, running, cards, recentRows, finished, activeDays],
   );
 }

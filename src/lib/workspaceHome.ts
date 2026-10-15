@@ -513,6 +513,23 @@ export function homeTodayCounts(
   return counts;
 }
 
+/**
+ * Today's recap: turns finished since local midnight by outcome, and how many
+ * projects saw a task done.
+ */
+export function homeTodayRecap(
+  finished: readonly Pick<HomeFinished, "kind" | "at" | "cwd">[],
+  now: number,
+): { done: number; failed: number; stopped: number; projects: number } {
+  const counts = homeTodayCounts(finished, now);
+  const since = startOfDay(now);
+  const projects = new Set<string>();
+  for (const row of finished)
+    if (row.kind === "completed" && row.at >= since && row.at <= now + 60_000)
+      projects.add(projectKey(row.cwd));
+  return { ...counts, projects: projects.size };
+}
+
 /** "Good morning" and so on, by the local hour. */
 export function homeGreeting(now: number): string {
   const hour = new Date(now).getHours();

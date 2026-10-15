@@ -202,6 +202,233 @@ html.has-chat-background .workspace-home::before {
   background: var(--color-red-400);
 }
 
+/* Today: the streak and what finished, one quiet line under the greeting. */
+.workspace-home-recap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  margin: 8px 0 0;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  font-variant-numeric: tabular-nums;
+}
+
+.workspace-home-streak {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-content);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Eight pixels at 2px each, like the mascots. */
+.workspace-home-streak-flame {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.workspace-home-streak-body {
+  fill: var(--color-amber-400);
+}
+
+.workspace-home-streak-core {
+  fill: color-mix(in srgb, var(--color-amber-400) 35%, white);
+}
+
+/* Today has no task yet: the streak is alive but waiting. */
+.workspace-home-streak[data-pending] {
+  color: var(--aven-muted);
+  font-weight: 500;
+}
+
+.workspace-home-streak[data-pending] .workspace-home-streak-flame {
+  opacity: 0.5;
+  filter: saturate(0.5);
+}
+
+.workspace-home .workspace-home-today {
+  margin: -2px -6px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+}
+
+.workspace-home .workspace-home-today:hover:not(:disabled) {
+  color: var(--color-content);
+}
+
+/* While you were away: a card at the top after time away, until dismissed. */
+.workspace-home-briefing {
+  margin-bottom: 22px;
+  padding: 10px 10px 12px 14px;
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: var(--aven-radius-card, 12px);
+  background: var(--aven-glass-card, var(--aven-hover));
+  box-shadow:
+    var(--aven-glass-sheen, none), var(--aven-glass-card-shadow, none);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .workspace-home-briefing {
+    animation: workspace-home-briefing-in 220ms ease-out both;
+  }
+}
+
+@keyframes workspace-home-briefing-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.workspace-home-briefing-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.workspace-home .workspace-home-briefing-head h2 {
+  margin: 0;
+  color: var(--color-content);
+  font-size: var(--text-ui-body);
+  white-space: nowrap;
+}
+
+.workspace-home-briefing-since {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-home .workspace-home-briefing-dismiss {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  border-radius: 7px;
+  color: var(--aven-muted);
+}
+
+.workspace-home .workspace-home-briefing-dismiss:hover:not(:disabled) {
+  color: var(--color-content);
+}
+
+.workspace-home-briefing-list {
+  display: grid;
+  gap: 8px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workspace-home-briefing-list > li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.workspace-home-briefing-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  height: 18px;
+  color: var(--aven-muted);
+}
+
+[data-kind="finished"] > .workspace-home-briefing-icon {
+  color: color-mix(in srgb, var(--color-content) 30%, var(--color-emerald-400));
+}
+
+[data-kind="waiting"] > .workspace-home-briefing-icon {
+  color: var(--color-amber-400);
+}
+
+.workspace-home-briefing-body {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-ui-label);
+  line-height: 18px;
+}
+
+.workspace-home-briefing-body > p {
+  margin: 0;
+  color: var(--color-content);
+}
+
+.workspace-home-briefing-quiet {
+  color: var(--aven-muted);
+}
+
+.workspace-home-briefing-rows {
+  display: grid;
+  gap: 1px;
+  margin: 4px 0 0 -6px;
+  padding: 0;
+  list-style: none;
+}
+
+.workspace-home-briefing-rows button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 26px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  color: var(--color-content);
+  text-align: left;
+}
+
+.workspace-home-briefing-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-home-briefing-failed {
+  flex: none;
+  color: color-mix(in srgb, var(--color-content) 40%, var(--color-red-400));
+  font-size: var(--text-ui-caption);
+}
+
+.workspace-home-briefing-ref {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-home .workspace-home-briefing-link {
+  padding: 0;
+  border-radius: 4px;
+  color: color-mix(in srgb, var(--color-content) 35%, var(--color-amber-400));
+  font-weight: 600;
+}
+
+.workspace-home .workspace-home-briefing-link:hover:not(:disabled) {
+  background: none;
+  text-decoration: underline;
+}
+
 /* Your agents: each project's mascot, large, with what it is up to. */
 .workspace-home-agents {
   display: grid;
@@ -281,9 +508,55 @@ html.has-chat-background .workspace-home::before {
   );
 }
 
+/* A resting mascot dims; its "zzz" stays readable beside it. */
 .workspace-home-agent[data-state="resting"] .workspace-home-agent-figure {
+  background: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--project-color) 9%, transparent),
+    transparent
+  );
+}
+
+.workspace-home-agent[data-state="resting"] .workspace-home-agent-mark {
   opacity: 0.45;
   filter: saturate(0.4);
+}
+
+/* Thirteen pixels across at 2px each, above the mascot's right shoulder. It
+   drifts up into place once when the tile appears, then stays still. */
+.workspace-home-agent-zzz {
+  position: absolute;
+  top: -8px;
+  right: -16px;
+  width: 26px;
+  height: 24px;
+  color: var(--aven-muted);
+  pointer-events: none;
+}
+
+.workspace-home-agent-zzz path:nth-child(1) {
+  opacity: 0.5;
+}
+
+.workspace-home-agent-zzz path:nth-child(2) {
+  opacity: 0.75;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .workspace-home-agent-zzz {
+    animation: workspace-home-zzz 900ms steps(3, jump-end) both;
+  }
+}
+
+@keyframes workspace-home-zzz {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .workspace-home-agent .project-mark.workspace-home-agent-mark {
