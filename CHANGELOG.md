@@ -6,6 +6,7 @@
 
 - Each project has its own colour and mark, so you can tell at a glance which project you are in. Sidebar rows show the project's logo, or its pixel mascot in the project colour; the active chat tab is underlined in the project colour (a tab group's own colour still wins inside the group); and a project's browser shows its mark beside the address. Choose **Customize project…** from a project's actions to set its name, colour, mascot and logo, or reset them. Changes show in every window at once, including the floating sidebar.
 - Sidebar project rows show what is happening without opening the project: the mascot moves while an agent works, an amber dot means something is waiting for you, a number counts unread replies, and +N counts changed files. Hover the row for the details.
+- Home now shows your own work instead of a generic welcome. Under the workspace name, one line says what is happening (for example "2 agents running · 1 needs you · 3 unread"). Below it, **Needs you** lists chats waiting for an approval or an answer and replies you have not read, **Running now** lists agents at work and how long they have been going, each project gets a card with its mark, branch, status, changed files and last activity, plus **Resume** (its latest chat) and **New task**, and **Recent sessions** shows where you left off. Home no longer redraws while an agent streams unless something it shows changes.
 
 ### Changed
 
