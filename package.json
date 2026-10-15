@@ -23,6 +23,7 @@
     "dev:doctor": "bash scripts/with-dev-env.sh python3 scripts/dev-aven.py --doctor",
     "dev:app": "bash scripts/with-dev-env.sh python3 scripts/dev-aven.py",
     "check:app": "bash scripts/with-dev-env.sh python3 scripts/dev-aven.py --smoke",
+    "perf:app": "bash scripts/with-dev-env.sh python3 scripts/dev-aven.py --perf",
     "lint": "oxlint src",
     "format": "prettier --write src",
     "format:check": "prettier --check src"

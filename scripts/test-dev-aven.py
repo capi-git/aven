@@ -365,11 +365,28 @@ class RealAppCheck(unittest.TestCase):
                                '--session-id', 'SID'], input=requests, capture_output=True, text=True, timeout=10)
         messages = [json.loads(line) for line in chat.stdout.splitlines()]
         self.assertEqual([m['type'] for m in messages],
-                         ['system', 'control_response', 'user', 'stream_event', 'assistant', 'result'])
+                         ['system', 'control_response', 'user', 'stream_event', 'stream_event',
+                          'assistant', 'result'])
+        self.assertEqual(messages[3]['event']['type'], 'message_start')
         self.assertEqual(messages[1]['response']['request_id'], 'aven_2')
         self.assertTrue(messages[2]['isReplay'])
         self.assertEqual(messages[-1]['result'], 'AVEN_SMOKE_OK')
         self.assertTrue(all(m.get('session_id', 'SID') == 'SID' for m in messages))
+
+    def test_stand_in_streams_a_long_reply_for_the_speed_test(self):
+        stand_in = self.root / 'home/.local/bin/claude'
+        request = {'type': 'user', 'uuid': 'turn-2',
+                   'message': {'role': 'user', 'content': [{'type': 'text', 'text': 'Go. AVEN_PERF_STREAM 5'}]}}
+        chat = subprocess.run([str(stand_in), '--input-format', 'stream-json'],
+                              input=json.dumps(request) + '\n', capture_output=True, text=True, timeout=10)
+        messages = [json.loads(line) for line in chat.stdout.splitlines()]
+        deltas = [m['event']['delta']['text'] for m in messages
+                  if m['type'] == 'stream_event' and m['event']['type'] == 'content_block_delta']
+        # Five chunks, then the word the checks look for.
+        self.assertEqual(len(deltas), 6)
+        self.assertEqual(deltas[-1], 'AVEN_SMOKE_OK')
+        final = next(m for m in messages if m['type'] == 'assistant')
+        self.assertEqual(final['message']['content'][0]['text'], ''.join(deltas))
 
     def test_unmarked_folders_are_never_removed(self):
         other = Path(tempfile.mkdtemp())

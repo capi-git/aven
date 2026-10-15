@@ -289,6 +289,315 @@ def smoke(keep=False):
             print(f'Kept the check\'s folder for inspection: {root}', flush=True)
 
 
+PERF_MARKER = '.aven-perf'
+PERF_TIMEOUT = 900
+PERF_PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>Speed test page</title>
+<style>body{font:16px/1.5 -apple-system,system-ui,sans-serif;max-width:760px;margin:40px auto;padding:0 16px;color:#222}
+pre{background:#f4f4f4;padding:12px;border-radius:6px;overflow:auto}</style></head><body>
+<h1>Speed test page</h1>
+""" + "\n".join(
+    f"<h2>Section {index}</h2><p>Aven's speed test opens this page in the built-in browser and switches to it and "
+    f"away from it. The page is plain and static so the numbers reflect Aven, not the page.</p>"
+    f"<pre>function section{index}(rows) {{ return rows.filter(Boolean).map(String); }}</pre>"
+    for index in range(1, 41)
+) + "</body></html>"
+
+
+@contextmanager
+def production_preview_server(child_env):
+    """Serve a production build of the interface, as releases run it."""
+    require(port_is_available(), f'Port {PORT} is in use. Close its owning preview first; no process was stopped.')
+    out_dir = ROOT / 'target/perf-dist'
+    log_path = ROOT / 'target/aven-perf-vite.log'
+    with log_path.open('w') as log:
+        subprocess.run(['npx', 'vite', 'build', '--outDir', str(out_dir), '--emptyOutDir'],
+                       cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, check=True,
+                       env={**child_env, 'VITE_AVEN_PERF': '1'})
+        server = subprocess.Popen(['npx', 'vite', 'preview', '--outDir', str(out_dir),
+                                   '--host', '127.0.0.1', '--port', str(PORT), '--strictPort'],
+                                  cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
+                                  env=child_env, start_new_session=True)
+        try:
+            for _ in range(100):
+                require(server.poll() is None, f'Preview server stopped; inspect {log_path}')
+                try:
+                    with urllib.request.urlopen(f'http://127.0.0.1:{PORT}', timeout=.2) as response:
+                        if response.status == 200:
+                            break
+                except (OSError, TimeoutError):
+                    time.sleep(.1)
+            else:
+                raise RuntimeError(f'Preview server did not become ready; inspect {log_path}')
+            yield server
+        finally:
+            if server.poll() is None:
+                os.killpg(server.pid, signal.SIGTERM)
+                try:
+                    server.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
+
+
+@contextmanager
+def static_page_server(folder):
+    """A local web page for the browser scenarios; nothing leaves this Mac."""
+    with socket.socket() as probe:
+        probe.bind(('127.0.0.1', 0))
+        port = probe.getsockname()[1]
+    server = subprocess.Popen([sys.executable, '-m', 'http.server', str(port), '--bind', '127.0.0.1',
+                               '--directory', str(folder)],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    try:
+        yield f'http://127.0.0.1:{port}/index.html'
+    finally:
+        server.terminate()
+        try:
+            server.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            server.kill()
+
+
+def webkit_content_pids(since):
+    """WebKit content processes started after `since` (epoch seconds)."""
+    pids = []
+    out = subprocess.run(['ps', '-axo', 'pid=,lstart=,comm='], capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 7 or not parts[-1].endswith('com.apple.WebKit.WebContent'):
+            continue
+        try:
+            started = time.mktime(time.strptime(' '.join(parts[1:6]), '%a %b %d %H:%M:%S %Y'))
+        except ValueError:
+            continue
+        if started >= since - 1:
+            pids.append(int(parts[0]))
+    return pids
+
+
+def profile_scenario(root, name, launched, seconds=8):
+    """Sample the interface's WebKit processes while one scenario runs."""
+    marks = root / 'marks.log'
+    deadline = time.time() + PERF_TIMEOUT
+    while time.time() < deadline:
+        if marks.is_file() and any(line.startswith('start:') and name in line
+                                   for line in marks.read_text().splitlines()):
+            break
+        time.sleep(.1)
+    else:
+        return []
+    outputs = []
+    samplers = []
+    for pid in webkit_content_pids(launched):
+        out = ROOT / f'target/perf/sample-{pid}.txt'
+        samplers.append(subprocess.Popen(['/usr/bin/sample', str(pid), str(seconds), '1', '-mayDie', '-file', str(out)],
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+        outputs.append(out)
+    for sampler in samplers:
+        sampler.wait()
+    return outputs
+
+
+def summarize_sample(path, limit=25):
+    """The functions most often on top of the stack, from `sample` output."""
+    if not path.is_file():
+        return []
+    text = path.read_text(errors='replace')
+    section = text.split('Sort by top of stack, same collapsed', 1)
+    if len(section) < 2:
+        return []
+    rows = []
+    for line in section[1].splitlines()[1:]:
+        line = line.strip()
+        if not line or line.startswith('Binary Images'):
+            break
+        name, _, count = line.rpartition(' ')
+        if count.isdigit():
+            rows.append((int(count), name.strip()))
+    rows.sort(reverse=True)
+    return rows[:limit]
+
+
+def perf(keep=False, compare=None, only=None, sample=None):
+    """Run Aven Dev's speed test and print what each scenario cost."""
+    # macOS scans a newly signed app on its first launch (about 1.5 s here),
+    # which users pay once per update. Absorb it so launch time is Aven's own.
+    subprocess.run([str(APP / 'Contents/MacOS/aven'), '--version'],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+    root = prepare_smoke_folder()
+    (root / PERF_MARKER).write_text('Aven Dev speed test\n')
+    (root / 'site').mkdir()
+    (root / 'site/index.html').write_text(PERF_PAGE)
+    finished = False
+    try:
+        child_env = host_scoped_environment()
+        with production_preview_server(child_env), static_page_server(root / 'site') as page_url:
+            settings = {'pageUrl': page_url}
+            if only:
+                settings['only'] = [part.strip() for part in only.split(',') if part.strip()]
+            if sample:
+                settings['sample'] = sample
+            (root / 'perf.json').write_text(json.dumps(settings))
+            ensure_not_running()
+            print('Running the speed test in a throwaway profile (a few minutes)...', flush=True)
+            app_env = {
+                **child_env,
+                'HOME': str(root / 'home'),
+                'SHELL': '/bin/zsh',
+                'PATH': f'{root / "home/.local/bin"}:/usr/bin:/bin:/usr/sbin:/sbin',
+                'AVEN_DEV_SMOKE_DIR': str(root),
+            }
+            launched_at = time.time() * 1000
+            profiles = []
+            with (root / 'app.log').open('w') as log:
+                app = subprocess.Popen([str(APP / 'Contents/MacOS/aven')], env=app_env,
+                                       stdout=log, stderr=subprocess.STDOUT,
+                                       start_new_session=True)
+                if sample:
+                    (ROOT / 'target/perf').mkdir(parents=True, exist_ok=True)
+                    profiles = profile_scenario(root, sample, launched_at / 1000)
+                try:
+                    app.wait(timeout=PERF_TIMEOUT)
+                except subprocess.TimeoutExpired:
+                    os.killpg(app.pid, signal.SIGTERM)
+                    try:
+                        app.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        os.killpg(app.pid, signal.SIGKILL)
+                    print(f'The speed test did not finish within {PERF_TIMEOUT} seconds.', file=sys.stderr)
+        stop_stand_ins(root)
+        finished = report_perf(root, launched_at, compare)
+        for path in profiles:
+            rows = summarize_sample(path)
+            if rows:
+                total = sum(count for count, _ in rows)
+                print(f'Most frequent functions in {path.name} (top of stack, samples):')
+                for count, name in rows:
+                    print(f'  {count:6d}  {name[:150]}')
+        return finished
+    finally:
+        if finished and not keep:
+            remove_smoke_folder(root)
+        else:
+            print(f'Kept the test\'s folder for inspection: {root}', flush=True)
+
+
+def report_perf(root, launched_at, compare):
+    try:
+        result = json.loads((root / 'result.json').read_text())
+    except (OSError, ValueError):
+        print(f'No result was written; see {root / "app.log"}.', file=sys.stderr)
+        return False
+    report = result.get('perf') or {}
+    startup = report.get('startup') or {}
+    if startup.get('readyAtEpochMs'):
+        startup['launchToReadyMs'] = round(startup['readyAtEpochMs'] - launched_at)
+    out_dir = ROOT / 'target/perf'
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / time.strftime('perf-%Y%m%d-%H%M%S.json')
+    out_path.write_text(json.dumps(report, indent=2))
+    previous = {}
+    if compare:
+        try:
+            previous = {item['name']: item for item in json.loads(Path(compare).read_text()).get('scenarios', [])}
+        except (OSError, ValueError, KeyError):
+            print(f'Could not read {compare} for comparison.', file=sys.stderr)
+
+    def cell(value, before=None, unit=''):
+        if value is None:
+            return '-'
+        text = f'{value:g}{unit}'
+        if before is not None and before != value:
+            text += f' ({value - before:+g})'
+        return text
+
+    print(f'Display frame interval: {report.get("refreshMs")} ms. '
+          f'Launch to ready: {startup.get("launchToReadyMs", "-")} ms.')
+    header = f'{"scenario":40} {"input→frame p50/p95/max ms":28} {"slow frames":12} {"worst frame":12} {"CPU %":10} {"wakeups/s":12} {"memory MB":12}'
+    print(header)
+    print('-' * len(header))
+    for item in report.get('scenarios', []):
+        old = previous.get(item['name'], {})
+        inter = item.get('interactions') or {}
+        latency = f'{inter.get("p50", "-")}/{inter.get("p95", "-")}/{inter.get("max", "-")}' if inter else '-'
+        frames = item.get('frames') or {}
+        slow = f'{frames.get("slow")}/{frames.get("n")}' if frames else '-'
+        long_text = f'{frames.get("max")} ms' if frames else '-'
+        proc = item.get('processes') or {}
+        old_proc = old.get('processes') or {}
+        print(f'{item["name"][:40]:40} {latency:28} {slow:12} {long_text:14} '
+              f'{cell(proc.get("cpuPct"), old_proc.get("cpuPct")):10} '
+              f'{cell(proc.get("idleWakeupsPerSec"), old_proc.get("idleWakeupsPerSec")):12} '
+              f'{cell(proc.get("footprintMB"), old_proc.get("footprintMB")):12}'
+              + (f'  (window hidden {item["hiddenMs"] / 1000:.0f} s: timings unreliable)' if item.get('hiddenMs', 0) > 250 else '')
+              + (f'  ERROR: {item["error"]}' if item.get('error') else ''))
+    for item in report.get('restyle') or []:
+        print(f'Restyle analysis, {item["name"]}: {item["changes"]} attribute changes, '
+              f'{item["nodesAdded"]} nodes added, {item["nodesRemoved"]} removed')
+        for cost in item.get('costs', [])[:8]:
+            print(f'  {cost["ms"]:6.1f} ms  {cost["attribute"]} on {cost["element"]}')
+        for tree in item.get('subtrees', [])[:4]:
+            print(f'  {tree["change"]} {tree["element"]} ({tree["elements"]} elements)')
+    scenarios = report.get('scenarios', [])
+    labels = sorted({where for item in scenarios
+                     for where in ((item.get('hotCalls') or {}).get('forcedLayout') or {}).get('byCaller', {})}
+                    | {where.split(' ← ', 1)[-1] for item in scenarios
+                       for where in ((item.get('hotCalls') or {}).get('dom') or {}).get('byKind', {})})
+    sources = {}
+    if labels:
+        try:
+            sources = json.loads(subprocess.run(
+                ['node', str(ROOT / 'scripts/perf-resolve-callers.mjs'), str(ROOT / 'target/perf-dist')],
+                input=json.dumps(labels), capture_output=True, text=True, cwd=ROOT, timeout=60).stdout or '{}')
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            sources = {}
+    split = [item for item in scenarios if item.get('breakdown')]
+    if split:
+        print('Where input-to-frame time goes (median ms): script / style+layout / paint+frame')
+        for item in split:
+            parts = item['breakdown']
+            print(f'  {item["name"][:40]:40} {parts["script"]["p50"]:g} / {parts["styleLayout"]["p50"]:g} / {parts["frame"]["p50"]:g}'
+                  + (f'   (to last React commit {parts["toLastCommit"]["p50"]:g}, passive effects {parts["passiveEffects"]["p50"]:g})'
+                     if parts.get('toLastCommit') else ''))
+            react = item.get('react') or {}
+            count = (item.get('interactions') or {}).get('n') or 1
+            if react.get('top'):
+                heavy = ', '.join(f'{entry["name"]} {entry["ms"] / count:.1f}' for entry in react['top'][:6])
+                print(f'      React per interaction: {react["renderMs"] / count:.1f} ms in {react["commits"] / count:.1f} commits; {heavy}')
+            phases = react.get('phases') or {}
+            if phases:
+                parts = ', '.join(f'{name} {ms / count:.1f}' for name, ms in phases.items())
+                print(f'      React phases per interaction (ms): {parts}')
+            effects = react.get('effects') or []
+            if effects:
+                heavy = ', '.join(f'{entry["name"]} {entry["ms"] / count:.1f}' for entry in effects[:5])
+                print(f'      Slowest effects per interaction (ms): {heavy}')
+            hot = item.get('hotCalls') or {}
+            if hot:
+                layout = hot.get('forcedLayout') or {}
+                print(f'      Per interaction: forced layout {layout.get("ms", 0) / count:.1f} ms ({layout.get("calls", 0) / count:.0f} calls), '
+                      f'JSON {hot["json"]["ms"] / count:.1f} ms, storage {hot["storage"]["ms"] / count:.1f} ms')
+                callers = sorted((layout.get('byCaller') or {}).items(), key=lambda pair: -pair[1])[:5]
+                for where, ms in callers:
+                    print(f'        {ms / count:5.1f} ms  {sources.get(where, where)}')
+                dom = hot.get('dom') or {}
+                if dom.get('ms'):
+                    print(f'      DOM changes per interaction: {dom["ms"] / count:.1f} ms ({dom["calls"] / count:.0f} calls)')
+                    for where, ms in sorted((dom.get('byKind') or {}).items(), key=lambda pair: -pair[1])[:5]:
+                        kind, _, place = where.partition(' ← ')
+                        print(f'        {ms / count:5.1f} ms  {kind} ← {sources.get(place, place)}')
+    if scenarios:
+        last = scenarios[-1]
+        kinds = (last.get('processes') or {}).get('byKind') or {}
+        parts = [f'{kind} {info["footprintMB"]:g} MB ({info["count"]})' for kind, info in sorted(kinds.items())]
+        print(f'Memory at the end, by process: {", ".join(parts)}; '
+              f'agents and shells Aven started: {(last.get("processes") or {}).get("startedFootprintMB")} MB')
+    for step in result.get('steps', []):
+        if not step.get('passed'):
+            print(f'  FAIL  {step.get("name")} - {step.get("detail")}', flush=True)
+    print(f'Saved: {out_path}', flush=True)
+    return result.get('passed') is True
+
+
 def report_smoke(root, exit_code):
     result_path = root / 'result.json'
     try:
@@ -323,6 +632,13 @@ def main():
     parser.add_argument('--smoke', action='store_true',
                         help='Run the real-app check in a throwaway profile, then exit with its result')
     parser.add_argument('--keep-smoke-folder', action='store_true', help='Keep the check\'s throwaway folder')
+    parser.add_argument('--perf', action='store_true',
+                        help='Run the speed test (production interface, throwaway profile) and print what each scenario cost')
+    parser.add_argument('--perf-compare', metavar='FILE', help='A saved speed test result to compare against')
+    parser.add_argument('--perf-sample', metavar='NAME',
+                        help='Profile the interface process with `sample` during the scenario whose name contains NAME')
+    parser.add_argument('--perf-only', metavar='NAMES',
+                        help='Comma-separated parts of scenario names to run, e.g. "switching,sidebar,Settings"')
     args = parser.parse_args()
     doctor()
     if args.doctor:
@@ -342,6 +658,10 @@ def main():
         if args.smoke:
             if not smoke(keep=args.keep_smoke_folder):
                 raise RuntimeError('The real-app check failed.')
+        elif args.perf:
+            if not perf(keep=args.keep_smoke_folder, compare=args.perf_compare, only=args.perf_only,
+                        sample=args.perf_sample):
+                raise RuntimeError('The speed test did not finish cleanly.')
         elif not args.build_only:
             launch()
 

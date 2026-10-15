@@ -28,6 +28,21 @@ For a visual check of the native agent cursor, run `AVEN_DEV_CURSOR_PREVIEW=1 np
 
 The run uses its own home folder for chats, settings and the browser profile, and keeps web storage in memory, so your Aven Dev data is not read or changed. It refuses to send anything unless Aven resolved `claude` to the stand-in. Quit Aven Dev first; the check needs the preview port. The **Release Aven** workflow runs the same check and will not publish unless it passes.
 
+## Speed test
+
+`npm run perf:app` measures how Aven feels in use. It builds the interface in production mode (development React is several times slower), launches Aven Dev in a throwaway profile with the stand-in agent, keeps the window above others without taking the keyboard (macOS stops drawing covered windows), and drives the real workspace: six chats with streamed replies, a long stream, typing (alone and while an agent streams), switching chat tabs, showing and hiding the sidebar, opening and closing Settings, opening a local web page and switching to it, and ten seconds idle.
+
+For each scenario it prints the time from input to the next painted frame (median, 95th percentile, worst), slow frames, the worst frame, CPU as a share of one core, wakeups per second, and memory. CPU, wakeups and memory cover Aven's own processes: the app, the WebKit processes that draw its interface, and Chromium's processes for browser tabs. Agents and shells it started are counted apart. Each run is saved under `target/perf/`; pass `-- --perf-compare <saved file>` to print differences from an earlier run. A scenario during which the window was hidden is flagged, because its timings are not meaningful.
+
+To find out why an interaction is slow:
+
+- Each switching scenario also prints a breakdown of its input-to-frame time (script, style and layout, paint), React render time by component (the perf build uses React's profiling build), the calls that forced WebKit to style and lay out early, with the source file and line that made them, and DOM changes.
+- `-- --perf-only switching,sidebar` runs only the scenarios whose names contain those words, after the shared setup, so an experiment takes about a minute.
+- `-- --perf-only restyle` records every attribute an interaction changes, then replays each one alone and times the style and layout it costs, and lists the largest subtrees added or removed.
+- `-- --perf-sample Settings` profiles the interface's WebKit processes with macOS `sample` during that scenario and prints the functions most often on the stack.
+
+The speed test code is only built with `VITE_AVEN_PERF=1` and a debug native build; release builds do not contain it.
+
 ## Machine setup
 
 Install the prerequisites and verified SDK in [CHROMIUM.md](CHROMIUM.md). Standard tools on `PATH` work. Optional machine-specific paths belong in `~/.config/aven/development.env`, outside the checkout:
