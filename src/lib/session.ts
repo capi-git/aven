@@ -104,6 +104,19 @@ export type SecondOpinionMeta = {
   kind?: "handoff";
 };
 
+/** A user-side message Aven relayed in a discussion between two chats. */
+export type DiscussionRelayMeta = {
+  /** Discussion identity (see `src/lib/discussions.ts`). */
+  id: string;
+  /** Turns finished before this message was sent; 0 is the opening topic. */
+  turn: number;
+  rounds: number;
+  /** The other agent: who said this, or (opening) who this chat talks with. */
+  partner: { harness: HarnessId; model: string; title: string; cwd?: string };
+  /** The relayed reply was shortened to the relay limit. */
+  truncated?: boolean;
+};
+
 export type ToolPreviewKind = "read" | "write" | "shell" | "search";
 
 export type ToolPreviewLineKind = "add" | "del" | "context";
@@ -189,6 +202,8 @@ export type Block = {
   internal?: boolean;
   handoff?: HandoffMeta;
   secondOpinion?: SecondOpinionMeta;
+  /** Relayed by Aven from the other chat in a discussion. */
+  discussion?: DiscussionRelayMeta;
   /** Note chip shown on this user turn. Body is not stored; the harness already received it. */
   noteCard?: NoteCardMeta;
   /** Provider status slot (e.g. a Pi extension's setStatus key) this row shows. */

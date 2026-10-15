@@ -385,6 +385,7 @@ function lastMatchingBlock(
 
 type UserTurnExtra = {
   secondOpinion?: Block["secondOpinion"];
+  discussion?: Block["discussion"];
   noteCard?: Block["noteCard"];
   internal?: boolean;
 };
@@ -392,6 +393,7 @@ type UserTurnExtra = {
 function userTurnFields(extra?: UserTurnExtra) {
   return {
     ...(extra?.secondOpinion ? { secondOpinion: extra.secondOpinion } : {}),
+    ...(extra?.discussion ? { discussion: extra.discussion } : {}),
     ...(extra?.noteCard ? { noteCard: extra.noteCard } : {}),
     ...(extra?.internal ? { internal: true } : {}),
   };
