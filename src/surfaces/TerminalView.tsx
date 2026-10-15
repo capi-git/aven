@@ -28,6 +28,11 @@ import {
   type TerminalFitMode,
 } from "../lib/terminalLayout";
 import { IS_MAC } from "../lib/platform";
+import {
+  watchTerminalOutput,
+  type DevPreviewPlacement,
+  type TerminalPreviewWatch,
+} from "../lib/devPreviews";
 import "@xterm/xterm/css/xterm.css";
 
 type Props = {
@@ -40,6 +45,10 @@ type Props = {
   ephemeral?: boolean;
   /** A command from an explicit setup action; never queued or replayed. */
   setupCommand?: string;
+  /** Project a dev server started here belongs to; its folder when absent. */
+  previewProject?: string;
+  /** Where that server's Preview ready chip appears. */
+  previewPlacement?: DevPreviewPlacement;
 };
 
 function cssColor(
@@ -180,6 +189,8 @@ export function TerminalView({
   onMetaChange,
   ephemeral = false,
   setupCommand,
+  previewProject,
+  previewPlacement = "chat",
 }: Props) {
   const outerRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
@@ -191,6 +202,12 @@ export function TerminalView({
   const cwdRef = useRef(cwd);
   cwdRef.current = cwd;
   const runningProcessRef = useRef<string | null>(null);
+  const previewRef = useRef({
+    project: previewProject,
+    placement: previewPlacement,
+  });
+  previewRef.current = { project: previewProject, placement: previewPlacement };
+  const previewWatchRef = useRef<TerminalPreviewWatch | null>(null);
 
   useEffect(() => {
     const outer = outerRef.current;
@@ -271,6 +288,17 @@ export function TerminalView({
     });
 
     let oscBuffer = "";
+    // Setup shells never offer previews. Scanning reads each chunk once and
+    // keeps only an unfinished line between chunks.
+    const previewWatch = ephemeral
+      ? null
+      : watchTerminalOutput({
+          id,
+          project: previewRef.current.project ?? startCwd,
+          cwd: startCwd,
+          placement: previewRef.current.placement,
+        });
+    previewWatchRef.current = previewWatch;
 
     let unsubscribe = () => {};
     let didStart = false;
@@ -281,8 +309,11 @@ export function TerminalView({
         (data) => {
           if (closed) return;
           const onMeta = onMetaChangeRef.current;
+          const text =
+            onMeta || previewWatch ? new TextDecoder().decode(data) : "";
+          // Full-screen programs (an editor, a pager) draw files, not servers.
+          if (term.buffer.active.type !== "alternate") previewWatch?.push(text);
           if (onMeta) {
-            const text = new TextDecoder().decode(data);
             const scanned = scanOscCwd(text, oscBuffer);
             oscBuffer = scanned.rest;
             if (scanned.cwd) {
@@ -297,6 +328,7 @@ export function TerminalView({
         },
         (code) => {
           if (closed) return;
+          previewWatch?.stopped();
           const status = code == null ? "" : ` (${code})`;
           term.writeln(`\r\n[process exited${status}]`);
         },
@@ -442,9 +474,10 @@ export function TerminalView({
         .then(() => {
           unsubscribe();
           if (!didStart) return;
-          return !ephemeral && terminalIsTransferred(id)
-            ? undefined
-            : killPty(ptyId);
+          if (!ephemeral && terminalIsTransferred(id)) return undefined;
+          // Closing the terminal ends its server; the preview tab stays open.
+          previewWatch?.stopped();
+          return killPty(ptyId);
         })
         .finally(() => {
           if (stoppingPtys.get(ptyId) === stopping) stoppingPtys.delete(ptyId);
@@ -452,6 +485,8 @@ export function TerminalView({
       stoppingPtys.set(ptyId, stopping);
       term.dispose();
       termRef.current = null;
+      if (previewWatchRef.current === previewWatch)
+        previewWatchRef.current = null;
       spawned.current = false;
     };
   }, [id, ephemeral, setupCommand]);
@@ -461,6 +496,7 @@ export function TerminalView({
     !ephemeral && presented && !!onMetaChange,
     spawned,
     (foreground) => {
+      previewWatchRef.current?.foreground(foreground);
       runningProcessRef.current = foreground;
       onMetaChangeRef.current?.(
         foreground

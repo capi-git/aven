@@ -162,6 +162,15 @@ import {
   type AgentBrowserPlacement,
   type AgentBrowserOpenOptions,
 } from "./lib/agentBrowserOpen";
+import {
+  installDevPreviewOpener,
+  observeAgentPreviewEvent,
+  previewBelongsTo,
+  previewTabMatch,
+  publishDevPreviewTabs,
+} from "./lib/devPreviews";
+import { placeDevPreview } from "./lib/devPreviewLayout";
+import { useDevPreviewAutoOpen } from "./hooks/useDevPreviews";
 import { loadDefaultRuntimeMode } from "./lib/runtimeMode";
 import { ApprovalToasts } from "./chrome/ApprovalToasts";
 import {
@@ -1130,6 +1139,67 @@ export default function App({
       }),
     [agentBrowserRouter],
   );
+  // A dev server's page opens in the project on screen, beside the chat,
+  // reusing a tab that already shows that server.
+  useEffect(
+    () =>
+      installDevPreviewOpener((preview, { requesterSessionId, automatic }) => {
+        const project = projectCwdRef.current;
+        if (!previewBelongsTo(preview, project)) return false;
+        const current = normalizeBrowserWorkspace(
+          browserWorkspacesRef.current[project] ?? EMPTY_BROWSER,
+        );
+        const shown = previewTabMatch(
+          current.tabs,
+          preview.url,
+          current.activeTabId,
+        );
+        const { tab, workspace } = openAgentBrowserTab(
+          current,
+          shown?.url ?? preview.url,
+          { focus: false },
+        );
+        const surfaceId = browserIdForTab(project, tab.id);
+        if (detachedIdsRef.current.has(surfaceId)) {
+          if (!automatic) void detachedShowSurface.current(surfaceId);
+          return true;
+        }
+        flushSync(() =>
+          setBrowserWorkspaces((all) => ({ ...all, [project]: workspace })),
+        );
+        const chat = requesterSessionId ?? preview.sessionId;
+        const requester =
+          (chat &&
+            tabsRef.current.find((entry) =>
+              leafIds(entry.layout).includes(chat),
+            )?.id) ||
+          activeTabIdRef.current;
+        viewRef.current.change((view) =>
+          placeDevPreview(
+            view,
+            surfaceId,
+            workspace.tabs.map((page) => browserIdForTab(project, page.id)),
+            requester,
+            !!automatic,
+          ),
+        );
+        return true;
+      }),
+    [],
+  );
+  useDevPreviewAutoOpen(projectCwd);
+  // A server a tab already shows, opened by an agent or typed, is not offered.
+  useEffect(() => {
+    publishDevPreviewTabs(
+      Object.entries(browserWorkspaces).map(([project, saved]) => {
+        const workspace = normalizeBrowserWorkspace(saved);
+        return [
+          project,
+          workspace.open ? workspace.tabs.map((tab) => tab.url) : [],
+        ] as const;
+      }),
+    );
+  }, [browserWorkspaces]);
   const agentBrowserSessionKeys = sessions
     .map((session) => `${session.id}:${session.cwd}:${sessionWorkCwd(session)}`)
     .join("\n");
@@ -1735,8 +1805,23 @@ export default function App({
     [],
   );
 
+  // An agent's dev server belongs to its chat's project; read only on a find.
+  const devPreviewPlace = useCallback(
+    (sessionId: string) => {
+      const session = sessionsRef.current.find(
+        (entry) => entry.id === sessionId,
+      );
+      return session
+        ? { project: session.cwd, cwd: sessionWorkCwd(session) }
+        : undefined;
+    },
+    [sessionsRef],
+  );
+
   const enqueueHarnessEvent = useCallback(
     (sessionId: string, event: HarnessEvent) => {
+      // Shell tool output only; returns at once for streamed text.
+      observeAgentPreviewEvent(sessionId, event, devPreviewPlace);
       if (
         event.type === "approval.requested" ||
         event.type === "approval.resolved" ||
@@ -1767,7 +1852,12 @@ export default function App({
         );
       }
     },
-    [applyApprovalEvent, flushHarnessEvents, isStreamForeground],
+    [
+      applyApprovalEvent,
+      devPreviewPlace,
+      flushHarnessEvents,
+      isStreamForeground,
+    ],
   );
 
   useEffect(() => {
