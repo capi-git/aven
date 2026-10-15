@@ -513,44 +513,6 @@ export function homeTodayCounts(
   return counts;
 }
 
-function plural(count: number, one: string, many: string): string {
-  return `${count} ${count === 1 ? one : many}`;
-}
-
-function sentence(parts: readonly string[]): string {
-  if (parts.length < 2) return parts[0] ?? "";
-  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
-}
-
-/**
- * One line on what is happening: "2 agents are working and 1 thing needs
- * you." When nothing is, an invitation to carry on.
- */
-export function homeStatusLine({
-  running,
-  waiting,
-  unread,
-}: {
-  running: number;
-  waiting: number;
-  unread: number;
-}): string {
-  const parts: string[] = [];
-  if (running)
-    parts.push(
-      `${plural(running, "agent", "agents")} ${running === 1 ? "is" : "are"} working`,
-    );
-  if (waiting)
-    parts.push(
-      `${plural(waiting, "thing", "things")} ${waiting === 1 ? "needs" : "need"} you`,
-    );
-  if (unread)
-    parts.push(`${plural(unread, "new reply", "new replies")} to read`);
-  return parts.length
-    ? `${sentence(parts)}.`
-    : "All quiet — pick up where you left off.";
-}
-
 /** "Good morning" and so on, by the local hour. */
 export function homeGreeting(now: number): string {
   const hour = new Date(now).getHours();
