@@ -4,6 +4,7 @@ import { useDevSmoke } from "./hooks/useDevSmoke";
 import { discardEditorDrafts } from "./lib/workspaceTransfers";
 import { useFixedDeadline } from "./hooks/useFixedDeadline";
 import { useUtilityViews } from "./hooks/useUtilityViews";
+import { whenIdle } from "./lib/idle";
 import {
   useWorkspaceShortcuts,
   type WorkspaceActions,
@@ -164,10 +165,9 @@ import {
   AgentPageNotices,
   type AgentPageNotice,
 } from "./chrome/AgentPageNotices";
-import {
-  CommandPalette,
-  type PaletteChatRequest,
-  type PaletteRaceRequest,
+import type {
+  PaletteChatRequest,
+  PaletteRaceRequest,
 } from "./chrome/CommandPalette";
 import {
   installRaceWorkspace,
@@ -203,7 +203,6 @@ import {
 } from "./lib/paletteAgents";
 import { searchSettings } from "./lib/settingsSearch";
 import { conversationRowsFrom } from "./lib/appSearch";
-import { WhatsNewDialog } from "./chrome/WhatsNewDialog";
 import { TitleBar, type Tab as TitleTab } from "./chrome/TitleBar";
 import { MenuBar } from "./chrome/MenuBar";
 import { FilePicker } from "./chrome/FilePicker";
@@ -547,15 +546,21 @@ import { PaneTree } from "./surfaces/PaneTree";
 import { SessionPane } from "./surfaces/SessionPane";
 import { SessionSurface } from "./surfaces/SessionSurface";
 import { ProjectTerminalDock } from "./surfaces/ProjectTerminalDock";
-import { SearchView } from "./surfaces/SearchView";
-import { SettingsView } from "./surfaces/SettingsView";
-import { ProviderSetupDialog } from "./surfaces/ProviderSetup";
+import {
+  AutomationsView,
+  CommandPalette,
+  InboxView,
+  LazyViewSlot,
+  NotesView,
+  preloadLazyViews,
+  ProviderSetupDialog,
+  SearchView,
+  SettingsView,
+  WhatsNewDialog,
+} from "./surfaces/lazyViews";
 import { shouldOfferProviderSetup } from "./lib/providerSetup";
-import { InboxView } from "./surfaces/InboxView";
-import { AutomationsView } from "./surfaces/AutomationsView";
 import type { InboxSessionPortal } from "./surfaces/InboxDiscussionPanel";
 import { inboxAskKey, inboxAskPrompt } from "./lib/inboxAsk";
-import { NotesView } from "./surfaces/NotesView";
 import { inboxComposerCard, type InboxItem } from "./lib/githubTasks";
 import { linearIssueDetails, peekLinearIssueDetails } from "./lib/linear";
 import {
@@ -849,6 +854,9 @@ export default function App({
     onSelectSettingsSection,
     onOpenHome,
   } = useUtilityViews();
+  // Settings, Search and the other views load on request; fetch them once
+  // startup settles so opening one shows it at once.
+  useEffect(() => whenIdle(() => void preloadLazyViews()), []);
   const profilesRef = useRef(profiles);
   profilesRef.current = profiles;
   const standaloneActive =
@@ -8984,22 +8992,24 @@ export default function App({
                       </main>
                     </div>
                     {searchViewOpen ? (
-                      <SearchView
-                        open
-                        cwd={sidebarCwd}
-                        recents={recents}
-                        history={projectHistory}
-                        sessions={sessions.filter(
-                          (session) => !session.inboxAsk,
-                        )}
-                        focusToken={searchViewFocusToken}
-                        besideRail={sidebarOpen}
-                        onClose={onLeaveSearch}
-                        onToggleSidebar={onToggleSidebar}
-                        onOpenFile={onOpenFile}
-                        onOpenSession={onSelectHistorySession}
-                        onOpenProject={onSelectProject}
-                      />
+                      <LazyViewSlot label="search">
+                        <SearchView
+                          open
+                          cwd={sidebarCwd}
+                          recents={recents}
+                          history={projectHistory}
+                          sessions={sessions.filter(
+                            (session) => !session.inboxAsk,
+                          )}
+                          focusToken={searchViewFocusToken}
+                          besideRail={sidebarOpen}
+                          onClose={onLeaveSearch}
+                          onToggleSidebar={onToggleSidebar}
+                          onOpenFile={onOpenFile}
+                          onOpenSession={onSelectHistorySession}
+                          onOpenProject={onSelectProject}
+                        />
+                      </LazyViewSlot>
                     ) : null}
                     <div className="hidden" aria-hidden>
                       {sessions
@@ -9026,59 +9036,67 @@ export default function App({
                         })}
                     </div>
                     {inboxViewOpen ? (
-                      <InboxView
-                        cwd={sidebarCwd}
-                        recents={recents}
-                        besideRail={sidebarOpen}
-                        onClose={onLeaveInbox}
-                        onToggleSidebar={onToggleSidebar}
-                        onStart={onStartInboxItem}
-                        onAsk={onAskInboxItem}
-                        onAskRestart={onRestartInboxAsk}
-                        onAskMount={setInboxAskPortal}
-                      />
+                      <LazyViewSlot label="inbox">
+                        <InboxView
+                          cwd={sidebarCwd}
+                          recents={recents}
+                          besideRail={sidebarOpen}
+                          onClose={onLeaveInbox}
+                          onToggleSidebar={onToggleSidebar}
+                          onStart={onStartInboxItem}
+                          onAsk={onAskInboxItem}
+                          onAskRestart={onRestartInboxAsk}
+                          onAskMount={setInboxAskPortal}
+                        />
+                      </LazyViewSlot>
                     ) : null}
                     {automationsViewOpen ? (
-                      <AutomationsView
-                        cwd={sidebarCwd}
-                        recents={recents}
-                        besideRail={sidebarOpen}
-                        onClose={onLeaveAutomations}
-                        onToggleSidebar={onToggleSidebar}
-                        onRunAutomation={(agent) =>
-                          startScheduledAgentRef.current(agent)
-                        }
-                        onOpenChat={onOpenApprovalSession}
-                      />
+                      <LazyViewSlot label="automations">
+                        <AutomationsView
+                          cwd={sidebarCwd}
+                          recents={recents}
+                          besideRail={sidebarOpen}
+                          onClose={onLeaveAutomations}
+                          onToggleSidebar={onToggleSidebar}
+                          onRunAutomation={(agent) =>
+                            startScheduledAgentRef.current(agent)
+                          }
+                          onOpenChat={onOpenApprovalSession}
+                        />
+                      </LazyViewSlot>
                     ) : null}
                     {notesViewOpen ? (
-                      <NotesView
-                        besideRail={sidebarOpen}
-                        cwd={projectCwd}
-                        onClose={onLeaveNotes}
-                        onToggleSidebar={onToggleSidebar}
-                      />
+                      <LazyViewSlot label="notes">
+                        <NotesView
+                          besideRail={sidebarOpen}
+                          cwd={projectCwd}
+                          onClose={onLeaveNotes}
+                          onToggleSidebar={onToggleSidebar}
+                        />
+                      </LazyViewSlot>
                     ) : null}
                     {settingsOpen ? (
-                      <SettingsView
-                        showToolbar={false}
-                        section={settingsSection}
-                        onSelectSection={onSelectSettingsSection}
-                        workspaceName={profiles.activeProfile.name}
-                        cwd={sidebarCwd}
-                        sessions={sidebarHistory}
-                        besideRail={sidebarOpen}
-                        onToggleSidebar={onToggleSidebar}
-                        onClose={onCloseSettings}
-                        onOpenSession={onOpenArchivedSession}
-                        onArchiveSession={onArchiveHistorySession}
-                        onDeleteSession={onDeleteHistorySession}
-                        onRestoreProject={onRestoreProject}
-                        onDeleteProject={(path) =>
-                          onRemoveProject(path, { purgeData: true })
-                        }
-                        onOpenWhatsNew={onOpenWhatsNew}
-                      />
+                      <LazyViewSlot label="Settings">
+                        <SettingsView
+                          showToolbar={false}
+                          section={settingsSection}
+                          onSelectSection={onSelectSettingsSection}
+                          workspaceName={profiles.activeProfile.name}
+                          cwd={sidebarCwd}
+                          sessions={sidebarHistory}
+                          besideRail={sidebarOpen}
+                          onToggleSidebar={onToggleSidebar}
+                          onClose={onCloseSettings}
+                          onOpenSession={onOpenArchivedSession}
+                          onArchiveSession={onArchiveHistorySession}
+                          onDeleteSession={onDeleteHistorySession}
+                          onRestoreProject={onRestoreProject}
+                          onDeleteProject={(path) =>
+                            onRemoveProject(path, { purgeData: true })
+                          }
+                          onOpenWhatsNew={onOpenWhatsNew}
+                        />
+                      </LazyViewSlot>
                     ) : null}
                   </div>
 
@@ -9186,75 +9204,84 @@ export default function App({
             ) : null}
             <UpdateNoticeDialog />
             {providerSetupOpen ? (
-              <ProviderSetupDialog
-                onDone={(harness) => {
-                  setProviderSetupOpen(false);
-                  if (!harness) return;
-                  saveLastModelChoice(harness, preferredModelId(harness));
-                  // The fresh welcome task was seeded before setup. Keep it on
-                  // the provider chosen here; never alter an existing task.
-                  setSessions((previous) =>
-                    previous.map((session) =>
-                      session.id === seed.session.id &&
-                      session.blocks.length === 0
-                        ? {
-                            ...session,
-                            harness,
-                            title: HARNESS_LABEL[harness],
-                            model: preferredModelId(harness),
-                            modelSettings: preferredModelSettings(
-                              resolveModel(harness, preferredModelId(harness)),
-                            ),
-                          }
-                        : session,
-                    ),
-                  );
-                  void probeHarnessAvailability({ force: true });
-                  void refreshHarnessCatalogs([harness], { force: true }).catch(
-                    () => undefined,
-                  );
-                }}
-                onChooseFolder={() => void pickProject()}
-              />
+              <LazyViewSlot label="provider setup" quiet>
+                <ProviderSetupDialog
+                  onDone={(harness) => {
+                    setProviderSetupOpen(false);
+                    if (!harness) return;
+                    saveLastModelChoice(harness, preferredModelId(harness));
+                    // The fresh welcome task was seeded before setup. Keep it on
+                    // the provider chosen here; never alter an existing task.
+                    setSessions((previous) =>
+                      previous.map((session) =>
+                        session.id === seed.session.id &&
+                        session.blocks.length === 0
+                          ? {
+                              ...session,
+                              harness,
+                              title: HARNESS_LABEL[harness],
+                              model: preferredModelId(harness),
+                              modelSettings: preferredModelSettings(
+                                resolveModel(
+                                  harness,
+                                  preferredModelId(harness),
+                                ),
+                              ),
+                            }
+                          : session,
+                      ),
+                    );
+                    void probeHarnessAvailability({ force: true });
+                    void refreshHarnessCatalogs([harness], {
+                      force: true,
+                    }).catch(() => undefined);
+                  }}
+                  onChooseFolder={() => void pickProject()}
+                />
+              </LazyViewSlot>
             ) : null}
-            <CommandPalette
-              open={paletteOpen}
-              initialQuery={paletteQuery}
-              onClose={() => setPaletteOpen(false)}
-              project={{
-                path: projectCwd,
-                name: projectDisplayName(projectCwd, loadTabGroupLabels()),
-              }}
-              projects={paletteProjects}
-              chats={paletteChats}
-              agents={paletteAgents}
-              commands={paletteCommands}
-              searchChats={searchPaletteChats}
-              searchSettings={searchSettings}
-              onRunCommand={runPaletteCommand}
-              onOpenChat={(id) => void onSelectHistorySession(id)}
-              onOpenProject={onSelectProject}
-              onOpenFile={(path) => onOpenFile(path)}
-              onOpenSetting={(setting) => {
-                openSettings(setting.section);
-                requestAnimationFrame(() =>
-                  requestAnimationFrame(() =>
-                    document
-                      .getElementById(setting.id)
-                      ?.scrollIntoView({ block: "center" }),
-                  ),
-                );
-              }}
-              onStartChat={startPaletteChat}
-              onStartRace={(request) =>
-                // A race that can't start explains why; keep what was typed.
-                void startRace(request).then((started) => {
-                  if (started) return;
-                  setPaletteQuery(request.text);
-                  setPaletteOpen(true);
-                })
-              }
-            />
+            {paletteOpen ? (
+              <LazyViewSlot label="command palette" quiet>
+                <CommandPalette
+                  open
+                  initialQuery={paletteQuery}
+                  onClose={() => setPaletteOpen(false)}
+                  project={{
+                    path: projectCwd,
+                    name: projectDisplayName(projectCwd, loadTabGroupLabels()),
+                  }}
+                  projects={paletteProjects}
+                  chats={paletteChats}
+                  agents={paletteAgents}
+                  commands={paletteCommands}
+                  searchChats={searchPaletteChats}
+                  searchSettings={searchSettings}
+                  onRunCommand={runPaletteCommand}
+                  onOpenChat={(id) => void onSelectHistorySession(id)}
+                  onOpenProject={onSelectProject}
+                  onOpenFile={(path) => onOpenFile(path)}
+                  onOpenSetting={(setting) => {
+                    openSettings(setting.section);
+                    requestAnimationFrame(() =>
+                      requestAnimationFrame(() =>
+                        document
+                          .getElementById(setting.id)
+                          ?.scrollIntoView({ block: "center" }),
+                      ),
+                    );
+                  }}
+                  onStartChat={startPaletteChat}
+                  onStartRace={(request) =>
+                    // A race that can't start explains why; keep what was typed.
+                    void startRace(request).then((started) => {
+                      if (started) return;
+                      setPaletteQuery(request.text);
+                      setPaletteOpen(true);
+                    })
+                  }
+                />
+              </LazyViewSlot>
+            ) : null}
 
             <ApprovalToasts
               notices={hiddenApprovalToasts}
@@ -9271,10 +9298,12 @@ export default function App({
               }
             />
             {whatsNewVersion ? (
-              <WhatsNewDialog
-                version={whatsNewVersion}
-                onClose={() => setWhatsNewVersion(null)}
-              />
+              <LazyViewSlot label="release notes" quiet>
+                <WhatsNewDialog
+                  version={whatsNewVersion}
+                  onClose={() => setWhatsNewVersion(null)}
+                />
+              </LazyViewSlot>
             ) : null}
           </div>
         </OrchestrationWorkers.Provider>
