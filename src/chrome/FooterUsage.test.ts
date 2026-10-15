@@ -3,6 +3,11 @@ import { act, createElement, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProviderRateLimits } from "../lib/rateLimits";
+import {
+  loadUsageHistory,
+  resetUsageForecasts,
+  USAGE_HISTORY_KEY,
+} from "../lib/usageHistory";
 import { FooterUsage, type FooterUsageProps } from "./FooterUsage";
 
 const api = vi.hoisted(() => ({ claude: vi.fn(), codex: vi.fn() }));
@@ -51,6 +56,7 @@ beforeEach(() => {
     removeItem: (key: string) => stored.delete(key),
   });
   vi.clearAllMocks();
+  resetUsageForecasts();
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
   hidden = false;
@@ -192,6 +198,62 @@ describe("footer usage", () => {
     await render({ providers: ["codex"] });
     expect(api.codex).not.toHaveBeenCalled();
     expect(container.textContent).toContain("Checking usage…");
+  });
+
+  it("records each fresh answer for forecasting, and nothing else", async () => {
+    await render({ providers: ["claude"] });
+    expect(loadUsageHistory()["claude.session"]).toEqual([
+      { at: NOW, used: 2, resetsAt: minutes(237) },
+    ]);
+    // One reading is not a pace: no marker, no forecast.
+    expect(
+      container
+        .querySelector(".footer-usage-meter")
+        ?.hasAttribute("data-forecast"),
+    ).toBe(false);
+    expect(
+      container.querySelector(".footer-usage-account")?.hasAttribute("title"),
+    ).toBe(false);
+  });
+
+  it("marks the meter and says when a limit comes before its reset", async () => {
+    // Half a point a minute for the last forty minutes.
+    stored.set(
+      USAGE_HISTORY_KEY,
+      JSON.stringify({
+        v: 1,
+        windows: {
+          "claude.session": [-40, -30, -20, -10].map((minute, index) => [
+            minutes(minute),
+            40 + index * 5,
+            minutes(237),
+          ]),
+        },
+      }),
+    );
+    api.claude.mockImplementation(async () => ({
+      ...claudeLimits(),
+      session: { usedPercent: 60, windowMinutes: 300, resetsAt: minutes(237) },
+    }));
+    await render({ providers: ["claude"] });
+    expect(
+      container
+        .querySelector(".footer-usage-meter")
+        ?.getAttribute("data-forecast"),
+    ).toBe("warning");
+    expect(
+      container.querySelector(".footer-usage-account")?.getAttribute("title"),
+    ).toBe("5-hour: ~1h 20m to limit at this pace · resets in 3h 57m");
+    expect(button(/Show usage details/).getAttribute("aria-label")).toBe(
+      "Claude Code usage 60% 3h 57m, 15% 4d 17h, 5-hour limit in about an hour at this pace. Show usage details",
+    );
+    await act(async () => button(/Show usage details/).click());
+    const detail = container.querySelector<HTMLElement>(
+      '[aria-label="Claude Code usage"] .usage-panel-detail[data-warning]',
+    );
+    expect(detail?.textContent).toBe(
+      "~1h 20m to limit at this pace · resets in 3h 57m",
+    );
   });
 
   it("keeps an error out of the way and renders nothing without data", async () => {

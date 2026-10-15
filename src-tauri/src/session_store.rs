@@ -771,6 +771,7 @@ fn migrate_schema(conn: &Connection) -> rusqlite::Result<()> {
     )?;
     ensure_session_column(conn, "queued_messages_json", "TEXT NOT NULL DEFAULT '[]'")?;
     crate::notes::ensure_notes_table(conn)?;
+    crate::project_memory::ensure_project_memory_table(conn)?;
     transcript::migrate(conn)?;
     if current < 12 {
         conn.execute(

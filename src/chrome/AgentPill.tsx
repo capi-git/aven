@@ -1,4 +1,11 @@
-import { memo, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { useUsageForecasts, useUsageWarning } from "../hooks/useUsageForecasts";
+import { isHarnessAvailable } from "../lib/harness/availability";
+import {
+  pickerModelsFor,
+  preferredModelId,
+  type AgentModel,
+} from "../lib/models";
 import {
   HARNESS_TITLE,
   RUNTIME_MODE_HINT,
@@ -6,6 +13,9 @@ import {
   type RuntimeMode,
 } from "../lib/session";
 import { MOD } from "../lib/platform";
+import { usageAlternatives } from "../lib/usageAlternatives";
+import { forecastSentence } from "../lib/usageForecast";
+import { markUsageWarningSeen, type UsageWarning } from "../lib/usageHistory";
 import { AccessModeOptions } from "./AccessPanel";
 import { HarnessIcon } from "./HarnessIcon";
 import { ChevronDown, LockOpen, Zap } from "./icons";
@@ -44,6 +54,68 @@ type Props = {
   onClose?: () => void;
 };
 
+/**
+ * The usage warning inside the panel: when the current account will run out
+ * before it resets, and one-click ways to keep going. Sending is never
+ * blocked.
+ */
+function UsageWarningLine({
+  warning,
+  harness,
+  current,
+  onPick,
+}: {
+  warning: UsageWarning;
+  harness: HarnessId;
+  current: AgentModel;
+  onPick: (harness: HarnessId, model: string) => void;
+}) {
+  const forecasts = useUsageForecasts();
+  // Judged when the panel opens; it is not a countdown.
+  const [now] = useState(Date.now);
+  const options = useMemo(
+    () =>
+      usageAlternatives({
+        harness,
+        current,
+        forecasts,
+        now,
+        isAvailable: isHarnessAvailable,
+        catalog: pickerModelsFor,
+        preferred: preferredModelId,
+        title: (id) => HARNESS_TITLE[id],
+      }),
+    [harness, current, forecasts, now],
+  );
+  return (
+    <div className="agent-panel-usage" role="status" data-usage-warning>
+      <span className="agent-panel-usage-mark" aria-hidden />
+      <p className="agent-panel-usage-text">
+        {forecastSentence(
+          warning.provider,
+          warning.kind,
+          Math.max(0, warning.pace.hitAt - now),
+        )}
+      </p>
+      {options.length ? (
+        <div className="agent-panel-usage-actions">
+          {options.map((option) => (
+            <button
+              key={option.kind}
+              type="button"
+              className="agent-panel-usage-action"
+              title={option.detail}
+              onClick={() => onPick(option.harness, option.model)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 const PANEL_WIDTH = 540;
 const MODELS_ONLY_WIDTH = 300;
 const PANEL_MIN_HEIGHT = 260;
@@ -81,6 +153,14 @@ export const AgentPill = memo(function AgentPill({
     [settings, modelSettings],
   );
   const fullAccess = showAccess && runtimeMode === "full-access";
+  // Stable between usage checks, so typing and streaming never render this.
+  const usageWarning = useUsageWarning(harness);
+
+  // Opening the panel shows the warning; the pill stays quiet afterwards
+  // until a new window or a faster pace.
+  useEffect(() => {
+    if (open && usageWarning?.unseen) markUsageWarningSeen(usageWarning);
+  }, [open, usageWarning]);
 
   const dismiss = (restore: boolean) => {
     setOpen(false);
@@ -97,6 +177,7 @@ export const AgentPill = memo(function AgentPill({
     summary.effort,
     summary.fast ? "Fast" : null,
     fullAccess ? "Full access" : null,
+    usageWarning ? "Usage limit close" : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -145,6 +226,9 @@ export const AgentPill = memo(function AgentPill({
             <LockOpen className="size-3" strokeWidth={2} aria-hidden />
           </span>
         ) : null}
+        {usageWarning?.unseen ? (
+          <span className="agent-pill-usage" data-usage-warning aria-hidden />
+        ) : null}
         <ChevronDown
           className="agent-pill-chevron model-control-chevron"
           strokeWidth={1.75}
@@ -167,6 +251,17 @@ export const AgentPill = memo(function AgentPill({
           data-agent-panel
           className="agent-panel"
         >
+          {usageWarning ? (
+            <UsageWarningLine
+              warning={usageWarning}
+              harness={harness}
+              current={current}
+              onPick={(nextHarness, nextModel) => {
+                onModelChange(nextHarness, nextModel);
+                dismiss(true);
+              }}
+            />
+          ) : null}
           <div className="agent-panel-body">
             <section aria-label="Model" className="agent-panel-models">
               <ModelChooser

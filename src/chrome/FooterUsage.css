@@ -80,6 +80,17 @@
   opacity: 0;
 }
 
+/* At this pace a limit comes before its reset: a quiet amber cap marks the
+   end of the meter. The details say which window and when. */
+.footer-usage-meter[data-forecast="warning"]::after {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 4px;
+  border-radius: inherit;
+  background: var(--color-warning, #d99c45);
+  content: "";
+}
+
 .footer-usage-refresh {
   display: grid;
   place-items: center;

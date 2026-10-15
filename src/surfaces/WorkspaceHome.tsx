@@ -2,34 +2,49 @@ import {
   memo,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
   type ReactNode,
   type RefObject,
 } from "react";
 import {
   CheckCircle,
+  CircleAlert,
   CircleX,
+  Clock,
   GitBranch,
+  GitPullRequest,
   Globe,
   MessageSquare,
   MoreHorizontal,
   Plus,
   Search,
   Square,
+  X,
 } from "../chrome/icons";
 import type { PopoverAnchor } from "../chrome/Popover";
 import { ProjectCustomizePopover } from "../chrome/ProjectCustomizePopover";
 import { ProjectMark } from "../chrome/ProjectMark";
 import { equalChromeData, useChromeProps } from "../hooks/useChromeProps";
+import { useHomeBriefing } from "../hooks/useHomeBriefing";
 import { useMinuteClock } from "../hooks/useMinuteClock";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import {
   projectDisplayName,
   useProjectLabels,
 } from "../hooks/useProjectLabels";
+import { activityStreak } from "../lib/activityStreak";
 import { basename } from "../lib/fs";
+import {
+  briefingHasNews,
+  briefingSince,
+  homeBriefing,
+  type HomeBriefingWindow,
+} from "../lib/homeBriefing";
+import { openInAppUrl } from "../lib/inAppLinks";
 import { isProjectlessCwd } from "../lib/projectlessWorkspace";
 import {
   describeProjectStatus,
@@ -45,12 +60,29 @@ import {
   type RateLimitProvider,
   type RateLimitWindow,
 } from "../lib/rateLimits";
+import {
+  RESTING_ZZZ_GRID,
+  RESTING_ZZZ_PATHS,
+  STREAK_FLAME_PATHS,
+} from "../lib/projectMascots";
+import {
+  loadReviewRequests,
+  peekReviewRequests,
+  type ReviewRequest,
+} from "../lib/reviewRequests";
+import {
+  listScheduledRuns,
+  subscribeScheduledRuns,
+} from "../lib/scheduledAgents";
 import { HARNESS_TITLE } from "../lib/session";
+import { useUsageForecasts } from "../hooks/useUsageForecasts";
+import { UsageForecastNote } from "../chrome/UsageForecastNote";
+import type { ProviderUsageForecast } from "../lib/usageHistory";
 import {
   homeElapsed,
   homeGreeting,
   homeTimeAgo,
-  homeTodayCounts,
+  homeTodayRecap,
   isWaitingAttention,
   type HomeAttention,
   type HomeFinished,
@@ -73,6 +105,8 @@ export type WorkspaceHomeProps = {
   recent: readonly HomeSession[];
   /** Finished turns, newest first. */
   finished?: readonly HomeFinished[];
+  /** Days with a completed task, oldest first, for the streak. */
+  activeDays?: readonly string[];
   /** The sidebar's per-project status, so both always agree. */
   projectStatus?: ProjectStatusMap;
   /** Accounts whose last saved usage is shown; nothing is fetched here. */
@@ -105,12 +139,16 @@ const HOME_DATA: readonly (keyof WorkspaceHomeProps)[] = [
   "projects",
   "recent",
   "finished",
+  "activeDays",
   "projectStatus",
   "usageProviders",
   "windows",
 ];
 
 const NO_FINISHED: readonly HomeFinished[] = [];
+const NO_DAYS: readonly string[] = [];
+/** Rows each part of the briefing lists before summing up the rest. */
+const BRIEFING_ROWS = 3;
 const NO_PROVIDERS: readonly RateLimitProvider[] = [];
 
 const ATTENTION_LABEL: Record<HomeAttention["kind"], string> = {
@@ -157,6 +195,7 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
   projects,
   recent,
   finished = NO_FINISHED,
+  activeDays = NO_DAYS,
   projectStatus,
   usageProviders = NO_PROVIDERS,
   starting,
@@ -223,6 +262,11 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
                 ? " All quiet — pick up where you left off."
                 : null}
             </p>
+            <HomeRecap
+              finished={finished}
+              activeDays={activeDays}
+              onActivity={() => reveal(activityRef)}
+            />
             <HomePulse
               running={running.length}
               busyProjects={busyProjects}
@@ -230,10 +274,8 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
               unread={unread}
               files={files}
               changedProjects={changedProjects}
-              finished={finished}
               onAgents={() => reveal(agentsRef)}
               onNeeds={() => reveal(needsRef)}
-              onActivity={() => reveal(activityRef)}
             />
           </div>
           <div className="workspace-home-actions">
@@ -256,6 +298,14 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
             </button>
           </div>
         </header>
+
+        <AwayBriefing
+          finished={finished}
+          needsYou={needsYou}
+          projects={projects}
+          onSession={onSession}
+          onNeeds={() => reveal(needsRef)}
+        />
 
         <section
           ref={agentsRef}
@@ -498,10 +548,8 @@ function HomePulse({
   unread,
   files,
   changedProjects,
-  finished,
   onAgents,
   onNeeds,
-  onActivity,
 }: {
   running: number;
   busyProjects: number;
@@ -509,13 +557,9 @@ function HomePulse({
   unread: number;
   files: number;
   changedProjects: number;
-  finished: readonly HomeFinished[];
   onAgents: () => void;
   onNeeds: () => void;
-  onActivity: () => void;
 }) {
-  const now = useMinuteClock();
-  const { done, failed, stopped } = homeTodayCounts(finished, now);
   const chips: {
     key: string;
     text: string;
@@ -552,19 +596,6 @@ function HomePulse({
         changedProjects > 1 ? ` in ${changedProjects} projects` : ""
       }`,
     });
-  if (done + failed + stopped)
-    chips.push({
-      key: "today",
-      text: [
-        `${done} done today`,
-        failed ? `${failed} failed` : "",
-        stopped ? `${stopped} stopped` : "",
-      ]
-        .filter(Boolean)
-        .join(" · "),
-      tone: failed ? "danger" : undefined,
-      onClick: onActivity,
-    });
   if (!chips.length) return null;
   return (
     <ul className="workspace-home-pulse" role="list" aria-label="Right now">
@@ -585,6 +616,292 @@ function HomePulse({
       ))}
     </ul>
   );
+}
+
+function plural(count: number, one: string, many = `${one}s`): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/**
+ * Today at a glance, under the greeting: the streak of days with a completed
+ * task (from two days on), and what finished today. Updates once a minute, so
+ * the day turns over on its own.
+ */
+function HomeRecap({
+  finished,
+  activeDays,
+  onActivity,
+}: {
+  finished: readonly HomeFinished[];
+  activeDays: readonly string[];
+  onActivity: () => void;
+}) {
+  const now = useMinuteClock();
+  const today = homeTodayRecap(finished, now);
+  const streak = activityStreak(activeDays, now);
+  const parts = [
+    today.done
+      ? `${plural(today.done, "task")} done${
+          today.projects > 1 ? ` in ${today.projects} projects` : ""
+        }`
+      : "",
+    today.failed ? `${today.failed} failed` : "",
+    today.stopped ? `${today.stopped} stopped` : "",
+  ].filter(Boolean);
+  const showStreak = streak.days >= 2;
+  if (!parts.length && !showStreak) return null;
+  return (
+    <p className="workspace-home-recap">
+      {showStreak ? (
+        <span
+          className="workspace-home-streak"
+          data-pending={!streak.today || undefined}
+          title={
+            streak.today
+              ? `A task done every day for ${plural(streak.days, "day")}`
+              : "Finish a task today to keep your streak going"
+          }
+        >
+          <StreakFlame />
+          {streak.days}-day streak
+        </span>
+      ) : null}
+      {parts.length ? (
+        <button
+          type="button"
+          className="workspace-home-today"
+          data-failed={today.failed > 0 || undefined}
+          onClick={onActivity}
+        >
+          Today: {parts.join(" · ")}
+        </button>
+      ) : null}
+    </p>
+  );
+}
+
+function StreakFlame() {
+  return (
+    <svg
+      className="workspace-home-streak-flame"
+      viewBox="0 0 8 8"
+      shapeRendering="crispEdges"
+      aria-hidden
+    >
+      <path
+        className="workspace-home-streak-body"
+        d={STREAK_FLAME_PATHS.body}
+      />
+      <path
+        className="workspace-home-streak-core"
+        d={STREAK_FLAME_PATHS.core}
+      />
+    </svg>
+  );
+}
+
+/**
+ * "While you were away": after six hours or a night away, what finished,
+ * what waits for the user, which automations ran and which pull requests ask
+ * for their review. Shown until dismissed, and only when there is news.
+ */
+function AwayBriefing(props: {
+  finished: readonly HomeFinished[];
+  needsYou: readonly HomeAttention[];
+  projects: readonly HomeProject[];
+  onSession: (id: string) => void;
+  onNeeds: () => void;
+}) {
+  const { briefing, dismiss } = useHomeBriefing();
+  if (!briefing) return null;
+  return <BriefingCard span={briefing} onDismiss={dismiss} {...props} />;
+}
+
+function BriefingCard({
+  span,
+  finished,
+  needsYou,
+  projects,
+  onSession,
+  onNeeds,
+  onDismiss,
+}: {
+  span: HomeBriefingWindow;
+  finished: readonly HomeFinished[];
+  needsYou: readonly HomeAttention[];
+  projects: readonly HomeProject[];
+  onSession: (id: string) => void;
+  onNeeds: () => void;
+  onDismiss: () => void;
+}) {
+  const headingId = useId();
+  const runs = useSyncExternalStore(subscribeScheduledRuns, listScheduledRuns);
+  const reviews = useReviewRequests(projects);
+  const content = useMemo(
+    () => homeBriefing({ window: span, finished, needsYou, runs, projects }),
+    [span, finished, needsYou, runs, projects],
+  );
+  if (!briefingHasNews(content, reviews.length)) return null;
+  const runNames = [...new Set(content.runs.map((run) => run.name))];
+  return (
+    <section className="workspace-home-briefing" aria-labelledby={headingId}>
+      <header className="workspace-home-briefing-head">
+        <h2 id={headingId}>While you were away</h2>
+        <span className="workspace-home-briefing-since">
+          {briefingSince(content.since, span.at)}
+        </span>
+        <button
+          type="button"
+          className="workspace-home-briefing-dismiss"
+          aria-label="Dismiss While you were away"
+          title="Dismiss"
+          onClick={onDismiss}
+        >
+          <X size={13} />
+        </button>
+      </header>
+      <ul className="workspace-home-briefing-list" role="list">
+        {content.finished.length ? (
+          <li data-kind="finished">
+            <span className="workspace-home-briefing-icon" aria-hidden>
+              {content.done ? <CheckCircle size={13} /> : <CircleX size={13} />}
+            </span>
+            <div className="workspace-home-briefing-body">
+              <p>
+                {[
+                  content.done
+                    ? `${plural(content.done, "task")} finished`
+                    : "",
+                  content.failed ? `${content.failed} failed` : "",
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+              <ul className="workspace-home-briefing-rows" role="list">
+                {content.finished.slice(0, BRIEFING_ROWS).map((row) => (
+                  <li key={row.id}>
+                    <button
+                      type="button"
+                      data-outcome={row.kind}
+                      onClick={() => onSession(row.sessionId)}
+                    >
+                      <HomeMark cwd={row.cwd} />
+                      <span className="workspace-home-briefing-title">
+                        {row.title}
+                      </span>
+                      {row.kind === "failed" ? (
+                        <small className="workspace-home-briefing-failed">
+                          Failed
+                        </small>
+                      ) : null}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </li>
+        ) : null}
+        {content.waiting ? (
+          <li data-kind="waiting">
+            <span className="workspace-home-briefing-icon" aria-hidden>
+              <CircleAlert size={13} />
+            </span>
+            <div className="workspace-home-briefing-body">
+              <button
+                type="button"
+                className="workspace-home-briefing-link"
+                onClick={onNeeds}
+              >
+                {content.waiting} waiting for you
+              </button>
+            </div>
+          </li>
+        ) : null}
+        {content.runs.length ? (
+          <li data-kind="automations">
+            <span className="workspace-home-briefing-icon" aria-hidden>
+              <Clock size={13} />
+            </span>
+            <div className="workspace-home-briefing-body">
+              <p>
+                {[
+                  plural(content.runs.length, "automation run"),
+                  content.runsFailed ? `${content.runsFailed} failed` : "",
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+                <span className="workspace-home-briefing-quiet">
+                  {" — "}
+                  {runNames.slice(0, BRIEFING_ROWS).join(", ")}
+                  {runNames.length > BRIEFING_ROWS
+                    ? ` and ${runNames.length - BRIEFING_ROWS} more`
+                    : ""}
+                </span>
+              </p>
+            </div>
+          </li>
+        ) : null}
+        {reviews.length ? (
+          <li data-kind="reviews">
+            <span className="workspace-home-briefing-icon" aria-hidden>
+              <GitPullRequest size={13} />
+            </span>
+            <div className="workspace-home-briefing-body">
+              <p>
+                {plural(reviews.length, "pull request")}{" "}
+                {reviews.length === 1 ? "wants" : "want"} your review
+              </p>
+              <ul className="workspace-home-briefing-rows" role="list">
+                {reviews.slice(0, BRIEFING_ROWS).map((review) => (
+                  <li key={review.url}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void openInAppUrl(review.url).catch(() => {})
+                      }
+                    >
+                      <small className="workspace-home-briefing-ref">
+                        {review.repo ? `${review.repo}#` : "#"}
+                        {review.number}
+                      </small>
+                      <span className="workspace-home-briefing-title">
+                        {review.title}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </li>
+        ) : null}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * Pull requests asking for the user's review, fetched once when the briefing
+ * appears (cached ten minutes); empty when GitHub is not available.
+ */
+function useReviewRequests(
+  projects: readonly HomeProject[],
+): readonly ReviewRequest[] {
+  const paths = projects.map((project) => project.path).join("\n");
+  const [state, setState] = useState(() => ({
+    paths,
+    items: peekReviewRequests(paths ? paths.split("\n") : []) ?? [],
+  }));
+  useEffect(() => {
+    if (!paths) return;
+    let live = true;
+    void loadReviewRequests(paths.split("\n")).then((items) => {
+      if (live) setState({ paths, items });
+    });
+    return () => {
+      live = false;
+    };
+  }, [paths]);
+  return state.paths === paths ? state.items : [];
 }
 
 type AgentTileProps = {
@@ -628,6 +945,8 @@ const AgentTile = memo(
           : !project.lastActivity || now - project.lastActivity > RESTING_MS
             ? "resting"
             : "idle";
+    // A mascot left alone for days dozes; a new project only rests.
+    const dozing = state === "resting" && !!project.lastActivity;
     const described = describeProjectStatus(status);
     const saying = waiting
       ? `Waiting for you${project.asking ? `: ${project.asking}` : ""}`
@@ -670,8 +989,10 @@ const AgentTile = memo(
             <ProjectMark
               appearance={appearance}
               active={running > 0}
+              reacts
               className="workspace-home-agent-mark"
             />
+            {dozing ? <RestingZzz /> : null}
             {unread ? (
               <span className="workspace-home-agent-badge">{unread}</span>
             ) : null}
@@ -696,6 +1017,7 @@ const AgentTile = memo(
         </button>
         <p className="workspace-home-agent-meta" id={metaId}>
           {saying ? <span className="sr-only">{saying}. </span> : null}
+          {dozing ? <span className="sr-only">Resting. </span> : null}
           {project.branch ? (
             <span className="workspace-home-agent-branch">
               <GitBranch size={11} aria-hidden />
@@ -760,6 +1082,23 @@ const AgentTile = memo(
     equalChromeData(a.project, b.project) &&
     equalChromeData(a.status, b.status),
 );
+
+/** A tiny pixel "zzz" over a mascot whose project has been idle for days. */
+function RestingZzz() {
+  return (
+    <svg
+      className="workspace-home-agent-zzz"
+      viewBox={`0 0 ${RESTING_ZZZ_GRID.width} ${RESTING_ZZZ_GRID.height}`}
+      shapeRendering="crispEdges"
+      fill="currentColor"
+      aria-hidden
+    >
+      {RESTING_ZZZ_PATHS.map((d) => (
+        <path key={d} d={d} />
+      ))}
+    </svg>
+  );
+}
 
 /** One session in a dashboard list: mark, title over a quiet line, aside. */
 function SessionRow({
@@ -836,8 +1175,10 @@ const USAGE_WINDOWS = [
 ] as const;
 
 /**
- * The last usage the footer saved for each account. Read once when Home
- * opens; Home never asks a provider itself.
+ * The last usage the footer saved for each account, with how long each
+ * window lasts at the current pace. Home never asks a provider itself; each
+ * footer check updates the forecasts, and the saved numbers are read again
+ * with them.
  */
 function UsagePanel({
   providers,
@@ -846,7 +1187,8 @@ function UsagePanel({
   providers: readonly RateLimitProvider[];
   headingId: string;
 }) {
-  const [saved] = useState(loadSavedRateLimits);
+  const forecasts = useUsageForecasts();
+  const saved = loadSavedRateLimits();
   const accounts = providers.flatMap((provider) => {
     const limits = saved[provider];
     return limits ? [limits] : [];
@@ -858,7 +1200,11 @@ function UsagePanel({
       <h2 id={headingId}>Usage</h2>
       <div className="workspace-home-panel workspace-home-usage">
         {accounts.map((account) => (
-          <UsageAccount key={account.provider} account={account} />
+          <UsageAccount
+            key={account.provider}
+            account={account}
+            forecast={forecasts.providers[account.provider]}
+          />
         ))}
         <p className="workspace-home-usage-note">
           <TimeAgo at={asOf} prefix="Last checked " />
@@ -868,7 +1214,13 @@ function UsagePanel({
   );
 }
 
-function UsageAccount({ account }: { account: ProviderRateLimits }) {
+function UsageAccount({
+  account,
+  forecast,
+}: {
+  account: ProviderRateLimits;
+  forecast: ProviderUsageForecast | undefined;
+}) {
   const now = useMinuteClock();
   const windows = USAGE_WINDOWS.flatMap(([key, label]) => {
     const window = account[key] as RateLimitWindow | null | undefined;
@@ -906,6 +1258,7 @@ function UsageAccount({ account }: { account: ProviderRateLimits }) {
                     : ` · resets in ${resets}`}
                 </span>
               ) : null}
+              <UsageForecastNote pace={forecast?.paces[key]} now={now} />
             </span>
           </div>
         );

@@ -54,6 +54,7 @@ mod personal_project;
 mod pip_group;
 mod popup_glass;
 mod project_logo;
+mod project_memory;
 mod projectless;
 mod provider_setup;
 mod provider_updates;
@@ -529,6 +530,10 @@ pub fn run() {
             notes::notes_delete,
             notes::notes_save_image,
             notes::notes_image_path,
+            project_memory::project_memory_get,
+            project_memory::project_memory_set,
+            project_memory::project_memory_append,
+            project_memory::project_memory_delete,
             checkpoint::session_checkpoint_ensure,
             checkpoint::session_checkpoint_prepare,
             checkpoint::session_checkpoint_capture,

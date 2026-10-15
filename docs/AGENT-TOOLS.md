@@ -21,6 +21,19 @@ opening another copy. Agents inspect a snapshot and interact with elements from 
 instead of switching to another browser. Explicit requests for a different browser,
 configured browser tests, and provider sign-in flows retain their normal behavior.
 
+When a development server starts in an Aven terminal or in an agent's shell
+command, Aven notices the local address it prints (loopback only: `localhost`,
+`127.0.0.1`, `[::1]` and `*.localhost`; a server bound to `0.0.0.0` opens on
+`localhost`) and offers **Preview ready · localhost:5173 — Open beside chat**
+above the chat, or in the terminal panel's header for that panel's servers.
+Opening it reuses a tab already showing that server. **Settings → Browser →
+Open dev previews automatically** opens each new server start once without
+asking; a bare "listening on port 3000" line, often an API, is only offered.
+When the server stops, the offer turns to
+**Preview stopped**; the page stays open. Each agent turn that has the browser
+also names the project's running dev servers, so the agent checks its work in
+that page instead of starting another server.
+
 ## Working in the background
 
 Browser actions never move your pointer, take your keyboard focus or bring Aven
