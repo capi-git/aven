@@ -1,6 +1,7 @@
 import { visibleInterval } from "../lib/visibleInterval";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useProviderUsage } from "../hooks/useProviderUsage";
+import { useUsageForecasts } from "../hooks/useUsageForecasts";
 import { contextPercent, formatTokens } from "../lib/contextUsage";
 import {
   formatResetDuration,
@@ -10,6 +11,16 @@ import {
   type RateLimitProvider,
   type RateLimitWindow,
 } from "../lib/rateLimits";
+import {
+  aboutDuration,
+  formatForecastDetail,
+  USAGE_WINDOW_KINDS,
+  USAGE_WINDOW_NAME,
+  usageOutlook,
+  type UsageOutlook,
+  type UsageWindowKind,
+} from "../lib/usageForecast";
+import type { ProviderUsageForecast } from "../lib/usageHistory";
 import { useUsagePanelTheme, type UsagePanelSnapshot } from "../lib/usagePanel";
 import { HARNESS_TITLE } from "../lib/session";
 import { Popover } from "./Popover";
@@ -55,6 +66,23 @@ function validContext(context: FooterUsageProps["context"]) {
   return { used: context.used, window };
 }
 
+const WINDOW_TITLE: Record<UsageWindowKind, string> = {
+  session: "5-hour",
+  weekly: "Weekly",
+  monthly: "30-day",
+};
+
+/** Windows whose limit comes before their reset at the current pace. */
+function accountForecasts(
+  forecast: ProviderUsageForecast | undefined,
+  now: number,
+): { kind: UsageWindowKind; outlook: UsageOutlook }[] {
+  return USAGE_WINDOW_KINDS.flatMap((kind) => {
+    const outlook = usageOutlook(forecast?.paces[kind], now);
+    return outlook && outlook.state !== "clear" ? [{ kind, outlook }] : [];
+  });
+}
+
 /** A fixed order, so the footer does not reshuffle as tasks change. */
 const FOOTER_ORDER: readonly RateLimitProvider[] = ["claude", "codex"];
 
@@ -68,6 +96,8 @@ function meterFill(limits: ProviderRateLimits) {
 /** Account usage in the footer: one quiet line, with details on click. */
 export function FooterUsage({ providers, context }: FooterUsageProps) {
   const { limits, request } = useProviderUsage(providers);
+  // Changes only when usage is checked, never while an agent streams.
+  const forecasts = useUsageForecasts();
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
   const [now, setNow] = useState(Date.now);
@@ -88,10 +118,23 @@ export function FooterUsage({ providers, context }: FooterUsageProps) {
       providers: providers.map(
         (provider) => limits[provider] ?? idleRateLimits(provider),
       ),
+      forecasts: Object.fromEntries(
+        providers.map((provider) => [
+          provider,
+          forecasts.providers[provider]?.paces ?? {},
+        ]),
+      ),
       theme,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [taskContext?.used, taskContext?.window, limits, providers, theme],
+    [
+      taskContext?.used,
+      taskContext?.window,
+      limits,
+      providers,
+      theme,
+      forecasts,
+    ],
   );
 
   // An account that is not installed or signed in stays out of the footer;
@@ -111,12 +154,24 @@ export function FooterUsage({ providers, context }: FooterUsageProps) {
     (provider) => limits[provider]?.status === "fetching",
   );
   if (!accounts.length && !contextLabel) return null;
+  const outlooks = new Map(
+    accounts.map((account) => [
+      account.provider,
+      accountForecasts(forecasts.providers[account.provider], now),
+    ]),
+  );
   const label = [
     contextLabel ? `Context ${contextLabel}` : null,
-    ...accounts.map(
-      (account) =>
-        `${HARNESS_TITLE[account.provider]} usage ${summary(account, now).join(", ")}`,
-    ),
+    ...accounts.map((account) => {
+      const usage = `${HARNESS_TITLE[account.provider]} usage ${summary(account, now).join(", ")}`;
+      const warnings = (outlooks.get(account.provider) ?? [])
+        .filter(({ outlook }) => outlook.state === "warning")
+        .map(
+          ({ kind, outlook }) =>
+            `${USAGE_WINDOW_NAME[kind]} limit ${aboutDuration(outlook.msToLimit)} at this pace`,
+        );
+      return [usage, ...warnings].join(", ");
+    }),
   ]
     .filter(Boolean)
     .join(" · ");
@@ -140,8 +195,25 @@ export function FooterUsage({ providers, context }: FooterUsageProps) {
         ) : null}
         {accounts.map((account, index) => {
           const fill = meterFill(account);
+          const ahead = outlooks.get(account.provider) ?? [];
+          const warning = ahead.some(
+            ({ outlook }) => outlook.state === "warning",
+          );
           return (
-            <span className="footer-usage-account" key={account.provider}>
+            <span
+              className="footer-usage-account"
+              key={account.provider}
+              title={
+                ahead.length
+                  ? ahead
+                      .map(
+                        ({ kind, outlook }) =>
+                          `${WINDOW_TITLE[kind]}: ${formatForecastDetail(outlook)}`,
+                      )
+                      .join("\n")
+                  : undefined
+              }
+            >
               {index > 0 || contextLabel ? (
                 <span className="footer-usage-divider" aria-hidden />
               ) : null}
@@ -150,6 +222,7 @@ export function FooterUsage({ providers, context }: FooterUsageProps) {
                 className="footer-usage-meter"
                 data-unknown={fill == null || undefined}
                 data-high={(fill != null && fill >= 80) || undefined}
+                data-forecast={warning ? "warning" : undefined}
                 aria-hidden
               >
                 <span style={{ width: `${Math.max(fill ?? 0, 4)}%` }} />

@@ -1,12 +1,17 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useLayoutEffect, useState } from "react";
-import type { ProviderRateLimits } from "./rateLimits";
+import type { ProviderRateLimits, RateLimitProvider } from "./rateLimits";
+import type { UsagePace, UsageWindowKind } from "./usageForecast";
 
 export type UsagePanelSnapshot = {
   context: { used: number; window?: number } | null;
   costUsd: number | null;
   providers: ProviderRateLimits[];
+  /** Each account's measured paces; the panel judges them against its clock. */
+  forecasts?: Partial<
+    Record<RateLimitProvider, Partial<Record<UsageWindowKind, UsagePace>>>
+  >;
   theme: {
     mode: "dark" | "light";
     accent: string;

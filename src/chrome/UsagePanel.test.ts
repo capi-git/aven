@@ -316,6 +316,70 @@ describe("usage panel", () => {
     expect(bar("Codex 5-hour").getAttribute("aria-valuenow")).toBe("75");
   });
 
+  it("says how long a window lasts at this pace, in amber when the limit comes soon", async () => {
+    const MINUTE = 60_000;
+    const pace = (
+      kind: "session" | "weekly",
+      hitIn: number,
+      resetsIn: number,
+    ) => ({
+      kind,
+      used: 70,
+      perHour: 30,
+      hitAt: now + hitIn,
+      resetsAt: now + resetsIn,
+      from: now - 40 * MINUTE,
+      to: now - MINUTE,
+      lastRiseAt: now - MINUTE,
+      samples: 5,
+    });
+    await render(
+      snapshot({
+        providers: [
+          provider({
+            session: {
+              usedPercent: 70,
+              windowMinutes: 300,
+              resetsAt: now + 130 * MINUTE,
+            },
+          }),
+          provider({
+            provider: "claude",
+            session: {
+              usedPercent: 10,
+              windowMinutes: 300,
+              resetsAt: now + 240 * MINUTE,
+            },
+          }),
+        ],
+        forecasts: {
+          codex: {
+            session: pace("session", 40 * MINUTE + 30_000, 130 * MINUTE),
+            weekly: pace("weekly", 3 * 24 * 60 * MINUTE, 172_800_000),
+          },
+          claude: { session: pace("session", 180 * MINUTE, 240 * MINUTE) },
+        },
+      }),
+    );
+    const details = (name: string) => [
+      ...container.querySelectorAll<HTMLElement>(
+        `[aria-label="${name} usage"] .usage-panel-detail`,
+      ),
+    ];
+    const [session, weekly] = details("Codex");
+    expect(session.textContent).toBe(
+      "~40m to limit at this pace · resets in 2h 10m",
+    );
+    expect(session.hasAttribute("data-warning")).toBe(true);
+    // A window that resets first keeps its countdown.
+    expect(weekly.textContent).toBe("Resets in 2d");
+    expect(weekly.hasAttribute("data-warning")).toBe(false);
+    // Before the reset but not soon: a plain line, no warning.
+    const [claude] = details("Claude Code");
+    expect(claude.textContent).toBe("~3h to limit at this pace · resets in 4h");
+    expect(claude.hasAttribute("data-warning")).toBe(false);
+  });
+
   it("exposes refresh, close and Escape without changing quota or access settings", async () => {
     await render();
     await act(async () =>
