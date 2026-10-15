@@ -32,7 +32,9 @@ const MASCOT_KEY = "monocode:tab-group:mascots";
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
 export const TAB_GROUP_LOGOS_CHANGED = "monocode:tab-group-logos-changed";
-const TAB_GROUP_LABELS_CHANGED = "monocode:tab-group-labels-changed";
+export const TAB_GROUP_LABELS_CHANGED = "monocode:tab-group-labels-changed";
+/** Any saved colour, label, logo or mascot changed in this window. */
+export const PROJECT_APPEARANCE_CHANGED = "aven:project-appearance-changed";
 
 let logoDisplayRevision = 0;
 
@@ -74,6 +76,17 @@ const APPEARANCE_KEYS = [
   LOGO_KEY,
   MASCOT_KEY,
 ] as const;
+
+/** Storage keys other windows write; their `storage` events refresh this one. */
+export const PROJECT_APPEARANCE_STORAGE_KEYS: readonly string[] =
+  APPEARANCE_KEYS;
+export const TAB_GROUP_LOGO_STORAGE_KEY = LOGO_KEY;
+
+/** Tell this window's project marks to re-read saved appearance. */
+export function notifyProjectAppearanceChanged(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(PROJECT_APPEARANCE_CHANGED));
+}
 
 const KEY_VERSION_KEY = "monocode:tab-group:key-version";
 const KEY_VERSION = "2";
@@ -201,6 +214,7 @@ export function saveTabGroupColor(project: string, index: number | null): void {
   if (index == null) delete next[project];
   else next[project] = index;
   writeTabGroupColorIndices(next);
+  notifyProjectAppearanceChanged();
 }
 
 export function saveTabGroupCustomColor(
@@ -212,6 +226,7 @@ export function saveTabGroupCustomColor(
   if (color == null || !HEX_COLOR_RE.test(color)) delete next[project];
   else next[project] = color.toLowerCase();
   writeTabGroupCustomColors(next);
+  notifyProjectAppearanceChanged();
 }
 
 export function loadTabGroupLabels(): Record<string, string> {
@@ -260,16 +275,19 @@ export function saveTabGroupMascot(project: string, name: string | null): void {
   if (!name) delete next[project];
   else next[project] = name;
   writeRecord(MASCOT_KEY, next);
+  notifyProjectAppearanceChanged();
 }
 
 /** Drops every saved appearance override for a project. */
 export function clearTabGroupSettings(project: string): void {
+  let changed = false;
   for (const key of APPEARANCE_KEYS) {
     const next = readRecord(key);
     if (!(project in next)) continue;
     delete next[project];
-    writeRecord(key, next);
+    changed = writeRecord(key, next) || changed;
   }
+  if (changed) notifyProjectAppearanceChanged();
 }
 
 export function resolveTabGroupMascot(
