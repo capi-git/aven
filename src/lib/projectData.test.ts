@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   background: vi.fn(),
   backgroundSetting: vi.fn(),
   tabs: vi.fn(),
+  memory: vi.fn(),
 }));
 vi.mock("./sessionStore", () => ({ listProjectSessionIds: mocks.list }));
 vi.mock("./projectLogos", () => ({ clearProjectLogo: mocks.logo }));
@@ -17,6 +18,7 @@ vi.mock("./projectChatBackground", () => ({
   clearProjectChatBackgroundSetting: mocks.backgroundSetting,
 }));
 vi.mock("./tabGroups", () => ({ clearTabGroupSettings: mocks.tabs }));
+vi.mock("./projectMemory", () => ({ clearProjectMemory: mocks.memory }));
 
 describe("project data removal", () => {
   beforeEach(() => {
@@ -24,6 +26,7 @@ describe("project data removal", () => {
     mocks.list.mockResolvedValue(["saved"]);
     mocks.logo.mockResolvedValue(undefined);
     mocks.background.mockResolvedValue(undefined);
+    mocks.memory.mockResolvedValue(undefined);
   });
 
   function options() {
@@ -72,6 +75,7 @@ describe("project data removal", () => {
     expect(mocks.logo).toHaveBeenCalledOnce();
     expect(mocks.backgroundSetting).toHaveBeenCalledOnce();
     expect(mocks.tabs).toHaveBeenCalledOnce();
+    expect(mocks.memory).toHaveBeenCalledExactlyOnceWith("/project");
   });
 
   it("stops after cancellation and reports any completed deletions", async () => {
@@ -132,6 +136,7 @@ describe("project data removal", () => {
       "2 conversations have already been deleted",
     );
     expect(mocks.background).not.toHaveBeenCalled();
+    expect(mocks.memory).not.toHaveBeenCalled();
     expect(mocks.tabs).not.toHaveBeenCalled();
 
     mocks.list.mockResolvedValue([]);

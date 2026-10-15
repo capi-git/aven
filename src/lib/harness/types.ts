@@ -111,6 +111,14 @@ export type HarnessEvent =
 
 export type ApprovalDecision = "allow" | "deny";
 
+/** The project's memory as an agent receives it (see `projectMemory.ts`). */
+export type HarnessProjectMemory = {
+  /** Preamble and memory in one tagged block; empty when there is none. */
+  text: string;
+  /** Short hash of `text`; empty when there is none. */
+  revision: string;
+};
+
 export type HarnessSessionInput = {
   sessionId: string;
   cwd: string;
@@ -124,6 +132,11 @@ export type HarnessSessionInput = {
    * that socket cannot supervise its agents at all.
    */
   controlsAgents?: boolean;
+  /**
+   * Project memory for this turn. Omitted when the caller does not know it:
+   * the agent then keeps whatever it was given before.
+   */
+  projectMemory?: HarnessProjectMemory;
   onEvent: (event: HarnessEvent) => void;
 };
 

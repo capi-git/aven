@@ -2,6 +2,7 @@ import { projectKey } from "./paths";
 import { clearProjectLogo } from "./projectLogos";
 import { clearProjectChatBackground } from "./chatBackground";
 import { clearProjectChatBackgroundSetting } from "./projectChatBackground";
+import { clearProjectMemory } from "./projectMemory";
 import { normalizeProjectPath } from "./recents";
 import { listProjectSessionIds } from "./sessionStore";
 import { clearTabGroupSettings } from "./tabGroups";
@@ -12,7 +13,7 @@ export async function projectSessionCount(path: string): Promise<number> {
   return sessions.length;
 }
 
-/** Saved chats and rail appearance. The caller owns the live-session lifecycle. */
+/** Saved chats, rail appearance and project memory. The caller owns the live-session lifecycle. */
 export async function removeProjectData(
   path: string,
   options: {
@@ -41,6 +42,7 @@ export async function removeProjectData(
     // Drops copied images only after every conversation has been removed.
     await clearProjectLogo(key);
     await clearProjectChatBackground(key);
+    await clearProjectMemory(normalized);
     options.assertWorkspaceReady();
     clearProjectChatBackgroundSetting(key);
     clearTabGroupSettings(key);

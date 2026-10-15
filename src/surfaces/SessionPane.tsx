@@ -55,6 +55,7 @@ import { raceLaneFor } from "../lib/race";
 import { isAstraModel } from "../lib/astraWelcome";
 import { AstraWelcome } from "./AstraWelcome";
 import { projectKey } from "../lib/paths";
+import { memoryProjectFor } from "../lib/projectMemory";
 import {
   readComposerDraft,
   retainComposerDraft,
@@ -237,6 +238,10 @@ export const SessionPane = memo(function SessionPane({
     loadChatBackgroundPath,
   );
   const projectBackground = loadProjectChatBackground(projectKey(session.cwd));
+  const memoryProject = useMemo(
+    () => memoryProjectFor(session.cwd) ?? undefined,
+    [session.cwd],
+  );
   const projectBackgroundStyle = projectBackground
     ? ({
         "--chat-background-image": `url(${JSON.stringify(
@@ -671,6 +676,7 @@ export const SessionPane = memo(function SessionPane({
               onApproval={approve}
               onAddToChat={addSelectionToChat}
               onSaveNote={notesEnabled ? saveNote : undefined}
+              memoryProject={session.inboxAsk ? undefined : memoryProject}
               onOpenFile={onOpenFile}
               onOpenDiff={onOpenDiff}
               onOpenPlan={openPlan}
