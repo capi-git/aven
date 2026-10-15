@@ -303,12 +303,12 @@ export const MASCOT_TWINKLE_PATH = mascotPath(["#"], -2, 0);
 /** A two-pixel drop of sweat beside the mascot's head. */
 export const MASCOT_SWEAT_PATH = mascotPath(["#", "#"], 8, 1);
 
-/** "zzz" for a resting project: three pixel z's rising to the right. */
-export const RESTING_ZZZ_GRID = { width: 11, height: 10 } as const;
+/** "zzz" for a resting project: three pixel z's growing as they rise. */
+export const RESTING_ZZZ_GRID = { width: 13, height: 12 } as const;
 export const RESTING_ZZZ_PATHS: readonly string[] = [
-  mascotPath(["###", ".#.", "###"], 0, 7),
-  mascotPath(["###", ".#.", "###"], 3, 4),
-  mascotPath(["####", "..#.", ".#..", "####"], 7, 0),
+  mascotPath(["###", "..#", ".#.", "###"], 0, 8),
+  mascotPath(["####", "..#.", ".#..", "####"], 4, 4),
+  mascotPath(["####", "...#", "..#.", ".#..", "####"], 9, 0),
 ];
 
 /** Stable per-project pick — a different mix than the color hash so a project's

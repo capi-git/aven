@@ -522,14 +522,14 @@ html.has-chat-background .workspace-home::before {
   filter: saturate(0.4);
 }
 
-/* Eleven pixels across at 2px each, above the mascot's right shoulder. It
+/* Thirteen pixels across at 2px each, above the mascot's right shoulder. It
    drifts up into place once when the tile appears, then stays still. */
 .workspace-home-agent-zzz {
   position: absolute;
-  top: -2px;
-  right: -10px;
-  width: 22px;
-  height: 20px;
+  top: -8px;
+  right: -16px;
+  width: 26px;
+  height: 24px;
   color: var(--aven-muted);
   pointer-events: none;
 }
