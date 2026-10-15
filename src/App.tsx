@@ -64,6 +64,7 @@ import { PersonalInspectorDock } from "./chrome/PersonalInspectorDock";
 import { WorkspaceHome } from "./surfaces/WorkspaceHome";
 import { useNativeFloatingSidebar } from "./hooks/useNativeFloatingSidebar";
 import { useProjectStatus } from "./hooks/useProjectStatus";
+import { useWorkspaceHomeData } from "./hooks/useWorkspaceHomeData";
 import { useSidebarVisibility } from "./hooks/useSidebarVisibility";
 import { useSidebarData } from "./hooks/useSidebarData";
 import { useSessionModelControls } from "./hooks/useSessionModelControls";
@@ -8261,6 +8262,24 @@ export default function App({
     activity: activityEntries,
     projectPaths: profiles.profileProjects.map((project) => project.path),
   });
+  const homeShown =
+    (profileHome || homeViewOpen || view.order.length === 0) &&
+    !settingsOpen &&
+    !searchViewOpen &&
+    !inboxViewOpen &&
+    !automationsViewOpen &&
+    !notesViewOpen;
+  // Built only while Home is on screen; keeps its identity across streaming
+  // flushes that change nothing it shows.
+  const homeData = useWorkspaceHomeData({
+    enabled: homeShown,
+    sessions,
+    inFlightIds: busySessionIds,
+    history,
+    activity: activityEntries,
+    projects: profiles.profileProjects,
+    standaloneCwds,
+  });
   const sidebarProps: Omit<
     SidebarProps,
     "open" | "floating" | "hoverHandlers"
@@ -8505,55 +8524,16 @@ export default function App({
               >
                 <div className="personal-workspace-body">
                   <div className="personal-main body-glass flex min-h-0 min-w-0 flex-1 flex-col">
-                    {(profileHome || homeViewOpen || view.order.length === 0) &&
-                    !settingsOpen &&
-                    !searchViewOpen &&
-                    !inboxViewOpen &&
-                    !automationsViewOpen &&
-                    !notesViewOpen ? (
+                    {homeShown ? (
                       <WorkspaceHome
                         profile={profiles.activeProfile.name}
-                        projects={profiles.profileProjects.map((project) => ({
-                          path: project.path,
-                          name: basename(project.path),
-                        }))}
-                        sessions={[
-                          ...new Map(
-                            [
-                              ...history.filter((entry) => !entry.archived),
-                              ...sessions.map((entry) => ({
-                                ...summaryFromSession(entry),
-                                busy: entry.busy,
-                              })),
-                            ].map((entry) => [entry.id, entry]),
-                          ).values(),
-                        ]
-                          .filter((session) => !session.orchestrationLeadId)
-                          .sort((a, b) => b.updatedAt - a.updatedAt)
-                          .filter(
-                            (session) =>
-                              standaloneCwds.some((cwd) =>
-                                sameProjectPath(cwd, session.cwd),
-                              ) ||
-                              profiles.profileProjects.some((project) =>
-                                sameProjectPath(project.path, session.cwd),
-                              ),
-                          )
-                          .map((session) => ({
-                            id: session.id,
-                            cwd: session.cwd,
-                            title: sessionDisplayTitle(
-                              session.title,
-                              session.harness,
-                            ),
-                            project: isProjectlessCwd(session.cwd)
-                              ? "No project"
-                              : basename(session.cwd),
-                            harness: session.harness,
-                            busy: sessions.find(
-                              (live) => live.id === session.id,
-                            )?.busy,
-                          }))}
+                        needsYou={homeData.needsYou}
+                        running={homeData.running}
+                        projects={homeData.projects}
+                        recent={homeData.recent}
+                        finished={homeData.finished}
+                        projectStatus={projectStatus}
+                        usageProviders={usageProviders}
                         windows={detached.windows}
                         onShowWindow={(id) => {
                           void detached
@@ -8577,8 +8557,16 @@ export default function App({
                           setHomeViewOpen(false);
                           void onSelectHistorySession(id);
                         }}
+                        onNewProjectTask={(path) => {
+                          setHomeViewOpen(false);
+                          onNewProjectTask(path);
+                        }}
                         onAddProject={pickProject}
                         onSearch={onOpenSearch}
+                        onLoadProjects={(paths) => {
+                          for (const path of paths)
+                            void refreshProfileHistory(path);
+                        }}
                       />
                     ) : null}
                     <div
