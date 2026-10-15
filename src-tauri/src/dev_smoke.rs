@@ -295,16 +295,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn an_unmarked_folder_never_enables_the_check() {
+    fn only_a_marked_folder_in_a_debug_build_enables_the_check() {
         let dir = std::env::temp_dir().join(format!("aven-smoke-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         std::env::set_var("AVEN_DEV_SMOKE_DIR", &dir);
         assert!(smoke_dir().is_none());
         std::fs::write(dir.join(MARKER), "").unwrap();
-        assert_eq!(smoke_dir(), Some(dir.clone()));
-        let config = dev_smoke_config().unwrap();
-        assert!(config.project_path.ends_with("project"));
-        assert!(config.bin_dir.ends_with("home/.local/bin"));
+        if cfg!(debug_assertions) {
+            assert_eq!(smoke_dir(), Some(dir.clone()));
+            let config = dev_smoke_config().unwrap();
+            assert!(config.project_path.ends_with("project"));
+            assert!(config.bin_dir.ends_with("home/.local/bin"));
+        } else {
+            // Release builds (the Windows release runs its tests as one) never
+            // enable the check, even with the marked folder in place.
+            assert!(smoke_dir().is_none());
+            assert!(dev_smoke_config().is_none());
+        }
         std::env::remove_var("AVEN_DEV_SMOKE_DIR");
         assert!(smoke_dir().is_none());
         std::fs::remove_dir_all(&dir).unwrap();
