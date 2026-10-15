@@ -164,6 +164,13 @@ export function copyStatus(copy: CopySummary, base = "main"): CopyStatus {
   };
 }
 
+/** The short status at the end of a copy's one-line row. */
+export function copyShortStatus(copy: CopySummary): string {
+  if (copy.finished) return "Merged";
+  const ahead = copy.worktree.aheadOfDefault;
+  return ahead > 0 ? `${ahead} to merge` : "Up to date";
+}
+
 /** The conversation that works, or last worked, in a copy. */
 export type CopyChat = {
   id: string;
@@ -515,6 +522,48 @@ function loadExplained(): boolean {
   }
 }
 
+const OPEN_KEY = "aven.parallelWorkOpen";
+/** Rows shown before the rest fold into "+N more". */
+export const PARALLEL_ROWS_SHOWN = 3;
+
+/** Whether the section is open; it starts folded to its header line. */
+export function loadParallelWorkOpen(): boolean {
+  try {
+    return localStorage.getItem(OPEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function saveParallelWorkOpen(open: boolean): void {
+  try {
+    if (open) localStorage.setItem(OPEN_KEY, "1");
+    else localStorage.removeItem(OPEN_KEY);
+  } catch {
+    // Private mode or a full quota: it opens folded next time.
+  }
+}
+
+/**
+ * Copies with an agent working first, then the most recently active chat,
+ * keeping the list's own order (uncommitted work first) between equals.
+ */
+export function orderParallelWork<T extends { chat: CopyChat | null }>(
+  rows: readonly T[],
+): T[] {
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => {
+      const working =
+        Number(b.row.chat?.state === "working") -
+        Number(a.row.chat?.state === "working");
+      if (working) return working;
+      const recent = (b.row.chat?.at ?? 0) - (a.row.chat?.at ?? 0);
+      return recent || a.index - b.index;
+    })
+    .map(({ row }) => row);
+}
+
 function saveExplained(): void {
   try {
     localStorage.setItem(EXPLAINED_KEY, "1");
@@ -666,17 +715,21 @@ export function GitCopies({
   const { active, finished } = partitionCopies(copies);
   const live = useContext(LiveSessionsContext);
   const sessions = () => live?.list() ?? [];
+  // Folded to one header line until opened; the choice is remembered.
+  const [sectionOpen, setSectionOpen] = useState(loadParallelWorkOpen);
+  const [showAll, setShowAll] = useState(false);
+  // Chats from history only matter once the rows are on screen.
   const history = useCopyHistory(
     copies
       .filter(({ worktree }) => !worktree.primary)
       .map(({ worktree }) => worktree.path),
-    enabled,
+    enabled && sectionOpen,
   );
   const [explained] = useState(loadExplained);
   const shown = copies.length > 0;
   useEffect(() => {
-    if (shown && !explained) saveExplained();
-  }, [shown, explained]);
+    if (shown && sectionOpen && !explained) saveExplained();
+  }, [shown, sectionOpen, explained]);
   const [open, setOpen] = useState<string | null>(null);
   const [shipping, setShipping] = useState<string | null>(null);
   const [finishedOpen, setFinishedOpen] = useState(false);
@@ -726,15 +779,45 @@ export function GitCopies({
   // Ages are worked out when the list renders; nothing ticks on a clock.
   const now = Date.now();
   const openSessions = sessions();
+  const withChat = (copy: CopySummary) => ({
+    copy,
+    chat: copy.worktree.primary
+      ? null
+      : chatForCopy(
+          copy.worktree.path,
+          openSessions,
+          history.get(copy.worktree.path),
+        ),
+  });
+  const rows = orderParallelWork(active.map(withChat));
+  const working = rows.filter(({ chat }) => chat?.state === "working");
+  const visible = showAll ? rows : rows.slice(0, PARALLEL_ROWS_SHOWN);
+  const hidden = rows.length - visible.length;
+  const mark = projectCwd || cwd;
+  const toggleSection = () => {
+    const next = !sectionOpen;
+    setSectionOpen(next);
+    saveParallelWorkOpen(next);
+  };
 
-  const renderCopy = (copy: CopySummary) => {
+  const renderCopy = ({
+    copy,
+    chat,
+  }: {
+    copy: CopySummary;
+    chat: CopyChat | null;
+  }) => {
     const { worktree, race } = copy;
     const expanded = open === worktree.path;
     const files = worktree.files.length;
     const status = copyStatus(copy, base);
-    const chat = worktree.primary
-      ? null
-      : chatForCopy(worktree.path, openSessions, history.get(worktree.path));
+    const chatLine = chat ? describeCopyChat(chat, now) : null;
+    const dot =
+      chat?.state === "working"
+        ? "working"
+        : files > 0
+          ? "uncommitted"
+          : undefined;
     const canShip =
       !copy.finished &&
       (files > 0 || worktree.aheadOfDefault > 0) &&
@@ -745,46 +828,48 @@ export function GitCopies({
         <div
           className="git-copy"
           data-finished={copy.finished || undefined}
+          data-open={expanded || undefined}
           data-tone={status.tone}
         >
           <button
             type="button"
-            className="git-copy-head"
+            className="git-copy-line"
             aria-expanded={expanded}
-            title={`${where} · ${worktree.path}`}
+            title={[status.text, chatLine, `${where} · ${worktree.path}`]
+              .filter(Boolean)
+              .join("\n")}
             onClick={() => setOpen(expanded ? null : worktree.path)}
           >
-            <ChevronRight
-              className="git-copy-chevron size-3 shrink-0"
-              strokeWidth={2}
+            <span
+              className="git-copy-dot"
+              data-dot={dot}
+              role={dot ? "img" : undefined}
+              aria-label={
+                dot === "working"
+                  ? "Agent working"
+                  : dot
+                    ? "Uncommitted files"
+                    : undefined
+              }
             />
-            <span className="git-copy-icon" aria-hidden>
-              {chat && (projectCwd || cwd) ? (
-                <ProjectMark
-                  path={projectCwd || cwd}
-                  active={chat.state === "working"}
-                />
-              ) : copy.harness ? (
-                <ProviderMarks harnesses={[copy.harness]} />
-              ) : (
-                <GitBranch className="size-3.5" strokeWidth={1.75} />
-              )}
-            </span>
-            <span className="git-copy-text">
-              <span className="git-copy-name">{copy.name}</span>
-              <span className="git-copy-status" title={status.hint}>
-                <span className="git-copy-dot" aria-hidden />
-                {status.text}
-              </span>
-              {chat ? (
-                <span className="git-copy-chat" data-state={chat.state}>
-                  {describeCopyChat(chat, now)}
-                </span>
-              ) : null}
-            </span>
+            <span className="git-copy-name">{copy.name}</span>
+            <span className="git-copy-short">{copyShortStatus(copy)}</span>
           </button>
           {expanded ? (
             <div className="git-copy-files">
+              <p className="git-copy-status" title={status.hint}>
+                {status.text}
+              </p>
+              {chat ? (
+                <p className="git-copy-chat" data-state={chat.state}>
+                  {chat.state === "working" && mark ? (
+                    <ProjectMark path={mark} active />
+                  ) : copy.harness ? (
+                    <ProviderMarks harnesses={[copy.harness]} />
+                  ) : null}
+                  <span className="min-w-0 flex-1 truncate">{chatLine}</span>
+                </p>
+              ) : null}
               <p className="git-copy-branch" title={worktree.path}>
                 <GitBranch className="size-3 shrink-0" strokeWidth={1.75} />
                 <span className="min-w-0 flex-1 truncate">
@@ -1007,49 +1092,96 @@ export function GitCopies({
   };
 
   return (
-    <section className="git-copies" aria-label="Parallel work">
-      <h3 className="git-copies-title" title={PARALLEL_WORK_EXPLAINER}>
-        Parallel work
-        {inProgress > 0 ? <span>{inProgress} in progress</span> : null}
+    <section
+      className="git-copies"
+      aria-label="Parallel work"
+      data-open={sectionOpen || undefined}
+    >
+      <h3 className="git-copies-title">
+        <button
+          type="button"
+          className="git-copies-toggle"
+          aria-expanded={sectionOpen}
+          title={PARALLEL_WORK_EXPLAINER}
+          onClick={toggleSection}
+        >
+          <ChevronRight
+            className="git-copy-chevron size-3 shrink-0"
+            strokeWidth={2}
+          />
+          Parallel work
+          <span className="git-copies-count">
+            {inProgress > 0
+              ? `· ${inProgress}`
+              : finished.length > 0
+                ? `· ${finished.length} merged`
+                : ""}
+          </span>
+          {working.length > 0 && mark ? (
+            <span
+              className="git-copies-working"
+              aria-label={`${working.length} ${working.length === 1 ? "agent" : "agents"} working`}
+            >
+              {working.slice(0, 3).map(({ copy }) => (
+                <ProjectMark key={copy.worktree.path} path={mark} active />
+              ))}
+            </span>
+          ) : null}
+        </button>
       </h3>
-      {explained ? null : (
-        <p className="git-copies-explainer">{PARALLEL_WORK_EXPLAINER}</p>
-      )}
-      {active.map(renderCopy)}
-      {finished.length > 0 ? (
-        <div className="git-copies-group">
-          <button
-            type="button"
-            className="git-copy-head"
-            aria-expanded={finishedOpen}
-            title={`Copies whose changes are already in ${base}`}
-            onClick={() => setFinishedOpen(!finishedOpen)}
-          >
-            <ChevronRight
-              className="git-copy-chevron size-3 shrink-0"
-              strokeWidth={2}
-            />
-            <span className="git-copy-name">{`${finished.length} merged into ${base}`}</span>
-          </button>
-          {cleanup?.phase === "confirm" || cleaning ? null : (
+      {sectionOpen ? (
+        <>
+          {explained ? null : (
+            <p className="git-copies-explainer">{PARALLEL_WORK_EXPLAINER}</p>
+          )}
+          {visible.map(renderCopy)}
+          {hidden > 0 ? (
             <button
               type="button"
-              className="git-copy-action"
-              onClick={() =>
-                setCleanup({
-                  phase: "confirm",
-                  plan: planCleanup(finished, sessions()),
-                })
-              }
+              className="git-copies-more"
+              onClick={() => setShowAll(true)}
             >
-              <Trash2 className="size-3" strokeWidth={1.75} />
-              Clean up
+              +{hidden} more
             </button>
-          )}
-        </div>
+          ) : null}
+          {finished.length > 0 ? (
+            <div className="git-copies-group">
+              <button
+                type="button"
+                className="git-copy-head"
+                aria-expanded={finishedOpen}
+                title={`Copies whose changes are already in ${base}`}
+                onClick={() => setFinishedOpen(!finishedOpen)}
+              >
+                <ChevronRight
+                  className="git-copy-chevron size-3 shrink-0"
+                  strokeWidth={2}
+                />
+                <span className="git-copy-name">{`${finished.length} merged into ${base}`}</span>
+              </button>
+              {cleanup?.phase === "confirm" || cleaning ? null : (
+                <button
+                  type="button"
+                  className="git-copy-action"
+                  onClick={() =>
+                    setCleanup({
+                      phase: "confirm",
+                      plan: planCleanup(finished, sessions()),
+                    })
+                  }
+                >
+                  <Trash2 className="size-3" strokeWidth={1.75} />
+                  Clean up
+                </button>
+              )}
+            </div>
+          ) : null}
+          {renderCleanup()}
+          {finishedOpen
+            ? finished.map((copy) => renderCopy({ copy, chat: null }))
+            : null}
+        </>
       ) : null}
-      {renderCleanup()}
-      {finishedOpen ? finished.map(renderCopy) : null}
     </section>
   );
 }

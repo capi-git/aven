@@ -9,10 +9,14 @@ import {
   cleanUpCopies,
   copyInUse,
   copyName,
+  copyShortStatus,
   copyStatus,
   currentCopyLabel,
   describeCopyChat,
+  loadParallelWorkOpen,
+  orderParallelWork,
   parallelWorkCount,
+  saveParallelWorkOpen,
   partitionCopies,
   planCleanup,
   removalWarning,
@@ -560,5 +564,69 @@ describe("chatForCopy", () => {
         now,
       ),
     ).toBe("Fix tabs · last active 2h ago");
+  });
+});
+
+describe("compact parallel work", () => {
+  it("says what each row holds in two words", () => {
+    const copies = summarizeCopies([
+      copy({
+        path: "/a",
+        branch: "feat/a",
+        aheadOfDefault: 78,
+        mergedIntoDefault: false,
+      }),
+      copy({
+        path: "/b",
+        branch: "feat/b",
+        files: [file("x")],
+        mergedIntoDefault: false,
+      }),
+      copy({ path: "/c", branch: "feat/c" }),
+    ]);
+    const at = (path: string) =>
+      copies.find((entry) => entry.worktree.path === path)!;
+    const [ahead, fresh, merged] = [at("/a"), at("/b"), at("/c")];
+    expect(copyShortStatus(ahead)).toBe("78 to merge");
+    expect(copyShortStatus(fresh)).toBe("Up to date");
+    expect(copyShortStatus(merged)).toBe("Merged");
+  });
+
+  it("puts working agents first, then the latest chat, otherwise keeps order", () => {
+    const chat = (state: "working" | "idle", at: number) => ({
+      id: "x",
+      title: "x",
+      state,
+      at,
+    });
+    const rows = [
+      { name: "quiet", chat: null },
+      { name: "old", chat: chat("idle", 10) },
+      { name: "busy", chat: chat("working", 1) },
+      { name: "recent", chat: chat("idle", 20) },
+      { name: "also quiet", chat: null },
+    ];
+    expect(orderParallelWork(rows).map((row) => row.name)).toEqual([
+      "busy",
+      "recent",
+      "old",
+      "quiet",
+      "also quiet",
+    ]);
+  });
+
+  it("starts folded and remembers being opened under an aven key", () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    });
+    expect(loadParallelWorkOpen()).toBe(false);
+    saveParallelWorkOpen(true);
+    expect(values.get("aven.parallelWorkOpen")).toBe("1");
+    expect(loadParallelWorkOpen()).toBe(true);
+    saveParallelWorkOpen(false);
+    expect(values.has("aven.parallelWorkOpen")).toBe(false);
   });
 });

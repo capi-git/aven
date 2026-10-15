@@ -1,24 +1,49 @@
 /* Parallel work: other checkouts of the project, where agents work on their
    own branches, shown in the Changes panel. */
 .git-copies {
-  padding: 4px 0 8px;
+  padding: 2px 0 4px;
 }
 .git-copies-title {
-  display: flex;
-  align-items: center;
   margin: 0;
-  padding: 8px 12px 4px;
+  padding: 4px 6px 0;
+}
+/* Folded, the section is this one line: name, count, working agents. */
+.git-copies-toggle {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 6px;
+  border-radius: 6px;
   font-size: 10.5px;
   font-weight: 500;
   letter-spacing: 0.07em;
+  text-align: left;
   text-transform: uppercase;
   color: color-mix(in srgb, var(--color-content) 50%, transparent);
 }
-.git-copies-title span {
-  margin-left: auto;
+.git-copies-toggle:hover {
+  color: var(--color-content);
+  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+}
+.git-copies-toggle:focus-visible,
+.git-copy-line:focus-visible,
+.git-copies-more:focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: -2px;
+}
+.git-copies-count {
   font-size: var(--text-ui-caption);
+  font-variant-numeric: tabular-nums;
   letter-spacing: 0;
   text-transform: none;
+}
+.git-copies-working {
+  display: inline-flex;
+  margin-left: auto;
+  gap: 3px;
 }
 .git-copies-explainer {
   margin: 0;
@@ -29,14 +54,13 @@
 }
 .git-copy {
   --git-copy-tone: color-mix(in srgb, var(--color-content) 30%, transparent);
-  margin: 4px 8px;
-  padding: 6px 8px 7px;
-  border: 1px solid var(--aven-glass-card-edge);
-  border-radius: 10px;
-  background: var(--aven-inset-card);
+  margin: 0 6px;
+  border-radius: 8px;
 }
-.git-copy:hover {
-  border-color: color-mix(in srgb, var(--color-content) 16%, transparent);
+.git-copy[data-open] {
+  margin: 2px 6px 4px;
+  padding-bottom: 6px;
+  background: var(--aven-inset-card);
 }
 .git-copy[data-finished] {
   opacity: 0.7;
@@ -53,11 +77,69 @@
 html.theme-light .git-copy[data-tone="merged"] {
   --git-copy-tone: #1a7f37;
 }
+/* One line per copy: a dot, the name, and a short status. */
+.git-copy-line {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px 0 6px;
+  border-radius: 8px;
+  text-align: left;
+  font-size: var(--text-ui-label);
+  color: var(--color-content);
+}
+.git-copy-line:hover {
+  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+}
+.git-copy-dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+.git-copy-dot[data-dot="working"] {
+  background: var(--color-accent);
+}
+.git-copy-dot[data-dot="uncommitted"] {
+  background: var(--color-warning, #d99c45);
+}
+.git-copy-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.git-copy-short {
+  flex-shrink: 0;
+  font-size: var(--text-ui-caption);
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--color-content) 48%, transparent);
+}
+.git-copies-more {
+  display: flex;
+  width: calc(100% - 12px);
+  height: 24px;
+  align-items: center;
+  margin: 0 6px;
+  padding: 0 8px 0 19px;
+  border-radius: 8px;
+  font-size: var(--text-ui-caption);
+  color: color-mix(in srgb, var(--color-content) 52%, transparent);
+}
+.git-copies-more:hover {
+  color: var(--color-content);
+  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+}
 .git-copy-head {
   display: flex;
   width: 100%;
   min-width: 0;
-  align-items: flex-start;
+  align-items: center;
   gap: 7px;
   text-align: left;
   font-size: var(--text-ui-label);
@@ -72,62 +154,23 @@ html.theme-light .git-copy[data-tone="merged"] {
   color: color-mix(in srgb, var(--color-content) 40%, transparent);
   transition: transform 140ms ease;
 }
-.git-copy-head[aria-expanded="true"] .git-copy-chevron {
+.git-copy-head[aria-expanded="true"] .git-copy-chevron,
+.git-copies-toggle[aria-expanded="true"] .git-copy-chevron {
   transform: rotate(90deg);
 }
-.git-copy-head > .git-copy-chevron {
-  margin-top: 2px;
-}
-.git-copy-icon {
-  display: grid;
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-  place-items: center;
-  color: color-mix(in srgb, var(--color-content) 55%, transparent);
-}
-.git-copy-text {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: 2px;
-}
-.git-copy-name {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 600;
-}
-/* What state the copy is in: one sentence that may wrap at narrow widths. */
-.git-copy-status {
+/* The full sentence, shown when a row is open. */
+.git-copy-files .git-copy-status {
   display: block;
-  font-size: var(--text-ui-caption);
   line-height: 1.4;
-  color: color-mix(in srgb, var(--color-content) 62%, transparent);
+  color: color-mix(in srgb, var(--color-content) 72%, transparent);
 }
-.git-copy-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  margin: 0 5px 1px 0;
-  vertical-align: middle;
-  border-radius: 50%;
-  background: var(--git-copy-tone);
+.git-copy-files .git-copy-chat {
+  color: color-mix(in srgb, var(--color-content) 52%, transparent);
 }
-.git-copy-chat {
-  overflow: hidden;
-  font-size: var(--text-ui-caption);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: color-mix(in srgb, var(--color-content) 48%, transparent);
-}
-.git-copy-chat[data-state="working"] {
+.git-copy-files .git-copy-chat[data-state="working"] {
   color: color-mix(in srgb, var(--color-content) 78%, transparent);
 }
-.git-copy-chat[data-state="waiting"] {
+.git-copy-files .git-copy-chat[data-state="waiting"] {
   color: var(--color-warning, #d99c45);
 }
 .git-copy-branch {
@@ -153,7 +196,7 @@ html.theme-light .git-copy-deleted {
   color: #c2303a;
 }
 .git-copy-files {
-  margin: 6px 0 0 41px;
+  margin: 2px 8px 0 19px;
   font-size: 11.5px;
 }
 .git-copy-files p {
@@ -229,18 +272,20 @@ html.theme-light .git-copy-deleted {
 .git-copies-group {
   display: flex;
   min-width: 0;
+  height: 26px;
   align-items: center;
   gap: 6px;
-  margin: 4px 8px;
-  padding: 4px 6px 4px 8px;
-  border-radius: 9px;
+  margin: 0 6px;
+  padding: 0 4px 0 6px;
+  border-radius: 8px;
 }
 .git-copies-group:hover {
   background: color-mix(in srgb, var(--color-content) 4%, transparent);
 }
 .git-copies-group .git-copy-head {
   flex: 1;
-  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+  font-size: var(--text-ui-caption);
+  color: color-mix(in srgb, var(--color-content) 55%, transparent);
 }
 .git-copies-group .git-copy-name {
   font-weight: 500;
