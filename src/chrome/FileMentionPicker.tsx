@@ -65,7 +65,7 @@ export const FileMentionPicker = memo(function FileMentionPicker({
   return (
     <div
       data-mention-picker
-      className="overflow-hidden rounded-lg border border-content/10 bg-content/5 backdrop-blur-xl"
+      className="overflow-hidden rounded-lg border border-content/10 bg-[var(--aven-popup)] shadow-[var(--aven-shadow)]"
     >
       {files.length === 0 ? (
         <p className="px-3 py-2.5 text-ui-label text-content/50">
