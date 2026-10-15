@@ -1,0 +1,133 @@
+/* A quiet offer to show a project's running dev server beside the chat. */
+.dev-preview-chip {
+  --dev-preview-live: #4ade80;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--color-content);
+  font-family: var(--font-sans);
+  font-size: var(--text-ui-label);
+  line-height: 16px;
+}
+html.theme-light .dev-preview-chip {
+  --dev-preview-live: #16a34a;
+}
+.dev-preview-chip[data-placement="chat"] {
+  min-height: 32px;
+  margin: 0 4px 6px;
+  padding: 3px 4px 3px 11px;
+  border-radius: 8px;
+  background: var(--aven-glass-surface, var(--aven-hover));
+  -webkit-backdrop-filter: var(--aven-glass-blur, none);
+  backdrop-filter: var(--aven-glass-blur, none);
+}
+.dev-preview-chip[data-placement="terminal"] {
+  flex: 0 1 auto;
+  align-self: center;
+  height: 24px;
+  margin: 0 6px;
+  padding: 0 2px 0 9px;
+  border-radius: 6px;
+  background: var(--aven-hover);
+}
+.dev-preview-dot {
+  flex: 0 0 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dev-preview-live);
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--dev-preview-live) 16%, transparent);
+}
+.dev-preview-chip[data-state="stale"] .dev-preview-dot {
+  background: var(--aven-muted);
+  box-shadow: none;
+}
+.dev-preview-copy {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.dev-preview-state {
+  flex-shrink: 0;
+  font-weight: 600;
+}
+.dev-preview-sep {
+  color: var(--aven-muted);
+}
+.dev-preview-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--aven-muted);
+}
+.dev-preview-chip[data-state="stale"] .dev-preview-copy,
+.dev-preview-chip[data-state="stale"] .dev-preview-state {
+  color: var(--aven-muted);
+  font-weight: 500;
+}
+/* The terminal header names only the address; the panel already says where. */
+.dev-preview-chip[data-placement="terminal"] .dev-preview-state,
+.dev-preview-chip[data-placement="terminal"] .dev-preview-sep {
+  display: none;
+}
+.dev-preview-chip[data-placement="terminal"] .dev-preview-label {
+  color: var(--color-content);
+}
+.dev-preview-open,
+.dev-preview-dismiss {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  outline: none;
+}
+.dev-preview-open {
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  color: var(--color-content);
+  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.dev-preview-open:hover {
+  background: color-mix(in srgb, var(--color-content) 14%, transparent);
+}
+.dev-preview-dismiss {
+  width: 24px;
+  height: 24px;
+  color: var(--aven-muted);
+}
+.dev-preview-dismiss:hover {
+  color: var(--color-content);
+  background: var(--aven-hover);
+}
+.dev-preview-chip[data-placement="terminal"] .dev-preview-open {
+  height: 20px;
+  padding: 0 7px;
+}
+.dev-preview-chip[data-placement="terminal"] .dev-preview-dismiss {
+  width: 20px;
+  height: 20px;
+}
+.dev-preview-open:focus-visible,
+.dev-preview-dismiss:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 55%, transparent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .dev-preview-chip {
+    animation: dev-preview-in 160ms ease-out;
+  }
+}
+@keyframes dev-preview-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
