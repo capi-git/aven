@@ -489,6 +489,31 @@ describe("observeAgentPreviewEvent", () => {
     expect(only().status).toBe("stale");
   });
 
+  it("keeps watching a long-running server among many short commands", () => {
+    const stream = (detail: string) =>
+      observe({
+        type: "tool.updated",
+        callId: "server",
+        kind: "execute",
+        status: "in_progress",
+        detail,
+      });
+    stream(VITE);
+    for (let index = 0; index < 100; index++) {
+      stream(`12:00:${index} [vite] hmr update /src/App.tsx\n`);
+      observe({
+        type: "tool.updated",
+        callId: `ls-${index}`,
+        kind: "execute",
+        status: "in_progress",
+        detail: "src\n",
+      });
+    }
+    expect(only().status).toBe("live");
+    stream("^C\n");
+    expect(only().status).toBe("stale");
+  });
+
   it("leaves another session's server alone", () => {
     observe({
       type: "tool.updated",

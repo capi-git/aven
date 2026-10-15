@@ -426,7 +426,7 @@ const KILL_COMMAND =
 const KILLED_SHELL = /\bkilled shell\b/i;
 const PORT_MENTION = /(?::|\bport\s+|\s)(\d{2,5})\b/g;
 /** Output beyond this per command is logs; servers announce themselves early. */
-const MAX_TOOL_SCAN = 256 * 1024;
+const MAX_TOOL_SCAN = 1024 * 1024;
 const MAX_TOOL_WATCHES = 64;
 const PREVIOUS_HEAD = 4_096;
 const MIN_CUMULATIVE = 16;
@@ -520,7 +520,11 @@ export function observeAgentPreviewEvent(
     if (watch) toolWatches.delete(watchKey);
     return;
   }
-  if (!watch) {
+  if (watch) {
+    // Most recently active last, so a long-running server outlives the
+    // short commands an agent runs beside it.
+    toolWatches.delete(watchKey);
+  } else {
     watch = {
       previousHead: "",
       previousLength: 0,
@@ -528,11 +532,11 @@ export function observeAgentPreviewEvent(
       scanned: 0,
       ports: new Set(),
     };
-    toolWatches.set(watchKey, watch);
-    if (toolWatches.size > MAX_TOOL_WATCHES) {
-      const oldest = toolWatches.keys().next().value;
-      if (oldest !== undefined) toolWatches.delete(oldest);
-    }
+  }
+  toolWatches.set(watchKey, watch);
+  if (toolWatches.size > MAX_TOOL_WATCHES) {
+    const oldest = toolWatches.keys().next().value;
+    if (oldest !== undefined) toolWatches.delete(oldest);
   }
   watch.kind = kind;
   if (event.title) watch.title = event.title;
