@@ -261,6 +261,33 @@ describe("useDiscussionBroker", () => {
     ]);
   });
 
+  it("pauses on an error, and resume sends the message again", async () => {
+    await mount([chat("a", "Caching"), chat("b", "Review")]);
+    await act(async () => {
+      host.start({
+        sessionId: "a",
+        partner: { kind: "chat", sessionId: "b" },
+        topic: "Topic",
+        rounds: 2,
+      });
+    });
+    await act(async () => {
+      setSessions((list) => list.map((session) => stopStreaming(session)));
+    });
+    await act(async () =>
+      sent[0].options.onSettled({ status: "failed", text: "" }),
+    );
+    expect(store.snapshot()[0]).toMatchObject({
+      status: "paused",
+      reason: "“Caching” ran into an error. Resume to try again.",
+    });
+    expect(notes).toEqual([]);
+    await act(async () => store.resume(store.snapshot()[0].id));
+    expect(sent).toHaveLength(2);
+    expect(sent[1].sessionId).toBe("a");
+    expect(sent[1].options.discussion.turn).toBe(0);
+  });
+
   it("pauses when the chat refuses the message", async () => {
     accept = false;
     await mount([chat("a", "Caching"), chat("b", "Review")]);

@@ -54,7 +54,7 @@ export type DiscussionStatus = "active" | "paused" | "ended";
 
 /** Why a discussion ended; `side` names the chat that caused it. */
 export type DiscussionEnding = {
-  kind: "completed" | "stopped" | "failed" | "cancelled" | "closed";
+  kind: "completed" | "stopped" | "cancelled";
   side?: DiscussionSide;
 };
 
@@ -232,12 +232,8 @@ export function discussionEndNote(discussion: Discussion): string {
   switch (ending.kind) {
     case "completed":
       return `Discussion ended after ${plural(discussion.rounds, "round")}.`;
-    case "failed":
-      return `Discussion ended: ${title} ran into an error.`;
     case "cancelled":
       return `Discussion ended: ${title} was stopped.`;
-    case "closed":
-      return `Discussion ended: ${title} was closed.`;
     default:
       return done > 0
         ? `Discussion stopped after ${plural(done, "round")} of ${discussion.rounds}.`
@@ -292,8 +288,9 @@ export function endDiscussion(
 
 /**
  * Apply the speaking chat's finished turn. A reply moves the discussion to the
- * other chat (or ends it after the last round); errors and stops end it; a
- * turn with nothing to relay pauses it so the user can decide.
+ * other chat (or ends it after the last round); stopping the turn ends it; an
+ * error, or a turn with nothing to relay, pauses it so the user can decide.
+ * Resuming after an error sends the same message again.
  */
 export function settleDiscussion(
   discussion: Discussion,
@@ -304,8 +301,17 @@ export function settleDiscussion(
   const side = speakingSide(discussion);
   if (outcome.status === "cancelled")
     return endDiscussion(discussion, { kind: "cancelled", side }, now);
-  if (outcome.status === "failed")
-    return endDiscussion(discussion, { kind: "failed", side }, now);
+  if (outcome.status === "failed") {
+    const failed: Discussion = {
+      ...discussion,
+      status: "paused",
+      delivered: false,
+      reason: `“${discussionParty(discussion, side).title}” ran into an error. Resume to try again.`,
+      updatedAt: now,
+    };
+    delete failed.blockedBy;
+    return failed;
+  }
   const reply = outcome.text.trim();
   if (!reply)
     return {
@@ -766,13 +772,7 @@ export function readDiscussion(value: unknown): Discussion | null {
   };
 }
 
-const ENDINGS = new Set([
-  "completed",
-  "stopped",
-  "failed",
-  "cancelled",
-  "closed",
-]);
+const ENDINGS = new Set(["completed", "stopped", "cancelled"]);
 
 function readEnding(value: unknown): DiscussionEnding | null {
   if (!value || typeof value !== "object") return null;

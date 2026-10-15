@@ -167,22 +167,24 @@ describe("relay rules", () => {
     expect(reply(discussion, "short").truncated).toBeUndefined();
   });
 
-  it("ends on an error or a stopped turn, naming the chat", () => {
+  it("pauses on an error to try again, and ends when a turn is stopped", () => {
     const failed = settleDiscussion(
-      reply(fresh(), "first"),
-      { status: "failed", text: "" },
+      { ...reply(fresh(), "first"), delivered: true },
+      { status: "failed", text: "partial" },
       3,
     );
-    expect(failed.status).toBe("ended");
-    expect(failed.ended).toEqual({ kind: "failed", side: "b" });
-    expect(discussionEndNote(failed)).toBe(
-      "Discussion ended: “Review” ran into an error.",
-    );
+    expect(failed).toMatchObject({
+      status: "paused",
+      settled: 1,
+      delivered: false,
+      reason: "“Review” ran into an error. Resume to try again.",
+    });
     const cancelled = settleDiscussion(
       fresh(),
       { status: "cancelled", text: "partial" },
       3,
     );
+    expect(cancelled.status).toBe("ended");
     expect(discussionEndNote(cancelled)).toBe(
       "Discussion ended: “Caching plan” was stopped.",
     );
