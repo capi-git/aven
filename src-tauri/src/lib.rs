@@ -426,6 +426,7 @@ pub fn run() {
             git_housekeeping::git_merged_branches,
             git_housekeeping::git_delete_merged_branches,
             git_housekeeping::git_pr_squash_merge,
+            git_housekeeping::git_pr_checks,
             git_housekeeping::git_release_status,
             git_housekeeping::git_release_start,
             git::git_pr_create,

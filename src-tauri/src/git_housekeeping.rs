@@ -95,6 +95,34 @@ pub async fn git_pr_squash_merge(cwd: String, number: i64) -> Result<(), String>
         .map_err(|e| e.to_string())?
 }
 
+/// One CI check on a pull request, reduced to what the Changes panel shows.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PrCheck {
+    pub name: String,
+    /// `pass`, `fail`, `pending` or `skipped`.
+    pub state: String,
+    pub url: String,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PrChecks {
+    pub number: i64,
+    pub url: String,
+    /// Pull request state, lower case: `open`, `merged` or `closed`.
+    pub state: String,
+    pub checks: Vec<PrCheck>,
+}
+
+/// CI checks reported on a pull request. Read-only; uses the routed account.
+#[tauri::command]
+pub async fn git_pr_checks(cwd: String, number: i64) -> Result<PrChecks, String> {
+    tauri::async_runtime::spawn_blocking(move || pr_checks_for(&expand_home(&cwd), number))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn git_release_status(cwd: String) -> Result<ReleaseStatus, String> {
     tauri::async_runtime::spawn_blocking(move || release_status_for(&expand_home(&cwd)))
@@ -563,6 +591,124 @@ fn squash_merge_for(root: &Path, number: i64) -> Result<(), String> {
         true,
     )
     .map(|_| ())
+}
+
+fn pr_checks_for(root: &Path, number: i64) -> Result<PrChecks, String> {
+    if number <= 0 {
+        return Err("Choose a pull request.".into());
+    }
+    // `gh pr view` exits successfully whatever the checks say, unlike
+    // `gh pr checks`, which reports pending and failing checks as errors.
+    let json = gh(
+        root,
+        &[
+            "pr",
+            "view",
+            &number.to_string(),
+            "--json",
+            "number,url,state,statusCheckRollup",
+        ],
+        false,
+    )?;
+    parse_pr_checks(&json)
+}
+
+#[derive(Deserialize)]
+struct PrView {
+    number: i64,
+    #[serde(default)]
+    url: String,
+    #[serde(default)]
+    state: String,
+    #[serde(rename = "statusCheckRollup", default)]
+    rollup: Option<Vec<RollupItem>>,
+}
+
+/// A check run (GitHub Actions and apps) or a commit status (older integrations).
+#[derive(Deserialize)]
+struct RollupItem {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    context: Option<String>,
+    #[serde(rename = "workflowName", default)]
+    workflow_name: Option<String>,
+    /// Check runs: QUEUED, IN_PROGRESS, COMPLETED, …
+    #[serde(default)]
+    status: Option<String>,
+    /// Check runs: SUCCESS, FAILURE, SKIPPED, …; empty until completed.
+    #[serde(default)]
+    conclusion: Option<String>,
+    /// Commit statuses: SUCCESS, PENDING, FAILURE, ERROR, EXPECTED.
+    #[serde(default)]
+    state: Option<String>,
+    #[serde(rename = "detailsUrl", default)]
+    details_url: Option<String>,
+    #[serde(rename = "targetUrl", default)]
+    target_url: Option<String>,
+}
+
+fn rollup_state(item: &RollupItem) -> &'static str {
+    let upper = |value: &Option<String>| value.as_deref().unwrap_or("").trim().to_uppercase();
+    let state = upper(&item.state);
+    if !state.is_empty() {
+        return match state.as_str() {
+            "SUCCESS" => "pass",
+            "FAILURE" | "ERROR" => "fail",
+            _ => "pending",
+        };
+    }
+    let status = upper(&item.status);
+    if !status.is_empty() && status != "COMPLETED" {
+        return "pending";
+    }
+    match upper(&item.conclusion).as_str() {
+        "SUCCESS" => "pass",
+        "SKIPPED" | "NEUTRAL" => "skipped",
+        "" => "pending",
+        _ => "fail",
+    }
+}
+
+fn parse_pr_checks(json: &str) -> Result<PrChecks, String> {
+    let view: PrView = serde_json::from_str(json)
+        .map_err(|_| "GitHub returned pull request checks Aven could not read.".to_string())?;
+    let checks = view
+        .rollup
+        .unwrap_or_default()
+        .iter()
+        .map(|item| {
+            let name = item
+                .name
+                .as_deref()
+                .or(item.context.as_deref())
+                .unwrap_or("Check")
+                .trim();
+            let name = match item.workflow_name.as_deref().map(str::trim) {
+                Some(workflow) if !workflow.is_empty() && workflow != name => {
+                    format!("{workflow} / {name}")
+                }
+                _ => name.to_string(),
+            };
+            PrCheck {
+                name,
+                state: rollup_state(item).to_string(),
+                url: item
+                    .details_url
+                    .as_deref()
+                    .or(item.target_url.as_deref())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string(),
+            }
+        })
+        .collect();
+    Ok(PrChecks {
+        number: view.number,
+        url: view.url,
+        state: view.state.to_lowercase(),
+        checks,
+    })
 }
 
 /// Only offer publication for workflows that accept both approval guards.
@@ -1371,5 +1517,54 @@ mod tests {
             Some("0.1.108")
         );
         assert_eq!(package_version(r#"{"version":"1.0; rm -rf"}"#), None);
+    }
+
+    #[test]
+    fn reads_check_runs_and_commit_statuses_from_a_pull_request() {
+        let json = r#"{
+            "number": 42,
+            "url": "https://github.com/o/r/pull/42",
+            "state": "OPEN",
+            "statusCheckRollup": [
+                {"__typename":"CheckRun","name":"build","workflowName":"CI","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"https://ci/1"},
+                {"__typename":"CheckRun","name":"test","workflowName":"CI","status":"IN_PROGRESS","conclusion":"","detailsUrl":"https://ci/2"},
+                {"__typename":"CheckRun","name":"lint","workflowName":"","status":"COMPLETED","conclusion":"FAILURE","detailsUrl":""},
+                {"__typename":"CheckRun","name":"docs","status":"COMPLETED","conclusion":"SKIPPED"},
+                {"__typename":"StatusContext","context":"vercel","state":"PENDING","targetUrl":"https://vercel/x"},
+                {"__typename":"StatusContext","context":"legacy","state":"ERROR"}
+            ]
+        }"#;
+        let checks = parse_pr_checks(json).unwrap();
+        assert_eq!(checks.number, 42);
+        assert_eq!(checks.state, "open");
+        assert_eq!(checks.url, "https://github.com/o/r/pull/42");
+        let states: Vec<(&str, &str)> = checks
+            .checks
+            .iter()
+            .map(|check| (check.name.as_str(), check.state.as_str()))
+            .collect();
+        assert_eq!(
+            states,
+            vec![
+                ("CI / build", "pass"),
+                ("CI / test", "pending"),
+                ("lint", "fail"),
+                ("docs", "skipped"),
+                ("vercel", "pending"),
+                ("legacy", "fail"),
+            ]
+        );
+        assert_eq!(checks.checks[0].url, "https://ci/1");
+        assert_eq!(checks.checks[4].url, "https://vercel/x");
+    }
+
+    #[test]
+    fn reads_a_pull_request_without_checks() {
+        let checks =
+            parse_pr_checks(r#"{"number":7,"url":"u","state":"MERGED","statusCheckRollup":null}"#)
+                .unwrap();
+        assert_eq!(checks.state, "merged");
+        assert!(checks.checks.is_empty());
+        assert!(parse_pr_checks("not json").is_err());
     }
 }
