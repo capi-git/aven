@@ -543,6 +543,7 @@ function PreferencesPage({
   const [notesEnabled, setNotesEnabled] = useState(loadNotesEnabled);
   const browserMemorySaver = useSetting(SETTINGS.browserMemorySaver);
   const browserLowMemory = useSetting(SETTINGS.browserLowMemory);
+  const devPreviewAutoOpen = useSetting(SETTINGS.devPreviewAutoOpen);
   const browserEngineRestart = useSyncExternalStore(
     subscribeBrowserEngineRestart,
     browserEngineRestartNeeded,
@@ -773,33 +774,48 @@ function PreferencesPage({
 
   if (page === "browser")
     return (
-      <SettingsGroup
-        title="Memory"
-        description="Keep browser tabs ready while managing memory."
-        scope="Device"
-      >
-        <Row {...SETTINGS.browserMemorySaver.row}>
-          <Toggle
-            label={SETTINGS.browserMemorySaver.label}
-            on={browserMemorySaver}
-            onChange={saveBrowserMemorySaver}
-          />
-        </Row>
-        <Row
-          label={SETTINGS.browserLowMemory.label}
-          description={
-            browserEngineRestart
-              ? SETTINGS.browserLowMemory.restartDescription
-              : SETTINGS.browserLowMemory.row.description
-          }
+      <>
+        <SettingsGroup
+          title="Dev previews"
+          description="When a dev server starts in a terminal or an agent's command, Aven offers its page beside the chat."
+          scope="Device"
         >
-          <Toggle
+          <Row {...SETTINGS.devPreviewAutoOpen.row}>
+            <Toggle
+              label={SETTINGS.devPreviewAutoOpen.label}
+              on={devPreviewAutoOpen}
+              onChange={SETTINGS.devPreviewAutoOpen.save}
+            />
+          </Row>
+        </SettingsGroup>
+        <SettingsGroup
+          title="Memory"
+          description="Keep browser tabs ready while managing memory."
+          scope="Device"
+        >
+          <Row {...SETTINGS.browserMemorySaver.row}>
+            <Toggle
+              label={SETTINGS.browserMemorySaver.label}
+              on={browserMemorySaver}
+              onChange={saveBrowserMemorySaver}
+            />
+          </Row>
+          <Row
             label={SETTINGS.browserLowMemory.label}
-            on={browserLowMemory}
-            onChange={saveBrowserLowMemory}
-          />
-        </Row>
-      </SettingsGroup>
+            description={
+              browserEngineRestart
+                ? SETTINGS.browserLowMemory.restartDescription
+                : SETTINGS.browserLowMemory.row.description
+            }
+          >
+            <Toggle
+              label={SETTINGS.browserLowMemory.label}
+              on={browserLowMemory}
+              onChange={saveBrowserLowMemory}
+            />
+          </Row>
+        </SettingsGroup>
+      </>
     );
 
   if (page === "notifications") return notificationsGroup;
