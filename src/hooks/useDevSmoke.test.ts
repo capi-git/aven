@@ -116,7 +116,7 @@ describe("Aven Dev's real-app check", () => {
     });
     const state = harness();
     const run = runDevSmoke(config, () => state);
-    await vi.advanceTimersByTimeAsync(25_000);
+    await vi.advanceTimersByTimeAsync(50_000);
     await run;
     const overlay = reportedSteps().at(-1)!;
     expect(overlay).toMatchObject({ passed: false });

@@ -11,6 +11,7 @@ import {
   mapProjectTerminal,
   nextDockTerminalTitle,
   patchProjectTerminals,
+  projectPanelTerminals,
   projectTerminalFileIds,
   selectDockTerminal,
   splitProjectTerminalsForMove,
@@ -223,5 +224,27 @@ describe("splitProjectTerminalsForMove", () => {
     const allA = splitProjectTerminalsForMove(docks, [a1, a2], [b1], sessions);
     expect(allA.moving.map((dock) => dock.projectPath)).toEqual(["/tmp/a"]);
     expect(allA.remaining.map((dock) => dock.projectPath)).toEqual(["/tmp/b"]);
+  });
+});
+
+describe("projectPanelTerminals", () => {
+  it("lists a project's terminals whether its panel is shown or hidden", () => {
+    const first = newTerminalFile("/Users/me/app");
+    const second = newTerminalFile("/Users/me/app/server");
+    const other = newTerminalFile("/Users/me/site");
+    const docks = [
+      withDockOpen(
+        addTerminalToDock(
+          createProjectTerminal("/Users/me/app", first),
+          second,
+        ),
+        false,
+      ),
+      createProjectTerminal("/Users/me/site", other),
+    ];
+    expect(
+      projectPanelTerminals(docks, "/Users/me/app/").map((file) => file.id),
+    ).toEqual([first.id, second.id]);
+    expect(projectPanelTerminals(docks, "/Users/me/other")).toEqual([]);
   });
 });

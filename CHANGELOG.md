@@ -4,10 +4,11 @@
 
 ### Development
 
-- Releases now wait for a real-app check: Aven Dev runs once against a stand-in provider, sends a message with the floating sidebar attached, and opens and closes Settings from the floating sidebar. Both 0.1.137 regressions fail this check. Run it locally with `npm run check:app`.
+- Releases now wait for a real-app check: Aven Dev runs once against a stand-in provider, sends a message with the floating sidebar attached, opens and closes Settings, Search, Inbox, Automations and Notes by button and by shortcut, opens and closes Settings from the floating sidebar, and deletes a project whose terminal panel is hidden. Both 0.1.137 regressions fail this check. Run it locally with `npm run check:app`.
 
 ### Fixed
 
+- Deleting a project works when its terminal panel still holds terminals, including a hidden panel or one from a project you are not in. Aven closes them as part of the delete, and asks first only if one is still running something. Before, it refused with "Close this project's terminal tabs before deleting it".
 - Opening the usage panel, the access picker or a workspace menu no longer makes the workspace window flash inactive. These popups take the keyboard without taking over as the app's main window.
 - A popup that was hidden and shown again stays above its workspace instead of slipping behind it.
 

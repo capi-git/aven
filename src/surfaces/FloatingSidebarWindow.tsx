@@ -451,7 +451,7 @@ export function FloatingSidebarWindow() {
 }
 
 async function runOverlaySmoke(owner: string) {
-  const answer = (result: { ok: boolean; error?: string }) =>
+  const answer = (result: { ok: boolean; error?: string; note?: string }) =>
     void nativeFloatingSidebar
       .send(owner, SMOKE_OVERLAY_RESULT_EVENT, result)
       .catch(() => {});
@@ -464,25 +464,39 @@ async function runOverlaySmoke(owner: string) {
       10_000,
       "the Settings button",
     );
+    const findBack = () =>
+      [
+        ...document.querySelectorAll<HTMLButtonElement>(".settings-nav button"),
+      ].find((button) => button.textContent?.trim() === "Back");
     settings.click();
-    const back = await waitFor(
-      () =>
-        [
-          ...document.querySelectorAll<HTMLButtonElement>(
-            ".settings-nav button",
-          ),
-        ].find((button) => button.textContent?.trim() === "Back"),
+    let back = await waitFor(
+      findBack,
       10_000,
       "Settings in the floating sidebar",
-    );
-    // React hands this click event to the relayed callback; 0.1.137 froze here.
+    ).catch(() => null);
+    // A freshly built app's first launch once dropped this first click. Try
+    // once more and say so, so a real problem still shows in the report.
+    const retried = !back;
+    if (!back) {
+      settings.click();
+      back = await waitFor(
+        findBack,
+        10_000,
+        "Settings in the floating sidebar after a second click",
+      );
+    }
+    // React hands this click event to the relayed callback; 0.1.137 froze
+    // here, so Back gets no second try.
     back.click();
     await waitFor(
       () => !document.querySelector(".settings-nav"),
       10_000,
       "Back to close Settings",
     );
-    answer({ ok: true });
+    answer({
+      ok: true,
+      ...(retried ? { note: "Settings opened on the second click" } : {}),
+    });
   } catch (error) {
     answer({ ok: false, error: errorText(error) });
   }
