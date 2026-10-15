@@ -46,6 +46,9 @@ import {
   type RateLimitWindow,
 } from "../lib/rateLimits";
 import { HARNESS_TITLE } from "../lib/session";
+import { useUsageForecasts } from "../hooks/useUsageForecasts";
+import { UsageForecastNote } from "../chrome/UsageForecastNote";
+import type { ProviderUsageForecast } from "../lib/usageHistory";
 import {
   homeElapsed,
   homeGreeting,
@@ -836,8 +839,10 @@ const USAGE_WINDOWS = [
 ] as const;
 
 /**
- * The last usage the footer saved for each account. Read once when Home
- * opens; Home never asks a provider itself.
+ * The last usage the footer saved for each account, with how long each
+ * window lasts at the current pace. Home never asks a provider itself; each
+ * footer check updates the forecasts, and the saved numbers are read again
+ * with them.
  */
 function UsagePanel({
   providers,
@@ -846,7 +851,8 @@ function UsagePanel({
   providers: readonly RateLimitProvider[];
   headingId: string;
 }) {
-  const [saved] = useState(loadSavedRateLimits);
+  const forecasts = useUsageForecasts();
+  const saved = loadSavedRateLimits();
   const accounts = providers.flatMap((provider) => {
     const limits = saved[provider];
     return limits ? [limits] : [];
@@ -858,7 +864,11 @@ function UsagePanel({
       <h2 id={headingId}>Usage</h2>
       <div className="workspace-home-panel workspace-home-usage">
         {accounts.map((account) => (
-          <UsageAccount key={account.provider} account={account} />
+          <UsageAccount
+            key={account.provider}
+            account={account}
+            forecast={forecasts.providers[account.provider]}
+          />
         ))}
         <p className="workspace-home-usage-note">
           <TimeAgo at={asOf} prefix="Last checked " />
@@ -868,7 +878,13 @@ function UsagePanel({
   );
 }
 
-function UsageAccount({ account }: { account: ProviderRateLimits }) {
+function UsageAccount({
+  account,
+  forecast,
+}: {
+  account: ProviderRateLimits;
+  forecast: ProviderUsageForecast | undefined;
+}) {
   const now = useMinuteClock();
   const windows = USAGE_WINDOWS.flatMap(([key, label]) => {
     const window = account[key] as RateLimitWindow | null | undefined;
@@ -906,6 +922,7 @@ function UsageAccount({ account }: { account: ProviderRateLimits }) {
                     : ` · resets in ${resets}`}
                 </span>
               ) : null}
+              <UsageForecastNote pace={forecast?.paces[key]} now={now} />
             </span>
           </div>
         );

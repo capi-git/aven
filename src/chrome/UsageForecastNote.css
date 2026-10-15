@@ -1,0 +1,13 @@
+.usage-forecast-note {
+  display: block;
+  color: var(
+    --aven-muted,
+    color-mix(in srgb, var(--color-content) 55%, transparent)
+  );
+  font-size: var(--text-ui-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-forecast-note[data-state="warning"] {
+  color: var(--color-warning, #d99c45);
+}
