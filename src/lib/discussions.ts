@@ -18,6 +18,8 @@
  * Resume continues once they are done. This never interleaves relays with the
  * user's own follow-ups and never steers a running turn.
  */
+import { isTauri } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isPreparingHandoff } from "./handoff";
 import {
   HARNESS_TITLE,
@@ -380,23 +382,59 @@ export function discussionReply(
 
 // --- Readiness -----------------------------------------------------------------
 
-/** Why this chat cannot take a discussion turn right now, or null. */
-export function deliveryBlocker(session: Session): string | null {
-  if (hasPendingApproval(session.blocks)) return "needs your approval";
-  if (session.pendingQuestion) return "has a question for you";
-  if (session.busy) return "is busy with another turn";
-  if (session.queuedMessages?.length) return "has your messages queued";
-  if (isPreparingHandoff(session)) return "is switching providers";
+/** Why a chat cannot take a discussion turn, or start or join a discussion. */
+export type DiscussionBlocker =
+  | "unsupported"
+  | "discussing"
+  | "approval"
+  | "question"
+  | "working"
+  | "queued"
+  | "switching";
+
+/** Completes "“Title” …" or "This chat …". */
+export const BLOCKER_PHRASE: Record<DiscussionBlocker, string> = {
+  unsupported: "can't take part in a discussion",
+  discussing: "is already in a discussion",
+  approval: "needs your approval",
+  question: "has a question for you",
+  working: "is busy with another turn",
+  queued: "has your messages queued",
+  switching: "is switching providers",
+};
+
+/** A short label for a chat row in the picker. */
+export const BLOCKER_LABEL: Record<DiscussionBlocker, string> = {
+  unsupported: "Can't join",
+  discussing: "In a discussion",
+  approval: "Needs approval",
+  question: "Has a question",
+  working: "Working",
+  queued: "Messages queued",
+  switching: "Switching provider",
+};
+
+function turnBlocker(session: Session): DiscussionBlocker | null {
+  if (hasPendingApproval(session.blocks)) return "approval";
+  if (session.pendingQuestion) return "question";
+  if (session.busy) return "working";
+  if (session.queuedMessages?.length) return "queued";
+  if (isPreparingHandoff(session)) return "switching";
   return null;
 }
 
-/** Why this chat cannot start or join a discussion, or null. */
+/** Why this chat cannot take a discussion turn right now, or null. */
+export function deliveryBlocker(session: Session): string | null {
+  const blocker = turnBlocker(session);
+  return blocker ? BLOCKER_PHRASE[blocker] : null;
+}
+
+/** Why this chat cannot start or join a discussion now, or null. */
 export function discussionBlocker(
   session: Session,
   discussions: readonly Discussion[],
-): string | null {
-  if (session.inboxAsk || session.orchestrationLeadId)
-    return "can't join a discussion";
+): DiscussionBlocker | null {
+  if (session.inboxAsk || session.orchestrationLeadId) return "unsupported";
   if (
     discussions.some(
       (discussion) =>
@@ -404,10 +442,47 @@ export function discussionBlocker(
         discussionSideOf(discussion, session.id),
     )
   )
-    return "is already in a discussion";
-  const blocker = deliveryBlocker(session);
-  return blocker === "is busy with another turn" ? "is working" : blocker;
+    return "discussing";
+  return turnBlocker(session);
 }
+
+/** A chat the user can pick to discuss with. */
+export type DiscussionCandidate = {
+  sessionId: string;
+  title: string;
+  harness: HarnessId;
+  /** Model display name. */
+  model: string;
+  cwd: string;
+  blocked?: DiscussionBlocker;
+};
+
+export type DiscussionPartnerChoice =
+  | { kind: "chat"; sessionId: string }
+  | { kind: "new"; harness: HarnessId; model: string };
+
+export type DiscussionStartRequest = {
+  /** The chat the user started from; it speaks first. */
+  sessionId: string;
+  partner: DiscussionPartnerChoice;
+  topic: string;
+  rounds: number;
+  /** Development builds: show the animation only; nothing is sent. */
+  preview?: boolean;
+};
+
+/** What the composer's picker needs from the window that drives discussions. */
+export type DiscussionHost = {
+  options(sessionId: string): {
+    /** Why this chat cannot start one now. */
+    blocked?: string;
+    candidates: DiscussionCandidate[];
+  };
+  /** Starts it; returns why it could not start, or null. */
+  start(request: DiscussionStartRequest): string | null;
+  /** Development builds offer a preview of the sidebar animation. */
+  preview?: boolean;
+};
 
 // --- Planner -------------------------------------------------------------------
 
@@ -909,12 +984,16 @@ function samePartyLabel(left: DiscussionParty, right: DiscussionParty) {
 }
 
 let shared: DiscussionStore | null = null;
-let sharedOwner = "main";
+let ownerOverride: string | null = null;
 
-/** This window's label, set by the workspace before its first discussion. */
-export function setDiscussionWindow(owner: string) {
-  if (shared && shared.owner !== owner) shared = null;
-  sharedOwner = owner;
+/** The label of the window this code runs in; it owns what it starts. */
+function currentWindowLabel(): string {
+  if (ownerOverride) return ownerOverride;
+  try {
+    return isTauri() ? getCurrentWindow().label : "main";
+  } catch {
+    return "main";
+  }
 }
 
 /** This window's discussion store. */
@@ -922,7 +1001,7 @@ export function discussionStore(): DiscussionStore {
   if (shared) return shared;
   const storage =
     typeof localStorage === "undefined" ? undefined : localStorage;
-  const store = new DiscussionStore(storage, sharedOwner);
+  const store = new DiscussionStore(storage, currentWindowLabel());
   shared = store;
   if (typeof window !== "undefined" && window.addEventListener)
     window.addEventListener("storage", (event) => {
@@ -931,8 +1010,8 @@ export function discussionStore(): DiscussionStore {
   return store;
 }
 
-/** Tests: forget the shared store so the next call reads storage again. */
-export function resetDiscussionStore() {
+/** Tests: forget the shared store, optionally as another window. */
+export function resetDiscussionStore(owner: string | null = null) {
   shared = null;
-  sharedOwner = "main";
+  ownerOverride = owner;
 }
