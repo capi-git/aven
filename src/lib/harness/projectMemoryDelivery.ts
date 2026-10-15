@@ -79,13 +79,15 @@ export function planProjectMemoryDelivery(input: {
   command: boolean;
 }): ProjectMemoryPlan {
   const { memory, known } = input;
-  if (!memory || input.command) return { prefix: "" };
+  if (!memory) return { prefix: "" };
   if (!input.continuing && input.channel !== "message") {
-    // The CLI starts a new conversation with the memory at launch.
+    // The CLI starts a new conversation with the memory at launch, whatever
+    // the first message is.
     return memory.revision
       ? { prefix: "", deliver: memory.revision }
       : { prefix: "" };
   }
+  if (input.command) return { prefix: "" };
   if ((known ?? "") === memory.revision) return { prefix: "" };
   if (!memory.revision) return { prefix: CLEARED_NOTICE, deliver: "" };
   const text =

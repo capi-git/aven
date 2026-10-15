@@ -105,6 +105,11 @@ type RuntimeActivity = {
   >;
 };
 const runtimeActivity = new Map<string, RuntimeActivity>();
+/**
+ * Stops per chat. A turn stopped before its message reached the provider must
+ * not count its project memory as given; giving it twice is harmless.
+ */
+const turnStops = new Map<string, number>();
 
 function beginRuntimeActivity<T extends CompactContextInput>(
   input: T & { harness: HarnessId },
@@ -200,6 +205,7 @@ export function resetHarnessIdlePark(): void {
   for (const timer of idleParkTimers.values()) clearTimeout(timer);
   idleParkTimers.clear();
   runtimeActivity.clear();
+  turnStops.clear();
 }
 
 export function registerHarness(adapter: HarnessAdapter): void {
@@ -244,10 +250,11 @@ export async function sendHarnessTurn(
   // Project memory rides on the launch options of a new conversation, or
   // ahead of this message when the conversation lacks the current version.
   const memory = prepareProjectMemoryTurn(input);
+  const stops = turnStops.get(input.sessionId) ?? 0;
   const tracked = beginRuntimeActivity({ ...input, text: memory.text });
   try {
     await adapter.sendTurn(tracked.input);
-    memory.commit();
+    if ((turnStops.get(input.sessionId) ?? 0) === stops) memory.commit();
   } finally {
     try {
       if (controlled)
@@ -310,6 +317,7 @@ export async function cancelHarnessTurn(
   const adapter = getHarness(harness);
   if (!adapter?.live) return;
   cancelIdlePark(sessionId);
+  turnStops.set(sessionId, (turnStops.get(sessionId) ?? 0) + 1);
   await adapter.cancelTurn(sessionId);
   scheduleIdlePark(harness, sessionId);
 }
@@ -368,6 +376,7 @@ export async function forgetHarnessSession(
   if (!adapter) return;
   if (activity) activity.stopping = true;
   forgetProviderConversation(harness, sessionId);
+  turnStops.delete(sessionId);
   // Revoke before awaiting the old child; a replacement turn queues its bind after it.
   try {
     await Promise.all([

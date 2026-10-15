@@ -14,6 +14,7 @@ import {
 } from "./projectMemoryDelivery";
 import {
   bindHarnessSession,
+  cancelHarnessTurn,
   compactHarnessContext,
   forgetHarnessSession,
   registerHarness,
@@ -219,6 +220,19 @@ describe("planning a turn's memory", () => {
       prefix: "",
     });
     expect(
+      plan("system", {
+        memory: TWO,
+        known: ONE.revision,
+        continuing: true,
+        command: true,
+      }),
+    ).toEqual({ prefix: "" });
+    // A command that starts a conversation still launches it with the memory.
+    expect(plan("system", { memory: ONE, command: true })).toEqual({
+      prefix: "",
+      deliver: ONE.revision,
+    });
+    expect(
       plan("message", {
         memory: undefined,
         known: ONE.revision,
@@ -348,6 +362,26 @@ describe("delivery through the harness registry", () => {
     expect((await send("cursor", "Three", ONE, "/repo-copy")).text).toBe(
       `${ONE.text}\n\nThree`,
     );
+  });
+
+  it("gives it again after a turn stopped before it may have reached the provider", async () => {
+    const value = adapter("cursor");
+    value.sendTurn = async (input) => {
+      received.push(input);
+      input.onEvent({
+        type: "session.providerBound",
+        providerSessionId: "cursor-conversation",
+      });
+      await cancelHarnessTurn("cursor", "chat");
+    };
+    expect((await send("cursor", "Stopped", ONE)).text).toBe(
+      `${ONE.text}\n\nStopped`,
+    );
+    adapter("cursor");
+    expect((await send("cursor", "Again", ONE)).text).toBe(
+      `${ONE.text}\n\nAgain`,
+    );
+    expect((await send("cursor", "Then", ONE)).text).toBe("Then");
   });
 
   it("gives it again after compaction, except where the system prompt keeps it", async () => {
