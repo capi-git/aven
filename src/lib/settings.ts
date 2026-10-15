@@ -93,7 +93,7 @@ export const SETTINGS_SECTIONS: {
     id: "browser",
     group: "Integrations",
     label: "Browser",
-    description: "Keep browser tabs ready while managing memory.",
+    description: "Open dev previews and keep browser tabs ready.",
   },
   {
     id: "archive",
