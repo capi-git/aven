@@ -527,6 +527,7 @@ import {
   type WorkspaceNavigation,
 } from "./lib/workspaceNavigation";
 import { preparePrompt } from "./lib/promptPreparation";
+import { projectMemoryForTurn } from "./lib/projectMemory";
 import { warmNativeSkills, isNativeCommandPrompt } from "./lib/skills";
 import { nativeSkillContextForSession } from "./lib/sessionSkills";
 import {
@@ -5957,6 +5958,7 @@ export default function App({
             // A lead drives the control CLI over loopback; without this the
             // harness sandbox denies the socket and it cannot supervise.
             controlsAgents: orchestrator.run(sessionId)?.status === "active",
+            projectMemory: await projectMemoryForTurn(current.cwd),
             text: orchestrator.prompt(
               sessionId,
               inboxAskPrompt(

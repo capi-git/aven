@@ -72,6 +72,7 @@ import type {
   ApprovalDecision,
   CompactContextInput,
   HarnessEvent,
+  HarnessProjectMemory,
   HarnessSessionInput,
   SendTurnInput,
   SteerTurnInput,
@@ -178,6 +179,12 @@ const tasksByThread = new Map<
 const CLAUDE_TASKS_KEY = "claude-tasks";
 const stoppingByThread = new Map<string, Promise<void>>();
 const cancelledThreads = new Set<string>();
+/**
+ * The project memory each chat last carried. Compaction and handoff requests
+ * do not carry one; a relaunch for them keeps the memory instead of dropping
+ * it from the system prompt.
+ */
+const memoryByThread = new Map<string, HarnessProjectMemory>();
 
 let resolveClaudeBinaryImpl: () => Promise<{ path: string }> =
   resolveClaudeBinary;
@@ -373,6 +380,7 @@ export async function stopClaudeSession(sessionId: string): Promise<void> {
 export async function forgetClaudeSession(sessionId: string): Promise<void> {
   resumeByThread.delete(sessionId);
   tasksByThread.delete(sessionId);
+  memoryByThread.delete(sessionId);
   await stopClaudeSession(sessionId);
 }
 
@@ -1690,6 +1698,18 @@ function writeJson(
   return writeChild(sessionId, JSON.stringify(payload));
 }
 
+function projectMemoryFor(
+  input: HarnessSessionInput,
+): HarnessProjectMemory | undefined {
+  if (input.projectMemory) {
+    if (input.projectMemory.revision)
+      memoryByThread.set(input.sessionId, input.projectMemory);
+    else memoryByThread.delete(input.sessionId);
+    return input.projectMemory;
+  }
+  return memoryByThread.get(input.sessionId);
+}
+
 function settingsKeyFor(input: HarnessSessionInput): string {
   return claudeSettingsKey({
     model: nativeModelId(input.model),
@@ -1699,6 +1719,7 @@ function settingsKeyFor(input: HarnessSessionInput): string {
     context: input.modelSettings?.context,
     runtimeMode: input.runtimeMode,
     hooks: loadClaudeHooks(),
+    memory: projectMemoryFor(input)?.revision,
   });
 }
 
@@ -1713,6 +1734,7 @@ function launchOptions(
   resume?: string;
   sessionId?: string;
   settings?: ClaudeCliSettings;
+  projectMemory?: string;
 } {
   const native = nativeModelId(input.model);
   const effortRaw = input.modelSettings?.effort;
@@ -1740,6 +1762,7 @@ function launchOptions(
     resume,
     sessionId: resume ? undefined : sessionId,
     settings: Object.keys(settings).length > 0 ? settings : undefined,
+    projectMemory: projectMemoryFor(input)?.text || undefined,
   };
 }
 
@@ -1750,4 +1773,5 @@ export function __claudeTestReset(): void {
   tasksByThread.clear();
   stoppingByThread.clear();
   cancelledThreads.clear();
+  memoryByThread.clear();
 }

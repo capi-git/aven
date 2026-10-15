@@ -131,6 +131,21 @@ export function codexBrowserHostInstructionsFromConfig(
   return `${existing}\n\n${AVEN_BROWSER_HOST_POLICY}`;
 }
 
+/**
+ * Developer instructions for a thread: configured text and host routing, then
+ * the project memory. Without host instructions (a configuration profile is
+ * selected), nothing is replaced and the memory goes with the first message.
+ */
+export function codexDeveloperInstructions(
+  hostInstructions: string | undefined,
+  projectMemory: string | undefined,
+): string | undefined {
+  if (!hostInstructions) return undefined;
+  return projectMemory
+    ? `${hostInstructions}\n\n${projectMemory}`
+    : hostInstructions;
+}
+
 export type CodexAttachmentInput =
   { type: "image"; url: string } | { type: "text"; text: string };
 

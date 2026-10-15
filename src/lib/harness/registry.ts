@@ -6,6 +6,13 @@ import type { HarnessDescriptor } from "./descriptors";
 import { hasLiveCatalog, modelsFor } from "../models";
 import type { UserQuestionReply } from "../userQuestion";
 import type { NativeCommandProvider } from "./nativeCommands";
+import {
+  PROJECT_MEMORY_CHANNELS,
+  forgetProviderConversation,
+  noteProviderConversation,
+  prepareProjectMemoryTurn,
+  resetProjectMemoryDelivery,
+} from "./projectMemoryDelivery";
 import type {
   ApprovalDecision,
   CompactContextInput,
@@ -120,6 +127,13 @@ function beginRuntimeActivity<T extends CompactContextInput>(
       ...input,
       onEvent: (event) => {
         if (runtimeActivity.get(input.sessionId) !== current) return;
+        if (event.type === "session.providerBound")
+          noteProviderConversation(
+            input.harness,
+            input.sessionId,
+            event.providerSessionId,
+            input.cwd,
+          );
         if (event.type === "agent.updated")
           current.agents.set(event.agentId, event.status);
         if (event.type === "agents.cleared") current.agents.clear();
@@ -227,9 +241,13 @@ export async function sendHarnessTurn(
       sessionId: input.sessionId,
       cwd: input.cwd,
     });
-  const tracked = beginRuntimeActivity(input);
+  // Project memory rides on the launch options of a new conversation, or
+  // ahead of this message when the conversation lacks the current version.
+  const memory = prepareProjectMemoryTurn(input);
+  const tracked = beginRuntimeActivity({ ...input, text: memory.text });
   try {
     await adapter.sendTurn(tracked.input);
+    memory.commit();
   } finally {
     try {
       if (controlled)
@@ -259,6 +277,10 @@ export async function compactHarnessContext(
   const tracked = beginRuntimeActivity(input);
   try {
     await adapter.compactContext(tracked.input);
+    // Claude Code re-renders its system prompt, memory included, after
+    // compacting. A summary elsewhere may drop it, so give it again.
+    if (PROJECT_MEMORY_CHANNELS[input.harness] !== "system")
+      resetProjectMemoryDelivery(input.sessionId);
   } finally {
     endRuntimeActivity(input.harness, input.sessionId, tracked.activity);
   }
@@ -345,6 +367,7 @@ export async function forgetHarnessSession(
   const adapter = getHarness(harness);
   if (!adapter) return;
   if (activity) activity.stopping = true;
+  forgetProviderConversation(harness, sessionId);
   // Revoke before awaiting the old child; a replacement turn queues its bind after it.
   try {
     await Promise.all([
@@ -369,6 +392,8 @@ export function bindHarnessSession(
 ): void {
   const adapter = getHarness(harness);
   adapter?.bindSession(threadId, providerSessionId, cwd);
+  if (adapter)
+    noteProviderConversation(harness, threadId, providerSessionId, cwd);
   if (!blocks || !adapter?.restoreTaskLists) return;
   const lists = blocks.flatMap((block) =>
     block.role === "tasks" && block.taskList ? [block.taskList] : [],
