@@ -258,3 +258,59 @@ it("leaves the name unchanged when the customize panel is dismissed with Escape"
     "aven-project",
   );
 });
+
+it("opens the project's memory from the actions menu", async () => {
+  await render();
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>(".personal-project-more")!.click(),
+  );
+  const item = [
+    ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+  ].find((node) => node.textContent?.includes("Project memory"));
+  expect(item).toBeDefined();
+  await act(async () => item!.click());
+  expect(
+    document.querySelector(
+      '[role="dialog"][aria-label="Project memory for aven-project"]',
+    ),
+  ).not.toBeNull();
+  expect(menu()).toBeNull();
+});
+
+it("reaches the memory from the customize panel, keeping a typed name", async () => {
+  await render();
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>(".personal-project-more")!.click(),
+  );
+  await act(async () =>
+    [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+      .find((node) => node.textContent?.includes("Customize project"))!
+      .click(),
+  );
+  const name = document.querySelector<HTMLInputElement>(
+    'input[aria-label="Project name"]',
+  )!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!.call(name, "Aven app");
+    name.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  const row = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+    (node) => node.textContent?.includes("Project memory…"),
+  );
+  expect(row?.textContent).toContain("Empty");
+  await act(async () => row!.click());
+  expect(
+    document.querySelector('[role="dialog"][aria-label^="Customize"]'),
+  ).toBeNull();
+  expect(
+    document.querySelector(
+      '[role="dialog"][aria-label="Project memory for Aven app"]',
+    ),
+  ).not.toBeNull();
+  expect(host.querySelector(".personal-project-label")?.textContent).toBe(
+    "Aven app",
+  );
+});

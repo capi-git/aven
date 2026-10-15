@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
+import { useProjectMemory } from "../hooks/useProjectMemory";
 import { normalizeHex } from "../lib/colorUtils";
 import { logError } from "../lib/errors";
 import { projectName } from "../lib/paths";
+import { projectMemoryEdited } from "../lib/projectMemory";
 import { clearProjectLogo, pickAndSetProjectLogo } from "../lib/projectLogos";
 import { PROJECT_MASCOTS } from "../lib/projectMascots";
 import {
@@ -14,10 +16,11 @@ import {
   saveTabGroupMascot,
 } from "../lib/tabGroups";
 import { ColorPickerPopover, ColorSwatchRow } from "./ColorPickerPopover";
-import { ImagePlus, Trash2 } from "./icons";
+import { Brain, ChevronRight, ImagePlus, Trash2 } from "./icons";
 import { Popover, type PopoverAnchor } from "./Popover";
 import { ProjectMark } from "./ProjectMark";
 import { ProjectMascot } from "./ProjectMascot";
+import { ProjectMemoryDialog } from "./ProjectMemoryDialog";
 
 type Props = {
   path: string;
@@ -28,9 +31,29 @@ type Props = {
 /**
  * Name, colour, logo and mascot for one project. Changes apply as they are
  * made and reach every window; Reset returns to the folder name and the
- * automatic colour and mascot.
+ * automatic colour and mascot. Project memory opens its own editor from here,
+ * so every place that customizes a project also reaches its memory.
  */
 export function ProjectCustomizePopover({ path, anchor, onClose }: Props) {
+  const [editingMemory, setEditingMemory] = useState(false);
+  if (editingMemory)
+    return <ProjectMemoryDialog path={path} onClose={onClose} />;
+  return (
+    <ProjectAppearancePopover
+      path={path}
+      anchor={anchor}
+      onClose={onClose}
+      onEditMemory={() => setEditingMemory(true)}
+    />
+  );
+}
+
+function ProjectAppearancePopover({
+  path,
+  anchor,
+  onClose,
+  onEditMemory,
+}: Props & { onEditMemory: () => void }) {
   const appearance = useProjectAppearance(path);
   const folder = projectName(path);
   const [name, setName] = useState(appearance?.customLabel ?? "");
@@ -216,6 +239,15 @@ export function ProjectCustomizePopover({ path, anchor, onClose }: Props) {
         ) : null}
       </div>
 
+      <p className="mt-3 mb-1.5 text-ui-caption text-content/50">Memory</p>
+      <ProjectMemoryRow
+        path={path}
+        onOpen={() => {
+          commitName();
+          onEditMemory();
+        }}
+      />
+
       <div className="mt-3 flex items-center justify-between border-t border-content/10 pt-2">
         <button
           type="button"
@@ -236,5 +268,38 @@ export function ProjectCustomizePopover({ path, anchor, onClose }: Props) {
         </button>
       </div>
     </Popover>
+  );
+}
+
+/** What the project's memory holds, and the way into its editor. */
+function ProjectMemoryRow({
+  path,
+  onOpen,
+}: {
+  path: string;
+  onOpen: () => void;
+}) {
+  const { memory, loading } = useProjectMemory(path);
+  const summary = loading
+    ? ""
+    : memory
+      ? `${memory.body.length.toLocaleString()} characters · ${projectMemoryEdited(memory.updatedAt, Date.now()).replace(/^Edited /, "edited ")}`
+      : "Empty — shared with every agent here";
+  return (
+    <button
+      type="button"
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={onOpen}
+      className="flex h-9 w-full min-w-0 items-center gap-2 rounded-md bg-content/6 px-2 text-left text-ui-label text-content hover:bg-content/10"
+    >
+      <Brain className="size-3.5 shrink-0 text-content/70" strokeWidth={1.75} />
+      <span className="flex min-w-0 flex-1 flex-col leading-tight">
+        <span className="truncate">Project memory…</span>
+        <span className="truncate text-ui-caption text-content/45">
+          {summary}
+        </span>
+      </span>
+      <ChevronRight className="size-3 shrink-0 text-content/40" />
+    </button>
   );
 }

@@ -1,4 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { errorText } from "./errors";
 import type { HarnessProjectMemory } from "./harness/types";
 import { projectKey } from "./paths";
 import { raceLaneProject } from "./race";
@@ -116,8 +117,7 @@ export async function clearProjectMemory(path: string): Promise<void> {
 }
 
 export function isProjectMemoryConflict(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.includes(PROJECT_MEMORY_CHANGED);
+  return errorText(error).includes(PROJECT_MEMORY_CHANGED);
 }
 
 /**
@@ -212,4 +212,20 @@ export function projectMemorySize(chars: number): string {
       ? `${(value / 1000).toFixed(value % 1000 === 0 ? 0 : 1)}k`
       : String(value);
   return `${format(chars)} of ${format(PROJECT_MEMORY_MAX_CHARS)} characters`;
+}
+
+/** "Edited just now", "Edited 5 min ago", then hours, days and the date. */
+export function projectMemoryEdited(updatedAt: number, now: number): string {
+  if (!Number.isFinite(updatedAt) || updatedAt <= 0) return "";
+  const minutes = Math.floor(Math.max(0, now - updatedAt) / 60_000);
+  if (minutes < 1) return "Edited just now";
+  if (minutes < 60) return `Edited ${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Edited ${hours} h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `Edited ${days} d ago`;
+  return `Edited ${new Date(updatedAt).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  })}`;
 }

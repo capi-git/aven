@@ -19,6 +19,7 @@ import { ChevronDown, ChevronRight, MoreHorizontal, Plus } from "./icons";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 import { ProjectCustomizePopover } from "./ProjectCustomizePopover";
 import { ProjectMark } from "./ProjectMark";
+import { ProjectMemoryDialog } from "./ProjectMemoryDialog";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
 
 type Props = {
@@ -64,12 +65,14 @@ export function PersonalProjectRow({
   } | null>(null);
   const [removing, setRemoving] = useState(false);
   const [customizing, setCustomizing] = useState(false);
+  const [editingMemory, setEditingMemory] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (visible) return;
     setMenu(null);
     setRemoving(false);
     setCustomizing(false);
+    setEditingMemory(false);
   }, [visible]);
   const label = projectDisplayName(
     path,
@@ -85,6 +88,7 @@ export function PersonalProjectRow({
       label: isPinned ? "Unpin project" : "Pin project",
     },
     { kind: "item", id: "customize", label: "Customize project…" },
+    { kind: "item", id: "memory", label: "Project memory…" },
     { kind: "item", id: "reveal", label: "Reveal in Finder" },
     ...(onMove
       ? profiles
@@ -197,6 +201,7 @@ export function PersonalProjectRow({
             setMenu(null);
             if (id === "open") onSelect();
             else if (id === "customize") setCustomizing(true);
+            else if (id === "memory") setEditingMemory(true);
             else if (id === "reveal") void revealPath(path);
             else if (id === "archive") onRemove?.(path, { purgeData: false });
             else if (id === "delete") setRemoving(true);
@@ -217,6 +222,12 @@ export function PersonalProjectRow({
           path={path}
           anchor={rowRef}
           onClose={() => setCustomizing(false)}
+        />
+      ) : null}
+      {editingMemory ? (
+        <ProjectMemoryDialog
+          path={path}
+          onClose={() => setEditingMemory(false)}
         />
       ) : null}
       {removing ? (
