@@ -164,7 +164,11 @@ export function reportDevServer(
     start: (existing?.start ?? 0) + 1,
     detectedAt: now,
     dismissed: false,
-    opened: false,
+    opened: alreadyShown({
+      project: report.project,
+      cwd: report.cwd,
+      url: address.url,
+    }),
     autoOpen: address.strength === "strong" && autoOpenEnabled(),
   };
   commit(bounded([...previews.filter((entry) => entry.key !== key), preview]));
@@ -301,16 +305,22 @@ export function openDevPreview(
   return opened;
 }
 
-const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
-
-function sameServer(a: URL, b: URL): boolean {
-  if (a.protocol !== b.protocol || a.port !== b.port) return false;
-  const host = a.hostname.toLowerCase();
-  const other = b.hostname.toLowerCase();
-  return (
-    host === other || (LOOPBACK_HOSTS.has(host) && LOOPBACK_HOSTS.has(other))
-  );
+/** One server whichever loopback name or page a tab uses for it. */
+function serverIdentity(url: string): string | undefined {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return undefined;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
+    return undefined;
+  const host = parsed.hostname.toLowerCase();
+  const port = parsed.port || (parsed.protocol === "https:" ? "443" : "80");
+  return `${parsed.protocol}//${LOOPBACK_HOSTS.has(host) ? "loopback" : host}:${port}`;
 }
+
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 /** A browser tab already showing this server, on any of its pages. */
 export function previewTabMatch<T extends { id: string; url: string }>(
@@ -318,21 +328,47 @@ export function previewTabMatch<T extends { id: string; url: string }>(
   previewUrl: string,
   preferredId?: string | null,
 ): T | undefined {
-  let target: URL;
-  try {
-    target = new URL(previewUrl);
-  } catch {
-    return undefined;
-  }
-  const matches = (tab: T) => {
-    try {
-      return sameServer(new URL(tab.url), target);
-    } catch {
-      return false;
-    }
-  };
+  const target = serverIdentity(previewUrl);
+  if (!target) return undefined;
+  const matches = (tab: T) => serverIdentity(tab.url) === target;
   const preferred = tabs.find((tab) => tab.id === preferredId);
   return preferred && matches(preferred) ? preferred : tabs.find(matches);
+}
+
+type ShownServers = { project: string; servers: ReadonlySet<string> };
+let shownServers: readonly ShownServers[] = [];
+
+function alreadyShown(preview: Pick<DevPreview, "project" | "cwd" | "url">) {
+  const identity = serverIdentity(preview.url);
+  return (
+    !!identity &&
+    shownServers.some(
+      (entry) =>
+        entry.servers.has(identity) && previewBelongsTo(preview, entry.project),
+    )
+  );
+}
+
+/**
+ * The pages each project's browser shows. A server that already has a tab,
+ * because an agent opened it or the user typed its address, is not offered
+ * again; with the setting on, it is not opened a second time either.
+ */
+export function publishDevPreviewTabs(
+  projects: Iterable<readonly [project: string, urls: readonly string[]]>,
+): void {
+  shownServers = [...projects].flatMap(([project, urls]) => {
+    const servers = new Set(urls.flatMap((url) => serverIdentity(url) ?? []));
+    return servers.size ? [{ project, servers }] : [];
+  });
+  let changed = false;
+  const next = previews.map((preview) => {
+    if (preview.status !== "live" || preview.opened || !alreadyShown(preview))
+      return preview;
+    changed = true;
+    return { ...preview, opened: true };
+  });
+  if (changed) commit(next);
 }
 
 /** Per-turn context for agents with Aven's browser: what is already running. */
@@ -597,6 +633,7 @@ export function observeAgentPreviewEvent(
 /** Tests only: start from an empty store. */
 export function resetDevPreviews(): void {
   previews = [];
+  shownServers = [];
   toolWatches.clear();
   opener = null;
   for (const listener of [...listeners]) listener();

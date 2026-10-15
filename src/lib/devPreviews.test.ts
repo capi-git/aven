@@ -11,6 +11,7 @@ import {
   pendingAutoOpen,
   previewBelongsTo,
   previewTabMatch,
+  publishDevPreviewTabs,
   reportDevServer,
   resetDevPreviews,
   stopDevServers,
@@ -267,6 +268,33 @@ describe("previewTabMatch", () => {
     expect(previewTabMatch(both, "http://localhost:5173/", "home")?.id).toBe(
       "home",
     );
+  });
+});
+
+describe("publishDevPreviewTabs", () => {
+  it("does not offer a server that a browser tab already shows", () => {
+    report("http://localhost:5173/");
+    publishDevPreviewTabs([
+      ["/Users/me/other", ["http://localhost:5173/"]],
+      [PROJECT, ["https://vitejs.dev/", ""]],
+    ]);
+    expect(only().opened).toBe(false);
+    // An agent opened it, on another loopback name and page.
+    publishDevPreviewTabs([[PROJECT, ["http://127.0.0.1:5173/about"]]]);
+    expect(only().opened).toBe(true);
+  });
+
+  it("counts a tab left open from the server's previous start", () => {
+    values.set("aven.devPreviewAutoOpen", "1");
+    publishDevPreviewTabs([[PROJECT, ["http://localhost:5173/"]]]);
+    report("http://localhost:5173/", { sourceId: "terminal:a" });
+    expect(only()).toMatchObject({ opened: true, autoOpen: true });
+    expect(chipPreview(devPreviewsSnapshot(), PROJECT, "chat")).toBe(undefined);
+    expect(pendingAutoOpen(devPreviewsSnapshot(), PROJECT)).toEqual([]);
+    publishDevPreviewTabs([]);
+    stopDevServers("terminal:a");
+    report("http://localhost:5173/", { sourceId: "terminal:a" });
+    expect(only()).toMatchObject({ opened: false, start: 2 });
   });
 });
 

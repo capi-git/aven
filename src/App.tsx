@@ -166,6 +166,7 @@ import {
   observeAgentPreviewEvent,
   previewBelongsTo,
   previewTabMatch,
+  publishDevPreviewTabs,
 } from "./lib/devPreviews";
 import { placeDevPreview } from "./lib/devPreviewLayout";
 import { useDevPreviewAutoOpen } from "./hooks/useDevPreviews";
@@ -1186,6 +1187,18 @@ export default function App({
     [],
   );
   useDevPreviewAutoOpen(projectCwd);
+  // A server a tab already shows, opened by an agent or typed, is not offered.
+  useEffect(() => {
+    publishDevPreviewTabs(
+      Object.entries(browserWorkspaces).map(([project, saved]) => {
+        const workspace = normalizeBrowserWorkspace(saved);
+        return [
+          project,
+          workspace.open ? workspace.tabs.map((tab) => tab.url) : [],
+        ] as const;
+      }),
+    );
+  }, [browserWorkspaces]);
   const agentBrowserSessionKeys = sessions
     .map((session) => `${session.id}:${session.cwd}:${sessionWorkCwd(session)}`)
     .join("\n");
