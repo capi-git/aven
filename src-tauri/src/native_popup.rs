@@ -118,6 +118,7 @@ pub fn show_focused(
     webview: &Webview,
     owner: Option<&Window>,
 ) -> tauri::Result<()> {
+    touch(window.label());
     #[cfg(target_os = "macos")]
     if let Some(owner) = owner {
         reattach(window, owner);
@@ -129,13 +130,61 @@ pub fn show_focused(
     webview.set_focus()
 }
 
+/// How long a hidden popup stays ready for a quick reopen before it is
+/// released, along with the WebKit process that draws it (tens of MB).
+const RELEASE_HIDDEN_AFTER: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Counts each show and hide per popup, so a pending release can tell
+/// whether the popup has been used since.
+static GENERATIONS: std::sync::Mutex<std::collections::BTreeMap<String, u64>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+fn touch(label: &str) -> u64 {
+    let mut generations = GENERATIONS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let generation = generations.entry(label.to_string()).or_default();
+    *generation += 1;
+    *generation
+}
+
 /// Hide the popup for reuse.
 pub fn hide(window: &Window) {
+    touch(window.label());
     let _ = window.hide();
+}
+
+/// Hide the popup for reuse, and release it if it stays unused. `release`
+/// runs on the main thread; it must check its own state (the popup may be
+/// opening again) before destroying anything.
+pub fn hide_then_release(window: &Window, release: impl FnOnce(&AppHandle, &str) + Send + 'static) {
+    hide(window);
+    let app = tauri::Manager::app_handle(window).clone();
+    let label = window.label().to_string();
+    let generation = touch(&label);
+    let _ = std::thread::Builder::new()
+        .name("popup-release".into())
+        .spawn(move || {
+            std::thread::sleep(RELEASE_HIDDEN_AFTER);
+            let current = GENERATIONS
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .get(&label)
+                .copied();
+            if current != Some(generation) {
+                return;
+            }
+            let handle = app.clone();
+            let _ = app.run_on_main_thread(move || release(&handle, &label));
+        });
 }
 
 /// Destroy the popup for good.
 pub fn destroy(window: &Window) {
+    GENERATIONS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .remove(window.label());
     #[cfg(target_os = "macos")]
     never_main::unmark(window);
     let _ = window.destroy();

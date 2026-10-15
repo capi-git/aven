@@ -1,4 +1,5 @@
-import { useContext, useEffect, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createRefreshGate } from "../lib/refreshGate";
 import {
   ChevronRight,
   ExternalLink,
@@ -290,35 +291,43 @@ export function copyName(
   return leaf ? leaf[0].toUpperCase() + leaf.slice(1) : "Copy";
 }
 
-function useWorktrees(cwd: string, enabled: boolean): GitWorktree[] {
+function useWorktrees(
+  cwd: string,
+  enabled: boolean,
+): { worktrees: GitWorktree[]; refresh: () => void } {
   const [worktrees, setWorktrees] = useState<GitWorktree[]>([]);
+  const refreshNow = useRef<() => void>(() => {});
   useEffect(() => {
     if (!enabled || !cwd || cwd === "~") return;
     let cancelled = false;
-    let inFlight = false;
-    const load = async () => {
-      if (cancelled || inFlight || document.hidden) return;
-      inFlight = true;
+    const gate = createRefreshGate(async () => {
+      if (cancelled || document.hidden) return;
       try {
         const next = await gitWorktrees(cwd);
         if (!cancelled) setWorktrees(next);
       } catch {
         if (!cancelled) setWorktrees([]);
-      } finally {
-        inFlight = false;
       }
-    };
+    }, COPIES_POLL_MS);
+    // Git changes arrive every couple of seconds while an agent edits; each
+    // scan runs several git commands per copy, so scans are spaced out.
+    const load = () => gate.request();
+    // After the user's own change (removing a copy), scan straight away.
+    refreshNow.current = () => gate.request(true);
     // Poll only while the window is visible, like the open folder's index.
     let timer: number | null = null;
-    const onFocus = () => void load();
+    const onFocus = () => load();
     const onVisibility = () => {
       if (document.hidden) {
         if (timer !== null) window.clearInterval(timer);
         timer = null;
         return;
       }
-      timer ??= window.setInterval(onFocus, COPIES_POLL_MS);
-      void load();
+      timer ??= window.setInterval(() => {
+        // Watching another app: wait for focus, which scans straight away.
+        if (document.hasFocus()) load();
+      }, COPIES_POLL_MS);
+      load();
     };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibility);
@@ -326,13 +335,16 @@ function useWorktrees(cwd: string, enabled: boolean): GitWorktree[] {
     onVisibility();
     return () => {
       cancelled = true;
+      gate.stop();
+      refreshNow.current = () => {};
       if (timer !== null) window.clearInterval(timer);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
       unsubscribe();
     };
   }, [cwd, enabled]);
-  return worktrees;
+  const refresh = useCallback(() => refreshNow.current(), []);
+  return { worktrees, refresh };
 }
 
 type CleanupState =
@@ -343,7 +355,8 @@ type CleanupState =
 
 /** Work waiting in other checkouts, e.g. agent and race copies of this project. */
 export function GitCopies({ cwd, enabled }: { cwd: string; enabled: boolean }) {
-  const copies = summarizeCopies(useWorktrees(cwd, enabled));
+  const { worktrees, refresh: refreshCopies } = useWorktrees(cwd, enabled);
+  const copies = summarizeCopies(worktrees);
   const { active, finished } = partitionCopies(copies);
   const live = useContext(LiveSessionsContext);
   const sessions = () => live?.list() ?? [];
@@ -372,6 +385,7 @@ export function GitCopies({ cwd, enabled }: { cwd: string; enabled: boolean }) {
     } finally {
       setRemoving(null);
       notifyGitChanged();
+      refreshCopies();
     }
   };
   const cleanUp = async (plan: CleanupPlan) => {
@@ -388,6 +402,7 @@ export function GitCopies({ cwd, enabled }: { cwd: string; enabled: boolean }) {
       });
     } finally {
       notifyGitChanged();
+      refreshCopies();
     }
   };
   if (copies.length === 0) return null;

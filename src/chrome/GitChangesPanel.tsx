@@ -79,6 +79,12 @@ import { gitPrSquashMerge } from "../lib/gitHousekeeping";
 import { isWindowActive, subscribeWindowActivity } from "../lib/windowActivity";
 
 const GIT_POLL_MS = 2000;
+/**
+ * Each check runs several git commands. While nothing changes the panel
+ * checks less often, up to this interval; a change, focus or the end of an
+ * agent's turn brings it straight back to GIT_POLL_MS.
+ */
+const GIT_POLL_MAX_MS = 6000;
 const GIT_SYNC_POLL_MS = 30_000;
 
 function confirmNative(message: string, okLabel?: string): Promise<boolean> {
@@ -1520,6 +1526,8 @@ function useDiffIndex(
     let pendingSync = false;
     let publishing = false;
     let lastSync = 0;
+    // Checks in a row that found nothing new; spaces the next check out.
+    let quietPolls = 0;
 
     const load = async (forceSync = false) => {
       if (cancelled || !isWindowActive()) {
@@ -1554,7 +1562,11 @@ function useDiffIndex(
           if (cancelled || !isWindowActive()) return;
           lastSync = Date.now();
         }
-        if (sameIndex(prev, next)) return;
+        if (sameIndex(prev, next)) {
+          quietPolls += 1;
+          return;
+        }
+        quietPolls = 0;
         indexByCwd.set(cwd, next);
         indexRef.current = next;
         setIndex(next);
@@ -1593,8 +1605,25 @@ function useDiffIndex(
     let timer: number | null = null;
     const stopPolling = () => {
       if (timer === null) return;
-      window.clearInterval(timer);
+      window.clearTimeout(timer);
       timer = null;
+    };
+    const schedule = () => {
+      if (cancelled || timer !== null || !isWindowActive()) return;
+      // The first quiet check keeps the usual pace; later ones slow down.
+      const delay = Math.min(
+        GIT_POLL_MS * 1.5 ** Math.max(0, quietPolls - 1),
+        GIT_POLL_MAX_MS,
+      );
+      timer = window.setTimeout(() => {
+        timer = null;
+        void load().finally(schedule);
+      }, delay);
+    };
+    const checkNow = () => {
+      quietPolls = 0;
+      stopPolling();
+      void load(true).finally(schedule);
     };
     const onActivity = () => {
       if (cancelled) return;
@@ -1604,14 +1633,12 @@ function useDiffIndex(
         stopPolling();
         return;
       }
-      if (timer === null)
-        timer = window.setInterval(() => void load(), GIT_POLL_MS);
-      void load(true);
+      checkNow();
     };
     const unsubActivity = subscribeWindowActivity(onActivity);
     const unsubGit = subscribeGitChanged(() => {
       // Notify sibling panels without feeding our own poll back into a full refresh.
-      if (!publishing) void load(true);
+      if (!publishing) checkNow();
     });
     onActivity();
     return () => {

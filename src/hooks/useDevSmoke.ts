@@ -168,6 +168,15 @@ export async function runDevSmoke(
   // 0.1.137 broke every turn only once the floating sidebar attached.
   if (get().expectFloatingSidebar)
     await step("floating sidebar attached", async () => {
+      // The layer is created on the first unpin; a docked sidebar never needs it.
+      if (get().sidebarOpen) {
+        pressShortcut("b");
+        await waitFor(
+          () => get().sidebarOpen === false,
+          5_000,
+          "the sidebar to unpin",
+        );
+      }
       await waitFor(
         () => get().floatingSidebarLabel,
         20_000,
@@ -334,6 +343,17 @@ export async function runDevSmoke(
   const label = get().floatingSidebarLabel;
   if (label)
     await step("floating sidebar opens Settings and goes Back", async () => {
+      // The card only opens while the sidebar is unpinned, and only then does
+      // the workspace keep it current; unpin first, as a person would.
+      if (get().sidebarOpen) {
+        pressShortcut("b");
+        await waitFor(
+          () => get().sidebarOpen === false,
+          5_000,
+          "the sidebar to unpin",
+        );
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
       let stop: (() => void) | undefined;
       const report = new Promise<{
         ok: boolean;

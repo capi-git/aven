@@ -10,6 +10,10 @@
 
 ### Changed
 
+- Aven rests more when you are not using it: at idle with the workspace on screen it wakes the Mac about half as often, the browser engine stops waking Aven thirty times a second while no page is visible, and the floating sidebar's process is only started once you first unpin the sidebar.
+- While agents edit files, the Changes panel checks less often when nothing changes, and the Releases, merged branches and copies lists refresh at most every 2 minutes, 30 seconds and 10 seconds. Before, they could call GitHub around 200 times a minute and run git dozens of times a second.
+- Background web pages can be put to sleep to save memory unless they hold edits, play media, or embed frames or canvases, as Chrome's Memory Saver does. Before, almost any page you had clicked in, or that had a search box, stayed loaded all session.
+- Pasted and attached images are no longer kept in memory as text once saved, which also stops drafts with images being rewritten in full after every pause in typing. Popups such as the usage panel are released after two minutes closed.
 - Switching between chats, tabs and the browser, showing or hiding the sidebar, and opening or closing Settings are faster: measured in the speed test, Settings takes about a third less time, the sidebar about a fifth less, and the slowest tab switches about a quarter less. Aven no longer stops to measure the window in the middle of these changes, and opening Settings no longer restyles the whole workspace.
 - The `/` list shows skills you used recently in the project first, then the project's and your own skills, then Aven's commands such as `/plan`. Searching it matches skill names, with the matched letters marked, and lists at most a few skills whose description mentions the word you typed, instead of almost every skill.
 - The `/` list ends with a "Create skill" row you can reach with the arrow keys and Enter.
