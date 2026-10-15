@@ -1,15 +1,13 @@
 import { harnessDescriptor } from "../lib/harness/descriptors";
-import { AiIdea, ChevronDown, Gauge, Maximize2, Zap } from "./icons";
+import { AiIdea, Check, Gauge, Zap } from "./icons";
 import "./ModelControls.css";
 import {
-  useEffect,
   useMemo,
-  useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { Popover } from "./Popover";
 import {
   getModelSnapshot,
   resolveModel,
@@ -17,16 +15,97 @@ import {
   type ModelSetting,
 } from "../lib/models";
 import type { HarnessId } from "../lib/session";
+import { moveRadioFocus, PanelSection } from "./PanelSection";
 
 type Props = {
   harness: HarnessId;
   model: string;
   values: Record<string, string>;
   onChange: (settings: Record<string, string>) => void;
-  onClose?: () => void;
 };
 
-const MENU_WIDTH = 220;
+const SETTING_ORDER = [
+  "variant",
+  "agent",
+  "effort",
+  "reasoning",
+  "thinking",
+  "fast",
+  "context",
+];
+
+/** Settings that pick how hard the model thinks; shown as effort tiles. */
+const EFFORT_SETTINGS = new Set([
+  "effort",
+  "reasoning",
+  "reasoningEffort",
+  "thinking",
+]);
+
+/** The model's own settings, in a stable order, as provider catalogs load. */
+export function useModelSettingList(
+  harness: HarnessId,
+  model: string,
+): ModelSetting[] {
+  const catalog = useSyncExternalStore(
+    subscribeModels,
+    getModelSnapshot,
+    getModelSnapshot,
+  );
+  return useMemo(() => {
+    void catalog;
+    const list = (resolveModel(harness, model).settings ?? []).filter(
+      (setting) =>
+        !harnessDescriptor(harness).hiddenModelSettings?.includes(setting.id),
+    );
+    return [...list].sort((a, b) => {
+      const ai = SETTING_ORDER.indexOf(a.id);
+      const bi = SETTING_ORDER.indexOf(b.id);
+      return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+    });
+  }, [catalog, harness, model]);
+}
+
+const SHORT_LABELS: Record<string, string> = {
+  "Extra High": "X-High",
+  Minimal: "Min",
+};
+
+/**
+ * What the agent pill shows next to the model: the effort in short form and
+ * whether a fast mode is on. A value the provider does not list is shown as
+ * it is, rather than as the default.
+ */
+export function modelSettingsSummary(
+  settings: readonly ModelSetting[],
+  values: Record<string, string>,
+): { effort: string | null; fast: boolean } {
+  let effort: string | null = null;
+  let fast = false;
+  for (const setting of settings) {
+    const value = values[setting.id] ?? setting.value;
+    if (setting.kind === "toggle") {
+      if (value !== "true") continue;
+      if (setting.id === "fast") fast = true;
+      else if (setting.id === "thinking") effort ??= setting.label;
+      continue;
+    }
+    if (setting.id === "serviceTier" && value === "fast") fast = true;
+    // Thinking switched off says nothing worth a place in the pill.
+    if (
+      effort === null &&
+      EFFORT_SETTINGS.has(setting.id) &&
+      value !== "off" &&
+      value !== "none"
+    ) {
+      const label =
+        setting.options.find((option) => option.value === value)?.label ??
+        value;
+      effort = SHORT_LABELS[label] ?? label;
+    }
+  }
+  return { effort, fast };
+}
 
 // Tile shimmer ported from MonoCode 43aac9d2 / 1e97594d, extended to the
 // standard effort levels. Provider order is not a strength ranking (Grok lists
@@ -79,36 +158,18 @@ function EffortTileShimmer() {
   );
 }
 
-export function ModelSettings({
+/**
+ * The model's settings as sections of the agent panel: effort levels as
+ * tiles, other choices as segmented buttons and on/off settings as switches.
+ * A change applies at once and the panel stays open.
+ */
+export function ModelSettingsSections({
   harness,
   model,
   values,
   onChange,
-  onClose,
 }: Props) {
-  const catalog = useSyncCatalog();
-  const settings = useMemo(() => {
-    void catalog;
-    const list = (resolveModel(harness, model).settings ?? []).filter(
-      (setting) =>
-        !harnessDescriptor(harness).hiddenModelSettings?.includes(setting.id),
-    );
-    const order = [
-      "variant",
-      "agent",
-      "effort",
-      "reasoning",
-      "thinking",
-      "fast",
-      "context",
-    ];
-    return [...list].sort((a, b) => {
-      const ai = order.indexOf(a.id);
-      const bi = order.indexOf(b.id);
-      return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
-    });
-  }, [catalog, harness, model]);
-
+  const settings = useModelSettingList(harness, model);
   if (settings.length === 0) return null;
 
   const setValue = (id: string, value: string) => {
@@ -117,32 +178,141 @@ export function ModelSettings({
 
   return (
     <>
-      {settings.map((setting) =>
-        setting.kind === "toggle" ? (
-          <ToggleSetting
+      {settings.map((setting) => {
+        const value = values[setting.id] ?? setting.value;
+        const change = (next: string) => setValue(setting.id, next);
+        if (setting.kind === "toggle") {
+          return (
+            <ToggleSetting
+              key={setting.id}
+              setting={setting}
+              value={value}
+              onChange={change}
+            />
+          );
+        }
+        return (
+          <PanelSection
             key={setting.id}
-            setting={setting}
-            value={values[setting.id] ?? setting.value}
-            onChange={(value) => setValue(setting.id, value)}
-          />
-        ) : (
-          <SelectSetting
-            key={setting.id}
-            setting={setting}
-            value={values[setting.id] ?? setting.value}
-            onChange={(value) => setValue(setting.id, value)}
-            onClose={onClose}
-          />
-        ),
-      )}
+            title={setting.label}
+            data-model-setting={setting.id}
+          >
+            {EFFORT_SETTINGS.has(setting.id) ? (
+              <EffortChoices
+                setting={setting}
+                value={value}
+                onChange={change}
+              />
+            ) : (
+              <SegmentedChoices
+                setting={setting}
+                value={value}
+                onChange={change}
+              />
+            )}
+          </PanelSection>
+        );
+      })}
     </>
   );
 }
 
-function useSyncCatalog(): number {
-  const [version, setVersion] = useState(getModelSnapshot);
-  useEffect(() => subscribeModels(() => setVersion(getModelSnapshot())), []);
-  return version;
+function EffortChoices({
+  setting,
+  value,
+  onChange,
+}: {
+  setting: ModelSetting;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  // The row under the pointer or keyboard plays the tile ripple; only that
+  // row mounts its tiles.
+  const [active, setActive] = useState<number | null>(null);
+  const known = setting.options.some((option) => option.value === value);
+  return (
+    <div
+      role="radiogroup"
+      aria-label={setting.label}
+      className="agent-effort-list"
+      onKeyDown={(event: ReactKeyboardEvent<HTMLDivElement>) =>
+        moveRadioFocus(event)
+      }
+      onMouseLeave={() => setActive(null)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+          setActive(null);
+      }}
+    >
+      {setting.options.map((option, index) => {
+        const selected = option.value === value;
+        const tone = effortTileTone(option.value);
+        const highlighted = index === active;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            tabIndex={selected || (!known && index === 0) ? 0 : -1}
+            data-effort-tone={tone}
+            data-effort-active={tone && highlighted ? true : undefined}
+            onMouseEnter={() => setActive(index)}
+            onFocus={() => setActive(index)}
+            onClick={() => onChange(option.value)}
+            className={`model-control-option agent-choice-row${tone ? " model-effort-option" : ""}`}
+          >
+            {tone && highlighted ? <EffortTileShimmer /> : null}
+            <span className="model-effort-dot" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate">{option.label}</span>
+            {selected ? (
+              <Check className="agent-choice-check" strokeWidth={2} />
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function SegmentedChoices({
+  setting,
+  value,
+  onChange,
+}: {
+  setting: ModelSetting;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const known = setting.options.some((option) => option.value === value);
+  return (
+    <div
+      role="radiogroup"
+      aria-label={setting.label}
+      title={setting.description}
+      className="agent-segmented"
+      onKeyDown={(event: ReactKeyboardEvent<HTMLDivElement>) =>
+        moveRadioFocus(event)
+      }
+    >
+      {setting.options.map((option, index) => {
+        const selected = option.value === value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            tabIndex={selected || (!known && index === 0) ? 0 : -1}
+            onClick={() => onChange(option.value)}
+            className="model-control-option agent-segment"
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 function ToggleSetting({
@@ -158,173 +328,20 @@ function ToggleSetting({
   const Icon =
     setting.id === "fast" ? Zap : setting.id === "thinking" ? AiIdea : Gauge;
   return (
-    <button
-      type="button"
-      title={setting.description ?? setting.label}
-      aria-label={setting.label}
-      aria-pressed={on}
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={() => onChange(on ? "false" : "true")}
-      className={`model-control flex h-6.5 items-center gap-1 rounded-md px-1.5 ${
-        on
-          ? "bg-content/20 text-content"
-          : "bg-content/10 text-content/50 hover:bg-content/15 hover:text-content"
-      }`}
-    >
-      <Icon className="size-3.5 shrink-0" strokeWidth={1.75} />
-      <span key={value} className="model-control-value text-ui-caption">
-        {setting.label}
-      </span>
-    </button>
-  );
-}
-
-function SelectSetting({
-  setting,
-  value,
-  onChange,
-  onClose,
-}: {
-  setting: ModelSetting;
-  value: string;
-  onChange: (value: string) => void;
-  onClose?: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [active, setActive] = useState(() =>
-    Math.max(
-      0,
-      setting.options.findIndex((option) => option.value === value),
-    ),
-  );
-  const root = useRef<HTMLDivElement>(null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  const current =
-    setting.options.find((option) => option.value === value) ??
-    setting.options[0];
-  const Icon = setting.id === "context" ? Maximize2 : Gauge;
-  const effort = [
-    "effort",
-    "reasoning",
-    "reasoningEffort",
-    "thinking",
-  ].includes(setting.id);
-
-  const dismiss = (restore: boolean) => {
-    setOpen(false);
-    if (restore) onCloseRef.current?.();
-  };
-
-  useEffect(() => {
-    if (!open) return;
-    setActive(
-      Math.max(
-        0,
-        setting.options.findIndex((option) => option.value === value),
-      ),
-    );
-  }, [open, setting.options, value]);
-
-  const pick = (next: string) => {
-    onChange(next);
-    dismiss(true);
-  };
-
-  const onMenuKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setActive((i) => Math.min(setting.options.length - 1, i + 1));
-      return;
-    }
-    if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setActive((i) => Math.max(0, i - 1));
-      return;
-    }
-    if (e.key === "Enter") {
-      e.preventDefault();
-      const option = setting.options[active];
-      if (option) pick(option.value);
-    }
-  };
-
-  return (
-    <div ref={root} className="relative">
+    <div className="agent-panel-section" data-model-setting={setting.id}>
       <button
         type="button"
+        role="switch"
         title={setting.description ?? setting.label}
-        aria-label={`${setting.label}: ${current?.label ?? value}`}
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={() => {
-          if (open) {
-            dismiss(true);
-            return;
-          }
-          setOpen(true);
-        }}
-        className={`model-control flex h-6.5 max-w-36 items-center gap-1 rounded-md px-1.5 ${
-          open
-            ? "bg-content/10 text-content"
-            : "bg-content/10 text-content hover:bg-content/15"
-        }`}
+        aria-label={setting.label}
+        aria-checked={on}
+        onClick={() => onChange(on ? "false" : "true")}
+        className="model-control-option agent-switch-row"
       >
         <Icon className="size-3.5 shrink-0" strokeWidth={1.75} />
-        <span
-          key={value}
-          className="model-control-value min-w-0 truncate text-ui-caption"
-        >
-          {current?.label ?? setting.label}
-        </span>
-        <ChevronDown
-          className={`model-control-chevron size-3 shrink-0 text-content/50 ${open ? "rotate-180" : ""}`}
-          strokeWidth={1.75}
-        />
+        <span className="min-w-0 flex-1 truncate">{setting.label}</span>
+        <span className="agent-switch" aria-hidden="true" />
       </button>
-      {open ? (
-        <Popover
-          anchor={root}
-          side="top"
-          width={MENU_WIDTH}
-          autoFocus
-          onDismiss={(reason) => dismiss(reason === "escape")}
-          role="listbox"
-          aria-label={setting.label}
-          data-model-settings
-          tabIndex={-1}
-          onKeyDown={onMenuKey}
-          className="p-1"
-        >
-          {setting.options.map((option, index) => {
-            const selected = option.value === value;
-            const highlighted = index === active;
-            const tileTone = effort ? effortTileTone(option.value) : undefined;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                role="option"
-                aria-selected={selected}
-                data-effort-tone={tileTone}
-                data-effort-active={tileTone && highlighted ? true : undefined}
-                onMouseDown={(e) => e.preventDefault()}
-                onMouseEnter={() => setActive(index)}
-                onClick={() => pick(option.value)}
-                className={`model-control-option flex w-full items-center rounded-lg px-2 py-1.5 text-left text-ui-body ${
-                  highlighted || selected
-                    ? "bg-content/10 text-content"
-                    : "text-content hover:bg-content/5"
-                }${tileTone ? " model-effort-option" : ""}`}
-              >
-                {tileTone && highlighted ? <EffortTileShimmer /> : null}
-                <span className="min-w-0 flex-1">{option.label}</span>
-              </button>
-            );
-          })}
-        </Popover>
-      ) : null}
     </div>
   );
 }

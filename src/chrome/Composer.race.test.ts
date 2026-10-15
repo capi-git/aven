@@ -25,9 +25,11 @@ vi.mock("./useComposerSkills", () => ({
   useComposerSkills: () => ({ skills: [] }),
 }));
 vi.mock("../hooks/useTabGroupLogos", () => ({ useTabGroupLogos: () => ({}) }));
-vi.mock("./ModelPicker", () => ({ ModelPicker: () => null }));
-vi.mock("./ModelSettings", () => ({ ModelSettings: () => null }));
-vi.mock("./AccessPicker", () => ({ AccessPicker: () => null }));
+// The model list has its own tests; this file is about the Race section.
+vi.mock("./ModelPicker", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./ModelPicker")>()),
+  ModelChooser: () => null,
+}));
 vi.mock("./ContextMeter", () => ({ ContextMeter: () => null }));
 vi.mock("./ComposerRunner", () => ({ ComposerRunner: () => null }));
 vi.mock("../lib/paletteAgents", () => ({
@@ -79,32 +81,37 @@ afterEach(async () => {
 async function render() {
   await act(async () => root.render(createElement(Composer, props)));
 }
-const raceButton = () =>
-  container.querySelector<HTMLButtonElement>("[data-race-toggle] button")!;
-const raceMenu = () =>
-  document.body.querySelector<HTMLElement>(
-    '[aria-label="Race"][role="dialog"]',
-  )!;
+const pill = () =>
+  container.querySelector<HTMLButtonElement>("[data-agent-pill]")!;
+const panel = () =>
+  document.body.querySelector<HTMLElement>("[data-agent-panel]");
+const raceSection = () =>
+  document.body.querySelector<HTMLElement>("[data-race-options]")!;
+const raceSwitch = () =>
+  raceSection().querySelector<HTMLButtonElement>('[role="switch"]')!;
+const raceChip = () =>
+  container.querySelector<HTMLButtonElement>('[aria-label="Turn off Race"]');
+const lane = (name: string) =>
+  [
+    ...raceSection().querySelectorAll<HTMLButtonElement>('[role="checkbox"]'),
+  ].find((item) => item.textContent?.includes(name))!;
 const field = () => container.querySelector("textarea")!;
 const sendButton = () =>
   container.querySelector<HTMLButtonElement>(".composer-send")!;
 
+async function openPanel() {
+  if (!panel()) await act(async () => pill().click());
+}
 async function turnRaceOn() {
-  if (!raceMenu()) await act(async () => raceButton().click());
-  const toggle = raceMenu().querySelector<HTMLInputElement>(
-    'input[type="checkbox"]',
-  )!;
-  await act(async () => toggle.click());
+  await openPanel();
+  await act(async () => raceSwitch().click());
 }
 
 it("races the message across this chat's agent and another instead of sending it", async () => {
   await render();
-  await act(async () => raceButton().click());
-  const toggle = document.body.querySelector<HTMLInputElement>(
-    '[aria-label="Race"] input[type="checkbox"]',
-  )!;
-  await act(async () => toggle.click());
-  expect(raceButton().getAttribute("aria-pressed")).toBe("true");
+  await turnRaceOn();
+  expect(raceSwitch().getAttribute("aria-checked")).toBe("true");
+  expect(raceChip()?.textContent).toContain("Race · 2");
   const send = container.querySelector<HTMLButtonElement>(
     '[aria-label="Race 2 agents"]',
   );
@@ -120,39 +127,39 @@ it("races the message across this chat's agent and another instead of sending it
     ],
   );
   // Race is one-shot: the next message sends normally.
-  expect(raceButton().getAttribute("aria-pressed")).toBe("false");
+  expect(raceSwitch().getAttribute("aria-checked")).toBe("false");
+  expect(raceChip()).toBeNull();
 });
 
-it("adds a third agent from the Race menu", async () => {
+it("adds a third agent from the Race section", async () => {
   await render();
-  await act(async () => raceButton().click());
-  const cursor = [
-    ...document.body.querySelectorAll<HTMLButtonElement>(
-      '[aria-label="Race"] [role="checkbox"]',
-    ),
-  ].find((item) => item.textContent?.includes("Cursor"))!;
-  const claude = [
-    ...document.body.querySelectorAll<HTMLButtonElement>(
-      '[aria-label="Race"] [role="checkbox"]',
-    ),
-  ].find((item) => item.textContent?.includes("Claude"))!;
+  await openPanel();
   // Two agents is the minimum, so the second one can't be unticked yet.
-  expect(claude.disabled).toBe(true);
-  await act(async () => cursor.click());
-  expect(claude.disabled).toBe(false);
-  const toggle = document.body.querySelector<HTMLInputElement>(
-    '[aria-label="Race"] input[type="checkbox"]',
-  )!;
-  await act(async () => toggle.click());
+  expect(lane("Claude").disabled).toBe(true);
+  await act(async () => lane("Cursor").click());
+  expect(lane("Claude").disabled).toBe(false);
+  await act(async () => raceSwitch().click());
   expect(
     container.querySelector('[aria-label="Race 3 agents"]'),
   ).not.toBeNull();
 });
 
+it("turns Race off from its chip beside the + button", async () => {
+  await render();
+  await turnRaceOn();
+  await act(async () => raceChip()!.click());
+  expect(raceChip()).toBeNull();
+  expect(raceSwitch().getAttribute("aria-checked")).toBe("false");
+  expect(sendButton().getAttribute("aria-label")).toBe("Send");
+  expect(document.activeElement).toBe(field());
+});
+
 it("hides Race when the chat does not offer it", async () => {
   props.onRace = undefined;
   await render();
-  expect(container.querySelector("[data-race-toggle]")).toBeNull();
+  await openPanel();
+  expect(panel()).not.toBeNull();
+  expect(document.body.querySelector("[data-race-options]")).toBeNull();
 });
 
 it("puts the message back when the race can't start", async () => {
@@ -179,7 +186,7 @@ it("keeps Race and Plan mode exclusive, so a plan is never raced", async () => {
     ...document.body.querySelectorAll<HTMLButtonElement>("[aria-pressed]"),
   ].find((item) => item.textContent?.includes("Plan mode"))!;
   await act(async () => plan.click());
-  expect(raceButton().getAttribute("aria-pressed")).toBe("false");
+  expect(raceChip()).toBeNull();
   await act(async () => sendButton().click());
   expect(props.onRace).not.toHaveBeenCalled();
   expect(props.onSubmit).toHaveBeenCalledWith(
@@ -192,25 +199,29 @@ it("keeps Race and Plan mode exclusive, so a plan is never raced", async () => {
 it("turns Race off when fewer than two agents remain", async () => {
   await render();
   await turnRaceOn();
-  expect(raceButton().getAttribute("aria-pressed")).toBe("true");
+  expect(raceSwitch().getAttribute("aria-checked")).toBe("true");
   agents.list = agents.all.filter((agent) => agent.harness === "codex");
   // Any catalog or availability change re-reads the installed agents.
   await act(async () => setHarnessModels("claude", pickerModelsFor("claude")));
-  expect(raceButton().disabled).toBe(true);
-  expect(raceButton().getAttribute("aria-pressed")).toBe("false");
+  expect(raceSwitch().disabled).toBe(true);
+  expect(raceSwitch().getAttribute("aria-checked")).toBe("false");
+  expect(raceSection().textContent).toContain(
+    "Install or enable a second agent to race",
+  );
+  expect(raceChip()).toBeNull();
   expect(sendButton().getAttribute("aria-label")).toBe("Send");
 });
 
 it("races each agent on the model picked for it", async () => {
   const pick = pickerModelsFor("claude").find((model) => model.id !== "opus")!;
   await render();
-  await act(async () => raceButton().click());
-  const chip = raceMenu().querySelector<HTMLButtonElement>(
+  await openPanel();
+  const chip = raceSection().querySelector<HTMLButtonElement>(
     `[aria-label^="${HARNESS_TITLE.claude} model:"]`,
   )!;
   await act(async () => chip.click());
   const option = [
-    ...raceMenu().querySelectorAll<HTMLButtonElement>('[role="option"]'),
+    ...raceSection().querySelectorAll<HTMLButtonElement>('[role="option"]'),
   ].find((item) => item.textContent === pick.name)!;
   await act(async () => option.click());
   expect(chip.getAttribute("aria-label")).toBe(
@@ -240,14 +251,14 @@ it("lets this chat's agent race on another of its models", async () => {
   ]);
   const pick = pickerModelsFor("codex").find((model) => model.id !== "gpt-5")!;
   await render();
-  await act(async () => raceButton().click());
-  const chip = raceMenu().querySelector<HTMLButtonElement>(
+  await openPanel();
+  const chip = raceSection().querySelector<HTMLButtonElement>(
     `[aria-label^="${HARNESS_TITLE.codex} model:"]`,
   )!;
   expect(chip.disabled).toBe(false);
   await act(async () => chip.click());
   const option = [
-    ...raceMenu().querySelectorAll<HTMLButtonElement>('[role="option"]'),
+    ...raceSection().querySelectorAll<HTMLButtonElement>('[role="option"]'),
   ].find((item) => item.textContent === pick.name)!;
   await act(async () => option.click());
   await turnRaceOn();
@@ -266,13 +277,13 @@ it("lets this chat's agent race on another of its models", async () => {
 
 it("offers the model in use while a provider's list is still loading", async () => {
   await render();
-  await act(async () => raceButton().click());
-  const chip = raceMenu().querySelector<HTMLButtonElement>(
+  await openPanel();
+  const chip = raceSection().querySelector<HTMLButtonElement>(
     `[aria-label^="${HARNESS_TITLE.codex} model:"]`,
   )!;
   await act(async () => chip.click());
   const options = [
-    ...raceMenu().querySelectorAll<HTMLButtonElement>('[role="option"]'),
+    ...raceSection().querySelectorAll<HTMLButtonElement>('[role="option"]'),
   ];
   expect(options.map((item) => item.textContent)).toContain("gpt-5");
   expect(
@@ -280,28 +291,4 @@ it("offers the model in use while a provider's list is still loading", async () 
       .find((item) => item.textContent === "gpt-5")
       ?.getAttribute("aria-selected"),
   ).toBe("true");
-});
-
-it("moves through the Race menu with the arrow keys", async () => {
-  await render();
-  await act(async () => raceButton().click());
-  expect(raceMenu()).toBe(document.activeElement);
-  const key = (name: string) =>
-    act(async () => {
-      (document.activeElement as HTMLElement).dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: name,
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-    });
-  await key("ArrowDown");
-  expect(document.activeElement).toBe(
-    raceMenu().querySelector('input[type="checkbox"]'),
-  );
-  await key("End");
-  expect(document.activeElement?.getAttribute("aria-label")).toMatch(
-    /^Cursor model:/,
-  );
 });

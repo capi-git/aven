@@ -10,6 +10,7 @@ import {
   Pencil,
   Play,
   Plus,
+  Race,
   Share,
   Square,
   StickyNote,
@@ -96,7 +97,7 @@ import {
   type SlashToken,
 } from "../lib/skills";
 import { loadRecentSkills, rememberRecentSkills } from "../lib/recentSkills";
-import { AccessPicker } from "./AccessPicker";
+import { AgentPill } from "./AgentPill";
 import { ComposerRunner } from "./ComposerRunner";
 import { ContextMeter } from "./ContextMeter";
 import { AttachmentChip } from "./AttachmentChip";
@@ -108,8 +109,6 @@ import { FileTypeIcon } from "./FileTypeIcon";
 import { InboxMiniCard } from "./InboxMiniCard";
 import { NoteMiniCard } from "./NoteMiniCard";
 import { HandoffMiniCard } from "./HandoffMiniCard";
-import { ModelPicker } from "./ModelPicker";
-import { ModelSettings } from "./ModelSettings";
 import { QuestionForm } from "./QuestionForm";
 import { SkillPicker } from "./SkillPicker";
 import { projectKey } from "../lib/paths";
@@ -135,7 +134,7 @@ import {
 import { resolveTabGroupLogo } from "../lib/tabGroups";
 import { useComposerSkills } from "./useComposerSkills";
 import { Popover } from "./Popover";
-import { RaceToggle } from "./RaceToggle";
+import type { RaceProps } from "./RaceOptions";
 import type { PaletteAgent } from "../lib/commandPalette";
 import { RACE_MIN_LANES } from "../lib/race";
 import { useRaceAgents } from "./useRaceAgents";
@@ -252,6 +251,8 @@ function sameStrings(a: readonly string[], b: readonly string[]): boolean {
 }
 
 const NO_FILES: ProjectFile[] = [];
+/** One shared empty value, so the agent pill's props stay the same. */
+const NO_MODEL_SETTINGS: Record<string, string> = {};
 
 function ToolButton({
   active,
@@ -497,7 +498,7 @@ function ComposerComponent({
   shell = false,
   harness,
   model,
-  modelSettings = {},
+  modelSettings = NO_MODEL_SETTINGS,
   runtimeMode,
   cwd = "~",
   executionCwd,
@@ -641,6 +642,34 @@ function ComposerComponent({
     !draftOrchestrating &&
     !planSelected &&
     !orchestrationSelected;
+  const changeRaceActive = useCallback((on: boolean) => {
+    setRaceOn(on);
+    if (!on) return;
+    setPlanSelected(false);
+    setOrchestrationSelected(false);
+  }, []);
+  const raceOptions = useMemo<RaceProps | undefined>(
+    () =>
+      onRace
+        ? {
+            active: raceActive,
+            available: raceAvailable,
+            lanes: raceLanes,
+            disabledReason: raceBlocked,
+            onActiveChange: changeRaceActive,
+            onFirstModelChange: setRaceModel,
+          }
+        : undefined,
+    [
+      changeRaceActive,
+      onRace,
+      raceActive,
+      raceAvailable,
+      raceBlocked,
+      raceLanes,
+    ],
+  );
+  const focusField = useCallback(() => ref.current?.focus(), []);
   const queueSubmission = shouldEnqueueSubmission(
     { harness, busy: Boolean(busy), queuedMessages },
     planSelected || orchestrationSelected || draftPlanning || draftOrchestrating
@@ -1114,7 +1143,7 @@ function ComposerComponent({
     if (!focused) return;
     if (
       document.querySelector(
-        "[data-model-picker], [data-access-picker], [data-model-settings], [data-file-picker], [data-branch-picker], [data-cwd-picker], [data-race-menu], [data-context-actions], [data-skill-picker], [data-mention-picker], [data-composer-plus]",
+        "[data-model-picker], [data-access-picker], [data-file-picker], [data-branch-picker], [data-cwd-picker], [data-context-actions], [data-skill-picker], [data-mention-picker], [data-composer-plus]",
       )
     )
       return;
@@ -1809,70 +1838,46 @@ function ComposerComponent({
                 <X className="size-3" />
               </button>
             ) : null}
+            {raceActive ? (
+              <button
+                type="button"
+                title="Turn off Race"
+                aria-label="Turn off Race"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  setRaceOn(false);
+                  ref.current?.focus();
+                }}
+                className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-accent/10 px-1.5 text-ui-caption text-accent hover:bg-accent/15"
+              >
+                <Race className="size-3.5" strokeWidth={1.75} />
+                Race · {raceLanes.length}
+                <X className="size-3" />
+              </button>
+            ) : null}
             <div
               className="composer-toolbar flex min-w-0 flex-1 items-center"
               onWheel={(e) => {
-                if (
-                  e.target instanceof Element &&
-                  e.target.closest(
-                    "[data-model-picker], [data-access-picker], [data-model-settings]",
-                  )
-                ) {
-                  return;
-                }
                 const el = e.currentTarget;
                 if (el.scrollWidth <= el.clientWidth) return;
                 if (e.deltaX === 0 && e.deltaY !== 0) el.scrollLeft += e.deltaY;
               }}
-            >
-              <div className="personal-composer-options flex shrink-0 items-center gap-1">
-                {harnessDescriptor(harness).supportsAccessMode ? (
-                  <div className="personal-composer-capsule personal-composer-access">
-                    <AccessPicker
-                      value={runtimeMode}
-                      busy={busy}
-                      onChange={onRuntimeModeChange}
-                      onClose={() => ref.current?.focus()}
-                    />
-                  </div>
-                ) : null}
-                <div className="personal-composer-capsule personal-composer-model">
-                  <ModelPicker
-                    harness={harness}
-                    model={model}
-                    hotkeys={hotkeys && enabled}
-                    onChange={onModelChange}
-                    onClose={() => ref.current?.focus()}
-                  />
-                </div>
-                {onRace ? (
-                  <div className="personal-composer-capsule personal-composer-race">
-                    <RaceToggle
-                      active={raceActive}
-                      available={raceAvailable}
-                      lanes={raceLanes}
-                      disabledReason={raceBlocked}
-                      onActiveChange={(on) => {
-                        setRaceOn(on);
-                        if (!on) return;
-                        setPlanSelected(false);
-                        setOrchestrationSelected(false);
-                      }}
-                      onFirstModelChange={setRaceModel}
-                      onClose={() => ref.current?.focus()}
-                    />
-                  </div>
-                ) : null}
-                <div className="personal-composer-capsule personal-composer-settings">
-                  <ModelSettings
-                    harness={harness}
-                    model={model}
-                    values={modelSettings}
-                    onChange={(settings) => onModelSettingsChange?.(settings)}
-                    onClose={() => ref.current?.focus()}
-                  />
-                </div>
-              </div>
+            ></div>
+            <div className="personal-composer-agent">
+              <AgentPill
+                harness={harness}
+                model={model}
+                modelSettings={modelSettings}
+                runtimeMode={runtimeMode}
+                showAccess={harnessDescriptor(harness).supportsAccessMode}
+                busy={busy}
+                hotkeys={hotkeys && enabled}
+                race={raceOptions}
+                onModelChange={onModelChange}
+                onModelSettingsChange={onModelSettingsChange}
+                onRuntimeModeChange={onRuntimeModeChange}
+                onClose={focusField}
+              />
             </div>
 
             {hideTopBar ? null : (

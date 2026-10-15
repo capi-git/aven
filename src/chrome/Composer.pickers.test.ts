@@ -36,9 +36,22 @@ vi.mock("../lib/notes", async (importOriginal) => ({
   loadNotes: vi.fn(async () => []),
 }));
 vi.mock("../hooks/useTabGroupLogos", () => ({ useTabGroupLogos: () => ({}) }));
-vi.mock("./ModelPicker", () => ({ ModelPicker: () => null }));
-vi.mock("./ModelSettings", () => ({ ModelSettings: () => null }));
-vi.mock("./AccessPicker", () => ({ AccessPicker: () => null }));
+// Count commits inside the agent pill. It keeps its own memo, so a parent
+// render with the same props commits nothing.
+const commitsIn = vi.hoisted(() => ({ pill: 0 }));
+vi.mock("./AgentPill", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./AgentPill")>();
+  const react = await import("react");
+  return {
+    AgentPill: react.memo((props: ComponentProps<typeof actual.AgentPill>) =>
+      react.createElement(
+        react.Profiler,
+        { id: "pill", onRender: () => (commitsIn.pill += 1) },
+        react.createElement(actual.AgentPill, props),
+      ),
+    ),
+  };
+});
 vi.mock("./ContextMeter", () => ({ ContextMeter: () => null }));
 vi.mock("./ComposerRunner", () => ({ ComposerRunner: () => null }));
 
@@ -67,11 +80,13 @@ beforeEach(() => {
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => storage.get(key) ?? null,
     setItem: (key: string, value: string) => storage.set(key, value),
+    removeItem: (key: string) => storage.delete(key),
   });
   registerHarness(codexAdapter);
   invalidateProjectFiles();
   catalog.skills = [];
   commits = 0;
+  commitsIn.pill = 0;
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -316,5 +331,20 @@ describe("composer hint", () => {
     props = { ...props, cwd: "~" };
     await render();
     expect(field().placeholder).toBe("Ask anything · / for skills");
+  });
+});
+
+describe("typing", () => {
+  it("never renders the agent pill", async () => {
+    await render();
+    expect(container.querySelector("[data-agent-pill]")).not.toBeNull();
+    commitsIn.pill = 0;
+    let text = "";
+    for (const character of "Fix the login loop") {
+      text += character;
+      await type(text);
+    }
+    expect(commits).toBeGreaterThan(0);
+    expect(commitsIn.pill).toBe(0);
   });
 });

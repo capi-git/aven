@@ -329,6 +329,58 @@ export async function runDevSmoke(
       },
     );
 
+  // The composer's agent pill opens one panel with the model list, its
+  // settings and access, focused on the model search; Escape closes it and
+  // hands the keyboard back to the message.
+  if (safe && typedTask)
+    await step(
+      "the agent pill opens its panel and Escape returns",
+      async () => {
+        const composer = await waitFor(
+          visibleComposer,
+          5_000,
+          "the message box",
+        );
+        const pill = composer
+          .closest("[data-composer]")
+          ?.querySelector<HTMLButtonElement>("[data-agent-pill]");
+        if (!pill) throw new Error("The composer has no agent pill");
+        pill.click();
+        const panel = await waitFor(
+          () => document.querySelector<HTMLElement>("[data-agent-panel]"),
+          5_000,
+          "the agent panel",
+        );
+        await waitFor(
+          () =>
+            document.activeElement?.getAttribute("aria-label") ===
+            "Search models",
+          5_000,
+          "the model search to take focus",
+        );
+        if (!panel.querySelector("[data-access-options]"))
+          throw new Error("The agent panel has no access options");
+        document.activeElement?.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Escape",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        await waitFor(
+          () => !document.querySelector("[data-agent-panel]"),
+          5_000,
+          "the agent panel to close",
+        );
+        await waitFor(
+          () => document.activeElement === composer,
+          5_000,
+          "the message box to take focus back",
+        );
+        return pill.getAttribute("aria-label") ?? undefined;
+      },
+    );
+
   // The workspace's own key listener, as a key press reaches it: Cmd+, opens
   // Settings and Cmd+W closes the open utility rather than a pane.
   if (utilities)
