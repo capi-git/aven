@@ -12,6 +12,10 @@ export type AgentWork = {
   state: "working" | "waiting" | "queued";
 };
 
+/**
+ * A terminal running a command. `command` is empty where Aven cannot see what
+ * runs in a terminal (Windows): the terminal is treated as possibly busy.
+ */
 export type TerminalWork = { id: string; command: string };
 
 export type FileWork = { id: string; name: string; project: string };
@@ -135,16 +139,22 @@ export function describeRestartWork(work: RestartWork): string[] {
     lines.push(
       `${count(queued.length, "agent has", "agents have")} messages waiting to send: ${plainList(queued)}`,
     );
-  if (work.terminals.length) {
-    const commands = [
-      ...new Set(work.terminals.map((terminal) => terminal.command)),
-    ];
+  const running = work.terminals.filter((terminal) => terminal.command);
+  if (running.length) {
+    const commands = [...new Set(running.map((terminal) => terminal.command))];
     lines.push(
-      work.terminals.length === 1
+      running.length === 1
         ? `1 terminal is running ${commands[0]}`
-        : `${work.terminals.length} terminals are running ${plainList(commands)}`,
+        : `${running.length} terminals are running ${plainList(commands)}`,
     );
   }
+  const unseen = work.terminals.length - running.length;
+  if (unseen)
+    lines.push(
+      unseen === 1
+        ? "1 terminal is open, and anything running in it stops when Aven restarts"
+        : `${unseen} terminals are open, and anything running in them stops when Aven restarts`,
+    );
   if (work.files.length)
     lines.push(
       `${count(work.files.length, "file has", "files have")} unsaved changes: ${plainList(
@@ -166,6 +176,8 @@ export function restartWaitReason(work: RestartWork): string {
     return work.agents.length === 1
       ? "your agent finishes"
       : "your agents finish";
+  if (work.terminals.some((terminal) => !terminal.command))
+    return "your terminals are closed";
   if (work.terminals.length)
     return work.terminals.length === 1
       ? "your terminal command finishes"

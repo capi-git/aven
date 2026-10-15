@@ -54,7 +54,7 @@ vi.mock("./harness", () => ({
   killAllChildren: vi.fn().mockResolvedValue(undefined),
 }));
 
-type Terminal = { id: string; command: string | null };
+type Terminal = { id: string; command: string | null; unknown?: boolean };
 
 function nativeRestart(
   terminals: Terminal[] = [],
@@ -363,6 +363,26 @@ describe("preparing a restart", () => {
       expect(invoke).toHaveBeenCalledWith("finish_update_restart_preparation", {
         closeTerminals: true,
       });
+    } finally {
+      release();
+    }
+  });
+
+  it("treats a terminal Aven cannot inspect as possibly running", async () => {
+    const { release } = workspace();
+    nativeRestart([{ id: "windows-shell", command: null, unknown: true }], {
+      windows: [],
+      terminals: [{ id: "windows-shell", command: null, unknown: true }],
+    });
+    try {
+      expect((await assessUpdateRestart()).terminals).toEqual([
+        { id: "windows-shell", command: "" },
+      ]);
+      await expect(prepareUpdateRestart()).resolves.toBe(false);
+      expect(invoke).toHaveBeenCalledWith("cancel_update_restart");
+      await expect(prepareUpdateRestart({ stopWork: true })).resolves.toBe(
+        true,
+      );
     } finally {
       release();
     }

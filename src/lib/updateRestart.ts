@@ -39,7 +39,16 @@ import {
 } from "./updateRestartWork";
 import { flushWorkspaceDrafts } from "./workspaceDraftFlush";
 
-type NativeTerminal = { id: string; command?: string | null };
+/** `unknown`: Aven cannot see what runs in this terminal (Windows). */
+type NativeTerminal = {
+  id: string;
+  command?: string | null;
+  unknown?: boolean;
+};
+
+/** A terminal that may be running something worth keeping. */
+const mayBeBusy = (terminal: NativeTerminal) =>
+  !!terminal.command || terminal.unknown === true;
 
 type UpdateRestartPreparation = {
   browserStates: BrowserState[];
@@ -154,7 +163,9 @@ export async function assessUpdateRestart(): Promise<RestartWork> {
     own,
     activity.windows.map((window) => readWindowWork(window.activity)),
     activity.terminals.flatMap((terminal) =>
-      terminal.command ? [{ id: terminal.id, command: terminal.command }] : [],
+      mayBeBusy(terminal)
+        ? [{ id: terminal.id, command: terminal.command ?? "" }]
+        : [],
     ),
   );
 }
@@ -297,8 +308,7 @@ export async function prepareUpdateRestart(
   try {
     const { browserStates, terminals } = preparation;
     // Idle shells close without asking; a running command is real work.
-    if (!stopWork && terminals.some((terminal) => terminal.command))
-      return await abandon();
+    if (!stopWork && terminals.some(mayBeBusy)) return await abandon();
     flushSync(() => applyBrowserUpdateStates(browserStates));
     await flushWorkspaceDrafts();
     if (currentWorkspace() !== workspace)

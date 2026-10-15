@@ -118,7 +118,8 @@ pub struct WindowActivity {
 pub struct UpdateRestartActivity {
     /// Agents and unsaved files reported by other workspace windows.
     windows: Vec<WindowActivity>,
-    /// Terminals, in any window, with a command running in them.
+    /// Terminals, in any window, with a command running in them, or whose
+    /// commands Aven cannot see.
     terminals: Vec<UpdateTerminal>,
 }
 
@@ -726,7 +727,7 @@ pub fn update_restart_activity(caller: Webview) -> Result<UpdateRestartActivity,
         .state::<PtyHost>()
         .update_terminals()
         .into_iter()
-        .filter(|terminal| terminal.command.is_some())
+        .filter(|terminal| terminal.command.is_some() || terminal.unknown)
         .collect();
     Ok(UpdateRestartActivity { windows, terminals })
 }

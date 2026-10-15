@@ -110,6 +110,7 @@ impl PtyHost {
             .map(|(id, live)| UpdateTerminal {
                 id,
                 command: live.as_deref().and_then(foreground_command),
+                unknown: live.is_some() && !FOREGROUND_VISIBLE,
             })
             .collect()
     }
@@ -415,10 +416,17 @@ pub(crate) struct UpdateTerminal {
     pub(crate) id: String,
     /// The foreground command when it is not the shell itself.
     pub(crate) command: Option<String>,
+    /// Aven cannot see what runs in this terminal (Windows), so a restart
+    /// treats it as possibly running rather than closing it without asking.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) unknown: bool,
 }
 
+/// Whether this platform can see a terminal's foreground job.
+const FOREGROUND_VISIBLE: bool = cfg!(unix);
+
 /// The foreground job's name, or `None` for an idle shell. Windows cannot
-/// tell, so its terminals count as idle, as when closing a terminal tab.
+/// tell, so a terminal tab closes without asking there.
 fn foreground_command(live: &LivePty) -> Option<String> {
     #[cfg(unix)]
     {
@@ -1331,11 +1339,13 @@ mod tests {
             [
                 UpdateTerminal {
                     id: "idle".into(),
-                    command: None
+                    command: None,
+                    unknown: false,
                 },
                 UpdateTerminal {
                     id: "starting".into(),
-                    command: None
+                    command: None,
+                    unknown: false,
                 },
             ]
         );

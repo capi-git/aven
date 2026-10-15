@@ -57,6 +57,21 @@ describe("describing work a restart would interrupt", () => {
     ).toEqual(["3 terminals are running npm and vite"]);
   });
 
+  it("asks about terminals whose commands Aven cannot see", () => {
+    const work = {
+      ...NO_RESTART_WORK,
+      terminals: [
+        { id: "1", command: "npm" },
+        { id: "2", command: "" },
+      ],
+    };
+    expect(describeRestartWork(work)).toEqual([
+      "1 terminal is running npm",
+      "1 terminal is open, and anything running in it stops when Aven restarts",
+    ]);
+    expect(restartWaitReason(work)).toBe("your terminals are closed");
+  });
+
   it("says what a waiting restart waits for", () => {
     expect(
       restartWaitReason({ ...NO_RESTART_WORK, agents: [agent("a", "")] }),
