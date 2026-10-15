@@ -13,9 +13,7 @@ vi.mock("./useComposerSkills", () => ({
   useComposerSkills: () => ({ skills: [] }),
 }));
 vi.mock("../hooks/useTabGroupLogos", () => ({ useTabGroupLogos: () => ({}) }));
-vi.mock("./ModelPicker", () => ({ ModelPicker: () => null }));
-vi.mock("./ModelSettings", () => ({ ModelSettings: () => null }));
-vi.mock("./AccessPicker", () => ({ AccessPicker: () => null }));
+vi.mock("./AgentPill", () => ({ AgentPill: () => null }));
 vi.mock("./ContextMeter", () => ({ ContextMeter: () => null }));
 vi.mock("./ComposerRunner", () => ({ ComposerRunner: () => null }));
 

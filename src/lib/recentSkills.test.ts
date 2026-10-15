@@ -3,6 +3,7 @@ import {
   loadRecentSkills,
   MAX_RECENT_SKILLS,
   rememberRecentSkills,
+  subscribeRecentSkills,
 } from "./recentSkills";
 
 const KEY = "aven.recentSkills.v1";
@@ -76,5 +77,23 @@ describe("recent skills", () => {
     });
     expect(rememberRecentSkills("/p", ["review-pr"])).toEqual(["review-pr"]);
     expect(loadRecentSkills("/p")).toEqual([]);
+  });
+
+  it("tells subscribers when a skill is used here or in another window", () => {
+    vi.stubGlobal("window", new EventTarget());
+    const listener = vi.fn();
+    const stop = subscribeRecentSkills(listener);
+    rememberRecentSkills("/p", ["review-pr"]);
+    expect(listener).toHaveBeenCalledOnce();
+    // Another window wrote the same key; an unrelated key is ignored.
+    const storage = (key: string | null) =>
+      window.dispatchEvent(Object.assign(new Event("storage"), { key }));
+    storage("aven.recentSkills.v1");
+    storage("monocode.notesEnabled");
+    storage(null);
+    expect(listener).toHaveBeenCalledTimes(3);
+    stop();
+    rememberRecentSkills("/p", ["deploy"]);
+    expect(listener).toHaveBeenCalledTimes(3);
   });
 });

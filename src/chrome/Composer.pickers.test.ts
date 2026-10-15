@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerHarness } from "../lib/harness/registry";
 import { codexAdapter } from "../lib/harness/codexAdapter";
 import { invalidateProjectFiles } from "../lib/fileIndex";
+import { rememberRecentSkills } from "../lib/recentSkills";
 import type { Skill } from "../lib/skills";
 import { Composer } from "./Composer";
 
@@ -36,9 +37,37 @@ vi.mock("../lib/notes", async (importOriginal) => ({
   loadNotes: vi.fn(async () => []),
 }));
 vi.mock("../hooks/useTabGroupLogos", () => ({ useTabGroupLogos: () => ({}) }));
-vi.mock("./ModelPicker", () => ({ ModelPicker: () => null }));
-vi.mock("./ModelSettings", () => ({ ModelSettings: () => null }));
-vi.mock("./AccessPicker", () => ({ AccessPicker: () => null }));
+// Count commits inside the agent pill and the recent-skill chips. Each keeps
+// its own memo, so a parent render with the same props commits nothing.
+const commitsIn = vi.hoisted(() => ({ pill: 0, chips: 0 }));
+vi.mock("./AgentPill", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./AgentPill")>();
+  const react = await import("react");
+  return {
+    AgentPill: react.memo((props: ComponentProps<typeof actual.AgentPill>) =>
+      react.createElement(
+        react.Profiler,
+        { id: "pill", onRender: () => (commitsIn.pill += 1) },
+        react.createElement(actual.AgentPill, props),
+      ),
+    ),
+  };
+});
+vi.mock("./RecentSkillChips", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./RecentSkillChips")>();
+  const react = await import("react");
+  return {
+    ...actual,
+    RecentSkillChips: react.memo(
+      (props: ComponentProps<typeof actual.RecentSkillChips>) =>
+        react.createElement(
+          react.Profiler,
+          { id: "chips", onRender: () => (commitsIn.chips += 1) },
+          react.createElement(actual.RecentSkillChips, props),
+        ),
+    ),
+  };
+});
 vi.mock("./ContextMeter", () => ({ ContextMeter: () => null }));
 vi.mock("./ComposerRunner", () => ({ ComposerRunner: () => null }));
 
@@ -67,11 +96,14 @@ beforeEach(() => {
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => storage.get(key) ?? null,
     setItem: (key: string, value: string) => storage.set(key, value),
+    removeItem: (key: string) => storage.delete(key),
   });
   registerHarness(codexAdapter);
   invalidateProjectFiles();
   catalog.skills = [];
   commits = 0;
+  commitsIn.pill = 0;
+  commitsIn.chips = 0;
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -111,6 +143,18 @@ async function render() {
   );
 }
 const field = () => container.querySelector("textarea")!;
+const chips = () =>
+  [
+    ...container.querySelectorAll<HTMLButtonElement>(
+      "[data-recent-skills] button",
+    ),
+  ].map((button) => button.textContent);
+const chip = (label: string) =>
+  [
+    ...container.querySelectorAll<HTMLButtonElement>(
+      "[data-recent-skills] button",
+    ),
+  ].find((button) => button.textContent === label)!;
 const skillPicker = () => container.querySelector("[data-skill-picker]");
 const mentionPicker = () => container.querySelector("[data-mention-picker]");
 const highlighted = () =>
@@ -316,5 +360,99 @@ describe("composer hint", () => {
     props = { ...props, cwd: "~" };
     await render();
     expect(field().placeholder).toBe("Ask anything · / for skills");
+  });
+});
+
+describe("typing", () => {
+  it("never renders the agent pill or the recent-skill chips", async () => {
+    catalog.skills = [skill("polish"), skill("deploy")];
+    rememberRecentSkills("/work/site", ["polish", "deploy"]);
+    await render();
+    expect(container.querySelector("[data-agent-pill]")).not.toBeNull();
+    expect(chips()).toEqual(["/polish", "/deploy"]);
+    commitsIn.pill = 0;
+    commitsIn.chips = 0;
+    let text = "";
+    for (const character of "Fix the login loop") {
+      text += character;
+      await type(text);
+    }
+    expect(commits).toBeGreaterThan(0);
+    expect(commitsIn.pill).toBe(0);
+    expect(commitsIn.chips).toBe(0);
+    expect(chips()).toEqual([]);
+  });
+});
+
+describe("recent skill chips", () => {
+  it("offers up to four recent skills the chat can still run, most recent first", async () => {
+    catalog.skills = ["a", "b", "c", "d", "e"].map(skill);
+    rememberRecentSkills("/work/site", ["gone", "e", "d", "c", "b", "a"]);
+    await render();
+    // `gone` left the catalog, and only four fit.
+    expect(chips()).toEqual(["/e", "/d", "/c", "/b"]);
+  });
+
+  it("starts the message with the skill and focuses the field", async () => {
+    catalog.skills = [skill("polish")];
+    rememberRecentSkills("/work/site", ["polish"]);
+    await render();
+    await act(async () => chip("/polish").click());
+    expect(field().value).toBe("/polish ");
+    expect(field().selectionStart).toBe("/polish ".length);
+    expect(document.activeElement).toBe(field());
+    expect(chips()).toEqual([]);
+    await type("/polish the header");
+    await press("Enter");
+    expect(props.onSubmit).toHaveBeenCalledWith(
+      "/polish the header",
+      [],
+      expect.anything(),
+    );
+  });
+
+  it("switches to Plan mode the way the / picker does", async () => {
+    rememberRecentSkills("/work/site", ["plan"]);
+    await render();
+    await act(async () => chip("/plan").click());
+    expect(field().value).toBe("");
+    expect(
+      container.querySelector('[title="Turn off Plan mode"]'),
+    ).not.toBeNull();
+    await type("Outline the migration");
+    await press("Enter");
+    expect(props.onSubmit).toHaveBeenCalledWith(
+      "Outline the migration",
+      [],
+      expect.objectContaining({ intent: "plan" }),
+    );
+  });
+
+  it("follows skills used in another pane", async () => {
+    catalog.skills = [skill("polish"), skill("deploy")];
+    rememberRecentSkills("/work/site", ["polish"]);
+    await render();
+    expect(chips()).toEqual(["/polish"]);
+    await act(async () => {
+      rememberRecentSkills("/work/site", ["deploy"]);
+    });
+    expect(chips()).toEqual(["/deploy", "/polish"]);
+  });
+
+  it("hides while a turn runs, while typing, and when there are none", async () => {
+    catalog.skills = [skill("polish")];
+    await render();
+    expect(container.querySelector("[data-recent-skills]")).toBeNull();
+    rememberRecentSkills("/work/site", ["polish"]);
+    props = { ...props, busy: true };
+    await render();
+    expect(chips()).toEqual([]);
+    props = { ...props, busy: false };
+    await render();
+    expect(chips()).toEqual(["/polish"]);
+    await type("x");
+    expect(chips()).toEqual([]);
+    await type("");
+    expect(chips()).toEqual(["/polish"]);
   });
 });
