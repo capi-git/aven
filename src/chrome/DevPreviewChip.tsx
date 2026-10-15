@@ -56,10 +56,12 @@ export const DevPreviewChip = memo(function DevPreviewChip({
           type="button"
           className="dev-preview-open"
           title={`Open ${preview.label} beside the chat`}
+          aria-label={`Open ${preview.label} beside the chat`}
           onClick={() => openDevPreview(preview.key, { requesterSessionId })}
         >
           <PanelRight className="size-3" aria-hidden="true" />
-          Open beside chat
+          <span>Open</span>
+          <span className="dev-preview-open-more">{" beside chat"}</span>
         </button>
       ) : null}
       <button
