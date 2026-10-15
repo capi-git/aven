@@ -6,6 +6,8 @@ import { projectKey } from "./paths";
  * least recently used projects are dropped once there are too many.
  */
 const KEY = "aven.recentSkills.v1";
+/** Fired in this window after a skill is used, so every pane can refresh. */
+export const RECENT_SKILLS_CHANGE_EVENT = "aven:recent-skills-change";
 export const MAX_RECENT_SKILLS = 8;
 const MAX_PROJECTS = 40;
 const MAX_INVOCATION = 200;
@@ -70,5 +72,24 @@ export function rememberRecentSkills(
   } catch {
     // Best effort: the order still applies in this window until it closes.
   }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(RECENT_SKILLS_CHANGE_EVENT));
+  }
   return next;
+}
+
+/**
+ * Call `listener` when any project's recent skills change: in this window
+ * (another pane used a skill) or in another window sharing the storage.
+ */
+export function subscribeRecentSkills(listener: () => void): () => void {
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === KEY || event.key === null) listener();
+  };
+  window.addEventListener(RECENT_SKILLS_CHANGE_EVENT, listener);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(RECENT_SKILLS_CHANGE_EVENT, listener);
+    window.removeEventListener("storage", onStorage);
+  };
 }
