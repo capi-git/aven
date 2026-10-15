@@ -8,6 +8,12 @@ import {
   type ProviderRateLimits,
   type RateLimitWindow,
 } from "../lib/rateLimits";
+import {
+  formatForecastDetail,
+  usageOutlook,
+  type UsagePace,
+  type UsageWindowKind,
+} from "../lib/usageForecast";
 import type { UsagePanelSnapshot } from "../lib/usagePanel";
 import { ProviderMarks } from "./ProviderMarks";
 import { RefreshCw } from "./icons";
@@ -67,17 +73,23 @@ function RateWindow({
   window,
   status,
   now,
+  pace,
 }: {
   provider: string;
   label: string;
   window: RateLimitWindow | null;
   status: ProviderRateLimits["status"];
   now: number;
+  /** How fast this window is filling, when there is enough to tell. */
+  pace?: UsagePace;
 }) {
   const remaining = window ? remainingPercent(window.usedPercent) : null;
   const loading = status === "fetching";
   const reset = window?.resetsAt;
   const hasReset = reset != null && Number.isFinite(reset);
+  const outlook = window ? usageOutlook(pace, now) : null;
+  // Only a limit that comes before the reset is worth a line.
+  const forecast = outlook?.state === "clear" ? null : outlook;
   const detail =
     remaining == null
       ? loading
@@ -87,11 +99,13 @@ function RateWindow({
           : status === "error" || status === "unavailable"
             ? "Usage unavailable"
             : "Not reported by provider"
-      : hasReset
-        ? reset <= now
-          ? "Reset due · refresh usage"
-          : formatResetCountdown(reset - now)
-        : "Reset time not reported";
+      : forecast
+        ? formatForecastDetail(forecast)
+        : hasReset
+          ? reset <= now
+            ? "Reset due · refresh usage"
+            : formatResetCountdown(reset - now)
+          : "Reset time not reported";
   return (
     <div className="usage-panel-window">
       <div className="usage-panel-row">
@@ -113,6 +127,7 @@ function RateWindow({
       />
       <div
         className="usage-panel-detail"
+        data-warning={forecast?.state === "warning" || undefined}
         title={
           hasReset ? `Resets ${new Date(reset).toLocaleString()}` : undefined
         }
@@ -126,9 +141,11 @@ function RateWindow({
 function ProviderUsage({
   limits,
   now,
+  paces,
 }: {
   limits: ProviderRateLimits;
   now: number;
+  paces?: Partial<Record<UsageWindowKind, UsagePace>>;
 }) {
   const name = harnessDescriptor(limits.provider).title;
   const cached = hasRateLimitWindows(limits);
@@ -167,6 +184,7 @@ function ProviderUsage({
         window={limits.session}
         status={limits.status}
         now={now}
+        pace={paces?.session}
       />
       <RateWindow
         provider={name}
@@ -174,6 +192,7 @@ function ProviderUsage({
         window={limits.weekly}
         status={limits.status}
         now={now}
+        pace={paces?.weekly}
       />
       {harnessDescriptor(limits.provider).usage?.scopedWeekly &&
         limits.scopedWeekly?.map((limit, index) => (
@@ -193,6 +212,7 @@ function ProviderUsage({
           window={limits.monthly}
           status={limits.status}
           now={now}
+          pace={paces?.monthly}
         />
       )}
       {failed && limits.error && (
@@ -292,7 +312,12 @@ export function UsagePanelContent({
           </div>
         </section>
         {snapshot.providers.map((provider) => (
-          <ProviderUsage key={provider.provider} limits={provider} now={now} />
+          <ProviderUsage
+            key={provider.provider}
+            limits={provider}
+            now={now}
+            paces={snapshot.forecasts?.[provider.provider]}
+          />
         ))}
         {!snapshot.providers.length && (
           <p className="usage-panel-empty">

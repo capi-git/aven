@@ -116,6 +116,11 @@ html.usage-panel-window .usage-panel {
   font-variant-numeric: tabular-nums;
 }
 
+/* At this pace the limit comes before the reset, and soon. */
+.usage-panel-detail[data-warning] {
+  color: var(--toolbar-panel-warning);
+}
+
 .usage-panel-section {
   margin-top: 16px;
   padding-top: 14px;

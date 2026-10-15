@@ -12,6 +12,7 @@ import {
   type ProviderRateLimits,
   type RateLimitProvider,
 } from "../lib/rateLimits";
+import { recordUsage } from "../lib/usageHistory";
 
 const documentVisible = () => document.visibilityState !== "hidden";
 
@@ -70,6 +71,8 @@ export function useProviderUsage(
           const value =
             await fetchers[harnessDescriptor(provider).usage!.fetch]();
           saveRateLimits(value);
+          // Each fresh answer is a forecasting sample; nothing extra is asked.
+          recordUsage(value);
           publish(failedRefresh(value, current));
         } catch (error) {
           publish(
