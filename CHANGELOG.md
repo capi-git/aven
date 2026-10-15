@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.140] - 2026-10-15
+
 ### Development
 
 - `npm run perf:app` runs a speed test in Aven Dev: it drives chats, streaming, typing, tab switching, the sidebar, Settings, the browser and idle with a production interface, and reports time to the next frame, frame pacing, CPU, wakeups and memory for each.
