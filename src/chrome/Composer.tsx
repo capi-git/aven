@@ -96,7 +96,11 @@ import {
   type Skill,
   type SlashToken,
 } from "../lib/skills";
-import { loadRecentSkills, rememberRecentSkills } from "../lib/recentSkills";
+import {
+  loadRecentSkills,
+  rememberRecentSkills,
+  subscribeRecentSkills,
+} from "../lib/recentSkills";
 import { AgentPill } from "./AgentPill";
 import { ComposerRunner } from "./ComposerRunner";
 import { ContextMeter } from "./ContextMeter";
@@ -110,6 +114,7 @@ import { InboxMiniCard } from "./InboxMiniCard";
 import { NoteMiniCard } from "./NoteMiniCard";
 import { HandoffMiniCard } from "./HandoffMiniCard";
 import { QuestionForm } from "./QuestionForm";
+import { RECENT_SKILL_CHIPS, RecentSkillChips } from "./RecentSkillChips";
 import { SkillPicker } from "./SkillPicker";
 import { projectKey } from "../lib/paths";
 import { consumeQuoteRequest, type QuoteRequest } from "../lib/quoteDraft";
@@ -759,14 +764,19 @@ function ComposerComponent({
   const slashOpen = slash !== null;
   useEffect(() => {
     // Each opening starts on the first row.
-    if (!slashOpen) {
-      setSkillCursor(null);
-      return;
-    }
-    // Another pane may have used a skill since this one last looked.
-    const next = loadRecentSkills(cwd);
-    setRecentSkills((current) => (sameStrings(current, next) ? current : next));
+    if (!slashOpen) setSkillCursor(null);
   }, [cwd, slashOpen]);
+  // Follow this project's list as any pane or window uses a skill.
+  useEffect(() => {
+    const refresh = () => {
+      const next = loadRecentSkills(cwd);
+      setRecentSkills((current) =>
+        sameStrings(current, next) ? current : next,
+      );
+    };
+    refresh();
+    return subscribeRecentSkills(refresh);
+  }, [cwd]);
   const rememberUsedSkills = useCallback(
     (invocations: string[]) => {
       if (invocations.length === 0) return;
@@ -782,6 +792,16 @@ function ComposerComponent({
     () => new Set(slashItems.map((skill) => skill.invocation)),
     [slashItems],
   );
+  // Recent skills that this chat can still run, most recent first.
+  const recentSkillChips = useMemo(() => {
+    const byInvocation = new Map(
+      slashItems.map((skill) => [skill.invocation, skill]),
+    );
+    return recentSkills
+      .map((invocation) => byInvocation.get(invocation))
+      .filter((skill): skill is Skill => skill !== undefined)
+      .slice(0, RECENT_SKILL_CHIPS);
+  }, [recentSkills, slashItems]);
   const mentionFiles = useMemo(
     () => (notesEnabled ? [...files, ...notesAsProjectFiles(notes)] : files),
     [files, notes, notesEnabled],
@@ -1063,15 +1083,9 @@ function ComposerComponent({
     updateDraft,
   ]);
 
-  const pickSkill = useCallback(
-    (skill: Skill) => {
-      const el = ref.current;
-      const token = slashRef.current;
-      if (!el || !token) {
-        setSlash(null);
-        setCreatingSkill(false);
-        return;
-      }
+  /** Put `skill` in place of `token`, or switch mode for plan/orchestrator. */
+  const applySkill = useCallback(
+    (el: HTMLTextAreaElement, skill: Skill, token: SlashToken) => {
       const planCommand =
         skill.kind === "builtin" && skill.name === PLAN_COMMAND.name;
       const orchestratorCommand =
@@ -1107,6 +1121,36 @@ function ComposerComponent({
       el.focus();
     },
     [rememberUsedSkills, syncHasValue, updateDraft],
+  );
+
+  const pickSkill = useCallback(
+    (skill: Skill) => {
+      const el = ref.current;
+      const token = slashRef.current;
+      if (!el || !token) {
+        setSlash(null);
+        setCreatingSkill(false);
+        return;
+      }
+      applySkill(el, skill, token);
+    },
+    [applySkill],
+  );
+
+  // A recent-skill chip starts the empty message with that skill.
+  const pickRecentSkill = useCallback(
+    (skill: Skill) => {
+      const el = ref.current;
+      if (!el) return;
+      const text = el.value;
+      const blank = text.trim().length === 0;
+      if (!blank && !/\s$/.test(text)) {
+        el.value = `${text} `;
+      }
+      const start = blank ? 0 : el.value.length;
+      applySkill(el, skill, { start, end: el.value.length, query: "" });
+    },
+    [applySkill],
   );
 
   const startCreatingSkill = useCallback(() => {
@@ -1862,7 +1906,14 @@ function ComposerComponent({
                 if (el.scrollWidth <= el.clientWidth) return;
                 if (e.deltaX === 0 && e.deltaY !== 0) el.scrollLeft += e.deltaY;
               }}
-            ></div>
+            >
+              {hasValue || busy ? null : (
+                <RecentSkillChips
+                  skills={recentSkillChips}
+                  onPick={pickRecentSkill}
+                />
+              )}
+            </div>
             <div className="personal-composer-agent">
               <AgentPill
                 harness={harness}
