@@ -139,6 +139,7 @@ export function PersonalProjectRow({
           <ProjectMark
             path={path}
             active={running}
+            reacts
             className="personal-project-symbol"
           />
           <span className="personal-project-label">{label}</span>

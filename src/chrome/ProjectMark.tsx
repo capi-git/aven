@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useMascotReaction } from "../hooks/useMascotReaction";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import type { ProjectAppearance } from "../lib/projectAppearance";
 import { ProjectMascot } from "./ProjectMascot";
@@ -11,6 +12,11 @@ type Props = {
   appearance?: ProjectAppearance | null;
   /** Steps the mascot's two frames while an agent works. Logos stay still. */
   active?: boolean;
+  /**
+   * Lets the mascot react once when one of the project's turns ends. Only
+   * marks the user watches for news use it: the sidebar and Home's tiles.
+   */
+  reacts?: boolean;
   className?: string;
 };
 
@@ -22,22 +28,26 @@ export function ProjectMark({
   path,
   appearance: given,
   active = false,
+  reacts = false,
   className = "",
 }: Props) {
   const resolved = useProjectAppearance(given === undefined ? path : null);
   const appearance = given === undefined ? resolved : given;
   // A logo file deleted outside Aven falls back to the mascot.
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
-  if (!appearance) return null;
   const logo =
-    appearance.logoSrc && appearance.logoSrc !== failedSrc
+    appearance?.logoSrc && appearance.logoSrc !== failedSrc
       ? appearance.logoSrc
       : null;
+  // Logos stay still, so only a mascot watches for reactions.
+  const reaction = useMascotReaction(reacts && !logo ? appearance?.key : null);
+  if (!appearance) return null;
   return (
     <span
       className={`project-mark ${className}`}
       data-kind={logo ? "logo" : "mascot"}
-      data-active={(active && !logo) || undefined}
+      data-active={(active && !logo && !reaction) || undefined}
+      data-reaction={reaction?.kind}
       aria-hidden
     >
       {logo ? (
@@ -54,7 +64,9 @@ export function ProjectMark({
           project={appearance.key}
           name={appearance.mascot}
           color={appearance.color}
-          active={active}
+          active={active && !reaction}
+          reaction={reaction?.kind}
+          reactionId={reaction?.id}
           className="project-mark-mascot"
         />
       )}
