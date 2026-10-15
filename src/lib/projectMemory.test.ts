@@ -13,6 +13,7 @@ import {
   memoryItemFromReply,
   memoryProjectFor,
   projectMemoryBlock,
+  projectMemoryEdited,
   projectMemoryForTurn,
   projectMemoryRevision,
   projectMemorySize,
@@ -200,6 +201,22 @@ describe("remembering a reply", () => {
     const run = memoryItemFromReply("word ".repeat(200));
     expect(run.endsWith("…")).toBe(true);
     expect(run.length).toBeLessThanOrEqual(405);
+  });
+
+  it("says when it was last edited", () => {
+    const now = Date.UTC(2026, 9, 15, 12);
+    expect(projectMemoryEdited(now - 20_000, now)).toBe("Edited just now");
+    expect(projectMemoryEdited(now - 5 * 60_000, now)).toBe("Edited 5 min ago");
+    expect(projectMemoryEdited(now - 3 * 3_600_000, now)).toBe(
+      "Edited 3 h ago",
+    );
+    expect(projectMemoryEdited(now - 2 * 86_400_000, now)).toBe(
+      "Edited 2 d ago",
+    );
+    expect(projectMemoryEdited(now - 30 * 86_400_000, now)).toMatch(
+      /^Edited \S/,
+    );
+    expect(projectMemoryEdited(0, now)).toBe("");
   });
 
   it("labels the size against the cap", () => {
