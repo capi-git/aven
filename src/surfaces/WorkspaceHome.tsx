@@ -49,7 +49,6 @@ import { HARNESS_TITLE } from "../lib/session";
 import {
   homeElapsed,
   homeGreeting,
-  homeStatusLine,
   homeTimeAgo,
   homeTodayCounts,
   isWaitingAttention,
@@ -219,9 +218,23 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
           <div className="workspace-home-title">
             <h1>{profile}</h1>
             <p className="workspace-home-summary">
-              <Greeting />.{" "}
-              {homeStatusLine({ running: running.length, waiting, unread })}
+              <Greeting />.
+              {running.length + waiting + unread === 0
+                ? " All quiet — pick up where you left off."
+                : null}
             </p>
+            <HomePulse
+              running={running.length}
+              busyProjects={busyProjects}
+              waiting={waiting}
+              unread={unread}
+              files={files}
+              changedProjects={changedProjects}
+              finished={finished}
+              onAgents={() => reveal(agentsRef)}
+              onNeeds={() => reveal(needsRef)}
+              onActivity={() => reveal(activityRef)}
+            />
           </div>
           <div className="workspace-home-actions">
             <button
@@ -243,50 +256,6 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
             </button>
           </div>
         </header>
-
-        <section
-          className="workspace-home-stats"
-          aria-labelledby={`${ids}-glance`}
-        >
-          <h2 id={`${ids}-glance`} className="sr-only">
-            At a glance
-          </h2>
-          <ul className="workspace-home-stat-grid" role="list">
-            <StatTile
-              value={running.length}
-              label={running.length === 1 ? "Agent running" : "Agents running"}
-              note={
-                busyProjects > 1 ? `in ${busyProjects} projects` : undefined
-              }
-              onClick={running.length ? () => reveal(agentsRef) : undefined}
-            />
-            <StatTile
-              value={waiting}
-              label="Needs you"
-              tone="amber"
-              onClick={waiting ? () => reveal(needsRef) : undefined}
-            />
-            <StatTile
-              value={unread}
-              label={unread === 1 ? "Unread reply" : "Unread replies"}
-              tone="accent"
-              onClick={unread ? () => reveal(needsRef) : undefined}
-            />
-            <StatTile
-              value={files}
-              label={files === 1 ? "File changed" : "Files changed"}
-              note={
-                changedProjects > 1
-                  ? `in ${changedProjects} projects`
-                  : undefined
-              }
-            />
-            <TodayTile
-              finished={finished}
-              onReveal={() => reveal(activityRef)}
-            />
-          </ul>
-        </section>
 
         <section
           ref={agentsRef}
@@ -517,71 +486,104 @@ function Greeting() {
   return <>{homeGreeting(useMinuteClock())}</>;
 }
 
-/** A big number and its label; a button when it leads somewhere. */
-function StatTile({
-  value,
-  label,
-  note,
-  tone,
-  onClick,
-}: {
-  value: number;
-  label: string;
-  note?: string;
-  tone?: "amber" | "accent";
-  onClick?: () => void;
-}) {
-  const content = (
-    <>
-      <span className="workspace-home-stat-value">{value}</span>
-      <span className="workspace-home-stat-label">{label}</span>
-      {note ? <span className="workspace-home-stat-note">{note}</span> : null}
-    </>
-  );
-  return (
-    <li
-      className="workspace-home-stat"
-      data-zero={value === 0 || undefined}
-      data-tone={value > 0 ? tone : undefined}
-    >
-      {onClick ? (
-        <button
-          type="button"
-          onClick={onClick}
-          aria-label={`${label}: ${value}${note ? `, ${note}` : ""}`}
-        >
-          {content}
-        </button>
-      ) : (
-        <div>{content}</div>
-      )}
-    </li>
-  );
-}
-
-/** Turns finished since midnight; turns over by itself at the day's end. */
-function TodayTile({
+/**
+ * What is happening right now, as a few small chips under the greeting. Only
+ * counts above zero appear, so a quiet workspace shows none; each chip leads
+ * to the section behind it.
+ */
+function HomePulse({
+  running,
+  busyProjects,
+  waiting,
+  unread,
+  files,
+  changedProjects,
   finished,
-  onReveal,
+  onAgents,
+  onNeeds,
+  onActivity,
 }: {
+  running: number;
+  busyProjects: number;
+  waiting: number;
+  unread: number;
+  files: number;
+  changedProjects: number;
   finished: readonly HomeFinished[];
-  onReveal: () => void;
+  onAgents: () => void;
+  onNeeds: () => void;
+  onActivity: () => void;
 }) {
   const now = useMinuteClock();
   const { done, failed, stopped } = homeTodayCounts(finished, now);
-  const note = [
-    failed ? `${failed} failed` : "",
-    stopped ? `${stopped} stopped` : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const chips: {
+    key: string;
+    text: string;
+    tone?: "running" | "amber" | "accent" | "danger";
+    onClick?: () => void;
+  }[] = [];
+  if (running)
+    chips.push({
+      key: "running",
+      text: `${running} ${running === 1 ? "agent" : "agents"} working${
+        busyProjects > 1 ? ` in ${busyProjects} projects` : ""
+      }`,
+      tone: "running",
+      onClick: onAgents,
+    });
+  if (waiting)
+    chips.push({
+      key: "waiting",
+      text: `${waiting} ${waiting === 1 ? "needs" : "need"} you`,
+      tone: "amber",
+      onClick: onNeeds,
+    });
+  if (unread)
+    chips.push({
+      key: "unread",
+      text: `${unread} unread`,
+      tone: "accent",
+      onClick: onNeeds,
+    });
+  if (files)
+    chips.push({
+      key: "files",
+      text: `${files} ${files === 1 ? "file" : "files"} changed${
+        changedProjects > 1 ? ` in ${changedProjects} projects` : ""
+      }`,
+    });
+  if (done + failed + stopped)
+    chips.push({
+      key: "today",
+      text: [
+        `${done} done today`,
+        failed ? `${failed} failed` : "",
+        stopped ? `${stopped} stopped` : "",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      tone: failed ? "danger" : undefined,
+      onClick: onActivity,
+    });
+  if (!chips.length) return null;
   return (
-    <StatTile
-      value={done}
-      label="Done today"
-      note={note || undefined}
-      onClick={done + failed + stopped ? onReveal : undefined}
-    />
+    <ul className="workspace-home-pulse" role="list" aria-label="Right now">
+      {chips.map((chip) => (
+        <li key={chip.key} data-pulse={chip.key} data-tone={chip.tone}>
+          {chip.onClick ? (
+            <button type="button" onClick={chip.onClick}>
+              <span className="workspace-home-pulse-dot" aria-hidden />
+              {chip.text}
+            </button>
+          ) : (
+            <span>
+              <span className="workspace-home-pulse-dot" aria-hidden />
+              {chip.text}
+            </span>
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }
 

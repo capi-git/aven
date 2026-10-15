@@ -133,8 +133,6 @@ html.has-chat-background .workspace-home::before {
     var(--aven-glass-sheen, none), var(--aven-glass-card-shadow, none);
 }
 
-.workspace-home-stat > button,
-.workspace-home-stat > div,
 .workspace-home-agent {
   border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
   border-radius: var(--aven-radius-card, 12px);
@@ -142,73 +140,57 @@ html.has-chat-background .workspace-home::before {
   box-shadow: var(--aven-glass-sheen, none);
 }
 
-/* Stat tiles: a big number and a label, calm at zero. */
-.workspace-home-stats {
-  margin-bottom: 22px;
-}
-
-.workspace-home-stat-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
-  gap: 8px;
-  margin: 0;
+/* Right now: a few small chips under the greeting, only for counts above
+   zero, so a quiet workspace shows none. */
+.workspace-home-pulse {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
   list-style: none;
 }
 
-.workspace-home-stat {
-  display: flex;
-  min-width: 0;
-}
-
-.workspace-home-stat > button,
-.workspace-home-stat > div {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
-  min-width: 0;
-  padding: 11px 14px 12px;
-  text-align: left;
-  transition:
-    background-color 120ms ease,
-    border-color 120ms ease;
-}
-
-.workspace-home .workspace-home-stat > button:hover:not(:disabled) {
-  background: var(--aven-glass-card-hover, var(--aven-hover));
-}
-
-.workspace-home-stat-value {
+.workspace-home-pulse > li > button,
+.workspace-home-pulse > li > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 24px;
+  padding: 0 10px 0 9px;
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: 999px;
+  background: var(--aven-glass-card, var(--aven-hover));
   color: var(--color-content);
-  font-size: 26px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.15;
-  letter-spacing: -0.02em;
-}
-
-.workspace-home-stat-label {
-  color: var(--aven-muted);
   font-size: var(--text-ui-label);
   font-weight: 500;
-}
-
-.workspace-home-stat-note {
-  max-width: 100%;
-  overflow: hidden;
-  color: var(--aven-muted);
-  font-size: var(--text-ui-caption);
-  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-.workspace-home-stat[data-zero] .workspace-home-stat-value {
-  color: color-mix(in srgb, var(--color-content) 34%, transparent);
+.workspace-home .workspace-home-pulse > li > button:hover {
+  background: var(--aven-glass-card-hover, var(--aven-hover));
 }
 
-.workspace-home-stat[data-tone="amber"] > * {
-  border-color: color-mix(in srgb, var(--color-amber-400) 48%, transparent);
+.workspace-home-pulse-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--aven-muted);
+}
+
+.workspace-home-pulse > [data-tone="running"] .workspace-home-pulse-dot,
+.workspace-home-pulse > [data-tone="accent"] .workspace-home-pulse-dot {
+  background: var(--color-accent);
+}
+
+.workspace-home-pulse > [data-tone="amber"] .workspace-home-pulse-dot {
+  background: var(--color-amber-400);
+}
+
+.workspace-home-pulse > [data-tone="amber"] > * {
+  border-color: color-mix(in srgb, var(--color-amber-400) 45%, transparent);
   background: color-mix(
     in srgb,
     var(--color-amber-400) 10%,
@@ -216,20 +198,8 @@ html.has-chat-background .workspace-home::before {
   );
 }
 
-.workspace-home .workspace-home-stat[data-tone="amber"] > button:hover {
-  background: color-mix(
-    in srgb,
-    var(--color-amber-400) 16%,
-    var(--aven-glass-card, transparent)
-  );
-}
-
-.workspace-home-stat[data-tone="amber"] .workspace-home-stat-value {
-  color: color-mix(in srgb, var(--color-content) 22%, var(--color-amber-400));
-}
-
-.workspace-home-stat[data-tone="accent"] .workspace-home-stat-value {
-  color: color-mix(in srgb, var(--color-content) 55%, var(--color-accent));
+.workspace-home-pulse > [data-tone="danger"] .workspace-home-pulse-dot {
+  background: var(--color-red-400);
 }
 
 /* Your agents: each project's mascot, large, with what it is up to. */
@@ -824,10 +794,6 @@ html.has-chat-background .workspace-home::before {
 
   .workspace-home-header {
     align-items: flex-start;
-  }
-
-  .workspace-home-stat-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .workspace-home-agents {

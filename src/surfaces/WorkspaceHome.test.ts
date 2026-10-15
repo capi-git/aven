@@ -200,11 +200,10 @@ const projects: HomeProject[] = [
 const tiles = () => [
   ...container.querySelectorAll<HTMLElement>(".workspace-home-agent"),
 ];
-const stat = (label: string) =>
-  [...container.querySelectorAll<HTMLElement>(".workspace-home-stat")].find(
-    (tile) =>
-      tile.querySelector(".workspace-home-stat-label")?.textContent === label,
-  );
+const pulse = () =>
+  [
+    ...container.querySelectorAll<HTMLElement>(".workspace-home-pulse > li"),
+  ].map((chip) => chip.textContent);
 
 describe("header", () => {
   it("names the workspace and greets with how things stand", async () => {
@@ -224,9 +223,12 @@ describe("header", () => {
     expect(container.querySelector("h1")?.textContent).toBe("Personal");
     expect(
       container.querySelector(".workspace-home-summary")?.textContent,
-    ).toMatch(
-      /^(Good morning|Good afternoon|Good evening|Working late)\. 2 agents are working, 1 thing needs you and 2 new replies to read\.$/,
-    );
+    ).toMatch(/^(Good morning|Good afternoon|Good evening|Working late)\.$/);
+    expect(pulse()).toEqual([
+      "2 agents working in 2 projects",
+      "1 needs you",
+      "2 unread",
+    ]);
     expect(container.textContent).not.toContain("Make room for your next idea");
   });
 
@@ -251,23 +253,10 @@ describe("header", () => {
   });
 });
 
-describe("stat tiles", () => {
-  it("shows the five numbers, calm at zero", async () => {
+describe("right now", () => {
+  it("shows no chips when the workspace is quiet", async () => {
     await render(props({ projects }));
-    const labels = [
-      ...container.querySelectorAll(".workspace-home-stat-label"),
-    ].map((label) => label.textContent);
-    expect(labels).toEqual([
-      "Agents running",
-      "Needs you",
-      "Unread replies",
-      "Files changed",
-      "Done today",
-    ]);
-    for (const tile of container.querySelectorAll(".workspace-home-stat")) {
-      expect(tile.hasAttribute("data-zero")).toBe(true);
-      expect(tile.querySelector("button")).toBeNull();
-    }
+    expect(container.querySelector(".workspace-home-pulse")).toBeNull();
   });
 
   it("counts from the dashboard's data and the shared project status", async () => {
@@ -294,29 +283,30 @@ describe("stat tiles", () => {
         ],
       }),
     );
-    const value = (label: string) =>
-      stat(label)?.querySelector(".workspace-home-stat-value")?.textContent;
-    expect(value("Agents running")).toBe("2");
-    expect(stat("Agents running")?.textContent).toContain("in 2 projects");
-    expect(value("Needs you")).toBe("2");
-    expect(stat("Needs you")?.getAttribute("data-tone")).toBe("amber");
-    expect(value("Unread reply")).toBe("1");
-    expect(value("Files changed")).toBe("7");
-    expect(stat("Files changed")?.textContent).toContain("in 2 projects");
-    expect(value("Done today")).toBe("1");
-    expect(stat("Done today")?.textContent).toContain("1 failed");
+    expect(pulse()).toEqual([
+      "2 agents working in 2 projects",
+      "2 need you",
+      "1 unread",
+      "7 files changed in 2 projects",
+      "1 done today · 1 failed",
+    ]);
+    const chip = (key: string) =>
+      container.querySelector(`.workspace-home-pulse > [data-pulse="${key}"]`);
+    expect(chip("waiting")?.getAttribute("data-tone")).toBe("amber");
+    expect(chip("today")?.getAttribute("data-tone")).toBe("danger");
+    expect(chip("files")?.querySelector("button")).toBeNull();
   });
 
-  it("leads to the section behind a number", async () => {
+  it("leads to the section behind a chip", async () => {
     await render(
       props({
         needsYou: [attention({ id: "a", kind: "approval" })],
         finished: [finishedRow({ at: Date.now() - MINUTE })],
       }),
     );
-    await act(async () => button("Needs you: 1").click());
+    await act(async () => button("1 needs you").click());
     expect(document.activeElement?.textContent).toBe("Needs you");
-    await act(async () => button("Done today: 1").click());
+    await act(async () => button("1 done today").click());
     expect(document.activeElement?.textContent).toBe("Activity");
   });
 });
@@ -697,7 +687,6 @@ describe("windows and accessibility", () => {
       }),
     );
     for (const name of [
-      "At a glance",
       "Your agents",
       "Needs you",
       "Running now",

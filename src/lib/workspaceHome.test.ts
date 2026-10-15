@@ -14,7 +14,6 @@ import {
   homeRecentSessions,
   homeRunning,
   homeScope,
-  homeStatusLine,
   homeTimeAgo,
   homeTodayCounts,
   inHomeScope,
@@ -485,21 +484,6 @@ describe("finished turns", () => {
 });
 
 describe("text", () => {
-  it("says what is happening in a sentence, or that it is quiet", () => {
-    expect(homeStatusLine({ running: 2, waiting: 1, unread: 3 })).toBe(
-      "2 agents are working, 1 thing needs you and 3 new replies to read.",
-    );
-    expect(homeStatusLine({ running: 1, waiting: 0, unread: 1 })).toBe(
-      "1 agent is working and 1 new reply to read.",
-    );
-    expect(homeStatusLine({ running: 0, waiting: 2, unread: 0 })).toBe(
-      "2 things need you.",
-    );
-    expect(homeStatusLine({ running: 0, waiting: 0, unread: 0 })).toBe(
-      "All quiet — pick up where you left off.",
-    );
-  });
-
   it("greets by the local hour", () => {
     const at = (hour: number) => new Date(2026, 9, 15, hour).getTime();
     expect(homeGreeting(at(3))).toBe("Working late");
