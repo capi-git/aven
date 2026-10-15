@@ -136,6 +136,8 @@ describe("useDiscussionBroker", () => {
     expect(sent[0].text).toContain("Topic: Cache the lookups?");
     expect(sent[0].options.displayText).toBe("Cache the lookups?");
     expect(sent[0].options.discussion).toMatchObject({ turn: 0, rounds: 1 });
+    // The user's topic keeps skills and @ references; relayed replies don't.
+    expect(sent[0].options.verbatim).toBe(false);
 
     await finish("a", "Yes, briefly.");
     expect(sent).toHaveLength(2);
@@ -144,6 +146,7 @@ describe("useDiscussionBroker", () => {
     expect(sent[1].text).toContain("in “Caching” says:\n\nYes, briefly.");
     expect(sent[1].options.displayText).toBe("Yes, briefly.");
     expect(sent[1].options.discussion.partner.title).toBe("Caching");
+    expect(sent[1].options.verbatim).toBe(true);
 
     await finish("b", "Agreed.");
     expect(sent).toHaveLength(2);

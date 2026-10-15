@@ -5452,6 +5452,8 @@ export default function App({
         /** Transcript text when the agent receives a framed prompt. */
         displayText?: string;
         discussion?: DiscussionRelayMeta;
+        /** Another agent's words: no skill or @ expansion. */
+        verbatim?: boolean;
         followUpBehavior?: FollowUpBehavior;
         noteCard?: NoteComposerCard;
         handoffCard?: HandoffComposerCard;
@@ -6038,11 +6040,13 @@ export default function App({
           const prompt =
             intent === "build" && approvedPlan
               ? buildPlanPrompt(approvedPlan.text)
-              : await preparePrompt(harnessText, {
-                  harness: current.harness,
-                  sessionId,
-                  cwd: workCwd,
-                });
+              : options?.verbatim
+                ? harnessText
+                : await preparePrompt(harnessText, {
+                    harness: current.harness,
+                    sessionId,
+                    cwd: workCwd,
+                  });
           const browserPrompt = rawCommand
             ? prompt
             : await prepareAgentBrowserPrompt(prompt, {

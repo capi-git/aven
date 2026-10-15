@@ -38,6 +38,8 @@ export type DiscussionTurnOptions = {
   /** Shown in the receiving transcript instead of the framed prompt. */
   displayText: string;
   discussion: DiscussionRelayMeta;
+  /** A relayed reply is another agent's text: its `/` and `@` stay as text. */
+  verbatim: boolean;
   followUpBehavior: "queue";
   onSettled: (outcome: DiscussionOutcome) => void;
 };
@@ -158,6 +160,8 @@ export function useDiscussionBroker({
         accepted = onSubmit(sessionId, relayPrompt(discussion), [], {
           displayText: discussion.relay,
           discussion: relayBlockMeta(discussion),
+          // The topic is the user's own, so it keeps skills and @ references.
+          verbatim: turn > 0,
           followUpBehavior: "queue",
           onSettled: (outcome) => settle(id, turn, sessionId, outcome),
         });
