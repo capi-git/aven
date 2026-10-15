@@ -10,6 +10,17 @@ import {
 import { newSession } from "../lib/session";
 import { subscribeOpenChatRequests } from "../lib/shipRequest";
 import { GitCopies } from "./GitCopies";
+import type { GitWorktree } from "../lib/fs";
+
+const file = {
+  path: "/copies/a.ts",
+  relative: "a.ts",
+  status: "modified",
+  additions: 1,
+  deletions: 0,
+  staged: false,
+  unstaged: true,
+};
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -33,7 +44,8 @@ describe("other copy status and removal", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    const values = new Map<string, string>();
+    // Most tests look at the open section; one checks the folded default.
+    const values = new Map<string, string>([["aven.parallelWorkOpen", "1"]]);
     vi.stubGlobal("localStorage", {
       getItem: (key: string) => values.get(key) ?? null,
       setItem: (key: string, value: string) => values.set(key, value),
@@ -84,36 +96,64 @@ describe("other copy status and removal", () => {
     await act(async () =>
       root.render(createElement(GitCopies, { cwd: "/repo", enabled: true })),
     );
+    const row = button("Done")!;
+    expect(row.querySelector(".git-copy-short")?.textContent).toBe(
+      "2 to merge",
+    );
+    // The full sentence is in the row's tooltip, and in the row when opened.
+    expect(row.title).toContain(
+      "2 commits not in main yet · main has 20 newer commits",
+    );
+    await act(async () => row.click());
     const status = container.querySelector<HTMLElement>(".git-copy-status")!;
     expect(status.textContent).toBe(
       "2 commits not in main yet · main has 20 newer commits",
     );
     expect(status.title).toContain("may already be in main");
-    expect(container.querySelector(".git-copies-title span")?.textContent).toBe(
-      "1 in progress",
+    expect(container.querySelector(".git-copies-count")?.textContent).toBe(
+      "· 1",
     );
     expect(container.textContent).toContain("Parallel work");
-    expect(container.textContent).not.toContain("Merged into");
+    expect(container.textContent).not.toContain("Merged");
   });
 
-  it("explains the section once, then keeps the explanation in a tooltip", async () => {
+  it("starts folded to one line, remembers when it is opened, and explains itself on the first open", async () => {
+    localStorage.removeItem("aven.parallelWorkOpen");
     worktrees[1] = { ...finished, aheadOfDefault: 1, mergedIntoDefault: false };
-    await act(async () =>
-      root.render(createElement(GitCopies, { cwd: "/repo", enabled: true })),
-    );
-    const explainer =
-      "Separate copies of this project where agents work on their own branch.";
-    expect(container.querySelector(".git-copies-explainer")?.textContent).toBe(
-      explainer,
-    );
+    const sessions = createLiveSessionStore([
+      { ...newSession("claude", "/copies/done"), busy: true },
+    ]);
+    const render = () =>
+      act(async () =>
+        root.render(
+          createElement(
+            LiveSessionsContext.Provider,
+            { value: sessions },
+            createElement(GitCopies, { cwd: "/repo", enabled: true }),
+          ),
+        ),
+      );
+    await render();
+    const toggle = button("Parallel work")!;
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.textContent).toContain("· 1");
+    // A moving mark for each copy whose agent is working.
     expect(
-      container.querySelector<HTMLElement>(".git-copies-title")?.title,
-    ).toBe(explainer);
-    await act(async () => root.render(null));
-    await act(async () =>
-      root.render(createElement(GitCopies, { cwd: "/repo", enabled: true })),
-    );
+      container.querySelectorAll(".git-copies-working .project-mark"),
+    ).toHaveLength(1);
+    expect(container.querySelector(".git-copy-line")).toBeNull();
     expect(container.querySelector(".git-copies-explainer")).toBeNull();
+    await act(async () => toggle.click());
+    expect(localStorage.getItem("aven.parallelWorkOpen")).toBe("1");
+    expect(container.querySelector(".git-copies-explainer")?.textContent).toBe(
+      "Separate copies of this project where agents work on their own branch.",
+    );
+    await act(async () => root.render(null));
+    await render();
+    expect(button("Parallel work")!.getAttribute("aria-expanded")).toBe("true");
+    expect(container.querySelector(".git-copies-explainer")).toBeNull();
+    await act(async () => button("Parallel work")!.click());
+    expect(localStorage.getItem("aven.parallelWorkOpen")).toBeNull();
   });
 
   it("shows the chat working in a copy and opens it", async () => {
@@ -135,10 +175,20 @@ describe("other copy status and removal", () => {
         ),
       ),
     );
+    // Folded or open, the header shows the working agent.
+    expect(
+      container.querySelector(
+        '.git-copies-working[aria-label="1 agent working"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('.git-copy-dot[aria-label="Agent working"]'),
+    ).not.toBeNull();
+    expect(button("Done")!.title).toContain("Mascot briefing — agent working");
+    await act(async () => button("Done")!.click());
     expect(container.querySelector(".git-copy-chat")?.textContent).toBe(
       "Mascot briefing — agent working",
     );
-    await act(async () => button("Done")!.click());
     await act(async () => button("Open chat")!.click());
     stop();
     expect(opened).toHaveBeenCalledWith("chat-1");
@@ -165,6 +215,8 @@ describe("other copy status and removal", () => {
         createElement(GitCopies, { cwd: "/copies/done", enabled: true }),
       ),
     );
+    expect(button("Main folder")?.title).toContain(label);
+    await act(async () => button("Main folder")!.click());
     expect(container.querySelector(".git-copy-status")?.textContent).toBe(
       label,
     );
@@ -252,8 +304,8 @@ describe("other copy status and removal", () => {
     await act(async () =>
       root.render(createElement(GitCopies, { cwd: "/repo", enabled: true })),
     );
-    expect(container.querySelector(".git-copies-title span")?.textContent).toBe(
-      "1 in progress",
+    expect(container.querySelector(".git-copies-count")?.textContent).toBe(
+      "· 1",
     );
     const row = button("merged into main")!;
     expect(row.textContent).toBe("2 merged into main");
@@ -264,9 +316,9 @@ describe("other copy status and removal", () => {
 
     await act(async () => row.click());
     expect(row.getAttribute("aria-expanded")).toBe("true");
-    expect(button("Squashed")?.textContent).toContain("Merged into main");
-    expect(button("Done")?.textContent).toContain("Merged into main");
-    expect(button("Next")?.textContent).toContain("2 commits not in main yet");
+    expect(button("Squashed")?.textContent).toBe("SquashedMerged");
+    expect(button("Done")?.textContent).toBe("DoneMerged");
+    expect(button("Next")?.textContent).toBe("Next2 to merge");
   });
 
   it("cleans up finished copies after naming them, skipping one in use", async () => {
@@ -292,7 +344,8 @@ describe("other copy status and removal", () => {
       ],
     };
     vi.stubGlobal("localStorage", {
-      getItem: () => JSON.stringify([race]),
+      getItem: (key: string) =>
+        key === "aven.parallelWorkOpen" ? "1" : JSON.stringify([race]),
       setItem: vi.fn(),
     });
     const at = (name: string, extra: Partial<typeof finished> = {}) => ({
@@ -341,8 +394,10 @@ describe("other copy status and removal", () => {
         ),
       ),
     );
-    // Nothing in progress: no count, just the merged row.
-    expect(container.querySelector(".git-copies-title span")).toBeNull();
+    // Nothing in progress: the header counts the merged copies instead.
+    expect(container.querySelector(".git-copies-count")?.textContent).toBe(
+      "· 5 merged",
+    );
     expect(button("5 merged into main")).toBeDefined();
 
     await act(async () => button("Clean up")!.click());
@@ -424,5 +479,98 @@ describe("other copy status and removal", () => {
       "git_worktree_remove",
       expect.anything(),
     );
+  });
+});
+
+describe("parallel work rows", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const values = new Map<string, string>([["aven.parallelWorkOpen", "1"]]);
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    });
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("shows three rows, working agents first, then reveals the rest", async () => {
+    const at = (name: string, extra: Partial<GitWorktree> = {}) => ({
+      ...finished,
+      path: `/copies/${name}`,
+      branch: `feat/${name}`,
+      mergedIntoDefault: false,
+      ...extra,
+    });
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "git_worktrees")
+        return [
+          {
+            ...finished,
+            path: "/repo",
+            branch: "main",
+            primary: true,
+            current: true,
+          },
+          at("alpha", { files: [{ ...file, relative: "a.ts" }] }),
+          at("beta", { aheadOfDefault: 78 }),
+          at("gamma", {
+            aheadOfDefault: 2,
+            files: [{ ...file, relative: "g.ts" }],
+          }),
+          at("delta", { aheadOfDefault: 1 }),
+          at("epsilon"),
+        ];
+      if (command === "session_list_by_project") return [];
+      throw new Error(`unexpected ${command}`);
+    });
+    const sessions = createLiveSessionStore([
+      { ...newSession("claude", "/copies/gamma"), busy: true },
+    ]);
+    await act(async () =>
+      root.render(
+        createElement(
+          LiveSessionsContext.Provider,
+          { value: sessions },
+          createElement(GitCopies, { cwd: "/repo", enabled: true }),
+        ),
+      ),
+    );
+    const rows = () =>
+      [...container.querySelectorAll(".git-copy-line")].map((row) => [
+        row.querySelector(".git-copy-name")?.textContent,
+        row.querySelector(".git-copy-short")?.textContent,
+        [...row.querySelectorAll(".git-copy-dot")]
+          .map((dot) => dot.getAttribute("data-dot"))
+          .join(" "),
+      ]);
+    expect(rows()).toEqual([
+      ["Gamma", "2 to merge", "working uncommitted"],
+      ["Alpha", "Up to date", "uncommitted"],
+      ["Beta", "78 to merge", ""],
+    ]);
+    const more = [...container.querySelectorAll("button")].find(
+      (item) => item.textContent === "+2 more",
+    )!;
+    await act(async () => more.click());
+    expect(rows().map(([name]) => name)).toEqual([
+      "Gamma",
+      "Alpha",
+      "Beta",
+      "Delta",
+      "Epsilon",
+    ]);
   });
 });

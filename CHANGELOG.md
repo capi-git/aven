@@ -17,7 +17,7 @@
 
 ### Changed
 
-- In the Changes panel, other copies are now **Parallel work**: separate copies of the project where agents work on their own branch. Each one says in words what it holds ("40 commits not in main yet · main has 2 newer commits · 12 files uncommitted") and which chat works there, with the project's mascot moving while that agent works; open it for Open chat, Ship it, Show in Finder and Remove. Merged copies fold into one "2 merged into main" line with Clean up. **Releases** is one line saying what is live and how many changes aren't released yet; open it for the existing actions.
+- In the Changes panel, other copies are now **Parallel work**: separate copies of the project where agents work on their own branch. It folds to one line ("Parallel work · 7") with a moving project mark for each agent at work. Opened, each copy is one line with a short status ("78 to merge", "Up to date", "Merged") and dots for an agent working or uncommitted files; three show, busiest first, then "+N more". Open a copy for the full story ("78 commits not in main yet · main has 3 newer commits · 17 files uncommitted"), its chat, and Open chat, Ship it, Show in Finder and Remove. Merged copies fold into one "2 merged into main" line with Clean up. **Releases** is one line saying what is live and how many changes aren't released yet; open it for the existing actions.
 - A project's changed-file count is rechecked only when something in that project changes, rather than after every edit in any project. Counts for projects in the sidebar are read a couple at a time in the background and never while Aven is hidden.
 
 ### Fixed
