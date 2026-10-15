@@ -20,7 +20,7 @@ A matching checksum verifies the downloaded file against the release; it is not 
 
 ## Updates
 
-Aven for Windows checks this repository's release feed and downloads signed updates in the background, the same way as on macOS. When an update is ready, choose **Restart to update** in the sidebar or in **Settings**. Aven does not interrupt running agents: it waits until tasks are finished, other Aven windows and browser tabs are closed, and it asks before closing open terminals. It saves your drafts and workspace, then a small installer progress window replaces Aven and reopens it.
+Aven for Windows checks this repository's release feed and downloads signed updates in the background, the same way as on macOS. When an update is ready, choose **Restart to update** in the sidebar or in **Settings**. Aven does not interrupt running agents without asking: if agents, terminals or unsaved files are still in use, it lists them and offers to restart when they finish, to stop them and restart now, or to cancel. Browser tabs must be closed first. It saves your drafts and workspace, then a small installer progress window replaces Aven and reopens it.
 
 Each update is checked against Aven's updater signing key before it can install. That check is separate from Authenticode, so it works even though the installer itself is unsigned. Updates install for your Windows user and need no administrator prompt.
 
