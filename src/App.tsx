@@ -69,6 +69,7 @@ import { usePresenceTracking } from "./hooks/useHomeBriefing";
 import { useSidebarVisibility } from "./hooks/useSidebarVisibility";
 import { useSidebarData } from "./hooks/useSidebarData";
 import { useSessionModelControls } from "./hooks/useSessionModelControls";
+import { useDiscussionBroker } from "./hooks/useDiscussionBroker";
 import { withPlanBuildTarget } from "./lib/sessionModelChoice";
 import { encodeSidebarValue } from "./lib/floatingSidebar";
 import { setExternalPaneDrop, type PaneDrop } from "./lib/paneDrop";
@@ -467,6 +468,7 @@ import {
   type PlanBuildTarget,
   type PlanStatus,
   type SecondOpinionMeta,
+  type DiscussionRelayMeta,
   type Session,
   type TurnIntent,
 } from "./lib/session";
@@ -5447,6 +5449,9 @@ export default function App({
       attachments: Attachment[] = [],
       options?: {
         secondOpinion?: SecondOpinionMeta;
+        /** Transcript text when the agent receives a framed prompt. */
+        displayText?: string;
+        discussion?: DiscussionRelayMeta;
         followUpBehavior?: FollowUpBehavior;
         noteCard?: NoteComposerCard;
         handoffCard?: HandoffComposerCard;
@@ -5711,20 +5716,26 @@ export default function App({
         !current.inboxCard &&
         !current.noteCard &&
         placeholderTitle
-          ? titleFromPrompt(submittedText, current.harness, attachments)
+          ? titleFromPrompt(
+              options?.displayText ?? submittedText,
+              current.harness,
+              attachments,
+            )
           : current.title;
       const visible = displayAttachments(attachments);
       const card =
         options?.secondOpinion ??
         (handoffCard ? handoffTurnCard(handoffCard) : undefined);
       const visibleText =
-        card?.kind === "handoff"
+        options?.displayText ??
+        (card?.kind === "handoff"
           ? submittedText
           : card
             ? SECOND_OPINION_TITLE
-            : submittedText;
+            : submittedText);
       const cards = {
         ...(rawCommand ? undefined : userTurnCards(noteCard, card)),
+        ...(options?.discussion ? { discussion: options.discussion } : {}),
         // The orchestrator writes these turns, not the user; hide them.
         ...(options?.managed ? { internal: true } : {}),
       };
@@ -6615,6 +6626,28 @@ export default function App({
     },
     [openSessionBeside],
   );
+
+  // Two chats discussing a topic, started by the user; relayed at turn end.
+  const discussions = useDiscussionBroker({
+    sessions,
+    sessionsRef,
+    onSubmit,
+    postNote: (sessionId, text) => {
+      enqueueHarnessEvent(sessionId, { type: "status", text });
+      flushHarnessEvents();
+    },
+    openPartner: (sourceId, harness, model, title) => {
+      const source = sessionsRef.current.find((entry) => entry.id === sourceId);
+      if (!source) return undefined;
+      const session = {
+        ...newSession(harness, source.cwd, model, source.runtimeMode),
+        ...laneCheckout(source),
+        title: formatSessionTitle(harness, title),
+      };
+      openSessionBeside(sourceId, session, source.cwd);
+      return session.id;
+    },
+  });
 
   const autoContinueKey = sessions
     .filter(
@@ -7740,6 +7773,7 @@ export default function App({
     onBuildPlan,
     onSecondOpinion,
     onHandoff,
+    discussion: discussions.host,
     onNewTerminal: onNewTerminalInSession,
   };
 
@@ -8470,6 +8504,7 @@ export default function App({
     recents: profiles.profileProjects,
     projectStatus,
     liveAgents,
+    discussions: discussions.sidebar,
     onSelectAgent: onSelectLiveAgent,
     onSelectProject,
     onOpenProject: pickProject,

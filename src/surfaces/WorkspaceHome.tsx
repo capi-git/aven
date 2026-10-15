@@ -31,6 +31,7 @@ import { ProjectMark } from "../chrome/ProjectMark";
 import { equalChromeData, useChromeProps } from "../hooks/useChromeProps";
 import { useHomeBriefing } from "../hooks/useHomeBriefing";
 import { useMinuteClock } from "../hooks/useMinuteClock";
+import { useDiscussingSessionIds } from "../hooks/useDiscussions";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import {
   projectDisplayName,
@@ -212,6 +213,7 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
   onLoadProjects,
 }: WorkspaceHomeProps) {
   const labels = useProjectLabels();
+  const discussing = useDiscussingSessionIds();
   const ids = useId();
   const agentsRef = useRef<HTMLElement>(null);
   const needsRef = useRef<HTMLElement>(null);
@@ -404,7 +406,11 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
                     <li key={item.id}>
                       <SessionRow
                         cwd={item.cwd}
-                        title={item.title}
+                        title={
+                          discussing.has(item.id)
+                            ? `↔ ${item.title}`
+                            : item.title
+                        }
                         active
                         line={
                           item.doing
