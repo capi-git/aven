@@ -14,7 +14,7 @@ import { nativeFloatingSidebar } from "../lib/floatingSidebar";
 import { resolveClaudeBinary } from "../lib/harness/child";
 import { getPtyStatus } from "../lib/pty";
 import { IS_MAC } from "../lib/platform";
-import { runDevPerf, type DevPerfOptions } from "./useDevPerf";
+import { runDevPerf, visibleComposer, type DevPerfOptions } from "./useDevPerf";
 import { sameProjectPath } from "../lib/recents";
 import type { Session } from "../lib/session";
 
@@ -80,6 +80,12 @@ function pressShortcut(key: string) {
       cancelable: true,
     }),
   );
+}
+
+function sentTexts(sessions: Session[], id: string): string[] {
+  return (sessions.find((session) => session.id === id)?.blocks ?? [])
+    .filter((block) => block.role === "user")
+    .map((block) => block.text);
 }
 
 /** Wait until only `view` is on screen, or only the workspace when null. */
@@ -235,6 +241,81 @@ export async function runDevSmoke(
         for (const [action, view] of sequence) {
           action();
           await expectOnScreen(view);
+        }
+      },
+    );
+
+  // Typing `/` or `@` opens a picker; Escape closes it for that word, so a
+  // message ending in a path or a handle still sends with Enter.
+  const typedTask = get().sessions.find(
+    (session) =>
+      session.harness === "claude" &&
+      sameProjectPath(session.cwd, config.projectPath),
+  );
+  // Runs with the workspace's own views wired in, as in the real app.
+  if (safe && typedTask && get().utilities)
+    await step(
+      "Escape closes the / and @ pickers and Enter sends",
+      async () => {
+        const composer = await waitFor(
+          visibleComposer,
+          5_000,
+          "the message box",
+        );
+        composer.focus();
+        const key = (type: "keydown" | "keyup", name: string) =>
+          composer.dispatchEvent(
+            new KeyboardEvent(type, {
+              key: name,
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+        const type = (text: string) => {
+          for (const character of text) {
+            key("keydown", character);
+            document.execCommand("insertText", false, character);
+            key("keyup", character);
+          }
+        };
+        const sends = (text: string) => async () => {
+          const before = sentTexts(get().sessions, typedTask.id).length;
+          key("keydown", "Enter");
+          key("keyup", "Enter");
+          await waitFor(
+            () =>
+              sentTexts(get().sessions, typedTask.id).length > before &&
+              sentTexts(get().sessions, typedTask.id).at(-1)?.includes(text),
+            10_000,
+            `"${text}" to be sent`,
+          );
+        };
+        for (const [trigger, picker, word] of [
+          ["/", "[data-skill-picker]", "/tm"],
+          ["@", "[data-mention-picker]", "@READ"],
+        ] as const) {
+          type(`Check ${word}`);
+          await waitFor(
+            () => document.querySelector(picker),
+            5_000,
+            `the ${trigger} picker to open`,
+          );
+          key("keydown", "Escape");
+          key("keyup", "Escape");
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          const afterEscape = Boolean(document.querySelector(picker));
+          type("x");
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          if (document.querySelector(picker))
+            throw new Error(
+              `The ${trigger} picker reopened after Escape (open after Escape: ${afterEscape}, text ${JSON.stringify(composer.value)}, caret ${composer.selectionStart}, focused ${document.activeElement === composer}, pickers ${document.querySelectorAll(picker).length})`,
+            );
+          await sends(`${word}x`)();
+          await waitFor(
+            () => !get().sessions.find((s) => s.id === typedTask.id)?.busy,
+            60_000,
+            "the reply",
+          );
         }
       },
     );

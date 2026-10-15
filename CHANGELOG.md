@@ -6,6 +6,7 @@
 
 - `npm run perf:app` runs a speed test in Aven Dev: it drives chats, streaming, typing, tab switching, the sidebar, Settings, the browser and idle with a production interface, and reports time to the next frame, frame pacing, CPU, wakeups and memory for each.
 - Releases now wait for a real-app check: Aven Dev runs once against a stand-in provider, sends a message with the floating sidebar attached, opens and closes Settings, Search, Inbox, Automations and Notes by button and by shortcut, opens and closes Settings from the floating sidebar, and deletes a project whose terminal panel is hidden. Both 0.1.137 regressions fail this check. Run it locally with `npm run check:app`.
+- The real-app check also types `/` and `@` in a chat, closes each list with Escape, keeps typing and sends with Enter. The speed test and this check now type into the message box that is on screen; since hidden tabs keep their layout, they could pick a hidden tab's box before.
 
 ### Changed
 

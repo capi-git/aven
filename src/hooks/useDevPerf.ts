@@ -127,13 +127,18 @@ async function untilPainted(condition: () => unknown, timeoutMs: number) {
   }
 }
 
-function visibleComposer(): HTMLTextAreaElement | null {
+/** Hidden tabs keep their layout, so a size alone does not mean on screen. */
+export function visibleComposer(): HTMLTextAreaElement | null {
   return (
     [
       ...document.querySelectorAll<HTMLTextAreaElement>(
         "[data-composer] textarea",
       ),
-    ].find((element) => element.getClientRects().length > 0) ?? null
+    ].find(
+      (element) =>
+        element.getClientRects().length > 0 &&
+        getComputedStyle(element).visibility === "visible",
+    ) ?? null
   );
 }
 
