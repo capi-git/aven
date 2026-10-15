@@ -125,6 +125,9 @@ describe("other copies", () => {
       "Usage forecast",
     );
     expect(copyName({ branch: "main", path: "/a" })).toBe("Main");
+    expect(copyName({ branch: "feat/make-it-a-db-api", path: "/a" })).toBe(
+      "Make it a DB API",
+    );
   });
 
   it("hides the open copy and lists unsaved work first, finished copies last", () => {

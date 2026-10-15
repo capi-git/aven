@@ -526,7 +526,10 @@ describe("parallel work rows", () => {
           },
           at("alpha", { files: [{ ...file, relative: "a.ts" }] }),
           at("beta", { aheadOfDefault: 78 }),
-          at("gamma", { aheadOfDefault: 2 }),
+          at("gamma", {
+            aheadOfDefault: 2,
+            files: [{ ...file, relative: "g.ts" }],
+          }),
           at("delta", { aheadOfDefault: 1 }),
           at("epsilon"),
         ];
@@ -549,12 +552,14 @@ describe("parallel work rows", () => {
       [...container.querySelectorAll(".git-copy-line")].map((row) => [
         row.querySelector(".git-copy-name")?.textContent,
         row.querySelector(".git-copy-short")?.textContent,
-        row.querySelector(".git-copy-dot")?.getAttribute("data-dot") ?? null,
+        [...row.querySelectorAll(".git-copy-dot")]
+          .map((dot) => dot.getAttribute("data-dot"))
+          .join(" "),
       ]);
     expect(rows()).toEqual([
-      ["Gamma", "2 to merge", "working"],
+      ["Gamma", "2 to merge", "working uncommitted"],
       ["Alpha", "Up to date", "uncommitted"],
-      ["Beta", "78 to merge", null],
+      ["Beta", "78 to merge", ""],
     ]);
     const more = [...container.querySelectorAll("button")].find(
       (item) => item.textContent === "+2 more",

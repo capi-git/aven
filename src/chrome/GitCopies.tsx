@@ -412,6 +412,10 @@ function firstLine(text: string): string {
 const BRANCH_KIND =
   /^(?:feat|feature|fix|bugfix|hotfix|chore|refactor|docs|test|tests|perf|build|ci|style|wip|codex|claude|cursor|copilot|agent)$/i;
 
+/** Words that read as abbreviations: "preview/ui" → "Preview UI". */
+const ABBREVIATION =
+  /^(?:ui|ux|db|ai|qa|ci|cd|pr|id|os|js|ts|api|css|cli|sdk|sql|url|mcp|llm|ios|html)$/i;
+
 /**
  * A friendly name from the branch: "fix/race-safety" → "Race safety",
  * "preview/ui" → "Preview UI". Falls back to the folder name.
@@ -426,8 +430,7 @@ export function copyName(
   const words = (segments.join(" ") || basename(worktree.path))
     .split(/[-_\s]+/)
     .filter(Boolean)
-    // Two-letter words such as "ui" or "db" read as abbreviations.
-    .map((word) => (word.length <= 2 ? word.toUpperCase() : word));
+    .map((word) => (ABBREVIATION.test(word) ? word.toUpperCase() : word));
   const text = words.join(" ");
   return text ? text[0].toUpperCase() + text.slice(1) : "Copy";
 }
@@ -812,12 +815,6 @@ export function GitCopies({
     const files = worktree.files.length;
     const status = copyStatus(copy, base);
     const chatLine = chat ? describeCopyChat(chat, now) : null;
-    const dot =
-      chat?.state === "working"
-        ? "working"
-        : files > 0
-          ? "uncommitted"
-          : undefined;
     const canShip =
       !copy.finished &&
       (files > 0 || worktree.aheadOfDefault > 0) &&
@@ -840,18 +837,24 @@ export function GitCopies({
               .join("\n")}
             onClick={() => setOpen(expanded ? null : worktree.path)}
           >
-            <span
-              className="git-copy-dot"
-              data-dot={dot}
-              role={dot ? "img" : undefined}
-              aria-label={
-                dot === "working"
-                  ? "Agent working"
-                  : dot
-                    ? "Uncommitted files"
-                    : undefined
-              }
-            />
+            <span className="git-copy-dots">
+              {chat?.state === "working" ? (
+                <span
+                  className="git-copy-dot"
+                  data-dot="working"
+                  role="img"
+                  aria-label="Agent working"
+                />
+              ) : null}
+              {files > 0 ? (
+                <span
+                  className="git-copy-dot"
+                  data-dot="uncommitted"
+                  role="img"
+                  aria-label="Uncommitted files"
+                />
+              ) : null}
+            </span>
             <span className="git-copy-name">{copy.name}</span>
             <span className="git-copy-short">{copyShortStatus(copy)}</span>
           </button>
