@@ -240,6 +240,33 @@ describe("measuring the pace", () => {
     expect(pace.perHour).toBeCloseTo(12);
   });
 
+  it("does not let idle time before the work slow the pace", () => {
+    const pace = measurePace(
+      readings([
+        [0, 30],
+        [15, 30],
+        [30, 30],
+        [45, 38],
+        [60, 46],
+      ]),
+      "session",
+    )!;
+    // From where the work started, not from the start of the hour.
+    expect(pace.from).toBe(at(30));
+    expect(pace.perHour).toBeCloseTo(32);
+    // Nothing but idle readings is no pace at all.
+    expect(
+      measurePace(
+        readings([
+          [0, 30],
+          [15, 30],
+          [30, 30],
+        ]),
+        "session",
+      ),
+    ).toBeNull();
+  });
+
   it("only looks back an hour in a five-hour window", () => {
     const pace = measurePace(
       readings([

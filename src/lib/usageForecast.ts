@@ -205,6 +205,13 @@ export function measurePace(
     if (last.at - earlier.at > rule.lookbackMs) break;
     first = index;
   }
+  // Flat readings before the first rise are idle time before this stretch
+  // of work; keep only the last of them, where the work started.
+  while (
+    first < sorted.length - 2 &&
+    sorted[first + 1].used - sorted[first].used <= RISE_EPSILON
+  )
+    first += 1;
   const run = sorted.slice(first);
   if (run.length < MIN_FORECAST_SAMPLES) return null;
 
