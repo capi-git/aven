@@ -12,6 +12,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Composer } from "../chrome/Composer";
+import { DevPreviewChip } from "../chrome/DevPreviewChip";
 import { orchestrator, sameCheckout } from "../lib/orchestration";
 import { sessionWithManagedAgents } from "../lib/sessionAgents";
 import { OrchestrationWorkers } from "../chrome/OrchestrationActions";
@@ -715,6 +716,14 @@ export const SessionPane = memo(function SessionPane({
       </div>
       {dockComposer ? (
         <div className="personal-session-composer-dock mx-auto w-full max-w-4xl shrink-0">
+          {/* One chat per tab offers the project's dev server: the focused one. */}
+          {visible && focused && !session.inboxAsk ? (
+            <DevPreviewChip
+              project={session.cwd}
+              placement="chat"
+              requesterSessionId={session.id}
+            />
+          ) : null}
           <SessionRunStatus
             session={sessionWithManagedAgents(
               session,
