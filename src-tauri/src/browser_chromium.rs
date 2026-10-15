@@ -414,6 +414,24 @@ pub(crate) async fn ensure_update_idle(app: &AppHandle) -> Result<(), String> {
     }
     Ok(())
 }
+/// Bring this workspace's Picture in Picture pages back into its window.
+pub(crate) async fn return_floating_pages(_app: &AppHandle, owner: &str) -> Result<(), String> {
+    let pages: Vec<Arc<PageContext>> = registry()
+        .lock()
+        .map_err(|_| "Browser is unavailable")?
+        .roots
+        .values()
+        .filter(|context| context.caller.window().label() == owner)
+        .cloned()
+        .collect();
+    for context in pages {
+        if context.placement.lock().await.window.is_some() {
+            set_floating(context, false).await?;
+        }
+    }
+    Ok(())
+}
+
 fn update_page_error(state: &BrowserState, blockers: &[String]) -> String {
     let page = if state.title.trim().is_empty() {
         &state.url

@@ -156,7 +156,7 @@ impl ControlHost {
 impl Inner {
     fn ensure_update_idle(&self) -> Result<(), String> {
         if !self.active.is_empty() || !self.pending.is_empty() {
-            return Err("Finish or stop running agents and queued tasks before restarting to update. The update will stay downloaded and ready.".into());
+            return Err("An agent is still working or waiting for your answer. Let it finish or stop it, then restart to update. The update will stay downloaded and ready.".into());
         }
         Ok(())
     }
