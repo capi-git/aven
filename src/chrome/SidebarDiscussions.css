@@ -18,10 +18,15 @@
   animation-delay: -1.4s;
 }
 
+/* The row's own title keeps most of the room; the badge truncates first. */
+[data-discussion-row] > .personal-task-title {
+  flex: 1 1 auto;
+  min-width: 3em;
+}
 .discussion-talk-badge {
   min-width: 0;
-  max-width: 55%;
-  flex-shrink: 1;
+  max-width: 50%;
+  flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

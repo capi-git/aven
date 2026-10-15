@@ -100,10 +100,16 @@ export function measureDiscussionLinks(
     if (id && !rows.has(id) && row.getClientRects().length > 0)
       rows.set(id, row);
   }
-  const base = layer.getBoundingClientRect().top;
+  const frame = layer.getBoundingClientRect();
+  // Rects are in zoomed pixels under CSS zoom (Aven's browser fallback for
+  // UI scale); the connector is placed in the layer's own pixels.
+  const scale =
+    layer.offsetWidth > 0 && frame.width > 0
+      ? frame.width / layer.offsetWidth
+      : 1;
   const centre = (row: HTMLElement) => {
     const rect = row.getBoundingClientRect();
-    return rect.top + rect.height / 2 - base;
+    return (rect.top + rect.height / 2 - frame.top) / scale;
   };
   const links: DiscussionLink[] = [];
   const linked = new Set<string>();
