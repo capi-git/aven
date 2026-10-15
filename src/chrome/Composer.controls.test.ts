@@ -205,10 +205,10 @@ it("reports a failed upload instead of failing silently", async () => {
 it("drops an unfinished new skill when the message field is used again", async () => {
   await render();
   await type("/tidy");
-  const newSkill = [...container.querySelectorAll("button")].find((item) =>
-    item.textContent?.includes("New skill"),
+  const createRow = [...container.querySelectorAll("button")].find((item) =>
+    item.textContent?.includes("Create skill"),
   )!;
-  await act(async () => newSkill.click());
+  await act(async () => createRow.click());
   expect(container.querySelector('[aria-label="Skill name"]')).not.toBeNull();
   await act(async () => field().focus());
   expect(container.querySelector('[aria-label="Skill name"]')).toBeNull();
@@ -230,10 +230,10 @@ it("creates a new skill where this chat's agent works", async () => {
   );
   await render();
   await type("/tidy");
-  const newSkill = [...container.querySelectorAll("button")].find((item) =>
-    item.textContent?.includes("New skill"),
+  const createRow = [...container.querySelectorAll("button")].find((item) =>
+    item.textContent?.includes("Create skill"),
   )!;
-  await act(async () => newSkill.click());
+  await act(async () => createRow.click());
   await act(async () =>
     container
       .querySelector("form")!

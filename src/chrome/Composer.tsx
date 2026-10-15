@@ -19,6 +19,7 @@ import {
 import "./Composer.css";
 import {
   memo,
+  startTransition,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -45,7 +46,8 @@ import {
 } from "../lib/messageQueue";
 import type { ContextUsage } from "../lib/contextUsage";
 import {
-  loadProjectFiles,
+  loadProjectFilesIfStale,
+  peekLastProjectFiles,
   peekProjectFiles,
   recentOpenedFiles,
   subscribeProjectFiles,
@@ -83,15 +85,17 @@ import type {
 import { isImeComposition, moveMenuFocus } from "../lib/keyboard";
 import {
   createBlankSkill,
-  rankSkills,
+  rankSkillMatches,
   hasNativeCommands,
   isNativeCommandPrompt,
   replaceSlashToken,
+  skillNamesInText,
   skillTextParts,
   slashTokenAt,
   type Skill,
   type SlashToken,
 } from "../lib/skills";
+import { loadRecentSkills, rememberRecentSkills } from "../lib/recentSkills";
 import { AccessPicker } from "./AccessPicker";
 import { ComposerRunner } from "./ComposerRunner";
 import { ContextMeter } from "./ContextMeter";
@@ -214,6 +218,40 @@ type Props = {
   onAttachmentsChange?: (attachments: Attachment[]) => void;
   children?: ReactNode;
 };
+
+/** Keys an open picker handles on keydown; their keyup must not reopen it. */
+const PICKER_KEYS = new Set(["Escape", "Enter", "Tab", "ArrowUp", "ArrowDown"]);
+
+type TokenRange = { start: number; end: number; query: string };
+
+/**
+ * A `/` or `@` token closed with Escape. It stays closed while the caret is
+ * in that token, so typing on (a path such as `/tmp`, an address such as
+ * `@alice`) and Enter send the message. Leaving the token forgets it.
+ */
+type DismissedToken = {
+  kind: "slash" | "mention";
+  start: number;
+  /** The text before the token, so an edit before it forgets the dismissal. */
+  prefix: string;
+};
+
+function sameToken<T extends TokenRange>(a: T | null, b: T | null): boolean {
+  return (
+    a === b ||
+    (a !== null &&
+      b !== null &&
+      a.start === b.start &&
+      a.end === b.end &&
+      a.query === b.query)
+  );
+}
+
+function sameStrings(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+const NO_FILES: ProjectFile[] = [];
 
 function ToolButton({
   active,
@@ -517,6 +555,7 @@ function ComposerComponent({
   const consumedQuoteId = useRef<number | null>(null);
   const slashRef = useRef<SlashToken | null>(null);
   const mentionRef = useRef<MentionToken | null>(null);
+  const dismissedTokenRef = useRef<DismissedToken | null>(null);
   const [draft, setDraft] = useState(initialDraft ?? "");
   // React rewrites a textarea's text node whenever defaultValue changes, and
   // WebKit then resets the field, committing any IME composition. The pane
@@ -566,12 +605,19 @@ function ComposerComponent({
   const raceReady = raceLanes.length >= RACE_MIN_LANES && !raceBlocked;
   const [orchestrationSelected, setOrchestrationSelected] = useState(false);
   const [slash, setSlash] = useState<SlashToken | null>(null);
-  const [skillActive, setSkillActive] = useState(0);
+  // The highlighted `/` row, for the list it was chosen in (see skillActive).
+  const [skillCursor, setSkillCursor] = useState<{
+    list: string;
+    index: number;
+  } | null>(null);
+  const [recentSkills, setRecentSkills] = useState<readonly string[]>(() =>
+    loadRecentSkills(cwd),
+  );
   const [creatingSkill, setCreatingSkill] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createBusy, setCreateBusy] = useState(false);
   const [files, setFiles] = useState<ProjectFile[]>(
-    () => peekProjectFiles(cwd) ?? [],
+    () => peekLastProjectFiles(cwd) ?? NO_FILES,
   );
   const notesEnabled = useSyncExternalStore(
     subscribeNotesEnabled,
@@ -658,8 +704,49 @@ function ComposerComponent({
     () =>
       slashQuery === undefined
         ? []
-        : rankSkills(slashItems, slashQuery, skillLimit),
-    [slashItems, slashQuery, skillLimit],
+        : rankSkillMatches(slashItems, slashQuery, {
+            limit: skillLimit,
+            recent: recentSkills,
+          }),
+    [slashItems, slashQuery, skillLimit, recentSkills],
+  );
+  // A new query or list starts on the first match, or on no row when nothing
+  // matches, so Enter sends the message instead of opening "Create skill".
+  const skillList = `${cwd}\0${slashQuery ?? ""}\0${rankedSkills.length}`;
+  const skillListRef = useRef(skillList);
+  skillListRef.current = skillList;
+  const skillActive =
+    skillCursor?.list === skillList
+      ? skillCursor.index
+      : rankedSkills.length > 0
+        ? 0
+        : -1;
+  // Every match, then the closing "Create skill" row.
+  const skillRows = rankedSkills.length + 1;
+  const setSkillActive = useCallback(
+    (index: number) => setSkillCursor({ list: skillListRef.current, index }),
+    [],
+  );
+  const slashOpen = slash !== null;
+  useEffect(() => {
+    // Each opening starts on the first row.
+    if (!slashOpen) {
+      setSkillCursor(null);
+      return;
+    }
+    // Another pane may have used a skill since this one last looked.
+    const next = loadRecentSkills(cwd);
+    setRecentSkills((current) => (sameStrings(current, next) ? current : next));
+  }, [cwd, slashOpen]);
+  const rememberUsedSkills = useCallback(
+    (invocations: string[]) => {
+      if (invocations.length === 0) return;
+      const next = rememberRecentSkills(cwd, invocations);
+      setRecentSkills((current) =>
+        sameStrings(current, next) ? current : next,
+      );
+    },
+    [cwd],
   );
   const attachmentsSupported = harnessSupportsAttachments(harness);
   const skillNames = useMemo(
@@ -779,24 +866,22 @@ function ComposerComponent({
   }, [raceReady]);
 
   useEffect(() => {
-    setSkillActive(0);
-  }, [slash?.query, cwd]);
-
-  useEffect(() => {
-    setSkillActive((index) =>
-      rankedSkills.length === 0 ? 0 : Math.min(index, rankedSkills.length - 1),
-    );
-  }, [rankedSkills.length]);
-
-  useEffect(() => {
     if (!mentionOpen) return;
     let cancelled = false;
+    // A new list rebuilds the `@` index; let typing take priority over it.
     const apply = (next: ProjectFile[]) => {
-      if (!cancelled) setFiles(next);
+      if (cancelled) return;
+      startTransition(() =>
+        setFiles((current) =>
+          current.length === 0 && next.length === 0 ? current : next,
+        ),
+      );
     };
-    const cached = peekProjectFiles(cwd);
-    if (cached) apply(cached);
-    void loadProjectFiles(cwd, mentionOpen)
+    // Show the last listing at once; rescan only when it is a few seconds
+    // old. Directory changes invalidate it and rescan in the background.
+    const known = peekLastProjectFiles(cwd);
+    if (known) apply(known);
+    void loadProjectFilesIfStale(cwd)
       .then(apply)
       .catch(() => undefined);
     const unsub = subscribeProjectFiles(() => {
@@ -867,12 +952,45 @@ function ComposerComponent({
     return () => cancelAnimationFrame(frame);
   }, [draft, syncHighlightScroll]);
 
+  // Input, select, keyup and click all land here for one keystroke. Keeping
+  // an unchanged token object lets the repeats skip a composer render.
   const syncTokensFromTextarea = (el: HTMLTextAreaElement) => {
     if (creatingSkill) return;
+    const text = el.value;
     const cursor = el.selectionStart ?? 0;
-    const token = slashTokenAt(el.value, cursor, hasNativeCommands(harness));
-    setSlash(token);
-    setMention(token ? null : mentionTokenAt(el.value, cursor));
+    let slashToken = slashTokenAt(text, cursor, hasNativeCommands(harness));
+    let mentionToken = slashToken ? null : mentionTokenAt(text, cursor);
+    const dismissed = dismissedTokenRef.current;
+    if (dismissed) {
+      const token = dismissed.kind === "slash" ? slashToken : mentionToken;
+      if (
+        token?.start === dismissed.start &&
+        text.slice(0, token.start) === dismissed.prefix
+      ) {
+        if (dismissed.kind === "slash") slashToken = null;
+        else mentionToken = null;
+      } else {
+        dismissedTokenRef.current = null;
+      }
+    }
+    setSlash((current) =>
+      sameToken(current, slashToken) ? current : slashToken,
+    );
+    setMention((current) =>
+      sameToken(current, mentionToken) ? current : mentionToken,
+    );
+  };
+
+  const dismissToken = (
+    kind: DismissedToken["kind"],
+    token: TokenRange,
+    text: string,
+  ) => {
+    dismissedTokenRef.current = {
+      kind,
+      start: token.start,
+      prefix: text.slice(0, token.start),
+    };
   };
 
   useEffect(() => {
@@ -896,6 +1014,7 @@ function ComposerComponent({
       resizeComposer(el);
       updateDraft(result.draft);
       syncHasValue(result.draft, attachmentsRef.current);
+      dismissedTokenRef.current = null;
       setSlash(null);
       setMention(null);
       setCreatingSkill(false);
@@ -946,6 +1065,7 @@ function ComposerComponent({
       syncHasValue(next, attachmentsRef.current);
       setSlash(null);
       setCreatingSkill(false);
+      rememberUsedSkills([skill.invocation]);
       if (planCommand) {
         setPlanSelected(true);
         setOrchestrationSelected(false);
@@ -957,8 +1077,13 @@ function ComposerComponent({
       }
       el.focus();
     },
-    [syncHasValue, updateDraft],
+    [rememberUsedSkills, syncHasValue, updateDraft],
   );
+
+  const startCreatingSkill = useCallback(() => {
+    setCreatingSkill(true);
+    setCreateError(null);
+  }, []);
 
   const pickMention = useCallback(
     (file: ProjectFile) => {
@@ -1082,6 +1207,7 @@ function ComposerComponent({
       if (!ref.current) return;
       ref.current.value = "";
       ref.current.style.height = "auto";
+      dismissedTokenRef.current = null;
       updateDraft("");
       setPlusOpen(false);
       setSlash(null);
@@ -1115,6 +1241,7 @@ function ComposerComponent({
       setSlash(null);
       setMention(null);
       clearField();
+      rememberUsedSkills(skillsUsedIn(value));
       // Clear at once so sending feels instant; put the draft back if the
       // race could not start and the field is still empty.
       void Promise.resolve(onRace(text, files, raceLanes)).then((started) => {
@@ -1151,6 +1278,7 @@ function ComposerComponent({
         : {}),
     });
     if (accepted === false) return;
+    rememberUsedSkills(skillsUsedIn(value));
     if (!ref.current) return;
     clearField();
     setPlanSelected(false);
@@ -1162,10 +1290,14 @@ function ComposerComponent({
     setCreateError(null);
   };
 
+  const skillsUsedIn = (text: string) =>
+    skillNamesInText(text).filter((name) => skillNames.has(name));
+
   const clearField = () => {
     if (!ref.current) return;
     ref.current.value = "";
     ref.current.style.height = "auto";
+    dismissedTokenRef.current = null;
     updateDraft("");
     updateAttachments([]);
     syncHasValue("", []);
@@ -1192,6 +1324,7 @@ function ComposerComponent({
       }
       if (e.key === "Escape") {
         e.preventDefault();
+        if (mention) dismissToken("mention", mention, e.currentTarget.value);
         setMention(null);
         return;
       }
@@ -1225,40 +1358,37 @@ function ComposerComponent({
     if (slash) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        if (rankedSkills.length === 0) return;
-        setSkillActive((index) => (index + 1) % rankedSkills.length);
+        setSkillActive((skillActive + 1) % skillRows);
         return;
       }
       if (e.key === "ArrowUp") {
         e.preventDefault();
-        if (rankedSkills.length === 0) return;
-        setSkillActive(
-          (index) => (index - 1 + rankedSkills.length) % rankedSkills.length,
-        );
+        setSkillActive(skillActive <= 0 ? skillRows - 1 : skillActive - 1);
         return;
       }
       if (e.key === "Escape") {
         e.preventDefault();
+        dismissToken("slash", slash, e.currentTarget.value);
         setSlash(null);
         return;
       }
-      if (e.key === "Tab") {
-        e.preventDefault();
-        const skill = rankedSkills[skillActive];
-        if (skill) pickSkill(skill);
-        return;
-      }
-      if (e.key === "Enter" && !e.shiftKey) {
-        const skill = rankedSkills[skillActive];
-        if (skill) {
+      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+        const match = rankedSkills[skillActive];
+        if (match) {
           e.preventDefault();
-          pickSkill(skill);
+          pickSkill(match.skill);
           return;
         }
-        if (!slash.query) {
+        if (skillActive === rankedSkills.length) {
+          e.preventDefault();
+          startCreatingSkill();
+          return;
+        }
+        if (e.key === "Tab") {
           e.preventDefault();
           return;
         }
+        // Nothing highlighted (no match): Enter sends the message as typed.
         setSlash(null);
       }
     }
@@ -1335,10 +1465,7 @@ function ComposerComponent({
               busy={createBusy}
               onActive={setSkillActive}
               onPick={pickSkill}
-              onStartCreate={() => {
-                setCreatingSkill(true);
-                setCreateError(null);
-              }}
+              onStartCreate={startCreatingSkill}
               onCancelCreate={() => {
                 setCreatingSkill(false);
                 setCreateError(null);
@@ -1389,7 +1516,9 @@ function ComposerComponent({
               files={rankedFiles}
               query={mention?.query ?? ""}
               active={mentionActive}
-              loading={looksLikeProject(cwd) && peekProjectFiles(cwd) == null}
+              loading={
+                looksLikeProject(cwd) && peekLastProjectFiles(cwd) == null
+              }
               includeNotes={notesEnabled}
               onActive={setMentionActive}
               onPick={pickMention}
@@ -1497,7 +1626,14 @@ function ComposerComponent({
                     ? "Add a message, or send…"
                     : handoffCard
                       ? "Add context, or send to continue…"
-                      : "What would you like to build?"
+                      : composerHint(
+                          hasNativeCommands(harness),
+                          looksLikeProject(cwd)
+                            ? "files"
+                            : notesEnabled
+                              ? "notes"
+                              : null,
+                        )
               }
               aria-label="Message"
               title="/ for commands, @ for references"
@@ -1517,7 +1653,12 @@ function ComposerComponent({
               onPaste={onPaste}
               onScroll={(e) => syncHighlightScroll(e.currentTarget)}
               onClick={(e) => syncTokensFromTextarea(e.currentTarget)}
-              onKeyUp={(e) => syncTokensFromTextarea(e.currentTarget)}
+              onKeyUp={(e) => {
+                // Escape, Enter, Tab and the arrows were handled on keydown;
+                // a re-sync here would reopen a picker Escape just closed.
+                if (PICKER_KEYS.has(e.key)) return;
+                syncTokensFromTextarea(e.currentTarget);
+              }}
               onSelect={(e) => syncTokensFromTextarea(e.currentTarget)}
               onInput={(e) => {
                 const el = e.currentTarget;
@@ -1774,6 +1915,20 @@ function ComposerComponent({
       </div>
     </div>
   );
+}
+
+/** The empty field names what `/` and `@` open here. */
+function composerHint(
+  nativeCommands: boolean,
+  mentions: "files" | "notes" | null,
+): string {
+  return [
+    "Ask anything",
+    nativeCommands ? "/ for commands" : "/ for skills",
+    mentions ? `@ for ${mentions}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function ComposerHighlight({

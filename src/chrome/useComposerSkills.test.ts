@@ -14,6 +14,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Skill } from "../lib/skills";
 import {
   nextComposerSkillContextToken,
+  nextComposerSkillState,
   pickerSkillLoadOptions,
   visibleComposerSkills,
 } from "./useComposerSkills";
@@ -52,6 +53,23 @@ describe("composer skill catalog policies", () => {
         [],
       ),
     ).toEqual([cachedSkill]);
+  });
+
+  it("keeps the current rows when a reload finds the same skills", () => {
+    const current = { key: "pi\0/a", skills: [piSkill, cachedSkill] };
+    expect(
+      nextComposerSkillState(current, "pi\0/a", [
+        { ...piSkill },
+        { ...cachedSkill },
+      ]),
+    ).toBe(current);
+    expect(
+      nextComposerSkillState(current, "pi\0/a", [cachedSkill, piSkill]).skills,
+    ).toEqual([cachedSkill, piSkill]);
+    expect(nextComposerSkillState(current, "pi\0/b", current.skills)).toEqual({
+      key: "pi\0/b",
+      skills: current.skills,
+    });
   });
 
   it("preserves filesystem refresh while Pi uses its TTL", () => {

@@ -10,9 +10,14 @@
 ### Changed
 
 - Switching between chats, tabs and the browser, showing or hiding the sidebar, and opening or closing Settings are faster: measured in the speed test, Settings takes about a third less time, the sidebar about a fifth less, and the slowest tab switches about a quarter less. Aven no longer stops to measure the window in the middle of these changes, and opening Settings no longer restyles the whole workspace.
+- The `/` list shows skills you used recently in the project first, then the project's and your own skills, then Aven's commands such as `/plan`. Searching it matches skill names, with the matched letters marked, and lists at most a few skills whose description mentions the word you typed, instead of almost every skill.
+- The `/` list ends with a "Create skill" row you can reach with the arrow keys and Enter.
+- The message box now says what `/` and `@` do.
+- Typing after `@` no longer pauses while Aven rereads the project's files every time the list opens; it reuses the list and checks for new files in the background.
 
 ### Fixed
 
+- Escape closes the `/` and `@` lists and they stay closed while you finish the word, so a message ending in something like `/tmp` or `@alice` sends with Enter. The lists no longer reorder under the highlighted row when skills are rechecked, and Enter sends the message when nothing in the `/` list matches.
 - Deleting a project works when its terminal panel still holds terminals, including a hidden panel or one from a project you are not in. Aven closes them as part of the delete, and asks first only if one is still running something. Before, it refused with "Close this project's terminal tabs before deleting it".
 - Opening the usage panel, the access picker or a workspace menu no longer makes the workspace window flash inactive. These popups take the keyboard without taking over as the app's main window.
 - A popup that was hidden and shown again stays above its workspace instead of slipping behind it.
