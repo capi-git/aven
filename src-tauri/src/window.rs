@@ -46,7 +46,7 @@ pub fn create_main_window(app: &AppHandle) -> tauri::Result<()> {
 }
 
 pub fn open_new_window(app: &AppHandle) -> Result<(), String> {
-    let _work = begin_runtime_work(app)?;
+    let _work = begin_runtime_work(app, "opening a window")?;
     let mut config = app
         .config()
         .app
@@ -154,7 +154,7 @@ pub fn set_window_glass_enabled(
 /// Close with a running chat hides the webview so the harness child keeps going.
 #[tauri::command]
 pub fn hide_window(window: Window) -> Result<(), String> {
-    let _work = begin_runtime_work(window.app_handle())?;
+    let _work = begin_runtime_work(window.app_handle(), "closing a window")?;
     if window.label().starts_with("workspace-detached-") {
         return crate::workspace_window::request_return(window.app_handle(), window.label());
     }
@@ -165,7 +165,7 @@ pub fn hide_window(window: Window) -> Result<(), String> {
 /// does not loop; `close` would fire it again.
 #[tauri::command]
 pub async fn destroy_window(window: Window) -> Result<(), String> {
-    let _work = begin_runtime_work(window.app_handle())?;
+    let _work = begin_runtime_work(window.app_handle(), "closing a window")?;
     if window.label().starts_with("workspace-detached-") {
         return crate::workspace_window::request_return(window.app_handle(), window.label());
     }
@@ -221,7 +221,7 @@ pub fn allow_exit() -> bool {
 
 /// Ask the UI to persist in-flight chats, then call `confirm_quit`.
 pub fn request_quit(app: &AppHandle) {
-    let Ok(_work) = begin_runtime_work(app) else {
+    let Ok(_work) = begin_runtime_work(app, "quitting") else {
         return;
     };
     let windows = app.windows();
@@ -262,7 +262,7 @@ pub fn request_quit(app: &AppHandle) {
 /// Persist already happened in JS. Show windows so window-state doesn't save hidden.
 #[tauri::command]
 pub fn confirm_quit(app: AppHandle) {
-    let Ok(work) = begin_runtime_work(&app) else {
+    let Ok(work) = begin_runtime_work(&app, "quitting") else {
         return;
     };
     #[cfg(all(feature = "chromium", target_os = "macos"))]

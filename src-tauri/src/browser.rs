@@ -664,6 +664,7 @@ pub async fn browser_set_floating(
     let _work = if floating {
         Some(crate::update_restart::begin_runtime_work(
             caller.app_handle(),
+            "opening Picture in Picture",
         )?)
     } else {
         None
@@ -1003,7 +1004,8 @@ pub async fn browser_create(
     url: String,
     bounds: BrowserBounds,
 ) -> Result<(), String> {
-    let _work = crate::update_restart::begin_runtime_work(caller.app_handle())?;
+    let _work =
+        crate::update_restart::begin_runtime_work(caller.app_handle(), "opening a browser page")?;
     let view_label = label(&caller, &id)?;
     let url = parse_url(&caller, &url)?;
     let rect = bounds.rect()?;

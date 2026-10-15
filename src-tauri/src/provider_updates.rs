@@ -50,11 +50,14 @@ fn native_install(provider: &str, path: &Path, home: &Path) -> bool {
     }
 }
 
+/// Stopped early when `stop` turns true, for an Aven restart. A stopped or
+/// timed-out update counts as failed and is retried within half an hour.
 fn run_bounded(
     path: &Path,
     argument: &str,
     timeout: Duration,
     capture: bool,
+    stop: &dyn Fn() -> bool,
 ) -> Result<String, String> {
     let mut command = Command::new(path);
     command
@@ -92,17 +95,21 @@ fn run_bounded(
                 }
                 return Ok(text.trim().to_string());
             }
-            Ok(None) if started.elapsed() < timeout => {
+            Ok(None) if started.elapsed() < timeout && !stop() => {
                 std::thread::sleep(Duration::from_millis(100))
             }
-            _ => {
+            waited => {
                 #[cfg(unix)]
                 unsafe {
                     libc::kill(-(child.id() as i32), libc::SIGKILL);
                 }
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err("Provider updater timed out".into());
+                return Err(if matches!(waited, Ok(None)) && stop() {
+                    "Provider update stopped so Aven could restart".into()
+                } else {
+                    "Provider updater timed out".into()
+                });
             }
         }
     }
@@ -119,19 +126,26 @@ pub async fn provider_refresh_cli(
             status: "managedExternally",
         });
     }
-    let permit = crate::update_restart::begin_runtime_work(&app)?;
+    let label = if provider == "codex" {
+        "updating Codex"
+    } else {
+        "updating Claude Code"
+    };
     let receipt_path = app
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?
         .join("provider-maintenance.json");
     tauri::async_runtime::spawn_blocking(move || {
-        let _permit = permit;
         // Serialize providers and re-read the receipt after acquiring the lock.
         // A try_lock would repeatedly skip the second provider on every tick.
         let _lock = MAINTENANCE
             .lock()
             .map_err(|_| "Provider maintenance unavailable")?;
+        // Only the provider actually updating holds up an Aven restart; one
+        // queued behind it has not started. The restart may stop it early.
+        let permit = crate::update_restart::begin_stoppable_runtime_work(&app, label)?;
+        let stop = || permit.stop_requested();
         let mut receipts: BTreeMap<String, Receipt> = std::fs::read(&receipt_path)
             .ok()
             .and_then(|data| serde_json::from_slice(&data).ok())
@@ -162,8 +176,8 @@ pub async fn provider_refresh_cli(
                 status: "managedExternally",
             });
         }
-        let before = run_bounded(&path, "--version", Duration::from_secs(5), true)?;
-        let result = run_bounded(&path, "update", Duration::from_secs(90), false);
+        let before = run_bounded(&path, "--version", Duration::from_secs(5), true, &stop)?;
+        let result = run_bounded(&path, "update", Duration::from_secs(90), false, &stop);
         let succeeded = result.is_ok();
         receipts.insert(
             provider,
@@ -184,7 +198,7 @@ pub async fn provider_refresh_cli(
         .map_err(|e| e.to_string())?;
         std::fs::rename(pending, receipt_path).map_err(|e| e.to_string())?;
         result?;
-        let after = run_bounded(&path, "--version", Duration::from_secs(5), true)?;
+        let after = run_bounded(&path, "--version", Duration::from_secs(5), true, &stop)?;
         Ok(ProviderRefresh {
             updated: before != after,
             status: "checked",
@@ -268,9 +282,27 @@ mod tests {
             Path::new("/bin/sleep"),
             "5",
             Duration::from_millis(20),
-            false
+            false,
+            &|| false
         )
         .is_err());
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn maintenance_stops_promptly_when_an_aven_restart_asks() {
+        let started = Instant::now();
+        let asked = std::sync::atomic::AtomicBool::new(false);
+        let error = run_bounded(
+            Path::new("/bin/sleep"),
+            "5",
+            Duration::from_secs(30),
+            false,
+            &|| asked.swap(true, std::sync::atomic::Ordering::SeqCst),
+        )
+        .unwrap_err();
+        assert!(error.contains("stopped so Aven could restart"), "{error}");
         assert!(started.elapsed() < Duration::from_secs(2));
     }
 }

@@ -1274,6 +1274,7 @@ impl ChromiumPage {
         } else {
             Some(crate::update_restart::begin_runtime_work(
                 self.0.caller.app_handle(),
+                "using a browser page",
             )?)
         };
         if self.0.closed.load(Ordering::Acquire) {
@@ -1378,7 +1379,8 @@ pub async fn browser_create(
         false,
         Value::Null,
     );
-    let _work = crate::update_restart::begin_runtime_work(caller.app_handle())?;
+    let _work =
+        crate::update_restart::begin_runtime_work(caller.app_handle(), "opening a browser page")?;
     let root = label(&caller, &id)?;
     let url = parse_url(&caller, &url)?;
     bounds.validate()?;
@@ -2264,6 +2266,7 @@ pub async fn browser_set_floating(
     let _work = if floating {
         Some(crate::update_restart::begin_runtime_work(
             caller.app_handle(),
+            "opening Picture in Picture",
         )?)
     } else {
         None
@@ -2464,7 +2467,8 @@ async fn close_context_checked(
 }
 #[tauri::command]
 pub async fn browser_close(caller: Webview, id: String) -> Result<(), String> {
-    let _work = crate::update_restart::begin_runtime_work(caller.app_handle())?;
+    let _work =
+        crate::update_restart::begin_runtime_work(caller.app_handle(), "closing a browser page")?;
     let root = label(&caller, &id)?;
     let context = registry()
         .lock()

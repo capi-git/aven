@@ -89,6 +89,15 @@ impl McpRequest {
         }
     }
 
+    /// Finishes "Aven is still …" if an update restart has to wait for it.
+    fn work_label(&self) -> &'static str {
+        match self {
+            Self::Login { .. } => "signing in to an MCP server",
+            Self::Logout { .. } => "signing out of an MCP server",
+            _ => "changing your MCP servers",
+        }
+    }
+
     /// Project scopes are written relative to the project folder.
     fn needs_project(&self) -> bool {
         match self {
@@ -327,7 +336,7 @@ pub async fn provider_mcp(
     request: McpRequest,
     cwd: Option<String>,
 ) -> Result<String, String> {
-    let work = crate::update_restart::begin_runtime_work(&app)?;
+    let work = crate::update_restart::begin_runtime_work(&app, request.work_label())?;
     let args = mcp_args(&request)?;
     // A missing folder would silently write the project's config elsewhere.
     let project_folder = cwd
