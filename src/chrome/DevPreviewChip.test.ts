@@ -90,7 +90,7 @@ it("opens beside the requesting chat and then steps aside", async () => {
   await act(async () => button.click());
   expect(open).toHaveBeenCalledWith(
     expect.objectContaining({ url: "http://localhost:5173/" }),
-    "session-1",
+    { requesterSessionId: "session-1" },
   );
   expect(chip()).toBeNull();
 });

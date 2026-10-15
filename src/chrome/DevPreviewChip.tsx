@@ -55,7 +55,7 @@ export const DevPreviewChip = memo(function DevPreviewChip({
           type="button"
           className="dev-preview-open"
           title={`Open ${preview.label} beside the chat`}
-          onClick={() => openDevPreview(preview.key, requesterSessionId)}
+          onClick={() => openDevPreview(preview.key, { requesterSessionId })}
         >
           <PanelRight className="size-3" aria-hidden="true" />
           Open beside chat

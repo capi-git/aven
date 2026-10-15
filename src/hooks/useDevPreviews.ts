@@ -35,7 +35,7 @@ export function useDevPreviewAutoOpen(project: string, enabled = true): void {
         queued = false;
         if (disposed) return;
         for (const preview of pendingAutoOpen(devPreviewsSnapshot(), project))
-          openDevPreview(preview.key);
+          openDevPreview(preview.key, { automatic: true });
       });
     };
     run();

@@ -81,7 +81,7 @@ it("waits until a background project is on screen", async () => {
   await show(API);
   expect(open).toHaveBeenCalledWith(
     expect.objectContaining({ project: API, port: 4321 }),
-    undefined,
+    { automatic: true },
   );
 });
 
@@ -102,6 +102,6 @@ it("retries when the workspace could not open it yet", async () => {
   expect(open).toHaveBeenCalledTimes(2);
   expect(open).toHaveBeenLastCalledWith(
     expect.objectContaining({ port: 5173 }),
-    undefined,
+    { automatic: true },
   );
 });

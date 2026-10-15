@@ -257,9 +257,16 @@ export function pendingAutoOpen(
   );
 }
 
+export type DevPreviewOpenRequest = {
+  /** The chat to show it beside; the active chat when absent. */
+  requesterSessionId?: string;
+  /** Opened by the setting rather than a click: never take over a pane in use. */
+  automatic?: boolean;
+};
+
 export type DevPreviewOpener = (
   preview: DevPreview,
-  requesterSessionId?: string,
+  request: DevPreviewOpenRequest,
 ) => boolean;
 
 let opener: DevPreviewOpener | null = null;
@@ -275,13 +282,13 @@ export function installDevPreviewOpener(next: DevPreviewOpener): () => void {
 /** Show a preview beside the chat. Returns whether the workspace opened it. */
 export function openDevPreview(
   key: string,
-  requesterSessionId?: string,
+  request: DevPreviewOpenRequest = {},
 ): boolean {
   const preview = previews.find((entry) => entry.key === key);
   if (!preview || !opener) return false;
   let opened = false;
   try {
-    opened = opener(preview, requesterSessionId);
+    opened = opener(preview, request);
   } catch (error) {
     logError("Could not open the dev preview", error);
   }
@@ -359,6 +366,13 @@ export function devPreviewPromptLine(context: {
 /** Feeds one terminal's output; the terminal reports when its server ended. */
 export type TerminalPreviewWatch = {
   push(text: string): void;
+  /**
+   * The terminal's foreground program, or null for the shell. Only a program
+   * giving the shell back counts as a stop: a server started with `&` never
+   * held the foreground, and a script the system names as a shell never shows.
+   */
+  foreground(label: string | null): void;
+  /** The shell exited or the terminal closed. */
   stopped(): void;
 };
 
@@ -370,6 +384,7 @@ export function watchTerminalOutput(terminal: {
 }): TerminalPreviewWatch {
   const scanner = createDevOutputScanner();
   const sourceId = terminalPreviewSource(terminal.id);
+  let running = false;
   return {
     push(text) {
       for (const signal of scanner.push(text)) {
@@ -385,7 +400,15 @@ export function watchTerminalOutput(terminal: {
           });
       }
     },
+    foreground(label) {
+      if (label) running = true;
+      else if (running) {
+        running = false;
+        stopDevServers(sourceId);
+      }
+    },
     stopped() {
+      running = false;
       stopDevServers(sourceId);
     },
   };
@@ -471,7 +494,8 @@ function forgetSessionWatches(sessionId: string) {
 export function observeAgentPreviewEvent(
   sessionId: string,
   event: HarnessEvent,
-  place: () => AgentPreviewPlace | undefined,
+  /** The session's project and checkout; looked up only when a server is found. */
+  place: (sessionId: string) => AgentPreviewPlace | undefined,
 ): void {
   if (event.type === "session.ended") {
     forgetSessionWatches(sessionId);
@@ -546,7 +570,7 @@ export function observeAgentPreviewEvent(
       if (watch.ports.size) stopDevServers(source, watch.ports);
       continue;
     }
-    const where = place();
+    const where = place(sessionId);
     if (!where) return;
     watch.ports.add(signal.address.port);
     reportDevServer({

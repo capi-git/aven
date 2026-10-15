@@ -221,12 +221,13 @@ describe("openDevPreview", () => {
     expect(openDevPreview(preview.key)).toBe(false);
     const open = vi.fn().mockReturnValueOnce(false).mockReturnValue(true);
     const uninstall = installDevPreviewOpener(open);
-    expect(openDevPreview(preview.key, "session-1")).toBe(false);
+    const request = { requesterSessionId: "session-1" };
+    expect(openDevPreview(preview.key, request)).toBe(false);
     expect(only().opened).toBe(false);
-    expect(openDevPreview(preview.key, "session-1")).toBe(true);
+    expect(openDevPreview(preview.key, request)).toBe(true);
     expect(open).toHaveBeenLastCalledWith(
       expect.objectContaining({ url: "http://localhost:5173/" }),
-      "session-1",
+      request,
     );
     expect(only().opened).toBe(true);
     uninstall();
@@ -296,10 +297,32 @@ describe("watchTerminalOutput", () => {
     watch.stopped();
     expect(only().status).toBe("stale");
   });
+
+  it("treats the shell returning to the foreground as a stop", () => {
+    const watch = watchTerminalOutput({
+      id: "t1",
+      project: PROJECT,
+      cwd: PROJECT,
+      placement: "terminal",
+    });
+    watch.foreground(null);
+    watch.push(VITE);
+    // A server started with `&` never held the foreground.
+    watch.foreground(null);
+    expect(only().status).toBe("live");
+    watch.foreground("npm");
+    watch.foreground("npm");
+    expect(only().status).toBe("live");
+    watch.foreground(null);
+    expect(only().status).toBe("stale");
+  });
 });
 
 describe("observeAgentPreviewEvent", () => {
-  const place = () => ({ project: PROJECT, cwd: `${PROJECT}-worktree` });
+  const place = (sessionId: string) =>
+    sessionId === "s1" || sessionId === "s2"
+      ? { project: PROJECT, cwd: `${PROJECT}-worktree` }
+      : undefined;
   const observe = (event: HarnessEvent, sessionId = "s1") =>
     observeAgentPreviewEvent(sessionId, event, place);
 
@@ -353,6 +376,7 @@ describe("observeAgentPreviewEvent", () => {
         place,
       );
     expect(place).toHaveBeenCalledTimes(1);
+    expect(place).toHaveBeenCalledWith("s1");
     expect(only().port).toBe(3000);
   });
 
