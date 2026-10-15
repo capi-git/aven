@@ -226,3 +226,35 @@ it("customizes the name, colour and mascot from the actions menu, and resets", a
     "aven-project",
   );
 });
+
+it("leaves the name unchanged when the customize panel is dismissed with Escape", async () => {
+  await render();
+  const button = host.querySelector<HTMLButtonElement>(
+    ".personal-project-more",
+  )!;
+  await act(async () => button.click());
+  await act(async () =>
+    [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+      .find((node) => node.textContent?.includes("Customize project"))!
+      .click(),
+  );
+  const name = document.querySelector<HTMLInputElement>(
+    'input[aria-label="Project name"]',
+  )!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!.call(name, "Half typed");
+    name.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () =>
+    name.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    ),
+  );
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(host.querySelector(".personal-project-label")?.textContent).toBe(
+    "aven-project",
+  );
+});

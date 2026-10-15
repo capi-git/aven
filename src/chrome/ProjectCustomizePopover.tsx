@@ -39,6 +39,8 @@ export function ProjectCustomizePopover({ path, anchor, onClose }: Props) {
   const nameRef = useRef(name);
   nameRef.current = name;
   const committed = useRef(appearance?.customLabel ?? "");
+  // Escape leaves the name as it was, even if closing blurs the field.
+  const discarded = useRef(false);
   const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -50,6 +52,7 @@ export function ProjectCustomizePopover({ path, anchor, onClose }: Props) {
   const key = appearance.key;
 
   const commitName = () => {
+    if (discarded.current) return;
     const next = nameRef.current.trim();
     if (next === committed.current) return;
     committed.current = next;
@@ -102,7 +105,8 @@ export function ProjectCustomizePopover({ path, anchor, onClose }: Props) {
       role="dialog"
       aria-label={`Customize ${appearance.label}`}
       onDismiss={(reason) => {
-        if (reason !== "escape") commitName();
+        if (reason === "escape") discarded.current = true;
+        else commitName();
         onClose();
       }}
       className="project-customize p-3"

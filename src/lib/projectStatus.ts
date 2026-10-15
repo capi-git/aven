@@ -1,11 +1,8 @@
 import type { ActivityEntry } from "./activity";
 import { projectKey } from "./paths";
-import {
-  sessionIsWaitingForInput,
-  sessionNeedsInput,
-  type Session,
-} from "./session";
-import { activeSessionAgents } from "./sessionAgents";
+import { hasPendingApproval, type Session } from "./session";
+import { isActiveSessionAgent } from "./sessionAgents";
+import { isBlockingQuestion } from "./userQuestion";
 
 /** What is happening in one project, at a glance. Zero counts mean nothing. */
 export type ProjectStatus = {
@@ -31,7 +28,11 @@ function keyFor(cwd: string | undefined): string | null {
   return projectKey(cwd);
 }
 
-/** Running and waiting sessions per project. One pass; no I/O. */
+/**
+ * Running and waiting sessions per project, as `sessionNeedsInput` and
+ * `sessionIsWaitingForInput` define them. One pass over each transcript's
+ * blocks, since this runs on every streaming flush; no I/O.
+ */
 export function sessionProjectCounts(
   sessions: readonly Pick<
     Session,
@@ -42,11 +43,14 @@ export function sessionProjectCounts(
   for (const session of sessions) {
     const key = keyFor(session.cwd);
     if (!key) continue;
-    const full = session as Session;
-    const waiting = sessionNeedsInput(full);
+    const approval = hasPendingApproval(session.blocks);
+    const question = session.pendingQuestion;
+    const waiting = approval || question != null;
     const running =
-      (!!session.busy || activeSessionAgents(full).length > 0) &&
-      !sessionIsWaitingForInput(full);
+      (!!session.busy ||
+        (session.liveAgents?.some(isActiveSessionAgent) ?? false)) &&
+      !approval &&
+      !isBlockingQuestion(question);
     if (!waiting && !running) continue;
     const entry = (counts[key] ??= { running: 0, waiting: 0 });
     if (running) entry.running += 1;
