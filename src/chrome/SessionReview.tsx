@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight } from "./icons";
+import { ArrowUp, ChevronDown, ChevronRight } from "./icons";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   keepSessionChanges,
@@ -10,6 +10,7 @@ import {
 import { invalidateProjectFiles } from "../lib/fileIndex";
 import { invalidateWatchedFiles } from "../lib/fileWatch";
 import { basename, notifyGitChanged, subscribeGitChanged } from "../lib/fs";
+import { requestShip } from "../lib/shipRequest";
 import { FileTypeIcon } from "./FileTypeIcon";
 
 type Props = {
@@ -177,6 +178,16 @@ export function SessionReview({
               className="h-6 rounded-md bg-content/15 px-2 text-ui-caption text-content/80 hover:bg-content/20 hover:text-content"
             >
               Review
+            </button>
+            <button
+              type="button"
+              title="Commit, push and open a pull request from the Changes panel"
+              disabled={busy}
+              onClick={() => requestShip(cwd, sessionId)}
+              className="flex h-6 items-center gap-1 rounded-md bg-content px-2 text-ui-caption font-medium text-background-base hover:bg-content/85 disabled:opacity-40"
+            >
+              <ArrowUp className="size-3" strokeWidth={2} />
+              Ship it
             </button>
           </div>
         </div>

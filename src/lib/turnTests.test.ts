@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { Block } from "./session";
+import { newSession, type Block, type Session } from "./session";
 import {
   describeTurnTests,
   isTestCommand,
   latestTurnTests,
+  sessionForShip,
   testCounts,
 } from "./turnTests";
 
@@ -183,5 +184,30 @@ describe("latestTurnTests", () => {
         shell("Read src/a.test.ts", "completed", "", "read"),
       ]).latest,
     ).toBeNull();
+  });
+});
+
+describe("sessionForShip", () => {
+  const session = (
+    id: string,
+    cwd: string,
+    startedAt: number | undefined,
+  ): Session => ({
+    ...newSession("claude", cwd),
+    id,
+    blocks: startedAt === undefined ? [] : [{ ...user(), startedAt }],
+  });
+
+  it("prefers the named conversation, then the latest turn in this folder", () => {
+    const sessions = [
+      session("old", "/repo", 10),
+      session("new", "/repo/", 20),
+      session("other", "/elsewhere", 99),
+      session("empty", "/repo", undefined),
+    ];
+    expect(sessionForShip(sessions, "/repo")?.id).toBe("new");
+    expect(sessionForShip(sessions, "/repo", "old")?.id).toBe("old");
+    expect(sessionForShip(sessions, "/repo", "missing")?.id).toBe("new");
+    expect(sessionForShip(sessions, "/nowhere")).toBeNull();
   });
 });

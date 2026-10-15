@@ -1,50 +1,59 @@
 import {
-  useEffect,
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { ChevronDown, ChevronRight, GitBranch } from "./icons";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
+import { useGitHistory } from "../hooks/useGitHistory";
 import { suppressTextSelection } from "../lib/drag";
+import type { GitHistoryCommit } from "../lib/fs";
+import { shortTimeAgo } from "../lib/gitChangesView";
 import {
-  gitHistory,
-  subscribeGitChanged,
-  type GitHistoryCommit,
-} from "../lib/fs";
-import {
-  GRAPH_ROW_PX,
   historyItemGraph,
   layoutGitGraph,
+  SWIMLANE_WIDTH,
+  type GraphPath,
   type GraphRef,
+  type HistoryItemGraph,
   type HistoryItemViewModel,
 } from "../lib/gitGraph";
+import "./GitHistoryGraph.css";
 
 type Props = {
   cwd: string;
   enabled: boolean;
   expanded: boolean;
   selectedSha?: string;
+  /** The checked-out branch; null when the folder is not a Git repository. */
+  branch?: string | null;
   onToggleExpanded: () => void;
   onOpenCommit: (commit: GitHistoryCommit) => void;
 };
 
-const historyByCwd = new Map<string, GitHistoryCommit[]>();
+/** Two lines per commit: its message, then refs, short sha, author and age. */
+export const HISTORY_ROW_PX = 38;
+/** Chips shown on a row before the rest collapse into "+n". */
+const REFS_SHOWN = 2;
 
 export function GitHistoryGraph({
   cwd,
   enabled,
   expanded,
   selectedSha,
+  branch,
   onToggleExpanded,
   onOpenCommit,
 }: Props) {
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
-  const { commits } = useGitHistory(cwd, enabled && expanded);
+  const { commits, loaded } = useGitHistory(cwd, enabled && expanded);
   const rows = useMemo(() => layoutGitGraph(commits), [commits]);
   const showAuthors =
     new Set(commits.map((commit) => commit.author).filter(Boolean)).size > 1;
+  // Ages are worked out when the panel renders; nothing ticks on a clock.
+  const now = Date.now();
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
@@ -53,13 +62,18 @@ export function GitHistoryGraph({
         onClick={onToggleExpanded}
         aria-expanded={expanded}
         aria-label={expanded ? "Collapse graph" : "Expand graph"}
-        className={`flex w-full shrink-0 items-center gap-1 px-3 text-left leading-none hover:bg-content/5 ${
+        className={`flex w-full shrink-0 items-center gap-1.5 px-3 text-left leading-none hover:bg-content/5 ${
           expanded ? "h-7" : "h-full"
         }`}
       >
         <span className="text-ui-micro font-semibold tracking-[0.04em] text-content/55 uppercase">
-          Graph
+          History
         </span>
+        {commits.length > 0 ? (
+          <span className="text-ui-micro tabular-nums text-content/35">
+            {commits.length >= 200 ? "200+" : commits.length}
+          </span>
+        ) : null}
         {expanded ? (
           <ChevronDown
             className="ml-auto size-3.5 shrink-0 text-content/50"
@@ -82,9 +96,7 @@ export function GitHistoryGraph({
               No project folder
             </p>
           ) : commits.length === 0 ? (
-            <p className="px-3 py-2 text-ui-label text-content/45">
-              No commits yet
-            </p>
+            <HistoryEmpty loaded={loaded} branch={branch} />
           ) : (
             <ul className="min-w-0 max-w-full">
               {commits.map((commit, index) => {
@@ -96,6 +108,7 @@ export function GitHistoryGraph({
                     commit={commit}
                     showAuthor={showAuthors}
                     row={row}
+                    now={now}
                     active={selectedSha === commit.sha}
                     onOpen={() => onOpenCommit(commit)}
                   />
@@ -109,46 +122,123 @@ export function GitHistoryGraph({
   );
 }
 
+function HistoryEmpty({
+  loaded,
+  branch,
+}: {
+  loaded: boolean;
+  branch?: string | null;
+}) {
+  if (!loaded)
+    return (
+      <p className="px-3 py-2 text-ui-label text-content/45" role="status">
+        Loading history…
+      </p>
+    );
+  const noGit = branch === null;
+  return (
+    <div className="git-history-empty" role="status">
+      <svg aria-hidden viewBox="0 0 48 20" className="git-history-empty-art">
+        <path d="M6 10 H42" />
+        <circle cx="6" cy="10" r="3" />
+        <circle cx="24" cy="10" r="3" data-faint />
+        <circle cx="42" cy="10" r="3" data-faint />
+      </svg>
+      <p className="git-history-empty-title">
+        {noGit ? "Not a Git repository" : "No commits yet"}
+      </p>
+      <p className="git-history-empty-detail">
+        {noGit
+          ? "Changes and history appear once this folder uses Git."
+          : `Your first commit${branch ? ` on ${branch}` : ""} will start the history here.`}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Rows are taller than the 22 px graph cell. The node sits in the middle and
+ * the lanes it passes through are drawn on to the row's top and bottom edges.
+ */
+export function historyGraphExtensions(
+  graph: HistoryItemGraph,
+  row: HistoryItemViewModel,
+  height: number,
+): { offset: number; paths: GraphPath[] } {
+  const offset = Math.max(0, Math.round((height - graph.height) / 2));
+  const paths: GraphPath[] = [];
+  if (offset === 0) return { offset, paths };
+  const top = new Set<string>();
+  for (const path of graph.paths) {
+    const x = /^M (\S+) 0(?:\s|$)/.exec(path.d)?.[1];
+    if (!x || top.has(x)) continue;
+    top.add(x);
+    paths.push({
+      d: `M ${x} 0 V ${offset}`,
+      color: path.color,
+      strokeWidth: 1,
+    });
+  }
+  row.outputSwimlanes.forEach((lane, index) => {
+    paths.push({
+      d: `M ${SWIMLANE_WIDTH * (index + 1)} ${offset + graph.height} V ${height}`,
+      color: lane.color,
+      strokeWidth: 1,
+    });
+  });
+  return { offset, paths };
+}
+
 function HistoryRow({
   commit,
   showAuthor,
   row,
+  now,
   active,
   onOpen,
 }: {
   commit: GitHistoryCommit;
   showAuthor: boolean;
   row: HistoryItemViewModel;
+  now: number;
   active: boolean;
   onOpen: () => void;
 }) {
   const graph = historyItemGraph(row);
-  const badge = row.refs.find((ref) => ref.color) ?? row.refs[0];
+  const { offset, paths: lanes } = historyGraphExtensions(
+    graph,
+    row,
+    HISTORY_ROW_PX,
+  );
+  const refs = row.refs.slice(0, REFS_SHOWN);
+  const hidden = row.refs.length - refs.length;
+  const age = shortTimeAgo(commit.timestamp * 1000, now);
   return (
-    <li className="min-w-0 overflow-visible" style={{ height: GRAPH_ROW_PX }}>
+    <li className="min-w-0 overflow-visible" style={{ height: HISTORY_ROW_PX }}>
       <button
         type="button"
         title={`${commit.shortSha} ${commit.subject}${commit.author ? ` — ${commit.author}` : ""}`}
         onClick={onOpen}
         aria-pressed={active}
-        className={`git-history-item flex h-[22px] min-w-0 w-full items-stretch overflow-visible pr-2 text-left ${
+        className={`git-history-item flex min-w-0 w-full items-stretch overflow-visible pr-2 text-left ${
           row.kind === "HEAD" ? "is-head" : ""
         } ${
           active
             ? "is-selected bg-content/10 text-content"
             : "text-content hover:bg-content/5"
         }`}
+        style={{ height: HISTORY_ROW_PX }}
       >
         <svg
           aria-hidden
           className="git-history-graph pointer-events-none block shrink-0 overflow-visible"
           width={graph.width}
-          height={graph.height}
+          height={HISTORY_ROW_PX}
           overflow="visible"
         >
-          {graph.paths.map((path, pathIndex) => (
+          {lanes.map((path, index) => (
             <path
-              key={pathIndex}
+              key={`lane-${index}`}
               d={path.d}
               fill="none"
               stroke={path.color}
@@ -156,32 +246,51 @@ function HistoryRow({
               strokeLinecap="round"
             />
           ))}
-          {graph.circles.map((circle, circleIndex) => (
-            <circle
-              key={circleIndex}
-              cx={circle.cx}
-              cy={circle.cy}
-              r={circle.r}
-              fill={circle.fill ?? "none"}
-              strokeWidth={circle.strokeWidth}
-            />
-          ))}
+          <g transform={`translate(0 ${offset})`}>
+            {graph.paths.map((path, pathIndex) => (
+              <path
+                key={pathIndex}
+                d={path.d}
+                fill="none"
+                stroke={path.color}
+                strokeWidth={path.strokeWidth}
+                strokeLinecap="round"
+              />
+            ))}
+            {graph.circles.map((circle, circleIndex) => (
+              <circle
+                key={circleIndex}
+                cx={circle.cx}
+                cy={circle.cy}
+                r={circle.r}
+                fill={circle.fill ?? "none"}
+                strokeWidth={circle.strokeWidth}
+              />
+            ))}
+          </g>
         </svg>
-        <span className="ml-1 flex min-w-0 flex-1 items-center overflow-hidden">
+        <span className="git-history-text">
           <span
-            className={`min-w-0 flex-1 truncate text-ui-label leading-[22px] ${
+            className={`git-history-subject ${
               row.kind === "HEAD" ? "font-semibold" : ""
             }`}
           >
             {commit.subject || commit.shortSha}
           </span>
-          {showAuthor && commit.author ? (
-            <span className="ml-2 min-w-0 max-w-[6rem] shrink truncate text-ui-label leading-[22px] text-content/45">
-              {commit.author}
-            </span>
-          ) : null}
+          <span className="git-history-meta">
+            {refs.map((ref) => (
+              <RefPill key={`${ref.kind}:${ref.name}`} refInfo={ref} />
+            ))}
+            {hidden > 0 ? (
+              <span className="git-history-more">+{hidden}</span>
+            ) : null}
+            <span className="git-history-sha">{commit.shortSha}</span>
+            {showAuthor && commit.author ? (
+              <span className="git-history-author">{commit.author}</span>
+            ) : null}
+            {age ? <span className="git-history-age">{age}</span> : null}
+          </span>
         </span>
-        {badge ? <RefPill refInfo={badge} /> : null}
       </button>
     </li>
   );
@@ -191,17 +300,15 @@ function RefPill({ refInfo }: { refInfo: GraphRef }) {
   const local = refInfo.kind === "local";
   return (
     <span
-      className={`ml-1 flex h-3.5 min-w-0 max-w-[6.5rem] shrink-0 self-center items-center gap-0.5 truncate rounded-full px-1.5 text-ui-micro leading-none ${
-        refInfo.color ? "" : "bg-content/10 text-content/55"
-      }`}
+      className="git-history-ref"
+      data-kind={refInfo.kind}
+      data-colored={refInfo.color ? true : undefined}
       style={
         refInfo.color
-          ? {
-              backgroundColor: refInfo.color,
-              color: "var(--color-background-base)",
-            }
+          ? ({ "--git-ref-color": refInfo.color } as CSSProperties)
           : undefined
       }
+      title={refInfo.name}
     >
       {local ? (
         <GitBranch className="size-2.5 shrink-0" strokeWidth={2} />
@@ -209,87 +316,6 @@ function RefPill({ refInfo }: { refInfo: GraphRef }) {
       <span className="min-w-0 truncate">{refInfo.name}</span>
     </span>
   );
-}
-
-function useGitHistory(
-  cwd: string,
-  enabled: boolean,
-): { commits: GitHistoryCommit[] } {
-  const [commits, setCommits] = useState<GitHistoryCommit[]>(
-    () => historyByCwd.get(cwd) ?? [],
-  );
-  const commitsRef = useRef(commits);
-  commitsRef.current = commits;
-
-  useEffect(() => {
-    if (!enabled) return;
-    if (!cwd || cwd === "~") {
-      commitsRef.current = [];
-      setCommits([]);
-      return;
-    }
-    const cached = historyByCwd.get(cwd) ?? [];
-    commitsRef.current = cached;
-    setCommits(cached);
-    let cancelled = false;
-    let request = 0;
-    const load = () => {
-      if (cancelled || document.hidden) return;
-      const current = ++request;
-      void gitHistory(cwd)
-        .then((next) => {
-          if (cancelled || current !== request || document.hidden) return;
-          const prev = commitsRef.current;
-          if (sameHistory(prev, next.commits)) return;
-          historyByCwd.set(cwd, next.commits);
-          commitsRef.current = next.commits;
-          setCommits(next.commits);
-        })
-        .catch(() => {
-          if (cancelled || current !== request || document.hidden) return;
-          historyByCwd.delete(cwd);
-          commitsRef.current = [];
-          setCommits([]);
-        });
-    };
-    load();
-    const onResume = () => {
-      if (!document.hidden) load();
-    };
-    window.addEventListener("focus", onResume);
-    document.addEventListener("visibilitychange", onResume);
-    const unsub = subscribeGitChanged(load);
-    return () => {
-      cancelled = true;
-      window.removeEventListener("focus", onResume);
-      document.removeEventListener("visibilitychange", onResume);
-      unsub();
-    };
-  }, [cwd, enabled]);
-
-  return { commits };
-}
-
-function sameHistory(
-  prev: GitHistoryCommit[],
-  next: GitHistoryCommit[],
-): boolean {
-  if (prev.length !== next.length) return false;
-  return prev.every((commit, i) => {
-    const other = next[i];
-    return (
-      other &&
-      commit.sha === other.sha &&
-      commit.subject === other.subject &&
-      commit.author === other.author &&
-      commit.head === other.head &&
-      commit.refs.length === other.refs.length &&
-      commit.refs.every(
-        (ref, j) =>
-          other.refs[j]?.name === ref.name && other.refs[j]?.kind === ref.kind,
-      )
-    );
-  });
 }
 
 export const GRAPH_PANEL_MIN = 120;

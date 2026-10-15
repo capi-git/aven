@@ -1,8 +1,11 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GitChangedFile, GitDiffIndex, GitPr } from "./fs";
 import {
   defaultShipScope,
+  loadShipMode,
+  preferredShipMode,
   runShip,
+  saveShipMode,
   ShipError,
   shipErrorText,
   shipOptions,
@@ -210,5 +213,36 @@ describe("runShip", () => {
     expect(
       shipErrorText(new ShipError("commit", [], "nothing to commit")),
     ).toBe("Couldn't commit. nothing to commit");
+  });
+});
+
+describe("ship mode preference", () => {
+  beforeEach(() => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("remembers the last way of finishing under an aven key", () => {
+    expect(loadShipMode()).toBeNull();
+    saveShipMode("pr");
+    expect(localStorage.getItem("aven.shipMode")).toBe("pr");
+    expect(loadShipMode()).toBe("pr");
+    localStorage.setItem("aven.shipMode", "deploy");
+    expect(loadShipMode()).toBeNull();
+  });
+
+  it("falls back to the furthest possible step, at most a push", () => {
+    const all = shipOptions(index(), null);
+    expect(preferredShipMode(all, "pr")).toBe("pr");
+    expect(preferredShipMode(all, null)).toBe("push");
+    expect(preferredShipMode(shipOptions(index(), openPr), "pr")).toBe("push");
+    expect(
+      preferredShipMode(shipOptions(index({ remote: null }), null), "pr"),
+    ).toBe("commit");
   });
 });

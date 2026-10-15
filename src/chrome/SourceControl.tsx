@@ -9,6 +9,8 @@ type Props = {
   selectedPath?: string;
   selectedKind?: GitFileDiffKind;
   selectedSha?: string;
+  /** The project folder when `cwd` is another copy of it. */
+  projectCwd?: string;
   onOpenFile: (path: string, kind: GitFileDiffKind) => void;
   onOpenAllChanges: (kind: GitFileDiffKind) => void;
   onOpenCommit: (commit: GitHistoryCommit) => void;
@@ -22,6 +24,7 @@ export function SourceControl({
   selectedPath,
   selectedKind,
   selectedSha,
+  projectCwd,
   onOpenFile,
   onOpenAllChanges,
   onOpenCommit,
@@ -36,6 +39,7 @@ export function SourceControl({
         selectedPath={selectedPath}
         selectedKind={selectedKind}
         selectedSha={selectedSha}
+        projectCwd={projectCwd}
         onOpenFile={onOpenFile}
         onOpenAllChanges={onOpenAllChanges}
         onOpenCommit={onOpenCommit}

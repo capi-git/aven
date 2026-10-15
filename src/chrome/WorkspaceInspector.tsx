@@ -194,6 +194,7 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
                   selectedPath={props.selectedDiffPath}
                   selectedKind={props.selectedDiffKind}
                   selectedSha={props.selectedCommitSha}
+                  projectCwd={props.cwd}
                   onOpenFile={props.onOpenDiff}
                   onOpenAllChanges={props.onOpenAllChanges}
                   onOpenCommit={props.onOpenCommit}

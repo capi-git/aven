@@ -1,5 +1,6 @@
 import { isExecuteTool } from "./harness/preview";
-import type { Block } from "./session";
+import { isEqualOrInside } from "./paths";
+import { sessionWorkCwd, type Block, type Session } from "./session";
 
 export type TestRunStatus = "passed" | "failed" | "running" | "stopped";
 
@@ -218,4 +219,41 @@ export function describeTurnTests(tests: TurnTests | null): {
     title: "Tests didn't finish",
     detail: `${latest.command} was stopped`,
   };
+}
+
+function latestTurnAt(session: Session): number {
+  for (let index = session.blocks.length - 1; index >= 0; index -= 1) {
+    const block = session.blocks[index];
+    if (block.role === "user" && !block.internal) return block.startedAt ?? 0;
+  }
+  return -1;
+}
+
+/**
+ * The conversation a Ship describes: the one named by the request, otherwise
+ * the one working in this folder whose latest turn started most recently.
+ */
+export function sessionForShip(
+  sessions: readonly Session[],
+  cwd: string,
+  preferredId?: string,
+): Session | null {
+  if (preferredId) {
+    const named = sessions.find((session) => session.id === preferredId);
+    if (named) return named;
+  }
+  let best: Session | null = null;
+  let bestAt = -1;
+  for (const session of sessions) {
+    if (session.inboxAsk) continue;
+    const where = sessionWorkCwd(session);
+    if (!where || !(isEqualOrInside(where, cwd) || isEqualOrInside(cwd, where)))
+      continue;
+    const at = latestTurnAt(session);
+    if (at > bestAt) {
+      best = session;
+      bestAt = at;
+    }
+  }
+  return bestAt >= 0 ? best : null;
 }

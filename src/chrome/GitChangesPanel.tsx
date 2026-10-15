@@ -1,6 +1,7 @@
 import { ask } from "@tauri-apps/plugin-dialog";
 import { openInAppUrl } from "../lib/inAppLinks";
 import {
+  ArrowUp,
   Check,
   ChevronDown,
   ChevronRight,
@@ -8,7 +9,6 @@ import {
   ExternalLink,
   FileDiff,
   FolderTree,
-  GitBranch,
   GitMerge,
   GitPullRequest,
   ListBullet,
@@ -30,7 +30,6 @@ import {
   type ReactNode,
 } from "react";
 import { FileTypeIcon } from "./FileTypeIcon";
-import { useProjectDiffStats } from "../hooks/useProjectDiffStats";
 import {
   GitHistoryGraph,
   GraphResizeSash,
@@ -73,10 +72,22 @@ import { invalidateWatchedFiles } from "../lib/fileWatch";
 import { MOD } from "../lib/platform";
 import { applyProjectDiffStats } from "../hooks/useProjectDiffStats";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
-import { GitCopies } from "./GitCopies";
+import { currentCopyLabel, GitCopies } from "./GitCopies";
 import { GitHousekeeping } from "./GitHousekeeping";
 import { gitPrSquashMerge } from "../lib/gitHousekeeping";
 import { isWindowActive, subscribeWindowActivity } from "../lib/windowActivity";
+import { errorText, logError } from "../lib/errors";
+import { headCommit, useGitHistory } from "../hooks/useGitHistory";
+import {
+  churnBar,
+  filesLabel,
+  largestChurn,
+  lineTotals,
+} from "../lib/gitChangesView";
+import { subscribeShipRequests, takeShipRequest } from "../lib/shipRequest";
+import { ChangesHeader, CleanState } from "./GitChangesHeader";
+import { ShipFlow } from "./ShipFlow";
+import "./GitChangesPanel.css";
 
 const GIT_POLL_MS = 2000;
 /**
@@ -111,6 +122,8 @@ type Props = {
   selectedPath?: string;
   selectedKind?: GitFileDiffKind;
   selectedSha?: string;
+  /** The project folder, for its name and mark when `cwd` is another copy. */
+  projectCwd?: string;
   onOpenFile: (path: string, kind: GitFileDiffKind) => void;
   onOpenAllChanges: (kind: GitFileDiffKind) => void;
   onOpenCommit: (commit: GitHistoryCommit) => void;
@@ -125,20 +138,40 @@ export function GitChangesPanel({
   selectedPath,
   selectedKind,
   selectedSha,
+  projectCwd,
   onOpenFile,
   onOpenAllChanges,
   onOpenCommit,
   onOpenBranchPicker,
 }: Props) {
   const { index, reload } = useDiffIndex(cwd, enabled);
-  // Shared with other Git surfaces, so this adds no extra read.
-  const stats = useProjectDiffStats(cwd, enabled);
+  // Shared with the graph below, so the header's last commit adds no read.
+  const history = useGitHistory(cwd, enabled);
+  const lastCommit = headCommit(history);
+  // Ages are worked out when the panel renders; nothing ticks on a clock.
+  const now = Date.now();
+  const [copyLabel, setCopyLabel] = useState<string | null>(null);
+  const onWorktrees = useCallback(
+    (worktrees: Parameters<typeof currentCopyLabel>[0]) =>
+      setCopyLabel(currentCopyLabel(worktrees)),
+    [],
+  );
   const files = index?.files ?? [];
   // Nothing to commit: the history takes the space the file list would use.
   const clean = index !== null && files.length === 0;
   const paneRef = useRef<HTMLDivElement>(null);
+  const graphRef = useRef<HTMLDivElement>(null);
   const [graphHeight, setGraphHeight] = useState(loadGraphPanelHeight);
   const [graphExpanded, setGraphExpanded] = useState(graphOpen);
+  const showHistory = useCallback(() => {
+    graphOpen = true;
+    setGraphExpanded(true);
+    window.requestAnimationFrame(() => {
+      const graph = graphRef.current;
+      graph?.scrollIntoView({ block: "nearest" });
+      graph?.querySelector<HTMLButtonElement>(".git-history-item")?.focus();
+    });
+  }, []);
 
   useLayoutEffect(() => {
     const pane = paneRef.current;
@@ -161,61 +194,21 @@ export function GitChangesPanel({
   return (
     <div
       ref={paneRef}
-      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden"
+      className="git-changes flex h-full min-h-0 flex-1 flex-col overflow-hidden"
     >
-      <header
-        aria-label="Change summary"
-        className="flex h-9 shrink-0 items-center gap-2 border-b border-content/10 px-3"
-      >
-        {stats ? (
-          <span
-            className="flex shrink-0 gap-1.5 text-ui-caption tabular-nums"
-            aria-label={`${stats.additions} added lines, ${stats.deletions} deleted lines`}
-          >
-            <span className="text-[#61bd85]">+{stats.additions}</span>
-            <span className="text-[#d77880]">-{stats.deletions}</span>
-          </span>
-        ) : null}
-        {index?.branch ? (
-          <button
-            type="button"
-            className="-mr-1.5 ml-auto flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-ui-caption text-content/60 enabled:hover:bg-content/8 enabled:hover:text-content focus-visible:outline-2 focus-visible:outline-(--aven-focus-ring)"
-            disabled={!onOpenBranchPicker}
-            title={
-              onOpenBranchPicker
-                ? `Switch branch: ${index.branch}`
-                : index.branch
-            }
-            aria-label={
-              onOpenBranchPicker
-                ? `Switch branch: ${index.branch}`
-                : `Branch: ${index.branch}`
-            }
-            aria-haspopup="dialog"
-            onClick={(event) => onOpenBranchPicker?.(event.currentTarget)}
-          >
-            <GitBranch className="size-3 shrink-0" strokeWidth={1.75} />
-            <span className="min-w-0 truncate">{index.branch}</span>
-            {index.ahead > 0 ? (
-              <span className="shrink-0 tabular-nums text-content/40">
-                ↑{index.ahead}
-              </span>
-            ) : null}
-            {index.behind > 0 ? (
-              <span className="shrink-0 tabular-nums text-content/40">
-                ↓{index.behind}
-              </span>
-            ) : null}
-            {onOpenBranchPicker ? (
-              <ChevronDown className="size-3 shrink-0" strokeWidth={1.75} />
-            ) : null}
-          </button>
-        ) : (
-          <span className="ml-auto" />
-        )}
-      </header>
+      <ChangesHeader
+        cwd={cwd}
+        projectCwd={projectCwd}
+        index={index}
+        lastCommit={lastCommit}
+        copyLabel={copyLabel}
+        now={now}
+        onOpenBranchPicker={onOpenBranchPicker}
+        onOpenCommit={onOpenCommit}
+      />
       <ChangedFiles
         cwd={cwd}
+        projectCwd={projectCwd}
         textHarness={textHarness}
         index={index}
         files={files}
@@ -223,6 +216,14 @@ export function GitChangesPanel({
         selectedKind={selectedKind}
         enabled={enabled}
         fill={!clean}
+        lastCommit={lastCommit}
+        now={now}
+        noGit={
+          clean && index?.branch === null && history.loaded && !history.head
+        }
+        onShowHistory={showHistory}
+        onOpenBranchPicker={onOpenBranchPicker}
+        onWorktrees={onWorktrees}
         onOpenFile={onOpenFile}
         onOpenAllChanges={onOpenAllChanges}
         onMutated={(paths) => {
@@ -248,6 +249,7 @@ export function GitChangesPanel({
         />
       ) : null}
       <div
+        ref={graphRef}
         className={`overflow-hidden border-t border-content/10 ${
           !graphExpanded
             ? "h-7 shrink-0"
@@ -262,6 +264,7 @@ export function GitChangesPanel({
           enabled={enabled}
           expanded={graphExpanded}
           selectedSha={selectedSha}
+          branch={index ? index.branch : undefined}
           onToggleExpanded={() => {
             graphOpen = !graphExpanded;
             setGraphExpanded(graphOpen);
@@ -275,6 +278,7 @@ export function GitChangesPanel({
 
 function ChangedFiles({
   cwd,
+  projectCwd,
   textHarness,
   index,
   files,
@@ -282,11 +286,18 @@ function ChangedFiles({
   selectedKind,
   enabled,
   fill,
+  lastCommit,
+  now,
+  noGit,
+  onShowHistory,
+  onOpenBranchPicker,
+  onWorktrees,
   onOpenFile,
   onOpenAllChanges,
   onMutated,
 }: {
   cwd: string;
+  projectCwd?: string;
   textHarness?: HarnessId;
   index: GitDiffIndex | null;
   files: GitChangedFile[];
@@ -294,6 +305,12 @@ function ChangedFiles({
   selectedKind?: GitFileDiffKind;
   enabled: boolean;
   fill: boolean;
+  lastCommit: GitHistoryCommit | null;
+  now: number;
+  noGit: boolean;
+  onShowHistory: () => void;
+  onOpenBranchPicker?: (anchor: HTMLButtonElement) => void;
+  onWorktrees: (worktrees: Parameters<typeof currentCopyLabel>[0]) => void;
   onOpenFile: (path: string, kind: GitFileDiffKind) => void;
   onOpenAllChanges: (kind: GitFileDiffKind) => void;
   onMutated: (paths?: string[]) => void;
@@ -314,6 +331,25 @@ function ChangedFiles({
     () => files.filter((file) => file.unstaged),
     [files],
   );
+  const largest = useMemo(() => largestChurn(files), [files]);
+  const totals = useMemo(() => lineTotals(files), [files]);
+  // Ship it: open from the button here, or from a request elsewhere (a
+  // finished turn's changes in the chat) for this folder.
+  const [ship, setShip] = useState<{ sessionId?: string } | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    const pick = () => {
+      const request = takeShipRequest(cwd);
+      if (request) setShip({ sessionId: request.sessionId });
+    };
+    pick();
+    return subscribeShipRequests(pick);
+  }, [cwd, enabled]);
+  const onShipBusy = useCallback((shipping: boolean) => {
+    setBusy((current) =>
+      shipping ? (current ?? "ship") : current === "ship" ? null : current,
+    );
+  }, []);
   const hasRemote = Boolean(index?.remote);
   const hasOpenPr = pr?.state === "open";
   const diverged = (index?.ahead ?? 0) > 0 && (index?.behind ?? 0) > 0;
@@ -382,7 +418,8 @@ function ChangedFiles({
   };
 
   const fail = (error: unknown) => {
-    window.alert(error instanceof Error ? error.message : String(error));
+    logError("source control", error);
+    window.alert(errorText(error));
   };
 
   const confirmDefault = async (kind: "push" | "pr") => {
@@ -581,9 +618,44 @@ function ChangedFiles({
     <aside
       className={`flex min-h-0 min-w-0 flex-col ${fill ? "flex-1" : "shrink"}`}
     >
-      <div className="shrink-0 border-b border-content/10 p-2">
-        {files.length === 0 && index ? <GitStatusCard index={index} /> : null}
-        <div className={files.length === 0 ? "hidden" : "relative"}>
+      <div className="flex shrink-0 flex-col gap-2 border-b border-content/10 p-2">
+        {ship && index ? (
+          <ShipFlow
+            cwd={cwd}
+            index={index}
+            files={files}
+            pr={pr}
+            enabled={enabled}
+            textHarness={textHarness}
+            sessionId={ship.sessionId}
+            message={message}
+            onMessageChange={setMessage}
+            onBusyChange={onShipBusy}
+            onMutated={onMutated}
+            onPrChanged={reloadPr}
+            onClose={() => setShip(null)}
+          />
+        ) : files.length === 0 && index ? (
+          <CleanState
+            cwd={cwd}
+            projectCwd={projectCwd}
+            {...gitStatusSummary(index)}
+            noGit={noGit}
+            lastCommit={lastCommit}
+            now={now}
+            onShowHistory={onShowHistory}
+            onOpenBranchPicker={onOpenBranchPicker}
+          />
+        ) : files.length > 0 ? (
+          <ShipBar
+            files={files.length}
+            additions={totals.additions}
+            deletions={totals.deletions}
+            disabled={!!busy}
+            onShip={() => setShip({})}
+          />
+        ) : null}
+        <div className={files.length === 0 || ship ? "hidden" : "relative"}>
           <textarea
             ref={messageRef}
             rows={1}
@@ -639,13 +711,15 @@ function ChangedFiles({
         </div>
         <div
           ref={menuRef}
-          className={files.length === 0 ? "hidden" : "relative mt-1.5 flex"}
+          className={
+            files.length === 0 || ship ? "hidden" : "relative -mt-0.5 flex"
+          }
         >
           <button
             type="button"
             disabled={!canCommit}
             onClick={() => void commit(false)}
-            className="flex h-7 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-l-md bg-content text-ui-label font-medium text-background-base disabled:opacity-40"
+            className="flex h-7 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-l-md bg-content/10 text-ui-label font-medium text-content enabled:hover:bg-content/15 disabled:opacity-40"
           >
             <Check className="size-3.5" strokeWidth={2} />
             Commit
@@ -657,7 +731,7 @@ function ChangedFiles({
             aria-label="Commit options"
             disabled={!canCommit}
             onClick={() => setMenuOpen((open) => !open)}
-            className="grid h-7 w-7 shrink-0 place-items-center rounded-r-md border-l border-background-base/10 bg-content text-background-base disabled:opacity-40"
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-r-md border-l border-content/10 bg-content/10 text-content enabled:hover:bg-content/15 disabled:opacity-40"
           >
             <ChevronDown className="size-3.5" strokeWidth={2} />
           </button>
@@ -721,6 +795,7 @@ function ChangedFiles({
               <FileSection
                 title="Staged Changes"
                 count={staged.length}
+                totals={lineTotals(staged)}
                 open={stagedExpanded}
                 onToggle={() => {
                   stagedOpen = !stagedExpanded;
@@ -745,6 +820,7 @@ function ChangedFiles({
                   files={staged}
                   view={view}
                   kind="staged"
+                  largest={largest}
                   selected={selected}
                   selectedKind={selectedKind}
                   busy={busy}
@@ -757,6 +833,7 @@ function ChangedFiles({
               <FileSection
                 title="Changes"
                 count={unstaged.length}
+                totals={lineTotals(unstaged)}
                 open={changesExpanded}
                 onToggle={() => {
                   changesOpen = !changesExpanded;
@@ -786,6 +863,7 @@ function ChangedFiles({
                   files={unstaged}
                   view={view}
                   kind="unstaged"
+                  largest={largest}
                   selected={selected}
                   selectedKind={selectedKind}
                   busy={busy}
@@ -796,7 +874,7 @@ function ChangedFiles({
             ) : null}
           </>
         )}
-        <GitCopies cwd={cwd} enabled={enabled} />
+        <GitCopies cwd={cwd} enabled={enabled} onWorktrees={onWorktrees} />
         <GitHousekeeping cwd={cwd} enabled={enabled} />
       </div>
     </aside>
@@ -883,21 +961,6 @@ export function gitStatusSummary(index: GitDiffIndex): {
   };
 }
 
-function GitStatusCard({ index }: { index: GitDiffIndex }) {
-  const { tone, title, detail } = gitStatusSummary(index);
-  return (
-    <div className="git-status-card" data-tone={tone} role="status">
-      <span className="git-status-card-mark" aria-hidden>
-        {tone === "ok" ? "✓" : tone === "info" ? "↕" : "•"}
-      </span>
-      <div className="min-w-0">
-        <p className="git-status-card-title">{title}</p>
-        <p className="git-status-card-detail">{detail}</p>
-      </div>
-    </div>
-  );
-}
-
 function syncStatusLabel(index: GitDiffIndex): string {
   if (index.ahead > 0 && index.behind > 0) {
     return `Diverged from ${index.upstream ?? "upstream"}`;
@@ -975,7 +1038,7 @@ function GitSyncActions({
   if (!canPublish && !canSync && !showCreatePr && !showViewPr) return null;
 
   return (
-    <div className="mt-1.5 flex flex-col gap-1.5">
+    <div className="flex flex-col gap-1.5">
       {canPublish ? (
         <button
           type="button"
@@ -1079,9 +1142,57 @@ function GitSyncActions({
   );
 }
 
+/** What changed in this copy, and the way to ship it. */
+function ShipBar({
+  files,
+  additions,
+  deletions,
+  disabled,
+  onShip,
+}: {
+  files: number;
+  additions: number;
+  deletions: number;
+  disabled: boolean;
+  onShip: () => void;
+}) {
+  const lines = additions + deletions;
+  return (
+    <div className="git-ship-bar">
+      <div className="git-ship-stats">
+        <span
+          className="git-ship-stats-line"
+          aria-label={`${filesLabel(files)} changed, ${additions} added lines, ${deletions} deleted lines`}
+        >
+          <span>{filesLabel(files)}</span>
+          <span className="git-add">+{additions}</span>
+          <span className="git-del">−{deletions}</span>
+        </span>
+        {lines > 0 ? (
+          <span className="git-ship-meter" aria-hidden>
+            <span style={{ flexGrow: additions }} />
+            <span style={{ flexGrow: deletions }} />
+          </span>
+        ) : null}
+      </div>
+      <button
+        type="button"
+        className="git-ship-button"
+        disabled={disabled}
+        title="Commit these changes, push them and open a pull request"
+        onClick={onShip}
+      >
+        <ArrowUp className="size-3.5" strokeWidth={2} />
+        Ship it
+      </button>
+    </div>
+  );
+}
+
 function FileSection({
   title,
   count,
+  totals,
   open,
   onToggle,
   view,
@@ -1091,6 +1202,7 @@ function FileSection({
 }: {
   title: string;
   count: number;
+  totals: { additions: number; deletions: number };
   open: boolean;
   onToggle: () => void;
   view: ChangesView;
@@ -1120,9 +1232,15 @@ function FileSection({
           <span className="min-w-0 truncate text-ui-micro font-semibold tracking-[0.04em] text-content/55 uppercase">
             {title}
           </span>
-          <span className="ml-1 grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-accent/80 px-1 text-[8px] text-background-base">
+          <span className="ml-1 grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-content/12 px-1 text-ui-micro tabular-nums text-content/75">
             {count}
           </span>
+          {totals.additions > 0 || totals.deletions > 0 ? (
+            <span className="git-section-total shrink-0">
+              <span className="git-add">+{totals.additions}</span>{" "}
+              <span className="git-del">−{totals.deletions}</span>
+            </span>
+          ) : null}
         </button>
         <IconAction
           title={view === "tree" ? "View as List" : "View as Tree"}
@@ -1163,6 +1281,8 @@ type ChangeRowProps = {
   files: GitChangedFile[];
   view: ChangesView;
   kind: GitFileDiffKind;
+  /** Most changed lines in any file shown, which sizes each row's bar. */
+  largest: number;
   selected?: string;
   selectedKind?: GitFileDiffKind;
   busy: string | null;
@@ -1187,6 +1307,7 @@ function ChangeList({ files, view, ...rest }: ChangeRowProps) {
           active={isActive(file, rest.selected, rest.selectedKind, rest.kind)}
           busy={rest.busy === file.relative}
           kind={rest.kind}
+          largest={rest.largest}
           onOpenFile={rest.onOpenFile}
           onAction={rest.onAction}
         />
@@ -1199,6 +1320,7 @@ function ChangeDirChildren({
   dir,
   depth,
   kind,
+  largest,
   selected,
   selectedKind,
   busy,
@@ -1216,6 +1338,7 @@ function ChangeDirChildren({
           dir={child}
           depth={depth}
           kind={kind}
+          largest={largest}
           selected={selected}
           selectedKind={selectedKind}
           busy={busy}
@@ -1230,6 +1353,7 @@ function ChangeDirChildren({
           active={isActive(file, selected, selectedKind, kind)}
           busy={busy === file.relative}
           kind={kind}
+          largest={largest}
           depth={depth}
           onOpenFile={onOpenFile}
           onAction={onAction}
@@ -1359,6 +1483,7 @@ function ChangeRow({
   active,
   busy,
   kind,
+  largest,
   depth,
   onOpenFile,
   onAction,
@@ -1367,6 +1492,7 @@ function ChangeRow({
   active: boolean;
   busy: boolean;
   kind: GitFileDiffKind;
+  largest: number;
   /** Set in tree view: nesting level, and the folder path moves to the tree. */
   depth?: number;
   onOpenFile: (path: string, kind: GitFileDiffKind) => void;
@@ -1379,6 +1505,7 @@ function ChangeRow({
   const tree = depth !== undefined;
   const dir = tree ? "" : dirname(file.relative);
   const canOpen = file.status !== "deleted";
+  const bar = churnBar(file, largest);
   return (
     <li>
       <div
@@ -1410,6 +1537,29 @@ function ChangeRow({
             ) : null}
           </span>
         </button>
+        {file.additions > 0 || file.deletions > 0 ? (
+          <span
+            className={`git-file-stats ${
+              active ? "hidden" : "group-focus-within:hidden group-hover:hidden"
+            }`}
+            aria-label={`${file.additions} added, ${file.deletions} deleted`}
+          >
+            {file.additions > 0 ? (
+              <span className="git-add">+{file.additions}</span>
+            ) : null}
+            {file.deletions > 0 ? (
+              <span className="git-del">−{file.deletions}</span>
+            ) : null}
+            {bar ? (
+              <span className="git-file-bar" aria-hidden>
+                <span style={{ width: `${Math.round(bar.size * 100)}%` }}>
+                  <span style={{ flexGrow: bar.added }} />
+                  <span style={{ flexGrow: 1 - bar.added }} />
+                </span>
+              </span>
+            ) : null}
+          </span>
+        ) : null}
         <div
           className={` shrink-0 items-center ${
             active ? "flex" : "hidden group-focus-within:flex group-hover:flex"

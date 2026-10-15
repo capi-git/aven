@@ -1,0 +1,108 @@
+/* History rows: two lines per commit beside the lane graph, and a calm
+   empty state. Shares the panel's theme tokens. */
+.git-history-text {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  margin-left: 4px;
+  overflow: hidden;
+}
+.git-history-subject {
+  overflow: hidden;
+  font-size: var(--text-ui-label);
+  line-height: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-history-meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  font-size: var(--text-ui-micro);
+  line-height: 14px;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--color-content) 45%, transparent);
+}
+.git-history-sha {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  color: color-mix(in srgb, var(--color-content) 52%, transparent);
+}
+.git-history-author,
+.git-history-age {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.git-history-author::before,
+.git-history-age::before {
+  content: "·";
+  margin-right: 5px;
+}
+.git-history-ref {
+  --git-ref-color: color-mix(in srgb, var(--color-content) 50%, transparent);
+  display: inline-flex;
+  min-width: 0;
+  max-width: 7rem;
+  flex-shrink: 1;
+  align-items: center;
+  gap: 3px;
+  height: 14px;
+  padding: 0 5px;
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--color-content) 70%, transparent);
+  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+}
+.git-history-ref[data-colored] {
+  color: var(--git-ref-color);
+  background: color-mix(in srgb, var(--git-ref-color) 16%, transparent);
+}
+.git-history-ref[data-kind="tag"] {
+  border: 1px dashed color-mix(in srgb, var(--color-content) 28%, transparent);
+  background: transparent;
+}
+html.theme-light .git-history-ref[data-colored] {
+  color: color-mix(in srgb, var(--git-ref-color) 70%, black);
+}
+.git-history-more {
+  flex-shrink: 0;
+}
+.git-history-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 18px 16px;
+  text-align: center;
+}
+.git-history-empty-art {
+  width: 48px;
+  height: 20px;
+  margin-bottom: 8px;
+  fill: none;
+  stroke: color-mix(in srgb, var(--color-content) 30%, transparent);
+  stroke-width: 1.5;
+}
+.git-history-empty-art circle {
+  fill: var(--color-background-base);
+  stroke: color-mix(in srgb, var(--color-content) 55%, transparent);
+}
+.git-history-empty-art circle[data-faint] {
+  stroke: color-mix(in srgb, var(--color-content) 22%, transparent);
+  stroke-dasharray: 2 2;
+}
+.git-history-empty-title {
+  margin: 0;
+  font-size: var(--text-ui-label);
+  font-weight: 500;
+  color: color-mix(in srgb, var(--color-content) 75%, transparent);
+}
+.git-history-empty-detail {
+  margin: 2px 0 0;
+  font-size: var(--text-ui-caption);
+  color: color-mix(in srgb, var(--color-content) 45%, transparent);
+}

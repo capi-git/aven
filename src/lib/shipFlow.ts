@@ -228,3 +228,43 @@ export const SHIP_STEP_LABEL: Record<ShipStep, string> = {
   push: "Pushing…",
   pr: "Opening pull request…",
 };
+
+const SHIP_MODE_KEY = "aven.shipMode";
+
+function isShipMode(value: unknown): value is ShipMode {
+  return value === "commit" || value === "push" || value === "pr";
+}
+
+/** The way the person last finished a Ship, if they have. */
+export function loadShipMode(): ShipMode | null {
+  try {
+    const raw = localStorage.getItem(SHIP_MODE_KEY);
+    return isShipMode(raw) ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveShipMode(mode: ShipMode): void {
+  try {
+    localStorage.setItem(SHIP_MODE_KEY, mode);
+  } catch {
+    // Private mode or a full quota: the choice is only a default.
+  }
+}
+
+/**
+ * The last choice when it is possible now. Otherwise a push when a pull
+ * request is already open or the last choice was a pull request, then the
+ * furthest step that is possible, never further than a push by default.
+ */
+export function preferredShipMode(
+  options: readonly ShipOption[],
+  saved: ShipMode | null,
+): ShipMode {
+  const available = (mode: ShipMode) =>
+    options.some((option) => option.mode === mode && option.available);
+  if (saved && available(saved)) return saved;
+  if (available("push")) return "push";
+  return "commit";
+}

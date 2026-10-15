@@ -353,9 +353,39 @@ type CleanupState =
   | { phase: "done"; result: CleanupResult }
   | { phase: "error"; message: string };
 
+/**
+ * Which checkout the panel is showing, for the Changes header: "Main copy",
+ * a race lane, or a named copy. Null when the repository has only one.
+ */
+export function currentCopyLabel(
+  worktrees: readonly GitWorktree[],
+): string | null {
+  if (worktrees.length < 2) return null;
+  const current = worktrees.find((worktree) => worktree.current);
+  if (!current) return null;
+  if (current.primary) return "Main copy";
+  const race = raceLaneAtPath(current.path);
+  if (race) return `Race · ${race.lane.label}`;
+  return `Copy · ${copyName(current)}`;
+}
+
 /** Work waiting in other checkouts, e.g. agent and race copies of this project. */
-export function GitCopies({ cwd, enabled }: { cwd: string; enabled: boolean }) {
+export function GitCopies({
+  cwd,
+  enabled,
+  onWorktrees,
+}: {
+  cwd: string;
+  enabled: boolean;
+  /** Every checkout, including this one, whenever a scan finishes. */
+  onWorktrees?: (worktrees: GitWorktree[]) => void;
+}) {
   const { worktrees, refresh: refreshCopies } = useWorktrees(cwd, enabled);
+  const reportRef = useRef(onWorktrees);
+  reportRef.current = onWorktrees;
+  useEffect(() => {
+    reportRef.current?.(worktrees);
+  }, [worktrees]);
   const copies = summarizeCopies(worktrees);
   const { active, finished } = partitionCopies(copies);
   const live = useContext(LiveSessionsContext);
