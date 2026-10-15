@@ -332,7 +332,7 @@ export async function runDevSmoke(
   // The composer's agent pill opens one panel with the model list, its
   // settings and access, focused on the model search; Escape closes it and
   // hands the keyboard back to the message.
-  if (safe && typedTask)
+  if (safe && typedTask && get().utilities)
     await step(
       "the agent pill opens its panel and Escape returns",
       async () => {
