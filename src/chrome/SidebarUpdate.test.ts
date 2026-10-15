@@ -5,6 +5,7 @@ import type { UpdaterPhase, UpdaterSnapshot } from "../lib/updater";
 import {
   SidebarUpdate,
   SidebarUpdateFooter,
+  SidebarUpdateWaiting,
   isSidebarUpdateActionable,
 } from "./SidebarUpdate";
 
@@ -134,6 +135,26 @@ describe("SidebarUpdate", () => {
     });
     await Promise.all([first, second]);
     expect(updaterMocks.installPendingUpdate).toHaveBeenCalledOnce();
+  });
+});
+
+describe("SidebarUpdateWaiting", () => {
+  it("says the update waits for running work and offers Restart now and Cancel", () => {
+    const markup = renderToStaticMarkup(
+      createElement(SidebarUpdateWaiting, {
+        snapshot: {
+          phase: "ready",
+          currentVersion: "0.1.37",
+          availableVersion: "0.1.38",
+          waitingFor: "your agents finish",
+        },
+      }),
+    );
+    expect(markup).toContain('role="status"');
+    expect(markup).toContain("Update ready");
+    expect(markup).toContain("Restarting when your agents finish");
+    expect(markup).toContain("Restart now");
+    expect(markup).toContain("Cancel");
   });
 });
 

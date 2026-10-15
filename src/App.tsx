@@ -48,6 +48,7 @@ import {
   type OrchestrationWorkerDetail,
 } from "./chrome/OrchestrationActions";
 import { UpdateNoticeDialog } from "./chrome/UpdateNoticeDialog";
+import { UpdateRestartDialog } from "./chrome/UpdateRestartDialog";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, message } from "@tauri-apps/plugin-dialog";
@@ -623,6 +624,10 @@ import {
   setQuitWorkspace,
   type ResumedWorkspace,
 } from "./lib/appLifecycle";
+import {
+  listenForUpdateWindowClose,
+  reportWorkspaceActivity,
+} from "./lib/updateRestart";
 import {
   cancelScheduledFlush,
   scheduleStreamFlush,
@@ -1611,6 +1616,8 @@ export default function App({
   tabsRef.current = tabs;
   const dirtyFilesRef = useRef(dirtyFiles);
   dirtyFilesRef.current = dirtyFiles;
+  /** The Stop button's handler, for a restart that stops running work. */
+  const stopSessionRef = useRef<(sessionId: string) => void>(() => {});
   const projectTerminalsRef = useRef(projectTerminals);
   projectTerminalsRef.current = projectTerminals;
   const projectTerminalFocusedRef = useRef(projectTerminalFocused);
@@ -2233,6 +2240,12 @@ export default function App({
       () => projectTerminalsRef.current,
       flushHarnessEvents,
       () => saveBrowserWorkspaces(browserWorkspacesRef.current, true),
+      {
+        dirtyFileIds: () => dirtyFilesRef.current,
+        stopSessions: (ids) => {
+          for (const id of ids) stopSessionRef.current(id);
+        },
+      },
     );
     void getCurrentWindow()
       .onCloseRequested((event) => {
@@ -6898,6 +6911,14 @@ export default function App({
     },
     [flushHarnessEvents, announceActivity],
   );
+  stopSessionRef.current = onStop;
+
+  // Tell a restart to update, here or in another window, what work it would
+  // interrupt. Only a changed summary is sent.
+  useEffect(() => {
+    reportWorkspaceActivity();
+  }, [sessions, tabs, dirtyFiles]);
+  useEffect(() => listenForUpdateWindowClose(), []);
 
   useEffect(() => {
     const onEscape = (event: KeyboardEvent) => {
@@ -9329,6 +9350,7 @@ export default function App({
               />
             ) : null}
             <UpdateNoticeDialog />
+            <UpdateRestartDialog />
             {providerSetupOpen ? (
               <LazyViewSlot label="provider setup" quiet>
                 <ProviderSetupDialog

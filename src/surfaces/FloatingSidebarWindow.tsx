@@ -177,6 +177,8 @@ export function FloatingSidebarWindow() {
       refresh: (manual) =>
         call("refreshUpdater", [manual]) as Promise<UpdaterSnapshot>,
       install: () => call("installUpdate") as Promise<UpdaterSnapshot>,
+      restartNow: () => call("restartUpdateNow") as Promise<UpdaterSnapshot>,
+      cancelWait: () => call("cancelUpdateWait") as Promise<UpdaterSnapshot>,
     });
     // Orchestration runs live in the workspace; this copy only displays them.
     orchestrator.cancelTask = (leadId: string, taskId: string) =>

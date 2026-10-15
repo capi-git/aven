@@ -1,5 +1,14 @@
 import { pauseBrowsersForUpdate } from "./browserUpdateState";
 
+const DEFAULT_DETAIL =
+  "Aven is saving your workspace and browser tabs. Your tabs will reopen after the update.";
+let showDetail: ((text: string) => void) | null = null;
+
+/** Say what the restart is doing, such as finishing a provider update. */
+export function setUpdateLockStatus(text: string | null): void {
+  showDetail?.(text || DEFAULT_DETAIL);
+}
+
 /** Block new edits synchronously before an update snapshots the workspace. */
 export function lockUpdateInput(): () => void {
   const resumeBrowsers = pauseBrowsersForUpdate();
@@ -29,8 +38,9 @@ export function lockUpdateInput(): () => void {
   const detail = document.createElement("p");
   detail.id = "aven-update-restart-detail";
   detail.className = "text-xs text-content/65";
-  detail.textContent =
-    "Aven is saving your workspace and browser tabs. Your tabs will reopen after the update.";
+  detail.textContent = DEFAULT_DETAIL;
+  // Assistive technology hears what the restart is waiting for.
+  detail.setAttribute("aria-live", "polite");
   dialog.append(spinner, title, detail);
   overlay.append(dialog);
 
@@ -63,10 +73,15 @@ export function lockUpdateInput(): () => void {
   root?.setAttribute("inert", "");
   document.body.append(overlay);
   dialog.focus();
+  const show = (text: string) => {
+    detail.textContent = text;
+  };
+  showDetail = show;
   let released = false;
   return () => {
     if (released) return;
     released = true;
+    if (showDetail === show) showDetail = null;
     resumeBrowsers();
     for (const event of events) window.removeEventListener(event, block, true);
     window.removeEventListener("focusin", keepFocus, true);

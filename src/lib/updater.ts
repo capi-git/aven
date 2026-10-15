@@ -6,7 +6,14 @@ import {
   type DownloadEvent,
   type Update,
 } from "@tauri-apps/plugin-updater";
-import { lockUpdateInput } from "./updateInputLock";
+import { lockUpdateInput, setUpdateLockStatus } from "./updateInputLock";
+import {
+  hasRestartWork,
+  plainList,
+  requestRestartDecision,
+  restartWaitReason,
+  type RestartWork,
+} from "./updateRestartWork";
 import { announceUpdateAvailable } from "./sounds";
 import { forgetInstalledUpdate, rememberInstalledUpdate } from "./updateNotice";
 import { IS_PERSONAL_BUILD, PERSONAL_UPDATE_MESSAGE } from "./personalBuild";
@@ -57,6 +64,11 @@ export type UpdaterSnapshot = {
   availableVersion?: string;
   progress?: number;
   error?: string;
+  /**
+   * The update restarts by itself once running work finishes. Finishes the
+   * sentence "Restarting when …", such as "your agents finish".
+   */
+  waitingFor?: string;
 };
 
 export const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
@@ -73,6 +85,12 @@ let downloaded = false;
 let pendingInstalled = false;
 let checking: Promise<UpdaterSnapshot> | null = null;
 let installing: Promise<UpdaterSnapshot> | null = null;
+/** Asking what to do about running work, or restarting after the answer. */
+let deciding: Promise<UpdaterSnapshot> | null = null;
+/** Waiting for running work to finish, then restarting by itself. */
+let waiting: { work: RestartWork; stop: () => void } | null = null;
+let rechecking = false;
+let recheckAgain = false;
 let lastAutomaticCheck = -Infinity;
 let developmentBuild = false;
 
@@ -83,6 +101,8 @@ let developmentBuild = false;
 export type UpdaterMirror = {
   refresh(manual: boolean): Promise<UpdaterSnapshot>;
   install(): Promise<UpdaterSnapshot>;
+  restartNow(): Promise<UpdaterSnapshot>;
+  cancelWait(): Promise<UpdaterSnapshot>;
 };
 let mirror: UpdaterMirror | null = null;
 
@@ -104,6 +124,9 @@ export function subscribeUpdater(listener: () => void): () => void {
   };
 }
 function publish(next: UpdaterSnapshot): UpdaterSnapshot {
+  // A background check must not hide that the restart is waiting.
+  if (waiting && next.phase === "ready" && !next.waitingFor)
+    next = { ...next, waitingFor: restartWaitReason(waiting.work) };
   snapshot = next;
   for (const listener of listeners) listener();
   return next;
@@ -338,21 +361,180 @@ export function startAutomaticUpdates(target: Window = window): () => void {
   };
 }
 
+// Imported on demand because the floating sidebar's window shares this
+// module but only mirrors the workspace's updater; a static import brought
+// every agent harness into that window's startup. Loaded once and shared.
+let restartImport: Promise<typeof import("./updateRestart")> | null = null;
+const restartModule = () => {
+  restartImport ??= import("./updateRestart").catch((error: unknown) => {
+    restartImport = null;
+    throw error;
+  });
+  return restartImport;
+};
+
+/**
+ * Restart to install the downloaded update. Aven tidies up by itself and asks
+ * only when real work would be interrupted: wait for it, stop it, or cancel.
+ * While waiting, this asks again with stopping as the first choice.
+ */
 export function installPendingUpdate(
   onProgress?: (snapshot: UpdaterSnapshot) => void,
 ): Promise<UpdaterSnapshot> {
   if (mirror) return mirror.install();
+  return beginRestart(!!waiting, onProgress);
+}
+
+/** "Restart now" while waiting: ask whether to stop the work that is left. */
+export function restartUpdateNow(
+  onProgress?: (snapshot: UpdaterSnapshot) => void,
+): Promise<UpdaterSnapshot> {
+  if (mirror) return mirror.restartNow();
+  return beginRestart(true, onProgress);
+}
+
+/** Stop waiting for work to finish; the update stays downloaded. */
+export function cancelUpdateWait(): Promise<UpdaterSnapshot> {
+  if (mirror) return mirror.cancelWait();
+  stopWaiting();
+  return Promise.resolve(snapshot);
+}
+
+function stopWaiting(): void {
+  const current = waiting;
+  waiting = null;
+  current?.stop();
+  if (snapshot.waitingFor) publish({ ...snapshot, waitingFor: undefined });
+}
+
+function beginRestart(
+  now: boolean,
+  onProgress?: (snapshot: UpdaterSnapshot) => void,
+  fromWait = false,
+): Promise<UpdaterSnapshot> {
   if (installing) return installing;
+  if (deciding) return deciding;
   // Do not install or close an archive while a refresh is replacing it.
-  if (checking) return checking.then(() => installPendingUpdate(onProgress));
+  if (checking)
+    return checking.then(() => beginRestart(now, onProgress, fromWait));
   const update = pendingUpdate;
   if (IS_PERSONAL_BUILD || !update || !downloaded)
     return Promise.resolve(snapshot);
+  deciding = decideRestart(update, now, fromWait, onProgress).finally(() => {
+    deciding = null;
+  });
+  return deciding;
+}
+
+async function decideRestart(
+  update: Update,
+  now: boolean,
+  fromWait: boolean,
+  onProgress?: (snapshot: UpdaterSnapshot) => void,
+): Promise<UpdaterSnapshot> {
+  const restart = await restartModule();
+  // Work that starts while the restart saves sends the person back here; a
+  // few rounds cover that without looping on a window that keeps refusing.
+  for (let round = 0; round < 3; round++) {
+    const work = await restart.assessUpdateRestart();
+    let stopWork = false;
+    if (hasRestartWork(work)) {
+      if (fromWait) {
+        startWaiting(work);
+        return snapshot;
+      }
+      const choice = await requestRestartDecision(work, now);
+      if (choice === "cancel") {
+        // From "Restart now", cancelling keeps waiting.
+        if (!now) stopWaiting();
+        return snapshot;
+      }
+      if (choice === "wait") {
+        startWaiting(work);
+        return snapshot;
+      }
+      stopWaiting();
+      await restart.stopUpdateRestartWork();
+      stopWork = true;
+    } else {
+      stopWaiting();
+    }
+    const result = await installNow(update, stopWork, onProgress);
+    if (result !== "busy") return result;
+    now = false;
+  }
+  showUpdateNotice(
+    "Couldn’t restart to update",
+    "New work kept starting while Aven was getting ready. Try again when it settles. The update will stay downloaded and ready.",
+  );
+  return snapshot;
+}
+
+function startWaiting(work: RestartWork): void {
+  const current = waiting ?? { work, stop: () => {} };
+  current.work = work;
+  if (!waiting) {
+    waiting = current;
+    void restartModule().then((restart) => {
+      if (waiting !== current) return;
+      current.stop = restart.watchUpdateRestartWork(
+        () => void recheckWaiting(),
+        (id) => current.work.terminals.some((terminal) => terminal.id === id),
+      );
+    });
+  }
+  publish({ ...snapshot, phase: "ready", waitingFor: restartWaitReason(work) });
+  // The work may have finished while the person was choosing.
+  void recheckWaiting();
+}
+
+async function recheckWaiting(): Promise<void> {
+  if (!waiting) return;
+  if (rechecking) {
+    recheckAgain = true;
+    return;
+  }
+  rechecking = true;
+  try {
+    do {
+      recheckAgain = false;
+      const current: typeof waiting = waiting;
+      if (!current) return;
+      // Let an open question or a restart in progress finish first; a wait
+      // chosen in that question is checked right after it closes.
+      const busy = installing ?? deciding;
+      if (busy) {
+        await busy.catch(() => undefined);
+        if (waiting !== current) return;
+      }
+      const work = await (await restartModule()).assessUpdateRestart();
+      if (waiting !== current) return;
+      if (hasRestartWork(work)) {
+        current.work = work;
+        const reason = restartWaitReason(work);
+        if (snapshot.waitingFor !== reason)
+          publish({ ...snapshot, waitingFor: reason });
+        continue;
+      }
+      // Everything finished: restart as the person asked.
+      void beginRestart(false, undefined, true);
+      return;
+    } while (recheckAgain);
+  } finally {
+    rechecking = false;
+  }
+}
+
+function installNow(
+  update: Update,
+  stopWork: boolean,
+  onProgress?: (snapshot: UpdaterSnapshot) => void,
+): Promise<UpdaterSnapshot | "busy"> {
   const unsubscribe = onProgress
     ? subscribeUpdater(() => onProgress(snapshot))
     : () => {};
   const releaseInput = lockUpdateInput();
-  installing = (async () => {
+  const run = (async (): Promise<UpdaterSnapshot | "busy"> => {
     const currentVersion = await readAppVersion();
     publish({
       phase: "installing",
@@ -362,20 +544,29 @@ export function installPendingUpdate(
     let installed = pendingInstalled;
     let installerPrepared = false;
     try {
-      // Imported here because the floating sidebar's window shares this
-      // module but only mirrors the workspace's updater; a static import
-      // brought every agent harness into that window's startup.
-      const { prepareUpdateRestart } = await import("./appLifecycle");
-      // Acquires the native restart guard and saves drafts/session state. It
-      // refuses active tasks and extra windows, without stopping their work.
-      if (!(await prepareUpdateRestart())) {
+      const { prepareUpdateRestart } = await restartModule();
+      // Acquires the native restart guard and saves drafts/session state.
+      // Aven tidies windows, browser tabs and idle terminals by itself.
+      const prepared = await prepareUpdateRestart({
+        stopWork,
+        onWaiting: (labels) =>
+          setUpdateLockStatus(
+            labels.length
+              ? `Waiting for Aven to finish ${plainList(labels, labels.length)}…`
+              : null,
+          ),
+      });
+      if (!prepared) {
+        // Real work started meanwhile. Nothing was closed; ask again.
         releaseInput();
-        return publish({
+        publish({
           phase: "ready",
           currentVersion,
           availableVersion: update.version,
         });
+        return "busy";
       }
+      setUpdateLockStatus(null);
       if (INSTALLER_EXITS_APP) {
         // Windows: the updater starts the signed NSIS installer and exits Aven
         // at once; the installer reopens Aven when it finishes. The native
@@ -414,9 +605,12 @@ export function installPendingUpdate(
       showUpdateNotice("Couldn’t restart to update", detail);
       return result;
     }
-  })().finally(() => {
-    installing = null;
-    unsubscribe();
-  });
-  return installing;
+  })();
+  installing = run
+    .then((result) => (result === "busy" ? snapshot : result))
+    .finally(() => {
+      installing = null;
+      unsubscribe();
+    });
+  return run;
 }

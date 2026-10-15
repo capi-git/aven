@@ -136,10 +136,12 @@ describe("useNativeFloatingSidebar", () => {
     });
     expect(snapshot.actions).toEqual([
       "addExistingProject",
+      "cancelUpdateWait",
       "installUpdate",
       "onNew",
       "onSelectSession",
       "refreshUpdater",
+      "restartUpdateNow",
     ]);
     // Native code starts closed whenever the workspace attaches.
     expect(native.setOpen).toHaveBeenCalledWith(false, false);

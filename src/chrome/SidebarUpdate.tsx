@@ -1,7 +1,9 @@
-import { ArrowDownCircle, Loader } from "./icons";
+import { ArrowDownCircle, Clock, Loader } from "./icons";
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import {
+  cancelUpdateWait,
   installPendingUpdate,
+  restartUpdateNow,
   runUpdateFlow,
   subscribeUpdater,
   getUpdaterSnapshot,
@@ -58,8 +60,62 @@ export function SidebarUpdateFooter({
   return (
     <div className="flex flex-col gap-1.5 p-2 pb-0">
       {card}
-      {actionable ? <SidebarUpdate snapshot={snapshot} /> : null}
+      {!actionable ? null : snapshot.phase === "ready" &&
+        snapshot.waitingFor ? (
+        <SidebarUpdateWaiting snapshot={snapshot} />
+      ) : (
+        <SidebarUpdate snapshot={snapshot} />
+      )}
     </div>
+  );
+}
+
+/** The update waits for running work, then restarts by itself. */
+export function SidebarUpdateWaiting({
+  snapshot,
+}: {
+  snapshot: UpdaterSnapshot;
+}) {
+  return (
+    <section
+      role="status"
+      aria-label="Update ready"
+      className="flex w-full items-start gap-2 rounded-lg bg-accent/15 px-2 py-2 text-content"
+    >
+      <span className="mt-0.5 grid size-[18px] shrink-0 place-items-center">
+        <Clock className="size-4 text-accent" aria-hidden />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-ui-label font-medium leading-tight">
+          Update ready
+        </span>
+        <span
+          className="mt-0.5 block text-ui-caption leading-snug text-content/60"
+          title={`Restarting when ${snapshot.waitingFor}`}
+        >
+          Restarting when {snapshot.waitingFor}
+        </span>
+        <span className="mt-1 flex items-center gap-1 text-ui-caption">
+          <button
+            type="button"
+            onClick={() => void restartUpdateNow()}
+            className="rounded px-1 py-0.5 font-medium text-accent hover:bg-accent/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            Restart now
+          </button>
+          <span aria-hidden className="text-content/35">
+            ·
+          </span>
+          <button
+            type="button"
+            onClick={() => void cancelUpdateWait()}
+            className="rounded px-1 py-0.5 text-content/70 hover:bg-content/10 hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            Cancel
+          </button>
+        </span>
+      </span>
+    </section>
   );
 }
 
@@ -104,7 +160,7 @@ export function SidebarUpdate({
       title={
         snapshot.error ??
         (snapshot.phase === "ready"
-          ? "Update downloaded. Restart when your tasks are finished."
+          ? "Update downloaded. Aven saves your work and asks only if something is still running."
           : undefined)
       }
       onClick={onClick}
