@@ -20,6 +20,8 @@ import {
   nextCoinDelay,
   obstacleFromRects,
   pickCoinX,
+  REACTION_ROOM_PX,
+  REACTION_WAIT_MS,
   RUNNER_INSET,
   RUNNER_SIZE,
   poseAt,
@@ -35,6 +37,11 @@ import {
   type Obstacle,
   type RunnerTrack,
 } from "../lib/composerRunner";
+import { useMascotReaction } from "../hooks/useMascotReaction";
+import {
+  MASCOT_REACTION_MS,
+  type MascotReaction,
+} from "../lib/mascotReactions";
 import { projectKey, projectName } from "../lib/paths";
 import {
   loadTabGroupColors,
@@ -61,6 +68,8 @@ type LiveCoin = Coin & {
 const COIN_SVG = `<svg viewBox="0 0 8 8" width="${COIN_SIZE}" height="${COIN_SIZE}" shape-rendering="crispEdges" fill="#e8b923" aria-hidden="true"><path class="composer-coin-face" d="${COIN_FACE_PATH}"/><path class="composer-coin-edge" d="${COIN_EDGE_PATH}"/></svg>`;
 const STAR_SVG = `<svg viewBox="0 0 8 8" width="${STAR_SIZE}" height="${STAR_SIZE}" shape-rendering="crispEdges" fill="#f4e27a" aria-hidden="true"><path class="composer-coin-face" d="${STAR_FACE_PATH}"/><path class="composer-coin-edge" d="${STAR_EDGE_PATH}"/></svg>`;
 const GEOMETRY_SAMPLE_MS = 100;
+/** A reaction belongs to this turn's end if it started this close to it. */
+const REACTION_MATCH_MS = 1500;
 
 /** Project pixel mascot running the composer's top ledge while a turn is live. */
 export function ComposerRunner({
@@ -84,6 +93,19 @@ export function ComposerRunner({
 
   const project = projectName(cwd);
   const key = projectKey(cwd);
+  // Watched for the whole turn, so the turn's own end is new to this window.
+  const reaction = useMascotReaction(key);
+  const endedAtRef = useRef<number | null>(null);
+  if (busy) endedAtRef.current = null;
+  else endedAtRef.current ??= Date.now();
+  const ownReaction =
+    !busy &&
+    reaction &&
+    reaction.startedAt >= (endedAtRef.current ?? 0) - REACTION_MATCH_MS
+      ? reaction
+      : null;
+  const reactionRef = useRef<MascotReaction | null>(ownReaction);
+  reactionRef.current = ownReaction;
   const appearance = useMemo(() => {
     return {
       name: resolveTabGroupMascot(key, loadTabGroupMascots()),
@@ -112,6 +134,8 @@ export function ComposerRunner({
     let nextCoinAt = last + nextCoinDelay(true);
     let exiting = false;
     let exitAt = 0;
+    let reactAt: number | null = null;
+    let jumpAt: number | null = null;
     let frozenX = 0;
     let frozenFacing: 1 | -1 = 1;
     let finished = false;
@@ -284,6 +308,8 @@ export function ComposerRunner({
       if (busyRef.current) {
         if (exiting) {
           exiting = false;
+          reactAt = null;
+          jumpAt = null;
           learned = reduced;
           endStun();
         }
@@ -296,6 +322,8 @@ export function ComposerRunner({
       } else if (!exiting && !finished) {
         exiting = true;
         exitAt = now;
+        reactAt = null;
+        jumpAt = reduced ? now : null;
         endStun();
         const current = poseAt(along, facing, track.width, null, []);
         frozenX = current.x;
@@ -306,7 +334,21 @@ export function ComposerRunner({
       }
 
       if (exiting) {
-        const t = reduced ? 1 : Math.min(1, (now - exitAt) / EXIT_MS);
+        // Stand on the rim for the turn's reaction, then hop away.
+        if (jumpAt === null) {
+          const playing = reactionRef.current;
+          if (playing && reactAt === null) reactAt = now;
+          const holdUntil =
+            playing && reactAt !== null
+              ? reactAt + MASCOT_REACTION_MS[playing.kind]
+              : exitAt + REACTION_WAIT_MS;
+          if (now >= holdUntil) jumpAt = now;
+        }
+        const t = reduced
+          ? 1
+          : jumpAt === null
+            ? 0
+            : Math.min(1, (now - jumpAt) / EXIT_MS);
         const y = reduced ? -EXIT_SINK : exitJumpY(t);
         placeSprite(track.left, track.top, frozenX, y, frozenFacing);
         for (const coin of [...coins]) {
@@ -501,7 +543,9 @@ export function ComposerRunner({
           height: RUNNER_SIZE,
           transform:
             "translate3d(var(--runner-x, -64px), var(--runner-y, -64px), 0) scaleX(var(--runner-facing, 1))",
-          clipPath: "inset(0 0 var(--runner-clip, 0px) 0)",
+          // The sides and top leave room for a reaction's sparkle and drop;
+          // the bottom clips the sprite as it sinks behind the rim.
+          clipPath: `inset(-${REACTION_ROOM_PX}px -${REACTION_ROOM_PX}px var(--runner-clip, 0px) -${REACTION_ROOM_PX}px)`,
         }}
       >
         <ProjectMascot
@@ -509,7 +553,9 @@ export function ComposerRunner({
           name={appearance.name}
           color={appearance.color}
           className="size-4"
-          active
+          active={!ownReaction}
+          reaction={ownReaction?.kind}
+          reactionId={ownReaction?.id}
         />
       </div>
       <div ref={starsRef} className="absolute inset-0" />
