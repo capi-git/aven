@@ -628,6 +628,10 @@ import {
   type ScheduledFlush,
 } from "./lib/streamFlush";
 import { LiveSessionsContext } from "./lib/liveSessions";
+import {
+  subscribeOpenChatRequests,
+  subscribeShipRequests,
+} from "./lib/shipRequest";
 
 /** Minimum spacing between full transcript saves of a chat that is still running. */
 const BUSY_PERSIST_INTERVAL_MS = 10_000;
@@ -3912,6 +3916,12 @@ export default function App({
   const onToggleChanges = useCallback(() => {
     onShowSourceControl();
   }, [onShowSourceControl]);
+  // "Ship it" on a finished turn's changes opens the Changes panel, which
+  // then opens its Ship flow for that folder.
+  useEffect(
+    () => subscribeShipRequests(() => onShowSourceControl()),
+    [onShowSourceControl],
+  );
 
   const onReorderTabs = useCallback(
     (ids: string[], movedId?: string) => {
@@ -7522,6 +7532,14 @@ export default function App({
       void onSelectHistorySession(sessionId);
     },
     [onSelectHistorySession, setSettingsOpen],
+  );
+  // "Open chat" on another copy in the Changes panel.
+  useEffect(
+    () =>
+      subscribeOpenChatRequests((sessionId) => {
+        void onSelectHistorySession(sessionId);
+      }),
+    [onSelectHistorySession],
   );
 
   const onRailBack = onVisitBack;

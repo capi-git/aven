@@ -159,3 +159,55 @@
 .git-house-more {
   padding-left: 18px;
 }
+
+/* Releases: one line that opens for detail and actions. */
+.git-house-card.git-release {
+  padding: 0;
+}
+.git-release-line {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  border-radius: 10px;
+  text-align: left;
+  font-size: var(--text-ui-label);
+  color: var(--color-content);
+}
+.git-release-line > svg:first-child {
+  color: var(--git-house-tone);
+}
+.git-release-line:hover {
+  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+}
+.git-release-line:focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: 1px;
+}
+.git-release-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-release[data-open] .git-release-title {
+  white-space: normal;
+}
+.git-release-chevron {
+  color: color-mix(in srgb, var(--color-content) 40%, transparent);
+}
+.git-release-line[aria-expanded="true"] .git-release-chevron {
+  transform: rotate(90deg);
+}
+.git-release-body {
+  padding: 0 9px 9px;
+}
+.git-release-body .git-house-detail {
+  margin-top: 0;
+}
+.git-release-body .git-house-actions {
+  margin-top: 6px;
+}

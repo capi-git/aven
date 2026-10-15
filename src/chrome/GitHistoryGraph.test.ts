@@ -2,7 +2,12 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { GitHistoryGraph } from "./GitHistoryGraph";
+import {
+  GitHistoryGraph,
+  HISTORY_ROW_PX,
+  historyGraphExtensions,
+} from "./GitHistoryGraph";
+import { historyItemGraph, layoutGitGraph } from "../lib/gitGraph";
 import {
   notifyGitChanged,
   type GitHistory,
@@ -54,13 +59,14 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function render(enabled = true) {
+async function render(enabled = true, branch?: string | null) {
   await act(async () =>
     root.render(
       createElement(GitHistoryGraph, {
         cwd,
         enabled,
         expanded: true,
+        branch,
         onToggleExpanded: vi.fn(),
         onOpenCommit: vi.fn(),
       }),
@@ -162,5 +168,79 @@ describe("retained Git history lifecycle", () => {
     await act(async () => finish(history("Old project")));
     expect(container.textContent).toContain("Other project");
     expect(container.textContent).not.toContain("Old project");
+  });
+});
+
+describe("history rows", () => {
+  it("shows the message, then refs, short sha and age", async () => {
+    const commit: GitHistoryCommit = {
+      sha: "f".repeat(40),
+      shortSha: "fffffff",
+      parents: [],
+      author: "Test",
+      timestamp: Math.floor(Date.now() / 1000) - 3 * 3600,
+      subject: "Add the ship flow",
+      refs: [
+        { name: "main", kind: "local" },
+        { name: "origin/main", kind: "remote" },
+        { name: "v1.0.0", kind: "tag" },
+      ],
+      head: true,
+    };
+    mocks.history.mockResolvedValue({ head: commit.sha, commits: [commit] });
+    await render();
+    const row = container.querySelector(".git-history-item")!;
+    expect(row.querySelector(".git-history-subject")?.textContent).toBe(
+      "Add the ship flow",
+    );
+    expect(row.querySelector(".git-history-sha")?.textContent).toBe("fffffff");
+    expect(row.querySelector(".git-history-age")?.textContent).toBe("3h ago");
+    // Two chips, then a count for the rest.
+    expect(row.querySelectorAll(".git-history-ref")).toHaveLength(2);
+    expect(row.querySelector(".git-history-more")?.textContent).toBe("+1");
+    expect(container.textContent).toContain("History");
+  });
+
+  it("explains an empty history in plain words", async () => {
+    let finish!: (value: GitHistory) => void;
+    mocks.history.mockImplementationOnce(
+      () =>
+        new Promise<GitHistory>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await render(true, "main");
+    expect(container.textContent).toContain("Loading history");
+    await act(async () => finish({ head: null, commits: [] }));
+    expect(container.textContent).toContain("No commits yet");
+    expect(container.textContent).toContain("Your first commit on main");
+    await render(true, null);
+    expect(container.textContent).toContain("Not a Git repository");
+  });
+
+  it("carries lanes through the taller row and centres the node", () => {
+    const rows = layoutGitGraph([
+      { sha: "c", parents: ["b"], head: true },
+      { sha: "b", parents: ["a"] },
+      { sha: "a", parents: [] },
+    ]);
+    const middle = rows[1]!;
+    const graph = historyItemGraph(middle);
+    const { offset, paths } = historyGraphExtensions(
+      graph,
+      middle,
+      HISTORY_ROW_PX,
+    );
+    expect(offset).toBe((HISTORY_ROW_PX - graph.height) / 2);
+    expect(paths.map((path) => path.d)).toEqual([
+      `M 11 0 V ${offset}`,
+      `M 11 ${offset + graph.height} V ${HISTORY_ROW_PX}`,
+    ]);
+    // The root commit has nothing below it.
+    const last = rows[2]!;
+    expect(
+      historyGraphExtensions(historyItemGraph(last), last, HISTORY_ROW_PX)
+        .paths,
+    ).toHaveLength(1);
   });
 });

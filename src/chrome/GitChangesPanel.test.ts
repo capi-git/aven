@@ -10,6 +10,7 @@ import {
   type GitPr,
 } from "../lib/fs";
 import { generateCommitMessage } from "../lib/harness";
+import { requestShip, takeShipRequest } from "../lib/shipRequest";
 
 const mocks = vi.hoisted(() => ({
   diffIndex: vi.fn(),
@@ -20,6 +21,8 @@ const mocks = vi.hoisted(() => ({
   prStatus: vi.fn(),
   squashMerge: vi.fn(),
   ask: vi.fn(),
+  history: vi.fn(),
+  graph: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -30,6 +33,7 @@ vi.mock("@tauri-apps/api/core", () => ({
     if (command === "git_pr_status") return mocks.prStatus(args.cwd);
     if (command === "git_pr_squash_merge")
       return mocks.squashMerge(args.cwd, (args as { number?: number }).number);
+    if (command === "git_history") return mocks.history(args.cwd);
     throw new Error(`Unexpected native command: ${command}`);
   },
 }));
@@ -49,7 +53,10 @@ vi.mock("./GitCopies", () => ({ GitCopies: () => null }));
 vi.mock("./GitHousekeeping", () => ({ GitHousekeeping: () => null }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: mocks.ask }));
 vi.mock("./GitHistoryGraph", () => ({
-  GitHistoryGraph: () => null,
+  GitHistoryGraph: (props: unknown) => {
+    mocks.graph(props);
+    return null;
+  },
   GraphResizeSash: () => null,
   GRAPH_PANEL_DEFAULT: 240,
   GRAPH_PANEL_MIN: 120,
@@ -88,6 +95,7 @@ beforeEach(() => {
   mocks.diffFiles.mockResolvedValue(index);
   mocks.stageAll.mockResolvedValue(undefined);
   mocks.prStatus.mockResolvedValue(null);
+  mocks.history.mockResolvedValue({ head: null, commits: [] });
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -524,5 +532,118 @@ describe("active window Git polling", () => {
     expect(mocks.diffIndex).toHaveBeenCalledTimes(2);
     expect(container.textContent).toContain("main is clean and up to date");
     expect(container.textContent).not.toContain("↑2");
+  });
+});
+
+describe("Ship it", () => {
+  function shipButton() {
+    return Array.from(container.querySelectorAll("button")).find(
+      (candidate) => candidate.textContent?.trim() === "Ship it",
+    );
+  }
+
+  it("sums up the changes, opens the flow, and sets the commit box aside", async () => {
+    index.remote = "origin";
+    index.upstream = "origin/feature";
+    index.ahead = 1;
+    index.files = [
+      { ...changed("a.ts", false, true), additions: 7, deletions: 2 },
+      { ...changed("b.ts", false, true), additions: 0, deletions: 4 },
+    ];
+    await render();
+    expect(container.textContent).toContain("2 files");
+    expect(container.textContent).toContain("+7");
+    expect(container.textContent).toContain("−6");
+    // Each row shows its own lines and a bar sized against the largest file.
+    const stats = container.querySelectorAll(".git-file-stats");
+    expect(stats).toHaveLength(2);
+    expect(stats[0].textContent).toBe("+7−2");
+    // Create PR waits for the files; Ship it offers the pull request instead.
+    expect(container.textContent).not.toContain("Create PR");
+    expect(container.textContent).toContain("Sync Changes");
+    await act(async () => shipButton()!.click());
+    expect(container.querySelector('[aria-label="Ship it"]')).not.toBeNull();
+    expect(container.textContent).toContain("No tests ran");
+    expect(
+      container.querySelector('[placeholder^="Message"]')?.closest(".hidden"),
+    ).not.toBeNull();
+    expect(container.textContent).not.toContain("Sync Changes");
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Close Ship it"]')!
+        .click(),
+    );
+    expect(container.querySelector('[aria-label="Ship it"]')).toBeNull();
+    expect(shipButton()).toBeDefined();
+  });
+
+  it("lets the history yield its room to the flow until it is opened again", async () => {
+    index.files = [changed("a.ts", false, true)];
+    await render();
+    const graph = () =>
+      mocks.graph.mock.lastCall?.[0] as {
+        expanded: boolean;
+        onToggleExpanded: () => void;
+      };
+    expect(graph().expanded).toBe(true);
+    await act(async () => shipButton()!.click());
+    expect(graph().expanded).toBe(false);
+    await act(async () => graph().onToggleExpanded());
+    expect(graph().expanded).toBe(true);
+    expect(container.querySelector('[aria-label="Ship it"]')).not.toBeNull();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Close Ship it"]')!
+        .click(),
+    );
+    expect(graph().expanded).toBe(true);
+  });
+
+  it("opens the flow for a request made for this folder elsewhere", async () => {
+    index.files = [changed("a.ts", false, true)];
+    requestShip("/somewhere-else", "s0");
+    await render();
+    expect(container.querySelector('[aria-label="Ship it"]')).toBeNull();
+    takeShipRequest("/somewhere-else");
+    await act(async () => requestShip(cwd, "s1"));
+    expect(container.querySelector('[aria-label="Ship it"]')).not.toBeNull();
+  });
+});
+
+describe("clean copy", () => {
+  it("shows the mascot state with the last commit and next steps", async () => {
+    mocks.history.mockResolvedValue({
+      head: "abc",
+      commits: [
+        {
+          sha: "abc",
+          shortSha: "abc",
+          parents: [],
+          author: "Jack",
+          timestamp: Math.floor(Date.now() / 1000) - 120,
+          subject: "Ship the redesign",
+          refs: [],
+          head: true,
+        },
+      ],
+    });
+    await render();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(container.textContent).toContain("All clean");
+    expect(container.textContent).toContain("Ship the redesign");
+    expect(container.textContent).toContain("2m ago");
+    expect(container.textContent).toContain("History");
+  });
+
+  it("calls a folder without branch or commits a folder without Git", async () => {
+    index.branch = null;
+    await render();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(container.textContent).toContain("No Git here yet");
+    expect(container.textContent).not.toContain("All clean");
   });
 });

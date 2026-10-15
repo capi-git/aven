@@ -79,21 +79,26 @@ export function gitReleaseStart(
 
 export type ReleaseSummary = {
   tone: "ok" | "info" | "busy" | "warn";
+  /** One plain sentence, shown on the card's single line. */
   title: string;
+  /** More, shown when the card is opened; may be empty. */
   detail: string;
   /** Version the publish button would release, when one is ready. */
   publish: string | null;
 };
 
-/** What the release card says, from one status read. */
+function changesCount(count: number): string {
+  return `${count} ${count === 1 ? "change" : "changes"}`;
+}
+
+/** What the Releases line says, from one status read. */
 export function summarizeRelease(status: ReleaseStatus): ReleaseSummary {
   const latest = status.latest?.tag;
-  const changes =
-    status.unreleased === null
-      ? null
-      : status.unreleased === 0
-        ? `Everything on ${status.base} is released.`
-        : `${status.unreleased} ${status.unreleased === 1 ? "change" : "changes"} on ${status.base} since ${latest}.`;
+  const unreleased = status.unreleased ?? 0;
+  const pending =
+    latest && unreleased > 0
+      ? `${changesCount(unreleased)} since ${latest} ${unreleased === 1 ? "isn't" : "aren't"} released yet.`
+      : "";
   const ready =
     status.workflowHasPublish &&
     status.versionUnreleased &&
@@ -104,8 +109,8 @@ export function summarizeRelease(status: ReleaseStatus): ReleaseSummary {
   if (status.run && status.run.status !== "completed")
     return {
       tone: "busy",
-      title: "Release running",
-      detail: "Building on GitHub. This usually takes about 20 minutes.",
+      title: "Publishing a release on GitHub…",
+      detail: "This usually takes about 20 minutes.",
       publish: null,
     };
   if (
@@ -116,37 +121,42 @@ export function summarizeRelease(status: ReleaseStatus): ReleaseSummary {
   )
     return {
       tone: "warn",
-      title: "Last release run didn't finish",
-      detail: changes ?? "Open the run on GitHub to see what stopped it.",
+      title: "The last release didn't finish",
+      detail: [
+        "Open the run on GitHub to see what stopped it.",
+        latest ? `${latest} is still the live release.` : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
       publish: ready,
     };
   if (ready)
     return {
       tone: "info",
-      title: `Version ${ready} is ready to publish`,
-      detail: changes ?? `Publishes what's on GitHub's ${status.base}.`,
+      title: `${ready} is ready to publish`,
+      detail: latest
+        ? `${latest} is live now.${pending ? ` ${pending}` : ""}`
+        : `It publishes what's on ${status.base} on GitHub.`,
       publish: ready,
     };
   if (!latest)
     return {
       tone: "info",
-      title: "No releases yet",
-      detail: status.workflow
-        ? "Set a version to publish the first release."
-        : "This project has no release workflow.",
+      title: "Nothing released yet",
+      detail: "",
       publish: null,
     };
-  if ((status.unreleased ?? 0) > 0)
+  if (unreleased > 0)
     return {
       tone: "info",
-      title: `${latest} is the latest release`,
-      detail: `${changes} Set a new version to publish them.`,
+      title: `${latest} is live · ${changesCount(unreleased)} since then ${unreleased === 1 ? "isn't" : "aren't"} released yet`,
+      detail: "",
       publish: null,
     };
   return {
     tone: "ok",
-    title: `${latest} is up to date`,
-    detail: changes ?? "",
+    title: `${latest} is live · everything on ${status.base} is released`,
+    detail: "",
     publish: null,
   };
 }

@@ -8,6 +8,7 @@ import {
   LiveSessionsContext,
 } from "../lib/liveSessions";
 import { newSession } from "../lib/session";
+import { subscribeOpenChatRequests } from "../lib/shipRequest";
 import { GitCopies } from "./GitCopies";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -32,6 +33,12 @@ describe("other copy status and removal", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const values = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    });
     worktrees = [
       {
         ...finished,
@@ -77,20 +84,72 @@ describe("other copy status and removal", () => {
     await act(async () =>
       root.render(createElement(GitCopies, { cwd: "/repo", enabled: true })),
     );
-    const pill = container.querySelector<HTMLElement>(".git-copy-pill")!;
-    expect(pill.textContent).toBe("2 commits");
-    expect(pill.title).toContain("Changes may already be merged");
-    expect(container.querySelector(".git-copies-title span")?.textContent).toBe(
-      "1 copy",
+    const status = container.querySelector<HTMLElement>(".git-copy-status")!;
+    expect(status.textContent).toBe(
+      "2 commits not in main yet · main has 20 newer commits",
     );
-    expect(container.textContent).not.toContain("to merge");
-    expect(container.textContent).not.toContain("with work");
+    expect(status.title).toContain("may already be in main");
+    expect(container.querySelector(".git-copies-title span")?.textContent).toBe(
+      "1 in progress",
+    );
+    expect(container.textContent).toContain("Parallel work");
+    expect(container.textContent).not.toContain("Merged into");
+  });
+
+  it("explains the section once, then keeps the explanation in a tooltip", async () => {
+    worktrees[1] = { ...finished, aheadOfDefault: 1, mergedIntoDefault: false };
+    await act(async () =>
+      root.render(createElement(GitCopies, { cwd: "/repo", enabled: true })),
+    );
+    const explainer =
+      "Separate copies of this project where agents work on their own branch.";
+    expect(container.querySelector(".git-copies-explainer")?.textContent).toBe(
+      explainer,
+    );
+    expect(
+      container.querySelector<HTMLElement>(".git-copies-title")?.title,
+    ).toBe(explainer);
+    await act(async () => root.render(null));
+    await act(async () =>
+      root.render(createElement(GitCopies, { cwd: "/repo", enabled: true })),
+    );
+    expect(container.querySelector(".git-copies-explainer")).toBeNull();
+  });
+
+  it("shows the chat working in a copy and opens it", async () => {
+    worktrees[1] = { ...finished, aheadOfDefault: 1, mergedIntoDefault: false };
+    const working = {
+      ...newSession("claude", "/copies/done"),
+      id: "chat-1",
+      title: "Mascot briefing",
+      busy: true,
+    };
+    const opened = vi.fn();
+    const stop = subscribeOpenChatRequests(opened);
+    await act(async () =>
+      root.render(
+        createElement(
+          LiveSessionsContext.Provider,
+          { value: createLiveSessionStore([working]) },
+          createElement(GitCopies, { cwd: "/repo", enabled: true }),
+        ),
+      ),
+    );
+    expect(container.querySelector(".git-copy-chat")?.textContent).toBe(
+      "Mascot briefing — agent working",
+    );
+    await act(async () => button("Done")!.click());
+    await act(async () => button("Open chat")!.click());
+    stop();
+    expect(opened).toHaveBeenCalledWith("chat-1");
+    // A copy with commits main lacks can be shipped from here.
+    expect(button("Ship it")).toBeDefined();
   });
 
   it.each([
-    { behindDefault: 0, label: "Up to date" },
-    { behindDefault: 3, label: "Behind" },
-  ])("reports the main copy as $label", async ({ behindDefault, label }) => {
+    { behindDefault: 0, label: "Up to date with main" },
+    { behindDefault: 3, label: "main has 3 newer commits" },
+  ])("reports the main folder as $label", async ({ behindDefault, label }) => {
     worktrees = [
       {
         ...finished,
@@ -106,14 +165,16 @@ describe("other copy status and removal", () => {
         createElement(GitCopies, { cwd: "/copies/done", enabled: true }),
       ),
     );
-    expect(container.querySelector(".git-copy-pill")?.textContent).toBe(label);
+    expect(container.querySelector(".git-copy-status")?.textContent).toBe(
+      label,
+    );
   });
 
   it("asks first, then removes the copy and refreshes the list", async () => {
     await act(async () =>
       root.render(createElement(GitCopies, { cwd: "/repo", enabled: true })),
     );
-    await act(async () => button("Finished")!.click());
+    await act(async () => button("merged into main")!.click());
     await act(async () => button("Done")!.click());
     await act(async () => button("Remove")!.click());
     expect(container.textContent).toContain(
@@ -144,7 +205,7 @@ describe("other copy status and removal", () => {
     await act(async () =>
       root.render(createElement(GitCopies, { cwd: "/repo", enabled: true })),
     );
-    await act(async () => button("Finished")!.click());
+    await act(async () => button("merged into main")!.click());
     await act(async () => button("Done")!.click());
     await act(async () => button("Remove")!.click());
     await act(async () => button("Remove copy")!.click());
@@ -154,7 +215,7 @@ describe("other copy status and removal", () => {
     expect(button("Done")).toBeDefined();
   });
 
-  it("never offers to remove the main copy", async () => {
+  it("never offers to remove or ship a clean main folder", async () => {
     worktrees = [
       { ...finished, path: "/repo", branch: "main", primary: true },
       { ...finished, current: true },
@@ -164,11 +225,12 @@ describe("other copy status and removal", () => {
         createElement(GitCopies, { cwd: "/copies/done", enabled: true }),
       ),
     );
-    await act(async () => button("Main copy")!.click());
+    await act(async () => button("Main folder")!.click());
     expect(button("Show in Finder")).toBeDefined();
     expect(button("Remove")).toBeUndefined();
+    expect(button("Ship it")).toBeUndefined();
   });
-  it("tucks finished copies, squash-merged ones included, into a collapsed row", async () => {
+  it("tucks merged copies, squash-merged ones included, into one quiet row", async () => {
     worktrees = [
       worktrees[0],
       {
@@ -191,10 +253,10 @@ describe("other copy status and removal", () => {
       root.render(createElement(GitCopies, { cwd: "/repo", enabled: true })),
     );
     expect(container.querySelector(".git-copies-title span")?.textContent).toBe(
-      "1 with work · 2 finished",
+      "1 in progress",
     );
-    const row = button("Finished")!;
-    expect(row.textContent).toBe("Finished · 2");
+    const row = button("merged into main")!;
+    expect(row.textContent).toBe("2 merged into main");
     expect(row.getAttribute("aria-expanded")).toBe("false");
     expect(button("Next")).toBeDefined();
     expect(button("Squashed")).toBeUndefined();
@@ -202,9 +264,9 @@ describe("other copy status and removal", () => {
 
     await act(async () => row.click());
     expect(row.getAttribute("aria-expanded")).toBe("true");
-    expect(button("Squashed")?.textContent).toContain("Merged");
-    expect(button("Done")?.textContent).toContain("Merged");
-    expect(button("Next")?.textContent).toContain("2 commits");
+    expect(button("Squashed")?.textContent).toContain("Merged into main");
+    expect(button("Done")?.textContent).toContain("Merged into main");
+    expect(button("Next")?.textContent).toContain("2 commits not in main yet");
   });
 
   it("cleans up finished copies after naming them, skipping one in use", async () => {
@@ -279,9 +341,9 @@ describe("other copy status and removal", () => {
         ),
       ),
     );
-    expect(container.querySelector(".git-copies-title span")?.textContent).toBe(
-      "5 finished",
-    );
+    // Nothing in progress: no count, just the merged row.
+    expect(container.querySelector(".git-copies-title span")).toBeNull();
+    expect(button("5 merged into main")).toBeDefined();
 
     await act(async () => button("Clean up")!.click());
     const confirm = container.querySelector(
@@ -306,7 +368,10 @@ describe("other copy status and removal", () => {
     const removals = vi
       .mocked(invoke)
       .mock.calls.slice(listed)
-      .filter(([command]) => command !== "git_worktrees");
+      .filter(
+        ([command]) =>
+          command !== "git_worktrees" && command !== "session_list_by_project",
+      );
     expect(removals).toEqual([
       ["git_worktree_remove", { cwd: "/repo", path: "/copies/beta" }],
       ["git_worktree_remove", { cwd: "/repo", path: "/copies/alpha" }],
@@ -326,10 +391,8 @@ describe("other copy status and removal", () => {
         .mock.calls.slice(listed)
         .filter(([command]) => command === "git_worktrees").length,
     ).toBeGreaterThanOrEqual(2);
-    expect(container.querySelector(".git-copies-title span")?.textContent).toBe(
-      "2 finished",
-    );
-    await act(async () => button("Finished")!.click());
+    expect(button("2 merged into main")).toBeDefined();
+    await act(async () => button("merged into main")!.click());
     expect(button("Gamma")).toBeDefined();
     expect(button("Delta")).toBeDefined();
     expect(button("Alpha")).toBeUndefined();
