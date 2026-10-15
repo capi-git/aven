@@ -10,6 +10,7 @@ import {
 } from "../lib/discussions";
 import { HarnessIcon } from "./HarnessIcon";
 import { Play, Square } from "./icons";
+import "./ProviderMarks.css";
 import "./SidebarDiscussions.css";
 
 /**
