@@ -9,6 +9,7 @@ import {
   copyInUse,
   copyName,
   copyStatusLabel,
+  currentCopyLabel,
   partitionCopies,
   planCleanup,
   removalWarning,
@@ -428,5 +429,23 @@ describe("other copies", () => {
       cleanUpCopies("/repo", [summary({ path: "/c/a" })], () => []),
     ).rejects.toThrow("not a repository");
     expect(invoke).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("currentCopyLabel", () => {
+  it("names the copy being shown only when there are several", () => {
+    const main = copy({ path: "/repo", branch: "main", primary: true });
+    const feature = copy({
+      path: "/copies/race-safety",
+      branch: "fix/race-safety",
+    });
+    expect(currentCopyLabel([{ ...main, current: true }])).toBeNull();
+    expect(currentCopyLabel([{ ...main, current: true }, feature])).toBe(
+      "Main copy",
+    );
+    expect(currentCopyLabel([main, { ...feature, current: true }])).toBe(
+      "Copy · Race safety",
+    );
+    expect(currentCopyLabel([main, feature])).toBeNull();
   });
 });
