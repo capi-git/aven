@@ -287,10 +287,12 @@ describe("popover stylesheet", () => {
     );
   });
 
-  it("frosts a dark panel popover on its frame, never inside the animation", () => {
+  it("gives a dark panel popover a solid frame, never a see-through one", () => {
     const frame = rule(mac, ".aven-popover-panel-backdrop");
-    expect(frame).toContain("backdrop-filter: var(--aven-glass-blur);");
-    expect(frame).toContain("var(--aven-glass-overlay-opacity)");
+    expect(frame).toContain(
+      "background: var(--aven-popover-panel-bg, var(--aven-popup));",
+    );
+    expect(frame).not.toContain("backdrop-filter");
     const inner = rule(
       mac,
       '.aven-popover-panel-content\n  > .toolbar-panel:not([data-theme="light"])',

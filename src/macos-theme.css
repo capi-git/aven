@@ -191,13 +191,15 @@ textarea {
   background: var(--aven-inset-card);
 }
 
+/* Popups, dialogs and toasts sit over text, so they are solid: a see-through
+   tint let the chat show through, and a backdrop blur redrew (flickered)
+   whenever the content behind changed. Panels resting on the window keep the
+   glass. */
 .aven-glass-overlay {
   border: 1px solid var(--aven-glass-overlay-edge);
   border-radius: var(--aven-radius-overlay);
-  background: var(--aven-glass-overlay);
+  background: var(--aven-popup);
   box-shadow: var(--aven-glass-sheen), var(--aven-shadow);
-  -webkit-backdrop-filter: var(--aven-glass-blur);
-  backdrop-filter: var(--aven-glass-blur);
 }
 
 /* Frost whole surfaces, rather than adding a compositor layer for every
@@ -335,9 +337,7 @@ html:not(.theme-light)
 html:not(.theme-light)
   :is(.personal-shell, .detached-workspace)
   :is(.cm-tooltip, .cm-panel.cm-find) {
-  background: var(--aven-glass-overlay);
-  -webkit-backdrop-filter: var(--aven-glass-blur);
-  backdrop-filter: var(--aven-glass-blur);
+  background: var(--aven-popup);
 }
 
 /* A floating sidebar/inspector sits above the workspace. Pinned panels keep
@@ -356,8 +356,8 @@ html:not(.theme-light)
   backdrop-filter: var(--aven-glass-blur);
 }
 
-/* DOM menus share the frost. Separate native menu windows carry an opaque
-   workspace palette: a CSS filter cannot sample the window underneath them. */
+/* DOM menus and dialogs are solid, like the popups above, and like the
+   separate native menu windows, which carry the opaque workspace palette. */
 html:not(.theme-light)
   :is(
     .popover-backdrop,
@@ -366,9 +366,7 @@ html:not(.theme-light)
     .settings-search-results,
     .workspace-theme-popover
   ) {
-  background: var(--aven-glass-overlay);
-  -webkit-backdrop-filter: var(--aven-glass-blur);
-  backdrop-filter: var(--aven-glass-blur);
+  background: var(--aven-popup);
 }
 
 /* Browser menu content already contains a ToolbarPanel; only that card owns
@@ -383,31 +381,17 @@ html:not(.theme-light):not(.access-panel-window):not(.usage-panel-window):not(
     .workspace-menu-panel-window
   )
   .toolbar-panel:not([data-theme="light"]) {
-  background: color-mix(
-    in srgb,
-    var(--toolbar-panel-bg) var(--aven-glass-overlay-opacity),
-    transparent
-  );
-  -webkit-backdrop-filter: var(--aven-glass-blur);
-  backdrop-filter: var(--aven-glass-blur);
+  background: var(--toolbar-panel-bg);
 }
 
-/* A popover-hosted ToolbarPanel animates in, and an animating opacity keeps
-   its backdrop filter from sampling the page until the entrance ends. The
-   still frame carries the same tint and frost instead, so the glass is there
-   from the first frame and settles identically. */
+/* A popover-hosted ToolbarPanel animates in; the still frame behind it
+   carries the solid surface from the first frame, so nothing shows through
+   while the content fades in. */
 html:not(.theme-light):not(.access-panel-window):not(.usage-panel-window):not(
     .workspace-menu-panel-window
   )
   .aven-popover-panel-backdrop {
-  background: color-mix(
-    in srgb,
-    var(--aven-popover-panel-bg, var(--aven-popup))
-      var(--aven-glass-overlay-opacity),
-    transparent
-  );
-  -webkit-backdrop-filter: var(--aven-glass-blur);
-  backdrop-filter: var(--aven-glass-blur);
+  background: var(--aven-popover-panel-bg, var(--aven-popup));
 }
 
 html:not(.theme-light):not(.access-panel-window):not(.usage-panel-window):not(
