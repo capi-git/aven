@@ -198,7 +198,8 @@ fn process_name(pid: i32) -> String {
     use std::ffi::c_void;
     let mut path = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
     // SAFETY: proc_pidpath writes at most the buffer length.
-    let len = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr() as *mut c_void, path.len() as u32) };
+    let len =
+        unsafe { libc::proc_pidpath(pid, path.as_mut_ptr() as *mut c_void, path.len() as u32) };
     if len > 0 {
         let path = String::from_utf8_lossy(&path[..len as usize]).into_owned();
         if let Some(name) = path.rsplit('/').next() {
@@ -257,7 +258,9 @@ pub fn dev_perf_keep_visible(webview: Webview) -> Result<(), String> {
         return Err("The speed test is not running".into());
     }
     let window = webview.window();
-    window.set_always_on_top(true).map_err(|error| error.to_string())?;
+    window
+        .set_always_on_top(true)
+        .map_err(|error| error.to_string())?;
     window.show().map_err(|error| error.to_string())
 }
 
