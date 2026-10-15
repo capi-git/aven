@@ -2,15 +2,15 @@
   display: flex;
   flex: 1;
   flex-direction: column;
-  padding: 28px;
+  padding: clamp(16px, 4vw, 28px);
 }
 
 .workspace-home-content {
   flex: 0 0 auto;
   width: 100%;
   max-width: 840px;
-  margin: auto;
-  padding-block: clamp(20px, 5vh, 48px);
+  margin: 0 auto auto;
+  padding-block: clamp(16px, 4vh, 40px);
 }
 
 /* Only a user-selected image decorates Home; the default is the workspace theme. */
@@ -30,22 +30,54 @@ html.has-chat-background .workspace-home::before {
   }
 }
 
+/* Header: the workspace, what is happening, and the three starts. */
+.workspace-home-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px 20px;
+  margin-bottom: 28px;
+}
+
+.workspace-home-title {
+  min-width: 0;
+}
+
+.workspace-home-title h1 {
+  margin: 0;
+  font-size: var(--text-ui-heading);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+
+.workspace-home-summary {
+  margin: 6px 0 0;
+  color: var(--color-content);
+  font-size: var(--text-ui-body);
+  line-height: 1.45;
+}
+
+.workspace-home-summary[data-quiet] {
+  color: var(--aven-muted);
+}
+
 .workspace-home-actions {
   display: flex;
-  justify-content: flex-start;
   flex-wrap: wrap;
-  gap: 8px;
-  margin: 24px 0 32px;
+  gap: 6px;
 }
 
 .workspace-home-actions button {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
+  min-height: 30px;
+  padding: 5px 12px 5px 10px;
   border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
   border-radius: 999px;
-  min-height: 34px;
-  padding: 6px 15px 6px 12px;
   background: var(--aven-control-bg);
   box-shadow: var(--aven-glass-sheen, none);
   color: var(--color-content);
@@ -68,7 +100,6 @@ html.has-chat-background .workspace-home::before {
 .workspace-home-actions .workspace-home-new {
   background: color-mix(in srgb, var(--color-accent) 24%, transparent);
   border-color: color-mix(in srgb, var(--color-accent) 42%, transparent);
-  color: var(--color-content);
 }
 
 .workspace-home
@@ -77,58 +108,316 @@ html.has-chat-background .workspace-home::before {
   background: color-mix(in srgb, var(--color-accent) 32%, transparent);
 }
 
-.workspace-home-columns {
-  display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(160px, 1fr);
-  gap: 16px;
+/* Sections */
+.workspace-home-section {
+  margin-bottom: 26px;
 }
 
 .workspace-home h2 {
+  margin: 0 0 8px 4px;
   color: var(--aven-muted);
-  font-size: var(--text-ui-body);
+  font-size: var(--text-ui-label);
   font-weight: 600;
 }
 
+.workspace-home-panel {
+  min-width: 0;
+  padding: 4px;
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: var(--aven-radius-card, 12px);
+  background: var(--aven-glass-card, var(--aven-hover));
+  box-shadow:
+    var(--aven-glass-sheen, none), var(--aven-glass-card-shadow, none);
+}
+
+.workspace-home-list {
+  margin: 0;
+  list-style: none;
+}
+
+/* A session row: mark, title over one quiet line, then time. */
 .workspace-home-row {
   display: flex;
   width: 100%;
   align-items: center;
   gap: 10px;
+  min-height: 44px;
+  padding: 7px 10px;
+  border-radius: 8px;
   text-align: left;
-  min-height: 48px;
-  padding: 9px 10px;
-  border-radius: 9px;
   font-size: var(--text-ui-body);
   transition: background-color 120ms ease;
 }
 
-.workspace-home-row > span {
+.workspace-home-row-text {
+  flex: 1;
   min-width: 0;
 }
 
-.workspace-home-row > svg {
-  flex-shrink: 0;
-  color: color-mix(in srgb, var(--color-content) 72%, var(--color-accent));
-}
-
-.workspace-home-row strong {
-  display: block;
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
+.workspace-home-row strong,
 .workspace-home-row small {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  margin-top: 3px;
+}
+
+.workspace-home-row strong {
+  font-weight: 500;
+}
+
+.workspace-home-row small {
+  margin-top: 2px;
+  color: var(--aven-muted);
   font-size: var(--text-ui-caption);
+}
+
+.workspace-home-row-aside {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  max-width: 34%;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  text-align: right;
+}
+
+.workspace-home-row-project {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-home-time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.workspace-home-mark {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+
+.workspace-home-mark .project-mark-mascot {
+  width: 14px;
+  height: 14px;
+}
+
+.workspace-home-mark-none {
+  display: inline-grid;
+  place-items: center;
   color: var(--aven-muted);
 }
 
+/* Waiting reads amber, unread replies the accent, as in the sidebar. */
+.workspace-home-row[data-attention] .workspace-home-kind {
+  font-weight: 600;
+}
+
+.workspace-home-row[data-attention="approval"] .workspace-home-kind,
+.workspace-home-row[data-attention="question"] .workspace-home-kind {
+  color: color-mix(in srgb, var(--color-content) 35%, var(--color-amber-400));
+}
+
+.workspace-home-row[data-attention="completed"] .workspace-home-kind {
+  color: color-mix(in srgb, var(--color-content) 55%, var(--color-accent));
+}
+
+.workspace-home-row[data-attention="failed"] .workspace-home-kind {
+  color: color-mix(in srgb, var(--color-content) 40%, var(--color-red-400));
+}
+
+.workspace-home-more {
+  margin: 6px 0 0 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+
+.workspace-home .workspace-home-more:hover {
+  color: var(--color-content);
+}
+
+/* Projects: one card each, wrapping to a single column when narrow. */
+.workspace-home-projects {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(232px, 100%), 1fr));
+  gap: 10px;
+  margin: 0;
+  list-style: none;
+}
+
+.workspace-home-project {
+  --project-color: var(--color-accent);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: var(--aven-radius-card, 12px);
+  /* A tint without a backdrop pass of its own: one blur per card would add a
+     compositor layer for each project. */
+  background: var(--aven-glass-card, var(--aven-hover));
+  box-shadow: var(--aven-glass-sheen, none);
+}
+
+.workspace-home-project-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.workspace-home-project-chip {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--project-color) 18%, transparent);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--project-color) 26%, transparent);
+}
+
+.workspace-home-project-name {
+  min-width: 0;
+}
+
+.workspace-home-project h3 {
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--text-ui-body);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-home-project-name p {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 2px 0 0;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  white-space: nowrap;
+}
+
+.workspace-home-project-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+
+.workspace-home-project-branch svg {
+  flex-shrink: 0;
+}
+
+.workspace-home-project-branch span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workspace-home-project-last {
+  margin: 0;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--color-content) 82%, transparent);
+  font-size: var(--text-ui-label);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-home-project-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  font-size: var(--text-ui-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.workspace-home-project-status span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--aven-hover);
+  color: var(--aven-muted);
+}
+
+.workspace-home-project-status [data-status="running"]::before,
+.workspace-home-project-status [data-status="waiting"]::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+
+.workspace-home-project-status [data-status="waiting"]::before {
+  background: var(--color-amber-400);
+}
+
+.workspace-home-project-status [data-status="unread"] {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  color: var(--color-content);
+}
+
+.workspace-home-project-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: auto;
+}
+
+.workspace-home-project-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 26px;
+  padding: 3px 10px;
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: var(--aven-radius-control, 8px);
+  background: var(--aven-control-bg, var(--aven-hover));
+  color: var(--color-content);
+  font-size: var(--text-ui-label);
+  font-weight: 500;
+}
+
+.workspace-home-project-add {
+  display: flex;
+  min-width: 0;
+}
+
+.workspace-home-project-add button {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 72px;
+  padding: 12px;
+  border: 1px dashed var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: var(--aven-radius-card, 12px);
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  font-weight: 500;
+}
+
+.workspace-home .workspace-home-project-add button:hover {
+  color: var(--color-content);
+}
+
+/* Shared states */
 .workspace-home button:hover:not(:disabled) {
   background: var(--aven-selected);
 }
@@ -142,43 +431,19 @@ html.has-chat-background .workspace-home::before {
   opacity: 0.5;
 }
 
-.workspace-home-section-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 28px;
-  margin: 0 4px 8px 10px;
-}
-
-.workspace-home-section-heading button {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
-  color: var(--aven-muted);
-}
-
-.workspace-home-section-heading button:hover:not(:disabled) {
-  color: var(--color-content);
-}
-
 .workspace-home-empty {
-  padding: 4px 10px 8px;
+  margin: 0;
+  padding: 4px 6px;
   color: var(--aven-muted);
   font-size: var(--text-ui-label);
   line-height: 1.6;
-}
-
-.workspace-home-windows {
-  margin: 0 0 28px;
 }
 
 .workspace-home-window {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px 0;
+  padding: 6px 0;
 }
 
 .workspace-home-window button:first-child {
@@ -199,45 +464,20 @@ html.has-chat-background .workspace-home::before {
 }
 
 @container aven-opening (max-width: 580px) {
-  .workspace-home-columns {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 24px;
-  }
-
   .workspace-home-content {
-    padding-block: 12px;
+    padding-block: 8px;
   }
 
-  .workspace-home-actions {
-    gap: 6px;
-    margin-bottom: 28px;
+  .workspace-home-header {
+    align-items: flex-start;
+    margin-bottom: 22px;
   }
-}
 
-.workspace-home .aven-opening-heading {
-  max-width: none;
-  text-align: left;
-}
-.workspace-home .aven-opening-heading h1 {
-  max-width: 620px;
-  font-size: clamp(24px, 3.8cqi, 30px);
-  letter-spacing: -0.025em;
-}
-.workspace-home-eyebrow {
-  margin-bottom: 10px;
-  font-size: var(--text-ui-label);
-  font-weight: 600;
-  color: var(--aven-muted);
-}
-.workspace-home-panel {
-  min-width: 0;
-  padding: 12px 8px 8px;
-  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
-  border-radius: var(--aven-radius-card, 12px);
-  background: var(--aven-glass-card, var(--aven-hover));
-  box-shadow:
-    var(--aven-glass-sheen, none), var(--aven-glass-card-shadow, none);
-}
-.workspace-home-columns h2 {
-  color: var(--color-content);
+  .workspace-home-projects {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workspace-home-row-aside {
+    max-width: 28%;
+  }
 }
