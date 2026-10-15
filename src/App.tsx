@@ -8531,7 +8531,9 @@ export default function App({
                         running={homeData.running}
                         projects={homeData.projects}
                         recent={homeData.recent}
+                        finished={homeData.finished}
                         projectStatus={projectStatus}
+                        usageProviders={usageProviders}
                         windows={detached.windows}
                         onShowWindow={(id) => {
                           void detached
