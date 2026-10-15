@@ -443,3 +443,45 @@ describe("sidebar workspace navigation", () => {
     expect(section).toHaveBeenCalledExactlyOnceWith("appearance");
   });
 });
+
+describe("project status in the sidebar", () => {
+  it("shows each project's live status on its row and only there", async () => {
+    const render = (projectStatus: SidebarProps["projectStatus"]) =>
+      act(async () =>
+        root.render(
+          createElement(Sidebar, {
+            ...props,
+            cwd: "/projects/Catalog",
+            onSelectProfile: undefined,
+            recents: [
+              { path: "/projects/Catalog", openedAt: 2 },
+              { path: "/projects/Site", openedAt: 1 },
+            ],
+            projectStatus,
+          }),
+        ),
+      );
+    await render({
+      "/projects/Site": { running: 1, waiting: 1, unread: 2, files: 5 },
+    });
+    const row = (name: string) =>
+      button(`Open ${name} project`) ??
+      document.querySelector<HTMLButtonElement>(
+        `button[aria-label^="Open ${name} project"]`,
+      );
+    const site = row("Site")!;
+    expect(site.title).toBe(
+      "1 agent running · 1 waiting for you · 2 unread · 5 files changed\n/projects/Site",
+    );
+    expect(site.querySelector(".mascot-active")).not.toBeNull();
+    expect(site.querySelector(".personal-project-files")?.textContent).toBe(
+      "+5",
+    );
+    const catalog = row("Catalog")!;
+    expect(catalog.querySelector(".personal-project-status")).toBeNull();
+    expect(catalog.querySelector(".mascot-active")).toBeNull();
+
+    await render(undefined);
+    expect(row("Site")!.querySelector(".personal-project-status")).toBeNull();
+  });
+});

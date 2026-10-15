@@ -63,6 +63,7 @@ import {
 import { PersonalInspectorDock } from "./chrome/PersonalInspectorDock";
 import { WorkspaceHome } from "./surfaces/WorkspaceHome";
 import { useNativeFloatingSidebar } from "./hooks/useNativeFloatingSidebar";
+import { useProjectStatus } from "./hooks/useProjectStatus";
 import { useSidebarVisibility } from "./hooks/useSidebarVisibility";
 import { useSidebarData } from "./hooks/useSidebarData";
 import { useSessionModelControls } from "./hooks/useSessionModelControls";
@@ -8255,6 +8256,11 @@ export default function App({
     );
   };
 
+  const projectStatus = useProjectStatus({
+    sessions,
+    activity: activityEntries,
+    projectPaths: profiles.profileProjects.map((project) => project.path),
+  });
   const sidebarProps: Omit<
     SidebarProps,
     "open" | "floating" | "hoverHandlers"
@@ -8330,9 +8336,7 @@ export default function App({
     selectedCommitSha: activeTab ? selectedCommitSha(activeTab) : undefined,
     textHarness: pickTextHarness(active?.harness),
     recents: profiles.profileProjects,
-    busyProjectPaths: sessions.flatMap((session) =>
-      isInFlightSession(session) && session.cwd ? [session.cwd] : [],
-    ),
+    projectStatus,
     liveAgents,
     onSelectAgent: onSelectLiveAgent,
     onSelectProject,

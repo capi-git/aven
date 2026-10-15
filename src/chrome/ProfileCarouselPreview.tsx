@@ -1,7 +1,8 @@
 import { memo, useLayoutEffect, useRef } from "react";
 import type { WorkspaceProfile } from "../lib/workspaceProfiles";
-import { ChevronDown, Folder, Plus } from "./icons";
+import { ChevronDown, Plus } from "./icons";
 import { ProfileSidebarHeader } from "./ProfileSidebarHeader";
+import { ProjectMark } from "./ProjectMark";
 
 export type WorkspaceProfilePreviewTask = {
   id: string;
@@ -194,11 +195,11 @@ export const ProfileCarouselPreview = memo(function ProfileCarouselPreview({
           <section key={project.path} className="personal-project-group">
             <div className="personal-project-row">
               <div className="personal-project-open">
-                <Folder
-                  className="personal-project-symbol size-3.5"
-                  strokeWidth={1.75}
+                <ProjectMark
+                  path={project.path}
+                  className="personal-project-symbol"
                 />
-                <span>{project.name}</span>
+                <span className="personal-project-label">{project.name}</span>
               </div>
               {!!project.tasks.length && (
                 <span className="personal-project-row-action personal-project-disclosure">

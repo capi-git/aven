@@ -92,6 +92,7 @@ import {
 } from "../lib/sessionFilters";
 import type { HarnessId } from "../lib/session";
 import type { LiveAgent } from "../lib/liveAgents";
+import { projectStatusFor, type ProjectStatusMap } from "../lib/projectStatus";
 import type { SessionSummary } from "../lib/sessionStore";
 import type { SettingsSectionId } from "../lib/settings";
 import type { InstalledUpdate } from "../lib/updateNotice";
@@ -136,17 +137,6 @@ const DEFAULT_WIDTH = 256;
 let rememberedWidth = DEFAULT_WIDTH;
 
 type SidebarTab = SidebarTabId;
-
-function projectPathBusy(
-  paths: Iterable<string> | undefined,
-  cwd: string,
-): boolean {
-  if (!paths) return false;
-  for (const path of paths) {
-    if (sameProjectPath(path, cwd)) return true;
-  }
-  return false;
-}
 
 export type SidebarProps = {
   cwd: string;
@@ -221,7 +211,8 @@ export type SidebarProps = {
   projectHistoryErrors?: ReadonlySet<string>;
   onSelectProjectSession?: (path: string, sessionId: string) => void;
   onNewProjectTask?: (path: string) => void;
-  busyProjectPaths?: Iterable<string>;
+  /** Per-project activity and changed files, keyed by `projectKey(path)`. */
+  projectStatus?: ProjectStatusMap;
   liveAgents?: LiveAgent[];
   onSelectAgent?: (sessionId: string) => void;
   onSelectProject?: (path: string) => void;
@@ -337,7 +328,7 @@ function SidebarComponent({
   projectHistoryErrors,
   onSelectProjectSession,
   onNewProjectTask,
-  busyProjectPaths,
+  projectStatus,
   liveAgents = [],
   onSelectAgent,
   onSelectProject,
@@ -1831,7 +1822,7 @@ function SidebarComponent({
                         path={project.path}
                         active={active}
                         expanded={expanded}
-                        busy={projectPathBusy(busyProjectPaths, project.path)}
+                        status={projectStatusFor(projectStatus, project.path)}
                         profiles={profiles}
                         activeProfileId={activeProfileId}
                         onSelect={() => {
@@ -2126,7 +2117,7 @@ const SIDEBAR_DATA: readonly (keyof SidebarProps)[] = [
   "profilePreviews",
   "projectSessions",
   "recents",
-  "busyProjectPaths",
+  "projectStatus",
   "liveAgents",
   "standaloneSessions",
   "busySessionIds",
