@@ -259,7 +259,7 @@ pub async fn workspace_window_open(
     target: Option<String>,
     point: Option<DropPoint>,
 ) -> Result<WorkspaceWindowSnapshot, String> {
-    let _work = crate::window::begin_runtime_work(caller.app_handle())?;
+    let _work = crate::update_restart::begin_runtime_work(caller.app_handle())?;
     let owner = owner(&caller)?;
     validate(&state)?;
     let app = caller.app_handle().clone();

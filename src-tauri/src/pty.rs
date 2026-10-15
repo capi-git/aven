@@ -264,7 +264,7 @@ pub async fn pty_spawn(
     rows: u16,
     reuse_existing: Option<bool>,
 ) -> Result<(), String> {
-    let work = crate::window::begin_runtime_work(&app)?;
+    let work = crate::update_restart::begin_runtime_work(&app)?;
     let host = app.state::<PtyHost>();
     // Reserve before waiting for a blocking worker, so Close can cancel a
     // startup that has not reached fork/exec yet.
@@ -337,7 +337,7 @@ pub async fn pty_write(
     id: String,
     data: String,
 ) -> Result<(), String> {
-    let work = crate::window::begin_runtime_work(&app)?;
+    let work = crate::update_restart::begin_runtime_work(&app)?;
     let live = host
         .get(&id)
         .ok_or_else(|| "Terminal is not running".to_string())?;

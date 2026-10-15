@@ -265,7 +265,7 @@ pub(crate) async fn ensure_update_idle(_app: &AppHandle) -> Result<(), String> {
         .lock()
         .map_err(|_| "Browser activity could not be checked")?;
     if !entries.roots.is_empty() || !entries.popups.is_empty() {
-        return Err(crate::window::UPDATE_BROWSER_BUSY.into());
+        return Err(crate::update_restart::UPDATE_BROWSER_BUSY.into());
     }
     Ok(())
 }
@@ -662,7 +662,9 @@ pub async fn browser_set_floating(
     floating: bool,
 ) -> Result<Option<String>, String> {
     let _work = if floating {
-        Some(crate::window::begin_runtime_work(caller.app_handle())?)
+        Some(crate::update_restart::begin_runtime_work(
+            caller.app_handle(),
+        )?)
     } else {
         None
     };
@@ -1001,7 +1003,7 @@ pub async fn browser_create(
     url: String,
     bounds: BrowserBounds,
 ) -> Result<(), String> {
-    let _work = crate::window::begin_runtime_work(caller.app_handle())?;
+    let _work = crate::update_restart::begin_runtime_work(caller.app_handle())?;
     let view_label = label(&caller, &id)?;
     let url = parse_url(&caller, &url)?;
     let rect = bounds.rect()?;

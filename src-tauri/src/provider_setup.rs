@@ -155,7 +155,7 @@ fn result(
 /// expired credentials or missing subscriptions can still fail a first task.
 #[tauri::command(async)]
 pub fn provider_setup_check(app: AppHandle, harness: String) -> Result<ProviderSetupCheck, String> {
-    let _work = crate::window::begin_runtime_work(&app)?;
+    let _work = crate::update_restart::begin_runtime_work(&app)?;
     let provider = Provider::parse(&harness)?;
     Ok(check_provider(provider))
 }
@@ -344,7 +344,7 @@ pub fn provider_setup_verify(
     app: AppHandle,
     harness: String,
 ) -> Result<ProviderSetupCheck, String> {
-    let _work = crate::window::begin_runtime_work(&app)?;
+    let _work = crate::update_restart::begin_runtime_work(&app)?;
     let provider = Provider::parse(&harness)?;
     if provider != Provider::Claude {
         return Ok(result(provider, SetupStatus::Installed, None, "A setup test message is not available for this provider. Start a task in Aven to test your connection."));

@@ -327,7 +327,7 @@ pub async fn provider_mcp(
     request: McpRequest,
     cwd: Option<String>,
 ) -> Result<String, String> {
-    let work = crate::window::begin_runtime_work(&app)?;
+    let work = crate::update_restart::begin_runtime_work(&app)?;
     let args = mcp_args(&request)?;
     // A missing folder would silently write the project's config elsewhere.
     let project_folder = cwd

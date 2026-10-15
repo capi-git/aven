@@ -71,6 +71,7 @@ mod skills;
 mod startup_cli;
 pub use startup_cli::run_startup_cli;
 mod turn_shots;
+mod update_restart;
 mod usage_panel;
 mod window;
 mod window_transfer;
@@ -269,7 +270,7 @@ pub fn run() {
         )
         .manage(harness::HarnessHost::new())
         .manage(pty::PtyHost::new())
-        .manage(window::UpdateRestartState::default())
+        .manage(update_restart::UpdateRestartState::default())
         .manage(window_transfer::WindowTransferState::new())
         .manage(workspace_window::WorkspaceWindowState::default())
         .manage(usage_panel::UsagePanelState::default())
@@ -548,12 +549,12 @@ pub fn run() {
             window::hide_window,
             window::destroy_window,
             window::confirm_quit,
-            window::prepare_update_restart,
-            window::finish_update_restart_preparation,
-            window::cancel_update_restart,
-            window::relaunch_after_update,
-            window::prepare_update_install,
-            window::abandon_update_install,
+            update_restart::prepare_update_restart,
+            update_restart::finish_update_restart_preparation,
+            update_restart::cancel_update_restart,
+            update_restart::relaunch_after_update,
+            update_restart::prepare_update_install,
+            update_restart::abandon_update_install,
             provider_updates::provider_refresh_cli,
             window::set_window_glass_enabled,
             window_transfer::take_window_transfer,
@@ -575,7 +576,7 @@ pub fn run() {
             ..
         } = event
         {
-            window::update_window_event(handle, label, event);
+            update_restart::update_window_event(handle, label, event);
             usage_panel::window_event(handle, label, event);
             access_panel::window_event(handle, label, event);
             workspace_menu_panel::window_event(handle, label, event);

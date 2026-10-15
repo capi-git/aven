@@ -119,7 +119,7 @@ pub async fn provider_refresh_cli(
             status: "managedExternally",
         });
     }
-    let permit = crate::window::begin_runtime_work(&app)?;
+    let permit = crate::update_restart::begin_runtime_work(&app)?;
     let receipt_path = app
         .path()
         .app_data_dir()
