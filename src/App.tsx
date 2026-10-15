@@ -617,7 +617,10 @@ import {
   type ScheduledFlush,
 } from "./lib/streamFlush";
 import { LiveSessionsContext } from "./lib/liveSessions";
-import { subscribeShipRequests } from "./lib/shipRequest";
+import {
+  subscribeOpenChatRequests,
+  subscribeShipRequests,
+} from "./lib/shipRequest";
 
 /** Minimum spacing between full transcript saves of a chat that is still running. */
 const BUSY_PERSIST_INTERVAL_MS = 10_000;
@@ -7436,6 +7439,14 @@ export default function App({
       void onSelectHistorySession(sessionId);
     },
     [onSelectHistorySession, setSettingsOpen],
+  );
+  // "Open chat" on another copy in the Changes panel.
+  useEffect(
+    () =>
+      subscribeOpenChatRequests((sessionId) => {
+        void onSelectHistorySession(sessionId);
+      }),
+    [onSelectHistorySession],
   );
 
   const onRailBack = onVisitBack;

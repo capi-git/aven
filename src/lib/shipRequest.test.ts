@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  requestOpenChat,
   requestShip,
+  subscribeOpenChatRequests,
   subscribeShipRequests,
   takeShipRequest,
 } from "./shipRequest";
@@ -32,5 +34,17 @@ describe("ship requests", () => {
     requestShip("/repo");
     expect(takeShipRequest("/repo", Date.now() + 60_000)).toBeNull();
     expect(takeShipRequest("/repo")).toBeNull();
+  });
+});
+
+describe("open chat requests", () => {
+  it("hands the conversation id to the workspace", () => {
+    const heard = vi.fn();
+    const stop = subscribeOpenChatRequests(heard);
+    requestOpenChat("s9");
+    requestOpenChat("");
+    stop();
+    requestOpenChat("s10");
+    expect(heard.mock.calls).toEqual([["s9"]]);
   });
 });

@@ -52,3 +52,24 @@ export function takeShipRequest(
   pending = null;
   return request;
 }
+
+const OPEN_CHAT_REQUEST = "aven-open-chat-request";
+
+/** Ask the workspace to open a conversation, e.g. the one working in another copy. */
+export function requestOpenChat(sessionId: string): void {
+  if (!sessionId) return;
+  window.dispatchEvent(
+    new CustomEvent<string>(OPEN_CHAT_REQUEST, { detail: sessionId }),
+  );
+}
+
+export function subscribeOpenChatRequests(
+  listener: (sessionId: string) => void,
+): () => void {
+  const handler = (event: Event) => {
+    const id = (event as CustomEvent<string>).detail;
+    if (typeof id === "string" && id) listener(id);
+  };
+  window.addEventListener(OPEN_CHAT_REQUEST, handler);
+  return () => window.removeEventListener(OPEN_CHAT_REQUEST, handler);
+}
