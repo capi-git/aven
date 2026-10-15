@@ -14,6 +14,7 @@ import {
   homeRecentSessions,
   homeRunning,
   homeScope,
+  homeSessionIndex,
   homeTimeAgo,
   homeTodayCounts,
   homeTodayRecap,
@@ -168,6 +169,31 @@ describe("homeLiveSessions", () => {
     expect(rows[1].empty).toBe(true);
   });
 
+  it("dates each session by its latest timed turn, never by a guess", () => {
+    const steer = {
+      id: "steer",
+      role: "user",
+      text: "Also this",
+    } as BlockList[number];
+    const done = { ...user(1_000), durationMs: 500 } as BlockList[number];
+    const rows = homeLiveSessions(
+      [
+        session({ id: "done", blocks: [user(10), done] }),
+        session({ id: "running", busy: true, blocks: [done, user(4_000)] }),
+        // A message sent mid-turn has no time; the turn it joined does.
+        session({ id: "steered", busy: true, blocks: [user(2_000), steer] }),
+        session({ id: "untimed", blocks: [steer] }),
+      ],
+      new Set(["running", "steered"]),
+    );
+    const byId = Object.fromEntries(rows.map((row) => [row.id, row]));
+    expect(byId.done.activeAt).toBe(1_500);
+    expect(byId.running.activeAt).toBe(4_000);
+    expect(byId.steered.activeAt).toBe(2_000);
+    expect(byId.steered.startedAt).toBeUndefined();
+    expect(byId.untimed.activeAt).toBeUndefined();
+  });
+
   it("agrees with the sidebar's per-project running and waiting counts", () => {
     const sessions = [
       session({ id: "1", busy: true }),
@@ -271,7 +297,13 @@ describe("homeRecentSessions", () => {
         summary({ id: "elsewhere", updatedAt: 97, cwd: OTHER }),
       ],
       [
-        live({ id: "a", title: "Renamed A", updatedAt: 50, running: true }),
+        live({
+          id: "a",
+          title: "Renamed A",
+          updatedAt: 50,
+          activeAt: 50,
+          running: true,
+        }),
         live({ id: "c", cwd: SCRATCH, updatedAt: 20 }),
         live({ id: "blank", updatedAt: 60, empty: true }),
       ],
@@ -282,6 +314,129 @@ describe("homeRecentSessions", () => {
       title: "Renamed A",
       branch: "main",
       running: true,
+    });
+  });
+});
+
+describe("one time and title per session", () => {
+  const MINUTE = 60_000;
+  const now = 1_800_000_000_000;
+  // A chat renamed from "Session reply check" to "Your mum": its saved row was
+  // touched 74 minutes ago, its last reply finished two hours ago, and the
+  // loaded copy's own estimate dates from its last timed turn, 23 hours ago.
+  const history = [
+    summary({ id: "mum", title: "Your mum", updatedAt: now - 74 * MINUTE }),
+    summary({ id: "old", title: "Older", updatedAt: now - 3 * 60 * MINUTE }),
+  ];
+  const loaded = [
+    live({
+      id: "mum",
+      title: "Your mum",
+      updatedAt: now - 23 * 60 * MINUTE,
+      activeAt: now - 23 * 60 * MINUTE,
+    }),
+  ];
+  const ledger = [
+    entry({
+      id: "reply",
+      sessionId: "mum",
+      title: "Session reply check",
+      summary: "All set",
+      createdAt: now - 120 * MINUTE,
+    }),
+  ];
+  const index = homeSessionIndex(history, loaded, ledger);
+
+  it("dates a session by the newest of its saved row, ledger and turns", () => {
+    expect(index.at.get("mum")).toBe(now - 74 * MINUTE);
+    const fresher = homeSessionIndex(history, loaded, [
+      entry({ sessionId: "mum", createdAt: now - 5 * MINUTE }),
+    ]);
+    expect(fresher.at.get("mum")).toBe(now - 5 * MINUTE);
+    const turn = homeSessionIndex(
+      history,
+      [live({ id: "mum", activeAt: now - MINUTE })],
+      [],
+    );
+    expect(turn.at.get("mum")).toBe(now - MINUTE);
+  });
+
+  it("ignores the live estimate of a saved session, as the sidebar does", () => {
+    // A rename moves the live estimate to now; the saved row's time stands.
+    const renamed = homeSessionIndex(
+      history,
+      [live({ id: "mum", title: "Your mum", updatedAt: now })],
+      [],
+    );
+    expect(renamed.at.get("mum")).toBe(now - 74 * MINUTE);
+    // A session not saved yet has only the live estimate, which the sidebar
+    // shows too.
+    const fresh = homeSessionIndex(
+      [],
+      [live({ id: "new", updatedAt: 42 })],
+      [],
+    );
+    expect(fresh.at.get("new")).toBe(42);
+  });
+
+  it("dates Recent sessions, Needs you and the agent tile alike", () => {
+    const recent = homeRecentSessions(history, loaded, scope, index);
+    expect(recent.map((row) => [row.id, row.title, row.updatedAt])).toEqual([
+      ["mum", "Your mum", now - 74 * MINUTE],
+      ["old", "Older", now - 3 * 60 * MINUTE],
+    ]);
+    const [needs] = homeNeedsYou(loaded, ledger, scope, index);
+    expect(needs).toMatchObject({
+      id: "mum",
+      title: "Your mum",
+      at: now - 74 * MINUTE,
+    });
+    const [tile] = homeProjects([{ path: APP }], recent, ledger, loaded, index);
+    expect(tile).toMatchObject({
+      lastActivity: now - 74 * MINUTE,
+      resumeTitle: "Your mum",
+    });
+  });
+
+  it("keeps each finished turn's own time under the session's current title", () => {
+    const [row] = homeFinished(ledger, scope, index);
+    expect(row).toMatchObject({
+      title: "Your mum",
+      at: now - 120 * MINUTE,
+    });
+    // A session Home knows nothing about keeps the title it finished under.
+    const [unknown] = homeFinished(
+      [entry({ sessionId: "gone", title: "Deleted chat", createdAt: 9 })],
+      scope,
+      index,
+    );
+    expect(unknown.title).toBe("Deleted chat");
+  });
+
+  it("names a waiting session by its live title and dates it like Recent", () => {
+    const waiting = live({
+      id: "mum",
+      title: "Your mum",
+      updatedAt: now,
+      waiting: { kind: "approval", detail: "Run npm test" },
+    });
+    const asked = [
+      entry({
+        sessionId: "mum",
+        outcome: "approval",
+        title: "Session reply check",
+        createdAt: now - 3 * MINUTE,
+      }),
+    ];
+    const [item] = homeNeedsYou(
+      [waiting],
+      asked,
+      scope,
+      homeSessionIndex(history, [waiting], asked),
+    );
+    expect(item).toMatchObject({
+      title: "Your mum",
+      at: now - 3 * MINUTE,
     });
   });
 });

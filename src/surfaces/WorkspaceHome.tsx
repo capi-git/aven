@@ -956,6 +956,7 @@ const AgentTile = memo(
     return (
       <li
         className="workspace-home-agent"
+        data-project-path={project.path}
         data-state={state}
         style={
           appearance

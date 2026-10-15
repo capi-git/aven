@@ -2,7 +2,7 @@ import type { OrchestrationRun } from "./orchestration";
 import { summarizeOrchestration } from "./orchestrationSummary";
 import { fuzzyMatch } from "./fuzzy";
 import { projectName } from "./paths";
-import { sameProjectPath } from "./recents";
+import { normalizeProjectPath, sameProjectPath } from "./recents";
 import {
   sessionDisplayTitle,
   sessionNeedsInput,
@@ -73,6 +73,23 @@ export function mergeProjectHistorySummary(
     else if (entry.id !== summary.id) others.push(entry);
   }
   return [...others, ...mergeHistorySummary(mine, summary)];
+}
+
+/**
+ * Whether `history` holds a project's rows, so a saved session's new summary
+ * belongs there: the sidebar's project, or any project whose rows were
+ * loaded. A loaded project's row left behind kept its old time and title in
+ * the sidebar (and on Home) until that project was opened again.
+ */
+export function historyHoldsProject(
+  cwd: string,
+  sidebarCwd: string,
+  loadedProjects: ReadonlySet<string>,
+): boolean {
+  return (
+    sameProjectPath(cwd, sidebarCwd) ||
+    loadedProjects.has(normalizeProjectPath(cwd))
+  );
 }
 
 export function filterSessionsByArchive(

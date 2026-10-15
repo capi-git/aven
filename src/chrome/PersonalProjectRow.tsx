@@ -126,6 +126,7 @@ export function PersonalProjectRow({
       <div
         ref={rowRef}
         className="personal-project-row"
+        data-project-path={path}
         data-active={active || undefined}
       >
         <button

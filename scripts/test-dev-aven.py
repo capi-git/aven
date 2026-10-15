@@ -10,6 +10,7 @@ import plistlib
 import socket
 import subprocess
 import tempfile
+import time
 from types import SimpleNamespace
 import unittest
 from unittest import mock
@@ -387,6 +388,36 @@ class RealAppCheck(unittest.TestCase):
         self.assertEqual(deltas[-1], 'AVEN_SMOKE_OK')
         final = next(m for m in messages if m['type'] == 'assistant')
         self.assertEqual(final['message']['content'][0]['text'], ''.join(deltas))
+
+    def test_stand_in_holds_its_reply_when_asked(self):
+        stand_in = self.root / 'home/.local/bin/claude'
+        request = {'type': 'user', 'uuid': 'turn-3',
+                   'message': {'role': 'user', 'content': [{'type': 'text', 'text': 'Wait. AVEN_SMOKE_HOLD 600'}]}}
+        started = time.monotonic()
+        chat = subprocess.run([str(stand_in), '--input-format', 'stream-json'],
+                              input=json.dumps(request) + '\n', capture_output=True, text=True, timeout=10)
+        self.assertGreaterEqual(time.monotonic() - started, 0.6)
+        messages = [json.loads(line) for line in chat.stdout.splitlines()]
+        self.assertEqual(messages[-1]['result'], 'AVEN_SMOKE_OK')
+        # A message without the marker is answered at once.
+        started = time.monotonic()
+        quick = {**request, 'message': {'role': 'user', 'content': [{'type': 'text', 'text': 'Go.'}]}}
+        subprocess.run([str(stand_in), '--input-format', 'stream-json'],
+                       input=json.dumps(quick) + '\n', capture_output=True, text=True, timeout=10)
+        self.assertLess(time.monotonic() - started, 0.6)
+
+    def test_project_gets_one_other_checkout_for_parallel_work(self):
+        runner.add_parallel_copy(self.root)
+        project = self.root / 'project'
+        listing = subprocess.run(['git', 'worktree', 'list', '--porcelain'], cwd=project,
+                                 capture_output=True, text=True, check=True, timeout=10).stdout
+        paths = [line.split(' ', 1)[1] for line in listing.splitlines() if line.startswith('worktree ')]
+        self.assertEqual([Path(path).resolve() for path in paths],
+                         [project.resolve(), (self.root / 'copies/project-copy').resolve()])
+        self.assertIn('branch refs/heads/aven-check-copy', listing)
+        # The copy lives inside the throwaway folder, so cleanup removes it.
+        runner.remove_smoke_folder(self.root)
+        self.assertFalse(self.root.exists())
 
     def test_unmarked_folders_are_never_removed(self):
         other = Path(tempfile.mkdtemp())
