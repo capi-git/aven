@@ -58,7 +58,6 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  type CSSProperties,
 } from "react";
 import { PersonalInspectorDock } from "./chrome/PersonalInspectorDock";
 import { WorkspaceHome } from "./surfaces/WorkspaceHome";
@@ -8491,14 +8490,6 @@ export default function App({
               <div
                 className="personal-workspace-column"
                 data-settings-open={settingsOpen}
-                style={
-                  {
-                    "--workspace-inspector-width":
-                      inspector.open && workspaceVisible
-                        ? `${inspector.width}px`
-                        : "0px",
-                  } as CSSProperties
-                }
               >
                 <div className="personal-workspace-body">
                   <div className="personal-main body-glass flex min-h-0 min-w-0 flex-1 flex-col">

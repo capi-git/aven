@@ -51,19 +51,36 @@ export function useTabSlotMotion(
     [],
   );
 
-  const measure = () => {
-    for (const node of strip.current?.querySelectorAll<HTMLElement>(
-      "[data-motion-slot]",
-    ) ?? []) {
-      const id = node.dataset.motionSlot;
-      // Ghost widths are CSS pixels in this same subtree, not viewport pixels.
-      const width = node.getBoundingClientRect().width / effectiveCssZoom(node);
-      if (id && width > 1) widths.current.set(id, width);
-    }
-  };
   // Widths shift with the window and neighbours, so keep them current; a
-  // closed tab's DOM is gone by the time it needs one.
-  useLayoutEffect(measure);
+  // closed tab's DOM is gone by the time it needs one. A ResizeObserver
+  // reports them after each layout, so no render forces one mid-commit
+  // (measuring every tab on every render cost 15-20 ms per switch).
+  useLayoutEffect(() => {
+    const root = strip.current;
+    if (!root) return;
+    const slots = root.querySelectorAll<HTMLElement>("[data-motion-slot]");
+    if (typeof ResizeObserver === "undefined") {
+      for (const node of slots) {
+        const id = node.dataset.motionSlot;
+        // Ghost widths are CSS pixels in this same subtree, not viewport pixels.
+        const width =
+          node.getBoundingClientRect().width / effectiveCssZoom(node);
+        if (id && width > 1) widths.current.set(id, width);
+      }
+      return;
+    }
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const node = entry.target as HTMLElement;
+        const id = node.dataset.motionSlot;
+        // The border box in the element's own CSS pixels, before any zoom.
+        const width = entry.borderBoxSize?.[0]?.inlineSize ?? 0;
+        if (id && width > 1) widths.current.set(id, width);
+      }
+    });
+    for (const node of slots) observer.observe(node);
+    return () => observer.disconnect();
+  }, [key, strip]);
 
   useLayoutEffect(() => {
     const before = previous.current;

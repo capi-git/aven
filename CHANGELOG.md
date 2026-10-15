@@ -7,6 +7,10 @@
 - `npm run perf:app` runs a speed test in Aven Dev: it drives chats, streaming, typing, tab switching, the sidebar, Settings, the browser and idle with a production interface, and reports time to the next frame, frame pacing, CPU, wakeups and memory for each.
 - Releases now wait for a real-app check: Aven Dev runs once against a stand-in provider, sends a message with the floating sidebar attached, opens and closes Settings, Search, Inbox, Automations and Notes by button and by shortcut, opens and closes Settings from the floating sidebar, and deletes a project whose terminal panel is hidden. Both 0.1.137 regressions fail this check. Run it locally with `npm run check:app`.
 
+### Changed
+
+- Switching between chats, tabs and the browser, showing or hiding the sidebar, and opening or closing Settings are faster: measured in the speed test, Settings takes about a third less time, the sidebar about a fifth less, and the slowest tab switches about a quarter less. Aven no longer stops to measure the window in the middle of these changes, and opening Settings no longer restyles the whole workspace.
+
 ### Fixed
 
 - Deleting a project works when its terminal panel still holds terminals, including a hidden panel or one from a project you are not in. Aven closes them as part of the delete, and asks first only if one is still running something. Before, it refused with "Close this project's terminal tabs before deleting it".

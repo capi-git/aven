@@ -302,7 +302,9 @@ export function useNativeFloatingSidebar({
   };
   useLayoutEffect(() => {
     if (!label) return;
-    geometry.current();
+    // The observer reports once it starts watching, after this frame's
+    // layout. Measuring here instead made WebKit lay out the window
+    // mid-commit on every pin and unpin (~30 ms).
     const update = () => geometry.current();
     const observer = new ResizeObserver(update);
     for (const selector of [
@@ -419,16 +421,15 @@ export function useNativeFloatingSidebar({
       let frame = requestAnimationFrame(() => {
         frame = requestAnimationFrame(() => setDockHidden(false));
       });
-      geometry.current();
+      // Geometry follows from the observer above, after this frame's layout.
       return () => {
         cancelAnimationFrame(frame);
         setDockHidden(false);
       };
     }
-    if (!pinned || !controller.open) {
-      geometry.current();
-      return;
-    }
+    // Geometry follows from the observer above, after this frame's layout;
+    // measuring here made WebKit lay out the window mid-update (~30 ms).
+    if (!pinned || !controller.open) return;
     // Pinning from the card: the docked sidebar mounts fresh at the card's
     // place, holds there while native code removes the card, then docks.
     stale.current = false;

@@ -24,18 +24,50 @@ function Strip({ ids }: { ids: string[] }) {
   );
 }
 
-async function render(ids: string[], zoom = 1) {
+// The width each tab lays out at, in its own CSS pixels. A real
+// ResizeObserver reports it after layout, unaffected by an ancestor's zoom.
+const TAB_WIDTH = 224;
+let observed: Set<Element>;
+let report: (() => void) | undefined;
+
+class TestResizeObserver {
+  constructor(callback: ResizeObserverCallback) {
+    report = () =>
+      callback(
+        [...observed].map(
+          (target) =>
+            ({
+              target,
+              borderBoxSize: [{ inlineSize: TAB_WIDTH, blockSize: 32 }],
+            }) as unknown as ResizeObserverEntry,
+        ),
+        this as unknown as ResizeObserver,
+      );
+  }
+  observe(target: Element) {
+    observed.add(target);
+  }
+  unobserve(target: Element) {
+    observed.delete(target);
+  }
+  disconnect() {
+    observed.clear();
+  }
+}
+
+async function render(ids: string[]) {
   await act(async () => root.render(createElement(Strip, { ids })));
-  for (const node of container.querySelectorAll<HTMLElement>(
-    "[data-motion-slot]",
-  ))
-    node.getBoundingClientRect = () => new DOMRect(0, 0, 224 * zoom, 32 * zoom);
+  // Layout happens after the commit; the observer reports then.
+  await act(async () => report?.());
 }
 
 beforeEach(() => {
   vi.useFakeTimers();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("matchMedia", () => ({ matches: false }));
+  observed = new Set();
+  report = undefined;
+  vi.stubGlobal("ResizeObserver", TestResizeObserver);
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -57,8 +89,6 @@ describe("tab slot motion", () => {
 
   it("grows new tabs in and collapses closed ones where they were", async () => {
     await render(["a", "b", "c"]);
-    // Re-render so widths measured after the stubbed rects are recorded.
-    await render(["a", "b", "c"]);
     await render(["a", "c", "d"]);
     expect([...seen.opening]).toEqual(["d"]);
     expect(seen.ghosts).toEqual([{ id: "b", after: "a", width: 224 }]);
@@ -77,9 +107,8 @@ describe("tab slot motion", () => {
     "keeps ghost widths in CSS pixels at zoom %s",
     async (zoom) => {
       container.style.zoom = String(zoom);
-      await render(["a", "b"], zoom);
-      await render(["a", "b"], zoom);
-      await render(["a"], zoom);
+      await render(["a", "b"]);
+      await render(["a"]);
       expect(seen.ghosts).toEqual([{ id: "b", after: "a", width: 224 }]);
     },
   );
