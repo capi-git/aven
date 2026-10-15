@@ -9,7 +9,9 @@ Aven's native spawn path ran.
 """
 import json
 import os
+import re
 import sys
+import time
 import uuid
 from pathlib import Path
 
@@ -26,6 +28,41 @@ def log(entry):
 def emit(message):
     sys.stdout.write(json.dumps(message) + "\n")
     sys.stdout.flush()
+
+
+# "AVEN_PERF_STREAM <chunks>" in a message asks for a long streamed reply, as
+# the speed test (scripts/perf-aven.py) does to measure Aven while an agent
+# writes. Each chunk is a few words; code blocks and lists are mixed in so the
+# transcript renders realistic markdown.
+STREAM_PATTERN = re.compile(r"AVEN_PERF_STREAM (\d+)")
+STREAM_INTERVAL = 0.012
+STREAM_LINES = [
+    "Here is how the change fits together. ",
+    "The workspace keeps one list of tasks per project, ",
+    "and the sidebar reads it while it is on screen.\n\n",
+    "- Load the project's history once.\n",
+    "- Merge live tasks into it.\n",
+    "- Freeze the list while the sidebar is hidden.\n\n",
+    "```ts\nexport function visible(rows: Row[], limit: number) {\n",
+    "  return rows.filter((row) => !row.archived).slice(0, limit);\n}\n```\n\n",
+    "That keeps typing smooth while agents stream. ",
+    "**Next**, measure frames during the switch and compare. ",
+]
+
+
+def stream_text(chunks):
+    return [STREAM_LINES[index % len(STREAM_LINES)] for index in range(chunks)]
+
+
+def message_text(message):
+    content = (message.get("message") or {}).get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(
+            block.get("text", "") for block in content if isinstance(block, dict)
+        )
+    return ""
 
 
 def option(args, name):
@@ -84,21 +121,32 @@ def main():
             turn = message.get("uuid") or str(uuid.uuid4())
             log({"pid": os.getpid(), "turn": turn})
             emit({"type": "user", "isReplay": True, "uuid": turn, "session_id": session})
+            requested = STREAM_PATTERN.search(message_text(message))
+            chunks = stream_text(int(requested.group(1))) if requested else []
+            message_id = "msg_smoke_" + turn[:8]
             emit({
                 "type": "stream_event",
                 "session_id": session,
-                "event": {
-                    "type": "content_block_delta",
-                    "delta": {"type": "text_delta", "text": REPLY},
-                },
+                "event": {"type": "message_start", "message": {"id": message_id}},
             })
+            for chunk in chunks + [REPLY]:
+                emit({
+                    "type": "stream_event",
+                    "session_id": session,
+                    "event": {
+                        "type": "content_block_delta",
+                        "delta": {"type": "text_delta", "text": chunk},
+                    },
+                })
+                if chunks:
+                    time.sleep(STREAM_INTERVAL)
             emit({
                 "type": "assistant",
                 "session_id": session,
                 "message": {
-                    "id": "msg_smoke_" + turn[:8],
+                    "id": message_id,
                     "role": "assistant",
-                    "content": [{"type": "text", "text": REPLY}],
+                    "content": [{"type": "text", "text": "".join(chunks) + REPLY}],
                 },
             })
             emit({

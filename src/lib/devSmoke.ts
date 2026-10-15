@@ -11,6 +11,8 @@ export type DevSmokeConfig = {
   projectPath: string;
   /** Where the stand-in provider lives. */
   binDir: string;
+  /** Present when this run is the speed test (`dev-aven.py --perf`). */
+  perf?: Record<string, unknown>;
 };
 
 /** What the stand-in provider answers. */
@@ -32,7 +34,13 @@ export function devSmokeConfig(): DevSmokeConfig | null {
  * and it starts from a finished setup with the stand-in Claude as default.
  */
 export async function loadDevSmoke(): Promise<DevSmokeConfig | null> {
-  if (!import.meta.env.DEV || !isTauri()) return null;
+  // The speed test runs a production build made with VITE_AVEN_PERF=1;
+  // release builds have neither flag and drop this code.
+  if (
+    !(import.meta.env.DEV || import.meta.env.VITE_AVEN_PERF === "1") ||
+    !isTauri()
+  )
+    return null;
   try {
     config = (await invoke<DevSmokeConfig | null>("dev_smoke_config")) ?? null;
   } catch {
@@ -118,8 +126,11 @@ export function waitFor<T>(
 export type SmokeStep = { name: string; passed: boolean; detail?: string };
 
 /** Report to the runner and quit the app. */
-export function finishDevSmoke(steps: SmokeStep[]): Promise<void> {
+export function finishDevSmoke(
+  steps: SmokeStep[],
+  extra: Record<string, unknown> = {},
+): Promise<void> {
   return invoke("dev_smoke_finish", {
-    result: { passed: steps.every((step) => step.passed), steps },
+    result: { passed: steps.every((step) => step.passed), steps, ...extra },
   });
 }

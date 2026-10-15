@@ -324,6 +324,8 @@ pub fn run() {
             workspace_menu_panel::workspace_menu_panel_close,
             dev_smoke::dev_smoke_config,
             dev_smoke::dev_smoke_finish,
+            dev_smoke::dev_perf_sample,
+            dev_smoke::dev_perf_keep_visible,
             floating_sidebar::floating_sidebar_attach,
             floating_sidebar::floating_sidebar_workspace,
             floating_sidebar::floating_sidebar_regions,

@@ -8420,6 +8420,9 @@ export default function App({
         ),
     },
     deleteProject: (path) => onRemoveProject(path, { purgeData: true }),
+    focusedSurfaceId: view.focusedId,
+    sidebarOpen,
+    openWebLink: onOpenWebLink,
   });
   useEffect(
     () => setFloatingSidebarRevealed(floatingSidebar.revealed),

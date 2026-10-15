@@ -14,10 +14,11 @@ import { nativeFloatingSidebar } from "../lib/floatingSidebar";
 import { resolveClaudeBinary } from "../lib/harness/child";
 import { getPtyStatus } from "../lib/pty";
 import { IS_MAC } from "../lib/platform";
+import { runDevPerf, type DevPerfOptions } from "./useDevPerf";
 import { sameProjectPath } from "../lib/recents";
 import type { Session } from "../lib/session";
 
-type Options = {
+type Options = DevPerfOptions & {
   sessions: Session[];
   /** The macOS floating sidebar's overlay, once attached. */
   floatingSidebarLabel: string | null;
@@ -122,7 +123,8 @@ export function useDevSmoke(options: Options) {
     const config = devSmokeConfig();
     if (!config || started) return;
     started = true;
-    void runDevSmoke(config, () => latest.current);
+    if (config.perf) void runDevPerf(config, () => latest.current);
+    else void runDevSmoke(config, () => latest.current);
   }, []);
 }
 
