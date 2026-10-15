@@ -5,7 +5,10 @@ import { scorePath } from "./fuzzy";
 import {
   invalidateProjectFiles,
   loadProjectFiles,
+  loadProjectFilesIfStale,
+  peekLastProjectFiles,
   peekProjectFiles,
+  PROJECT_FILES_FRESH_MS,
   rankProjectFiles,
   rememberOpenedFile,
   resolveOpenablePath,
@@ -206,6 +209,57 @@ describe("loadProjectFiles", () => {
     expect(peekProjectFiles(cwd)).toBe(first);
     expect(onChange).not.toHaveBeenCalled();
     stop();
+  });
+
+  it("keeps the same listing when a rescan after an invalidation finds nothing new", async () => {
+    const first = await loadProjectFiles(cwd);
+    invalidateProjectFiles(cwd);
+    expect(peekProjectFiles(cwd)).toBeNull();
+    // The last listing stays available to show while the rescan runs.
+    expect(peekLastProjectFiles(cwd)).toBe(first);
+    const onChange = vi.fn();
+    const stop = subscribeProjectFiles(onChange);
+    list.mockResolvedValue(files.map((file) => ({ ...file })));
+    expect(await loadProjectFiles(cwd)).toBe(first);
+    expect(peekProjectFiles(cwd)).toBe(first);
+    // The current listing went from none back to the same one.
+    expect(onChange).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it("forgets the last listing on a full reset", async () => {
+    await loadProjectFiles(cwd);
+    invalidateProjectFiles();
+    expect(peekLastProjectFiles(cwd)).toBeNull();
+  });
+
+  it("rescans an open picker's listing only once it is a few seconds old", async () => {
+    vi.useFakeTimers();
+    const first = await loadProjectFilesIfStale(cwd);
+    expect(list).toHaveBeenCalledTimes(1);
+    list.mockResolvedValue([...files, extra]);
+
+    vi.advanceTimersByTime(PROJECT_FILES_FRESH_MS - 1);
+    expect(await loadProjectFilesIfStale(cwd)).toBe(first);
+    expect(list).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(1);
+    expect(await loadProjectFilesIfStale(cwd)).toEqual([...files, extra]);
+    expect(list).toHaveBeenCalledTimes(2);
+  });
+
+  it("reuses a scan in flight instead of starting another for a stale listing", async () => {
+    vi.useFakeTimers();
+    await loadProjectFiles(cwd);
+    vi.advanceTimersByTime(PROJECT_FILES_FRESH_MS);
+    const pending = deferred<ProjectFile[]>();
+    list.mockImplementationOnce(() => pending.promise);
+    const refresh = loadProjectFiles(cwd, true);
+    const open = loadProjectFilesIfStale(cwd);
+    expect(list).toHaveBeenCalledTimes(2);
+    pending.resolve([...files, extra]);
+    expect(await refresh).toEqual([...files, extra]);
+    expect(await open).toEqual([...files, extra]);
   });
 
   it("reloads after a directory change", async () => {

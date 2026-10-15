@@ -5,6 +5,7 @@ import {
   subscribeSkills,
   mergeCatalog,
   peekSkills,
+  sameSkillList,
   skillCatalogKey,
   type Skill,
   type SkillCatalogContext,
@@ -16,7 +17,7 @@ export type ComposerSkillContextToken = {
   generation: number;
 };
 
-type ComposerSkillState = {
+export type ComposerSkillState = {
   key: string;
   skills: Skill[];
 };
@@ -33,6 +34,20 @@ export function pickerSkillLoadOptions(
   harness: HarnessId,
 ): { refresh: true } | undefined {
   return hasNativeCommands(harness) ? undefined : { refresh: true };
+}
+
+/**
+ * Keep the current state when a reload finds the same rows: a new array would
+ * re-rank an open picker and could move the highlighted row.
+ */
+export function nextComposerSkillState(
+  current: ComposerSkillState,
+  key: string,
+  skills: Skill[],
+): ComposerSkillState {
+  return current.key === key && sameSkillList(current.skills, skills)
+    ? current
+    : { key, skills };
 }
 
 export function visibleComposerSkills(
@@ -81,7 +96,7 @@ export function useComposerSkills(input: {
   const commit = useCallback(
     (token: ComposerSkillContextToken, skills: Skill[]) => {
       if (!isCurrent(token)) return false;
-      setState({ key: token.key, skills });
+      setState((current) => nextComposerSkillState(current, token.key, skills));
       return true;
     },
     [isCurrent],

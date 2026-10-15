@@ -84,7 +84,11 @@ export function replaceMentionToken(
  * What `@` can offer for one file list, computed once per list: typing after
  * `@` re-ranks on every key, and a large project has tens of thousands.
  */
-type Mentionable = { usable: ProjectFile[]; ordered?: ProjectFile[] };
+type Mentionable = {
+  usable: ProjectFile[];
+  ordered?: ProjectFile[];
+  byPath?: Map<string, ProjectFile>;
+};
 const mentionables = new WeakMap<ProjectFile[], Mentionable>();
 
 function mentionable(files: ProjectFile[]): Mentionable {
@@ -156,24 +160,22 @@ export function rankMentionFiles(
   const needle = query.replace(/\/+$/, "").trim();
   if (needle) return rankProjectFiles(usable, needle, recents, limit);
 
-  const byPath = new Map(usable.map((file) => [file.path, file]));
   const out: RankedFile[] = [];
   const seen = new Set<string>();
-  for (const path of recents) {
-    const file = byPath.get(path);
-    if (!file || seen.has(path)) continue;
-    seen.add(path);
-    out.push({ ...file, score: 0, positions: [] });
-    if (out.length >= limit) return out;
+  if (recents.length > 0) {
+    const byPath = (entry.byPath ??= new Map(
+      usable.map((file) => [file.path, file]),
+    ));
+    for (const path of recents) {
+      const file = byPath.get(path);
+      if (!file || seen.has(path)) continue;
+      seen.add(path);
+      out.push({ ...file, score: 0, positions: [] });
+      if (out.length >= limit) return out;
+    }
   }
 
-  const rest = (entry.ordered ??= [...usable].sort((a, b) => {
-    const depth = pathDepth(a.relative) - pathDepth(b.relative);
-    if (depth !== 0) return depth;
-    const dir = Number(Boolean(b.isDir)) - Number(Boolean(a.isDir));
-    if (dir !== 0) return dir;
-    return a.relative.localeCompare(b.relative);
-  }));
+  const rest = (entry.ordered ??= shallowestFirst(usable));
   for (const file of rest) {
     if (seen.has(file.path)) continue;
     seen.add(file.path);
@@ -322,6 +324,26 @@ function mentionDirPath(file: ProjectFile, relativeDir: string): string {
     return file.path.slice(0, file.path.length - winTrail.length);
   }
   return file.path.slice(0, file.path.length - trail.length);
+}
+
+/** Same order as `localeCompare`, without its per-call setup. */
+let pathCollator: Intl.Collator | undefined;
+
+/**
+ * Shallow paths first, folders before files at each depth, then by path.
+ * Depth is measured once per file: a large project sorts tens of thousands.
+ */
+function shallowestFirst(files: ProjectFile[]): ProjectFile[] {
+  const collator = (pathCollator ??= new Intl.Collator());
+  return files
+    .map((file) => ({ file, depth: pathDepth(file.relative) }))
+    .sort(
+      (a, b) =>
+        a.depth - b.depth ||
+        Number(Boolean(b.file.isDir)) - Number(Boolean(a.file.isDir)) ||
+        collator.compare(a.file.relative, b.file.relative),
+    )
+    .map((row) => row.file);
 }
 
 function pathDepth(relative: string): number {

@@ -11,6 +11,7 @@ vi.mock("./harness/registry", () => ({
 }));
 
 import { describe, expect, it, vi } from "vitest";
+import { PLAN_COMMAND } from "./plan";
 import {
   BUILTIN_CREATE_SKILL,
   BUILTIN_COMPUTER_USE_SKILL,
@@ -21,7 +22,9 @@ import {
   isNativeCommandPrompt,
   mergeCatalog,
   readSkillBody,
+  rankSkillMatches,
   rankSkills,
+  sameSkillList,
   replaceSlashToken,
   skillNamesInText,
   skillTextParts,
@@ -302,12 +305,119 @@ describe("mergeCatalog", () => {
 });
 
 describe("rankSkills", () => {
-  it("puts create-skill first when the query is empty", () => {
-    const ranked = rankSkills([native, review, BUILTIN_CREATE_SKILL], "");
+  const personal: Skill = {
+    kind: "file",
+    name: "standup",
+    description: "Summarize yesterday's work.",
+    invocation: "standup",
+    path: "/home/.agents/skills/standup/SKILL.md",
+    scope: "user",
+    source: "agents",
+  };
+
+  it("lists project, then personal skills, then Aven's own for an empty query", () => {
+    const ranked = rankSkills(
+      [BUILTIN_CREATE_SKILL, personal, PLAN_COMMAND, native, review],
+      "",
+    );
     expect(ranked.map((s) => s.name)).toEqual([
-      "create-skill",
       "cursor-only",
       "review-pr",
+      "standup",
+      "create-skill",
+      "plan",
+    ]);
+  });
+
+  it("lists recently used skills first, most recent first", () => {
+    const ranked = rankSkillMatches(
+      [BUILTIN_CREATE_SKILL, personal, PLAN_COMMAND, native, review],
+      "",
+      { recent: ["plan", "missing", "standup"] },
+    );
+    expect(ranked.map((row) => row.skill.name)).toEqual([
+      "plan",
+      "standup",
+      "cursor-only",
+      "review-pr",
+      "create-skill",
+    ]);
+  });
+
+  it("puts Aven's own commands after the user's skills unless the query starts their name", () => {
+    const pair: Skill = {
+      ...personal,
+      name: "pairing-notes",
+      invocation: "pairing-notes",
+    };
+    expect(rankSkills([PLAN_COMMAND, pair], "pn")[0]?.name).toBe(
+      "pairing-notes",
+    );
+    expect(rankSkills([PLAN_COMMAND, pair], "pl")[0]?.name).toBe("plan");
+  });
+
+  it("lets a recent skill win a near tie", () => {
+    const one: Skill = {
+      ...personal,
+      name: "deploy-a",
+      invocation: "deploy-a",
+    };
+    const two: Skill = {
+      ...personal,
+      name: "deploy-b",
+      invocation: "deploy-b",
+    };
+    expect(rankSkills([one, two], "dep")[0]?.name).toBe("deploy-a");
+    expect(
+      rankSkillMatches([one, two], "dep", { recent: ["deploy-b"] })[0]?.skill
+        .name,
+    ).toBe("deploy-b");
+  });
+
+  it("matches descriptions by word, after every name match, and only a few", () => {
+    const rows: Skill[] = Array.from({ length: 300 }, (_, index) => ({
+      kind: "file",
+      name: `skill-${index}`,
+      description:
+        index % 2
+          ? "Prepare a reviewable change for every team."
+          : "Rename files to match the convention.",
+      invocation: `skill-${index}`,
+      path: `/p/.agents/skills/skill-${index}/SKILL.md`,
+      scope: "project",
+      source: "agents",
+    }));
+    const ranked = rankSkillMatches([...rows, review], "rev");
+    expect(ranked[0]?.skill.name).toBe("review-pr");
+    // 150 descriptions have a word starting "rev"; ten are enough to show.
+    expect(ranked).toHaveLength(1 + 10);
+    expect(ranked.slice(1).every((row) => row.positions.length === 0)).toBe(
+      true,
+    );
+    expect(ranked[1]?.descriptionPositions).toEqual([10, 11, 12]);
+  });
+
+  it("does not match a description by scattered letters or a single letter", () => {
+    const deploy: Skill = {
+      ...personal,
+      name: "ship",
+      invocation: "ship",
+      description: "Run every environment variable check.",
+    };
+    expect(rankSkills([deploy], "rvc")).toEqual([]);
+    expect(rankSkills([deploy], "c")).toEqual([]);
+    // Three or more letters may match inside a word.
+    expect(rankSkills([deploy], "iron")).toEqual([deploy]);
+  });
+
+  it("reports matched characters in the invocation the picker shows", () => {
+    expect(rankSkillMatches([review], "rpr")[0]?.positions).toEqual([0, 7, 8]);
+    // Pi shows `/skill:architect`; the name starts after the prefix.
+    expect(rankSkillMatches([piNative], "arch")[0]?.positions).toEqual([
+      6, 7, 8, 9,
+    ]);
+    expect(rankSkillMatches([piNative], "skill")[0]?.positions).toEqual([
+      0, 1, 2, 3, 4,
     ]);
   });
 
@@ -348,6 +458,22 @@ describe("rankSkills", () => {
     expect(
       rankSkills(rows, "skill-74", Number.POSITIVE_INFINITY)[0]?.name,
     ).toBe("skill-74");
+  });
+});
+
+describe("sameSkillList", () => {
+  it("compares rows by value and order", () => {
+    expect(
+      sameSkillList([review, native], [{ ...review }, { ...native }]),
+    ).toBe(true);
+    expect(sameSkillList([review, native], [native, review])).toBe(false);
+    expect(
+      sameSkillList([review], [{ ...review, description: "Changed." }]),
+    ).toBe(false);
+    expect(
+      sameSkillList([review], [{ ...review, path: "/elsewhere/SKILL.md" }]),
+    ).toBe(false);
+    expect(sameSkillList([review], [review, native])).toBe(false);
   });
 });
 

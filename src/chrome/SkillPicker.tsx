@@ -1,5 +1,6 @@
 import { Plus } from "./icons";
 import {
+  memo,
   useEffect,
   useRef,
   useState,
@@ -7,12 +8,22 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { looksLikeProject } from "../lib/recents";
-import { isValidSkillName, slugSkillName, type Skill } from "../lib/skills";
+import {
+  isValidSkillName,
+  slugSkillName,
+  type Skill,
+  type SkillMatch,
+} from "../lib/skills";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
+import { MatchText } from "./MatchText";
 
 type Props = {
-  skills: Skill[];
+  skills: readonly SkillMatch[];
   query: string;
+  /**
+   * The highlighted row: a skill's index, `skills.length` for the closing
+   * create row, or -1 when nothing is highlighted (Enter then sends).
+   */
   active: number;
   creating: boolean;
   cwd: string;
@@ -54,41 +65,40 @@ export function SkillPicker({
           onCreate={onCreate}
         />
       ) : (
-        <>
-          <SkillList
-            skills={skills}
-            query={query}
-            active={active}
-            onActive={onActive}
-            onPick={onPick}
-          />
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={onStartCreate}
-            className="flex w-full items-center gap-2 border-t border-content/10 px-2.5 py-2 text-left text-ui-label text-content/70 hover:bg-content/10 hover:text-content"
-          >
-            <Plus className="size-3.5 shrink-0" strokeWidth={1.75} />
-            New skill
-          </button>
-        </>
+        <SkillList
+          skills={skills}
+          query={query}
+          active={active}
+          onActive={onActive}
+          onPick={onPick}
+          onStartCreate={onStartCreate}
+        />
       )}
     </div>
   );
 }
 
-function SkillList({
+/** The create row's text: the name the new skill would get, if any. */
+export function createSkillLabel(query: string): string {
+  const name = slugSkillName(query);
+  return name ? `Create skill "${name}"` : "New skill";
+}
+
+/** Memoized: the composer re-renders for every keystroke and draft change. */
+const SkillList = memo(function SkillList({
   skills,
   query,
   active,
   onActive,
   onPick,
+  onStartCreate,
 }: {
-  skills: Skill[];
+  skills: readonly SkillMatch[];
   query: string;
   active: number;
   onActive: (index: number) => void;
   onPick: (skill: Skill) => void;
+  onStartCreate: () => void;
 }) {
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const activeRef = useRef<HTMLButtonElement>(null);
@@ -121,70 +131,100 @@ function SkillList({
     onActive(index);
   };
 
-  if (skills.length === 0) {
-    return (
-      <p className="px-3 py-2.5 text-ui-label text-content/50">
-        {query.trim() ? "No matching commands or skills" : "No commands yet"}
-      </p>
-    );
-  }
+  const searching = Boolean(query.trim());
+  const createActive = active === skills.length;
 
   return (
-    <div
-      ref={lockOverscroll}
-      role="listbox"
-      aria-label="Commands and skills"
-      onMouseMove={onListMouseMove}
-      className="max-h-[min(240px,40vh)] overflow-y-auto overscroll-none px-1 py-1"
-    >
-      {skills.map((skill, index) => {
-        const highlighted = index === active;
-        return (
-          <button
-            key={`${skill.kind}:${skill.source}:${skill.invocation}`}
-            ref={highlighted ? activeRef : undefined}
-            type="button"
-            role="option"
-            aria-selected={highlighted}
-            onMouseDown={(e) => e.preventDefault()}
-            onMouseEnter={() => onRowEnter(index)}
-            onClick={() => onPick(skill)}
-            className={`flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left ${
-              highlighted ? "bg-skill/15 text-content" : "text-content"
-            }`}
+    <>
+      {skills.length === 0 ? (
+        <p className="px-3 py-2.5 text-ui-label text-content/50">
+          {searching ? "No matching commands or skills" : "No commands yet"}
+        </p>
+      ) : null}
+      <div
+        role="listbox"
+        aria-label="Commands and skills"
+        onMouseMove={onListMouseMove}
+      >
+        {skills.length > 0 ? (
+          <div
+            ref={lockOverscroll}
+            className="max-h-[min(240px,40vh)] overflow-y-auto overscroll-none px-1 py-1"
           >
-            <span className="flex min-w-0 items-baseline gap-2">
-              <span
-                className={`truncate font-mono text-ui-body ${
-                  highlighted ? "font-medium text-skill" : ""
-                }`}
-              >
-                /{skill.invocation}
-              </span>
-              <span className="shrink-0 text-ui-micro uppercase tracking-wide text-content/40">
-                {scopeLabel(skill)}
-              </span>
-            </span>
-            {skill.description ? (
-              <span className="line-clamp-2 text-ui-caption leading-4 text-content/50">
-                {skill.description}
-              </span>
-            ) : null}
-            {skill.kind === "native" &&
-            (skill.inputHint || skill.subcommands?.length) ? (
-              <span className="line-clamp-2 text-ui-caption text-content/40">
-                {skill.inputHint ||
-                  skill.subcommands
-                    ?.map((sub) => sub.usage || sub.name)
-                    .join(" · ")}
-              </span>
-            ) : null}
-          </button>
-        );
-      })}
-    </div>
+            {skills.map(({ skill, positions, descriptionPositions }, index) => {
+              const highlighted = index === active;
+              return (
+                <button
+                  key={`${skill.kind}:${skill.source}:${skill.invocation}`}
+                  ref={highlighted ? activeRef : undefined}
+                  type="button"
+                  role="option"
+                  aria-selected={highlighted}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onMouseEnter={() => onRowEnter(index)}
+                  onClick={() => onPick(skill)}
+                  className={`flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left ${
+                    highlighted ? "bg-skill/15 text-content" : "text-content"
+                  }`}
+                >
+                  <span className="flex min-w-0 items-baseline gap-2">
+                    <span
+                      className={`truncate font-mono text-ui-body ${
+                        highlighted ? "font-medium text-skill" : ""
+                      }`}
+                    >
+                      /
+                      <MatchText
+                        text={skill.invocation}
+                        positions={positions}
+                        active={searching}
+                      />
+                    </span>
+                    <span className="shrink-0 text-ui-micro uppercase tracking-wide text-content/40">
+                      {scopeLabel(skill)}
+                    </span>
+                  </span>
+                  {skill.description ? (
+                    <span className="line-clamp-2 text-ui-caption leading-4 text-content/50">
+                      <MatchText
+                        text={skill.description}
+                        positions={descriptionPositions}
+                        active={searching}
+                      />
+                    </span>
+                  ) : null}
+                  {skill.kind === "native" &&
+                  (skill.inputHint || skill.subcommands?.length) ? (
+                    <span className="line-clamp-2 text-ui-caption text-content/40">
+                      {skill.inputHint ||
+                        skill.subcommands
+                          ?.map((sub) => sub.usage || sub.name)
+                          .join(" · ")}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+        <button
+          type="button"
+          role="option"
+          aria-selected={createActive}
+          onMouseDown={(e) => e.preventDefault()}
+          onMouseEnter={() => onRowEnter(skills.length)}
+          onClick={onStartCreate}
+          className={`flex w-full items-center gap-2 border-t border-content/10 px-2.5 py-2 text-left text-ui-label hover:bg-content/10 hover:text-content ${
+            createActive ? "bg-content/10 text-content" : "text-content/70"
+          }`}
+        >
+          <Plus className="size-3.5 shrink-0" strokeWidth={1.75} />
+          <span className="min-w-0 truncate">{createSkillLabel(query)}</span>
+        </button>
+      </div>
+    </>
   );
-}
+});
 
 function CreateSkillForm({
   query,
