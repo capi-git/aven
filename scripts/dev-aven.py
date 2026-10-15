@@ -230,6 +230,28 @@ def prepare_smoke_folder():
     return root
 
 
+def add_parallel_copy(root):
+    """Make the check's project a Git repository with one other checkout.
+
+    The real-app check looks at Parallel work in the Changes panel, which
+    lists a project's other checkouts. Git runs without the developer's own
+    configuration, so no hooks, signing or identity of theirs are involved.
+    """
+    project = root / 'project'
+    env = {**os.environ, 'GIT_CONFIG_GLOBAL': os.devnull, 'GIT_CONFIG_NOSYSTEM': '1',
+           'GIT_AUTHOR_NAME': 'Aven check', 'GIT_AUTHOR_EMAIL': 'check@aven.invalid',
+           'GIT_COMMITTER_NAME': 'Aven check', 'GIT_COMMITTER_EMAIL': 'check@aven.invalid'}
+
+    def git(*args):
+        subprocess.run(['git', *args], cwd=project, env=env, check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+
+    git('init', '-q', '-b', 'main')
+    git('add', 'README.md')
+    git('commit', '-q', '-m', 'Real-app check project')
+    git('worktree', 'add', '-q', '-b', 'aven-check-copy', str(root / 'copies/project-copy'))
+
+
 def remove_smoke_folder(root):
     # Only a folder this runner created and marked.
     if root.is_dir() and (root / SMOKE_MARKER).is_file():
@@ -251,6 +273,7 @@ def stop_stand_ins(root):
 def smoke(keep=False):
     """Run Aven Dev's real-app check and return whether it passed."""
     root = prepare_smoke_folder()
+    add_parallel_copy(root)
     passed = False
     try:
         child_env = host_scoped_environment()

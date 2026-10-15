@@ -3,7 +3,8 @@
 
 It speaks just enough of Claude Code's stream-json protocol for Aven to send
 one turn: it answers initialize and model-list requests, echoes each user
-message, and replies with AVEN_SMOKE_OK. It never contacts a network or an
+message, and replies with AVEN_SMOKE_OK, after a pause when the message asks
+for one. It never contacts a network or an
 account. Every invocation is logged beside it as evidence that
 Aven's native spawn path ran.
 """
@@ -48,6 +49,17 @@ STREAM_LINES = [
     "That keeps typing smooth while agents stream. ",
     "**Next**, measure frames during the switch and compare. ",
 ]
+
+
+# "AVEN_SMOKE_HOLD <ms>" in a message keeps the turn running that long before
+# the reply, so the real-app check can watch what moves while an agent works.
+HOLD_PATTERN = re.compile(r"AVEN_SMOKE_HOLD (\d+)")
+HOLD_MAX_SECONDS = 20
+
+
+def hold_seconds(text):
+    requested = HOLD_PATTERN.search(text)
+    return min(int(requested.group(1)) / 1000, HOLD_MAX_SECONDS) if requested else 0
 
 
 def stream_text(chunks):
@@ -121,7 +133,8 @@ def main():
             turn = message.get("uuid") or str(uuid.uuid4())
             log({"pid": os.getpid(), "turn": turn})
             emit({"type": "user", "isReplay": True, "uuid": turn, "session_id": session})
-            requested = STREAM_PATTERN.search(message_text(message))
+            text = message_text(message)
+            requested = STREAM_PATTERN.search(text)
             chunks = stream_text(int(requested.group(1))) if requested else []
             message_id = "msg_smoke_" + turn[:8]
             emit({
@@ -129,6 +142,7 @@ def main():
                 "session_id": session,
                 "event": {"type": "message_start", "message": {"id": message_id}},
             })
+            time.sleep(hold_seconds(text))
             for chunk in chunks + [REPLY]:
                 emit({
                     "type": "stream_event",

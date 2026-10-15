@@ -8558,7 +8558,9 @@ export default function App({
     sessions,
     floatingSidebarLabel: floatingSidebarLayer,
     expectFloatingSidebar: IS_MAC,
-    newProjectTask: onNewProjectTask,
+    // The sidebar's own New task, as its project rows (and the floating
+    // sidebar, by name) call it.
+    newProjectTask: sidebarProps.onNewProjectTask ?? onNewProjectTask,
     submit: (sessionId, text) => void onSubmit(sessionId, text, []),
     utilities: {
       openSearch: onOpenSearch,
@@ -8568,6 +8570,11 @@ export default function App({
       openSettings: onOpenSettings,
       closeSettings: onCloseSettings,
       leaveNotes: onLeaveNotes,
+    },
+    motion: {
+      openHome: onOpenHome,
+      showChanges: onShowSourceControl,
+      hideChanges: onCloseInspector,
     },
     projects: recents,
     projectPanel: {

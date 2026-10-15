@@ -9,6 +9,11 @@ import {
   type DevSmokeConfig,
   type SmokeStep,
 } from "../lib/devSmoke";
+import {
+  animationProblem,
+  prefersReducedMotion,
+  watchOneShot,
+} from "../lib/devSmokeMotion";
 import { errorText } from "../lib/errors";
 import { nativeFloatingSidebar } from "../lib/floatingSidebar";
 import { resolveClaudeBinary } from "../lib/harness/child";
@@ -24,10 +29,13 @@ type Options = DevPerfOptions & {
   floatingSidebarLabel: string | null;
   /** Whether this platform attaches the floating sidebar at all. */
   expectFloatingSidebar: boolean;
+  /** The sidebar's "New task in <project>". */
   newProjectTask: (path: string) => void;
   submit: (sessionId: string, text: string) => void;
   /** The workspace's own utility views, opened as their buttons would. */
   utilities?: SmokeUtilities;
+  /** What the checks of things that move open and close. */
+  motion?: SmokeMotion;
   /** Remembered projects, for checking that a deleted one is gone. */
   projects?: readonly { path: string }[];
   /** The current project's terminal panel. */
@@ -48,6 +56,18 @@ type SmokeUtilities = {
   closeSettings: () => void;
   leaveNotes: () => void;
 };
+
+type SmokeMotion = {
+  /** Home, as the toolbar's Home button opens it. */
+  openHome: () => void;
+  /** The Changes panel, as the menu's Source Control opens it. */
+  showChanges: () => void;
+  /** Close the panel on the right. */
+  hideChanges: () => void;
+};
+
+/** How long the stand-in holds a turn open while the checks watch it. */
+const HOLD_MS = 4_000;
 
 /** Each utility view's root carries `data-app-<name>`. */
 const UTILITY_VIEWS = [
@@ -80,6 +100,86 @@ function pressShortcut(key: string) {
       cancelable: true,
     }),
   );
+}
+
+function replyCount(sessions: Session[], id: string): number {
+  return (sessions.find((session) => session.id === id)?.blocks ?? []).filter(
+    (block) => block.role === "assistant" && block.text.includes(SMOKE_REPLY),
+  ).length;
+}
+
+/** The project's row in this window's (pinned) sidebar, when on screen. */
+function sidebarProjectRow(path: string): HTMLElement | null {
+  return (
+    [
+      ...document.querySelectorAll<HTMLElement>(
+        ".personal-project-row[data-project-path]",
+      ),
+    ].find(
+      (row) =>
+        sameProjectPath(row.dataset.projectPath ?? "", path) &&
+        row.getClientRects().length > 0,
+    ) ?? null
+  );
+}
+
+function homeOnScreen(): HTMLElement | null {
+  return document.querySelector<HTMLElement>(".workspace-home");
+}
+
+function homeAgentTile(path: string): HTMLElement | null {
+  return (
+    [
+      ...document.querySelectorAll<HTMLElement>(
+        ".workspace-home-agent[data-project-path]",
+      ),
+    ].find((tile) => sameProjectPath(tile.dataset.projectPath ?? "", path)) ??
+    null
+  );
+}
+
+/**
+ * Why a project mark is not stepping as a working agent's should, or null:
+ * in its working state, with its two-frame hop running unless reduced motion
+ * stops it.
+ */
+function workingMarkProblem(mark: Element | null): string | null {
+  if (!mark) return "is missing";
+  if (mark.getAttribute("data-kind") !== "mascot") return "is not a mascot";
+  if (!mark.hasAttribute("data-active")) return "is not in its working state";
+  const sprite = mark.querySelector("svg.mascot-active");
+  if (!sprite) return "has no working sprite";
+  return animationProblem(
+    getComputedStyle(sprite).animationName,
+    "project-mark-hop",
+    prefersReducedMotion(),
+  );
+}
+
+/**
+ * Send a turn the stand-in holds open for `HOLD_MS`, wait until the chat is
+ * working, and return a wait for its reply.
+ */
+async function startHeldTurn(
+  get: () => Options,
+  id: string,
+  text: string,
+): Promise<() => Promise<unknown>> {
+  const before = replyCount(get().sessions, id);
+  get().submit(id, `${text} AVEN_SMOKE_HOLD ${HOLD_MS}`);
+  await waitFor(
+    () => get().sessions.find((session) => session.id === id)?.busy,
+    10_000,
+    "the held turn to start",
+  );
+  return () =>
+    waitFor(
+      () =>
+        !get().sessions.find((session) => session.id === id)?.busy &&
+        replyCount(get().sessions, id) > before,
+      HOLD_MS + 30_000,
+      "the held turn's reply",
+    );
 }
 
 function sentTexts(sessions: Session[], id: string): string[] {
@@ -119,8 +219,10 @@ let started = false;
  * Aven Dev's real-app check, run by the workspace only when the debug app was
  * launched by `scripts/dev-aven.py --smoke`: send one turn to a stand-in
  * provider through the normal send path with the floating sidebar attached,
- * open and close the utility views by handler and by shortcut, then have the
- * floating sidebar open Settings and press Back, then report.
+ * open and close the utility views by handler and by shortcut, watch what
+ * moves while an agent works and when its turn ends (the sidebar's mark, Home
+ * and Parallel work), then have the floating sidebar open Settings and press
+ * Back, then report.
  */
 export function useDevSmoke(options: Options) {
   const latest = useRef(options);
@@ -380,6 +482,205 @@ export async function runDevSmoke(
         return pill.getAttribute("aria-label") ?? undefined;
       },
     );
+
+  // What moves. The project's mark in the sidebar steps while its agent
+  // works and reacts once when the turn ends; the pinned sidebar is the one
+  // drawn in this window (the floating one draws in its own).
+  const motion = get().motion;
+  if (safe && typedTask && motion)
+    await step(
+      "the project's mark steps while its agent works and reacts once",
+      async () => {
+        if (!get().sidebarOpen) {
+          pressShortcut("b");
+          await waitFor(
+            () => get().sidebarOpen === true,
+            5_000,
+            "the sidebar to pin",
+          );
+        }
+        const mark = () =>
+          sidebarProjectRow(config.projectPath)?.querySelector<HTMLElement>(
+            ".project-mark",
+          ) ?? null;
+        await waitFor(mark, 10_000, "the project's mark in the sidebar");
+        // macOS stops drawing a covered window, and a hidden window leaves
+        // reactions to windows the user can see.
+        await waitFor(
+          () => document.visibilityState !== "hidden",
+          15_000,
+          "Aven Dev's window to be visible (keep it uncovered during the check)",
+        );
+        const reply = await startHeldTurn(
+          get,
+          typedTask.id,
+          "Take a moment before replying.",
+        );
+        await waitFor(
+          () => mark()?.hasAttribute("data-active"),
+          5_000,
+          "the project's mark to start working",
+        );
+        const working = workingMarkProblem(mark());
+        if (working)
+          throw new Error(`While the agent worked, its mark ${working}`);
+        await reply();
+        let reacting: string | null = null;
+        const kind = await watchOneShot(
+          () => {
+            const current = mark();
+            const value = current?.dataset.reaction;
+            if (value && reacting === null) {
+              const body = current?.querySelector(
+                ".mascot-reacting .mascot-body",
+              );
+              reacting = body
+                ? (animationProblem(
+                    getComputedStyle(body).animationName,
+                    `mascot-${value}`,
+                    prefersReducedMotion(),
+                  ) ?? "")
+                : "has no reacting sprite";
+            }
+            return value;
+          },
+          {
+            what: "The mascot's reaction to the turn ending",
+            appearMs: 5_000,
+            clearMs: 3_000,
+            quietMs: 2_000,
+          },
+        );
+        if (kind !== "cheer")
+          throw new Error(`The mascot reacted with ${kind}, not cheer`);
+        if (reacting) throw new Error(`While reacting, its mark ${reacting}`);
+        if (mark()?.hasAttribute("data-active"))
+          throw new Error("The mark kept working after the turn ended");
+        return prefersReducedMotion()
+          ? "still while working and reacting (reduced motion)"
+          : "hopped while working, cheered once";
+      },
+    );
+
+  // Home: every project's agent with its mascot, the working one moving,
+  // Right now and today's recap; then the sidebar's New task pressed over
+  // Home leaves it for the new chat.
+  if (safe && typedTask && motion)
+    await step(
+      "Home shows each project's agent, and New task leaves Home for the chat",
+      async () => {
+        const reply = await startHeldTurn(
+          get,
+          typedTask.id,
+          "Take a moment while Home is open.",
+        );
+        motion.openHome();
+        const home = await waitFor(homeOnScreen, 5_000, "Home");
+        const tiles = [
+          ...home.querySelectorAll<HTMLElement>(
+            ".workspace-home-agent[data-project-path]",
+          ),
+        ];
+        if (tiles.length === 0) throw new Error("Home shows no agents");
+        const bare = tiles.filter(
+          (tile) => !tile.querySelector(".project-mark svg, .project-mark img"),
+        );
+        if (bare.length)
+          throw new Error(
+            `${bare.length} of ${tiles.length} agents have no mascot or logo`,
+          );
+        const tile = await waitFor(
+          () => {
+            const found = homeAgentTile(config.projectPath);
+            return found?.dataset.state === "running" && found;
+          },
+          5_000,
+          "the project's agent to show it is working",
+        );
+        const working = workingMarkProblem(tile.querySelector(".project-mark"));
+        if (working)
+          throw new Error(`On Home, the working agent's mark ${working}`);
+        const chip = await waitFor(
+          () => homeOnScreen()?.querySelector('[data-pulse="running"]'),
+          5_000,
+          "Right now to count the working agent",
+        );
+        const chipText = chip.textContent?.trim() ?? "";
+        if (!/^\d+ agents? working/.test(chipText))
+          throw new Error(`Right now reads "${chipText}"`);
+        await reply();
+        const recap = await waitFor(
+          () => homeOnScreen()?.querySelector(".workspace-home-today"),
+          5_000,
+          "today's recap",
+        );
+        const recapText = recap.textContent?.trim() ?? "";
+        if (!/^Today: \d+ tasks? done/.test(recapText))
+          throw new Error(`Today's recap reads "${recapText}"`);
+
+        const before = new Set(get().sessions.map((session) => session.id));
+        get().newProjectTask(config.projectPath);
+        const created = await waitFor(
+          () =>
+            get().sessions.find(
+              (session) =>
+                !before.has(session.id) &&
+                sameProjectPath(session.cwd, config.projectPath),
+            ),
+          5_000,
+          "the new task",
+        );
+        await waitFor(
+          () => !homeOnScreen() && workspaceOnScreen(),
+          5_000,
+          "Home to give way to the new task",
+        );
+        await waitFor(
+          () =>
+            visibleComposer()
+              ?.closest("[data-session-drop]")
+              ?.getAttribute("data-session-drop") === created.id,
+          5_000,
+          "the new task's message box",
+        );
+        return `${tiles.length} ${tiles.length === 1 ? "agent" : "agents"}; ${chipText}; ${recapText}`;
+      },
+    );
+
+  // Parallel work in the Changes panel starts folded to its header line.
+  if (safe && typedTask && motion)
+    await step("Parallel work starts folded to one line", async () => {
+      await expectOnScreen(null);
+      motion.showChanges();
+      try {
+        const section = await waitFor(
+          () =>
+            document.querySelector<HTMLElement>(
+              'section.git-copies[aria-label="Parallel work"]',
+            ),
+          15_000,
+          "Parallel work in the Changes panel",
+        );
+        const toggle = section.querySelector<HTMLElement>(".git-copies-toggle");
+        if (!toggle || toggle.getClientRects().length === 0)
+          throw new Error("Parallel work's header is not on screen");
+        if (
+          toggle.getAttribute("aria-expanded") !== "false" ||
+          section.hasAttribute("data-open")
+        )
+          throw new Error("Parallel work opened unfolded");
+        if (section.children.length !== 1)
+          throw new Error(
+            `Folded Parallel work shows ${section.children.length - 1} more parts under its header`,
+          );
+        const header = toggle.textContent?.replace(/\s+/g, " ").trim() ?? "";
+        if (!header.startsWith("Parallel work"))
+          throw new Error(`Parallel work's header reads "${header}"`);
+        return header;
+      } finally {
+        motion.hideChanges();
+      }
+    });
 
   // The workspace's own key listener, as a key press reaches it: Cmd+, opens
   // Settings and Cmd+W closes the open utility rather than a pane.
