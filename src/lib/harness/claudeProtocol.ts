@@ -243,6 +243,8 @@ export function buildClaudeSpawnArgs(input: {
   includePartialMessages?: boolean;
   maxTurns?: number;
   isolated?: boolean;
+  /** Project memory block, appended after Aven's host routing. */
+  projectMemory?: string;
 }): string[] {
   const args = [
     "--output-format",
@@ -258,8 +260,15 @@ export function buildClaudeSpawnArgs(input: {
     args.push("--replay-user-messages");
     // Add host routing without replacing Claude's default system prompt.
     // Resumed sessions may reuse a system-prompt snapshot, so per-turn scoped
-    // browser guidance must still be supplied by the app.
-    args.push("--append-system-prompt", AVEN_BROWSER_HOST_POLICY);
+    // browser guidance must still be supplied by the app. Project memory
+    // follows it in the same value; a conversation already under way gets a
+    // changed memory with its next message instead (see projectMemoryDelivery).
+    args.push(
+      "--append-system-prompt",
+      input.projectMemory
+        ? `${AVEN_BROWSER_HOST_POLICY}\n\n${input.projectMemory}`
+        : AVEN_BROWSER_HOST_POLICY,
+    );
   }
   if (input.includePartialMessages !== false) {
     args.push("--include-partial-messages");
@@ -1093,6 +1102,8 @@ export function claudeSettingsKey(input: {
   context?: string;
   runtimeMode: RuntimeMode;
   hooks?: boolean;
+  /** Project memory revision: a change relaunches with the new memory. */
+  memory?: string;
 }): string {
   return [
     input.model,
@@ -1102,6 +1113,7 @@ export function claudeSettingsKey(input: {
     input.context ?? "",
     input.runtimeMode,
     input.hooks === false ? "nohooks" : "hooks",
+    input.memory ?? "",
   ].join("|");
 }
 

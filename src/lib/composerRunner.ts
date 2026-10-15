@@ -28,6 +28,14 @@ export const EXIT_MS = 560;
 export const EXIT_PEAK = 44;
 export const EXIT_SINK = 20;
 const EXIT_APEX = 0.38;
+/**
+ * When the turn ends the mascot stands on the rim this long for its reaction
+ * (a turn end recorded in another window can arrive a moment after the
+ * session's state) before its exit hop. A reaction holds it for its own run.
+ */
+export const REACTION_WAIT_MS = 200;
+/** Room around the sprite for a reaction's sparkle and sweat drop. */
+export const REACTION_ROOM_PX = 8;
 
 /** First chevron hit this turn: knock-back, stars, then the mascot learns the hop. */
 export const CRASH_RECOIL_PX = 18;

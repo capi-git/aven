@@ -1,30 +1,46 @@
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { createRefreshGate } from "../lib/refreshGate";
 import {
+  ArrowUp,
   ChevronRight,
   ExternalLink,
   GitBranch,
-  GitMerge,
+  MessageSquare,
   Trash2,
 } from "./icons";
 import { ProviderMarks } from "./ProviderMarks";
+import { ProjectMark } from "./ProjectMark";
+import { ShipFlow } from "./ShipFlow";
 import {
   basename,
+  gitDiffIndex,
+  gitPrStatus,
   gitWorktrees,
   notifyGitChanged,
   removeGitWorktree,
   revealPath,
   subscribeGitChanged,
+  type GitDiffIndex,
+  type GitPr,
   type GitWorktree,
 } from "../lib/fs";
+import { errorText, logError } from "../lib/errors";
+import { shortTimeAgo } from "../lib/gitChangesView";
 import { LiveSessionsContext } from "../lib/liveSessions";
 import { isEqualOrInside, pathKey, prettyCwd } from "../lib/paths";
 import { finishRace, raceHost, raceLaneAtPath } from "../lib/race";
 import {
+  sessionDisplayTitle,
   sessionNeedsInput,
+  sessionWorkCwd,
   type HarnessId,
   type Session,
 } from "../lib/session";
+import {
+  listSessionsByProject,
+  type SessionSummary,
+} from "../lib/sessionStore";
+import { requestOpenChat } from "../lib/shipRequest";
 import "./GitCopies.css";
 
 /** Other checkouts refresh less often than the open folder; each costs several Git calls. */
@@ -64,7 +80,7 @@ export function summarizeCopies(
         name: race
           ? firstLine(race.race.prompt)
           : worktree.primary
-            ? "Main copy"
+            ? "Main folder"
             : copyName(worktree),
         detail: race ? race.lane.label : (worktree.branch ?? "Detached"),
         harness: race?.lane.harness,
@@ -91,34 +107,139 @@ export function partitionCopies(copies: readonly CopySummary[]): {
   };
 }
 
-/** The header count: copies holding work, then finished ones, e.g. "2 with work · 5 finished". */
-export function copiesCountLabel(
-  active: readonly CopySummary[],
-  finished: readonly CopySummary[],
-): string {
-  if (finished.length === 0)
-    return `${active.length} ${active.length === 1 ? "copy" : "copies"}`;
-  // A clean main copy is listed for reference, not because it holds work.
-  const withWork = active.filter(
-    ({ worktree }) =>
-      !worktree.primary ||
-      worktree.files.length > 0 ||
-      !worktree.mergedIntoDefault,
+/**
+ * How many copies hold work in progress, for the section header. A clean main
+ * folder is listed for reference but is not work in progress.
+ */
+export function parallelWorkCount(active: readonly CopySummary[]): number {
+  return active.filter(
+    ({ worktree }) => !worktree.primary || worktree.files.length > 0,
   ).length;
-  return withWork > 0
-    ? `${withWork} with work · ${finished.length} finished`
-    : `${finished.length} finished`;
 }
 
-/** The status pill: what is left in a copy. */
-export function copyStatusLabel(copy: CopySummary): string {
+export type CopyStatus = {
+  /** One plain sentence, e.g. "3 commits not in main yet · 2 files uncommitted". */
+  text: string;
+  tone: "merged" | "uncommitted" | "ahead" | "quiet";
+  /** More detail for a tooltip, when the sentence can't say it all. */
+  hint?: string;
+};
+
+function count(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/** What state a copy is in, measured against the default branch (`base`). */
+export function copyStatus(copy: CopySummary, base = "main"): CopyStatus {
   const { worktree } = copy;
+  if (copy.finished) return { text: `Merged into ${base}`, tone: "merged" };
   const files = worktree.files.length;
-  if (copy.finished) return "Merged";
-  if (files > 0) return `${files} unsaved`;
+  const parts: string[] = [];
   if (worktree.aheadOfDefault > 0)
-    return `${worktree.aheadOfDefault} ${worktree.aheadOfDefault === 1 ? "commit" : "commits"}`;
-  return worktree.behindDefault > 0 ? "Behind" : "Up to date";
+    parts.push(
+      `${count(worktree.aheadOfDefault, "commit", "commits")} not in ${base} yet`,
+    );
+  if (worktree.behindDefault > 0)
+    parts.push(
+      `${base} has ${count(worktree.behindDefault, "newer commit", "newer commits")}`,
+    );
+  if (files > 0) parts.push(`${count(files, "file", "files")} uncommitted`);
+  if (parts.length === 0)
+    parts.push(worktree.primary ? `Up to date with ${base}` : "No changes yet");
+  return {
+    text: parts.join(" · "),
+    tone:
+      files > 0
+        ? "uncommitted"
+        : worktree.aheadOfDefault > 0
+          ? "ahead"
+          : "quiet",
+    ...(files === 0 &&
+    worktree.aheadOfDefault > 0 &&
+    !worktree.mergedIntoDefault
+      ? {
+          hint: `If this branch was squash-merged, its changes may already be in ${base}.`,
+        }
+      : {}),
+  };
+}
+
+/** The conversation that works, or last worked, in a copy. */
+export type CopyChat = {
+  id: string;
+  title: string;
+  state: "working" | "waiting" | "idle";
+  /** When it was last active, in ms; 0 when unknown. */
+  at: number;
+};
+
+function latestTurnAt(session: Session): number {
+  for (let index = session.blocks.length - 1; index >= 0; index -= 1) {
+    const block = session.blocks[index];
+    if (block.role === "user" && !block.internal) return block.startedAt ?? 0;
+  }
+  return 0;
+}
+
+const CHAT_RANK = { working: 2, waiting: 1, idle: 0 } as const;
+
+/**
+ * The chat to show for a copy: one with an agent working or waiting there
+ * first, otherwise the most recently active, from open chats and history.
+ */
+export function chatForCopy(
+  path: string,
+  sessions: readonly Session[],
+  history: readonly SessionSummary[] = [],
+): CopyChat | null {
+  const roots = [path, prettyCwd(path)];
+  const inCopy = (where: string | undefined) =>
+    !!where && roots.some((root) => isEqualOrInside(where, root));
+  let best: CopyChat | null = null;
+  const consider = (chat: CopyChat) => {
+    if (
+      !best ||
+      CHAT_RANK[chat.state] > CHAT_RANK[best.state] ||
+      (CHAT_RANK[chat.state] === CHAT_RANK[best.state] && chat.at > best.at)
+    )
+      best = chat;
+  };
+  const open = new Set<string>();
+  for (const session of sessions) {
+    if (session.inboxAsk || !inCopy(sessionWorkCwd(session))) continue;
+    open.add(session.id);
+    const working =
+      !!session.busy ||
+      !!session.liveAgents?.some((agent) => agent.status === "running");
+    consider({
+      id: session.id,
+      title: sessionDisplayTitle(session.title, session.harness),
+      state: sessionNeedsInput(session)
+        ? "waiting"
+        : working
+          ? "working"
+          : "idle",
+      at: latestTurnAt(session),
+    });
+  }
+  for (const row of history) {
+    if (row.archived || open.has(row.id)) continue;
+    consider({
+      id: row.id,
+      title: sessionDisplayTitle(row.title, row.harness),
+      state: "idle",
+      at: row.updatedAt,
+    });
+  }
+  return best;
+}
+
+/** "Fix tab groups — agent working" / "Fix tab groups · last active 2h ago". */
+export function describeCopyChat(chat: CopyChat, now: number): string {
+  if (chat.state === "working") return `${chat.title} — agent working`;
+  if (chat.state === "waiting") return `${chat.title} — waiting for you`;
+  const age = shortTimeAgo(chat.at, now);
+  return age ? `${chat.title} · last active ${age}` : chat.title;
 }
 
 /**
@@ -147,7 +268,7 @@ export function cleanupSkipReason(
   sessions: readonly Session[],
 ): string | null {
   const { worktree, race } = copy;
-  if (worktree.primary) return "it's the main copy";
+  if (worktree.primary) return "it's the main folder";
   if (worktree.current) return "it's open here";
   if (worktree.files.length > 0) return "it has unsaved files";
   if (!worktree.mergedIntoDefault) return "main doesn't have all of it";
@@ -279,16 +400,29 @@ function firstLine(text: string): string {
   );
 }
 
-/** "fix/race-safety" → "Race safety"; falls back to the folder name. */
+// Branch prefixes that say what kind of change or which tool made it, not
+// what the work is: "feat/tab-groups" is about tab groups.
+const BRANCH_KIND =
+  /^(?:feat|feature|fix|bugfix|hotfix|chore|refactor|docs|test|tests|perf|build|ci|style|wip|codex|claude|cursor|copilot|agent)$/i;
+
+/**
+ * A friendly name from the branch: "fix/race-safety" → "Race safety",
+ * "preview/ui" → "Preview UI". Falls back to the folder name.
+ */
 export function copyName(
   worktree: Pick<GitWorktree, "branch" | "path">,
 ): string {
   const branch = worktree.branch ?? "";
   if (branch.startsWith("aven/race/")) return "Race copy";
-  const leaf = (branch.split("/").pop() || basename(worktree.path))
-    .replace(/[-_]+/g, " ")
-    .trim();
-  return leaf ? leaf[0].toUpperCase() + leaf.slice(1) : "Copy";
+  const segments = branch.split("/").filter(Boolean);
+  while (segments.length > 1 && BRANCH_KIND.test(segments[0])) segments.shift();
+  const words = (segments.join(" ") || basename(worktree.path))
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    // Two-letter words such as "ui" or "db" read as abbreviations.
+    .map((word) => (word.length <= 2 ? word.toUpperCase() : word));
+  const text = words.join(" ");
+  return text ? text[0].toUpperCase() + text.slice(1) : "Copy";
 }
 
 function useWorktrees(
@@ -353,14 +487,198 @@ type CleanupState =
   | { phase: "done"; result: CleanupResult }
   | { phase: "error"; message: string };
 
-/** Work waiting in other checkouts, e.g. agent and race copies of this project. */
-export function GitCopies({ cwd, enabled }: { cwd: string; enabled: boolean }) {
+/**
+ * Which checkout the panel is showing, for the Changes header: the main
+ * folder, a race lane, or a parallel copy. Null when there is only one.
+ */
+export function currentCopyLabel(
+  worktrees: readonly GitWorktree[],
+): string | null {
+  if (worktrees.length < 2) return null;
+  const current = worktrees.find((worktree) => worktree.current);
+  if (!current) return null;
+  if (current.primary) return "Main folder";
+  const race = raceLaneAtPath(current.path);
+  if (race) return `Race · ${race.lane.label}`;
+  return `Parallel · ${copyName(current)}`;
+}
+
+export const PARALLEL_WORK_EXPLAINER =
+  "Separate copies of this project where agents work on their own branch.";
+const EXPLAINED_KEY = "aven.parallelWorkExplained";
+
+function loadExplained(): boolean {
+  try {
+    return localStorage.getItem(EXPLAINED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveExplained(): void {
+  try {
+    localStorage.setItem(EXPLAINED_KEY, "1");
+  } catch {
+    // Private mode or a full quota: the line shows again next time.
+  }
+}
+
+/** Chats that worked in each copy, read once per set of copies, not polled. */
+const historyByPath = new Map<string, SessionSummary[]>();
+
+function useCopyHistory(
+  paths: readonly string[],
+  enabled: boolean,
+): ReadonlyMap<string, SessionSummary[]> {
+  const [, setRevision] = useState(0);
+  const key = paths.join("\n");
+  useEffect(() => {
+    if (!enabled || !key) return;
+    let cancelled = false;
+    void Promise.all(
+      key.split("\n").map((path) =>
+        listSessionsByProject(path)
+          .then((rows) => {
+            historyByPath.set(path, rows);
+          })
+          .catch(() => {}),
+      ),
+    ).then(() => {
+      if (!cancelled) setRevision((value) => value + 1);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [key, enabled]);
+  return historyByPath;
+}
+
+const noBusy = () => {};
+
+/** Ship it for another copy: reads that copy once, then the usual card. */
+function CopyShip({
+  path,
+  enabled,
+  textHarness,
+  onClose,
+}: {
+  path: string;
+  enabled: boolean;
+  textHarness?: HarnessId;
+  onClose: () => void;
+}) {
+  const [state, setState] = useState<{
+    index: GitDiffIndex;
+    pr: GitPr | null;
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState("");
+  const [nonce, setNonce] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([
+      gitDiffIndex(path),
+      gitPrStatus(path).catch(() => null),
+    ]).then(
+      ([index, pr]) => {
+        if (!cancelled) setState({ index, pr });
+      },
+      (reason) => {
+        if (cancelled) return;
+        logError("ship another copy", reason);
+        setError(errorText(reason));
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [path, nonce]);
+  const reload = useCallback(() => {
+    setNonce((value) => value + 1);
+    notifyGitChanged(path);
+  }, [path]);
+  if (error)
+    return (
+      <div className="git-copy-ship">
+        <p className="git-copy-error" role="alert">
+          {error}
+        </p>
+        <button type="button" className="git-copy-action" onClick={onClose}>
+          Close
+        </button>
+      </div>
+    );
+  if (!state)
+    return (
+      <p className="git-copy-ship git-copy-reading" role="status">
+        Reading this copy…
+      </p>
+    );
+  return (
+    <div className="git-copy-ship">
+      <ShipFlow
+        cwd={path}
+        index={state.index}
+        files={state.index.files}
+        pr={state.pr}
+        enabled={enabled}
+        textHarness={textHarness}
+        message={message}
+        onMessageChange={setMessage}
+        onBusyChange={noBusy}
+        onMutated={reload}
+        onPrChanged={reload}
+        onClose={onClose}
+      />
+    </div>
+  );
+}
+
+/**
+ * Parallel work: other checkouts of this project, where agents (or races)
+ * work on their own branches, and what each one holds.
+ */
+export function GitCopies({
+  cwd,
+  enabled,
+  projectCwd,
+  base = "main",
+  textHarness,
+  onWorktrees,
+}: {
+  cwd: string;
+  enabled: boolean;
+  /** The project folder, whose mark stands for the agent in each copy. */
+  projectCwd?: string;
+  /** The default branch every copy is measured against. */
+  base?: string;
+  textHarness?: HarnessId;
+  /** Every checkout, including this one, whenever a scan finishes. */
+  onWorktrees?: (worktrees: GitWorktree[]) => void;
+}) {
   const { worktrees, refresh: refreshCopies } = useWorktrees(cwd, enabled);
+  const reportRef = useRef(onWorktrees);
+  reportRef.current = onWorktrees;
+  useEffect(() => {
+    reportRef.current?.(worktrees);
+  }, [worktrees]);
   const copies = summarizeCopies(worktrees);
   const { active, finished } = partitionCopies(copies);
   const live = useContext(LiveSessionsContext);
   const sessions = () => live?.list() ?? [];
+  const history = useCopyHistory(
+    copies
+      .filter(({ worktree }) => !worktree.primary)
+      .map(({ worktree }) => worktree.path),
+    enabled,
+  );
+  const [explained] = useState(loadExplained);
+  const shown = copies.length > 0;
+  useEffect(() => {
+    if (shown && !explained) saveExplained();
+  }, [shown, explained]);
   const [open, setOpen] = useState<string | null>(null);
+  const [shipping, setShipping] = useState<string | null>(null);
   const [finishedOpen, setFinishedOpen] = useState(false);
   const [cleanup, setCleanup] = useState<CleanupState | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -378,10 +696,7 @@ export function GitCopies({ cwd, enabled }: { cwd: string; enabled: boolean }) {
       setConfirming(null);
       setOpen(null);
     } catch (error) {
-      setFailure({
-        path,
-        message: error instanceof Error ? error.message : String(error),
-      });
+      setFailure({ path, message: errorText(error) });
     } finally {
       setRemoving(null);
       notifyGitChanged(cwd);
@@ -398,149 +713,210 @@ export function GitCopies({ cwd, enabled }: { cwd: string; enabled: boolean }) {
     } catch (error) {
       setCleanup({
         phase: "error",
-        message: `Couldn't check the copies again. Nothing was removed. ${error instanceof Error ? error.message : String(error)}`,
+        message: `Couldn't check the copies again. Nothing was removed. ${errorText(error)}`,
       });
     } finally {
       notifyGitChanged(cwd);
       refreshCopies();
     }
   };
-  if (copies.length === 0) return null;
+  if (!shown) return null;
   const cleaning = cleanup?.phase === "running";
+  const inProgress = parallelWorkCount(active);
+  // Ages are worked out when the list renders; nothing ticks on a clock.
+  const now = Date.now();
+  const openSessions = sessions();
 
   const renderCopy = (copy: CopySummary) => {
-    const { worktree } = copy;
+    const { worktree, race } = copy;
     const expanded = open === worktree.path;
     const files = worktree.files.length;
+    const status = copyStatus(copy, base);
+    const chat = worktree.primary
+      ? null
+      : chatForCopy(worktree.path, openSessions, history.get(worktree.path));
+    const canShip =
+      !copy.finished &&
+      (files > 0 || worktree.aheadOfDefault > 0) &&
+      race?.race.state !== "running";
+    const where = worktree.branch ?? "No branch";
     return (
-      <div
-        key={worktree.path}
-        className="git-copy"
-        data-finished={copy.finished || undefined}
-      >
-        <button
-          type="button"
-          className="git-copy-head"
-          aria-expanded={expanded}
-          title={worktree.path}
-          onClick={() => setOpen(expanded ? null : worktree.path)}
+      <div key={worktree.path}>
+        <div
+          className="git-copy"
+          data-finished={copy.finished || undefined}
+          data-tone={status.tone}
         >
-          <ChevronRight
-            className="git-copy-chevron size-3 shrink-0"
-            strokeWidth={2}
-          />
-          {copy.harness ? (
-            <ProviderMarks harnesses={[copy.harness]} />
-          ) : (
-            <GitBranch className="size-3.5 shrink-0" strokeWidth={1.75} />
-          )}
-          <span className="git-copy-name">{copy.name}</span>
-          <span
-            className="git-copy-pill"
-            data-tone={copy.finished ? "ok" : files > 0 ? "warn" : undefined}
-            title={
-              !copy.finished && files === 0 && worktree.aheadOfDefault > 0
-                ? "Commit history differs from the default branch. Changes may already be merged."
-                : undefined
-            }
+          <button
+            type="button"
+            className="git-copy-head"
+            aria-expanded={expanded}
+            title={`${where} · ${worktree.path}`}
+            onClick={() => setOpen(expanded ? null : worktree.path)}
           >
-            {copyStatusLabel(copy)}
-          </span>
-        </button>
-        <p className="git-copy-detail">
-          <span className="min-w-0 truncate">{copy.detail}</span>
-          {worktree.additions > 0 ? (
-            <span className="git-copy-added">+{worktree.additions}</span>
-          ) : null}
-          {worktree.deletions > 0 ? (
-            <span className="git-copy-deleted">−{worktree.deletions}</span>
-          ) : null}
-          {worktree.behindDefault > 0 ? (
-            <span>{worktree.behindDefault} behind</span>
-          ) : null}
-        </p>
-        {expanded ? (
-          <div className="git-copy-files">
-            {worktree.files.slice(0, FILES_SHOWN).map((file) => (
-              <p key={file.relative} title={file.relative}>
-                <span data-status={file.status}>
-                  {file.status.slice(0, 1).toUpperCase()}
+            <ChevronRight
+              className="git-copy-chevron size-3 shrink-0"
+              strokeWidth={2}
+            />
+            <span className="git-copy-icon" aria-hidden>
+              {chat && (projectCwd || cwd) ? (
+                <ProjectMark
+                  path={projectCwd || cwd}
+                  active={chat.state === "working"}
+                />
+              ) : copy.harness ? (
+                <ProviderMarks harnesses={[copy.harness]} />
+              ) : (
+                <GitBranch className="size-3.5" strokeWidth={1.75} />
+              )}
+            </span>
+            <span className="git-copy-text">
+              <span className="git-copy-name">{copy.name}</span>
+              <span className="git-copy-status" title={status.hint}>
+                <span className="git-copy-dot" aria-hidden />
+                {status.text}
+              </span>
+              {chat ? (
+                <span className="git-copy-chat" data-state={chat.state}>
+                  {describeCopyChat(chat, now)}
                 </span>
-                <span className="min-w-0 flex-1 truncate">{file.relative}</span>
-                {file.additions > 0 ? (
-                  <span className="git-copy-added">+{file.additions}</span>
+              ) : null}
+            </span>
+          </button>
+          {expanded ? (
+            <div className="git-copy-files">
+              <p className="git-copy-branch" title={worktree.path}>
+                <GitBranch className="size-3 shrink-0" strokeWidth={1.75} />
+                <span className="min-w-0 flex-1 truncate">
+                  {race ? `${where} · ${copy.detail}` : where}
+                </span>
+                {worktree.additions > 0 ? (
+                  <span className="git-copy-added">+{worktree.additions}</span>
                 ) : null}
-                {file.deletions > 0 ? (
-                  <span className="git-copy-deleted">−{file.deletions}</span>
+                {worktree.deletions > 0 ? (
+                  <span className="git-copy-deleted">
+                    −{worktree.deletions}
+                  </span>
                 ) : null}
               </p>
-            ))}
-            {files > FILES_SHOWN ? (
-              <p className="text-content/45">+ {files - FILES_SHOWN} more</p>
-            ) : null}
-            {copy.finished ? (
-              <p className="text-content/45">
-                Nothing here that main doesn't have.
-              </p>
-            ) : null}
-            {confirming === worktree.path ? (
-              <div
-                className="git-copy-confirm"
-                role="group"
-                aria-label="Remove this copy?"
-              >
-                <p>{removalWarning(copy)}</p>
-                <div>
-                  <button
-                    type="button"
-                    className="git-copy-action"
-                    data-tone="danger"
-                    disabled={removing === worktree.path}
-                    onClick={() => void remove(copy)}
-                  >
-                    {removing === worktree.path ? "Removing…" : "Remove copy"}
-                  </button>
-                  <button
-                    type="button"
-                    className="git-copy-action"
-                    disabled={removing === worktree.path}
-                    onClick={() => setConfirming(null)}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="git-copy-actions">
-                <button
-                  type="button"
-                  className="git-copy-action"
-                  onClick={() => void revealPath(worktree.path)}
+              {worktree.files.slice(0, FILES_SHOWN).map((file) => (
+                <p key={file.relative} title={file.relative}>
+                  <span data-status={file.status}>
+                    {file.status.slice(0, 1).toUpperCase()}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">
+                    {file.relative}
+                  </span>
+                  {file.additions > 0 ? (
+                    <span className="git-copy-added">+{file.additions}</span>
+                  ) : null}
+                  {file.deletions > 0 ? (
+                    <span className="git-copy-deleted">−{file.deletions}</span>
+                  ) : null}
+                </p>
+              ))}
+              {files > FILES_SHOWN ? (
+                <p className="text-content/45">+ {files - FILES_SHOWN} more</p>
+              ) : null}
+              {copy.finished ? (
+                <p className="text-content/45">
+                  Nothing here that {base} doesn't have.
+                </p>
+              ) : null}
+              {confirming === worktree.path ? (
+                <div
+                  className="git-copy-confirm"
+                  role="group"
+                  aria-label="Remove this copy?"
                 >
-                  <ExternalLink className="size-3" strokeWidth={1.75} />
-                  Show in Finder
-                </button>
-                {worktree.primary ? null : (
+                  <p>{removalWarning(copy)}</p>
+                  <div>
+                    <button
+                      type="button"
+                      className="git-copy-action"
+                      data-tone="danger"
+                      disabled={removing === worktree.path}
+                      onClick={() => void remove(copy)}
+                    >
+                      {removing === worktree.path ? "Removing…" : "Remove copy"}
+                    </button>
+                    <button
+                      type="button"
+                      className="git-copy-action"
+                      disabled={removing === worktree.path}
+                      onClick={() => setConfirming(null)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="git-copy-actions">
+                  {chat ? (
+                    <button
+                      type="button"
+                      className="git-copy-action"
+                      title={`Open “${chat.title}”`}
+                      onClick={() => requestOpenChat(chat.id)}
+                    >
+                      <MessageSquare className="size-3" strokeWidth={1.75} />
+                      Open chat
+                    </button>
+                  ) : null}
+                  {canShip ? (
+                    <button
+                      type="button"
+                      className="git-copy-action"
+                      aria-expanded={shipping === worktree.path}
+                      title="Commit, push or open a pull request for this copy"
+                      onClick={() =>
+                        setShipping(
+                          shipping === worktree.path ? null : worktree.path,
+                        )
+                      }
+                    >
+                      <ArrowUp className="size-3" strokeWidth={2} />
+                      Ship it
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="git-copy-action"
-                    onClick={() => {
-                      setFailure(null);
-                      setConfirming(worktree.path);
-                    }}
+                    onClick={() => void revealPath(worktree.path)}
                   >
-                    <Trash2 className="size-3" strokeWidth={1.75} />
-                    Remove
+                    <ExternalLink className="size-3" strokeWidth={1.75} />
+                    Show in Finder
                   </button>
-                )}
-              </div>
-            )}
-            {failure?.path === worktree.path ? (
-              <p className="git-copy-error" role="alert">
-                {failure.message}
-              </p>
-            ) : null}
-          </div>
+                  {worktree.primary ? null : (
+                    <button
+                      type="button"
+                      className="git-copy-action"
+                      onClick={() => {
+                        setFailure(null);
+                        setConfirming(worktree.path);
+                      }}
+                    >
+                      <Trash2 className="size-3" strokeWidth={1.75} />
+                      Remove
+                    </button>
+                  )}
+                </div>
+              )}
+              {failure?.path === worktree.path ? (
+                <p className="git-copy-error" role="alert">
+                  {failure.message}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+        {shipping === worktree.path ? (
+          <CopyShip
+            path={worktree.path}
+            enabled={enabled}
+            textHarness={textHarness}
+            onClose={() => setShipping(null)}
+          />
         ) : null}
       </div>
     );
@@ -585,7 +961,7 @@ export function GitCopies({ cwd, enabled }: { cwd: string; enabled: boolean }) {
       );
     }
     const { plan } = cleanup;
-    const count = plan.remove.length;
+    const removable = plan.remove.length;
     const races = plan.remove.some((copy) => copy.race);
     return (
       <div
@@ -594,9 +970,9 @@ export function GitCopies({ cwd, enabled }: { cwd: string; enabled: boolean }) {
         aria-label="Clean up finished copies?"
       >
         <p>
-          {count === 0
+          {removable === 0
             ? "Nothing can be cleaned up right now."
-            : `Remove ${count} finished ${count === 1 ? "copy" : "copies"}: ${listNames(plan.remove.map((copy) => copy.name))}? Their changes are already on main. ${races ? "Race copies are deleted entirely, including ignored files; other copies" : "Copies"} with ignored files are kept.`}
+            : `Remove ${removable} finished ${removable === 1 ? "copy" : "copies"}: ${listNames(plan.remove.map((copy) => copy.name))}? Their changes are already on ${base}. ${races ? "Race copies are deleted entirely, including ignored files; other copies" : "Copies"} with ignored files are kept.`}
         </p>
         {plan.skip.length > 0 ? (
           <p>
@@ -604,7 +980,7 @@ export function GitCopies({ cwd, enabled }: { cwd: string; enabled: boolean }) {
           </p>
         ) : null}
         <div>
-          {count > 0 ? (
+          {removable > 0 ? (
             <button
               type="button"
               className="git-copy-action"
@@ -613,8 +989,8 @@ export function GitCopies({ cwd, enabled }: { cwd: string; enabled: boolean }) {
               onClick={() => void cleanUp(plan)}
             >
               {cleanup.phase === "running"
-                ? `Removing ${Math.min(cleanup.done + 1, count)} of ${count}…`
-                : `Remove ${count} ${count === 1 ? "copy" : "copies"}`}
+                ? `Removing ${Math.min(cleanup.done + 1, removable)} of ${removable}…`
+                : `Remove ${removable} ${removable === 1 ? "copy" : "copies"}`}
             </button>
           ) : null}
           <button
@@ -623,7 +999,7 @@ export function GitCopies({ cwd, enabled }: { cwd: string; enabled: boolean }) {
             disabled={cleaning}
             onClick={() => setCleanup(null)}
           >
-            {count > 0 ? "Cancel" : "Close"}
+            {removable > 0 ? "Cancel" : "Close"}
           </button>
         </div>
       </div>
@@ -631,11 +1007,14 @@ export function GitCopies({ cwd, enabled }: { cwd: string; enabled: boolean }) {
   };
 
   return (
-    <section className="git-copies" aria-label="Other copies of this project">
-      <h3 className="git-copies-title">
-        Other copies
-        <span>{copiesCountLabel(active, finished)}</span>
+    <section className="git-copies" aria-label="Parallel work">
+      <h3 className="git-copies-title" title={PARALLEL_WORK_EXPLAINER}>
+        Parallel work
+        {inProgress > 0 ? <span>{inProgress} in progress</span> : null}
       </h3>
+      {explained ? null : (
+        <p className="git-copies-explainer">{PARALLEL_WORK_EXPLAINER}</p>
+      )}
       {active.map(renderCopy)}
       {finished.length > 0 ? (
         <div className="git-copies-group">
@@ -643,15 +1022,14 @@ export function GitCopies({ cwd, enabled }: { cwd: string; enabled: boolean }) {
             type="button"
             className="git-copy-head"
             aria-expanded={finishedOpen}
-            title="Copies whose changes are already on main"
+            title={`Copies whose changes are already in ${base}`}
             onClick={() => setFinishedOpen(!finishedOpen)}
           >
             <ChevronRight
               className="git-copy-chevron size-3 shrink-0"
               strokeWidth={2}
             />
-            <GitMerge className="size-3.5 shrink-0" strokeWidth={1.75} />
-            <span className="git-copy-name">{`Finished · ${finished.length}`}</span>
+            <span className="git-copy-name">{`${finished.length} merged into ${base}`}</span>
           </button>
           {cleanup?.phase === "confirm" || cleaning ? null : (
             <button

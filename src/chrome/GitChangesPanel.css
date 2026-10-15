@@ -1,0 +1,366 @@
+/* Changes panel: the copy's header card, the file list, the clean state and
+   the history rows. Glass card tokens come from macos-theme.css so the panel
+   follows the user's opacity and light/dark theme. */
+.git-changes {
+  --git-add: #61bd85;
+  --git-del: #d77880;
+  --git-ok: #4ade80;
+}
+html.theme-light .git-changes {
+  --git-add: #1a7f37;
+  --git-del: #c2303a;
+  --git-ok: #1a7f37;
+}
+
+/* Header card ----------------------------------------------------------- */
+.git-hero {
+  --git-project-color: var(--color-accent);
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 5px;
+  margin: 8px 8px 0;
+  padding: 8px 10px 8px;
+  border: 1px solid var(--aven-glass-card-edge);
+  border-radius: 10px;
+  background:
+    radial-gradient(
+      120% 90% at 0% 0%,
+      color-mix(in srgb, var(--git-project-color) 11%, transparent),
+      transparent 62%
+    ),
+    var(--aven-glass-card, var(--aven-inset-card));
+  box-shadow: var(--aven-glass-sheen, none);
+}
+.git-hero-top {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+.git-hero-project {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-ui-body);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-content);
+}
+.git-hero-copy {
+  flex-shrink: 0;
+  max-width: 50%;
+  margin-left: auto;
+  padding: 1px 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  font-size: var(--text-ui-micro);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--color-content) 62%, transparent);
+  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+}
+.git-hero-branch-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+.git-hero-branch {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 70%;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  margin-left: -5px;
+  padding: 0 5px;
+  border-radius: 6px;
+  font-size: var(--text-ui-label);
+  color: color-mix(in srgb, var(--color-content) 82%, transparent);
+}
+.git-hero-branch:hover:enabled {
+  color: var(--color-content);
+  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+}
+.git-hero-branch:focus-visible,
+.git-hero-commit:focus-visible {
+  outline: 2px solid var(--aven-focus-ring);
+  outline-offset: 1px;
+}
+.git-hero-sync {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: var(--text-ui-caption);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--color-content) 48%, transparent);
+}
+.git-hero-sync[data-tone="info"] {
+  color: color-mix(in srgb, var(--color-content) 80%, transparent);
+}
+.git-hero-sync[data-tone="ok"]::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--git-ok);
+}
+.git-hero-commit {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  margin: 0 -5px;
+  padding: 0 5px;
+  border-radius: 6px;
+  font-size: var(--text-ui-caption);
+  text-align: left;
+  color: color-mix(in srgb, var(--color-content) 62%, transparent);
+}
+.git-hero-commit:hover:enabled {
+  color: var(--color-content);
+  background: color-mix(in srgb, var(--color-content) 7%, transparent);
+}
+.git-hero-commit-dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+}
+.git-hero-commit-subject {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-hero-commit-age {
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--color-content) 42%, transparent);
+}
+
+/* Ship bar: what changed, and the primary action. ------------------------ */
+.git-ship-bar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+.git-ship-stats {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+}
+.git-ship-stats-line {
+  display: flex;
+  min-width: 0;
+  gap: 6px;
+  overflow: hidden;
+  font-size: var(--text-ui-label);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--color-content) 78%, transparent);
+}
+.git-ship-button {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 7px;
+  font-size: var(--text-ui-label);
+  font-weight: 600;
+  color: var(--color-background-base);
+  background: var(--color-content);
+}
+.git-ship-button:hover:enabled {
+  background: color-mix(in srgb, var(--color-content) 88%, transparent);
+}
+.git-ship-button:disabled {
+  opacity: 0.4;
+}
+.git-ship-button:focus-visible {
+  outline: 2px solid var(--aven-focus-ring);
+  outline-offset: 2px;
+}
+/* Proportion of added to deleted lines across every changed file. */
+.git-ship-meter {
+  display: flex;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+}
+.git-ship-meter > span {
+  flex-basis: 0;
+}
+.git-ship-meter > span:first-child {
+  background: var(--git-add);
+}
+.git-ship-meter > span:last-child {
+  background: var(--git-del);
+}
+
+.git-add {
+  color: var(--git-add);
+}
+.git-del {
+  color: var(--git-del);
+}
+
+/* File rows ------------------------------------------------------------- */
+.git-file-stats {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-ui-micro);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+/* The row's actions take this space while it is hovered, focused or open. */
+.group:hover > .git-file-stats,
+.group:focus-within > .git-file-stats,
+.git-file-stats[data-active] {
+  display: none;
+}
+.git-file-bar {
+  display: flex;
+  width: 22px;
+  height: 4px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--color-content) 7%, transparent);
+}
+.git-file-bar > span {
+  display: flex;
+  height: 100%;
+}
+.git-file-bar > span > span {
+  flex-basis: 0;
+}
+.git-file-bar > span > span:first-child {
+  background: var(--git-add);
+}
+.git-file-bar > span > span:last-child {
+  background: var(--git-del);
+}
+.git-section-total {
+  margin-left: 6px;
+  font-size: var(--text-ui-micro);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* Clean state ----------------------------------------------------------- */
+.git-clean {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 14px 10px 4px;
+  text-align: center;
+}
+.git-clean-mascot {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 8px;
+  image-rendering: pixelated;
+}
+.git-clean[data-no-git] .git-clean-mascot {
+  opacity: 0.55;
+  filter: grayscale(0.6);
+}
+.git-clean-mark {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  margin-bottom: 8px;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--git-ok);
+  background: color-mix(in srgb, var(--git-ok) 12%, transparent);
+}
+.git-clean-title {
+  margin: 0;
+  font-size: var(--text-ui-reading);
+  font-weight: 600;
+  color: var(--color-content);
+}
+.git-clean-status {
+  margin: 3px 0 0;
+  font-size: var(--text-ui-label);
+  color: color-mix(in srgb, var(--color-content) 72%, transparent);
+  overflow-wrap: anywhere;
+}
+.git-clean-detail {
+  margin: 1px 0 0;
+  font-size: var(--text-ui-caption);
+  color: color-mix(in srgb, var(--color-content) 48%, transparent);
+  overflow-wrap: anywhere;
+}
+.git-clean-last {
+  display: flex;
+  max-width: 100%;
+  align-items: baseline;
+  gap: 5px;
+  margin: 10px 0 0;
+  padding: 4px 8px;
+  border-radius: 7px;
+  font-size: var(--text-ui-caption);
+  color: color-mix(in srgb, var(--color-content) 48%, transparent);
+  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+}
+.git-clean-last > span:first-child {
+  flex-shrink: 0;
+}
+.git-clean-last-subject {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--color-content) 78%, transparent);
+}
+.git-clean-last-age {
+  flex-shrink: 0;
+}
+.git-clean-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 10px;
+}
+.git-clean-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 6px;
+  font-size: var(--text-ui-caption);
+  font-weight: 500;
+  color: color-mix(in srgb, var(--color-content) 82%, transparent);
+  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+}
+.git-clean-action:hover {
+  color: var(--color-content);
+  background: color-mix(in srgb, var(--color-content) 13%, transparent);
+}
+.git-clean-action:focus-visible {
+  outline: 2px solid var(--aven-focus-ring);
+  outline-offset: 1px;
+}

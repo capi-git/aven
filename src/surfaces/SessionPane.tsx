@@ -12,6 +12,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Composer } from "../chrome/Composer";
+import { DevPreviewChip } from "../chrome/DevPreviewChip";
 import { orchestrator, sameCheckout } from "../lib/orchestration";
 import { sessionWithManagedAgents } from "../lib/sessionAgents";
 import { OrchestrationWorkers } from "../chrome/OrchestrationActions";
@@ -54,6 +55,7 @@ import { raceLaneFor } from "../lib/race";
 import { isAstraModel } from "../lib/astraWelcome";
 import { AstraWelcome } from "./AstraWelcome";
 import { projectKey } from "../lib/paths";
+import { memoryProjectFor } from "../lib/projectMemory";
 import {
   readComposerDraft,
   retainComposerDraft,
@@ -236,6 +238,10 @@ export const SessionPane = memo(function SessionPane({
     loadChatBackgroundPath,
   );
   const projectBackground = loadProjectChatBackground(projectKey(session.cwd));
+  const memoryProject = useMemo(
+    () => memoryProjectFor(session.cwd) ?? undefined,
+    [session.cwd],
+  );
   const projectBackgroundStyle = projectBackground
     ? ({
         "--chat-background-image": `url(${JSON.stringify(
@@ -670,6 +676,7 @@ export const SessionPane = memo(function SessionPane({
               onApproval={approve}
               onAddToChat={addSelectionToChat}
               onSaveNote={notesEnabled ? saveNote : undefined}
+              memoryProject={session.inboxAsk ? undefined : memoryProject}
               onOpenFile={onOpenFile}
               onOpenDiff={onOpenDiff}
               onOpenPlan={openPlan}
@@ -715,6 +722,14 @@ export const SessionPane = memo(function SessionPane({
       </div>
       {dockComposer ? (
         <div className="personal-session-composer-dock mx-auto w-full max-w-4xl shrink-0">
+          {/* One chat per tab offers the project's dev server: the focused one. */}
+          {visible && focused && !session.inboxAsk ? (
+            <DevPreviewChip
+              project={session.cwd}
+              placement="chat"
+              requesterSessionId={session.id}
+            />
+          ) : null}
           <SessionRunStatus
             session={sessionWithManagedAgents(
               session,

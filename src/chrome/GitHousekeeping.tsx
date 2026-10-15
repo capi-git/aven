@@ -1,6 +1,6 @@
 import { ask } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ExternalLink, GitBranch, Loader, Trash2 } from "./icons";
+import { ChevronRight, ExternalLink, GitBranch, Loader, Trash2 } from "./icons";
 import { openInAppUrl } from "../lib/inAppLinks";
 import { subscribeGitChanged } from "../lib/fs";
 import { createRefreshGate } from "../lib/refreshGate";
@@ -79,6 +79,8 @@ function useRefresh(
 
 export function ReleaseCard({ cwd }: { cwd: string }) {
   const [status, setStatus] = useState<ReleaseStatus | null>(null);
+  // One sentence by default; opening it shows detail and actions.
+  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const load = useCallback(
@@ -124,13 +126,20 @@ export function ReleaseCard({ cwd }: { cwd: string }) {
   };
 
   return (
-    <section className="git-house" aria-label="Release">
-      <h3 className="git-house-title">
-        Release
-        {status.latest ? <span>{status.latest.tag}</span> : null}
-      </h3>
-      <div className="git-house-card" data-tone={summary.tone} role="status">
-        <p className="git-house-headline">
+    <section className="git-house" aria-label="Releases">
+      <h3 className="git-house-title">Releases</h3>
+      <div
+        className="git-house-card git-release"
+        data-tone={summary.tone}
+        data-open={open || undefined}
+      >
+        <button
+          type="button"
+          className="git-release-line"
+          aria-expanded={open}
+          title={summary.title}
+          onClick={() => setOpen(!open)}
+        >
           {summary.tone === "busy" ? (
             <Loader
               className="size-3.5 shrink-0 animate-spin"
@@ -139,51 +148,62 @@ export function ReleaseCard({ cwd }: { cwd: string }) {
           ) : (
             <span className="git-house-dot" aria-hidden />
           )}
-          <span>{summary.title}</span>
-        </p>
-        {summary.detail ? (
-          <p className="git-house-detail">{summary.detail}</p>
-        ) : null}
-        {error ? (
-          <p className="git-house-error" role="alert">
-            {error}
-          </p>
-        ) : null}
-        <div className="git-house-actions">
-          {summary.publish ? (
-            <button
-              type="button"
-              className="git-house-primary"
-              disabled={busy}
-              onClick={() => void publish()}
-            >
-              {busy ? (
-                <Loader className="size-3.5 animate-spin" strokeWidth={1.75} />
+          <span className="git-release-title">{summary.title}</span>
+          <ChevronRight
+            className="git-release-chevron size-3 shrink-0"
+            strokeWidth={2}
+          />
+        </button>
+        {open ? (
+          <div className="git-release-body">
+            {summary.detail ? (
+              <p className="git-house-detail">{summary.detail}</p>
+            ) : null}
+            {error ? (
+              <p className="git-house-error" role="alert">
+                {error}
+              </p>
+            ) : null}
+            <div className="git-house-actions">
+              {summary.publish ? (
+                <button
+                  type="button"
+                  className="git-house-primary"
+                  disabled={busy}
+                  onClick={() => void publish()}
+                >
+                  {busy ? (
+                    <Loader
+                      className="size-3.5 animate-spin"
+                      strokeWidth={1.75}
+                    />
+                  ) : null}
+                  Publish {summary.publish}
+                </button>
               ) : null}
-              Publish {summary.publish}
-            </button>
-          ) : null}
-          {status.run && (running || summary.tone === "warn") ? (
-            <button
-              type="button"
-              className="git-house-link"
-              onClick={() => void openInAppUrl(status.run!.url)}
-            >
-              <ExternalLink className="size-3" strokeWidth={1.75} />
-              View run
-            </button>
-          ) : null}
-          {status.latest ? (
-            <button
-              type="button"
-              className="git-house-link"
-              onClick={() => void openInAppUrl(status.latest!.url)}
-            >
-              <ExternalLink className="size-3" strokeWidth={1.75} />
-              View release
-            </button>
-          ) : null}
-        </div>
+              {status.run && (running || summary.tone === "warn") ? (
+                <button
+                  type="button"
+                  className="git-house-link"
+                  onClick={() => void openInAppUrl(status.run!.url)}
+                >
+                  <ExternalLink className="size-3" strokeWidth={1.75} />
+                  View run
+                </button>
+              ) : null}
+              {status.latest ? (
+                <button
+                  type="button"
+                  className="git-house-link"
+                  onClick={() => void openInAppUrl(status.latest!.url)}
+                >
+                  <ExternalLink className="size-3" strokeWidth={1.75} />
+                  View release
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
       </div>
     </section>
   );

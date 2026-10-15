@@ -18,6 +18,7 @@ import {
   codexAsyncUserInputQuestions,
   codexAsyncUserInputReply,
   codexBrowserHostInstructionsFromConfig,
+  codexDeveloperInstructions,
   codexToolApprovalEvent,
   codexUserInputQuestions,
   codexUserInputResponse,
@@ -42,11 +43,16 @@ import {
   type UserQuestion,
   type UserQuestionReply,
 } from "../userQuestion";
+import {
+  isProviderCommandText,
+  withProjectMemoryPrefix,
+} from "./projectMemoryDelivery";
 import { joinStreamText, snapshotRemainder } from "./streamText";
 import type {
   ApprovalDecision,
   CompactContextInput,
   HarnessEvent,
+  HarnessProjectMemory,
   HarnessSessionInput,
   SendTurnInput,
   SteerTurnInput,
@@ -86,6 +92,8 @@ type Live = {
   rpc: JsonRpcClient;
   threadId: string;
   cwd: string;
+  /** Project memory a new thread could not take as developer instructions. */
+  memoryPrefix?: string;
   runtimeMode: RuntimeMode;
   planning: boolean;
   /** Last model/effort Codex reported or accepted, to restate turn modes. */
@@ -138,6 +146,8 @@ const liveByThread = new Map<string, Live>();
 const stoppingByThread = new Map<string, Promise<void>>();
 const resumeByThread = new Map<string, Resume>();
 const cancelledThreads = new Set<string>();
+/** The project memory each chat last carried (see projectMemoryFor). */
+const memoryByThread = new Map<string, HarnessProjectMemory>();
 
 let resolveCodexBinaryImpl: () => Promise<{ path: string }> =
   resolveCodexBinary;
@@ -342,6 +352,7 @@ export async function stopCodexSession(sessionId: string): Promise<void> {
 
 export async function forgetCodexSession(sessionId: string): Promise<void> {
   resumeByThread.delete(sessionId);
+  memoryByThread.delete(sessionId);
   await stopCodexSession(sessionId);
 }
 
@@ -353,6 +364,19 @@ export function bindCodexSession(
   const providerThreadId = providerSessionId.trim();
   if (!threadId || !providerThreadId || !cwd.trim()) return;
   resumeByThread.set(threadId, { threadId: providerThreadId, cwd });
+}
+
+/** Compaction carries no memory; a relaunch for it keeps the last one. */
+function projectMemoryFor(
+  input: HarnessSessionInput,
+): HarnessProjectMemory | undefined {
+  if (input.projectMemory) {
+    if (input.projectMemory.revision)
+      memoryByThread.set(input.sessionId, input.projectMemory);
+    else memoryByThread.delete(input.sessionId);
+    return input.projectMemory;
+  }
+  return memoryByThread.get(input.sessionId);
 }
 
 async function ensureLive(input: HarnessSessionInput): Promise<Live> {
@@ -453,8 +477,13 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     }
     assertCodexStorage(effectiveConfig, storage.home);
     // Preserve effective developer instructions without logging or editing them.
-    const browserHostInstructions =
+    const hostInstructions =
       codexBrowserHostInstructionsFromConfig(effectiveConfig);
+    const memory = projectMemoryFor(input)?.text || undefined;
+    const browserHostInstructions = codexDeveloperInstructions(
+      hostInstructions,
+      memory,
+    );
 
     const model = codexNativeModelId(input.model);
     const serviceTier = input.modelSettings?.serviceTier;
@@ -540,6 +569,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       rpc,
       threadId,
       cwd: input.cwd,
+      memoryPrefix: !didResume && !browserHostInstructions ? memory : undefined,
       runtimeMode: input.runtimeMode,
       planning: input.intent === "plan",
       threadModel: stringField(asRecord(opened), "model"),
@@ -602,12 +632,17 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
   const effort = input.modelSettings?.reasoningEffort;
   const serviceTier = input.modelSettings?.serviceTier;
   const attachments = codexAttachmentInputs(input.attachments ?? []);
+  let text = input.text;
+  if (live.memoryPrefix && !isProviderCommandText(text)) {
+    text = withProjectMemoryPrefix(live.memoryPrefix, text);
+    live.memoryPrefix = undefined;
+  }
 
   const params = buildTurnStartParams({
     threadId: live.threadId,
     runtimeMode: input.runtimeMode,
     controlsAgents: input.controlsAgents,
-    prompt: input.text.trim() || undefined,
+    prompt: text.trim() || undefined,
     attachments,
     model,
     effort,
@@ -1395,6 +1430,7 @@ function autoApproval(
 /** Exported for tests. */
 export function __codexTestReset(): void {
   liveByThread.clear();
+  memoryByThread.clear();
   stoppingByThread.clear();
   resumeByThread.clear();
   cancelledThreads.clear();

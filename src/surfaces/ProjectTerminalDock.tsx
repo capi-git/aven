@@ -16,6 +16,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { DevPreviewChip } from "../chrome/DevPreviewChip";
 import { ExplorerMenu } from "../chrome/ExplorerMenu";
 import { SurfaceBoundary } from "../chrome/SurfaceBoundary";
 import { SurfaceTabs } from "../chrome/SurfaceTabs";
@@ -220,25 +221,28 @@ export function ProjectTerminalDock({
         onCloseFile={onCloseTerminal}
         onReorder={onReorderTerminals}
         trailing={
-          <div className="flex shrink-0 items-center gap-0.5 border-l border-content/10 px-1">
-            <IconButton
-              label={`New Terminal (${MOD}\`)`}
-              onClick={onAddTerminal}
-            >
-              <Plus className="size-3.5" strokeWidth={1.75} />
-            </IconButton>
-            <div ref={sideButton}>
+          <>
+            <DevPreviewChip project={dock.projectPath} placement="terminal" />
+            <div className="flex shrink-0 items-center gap-0.5 border-l border-content/10 px-1">
               <IconButton
-                label="Move Terminal"
-                onClick={() => setMenu((open) => !open)}
+                label={`New Terminal (${MOD}\`)`}
+                onClick={onAddTerminal}
               >
-                <SideIcon className="size-3.5" strokeWidth={1.75} />
+                <Plus className="size-3.5" strokeWidth={1.75} />
+              </IconButton>
+              <div ref={sideButton}>
+                <IconButton
+                  label="Move Terminal"
+                  onClick={() => setMenu((open) => !open)}
+                >
+                  <SideIcon className="size-3.5" strokeWidth={1.75} />
+                </IconButton>
+              </div>
+              <IconButton label={`Hide Terminal (${MOD}J)`} onClick={onHide}>
+                <HideIcon className="size-3.5" strokeWidth={1.75} />
               </IconButton>
             </div>
-            <IconButton label={`Hide Terminal (${MOD}J)`} onClick={onHide}>
-              <HideIcon className="size-3.5" strokeWidth={1.75} />
-            </IconButton>
-          </div>
+          </>
         }
       />
       <div className="relative min-h-0 min-w-0 flex-1">
@@ -261,6 +265,8 @@ export function ProjectTerminalDock({
                   cwd={file.cwd}
                   active={focused && file.id === dock.pane.activeFileId}
                   presented={presented && file.id === dock.pane.activeFileId}
+                  previewProject={dock.projectPath}
+                  previewPlacement="terminal"
                   onMetaChange={(patch) =>
                     onTerminalMetaChange?.(file.id, patch)
                   }

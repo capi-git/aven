@@ -36,6 +36,7 @@ import {
   HandoffButton,
   SecondOpinionButton,
 } from "../chrome/SecondOpinionButton";
+import { RememberButton } from "../chrome/RememberButton";
 import { SecondOpinionCard } from "../chrome/SecondOpinionCard";
 import { NoteMiniCard } from "../chrome/NoteMiniCard";
 import { TerminalSpinner } from "../chrome/TerminalSpinner";
@@ -133,6 +134,8 @@ type Props = {
   onApproval?: (requestId: number, decision: ApprovalDecision) => void;
   onAddToChat?: (text: string) => void;
   onSaveNote?: (text: string) => void;
+  /** Project whose memory "Remember this" adds to; omitted hides it. */
+  memoryProject?: string;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
   onOpenPlan?: (blockId: string) => void;
@@ -159,6 +162,7 @@ function AgentTranscriptComponent({
   onApproval,
   onAddToChat,
   onSaveNote,
+  memoryProject,
   onOpenFile,
   onOpenDiff,
   onOpenPlan,
@@ -774,6 +778,7 @@ function AgentTranscriptComponent({
                   }
                   copyText={turnCopyText(turn)}
                   onSaveNote={onSaveNote}
+                  memoryProject={memoryProject}
                   harness={turnHarness}
                   fromHarness={turnHarness}
                   onSecondOpinion={
@@ -861,6 +866,7 @@ function TurnDuration({
   completedAt,
   copyText: output,
   onSaveNote,
+  memoryProject,
   fromHarness,
   onSecondOpinion,
   onHandoff,
@@ -873,6 +879,7 @@ function TurnDuration({
   completedAt?: number;
   copyText?: string;
   onSaveNote?: (text: string) => void;
+  memoryProject?: string;
   fromHarness?: HarnessId;
   onSecondOpinion?: (harness: HarnessId, model: string) => void;
   onHandoff?: (harness: HarnessId, model: string) => void;
@@ -895,6 +902,9 @@ function TurnDuration({
             <CopyTurnButton text={output} />
             {onSaveNote ? (
               <SaveNoteButton text={output} onSave={onSaveNote} />
+            ) : null}
+            {memoryProject ? (
+              <RememberButton project={memoryProject} text={output} />
             ) : null}
           </>
         ) : (

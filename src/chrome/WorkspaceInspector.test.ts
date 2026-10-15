@@ -240,6 +240,7 @@ describe("WorkspaceInspector lifecycle", () => {
       selectedPath: "/project-worktree/file.ts",
       selectedKind: "staged",
       selectedSha: "abc",
+      projectCwd: "/project",
       onOpenFile: props.onOpenDiff,
       onOpenAllChanges: props.onOpenAllChanges,
       onOpenCommit: props.onOpenCommit,

@@ -16,6 +16,7 @@ import {
   homeScope,
   homeTimeAgo,
   homeTodayCounts,
+  homeTodayRecap,
   inHomeScope,
   startOfDay,
   type HomeLiveSession,
@@ -480,6 +481,22 @@ describe("finished turns", () => {
         now,
       ),
     ).toEqual({ done: 2, failed: 1, stopped: 1 });
+  });
+
+  it("recaps today by projects with a task done, from local midnight", () => {
+    const now = new Date(2026, 9, 15, 0, 30).getTime();
+    const midnight = startOfDay(now);
+    expect(
+      homeTodayRecap(
+        [
+          { kind: "completed", at: midnight + 1, cwd: APP },
+          { kind: "completed", at: midnight + 2, cwd: `${APP}/` },
+          { kind: "failed", at: midnight + 3, cwd: SITE },
+          { kind: "completed", at: midnight - 1, cwd: SITE },
+        ],
+        now,
+      ),
+    ).toEqual({ done: 2, failed: 1, stopped: 0, projects: 1 });
   });
 });
 

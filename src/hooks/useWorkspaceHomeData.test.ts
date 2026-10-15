@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ActivityEntry } from "../lib/activity";
+import { STREAK_STORAGE_KEY, dayKey } from "../lib/activityStreak";
 import type { Session } from "../lib/session";
 import type { SessionSummary } from "../lib/sessionStore";
 import {
@@ -48,17 +49,22 @@ const approval = {
 let root: Root;
 let container: HTMLDivElement;
 let results: WorkspaceHomeData[];
+let storage: Map<string, string>;
 
-function Probe(props: {
+function Probe({
+  activity = ACTIVITY,
+  ...props
+}: {
   enabled: boolean;
   sessions: Session[];
   inFlightIds: ReadonlySet<string>;
+  activity?: ActivityEntry[];
 }) {
   results.push(
     useWorkspaceHomeData({
       ...props,
       history: HISTORY,
-      activity: ACTIVITY,
+      activity,
       projects: PROJECTS,
       standaloneCwds: STANDALONE,
     }),
@@ -73,7 +79,7 @@ async function render(props: Parameters<typeof Probe>[0]) {
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  const storage = new Map<string, string>();
+  storage = new Map<string, string>();
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => storage.get(key) ?? null,
     setItem: (key: string, value: string) => storage.set(key, value),
@@ -154,5 +160,60 @@ it("does no work and returns one empty value while Home is hidden", async () => 
     projects: [],
     recent: [],
     finished: [],
+    activeDays: [],
   });
+});
+
+it("remembers days with a completed task beyond the ledger, for the streak", async () => {
+  const day = (offset: number) => {
+    const date = new Date();
+    date.setHours(12, 0, 0, 0);
+    date.setDate(date.getDate() - offset);
+    return date.getTime();
+  };
+  storage.set(
+    STREAK_STORAGE_KEY,
+    JSON.stringify({ version: 1, days: [dayKey(day(3))] }),
+  );
+  const entry = (id: string, at: number, outcome = "completed") =>
+    ({
+      id,
+      sessionId: id,
+      outcome,
+      title: "Task",
+      summary: "",
+      cwd: APP,
+      harness: "codex",
+      model: "gpt-5",
+      createdAt: at,
+      readAt: null,
+      resolvedAt: null,
+    }) as ActivityEntry;
+  const ledger = [
+    entry("a", day(0)),
+    entry("b", day(1)),
+    entry("c", day(2), "failed"),
+  ];
+  const first = await render({
+    enabled: true,
+    sessions: [],
+    inFlightIds: new Set(),
+    activity: ledger,
+  });
+  expect(first.activeDays).toEqual([
+    dayKey(day(3)),
+    dayKey(day(1)),
+    dayKey(day(0)),
+  ]);
+  expect(JSON.parse(storage.get(STREAK_STORAGE_KEY)!).days).toEqual(
+    first.activeDays,
+  );
+  // Marking a reply read changes the ledger but not the days.
+  const read = await render({
+    enabled: true,
+    sessions: [],
+    inFlightIds: new Set(),
+    activity: ledger.map((item) => ({ ...item, readAt: 1 })),
+  });
+  expect(read.activeDays).toBe(first.activeDays);
 });

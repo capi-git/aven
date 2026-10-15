@@ -82,6 +82,13 @@ const button = (text: string) =>
     item.textContent?.includes(text),
   );
 
+/** Open the Releases line, which starts as one sentence. */
+async function openRelease() {
+  const line = container.querySelector<HTMLButtonElement>(".git-release-line");
+  if (line?.getAttribute("aria-expanded") === "false")
+    await act(async () => line.click());
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => {
@@ -94,11 +101,12 @@ describe("release card", () => {
   it("publishes the ready version only after confirming", async () => {
     mocks.start.mockResolvedValue(undefined);
     await render();
+    expect(container.textContent).toContain("0.1.108 is ready to publish");
+    // One line until opened.
+    expect(button("Publish")).toBeUndefined();
+    await openRelease();
     expect(container.textContent).toContain(
-      "Version 0.1.108 is ready to publish",
-    );
-    expect(container.textContent).toContain(
-      "2 changes on main since v0.1.107.",
+      "2 changes since v0.1.107 aren't released yet.",
     );
     mocks.ask.mockResolvedValueOnce(false);
     await act(async () => button("Publish 0.1.108")!.click());
@@ -115,7 +123,9 @@ describe("release card", () => {
   it("does not offer publication when the source commit is unknown", async () => {
     mocks.release.mockResolvedValue({ ...released, sourceSha: null });
     await render();
+    await openRelease();
     expect(button("Publish")).toBeUndefined();
+    expect(button("View release")).toBeDefined();
     expect(mocks.ask).not.toHaveBeenCalled();
     expect(mocks.start).not.toHaveBeenCalled();
   });
@@ -125,6 +135,7 @@ describe("release card", () => {
     mocks.ask.mockReturnValue(consent.promise);
     mocks.start.mockResolvedValue(undefined);
     await render();
+    await openRelease();
     await act(async () => button("Publish 0.1.108")!.click());
     mocks.release.mockResolvedValue({ ...released, sourceSha: "b".repeat(40) });
     await act(async () => window.dispatchEvent(new Event("focus")));
@@ -167,6 +178,7 @@ describe("release card", () => {
     });
     mocks.ask.mockResolvedValue(true);
     mocks.start.mockResolvedValue(undefined);
+    await openRelease();
     await act(async () => button("Publish 0.1.109")!.click());
     expect(mocks.start).toHaveBeenCalledExactlyOnceWith(
       "/other-project",
@@ -179,6 +191,7 @@ describe("release card", () => {
     mocks.start.mockRejectedValue(new Error("A release is already running."));
     mocks.ask.mockResolvedValue(true);
     await render();
+    await openRelease();
     await act(async () => button("Publish 0.1.108")!.click());
     expect(container.querySelector('[role="alert"]')?.textContent).toBe(
       "A release is already running.",
@@ -193,7 +206,27 @@ describe("release card", () => {
       workflowHasPublish: false,
     });
     await render();
-    expect(container.textContent).not.toContain("Release");
+    expect(container.textContent).not.toContain("Releases");
+  });
+
+  it("names unreleased changes in one sentence, with no instruction it can't act on", async () => {
+    mocks.release.mockResolvedValue({
+      ...released,
+      unreleased: 3,
+      version: "0.1.107",
+      versionUnreleased: false,
+    });
+    await render();
+    const line = container.querySelector(".git-release-line")!;
+    expect(line.textContent).toBe(
+      "v0.1.107 is live · 3 changes since then aren't released yet",
+    );
+    expect(line.getAttribute("aria-expanded")).toBe("false");
+    await openRelease();
+    expect(container.textContent).not.toContain("Set a new version");
+    expect(button("Publish")).toBeUndefined();
+    await act(async () => button("View release")!.click());
+    expect(mocks.open).toHaveBeenCalledWith(released.latest!.url);
   });
 });
 
