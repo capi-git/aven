@@ -62,6 +62,82 @@ type Props = {
 const MENU_WIDTH = 300;
 const MENU_MIN_HEIGHT = 180;
 const MENU_MAX_HEIGHT = 340;
+/** The field a model picker focuses once it is on screen. */
+export const MODEL_SEARCH_FIELD = 'input[aria-label="Search models"]';
+
+/**
+ * Cmd+. and the menu bar's model picker command toggle a picker. Only the
+ * focused pane's composer passes `enabled`; while the picker is closed, the
+ * shortcut leaves other open pickers and the terminal alone.
+ */
+export function useModelPickerHotkey(
+  enabled: boolean,
+  open: boolean,
+  toggle: () => void,
+) {
+  const openRef = useRef(open);
+  openRef.current = open;
+  const toggleRef = useRef(toggle);
+  toggleRef.current = toggle;
+  useEffect(() => {
+    if (!enabled) return;
+    let lastHotkey = 0;
+    const toggleOnce = () => {
+      // The menu command and the key event can both arrive for one press.
+      const now = performance.now();
+      if (now - lastHotkey < 80) return;
+      lastHotkey = now;
+      toggleRef.current();
+    };
+    const inBlockingUi = (target: EventTarget | null) => {
+      if (!(target instanceof Element)) return false;
+      if (target.closest(".aven-terminal")) return true;
+      return Boolean(
+        target.closest(
+          "[data-file-picker], [data-branch-picker], [data-skill-picker], [data-mention-picker], [data-access-picker]",
+        ),
+      );
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (isImeComposition(e)) return;
+      if (
+        !(e.metaKey || e.ctrlKey) ||
+        e.altKey ||
+        e.shiftKey ||
+        (e.key !== "." && e.code !== "Period")
+      )
+        return;
+      if (!openRef.current && inBlockingUi(e.target)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      toggleOnce();
+    };
+    const onMenu = () => {
+      if (inBlockingUi(document.activeElement)) return;
+      toggleOnce();
+    };
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("open_model_picker", onMenu);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("open_model_picker", onMenu);
+    };
+  }, [enabled]);
+}
+
+/** The model's display name, kept current as provider catalogs load. */
+export function useCurrentModel(harness: HarnessId, model: string) {
+  const catalogVersion = useSyncExternalStore(
+    subscribeModels,
+    getModelSnapshot,
+    getModelSnapshot,
+  );
+  return useMemo(() => {
+    // The snapshot marks a catalog change that can rename the model.
+    void catalogVersion;
+    return resolveModel(harness, model);
+  }, [harness, model, catalogVersion]);
+}
 
 export function ModelPicker({
   harness,
@@ -70,6 +146,102 @@ export function ModelPicker({
   onChange,
   onClose,
 }: Props) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const current = useCurrentModel(harness, model);
+
+  const dismiss = (restore: boolean) => {
+    setOpen(false);
+    if (restore) onCloseRef.current?.();
+  };
+  useModelPickerHotkey(hotkeys, open, () => {
+    if (open) dismiss(true);
+    else setOpen(true);
+  });
+
+  return (
+    <div ref={root} className="relative">
+      <button
+        type="button"
+        title={`${HARNESS_TITLE[current.harness]} · ${current.name} (${MOD}.)`}
+        aria-label={`${HARNESS_TITLE[current.harness]} ${current.name}`}
+        aria-keyshortcuts={`${MOD}.`}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
+          if (open) {
+            dismiss(true);
+            return;
+          }
+          setOpen(true);
+        }}
+        className={`model-control flex h-6.5 max-w-52 items-center gap-1 rounded-md px-1.5 ${
+          open
+            ? "bg-content/10 text-content"
+            : "bg-content/10 text-content hover:bg-content/15"
+        }`}
+      >
+        <HarnessIcon harness={current.harness} className="size-4 shrink-0" />
+        <span
+          key={current.id}
+          className="model-control-value min-w-0 truncate text-ui-caption"
+        >
+          {current.name}
+        </span>
+        <ChevronDown
+          className={`model-control-chevron size-3 shrink-0 text-content/50 ${open ? "rotate-180" : ""}`}
+          strokeWidth={1.75}
+        />
+      </button>
+      {open ? (
+        <Popover
+          anchor={root}
+          side="top"
+          width={MENU_WIDTH}
+          minHeight={MENU_MIN_HEIGHT}
+          maxHeight={MENU_MAX_HEIGHT}
+          autoFocus
+          initialFocus={MODEL_SEARCH_FIELD}
+          onDismiss={(reason) => dismiss(reason === "escape")}
+          role="dialog"
+          aria-label="Model picker"
+          data-model-picker
+          className="flex flex-col overflow-hidden"
+        >
+          <ModelChooser
+            harness={harness}
+            model={model}
+            onPick={(nextHarness, nextModel) => {
+              onChange(nextHarness, nextModel);
+              dismiss(true);
+            }}
+          />
+        </Popover>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The provider tabs, search field and model list. Mounted only while a
+ * picker is open: it settles the remembered tab and highlights the current
+ * model in its first frame. Arrow keys in the field move the highlight and
+ * Left/Right switch provider; Enter or Cmd+1-9 picks.
+ */
+export function ModelChooser({
+  harness,
+  model,
+  onPick,
+  className = "",
+}: {
+  harness: HarnessId;
+  model: string;
+  onPick: (harness: HarnessId, model: string) => void;
+  className?: string;
+}) {
   const catalogVersion = useSyncExternalStore(
     subscribeModels,
     getModelSnapshot,
@@ -85,58 +257,26 @@ export function ModelPicker({
     getPickerVisibilitySnapshot,
     getPickerVisibilitySnapshot,
   );
-  const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<ModelPickerTab>(() => loadModelPickerTab());
-  const [query, setQuery] = useState("");
-  const [active, setActive] = useState(0);
-  const [favorites, setFavorites] = useState(loadFavoriteModels);
-  const root = useRef<HTMLDivElement>(null);
-  const search = useRef<HTMLInputElement>(null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  const current = resolveModel(harness, model);
-  const tabRef = useRef(tab);
-  const openRef = useRef(open);
-  const lastHotkey = useRef(0);
-
   const shownInPicker = (id: HarnessId) =>
     showProviderInModelPicker(
       id,
       isHarnessAvailable(id),
       hasProbedHarnessAvailability(),
     );
+  // Read when the picker opens, so it shows the provider last chosen anywhere.
+  const [tab, setTab] = useState<ModelPickerTab>(() =>
+    coerceModelPickerTab(loadModelPickerTab(), shownInPicker),
+  );
+  const [query, setQuery] = useState("");
+  const [active, setActive] = useState(0);
+  const [favorites, setFavorites] = useState(loadFavoriteModels);
+  const current = resolveModel(harness, model);
+
   const pickerHarnesses = HARNESSES.filter(shownInPicker);
   const visibleTab = coerceModelPickerTab(tab, shownInPicker);
   if (visibleTab !== tab) {
     setTab(visibleTab);
   }
-  tabRef.current = visibleTab;
-  openRef.current = open;
-
-  const dismiss = (restore: boolean) => {
-    setOpen(false);
-    if (restore) onCloseRef.current?.();
-  };
-
-  // Settle the tab and query in the same update that opens the picker, so
-  // its first painted frame already shows the remembered provider.
-  const openPicker = () => {
-    setTab(coerceModelPickerTab(loadModelPickerTab(), shownInPicker));
-    setQuery("");
-    setOpen(true);
-  };
-
-  const togglePicker = () => {
-    if (openRef.current) dismiss(true);
-    else openPicker();
-  };
-
-  const toggleFromHotkey = () => {
-    const now = performance.now();
-    if (now - lastHotkey.current < 80) return;
-    lastHotkey.current = now;
-    togglePicker();
-  };
 
   const selectTab = (next: ModelPickerTab) => {
     setTab(next);
@@ -144,80 +284,13 @@ export function ModelPicker({
   };
 
   useEffect(() => {
-    if (!open) return;
     void probeHarnessAvailability();
-  }, [open]);
+  }, []);
 
   useEffect(() => {
-    if (!open || visibleTab === "favorites") return;
+    if (visibleTab === "favorites") return;
     void refreshHarnessCatalogs([visibleTab]);
-  }, [open, visibleTab]);
-
-  useEffect(() => {
-    const inBlockingUi = (target: EventTarget | null) => {
-      if (!(target instanceof Element)) return false;
-      if (target.closest(".aven-terminal")) return true;
-      return Boolean(
-        target.closest(
-          "[data-file-picker], [data-branch-picker], [data-skill-picker], [data-mention-picker], [data-access-picker], [data-model-settings]",
-        ),
-      );
-    };
-
-    const onKey = (e: KeyboardEvent) => {
-      if (isImeComposition(e)) return;
-      const mod = e.metaKey || e.ctrlKey;
-      if (
-        hotkeys &&
-        mod &&
-        !e.altKey &&
-        !e.shiftKey &&
-        (e.key === "." || e.code === "Period")
-      ) {
-        if (!openRef.current && inBlockingUi(e.target)) return;
-        e.preventDefault();
-        e.stopPropagation();
-        toggleFromHotkey();
-        return;
-      }
-      if (!openRef.current) return;
-      if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        dismiss(true);
-        return;
-      }
-      if (mod || e.altKey || e.shiftKey) return;
-      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-      if (inBlockingUi(e.target)) return;
-      e.preventDefault();
-      e.stopPropagation();
-      selectTab(
-        stepModelPickerTab(
-          tabRef.current,
-          e.key === "ArrowLeft" ? -1 : 1,
-          shownInPicker,
-        ),
-      );
-    };
-
-    const onMenu = () => {
-      if (!hotkeys) return;
-      if (inBlockingUi(document.activeElement)) return;
-      toggleFromHotkey();
-    };
-
-    window.addEventListener("keydown", onKey, true);
-    window.addEventListener("open_model_picker", onMenu);
-    return () => {
-      window.removeEventListener("keydown", onKey, true);
-      window.removeEventListener("open_model_picker", onMenu);
-    };
-  }, [hotkeys]);
-
-  useEffect(() => {
-    if (open) search.current?.focus();
-  }, [open]);
+  }, [visibleTab]);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -256,14 +329,12 @@ export function ModelPicker({
   // Opening, switching tab or searching highlights the current model. This
   // is derived while rendering, not in an effect after paint, so the first
   // frame is final. A catalog that lands later only clamps the highlight.
-  const activeFor = open ? `${visibleTab}\n${query}\n${current.id}` : "";
-  const [activeKey, setActiveKey] = useState(activeFor);
+  const activeFor = `${visibleTab}\n${query}\n${current.id}`;
+  const [activeKey, setActiveKey] = useState("");
   if (activeKey !== activeFor) {
     setActiveKey(activeFor);
-    if (open) {
-      const index = visible.findIndex((item) => item.id === current.id);
-      setActive(index >= 0 ? index : 0);
-    }
+    const index = visible.findIndex((item) => item.id === current.id);
+    setActive(index >= 0 ? index : 0);
   }
   const activeRow =
     visible.length === 0 ? 0 : Math.min(active, visible.length - 1);
@@ -271,8 +342,7 @@ export function ModelPicker({
   const pick = (item: AgentModel) => {
     if (!isHarnessAvailable(item.harness) || !isPickerModelVisible(item))
       return;
-    onChange(item.harness, item.id);
-    dismiss(true);
+    onPick(item.harness, item.id);
   };
 
   const toggleFavorite = (id: string) => {
@@ -286,6 +356,23 @@ export function ModelPicker({
       saveFavoriteModels(next);
       return next;
     });
+  };
+
+  // Left and Right switch provider from the field and the tabs, as before
+  // the list had its own keys.
+  const onTabKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (isImeComposition(e.nativeEvent)) return;
+    if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    e.stopPropagation();
+    selectTab(
+      stepModelPickerTab(
+        visibleTab,
+        e.key === "ArrowLeft" ? -1 : 1,
+        shownInPicker,
+      ),
+    );
   };
 
   const onSearchKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -316,124 +403,76 @@ export function ModelPicker({
   };
 
   return (
-    <div ref={root} className="relative">
-      <button
-        type="button"
-        title={`${HARNESS_TITLE[current.harness]} · ${current.name} (${MOD}.)`}
-        aria-label={`${HARNESS_TITLE[current.harness]} ${current.name}`}
-        aria-keyshortcuts={`${MOD}.`}
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={() => {
-          if (open) {
-            dismiss(true);
-            return;
-          }
-          openPicker();
-        }}
-        className={`model-control flex h-6.5 max-w-52 items-center gap-1 rounded-md px-1.5 ${
-          open
-            ? "bg-content/10 text-content"
-            : "bg-content/10 text-content hover:bg-content/15"
-        }`}
+    <div
+      className={`flex min-h-0 min-w-0 flex-1 flex-col ${className}`}
+      onKeyDown={onTabKey}
+    >
+      <nav
+        role="tablist"
+        aria-label="Providers"
+        aria-keyshortcuts="ArrowLeft ArrowRight"
+        aria-orientation="horizontal"
+        className="flex w-full shrink-0 items-stretch border-b border-content/10"
       >
-        <HarnessIcon harness={current.harness} className="size-4 shrink-0" />
-        <span
-          key={current.id}
-          className="model-control-value min-w-0 truncate text-ui-caption"
+        <ProviderTabButton
+          title="Favorites"
+          selected={visibleTab === "favorites"}
+          onSelect={() => selectTab("favorites")}
         >
-          {current.name}
-        </span>
-        <ChevronDown
-          className={`model-control-chevron size-3 shrink-0 text-content/50 ${open ? "rotate-180" : ""}`}
-          strokeWidth={1.75}
-        />
-      </button>
-      {open ? (
-        <Popover
-          anchor={root}
-          side="top"
-          width={MENU_WIDTH}
-          minHeight={MENU_MIN_HEIGHT}
-          maxHeight={MENU_MAX_HEIGHT}
-          onDismiss={() => dismiss(false)}
-          dismissOnEscape={false}
-          role="dialog"
-          aria-label="Model picker"
-          data-model-picker
-          className="flex flex-col overflow-hidden"
-        >
-          <nav
-            role="tablist"
-            aria-label="Providers"
-            aria-keyshortcuts="ArrowLeft ArrowRight"
-            aria-orientation="horizontal"
-            className="flex w-full shrink-0 items-stretch border-b border-content/10"
+          <Star
+            className="size-4"
+            strokeWidth={1.75}
+            fill={visibleTab === "favorites" ? "currentColor" : "none"}
+          />
+        </ProviderTabButton>
+        {pickerHarnesses.map((id) => (
+          <ProviderTabButton
+            key={id}
+            title={HARNESS_TITLE[id]}
+            selected={visibleTab === id}
+            onSelect={() => selectTab(id)}
           >
-            <ProviderTabButton
-              title="Favorites"
-              selected={visibleTab === "favorites"}
-              onSelect={() => selectTab("favorites")}
-            >
-              <Star
-                className="size-4"
-                strokeWidth={1.75}
-                fill={visibleTab === "favorites" ? "currentColor" : "none"}
-              />
-            </ProviderTabButton>
-            {pickerHarnesses.map((id) => (
-              <ProviderTabButton
-                key={id}
-                title={HARNESS_TITLE[id]}
-                selected={visibleTab === id}
-                onSelect={() => selectTab(id)}
-              >
-                <HarnessIcon harness={id} className="size-4" />
-              </ProviderTabButton>
-            ))}
-          </nav>
+            <HarnessIcon harness={id} className="size-4" />
+          </ProviderTabButton>
+        ))}
+      </nav>
 
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <div className="pb-1.5">
-              <label className="flex items-center gap-2 border-b border-content/10 px-2 py-2.5 text-content/50">
-                <Search className="size-3.5 shrink-0" strokeWidth={1.75} />
-                <input
-                  ref={search}
-                  type="text"
-                  value={query}
-                  placeholder="Search models..."
-                  aria-label="Search models"
-                  className="min-w-0 flex-1 bg-transparent text-ui-label text-content outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
-                  onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={onSearchKey}
-                />
-              </label>
-            </div>
-            <ModelList
-              models={visible}
-              active={activeRow}
-              currentId={current.id}
-              favorites={favorites.map((id) => findPickerModel(id)?.id ?? id)}
-              emptyLabel={
-                visibleTab === "favorites" && !query.trim()
-                  ? "No favorite models"
-                  : visibleTab !== "favorites" &&
-                      !isHarnessAvailable(visibleTab)
-                    ? harnessUnavailableHint(visibleTab)
-                    : visibleTab !== "favorites" &&
-                        harnessDescriptor(visibleTab).emptyCatalogLabel &&
-                        !query.trim()
-                      ? harnessDescriptor(visibleTab).emptyCatalogLabel!
-                      : "No matching models"
-              }
-              onActive={setActive}
-              onPick={pick}
-              onToggleFavorite={toggleFavorite}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="pb-1.5">
+          <label className="flex items-center gap-2 border-b border-content/10 px-2 py-2.5 text-content/50">
+            <Search className="size-3.5 shrink-0" strokeWidth={1.75} />
+            <input
+              type="text"
+              value={query}
+              placeholder="Search models..."
+              aria-label="Search models"
+              className="min-w-0 flex-1 bg-transparent text-ui-label text-content outline-none placeholder:text-content/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/60"
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={onSearchKey}
             />
-          </div>
-        </Popover>
-      ) : null}
+          </label>
+        </div>
+        <ModelList
+          models={visible}
+          active={activeRow}
+          currentId={current.id}
+          favorites={favorites.map((id) => findPickerModel(id)?.id ?? id)}
+          emptyLabel={
+            visibleTab === "favorites" && !query.trim()
+              ? "No favorite models"
+              : visibleTab !== "favorites" && !isHarnessAvailable(visibleTab)
+                ? harnessUnavailableHint(visibleTab)
+                : visibleTab !== "favorites" &&
+                    harnessDescriptor(visibleTab).emptyCatalogLabel &&
+                    !query.trim()
+                  ? harnessDescriptor(visibleTab).emptyCatalogLabel!
+                  : "No matching models"
+          }
+          onActive={setActive}
+          onPick={pick}
+          onToggleFavorite={toggleFavorite}
+        />
+      </div>
     </div>
   );
 }
@@ -585,6 +624,8 @@ function ModelList({
               aria-selected={selected}
               aria-disabled={disabled}
               disabled={disabled}
+              // The search field moves through the list; Tab skips the rows.
+              tabIndex={-1}
               title={
                 disabled ? harnessUnavailableHint(item.harness) : undefined
               }
@@ -624,6 +665,7 @@ function ModelList({
               aria-label={
                 favorited ? "Remove from favorites" : "Add to favorites"
               }
+              tabIndex={highlighted ? 0 : -1}
               onMouseDown={(e) => e.preventDefault()}
               onClick={(e) => {
                 e.stopPropagation();
