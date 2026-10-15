@@ -136,7 +136,7 @@ export function DiscussionPicker({
       aria-label="Discuss with another chat"
       data-discussion-picker
       onKeyDown={onKeyDown}
-      className="overflow-hidden rounded-lg border border-content/10 bg-content/5 backdrop-blur-xl"
+      className="overflow-hidden rounded-lg border border-content/10 bg-[var(--aven-popup)] shadow-[var(--aven-shadow)]"
     >
       <div className="flex h-8 items-center gap-2 border-b border-content/10 pl-2.5 pr-1">
         <MessageMultiple className="size-3.5 shrink-0 text-content/55" />
