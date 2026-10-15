@@ -308,6 +308,7 @@ import {
   mapProjectTerminal,
   nextDockTerminalTitle,
   patchProjectTerminals,
+  projectPanelTerminals,
   reorderDockTerminals,
   selectDockTerminal,
   withDockOpen,
@@ -4887,17 +4888,27 @@ export default function App({
       removingProjects.current.add(normalized);
       try {
         if (options.purgeData) {
+          // The project's terminal panel goes with it, even while hidden or
+          // when another project is on screen. Ask only about terminals still
+          // running something, as closing them by hand would; declining
+          // keeps the project.
+          const panelTerminals = projectPanelTerminals(
+            projectTerminalsRef.current,
+            normalized,
+          );
+          if (
+            panelTerminals.length > 0 &&
+            !(await confirmCloseTerminals(panelTerminals))
+          )
+            return;
+          const closingTerminals = new Set(
+            panelTerminals.map((file) => file.id),
+          );
+          // A terminal opened while the deletion runs is new work.
           const hasProjectTerminals = () =>
-            projectTerminalsRef.current.some(
-              (dock) =>
-                sameProjectPath(dock.projectPath, normalized) &&
-                dock.pane.files.length > 0,
+            projectPanelTerminals(projectTerminalsRef.current, normalized).some(
+              (file) => !closingTerminals.has(file.id),
             );
-          if (hasProjectTerminals()) {
-            throw new Error(
-              "Close this project's terminal tabs before deleting it.",
-            );
-          }
           const assertWorkspaceReady = () => {
             // A removal can leave an empty replacement chat. Keep any new
             // work or file panes opened while an earlier deletion awaited IO.
@@ -8400,6 +8411,15 @@ export default function App({
       closeSettings: onCloseSettings,
       leaveNotes: onLeaveNotes,
     },
+    projects: recents,
+    projectPanel: {
+      toggle: onToggleProjectTerminal,
+      terminalIds: (path) =>
+        projectPanelTerminals(projectTerminalsRef.current, path).map(
+          (file) => file.id,
+        ),
+    },
+    deleteProject: (path) => onRemoveProject(path, { purgeData: true }),
   });
   useEffect(
     () => setFloatingSidebarRevealed(floatingSidebar.revealed),

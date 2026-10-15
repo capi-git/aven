@@ -71,6 +71,16 @@ export function findProjectTerminal(
   return docks.find((dock) => sameProjectPath(dock.projectPath, projectPath));
 }
 
+/** Every terminal in a project's panel, whether the panel is shown or hidden. */
+export function projectPanelTerminals(
+  docks: readonly ProjectTerminalDock[],
+  projectPath: string,
+): FilePaneTab[] {
+  return docks
+    .filter((dock) => sameProjectPath(dock.projectPath, projectPath))
+    .flatMap((dock) => dock.pane.files);
+}
+
 export function createProjectTerminal(
   projectPath: string,
   file: FilePaneTab,

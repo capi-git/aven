@@ -12,6 +12,7 @@ import {
 import { errorText } from "../lib/errors";
 import { nativeFloatingSidebar } from "../lib/floatingSidebar";
 import { resolveClaudeBinary } from "../lib/harness/child";
+import { getPtyStatus } from "../lib/pty";
 import { IS_MAC } from "../lib/platform";
 import { sameProjectPath } from "../lib/recents";
 import type { Session } from "../lib/session";
@@ -26,6 +27,15 @@ type Options = {
   submit: (sessionId: string, text: string) => void;
   /** The workspace's own utility views, opened as their buttons would. */
   utilities?: SmokeUtilities;
+  /** Remembered projects, for checking that a deleted one is gone. */
+  projects?: readonly { path: string }[];
+  /** The current project's terminal panel. */
+  projectPanel?: {
+    toggle: () => void;
+    terminalIds: (projectPath: string) => string[];
+  };
+  /** Delete a project and its chats, as the sidebar's Delete does. */
+  deleteProject?: (projectPath: string) => Promise<void>;
 };
 
 type SmokeUtilities = {
@@ -242,9 +252,13 @@ export async function runDevSmoke(
   if (label)
     await step("floating sidebar opens Settings and goes Back", async () => {
       let stop: (() => void) | undefined;
-      const report = new Promise<{ ok: boolean; error?: string }>((resolve) => {
+      const report = new Promise<{
+        ok: boolean;
+        error?: string;
+        note?: string;
+      }>((resolve) => {
         void nativeFloatingSidebar
-          .listen<{ ok: boolean; error?: string }>(
+          .listen<{ ok: boolean; error?: string; note?: string }>(
             SMOKE_OVERLAY_RESULT_EVENT,
             resolve,
           )
@@ -259,15 +273,88 @@ export async function runDevSmoke(
             setTimeout(
               () =>
                 reject(new Error("The floating sidebar stopped responding")),
-              20_000,
+              45_000,
             ),
           ),
         ]);
         if (!result.ok) throw new Error(result.error ?? "Failed");
+        return result.note;
       } finally {
         stop?.();
       }
     });
 
+  // Last, as it removes the check's project. 0.1.139 refused to delete a
+  // project while its terminal panel held a terminal, even a hidden one.
+  const { projectPanel, deleteProject } = get();
+  if (projectPanel && deleteProject)
+    await step(
+      "deleting a project closes its hidden terminal panel",
+      async () => {
+        const path = config.projectPath;
+        projectPanel.toggle();
+        const [terminal] = await waitFor(
+          () => {
+            const ids = projectPanel.terminalIds(path);
+            return ids.length > 0 && ids;
+          },
+          10_000,
+          "a terminal in the project's panel",
+        );
+        // An idle shell: a running process would rightly ask first.
+        await waitForAsync(
+          async () => {
+            const status = await getPtyStatus(terminal).catch(() => null);
+            return status !== null && !status.foreground;
+          },
+          10_000,
+          "the panel's shell to start and go idle",
+        );
+        projectPanel.toggle();
+        await withTimeout(deleteProject(path), 30_000, "deleting the project");
+        const listed = (get().projects ?? []).some((project) =>
+          sameProjectPath(project.path, path),
+        );
+        if (listed) throw new Error("The project is still listed after Delete");
+        if (projectPanel.terminalIds(path).length > 0)
+          throw new Error("The project's terminal panel was kept");
+        await waitForAsync(
+          async () =>
+            getPtyStatus(terminal).then(
+              () => false,
+              () => true,
+            ),
+          5_000,
+          "the panel's shell to end",
+        );
+      },
+    );
+
   await finishDevSmoke(steps);
+}
+
+async function waitForAsync(
+  read: () => Promise<boolean>,
+  timeoutMs: number,
+  what: string,
+): Promise<void> {
+  const started = Date.now();
+  while (!(await read())) {
+    if (Date.now() - started > timeoutMs)
+      throw new Error(`Timed out waiting for ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
+function withTimeout<T>(
+  work: Promise<T>,
+  timeoutMs: number,
+  what: string,
+): Promise<T> {
+  return Promise.race([
+    work,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Timed out ${what}`)), timeoutMs),
+    ),
+  ]);
 }
