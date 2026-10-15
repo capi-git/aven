@@ -184,7 +184,7 @@ export function SessionReview({
               title="Commit, push and open a pull request from the Changes panel"
               disabled={busy}
               onClick={() => requestShip(cwd, sessionId)}
-              className="flex h-6 items-center gap-1 rounded-md bg-content px-2 text-ui-caption font-medium text-background-base hover:bg-content/85 disabled:opacity-40"
+              className="flex h-6 items-center gap-1 rounded-md bg-content/15 px-2 text-ui-caption text-content/80 hover:bg-content/20 hover:text-content disabled:opacity-40"
             >
               <ArrowUp className="size-3" strokeWidth={2} />
               Ship it

@@ -228,6 +228,12 @@ html.theme-light .git-changes {
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
+/* The row's actions take this space while it is hovered, focused or open. */
+.group:hover > .git-file-stats,
+.group:focus-within > .git-file-stats,
+.git-file-stats[data-active] {
+  display: none;
+}
 .git-file-bar {
   display: flex;
   width: 22px;

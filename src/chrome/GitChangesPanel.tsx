@@ -159,6 +159,9 @@ export function GitChangesPanel({
   const files = index?.files ?? [];
   // Nothing to commit: the history takes the space the file list would use.
   const clean = index !== null && files.length === 0;
+  // No branch and no commits: not a Git repository, so there is no history.
+  const noGit =
+    clean && index?.branch === null && history.loaded && !history.head;
   const paneRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<HTMLDivElement>(null);
   const [graphHeight, setGraphHeight] = useState(loadGraphPanelHeight);
@@ -218,9 +221,7 @@ export function GitChangesPanel({
         fill={!clean}
         lastCommit={lastCommit}
         now={now}
-        noGit={
-          clean && index?.branch === null && history.loaded && !history.head
-        }
+        noGit={noGit}
         onShowHistory={showHistory}
         onOpenBranchPicker={onOpenBranchPicker}
         onWorktrees={onWorktrees}
@@ -250,6 +251,7 @@ export function GitChangesPanel({
       ) : null}
       <div
         ref={graphRef}
+        hidden={noGit}
         className={`overflow-hidden border-t border-content/10 ${
           !graphExpanded
             ? "h-7 shrink-0"
@@ -390,13 +392,15 @@ function ChangedFiles({
     [cwd],
   );
 
+  // Measured again when the box is shown: hidden, it measures as nothing.
+  const messageHidden = files.length === 0 || !!ship;
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || messageHidden) return;
     const el = messageRef.current;
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
-  }, [message, enabled]);
+  }, [message, enabled, messageHidden]);
 
   useEffect(() => {
     if (!enabled) {
@@ -756,9 +760,10 @@ function ChangedFiles({
             </div>
           ) : null}
         </div>
-        {index ? (
+        {index && !ship ? (
           <GitSyncActions
             index={index}
+            dirty={files.length > 0}
             pr={pr}
             busy={busy}
             hasRemote={hasRemote}
@@ -793,7 +798,7 @@ function ChangedFiles({
           <>
             {staged.length > 0 ? (
               <FileSection
-                title="Staged Changes"
+                title="Staged"
                 count={staged.length}
                 totals={lineTotals(staged)}
                 open={stagedExpanded}
@@ -978,6 +983,7 @@ function syncStatusLabel(index: GitDiffIndex): string {
 
 function GitSyncActions({
   index,
+  dirty,
   pr,
   busy,
   hasRemote,
@@ -993,6 +999,8 @@ function GitSyncActions({
   onViewPr,
 }: {
   index: GitDiffIndex;
+  /** Uncommitted files: a pull request waits for them, and Ship it offers one. */
+  dirty: boolean;
   pr: GitPr | null;
   busy: string | null;
   hasRemote: boolean;
@@ -1033,7 +1041,7 @@ function GitSyncActions({
   const btn =
     "flex h-7 w-full min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-ui-label font-medium disabled:opacity-40";
   const secondary = `${btn} bg-content/10 text-content hover:bg-content/15`;
-  const showCreatePr = !hasOpenPr && !onDefault;
+  const showCreatePr = !hasOpenPr && !onDefault && !dirty;
   const showViewPr = hasOpenPr;
   if (!canPublish && !canSync && !showCreatePr && !showViewPr) return null;
 
@@ -1539,9 +1547,8 @@ function ChangeRow({
         </button>
         {file.additions > 0 || file.deletions > 0 ? (
           <span
-            className={`git-file-stats ${
-              active ? "hidden" : "group-focus-within:hidden group-hover:hidden"
-            }`}
+            className="git-file-stats"
+            data-active={active || undefined}
             aria-label={`${file.additions} added, ${file.deletions} deleted`}
           >
             {file.additions > 0 ? (

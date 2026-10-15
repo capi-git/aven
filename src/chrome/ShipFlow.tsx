@@ -654,6 +654,13 @@ function ShipDone({
   );
 }
 
+const CHECK_STATE_LABEL: Record<string, string> = {
+  pass: "Passed",
+  fail: "Failed",
+  pending: "Running",
+  skipped: "Skipped",
+};
+
 function CheckRow({ check }: { check: PrCheck }) {
   return (
     <li data-state={check.state}>
@@ -670,7 +677,9 @@ function CheckRow({ check }: { check: PrCheck }) {
       ) : (
         <span className="min-w-0 flex-1 truncate">{check.name}</span>
       )}
-      <span className="ship-flow-check-state">{check.state}</span>
+      <span className="ship-flow-check-state">
+        {CHECK_STATE_LABEL[check.state] ?? check.state}
+      </span>
     </li>
   );
 }
