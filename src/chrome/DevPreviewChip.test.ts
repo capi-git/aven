@@ -23,6 +23,7 @@ beforeEach(() => {
   });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   resetDevPreviews();
+  installDevPreviewOpener(() => true);
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -130,6 +131,13 @@ it("quietly shows a stopped server without an open button", async () => {
   expect(chip()?.dataset.state).toBe("stale");
   expect(chip()?.textContent).toContain("Preview stopped");
   expect(host.querySelector(".dev-preview-open")).toBeNull();
+});
+
+it("stays hidden in a window that cannot open previews", async () => {
+  resetDevPreviews();
+  announce("http://localhost:5173/");
+  await render();
+  expect(chip()).toBeNull();
 });
 
 it("shows terminal servers only in the terminal panel", async () => {

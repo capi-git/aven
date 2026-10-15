@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { useDevPreviews } from "../hooks/useDevPreviews";
 import {
+  canOpenDevPreviews,
   chipPreview,
   dismissDevPreview,
   openDevPreview,
@@ -27,7 +28,7 @@ export const DevPreviewChip = memo(function DevPreviewChip({
 }: Props) {
   const previews = useDevPreviews();
   const preview = chipPreview(previews, project, placement);
-  if (!preview) return null;
+  if (!preview || !canOpenDevPreviews()) return null;
   const live = preview.status === "live";
   const state = live ? "Preview ready" : "Preview stopped";
   return (

@@ -279,6 +279,11 @@ export function installDevPreviewOpener(next: DevPreviewOpener): () => void {
   };
 }
 
+/** Only the workspace window can open previews; other windows show no chip. */
+export function canOpenDevPreviews(): boolean {
+  return opener !== null;
+}
+
 /** Show a preview beside the chat. Returns whether the workspace opened it. */
 export function openDevPreview(
   key: string,
