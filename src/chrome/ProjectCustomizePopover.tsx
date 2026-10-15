@@ -283,11 +283,12 @@ function ProjectMemoryRow({
   const summary = loading
     ? ""
     : memory
-      ? `${memory.body.length.toLocaleString()} characters · ${projectMemoryEdited(memory.updatedAt, Date.now()).replace(/^Edited /, "edited ")}`
-      : "Empty — shared with every agent here";
+      ? projectMemoryEdited(memory.updatedAt, Date.now())
+      : "Empty";
   return (
     <button
       type="button"
+      title="Decisions, conventions and gotchas every agent in this project receives"
       onMouseDown={(event) => event.preventDefault()}
       onClick={onOpen}
       className="flex h-9 w-full min-w-0 items-center gap-2 rounded-md bg-content/6 px-2 text-left text-ui-label text-content hover:bg-content/10"

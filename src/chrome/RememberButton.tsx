@@ -88,6 +88,7 @@ function RememberPopover({
   const [item, setItem] = useState(initial);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const placed = useRef(false);
   const tooLong = item.length > PROJECT_MEMORY_MAX_CHARS;
 
   const save = async () => {
@@ -127,6 +128,13 @@ function RememberPopover({
           disabled={saving}
           aria-label="Item to remember"
           placeholder="- What every agent here should know"
+          onFocus={(event) => {
+            // Start at the end of the suggestion, ready to add to it.
+            if (placed.current) return;
+            placed.current = true;
+            const end = event.currentTarget.value.length;
+            event.currentTarget.setSelectionRange(end, end);
+          }}
           onChange={(event) => {
             setItem(event.target.value);
             setError(null);
