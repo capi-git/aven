@@ -326,6 +326,7 @@ pub fn run() {
             dev_smoke::dev_smoke_finish,
             dev_smoke::dev_perf_sample,
             dev_smoke::dev_perf_keep_visible,
+            dev_smoke::dev_perf_mark,
             floating_sidebar::floating_sidebar_attach,
             floating_sidebar::floating_sidebar_workspace,
             floating_sidebar::floating_sidebar_regions,

@@ -34,6 +34,13 @@ The run uses its own home folder for chats, settings and the browser profile, an
 
 For each scenario it prints the time from input to the next painted frame (median, 95th percentile, worst), slow frames, the worst frame, CPU as a share of one core, wakeups per second, and memory. CPU, wakeups and memory cover Aven's own processes: the app, the WebKit processes that draw its interface, and Chromium's processes for browser tabs. Agents and shells it started are counted apart. Each run is saved under `target/perf/`; pass `-- --perf-compare <saved file>` to print differences from an earlier run. A scenario during which the window was hidden is flagged, because its timings are not meaningful.
 
+To find out why an interaction is slow:
+
+- Each switching scenario also prints a breakdown of its input-to-frame time (script, style and layout, paint), React render time by component (the perf build uses React's profiling build), the calls that forced WebKit to style and lay out early, with the source file and line that made them, and DOM changes.
+- `-- --perf-only switching,sidebar` runs only the scenarios whose names contain those words, after the shared setup, so an experiment takes about a minute.
+- `-- --perf-only restyle` records every attribute an interaction changes, then replays each one alone and times the style and layout it costs, and lists the largest subtrees added or removed.
+- `-- --perf-sample Settings` profiles the interface's WebKit processes with macOS `sample` during that scenario and prints the functions most often on the stack.
+
 The speed test code is only built with `VITE_AVEN_PERF=1` and a debug native build; release builds do not contain it.
 
 ## Machine setup

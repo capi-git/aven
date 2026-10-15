@@ -238,3 +238,336 @@ export function heapMB(): number | undefined {
 export function pause(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+export type HotCalls = {
+  /** Calls that make WebKit style and lay out the page right away. */
+  forcedLayout: { calls: number; ms: number; byCaller: Record<string, number> };
+  json: { calls: number; ms: number };
+  storage: { calls: number; ms: number };
+  /** DOM changes that took noticeable time, by kind. */
+  dom: { calls: number; ms: number; byKind: Record<string, number> };
+};
+
+/**
+ * While recording, time the calls that usually explain slow script: reads
+ * that force style and layout, JSON.stringify, and localStorage. Restores
+ * every patched function on stop.
+ */
+export function recordHotCalls() {
+  const totals: HotCalls = {
+    forcedLayout: { calls: 0, ms: 0, byCaller: {} },
+    json: { calls: 0, ms: 0 },
+    storage: { calls: 0, ms: 0 },
+    dom: { calls: 0, ms: 0, byKind: {} },
+  };
+  const timeDom = (kind: string) => (ms: number) => {
+    totals.dom.calls += 1;
+    totals.dom.ms += ms;
+    if (ms > 0.3) {
+      const where = `${kind} ← ${caller() || "unknown"}`;
+      totals.dom.byKind[where] = (totals.dom.byKind[where] ?? 0) + ms;
+    }
+  };
+  const restores: (() => void)[] = [];
+  const caller = () => {
+    // The first app frame below this file names who forced layout.
+    const lines = (new Error().stack ?? "").split("\n").slice(3);
+    const line = lines.find((entry) => !entry.includes("devPerf")) ?? "";
+    return line
+      .replace(/^\s*at\s+/, "")
+      .replace(/\(?https?:\/\/[^)]*\/assets\//, "(")
+      .slice(0, 80);
+  };
+  const timeLayout = (ms: number) => {
+    totals.forcedLayout.calls += 1;
+    totals.forcedLayout.ms += ms;
+    if (ms > 0.5) {
+      const where = caller() || "unknown";
+      totals.forcedLayout.byCaller[where] =
+        (totals.forcedLayout.byCaller[where] ?? 0) + ms;
+    }
+  };
+  const wrapMethod = (
+    target: object,
+    name: string,
+    record: (ms: number) => void,
+  ) => {
+    const original = (target as Record<string, unknown>)[name];
+    if (typeof original !== "function") return;
+    (target as Record<string, unknown>)[name] = function (
+      this: unknown,
+      ...args: unknown[]
+    ) {
+      const begin = performance.now();
+      try {
+        return (original as (...a: unknown[]) => unknown).apply(this, args);
+      } finally {
+        record(performance.now() - begin);
+      }
+    };
+    restores.push(() => {
+      (target as Record<string, unknown>)[name] = original;
+    });
+  };
+  const wrapGetter = (target: object, name: string) => {
+    const descriptor = Object.getOwnPropertyDescriptor(target, name);
+    if (!descriptor?.get) return;
+    const get = descriptor.get;
+    const set = descriptor.set;
+    Object.defineProperty(target, name, {
+      ...descriptor,
+      get(this: unknown) {
+        const begin = performance.now();
+        try {
+          return get.call(this);
+        } finally {
+          timeLayout(performance.now() - begin);
+        }
+      },
+      // Scroll offsets also force style and layout when written.
+      ...(set
+        ? {
+            set(this: unknown, value: unknown) {
+              const begin = performance.now();
+              try {
+                set.call(this, value);
+              } finally {
+                timeLayout(performance.now() - begin);
+              }
+            },
+          }
+        : {}),
+    });
+    restores.push(() => Object.defineProperty(target, name, descriptor));
+  };
+  for (const name of [
+    "getBoundingClientRect",
+    "getClientRects",
+    "scrollIntoView",
+    "scrollTo",
+    "scrollBy",
+  ])
+    wrapMethod(Element.prototype, name, timeLayout);
+  wrapMethod(HTMLElement.prototype, "focus", timeLayout);
+  for (const name of ["offsetWidth", "offsetHeight", "offsetTop", "offsetLeft"])
+    wrapGetter(HTMLElement.prototype, name);
+  for (const name of [
+    "clientWidth",
+    "clientHeight",
+    "scrollWidth",
+    "scrollHeight",
+    "scrollTop",
+    "scrollLeft",
+  ])
+    wrapGetter(Element.prototype, name);
+  for (const name of [
+    "appendChild",
+    "insertBefore",
+    "removeChild",
+    "replaceChild",
+  ])
+    wrapMethod(Node.prototype, name, timeDom(name));
+  for (const name of [
+    "setAttribute",
+    "removeAttribute",
+    "toggleAttribute",
+    "remove",
+    "blur",
+  ])
+    wrapMethod(Element.prototype, name, timeDom(name));
+  for (const name of ["inert", "hidden"]) {
+    const descriptor = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      name,
+    );
+    if (descriptor?.set) {
+      const set = descriptor.set;
+      const record = timeDom(name);
+      Object.defineProperty(HTMLElement.prototype, name, {
+        ...descriptor,
+        set(this: HTMLElement, value: unknown) {
+          const begin = performance.now();
+          try {
+            set.call(this, value);
+          } finally {
+            record(performance.now() - begin);
+          }
+        },
+      });
+      restores.push(() =>
+        Object.defineProperty(HTMLElement.prototype, name, descriptor),
+      );
+    }
+  }
+  // Reading a computed style value makes WebKit resolve styles right away.
+  // Wrap getComputedStyle so each value read on its result is timed.
+  const originalComputed = window.getComputedStyle;
+  window.getComputedStyle = function (
+    this: Window,
+    element: Element,
+    pseudo?: string | null,
+  ) {
+    const style = originalComputed.call(this, element, pseudo);
+    return new Proxy(style, {
+      get(target, property) {
+        const begin = performance.now();
+        const value = Reflect.get(target, property, target);
+        const result = typeof value === "function" ? value.bind(target) : value;
+        timeLayout(performance.now() - begin);
+        return result;
+      },
+    });
+  } as typeof window.getComputedStyle;
+  restores.push(() => {
+    window.getComputedStyle = originalComputed;
+  });
+  wrapMethod(JSON, "stringify", (ms) => {
+    totals.json.calls += 1;
+    totals.json.ms += ms;
+  });
+  for (const name of ["getItem", "setItem", "removeItem"])
+    wrapMethod(Storage.prototype, name, (ms) => {
+      totals.storage.calls += 1;
+      totals.storage.ms += ms;
+    });
+  return {
+    stop(): HotCalls {
+      for (const restore of restores.reverse()) restore();
+      totals.forcedLayout.ms = round(totals.forcedLayout.ms);
+      totals.json.ms = round(totals.json.ms);
+      totals.storage.ms = round(totals.storage.ms);
+      totals.dom.ms = round(totals.dom.ms);
+      for (const key of Object.keys(totals.dom.byKind))
+        totals.dom.byKind[key] = round(totals.dom.byKind[key]);
+      for (const key of Object.keys(totals.forcedLayout.byCaller))
+        totals.forcedLayout.byCaller[key] = round(
+          totals.forcedLayout.byCaller[key],
+        );
+      return totals;
+    },
+  };
+}
+
+export type RestyleCost = {
+  element: string;
+  attribute: string;
+  /** Style and layout time when this attribute alone changes back and forth. */
+  ms: number;
+};
+
+function describe(element: Element): string {
+  const classes = [...element.classList].slice(0, 3).join(".");
+  return `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}${classes ? `.${classes}` : ""}`;
+}
+
+function forceLayout(): number {
+  const begin = performance.now();
+  void document.body.getBoundingClientRect().height;
+  void document.documentElement.offsetHeight;
+  return performance.now() - begin;
+}
+
+/**
+ * Which attribute changes make WebKit restyle and lay out the most. Runs
+ * `action`, records every attribute it changed, then replays each change on
+ * its own (old value, new value) and times the style and layout it costs.
+ */
+export async function analyzeRestyle(
+  action: () => unknown,
+  settle: () => Promise<unknown>,
+): Promise<{
+  changes: number;
+  nodesAdded: number;
+  nodesRemoved: number;
+  costs: RestyleCost[];
+  /** The largest subtrees added or removed, with their element counts. */
+  subtrees: { change: string; element: string; elements: number }[];
+}> {
+  const records: MutationRecord[] = [];
+  const observer = new MutationObserver((list) => records.push(...list));
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeOldValue: true,
+    childList: true,
+    subtree: true,
+  });
+  await action();
+  await settle();
+  records.push(...observer.takeRecords());
+  observer.disconnect();
+  let nodesAdded = 0;
+  let nodesRemoved = 0;
+  const subtrees: { change: string; element: string; elements: number }[] = [];
+  const size = (node: Node) =>
+    node instanceof Element ? 1 + node.getElementsByTagName("*").length : 0;
+  const latest = new Map<
+    string,
+    { element: Element; name: string; old: string | null }
+  >();
+  const order: string[] = [];
+  const ids = new WeakMap<Element, number>();
+  let next = 0;
+  for (const record of records) {
+    if (record.type === "childList") {
+      nodesAdded += record.addedNodes.length;
+      nodesRemoved += record.removedNodes.length;
+      for (const node of record.addedNodes)
+        if (node instanceof Element)
+          subtrees.push({
+            change: "added",
+            element: describe(node),
+            elements: size(node),
+          });
+      for (const node of record.removedNodes)
+        if (node instanceof Element)
+          subtrees.push({
+            change: "removed",
+            element: describe(node),
+            elements: size(node),
+          });
+      continue;
+    }
+    const element = record.target as Element;
+    if (!ids.has(element)) ids.set(element, next++);
+    const key = `${ids.get(element)}:${record.attributeName}`;
+    // Keep the oldest value: the state before the action.
+    if (!latest.has(key)) {
+      latest.set(key, {
+        element,
+        name: record.attributeName!,
+        old: record.oldValue,
+      });
+      order.push(key);
+    }
+  }
+  const costs: RestyleCost[] = [];
+  forceLayout();
+  for (const key of order) {
+    const { element, name, old } = latest.get(key)!;
+    if (!element.isConnected) continue;
+    const now = element.getAttribute(name);
+    if (now === old) continue;
+    const set = (value: string | null) =>
+      value === null
+        ? element.removeAttribute(name)
+        : element.setAttribute(name, value);
+    set(old);
+    const back = forceLayout();
+    set(now);
+    const forth = forceLayout();
+    costs.push({
+      element: describe(element),
+      attribute: name,
+      ms: round((back + forth) / 2),
+    });
+  }
+  costs.sort((a, b) => b.ms - a.ms);
+  subtrees.sort((a, b) => b.elements - a.elements);
+  return {
+    changes: order.length,
+    nodesAdded,
+    nodesRemoved,
+    costs: costs.slice(0, 12),
+    subtrees: subtrees.slice(0, 6),
+  };
+}

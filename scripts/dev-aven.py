@@ -357,7 +357,67 @@ def static_page_server(folder):
             server.kill()
 
 
-def perf(keep=False, compare=None, only=None):
+def webkit_content_pids(since):
+    """WebKit content processes started after `since` (epoch seconds)."""
+    pids = []
+    out = subprocess.run(['ps', '-axo', 'pid=,lstart=,comm='], capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 7 or not parts[-1].endswith('com.apple.WebKit.WebContent'):
+            continue
+        try:
+            started = time.mktime(time.strptime(' '.join(parts[1:6]), '%a %b %d %H:%M:%S %Y'))
+        except ValueError:
+            continue
+        if started >= since - 1:
+            pids.append(int(parts[0]))
+    return pids
+
+
+def profile_scenario(root, name, launched, seconds=8):
+    """Sample the interface's WebKit processes while one scenario runs."""
+    marks = root / 'marks.log'
+    deadline = time.time() + PERF_TIMEOUT
+    while time.time() < deadline:
+        if marks.is_file() and any(line.startswith('start:') and name in line
+                                   for line in marks.read_text().splitlines()):
+            break
+        time.sleep(.1)
+    else:
+        return []
+    outputs = []
+    samplers = []
+    for pid in webkit_content_pids(launched):
+        out = ROOT / f'target/perf/sample-{pid}.txt'
+        samplers.append(subprocess.Popen(['/usr/bin/sample', str(pid), str(seconds), '1', '-mayDie', '-file', str(out)],
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+        outputs.append(out)
+    for sampler in samplers:
+        sampler.wait()
+    return outputs
+
+
+def summarize_sample(path, limit=25):
+    """The functions most often on top of the stack, from `sample` output."""
+    if not path.is_file():
+        return []
+    text = path.read_text(errors='replace')
+    section = text.split('Sort by top of stack, same collapsed', 1)
+    if len(section) < 2:
+        return []
+    rows = []
+    for line in section[1].splitlines()[1:]:
+        line = line.strip()
+        if not line or line.startswith('Binary Images'):
+            break
+        name, _, count = line.rpartition(' ')
+        if count.isdigit():
+            rows.append((int(count), name.strip()))
+    rows.sort(reverse=True)
+    return rows[:limit]
+
+
+def perf(keep=False, compare=None, only=None, sample=None):
     """Run Aven Dev's speed test and print what each scenario cost."""
     # macOS scans a newly signed app on its first launch (about 1.5 s here),
     # which users pay once per update. Absorb it so launch time is Aven's own.
@@ -374,6 +434,8 @@ def perf(keep=False, compare=None, only=None):
             settings = {'pageUrl': page_url}
             if only:
                 settings['only'] = [part.strip() for part in only.split(',') if part.strip()]
+            if sample:
+                settings['sample'] = sample
             (root / 'perf.json').write_text(json.dumps(settings))
             ensure_not_running()
             print('Running the speed test in a throwaway profile (a few minutes)...', flush=True)
@@ -385,10 +447,14 @@ def perf(keep=False, compare=None, only=None):
                 'AVEN_DEV_SMOKE_DIR': str(root),
             }
             launched_at = time.time() * 1000
+            profiles = []
             with (root / 'app.log').open('w') as log:
                 app = subprocess.Popen([str(APP / 'Contents/MacOS/aven')], env=app_env,
                                        stdout=log, stderr=subprocess.STDOUT,
                                        start_new_session=True)
+                if sample:
+                    (ROOT / 'target/perf').mkdir(parents=True, exist_ok=True)
+                    profiles = profile_scenario(root, sample, launched_at / 1000)
                 try:
                     app.wait(timeout=PERF_TIMEOUT)
                 except subprocess.TimeoutExpired:
@@ -400,6 +466,13 @@ def perf(keep=False, compare=None, only=None):
                     print(f'The speed test did not finish within {PERF_TIMEOUT} seconds.', file=sys.stderr)
         stop_stand_ins(root)
         finished = report_perf(root, launched_at, compare)
+        for path in profiles:
+            rows = summarize_sample(path)
+            if rows:
+                total = sum(count for count, _ in rows)
+                print(f'Most frequent functions in {path.name} (top of stack, samples):')
+                for count, name in rows:
+                    print(f'  {count:6d}  {name[:150]}')
         return finished
     finally:
         if finished and not keep:
@@ -457,7 +530,61 @@ def report_perf(root, launched_at, compare):
               f'{cell(proc.get("footprintMB"), old_proc.get("footprintMB")):12}'
               + (f'  (window hidden {item["hiddenMs"] / 1000:.0f} s: timings unreliable)' if item.get('hiddenMs', 0) > 250 else '')
               + (f'  ERROR: {item["error"]}' if item.get('error') else ''))
+    for item in report.get('restyle') or []:
+        print(f'Restyle analysis, {item["name"]}: {item["changes"]} attribute changes, '
+              f'{item["nodesAdded"]} nodes added, {item["nodesRemoved"]} removed')
+        for cost in item.get('costs', [])[:8]:
+            print(f'  {cost["ms"]:6.1f} ms  {cost["attribute"]} on {cost["element"]}')
+        for tree in item.get('subtrees', [])[:4]:
+            print(f'  {tree["change"]} {tree["element"]} ({tree["elements"]} elements)')
     scenarios = report.get('scenarios', [])
+    labels = sorted({where for item in scenarios
+                     for where in ((item.get('hotCalls') or {}).get('forcedLayout') or {}).get('byCaller', {})}
+                    | {where.split(' ← ', 1)[-1] for item in scenarios
+                       for where in ((item.get('hotCalls') or {}).get('dom') or {}).get('byKind', {})})
+    sources = {}
+    if labels:
+        try:
+            sources = json.loads(subprocess.run(
+                ['node', str(ROOT / 'scripts/perf-resolve-callers.mjs'), str(ROOT / 'target/perf-dist')],
+                input=json.dumps(labels), capture_output=True, text=True, cwd=ROOT, timeout=60).stdout or '{}')
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            sources = {}
+    split = [item for item in scenarios if item.get('breakdown')]
+    if split:
+        print('Where input-to-frame time goes (median ms): script / style+layout / paint+frame')
+        for item in split:
+            parts = item['breakdown']
+            print(f'  {item["name"][:40]:40} {parts["script"]["p50"]:g} / {parts["styleLayout"]["p50"]:g} / {parts["frame"]["p50"]:g}'
+                  + (f'   (to last React commit {parts["toLastCommit"]["p50"]:g}, passive effects {parts["passiveEffects"]["p50"]:g})'
+                     if parts.get('toLastCommit') else ''))
+            react = item.get('react') or {}
+            count = (item.get('interactions') or {}).get('n') or 1
+            if react.get('top'):
+                heavy = ', '.join(f'{entry["name"]} {entry["ms"] / count:.1f}' for entry in react['top'][:6])
+                print(f'      React per interaction: {react["renderMs"] / count:.1f} ms in {react["commits"] / count:.1f} commits; {heavy}')
+            phases = react.get('phases') or {}
+            if phases:
+                parts = ', '.join(f'{name} {ms / count:.1f}' for name, ms in phases.items())
+                print(f'      React phases per interaction (ms): {parts}')
+            effects = react.get('effects') or []
+            if effects:
+                heavy = ', '.join(f'{entry["name"]} {entry["ms"] / count:.1f}' for entry in effects[:5])
+                print(f'      Slowest effects per interaction (ms): {heavy}')
+            hot = item.get('hotCalls') or {}
+            if hot:
+                layout = hot.get('forcedLayout') or {}
+                print(f'      Per interaction: forced layout {layout.get("ms", 0) / count:.1f} ms ({layout.get("calls", 0) / count:.0f} calls), '
+                      f'JSON {hot["json"]["ms"] / count:.1f} ms, storage {hot["storage"]["ms"] / count:.1f} ms')
+                callers = sorted((layout.get('byCaller') or {}).items(), key=lambda pair: -pair[1])[:5]
+                for where, ms in callers:
+                    print(f'        {ms / count:5.1f} ms  {sources.get(where, where)}')
+                dom = hot.get('dom') or {}
+                if dom.get('ms'):
+                    print(f'      DOM changes per interaction: {dom["ms"] / count:.1f} ms ({dom["calls"] / count:.0f} calls)')
+                    for where, ms in sorted((dom.get('byKind') or {}).items(), key=lambda pair: -pair[1])[:5]:
+                        kind, _, place = where.partition(' ← ')
+                        print(f'        {ms / count:5.1f} ms  {kind} ← {sources.get(place, place)}')
     if scenarios:
         last = scenarios[-1]
         kinds = (last.get('processes') or {}).get('byKind') or {}
@@ -508,6 +635,8 @@ def main():
     parser.add_argument('--perf', action='store_true',
                         help='Run the speed test (production interface, throwaway profile) and print what each scenario cost')
     parser.add_argument('--perf-compare', metavar='FILE', help='A saved speed test result to compare against')
+    parser.add_argument('--perf-sample', metavar='NAME',
+                        help='Profile the interface process with `sample` during the scenario whose name contains NAME')
     parser.add_argument('--perf-only', metavar='NAMES',
                         help='Comma-separated parts of scenario names to run, e.g. "switching,sidebar,Settings"')
     args = parser.parse_args()
@@ -530,7 +659,8 @@ def main():
             if not smoke(keep=args.keep_smoke_folder):
                 raise RuntimeError('The real-app check failed.')
         elif args.perf:
-            if not perf(keep=args.keep_smoke_folder, compare=args.perf_compare, only=args.perf_only):
+            if not perf(keep=args.keep_smoke_folder, compare=args.perf_compare, only=args.perf_only,
+                        sample=args.perf_sample):
                 raise RuntimeError('The speed test did not finish cleanly.')
         elif not args.build_only:
             launch()

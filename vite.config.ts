@@ -3,9 +3,29 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { fileURLToPath } from "node:url";
 import { pdfAssets } from "./scripts/pdf-assets.mjs";
+import { readFileSync } from "node:fs";
+import type { Plugin } from "vite";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
+// The speed test (`dev-aven.py --perf`) builds with React's profiling build
+// so it can attribute render time to components.
+// @ts-expect-error process is a nodejs global
+const perfBuild = process.env.VITE_AVEN_PERF === "1";
+
+/** Puts the speed test's React commit hook in the page before any module. */
+function perfReactHook(): Plugin {
+  const source = readFileSync(
+    fileURLToPath(new URL("./scripts/perf-react-hook.js", import.meta.url)),
+    "utf8",
+  );
+  return {
+    name: "aven-perf-react-hook",
+    transformIndexHtml: () => [
+      { tag: "script", children: source, injectTo: "head-prepend" },
+    ],
+  };
+}
 
 // Name shared vendor code by what it is instead of by whichever module Rollup
 // met first. Only packages that load together belong in one group; lazily
@@ -37,9 +57,18 @@ export default defineConfig(async ({ mode }) => {
 
   return {
     // Tests run plain TypeScript and stub styles, so they skip the app plugins.
-    plugins: mode === "test" ? [] : [react(), tailwindcss(), pdfAssets()],
+    plugins:
+      mode === "test"
+        ? []
+        : [
+            react(),
+            tailwindcss(),
+            pdfAssets(),
+            ...(perfBuild ? [perfReactHook()] : []),
+          ],
     resolve: {
       alias: {
+        ...(perfBuild ? { "react-dom/client": "react-dom/profiling" } : {}),
         // The icon theme's SVG table without its components and lookups, so
         // FileTypeIcon can load it only when a rarer glyph is needed.
         "material-icon-svgs": fileURLToPath(
@@ -50,7 +79,11 @@ export default defineConfig(async ({ mode }) => {
         ),
       },
     },
+    // The speed test names components in its report.
+    ...(perfBuild ? { esbuild: { keepNames: true } } : {}),
     build: {
+      // The speed test maps slow callers back to source.
+      ...(perfBuild ? { sourcemap: true } : {}),
       rollupOptions: {
         output: { manualChunks: vendorChunk },
       },

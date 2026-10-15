@@ -7,21 +7,30 @@ import {
   type SmokeStep,
 } from "../lib/devSmoke";
 import {
+  analyzeRestyle,
   heapMB,
   measureRefresh,
   nextPaint,
   pause,
   processUse,
   recordFrames,
+  recordHotCalls,
   recordLongTasks,
   round,
   sampleProcesses,
   spread,
   type FrameStats,
+  type HotCalls,
   type LongTaskStats,
   type ProcessUse,
   type Spread,
 } from "../lib/devPerf";
+import {
+  reactMarksSince,
+  startReactProfile,
+  stopReactProfile,
+  type ReactProfile,
+} from "../lib/devPerfReact";
 import { errorText } from "../lib/errors";
 import { resolveClaudeBinary } from "../lib/harness/child";
 import { IS_MAC } from "../lib/platform";
@@ -48,6 +57,8 @@ type PerfSettings = {
   idleSeconds?: number;
   /** Run only scenarios whose names contain one of these (setup always runs). */
   only?: string[];
+  /** Profile the interface process during the scenario whose name contains this. */
+  sample?: string;
 };
 
 export type ScenarioResult = {
@@ -55,6 +66,24 @@ export type ScenarioResult = {
   wallMs: number;
   /** Input to the next painted frame, ms. */
   interactions?: Spread;
+  /**
+   * Where that time went, for changes that land in the input's own task:
+   * script (React render, commit and effects), style and layout, and the
+   * rest of the frame (paint, compositing, waiting for the display).
+   */
+  breakdown?: {
+    script: Spread;
+    styleLayout: Spread;
+    frame: Spread;
+    /** Input to the last React commit (render, DOM changes, layout effects). */
+    toLastCommit: Spread;
+    /** React passive effects (useEffect) run before paint for this input. */
+    passiveEffects: Spread;
+  };
+  /** React render time by component (profiling build). */
+  react?: ReactProfile;
+  /** Forced layout, JSON and storage time during the scenario. */
+  hotCalls?: HotCalls;
   frames?: FrameStats;
   longTasks: LongTaskStats;
   processes: ProcessUse;
@@ -151,6 +180,9 @@ export async function runDevPerf(
   const streamChunks = settings.streamChunks ?? 500;
   const steps: SmokeStep[] = [];
   const scenarios: ScenarioResult[] = [];
+  const restyle: ({ name: string } & Awaited<
+    ReturnType<typeof analyzeRestyle>
+  >)[] = [];
   const readyAt = Date.now();
   const navigation = performance.getEntriesByType("navigation")[0] as
     PerformanceNavigationTiming | undefined;
@@ -175,10 +207,22 @@ export async function runDevPerf(
       !settings.only.some((part) => name.includes(part))
     )
       return;
+    await invoke("dev_perf_mark", { label: `start:${name}` }).catch(() => {});
+    // Let a profiler the runner starts on this mark attach first.
+    if (settings.sample && name.includes(settings.sample)) await pause(1_500);
     const before = await sampleProcesses();
     const frames = options.frames === false ? null : recordFrames(refreshMs);
     const longTasks = recordLongTasks();
     const latencies: number[] = [];
+    const phases = {
+      script: [] as number[],
+      styleLayout: [] as number[],
+      frame: [] as number[],
+      toLastCommit: [] as number[],
+      passiveEffects: [] as number[],
+    };
+    startReactProfile();
+    const hot = options.frames === false ? null : recordHotCalls();
     const started = performance.now();
     let hiddenMs = 0;
     let hiddenSince = document.hidden ? started : 0;
@@ -197,9 +241,30 @@ export async function runDevPerf(
         time: async (action, until, timeoutMs = 5_000) => {
           const begin = performance.now();
           await action();
-          if (until) await untilPainted(until, timeoutMs);
-          const elapsed = (await nextPaint()) - begin;
+          // React renders discrete input in a microtask; let it finish.
+          await Promise.resolve();
+          await Promise.resolve();
+          const scripted = performance.now();
+          const immediate = !until || until();
+          let laidOut = scripted;
+          if (immediate) {
+            // Pay style and layout now, so they can be told apart from paint.
+            void document.body.getBoundingClientRect().height;
+            laidOut = performance.now();
+          } else {
+            await untilPainted(until!, timeoutMs);
+          }
+          const painted = await nextPaint();
+          const elapsed = painted - begin;
           latencies.push(elapsed);
+          if (immediate) {
+            phases.script.push(scripted - begin);
+            phases.styleLayout.push(laidOut - scripted);
+            phases.frame.push(painted - laidOut);
+            const react = reactMarksSince(begin);
+            phases.toLastCommit.push(react.lastCommitMs);
+            phases.passiveEffects.push(react.passiveEffectsMs);
+          }
           return elapsed;
         },
       });
@@ -209,14 +274,30 @@ export async function runDevPerf(
     document.removeEventListener("visibilitychange", onVisibility);
     if (hiddenSince) hiddenMs += performance.now() - hiddenSince;
     const wallMs = round(performance.now() - started);
+    const react = stopReactProfile();
+    const hotCalls = hot?.stop();
     const frameStats = frames?.stop();
     const longTaskStats = longTasks.stop();
     const after = await sampleProcesses();
+    await invoke("dev_perf_mark", { label: `end:${name}` }).catch(() => {});
     scenarios.push({
       name,
       wallMs,
       ...(latencies.length ? { interactions: spread(latencies) } : {}),
+      ...(phases.script.length
+        ? {
+            breakdown: {
+              script: spread(phases.script),
+              styleLayout: spread(phases.styleLayout),
+              frame: spread(phases.frame),
+              toLastCommit: spread(phases.toLastCommit),
+              passiveEffects: spread(phases.passiveEffects),
+            },
+          }
+        : {}),
       ...(frameStats ? { frames: frameStats } : {}),
+      ...(react ? { react } : {}),
+      ...(hotCalls ? { hotCalls } : {}),
       longTasks: longTaskStats,
       processes: processUse(before, after),
       heapMB: heapMB(),
@@ -356,6 +437,28 @@ export async function runDevPerf(
       }
     });
 
+    // Diagnosis only (`--perf-only restyle`): which attribute changes in an
+    // interaction make WebKit restyle the most.
+    if (settings.only?.some((part) => part.includes("restyle"))) {
+      const settle = async () => {
+        await nextPaint();
+        await nextPaint();
+      };
+      const report = async (name: string, action: () => unknown) => {
+        const result = await analyzeRestyle(action, settle);
+        restyle.push({ name, ...result });
+        await pause(200);
+      };
+      const settingsShown = () => document.querySelector("[data-app-settings]");
+      await report("open Settings", () => pressShortcut(","));
+      await waitFor(settingsShown, 5_000, "Settings");
+      await report("close Settings", () => pressShortcut("w"));
+      await report("hide sidebar", () => pressShortcut("b"));
+      await report("show sidebar", () => pressShortcut("b"));
+      await report("switch chat tab", () => pressShortcut("2"));
+      await report("switch chat tab back", () => pressShortcut("1"));
+    }
+
     const { openWebLink } = get();
     if (settings.pageUrl && openWebLink) {
       await scenario("opening a web page", async (measure) => {
@@ -403,6 +506,6 @@ export async function runDevPerf(
   }
 
   await finishDevSmoke(steps, {
-    perf: { refreshMs: round(refreshMs, 2), startup, scenarios },
+    perf: { refreshMs: round(refreshMs, 2), startup, scenarios, restyle },
   });
 }

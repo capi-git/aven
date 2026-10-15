@@ -232,6 +232,22 @@ fn start_seconds(pid: i32) -> u64 {
     }
 }
 
+/// Note a speed test scenario starting or ending, for the runner's profiler.
+#[tauri::command]
+pub fn dev_perf_mark(label: String) -> Result<(), String> {
+    use std::io::Write;
+    let dir = smoke_dir().ok_or("The speed test is not running")?;
+    if !dir.join(PERF_MARKER).is_file() {
+        return Err("The speed test is not running".into());
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("marks.log"))
+        .map_err(|error| error.to_string())?;
+    writeln!(file, "{label}").map_err(|error| error.to_string())
+}
+
 /// Keep the speed test's window above others, without taking the keyboard,
 /// so macOS keeps drawing it while it is measured.
 #[tauri::command]
