@@ -110,7 +110,6 @@ html.theme-light :is(.agent-pill-usage, .agent-panel-usage) {
     transparent
   );
   --agent-panel-line: color-mix(in srgb, var(--color-content) 9%, transparent);
-  container: agent-panel / inline-size;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -370,22 +369,22 @@ html.theme-light
   background: var(--toolbar-panel-hover);
 }
 
-/* A narrow window stacks the columns and scrolls the panel as one. */
-@container agent-panel (max-width: 460px) {
-  .agent-panel-body {
-    flex-direction: column;
-    overflow-y: auto;
-  }
-  .agent-panel-models {
-    flex: 0 0 auto;
-    max-height: 240px;
-  }
-  .agent-panel-side {
-    flex: 0 0 auto;
-    overflow: visible;
-    border-top: 1px solid var(--agent-panel-line);
-    border-left: 0;
-  }
+/* A narrow window stacks the columns and scrolls the panel as one. The pill
+   decides from the window's width (`agentPanelLayout`), not a container
+   query: WebKit measures containers after interface zoom. */
+.agent-panel[data-stacked] .agent-panel-body {
+  flex-direction: column;
+  overflow-y: auto;
+}
+.agent-panel[data-stacked] .agent-panel-models {
+  flex: 0 0 auto;
+  max-height: 240px;
+}
+.agent-panel[data-stacked] .agent-panel-side {
+  flex: 0 0 auto;
+  overflow: visible;
+  border-top: 1px solid var(--agent-panel-line);
+  border-left: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { placePopover, type AnchorRect } from "./popover";
+import { placePopover, popoverWidth, type AnchorRect } from "./popover";
 
 function anchor(
   left: number,
@@ -135,5 +135,33 @@ describe("placePopover", () => {
         { side: "right" },
       ),
     ).toMatchObject({ top: 292, maxHeight: 300 });
+  });
+});
+
+describe("popoverWidth", () => {
+  it("keeps the width asked for wherever the viewport has room", () => {
+    expect(popoverWidth(540, 1512)).toBe(540);
+    expect(popoverWidth(540, 556)).toBe(540);
+  });
+
+  it("narrows only to the viewport inside its edge padding", () => {
+    expect(popoverWidth(540, 555)).toBe(539);
+    expect(popoverWidth(540, 410)).toBe(394);
+    expect(popoverWidth(540, 410, 0)).toBe(410);
+    expect(popoverWidth(540, 10)).toBe(0);
+  });
+
+  it("is the width placePopover uses, whatever the anchor's width", () => {
+    const wide = { width: 1512, height: 900 };
+    for (const trigger of [anchor(1100, 800, 140, 28), anchor(8, 800, 570, 28)])
+      expect(
+        placePopover(trigger, { width: 540, height: 440 }, wide, {
+          side: "top",
+          align: "end",
+          width: 540,
+          minHeight: 260,
+          maxHeight: 440,
+        }).width,
+      ).toBe(540);
   });
 });
