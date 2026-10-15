@@ -30,7 +30,10 @@ export function useProfileCarousel(options: Options) {
     let alignmentTarget: string | undefined;
     const pendingSelections = new Set<string>();
     let rendered = latest.current.activeProfileId;
-    let width = viewport.clientWidth;
+    // Unknown until the ResizeObserver's first report, which also aligns the
+    // selected page; reading clientWidth here would force a layout while the
+    // sidebar opens.
+    let width = -1;
     let pointer:
       | { id: number; x: number; y: number; left: number; dragging: boolean }
       | undefined;
@@ -219,7 +222,6 @@ export function useProfileCarousel(options: Options) {
     viewport.addEventListener("pointerup", up);
     viewport.addEventListener("pointercancel", up);
     viewport.addEventListener("lostpointercapture", up);
-    align(rendered, false);
     return () => {
       clearTimeout(timer);
       sync.current = () => {};

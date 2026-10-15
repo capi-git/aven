@@ -51,43 +51,11 @@ html.has-chat-background:not(.chat-background-empty-only)
 
 /* Visited surfaces remain measured while inactive. The hidden/inert attributes
    still exclude them from focus, accessibility, and native page presentation. */
-.workspace-stage[hidden][data-retained="true"] {
-  visibility: hidden;
-  opacity: 0;
-  pointer-events: none;
-}
+.workspace-stage[hidden][data-retained="true"],
 .workspace-stage-surface[hidden][data-retained="true"] {
   visibility: hidden;
   opacity: 0;
   pointer-events: none;
-}
-
-/* Retain layout and component state for instant switching, but stop decorative
-   spinners and pulses from scheduling animation work in invisible workspaces. */
-:where(
-  .workspace-stage[hidden][data-retained="true"],
-  .workspace-stage-surface[hidden][data-retained="true"],
-  .personal-workspace-content[hidden]
-),
-:where(
-    .workspace-stage[hidden][data-retained="true"],
-    .workspace-stage-surface[hidden][data-retained="true"],
-    .personal-workspace-content[hidden]
-  )
-  *,
-:where(
-    .workspace-stage[hidden][data-retained="true"],
-    .workspace-stage-surface[hidden][data-retained="true"],
-    .personal-workspace-content[hidden]
-  )
-  *::before,
-:where(
-    .workspace-stage[hidden][data-retained="true"],
-    .workspace-stage-surface[hidden][data-retained="true"],
-    .personal-workspace-content[hidden]
-  )
-  *::after {
-  animation-play-state: paused !important;
 }
 
 @layer base {

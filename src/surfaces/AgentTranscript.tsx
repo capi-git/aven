@@ -189,6 +189,8 @@ function AgentTranscriptComponent({
   // scroll anchoring, so a rewrap would otherwise slide it away.
   const readingAnchor = useRef<ScrollAnchor | null>(null);
   const wasVisible = useRef(false);
+  // Set when the tab is shown; the ResizeObserver settles it after layout.
+  const openedPending = useRef(false);
   const [scrollerEl, setScrollerEl] = useState<HTMLDivElement | null>(null);
   const [visibleTurnCount, setVisibleTurnCount] = useState(INITIAL_TURNS);
   // Turns whose folded work the reader has opened, by turn id.
@@ -340,7 +342,10 @@ function AgentTranscriptComponent({
 
   useEffect(() => {
     if (!visible || !scrollerEl) return;
-    rememberReadingPosition(scrollerEl, syncPinned(scrollerEl));
+    // A just-shown tab may report the offset hiding reset; the observer
+    // settles it after layout first (see settleOpened), then syncs.
+    if (!openedPending.current)
+      rememberReadingPosition(scrollerEl, syncPinned(scrollerEl));
     const onScroll = () => {
       // A hidden or detached scroller reports a reset offset, not the reader.
       if (!scrollerEl.isConnected || scrollerEl.clientHeight <= 0) return;
@@ -415,31 +420,42 @@ function AgentTranscriptComponent({
     pinTranscript(el);
   }, [lastUserId, pinTranscript, setShowJump]);
 
+  // A tab that was just shown is settled by the ResizeObserver below, whose
+  // first report arrives after this frame's layout and before paint.
+  // Measuring here made WebKit lay out the window mid-commit (~10 ms/switch).
   useLayoutEffect(() => {
     const opened = visible && !wasVisible.current;
     wasVisible.current = visible;
-    if (!opened) return;
-    const el = scroller.current;
-    if (!el) return;
-    syncTranscriptViewport(el);
-    // Previously opened tabs normally retain their scroll position. Only pin
-    // when the scroller looks empty after being hidden with `display: none`.
-    if (el.scrollHeight <= el.clientHeight + NEAR_BOTTOM_PX) {
-      stickToBottom.current = true;
-      setShowJump(false);
-      pinTranscript(el);
-    } else if (stickToBottom.current) {
-      // Output may have arrived while hidden, and showing the pane can reset
-      // its offset. Pin before a follow reads that as the reader leaving.
-      pinTranscript(el);
-    } else {
-      // A reader keeps their place through the anchor, not this offset.
-      rememberScroll(el);
-    }
-  }, [visible, pinTranscript, rememberScroll, setShowJump]);
+    if (opened) openedPending.current = true;
+  }, [visible]);
+  const settleOpened = useCallback(
+    (el: HTMLElement) => {
+      // Previously opened tabs normally retain their scroll position. Only pin
+      // when the scroller looks empty after being hidden with `display: none`.
+      if (el.scrollHeight <= el.clientHeight + NEAR_BOTTOM_PX) {
+        stickToBottom.current = true;
+        setShowJump(false);
+        pinTranscript(el);
+      } else if (stickToBottom.current) {
+        // Output may have arrived while hidden, and showing the pane can reset
+        // its offset. Pin before a follow reads that as the reader leaving.
+        pinTranscript(el);
+      } else {
+        // A reader keeps their place through the anchor, not this offset.
+        rememberScroll(el);
+      }
+    },
+    [pinTranscript, rememberScroll, setShowJump],
+  );
 
+  // Becoming visible is handled by the ResizeObserver below, whose first
+  // report arrives after the frame's layout. Doing it here as well made
+  // WebKit lay out the window mid-commit on every tab switch (~10 ms).
+  const followedVisible = useRef(visible);
   useLayoutEffect(() => {
-    if (!visible || !stickToBottom.current) return;
+    const shown = visible && !followedVisible.current;
+    followedVisible.current = visible;
+    if (shown || !visible || !stickToBottom.current) return;
     const el = scroller.current;
     if (!el) return;
     syncTranscriptViewport(el);
@@ -453,7 +469,14 @@ function AgentTranscriptComponent({
     // Runs after layout and before paint, so a rewrap from a window, sidebar
     // or pane resize is corrected in the frame that produced it.
     const onResize = () => {
-      if (!el.isConnected || el.clientHeight <= 0) return;
+      if (!el.isConnected) return;
+      // As before, a just-shown tab settles even before it has a height.
+      if (openedPending.current) {
+        openedPending.current = false;
+        syncTranscriptViewport(el);
+        settleOpened(el);
+      }
+      if (el.clientHeight <= 0) return;
       syncTranscriptViewport(el);
       const moved = followTranscript(el);
       if (stickToBottom.current) {
@@ -473,12 +496,12 @@ function AgentTranscriptComponent({
         readingAnchor.current = captureScrollAnchor(el);
       rememberScroll(el);
     };
+    // The observer reports both elements once it starts watching.
     const observer = new ResizeObserver(onResize);
     observer.observe(inner);
     observer.observe(el);
-    onResize();
     return () => observer.disconnect();
-  }, [followTranscript, rememberScroll, scrollerEl, visible]);
+  }, [followTranscript, rememberScroll, scrollerEl, settleOpened, visible]);
 
   const turns = groupTurns(blocks, managed);
   const firstVisibleTurn = Math.max(0, turns.length - visibleTurnCount);

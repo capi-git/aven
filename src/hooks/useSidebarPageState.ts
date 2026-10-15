@@ -31,6 +31,9 @@ const INITIAL_PAGE: PageState = {
 };
 
 /** Retain lightweight sidebar state, not another session or component tree. */
+/** The offsets each list node shows, as last written or scrolled. */
+const shownOffsets = new WeakMap<HTMLElement, { top: number; left: number }>();
+
 export function useSidebarPageState({
   profileId,
   cwd,
@@ -97,9 +100,10 @@ export function useSidebarPageState({
       binding.current = null;
       if (!node) return;
       const capture = () => {
+        const offsets = { top: node.scrollTop, left: node.scrollLeft };
+        shownOffsets.set(node, offsets);
         positions.current.set(key, {
-          top: node.scrollTop,
-          left: node.scrollLeft,
+          ...offsets,
           listKey,
           filtersKey,
           profileId,
@@ -117,9 +121,16 @@ export function useSidebarPageState({
     current.restore = false;
     const position = positions.current.get(key);
     const retained = position?.listKey === listKey ? position : undefined;
-    current.node.scrollTop = retained?.top ?? 0;
-    current.node.scrollLeft = retained?.left ?? 0;
-    current.capture();
+    const top = retained?.top ?? 0;
+    const left = retained?.left ?? 0;
+    // Reading or writing an offset makes WebKit lay out the window first
+    // (~20 ms when the sidebar opens). A list starts at 0,0 and the scroll
+    // listener tracks it after that, so only a real change is written.
+    const shown = shownOffsets.get(current.node) ?? { top: 0, left: 0 };
+    if (shown.top !== top) current.node.scrollTop = top;
+    if (shown.left !== left) current.node.scrollLeft = left;
+    shownOffsets.set(current.node, { top, left });
+    positions.current.set(key, { top, left, listKey, filtersKey, profileId });
   });
 
   const update = useCallback(

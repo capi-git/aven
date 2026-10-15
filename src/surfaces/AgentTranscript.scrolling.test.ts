@@ -22,7 +22,17 @@ beforeEach(() => {
   vi.stubGlobal(
     "ResizeObserver",
     class {
-      observe() {}
+      constructor(private callback: ResizeObserverCallback) {}
+      // A real observer reports each element once it starts watching it,
+      // after layout and before paint.
+      observe(target: Element) {
+        queueMicrotask(() =>
+          this.callback(
+            [{ target } as ResizeObserverEntry],
+            this as unknown as ResizeObserver,
+          ),
+        );
+      }
       unobserve() {}
       disconnect() {}
     },

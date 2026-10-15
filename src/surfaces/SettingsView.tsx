@@ -320,7 +320,12 @@ export function SettingsView({
     else setLocalSection(next);
   };
 
+  // A new section starts at its top. Settings opens there already; writing
+  // scrollTop anyway made WebKit lay out the whole window (~20 ms) on open.
+  const shownSection = useRef(section);
   useEffect(() => {
+    if (shownSection.current === section) return;
+    shownSection.current = section;
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
   }, [section]);
 

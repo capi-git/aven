@@ -103,7 +103,21 @@ beforeEach(async () => {
       constructor(public callback: ResizeObserverCallback) {
         resizeObservers.push(this);
       }
-      observe = vi.fn();
+      // A real observer reports the current size once it starts watching,
+      // after layout and before the first paint.
+      observe = vi.fn((target: Element) =>
+        queueMicrotask(() =>
+          this.callback(
+            [
+              {
+                target,
+                contentRect: { width },
+              } as unknown as ResizeObserverEntry,
+            ],
+            this as unknown as ResizeObserver,
+          ),
+        ),
+      );
       unobserve = vi.fn();
     },
   );
