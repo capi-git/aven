@@ -281,9 +281,55 @@ html.has-chat-background .workspace-home::before {
   );
 }
 
+/* A resting mascot dims; its "zzz" stays readable beside it. */
 .workspace-home-agent[data-state="resting"] .workspace-home-agent-figure {
+  background: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--project-color) 9%, transparent),
+    transparent
+  );
+}
+
+.workspace-home-agent[data-state="resting"] .workspace-home-agent-mark {
   opacity: 0.45;
   filter: saturate(0.4);
+}
+
+/* Eleven pixels across at 2px each, above the mascot's right shoulder. It
+   drifts up into place once when the tile appears, then stays still. */
+.workspace-home-agent-zzz {
+  position: absolute;
+  top: -2px;
+  right: -10px;
+  width: 22px;
+  height: 20px;
+  color: var(--aven-muted);
+  pointer-events: none;
+}
+
+.workspace-home-agent-zzz path:nth-child(1) {
+  opacity: 0.5;
+}
+
+.workspace-home-agent-zzz path:nth-child(2) {
+  opacity: 0.75;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .workspace-home-agent-zzz {
+    animation: workspace-home-zzz 900ms steps(3, jump-end) both;
+  }
+}
+
+@keyframes workspace-home-zzz {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .workspace-home-agent .project-mark.workspace-home-agent-mark {

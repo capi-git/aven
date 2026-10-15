@@ -45,6 +45,7 @@ import {
   type RateLimitProvider,
   type RateLimitWindow,
 } from "../lib/rateLimits";
+import { RESTING_ZZZ_GRID, RESTING_ZZZ_PATHS } from "../lib/projectMascots";
 import { HARNESS_TITLE } from "../lib/session";
 import {
   homeElapsed,
@@ -628,6 +629,8 @@ const AgentTile = memo(
           : !project.lastActivity || now - project.lastActivity > RESTING_MS
             ? "resting"
             : "idle";
+    // A mascot left alone for days dozes; a new project only rests.
+    const dozing = state === "resting" && !!project.lastActivity;
     const described = describeProjectStatus(status);
     const saying = waiting
       ? `Waiting for you${project.asking ? `: ${project.asking}` : ""}`
@@ -670,8 +673,10 @@ const AgentTile = memo(
             <ProjectMark
               appearance={appearance}
               active={running > 0}
+              reacts
               className="workspace-home-agent-mark"
             />
+            {dozing ? <RestingZzz /> : null}
             {unread ? (
               <span className="workspace-home-agent-badge">{unread}</span>
             ) : null}
@@ -696,6 +701,7 @@ const AgentTile = memo(
         </button>
         <p className="workspace-home-agent-meta" id={metaId}>
           {saying ? <span className="sr-only">{saying}. </span> : null}
+          {dozing ? <span className="sr-only">Resting. </span> : null}
           {project.branch ? (
             <span className="workspace-home-agent-branch">
               <GitBranch size={11} aria-hidden />
@@ -760,6 +766,23 @@ const AgentTile = memo(
     equalChromeData(a.project, b.project) &&
     equalChromeData(a.status, b.status),
 );
+
+/** A tiny pixel "zzz" over a mascot whose project has been idle for days. */
+function RestingZzz() {
+  return (
+    <svg
+      className="workspace-home-agent-zzz"
+      viewBox={`0 0 ${RESTING_ZZZ_GRID.width} ${RESTING_ZZZ_GRID.height}`}
+      shapeRendering="crispEdges"
+      fill="currentColor"
+      aria-hidden
+    >
+      {RESTING_ZZZ_PATHS.map((d) => (
+        <path key={d} d={d} />
+      ))}
+    </svg>
+  );
+}
 
 /** One session in a dashboard list: mark, title over a quiet line, aside. */
 function SessionRow({

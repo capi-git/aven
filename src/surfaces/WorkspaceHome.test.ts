@@ -38,9 +38,11 @@ vi.mock("../chrome/ProjectMark", async () => {
     ProjectMark: ({
       appearance,
       active,
+      reacts,
     }: {
       appearance?: ProjectAppearance | null;
       active?: boolean;
+      reacts?: boolean;
     }) =>
       react.createElement(
         react.Profiler,
@@ -48,6 +50,7 @@ vi.mock("../chrome/ProjectMark", async () => {
         react.createElement("span", {
           "data-mark": appearance?.key ?? "",
           "data-active": active ? "true" : undefined,
+          "data-reacts": reacts ? "true" : undefined,
         }),
       ),
   };
@@ -410,6 +413,49 @@ describe("Your agents", () => {
 
     await act(async () => button("Add project").click());
     expect(value.onAddProject).toHaveBeenCalledOnce();
+  });
+
+  it("lets each agent react to its turns ending, but not the list rows", async () => {
+    await render(
+      props({
+        projects,
+        recent: [recentRow({})],
+        finished: [finishedRow({})],
+      }),
+    );
+    for (const tile of tiles())
+      expect(
+        tile.querySelector("[data-mark]")?.getAttribute("data-reacts"),
+      ).toBe("true");
+    const rows = container.querySelectorAll(".workspace-home-row [data-mark]");
+    expect(rows.length).toBeGreaterThan(0);
+    for (const mark of rows)
+      expect(mark.hasAttribute("data-reacts")).toBe(false);
+  });
+
+  it("shows a still zzz over agents idle for three days or more", async () => {
+    await render(
+      props({
+        projects: [
+          { path: APP, name: "app", lastActivity: Date.now() - 4 * 86_400_000 },
+          { path: SITE, name: "site" },
+          {
+            path: "/projects/docs",
+            name: "docs",
+            lastActivity: Date.now() - 2 * 86_400_000,
+          },
+        ],
+      }),
+    );
+    const [app, site, docs] = tiles();
+    expect(app.getAttribute("data-state")).toBe("resting");
+    expect(app.querySelector(".workspace-home-agent-zzz")).not.toBeNull();
+    expect(app.textContent).toContain("Resting.");
+    // A project with no sessions yet rests without dozing.
+    expect(site.getAttribute("data-state")).toBe("resting");
+    expect(site.querySelector(".workspace-home-agent-zzz")).toBeNull();
+    expect(docs.getAttribute("data-state")).toBe("idle");
+    expect(docs.querySelector(".workspace-home-agent-zzz")).toBeNull();
   });
 
   it("asks once for the projects' saved sessions", async () => {
