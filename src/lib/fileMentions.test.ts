@@ -312,6 +312,21 @@ describe("rankMentionFiles", () => {
   });
 });
 
+describe("rankMentionFiles without a query", () => {
+  it("lists shallow paths first, folders before files, then by path", () => {
+    const tree = ["b.md", "a/z.ts", "A.md", "a/b/c.ts", "c/d.ts"].map(
+      (relative) => ({
+        name: relative.split("/").pop()!,
+        path: `/p/${relative}`,
+        relative,
+      }),
+    );
+    expect(rankMentionFiles(tree, "", []).map((file) => file.relative)).toEqual(
+      ["a", "c", "A.md", "b.md", "a/b", "a/z.ts", "c/d.ts", "a/b/c.ts"],
+    );
+  });
+});
+
 describe("withMentionDirectories", () => {
   it("derives unique parent folders from file paths", () => {
     const entries = withMentionDirectories(files);

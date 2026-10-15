@@ -13,15 +13,26 @@ import { normalizeEditorPath } from "./search";
 const MAX_RECENTS = 30;
 const MAX_RESULTS = 80;
 const REFRESH_MS = 150;
+/** How long a listing counts as current for `loadProjectFilesIfStale`. */
+export const PROJECT_FILES_FRESH_MS = 5_000;
+const MAX_LAST_LISTINGS = 4;
 
 type Cache = {
   cwd: string;
   files: ProjectFile[];
+  loadedAt: number;
 };
 
 type Listener = () => void;
 
 let cache: Cache | null = null;
+/**
+ * The last listing per project, kept through invalidation. A rescan that
+ * finds the same files returns this array, so everything derived from it (the
+ * `@` index, ranking caches) is reused instead of rebuilt; consumers can also
+ * show it while a rescan runs.
+ */
+const lastListings = new Map<string, ProjectFile[]>();
 let inflight: { cwd: string; promise: Promise<ProjectFile[]> } | null = null;
 let lastCwd: string | null = null;
 let epoch = 0;
@@ -55,6 +66,11 @@ export function peekProjectFiles(cwd: string): ProjectFile[] | null {
   return cache?.cwd === cwd ? cache.files : null;
 }
 
+/** The current listing, or the last one seen for `cwd` if it is invalidated. */
+export function peekLastProjectFiles(cwd: string): ProjectFile[] | null {
+  return peekProjectFiles(cwd) ?? lastListings.get(cwd) ?? null;
+}
+
 export function invalidateProjectFiles(cwd?: string) {
   if (cwd && cache?.cwd !== cwd && inflight?.cwd !== cwd) return;
   if (!cwd || cache?.cwd === cwd) cache = null;
@@ -63,6 +79,7 @@ export function invalidateProjectFiles(cwd?: string) {
     epoch += 1;
   }
   if (!cwd) {
+    lastListings.clear();
     lastCwd = null;
     if (refreshTimer != null) {
       clearTimeout(refreshTimer);
@@ -138,14 +155,17 @@ export function loadProjectFiles(
 
   const id = ++epoch;
   const promise = listProjectFiles(cwd)
-    .then((files) => {
-      if (id !== epoch) return files;
-      // An unchanged rescan keeps the same list, so everything derived from
-      // it (the `@` index, ranking caches) is reused instead of rebuilt.
-      if (cache?.cwd === cwd && sameFiles(cache.files, files))
-        return cache.files;
-      cache = { cwd, files };
-      notifyProjectFilesChanged();
+    .then((scanned) => {
+      if (id !== epoch) return scanned;
+      // An unchanged rescan keeps the same list, even after an invalidation,
+      // so everything derived from it is reused instead of rebuilt.
+      const previous = peekLastProjectFiles(cwd);
+      const files =
+        previous && sameFiles(previous, scanned) ? previous : scanned;
+      const changed = peekProjectFiles(cwd) !== files;
+      cache = { cwd, files, loadedAt: Date.now() };
+      rememberListing(cwd, files);
+      if (changed) notifyProjectFilesChanged();
       return files;
     })
     .finally(() => {
@@ -153,6 +173,31 @@ export function loadProjectFiles(
     });
   inflight = { cwd, promise };
   return promise;
+}
+
+/**
+ * The listing for `cwd`, rescanned only once it is older than `maxAgeMs`.
+ * For pickers that open often: directory changes already invalidate the
+ * index, so a rescan on every open mostly repeats the last one.
+ */
+export function loadProjectFilesIfStale(
+  cwd: string,
+  maxAgeMs = PROJECT_FILES_FRESH_MS,
+): Promise<ProjectFile[]> {
+  if (cache?.cwd !== cwd || Date.now() - cache.loadedAt < maxAgeMs) {
+    return loadProjectFiles(cwd);
+  }
+  // A scan already running started after this listing; wait for it.
+  return inflight?.cwd === cwd ? inflight.promise : loadProjectFiles(cwd, true);
+}
+
+function rememberListing(cwd: string, files: ProjectFile[]) {
+  lastListings.delete(cwd);
+  lastListings.set(cwd, files);
+  for (const key of lastListings.keys()) {
+    if (lastListings.size <= MAX_LAST_LISTINGS) break;
+    lastListings.delete(key);
+  }
 }
 
 function sameFiles(a: ProjectFile[], b: ProjectFile[]): boolean {
