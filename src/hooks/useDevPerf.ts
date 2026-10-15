@@ -400,6 +400,23 @@ export async function runDevPerf(
       );
     });
 
+    // People keep working while an agent writes in another tab.
+    await scenario("agent streaming in a background tab", async () => {
+      const background = chatIds[0];
+      get().submit(background, `Keep going. AVEN_PERF_STREAM ${streamChunks}`);
+      await waitFor(
+        () => sessionIn(background)?.busy,
+        5_000,
+        "the stream to start",
+      );
+      pressShortcut("2");
+      await waitFor(
+        () => replied(background, 2),
+        120_000,
+        "the background stream to finish",
+      );
+    });
+
     await scenario("switching chat tabs", async (measure) => {
       for (let round_ = 0; round_ < 4; round_ += 1) {
         for (let slot = 1; slot <= 6; slot += 1) {
