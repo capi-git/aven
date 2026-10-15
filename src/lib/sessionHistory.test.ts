@@ -3,6 +3,7 @@ import {
   historyWithLiveSessions,
   filterSessionsByArchive,
   filterSessionsByQuery,
+  historyHoldsProject,
   mergeHistorySummary,
   mergeProjectHistorySummary,
   replaceProjectHistory,
@@ -505,5 +506,18 @@ describe("standalone session rows", () => {
     expect(rows.map((row) => row.id).sort()).toEqual(
       [used.id, running.id].sort(),
     );
+  });
+});
+
+describe("historyHoldsProject", () => {
+  it("keeps every loaded project's rows current, not only the sidebar's", () => {
+    const loaded = new Set(["/repo/app", "/repo/site"]);
+    expect(historyHoldsProject("/repo/app", "/repo/app", loaded)).toBe(true);
+    // A chat saved in another loaded project updates its row there too.
+    expect(historyHoldsProject("/repo/site/", "/repo/app", loaded)).toBe(true);
+    // The sidebar's project before its first listing arrives.
+    expect(historyHoldsProject("/repo/new", "/repo/new", new Set())).toBe(true);
+    // A project whose rows were never loaded is left to its own listing.
+    expect(historyHoldsProject("/repo/other", "/repo/app", loaded)).toBe(false);
   });
 });

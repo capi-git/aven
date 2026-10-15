@@ -53,17 +53,19 @@ let storage: Map<string, string>;
 
 function Probe({
   activity = ACTIVITY,
+  history = HISTORY,
   ...props
 }: {
   enabled: boolean;
   sessions: Session[];
   inFlightIds: ReadonlySet<string>;
   activity?: ActivityEntry[];
+  history?: SessionSummary[];
 }) {
   results.push(
     useWorkspaceHomeData({
       ...props,
-      history: HISTORY,
+      history,
       activity,
       projects: PROJECTS,
       standaloneCwds: STANDALONE,
@@ -216,4 +218,74 @@ it("remembers days with a completed task beyond the ledger, for the streak", asy
     activity: ledger.map((item) => ({ ...item, readAt: 1 })),
   });
   expect(read.activeDays).toBe(first.activeDays);
+});
+
+it("gives a renamed session one time and its current title everywhere", async () => {
+  const MINUTE = 60_000;
+  const now = Date.now();
+  const saved: SessionSummary = {
+    id: "mum",
+    cwd: APP,
+    harness: "codex",
+    model: "gpt-5",
+    runtimeMode: "full-access",
+    title: "Your mum",
+    createdAt: now - 48 * 60 * MINUTE,
+    updatedAt: now - 74 * MINUTE,
+  };
+  // Loaded, with its last timed turn a day ago and a reply recorded under its
+  // old name two hours ago that the user has not read.
+  const loaded = {
+    ...session("mum", [
+      { ...user, startedAt: now - 23 * 60 * MINUTE, durationMs: 1_000 },
+      reply("Done"),
+    ]),
+    title: "Your mum",
+  };
+  const reply2h: ActivityEntry = {
+    id: "reply",
+    sessionId: "mum",
+    outcome: "completed",
+    title: "Session reply check",
+    summary: "All set",
+    cwd: APP,
+    harness: "codex",
+    model: "gpt-5",
+    createdAt: now - 120 * MINUTE,
+    readAt: null,
+    resolvedAt: null,
+  };
+  const data = await render({
+    enabled: true,
+    sessions: [loaded],
+    inFlightIds: new Set(),
+    history: [saved],
+    activity: [reply2h],
+  });
+  const at = now - 74 * MINUTE;
+  expect(data.recent).toMatchObject([
+    { id: "mum", title: "Your mum", updatedAt: at },
+  ]);
+  expect(data.needsYou).toMatchObject([
+    { id: "mum", title: "Your mum", kind: "completed", at },
+  ]);
+  expect(data.projects[0]).toMatchObject({
+    path: APP,
+    lastActivity: at,
+    resumeTitle: "Your mum",
+  });
+  // The feed keeps the turn's own time, under the current title.
+  expect(data.finished).toMatchObject([
+    { sessionId: "mum", title: "Your mum", at: now - 120 * MINUTE },
+  ]);
+
+  // A saved row that changes nothing shown keeps every list's identity.
+  const again = await render({
+    enabled: true,
+    sessions: [loaded],
+    inFlightIds: new Set(),
+    history: [{ ...saved }],
+    activity: [reply2h],
+  });
+  expect(again).toBe(data);
 });

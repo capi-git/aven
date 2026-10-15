@@ -590,6 +590,7 @@ import {
   mergeHistorySummary,
   mergeProjectHistorySummary,
   replaceProjectHistory,
+  historyHoldsProject,
   historyWithLiveSessions,
   summaryFromSession,
 } from "./lib/sessionHistory";
@@ -2320,7 +2321,13 @@ export default function App({
       .then((summary) => {
         if (!summary) return;
         lastPersisted.current.set(session.id, fingerprint);
-        if (summary.cwd === sidebarCwdRef.current) {
+        if (
+          historyHoldsProject(
+            summary.cwd,
+            sidebarCwdRef.current,
+            loadedProjectsRef.current,
+          )
+        ) {
           setHistory((current) => mergeProjectHistorySummary(current, summary));
         }
       })
@@ -2352,7 +2359,13 @@ export default function App({
         const summary = await upsertSession(session).catch(() => null);
         if (!summary) return;
         lastPersisted.current.set(session.id, fingerprint);
-        if (summary.cwd === sidebarCwdRef.current) {
+        if (
+          historyHoldsProject(
+            summary.cwd,
+            sidebarCwdRef.current,
+            loadedProjectsRef.current,
+          )
+        ) {
           setHistory((current) => mergeProjectHistorySummary(current, summary));
         }
       }),

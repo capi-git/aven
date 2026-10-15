@@ -17,12 +17,14 @@ import {
   homeRecentSessions,
   homeRunning,
   homeScope,
+  homeSessionIndex,
   type HomeAttention,
   type HomeFinished,
   type HomeLiveSession,
   type HomeProject,
   type HomeRunning,
   type HomeSession,
+  type HomeSessionIndex,
 } from "../lib/workspaceHome";
 import { equalChromeData } from "./useChromeProps";
 
@@ -39,6 +41,10 @@ export type WorkspaceHomeData = {
 
 const RECENT_ROWS = 24;
 const EMPTY_LIVE: readonly HomeLiveSession[] = Object.freeze([]);
+const EMPTY_INDEX: HomeSessionIndex = Object.freeze({
+  at: new Map<string, number>(),
+  title: new Map<string, string>(),
+});
 const EMPTY: WorkspaceHomeData = Object.freeze({
   needsYou: Object.freeze([]),
   running: Object.freeze([]),
@@ -93,26 +99,45 @@ export function useWorkspaceHomeData({
     () => homeScope(projects, standaloneCwds),
     [projects, standaloneCwds],
   );
-  const recent = useMemo(
-    () => (enabled ? homeRecentSessions(history, live, scope) : EMPTY.recent),
-    [enabled, history, live, scope],
+  // One title and one last-activity time per session, for every list below.
+  const index = useMemo(
+    () => (enabled ? homeSessionIndex(history, live, activity) : EMPTY_INDEX),
+    [enabled, history, live, activity],
   );
-  const needsYou = useMemo(
-    () => (enabled ? homeNeedsYou(live, activity, scope) : EMPTY.needsYou),
-    [enabled, live, activity, scope],
+  const recent = useStable(
+    useMemo(
+      () =>
+        enabled
+          ? homeRecentSessions(history, live, scope, index)
+          : EMPTY.recent,
+      [enabled, history, live, scope, index],
+    ),
+  );
+  const needsYou = useStable(
+    useMemo(
+      () =>
+        enabled ? homeNeedsYou(live, activity, scope, index) : EMPTY.needsYou,
+      [enabled, live, activity, scope, index],
+    ),
   );
   const running = useMemo(
     () => (enabled ? homeRunning(live, scope) : EMPTY.running),
     [enabled, live, scope],
   );
-  const cards = useMemo(
-    () =>
-      enabled ? homeProjects(ordered, recent, activity, live) : EMPTY.projects,
-    [enabled, ordered, recent, activity, live],
+  const cards = useStable(
+    useMemo(
+      () =>
+        enabled
+          ? homeProjects(ordered, recent, activity, live, index)
+          : EMPTY.projects,
+      [enabled, ordered, recent, activity, live, index],
+    ),
   );
-  const finished = useMemo(
-    () => (enabled ? homeFinished(activity, scope) : EMPTY.finished),
-    [enabled, activity, scope],
+  const finished = useStable(
+    useMemo(
+      () => (enabled ? homeFinished(activity, scope, index) : EMPTY.finished),
+      [enabled, activity, scope, index],
+    ),
   );
   // Recent shows a few rows after leaving out those listed above it.
   const recentRows = useMemo(() => recent.slice(0, RECENT_ROWS), [recent]);
@@ -147,4 +172,15 @@ export function useWorkspaceHomeData({
         : EMPTY,
     [enabled, needsYou, running, cards, recentRows, finished, activeDays],
   );
+}
+
+/**
+ * The previous value while a new one is equal to it, so a saved row that
+ * changes nothing a list shows keeps the list's identity.
+ */
+function useStable<T>(value: T): T {
+  const stable = useRef(value);
+  if (stable.current !== value && !equalChromeData(stable.current, value))
+    stable.current = value;
+  return stable.current;
 }

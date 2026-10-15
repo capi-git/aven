@@ -929,6 +929,83 @@ describe("Recent sessions", () => {
   });
 });
 
+describe("a renamed session", () => {
+  it("has one time and its current name in every section", async () => {
+    const now = Date.now();
+    const saved: SessionSummary = {
+      id: "mum",
+      cwd: APP,
+      harness: "codex",
+      model: "gpt-5",
+      runtimeMode: "full-access",
+      title: "Your mum",
+      createdAt: now - 48 * 60 * MINUTE,
+      updatedAt: now - 74.5 * MINUTE,
+    };
+    // Loaded, with its last timed turn a day ago; its last reply finished
+    // two hours ago under its old name.
+    const loaded = {
+      id: "mum",
+      cwd: APP,
+      harness: "codex",
+      model: "gpt-5",
+      runtimeMode: "full-access",
+      title: "Your mum",
+      blocks: [
+        {
+          id: "u",
+          role: "user",
+          text: "Check",
+          startedAt: now - 23 * 60 * MINUTE,
+          durationMs: 1_000,
+        },
+        { id: "a", role: "assistant", text: "Done" },
+      ],
+      busy: false,
+    } as Session;
+    const ledger: ActivityEntry[] = [
+      {
+        id: "reply",
+        sessionId: "mum",
+        outcome: "completed",
+        title: "Session reply check",
+        summary: "All set",
+        cwd: APP,
+        harness: "codex",
+        model: "gpt-5",
+        createdAt: now - 120.5 * MINUTE,
+        readAt: now - 100 * MINUTE,
+        resolvedAt: null,
+      },
+    ];
+    const inFlight = new Set<string>();
+    const workspace = [{ path: APP, openedAt: 1 }];
+    const standalone: string[] = [];
+    function Shell() {
+      const data = useWorkspaceHomeData({
+        enabled: true,
+        sessions: [loaded],
+        inFlightIds: inFlight,
+        history: [saved],
+        activity: ledger,
+        projects: workspace,
+        standaloneCwds: standalone,
+      });
+      return createElement(WorkspaceHome, { ...props(), ...data });
+    }
+    await act(async () => root.render(createElement(Shell)));
+    const recent = section("Recent sessions")!;
+    expect(rowTitles(recent)).toEqual(["Your mum"]);
+    expect(recent.textContent).toContain("1h ago");
+    expect(tiles()[0].textContent).toContain("1h ago");
+    // The feed dates the turn itself, but names the session as it is now.
+    const activity = section("Activity")!;
+    expect(rowTitles(activity)).toEqual(["Your mum"]);
+    expect(activity.textContent).toContain("2h ago");
+    expect(container.textContent).not.toContain("Session reply check");
+  });
+});
+
 describe("windows and accessibility", () => {
   it("lists detached windows only when there are some", async () => {
     await render(props());
