@@ -475,7 +475,7 @@ describe("active window Git polling", () => {
     expect(vi.getTimerCount()).toBe(1);
   });
 
-  it("polls changed files cheaply while retaining sync metadata, then refreshes divergence", async () => {
+  it("polls changed files cheaply while retaining sync metadata, spaces quiet checks out, then refreshes divergence", async () => {
     index.remote = "origin";
     index.upstream = "origin/feature";
     index.ahead = 2;
@@ -493,9 +493,11 @@ describe("active window Git polling", () => {
     expect(mocks.diffIndex).toHaveBeenCalledOnce();
     expect(container.textContent).toContain("changed.ts");
     expect(container.textContent).toContain("↑2");
-    await act(async () => vi.advanceTimersByTimeAsync(28_000));
+    // Nothing changes after that: checks at 4, 6, 9, 13.5, 19.5 and 25.5 s
+    // (2 s, then 1.5x, at most 6 s), and the 31.5 s check is a full sync.
+    await act(async () => vi.advanceTimersByTimeAsync(30_000));
     expect(mocks.diffIndex).toHaveBeenCalledTimes(2);
-    expect(mocks.diffFiles).toHaveBeenCalledTimes(14);
+    expect(mocks.diffFiles).toHaveBeenCalledTimes(7);
     await act(async () => notifyGitChanged());
     expect(mocks.diffIndex).toHaveBeenCalledTimes(3);
   });

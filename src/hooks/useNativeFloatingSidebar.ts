@@ -190,6 +190,12 @@ export function useNativeFloatingSidebar({
   const publish = useRef<(force?: boolean) => void>(() => {});
   publish.current = (force = false) => {
     if (!label) return;
+    // While the sidebar is pinned the card cannot open (see setEnabled
+    // below), so keeping it current only cost an encode, a JSON copy of every
+    // project's rows and an IPC send after each workspace render. Unpinning
+    // bumps the generation, which publishes before the card can reveal; the
+    // card can still ask for a snapshot.
+    if (!force && latest.current.pinned && !peek.current?.open) return;
     const data: Record<string, unknown> = {};
     const actions: string[] = [];
     const cache = encoded.current;

@@ -1,8 +1,9 @@
 import { ask } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ExternalLink, GitBranch, Loader, Trash2 } from "./icons";
 import { openInAppUrl } from "../lib/inAppLinks";
 import { subscribeGitChanged } from "../lib/fs";
+import { createRefreshGate } from "../lib/refreshGate";
 import {
   gitDeleteMergedBranches,
   gitMergedBranches,
@@ -16,6 +17,13 @@ import "./GitHousekeeping.css";
 
 /** A running release is worth watching; otherwise refresh on focus and Git changes. */
 const RELEASE_RUNNING_POLL_MS = 30_000;
+/**
+ * Git changes arrive every couple of seconds while an agent edits, and each
+ * release check makes several GitHub API calls, so automatic refreshes are
+ * spaced out. A user action (publish, delete) refreshes straight away.
+ */
+const RELEASE_REFRESH_MIN_MS = 120_000;
+const BRANCHES_REFRESH_MIN_MS = 30_000;
 const BRANCHES_SHOWN = 6;
 
 function message(error: unknown): string {
@@ -39,16 +47,26 @@ export function GitHousekeeping({
   );
 }
 
-function useRefresh(load: () => void, deps: unknown[]) {
+/** Refresh now, then on focus and Git changes, no closer than `minIntervalMs`. */
+function useRefresh(
+  load: () => Promise<unknown>,
+  deps: unknown[],
+  minIntervalMs: number,
+): (force?: boolean) => void {
+  const gate = useRef<ReturnType<typeof createRefreshGate> | null>(null);
   useEffect(() => {
-    load();
+    const current = createRefreshGate(load, minIntervalMs);
+    gate.current = current;
+    current.request(true);
     const onResume = () => {
-      if (!document.hidden) load();
+      if (!document.hidden) current.request();
     };
-    const stop = subscribeGitChanged(load);
+    const stop = subscribeGitChanged(() => current.request());
     window.addEventListener("focus", onResume);
     document.addEventListener("visibilitychange", onResume);
     return () => {
+      current.stop();
+      if (gate.current === current) gate.current = null;
       stop();
       window.removeEventListener("focus", onResume);
       document.removeEventListener("visibilitychange", onResume);
@@ -56,24 +74,30 @@ function useRefresh(load: () => void, deps: unknown[]) {
     // The caller's deps decide when a new project needs a fresh read.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
+  return useCallback((force = true) => gate.current?.request(force), []);
 }
 
 export function ReleaseCard({ cwd }: { cwd: string }) {
   const [status, setStatus] = useState<ReleaseStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const load = useCallback(() => {
-    void gitReleaseStatus(cwd)
-      .then(setStatus)
-      .catch(() => setStatus(null));
-  }, [cwd]);
-  useRefresh(load, [load]);
+  const load = useCallback(
+    () =>
+      gitReleaseStatus(cwd)
+        .then(setStatus)
+        .catch(() => setStatus(null)),
+    [cwd],
+  );
+  const refresh = useRefresh(load, [load], RELEASE_REFRESH_MIN_MS);
   const running = Boolean(status?.run && status.run.status !== "completed");
   useEffect(() => {
     if (!running) return;
-    const timer = window.setInterval(load, RELEASE_RUNNING_POLL_MS);
+    const timer = window.setInterval(
+      () => refresh(true),
+      RELEASE_RUNNING_POLL_MS,
+    );
     return () => window.clearInterval(timer);
-  }, [running, load]);
+  }, [running, refresh]);
 
   if (!status || (!status.workflow && !status.latest)) return null;
   const summary = summarizeRelease(status);
@@ -91,7 +115,7 @@ export function ReleaseCard({ cwd }: { cwd: string }) {
     try {
       await gitReleaseStart(cwd, version, sourceSha);
       // GitHub takes a moment to list a new run.
-      window.setTimeout(load, 4_000);
+      window.setTimeout(() => refresh(true), 4_000);
     } catch (reason) {
       setError(message(reason));
     } finally {
@@ -169,12 +193,14 @@ export function MergedBranchesCard({ cwd }: { cwd: string }) {
   const [branches, setBranches] = useState<MergedBranches | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
-  const load = useCallback(() => {
-    void gitMergedBranches(cwd)
-      .then(setBranches)
-      .catch(() => setBranches(null));
-  }, [cwd]);
-  useRefresh(load, [load]);
+  const load = useCallback(
+    () =>
+      gitMergedBranches(cwd)
+        .then(setBranches)
+        .catch(() => setBranches(null)),
+    [cwd],
+  );
+  const refresh = useRefresh(load, [load], BRANCHES_REFRESH_MIN_MS);
 
   const local = branches?.local ?? [];
   const remote = branches?.remoteBranches ?? [];
@@ -215,7 +241,7 @@ export function MergedBranchesCard({ cwd }: { cwd: string }) {
       setNote(message(reason));
     } finally {
       setBusy(false);
-      load();
+      refresh(true);
     }
   };
 

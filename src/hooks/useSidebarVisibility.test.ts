@@ -45,8 +45,23 @@ afterEach(() => {
   host.remove();
 });
 
+it("creates the native layer only once the sidebar is first unpinned", async () => {
+  attach.mockResolvedValue("floating-sidebar-main");
+  await render({ pinned: true, allowNativeLayer: true });
+  expect(attach).not.toHaveBeenCalled();
+  expect(result.nativeSidebar).toBe(false);
+  await render({ pinned: false, allowNativeLayer: true });
+  expect(attach).toHaveBeenCalledOnce();
+  expect(result.nativeSidebar).toBe(true);
+  // Docking again keeps it.
+  await render({ pinned: true, allowNativeLayer: true });
+  expect(result.nativeSidebar).toBe(true);
+  expect(attach).toHaveBeenCalledOnce();
+});
+
 it("counts a docked sidebar as shown once the native layer attaches", async () => {
   attach.mockResolvedValue("floating-sidebar-main");
+  await render({ pinned: false, allowNativeLayer: true });
   await render({ pinned: true, allowNativeLayer: true });
   expect(result.floatingSidebarLayer).toBe("floating-sidebar-main");
   expect(result.nativeSidebar).toBe(true);

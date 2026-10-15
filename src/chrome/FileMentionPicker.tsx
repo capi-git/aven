@@ -1,5 +1,10 @@
 import { StickyNote } from "./icons";
-import { useEffect, useRef, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  memo,
+  useEffect,
+  useRef,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import type { RankedFile } from "../lib/fileIndex";
 import { isNoteMentionPath } from "../lib/notes";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
@@ -16,7 +21,8 @@ type Props = {
   onPick: (file: RankedFile) => void;
 };
 
-export function FileMentionPicker({
+/** Memoized: the composer re-renders for every keystroke and draft change. */
+export const FileMentionPicker = memo(function FileMentionPicker({
   files,
   query,
   active,
@@ -153,4 +159,4 @@ export function FileMentionPicker({
       )}
     </div>
   );
-}
+});

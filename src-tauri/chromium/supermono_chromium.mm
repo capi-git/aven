@@ -229,6 +229,8 @@ void HandlePumpSchedule(int64_t delay_ms) {
   const double seconds=supermono::BrowserPumpDelayMs(delay_ms,stopping || HasVisiblePumpWork())/1000.0;
   pump_timer=[NSTimer timerWithTimeInterval:seconds target:pump_handler
     selector:@selector(timerFired:) userInfo:nil repeats:NO];
+  // Let macOS coalesce background wakeups with other timers.
+  if (seconds>=0.1) pump_timer.tolerance=seconds*0.1;
   [NSRunLoop.mainRunLoop addTimer:pump_timer forMode:NSRunLoopCommonModes];
   [NSRunLoop.mainRunLoop addTimer:pump_timer forMode:NSEventTrackingRunLoopMode];
 }

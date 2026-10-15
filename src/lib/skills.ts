@@ -8,7 +8,7 @@ import {
   type DiscoveredSkill,
 } from "./fs";
 import { invalidateProjectFiles } from "./fileIndex";
-import { fuzzyMatch } from "./fuzzy";
+import { fuzzyMatch, type FuzzyHit } from "./fuzzy";
 import { joinPath } from "./paths";
 import { looksLikeProject, normalizeProjectPath } from "./recents";
 import { isMarkdownBlockquotePosition } from "./quoteDraft";
@@ -92,6 +92,13 @@ const SKILL_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SKILL_TOKEN_RE =
   /(^|\s)\/([a-z0-9]+(?:-[a-z0-9]+)*(?::[a-z0-9]+(?:-[a-z0-9]+)*)?)(?=\s|$)/g;
 const MAX_PICKER = 50;
+/** Description-only matches are a fallback; a few are enough to find one. */
+const MAX_DESCRIPTION_HITS = 10;
+/**
+ * Per place in the recently used list: enough to win a near tie between
+ * matches, not to lift a scattered match above a name that starts the query.
+ */
+const RECENT_BONUS = 3;
 const NATIVE_SKILL_TTL_MS = 30_000;
 const NATIVE_SKILL_RETRY_MS = 5_000;
 
@@ -145,10 +152,10 @@ export function subscribeSkills(
     getHarness(context.harness)?.commands?.subscribe?.(context, (commands) => {
       const key = skillCatalogKey(context);
       const previous = catalogEntries.get(key);
-      const skills: Skill[] = commands.map((command) => ({
-        ...command,
-        kind: "native",
-      }));
+      const skills = keepSameSkills(
+        previous?.skills,
+        commands.map((command): Skill => ({ ...command, kind: "native" })),
+      );
       catalogEntries.set(key, {
         cwd: normalizeProjectPath(context.cwd),
         skills,
@@ -240,13 +247,16 @@ function startCatalogLoad(
 ): Promise<Skill[]> {
   const generation = entry.generation;
   const promise = loadCatalog(context)
-    .then((skills) => {
+    .then((loaded) => {
       if (
         catalogEntries.get(key) !== entry ||
         entry.generation !== generation
       ) {
         return catalogEntries.get(key)?.skills ?? [];
       }
+      // An unchanged rescan keeps the same list, so an open picker is not
+      // re-ranked (or reordered under the highlighted row) for nothing.
+      const skills = keepSameSkills(entry.skills, loaded);
       entry.skills = skills;
       entry.loadedAt = Date.now();
       entry.retryAt = 0;
@@ -263,7 +273,7 @@ function startCatalogLoad(
         entry.retryAt = Date.now() + NATIVE_SKILL_RETRY_MS;
         return entry.skills ?? [];
       }
-      const fallback = mergeCatalog([]);
+      const fallback = keepSameSkills(entry.skills, mergeCatalog([]));
       entry.skills = fallback;
       entry.loadedAt = Date.now();
       return fallback;
@@ -322,52 +332,215 @@ function asSkill(skill: DiscoveredSkill): FileSkill {
   };
 }
 
+/** A `/` picker row: the skill and which of its characters the query matched. */
+export type SkillMatch = {
+  skill: Skill;
+  /** Matched characters of `skill.invocation`, the text the picker shows. */
+  positions: number[];
+  /** Matched characters of `skill.description`, for a description-only hit. */
+  descriptionPositions: number[];
+};
+
+export type RankSkillOptions = {
+  limit?: number;
+  /** Invocations used recently in this project, most recent first. */
+  recent?: readonly string[];
+};
+
 export function rankSkills(
   skills: Skill[],
   query: string,
   limit = MAX_PICKER,
 ): Skill[] {
+  return rankSkillMatches(skills, query, { limit }).map((row) => row.skill);
+}
+
+/**
+ * Rank the `/` picker. Names and invocations are fuzzy-matched; descriptions
+ * only by word start or substring, after every name hit and a few at most,
+ * because a short query is a subsequence of almost any sentence. Recently
+ * used skills come first; Aven's own commands follow the user's skills unless
+ * the query starts their name.
+ */
+export function rankSkillMatches(
+  skills: readonly Skill[],
+  query: string,
+  { limit = MAX_PICKER, recent = [] }: RankSkillOptions = {},
+): SkillMatch[] {
+  const recentRank = new Map<string, number>();
+  recent.forEach((invocation, index) => {
+    if (!recentRank.has(invocation)) recentRank.set(invocation, index);
+  });
   const needle = query.trim().toLowerCase();
   if (!needle) {
     return [...skills]
       .sort((a, b) => {
+        const ra = recentRank.get(a.invocation);
+        const rb = recentRank.get(b.invocation);
+        if (ra !== undefined || rb !== undefined) {
+          return (
+            (ra ?? Number.POSITIVE_INFINITY) - (rb ?? Number.POSITIVE_INFINITY)
+          );
+        }
         const rank = scopeRank(a) - scopeRank(b);
         if (rank !== 0) return rank;
         return a.name.localeCompare(b.name);
       })
-      .slice(0, limit);
+      .slice(0, limit)
+      .map((skill) => ({ skill, positions: [], descriptionPositions: [] }));
   }
 
-  const scored: { skill: Skill; score: number }[] = [];
+  type Scored = SkillMatch & { tier: number; score: number };
+  const named: Scored[] = [];
+  const described: Scored[] = [];
   for (const skill of skills) {
-    const nameHit = fuzzyMatch(needle, skill.name);
-    const invocationHit = nameHit
-      ? null
-      : fuzzyMatch(
-          needle,
-          [
-            skill.invocation,
-            ...(skill.kind === "native" ? (skill.aliases ?? []) : []),
-          ].join(" "),
-        );
-    const descHit =
-      nameHit || invocationHit ? null : fuzzyMatch(needle, skill.description);
-    const hit = nameHit ?? invocationHit ?? descHit;
-    if (!hit) continue;
-    const score = nameHit || invocationHit ? hit.score + 400 : hit.score;
-    scored.push({ skill, score });
+    const hit = matchSkillName(needle, skill);
+    if (hit) {
+      const recency = recentRank.get(skill.invocation);
+      named.push({
+        skill,
+        positions: hit.positions,
+        descriptionPositions: [],
+        tier:
+          skill.kind === "builtin" && !startsSkillName(needle, skill) ? 1 : 0,
+        score:
+          hit.score +
+          (recency === undefined
+            ? 0
+            : Math.max(0, recent.length - recency) * RECENT_BONUS),
+      });
+      continue;
+    }
+    const desc = matchSkillDescription(needle, skill.description);
+    if (desc) {
+      described.push({
+        skill,
+        positions: [],
+        descriptionPositions: desc.positions,
+        tier: 2,
+        score: desc.score,
+      });
+    }
   }
-  scored.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
-    return a.skill.name.localeCompare(b.skill.name);
-  });
-  return scored.slice(0, limit).map((row) => row.skill);
+  const order = (a: Scored, b: Scored) =>
+    a.tier - b.tier ||
+    b.score - a.score ||
+    a.skill.name.localeCompare(b.skill.name);
+  named.sort(order);
+  described.sort(order);
+  return [...named, ...described.slice(0, MAX_DESCRIPTION_HITS)]
+    .slice(0, limit)
+    .map(({ skill, positions, descriptionPositions }) => ({
+      skill,
+      positions,
+      descriptionPositions,
+    }));
 }
 
+/** Fuzzy name or invocation hit, with positions in the shown invocation. */
+function matchSkillName(needle: string, skill: Skill): FuzzyHit | null {
+  const { invocation, name } = skill;
+  const nameHit = fuzzyMatch(needle, name);
+  if (nameHit) {
+    // `/skill:architect` shows the name at the end of its invocation.
+    const offset = invocation.toLowerCase().endsWith(name.toLowerCase())
+      ? invocation.length - name.length
+      : -1;
+    return {
+      score: nameHit.score,
+      positions:
+        offset >= 0
+          ? nameHit.positions.map((index) => index + offset)
+          : (fuzzyMatch(needle, invocation)?.positions ?? []),
+    };
+  }
+  const invocationHit = fuzzyMatch(needle, invocation);
+  if (invocationHit) return invocationHit;
+  if (skill.kind !== "native") return null;
+  for (const alias of skill.aliases ?? []) {
+    const aliasHit = fuzzyMatch(needle, alias);
+    // The alias is not shown, so there is nothing to highlight.
+    if (aliasHit) return { score: aliasHit.score, positions: [] };
+  }
+  return null;
+}
+
+/**
+ * A word in the description starting with the query, or for three or more
+ * characters the query anywhere; an earlier word start ranks higher.
+ */
+function matchSkillDescription(
+  needle: string,
+  description: string,
+): FuzzyHit | null {
+  if (needle.length < 2 || !description) return null;
+  const hay = description.toLowerCase();
+  let inside = -1;
+  for (
+    let at = hay.indexOf(needle);
+    at !== -1;
+    at = hay.indexOf(needle, at + 1)
+  ) {
+    if (at === 0 || !isWordChar(hay[at - 1]!)) {
+      return { score: 100_000 - at, positions: span(at, needle.length) };
+    }
+    if (inside === -1) inside = at;
+  }
+  if (inside === -1 || needle.length < 3) return null;
+  return { score: -inside, positions: span(inside, needle.length) };
+}
+
+function startsSkillName(needle: string, skill: Skill): boolean {
+  return (
+    skill.name.toLowerCase().startsWith(needle) ||
+    skill.invocation.toLowerCase().startsWith(needle)
+  );
+}
+
+function span(start: number, length: number): number[] {
+  return Array.from({ length }, (_, index) => start + index);
+}
+
+function isWordChar(ch: string): boolean {
+  return /[\p{L}\p{N}]/u.test(ch);
+}
+
+/** Aven's own commands follow the project's and the user's skills. */
 function scopeRank(skill: Skill): number {
-  if (skill.kind === "builtin") return 0;
-  if (skill.kind === "native" || skill.scope === "project") return 1;
-  return 2;
+  if (skill.kind === "native" || skill.scope === "project") return 0;
+  if (skill.kind === "builtin") return 2;
+  return 1;
+}
+
+/** The same rows in the same order, compared by value. */
+export function sameSkillList(
+  a: readonly Skill[],
+  b: readonly Skill[],
+): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index++) {
+    const x = a[index]!;
+    const y = b[index]!;
+    if (x === y) continue;
+    if (
+      x.kind !== y.kind ||
+      x.name !== y.name ||
+      x.invocation !== y.invocation ||
+      x.description !== y.description ||
+      x.source !== y.source ||
+      JSON.stringify(x) !== JSON.stringify(y)
+    )
+      return false;
+  }
+  return true;
+}
+
+function keepSameSkills(
+  previous: Skill[] | null | undefined,
+  next: Skill[],
+): Skill[] {
+  return previous && sameSkillList(previous, next) ? previous : next;
 }
 
 /** Slash token that contains `cursor`, if the user is typing `/skill`. */

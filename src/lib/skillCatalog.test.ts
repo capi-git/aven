@@ -204,6 +204,30 @@ describe("provider-aware skill catalog", () => {
     expect(mocks.discoverPiSkills).not.toHaveBeenCalled();
   });
 
+  it("keeps the same list when a forced rescan finds the same skills", async () => {
+    const found = () => [
+      {
+        name: "review-pr",
+        description: "Review pull requests.",
+        path: "/repo/.agents/skills/review-pr/SKILL.md",
+        scope: "project" as const,
+        source: "agents" as const,
+      },
+    ];
+    mocks.listSkills.mockImplementation(async () => found());
+    const context = { harness: "claude" as const, cwd: "/repo" };
+    const first = await loadSkills(context);
+    expect(await loadSkills(context, { refresh: true })).toBe(first);
+    expect(mocks.listSkills).toHaveBeenCalledTimes(2);
+
+    mocks.listSkills.mockImplementation(async () => [
+      { ...found()[0]!, description: "Review pull requests carefully." },
+    ]);
+    const changed = await loadSkills(context, { refresh: true });
+    expect(changed).not.toBe(first);
+    expect(peekSkills(context)).toBe(changed);
+  });
+
   it("separates providers and coalesces equivalent Pi directories", async () => {
     const pending = deferred<PiSkillCommand[]>();
     mocks.discoverPiSkills.mockReturnValue(pending.promise);

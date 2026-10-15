@@ -122,11 +122,16 @@ export function persistableAttachment(file: Attachment): Attachment {
   };
 }
 
+/**
+ * Attachments as a sent message keeps them. An image saved to disk keeps only
+ * its path (and the preview it already shows): its base64 copy, about 2.7x
+ * the image in memory, is read again from disk when it is sent anywhere.
+ */
 export function displayAttachments(files: Attachment[]): Attachment[] {
   return files.map((file) => ({
     ...persistableAttachment(file),
     ...(file.previewUrl ? { previewUrl: file.previewUrl } : {}),
-    ...(file.data ? { data: file.data } : {}),
+    ...(file.data && !file.path ? { data: file.data } : {}),
   }));
 }
 
@@ -354,7 +359,9 @@ async function attachmentFromPath(info: PathInfo): Promise<Attachment | null> {
   if (info.isDir || skipName(info.name)) return null;
   const mimeType = mimeFromName(info.name);
   const kind = kindFromMime(mimeType);
-  const file: Attachment = {
+  // No base64 copy up front: the chip previews from disk, and
+  // prepareAttachments reads the image when the message is sent.
+  return {
     id: crypto.randomUUID(),
     name: info.name,
     mimeType,
@@ -362,18 +369,6 @@ async function attachmentFromPath(info: PathInfo): Promise<Attachment | null> {
     size: info.size,
     path: info.path,
   };
-  if (
-    isVisionImage(mimeType) &&
-    info.size > 0 &&
-    info.size <= MAX_EMBED_BYTES
-  ) {
-    try {
-      file.data = await invoke<string>("read_file_base64", { path: info.path });
-    } catch {
-      // Fall back to a resource_link so the agent can still read the file.
-    }
-  }
-  return file;
 }
 
 async function attachmentFromBlob(file: File): Promise<Attachment | null> {
@@ -400,7 +395,8 @@ async function attachmentFromBlob(file: File): Promise<Attachment | null> {
       size: file.size,
       path,
       previewUrl,
-      ...(kind === "image" && isVisionImage(mimeType) ? { data } : {}),
+      // Saved to `path`, so drafts and the transcript need no base64 copy;
+      // prepareAttachments reads it back when the message is sent.
     };
   } catch {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
