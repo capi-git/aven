@@ -29,8 +29,55 @@ export function AccessPanelContent({
   error?: string | null;
 }) {
   const title = useId();
+  return (
+    <ToolbarPanel
+      role="dialog"
+      aria-labelledby={title}
+      className="access-panel"
+      data-access-picker
+      theme={snapshot.theme}
+    >
+      <ToolbarPanelHeader
+        title="Access"
+        titleId={title}
+        onClose={onClose}
+        closeLabel="Close access options"
+      />
+      <p className="access-panel-note">
+        {snapshot.busy
+          ? "Changes apply to the next turn and new tasks."
+          : "Your choice is remembered for new tasks."}
+      </p>
+      <AccessModeOptions value={snapshot.value} onSelect={onSelect} autoFocus />
+      {error ? (
+        <p role="alert" className="access-panel-error">
+          {error}
+        </p>
+      ) : null}
+    </ToolbarPanel>
+  );
+}
+
+/**
+ * The access modes as a menu of choices. Arrow keys, Home and End move
+ * between them. `compact` leaves each mode's explanation to its tooltip.
+ */
+export function AccessModeOptions({
+  value,
+  onSelect,
+  autoFocus = false,
+  compact = false,
+}: {
+  value: RuntimeMode;
+  onSelect: (mode: RuntimeMode) => void;
+  /** Focus the chosen mode once mounted. */
+  autoFocus?: boolean;
+  compact?: boolean;
+}) {
   const menu = useRef<HTMLDivElement>(null);
+  const autoFocusRef = useRef(autoFocus);
   useEffect(() => {
+    if (!autoFocusRef.current) return;
     menu.current
       ?.querySelector<HTMLButtonElement>('[aria-checked="true"]')
       ?.focus({ preventScroll: true });
@@ -54,62 +101,41 @@ export function AccessPanelContent({
     options[next]?.focus();
   };
   return (
-    <ToolbarPanel
-      role="dialog"
-      aria-labelledby={title}
-      className="access-panel"
-      data-access-picker
-      theme={snapshot.theme}
+    <div
+      ref={menu}
+      role="menu"
+      aria-label="Access mode"
+      data-compact={compact || undefined}
+      onKeyDown={navigate}
+      className="access-panel-options"
     >
-      <ToolbarPanelHeader
-        title="Access"
-        titleId={title}
-        onClose={onClose}
-        closeLabel="Close access options"
-      />
-      <p className="access-panel-note">
-        {snapshot.busy
-          ? "Changes apply to the next turn and new tasks."
-          : "Your choice is remembered for new tasks."}
-      </p>
-      <div
-        ref={menu}
-        role="menu"
-        aria-label="Access mode"
-        onKeyDown={navigate}
-        className="access-panel-options"
-      >
-        {RUNTIME_MODES.map((mode) => {
-          const Icon = ACCESS_ICONS[mode];
-          return (
-            <button
-              key={mode}
-              type="button"
-              role="menuitemradio"
-              aria-checked={mode === snapshot.value}
-              tabIndex={mode === snapshot.value ? 0 : -1}
-              onClick={() => onSelect(mode)}
-              className="toolbar-panel-row access-panel-option"
-            >
-              <Icon className="access-panel-icon" size={16} />
-              <span className="access-panel-copy">
-                <strong>{RUNTIME_MODE_LABEL[mode]}</strong>
-                <span>{RUNTIME_MODE_HINT[mode]}</span>
-              </span>
-              <Check
-                className="access-panel-check"
-                size={15}
-                aria-hidden="true"
-              />
-            </button>
-          );
-        })}
-      </div>
-      {error ? (
-        <p role="alert" className="access-panel-error">
-          {error}
-        </p>
-      ) : null}
-    </ToolbarPanel>
+      {RUNTIME_MODES.map((mode) => {
+        const Icon = ACCESS_ICONS[mode];
+        return (
+          <button
+            key={mode}
+            type="button"
+            role="menuitemradio"
+            aria-checked={mode === value}
+            tabIndex={mode === value ? 0 : -1}
+            data-mode={mode}
+            title={compact ? RUNTIME_MODE_HINT[mode] : undefined}
+            onClick={() => onSelect(mode)}
+            className="toolbar-panel-row access-panel-option"
+          >
+            <Icon className="access-panel-icon" size={compact ? 15 : 16} />
+            <span className="access-panel-copy">
+              <strong>{RUNTIME_MODE_LABEL[mode]}</strong>
+              {compact ? null : <span>{RUNTIME_MODE_HINT[mode]}</span>}
+            </span>
+            <Check
+              className="access-panel-check"
+              size={15}
+              aria-hidden="true"
+            />
+          </button>
+        );
+      })}
+    </div>
   );
 }

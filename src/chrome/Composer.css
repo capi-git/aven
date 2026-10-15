@@ -99,7 +99,6 @@
   color: color-mix(in srgb, var(--color-content) 70%, transparent);
 }
 .personal-shell .personal-composer-project:empty,
-.personal-shell .personal-composer-settings:empty,
 .personal-shell .personal-composer-context:empty {
   display: none;
 }
@@ -108,64 +107,11 @@
   gap: 7px;
   padding: 0 12px 11px;
 }
-.personal-shell .personal-composer-options {
-  gap: 5px;
-  width: 100%;
-  min-width: max-content;
-}
-.personal-shell .personal-composer-capsule {
+.personal-shell .personal-composer-agent {
+  order: 1;
   display: flex;
-  align-items: center;
   min-width: 0;
-  max-width: 100%;
-  padding: 1px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: var(--composer-control);
-  box-shadow: none;
-}
-.personal-shell .personal-composer-capsule > div {
-  min-width: 0;
-  max-width: 100%;
-}
-.personal-shell .personal-composer-capsule > button,
-.personal-shell .personal-composer-capsule > div > button {
-  height: 27px;
-  padding-inline: 8px;
-  gap: 5px;
-  border-radius: 6px;
-  background: transparent;
-  color: color-mix(in srgb, var(--color-content) 86%, var(--composer-surface));
-}
-.personal-shell .personal-composer-capsule > button > span,
-.personal-shell .personal-composer-capsule > div > button > span {
-  font-size: var(--text-ui-caption);
-}
-.personal-shell .personal-composer-settings > :not(:first-child) {
-  border-left: 0;
-}
-.personal-shell .personal-composer-settings > button[aria-pressed="false"] {
-  color: color-mix(in srgb, var(--color-content) 60%, var(--composer-surface));
-}
-.personal-shell .personal-composer-capsule > button:hover,
-.personal-shell .personal-composer-capsule > div > button:hover,
-.personal-shell .personal-composer-capsule > button[aria-pressed="true"],
-.personal-shell
-  .personal-composer-capsule
-  > div
-  > button[aria-expanded="true"] {
-  background: color-mix(in srgb, var(--personal-accent) 12%, transparent);
-  color: var(--color-content);
-}
-.personal-shell .personal-composer-model,
-.personal-shell .personal-composer-access {
-  background: transparent;
-}
-.personal-shell .personal-composer-access {
-  margin-right: auto;
-}
-.personal-shell .personal-composer-access [data-mode="full-access"] {
-  color: #e7a575;
+  flex-shrink: 1;
 }
 .personal-shell .personal-composer-add {
   order: 0;
@@ -281,12 +227,6 @@ html.theme-light .personal-shell .personal-composer {
   --composer-control: var(--aven-control-bg, var(--aven-hover));
   --composer-shadow: 0 8px 24px #1730420d;
 }
-html.theme-light
-  .personal-shell
-  .personal-composer-access
-  [data-mode="full-access"] {
-  color: #a54d1f;
-}
 html.theme-light .personal-shell .personal-composer {
   --composer-glass-opacity: 94%;
 }
@@ -319,5 +259,45 @@ html.theme-light .personal-shell .personal-composer {
   .personal-shell .personal-composer .composer-field,
   .personal-shell .personal-composer .composer-highlight {
     padding-inline: 14px;
+  }
+}
+
+/* Recently used skills wait in the empty message's control row. */
+.composer-recent-skills {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding-inline: 2px;
+}
+.composer-recent-skill {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  max-width: 168px;
+  height: 24px;
+  padding: 0 9px 0 7px;
+  border: 1px solid color-mix(in srgb, var(--color-content) 9%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: color-mix(in srgb, var(--color-content) 62%, transparent);
+  font-size: var(--text-ui-caption);
+  transition:
+    background-color 140ms ease-out,
+    color 140ms ease-out,
+    border-color 140ms ease-out;
+}
+.composer-recent-skill:hover {
+  border-color: color-mix(in srgb, var(--color-skill) 30%, transparent);
+  background: color-mix(in srgb, var(--color-skill) 8%, transparent);
+  color: var(--color-content);
+}
+.composer-recent-skill-slash {
+  flex-shrink: 0;
+  color: var(--color-skill);
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-recent-skill {
+    transition: none;
   }
 }
