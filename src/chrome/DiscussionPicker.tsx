@@ -92,7 +92,7 @@ export function DiscussionPicker({
         : null);
 
   const start = (preview = false) => {
-    if (!target || (reason && !(preview && target))) return;
+    if (!target || (reason && !preview)) return;
     const failure = host.start({
       sessionId,
       partner: target,
