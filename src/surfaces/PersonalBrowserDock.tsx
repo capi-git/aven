@@ -134,6 +134,7 @@ export function PersonalBrowserDock({
       )}
       <BrowserPane
         id={browserIdForProject(project)}
+        project={project}
         initialUrl={state.url}
         visible={visible && shown}
         expanded={fullWidth}
