@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Added
+
+- Each project has its own colour and mark, so you can tell at a glance which project you are in. Sidebar rows show the project's logo, or its pixel mascot in the project colour; the active chat tab is underlined in the project colour (a tab group's own colour still wins inside the group); and a project's browser shows its mark beside the address. Choose **Customize project…** from a project's actions to set its name, colour, mascot and logo, or reset them. Changes show in every window at once, including the floating sidebar.
+- Sidebar project rows show what is happening without opening the project: the mascot moves while an agent works, an amber dot means something is waiting for you, a number counts unread replies, and +N counts changed files. Hover the row for the details.
+
+### Changed
+
+- A project's changed-file count is rechecked only when something in that project changes, rather than after every edit in any project. Counts for projects in the sidebar are read a couple at a time in the background and never while Aven is hidden.
+
+### Fixed
+
+- Projects found by Search show their own logo instead of a broken image.
+
 ## [0.1.140] - 2026-10-15
 
 ### Development
