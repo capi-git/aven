@@ -1,5 +1,5 @@
 import "./UtilityViews.css";
-import { Folder, LoaderCircle, MessageSquare, Search } from "../chrome/icons";
+import { LoaderCircle, MessageSquare, Search } from "../chrome/icons";
 import {
   useEffect,
   useMemo,
@@ -12,7 +12,7 @@ import {
 import { FileTypeIcon } from "../chrome/FileTypeIcon";
 import { HarnessIcon } from "../chrome/HarnessIcon";
 import { MatchText } from "../chrome/MatchText";
-import { ProjectLogoIcon } from "../chrome/ProjectLogoIcon";
+import { ProjectMark } from "../chrome/ProjectMark";
 import { OverlayNav } from "../chrome/TitleBar";
 import { WindowControls } from "../chrome/WindowControls";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
@@ -596,13 +596,8 @@ function rowCopy(
     };
   }
   return {
-    icon: (
-      <ProjectLogoIcon
-        path={hit.path}
-        className="size-3.5 rounded-sm"
-        fallback={Folder}
-      />
-    ),
+    // The project's own logo or mascot; `hit.path` is the folder, not an image.
+    icon: <ProjectMark path={hit.path} />,
     title: <MatchText text={hit.name} positions={hit.positions} active />,
     meta: prettyCwd(hit.path),
   };
