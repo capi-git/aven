@@ -36,6 +36,7 @@ import {
   shipSummary,
   ShipError,
   type ShipMode,
+  type ShipOption,
   type ShipResult,
   type ShipScope,
   type ShipStep,
@@ -110,7 +111,12 @@ export function ShipFlow({
   onClose,
 }: Props) {
   const live = useContext(LiveSessionsContext);
-  const options = useMemo(() => shipOptions(index, pr), [index, pr]);
+  // With nothing uncommitted, a Ship pushes the branch and can open a PR.
+  const hasFiles = files.length > 0;
+  const options = useMemo(
+    () => shipOptions(index, pr, hasFiles),
+    [index, pr, hasFiles],
+  );
   const [mode, setMode] = useState<ShipMode>(() =>
     preferredShipMode(options, loadShipMode()),
   );
@@ -143,8 +149,8 @@ export function ShipFlow({
   const canShip =
     phase.kind === "compose" &&
     !generating &&
-    message.trim().length > 0 &&
-    summary.files > 0;
+    !!options.find((candidate) => candidate.mode === usable)?.available &&
+    (!hasFiles || (message.trim().length > 0 && summary.files > 0));
 
   useEffect(() => {
     onBusyChange(running || generating);
@@ -226,6 +232,7 @@ export function ShipFlow({
       scope,
       textHarness,
       openPr: pr,
+      commit: hasFiles,
     };
     const steps = shipSteps(plan);
     setPhase({
@@ -279,9 +286,15 @@ export function ShipFlow({
         </span>
         {phase.kind === "done" || phase.kind === "error" ? null : (
           <span className="ship-flow-count">
-            {filesLabel(summary.files)}
-            <span className="ship-flow-add">+{summary.additions}</span>
-            <span className="ship-flow-del">−{summary.deletions}</span>
+            {hasFiles ? (
+              <>
+                {filesLabel(summary.files)}
+                <span className="ship-flow-add">+{summary.additions}</span>
+                <span className="ship-flow-del">−{summary.deletions}</span>
+              </>
+            ) : (
+              commitsNotInBase(index)
+            )}
           </span>
         )}
         <button
@@ -321,7 +334,7 @@ export function ShipFlow({
             </div>
           ) : null}
           <TestsLine info={tests.info} agentBusy={tests.busy} />
-          <div className="ship-flow-message">
+          <div className="ship-flow-message" hidden={!hasFiles}>
             <textarea
               ref={messageRef}
               rows={2}
@@ -395,12 +408,13 @@ export function ShipFlow({
             {modeDescription(
               usable,
               index,
-              options.find((o) => o.mode === usable)?.hint,
+              options.find((o) => o.mode === usable),
+              hasFiles,
             )}
           </p>
           {phase.kind === "running" ? (
             <ShipProgress
-              steps={shipSteps({ mode: usable, scope })}
+              steps={shipSteps({ mode: usable, scope, commit: hasFiles })}
               current={phase.step}
               done={phase.done}
             />
@@ -473,16 +487,30 @@ export function ShipFlow({
   );
 }
 
+/** "3 commits not in main yet", for a branch with nothing uncommitted. */
+function commitsNotInBase(index: GitDiffIndex): string {
+  const count = index.aheadOfDefault;
+  const base = index.defaultBranch ?? "the default branch";
+  return count > 0
+    ? `${count} ${count === 1 ? "commit" : "commits"} not in ${base}`
+    : `Nothing new for ${base}`;
+}
+
 function modeDescription(
   mode: ShipMode,
   index: GitDiffIndex,
-  hint: string | undefined,
+  option: ShipOption | undefined,
+  hasFiles: boolean,
 ): string {
+  // Nothing can be shipped: say why.
+  if (option && !option.available) return option.hint ?? "";
+  const hint = option?.hint;
   const where = index.upstream ?? `${index.remote ?? "origin"}/${index.branch}`;
-  if (mode === "commit") return `Commits on ${index.branch ?? "this copy"}.`;
+  const base = index.defaultBranch ?? "the default branch";
+  if (mode === "commit") return `Commits on ${index.branch ?? "this branch"}.`;
   if (mode === "push")
-    return `Commits and pushes to ${where}.${hint ? ` ${hint}` : ""}`;
-  return `Commits, pushes and opens a pull request into ${index.defaultBranch ?? "the default branch"}.`;
+    return `${hasFiles ? "Commits and pushes" : "Pushes"} to ${where}.${hint ? ` ${hint}` : ""}`;
+  return `${hasFiles ? "Commits, pushes" : "Pushes"} and opens a pull request into ${base}.`;
 }
 
 function TestsLine({
@@ -578,7 +606,11 @@ function ShipDone({
       <p className="ship-flow-done-line">
         <Check className="size-3.5 shrink-0" strokeWidth={2} />
         <span>
-          Committed {shipped ? filesLabel(shipped.files) : "changes"} · {where}
+          {result.committed
+            ? `Committed ${shipped ? filesLabel(shipped.files) : "changes"} · ${where}`
+            : result.pushed
+              ? `Pushed to ${index.upstream ?? `${index.remote ?? "origin"}/${index.branch}`}`
+              : "Nothing needed shipping"}
         </span>
       </p>
       {pr ? (

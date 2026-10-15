@@ -35,10 +35,15 @@ export function onDefaultBranch(index: GitDiffIndex): boolean {
   );
 }
 
-/** The three ways to finish, with the reason any of them can't be used now. */
+/**
+ * The three ways to finish, with the reason any of them can't be used now.
+ * Without uncommitted files there is nothing to commit, and a Ship pushes the
+ * branch's commits and can open a pull request for them.
+ */
 export function shipOptions(
   index: GitDiffIndex,
   pr: GitPr | null,
+  hasFiles = true,
 ): ShipOption[] {
   const openPr = pr?.state === "open" ? pr : null;
   const pushBlocked = !index.remote
@@ -55,6 +60,40 @@ export function shipOptions(
         : !index.branch
           ? "Check out a branch to open a pull request."
           : undefined);
+  if (!hasFiles) {
+    const base = index.defaultBranch ?? "the default branch";
+    const nothingToPush =
+      !pushBlocked && !!index.upstream && index.ahead === 0
+        ? "Everything here is already pushed."
+        : undefined;
+    const nothingNew =
+      !prBlocked && index.aheadOfDefault === 0
+        ? `Nothing here that ${base} doesn't have.`
+        : undefined;
+    return [
+      {
+        mode: "commit",
+        label: "Commit",
+        available: false,
+        hint: "Nothing to commit.",
+      },
+      {
+        mode: "push",
+        label: "Push",
+        available: !pushBlocked && !nothingToPush,
+        hint:
+          pushBlocked ??
+          nothingToPush ??
+          (openPr ? `Updates PR #${openPr.number}.` : undefined),
+      },
+      {
+        mode: "pr",
+        label: "Push & open PR",
+        available: !prBlocked && !nothingNew,
+        hint: prBlocked ?? nothingNew,
+      },
+    ];
+  }
   return [
     { mode: "commit", label: "Commit", available: true },
     {
@@ -118,12 +157,15 @@ export type ShipPlan = {
   textHarness?: HarnessId;
   /** The branch's open pull request, which a push updates. */
   openPr: GitPr | null;
+  /** False when there is nothing to commit and only the branch is shipped. */
+  commit?: boolean;
 };
 
 export type ShippedPr = { number: number; url: string; created: boolean };
 
 export type ShipResult = {
   mode: ShipMode;
+  committed: boolean;
   pushed: boolean;
   pr: ShippedPr | null;
 };
@@ -140,10 +182,13 @@ export class ShipError extends Error {
   }
 }
 
-export function shipSteps(plan: Pick<ShipPlan, "mode" | "scope">): ShipStep[] {
+export function shipSteps(
+  plan: Pick<ShipPlan, "mode" | "scope" | "commit">,
+): ShipStep[] {
+  const commit = plan.commit !== false;
   return [
-    ...(plan.scope === "all" ? (["stage"] as const) : []),
-    "commit",
+    ...(commit && plan.scope === "all" ? (["stage"] as const) : []),
+    ...(commit ? (["commit"] as const) : []),
     ...(plan.mode !== "commit" ? (["push"] as const) : []),
     ...(plan.mode === "pr" ? (["pr"] as const) : []),
   ];
@@ -200,7 +245,7 @@ export async function runShip(
   if (!pr && pushed && plan.openPr?.state === "open") {
     pr = { number: plan.openPr.number, url: plan.openPr.url, created: false };
   }
-  return { mode: plan.mode, pushed, pr };
+  return { mode: plan.mode, committed: done.includes("commit"), pushed, pr };
 }
 
 /** What went wrong, in terms of what did and didn't happen. */

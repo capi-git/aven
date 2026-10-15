@@ -172,6 +172,7 @@ describe("runShip", () => {
     ]);
     expect(result).toEqual({
       mode: "pr",
+      committed: true,
       pushed: true,
       pr: { number: 12, url: "https://github.com/o/r/pull/12", created: true },
     });
@@ -244,5 +245,41 @@ describe("ship mode preference", () => {
     expect(
       preferredShipMode(shipOptions(index({ remote: null }), null), "pr"),
     ).toBe("commit");
+  });
+});
+
+describe("shipping a branch with nothing to commit", () => {
+  it("offers a push and a pull request for commits main lacks", () => {
+    const options = shipOptions(
+      index({ ahead: 2, aheadOfDefault: 2 }),
+      null,
+      false,
+    );
+    expect(options.map((o) => [o.label, o.available])).toEqual([
+      ["Commit", false],
+      ["Push", true],
+      ["Push & open PR", true],
+    ]);
+    const pushed = shipOptions(index({ aheadOfDefault: 2 }), null, false);
+    expect(pushed[1]).toMatchObject({
+      available: false,
+      hint: "Everything here is already pushed.",
+    });
+    expect(pushed[2].available).toBe(true);
+    expect(shipOptions(index(), null, false)[2]).toMatchObject({
+      available: false,
+      hint: "Nothing here that main doesn't have.",
+    });
+    expect(preferredShipMode(options, null)).toBe("push");
+  });
+
+  it("skips staging and committing", async () => {
+    expect(shipSteps({ mode: "pr", scope: "all", commit: false })).toEqual([
+      "push",
+      "pr",
+    ]);
+    const result = await runShip(plan({ commit: false }));
+    expect(calls).toEqual(["git_push", "git_pr_create"]);
+    expect(result).toMatchObject({ committed: false, pushed: true });
   });
 });
