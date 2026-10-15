@@ -176,7 +176,7 @@
   font-weight: 500;
   color: var(--color-content);
 }
-.personal-shell .personal-project-open > span:first-of-type {
+.personal-shell .personal-project-open > .personal-project-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -185,6 +185,56 @@
 .personal-shell .personal-navigation .personal-project-symbol {
   flex-shrink: 0;
   color: var(--personal-muted);
+}
+/* What is happening in the project: quiet marks at the row's end. A running
+   agent shows on the mascot; a logo, which stays still, gets the accent dot. */
+.personal-shell .personal-navigation .personal-project-status {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding-left: 4px;
+  color: var(--personal-muted);
+  font-size: var(--text-ui-micro);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.personal-shell .personal-navigation .personal-project-running {
+  display: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--personal-accent);
+}
+.personal-shell
+  .personal-navigation
+  .project-mark[data-kind="logo"]
+  ~ .personal-project-status
+  .personal-project-running {
+  display: inline-block;
+}
+.personal-shell .personal-navigation .personal-project-waiting {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-amber-400);
+}
+.personal-shell .personal-navigation .personal-project-unread {
+  display: inline-grid;
+  place-items: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--personal-accent) 26%, transparent);
+  color: var(--color-content);
+  font-weight: 600;
+}
+/* A hidden sidebar keeps its rows; their mascots stop stepping. */
+.personal-shell .personal-sidebar-slot[data-open="false"] .project-mark * {
+  animation-play-state: paused;
 }
 .personal-shell .personal-navigation .personal-project-row-action {
   display: grid;

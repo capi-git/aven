@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import { projectKey, projectName } from "../lib/paths";
 import {
-  loadTabGroupLabels,
-  resolveTabGroupLabel,
-  subscribeTabGroupLabels,
-} from "../lib/tabGroups";
+  projectLabelRecords,
+  subscribeProjectAppearance,
+} from "../lib/projectAppearance";
+import { resolveTabGroupLabel } from "../lib/tabGroups";
 
 /** Display metadata only: the original path remains the project identity. */
 export function projectDisplayName(
@@ -15,13 +15,11 @@ export function projectDisplayName(
   return resolveTabGroupLabel(projectKey(path), labels, fallback);
 }
 
+/** Saved project names, parsed once per change and shared by every reader. */
 export function useProjectLabels(): Record<string, string> {
-  const [labels, setLabels] = useState(loadTabGroupLabels);
-  useEffect(() => {
-    const refresh = () => setLabels(loadTabGroupLabels());
-    const unsubscribe = subscribeTabGroupLabels(refresh);
-    refresh();
-    return unsubscribe;
-  }, []);
-  return labels;
+  return useSyncExternalStore(
+    subscribeProjectAppearance,
+    projectLabelRecords,
+    projectLabelRecords,
+  );
 }

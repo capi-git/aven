@@ -19,6 +19,13 @@ vi.mock("../lib/fs", () => ({
     mocks.gitListeners.add(listener);
     return () => mocks.gitListeners.delete(listener);
   },
+  // Diff stats hear the changed folder; these tests report unnamed changes.
+  subscribeGitChangedPath: (listener: (path: string | null) => void) => {
+    const unnamed = () => listener(null);
+    mocks.gitListeners.add(unnamed);
+    return () => mocks.gitListeners.delete(unnamed);
+  },
+  gitChangeAffects: () => true,
 }));
 vi.mock("../lib/fileTree", () => ({
   subscribeDirsChanged: (listener: () => void) => {

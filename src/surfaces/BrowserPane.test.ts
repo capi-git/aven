@@ -284,6 +284,48 @@ describe("native preview lifecycle", () => {
     ).toBeUndefined();
   });
 
+  it("names its project with the project's mark beside the address", async () => {
+    const data = new Map([
+      [
+        "monocode:tab-group:labels",
+        JSON.stringify({ "/Users/me/Developer/app": "Aven" }),
+      ],
+    ]);
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => data.get(key) ?? null,
+      setItem: (key: string, value: string) => data.set(key, value),
+    });
+    await act(async () =>
+      root.render(
+        createElement(BrowserPane, {
+          id: "project-page",
+          project: "/Users/me/Developer/app",
+        }),
+      ),
+    );
+    const mark = container.querySelector<HTMLElement>(
+      ".browser-toolbar .browser-project-mark",
+    );
+    expect(mark?.title).toBe("Aven");
+    expect(mark?.getAttribute("aria-label")).toBe("Project Aven");
+    expect(mark?.querySelector(".project-mark svg")).not.toBeNull();
+    // The mark sits just before the address field.
+    expect(
+      mark?.nextElementSibling?.classList.contains("browser-address"),
+    ).toBe(true);
+
+    await act(async () =>
+      root.render(
+        createElement(BrowserPane, { id: "home-page", project: "~" }),
+      ),
+    );
+    expect(container.querySelector(".browser-project-mark")).toBeNull();
+    await act(async () =>
+      root.render(createElement(BrowserPane, { id: "loose-page" })),
+    );
+    expect(container.querySelector(".browser-project-mark")).toBeNull();
+  });
+
   it("acknowledges an attached page in a hidden window without waiting for paint", async () => {
     const ready = vi.fn();
     await act(async () =>

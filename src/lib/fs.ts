@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { slash } from "./paths";
+import { isEqualOrInside, slash } from "./paths";
 import { isLiveRaceWorktree, raceLaneProject } from "./race";
 
 export type FsEntry = {
@@ -354,14 +354,47 @@ export function restoreSessionCheckout<
 
 const GIT_CHANGED = "monocode-git-changed";
 
-/** Tell git UIs (diff pane, branch picker) to reload after a local git mutation. */
-export function notifyGitChanged() {
-  window.dispatchEvent(new Event(GIT_CHANGED));
+type GitChangedDetail = { path: string } | null;
+
+/**
+ * Tell git UIs (diff pane, branch picker, project status) to reload after a
+ * local git mutation. `path`, a folder or file, names where it happened so
+ * per-project readers can skip unrelated projects; without it, every reader
+ * reloads.
+ */
+export function notifyGitChanged(path?: string) {
+  window.dispatchEvent(
+    new CustomEvent<GitChangedDetail>(GIT_CHANGED, {
+      detail: path ? { path } : null,
+    }),
+  );
 }
 
 export function subscribeGitChanged(listener: () => void): () => void {
   window.addEventListener(GIT_CHANGED, listener);
   return () => window.removeEventListener(GIT_CHANGED, listener);
+}
+
+/** Like `subscribeGitChanged`, with the changed path when the sender knew it. */
+export function subscribeGitChangedPath(
+  listener: (path: string | null) => void,
+): () => void {
+  const handler = (event: Event) => {
+    const detail = (event as CustomEvent<GitChangedDetail>).detail;
+    listener(
+      detail && typeof detail.path === "string" && detail.path
+        ? detail.path
+        : null,
+    );
+  };
+  window.addEventListener(GIT_CHANGED, handler);
+  return () => window.removeEventListener(GIT_CHANGED, handler);
+}
+
+/** Whether a git change at `changed` (null: unknown) can touch the tree at `cwd`. */
+export function gitChangeAffects(changed: string | null, cwd: string): boolean {
+  if (!changed || changed.startsWith("~") || cwd.startsWith("~")) return true;
+  return isEqualOrInside(changed, cwd) || isEqualOrInside(cwd, changed);
 }
 
 export function createPath(

@@ -3,7 +3,12 @@ import { act, createElement, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetHarnessModelOverlays, setHarnessModels } from "../lib/models";
-import { saveTabGroupLabel } from "../lib/tabGroups";
+import {
+  TAB_GROUP_COLORS,
+  saveTabGroupColor,
+  saveTabGroupLabel,
+  tabGroupColor,
+} from "../lib/tabGroups";
 import { projectKey } from "../lib/paths";
 import {
   TitleBar,
@@ -720,6 +725,43 @@ describe("browser tab integration", () => {
     } finally {
       await act(async () => saveTabGroupLabel(projectKey(path), ""));
     }
+  });
+
+  it("carries each tab's project colour for the active-tab accent", async () => {
+    const storage = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => storage.set(key, value),
+    });
+    const app = "/projects/app";
+    const site = "/projects/site";
+    saveTabGroupColor(projectKey(app), 4);
+    await render({
+      cwd: app,
+      tabs: [
+        tab({ id: "a", title: "One", project: "app", projectPath: app }),
+        tab({ id: "b", title: "Two", project: "site", projectPath: site }),
+        tab({ id: "c", title: "Loose", project: "~", projectPath: "~" }),
+      ],
+      activeId: "a",
+    });
+    const item = (id: string) =>
+      container.querySelector<HTMLElement>(
+        `[data-surface-tab-id="${id}"].personal-title-tab`,
+      )!;
+    expect(item("a").dataset.projectAccent).toBe("true");
+    expect(item("a").style.getPropertyValue("--tab-project-color")).toBe(
+      TAB_GROUP_COLORS[4],
+    );
+    expect(item("b").style.getPropertyValue("--tab-project-color")).toBe(
+      tabGroupColor("site"),
+    );
+    expect(item("c").dataset.projectAccent).toBeUndefined();
+
+    await act(async () => saveTabGroupColor(projectKey(app), 6));
+    expect(item("a").style.getPropertyValue("--tab-project-color")).toBe(
+      TAB_GROUP_COLORS[6],
+    );
   });
 
   it("offers Split right for the active tab and keeps a blank local session closable when another pane has sessions", async () => {

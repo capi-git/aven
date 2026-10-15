@@ -102,7 +102,7 @@ export function SessionReview({
     void op
       .then((status) => {
         setFiles(status.files);
-        notifyGitChanged();
+        notifyGitChanged(cwd);
         invalidateWatchedFiles(previous);
         invalidateProjectFiles(cwd);
       })

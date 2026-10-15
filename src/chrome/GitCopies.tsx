@@ -384,7 +384,7 @@ export function GitCopies({ cwd, enabled }: { cwd: string; enabled: boolean }) {
       });
     } finally {
       setRemoving(null);
-      notifyGitChanged();
+      notifyGitChanged(cwd);
       refreshCopies();
     }
   };
@@ -401,7 +401,7 @@ export function GitCopies({ cwd, enabled }: { cwd: string; enabled: boolean }) {
         message: `Couldn't check the copies again. Nothing was removed. ${error instanceof Error ? error.message : String(error)}`,
       });
     } finally {
-      notifyGitChanged();
+      notifyGitChanged(cwd);
       refreshCopies();
     }
   };
