@@ -15,6 +15,10 @@ int main() {
     CHECK(BrowserPumpDelayMs(0, foreground) == 0);
     CHECK(BrowserPumpDelayMs(1, foreground) == 1);
     CHECK(BrowserPumpDelayMs(16, foreground) == 16);
-    CHECK(BrowserPumpDelayMs(1000, foreground) == 33);
   }
+  // A visible page keeps the 33ms ceiling; with none, far-off work waits up
+  // to 250ms, and nearer deadlines are still met exactly.
+  CHECK(BrowserPumpDelayMs(1000, true) == 33);
+  CHECK(BrowserPumpDelayMs(1000, false) == 250);
+  CHECK(BrowserPumpDelayMs(100, false) == 100);
 }

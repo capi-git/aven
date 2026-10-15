@@ -8,6 +8,8 @@ import {
   attachmentsFromFiles,
   persistableAttachment,
   MAX_ATTACHMENTS,
+  displayAttachments,
+  prepareAttachments,
 } from "./attachments";
 import type { Attachment } from "./session";
 
@@ -154,7 +156,7 @@ describe("DOM file drops", () => {
     expect(text.defaultPrevented).toBe(false);
   });
 
-  it("converts a pathless WebKit image File into vision bytes", async () => {
+  it("saves a pathless WebKit image File and keeps no base64 copy in memory", async () => {
     const [image] = await attachmentsFromFiles([
       file("dropped.png", "image/png", "abc"),
     ]);
@@ -162,10 +164,11 @@ describe("DOM file drops", () => {
       name: "dropped.png",
       kind: "image",
       mimeType: "image/png",
-      data: "YWJj",
       size: 3,
       path: "/app-data/attachments/dropped.png",
     });
+    // Sending reads the saved image back (prepareAttachments).
+    expect(image.data).toBeUndefined();
     expect(invoke).toHaveBeenCalledExactlyOnceWith("write_attachment", {
       name: "dropped.png",
       data: "YWJj",
@@ -201,4 +204,43 @@ it("does not accept a pasted image if its durable file cannot be saved", async (
   ).toEqual([]);
   expect(revoke).toHaveBeenCalledTimes(1);
   revoke.mockRestore();
+});
+
+describe("sent images", () => {
+  it("keep their path and preview but no base64 copy once saved", () => {
+    const [shown] = displayAttachments([
+      attachment({
+        id: "a",
+        name: "shot.png",
+        path: "/app-data/attachments/shot.png",
+        previewUrl: "blob:preview",
+        data: "YWJj",
+      }),
+    ]);
+    expect(shown).toMatchObject({
+      path: "/app-data/attachments/shot.png",
+      previewUrl: "blob:preview",
+    });
+    expect(shown.data).toBeUndefined();
+    // An image that only exists in memory keeps its bytes.
+    const [inline] = displayAttachments([
+      attachment({ id: "b", name: "inline.png", data: "YWJj" }),
+    ]);
+    expect(inline.data).toBe("YWJj");
+  });
+
+  it("are read back from disk when sent", async () => {
+    invoke.mockResolvedValueOnce("YWJj");
+    const [ready] = await prepareAttachments([
+      attachment({
+        id: "a",
+        name: "shot.png",
+        path: "/app-data/attachments/shot.png",
+      }),
+    ]);
+    expect(invoke).toHaveBeenCalledWith("read_file_base64", {
+      path: "/app-data/attachments/shot.png",
+    });
+    expect(ready.data).toBe("YWJj");
+  });
 });

@@ -19,38 +19,54 @@ test("read-only complete document is eligible and remains untouched", () => {
   assert.equal(window.document.documentElement.outerHTML, before);
 });
 
-test("user activation or unavailable activation state fails closed", () => {
+test("a page the user has used can sleep; one that cannot say so stays", () => {
   const { window, probe } = fixture();
   window.navigator.userActivation.hasBeenActive = true;
-  assert.ok(probe().blockers.includes("user-interaction"));
+  assert.deepEqual(probe(), { blockers: [] });
   Object.defineProperty(window.navigator, "userActivation", { value: undefined });
   assert.ok(probe().blockers.includes("unknown-page-state"));
 });
 
-test("forms and editors block without reading private field values", () => {
-  for (const markup of ["<input>", "<input type=password>", "<input type=file>", "<textarea></textarea>", "<select></select>", '<div contenteditable=true></div>']) {
+test("untouched forms do not block; edited ones and editors do", () => {
+  const untouched = '<input value="docs"><input type=checkbox><select><option selected>A</option><option>B</option></select><textarea>Draft</textarea><input type=submit>';
+  assert.deepEqual(fixture(untouched).probe(), { blockers: [] });
+  const edits = [
+    ["<input>", (el) => { el.value = "typed"; }],
+    ["<input type=password>", (el) => { el.value = "secret"; }],
+    ["<textarea></textarea>", (el) => { el.value = "a note"; }],
+    ["<input type=checkbox>", (el) => { el.checked = true; }],
+    ["<select><option>A</option><option>B</option></select>", (el) => { el.options[1].selected = true; }],
+  ];
+  for (const [markup, edit] of edits) {
     const { window, probe } = fixture(markup);
-    Object.defineProperty(window.document.body.firstChild, "value", { get() { throw new Error("Do not read values"); } });
-    assert.ok(probe().blockers.includes("form-or-editor"), markup);
+    edit(window.document.body.firstChild);
+    assert.deepEqual(probe().blockers, ["form-or-editor"], markup);
   }
+  assert.ok(fixture('<div contenteditable=true></div>').probe().blockers.includes("form-or-editor"));
 });
 
-test("media blocks even while paused or muted", () => {
+test("media blocks only while it plays", () => {
   for (const markup of ["<audio></audio>", "<video muted></video>"]) {
-    assert.ok(fixture(markup).probe().blockers.includes("media"));
+    assert.deepEqual(fixture(markup).probe(), { blockers: [] }, markup);
+    const { window, probe } = fixture(markup);
+    Object.defineProperty(window.document.body.firstChild, "paused", { value: false });
+    assert.ok(probe().blockers.includes("media"), markup);
   }
   const { window, probe } = fixture();
   Object.defineProperty(window.navigator, "mediaSession", { value: { playbackState: "playing" } });
   assert.ok(probe().blockers.includes("media"));
 });
 
-test("frames, canvas, plugins and shadow content fail closed", () => {
-  for (const [markup, blocker] of [["<iframe></iframe>", "embedded-frame"], ["<canvas></canvas>", "interactive-content"], ["<object></object>", "interactive-content"], ["<custom-editor></custom-editor>", "custom-content"]]) {
+test("frames, canvas and plugins block; custom elements and shadow content are checked", () => {
+  for (const [markup, blocker] of [["<iframe></iframe>", "embedded-frame"], ["<canvas></canvas>", "interactive-content"], ["<object></object>", "interactive-content"]]) {
     assert.ok(fixture(markup).probe().blockers.includes(blocker), markup);
   }
+  assert.deepEqual(fixture("<custom-list><span>Row</span></custom-list>").probe(), { blockers: [] });
   const { window, probe } = fixture("<div></div>");
   window.document.body.firstChild.attachShadow({ mode: "open" }).innerHTML = "<input>";
-  assert.ok(probe().blockers.includes("custom-content"));
+  assert.deepEqual(probe(), { blockers: [] });
+  window.document.body.firstChild.shadowRoot.firstChild.value = "typed";
+  assert.ok(probe().blockers.includes("form-or-editor"));
 });
 
 test("loading and overly complex documents are not discarded", () => {
