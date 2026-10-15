@@ -30,6 +30,7 @@ import {
   loadLastModelSettings,
   mergeModelSettings,
   modelPickerTabs,
+  openingModelPickerTab,
   preferredModelId,
   preferredModelSettings,
   resetHarnessModelOverlays,
@@ -302,6 +303,82 @@ describe("model picker tabs", () => {
     expect(coerceModelPickerTab("pi", available)).toBe("favorites");
     expect(coerceModelPickerTab("cursor", available)).toBe("cursor");
     expect(coerceModelPickerTab("favorites", available)).toBe("favorites");
+  });
+
+  describe("opening", () => {
+    beforeEach(mockLocalStorage);
+    afterEach(mockLocalStorage);
+    const claude = CLAUDE_OPUS_5_5_MODEL;
+
+    it("opens on the chat's own provider, whatever tab another chat left", () => {
+      for (const remembered of ["cursor", "fx", "claude"] as const)
+        expect(
+          openingModelPickerTab({
+            remembered,
+            current: claude,
+            favorites: [],
+            available,
+          }),
+        ).toBe("claude");
+    });
+
+    it("keeps Favorites only while the chat's model is one of them", () => {
+      expect(
+        openingModelPickerTab({
+          remembered: "favorites",
+          current: claude,
+          favorites: [claude.id],
+          available,
+        }),
+      ).toBe("favorites");
+      expect(
+        openingModelPickerTab({
+          remembered: "favorites",
+          current: claude,
+          favorites: ["cursor:other"],
+          available,
+        }),
+      ).toBe("claude");
+      // Favourites is not where a provider tab was last left.
+      expect(
+        openingModelPickerTab({
+          remembered: "cursor",
+          current: claude,
+          favorites: [claude.id],
+          available,
+        }),
+      ).toBe("claude");
+      // A favourite hidden from the picker is not listed there.
+      savePickerModelVisible(claude.id, false);
+      expect(
+        openingModelPickerTab({
+          remembered: "favorites",
+          current: claude,
+          favorites: [claude.id],
+          available,
+        }),
+      ).toBe("claude");
+    });
+
+    it("falls back to the remembered tab when the chat's provider is not shown", () => {
+      const pi = { id: "pi:model", harness: "pi" as const };
+      expect(
+        openingModelPickerTab({
+          remembered: "cursor",
+          current: pi,
+          favorites: [],
+          available,
+        }),
+      ).toBe("cursor");
+      expect(
+        openingModelPickerTab({
+          remembered: "favorites",
+          current: pi,
+          favorites: [pi.id],
+          available,
+        }),
+      ).toBe("favorites");
+    });
   });
 });
 

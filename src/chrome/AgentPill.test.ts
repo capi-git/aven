@@ -23,7 +23,7 @@ let props: ComponentProps<typeof AgentPill>;
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  // The model list opens on the provider last chosen.
+  // The tab last chosen in a picker; the panel opens on the chat's own.
   const storage = new Map([["monocode.modelPickerTab", "claude"]]);
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => storage.get(key) ?? null,
@@ -266,6 +266,28 @@ describe("the agent pill", () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect((await press()).defaultPrevented).toBe(false);
     expect(panel()).toBeNull();
+  });
+});
+
+describe("the panel's model list", () => {
+  it("opens on the chat's provider with its model highlighted, whatever tab another chat left", async () => {
+    localStorage.setItem("monocode.modelPickerTab", "codex");
+    await render();
+    await open();
+    const tab = panel()!.querySelector('[role="tab"][aria-selected="true"]');
+    expect(tab?.getAttribute("title")).toBe("Claude Code");
+    const highlighted = [
+      ...panel()!.querySelectorAll('[role="listbox"] > div'),
+    ].filter((row) => row.classList.contains("bg-content/10"));
+    expect(highlighted).toHaveLength(1);
+    expect(highlighted[0].textContent).toContain(CLAUDE_OPUS_5_5_MODEL.name);
+    expect(
+      highlighted[0]
+        .querySelector('[role="option"]')
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
+    // The Reasoning section beside it belongs to the same model.
+    expect(section("Reasoning")).toBeDefined();
   });
 });
 
