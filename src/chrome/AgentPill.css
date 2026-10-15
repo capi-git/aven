@@ -66,6 +66,18 @@
 html.theme-light .agent-pill-access {
   --agent-full-access: #a54d1f;
 }
+/* A new usage warning for this account: one small amber dot, once per
+   window and pace. The panel says what it means. */
+.agent-pill-usage {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--agent-usage-warning, var(--color-warning, #d99c45));
+}
+html.theme-light :is(.agent-pill-usage, .agent-panel-usage) {
+  --agent-usage-warning: #a8661c;
+}
 .agent-pill-chevron {
   width: 12px;
   height: 12px;
@@ -102,6 +114,59 @@ html.theme-light .agent-pill-access {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+/* The usage warning: one amber line above the columns, with one-click ways
+   to keep going. */
+.agent-panel-usage {
+  --agent-usage-warning: var(--color-warning, #d99c45);
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 8px 10px 8px 12px;
+  border-bottom: 1px solid var(--agent-panel-line);
+  background: color-mix(in srgb, var(--agent-usage-warning) 7%, transparent);
+}
+.agent-panel-usage-mark {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--agent-usage-warning);
+}
+.agent-panel-usage-text {
+  flex: 1 1 200px;
+  min-width: 0;
+  margin: 0;
+  color: color-mix(
+    in srgb,
+    var(--agent-usage-warning) 85%,
+    var(--color-content)
+  );
+  font-size: var(--text-ui-caption);
+  line-height: 1.4;
+}
+.agent-panel-usage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.agent-panel-usage-action {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+  color: color-mix(in srgb, var(--color-content) 86%, transparent);
+  font-size: var(--text-ui-caption);
+  white-space: nowrap;
+}
+.agent-panel-usage-action:hover {
+  background: color-mix(in srgb, var(--color-content) 14%, transparent);
+  color: var(--color-content);
+}
+.agent-panel-usage-action:focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--toolbar-panel-accent));
+  outline-offset: 1px;
 }
 .agent-panel-body {
   display: flex;
