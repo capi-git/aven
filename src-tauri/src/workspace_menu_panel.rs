@@ -305,7 +305,18 @@ fn dismiss(app: &AppHandle, label: &str, destroy: bool, expected: Option<&str>) 
         if destroy {
             crate::native_popup::destroy(&window);
         } else {
-            crate::native_popup::hide(&window);
+            crate::native_popup::hide_then_release(&window, |app, label| {
+                // Still closed since it was hidden: release it.
+                let idle = with_panels(app, |entries| {
+                    Ok(entries
+                        .get(label)
+                        .is_some_and(|panel| panel.presentation.is_none() && !panel.shown))
+                })
+                .unwrap_or(false);
+                if idle {
+                    dismiss(app, label, true, None);
+                }
+            });
         }
     }
     if let Some((owner, presentation)) = notify {
@@ -654,7 +665,18 @@ fn action_on_main(caller: Webview, presentation: String, action: String) -> Resu
         take_selection(entries, caller.label(), &presentation, &action)
     })?;
     if let Some(window) = app.get_window(caller.label()) {
-        crate::native_popup::hide(&window);
+        crate::native_popup::hide_then_release(&window, |app, label| {
+            // Still closed since it was hidden: release it.
+            let idle = with_panels(app, |entries| {
+                Ok(entries
+                    .get(label)
+                    .is_some_and(|panel| panel.presentation.is_none() && !panel.shown))
+            })
+            .unwrap_or(false);
+            if idle {
+                dismiss(app, label, true, None);
+            }
+        });
     }
     let result = if action != "close" {
         app.emit_to(EventTarget::webview(&selection.owner), ACTION_EVENT,

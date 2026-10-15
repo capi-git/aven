@@ -129,7 +129,16 @@ fn dismiss(app: &AppHandle, label: &str, destroy: bool, open_id: Option<&str>) {
         if destroy {
             crate::native_popup::destroy(&window);
         } else {
-            crate::native_popup::hide(&window);
+            crate::native_popup::hide_then_release(&window, |app, label| {
+                // Still closed since it was hidden: release it.
+                let idle = with_panels(app, |entries| {
+                    Ok(entries.get(label).is_some_and(|panel| !panel.requested))
+                })
+                .unwrap_or(false);
+                if idle {
+                    dismiss(app, label, true, None);
+                }
+            });
         }
     }
     if let Some((owner, open_id)) = notice {
