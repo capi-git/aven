@@ -311,7 +311,8 @@ export function TerminalView({
           const onMeta = onMetaChangeRef.current;
           const text =
             onMeta || previewWatch ? new TextDecoder().decode(data) : "";
-          previewWatch?.push(text);
+          // Full-screen programs (an editor, a pager) draw files, not servers.
+          if (term.buffer.active.type !== "alternate") previewWatch?.push(text);
           if (onMeta) {
             const scanned = scanOscCwd(text, oscBuffer);
             oscBuffer = scanned.rest;
