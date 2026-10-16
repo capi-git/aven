@@ -124,6 +124,14 @@ html.has-native-glass:not(.theme-light) #root {
   background: transparent;
 }
 
+/* Opaque in the theme colour until the window confirms glass (appearance.ts),
+   so the window's own opaque colour never shows through the page. */
+html.has-native-glass.native-glass-pending:not(.theme-light),
+html.has-native-glass.native-glass-pending:not(.theme-light) body,
+html.has-native-glass.native-glass-pending:not(.theme-light) #root {
+  background: var(--color-background-base);
+}
+
 .sidebar-glass {
   background: color-mix(in srgb, var(--color-background-base) 90%, black);
 }

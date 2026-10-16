@@ -341,6 +341,11 @@ export function initAppearance() {
     "has-native-glass",
     HAS_NATIVE_GLASS,
   );
+  // Opaque until the window confirms glass (`activateWindowAppearance`).
+  document.documentElement.classList.toggle(
+    NATIVE_GLASS_PENDING_CLASS,
+    HAS_NATIVE_GLASS && !confirmedNativeGlass,
+  );
   applyThemeTint(loadThemeHue(), loadThemeSaturation());
   applyThemeColors(hasLegacyAppearancePreferences() ? {} : AVEN_THEME_COLORS);
   applyThemePreference(loadThemePreference());
@@ -433,6 +438,18 @@ let nativeTintRefreshQueued = false;
 /** The page class that stops the shell painting the tint AppKit now paints. */
 export const NATIVE_GLASS_TINT_CLASS = "has-native-glass-tint";
 
+/**
+ * The page class that keeps the page opaque in its theme colour while the
+ * window has not yet confirmed glass: at startup, and when dark mode turns
+ * glass back on. A see-through page over a window still painting its opaque
+ * (light or launch) colour would show as a pale or coloured frame whenever
+ * the native change landed a frame late.
+ */
+export const NATIVE_GLASS_PENDING_CLASS = "native-glass-pending";
+
+/** Whether the window confirmed it is translucent. */
+let confirmedNativeGlass = false;
+
 type GlassTint = { r: number; g: number; b: number; alpha: number };
 
 function hexRgb(hex: string) {
@@ -487,7 +504,8 @@ function paintOpaqueWindow() {
     });
 }
 
-function syncNativeGlass(scheme: ColorScheme) {
+/** Resolves once the window has its native appearance for `scheme`. */
+function syncNativeGlass(scheme: ColorScheme): Promise<void> {
   const enabled =
     HAS_NATIVE_GLASS && scheme === "dark" && windowTranslucencyWanted();
   const root = document.documentElement;
@@ -498,8 +516,9 @@ function syncNativeGlass(scheme: ColorScheme) {
     // Restore the page's own tint (or its opaque light/full-opacity shell)
     // before the window drops its native colour.
     sentNativeTint = null;
-    root.classList.remove(NATIVE_GLASS_TINT_CLASS);
-    void invoke("set_window_glass_enabled", { enabled })
+    confirmedNativeGlass = false;
+    root.classList.remove(NATIVE_GLASS_TINT_CLASS, NATIVE_GLASS_PENDING_CLASS);
+    return invoke("set_window_glass_enabled", { enabled })
       .then(() => {
         // A workspace/theme switch may already have restored glass while
         // this acknowledgement was in flight. Its opaque paint would cover
@@ -510,24 +529,29 @@ function syncNativeGlass(scheme: ColorScheme) {
       .catch(() => {
         // Browser previews have no native window.
       });
-    return;
   }
+  // Until the window is translucent, the page stays opaque in its theme
+  // colour rather than showing the window's opaque colour through it.
+  if (!confirmedNativeGlass) root.classList.add(NATIVE_GLASS_PENDING_CLASS);
   // Only macOS paints the tint natively; the page keeps painting it until the
   // window confirms, and keeps it if an older host or a preview cannot.
   const tint = IS_MAC ? nativeGlassTint() : undefined;
   sentNativeTint = tint ? tintKey(tint) : null;
-  void invoke<boolean | undefined>("set_window_glass_enabled", {
+  return invoke<boolean | undefined>("set_window_glass_enabled", {
     enabled,
     ...(tint ? { tint } : {}),
   })
     .then((nativeTint) => {
       if (generation !== nativeGlassGeneration) return;
-      if (nativeTint === true) root.classList.add(NATIVE_GLASS_TINT_CLASS);
-      else root.classList.remove(NATIVE_GLASS_TINT_CLASS);
+      confirmedNativeGlass = true;
+      // One class change, so one frame goes from opaque to glass.
+      root.classList.toggle(NATIVE_GLASS_TINT_CLASS, nativeTint === true);
+      root.classList.remove(NATIVE_GLASS_PENDING_CLASS);
     })
     .catch(() => {
       // Browser previews have no native window. A failed later update keeps
-      // the tint AppKit already paints, so the page does not double it.
+      // the tint AppKit already paints, so the page does not double it; a
+      // failed first one keeps the page opaque.
     });
 }
 
@@ -555,10 +579,13 @@ function refreshNativeTint() {
   });
 }
 
-/** Synchronizes native appearance after the first opaque frame is ready. */
-export function activateWindowAppearance() {
+/**
+ * Synchronizes native appearance once the themed workspace has committed.
+ * Resolves when the window has it, so the window can be revealed then.
+ */
+export function activateWindowAppearance(): Promise<void> {
   nativeGlassReady = true;
-  syncNativeGlass(isLightScheme() ? "light" : "dark");
+  return syncNativeGlass(isLightScheme() ? "light" : "dark");
 }
 
 /** Keeps the "system" preference in sync when the OS flips appearance. */
