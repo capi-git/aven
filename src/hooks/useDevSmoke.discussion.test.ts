@@ -28,6 +28,8 @@ const STEP = "two chats discuss for two rounds, linked in the sidebar";
 const ROUNDS = 2;
 
 type Flaws = {
+  /** The chat's + menu has no Discuss with… (the host never reached it). */
+  noEntry?: boolean;
   /** The picker's start refuses with this reason. */
   refuse?: string;
   /** The second chat is sent the first chat's reply twice. */
@@ -63,6 +65,7 @@ function app(flaws: Flaws = {}) {
     turn: number;
   } | null = null;
   let ended = false;
+  let plusOpen = false;
   const session = (id: string) =>
     state.sessions.find((entry) => entry.id === id)!;
   const title = (id: string) => `Chat ${id}`;
@@ -235,13 +238,26 @@ function app(flaws: Flaws = {}) {
           Math.floor(active.turn / 2) + 1
         } of ${ROUNDS} Stop</div>`
       : "";
+    const menu = plusOpen
+      ? `<div data-composer-plus><button>Upload file</button>${
+          flaws.noEntry
+            ? ""
+            : "<button data-composer-discuss>Discuss with…</button>"
+        }</div>`
+      : "";
     document.body.innerHTML = `
       <aside class="personal-navigation">${link}${rows}</aside>
       <div class="personal-workspace-content">
         <div data-session-drop="${focused}">${cards}
-          <div data-composer>${bar}<textarea style="visibility: visible"></textarea></div>
+          <div data-composer>${bar}<textarea style="visibility: visible"></textarea><button aria-label="Add files or choose a mode"></button></div>
         </div>
-      </div>`;
+      </div>${menu}`;
+    document
+      .querySelector('[aria-label="Add files or choose a mode"]')
+      ?.addEventListener("click", () => {
+        plusOpen = !plusOpen;
+        draw();
+      });
   }
   draw();
   return state;
@@ -382,6 +398,15 @@ describe("the real-app check's discussion step", () => {
     expect(step?.detail).toContain(
       "the connector and the bar to go once it ended",
     );
+  });
+
+  it("fails when the chat's + menu does not offer Discuss with…", async () => {
+    const { steps, state } = await check({ noEntry: true });
+    const step = discussionStep(steps);
+    expect(step?.passed).toBe(false);
+    expect(step?.detail).toBe("The + menu does not offer Discuss with…");
+    expect(state.discussion.start).not.toHaveBeenCalled();
+    expect(document.querySelector("[data-composer-plus]")).toBeNull();
   });
 
   it("fails with the reason when the discussion does not start", async () => {

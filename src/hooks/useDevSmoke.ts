@@ -304,6 +304,43 @@ function linkProblem(id: string, a: string, b: string): string | null {
   return moving ? `the pulse ${moving}` : null;
 }
 
+/** Open the visible chat's + menu, find Discuss with…, and close it again. */
+async function expectDiscussEntry(sessionId: string) {
+  const composer = await waitFor(
+    () => {
+      const field = visibleComposer();
+      return (
+        field
+          ?.closest(`[data-session-drop="${sessionId}"]`)
+          ?.querySelector<HTMLElement>("[data-composer]") ?? null
+      );
+    },
+    5_000,
+    "the new chat's message box",
+  );
+  const plus = composer.querySelector<HTMLButtonElement>(
+    '[aria-label="Add files or choose a mode"]',
+  );
+  if (!plus) throw new Error("The message box has no + menu");
+  plus.click();
+  try {
+    await waitFor(
+      () => document.querySelector("[data-composer-plus]"),
+      5_000,
+      "the + menu",
+    );
+    if (!document.querySelector("[data-composer-discuss]"))
+      throw new Error("The + menu does not offer Discuss with…");
+  } finally {
+    if (document.querySelector("[data-composer-plus]")) plus.click();
+  }
+  await waitFor(
+    () => !document.querySelector("[data-composer-plus]"),
+    5_000,
+    "the + menu to close",
+  );
+}
+
 /** One run per app, even when React mounts the workspace twice. */
 let started = false;
 
@@ -814,6 +851,8 @@ export async function runDevSmoke(
         }
         const a = await openNewTask(get, config.projectPath);
         const b = await openNewTask(get, config.projectPath);
+        // The chat's own + menu offers it, so the picker can be reached.
+        await expectDiscussEntry(b.id);
         const refused = discussion.start({
           sessionId: a.id,
           partner: { kind: "chat", sessionId: b.id },
