@@ -7,7 +7,15 @@ import {
   type ProfilerOnRenderCallback,
 } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { WorkspaceHome } from "./WorkspaceHome";
 import { useWorkspaceHomeData } from "../hooks/useWorkspaceHomeData";
 import type { ActivityEntry } from "../lib/activity";
@@ -26,6 +34,19 @@ import type {
   HomeRunning,
   HomeSession,
 } from "../lib/workspaceHome";
+
+// "Today", the streak and the briefing depend on the date, and a run just
+// after midnight would see "a minute ago" as yesterday. The whole file, its
+// fixtures included, runs at a fixed midday instead.
+const MIDDAY = new Date(2026, 9, 15, 12, 0);
+vi.useFakeTimers({ toFake: ["Date"] });
+vi.setSystemTime(MIDDAY);
+beforeEach(() => {
+  vi.setSystemTime(MIDDAY);
+});
+afterAll(() => {
+  vi.useRealTimers();
+});
 
 // Each project mark reports its renders through a Profiler of its own. The
 // home's marks render only when the home itself does, so zero commits here
