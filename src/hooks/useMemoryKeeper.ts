@@ -155,7 +155,11 @@ export function useMemoryKeeper(sessions: readonly Session[]) {
 
     const onActivity = () => {
       const now = Date.now();
-      for (const entry of getActivitySnapshot()) {
+      const entries = getActivitySnapshot();
+      // Only ids still in the ledger are kept, so this never outgrows it.
+      const listed = new Set(entries.map((entry) => entry.id));
+      for (const id of known) if (!listed.has(id)) known.delete(id);
+      for (const entry of entries) {
         if (known.has(entry.id)) continue;
         known.add(entry.id);
         if (entry.outcome !== "completed") continue;
