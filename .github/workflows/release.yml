@@ -260,6 +260,8 @@ jobs:
               'teamId': expected['teamId'],
               'bundleId': expected['bundleId'],
               'strictSignatureVerification': 'passed',
+              # Without these macOS silently blocks website microphone and camera.
+              'captureEntitlements': 'verified',
           }
           if any(result.get(key) != value for key, value in required.items()):
               raise SystemExit('Refusing to publish an unverified signing identity.')

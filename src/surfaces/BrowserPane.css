@@ -100,6 +100,16 @@
   outline: 2px solid var(--aven-focus-ring, var(--color-accent));
   outline-offset: 2px;
 }
+/* The page is capturing: the same orange macOS uses for its own indicator. */
+.browser-capture {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  padding: 0 4px;
+  color: var(--color-warning, #d99c45);
+}
 /* Which project this browser belongs to, beside the address. */
 .browser-project-mark {
   display: inline-grid;
@@ -226,6 +236,29 @@
 }
 .browser-notice > button:hover {
   background: color-mix(in srgb, var(--color-content) 7%, transparent);
+}
+.browser-notice > .browser-notice-action {
+  flex: 0 0 auto;
+  width: auto;
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid
+    var(
+      --aven-control-border,
+      color-mix(in srgb, var(--color-content) 10%, transparent)
+    );
+  background: var(
+    --aven-control-bg,
+    color-mix(in srgb, var(--color-content) 9%, transparent)
+  );
+  color: var(--color-content);
+  font: inherit;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.browser-notice > .browser-notice-action:focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: 2px;
 }
 .browser-native-host {
   position: relative;

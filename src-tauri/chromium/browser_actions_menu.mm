@@ -57,6 +57,8 @@
   [self addAction:@"find" title:@"Find in page" enabled:options.can_use_page && !options.floating];
   [self addAction:@"downloads" title:@"Downloads" enabled:YES];
   [self addAction:@"devtools" title:@"Developer tools" enabled:options.can_use_page];
+  if (options.can_forget_site_media)
+    [self addAction:@"forget-site-media" title:@"Forget microphone and camera choices" enabled:YES];
   [_menu addItem:NSMenuItem.separatorItem];
   if (options.can_float)
     [self addAction:@"pip" title:options.floating ? @"Return to workspace" : @"Picture in Picture" enabled:options.can_use_page];

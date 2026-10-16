@@ -42,7 +42,21 @@ export type BrowserAction =
   | "zoom-out"
   | "zoom-reset"
   | "devtools"
-  | "stop-find";
+  | "stop-find"
+  // The button on a notice that offers one, and closing that notice.
+  | "notice-action"
+  | "notice-dismiss";
+
+/** Buttons a Chromium notice can offer; the native page carries them out. */
+export type BrowserNoticeAction =
+  "privacy-microphone" | "privacy-camera" | "site-media-reset";
+
+export const BROWSER_NOTICE_ACTION_LABELS: Record<BrowserNoticeAction, string> =
+  {
+    "privacy-microphone": "Open System Settings",
+    "privacy-camera": "Open System Settings",
+    "site-media-reset": "Ask again",
+  };
 
 export type BrowserEditSelection = {
   url: string;
@@ -150,6 +164,10 @@ export type BrowserState = {
   canGoForward: boolean;
   error: string | null;
   notice: string | null;
+  noticeAction?: BrowserNoticeAction | null;
+  /** What the page is capturing right now. */
+  microphoneInUse?: boolean;
+  cameraInUse?: boolean;
   /** Authored by the native window's first-responder observer. */
   focused?: boolean;
   /** Native menus can sit above Chromium without replacing the page. */

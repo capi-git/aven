@@ -1,3 +1,4 @@
+#import <AVFoundation/AVFoundation.h>
 #import <Cocoa/Cocoa.h>
 #import <objc/runtime.h>
 #include <crt_externs.h>
@@ -33,6 +34,7 @@
 #include "browser_update_source.h"
 #include "browser_update_dom.h"
 #include "browser_sleep_state.h"
+#include "browser_media_access.h"
 #include "include/cef_app.h"
 #include "include/cef_application_mac.h"
 #include "include/cef_client.h"
@@ -142,6 +144,52 @@ bool AllowedUrl(const std::string& url, bool navigation = false, bool download =
 // Chromium's built-in PDF viewer renders inside its own extension frame.
 bool PdfViewerUrl(const std::string& url) {
   return url.rfind("chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/",0)==0;
+}
+// "Aven", or "Aven Dev" for the preview: the name macOS lists in its settings.
+std::string AppName() {
+  NSString *name=[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleName"];
+  return [name isKindOfClass:NSString.class] && name.length ? Str(name) : "Aven";
+}
+supermono::MediaSystemAccess SystemMediaAccess(AVMediaType type) {
+  switch ([AVCaptureDevice authorizationStatusForMediaType:type]) {
+    case AVAuthorizationStatusAuthorized: return supermono::MediaSystemAccess::kAuthorized;
+    case AVAuthorizationStatusDenied: return supermono::MediaSystemAccess::kDenied;
+    case AVAuthorizationStatusRestricted: return supermono::MediaSystemAccess::kRestricted;
+    default: return supermono::MediaSystemAccess::kNotDetermined;
+  }
+}
+// Shows macOS's own prompt for each device it has not been asked about yet,
+// one after the other, then continues on the main thread.
+void RequestSystemMediaAccess(supermono::MediaDevices devices,std::function<void()> done) {
+  if (!devices.any()) { done(); return; }
+  AVMediaType type=devices.microphone ? AVMediaTypeAudio : AVMediaTypeVideo;
+  const supermono::MediaDevices rest{false,devices.microphone && devices.camera};
+  [AVCaptureDevice requestAccessForMediaType:type completionHandler:^(BOOL) {
+    dispatch_async(dispatch_get_main_queue(),^{ RequestSystemMediaAccess(rest,done); });
+  }];
+}
+// The person's remembered microphone and camera answers live in Chromium's own
+// per-profile site settings, so they persist with the profile's browsing data.
+// Only a value that differs from the default counts as a remembered answer.
+supermono::MediaSiteChoice SiteMediaChoice(CefRefPtr<CefRequestContext> context,
+    const std::string& url,cef_content_setting_types_t type) {
+  if (!context || url.empty()) return supermono::MediaSiteChoice::kAsk;
+  const auto fallback=context->GetContentSetting(CefString(),CefString(),type);
+  const auto value=context->GetContentSetting(url,url,type);
+  if (value==fallback) return supermono::MediaSiteChoice::kAsk;
+  if (value==CEF_CONTENT_SETTING_VALUE_ALLOW) return supermono::MediaSiteChoice::kAllow;
+  if (value==CEF_CONTENT_SETTING_VALUE_BLOCK) return supermono::MediaSiteChoice::kBlock;
+  return supermono::MediaSiteChoice::kAsk;
+}
+bool RemembersSiteMedia(CefRefPtr<CefRequestContext> context,const std::string& url) {
+  return AllowedUrl(url) &&
+    (SiteMediaChoice(context,url,CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_MIC)!=supermono::MediaSiteChoice::kAsk ||
+     SiteMediaChoice(context,url,CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_CAMERA)!=supermono::MediaSiteChoice::kAsk);
+}
+void ForgetSiteMedia(CefRefPtr<CefRequestContext> context,const std::string& url) {
+  if (!context || !AllowedUrl(url)) return;
+  for (auto type:{CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_MIC,CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_CAMERA})
+    context->SetContentSetting(url,url,type,CEF_CONTENT_SETTING_VALUE_DEFAULT);
 }
 bool Geometry(double x,double y,double w,double h) {
   return std::isfinite(x)&&std::isfinite(y)&&std::isfinite(w)&&std::isfinite(h)&&w>=0&&h>=0&&w<=32768&&h<=32768;
@@ -313,6 +361,16 @@ class FaviconDownload final : public CefDownloadImageCallback {
   IMPLEMENT_REFCOUNTING(FaviconDownload);
 };
 
+// One website's microphone, camera or screen request while Aven and macOS
+// answer it. CEF cancels the request if the callback is released unanswered.
+struct MediaRequest {
+  CefRefPtr<CefBrowser> browser;
+  CefRefPtr<CefMediaAccessCallback> callback;
+  std::string origin;
+  uint32_t permissions=0;
+  supermono::MediaAccessState state;
+};
+
 class Page final : public CefClient, public CefLifeSpanHandler, public CefDisplayHandler,
   public CefLoadHandler, public CefRequestHandler, public CefDownloadHandler,
   public CefPermissionHandler, public CefKeyboardHandler, public CefFindHandler, public CefFocusHandler,
@@ -349,10 +407,14 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     FinishSleep(sleep_.token(),{"before-unload"});
     return true;
   }
-  void OnMediaAccessChange(CefRefPtr<CefBrowser>,bool video,bool audio) override {
+  void OnMediaAccessChange(CefRefPtr<CefBrowser> browser,bool video,bool audio) override {
     // Capture permission/usage is sticky for this native page. The public CEF
     // API does not expose every screen/WebRTC capture lifetime reliably.
     if (video || audio) { media_access_seen_=true; sleep_.Invalidate(); }
+    // The toolbar shows what the page is using right now.
+    if (Main(browser) && (camera_in_use_!=video || microphone_in_use_!=audio)) {
+      camera_in_use_=video; microphone_in_use_=audio; State();
+    }
   }
   bool OnSetFocus(CefRefPtr<CefBrowser> browser,FocusSource source) override {
     // An agent's fill or click focuses an element inside the page only. Never
@@ -473,6 +535,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   void OnTitleChange(CefRefPtr<CefBrowser> browser,const CefString& title) override { if (Main(browser)) { title_=title.ToString(); State(); } }
   void OnLoadStart(CefRefPtr<CefBrowser> browser,CefRefPtr<CefFrame> frame,TransitionType transition) override {
     if (Main(browser) && frame->IsMain()) {
+      if (!notice_action_.empty()) Notice("");
       // A new document holds no draft. Back, forward and reload can restore
       // form values, so they keep the page marked as touched.
       const int kind=transition;
@@ -508,7 +571,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     if (Main(browser) && frame->IsMain() && code!=ERR_ABORTED) { error_=error_text.ToString().substr(0,500); State(); }
   }
   void OnRenderProcessTerminated(CefRefPtr<CefBrowser> browser,TerminationStatus status,int code,const CefString& text) override {
-    if (Main(browser)) { if (EditActive()) EditMode(false); context_id_=0; error_="The page process stopped. Reload this tab to continue."; State(); }
+    if (Main(browser)) { if (EditActive()) EditMode(false); context_id_=0; microphone_in_use_=camera_in_use_=false; error_="The page process stopped. Reload this tab to continue."; State(); }
   }
   bool OnPreKeyEvent(CefRefPtr<CefBrowser> browser,const CefKeyEvent& event,CefEventHandle os_event,bool *shortcut) override {
     if (Main(browser) && update_prepared_) return true;
@@ -569,13 +632,72 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   bool OnRequestMediaAccessPermission(CefRefPtr<CefBrowser> browser,CefRefPtr<CefFrame> frame,
       const CefString& origin,uint32_t permissions,CefRefPtr<CefMediaAccessCallback> callback) override {
     media_access_seen_=true; sleep_.Invalidate();
-    std::string resources;
-    if (permissions & CEF_MEDIA_PERMISSION_DEVICE_AUDIO_CAPTURE) resources+="microphone ";
-    if (permissions & CEF_MEDIA_PERMISSION_DEVICE_VIDEO_CAPTURE) resources+="camera ";
-    if (permissions & (CEF_MEDIA_PERMISSION_DESKTOP_AUDIO_CAPTURE|CEF_MEDIA_PERMISSION_DESKTOP_VIDEO_CAPTURE)) resources+="screen sharing ";
-    Prompt(browser,"media:"+std::to_string(++prompt_sequence_),origin.ToString(),"Use your "+resources,
-      [callback,permissions](bool allow) { if (allow) callback->Continue(permissions); else callback->Cancel(); });
+    constexpr uint32_t kDevices=CEF_MEDIA_PERMISSION_DEVICE_AUDIO_CAPTURE|CEF_MEDIA_PERMISSION_DEVICE_VIDEO_CAPTURE;
+    constexpr uint32_t kScreen=CEF_MEDIA_PERMISSION_DESKTOP_AUDIO_CAPTURE|CEF_MEDIA_PERMISSION_DESKTOP_VIDEO_CAPTURE;
+    if (!permissions || (permissions & ~(kDevices|kScreen))) { callback->Cancel(); return true; }
+    auto request=std::make_shared<MediaRequest>();
+    request->browser=browser; request->callback=callback; request->origin=origin.ToString();
+    request->permissions=permissions;
+    request->state.requested={(permissions & CEF_MEDIA_PERMISSION_DEVICE_AUDIO_CAPTURE)!=0,
+                              (permissions & CEF_MEDIA_PERMISSION_DEVICE_VIDEO_CAPTURE)!=0};
+    request->state.screen=(permissions & kScreen)!=0;
+    ContinueMediaRequest(request);
     return true;
+  }
+  // Each step of a media request asks again: the person may have changed a
+  // site or macOS answer while a prompt was open.
+  void ContinueMediaRequest(std::shared_ptr<MediaRequest> request) {
+    auto& state=request->state;
+    if (closing_ || !request->browser->IsValid()) { request->callback->Cancel(); return; }
+    auto context=request->browser->GetHost()->GetRequestContext();
+    state.microphone_site=SiteMediaChoice(context,request->origin,CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_MIC);
+    state.camera_site=SiteMediaChoice(context,request->origin,CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_CAMERA);
+    state.microphone_system=SystemMediaAccess(AVMediaTypeAudio);
+    state.camera_system=SystemMediaAccess(AVMediaTypeVideo);
+    const auto decision=supermono::DecideMediaAccess(state);
+    CefRefPtr<Page> self=this;
+    switch (decision.step) {
+      case supermono::MediaAccessStep::kAllow:
+        request->callback->Continue(request->permissions); return;
+      case supermono::MediaAccessStep::kBlockedBySite:
+        request->callback->Cancel();
+        if (Main(request->browser)) Notice(supermono::MediaSiteNotice(decision.devices),"site-media-reset",request->origin);
+        return;
+      case supermono::MediaAccessStep::kBlockedBySystem:
+        request->callback->Cancel();
+        if (Main(request->browser))
+          Notice(supermono::MediaSystemNotice(decision.devices,AppName()),supermono::MediaPrivacyAction(decision.devices));
+        return;
+      case supermono::MediaAccessStep::kAskSystem:
+        state.system_asked=true;
+        RequestSystemMediaAccess(decision.devices,[self,request] { self->ContinueMediaRequest(request); });
+        return;
+      case supermono::MediaAccessStep::kAskPerson: {
+        std::string description;
+        if (state.requested.any()) description="Use your "+supermono::MediaDeviceNames(state.requested);
+        if (state.screen) description+=description.empty() ? "Share your screen" : " and share your screen";
+        // Screen sharing is chosen afresh each time, as in Chrome.
+        const bool offer_remember=state.requested.any() && !state.screen;
+        Prompt(request->browser,"media:"+std::to_string(++prompt_sequence_),request->origin,description,
+          [self,request](bool allow,bool remember) {
+            if (remember) self->RememberSiteMedia(*request,allow);
+            if (!allow) { request->callback->Cancel(); return; }
+            request->state.person_allowed=true;
+            self->ContinueMediaRequest(request);
+          },offer_remember);
+        return;
+      }
+    }
+  }
+  void RememberSiteMedia(const MediaRequest& request,bool allow) {
+    if (!request.browser->IsValid() || !AllowedUrl(request.origin)) return;
+    auto context=request.browser->GetHost()->GetRequestContext();
+    if (!context) return;
+    const auto value=allow ? CEF_CONTENT_SETTING_VALUE_ALLOW : CEF_CONTENT_SETTING_VALUE_BLOCK;
+    if (request.state.requested.microphone)
+      context->SetContentSetting(request.origin,request.origin,CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_MIC,value);
+    if (request.state.requested.camera)
+      context->SetContentSetting(request.origin,request.origin,CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_CAMERA,value);
   }
   bool OnShowPermissionPrompt(CefRefPtr<CefBrowser> browser,uint64_t id,const CefString& origin,
       uint32_t permissions,CefRefPtr<CefPermissionPromptCallback> callback) override {
@@ -594,7 +716,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       CEF_PERMISSION_TYPE_LOCAL_NETWORK|CEF_PERMISSION_TYPE_LOOPBACK_NETWORK;
     if ((permissions & ~supported) || !permissions) { callback->Continue(CEF_PERMISSION_RESULT_DENY); Notice("This website requested a permission that is not yet supported"); return true; }
     Prompt(browser,"permission:"+std::to_string(id),origin.ToString(),"Access "+description,
-      [callback](bool allow) { callback->Continue(allow?CEF_PERMISSION_RESULT_ACCEPT:CEF_PERMISSION_RESULT_DENY); });
+      [callback](bool allow,bool) { callback->Continue(allow?CEF_PERMISSION_RESULT_ACCEPT:CEF_PERMISSION_RESULT_DENY); });
     return true;
   }
   void OnDismissPermissionPrompt(CefRefPtr<CefBrowser> browser,uint64_t id,cef_permission_request_result_t result) override {
@@ -617,7 +739,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       NSSecureTextField *password=[[NSSecureTextField alloc] initWithFrame:NSMakeRect(0,0,300,24)]; password.placeholderString=@"Password";
       [fields addSubview:username]; [fields addSubview:password]; alert.accessoryView=fields;
       auto prompt=std::make_shared<PromptState>(); prompt->alert=alert;
-      prompt->completion=[callback,username,password](bool allow) {
+      prompt->completion=[callback,username,password](bool allow,bool) {
         if (allow) callback->Continue(Str(username.stringValue),Str(password.stringValue)); else callback->Cancel();
       };
       const auto key=std::to_string(browser->GetIdentifier())+":auth:"+std::to_string(++self->prompt_sequence_);
@@ -626,7 +748,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
         self->prompts_.erase(key);
         if (prompt->completion) {
           auto done=std::move(prompt->completion); prompt->completion=nullptr;
-          done(response==NSAlertFirstButtonReturn && !self->closing_ && browser->IsValid());
+          done(response==NSAlertFirstButtonReturn && !self->closing_ && browser->IsValid(),false);
         }
       }];
     });
@@ -664,10 +786,26 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     d->SetBool("loading",browser_->IsLoading()); d->SetBool("canGoBack",browser_->CanGoBack()); d->SetBool("canGoForward",browser_->CanGoForward());
     d->SetBool("focused",Focused());
     d->SetString("error",error_); d->SetString("notice",notice_); d->SetDouble("zoomFactor",zoom_.factor());
+    d->SetString("noticeAction",notice_action_);
+    d->SetBool("microphoneInUse",microphone_in_use_); d->SetBool("cameraInUse",camera_in_use_);
     auto find=Object(); find->SetString("query",find_query_); find->SetInt("activeMatch",find_ordinal_); find->SetInt("totalMatches",find_count_); d->SetDictionary("findResult",find);
     Emit(id_,d);
   }
-  void Notice(const std::string& notice) { notice_=notice; State(); }
+  // A notice can carry one action the browser offers as a button; `origin`
+  // is the site it concerns.
+  void Notice(const std::string& notice,const std::string& action={},const std::string& origin={}) {
+    notice_=notice; notice_action_=action; notice_origin_=origin; State();
+  }
+  void NoticeAction() {
+    const auto action=notice_action_;
+    if (const char *url=supermono::MediaPrivacyUrl(action)) {
+      // Keep the notice: it says what to do after changing the setting.
+      [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:@(url)]];
+    } else if (action=="site-media-reset") {
+      ForgetSiteMedia(browser_->GetHost()->GetRequestContext(),notice_origin_);
+      Notice("");
+    }
+  }
   void Zoom(double factor,Completion done={}) {
     if (EditActive()) EditMode(false);
     if (!zoom_.Request(factor)) { if (done) done(false,Error("Invalid zoom")); return; }
@@ -867,6 +1005,8 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     options.can_float=Boolean(command,"canFloat");
     options.floating=Boolean(command,"floating");
     options.can_use_page=Boolean(command,"canUsePage");
+    const auto site=browser_->GetMainFrame() ? browser_->GetMainFrame()->GetURL().ToString() : "";
+    options.can_forget_site_media=RemembersSiteMedia(browser_->GetHost()->GetRequestContext(),site);
     CefRefPtr<Page> self=this;
     actions_menu_=[[SMBrowserActionsMenu alloc] initWithOptions:options zoom:zoom_.factor() onZoom:^(NSString *action) {
       if (self->closing_) return;
@@ -889,6 +1029,14 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       }
       self->actions_menu_=nil;
       auto result=Object();
+      if ([selection isEqualToString:@"forget-site-media"]) {
+        // Handled here: the next request from this site asks again.
+        if (!self->closing_ && self->browser_) {
+          ForgetSiteMedia(self->browser_->GetHost()->GetRequestContext(),site);
+          if (self->notice_action_=="site-media-reset") self->Notice("");
+        }
+        selection=nil;
+      }
       if (selection && !self->closing_) result->SetString("selection",Str(selection));
       Result(self->id_,request,true,result);
     });
@@ -991,6 +1139,8 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     }
     else if (action=="find") { find_query_=Text(cmd,"text").substr(0,1000); host->Find(find_query_,Boolean(cmd,"forward",true),Boolean(cmd,"matchCase"),Boolean(cmd,"findNext")); }
     else if (action=="findStop") { host->StopFinding(true); find_query_.clear(); find_count_=find_ordinal_=0; State(); }
+    else if (action=="notice-action") NoticeAction();
+    else if (action=="notice-dismiss") Notice("");
     else if (action=="devtools") { if (!devtools_client_) devtools_client_=new DevToolsClient; CefWindowInfo window; window.runtime_style=CEF_RUNTIME_STYLE_CHROME; CefBrowserSettings settings; host->ShowDevTools(window,devtools_client_,settings,CefPoint()); }
     else if (action=="edit-start" || action=="edit-stop") { EditMode(action=="edit-start",request,Text(cmd,"token")); return; }
     else if (action=="downloadCancel") { auto item=downloads_.find(Text(cmd,"downloadId")); if (item==downloads_.end()) { Result(id_,request,false,Error("This download is no longer active")); return; } item->second->Cancel(); }
@@ -1785,20 +1935,34 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
  private:
   struct PromptState {
     __strong NSAlert *alert=nil;
-    std::function<void(bool)> completion;
+    // (allowed, remember for this site). A prompt closed for the person
+    // (navigation, tab close) is neither allowed nor remembered.
+    std::function<void(bool,bool)> completion;
   };
   void Prompt(CefRefPtr<CefBrowser> browser,const std::string& kind,const std::string& origin,
-      const std::string& description,std::function<void(bool)> completion) {
+      const std::string& description,std::function<void(bool,bool)> completion,bool offer_remember=false) {
     NSWindow *window=[(__bridge NSView*)browser->GetHost()->GetWindowHandle() window];
-    if (!window || closing_ || !AllowedUrl(origin) || prompts_.size()>=4) { completion(false); return; }
+    if (!window || closing_ || !AllowedUrl(origin) || prompts_.size()>=4) { completion(false,false); return; }
     auto prompt=std::make_shared<PromptState>(); prompt->completion=std::move(completion);
     prompt->alert=[NSAlert new]; prompt->alert.messageText=Ns(description+"?"); prompt->alert.informativeText=Ns(origin);
     [prompt->alert addButtonWithTitle:@"Deny"]; [prompt->alert addButtonWithTitle:@"Allow"];
+    if (offer_remember) {
+      // On by default so a site is not asked every time; revocable from the
+      // browser's More menu.
+      prompt->alert.showsSuppressionButton=YES;
+      prompt->alert.suppressionButton.title=@"Remember for this site";
+      prompt->alert.suppressionButton.state=NSControlStateValueOn;
+    }
     const auto key=std::to_string(browser->GetIdentifier())+":"+kind;
     prompts_[key]=prompt; CefRefPtr<Page> self=this;
     [prompt->alert beginSheetModalForWindow:window completionHandler:^(NSModalResponse response) {
       self->prompts_.erase(key);
-      if (prompt->completion) { auto done=std::move(prompt->completion); prompt->completion=nullptr; done(response==NSAlertSecondButtonReturn && !self->closing_); }
+      if (prompt->completion) {
+        auto done=std::move(prompt->completion); prompt->completion=nullptr;
+        const bool answered=!self->closing_ && (response==NSAlertFirstButtonReturn || response==NSAlertSecondButtonReturn);
+        const bool remember=answered && offer_remember && prompt->alert.suppressionButton.state==NSControlStateValueOn;
+        done(answered && response==NSAlertSecondButtonReturn,remember);
+      }
     }];
   }
   void DismissPrompts(int browser_id) {
@@ -1808,7 +1972,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       if (it->first.rfind(prefix,0)==0) { close.push_back(it->second); it=prompts_.erase(it); } else ++it;
     }
     for (auto& prompt:close) {
-      if (prompt->completion) { auto done=std::move(prompt->completion); prompt->completion=nullptr; done(false); }
+      if (prompt->completion) { auto done=std::move(prompt->completion); prompt->completion=nullptr; done(false,false); }
       [prompt->alert.window.sheetParent endSheet:prompt->alert.window returnCode:NSAlertFirstButtonReturn];
     }
   }
@@ -1840,6 +2004,8 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   uint64_t edit_generation_=0;
   std::string edit_token_;
   std::string title_,error_,notice_,find_query_;
+  std::string notice_action_,notice_origin_;
+  bool microphone_in_use_=false,camera_in_use_=false;
   std::string favicon_,favicon_url_;
   uint64_t favicon_generation_=0;
   IMPLEMENT_REFCOUNTING(Page);

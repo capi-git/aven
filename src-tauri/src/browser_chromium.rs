@@ -254,6 +254,11 @@ pub(crate) struct BrowserState {
     can_go_forward: bool,
     error: Option<String>,
     notice: Option<String>,
+    /// A button the notice offers; see [`notice_action`].
+    notice_action: Option<String>,
+    /// What the page is capturing right now, for the toolbar indicator.
+    microphone_in_use: bool,
+    camera_in_use: bool,
     focused: bool,
     floating: bool,
     zoom_factor: f64,
@@ -795,8 +800,23 @@ fn emit_state(context: &PageContext) {
 fn notice(context: &PageContext, message: String) {
     if let Ok(mut state) = context.state.lock() {
         state.notice = Some(message);
+        state.notice_action = None;
     }
     emit_state(context);
+}
+
+/// The notice buttons Chromium may offer. Each is carried out natively, for
+/// the notice it belongs to; the interface never receives a URL to open.
+fn notice_action(value: &Value) -> Option<String> {
+    value
+        .as_str()
+        .filter(|action| {
+            matches!(
+                *action,
+                "privacy-microphone" | "privacy-camera" | "site-media-reset"
+            )
+        })
+        .map(str::to_string)
 }
 
 unsafe extern "C" fn native_event(id: *const c_char, payload: *const c_char, _: *mut c_void) {
@@ -1036,6 +1056,13 @@ fn handle_event(native_id: &str, event: Value) {
                     state.notice = value
                         .as_str()
                         .map(|value| value.chars().take(1000).collect());
+                    state.notice_action = event.get("noticeAction").and_then(notice_action);
+                }
+                if let Some(value) = event.get("microphoneInUse").and_then(Value::as_bool) {
+                    state.microphone_in_use = value;
+                }
+                if let Some(value) = event.get("cameraInUse").and_then(Value::as_bool) {
+                    state.camera_in_use = value;
                 }
                 if let Some(value) = event.get("findResult") {
                     state.find_result = (!value.is_null()).then(|| value.clone());
@@ -1147,6 +1174,8 @@ fn handle_event(native_id: &str, event: Value) {
                     state.loading = false;
                     state.closed = true;
                     state.sleeping = sleeping;
+                    state.microphone_in_use = false;
+                    state.camera_in_use = false;
                     state.error =
                         (!sleeping).then(|| "This browser page closed. Retry to reopen it.".into());
                 }
@@ -1450,6 +1479,9 @@ pub async fn browser_create(
             can_go_forward: false,
             error: None,
             notice: None,
+            notice_action: None,
+            microphone_in_use: false,
+            camera_in_use: false,
             focused: false,
             floating: false,
             zoom_factor: 1.0,
@@ -1585,7 +1617,8 @@ pub async fn browser_navigate(caller: Webview, id: String, url: String) -> Resul
 pub async fn browser_action(caller: Webview, id: String, action: String) -> Result<(), String> {
     let page = preview(&caller, &id)?;
     let request = match action.as_str() {
-        "back" | "forward" | "reload" | "stop" | "focus" | "devtools" => json!({"action":action}),
+        "back" | "forward" | "reload" | "stop" | "focus" | "devtools" | "notice-action"
+        | "notice-dismiss" => json!({"action":action}),
         "stop-find" => json!({"action":"findStop"}),
         "zoom-in" | "zoom-out" | "zoom-reset" => {
             let factor = page
@@ -2217,6 +2250,7 @@ async fn set_floating(context: Arc<PageContext>, floating: bool) -> Result<(), S
                 if let Ok(mut state) = context.state.lock() {
                     state.floating = true;
                     state.notice = Some(error.clone());
+                    state.notice_action = None;
                 }
                 emit_state(&context);
                 return Err(error);
@@ -3143,6 +3177,21 @@ mod tests {
         assert_eq!(open(json!({})), None);
         let long = format!("https://example.com/{}", "a".repeat(16384));
         assert_eq!(open(json!({"url": long})), None);
+    }
+    #[test]
+    fn notice_actions_are_limited_to_the_native_buttons() {
+        for action in ["privacy-microphone", "privacy-camera", "site-media-reset"] {
+            assert_eq!(notice_action(&json!(action)).as_deref(), Some(action));
+        }
+        for value in [
+            json!(""),
+            json!("x-apple.systempreferences:com.apple.preference.security"),
+            json!("https://example.com"),
+            json!(true),
+            json!(null),
+        ] {
+            assert_eq!(notice_action(&value), None, "{value}");
+        }
     }
     #[test]
     fn download_events_cannot_expose_native_paths_to_ui() {

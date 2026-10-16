@@ -3577,6 +3577,83 @@ describe("native preview lifecycle", () => {
     expect(mocks.close).not.toHaveBeenCalled();
   });
 
+  it("offers a native notice's button and closes it in Chromium when dismissed", async () => {
+    const id = await openPane();
+    const blocked =
+      "macOS is blocking Aven from using the microphone. Allow Aven in System Settings > Privacy & Security, then try again.";
+    await receive({ notice: blocked, noticeAction: "privacy-microphone" });
+    const notice = container.querySelector(".browser-notice")!;
+    expect(notice.textContent).toContain(blocked);
+    const button = notice.querySelector<HTMLButtonElement>(
+      ".browser-notice-action",
+    )!;
+    expect(button.textContent).toBe("Open System Settings");
+    await act(async () => button.click());
+    expect(mocks.action).toHaveBeenLastCalledWith(id, "notice-action");
+    // Opening System Settings is only the first step; the advice stays.
+    expect(container.querySelector(".browser-notice")?.textContent).toContain(
+      blocked,
+    );
+    // The same notice repeated by a later page update keeps its button.
+    await receive({
+      notice: blocked,
+      noticeAction: "privacy-microphone",
+      title: "Renamed",
+    });
+    expect(container.querySelector(".browser-notice-action")).not.toBeNull();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Dismiss preview notice"]',
+        )!
+        .click(),
+    );
+    expect(mocks.action).toHaveBeenLastCalledWith(id, "notice-dismiss");
+    expect(container.querySelector(".browser-notice")).toBeNull();
+
+    await receive({
+      notice: "You blocked this site from using your camera.",
+      noticeAction: "site-media-reset",
+    });
+    expect(container.querySelector(".browser-notice-action")?.textContent).toBe(
+      "Ask again",
+    );
+    // A notice from the interface itself never inherits Chromium's button,
+    // and an unknown action offers nothing.
+    await receive({ notice: "Popup was blocked", noticeAction: null });
+    expect(container.querySelector(".browser-notice-action")).toBeNull();
+    await receive({
+      notice: "Unexpected",
+      noticeAction: "open-anything" as BrowserState["noticeAction"],
+    });
+    expect(container.querySelector(".browser-notice-action")).toBeNull();
+    mocks.action.mockClear();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Dismiss preview notice"]',
+        )!
+        .click(),
+    );
+    expect(mocks.action).not.toHaveBeenCalled();
+  });
+
+  it("shows when the page is using the microphone or camera", async () => {
+    await openPane();
+    await receive();
+    expect(container.querySelector(".browser-capture")).toBeNull();
+    await receive({ microphoneInUse: true });
+    expect(
+      container.querySelector(".browser-capture")?.getAttribute("aria-label"),
+    ).toBe("This page is using your microphone");
+    await receive({ microphoneInUse: true, cameraInUse: true });
+    expect(
+      container.querySelector(".browser-capture")?.getAttribute("aria-label"),
+    ).toBe("This page is using your camera and microphone");
+    await receive({ microphoneInUse: false, cameraInUse: false });
+    expect(container.querySelector(".browser-capture")).toBeNull();
+  });
+
   it("keeps the page visible for invalid input, rejected actions, and external-open errors", async () => {
     await openPane();
     await receive();
