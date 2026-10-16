@@ -1,8 +1,5 @@
 import { getActivitySnapshot, type ActivityEntry } from "./activity";
 import { errorText, logError } from "./errors";
-import { homeDir } from "./fs";
-import { runClaudeTextPrompt } from "./harness/claudeText";
-import { runCodexTextPrompt } from "./harness/codexText";
 import {
   getKeeperProject,
   updateKeeperProject,
@@ -34,11 +31,11 @@ import {
   buildUpdatePrompt,
   MEMORY_KEEPER_SYSTEM_PROMPT,
   parseKeeperReply,
-  promptWithRules,
 } from "./memoryKeeperPrompt";
 import type { KeeperModel } from "./memoryKeeperModel";
 import { cleanUntrusted } from "./memoryKeeperSafety";
 import { projectName } from "./paths";
+import { generateTextOnly } from "./textOnlyModel";
 import {
   isProjectMemoryConflict,
   loadProjectMemory,
@@ -49,35 +46,20 @@ import {
 
 export { pickKeeperModel, type KeeperModel } from "./memoryKeeperModel";
 
-const KEEPER_TIMEOUT_MS = 120_000;
 const MEMORY_FULL =
   "Your notes leave no room for Aven's sections. Shorten them to let it keep the memory.";
 /** A first fill also reads chats from this far back. */
 const FILL_LOOKBACK_MS = 14 * 24 * 60 * 60_000;
 
 /**
- * One text-only model call: no tools, no project folder (it runs from the
- * home folder, so no project instructions load), and for Claude its own
- * system prompt in place of Claude Code's.
+ * One text-only model call with the keeper's instructions; see
+ * `generateTextOnly`.
  */
-export async function generateKeeperText(
+export function generateKeeperText(
   model: KeeperModel,
   input: { system: string; prompt: string },
 ): Promise<string> {
-  const cwd = await homeDir();
-  if (model.harness === "claude")
-    return runClaudeTextPrompt({
-      cwd,
-      prompt: input.prompt,
-      timeoutMs: KEEPER_TIMEOUT_MS,
-      profile: { systemPrompt: input.system, textOnly: true },
-    });
-  return runCodexTextPrompt({
-    cwd,
-    prompt: promptWithRules(input.prompt),
-    timeoutMs: KEEPER_TIMEOUT_MS,
-    textOnly: true,
-  });
+  return generateTextOnly(model, input);
 }
 
 export type KeeperDeps = {

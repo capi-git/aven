@@ -11,6 +11,7 @@ import {
   redactSecrets,
   wrapData,
 } from "./memoryKeeperSafety";
+import { rulesFirst } from "./textOnlyModel";
 
 /**
  * Stable words at the start of the keeper's instructions. Aven Dev's stand-in
@@ -108,7 +109,7 @@ export function buildUpdatePrompt(input: UpdatePromptInput): string {
 
 /** Codex has no separate system prompt for a helper turn: rules go first. */
 export function promptWithRules(prompt: string): string {
-  return `${MEMORY_KEEPER_SYSTEM_PROMPT}\n\n---\n\n${prompt}`;
+  return rulesFirst(MEMORY_KEEPER_SYSTEM_PROMPT, prompt);
 }
 
 const EMPTY_ITEM =
