@@ -37,6 +37,11 @@ export const DISCUSSION_MAX_ROUNDS = 6;
 export const DISCUSSION_DEFAULT_ROUNDS = 3;
 /** Longest reply relayed as is; longer replies are shortened, with a note. */
 export const RELAY_CHAR_LIMIT = 8_000;
+/**
+ * Finished discussions each window keeps, so their conversation page still
+ * shows who took part and how it ended. Their replies stay in the two chats.
+ */
+export const DISCUSSION_HISTORY_LIMIT = 20;
 
 export type DiscussionSide = "a" | "b";
 
@@ -503,15 +508,17 @@ export type DiscussionStartRequest = {
   preview?: boolean;
 };
 
-/** What the composer's picker needs from the window that drives discussions. */
+/** What the composer's Discuss mode needs from the window that drives discussions. */
 export type DiscussionHost = {
   options(sessionId: string): {
     /** Why this chat cannot start one now. */
     blocked?: string;
     candidates: DiscussionCandidate[];
   };
-  /** Starts it; returns why it could not start, or null. */
+  /** Starts it and opens its conversation page; returns why it could not start, or null. */
   start(request: DiscussionStartRequest): string | null;
+  /** Shows the discussion's conversation page, opening it where needed. */
+  open?(id: string): void;
   /** Development builds offer a preview of the sidebar animation. */
   preview?: boolean;
 };
@@ -1002,15 +1009,42 @@ export class DiscussionStore {
     );
   }
 
+  /**
+   * Both notes posted: the discussion is finished. It stays as history (its
+   * conversation page reads it), without the relay it no longer needs, and
+   * only the newest `DISCUSSION_HISTORY_LIMIT` of this window's are kept.
+   */
   notePosted(id: string, side: DiscussionSide) {
     const current = this.get(id);
     if (!current || !this.owns(current)) return;
     const notes = (current.notes ?? []).filter((entry) => entry !== side);
-    if (notes.length === 0) {
+    if (notes.length > 0) {
+      this.change(id, (discussion) => ({ ...discussion, notes }));
+      return;
+    }
+    if (current.preview) {
       this.remove(id);
       return;
     }
-    this.change(id, (discussion) => ({ ...discussion, notes }));
+    const finished: Discussion = {
+      ...current,
+      notes: [],
+      relay: "",
+      updatedAt: Math.max(this.now(), current.updatedAt),
+    };
+    delete finished.truncated;
+    const list = this.list.map((discussion) =>
+      discussion.id === id ? finished : discussion,
+    );
+    const history = list
+      .filter((discussion) => this.owns(discussion) && isHistory(discussion))
+      .sort((left, right) => right.updatedAt - left.updatedAt);
+    const dropped = new Set(
+      history
+        .slice(DISCUSSION_HISTORY_LIMIT)
+        .map((discussion) => discussion.id),
+    );
+    this.commit(list.filter((discussion) => !dropped.has(discussion.id)));
   }
 
   remove(id: string) {
@@ -1109,6 +1143,11 @@ export class DiscussionStore {
   private emit() {
     for (const listener of this.listeners) listener();
   }
+}
+
+/** Finished, with both closing notes posted: kept only for its page. */
+export function isHistory(discussion: Discussion): boolean {
+  return discussion.status === "ended" && (discussion.notes ?? []).length === 0;
 }
 
 /** Another window wrote this discussion as its own, at least as recently. */

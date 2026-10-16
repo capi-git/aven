@@ -6,7 +6,9 @@ import {
   discussionEndNote,
   discussionReply,
   DiscussionStore,
+  DISCUSSION_HISTORY_LIMIT,
   DISCUSSIONS_KEY,
+  isHistory,
   discussionRound,
   pauseDiscussion,
   planDiscussions,
@@ -521,7 +523,13 @@ describe("DiscussionStore", () => {
     mine.notePosted("d1", "a");
     mine.notePosted("d1", "b");
     theirs.sync();
-    expect(theirs.get("d1")).toBeUndefined();
+    // Kept as history for its page, finished and owed no notes.
+    expect(theirs.get("d1")).toMatchObject({
+      owner: "main",
+      status: "ended",
+      notes: [],
+    });
+    expect(theirs.forSession(A.sessionId)).toBeUndefined();
     expect(theirs.get("d3")?.status).toBe("paused");
   });
 
@@ -555,8 +563,9 @@ describe("DiscussionStore", () => {
     ).toThrow();
   });
 
-  it("settles only the turn it is waiting for, and clears after the notes", () => {
-    const store = new DiscussionStore(memoryStorage(), "main");
+  it("settles only the turn it is waiting for, and keeps it as history after the notes", () => {
+    const storage = memoryStorage();
+    const store = new DiscussionStore(storage, "main");
     store.start({ id: "d1", a: A, b: B, topic: "Topic", rounds: 1 });
     store.markDelivered("d1");
     store.settle("d1", 1, { status: "completed", text: "stale" });
@@ -568,7 +577,49 @@ describe("DiscussionStore", () => {
     store.notePosted("d1", "a");
     expect(store.get("d1")?.notes).toEqual(["b"]);
     store.notePosted("d1", "b");
-    expect(store.get("d1")).toBeUndefined();
+    const kept = store.get("d1")!;
+    expect(kept).toMatchObject({
+      status: "ended",
+      settled: 2,
+      ended: { kind: "completed" },
+      notes: [],
+      relay: "",
+    });
+    expect(isHistory(kept)).toBe(true);
+    // Neither chat counts as discussing, and nothing is left to do.
+    expect(store.forSession(A.sessionId)).toBeUndefined();
+    expect(planDiscussions(store.snapshot(), "main", [], new Set())).toEqual(
+      [],
+    );
+    // A reload restores it unchanged.
+    expect(new DiscussionStore(storage, "main").get("d1")).toEqual(kept);
+  });
+
+  it("keeps only the newest finished discussions", () => {
+    let clock = 0;
+    const store = new DiscussionStore(memoryStorage(), "main", () => clock);
+    const finish = (id: string) => {
+      clock += 1;
+      store.start({
+        id,
+        a: { ...A, sessionId: `${id}-a` },
+        b: { ...B, sessionId: `${id}-b` },
+        topic: "Topic",
+        rounds: 1,
+      });
+      store.stop(id);
+      store.notePosted(id, "a");
+      store.notePosted(id, "b");
+    };
+    for (let index = 0; index < DISCUSSION_HISTORY_LIMIT + 2; index += 1)
+      finish(`d${index}`);
+    store.start({ id: "live", a: A, b: B, topic: "Still going", rounds: 2 });
+    const ids = store.snapshot().map((discussion) => discussion.id);
+    expect(ids).toHaveLength(DISCUSSION_HISTORY_LIMIT + 1);
+    expect(ids).not.toContain("d0");
+    expect(ids).not.toContain("d1");
+    expect(ids).toContain(`d${DISCUSSION_HISTORY_LIMIT + 1}`);
+    expect(ids).toContain("live");
   });
 
   it("keeps a development preview out of storage", () => {

@@ -25,6 +25,7 @@ let host: DiscussionHost;
 let setSessions: (update: (sessions: Session[]) => Session[]) => void;
 let accept: boolean;
 let openPartner: ReturnType<typeof vi.fn>;
+let openView: ReturnType<typeof vi.fn<(id: string) => void>>;
 
 function chat(id: string, title: string): Session {
   return {
@@ -62,6 +63,7 @@ function Harness({ initial }: { initial: Session[] }) {
     },
     postNote: (sessionId, text) => notes.push({ sessionId, text }),
     openPartner: openPartner as never,
+    openView,
   });
   host = broker.host;
   return null;
@@ -109,6 +111,7 @@ beforeEach(() => {
   notes = [];
   accept = true;
   openPartner = vi.fn();
+  openView = vi.fn<(id: string) => void>();
   root = createRoot(document.createElement("div"));
 });
 
@@ -154,7 +157,44 @@ describe("useDiscussionBroker", () => {
       { sessionId: "a", text: "Discussion ended after 1 round." },
       { sessionId: "b", text: "Discussion ended after 1 round." },
     ]);
-    expect(store.snapshot()).toEqual([]);
+    // Finished: kept for its conversation page, with nothing left to do.
+    expect(store.snapshot()).toEqual([
+      expect.objectContaining({ status: "ended", settled: 2, notes: [] }),
+    ]);
+  });
+
+  it("opens the conversation page when one starts, and on request", async () => {
+    await mount([chat("a", "Caching"), chat("b", "Review")]);
+    await act(async () => {
+      host.start({
+        sessionId: "a",
+        partner: { kind: "chat", sessionId: "b" },
+        topic: "Topic",
+        rounds: 2,
+      });
+    });
+    const id = store.snapshot()[0].id;
+    expect(openView).toHaveBeenCalledExactlyOnceWith(id);
+    host.open?.(id);
+    expect(openView).toHaveBeenCalledTimes(2);
+    // Nothing to open for a discussion this window has never heard of.
+    host.open?.("unknown");
+    expect(openView).toHaveBeenCalledTimes(2);
+  });
+
+  it("opens nothing when the start is refused", async () => {
+    await mount([chat("a", "Caching")]);
+    let error: string | null = null;
+    await act(async () => {
+      error = host.start({
+        sessionId: "a",
+        partner: { kind: "chat", sessionId: "gone" },
+        topic: "Topic",
+        rounds: 2,
+      });
+    });
+    expect(error).toBe("That chat is no longer open.");
+    expect(openView).not.toHaveBeenCalled();
   });
 
   it("pauses for an approval, and resume continues with the reply", async () => {
