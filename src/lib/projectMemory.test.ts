@@ -137,6 +137,16 @@ describe("project memory for a turn", () => {
     );
   });
 
+  it("gives agents the memory keeper's sections without its markers", () => {
+    expect(
+      projectMemoryBlock(
+        "<!-- aven:auto — kept up to date by Aven. Edit a line here and it becomes yours. -->\n## Stack\n- Go\n<!-- /aven:auto -->\n\n- Use pnpm",
+      ),
+    ).toBe(
+      `<aven-project-memory>\n${PROJECT_MEMORY_PREAMBLE}\n\n## Stack\n- Go\n\n- Use pnpm\n</aven-project-memory>`,
+    );
+  });
+
   it("hashes text into a short revision that changes with the content", () => {
     const one = projectMemoryRevision("alpha");
     expect(one).toMatch(/^[0-9a-f]{9,}$/);
