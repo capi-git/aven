@@ -110,17 +110,17 @@ export function ProfileSidebarHeader({
             preview ? (
               <span>
                 <StickyNote className="size-3.5" aria-hidden />
-                <span>Notes</span>
+                <span className="sr-only">Notes</span>
               </span>
             ) : (
               <button
                 type="button"
                 onClick={onOpenNotes}
                 aria-current={notesActive ? "page" : undefined}
-                title="Saved notes and reusable context"
+                title="Notes: saved notes and reusable context"
               >
                 <StickyNote className="size-3.5" aria-hidden />
-                <span>Notes</span>
+                <span className="sr-only">Notes</span>
               </button>
             )
           ) : null}
@@ -128,17 +128,17 @@ export function ProfileSidebarHeader({
             preview ? (
               <span>
                 <Inbox className="size-3.5" aria-hidden />
-                <span>Inbox</span>
+                <span className="sr-only">Inbox</span>
               </span>
             ) : (
               <button
                 type="button"
                 onClick={onOpenInbox}
                 aria-current={inboxActive ? "page" : undefined}
-                title="GitHub issues, pull requests, and Linear tasks"
+                title="Inbox: GitHub issues, pull requests, and Linear tasks"
               >
                 <Inbox className="size-3.5" aria-hidden />
-                <span>Inbox</span>
+                <span className="sr-only">Inbox</span>
               </button>
             )
           ) : null}
@@ -146,7 +146,7 @@ export function ProfileSidebarHeader({
             preview ? (
               <span>
                 <Clock className="size-3.5" aria-hidden />
-                <span>Automations</span>
+                <span className="sr-only">Automations</span>
               </span>
             ) : (
               <button
@@ -156,7 +156,7 @@ export function ProfileSidebarHeader({
                 title="Automations: agents that run on a schedule"
               >
                 <Clock className="size-3.5" aria-hidden />
-                <span>Automations</span>
+                <span className="sr-only">Automations</span>
               </button>
             )
           ) : null}

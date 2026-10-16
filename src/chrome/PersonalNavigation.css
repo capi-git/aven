@@ -53,38 +53,25 @@
   > svg:last-child {
   opacity: 1;
 }
+/* Notes, Inbox and Automations: one compact row of icon buttons. Each keeps
+   its name as the tooltip and as the button's accessible name. */
 .personal-shell .personal-library-nav {
   display: flex;
   flex-shrink: 0;
-  gap: 4px;
-  margin: 4px 6px 7px;
+  gap: 2px;
+  margin: 2px 6px 6px;
 }
-/* Give each destination its label width before sharing spare space. Long
-   names stay readable without widening the whole sidebar. */
 .personal-shell .personal-library-nav > :is(button, span) {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  flex: 1 1 auto;
+  display: grid;
+  place-items: center;
+  flex: 1 1 0;
   min-width: 0;
-  min-height: 42px;
-  padding: 5px 4px 4px;
+  height: 28px;
+  padding: 0;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: color-mix(in srgb, var(--color-content) 72%, transparent);
-  font-weight: 500;
-  font-size: var(--text-ui-caption);
-  line-height: 1.2;
-  text-align: center;
-}
-.personal-shell .personal-library-nav > :is(button, span) > span {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .personal-shell .personal-library-nav > button:hover,
 .personal-shell .personal-library-nav > button:focus-visible {
@@ -94,9 +81,6 @@
 .personal-shell .personal-library-nav > button[aria-current="page"] {
   color: var(--color-content);
   background: var(--personal-selected);
-}
-.personal-shell .personal-library-nav > :is(button, span) > svg {
-  flex-shrink: 0;
 }
 .personal-shell .personal-navigation .personal-projects-heading {
   display: flex;
@@ -158,7 +142,7 @@
 .personal-shell .personal-navigation .personal-project-row {
   display: flex;
   align-items: center;
-  min-height: 32px;
+  min-height: 34px;
   gap: 1px;
   padding: 0 3px;
 }
@@ -168,7 +152,7 @@
   flex: 1;
   align-items: center;
   gap: 6px;
-  height: 30px;
+  height: 32px;
   padding: 0 5px;
   border-radius: 6px;
   text-align: left;
@@ -224,6 +208,32 @@
   height: 6px;
   border-radius: 50%;
   background: var(--color-amber-400);
+}
+/* Changed files in the project's working copy: a small dot at rest, the
+   count when the row is pointed at or focused. */
+.personal-shell .personal-navigation .personal-project-files {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-content) 38%, transparent);
+}
+.personal-shell .personal-navigation .personal-project-files-count {
+  display: none;
+}
+.personal-shell
+  .personal-navigation
+  .personal-project-row:is(:hover, :focus-within)
+  .personal-project-files {
+  width: auto;
+  height: auto;
+  background: none;
+}
+.personal-shell
+  .personal-navigation
+  .personal-project-row:is(:hover, :focus-within)
+  .personal-project-files-count {
+  display: inline;
 }
 .personal-shell .personal-navigation .personal-project-unread {
   display: inline-grid;
@@ -281,20 +291,37 @@
   display: none;
 }
 .personal-shell .personal-navigation .personal-task-card {
-  min-height: 30px;
-  padding: 5px 8px 5px 10px;
+  position: relative;
+  min-height: 32px;
+  padding: 6px 8px 6px 10px;
   border-radius: 6px;
 }
+/* The chat in front is unmistakable: a stronger fill, a short accent bar at
+   its leading edge and a heavier title. */
 .personal-shell .personal-navigation .personal-task-card[aria-current="true"] {
   border-color: transparent;
-  background: var(--personal-selected);
+  background: color-mix(in srgb, var(--personal-highlight) 18%, transparent);
   box-shadow: none;
+}
+.personal-shell
+  .personal-navigation
+  .personal-task-card[aria-current="true"]::before {
+  content: "";
+  position: absolute;
+  top: 7px;
+  bottom: 7px;
+  left: 3px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--personal-accent);
+  pointer-events: none;
 }
 .personal-shell
   .personal-navigation
   .personal-task-card[aria-current="true"]
   .personal-task-title {
   color: var(--color-content);
+  font-weight: 500;
 }
 .personal-shell .personal-navigation .personal-task-title {
   min-width: 0;

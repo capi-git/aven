@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { isTextTruncated } from "../lib/truncatedTitle";
 import { basename, revealPath } from "../lib/fs";
 import { projectName } from "../lib/paths";
 import {
@@ -75,6 +76,9 @@ export function PersonalProjectRow({
   const [customizing, setCustomizing] = useState(false);
   const [editingMemory, setEditingMemory] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
+  const labelRef = useRef<HTMLSpanElement>(null);
+  // The full name joins the tooltip only while the row cuts it off.
+  const [nameCut, setNameCut] = useState(false);
   useEffect(() => {
     if (visible) return;
     setMenu(null);
@@ -140,7 +144,12 @@ export function PersonalProjectRow({
   ]
     .filter(Boolean)
     .join(", ");
-  const tooltip = [describeProjectStatus(status), memoryNote, path]
+  const tooltip = [
+    nameCut ? label : "",
+    describeProjectStatus(status),
+    memoryNote,
+    path,
+  ]
     .filter(Boolean)
     .join("\n");
   return (
@@ -157,6 +166,7 @@ export function PersonalProjectRow({
           title={tooltip}
           aria-label={`Open ${label} project${summary ? `, ${summary}` : ""}`}
           onClick={onSelect}
+          onPointerEnter={() => setNameCut(isTextTruncated(labelRef.current))}
           onContextMenu={(event) => {
             event.preventDefault();
             setMenu({ x: event.clientX, y: event.clientY });
@@ -169,7 +179,9 @@ export function PersonalProjectRow({
             reacts
             className="personal-project-symbol"
           />
-          <span className="personal-project-label">{label}</span>
+          <span ref={labelRef} className="personal-project-label">
+            {label}
+          </span>
           <ProjectRowStatus status={status} memoryUpdated={memoryUnseen} />
         </button>
         <button
@@ -298,7 +310,12 @@ function ProjectRowStatus({
       {unread ? (
         <span className="personal-project-unread">{unread}</span>
       ) : null}
-      {files ? <span className="personal-project-files">+{files}</span> : null}
+      {files ? (
+        // A dot at rest; the stylesheet shows the count on hover or focus.
+        <span className="personal-project-files" data-count={files}>
+          <span className="personal-project-files-count">+{files}</span>
+        </span>
+      ) : null}
     </span>
   );
 }

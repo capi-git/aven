@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { readFileSync } from "node:fs";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -352,4 +353,44 @@ it("notes Aven's memory update in the tooltip, marked until the memory is opened
   expect(host.querySelector("[data-memory-updated]")).toBeNull();
   expect(open.title).toContain("Memory updated by Aven");
   resetMemoryKeeperCache();
+});
+
+it("shows changed files as a small dot, with the count on hover or focus", async () => {
+  await render({ running: 0, waiting: 0, unread: 0, files: 128 });
+  const files = host.querySelector<HTMLElement>(".personal-project-files")!;
+  expect(files.dataset.count).toBe("128");
+  expect(
+    files.querySelector(".personal-project-files-count")?.textContent,
+  ).toBe("+128");
+  // The number is still spoken and named in the tooltip.
+  const open = host.querySelector<HTMLButtonElement>(".personal-project-open")!;
+  expect(open.getAttribute("aria-label")).toContain("128 files changed");
+  expect(open.title).toContain("128 files changed");
+  const css = readFileSync("src/chrome/PersonalNavigation.css", "utf8");
+  expect(css).toMatch(/\.personal-project-files-count \{\s*display: none;/);
+  expect(css).toMatch(
+    /\.personal-project-row:is\(:hover, :focus-within\)\s+\.personal-project-files-count \{\s*display: inline;/,
+  );
+});
+
+it("names a cut-off project in its tooltip", async () => {
+  await render(undefined);
+  const open = host.querySelector<HTMLButtonElement>(".personal-project-open")!;
+  const label = host.querySelector<HTMLElement>(".personal-project-label")!;
+  expect(open.title).toBe(PATH);
+  Object.defineProperty(label, "scrollWidth", {
+    value: 300,
+    configurable: true,
+  });
+  Object.defineProperty(label, "clientWidth", {
+    value: 120,
+    configurable: true,
+  });
+  await act(async () =>
+    // React derives pointer enter from an over event arriving from outside.
+    open.dispatchEvent(
+      new PointerEvent("pointerover", { bubbles: true, relatedTarget: null }),
+    ),
+  );
+  expect(open.title).toBe(`aven-project\n${PATH}`);
 });
