@@ -33,7 +33,8 @@ import { IS_MAC } from "../lib/platform";
 import { runDevPerf, visibleComposer, type DevPerfOptions } from "./useDevPerf";
 import { sameProjectPath } from "../lib/recents";
 import type { DiscussionHost } from "../lib/discussions";
-import type { Session } from "../lib/session";
+import { providerShortName } from "../lib/discussionVoices";
+import { HARNESS_TITLE, type HarnessId, type Session } from "../lib/session";
 
 type Options = DevPerfOptions & {
   sessions: Session[];
@@ -98,6 +99,9 @@ const HOLD_MS = 4_000;
  */
 const DISCUSSION_HOLD_MS = 8_000;
 const DISCUSSION_ROUNDS = 2;
+/** The Discuss dropdown's row for a new chat, and the providers it lists. */
+const NEW_CHAT_LABEL = "New chat with…";
+const NEW_CHAT_MENU = "Choose the model for the new chat";
 /** What the check adds to the discussion from its page. */
 const JUMP_IN_TEXT = `Keep it short. ${SMOKE_JUMP_IN_WORD}`;
 /** The stand-in plays the cheapest model; its first call starts a process. */
@@ -339,6 +343,69 @@ function chatComposer(sessionId: string): HTMLElement | null {
   );
 }
 
+/** A chat drawn where it can be seen (not in a tab behind, or hidden). */
+function chatOnScreen(sessionId: string): boolean {
+  return [
+    ...document.querySelectorAll<HTMLElement>(
+      `[data-session-drop="${sessionId}"]`,
+    ),
+  ].some(
+    (pane) =>
+      pane.getClientRects().length > 0 &&
+      getComputedStyle(pane).visibility !== "hidden",
+  );
+}
+
+/**
+ * Why starting a discussion with a new chat did not open just its page
+ * beside the chat that started it, or null: the page and the starting chat
+ * on screen, and the new chat nowhere in sight.
+ */
+function partnerPaneProblem(a: string, b: string): string | null {
+  if (chatOnScreen(b)) return "the new chat opened as a pane beside the page";
+  if (!chatOnScreen(a))
+    return "the chat that started it is not beside the page";
+  return null;
+}
+
+/**
+ * Why the starting chat's transcript does not show where they landed after
+ * its closing note, or null: the compact card with both lists, a build
+ * button for each chat and a link to the page.
+ */
+function transcriptWrapUpProblem(
+  a: string,
+  id: string,
+  note: string,
+): string | null {
+  const pane = document.querySelector<HTMLElement>(
+    `[data-session-drop="${a}"]`,
+  );
+  const holder = pane?.querySelector<HTMLElement>(
+    `[data-discussion-wrapup-note="${id}"]`,
+  );
+  if (!pane || !holder)
+    return "the first chat's transcript has no wrap-up after its closing note";
+  const closing = [
+    ...pane.querySelectorAll<HTMLElement>(".personal-transcript-notice"),
+  ].find((element) => element.textContent?.trim() === note);
+  if (!follows(closing ?? null, holder))
+    return "the wrap-up is not after the closing note";
+  const card = holder.querySelector<HTMLElement>("[data-discussion-wrapup]");
+  if (card?.dataset.discussionWrapup !== "done")
+    return `the first chat's wrap-up is ${card?.dataset.discussionWrapup ?? "missing"}, without its lists`;
+  const agreed = [
+    ...card.querySelectorAll('[data-discussion-list="agreed"] li'),
+  ].map((item) => item.textContent ?? "");
+  if (!agreed.includes(SMOKE_WRAP_UP_WORD))
+    return `the first chat's Agreed lists ${agreed.join(" | ") || "nothing"}`;
+  if (card.querySelectorAll("[data-discussion-build]").length !== 2)
+    return "the first chat's wrap-up has no build buttons";
+  if (!card.querySelector("[data-discussion-wrapup-open]"))
+    return "the first chat's wrap-up has no Open discussion";
+  return null;
+}
+
 /** Type into a message box the way a paste reaches React. */
 function typeInComposer(field: HTMLTextAreaElement, text: string) {
   field.focus();
@@ -351,12 +418,13 @@ function typeInComposer(field: HTMLTextAreaElement, text: string) {
 
 /**
  * Start a discussion the way a person does: the chat's + menu turns on
- * Discuss, the chip's dropdown picks the partner and rounds, and sending
- * the message starts it with the message as the topic.
+ * Discuss, the chip's dropdown picks the partner (another chat, or a new
+ * chat with a provider from New chat with…) and rounds, and sending the
+ * message starts it with the message as the topic.
  */
 async function startDiscussionFromComposer(
   sessionId: string,
-  partnerId: string,
+  partner: { chat: string } | { newWith: HarnessId },
   topic: string,
   rounds: number,
 ) {
@@ -394,14 +462,52 @@ async function startDiscussionFromComposer(
     5_000,
     "the Discuss chip's dropdown",
   );
-  const partner = inMenu<HTMLButtonElement>(
-    `[data-discussion-candidate="${partnerId}"]`,
-  );
-  if (!partner)
-    throw new Error("The Discuss dropdown does not list the other chat");
-  if (partner.disabled)
-    throw new Error(`The other chat can't join: ${partner.title}`);
-  partner.click();
+  if ("chat" in partner) {
+    const row = inMenu<HTMLButtonElement>(
+      `[data-discussion-candidate="${partner.chat}"]`,
+    );
+    if (!row)
+      throw new Error("The Discuss dropdown does not list the other chat");
+    if (row.disabled)
+      throw new Error(`The other chat can't join: ${row.title}`);
+    row.click();
+  } else {
+    const newChat = inMenu<HTMLButtonElement>(
+      `button[aria-label="${NEW_CHAT_LABEL}"]`,
+    );
+    if (!newChat)
+      throw new Error("The Discuss dropdown does not offer New chat with…");
+    if (newChat.disabled)
+      throw new Error(`New chat with… is off: ${newChat.title}`);
+    newChat.click();
+    const providers = await waitFor(
+      () =>
+        document.querySelector<HTMLElement>(
+          `[role="menu"][aria-label="${NEW_CHAT_MENU}"]`,
+        ),
+      5_000,
+      "New chat with…'s providers",
+    );
+    const title = HARNESS_TITLE[partner.newWith];
+    const provider = [
+      ...providers.querySelectorAll<HTMLButtonElement>(
+        "button[data-provider-index]",
+      ),
+    ].find((row) => row.textContent?.trim() === title);
+    if (!provider || provider.disabled)
+      throw new Error(`New chat with… does not offer ${title}`);
+    provider.click();
+    const picked = `Discuss with new ${providerShortName(partner.newWith)} chat`;
+    await waitFor(
+      () =>
+        !document.querySelector(
+          `[role="menu"][aria-label="${NEW_CHAT_MENU}"]`,
+        ) &&
+        inBox("[data-discussion-chip-label]")?.textContent?.includes(picked),
+      5_000,
+      `the chip to read "${picked}"`,
+    );
+  }
   const count = inMenu<HTMLElement>(`[data-discussion-rounds="${rounds}"]`);
   if (!count)
     throw new Error(`The Discuss dropdown offers no ${rounds} rounds`);
@@ -1175,11 +1281,14 @@ export async function runDevSmoke(
       }
     });
 
-  // Two chats discuss a topic, started from the first chat's message box in
-  // Discuss mode. Its conversation page opens beside it; while the second
-  // chat answers, the page shows that side typing, the sidebar links both
-  // rows and the bar counts the round. Every reply is relayed once, both
-  // chats get the closing note, and the page shows the replies alternating.
+  // A chat discusses a topic with a new chat, started from its message box
+  // in Discuss mode. Only the conversation page opens beside it: the new
+  // chat waits in a tab of its own. While the new chat answers, the page
+  // shows that side typing, the sidebar links both rows and the bar counts
+  // the round; the page's names open either chat. Every reply is relayed
+  // once, both chats get the closing note, the page shows the replies
+  // alternating, and where they landed shows on the page and under the
+  // first chat's closing note.
   const discussion = get().discussion;
   if (safe && discussion)
     await step(
@@ -1194,12 +1303,11 @@ export async function runDevSmoke(
             "the sidebar to pin",
           );
         }
-        // The second chat opened is the one on screen; it starts.
-        const b = await openNewTask(get, config.projectPath);
         const a = await openNewTask(get, config.projectPath);
+        const before = new Set(get().sessions.map((entry) => entry.id));
         await startDiscussionFromComposer(
           a.id,
-          b.id,
+          { newWith: "claude" },
           `Compare notes. AVEN_SMOKE_HOLD ${DISCUSSION_HOLD_MS}`,
           DISCUSSION_ROUNDS,
         );
@@ -1211,6 +1319,19 @@ export async function runDevSmoke(
         const id = opened.dataset.discussionView!;
         const session = (chat: string) =>
           get().sessions.find((entry) => entry.id === chat);
+        const b = await waitFor(
+          () =>
+            get().sessions.find(
+              (entry) =>
+                !before.has(entry.id) &&
+                sameProjectPath(entry.cwd, config.projectPath),
+            ),
+          5_000,
+          "the new chat to discuss with",
+        );
+        // Only the page opened beside the chat: the new one is out of sight.
+        const shown = partnerPaneProblem(a.id, b.id);
+        if (shown) throw new Error(`When it started, ${shown}`);
 
         // B's first turn: A's reply, relayed and held open by the stand-in.
         await waitFor(
@@ -1285,8 +1406,31 @@ export async function runDevSmoke(
             `${errorText(error)}: ${linkProblem(id, a.id, b.id) ?? "linked too late"}`,
           );
         }
-        // The second chat, opened from its sidebar row, shows the relayed
-        // reply with its card; the connector brings the page back.
+        // The page's name for the second chat opens it; the connector brings
+        // the page back.
+        const named = discussionPage(id)?.querySelector<HTMLElement>(
+          '[data-discussion-party="b"]',
+        );
+        if (!named)
+          throw new Error(
+            "The page's name for the second chat is not a button",
+          );
+        named.click();
+        await waitFor(
+          () => chatComposer(b.id),
+          5_000,
+          "the page's name to open the second chat",
+        );
+        document
+          .querySelector<HTMLElement>(`[data-discussion-link="${id}"]`)
+          ?.click();
+        await waitFor(
+          () => discussionPage(id),
+          5_000,
+          "the connector to bring back the discussion's page",
+        );
+        // So does its sidebar row, which shows the relayed reply with its
+        // card.
         sidebarDiscussionRow(b.id)?.click();
         await waitFor(
           () =>
@@ -1430,8 +1574,36 @@ export async function runDevSmoke(
             `${errorText(error)}: ${page ? wrapUpProblem(page) : "the page is not on screen"}`,
           );
         }
-        const build = discussionPage(id)?.querySelector<HTMLElement>(
-          '[data-discussion-build="a"]',
+        // The first chat, opened from its name on the page, shows the same
+        // wrap-up under its closing note, the lists kept in its transcript;
+        // the second chat's transcript has none.
+        discussionPage(id)
+          ?.querySelector<HTMLElement>('[data-discussion-party="a"]')
+          ?.click();
+        try {
+          await waitFor(
+            () =>
+              chatComposer(a.id) && !transcriptWrapUpProblem(a.id, id, note),
+            10_000,
+            "where they landed under the first chat's closing note",
+          );
+        } catch (error) {
+          throw new Error(
+            `${errorText(error)}: ${transcriptWrapUpProblem(a.id, id, note) ?? "the first chat is not on screen"}`,
+          );
+        }
+        const kept = session(a.id)?.blocks.find(
+          (block) => block.discussionEnd?.id === id,
+        )?.discussionEnd;
+        if (!kept?.agreed?.includes(SMOKE_WRAP_UP_WORD))
+          throw new Error(
+            "The first chat's closing note did not keep what they agreed on",
+          );
+        if (session(b.id)?.blocks.some((block) => block.discussionEnd))
+          throw new Error("The second chat's transcript shows the wrap-up too");
+        // Its button builds as the page's does.
+        const build = document.querySelector<HTMLElement>(
+          `[data-session-drop="${a.id}"] [data-discussion-wrapup-note="${id}"] [data-discussion-build="a"]`,
         );
         const label = build?.textContent?.trim() ?? "";
         const asked = sentTexts(get().sessions, a.id).length;
@@ -1457,7 +1629,7 @@ export async function runDevSmoke(
         const moved = prefersReducedMotion()
           ? "linked, still (reduced motion)"
           : "linked with the pulse toward the answering chat";
-        return `started from Discuss mode; 4 replies relayed once each and shown alternating on one page; ${moved}; your message reached both chats once and sits where they read it; a reply marked as agreeing; ended after 2 rounds; its relay card reopens the page; summed up with both lists; "${label}" sent the plan`;
+        return `started from Discuss mode with a new chat kept out of sight; 4 replies relayed once each and shown alternating on one page; ${moved}; the page's names open both chats; your message reached both chats once and sits where they read it; a reply marked as agreeing; ended after 2 rounds; its relay card reopens the page; summed up with both lists on the page and under the first chat's closing note; "${label}" there sent the plan`;
       },
     );
 
