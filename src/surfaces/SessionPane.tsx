@@ -13,6 +13,7 @@ import {
 } from "react";
 import { Composer } from "../chrome/Composer";
 import { DevPreviewChip } from "../chrome/DevPreviewChip";
+import { MemoryKeeperOffer } from "../chrome/MemoryKeeper";
 import { orchestrator, sameCheckout } from "../lib/orchestration";
 import { sessionWithManagedAgents } from "../lib/sessionAgents";
 import { OrchestrationWorkers } from "../chrome/OrchestrationActions";
@@ -727,6 +728,10 @@ export const SessionPane = memo(function SessionPane({
       </div>
       {dockComposer ? (
         <div className="personal-session-composer-dock mx-auto w-full max-w-4xl shrink-0">
+          {/* Asked once per project, in the chat the user is looking at. */}
+          {visible && focused && !session.inboxAsk && memoryProject ? (
+            <MemoryKeeperOffer project={memoryProject} />
+          ) : null}
           {/* One chat per tab offers the project's dev server: the focused one. */}
           {visible && focused && !session.inboxAsk ? (
             <DevPreviewChip

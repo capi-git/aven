@@ -1,9 +1,8 @@
 import { getActivitySnapshot, type ActivityEntry } from "./activity";
 import { errorText, logError } from "./errors";
 import { homeDir } from "./fs";
-import { isHarnessAvailable } from "./harness/availability";
-import { claudeTextModel, runClaudeTextPrompt } from "./harness/claudeText";
-import { codexTextModel, runCodexTextPrompt } from "./harness/codexText";
+import { runClaudeTextPrompt } from "./harness/claudeText";
+import { runCodexTextPrompt } from "./harness/codexText";
 import {
   getKeeperProject,
   updateKeeperProject,
@@ -37,6 +36,7 @@ import {
   parseKeeperReply,
   promptWithRules,
 } from "./memoryKeeperPrompt";
+import type { KeeperModel } from "./memoryKeeperModel";
 import { cleanUntrusted } from "./memoryKeeperSafety";
 import { projectName } from "./paths";
 import {
@@ -46,20 +46,8 @@ import {
   saveProjectMemory,
   type ProjectMemory,
 } from "./projectMemory";
-import type { RateLimitProvider } from "./rateLimits";
 
-/** The model that keeps memories: the cheapest one Aven can run without tools. */
-export type KeeperModel = { harness: RateLimitProvider; label: string };
-
-export function pickKeeperModel(
-  available: (id: RateLimitProvider) => boolean = isHarnessAvailable,
-): KeeperModel | null {
-  if (available("claude"))
-    return { harness: "claude", label: `Claude · ${claudeTextModel().name}` };
-  if (available("codex"))
-    return { harness: "codex", label: `Codex · ${codexTextModel().name}` };
-  return null;
-}
+export { pickKeeperModel, type KeeperModel } from "./memoryKeeperModel";
 
 const KEEPER_TIMEOUT_MS = 120_000;
 const MEMORY_FULL =
@@ -109,12 +97,12 @@ export type KeeperDeps = {
 };
 
 export const NATIVE_KEEPER_DEPS: KeeperDeps = {
-  loadMemory: loadProjectMemory,
-  saveMemory: saveProjectMemory,
-  generate: generateKeeperText,
+  loadMemory: (path) => loadProjectMemory(path),
+  saveMemory: (path, body, base) => saveProjectMemory(path, body, base),
+  generate: (model, input) => generateKeeperText(model, input),
   digestSources: NATIVE_DIGEST_SOURCES,
-  activity: getActivitySnapshot,
-  now: Date.now,
+  activity: () => getActivitySnapshot(),
+  now: () => Date.now(),
 };
 
 /** Finished turns in the project since the keeper's last pass. */

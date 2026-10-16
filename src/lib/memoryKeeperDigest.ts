@@ -29,12 +29,13 @@ export type DigestSources = {
   gitBranches: (cwd: string) => Promise<GitBranches>;
 };
 
+// Looked up when called, so importing this module never touches native code.
 export const NATIVE_DIGEST_SOURCES: DigestSources = {
-  listDir,
-  inspectPaths,
-  readTextFile,
-  gitHistory,
-  gitBranches,
+  listDir: (path) => listDir(path),
+  inspectPaths: (paths) => inspectPaths(paths),
+  readTextFile: (path) => readTextFile(path),
+  gitHistory: (cwd, limit) => gitHistory(cwd, limit),
+  gitBranches: (cwd) => gitBranches(cwd),
 };
 
 export const DIGEST_MAX_CHARS = 12_000;

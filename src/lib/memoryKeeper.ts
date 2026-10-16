@@ -1,3 +1,4 @@
+import { formatLineDiff } from "./memoryKeeperFormat";
 import { projectMemoryKey } from "./projectMemory";
 import { normalizeProjectPath } from "./recents";
 import type { RateLimitProvider } from "./rateLimits";
@@ -358,4 +359,16 @@ export function keeperAgo(at: number, now: number): string {
     month: "short",
     day: "numeric",
   });
+}
+
+/** "Updated by Aven 2 h ago · +2 −1 lines" */
+export function keeperChangeText(change: KeeperChange, now: number): string {
+  return `Updated by Aven ${keeperAgo(change.at, now)} · ${formatLineDiff(change)}`;
+}
+
+/** The sidebar row's tooltip line for a change made within the last day. */
+export function keeperRowNote(project: KeeperProject, now: number): string {
+  const change = project.change;
+  if (!change || change.undone || now - change.at > KEEPER_NOTE_MS) return "";
+  return `Memory updated by Aven ${keeperAgo(change.at, now)} (${formatLineDiff(change)})`;
 }

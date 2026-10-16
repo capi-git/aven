@@ -1,10 +1,6 @@
-import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { getActivitySnapshot, subscribeActivity } from "../lib/activity";
 import { logError } from "../lib/errors";
-import {
-  getHarnessAvailabilitySnapshot,
-  subscribeHarnessAvailability,
-} from "../lib/harness/availability";
 import {
   clearKeeperRequest,
   getKeeperProject,
@@ -16,13 +12,9 @@ import {
   subscribeMemoryKeeper,
   type KeeperProject,
 } from "../lib/memoryKeeper";
+import { pickKeeperModel, type KeeperModel } from "../lib/memoryKeeperModel";
 import { splitMemory } from "../lib/memoryKeeperFormat";
-import {
-  keeperTurnsSince,
-  pickKeeperModel,
-  runKeeperPass,
-  type KeeperModel,
-} from "../lib/memoryKeeperRun";
+import { keeperTurnsSince, runKeeperPass } from "../lib/memoryKeeperRun";
 import {
   loadProjectMemory,
   memoryProjectFor,
@@ -209,24 +201,4 @@ export function useMemoryKeeper(sessions: readonly Session[]) {
       for (const timer of timers.values()) window.clearTimeout(timer);
     };
   }, []);
-}
-
-/** A project's keeper state, current across windows. */
-export function useMemoryKeeperProject(
-  path: string | undefined,
-): KeeperProject {
-  const select = () => (path ? getKeeperProject(path) : EMPTY);
-  return useSyncExternalStore(subscribeMemoryKeeper, select, select);
-}
-
-const EMPTY: KeeperProject = Object.freeze({});
-
-/** The model that would keep memories now, or null when none is installed. */
-export function useKeeperModel(): KeeperModel | null {
-  useSyncExternalStore(
-    subscribeHarnessAvailability,
-    getHarnessAvailabilitySnapshot,
-    getHarnessAvailabilitySnapshot,
-  );
-  return pickKeeperModel();
 }
