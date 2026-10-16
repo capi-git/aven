@@ -5,6 +5,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { persistableAttachment } from "./attachments";
 import type { ContextUsage } from "./contextUsage";
+import { readDiscussionWrapUpMeta } from "./discussions";
 import { normalizeProjectPath } from "./recents";
 import type {
   Block,
@@ -525,6 +526,11 @@ function sanitizeBlock(block: Block): Block | null {
   const discussion =
     block.role === "user" ? sanitizeDiscussion(block.discussion) : undefined;
   if (discussion) next.discussion = discussion;
+  const discussionEnd =
+    block.role === "system"
+      ? readDiscussionWrapUpMeta(block.discussionEnd)
+      : null;
+  if (discussionEnd) next.discussionEnd = discussionEnd;
   const noteCard = sanitizeNoteCard(block.noteCard);
   if (noteCard) next.noteCard = noteCard;
   return next;

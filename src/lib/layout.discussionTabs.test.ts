@@ -39,8 +39,8 @@ describe("discussion tabs", () => {
     expect(discussionTabTitle("  ")).toBe("Discussion");
   });
 
-  it("opens beside the chat that started it, between it and a new partner", () => {
-    // A with its new partner opened beside it, focused on the partner.
+  it("opens beside the chat that started it, leaving a partner beside it there", () => {
+    // A with the chat it discusses with already split beside it, focused.
     const tab: WorkspaceTab = {
       ...newTab("a"),
       layout: splitPane(newTab("a").layout, "a", "right", "b"),

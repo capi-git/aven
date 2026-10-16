@@ -13,6 +13,7 @@ import {
   discussionParty as partyOf,
   discussionReply,
   discussionStore,
+  discussionWrapUpMeta,
   planDiscussions,
   relayBlockMeta,
   relayDisplayText,
@@ -41,6 +42,7 @@ import {
   sessionDisplayTitle,
   type Attachment,
   type DiscussionRelayMeta,
+  type DiscussionWrapUpMeta,
   type HarnessId,
   type Session,
 } from "../lib/session";
@@ -80,9 +82,25 @@ type Options = {
     discussion: Discussion,
     transcripts: DiscussionTranscripts,
   ) => Promise<DiscussionSummary>;
-  /** Add a short notice to a chat's transcript. */
-  postNote: (sessionId: string, text: string) => void;
-  /** Open a new chat beside `sourceId`; returns its id. */
+  /**
+   * Add a short notice to a chat's transcript. The closing note in the chat
+   * that started a finished discussion carries `wrapUp`, so its transcript
+   * shows where they landed; it is shown only, never sent to the agent.
+   */
+  postNote: (
+    sessionId: string,
+    text: string,
+    wrapUp?: DiscussionWrapUpMeta,
+  ) => void;
+  /**
+   * Where a discussion landed is written: copy it into the starting chat's
+   * closing note for that ending, if the note is there yet.
+   */
+  recordWrapUp?: (sessionId: string, wrapUp: DiscussionWrapUpMeta) => void;
+  /**
+   * Start a new chat for `sourceId` to discuss with; returns its id. It is
+   * not shown: the discussion's page opens beside `sourceId` instead.
+   */
   openPartner: (
     sourceId: string,
     harness: HarnessId,
@@ -140,6 +158,7 @@ export function useDiscussionBroker({
   sessionsRef,
   onSubmit,
   postNote,
+  recordWrapUp,
   openPartner,
   openView,
   focusChat,
@@ -156,6 +175,7 @@ export function useDiscussionBroker({
     sessionsRef,
     onSubmit,
     postNote,
+    recordWrapUp,
     openPartner,
     openView,
     focusChat,
@@ -165,6 +185,7 @@ export function useDiscussionBroker({
     sessionsRef,
     onSubmit,
     postNote,
+    recordWrapUp,
     openPartner,
     openView,
     focusChat,
@@ -272,7 +293,17 @@ export function useDiscussionBroker({
       void latest.current
         .summarise(discussion, { a: blocks("a"), b: blocks("b") })
         .catch((): DiscussionSummary => ({ status: "failed" }))
-        .then((summary) => store.finishSummary(id, discussion.settled, summary))
+        .then((summary) => {
+          store.finishSummary(id, discussion.settled, summary);
+          // Kept for this ending: the starting chat's note keeps the lists.
+          const current = store.get(id);
+          const wrapUp =
+            current?.summary === summary
+              ? discussionWrapUpMeta(current)
+              : undefined;
+          if (current && wrapUp?.agreed)
+            latest.current.recordWrapUp?.(current.a.sessionId, wrapUp);
+        })
         .finally(() => summarising.current.delete(ending));
     },
     [store],
@@ -298,7 +329,8 @@ export function useDiscussionBroker({
           store.ready(action.id);
           break;
         case "note":
-          if (action.sessionId) postNote(action.sessionId, action.text);
+          if (action.sessionId)
+            postNote(action.sessionId, action.text, action.wrapUp);
           store.notePosted(action.id, action.side);
           break;
         case "recover":
@@ -435,6 +467,11 @@ export function useDiscussionBroker({
       },
       open(id) {
         if (store.get(id)) latest.current.openView?.(id);
+      },
+      show(id, side) {
+        const discussion = store.get(id);
+        if (discussion)
+          latest.current.focusChat?.(partyOf(discussion, side).sessionId);
       },
       build(id, side) {
         const { sessionsRef, onSubmit, focusChat } = latest.current;

@@ -71,7 +71,7 @@ import { useSidebarVisibility } from "./hooks/useSidebarVisibility";
 import { useSidebarData } from "./hooks/useSidebarData";
 import { useSessionModelControls } from "./hooks/useSessionModelControls";
 import { useDiscussionBroker } from "./hooks/useDiscussionBroker";
-import { discussionStore } from "./lib/discussions";
+import { captureDiscussionWrapUp, discussionStore } from "./lib/discussions";
 import { withPlanBuildTarget } from "./lib/sessionModelChoice";
 import { encodeSidebarValue } from "./lib/floatingSidebar";
 import { setExternalPaneDrop, type PaneDrop } from "./lib/paneDrop";
@@ -453,6 +453,7 @@ import {
   findProjectPane,
   findTabForProject,
   focusedWorkspaceTabCwd,
+  insertTabBesideSession,
   loadProjectFocusedTabs,
   saveProjectFocusedTabs,
   planWorkspaceTabClose,
@@ -6618,6 +6619,32 @@ export default function App({
     [appendTab],
   );
 
+  /**
+   * Add a chat to this window without showing it: a tab of its own right
+   * after `sourceId`'s, in its group, while the tab, pane and message box in
+   * front stay as they are. The tab is what keeps an idle chat loaded here
+   * (idle chats without one are let go), so it can run, take relayed
+   * messages and be opened from the sidebar like any other.
+   */
+  const openSessionBehind = useCallback(
+    (sourceId: string, session: Session, cwd: string) => {
+      const nextSessions = [...sessionsRef.current, session];
+      sessionsRef.current = nextSessions;
+      setSessions(nextSessions);
+      const tab = newTab(session.id);
+      const nextTabs = insertTabBesideSession(
+        tabsRef.current,
+        tab,
+        sourceId,
+        activeTabIdRef.current,
+        (id) => (id === tab.id ? projectName(cwd) : projectOfTab(id)),
+      );
+      tabsRef.current = nextTabs;
+      setTabs(nextTabs);
+    },
+    [projectOfTab, sessionsRef, setSessions],
+  );
+
   const onSecondOpinion = useCallback(
     (sourceId: string, harness: HarnessId, turn: Block[], model: string) => {
       const source = sessionsRef.current.find(
@@ -6715,10 +6742,29 @@ export default function App({
     sessions,
     sessionsRef,
     onSubmit,
-    postNote: (sessionId, text) => {
-      enqueueHarnessEvent(sessionId, { type: "status", text });
+    postNote: (sessionId, text, wrapUp) => {
+      enqueueHarnessEvent(sessionId, {
+        type: "status",
+        text,
+        ...(wrapUp ? { discussionEnd: wrapUp } : {}),
+      });
       flushHarnessEvents();
     },
+    recordWrapUp: (sessionId, wrapUp) => {
+      flushHarnessEvents();
+      setSessions((prev) => {
+        const next = prev.map((session) =>
+          session.id === sessionId
+            ? captureDiscussionWrapUp(session, wrapUp)
+            : session,
+        );
+        return next.some((session, index) => session !== prev[index])
+          ? next
+          : prev;
+      });
+    },
+    // Only the discussion's page opens beside the chat that started it; the
+    // new chat waits in a tab behind it.
     openPartner: (sourceId, harness, model, title) => {
       const source = sessionsRef.current.find((entry) => entry.id === sourceId);
       if (!source) return undefined;
@@ -6727,7 +6773,7 @@ export default function App({
         ...laneCheckout(source),
         title: formatSessionTitle(harness, title),
       };
-      openSessionBeside(sourceId, session, source.cwd);
+      openSessionBehind(sourceId, session, source.cwd);
       return session.id;
     },
     openView: openDiscussionView,
@@ -9597,6 +9643,8 @@ function isBlankSession(session: Session | undefined): boolean {
     uncertainSessionAgents(session).length
   )
     return false;
+  // A new chat waiting for its first discussion turn is not a free pane.
+  if (discussionStore().forSession(session.id)) return false;
   return !session.blocks.some((block) => block.role === "user");
 }
 

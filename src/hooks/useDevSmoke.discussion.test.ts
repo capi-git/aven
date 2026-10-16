@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DiscussionStartRequest } from "../lib/discussions";
-import type { Block, Session } from "../lib/session";
+import { HARNESS_TITLE, type Block, type Session } from "../lib/session";
 
 const mocks = vi.hoisted(() => ({
   resolveClaudeBinary: vi.fn(),
@@ -95,6 +95,20 @@ type Flaws = {
   leakyWrapUp?: boolean;
   /** The wrap-up's build buttons do nothing. */
   deadBuild?: boolean;
+  /** The new chat opens as a pane beside the page. */
+  splitPartner?: boolean;
+  /** The page's header names are plain text. */
+  noPartyButtons?: boolean;
+  /** The page's header names do nothing. */
+  deadParty?: boolean;
+  /** The first chat's transcript shows no wrap-up after its closing note. */
+  noNoteCard?: boolean;
+  /** The first chat's wrap-up has no lists. */
+  plainNoteCard?: boolean;
+  /** The first chat's closing note does not keep the lists. */
+  notKept?: boolean;
+  /** The second chat's transcript shows the wrap-up too. */
+  partnerCard?: boolean;
 };
 
 const ROW_TOP = 100;
@@ -126,6 +140,7 @@ function app(flaws: Flaws = {}) {
   let plusOpen = false;
   let discussMode = false;
   let dropdown = false;
+  let providers = false;
   let partner: string | null = null;
   let rounds = 3;
   let page = false;
@@ -170,10 +185,24 @@ function app(flaws: Flaws = {}) {
       options: () => ({ candidates: [] }),
       start: vi.fn((request: DiscussionStartRequest) => {
         if (flaws.refuse) return flaws.refuse;
-        if (request.partner.kind !== "chat") return "Expected a chat";
+        if (request.partner.kind !== "new") return "Expected a new chat";
+        // The new chat joins the chats, out of sight behind the page.
+        count += 1;
+        const partnerId = `${count}`;
+        state.sessions = [
+          ...state.sessions,
+          {
+            id: partnerId,
+            harness: request.partner.harness,
+            cwd: PROJECT,
+            title: `claude · ${title(partnerId)}`,
+            busy: false,
+            blocks: [],
+          } as unknown as Session,
+        ];
         talk = {
           a: request.sessionId,
-          b: request.partner.sessionId,
+          b: partnerId,
           topic: request.topic,
           turn: 0,
           replies: 0,
@@ -259,7 +288,8 @@ function app(flaws: Flaws = {}) {
           return;
         }
         ended = true;
-        for (const id of [a, b])
+        for (const id of [a, b]) {
+          const shows = id === a || flaws.partnerCard;
           update(id, {
             blocks: [
               ...session(id).blocks,
@@ -267,9 +297,21 @@ function app(flaws: Flaws = {}) {
                 id: `note-${id}`,
                 role: "system",
                 text: `Discussion ended after ${ROUNDS} rounds.`,
+                ...(shows
+                  ? {
+                      discussionEnd: {
+                        id: "d1",
+                        settled: ROUNDS * 2,
+                        ...(flaws.notKept
+                          ? {}
+                          : { agreed: agreed(), open: [] }),
+                      },
+                    }
+                  : {}),
               },
             ],
           });
+        }
       },
       hold ? Number(hold[1]) : 0,
     );
@@ -325,7 +367,10 @@ function app(flaws: Flaws = {}) {
     const box = flaws.noJumpBox
       ? ""
       : `<form data-discussion-jump><textarea placeholder="Add something for both of them…"></textarea></form>`;
-    return `<div data-discussion-view="d1"${focused === talk.a ? "" : " hidden"}><header data-discussion-header><div data-discussion-cast>${avatars}</div></header><ol>${messages}${typing}${wrapUp}</ol>${box}</div>`;
+    const parties = flaws.noPartyButtons
+      ? ""
+      : `<button data-discussion-party="a"></button><button data-discussion-party="b"></button>`;
+    return `<div data-discussion-view="d1"${focused === talk.a ? "" : " hidden"}><header data-discussion-header><div data-discussion-cast>${avatars}${parties}</div></header><ol>${messages}${typing}${wrapUp}</ol>${box}</div>`;
   }
   function draw() {
     const active = talk && (!ended || flaws.keepsLink) ? talk : null;
@@ -364,29 +409,46 @@ function app(flaws: Flaws = {}) {
         flaws.stillPulse ? "none" : `discussion-link-${toward}`
       }"></span></span></button></div>`;
     }
+    const noteCard = flaws.noNoteCard
+      ? ""
+      : `<div data-discussion-wrapup-note="d1"><div data-discussion-wrapup="${flaws.plainNoteCard ? "plain" : "done"}">${
+          flaws.plainNoteCard
+            ? ""
+            : `<section data-discussion-list="agreed"><ul>${agreed()
+                .map((item) => `<li>${item}</li>`)
+                .join("")}</ul></section>`
+        }<button data-discussion-wrapup-open>Open discussion</button><button data-discussion-build="a">Have Claude build it</button><button data-discussion-build="b">Have Claude build it</button></div></div>`;
     const cards = (id: string) =>
-      flaws.noCard
-        ? ""
-        : session(id)
-            .blocks.filter((block) => block.discussion)
-            .map(
-              (block) =>
-                `<button data-discussion-relay="${block.discussion!.id}" data-discussion-open></button>`,
-            )
-            .join("");
+      session(id)
+        .blocks.map((block) =>
+          block.discussion
+            ? flaws.noCard
+              ? ""
+              : `<button data-discussion-relay="${block.discussion.id}" data-discussion-open></button>`
+            : block.role === "system"
+              ? `<div class="personal-transcript-notice"><pre>${block.text}</pre></div>${
+                  block.discussionEnd ? noteCard : ""
+                }`
+              : "",
+        )
+        .join("");
     const bar = active
       ? `<div data-discussion-bar="d1">Discussing with Sonnet in “Chat” round ${
           Math.floor(active.turn / 2) + 1
         } of ${ROUNDS} <button>Open discussion</button> <button>Stop</button></div>`
       : "";
     const chip = discussMode
-      ? `<div data-discussion-chip><button aria-haspopup="dialog" data-chip-toggle><span data-discussion-chip-label>Discuss with Claude · ${rounds} rounds</span></button></div>`
+      ? `<div data-discussion-chip><button aria-haspopup="dialog" data-chip-toggle><span data-discussion-chip-label>Discuss with ${
+          partner === "new" ? "new Claude chat" : "Claude"
+        } · ${rounds} rounds</span></button></div>`
       : "";
     const composer = `<div data-composer>${bar}<textarea style="visibility: visible"></textarea><button aria-label="Add files or choose a mode"></button>${chip}</div>`;
+    const beside = (id: string) =>
+      !!flaws.splitPartner && !!talk && id === talk.b && focused === talk.a;
     const drops = state.sessions
       .map(
         (entry) =>
-          `<div data-session-drop="${entry.id}"${entry.id === focused ? "" : " hidden"}>${cards(entry.id)}${
+          `<div data-session-drop="${entry.id}"${entry.id === focused || beside(entry.id) ? "" : " hidden"}>${cards(entry.id)}${
             entry.id === focused ? composer : ""
           }</div>`,
       )
@@ -403,13 +465,20 @@ function app(flaws: Flaws = {}) {
             (entry) =>
               `<button data-discussion-candidate="${entry.id}" aria-checked="${partner === entry.id}"></button>`,
           )
-          .join("")}${[1, 2, 3, 4, 5, 6]
+          .join(
+            "",
+          )}<button aria-label="New chat with…" data-new-chat>New chat with…</button>${[
+          1, 2, 3, 4, 5, 6,
+        ]
           .map((value) => `<button data-discussion-rounds="${value}"></button>`)
           .join("")}</div>`
       : "";
+    const providerMenu = providers
+      ? `<div role="menu" aria-label="Choose the model for the new chat" data-provider-target><button data-provider-index="0">Codex</button><button data-provider-index="1">${HARNESS_TITLE.claude}</button></div>`
+      : "";
     document.body.innerHTML = `
       <aside class="personal-navigation">${link}${rows}</aside>
-      <div class="personal-workspace-content">${drops}${drawPage()}</div>${menu}${choices}`;
+      <div class="personal-workspace-content">${drops}${drawPage()}</div>${menu}${choices}${providerMenu}`;
     const on = (selector: string, handler: (element: Element) => void) => {
       for (const element of document.querySelectorAll(selector))
         element.addEventListener("click", () => handler(element));
@@ -430,6 +499,28 @@ function app(flaws: Flaws = {}) {
     });
     on("[data-discussion-candidate]", (element) => {
       partner = (element as HTMLElement).dataset.discussionCandidate!;
+      draw();
+    });
+    on("[data-new-chat]", () => {
+      providers = !providers;
+      draw();
+    });
+    on("[data-provider-index]", (element) => {
+      providers = false;
+      if (element.textContent === HARNESS_TITLE.claude) partner = "new";
+      draw();
+    });
+    on("[data-discussion-party]", (element) => {
+      if (flaws.deadParty || !talk) return;
+      focused =
+        (element as HTMLElement).dataset.discussionParty === "b"
+          ? talk.b
+          : talk.a;
+      draw();
+    });
+    on("[data-discussion-wrapup-open]", () => {
+      if (!talk) return;
+      focused = talk.a;
       draw();
     });
     on("[data-discussion-rounds]", (element) => {
@@ -488,7 +579,10 @@ function app(flaws: Flaws = {}) {
         const topic = (event.target as HTMLTextAreaElement).value;
         const refused = state.discussion.start({
           sessionId: focused,
-          partner: { kind: "chat", sessionId: partner },
+          partner:
+            partner === "new"
+              ? { kind: "new", harness: "claude", model: "claude:sonnet-5" }
+              : { kind: "chat", sessionId: partner },
           topic,
           rounds,
         });
@@ -590,21 +684,21 @@ describe("the real-app check's discussion step", () => {
       [STEP, true],
     ]);
     expect(discussionStep(steps)?.detail).toBe(
-      'started from Discuss mode; 4 replies relayed once each and shown alternating on one page; linked with the pulse toward the answering chat; your message reached both chats once and sits where they read it; a reply marked as agreeing; ended after 2 rounds; its relay card reopens the page; summed up with both lists; "Have Claude build it" sent the plan',
+      "started from Discuss mode with a new chat kept out of sight; 4 replies relayed once each and shown alternating on one page; linked with the pulse toward the answering chat; the page's names open both chats; your message reached both chats once and sits where they read it; a reply marked as agreeing; ended after 2 rounds; its relay card reopens the page; summed up with both lists on the page and under the first chat's closing note; \"Have Claude build it\" there sent the plan",
     );
     // The build button sent the plan to the first chat, as the user.
     const built = state.sessions
-      .find((session) => session.id === "3")
+      .find((session) => session.id === "2")
       ?.blocks.filter((block) => block.role === "user")
       .at(-1);
     expect(built?.text).toContain(
       "Please carry out the plan from your discussion",
     );
-    // The chat on screen (opened last) starts, with the chip's choices and
-    // the message as the topic.
+    // The chat on screen starts, with a new Claude chat, the chip's rounds
+    // and the message as the topic.
     expect(state.discussion.start).toHaveBeenCalledExactlyOnceWith({
-      sessionId: "3",
-      partner: { kind: "chat", sessionId: "2" },
+      sessionId: "2",
+      partner: { kind: "new", harness: "claude", model: "claude:sonnet-5" },
       topic: "Compare notes. AVEN_SMOKE_HOLD 8000",
       rounds: 2,
     });
@@ -660,13 +754,43 @@ describe("the real-app check's discussion step", () => {
     );
   });
 
-  // The starting chat was opened last, so the answering one is listed above.
+  // The new chat is listed below the one that started it.
   it("fails when the pulse stands still or runs the wrong way", async () => {
     expect(await failure({ stillPulse: true })).toContain(
-      "the pulse its animation is none, expected discussion-link-up",
+      "the pulse its animation is none, expected discussion-link-down",
     );
     expect(await failure({ wrongWay: true })).toContain(
-      "the pulse travels down, not up toward the answering chat",
+      "the pulse travels up, not down toward the answering chat",
+    );
+  });
+
+  it("fails when the new chat opens as a pane beside the page", async () => {
+    expect(await failure({ splitPartner: true })).toBe(
+      "When it started, the new chat opened as a pane beside the page",
+    );
+  });
+
+  it("fails when the page's names do not open the chats", async () => {
+    expect(await failure({ noPartyButtons: true })).toBe(
+      "The page's name for the second chat is not a button",
+    );
+    expect(await failure({ deadParty: true })).toBe(
+      "Timed out waiting for the page's name to open the second chat",
+    );
+  });
+
+  it("fails when the first chat's transcript does not show where they landed", async () => {
+    expect(await failure({ noNoteCard: true })).toContain(
+      "the first chat's transcript has no wrap-up after its closing note",
+    );
+    expect(await failure({ plainNoteCard: true })).toContain(
+      "the first chat's wrap-up is plain, without its lists",
+    );
+    expect(await failure({ notKept: true })).toBe(
+      "The first chat's closing note did not keep what they agreed on",
+    );
+    expect(await failure({ partnerCard: true })).toBe(
+      "The second chat's transcript shows the wrap-up too",
     );
   });
 

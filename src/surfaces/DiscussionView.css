@@ -45,6 +45,25 @@
   flex-direction: row-reverse;
   text-align: right;
 }
+/* Pressing a side's name or mascot shows its chat. */
+button.discussion-party {
+  justify-self: stretch;
+  margin: -3px -5px;
+  padding: 3px 5px;
+  border-radius: 8px;
+  text-align: left;
+  color: inherit;
+}
+button.discussion-party[data-side="b"] {
+  text-align: right;
+}
+button.discussion-party:hover {
+  background: var(--aven-hover);
+}
+button.discussion-party:focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--personal-accent));
+  outline-offset: 1px;
+}
 .discussion-party-text {
   display: flex;
   flex-direction: column;
@@ -358,137 +377,6 @@
   color: color-mix(in srgb, var(--color-content) 60%, transparent);
 }
 
-/* Where they landed: a card after the closing note. */
-.discussion-wrapup {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  align-self: center;
-  width: min(560px, 100%);
-  margin-top: 2px;
-  padding: 11px 14px 12px;
-  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
-  border-radius: 12px;
-  background: var(
-    --aven-glass-card,
-    color-mix(in srgb, var(--color-content) 4%, transparent)
-  );
-}
-.discussion-wrapup[data-discussion-wrapup="stopped"] {
-  padding: 8px;
-  border-style: dashed;
-  background: transparent;
-}
-.discussion-wrapup-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  min-width: 0;
-}
-.discussion-wrapup-title {
-  margin: 0;
-  font-size: var(--text-ui-body);
-  font-weight: 600;
-  line-height: 18px;
-}
-.discussion-wrapup-model,
-.discussion-wrapup-wait,
-.discussion-wrapup-empty {
-  margin: 0;
-  font-size: var(--text-ui-caption);
-  color: color-mix(in srgb, var(--color-content) 45%, transparent);
-}
-.discussion-wrapup-model {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.discussion-wrapup-lists {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 14px;
-}
-.discussion-wrapup-list h4 {
-  margin: 0 0 5px;
-  font-size: var(--text-ui-caption);
-  font-weight: 600;
-  color: color-mix(in srgb, var(--color-content) 55%, transparent);
-}
-.discussion-wrapup-list ul {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-/* One pixel-square bullet, like the mascots' pixels. */
-.discussion-wrapup-list li {
-  position: relative;
-  padding-left: 11px;
-  font-size: var(--text-ui-label);
-  line-height: 17px;
-  overflow-wrap: anywhere;
-}
-.discussion-wrapup-list li::before {
-  content: "";
-  position: absolute;
-  top: 7px;
-  left: 1px;
-  width: 4px;
-  height: 4px;
-  background: color-mix(in srgb, var(--color-content) 45%, transparent);
-}
-.discussion-wrapup-list[data-discussion-list="agreed"] li::before {
-  background: var(--personal-accent, var(--color-accent));
-}
-.discussion-wrapup-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.discussion-build {
-  --discussion-voice: var(--color-content);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  max-width: 100%;
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid
-    color-mix(
-      in srgb,
-      var(--discussion-voice) 32%,
-      var(--aven-control-border, var(--aven-line))
-    );
-  border-radius: 8px;
-  background: color-mix(
-    in srgb,
-    var(--discussion-voice) 12%,
-    var(--aven-control-bg, transparent)
-  );
-  font-size: var(--text-ui-label);
-  color: var(--color-content);
-}
-.discussion-build:hover {
-  background: color-mix(
-    in srgb,
-    var(--discussion-voice) 20%,
-    var(--aven-control-bg, transparent)
-  );
-}
-.discussion-build:focus-visible {
-  outline: 2px solid var(--aven-focus-ring, var(--personal-accent));
-  outline-offset: 1px;
-}
-.discussion-build-sprite {
-  width: 12px;
-  height: 12px;
-  flex-shrink: 0;
-}
-.discussion-wrapup-problem,
 .discussion-jump-problem {
   margin: 0;
   font-size: var(--text-ui-caption);
