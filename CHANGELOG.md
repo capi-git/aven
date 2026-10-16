@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.142] - 2026-10-15
+
 ### Added
 
 - Two chats can discuss a topic when you ask them to: choose **Discuss with…** from the message box's **+** menu (or type `/discuss`), pick another open chat or a new one with any model, and set the topic and rounds. Aven passes each finished reply to the other chat, shows every relayed message in both transcripts, pauses for approvals, questions and your own messages, and the sidebar animates the two chats talking.
