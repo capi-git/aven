@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Two chats discussing now share one page: your topic, then each chat's replies as messages back and forth, the opening chat on the left and the responding one on the right, each with its own pixel mascot in its provider's colour, its model's name and its part, round dividers, the answering chat typing, and the closing note, with **Stop** and **Resume** at the top. It opens beside the chat that started the discussion; **Open discussion** above either chat's message box or the sidebar's connector brings it back. Starting one no longer needs `/discuss`: choose **Discuss** in the message box's **+** menu beside Plan mode and Orchestrator, pick the other chat and rounds from the chip's dropdown (**Discuss with Codex · 3 rounds**), and send your message as the topic.
+
 ## [0.1.143] - 2026-10-15
 
 ### Added
