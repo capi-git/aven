@@ -67,6 +67,7 @@ it("shows the window only after its appearance is applied and a frame with it is
   expect(timing.requestedAtEpochMs).toBeGreaterThanOrEqual(
     timing.drawnAtEpochMs!,
   );
+  expect(timing.visibleWhenDrawn).toBe(true);
 });
 
 it("still shows the window when applying its appearance failed", async () => {
@@ -85,6 +86,7 @@ it("does not wait for animation frames a hidden document never gets", async () =
   await done;
   expect(frames).toHaveLength(0);
   expect(revealCalls()).toHaveLength(1);
+  expect(reveal.windowRevealTiming().visibleWhenDrawn).toBe(false);
 });
 
 it("bounds the wait when animation frames stop", async () => {

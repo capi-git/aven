@@ -13,6 +13,9 @@ export type RevealTiming = {
   committedAtEpochMs?: number;
   drawnAtEpochMs?: number;
   requestedAtEpochMs?: number;
+  /** Whether WebKit treated the page as visible when it drew: false for a
+   *  window that was covered or on another Space. */
+  visibleWhenDrawn?: boolean;
 };
 
 const timing: RevealTiming = {};
@@ -72,6 +75,7 @@ export function revealWhenDrawn(appearance: unknown): Promise<void> {
     .then(() => afterDrawnFrame())
     .then(() => {
       timing.drawnAtEpochMs ??= Date.now();
+      timing.visibleWhenDrawn ??= document.visibilityState === "visible";
       revealWindow();
     });
 }

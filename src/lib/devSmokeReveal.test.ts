@@ -74,4 +74,14 @@ describe("the launch reveal check", () => {
     // A hidden window elsewhere paints once it is shown.
     expect(launchRevealProblem(late, false)).toBeNull();
   });
+
+  it("names a window that was covered at launch instead of judging it", () => {
+    const covered = {
+      ...drawn,
+      page: { ...drawn.page, visibleWhenDrawn: false },
+    };
+    expect(launchRevealProblem(covered, true)).toMatch(
+      /covered or on another Space at launch/,
+    );
+  });
 });

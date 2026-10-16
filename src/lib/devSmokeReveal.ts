@@ -65,6 +65,8 @@ export function launchRevealProblem(
   if (page.drawnAtEpochMs == null)
     return "the window was shown without the page reporting a drawn frame";
   if (!paintsWhileConcealed) return null;
+  if (page.visibleWhenDrawn === false)
+    return "the window was covered or on another Space at launch, so its first frame could not be checked; keep Aven Dev's window uncovered";
   if (painted == null) return "WebKit reported no painted content";
   if (painted > shown)
     return `the first content was painted ${painted - shown} ms after the window was shown`;
