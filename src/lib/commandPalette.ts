@@ -51,7 +51,14 @@ export type PaletteCommandId =
   | "new_scheduled_agent"
   | "open_notes"
   | "add_project"
-  | "open_settings";
+  | "open_settings"
+  | DevPaletteCommandId;
+
+/** Development builds only; release builds never list or run these. */
+export type DevPaletteCommandId =
+  | "preview_restart_question"
+  | "preview_restart_waiting"
+  | "preview_restart_overlay";
 
 export type PaletteCommand = {
   id: PaletteCommandId;
@@ -163,6 +170,31 @@ export const PALETTE_COMMANDS: readonly PaletteCommand[] = [
     keywords: "preferences options",
   },
 ];
+
+/**
+ * Development builds only: previews of the restart-to-update screens with
+ * made-up work. Release builds compile this to an empty list.
+ */
+export const DEV_PALETTE_COMMANDS: readonly PaletteCommand[] = import.meta.env
+  .DEV
+  ? [
+      {
+        id: "preview_restart_question",
+        label: "Preview restart question (development)",
+        keywords: "update restart dialog running work dev",
+      },
+      {
+        id: "preview_restart_waiting",
+        label: "Preview restart waiting card (development)",
+        keywords: "update restart waiting sidebar settings dev",
+      },
+      {
+        id: "preview_restart_overlay",
+        label: "Preview restart overlay (development)",
+        keywords: "update restart saving overlay dev",
+      },
+    ]
+  : [];
 
 /** Commands shown before anything is typed. */
 export const PALETTE_START: readonly PaletteCommandId[] = [

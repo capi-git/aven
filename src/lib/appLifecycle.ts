@@ -1,7 +1,4 @@
 import { invoke } from "@tauri-apps/api/core";
-import { flushSync } from "react-dom";
-import type { BrowserState } from "./browser";
-import { applyBrowserUpdateStates } from "./browserUpdateState";
 import { flushWorkspaceDrafts } from "./workspaceDraftFlush";
 import { ask, message } from "@tauri-apps/plugin-dialog";
 import {
@@ -71,7 +68,9 @@ let quitting = false;
 let quitDialogOpen = false;
 let quitSaveFailureOpen = false;
 let bootingResumed: ResumedWorkspace | null = null;
-let liveWorkspace: {
+
+/** The workspace this window shows, as quitting and updating need it. */
+export type LiveWorkspace = {
   sessions: () => Session[];
   tabs: () => WorkspaceTab[];
   activeTabId: () => string;
@@ -79,10 +78,20 @@ let liveWorkspace: {
   projectTerminals: () => ProjectTerminalDock[];
   flush: () => void;
   saveBrowserState: () => void;
-} | null = null;
+  /** Open files with unsaved changes, by tab file id. */
+  dirtyFileIds: () => ReadonlySet<string>;
+  /** Stop these sessions as the Stop button would. */
+  stopSessions: (ids: string[]) => void;
+};
+
+let liveWorkspace: LiveWorkspace | null = null;
 
 export function isAppQuitting(): boolean {
   return quitting;
+}
+
+export function currentWorkspace(): LiveWorkspace | null {
+  return liveWorkspace;
 }
 
 export function setQuitWorkspace(
@@ -93,6 +102,7 @@ export function setQuitWorkspace(
   projectTerminals: () => ProjectTerminalDock[],
   flush: () => void,
   saveBrowserState: () => void = () => {},
+  extras: Partial<Pick<LiveWorkspace, "dirtyFileIds" | "stopSessions">> = {},
 ): () => void {
   liveWorkspace = {
     sessions,
@@ -102,79 +112,13 @@ export function setQuitWorkspace(
     projectTerminals,
     flush,
     saveBrowserState,
+    dirtyFileIds: extras.dirtyFileIds ?? (() => new Set<string>()),
+    stopSessions: extras.stopSessions ?? (() => {}),
   };
   bootingResumed = null;
   return () => {
     if (liveWorkspace?.sessions === sessions) liveWorkspace = null;
   };
-}
-
-type UpdateRestartPreparation = {
-  browserStates: BrowserState[];
-  openTerminals: number;
-};
-
-/** Save the workspace before installing; false means the user cancelled. */
-export async function prepareUpdateRestart(): Promise<boolean> {
-  const workspace = liveWorkspace;
-  if (!workspace)
-    throw new Error("Wait for Aven to finish opening before restarting.");
-  workspace.flush();
-  if (hasInFlightSessions(workspace.sessions())) {
-    throw new Error(
-      "Your tasks are still working or waiting for input. Finish them before restarting to update.",
-    );
-  }
-  const preparation = await invoke<UpdateRestartPreparation>(
-    "prepare_update_restart",
-  );
-  try {
-    const { browserStates, openTerminals } = preparation;
-    flushSync(() => applyBrowserUpdateStates(browserStates));
-    let closeTerminals = false;
-    if (openTerminals > 0) {
-      closeTerminals = await ask(
-        `Restarting will close ${openTerminals === 1 ? "your open terminal" : `your ${openTerminals} open terminals`} and stop any commands running in them. Terminal tabs will reopen with fresh shells; terminal output and unfinished input will not be restored.\n\nContinue restarting to update?`,
-        {
-          title: "Close terminals and restart?",
-          kind: "warning",
-          okLabel: "Close terminals and restart",
-          cancelLabel: "Keep working",
-        },
-      );
-      if (!closeTerminals) {
-        await invoke("cancel_update_restart");
-        return false;
-      }
-    }
-    await flushWorkspaceDrafts();
-    workspace.flush();
-    if (
-      liveWorkspace !== workspace ||
-      hasInFlightSessions(workspace.sessions())
-    ) {
-      throw new Error(
-        "Your workspace changed. Finish any running tasks and try restarting again.",
-      );
-    }
-    await persistQuitState(
-      workspace.sessions(),
-      workspace.tabs(),
-      workspace.activeTabId(),
-      workspace.projectCwd(),
-      "update",
-      workspace.projectTerminals(),
-    );
-    if (hasInFlightSessions(workspace.sessions())) {
-      throw new Error("A task started. Finish it before restarting to update.");
-    }
-    workspace.saveBrowserState();
-    await invoke("finish_update_restart_preparation", { closeTerminals });
-    return true;
-  } catch (error) {
-    await invoke("cancel_update_restart").catch(() => undefined);
-    throw error;
-  }
 }
 
 export async function handleQuitRequested(): Promise<void> {

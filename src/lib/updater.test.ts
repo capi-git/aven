@@ -15,6 +15,11 @@ const mocks = vi.hoisted(() => ({
   platform: { isWin: false },
   lockInput: vi.fn(),
   releaseInput: vi.fn(),
+  lockStatus: vi.fn(),
+  assess: vi.fn(),
+  watch: vi.fn(),
+  unwatch: vi.fn(),
+  stop: vi.fn(),
 }));
 vi.mock("@tauri-apps/api/app", () => ({
   getVersion: mocks.getVersion,
@@ -23,8 +28,16 @@ vi.mock("@tauri-apps/api/app", () => ({
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ message: mocks.message }));
 vi.mock("@tauri-apps/plugin-updater", () => ({ check: mocks.check }));
-vi.mock("./updateInputLock", () => ({ lockUpdateInput: mocks.lockInput }));
-vi.mock("./appLifecycle", () => ({ prepareUpdateRestart: mocks.prepare }));
+vi.mock("./updateInputLock", () => ({
+  lockUpdateInput: mocks.lockInput,
+  setUpdateLockStatus: mocks.lockStatus,
+}));
+vi.mock("./updateRestart", () => ({
+  prepareUpdateRestart: mocks.prepare,
+  assessUpdateRestart: mocks.assess,
+  watchUpdateRestartWork: mocks.watch,
+  stopUpdateRestartWork: mocks.stop,
+}));
 vi.mock("./sounds", () => ({ announceUpdateAvailable: mocks.announce }));
 vi.mock("./updateNotice", () => ({
   rememberInstalledUpdate: mocks.remember,
@@ -48,7 +61,20 @@ beforeEach(() => {
   mocks.install.mockResolvedValue(undefined);
   mocks.prepare.mockResolvedValue(true);
   mocks.lockInput.mockReturnValue(mocks.releaseInput);
+  mocks.assess.mockResolvedValue(idle());
+  mocks.watch.mockReturnValue(mocks.unwatch);
+  mocks.stop.mockResolvedValue(undefined);
 });
+function idle() {
+  return { agents: [], terminals: [], files: [] };
+}
+function busy(title = "Fix login") {
+  return {
+    agents: [{ id: title, title, project: "Aven", state: "working" as const }],
+    terminals: [],
+    files: [],
+  };
+}
 afterEach(() => vi.useRealTimers());
 function offer() {
   mocks.check.mockResolvedValue({
@@ -304,10 +330,18 @@ describe("automatic signed update staging", () => {
 });
 
 describe("explicit restart", () => {
-  it("keeps the downloaded update ready without an error when terminal closing is cancelled", async () => {
+  it("asks again, without an error, when work starts while Aven saves", async () => {
     const updater = await ready();
+    const decisions = await import("./updateRestartWork");
     mocks.prepare.mockResolvedValueOnce(false);
-    await expect(updater.installPendingUpdate()).resolves.toMatchObject({
+    mocks.assess.mockResolvedValueOnce(idle()).mockResolvedValueOnce(busy());
+    const restarting = updater.installPendingUpdate();
+    await vi.waitFor(() =>
+      expect(decisions.getRestartDecision()?.work).toEqual(busy()),
+    );
+    expect(mocks.releaseInput).toHaveBeenCalledOnce();
+    decisions.answerRestartDecision("cancel");
+    await expect(restarting).resolves.toMatchObject({
       phase: "ready",
       availableVersion: "0.1.80",
     });
@@ -316,7 +350,6 @@ describe("explicit restart", () => {
     expect(mocks.install).not.toHaveBeenCalled();
     expect(mocks.remember).not.toHaveBeenCalled();
     expect(mocks.invoke).not.toHaveBeenCalledWith("relaunch_after_update");
-    expect(mocks.releaseInput).toHaveBeenCalledOnce();
     await updater.installPendingUpdate();
     expect(mocks.download).toHaveBeenCalledOnce();
     expect(mocks.install).toHaveBeenCalledOnce();
@@ -420,6 +453,207 @@ describe("explicit restart", () => {
     expect(mocks.install).toHaveBeenCalledOnce();
     expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith(
       "relaunch_after_update",
+    );
+  });
+});
+
+describe("restarting around running work", () => {
+  async function waitingFor(work = busy()) {
+    const updater = await ready();
+    const decisions = await import("./updateRestartWork");
+    mocks.assess.mockResolvedValue(work);
+    const restarting = updater.installPendingUpdate();
+    await vi.waitFor(() =>
+      expect(decisions.getRestartDecision()).not.toBeNull(),
+    );
+    decisions.answerRestartDecision("wait");
+    await restarting;
+    await vi.waitFor(() => expect(mocks.watch).toHaveBeenCalledOnce());
+    const changed = mocks.watch.mock.calls[0]![0] as () => void;
+    const watchesTerminal = mocks.watch.mock.calls[0]![1] as (
+      id: string,
+    ) => boolean;
+    return { updater, decisions, changed, watchesTerminal };
+  }
+
+  it("restarts at once, without asking, when nothing is running", async () => {
+    const updater = await ready();
+    const decisions = await import("./updateRestartWork");
+    await updater.installPendingUpdate();
+    expect(decisions.getRestartDecision()).toBeNull();
+    expect(mocks.prepare).toHaveBeenCalledWith(
+      expect.objectContaining({ stopWork: false }),
+    );
+    expect(mocks.invoke).toHaveBeenCalledWith("relaunch_after_update");
+  });
+
+  it("asks once about running work and cancelling changes nothing", async () => {
+    const updater = await ready();
+    const decisions = await import("./updateRestartWork");
+    mocks.assess.mockResolvedValue(busy());
+    const first = updater.installPendingUpdate();
+    const second = updater.installPendingUpdate();
+    await vi.waitFor(() =>
+      expect(decisions.getRestartDecision()).toEqual({
+        work: busy(),
+        now: false,
+      }),
+    );
+    expect(mocks.lockInput).not.toHaveBeenCalled();
+    decisions.answerRestartDecision("cancel");
+    await Promise.all([first, second]);
+    expect(mocks.assess).toHaveBeenCalledOnce();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.stop).not.toHaveBeenCalled();
+    expect(updater.getUpdaterSnapshot()).toMatchObject({ phase: "ready" });
+    expect(updater.getUpdaterSnapshot().waitingFor).toBeUndefined();
+  });
+
+  it("waits for running work, then restarts by itself when it finishes", async () => {
+    const { updater, changed } = await waitingFor();
+    expect(updater.getUpdaterSnapshot()).toMatchObject({
+      phase: "ready",
+      waitingFor: "your agent finishes",
+    });
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    mocks.assess.mockResolvedValue(idle());
+    changed();
+    await vi.waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith("relaunch_after_update"),
+    );
+    expect(mocks.prepare).toHaveBeenCalledWith(
+      expect.objectContaining({ stopWork: false }),
+    );
+    expect(mocks.unwatch).toHaveBeenCalledOnce();
+    expect(mocks.stop).not.toHaveBeenCalled();
+  });
+
+  it("restarts at once if the work finished while the person was choosing", async () => {
+    const updater = await ready();
+    const decisions = await import("./updateRestartWork");
+    mocks.assess.mockResolvedValueOnce(busy()).mockResolvedValue(idle());
+    const restarting = updater.installPendingUpdate();
+    await vi.waitFor(() =>
+      expect(decisions.getRestartDecision()).not.toBeNull(),
+    );
+    decisions.answerRestartDecision("wait");
+    await restarting;
+    await vi.waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith("relaunch_after_update"),
+    );
+    expect(mocks.stop).not.toHaveBeenCalled();
+  });
+
+  it("keeps waiting when new work starts, naming what it waits for", async () => {
+    const { updater, changed, watchesTerminal } = await waitingFor();
+    mocks.assess.mockResolvedValue({
+      ...busy("Review PR"),
+      terminals: [{ id: "term-1", command: "npm" }],
+    });
+    changed();
+    await vi.waitFor(() =>
+      expect(updater.getUpdaterSnapshot().waitingFor).toBe(
+        "your work finishes",
+      ),
+    );
+    expect(watchesTerminal("term-1")).toBe(true);
+    expect(watchesTerminal("term-2")).toBe(false);
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    // A background check does not hide that the restart is waiting.
+    await updater.runUpdateFlow(false);
+    expect(updater.getUpdaterSnapshot()).toMatchObject({
+      phase: "ready",
+      waitingFor: "your work finishes",
+    });
+  });
+
+  it("asks again with stopping first from Restart now, and keeps waiting on cancel", async () => {
+    const { updater, decisions } = await waitingFor();
+    const asking = updater.restartUpdateNow();
+    await vi.waitFor(() =>
+      expect(decisions.getRestartDecision()).toMatchObject({ now: true }),
+    );
+    decisions.answerRestartDecision("cancel");
+    await asking;
+    expect(updater.getUpdaterSnapshot().waitingFor).toBe("your agent finishes");
+    expect(mocks.unwatch).not.toHaveBeenCalled();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    // The main update button does the same while waiting.
+    const again = updater.installPendingUpdate();
+    await vi.waitFor(() =>
+      expect(decisions.getRestartDecision()).toMatchObject({ now: true }),
+    );
+    decisions.answerRestartDecision("stop");
+    await again;
+    expect(mocks.unwatch).toHaveBeenCalledOnce();
+    expect(mocks.stop).toHaveBeenCalledOnce();
+    expect(mocks.prepare).toHaveBeenCalledWith(
+      expect.objectContaining({ stopWork: true }),
+    );
+    expect(mocks.invoke).toHaveBeenCalledWith("relaunch_after_update");
+  });
+
+  it("stops running work through the stop paths and restarts now", async () => {
+    const updater = await ready();
+    const decisions = await import("./updateRestartWork");
+    mocks.assess.mockResolvedValue(busy());
+    const restarting = updater.installPendingUpdate();
+    await vi.waitFor(() =>
+      expect(decisions.getRestartDecision()).not.toBeNull(),
+    );
+    decisions.answerRestartDecision("stop");
+    await restarting;
+    expect(mocks.stop.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.prepare.mock.invocationCallOrder[0]!,
+    );
+    expect(mocks.prepare).toHaveBeenCalledWith(
+      expect.objectContaining({ stopWork: true }),
+    );
+    expect(mocks.install).toHaveBeenCalledOnce();
+  });
+
+  it("stops waiting on cancel and ignores later changes", async () => {
+    const { updater, changed } = await waitingFor();
+    await updater.cancelUpdateWait();
+    expect(mocks.unwatch).toHaveBeenCalledOnce();
+    expect(updater.getUpdaterSnapshot()).toMatchObject({ phase: "ready" });
+    expect(updater.getUpdaterSnapshot().waitingFor).toBeUndefined();
+    mocks.assess.mockResolvedValue(idle());
+    changed();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mocks.prepare).not.toHaveBeenCalled();
+  });
+
+  it("goes back to waiting, without asking, when work starts as it restarts", async () => {
+    const { updater, decisions, changed } = await waitingFor();
+    mocks.prepare.mockResolvedValueOnce(false);
+    mocks.assess
+      .mockResolvedValueOnce(idle())
+      .mockResolvedValueOnce(idle())
+      .mockResolvedValue(busy("Deploy"));
+    changed();
+    await vi.waitFor(() => expect(mocks.prepare).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(updater.getUpdaterSnapshot().waitingFor).toBe(
+        "your agent finishes",
+      ),
+    );
+    expect(decisions.getRestartDecision()).toBeNull();
+    expect(mocks.releaseInput).toHaveBeenCalledOnce();
+    expect(mocks.install).not.toHaveBeenCalled();
+  });
+
+  it("shows which native work the restart is waiting for", async () => {
+    const updater = await ready();
+    mocks.prepare.mockImplementation(
+      async (options: { onWaiting?: (labels: string[]) => void }) => {
+        options.onWaiting?.(["starting a terminal", "updating Claude Code"]);
+        return true;
+      },
+    );
+    await updater.installPendingUpdate();
+    expect(mocks.lockStatus).toHaveBeenCalledWith(
+      "Waiting for Aven to finish starting a terminal and updating Claude Code…",
     );
   });
 });

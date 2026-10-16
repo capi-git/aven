@@ -28,9 +28,13 @@ For a visual check of the native agent cursor, run `AVEN_DEV_CURSOR_PREVIEW=1 np
 
 It then checks what moves. The stand-in holds two turns open for a few seconds (`AVEN_SMOKE_HOLD <ms>` in a message). During the first, the project's mascot in the pinned sidebar must be in its working state with its hop animation running (or still, with reduced motion on); when the turn ends it must cheer once, stop, and not cheer again. During the second, Home opens: every project's agent needs a mascot or logo, the working one moves, Right now counts it and today's recap counts the finished turns. The sidebar's New task, pressed over Home, must leave Home for the new chat. The check's project is a Git repository with one other checkout, so the Changes panel shows Parallel work, which must start folded to its header line. Keep Aven Dev's window uncovered while the check runs: macOS stops drawing a covered window, and a hidden window leaves reactions to windows you can see.
 
-It presses Cmd+, and Cmd+W to open and close Settings the way a key press reaches the workspace. Last, the floating sidebar opens Settings and presses Back in its own page. The runner prints each step, exits non-zero on a failure, and keeps the throwaway folder for inspection when something fails.
+It presses Cmd+, and Cmd+W to open and close Settings the way a key press reaches the workspace. It opens the restart-to-update question's preview, checks that it names the made-up agents, terminal command and unsaved file and offers its three actions, and closes it. Last, the floating sidebar opens Settings and presses Back in its own page. The runner prints each step, exits non-zero on a failure, and keeps the throwaway folder for inspection when something fails.
 
 The run uses its own home folder for chats, settings and the browser profile, and keeps web storage in memory, so your Aven Dev data is not read or changed. It refuses to send anything unless Aven resolved `claude` to the stand-in. Quit Aven Dev first; the check needs the preview port. The **Release Aven** workflow runs the same check and will not publish unless it passes.
+
+## Restart-to-update previews
+
+Development builds can show the restart-to-update screens without a real update. Open the command palette, type `>` and choose **Preview restart question**, **Preview restart waiting card** or **Preview restart overlay** (each marked development). They use made-up work: two agents, one waiting for an answer, a terminal running `npm` and an unsaved `App.tsx`. Every action in a preview only closes it; nothing stops, quits or restarts. Click or press a key to close the overlay. Release builds do not contain these commands.
 
 ## Speed test
 
