@@ -1,4 +1,5 @@
 import { projectMemoryKey } from "./projectMemory";
+import { normalizeProjectPath } from "./recents";
 import type { RateLimitProvider } from "./rateLimits";
 import type { UsageForecastSnapshot } from "./usageHistory";
 
@@ -48,6 +49,8 @@ export type KeeperChange = {
 };
 
 export type KeeperProject = {
+  /** The project's folder, for passes started from the stored list. */
+  path?: string;
   /** Unset until the user answers; "off" also after Not now. */
   consent?: "on" | "off";
   /** When Aven offered to keep the memory; shown until answered. */
@@ -175,8 +178,10 @@ export function updateKeeperProject(
   const store = read();
   const key = projectMemoryKey(path);
   const current = store.projects[key] ?? EMPTY_PROJECT;
-  const next = update(current);
-  if (next === current) return current;
+  const updated = update(current);
+  if (updated === current) return current;
+  const folder = normalizeProjectPath(path);
+  const next = updated.path === folder ? updated : { ...updated, path: folder };
   write({ version: 1, projects: { ...store.projects, [key]: next } });
   return next;
 }
@@ -230,6 +235,13 @@ export function requestKeeperRefresh(path: string, now = Date.now()) {
     project.consent === "on"
       ? { ...project, requested: { at: now, manual: true } }
       : project,
+  );
+}
+
+/** A request that will not run (keeping is off, nothing to do) is dropped. */
+export function clearKeeperRequest(path: string) {
+  updateKeeperProject(path, (project) =>
+    project.requested ? { ...project, requested: undefined } : project,
   );
 }
 
