@@ -219,6 +219,7 @@ export function ProjectTerminalDock({
         dirtyFileIds={EMPTY_IDS}
         fileErrorCounts={EMPTY_ERRORS}
         label="Terminals"
+        paneFocused={focused}
         onSelectFile={onSelectTerminal}
         onCloseFile={onCloseTerminal}
         onReorder={onReorderTerminals}
