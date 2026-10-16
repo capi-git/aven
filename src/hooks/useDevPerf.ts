@@ -31,6 +31,7 @@ import {
   stopReactProfile,
   type ReactProfile,
 } from "../lib/devPerfReact";
+import { readLaunchReveal } from "../lib/devSmokeReveal";
 import { errorText } from "../lib/errors";
 import { resolveClaudeBinary } from "../lib/harness/child";
 import { IS_MAC } from "../lib/platform";
@@ -198,6 +199,8 @@ export async function runDevPerf(
     domContentLoadedMs: navigation
       ? round(navigation.domContentLoadedEventEnd)
       : undefined,
+    /** When the window became visible, with its workspace drawn. */
+    visibleAtEpochMs: undefined as number | undefined,
   };
   let refreshMs = 1000 / 60;
 
@@ -349,6 +352,9 @@ export async function runDevPerf(
   };
 
   try {
+    // The launch time people see ends when the window appears.
+    const reveal = await readLaunchReveal().catch(() => null);
+    startup.visibleAtEpochMs = reveal?.native?.revealedAtMs ?? undefined;
     // macOS stops drawing covered windows, which would stall every timing.
     await invoke("dev_perf_keep_visible").catch(() => undefined);
     await pause(500);

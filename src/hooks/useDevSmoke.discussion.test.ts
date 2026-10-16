@@ -18,6 +18,19 @@ vi.mock("../lib/devSmoke", async (original) => ({
   ...(await original<typeof import("../lib/devSmoke")>()),
   finishDevSmoke: mocks.finish,
 }));
+vi.mock("../lib/devSmokeReveal", async (original) => ({
+  ...(await original<typeof import("../lib/devSmokeReveal")>()),
+  readLaunchReveal: async () => ({
+    native: {
+      concealedAtMs: 1_000,
+      revealedAtMs: 1_300,
+      reason: "painted",
+      concealedUntilReveal: true,
+    },
+    page: { committedAtEpochMs: 1_250, drawnAtEpochMs: 1_299 },
+    firstContentfulPaintEpochMs: 1_260,
+  }),
+}));
 
 import { SMOKE_REPLY, type SmokeStep } from "../lib/devSmoke";
 import { runDevSmoke } from "./useDevSmoke";
@@ -337,6 +350,7 @@ describe("the real-app check's discussion step", () => {
     const { steps, state } = await check();
     expect(steps.map((step) => [step.name, step.passed])).toEqual([
       ["stand-in provider is the one Aven found", true],
+      ["window stayed hidden until the workspace drew", true],
       ["agent turn through the normal send path", true],
       [STEP, true],
     ]);

@@ -14,6 +14,11 @@ import {
   prefersReducedMotion,
   watchOneShot,
 } from "../lib/devSmokeMotion";
+import {
+  launchRevealProblem,
+  launchRevealSummary,
+  readLaunchReveal,
+} from "../lib/devSmokeReveal";
 import { errorText } from "../lib/errors";
 import { nativeFloatingSidebar } from "../lib/floatingSidebar";
 import { resolveClaudeBinary } from "../lib/harness/child";
@@ -398,6 +403,15 @@ export async function runDevSmoke(
       return path;
     },
   );
+
+  // The window must appear with its workspace already drawn: never empty,
+  // in a default colour, or as bare glass over the desktop.
+  await step("window stayed hidden until the workspace drew", async () => {
+    const reveal = await readLaunchReveal();
+    const problem = launchRevealProblem(reveal, IS_MAC);
+    if (problem) throw new Error(problem);
+    return launchRevealSummary(reveal);
+  });
 
   // 0.1.137 broke every turn only once the floating sidebar attached.
   if (get().expectFloatingSidebar)
