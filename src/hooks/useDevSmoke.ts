@@ -21,6 +21,7 @@ import { getPtyStatus } from "../lib/pty";
 import { IS_MAC } from "../lib/platform";
 import { runDevPerf, visibleComposer, type DevPerfOptions } from "./useDevPerf";
 import { sameProjectPath } from "../lib/recents";
+import type { DiscussionHost } from "../lib/discussions";
 import type { Session } from "../lib/session";
 
 type Options = DevPerfOptions & {
@@ -47,6 +48,8 @@ type Options = DevPerfOptions & {
   deleteProject?: (projectPath: string) => Promise<void>;
   /** Open the restart question's preview, as its palette command does. */
   previewRestartQuestion?: () => boolean;
+  /** Starts discussions between chats, as the composer's picker does. */
+  discussion?: DiscussionHost;
 };
 
 type SmokeUtilities = {
@@ -72,6 +75,12 @@ type SmokeMotion = {
 
 /** How long the stand-in holds a turn open while the checks watch it. */
 const HOLD_MS = 4_000;
+/**
+ * A discussion's first two turns carry the topic, so the stand-in holds each
+ * this long; the check watches the running discussion during the second.
+ */
+const DISCUSSION_HOLD_MS = 8_000;
+const DISCUSSION_ROUNDS = 2;
 
 /** Each utility view's root carries `data-app-<name>`. */
 const UTILITY_VIEWS = [
@@ -219,6 +228,121 @@ async function expectOnScreen(view: UtilityView | null) {
   }
 }
 
+/** A new task in `path`, as the sidebar's New task opens one. */
+async function openNewTask(get: () => Options, path: string): Promise<Session> {
+  const before = new Set(get().sessions.map((session) => session.id));
+  get().newProjectTask(path);
+  return waitFor(
+    () =>
+      get().sessions.find(
+        (session) =>
+          !before.has(session.id) && sameProjectPath(session.cwd, path),
+      ),
+    5_000,
+    "a new task",
+  );
+}
+
+/** The discussion messages Aven relayed into a chat, as turn numbers. */
+function relayedTurns(sessions: Session[], id: string): number[] {
+  return (sessions.find((session) => session.id === id)?.blocks ?? []).flatMap(
+    (block) =>
+      block.role === "user" && block.discussion ? [block.discussion.turn] : [],
+  );
+}
+
+function notesIn(sessions: Session[], id: string, text: string): number {
+  return (sessions.find((session) => session.id === id)?.blocks ?? []).filter(
+    (block) => block.role === "system" && block.text === text,
+  ).length;
+}
+
+function sidebarDiscussionRow(sessionId: string): HTMLElement | null {
+  return (
+    [
+      ...document.querySelectorAll<HTMLElement>(
+        `.personal-navigation [data-discussion-row="${sessionId}"]`,
+      ),
+    ].find((row) => row.getClientRects().length > 0) ?? null
+  );
+}
+
+/**
+ * Why the sidebar does not show the two chats linked as talking, or null:
+ * both rows marked, one connector spanning their centres, its pulse running
+ * toward the chat that is answering (still with reduced motion).
+ */
+function linkProblem(id: string, a: string, b: string): string | null {
+  const rowA = sidebarDiscussionRow(a);
+  const rowB = sidebarDiscussionRow(b);
+  if (!rowA || !rowB)
+    return `the sidebar shows ${rowA || rowB ? "only one" : "neither"} of the two chats`;
+  const link = document.querySelector<HTMLElement>(
+    `[data-discussion-link="${id}"]`,
+  );
+  if (!link) return "no connector links the two rows";
+  for (const row of [rowA, rowB])
+    if (row.querySelector(".discussion-talk-badge"))
+      return "a linked row still shows its talking-with badge";
+  const centre = (element: HTMLElement) => {
+    const rect = element.getBoundingClientRect();
+    return rect.top + rect.height / 2;
+  };
+  const span = link.getBoundingClientRect();
+  const [top, bottom] = [centre(rowA), centre(rowB)].sort((x, y) => x - y);
+  if (Math.abs(span.top - top) > 2 || Math.abs(span.bottom - bottom) > 2)
+    return `the connector spans ${Math.round(span.top)}–${Math.round(span.bottom)}, not the rows at ${Math.round(top)}–${Math.round(bottom)}`;
+  // B is answering: the pulse travels toward its row.
+  const toward = centre(rowB) > centre(rowA) ? "down" : "up";
+  if (link.dataset.toward !== toward)
+    return `the pulse travels ${link.dataset.toward ?? "nowhere"}, not ${toward} toward the answering chat`;
+  const pulse = link.querySelector(".discussion-link-pulse");
+  if (!pulse) return "the connector has no pulse";
+  const moving = animationProblem(
+    getComputedStyle(pulse).animationName,
+    `discussion-link-${toward}`,
+    prefersReducedMotion(),
+  );
+  return moving ? `the pulse ${moving}` : null;
+}
+
+/** Open the visible chat's + menu, find Discuss with…, and close it again. */
+async function expectDiscussEntry(sessionId: string) {
+  const composer = await waitFor(
+    () => {
+      const field = visibleComposer();
+      return (
+        field
+          ?.closest(`[data-session-drop="${sessionId}"]`)
+          ?.querySelector<HTMLElement>("[data-composer]") ?? null
+      );
+    },
+    5_000,
+    "the new chat's message box",
+  );
+  const plus = composer.querySelector<HTMLButtonElement>(
+    '[aria-label="Add files or choose a mode"]',
+  );
+  if (!plus) throw new Error("The message box has no + menu");
+  plus.click();
+  try {
+    await waitFor(
+      () => document.querySelector("[data-composer-plus]"),
+      5_000,
+      "the + menu",
+    );
+    if (!document.querySelector("[data-composer-discuss]"))
+      throw new Error("The + menu does not offer Discuss with…");
+  } finally {
+    if (document.querySelector("[data-composer-plus]")) plus.click();
+  }
+  await waitFor(
+    () => !document.querySelector("[data-composer-plus]"),
+    5_000,
+    "the + menu to close",
+  );
+}
+
 /** One run per app, even when React mounts the workspace twice. */
 let started = false;
 
@@ -228,8 +352,9 @@ let started = false;
  * provider through the normal send path with the floating sidebar attached,
  * open and close the utility views by handler and by shortcut, watch what
  * moves while an agent works and when its turn ends (the sidebar's mark, Home
- * and Parallel work), check the restart-to-update question's preview, then
- * have the floating sidebar open Settings and press Back, then report.
+ * and Parallel work), run a two-round discussion between two chats, check
+ * the restart-to-update question's preview, then have the floating sidebar
+ * open Settings and press Back, then report.
  */
 export function useDevSmoke(options: Options) {
   const latest = useRef(options);
@@ -708,6 +833,125 @@ export async function runDevSmoke(
         motion.hideChanges();
       }
     });
+
+  // Two chats discuss a topic, started the way the composer's picker starts
+  // one. While the second chat answers, the sidebar links both rows and the
+  // bar counts the round; every reply is relayed once, and both chats get
+  // the closing note.
+  const discussion = get().discussion;
+  if (safe && discussion)
+    await step(
+      "two chats discuss for two rounds, linked in the sidebar",
+      async () => {
+        get().motion?.showWorkspace?.();
+        if (!get().sidebarOpen) {
+          pressShortcut("b");
+          await waitFor(
+            () => get().sidebarOpen === true,
+            5_000,
+            "the sidebar to pin",
+          );
+        }
+        const a = await openNewTask(get, config.projectPath);
+        const b = await openNewTask(get, config.projectPath);
+        // The chat's own + menu offers it, so the picker can be reached.
+        await expectDiscussEntry(b.id);
+        const refused = discussion.start({
+          sessionId: a.id,
+          partner: { kind: "chat", sessionId: b.id },
+          topic: `Compare notes. AVEN_SMOKE_HOLD ${DISCUSSION_HOLD_MS}`,
+          rounds: DISCUSSION_ROUNDS,
+        });
+        if (refused)
+          throw new Error(`The discussion did not start: ${refused}`);
+        const session = (id: string) =>
+          get().sessions.find((entry) => entry.id === id);
+
+        // B's first turn: A's reply, relayed and held open by the stand-in.
+        await waitFor(
+          () =>
+            session(b.id)?.busy && relayedTurns(get().sessions, b.id)[0] === 1,
+          DISCUSSION_HOLD_MS + 20_000,
+          "the second chat to receive the first chat's reply",
+        );
+        const relayed = session(b.id)?.blocks.find(
+          (block) => block.discussion?.turn === 1,
+        );
+        if (!relayed?.text.includes(SMOKE_REPLY))
+          throw new Error(
+            `The second chat received "${relayed?.text ?? ""}", not the first chat's reply`,
+          );
+        const id = relayed.discussion!.id;
+        await waitFor(
+          () =>
+            document.querySelector(
+              `[data-session-drop="${b.id}"] [data-discussion-relay="${id}"]`,
+            ),
+          5_000,
+          "the relay card on the relayed message",
+        );
+        const bar = await waitFor(
+          () =>
+            visibleComposer()
+              ?.closest("[data-composer]")
+              ?.querySelector<HTMLElement>(`[data-discussion-bar="${id}"]`),
+          5_000,
+          "the discussion bar above the message box",
+        );
+        const barText = bar.textContent?.replace(/\s+/g, " ").trim() ?? "";
+        if (!barText.includes(`round 1 of ${DISCUSSION_ROUNDS}`))
+          throw new Error(`The discussion bar reads "${barText}"`);
+        try {
+          await waitFor(
+            () => !linkProblem(id, a.id, b.id),
+            6_000,
+            "the sidebar to link the two chats",
+          );
+        } catch (error) {
+          throw new Error(
+            `${errorText(error)}: ${linkProblem(id, a.id, b.id) ?? "linked too late"}`,
+          );
+        }
+
+        const note = `Discussion ended after ${DISCUSSION_ROUNDS} rounds.`;
+        await waitFor(
+          () =>
+            notesIn(get().sessions, a.id, note) > 0 &&
+            notesIn(get().sessions, b.id, note) > 0,
+          DISCUSSION_HOLD_MS + 40_000,
+          "the closing note in both chats",
+        );
+        await waitFor(
+          () =>
+            !document.querySelector(`[data-discussion-link="${id}"]`) &&
+            !sidebarDiscussionRow(a.id) &&
+            !sidebarDiscussionRow(b.id) &&
+            !document.querySelector(`[data-discussion-bar="${id}"]`),
+          5_000,
+          "the connector and the bar to go once it ended",
+        );
+        // Nothing more arrives after the end, and nothing came twice.
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
+        const turnsA = relayedTurns(get().sessions, a.id);
+        const turnsB = relayedTurns(get().sessions, b.id);
+        if (turnsA.join() !== "0,2" || turnsB.join() !== "1,3")
+          throw new Error(
+            `Relayed turns were ${turnsA.join(",") || "none"} in the first chat and ${turnsB.join(",") || "none"} in the second, not 0,2 and 1,3`,
+          );
+        const notes = [a.id, b.id].map((chat) =>
+          notesIn(get().sessions, chat, note),
+        );
+        if (notes.some((count) => count !== 1))
+          throw new Error(
+            `The closing note appeared ${notes.join(" and ")} times`,
+          );
+        if (session(a.id)?.busy || session(b.id)?.busy)
+          throw new Error("A chat kept working after the discussion ended");
+        return prefersReducedMotion()
+          ? "4 replies relayed once each; linked, still (reduced motion); ended after 2 rounds"
+          : "4 replies relayed once each; linked with the pulse toward the answering chat; ended after 2 rounds";
+      },
+    );
 
   // The workspace's own key listener, as a key press reaches it: Cmd+, opens
   // Settings and Cmd+W closes the open utility rather than a pane.

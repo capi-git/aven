@@ -6,6 +6,7 @@ import {
   CornerDownRight,
   FilePlus,
   ListEnd,
+  MessageMultiple,
   Pause,
   Pencil,
   Play,
@@ -149,6 +150,10 @@ import {
   ORCHESTRATOR_COMMAND,
 } from "../lib/orchestratorCommand";
 import { COMPACT_COMMAND, isCompactCommand } from "../lib/compact";
+import { consumeDiscussCommand, DISCUSS_COMMAND } from "../lib/discussCommand";
+import type { DiscussionHost } from "../lib/discussions";
+import { DiscussionBar } from "./DiscussionBar";
+import { DiscussionPicker } from "./DiscussionPicker";
 import { resizeComposer } from "../lib/composerResize";
 
 type Props = {
@@ -220,6 +225,8 @@ type Props = {
   onOpenFile?: (path: string) => void;
   onDraftChange?: (text: string) => void;
   onAttachmentsChange?: (attachments: Attachment[]) => void;
+  /** Starts a discussion with another chat; absent hides Discuss with…. */
+  discussion?: DiscussionHost;
   children?: ReactNode;
 };
 
@@ -549,6 +556,7 @@ function ComposerComponent({
   onOpenFile,
   onDraftChange,
   onAttachmentsChange,
+  discussion,
   children,
 }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -610,6 +618,9 @@ function ComposerComponent({
       : undefined;
   const raceReady = raceLanes.length >= RACE_MIN_LANES && !raceBlocked;
   const [orchestrationSelected, setOrchestrationSelected] = useState(false);
+  // Discuss with…: the picker is open with this topic while it is not null.
+  const discussAvailable = Boolean(discussion && sessionId && !hideTopBar);
+  const [discussTopic, setDiscussTopic] = useState<string | null>(null);
   const [slash, setSlash] = useState<SlashToken | null>(null);
   // The highlighted `/` row, for the list it was chosen in (see skillActive).
   const [skillCursor, setSkillCursor] = useState<{
@@ -718,16 +729,18 @@ function ComposerComponent({
       PLAN_COMMAND,
       // Orchestrator mode is only offered where its + menu toggle is.
       ...(hideTopBar ? [] : [ORCHESTRATOR_COMMAND]),
+      ...(discussAvailable ? [DISCUSS_COMMAND] : []),
       ...(compactSupported ? [COMPACT_COMMAND] : []),
       ...skills.filter(
         (skill) =>
           skill.kind === "native" ||
           (skill.name !== PLAN_COMMAND.name &&
             skill.name !== COMPACT_COMMAND.name &&
-            (hideTopBar || skill.name !== ORCHESTRATOR_COMMAND.name)),
+            (hideTopBar || skill.name !== ORCHESTRATOR_COMMAND.name) &&
+            (!discussAvailable || skill.name !== DISCUSS_COMMAND.name)),
       ),
     ],
-    [compactSupported, hideTopBar, skills],
+    [compactSupported, discussAvailable, hideTopBar, skills],
   );
   const skillLimit = hasNativeCommands(harness)
     ? Number.POSITIVE_INFINITY
@@ -1090,8 +1103,10 @@ function ComposerComponent({
         skill.kind === "builtin" && skill.name === PLAN_COMMAND.name;
       const orchestratorCommand =
         skill.kind === "builtin" && skill.name === ORCHESTRATOR_COMMAND.name;
+      const discussCommand =
+        skill.kind === "builtin" && skill.name === DISCUSS_COMMAND.name;
       // Mode commands switch the mode and leave only the request in the field.
-      const modeCommand = planCommand || orchestratorCommand;
+      const modeCommand = planCommand || orchestratorCommand || discussCommand;
       const next = modeCommand
         ? `${el.value.slice(0, token.start)}${el.value
             .slice(token.end)
@@ -1117,6 +1132,11 @@ function ComposerComponent({
         setOrchestrationSelected(true);
         setPlanSelected(false);
         setRaceOn(false);
+      }
+      // The rest of the message becomes the discussion's topic.
+      if (discussCommand) {
+        setDiscussTopic(next.trim());
+        return;
       }
       el.focus();
     },
@@ -1269,7 +1289,22 @@ function ComposerComponent({
     };
   }, [addAttachments, attachmentsSupported, enabled]);
 
+  const openDiscussion = (topic: string) => {
+    setPlusOpen(false);
+    setSlash(null);
+    setMention(null);
+    setCreatingSkill(false);
+    setDiscussTopic(topic);
+  };
+
   const submit = (value: string) => {
+    if (discussAvailable) {
+      const discussCommand = consumeDiscussCommand(value);
+      if (discussCommand.matched) {
+        openDiscussion(discussCommand.topic);
+        return;
+      }
+    }
     if (isCompactCommand(value)) {
       if (!onCompactContext) return;
       if (!onCompactContext()) {
@@ -1511,6 +1546,7 @@ function ComposerComponent({
       {question && onQuestionReply ? (
         <QuestionForm prompt={question} onReply={onQuestionReply} />
       ) : null}
+      {discussion ? <DiscussionBar sessionId={sessionId} /> : null}
       {children}
       <MessageQueue
         messages={queuedMessages}
@@ -1526,7 +1562,26 @@ function ComposerComponent({
         onResume={onResumeQueue}
       />
       <div className="relative overflow-visible">
-        {pickerOpen ? (
+        {discussTopic !== null && discussion && sessionId ? (
+          <div className="absolute inset-x-0 bottom-full z-30 mb-1">
+            <DiscussionPicker
+              host={discussion}
+              sessionId={sessionId}
+              harness={harness}
+              model={model}
+              initialTopic={discussTopic}
+              onClose={() => {
+                setDiscussTopic(null);
+                ref.current?.focus();
+              }}
+              onStarted={() => {
+                setDiscussTopic(null);
+                clearField();
+              }}
+            />
+          </div>
+        ) : null}
+        {pickerOpen && discussTopic === null ? (
           <div className="absolute inset-x-0 bottom-full z-30 mb-1">
             <SkillPicker
               skills={rankedSkills}
@@ -1844,6 +1899,27 @@ function ComposerComponent({
                       {orchestrationSelected ? (
                         <Check className="mt-0.5 size-3.5 shrink-0 text-accent" />
                       ) : null}
+                    </button>
+                  ) : null}
+                  {discussAvailable ? (
+                    <button
+                      type="button"
+                      data-composer-discuss
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() =>
+                        openDiscussion(ref.current?.value.trim() ?? "")
+                      }
+                      className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
+                    >
+                      <MessageMultiple className="mt-0.5 size-4 shrink-0 text-content/70" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-ui-body">
+                          Discuss with…
+                        </span>
+                        <span className="block text-ui-caption leading-4 text-content/45">
+                          Talk a topic through with another chat
+                        </span>
+                      </span>
                     </button>
                   ) : null}
                 </Popover>

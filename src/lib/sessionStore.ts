@@ -8,6 +8,7 @@ import type { ContextUsage } from "./contextUsage";
 import { normalizeProjectPath } from "./recents";
 import type {
   Block,
+  DiscussionRelayMeta,
   HarnessId,
   HandoffMeta,
   HandoffStatus,
@@ -521,6 +522,9 @@ function sanitizeBlock(block: Block): Block | null {
   else if (block.role === "handoff") return null;
   const secondOpinion = sanitizeSecondOpinion(block.secondOpinion);
   if (secondOpinion) next.secondOpinion = secondOpinion;
+  const discussion =
+    block.role === "user" ? sanitizeDiscussion(block.discussion) : undefined;
+  if (discussion) next.discussion = discussion;
   const noteCard = sanitizeNoteCard(block.noteCard);
   if (noteCard) next.noteCard = noteCard;
   return next;
@@ -709,6 +713,41 @@ function sanitizeSecondOpinion(
     ...(request ? { request } : {}),
     ...(files > 0 ? { files } : {}),
     ...(value.kind === "handoff" ? { kind: "handoff" as const } : {}),
+  };
+}
+
+function sanitizeDiscussion(
+  value: Block["discussion"],
+): DiscussionRelayMeta | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const partner = value.partner;
+  if (
+    typeof value.id !== "string" ||
+    !value.id ||
+    value.id.length > 200 ||
+    !Number.isInteger(value.turn) ||
+    value.turn < 0 ||
+    !Number.isInteger(value.rounds) ||
+    value.rounds < 1 ||
+    !partner ||
+    !(HARNESSES as string[]).includes(partner.harness) ||
+    typeof partner.model !== "string" ||
+    typeof partner.title !== "string"
+  )
+    return undefined;
+  return {
+    id: value.id,
+    turn: value.turn,
+    rounds: value.rounds,
+    partner: {
+      harness: partner.harness,
+      model: partner.model.slice(0, 200),
+      title: partner.title.slice(0, 500),
+      ...(typeof partner.cwd === "string" && partner.cwd
+        ? { cwd: partner.cwd.slice(0, 4096) }
+        : {}),
+    },
+    ...(value.truncated === true ? { truncated: true } : {}),
   };
 }
 

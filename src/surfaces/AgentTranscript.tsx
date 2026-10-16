@@ -38,6 +38,7 @@ import {
 } from "../chrome/SecondOpinionButton";
 import { RememberButton } from "../chrome/RememberButton";
 import { SecondOpinionCard } from "../chrome/SecondOpinionCard";
+import { DiscussionRelayCard } from "../chrome/DiscussionRelayCard";
 import { NoteMiniCard } from "../chrome/NoteMiniCard";
 import { TerminalSpinner } from "../chrome/TerminalSpinner";
 import type { ApprovalDecision } from "../lib/harness";
@@ -1196,11 +1197,12 @@ function UserMessageBlock({
   const textRef = useRef<HTMLPreElement>(null);
   const card = block.secondOpinion;
   const note = block.noteCard;
+  const relay = block.discussion;
   const text =
     card && card.kind !== "handoff" ? "" : visibleUserPrompt(block.text);
   const chat = layout === "chat";
   const textOnly =
-    Boolean(text) && !block.attachments?.length && !card && !note;
+    Boolean(text) && !block.attachments?.length && !card && !note && !relay;
 
   // Only the chat layout rounds a single line; the document layout always uses
   // the square corners, so it never needs the measurement at all.
@@ -1291,6 +1293,11 @@ function UserMessageBlock({
         {card ? (
           <div className={text ? "mb-1.5" : undefined}>
             <SecondOpinionCard card={card} />
+          </div>
+        ) : null}
+        {relay ? (
+          <div className={text ? "mb-1.5" : undefined}>
+            <DiscussionRelayCard meta={relay} />
           </div>
         ) : null}
         {text ? (

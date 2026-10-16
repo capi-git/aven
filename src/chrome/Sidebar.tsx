@@ -127,6 +127,17 @@ import {
 import { DevModeSlot, TabVisitNav } from "./TitleBar";
 import { SessionFiltersMenu } from "./SessionFiltersMenu";
 import { SidebarUpdateFooter } from "./SidebarUpdate";
+import {
+  DiscussionLinks,
+  DiscussionTalkBadge,
+  DiscussionTalkMark,
+  useDiscussionLinks,
+} from "./SidebarDiscussions";
+import {
+  sidebarTalks,
+  type SidebarDiscussion,
+  type SidebarTalk,
+} from "../lib/discussions";
 import { SettingsNav } from "./SettingsRail";
 import "./PersonalNavigation.css";
 
@@ -214,6 +225,8 @@ export type SidebarProps = {
   /** Per-project activity and changed files, keyed by `projectKey(path)`. */
   projectStatus?: ProjectStatusMap;
   liveAgents?: LiveAgent[];
+  /** Chats discussing with each other; their rows talk and are linked. */
+  discussions?: readonly SidebarDiscussion[];
   onSelectAgent?: (sessionId: string) => void;
   onSelectProject?: (path: string) => void;
   onOpenProject?: () => void;
@@ -248,6 +261,8 @@ export type SidebarProps = {
   onOpenWhatsNew?: (version: string) => void;
   onDismissUpdate?: () => void;
 };
+
+const NO_DISCUSSIONS: readonly SidebarDiscussion[] = [];
 
 /** Personal is the default home for every project, so it cannot be deleted. */
 function workspaceMenuItems(
@@ -330,6 +345,7 @@ function SidebarComponent({
   onNewProjectTask,
   projectStatus,
   liveAgents = [],
+  discussions = NO_DISCUSSIONS,
   onSelectAgent,
   onSelectProject,
   onOpenProject,
@@ -945,6 +961,29 @@ function SidebarComponent({
     y: number;
     sessionId: string;
   } | null>(null);
+  const talks = useMemo(() => sidebarTalks(discussions), [discussions]);
+  const discussionLayer = useRef<HTMLDivElement>(null);
+  const discussionLinks = useDiscussionLinks(discussionLayer, discussions);
+  /** A plain row's leading mark: talking, working, or a spacer. */
+  const plainLead = (session: SessionSummary, runningLabel: string) => {
+    const talk = talks.get(session.id);
+    if (talk)
+      return <DiscussionTalkMark harness={session.harness} talk={talk} />;
+    return busySessionIds.has(session.id) ? (
+      <span className="personal-task-working-dot" aria-label={runningLabel} />
+    ) : (
+      <span className="personal-task-indent" />
+    );
+  };
+  /** Names the partner when its row is not on screen to link to. */
+  const talkBadge = (sessionId: string) => {
+    const talk = talks.get(sessionId);
+    return talk && !discussionLinks.linked.has(sessionId) ? (
+      <DiscussionTalkBadge talk={talk} />
+    ) : null;
+  };
+  const talkRow = (sessionId: string) =>
+    talks.has(sessionId) ? { "data-discussion-row": sessionId } : undefined;
   const plainRowProps = (sessionId: string) =>
     onRenameSession
       ? {
@@ -1164,6 +1203,8 @@ function SidebarComponent({
     ) : (
       <SessionCard
         session={session}
+        talk={talks.get(session.id)}
+        talkLinked={discussionLinks.linked.has(session.id)}
         isActive={session.id === activeSessionId}
         isSelected={selectedSessionIds.has(session.id)}
         busy={busySessionIds.has(session.id)}
@@ -1669,6 +1710,12 @@ function SidebarComponent({
                 ref={setScroller}
                 className="personal-projects-scroll min-h-0 flex-1 overflow-y-auto"
               >
+                {discussions.length ? (
+                  <DiscussionLinks
+                    layer={discussionLayer}
+                    links={discussionLinks.links}
+                  />
+                ) : null}
                 {onOpenStandalone ? (
                   <section
                     className="personal-standalone-group"
@@ -1720,21 +1767,16 @@ function SidebarComponent({
                                   className="personal-other-task personal-task-card"
                                   onClick={() => onSelectSession(session.id)}
                                   {...plainRowProps(session.id)}
+                                  {...talkRow(session.id)}
                                 >
-                                  {busySessionIds.has(session.id) ? (
-                                    <span
-                                      className="personal-task-working-dot"
-                                      aria-label="Session running"
-                                    />
-                                  ) : (
-                                    <span className="personal-task-indent" />
-                                  )}
+                                  {plainLead(session, "Session running")}
                                   <span className="personal-task-title">
                                     {sessionDisplayTitle(
                                       session.title,
                                       session.harness,
                                     )}
                                   </span>
+                                  {talkBadge(session.id)}
                                 </button>
                               ))
                             ),
@@ -1933,26 +1975,21 @@ function SidebarComponent({
                                     }
                                     disabled={!onSelectProjectSession}
                                     {...plainRowProps(session.id)}
+                                    {...talkRow(session.id)}
                                     aria-current={
                                       session.id === activeSessionId
                                         ? "true"
                                         : undefined
                                     }
                                   >
-                                    {busySessionIds.has(session.id) ? (
-                                      <span
-                                        className="personal-task-working-dot"
-                                        aria-label="Task running"
-                                      />
-                                    ) : (
-                                      <span className="personal-task-indent" />
-                                    )}
+                                    {plainLead(session, "Task running")}
                                     <span className="personal-task-title">
                                       {sessionDisplayTitle(
                                         session.title,
                                         session.harness,
                                       )}
                                     </span>
+                                    {talkBadge(session.id)}
                                     {session.pinned ? (
                                       <Pin className="size-2.5 shrink-0 opacity-55" />
                                     ) : null}
@@ -2119,6 +2156,7 @@ const SIDEBAR_DATA: readonly (keyof SidebarProps)[] = [
   "recents",
   "projectStatus",
   "liveAgents",
+  "discussions",
   "standaloneSessions",
   "busySessionIds",
   "approvalSessionIds",
@@ -2396,6 +2434,8 @@ function FolderRenameRow({
 
 function SessionCard({
   session,
+  talk,
+  talkLinked = false,
   isActive,
   isSelected,
   busy,
@@ -2416,6 +2456,10 @@ function SessionCard({
   onDelete,
 }: {
   session: SessionSummary;
+  /** Its part in a discussion with another chat, if any. */
+  talk?: SidebarTalk;
+  /** The partner's row is on screen and linked to this one. */
+  talkLinked?: boolean;
   isActive: boolean;
   isSelected: boolean;
   busy: boolean;
@@ -2748,6 +2792,7 @@ function SessionCard({
         aria-current={isActive ? "true" : undefined}
         aria-pressed={isSelected}
         data-session-card={session.id}
+        data-discussion-row={talk ? session.id : undefined}
         data-session-selected={isSelected ? "true" : undefined}
         data-needs-approval={needsApproval || undefined}
         data-tauri-drag-region="false"
@@ -2789,10 +2834,18 @@ function SessionCard({
         {compact ? null : (
           <span className="relative flex items-center gap-2">
             <span className="flex min-w-0 flex-1 items-center gap-1.5">
-              <HarnessIcon
-                harness={session.harness}
-                className="size-3.5 shrink-0"
-              />
+              {talk ? (
+                <DiscussionTalkMark
+                  harness={session.harness}
+                  talk={talk}
+                  className="size-3.5"
+                />
+              ) : (
+                <HarnessIcon
+                  harness={session.harness}
+                  className="size-3.5 shrink-0"
+                />
+              )}
               <span className="min-w-0 truncate text-ui-caption text-content/50">
                 {model}
               </span>
@@ -2805,7 +2858,9 @@ function SessionCard({
             compact ? "" : "mt-1"
           }`}
         >
-          {session.pinned ? (
+          {talk && compact ? (
+            <DiscussionTalkMark harness={session.harness} talk={talk} />
+          ) : session.pinned ? (
             <Pin
               className="size-3 shrink-0 text-content/45"
               strokeWidth={1.75}
@@ -2819,6 +2874,7 @@ function SessionCard({
           <span className="personal-task-title min-w-0 flex-1 line-clamp-1 text-ui-body font-semibold leading-snug text-content">
             {title}
           </span>
+          {talk && !talkLinked ? <DiscussionTalkBadge talk={talk} /> : null}
           {compact ? status : null}
         </span>
         {compact ? null : (

@@ -1,0 +1,126 @@
+/* Two chats talking: their provider marks talk, and a thin bracket on the
+   sidebar's left edge links their rows, with a pulse travelling toward the
+   chat that is answering. All motion is CSS transforms; layout is measured
+   only when the rows move. */
+.discussion-talk-mark {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.discussion-talk-mark[data-talking="true"] > * {
+  animation: provider-working 2.8s ease-in-out infinite;
+}
+.discussion-talk-mark[data-talking="true"][data-provider="claude"] > * {
+  animation-name: provider-working-claude;
+}
+/* The listening chat's mark keeps time a half beat behind the answering one. */
+.discussion-talk-mark[data-talking="true"]:not([data-speaking]) > * {
+  animation-delay: -1.4s;
+}
+
+/* The row's own title keeps most of the room; the badge truncates first. */
+[data-discussion-row] > .personal-task-title {
+  flex: 1 1 auto;
+  min-width: 3em;
+}
+.discussion-talk-badge {
+  min-width: 0;
+  max-width: 50%;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-ui-micro);
+  color: color-mix(
+    in srgb,
+    var(--personal-accent, var(--color-accent)) 75%,
+    var(--color-content)
+  );
+}
+.discussion-talk-badge[data-paused="true"] {
+  color: var(
+    --personal-muted,
+    color-mix(in srgb, var(--color-content) 50%, transparent)
+  );
+}
+
+.discussion-links {
+  position: relative;
+  z-index: 2;
+  height: 0;
+  pointer-events: none;
+}
+.discussion-link {
+  position: absolute;
+  width: 6px;
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--personal-accent, var(--color-accent)) 50%,
+      transparent
+    );
+  border-right: 0;
+  border-radius: 5px 0 0 5px;
+}
+.discussion-link[data-paused="true"] {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--color-content) 22%, transparent);
+}
+.discussion-link-track {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -2px;
+  width: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+}
+/* As tall as the bracket; its bright end crosses from one row to the other. */
+.discussion-link-pulse {
+  display: block;
+  height: 100%;
+  background: linear-gradient(
+    to bottom,
+    transparent calc(100% - 14px),
+    var(--personal-accent, var(--color-accent))
+  );
+  animation: discussion-link-down 1.8s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+.discussion-link[data-toward="up"] .discussion-link-pulse {
+  background: linear-gradient(
+    to top,
+    transparent calc(100% - 14px),
+    var(--personal-accent, var(--color-accent))
+  );
+  animation-name: discussion-link-up;
+}
+@keyframes discussion-link-down {
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes discussion-link-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* A hidden sidebar keeps its rows; their motion stops. */
+.personal-sidebar-slot[data-open="false"] .discussion-link-pulse,
+.personal-sidebar-slot[data-open="false"] .discussion-talk-mark > * {
+  animation-play-state: paused;
+}
+
+/* Still: the bracket stays, and the answering end keeps a short glow. */
+@media (prefers-reduced-motion: reduce) {
+  .discussion-link-pulse,
+  .discussion-talk-mark[data-talking="true"] > * {
+    animation: none;
+  }
+}

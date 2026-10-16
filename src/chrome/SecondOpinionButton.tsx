@@ -13,6 +13,7 @@ import {
   useState,
   useSyncExternalStore,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
 } from "react";
 import {
   getHarnessAvailabilitySnapshot,
@@ -59,6 +60,8 @@ type Props = {
   excludeModelName?: string;
   disabled?: boolean;
   triggerClassName?: string;
+  /** Visible text after the trigger's icon, for a labelled row. */
+  label?: ReactNode;
 };
 
 const MENU_WIDTH = 240;
@@ -127,6 +130,7 @@ export function SecondOpinionButton({
   excludeModelName,
   disabled: disabledByCaller = false,
   triggerClassName,
+  label: triggerLabel,
 }: Props) {
   const availabilityVersion = useSyncExternalStore(
     subscribeHarnessAvailability,
@@ -342,7 +346,8 @@ export function SecondOpinionButton({
           setOpen((value) => !value);
         }}
       >
-        <Icon className="size-3.5" strokeWidth={1.75} />
+        <Icon className="size-3.5 shrink-0" strokeWidth={1.75} />
+        {triggerLabel}
       </button>
       {open ? (
         <>

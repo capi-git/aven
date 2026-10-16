@@ -203,6 +203,54 @@ describe("sanitizeSessionForPersist", () => {
     });
   });
 
+  it("keeps a relayed discussion message's card and drops a malformed one", () => {
+    const session = newSession("codex", "/tmp/project");
+    session.blocks = [
+      {
+        id: "u1",
+        role: "user",
+        text: "We should cache the lookups.",
+        discussion: {
+          id: "d1",
+          turn: 1,
+          rounds: 3,
+          partner: {
+            harness: "claude",
+            model: "Opus",
+            title: "Caching",
+            cwd: "/tmp/project",
+          },
+          truncated: true,
+        },
+      },
+      {
+        id: "u2",
+        role: "user",
+        text: "Broken",
+        discussion: {
+          id: "d1",
+          turn: -1,
+          rounds: 3,
+          partner: { harness: "nobody", model: "x", title: "y" },
+        } as unknown as Block["discussion"],
+      },
+    ];
+    const [kept, dropped] = sanitizeSessionForPersist(session).blocks;
+    expect(kept.discussion).toEqual({
+      id: "d1",
+      turn: 1,
+      rounds: 3,
+      partner: {
+        harness: "claude",
+        model: "Opus",
+        title: "Caching",
+        cwd: "/tmp/project",
+      },
+      truncated: true,
+    });
+    expect(dropped.discussion).toBeUndefined();
+  });
+
   it("keeps a handoff card kind on the user turn", () => {
     const session = newSession("codex", "/tmp/project");
     session.blocks = [

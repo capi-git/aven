@@ -73,6 +73,7 @@ import {
   subscribeChatBackgroundPath,
 } from "../lib/appearance";
 import type { PaletteAgent } from "../lib/commandPalette";
+import type { DiscussionHost } from "../lib/discussions";
 
 type Props = {
   session: Session;
@@ -161,6 +162,8 @@ type Props = {
   ) => void;
   onNewTerminal: (sessionId: string) => void;
   onPaneDragStart?: (event: ReactPointerEvent<HTMLElement>) => void;
+  /** Starts discussions with other chats; absent where this window can't. */
+  discussion?: DiscussionHost;
 };
 
 export const SessionPane = memo(function SessionPane({
@@ -202,6 +205,7 @@ export const SessionPane = memo(function SessionPane({
   onHandoff,
   onNewTerminal,
   onPaneDragStart,
+  discussion,
 }: Props) {
   // Streaming updates this pane's transcript directly while it is shown.
   const session = useLiveSession(committedSession, visible);
@@ -572,6 +576,7 @@ export const SessionPane = memo(function SessionPane({
       onResumeQueue={resumeQueue}
       onOpenFile={onOpenFile}
       busy={busy}
+      discussion={session.inboxAsk ? undefined : discussion}
     >
       {review}
     </Composer>

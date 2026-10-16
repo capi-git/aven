@@ -10,6 +10,16 @@ Run history is saved locally. An interrupted run reopens paused for review. Acti
 
 Follow-ups default to **Queue** while an agent is working. Explicit **Steer** remains available for supported providers. Waiting messages retain their order, including when a provider switch is pending. **Resume** runs the next queued message. Rejected submissions keep the draft available to edit or retry.
 
+## Discussions between two chats
+
+Choose **Discuss with…** in the composer's add menu, or type `/discuss` and a topic, to have this chat talk a topic through with another open chat or a new chat with the model you choose. Set the rounds (one to six, three by default); each round is one reply from each chat. Starting waits until both chats are idle with nothing waiting for you.
+
+Aven brokers the conversation; neither agent gets a way to message the other, and an agent can never start one. The first chat receives the topic. Each time a chat finishes its turn, Aven sends that chat's final reply to the other one as a labelled message, shortened past 8,000 characters with a note. A relayed reply is passed as written: its `/` skills and `@` references are not expanded in the receiving chat. Relayed messages appear in the receiving transcript with the sender's marks. When the rounds are used up, Aven posts a short note in both chats; it never asks a model to summarise.
+
+A discussion pauses when either chat needs an approval or has a question, when a chat refuses or cannot take the message, and when the chat that should answer next is busy with your own turn, has your messages queued or has a card waiting in its message box. Your own work comes first; the relay never joins the queue or steers a running turn. Press **Resume** in the bar above either chat's message box to continue, or **Stop** to end it; a reply already in progress finishes but is not passed on. Stopping either chat's turn ends the discussion; an error pauses it, and Resume sends the same message again.
+
+Discussions are saved locally and are driven by the window that started them. Reloading or closing that window pauses them. If a chat moves to another window, its bar there can stop the discussion, or resume it once both chats are open in that window.
+
 ## Access and review
 
 Worker coordination does not replace the selected provider's permissions or your review of the result. Workers use the project folder and can make changes within the access granted to their processes. Review the assignment scopes and resulting Git diff, especially when several workers edit the same project.

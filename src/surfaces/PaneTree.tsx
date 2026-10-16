@@ -124,6 +124,8 @@ type Shared = {
   onMovePane: (fromId: string, toId: string, edge: PaneEdge) => void;
   onNewTerminal: (sessionId: string) => void;
   onTerminalMetaChange?: (fileId: string, patch: TerminalMetaPatch) => void;
+  /** Starts discussions with other chats; the composer offers Discuss with…. */
+  discussion?: ComponentProps<typeof SessionPane>["discussion"];
 };
 
 type Props = Shared & { layout: LayoutNode };
@@ -186,6 +188,7 @@ function PaneTreeComponent({
   onMovePane,
   onNewTerminal,
   onTerminalMetaChange,
+  discussion,
 }: Props) {
   const treeRef = useRef<HTMLDivElement>(null);
   const layoutRef = useRef(layout);
@@ -429,6 +432,7 @@ function PaneTreeComponent({
                 onHandoff={onHandoff}
                 onNewTerminal={onNewTerminal}
                 onPaneDragStart={onPaneDragStart}
+                discussion={discussion}
               />
             ) : null}
           </div>
