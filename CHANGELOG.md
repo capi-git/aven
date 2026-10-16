@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Two chats can discuss a topic when you ask them to: choose **Discuss with…** from the message box's **+** menu (or type `/discuss`), pick another open chat or a new one with any model, and set the topic and rounds. Aven passes each finished reply to the other chat, shows every relayed message in both transcripts, pauses for approvals, questions and your own messages, and the sidebar animates the two chats talking.
+
 ## [0.1.141] - 2026-10-15
 
 ### Added
@@ -17,7 +21,6 @@
 - Each project has a memory that every agent in it receives, so switching from Claude to Codex, or starting a new chat, keeps the project's decisions, conventions, work in progress and gotchas. Open **Project memory…** from a project's actions or from **Customize project…**, or press **Remember this** under a reply to add a short item you can edit first. It stays in Aven, never in the project's files; edits reach new chats at once and open chats with their next message.
 - The Changes panel opens with a card for the folder you are in (project mark, branch, how far it is from its upstream and its last commit), shows each file's added and removed lines with a small bar, greets a clean copy with its mascot, and lists history as message, refs, short id and age. **Ship it** commits, pushes or opens a pull request from one card that says whether the agent's last turn ran tests and how they went, then follows the pull request's checks until they finish; a finished turn's changes in the chat offer it too.
 
-- Two chats can discuss a topic when you ask them to: choose **Discuss with…** from the message box's **+** menu (or type `/discuss`), pick another open chat or a new one with any model, and set the topic and rounds. Aven passes each finished reply to the other chat, shows every relayed message in both transcripts, pauses for approvals, questions and your own messages, and the sidebar animates the two chats talking.
 
 ### Changed
 
