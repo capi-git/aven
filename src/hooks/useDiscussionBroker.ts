@@ -251,14 +251,19 @@ export function useDiscussionBroker({
     [settle, store],
   );
 
-  /** Discussions this window is summing up now. */
+  /**
+   * Endings this window is summing up now, as `id:settled`: a discussion
+   * continued and ended again while its last summary is still being
+   * written is summed up for its new ending straight away.
+   */
   const summarising = useRef(new Set<string>());
   const summariseOnce = useCallback(
     (id: string) => {
-      if (summarising.current.has(id) || !store.claimSummary(id)) return;
+      const ending = `${id}:${store.get(id)?.settled}`;
+      if (summarising.current.has(ending) || !store.claimSummary(id)) return;
       const discussion = store.get(id);
       if (!discussion) return;
-      summarising.current.add(id);
+      summarising.current.add(ending);
       const sessions = latest.current.sessionsRef.current;
       const blocks = (side: "a" | "b") =>
         sessions.find(
@@ -268,7 +273,7 @@ export function useDiscussionBroker({
         .summarise(discussion, { a: blocks("a"), b: blocks("b") })
         .catch((): DiscussionSummary => ({ status: "failed" }))
         .then((summary) => store.finishSummary(id, discussion.settled, summary))
-        .finally(() => summarising.current.delete(id));
+        .finally(() => summarising.current.delete(ending));
     },
     [store],
   );

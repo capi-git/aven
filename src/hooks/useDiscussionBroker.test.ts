@@ -595,6 +595,41 @@ describe("useDiscussionBroker's wrap-up", () => {
     expect(summarise).toHaveBeenCalledTimes(1);
   });
 
+  it("sums up a continued discussion's new ending even while the old summary runs", async () => {
+    let finishFirst: (summary: DiscussionSummary) => void = () => {};
+    summarise.mockImplementationOnce(
+      () =>
+        new Promise<DiscussionSummary>((resolve) => {
+          finishFirst = resolve;
+        }),
+    );
+    summarise.mockResolvedValue({
+      status: "done",
+      agreed: ["Evict by version"],
+      open: [],
+      model: "Claude Haiku 4.5",
+    });
+    const id = await complete();
+    expect(store.get(id)?.summary?.status).toBe("running");
+    await act(async () => {
+      store.interject(id, "And eviction?");
+    });
+    await finish("a", "By version.");
+    await finish("b", "Agreed.");
+    expect(summarise).toHaveBeenCalledTimes(2);
+    expect(store.get(id)?.summary).toMatchObject({
+      status: "done",
+      agreed: ["Evict by version"],
+    });
+    // The first ending's late answer changes nothing.
+    await act(async () =>
+      finishFirst({ status: "done", agreed: ["Old"], open: [], model: "M" }),
+    );
+    expect(store.get(id)?.summary).toMatchObject({
+      agreed: ["Evict by version"],
+    });
+  });
+
   it("keeps a failed summary as failed and never retries it", async () => {
     summarise.mockRejectedValue(new Error("No model"));
     const id = await complete();
