@@ -328,7 +328,8 @@ export async function steerHarnessTurn(
     throw new Error(`${input.harness} is not connected yet`);
   }
   cancelIdlePark(input.sessionId);
-  const work = prepareSharedWorkTurn({ ...input, harness: input.harness });
+  // A follow-up mid-turn carries the note too when it changed meanwhile.
+  const work = prepareSharedWorkTurn(input);
   try {
     await adapter.steerTurn({ ...input, text: work.text });
   } catch (error) {

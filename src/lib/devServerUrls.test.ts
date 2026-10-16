@@ -402,6 +402,10 @@ describe("which app a server is", () => {
         address: localDevAddress("http://localhost:5173/"),
       },
     ]);
+    const framework = createDevOutputScanner().push(
+      "Nuxt 3.12.0 with Nitro 2.9.6\n  VITE v5.4.0  ready\n  ➜  Local:   http://localhost:3000/\n",
+    );
+    expect(framework).toMatchObject([{ kind: "address", app: "nuxt" }]);
     scanner.push("^C\n");
     const [after] = scanner.push("  ➜  Local:   http://localhost:5174/\n");
     expect(after).toEqual({

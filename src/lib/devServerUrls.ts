@@ -87,6 +87,9 @@ const APP_BANNERS: ReadonlyArray<readonly [string, RegExp]> = [
   ["eleventy", /\[11ty\]\s+server at\b/i],
 ];
 
+/** Bundlers other frameworks run on; they never replace a framework's name. */
+const BUILDERS = new Set(["vite", "webpack"]);
+
 /** The framework a banner line names, or undefined. */
 export function devServerAppInLine(text: string): string | undefined {
   const line = cleanLine(text);
@@ -408,7 +411,8 @@ export function createDevOutputScanner(): DevOutputScanner {
         continue;
       }
       const named = APP_BANNERS.find(([, pattern]) => pattern.test(line))?.[0];
-      if (named) app = named;
+      // Storybook and Nuxt run on Vite or webpack; the framework names the app.
+      if (named && !(app && BUILDERS.has(named))) app = named;
       const address = addressInCleanLine(line, armed > 0);
       if (address)
         signals.push({ kind: "address", address, ...(app ? { app } : {}) });
