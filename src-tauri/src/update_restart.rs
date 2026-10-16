@@ -341,8 +341,11 @@ impl UpdateRestartState {
         true
     }
 
-    /// Wake waits that depend on which windows exist.
+    /// Wake waits that depend on which windows exist. Tauri has already
+    /// removed the window; taking the lock first means a wait that checked
+    /// before the removal is already asleep and hears this.
     fn window_destroyed(&self) {
+        drop(self.shared.lock());
         self.shared.changed.notify_all();
     }
 
@@ -611,19 +614,26 @@ async fn close_other_windows(app: &AppHandle, owner: &str, stop_work: bool) -> R
             window.destroy().map_err(|error| error.to_string())?;
         }
     }
+    Ok(())
+}
+
+/// Closing a window finishes asynchronously. Wait, woken by each window
+/// closing, until only the restarting window is left, or a few seconds pass;
+/// the final window check then names anything still open.
+async fn settle_windows(app: &AppHandle, owner: &str) -> Result<(), String> {
     let handle = app.clone();
+    let owner = owner.to_string();
     tauri::async_runtime::spawn_blocking(move || {
         handle
             .state::<UpdateRestartState>()
             .wait_until(WINDOW_CLOSE_WAIT, |_| {
-                others
-                    .iter()
-                    .all(|label| handle.get_window(label).is_none())
+                let labels: Vec<String> = handle.windows().into_keys().collect();
+                check_update_windows(&owner, &labels).is_ok()
             })
     })
     .await
-    .map_err(|error| error.to_string())?;
-    Ok(())
+    .map(|_| ())
+    .map_err(|error| error.to_string())
 }
 
 /// Reserve the restart, then let Aven tidy what it can by itself: bring
@@ -643,6 +653,7 @@ pub async fn prepare_update_restart(
     let tidied = async {
         crate::browser::return_floating_pages(app, owner).await?;
         close_other_windows(app, owner, stop_work.unwrap_or(false)).await?;
+        settle_windows(app, owner).await?;
         check_windows_and_agents(app, owner)?;
         Ok::<_, String>(app.state::<PtyHost>().update_terminals())
     }
@@ -1210,6 +1221,30 @@ mod tests {
             .wait_for_windows(&windows, Duration::from_millis(20), |_| true)
             .unwrap_err();
         assert!(error.contains("didn't get ready to close"), "{error}");
+    }
+
+    #[test]
+    fn a_closed_window_wakes_a_restart_waiting_for_windows_to_close() {
+        let guard = Arc::new(UpdateRestartState::default());
+        let open = Arc::new(AtomicBool::new(true));
+        let waiter = {
+            let guard = guard.clone();
+            let open = open.clone();
+            std::thread::spawn(move || {
+                let started = Instant::now();
+                let closed =
+                    guard.wait_until(Duration::from_secs(30), |_| !open.load(Ordering::SeqCst));
+                (closed, started.elapsed())
+            })
+        };
+        std::thread::sleep(Duration::from_millis(20));
+        // Tauri forgets the window first, then reports it closed.
+        open.store(false, Ordering::SeqCst);
+        guard.window_destroyed();
+        let (closed, waited) = waiter.join().unwrap();
+        assert!(closed);
+        assert!(waited < Duration::from_secs(10));
+        assert!(!guard.wait_until(Duration::from_millis(5), |_| false));
     }
 
     #[test]
