@@ -7,4 +7,5 @@ export function browserFavicon(value: unknown): string | undefined {
     : undefined;
 }
 
-export const BROWSER_FALLBACK_ICON = "/aven.png";
+/** Aven's mark on its tile, drawn with whole-pixel cells at the 14 px tab icon size. */
+export const BROWSER_FALLBACK_ICON = "/aven-mark.svg";

@@ -1,38 +1,76 @@
 #!/usr/bin/env python3
 """Render Aven's mark and app icon source images.
 
-The mark is a white line chevron on a charcoal glass tile: a soft top-to-bottom
-gradient, a sheen on the upper half, a rim that catches light along the top
-edge, and a faint glow behind the glyph, matching macOS dark icons. Outputs:
+The mark is the Pixel A: a 7 x 8 pixel-art capital A in off-white with one
+accent-blue pixel at the apex, the summit. It sits on a charcoal glass tile: a
+soft top-to-bottom gradient, a sheen on the upper half and a rim that catches
+light along the top edge, matching macOS dark icons.
+
+Every image is drawn at its own output size. The tile is supersampled, but the
+glyph's cells are exact rectangles snapped to whole pixels, so the A stays
+crisp at every size instead of being blurred by a downscale. Outputs:
 
 - public/aven-mark.png and public/aven.png (256 px tiles for the interface)
+- public/aven-mark.svg (the browser's crisp 14 px fallback tab icon)
 - target/brand/app-icon-1024.png (source for `npx tauri icon`)
 - src-tauri/macos/AppIcon.icon/Assets/icon.png (1024 px glyph layer)
 
 Run from the repository root, then regenerate the bundle icons with
-`npx tauri icon target/brand/app-icon-1024.png -o src-tauri/icons`.
+`npx tauri icon target/brand/app-icon-1024.png -o src-tauri/icons` and run
+this script again with `--bundle`. That redraws each desktop bundle PNG at its
+own size and rebuilds `icon.icns` (with `iconutil`, macOS only) and
+`icon.ico`, replacing Tauri's resampled copies, which soften the pixels.
 """
+import argparse
+import io
+import shutil
+import struct
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 ROOT = Path(__file__).resolve().parent.parent
-SCALE = 4  # supersampling factor
+ICONS = ROOT / "src-tauri/icons"
+SCALE = 4  # supersampling factor for the tile
 TOP = (46, 46, 50)
 BOTTOM = (12, 12, 14)
-WHITE = (250, 250, 250, 255)
-# Chevron in a 24-unit icon box. The longer upper arm echoes the former
-# folded-ribbon mark.
-CHEVRON = [(16.6, 4.6), (7.4, 12.0), (15.6, 19.0)]
-
-
-def stroke(draw, points, width, color):
-    """Polyline with round caps and joins."""
-    for start, end in zip(points, points[1:]):
-        draw.line([start, end], fill=color, width=round(width))
-    radius = width / 2
-    for x, y in points:
-        draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=color)
+WHITE = (242, 242, 240, 255)  # #f2f2f0
+BLUE = (87, 181, 255, 255)  # #57b5ff, Aven's accent
+# The Pixel A, one character per cell: "#" white, "B" the blue summit. Keep it
+# in step with AVEN_MARK_ROWS in src/lib/avenMark.ts.
+PIXEL_A = (
+    "...B...",
+    "..###..",
+    ".##.##.",
+    ".#...#.",
+    "#######",
+    "##...##",
+    "#.....#",
+    "#.....#",
+)
+COLUMNS, ROWS = len(PIXEL_A[0]), len(PIXEL_A)
+# Glyph width as a share of the tile width: 63 px in a 120 px tile in the
+# approved concept. The interface tile uses a slightly heavier A because it is
+# usually shown small.
+APP_SHARE = 0.525
+INTERFACE_SHARE = 0.56
+# Sizes in each bundle container, in the order Tauri writes them.
+ICO_SIZES = (32, 16, 24, 48, 64, 256)
+ICONSET = {
+    "icon_16x16.png": 16,
+    "icon_16x16@2x.png": 32,
+    "icon_32x32.png": 32,
+    "icon_32x32@2x.png": 64,
+    "icon_128x128.png": 128,
+    "icon_128x128@2x.png": 256,
+    "icon_256x256.png": 256,
+    "icon_256x256@2x.png": 512,
+    "icon_512x512.png": 512,
+    "icon_512x512@2x.png": 1024,
+}
 
 
 def column(size, values):
@@ -81,53 +119,179 @@ def tile(n, box, radius, shadow=True):
     return Image.alpha_composite(out, Image.alpha_composite(layer, rim_layer))
 
 
-def glyph(n, center_x, center_y, side, weight, glow=True):
-    """The chevron in a 24-unit box of `side` pixels, centred on the point."""
-    out = Image.new("RGBA", (n, n), (0, 0, 0, 0))
-    unit = side / 24
-    left, top = center_x - side / 2 + n * 0.01, center_y - side / 2
-    points = [(left + x * unit, top + y * unit) for x, y in CHEVRON]
+def layout(size, tile_side, share):
+    """Snap the tile and glyph to whole pixels on a `size` canvas.
+
+    Returns the tile box, the cell size and the glyph's top-left corner. The
+    tile side is rounded to the glyph width's parity so the A centres exactly
+    across. Down the tile the A sits a quarter cell high, because its lone
+    summit pixel makes it look low when centred by its bounds; an odd
+    remainder at small sizes leaves it half a pixel high instead.
+    """
+    cell = max(1, round(tile_side * share / COLUMNS))
+    width, height = COLUMNS * cell, ROWS * cell
+    side = round(tile_side)
+    if (side - width) % 2:
+        side += 1 if tile_side > side else -1
+    left = top = (size - side) // 2
+    lift = cell // 4
+    origin = (left + (side - width) // 2, top + (side - height) // 2 - lift)
+    return (left, top, left + side, top + side), cell, origin
+
+
+def draw_glyph(image, cell, origin, glow=False):
+    """The Pixel A with its cells as exact rectangles; `glow` adds a soft halo."""
+    layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(layer)
+    for row, cells in enumerate(PIXEL_A):
+        for col, mark in enumerate(cells):
+            if mark == ".":
+                continue
+            x, y = origin[0] + col * cell, origin[1] + row * cell
+            draw.rectangle((x, y, x + cell - 1, y + cell - 1), fill=BLUE if mark == "B" else WHITE)
     if glow:
-        halo = Image.new("RGBA", (n, n), (0, 0, 0, 0))
-        stroke(ImageDraw.Draw(halo), points, (weight + 0.2) * unit, (255, 255, 255, 90))
-        out = Image.alpha_composite(out, halo.filter(ImageFilter.GaussianBlur(n * 0.018)))
-    crisp = Image.new("RGBA", (n, n), (0, 0, 0, 0))
-    stroke(ImageDraw.Draw(crisp), points, weight * unit, WHITE)
-    return Image.alpha_composite(out, crisp)
+        halo = layer.copy()
+        halo.putalpha(halo.getchannel("A").point(lambda a: a * 50 // 255))
+        image = Image.alpha_composite(image, halo.filter(ImageFilter.GaussianBlur(image.width * 0.02)))
+    return Image.alpha_composite(image, layer)
 
 
-def render(size, paint):
+def tile_image(size, box, radius, shadow):
+    """The tile rendered at `size`, supersampled so its corners stay smooth."""
     n = size * SCALE
-    return paint(n).resize((size, size), Image.LANCZOS)
+    scaled = tuple(v * SCALE for v in box)
+    # Pillow boxes include their far edge; stop one subpixel short so the
+    # tile's straight sides land exactly on pixel boundaries.
+    body = tile(n, (scaled[0], scaled[1], scaled[2] - 1, scaled[3] - 1), radius * SCALE, shadow)
+    return body.resize((size, size), Image.LANCZOS)
 
 
-def app_icon(n):
-    """macOS icon grid: an 824 of 1024 px rounded square."""
-    inset = n * 100 / 1024
-    body = tile(n, (inset, inset, n - inset, n - inset), n * 185 / 1024)
-    return Image.alpha_composite(body, glyph(n, n / 2, n / 2, n * 0.44, 2.1))
+def app_icon(size):
+    """macOS icon grid: an 824 of 1024 px rounded square with a drop shadow."""
+    box, cell, origin = layout(size, size * 824 / 1024, APP_SHARE)
+    side = box[2] - box[0]
+    image = tile_image(size, box, side * 185 / 824, shadow=True)
+    return draw_glyph(image, cell, origin, glow=size >= 128)
 
 
-def interface_mark(n):
-    """Interface tile: nearly full bleed, a heavier glyph for small sizes."""
-    inset = n * 0.03
-    body = tile(n, (inset, inset, n - inset, n - inset), n * 0.23, shadow=False)
-    return Image.alpha_composite(body, glyph(n, n / 2, n / 2, n * 0.62, 2.3))
+def interface_mark(size):
+    """Interface tile: nearly full bleed, no shadow, a heavier glyph."""
+    box, cell, origin = layout(size, size * 0.94, INTERFACE_SHARE)
+    side = box[2] - box[0]
+    image = tile_image(size, box, side * 0.245, shadow=False)
+    return draw_glyph(image, cell, origin, glow=size >= 128)
 
 
-def glyph_layer(n):
-    """Icon Composer layer: the glyph alone; icon.json supplies the fill."""
-    return glyph(n, n / 2, n / 2, n * 0.44, 2.1, glow=False)
+def glyph_layer(size):
+    """Icon Composer layer: the glyph alone; icon.json supplies the fill.
+
+    Icon Composer's canvas is the whole tile, so the A takes the same share
+    of the canvas as it takes of the tile in the app icon.
+    """
+    _, cell, origin = layout(size, size, APP_SHARE)
+    return draw_glyph(Image.new("RGBA", (size, size), (0, 0, 0, 0)), cell, origin)
+
+
+def glyph_path(mark, dx=0, dy=0):
+    """Cells of one colour as an SVG path of unit squares, one run per row."""
+    path = ""
+    for y, cells in enumerate(PIXEL_A):
+        x = 0
+        while x < len(cells):
+            if cells[x] != mark:
+                x += 1
+                continue
+            run = 1
+            while x + run < len(cells) and cells[x + run] == mark:
+                run += 1
+            path += f"M{x + dx} {y + dy}h{run}v1h-{run}z"
+            x += run
+    return path
+
+
+def fallback_svg():
+    """The browser's fallback tab icon, shown at 14 px with one-pixel cells.
+
+    A 7-cell A cannot centre on whole pixels in an even tile, so the tile is
+    13 px in the corner of the 14 px box: every edge and cell then lands on a
+    whole pixel at 1x as well as 2x, and the A sits half a pixel high.
+    """
+    hex_color = "#{:02x}{:02x}{:02x}".format
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14">'
+        '<defs><linearGradient id="t" x1="0" y1="0" x2="0" y2="1">'
+        f'<stop offset="0" stop-color="{hex_color(*TOP)}"/>'
+        f'<stop offset="1" stop-color="{hex_color(*BOTTOM)}"/>'
+        "</linearGradient></defs>"
+        '<rect width="13" height="13" rx="3.2" fill="url(#t)"/>'
+        '<g shape-rendering="crispEdges" transform="translate(3 2)">'
+        f'<path fill="{hex_color(*WHITE[:3])}" d="{glyph_path("#")}"/>'
+        f'<path fill="{hex_color(*BLUE[:3])}" d="{glyph_path("B")}"/>'
+        "</g></svg>\n"
+    )
+
+
+def write_ico(path):
+    """PNG-compressed entries in Tauri's order, each drawn at its own size."""
+    entries = []
+    for size in ICO_SIZES:
+        data = io.BytesIO()
+        app_icon(size).save(data, "PNG")
+        entries.append((size, data.getvalue()))
+    header = struct.pack("<HHH", 0, 1, len(entries))
+    offset = len(header) + 16 * len(entries)
+    directory, blobs = b"", b""
+    for size, data in entries:
+        edge = 0 if size >= 256 else size
+        directory += struct.pack("<BBBBHHII", edge, edge, 0, 0, 1, 32, len(data), offset)
+        blobs += data
+        offset += len(data)
+    path.write_bytes(header + directory + blobs)
+
+
+def write_bundle():
+    """Redraw the desktop bundle icons Tauri generated, each at its own size."""
+    redrawn = 0
+    for path in sorted(ICONS.glob("*.png")):
+        with Image.open(path) as current:
+            size = current.size
+        if size[0] != size[1]:
+            continue
+        app_icon(size[0]).save(path)
+        redrawn += 1
+    write_ico(ICONS / "icon.ico")
+    if shutil.which("iconutil"):
+        with tempfile.TemporaryDirectory() as temp:
+            iconset = Path(temp) / "icon.iconset"
+            iconset.mkdir()
+            for name, size in ICONSET.items():
+                app_icon(size).save(iconset / name)
+            subprocess.run(
+                ["iconutil", "-c", "icns", str(iconset), "-o", str(ICONS / "icon.icns")], check=True
+            )
+        print(f"Redrew {redrawn} bundle PNGs, icon.ico and icon.icns")
+    else:
+        print(f"Redrew {redrawn} bundle PNGs and icon.ico; icon.icns needs iconutil (macOS)", file=sys.stderr)
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument(
+        "--bundle",
+        action="store_true",
+        help="after `npx tauri icon`, redraw the desktop bundle icons at their own sizes",
+    )
+    if parser.parse_args().bundle:
+        write_bundle()
+        return
     brand = ROOT / "target/brand"
     brand.mkdir(parents=True, exist_ok=True)
-    mark = render(256, interface_mark)
+    mark = interface_mark(256)
     mark.save(ROOT / "public/aven-mark.png")
     mark.save(ROOT / "public/aven.png")
-    render(1024, app_icon).save(brand / "app-icon-1024.png")
-    render(1024, glyph_layer).save(ROOT / "src-tauri/macos/AppIcon.icon/Assets/icon.png")
+    (ROOT / "public/aven-mark.svg").write_text(fallback_svg())
+    app_icon(1024).save(brand / "app-icon-1024.png")
+    glyph_layer(1024).save(ROOT / "src-tauri/macos/AppIcon.icon/Assets/icon.png")
     print(f"Wrote marks and {brand / 'app-icon-1024.png'}")
 
 
