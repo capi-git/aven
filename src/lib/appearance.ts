@@ -299,21 +299,36 @@ export function themeForeground(background: string): string {
   return luminance > 0.179 ? "#000000" : "#ffffff";
 }
 
+/**
+ * The saved background for `scheme`. Light mode keeps only one that dark text
+ * can read: Settings no longer offers a Background colour, so a near-black
+ * light background saved with the old picker would keep Light mode dark.
+ */
+function themeBackground(scheme: ColorScheme): string | null {
+  const color = normalizeThemeColor(appliedThemeColors[scheme]?.background);
+  if (scheme === "light" && color && themeForeground(color) !== "#000000")
+    return AVEN_THEME_COLORS.light.background;
+  return color;
+}
+
 function paintThemeColors(scheme: ColorScheme) {
   const root = document.documentElement;
   const colors = appliedThemeColors[scheme];
+  const background = themeBackground(scheme);
   for (const target of ["background", "accent", "highlight"] as const) {
-    const color = normalizeThemeColor(colors?.[target]);
+    const color =
+      target === "background"
+        ? background
+        : normalizeThemeColor(colors?.[target]);
     const property = `--theme-${target}-color`;
     if (color) root.style.setProperty(property, color);
     else root.style.removeProperty(property);
   }
-  const background = normalizeThemeColor(colors?.background);
   if (background) {
     const foreground = themeForeground(background);
     root.style.setProperty("--theme-content-color", foreground);
-    // The light shell lifts pale frames toward white. A dark custom frame
-    // needs its original surface so the shared light foreground stays legible.
+    // The light shell lifts its pale frame toward white. Only light mode
+    // reads this; dark mode's frame stays as it is.
     root.style.setProperty(
       "--theme-light-surface-color",
       foreground === "#ffffff"
@@ -486,10 +501,7 @@ function tintKey(tint: GlassTint) {
 
 function opaqueWindowColor(): string {
   const scheme = isLightScheme() ? "light" : "dark";
-  return (
-    normalizeThemeColor(appliedThemeColors[scheme]?.background) ??
-    AVEN_THEME_COLORS[scheme].background
-  );
+  return themeBackground(scheme) ?? AVEN_THEME_COLORS[scheme].background;
 }
 
 /** An opaque window shows its own colour behind transparent page areas. */
