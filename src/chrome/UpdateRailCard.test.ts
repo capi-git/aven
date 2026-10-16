@@ -17,6 +17,9 @@ describe("UpdateRailCard", () => {
     expect(markup).toContain("Updated to 0.1.25");
     expect(markup).toContain("What&#x27;s new");
     expect(markup).toContain('aria-label="Dismiss update notification"');
+    // The Pixel A is drawn inline, so it follows the theme and stays crisp.
+    expect(markup).toContain('shape-rendering="crispEdges"');
+    expect(markup).not.toContain("<img");
   });
 
   it("renders nothing without an update", () => {

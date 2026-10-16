@@ -14,6 +14,7 @@
 
 ### Changed
 
+- Aven has a new logo, the Pixel A: a pixel-art A with one blue pixel at its peak. It replaces the chevron on the app icon, the Windows installer, the update card in the sidebar and the browser's icon for pages without one, and stays sharp at every size.
 - **Restart to update** no longer refuses with "Wait for current activity to finish". Aven waits a few seconds for background work such as a Claude Code or Codex tool update, brings detached tabs and Picture in Picture back, closes other workspace windows after saving them, and closes idle terminals by itself. If agents are working, waiting for your answer or have queued messages, or a terminal is running a command or a file has unsaved changes, one dialog lists them: **Restart when they finish** waits and restarts by itself, **Stop them and restart now** stops them first. Anything that still blocks is named.
 
 ## [0.1.141] - 2026-10-15
