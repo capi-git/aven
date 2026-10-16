@@ -75,13 +75,22 @@ describe("light workspace surfaces", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps dark custom backgrounds dark when their text requires white", () => {
-    for (const background of ["#000000", "#303040"]) {
-      applyThemeColors({ light: { background } });
-      expect(properties.get("--theme-content-color")).toBe("#ffffff");
-      expect(properties.get("--theme-background-color")).toBe(background);
-      expect(properties.get("--theme-light-surface-color")).toBe(background);
+  it("uses Aven's light background when a saved one would need white text", () => {
+    for (const background of ["#000000", "#0b0c0d", "#303040"]) {
+      applyThemeColors({ light: { background, accent: "#286b9f" } });
+      expect(properties.get("--theme-background-color")).toBe("#ffffff");
+      expect(properties.get("--theme-content-color")).toBe("#000000");
+      expect(properties.get("--theme-light-surface-color")).toBe(
+        "color-mix(in srgb, #ffffff 32%, #ffffff)",
+      );
+      expect(properties.get("--theme-accent-color")).toBe("#286b9f");
     }
+  });
+
+  it("keeps a saved mid-tone light background that dark text can read", () => {
+    applyThemeColors({ light: { background: "#8b8c8d" } });
+    expect(properties.get("--theme-background-color")).toBe("#8b8c8d");
+    expect(properties.get("--theme-content-color")).toBe("#000000");
   });
 
   it("lifts a pale frame toward white while keeping dark text", () => {

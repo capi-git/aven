@@ -263,6 +263,35 @@ describe("native workspace transparency", () => {
     expect(localStorage.getItem("monocode.bodyGlass")).toBe("1");
   });
 
+  it("turns a saved near-black light background into a light page and window", async () => {
+    // A real profile's Personal workspace, saved while Settings still had a
+    // Background colour picker. Settings no longer offers one to change it.
+    appearance.applyThemeColors({
+      dark: { background: "#000000", accent: "#c4c8c8", highlight: "#ffffff" },
+      light: { background: "#0b0c0d", accent: "#286b9f", highlight: "#6cabdd" },
+    });
+    appearance.applySidebarOpacity(0.55);
+    appearance.applyThemePreference("dark");
+    appearance.activateWindowAppearance();
+    appearance.applyThemePreference("light");
+    const style = document.documentElement.style;
+    expect(style.getPropertyValue("--theme-background-color")).toBe("#ffffff");
+    expect(style.getPropertyValue("--theme-content-color")).toBe("#000000");
+    expect(style.getPropertyValue("--theme-light-surface-color")).toBe(
+      "color-mix(in srgb, #ffffff 32%, #ffffff)",
+    );
+    expect(style.getPropertyValue("--theme-accent-color")).toBe("#286b9f");
+    expect(style.getPropertyValue("--theme-highlight-color")).toBe("#6cabdd");
+    await vi.waitFor(() => {
+      expect(getCurrentWindow().setBackgroundColor).toHaveBeenLastCalledWith(
+        "#ffffff",
+      );
+    });
+    appearance.applyThemePreference("dark");
+    expect(style.getPropertyValue("--theme-background-color")).toBe("#000000");
+    expect(style.getPropertyValue("--theme-content-color")).toBe("#ffffff");
+  });
+
   it("keeps native opaque backing aligned with custom backgrounds and the light default", async () => {
     platform.HAS_NATIVE_GLASS = false;
     platform.IS_MAC = false;
