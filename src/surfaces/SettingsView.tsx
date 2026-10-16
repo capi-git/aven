@@ -38,9 +38,7 @@ import {
   Select,
   SecondaryButton,
   SettingsGroup,
-  ColorSwatches,
 } from "./SettingsControls";
-import type { ColorChoice } from "../lib/colorChoice";
 import "./SettingsView.css";
 import { saveAutosave } from "../lib/settings";
 import { HarnessIcon } from "../chrome/HarnessIcon";
@@ -63,11 +61,8 @@ import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useColorScheme } from "../hooks/useColorScheme";
 import {
   applyStatusBarOpacity,
-  loadStatusBarOpacity,
   saveStatusBarOpacity,
   STATUS_BAR_OPACITY_DEFAULT,
-  STATUS_BAR_OPACITY_MIN,
-  STATUS_BAR_OPACITY_MAX,
   applyChatBackground,
   applyChatBackgroundOpacity,
   applyChatBackgroundScope,
@@ -78,7 +73,6 @@ import {
   chatBackgroundSrc,
   loadChatBackgroundOpacity,
   loadChatBackgroundPath,
-  loadChatBackgroundScope,
   loadTranscriptLayout,
   loadTranscriptAnchor,
   saveChatBackgroundOpacity,
@@ -87,12 +81,7 @@ import {
   saveTranscriptLayout,
   saveTranscriptAnchor,
   TRANSCRIPT_ANCHOR_CHANGE_EVENT,
-  SIDEBAR_BLUR_MAX,
-  SIDEBAR_BLUR_MIN,
-  SIDEBAR_OPACITY_MAX,
-  SIDEBAR_OPACITY_MIN,
   type ThemePreference,
-  type ChatBackgroundScope,
   type TranscriptLayout,
   applyThemeColors,
 } from "../lib/appearance";
@@ -221,14 +210,23 @@ import { ApplyWorkspaceThemeButton } from "../chrome/ApplyWorkspaceThemeButton";
 import {
   resolvedWorkspaceColors,
   resetWorkspaceTheme,
-  saveWorkspaceColor,
   saveWorkspaceTheme,
-  type WorkspaceColorTarget,
   useActiveWorkspaceTheme,
-  SIDEBAR_TINT_STRENGTH_DEFAULT,
-  SIDEBAR_TINT_STRENGTH_MAX,
-  SIDEBAR_TINT_STRENGTH_MIN,
 } from "../lib/workspaceThemes";
+import {
+  saveWorkspaceAccentPreset,
+  saveWorkspaceCustomAccent,
+  selectedAccentPreset,
+  withCustomAccent,
+  type AccentPreset,
+} from "../lib/accentColors";
+import {
+  GLASS_LEVEL_MAX,
+  GLASS_LEVEL_MIN,
+  glassLevelFromOpacity,
+  glassLevelLabel,
+  glassSettingsForLevel,
+} from "../lib/glassLevel";
 import {
   cancelUpdateWait,
   installPendingUpdate,
@@ -237,7 +235,7 @@ import {
   subscribeUpdater,
 } from "../lib/updater";
 import { SkillsSettings } from "./SkillsSettings";
-import { SettingsColorPicker } from "./SettingsColorPicker";
+import { AccentColorSetting } from "./AccentColorSetting";
 import { ProviderConnections } from "./ProviderConnections";
 import { ProviderSetup } from "./ProviderSetup";
 
@@ -263,7 +261,7 @@ type Props = {
 export function SettingsView({
   section: requestedSection,
   onSelectSection,
-  workspaceName = "Current workspace",
+  workspaceName,
   cwd,
   sessions,
   besideRail = false,
@@ -419,26 +417,27 @@ export function SettingsView({
                 description={settingsSectionDescription(section)}
               />
             </div>
-            <div className="settings-scope-line">
-              <span className="settings-scope-dot" aria-hidden />
-              <span>
-                {section === "appearance" ? workspaceName : "On this device"}
-              </span>
-              <span className="settings-scope-hint">
-                {section === "appearance"
-                  ? "Workspace colors · device display preferences"
-                  : section === "skills"
+            {section === "appearance" ? null : (
+              <div className="settings-scope-line">
+                <span className="settings-scope-dot" aria-hidden />
+                <span>On this device</span>
+                <span className="settings-scope-hint">
+                  {section === "skills"
                     ? "Project instructions · device tools"
                     : section === "connections"
                       ? "Provider connections for this project · device services"
                       : "Your preferences are saved automatically"}
-              </span>
-            </div>
+                </span>
+              </div>
+            )}
             {isPreferencesSection(section) ? (
               <PreferencesPage page={section} onOpenWhatsNew={onOpenWhatsNew} />
             ) : null}
             {section === "appearance" ? (
-              <AppearancePage appearance={appearance} />
+              <AppearancePage
+                appearance={appearance}
+                workspaceName={workspaceName}
+              />
             ) : null}
             {section === "keybindings" ? <KeybindingsPage /> : null}
             {section === "git" ? <GitPage /> : null}
@@ -1210,27 +1209,23 @@ type AppearanceSettings = ReturnType<typeof useAppearanceSettings>;
 function useAppearanceSettings() {
   const { profileId, theme } = useActiveWorkspaceTheme();
   const colorScheme = useColorScheme();
-  const colors = resolvedWorkspaceColors(theme, colorScheme);
+  const accent = resolvedWorkspaceColors(theme, colorScheme).accent;
+  const accentPreset = selectedAccentPreset(theme, colorScheme);
   const themePreference = theme.preference;
-  const { opacity, blur, bodyGlass, matchPanels } = theme;
-  const sidebarTint = theme.sidebarTint ?? "none";
-  const sidebarTintStrength =
-    theme.sidebarTintStrength ?? SIDEBAR_TINT_STRENGTH_DEFAULT;
+  // Read from the saved opacity; blur, "Include workspace" and the status bar
+  // keep their saved values until the slider moves.
+  const glassLevel = glassLevelFromOpacity(theme.opacity);
   const [chatBackgroundPath, setChatBackgroundPath] = useState(
     loadChatBackgroundPath,
   );
   const [chatBackgroundOpacity, setChatBackgroundOpacity] = useState(
     loadChatBackgroundOpacity,
   );
-  const [chatBackgroundScope, setChatBackgroundScope] =
-    useState<ChatBackgroundScope>(loadChatBackgroundScope);
   const [chatBackgroundBusy, setChatBackgroundBusy] = useState(false);
   const [chatBackgroundError, setChatBackgroundError] = useState<string | null>(
     null,
   );
   const [uiScale, setUiScale] = useState(loadUiScale);
-  const [statusBarOpacity, setStatusBarOpacity] =
-    useState(loadStatusBarOpacity);
 
   useEffect(() => subscribeUiScale(() => setUiScale(loadUiScale())), []);
 
@@ -1241,59 +1236,30 @@ function useAppearanceSettings() {
     [profileId],
   );
 
-  const onOpacity = useCallback(
-    (percent: number) => {
-      saveWorkspaceTheme(profileId, { opacity: percent / 100 });
+  const onGlass = useCallback(
+    (level: number) => {
+      const { opacity, blur, bodyGlass, statusBarOpacity } =
+        glassSettingsForLevel(level);
+      saveWorkspaceTheme(profileId, { opacity, blur, bodyGlass });
+      saveStatusBarOpacity(applyStatusBarOpacity(statusBarOpacity));
     },
     [profileId],
   );
 
-  const onBlur = useCallback(
-    (radius: number) => {
-      saveWorkspaceTheme(profileId, { blur: radius });
-    },
+  const onAccentPreset = useCallback(
+    (preset: AccentPreset) => saveWorkspaceAccentPreset(profileId, preset),
     [profileId],
   );
 
-  const onColor = useCallback(
-    (target: WorkspaceColorTarget, color: string) => {
-      saveWorkspaceColor(profileId, colorScheme, target, color);
-    },
-    [profileId, colorScheme],
+  const onCustomAccent = useCallback(
+    (color: string) => saveWorkspaceCustomAccent(profileId, color),
+    [profileId],
   );
 
   /** Repaints this window only; the drag saves once when released. */
-  const onPreviewColor = useCallback(
-    (target: WorkspaceColorTarget, color: string) => {
-      applyThemeColors({
-        ...theme.colors,
-        [colorScheme]: { ...theme.colors?.[colorScheme], [target]: color },
-      });
-    },
-    [theme.colors, colorScheme],
-  );
-
-  const onBodyGlass = useCallback(
-    (next: boolean) => {
-      saveWorkspaceTheme(profileId, { bodyGlass: next });
-    },
-    [profileId],
-  );
-
-  const onMatchPanels = useCallback(
-    (next: boolean) => saveWorkspaceTheme(profileId, { matchPanels: next }),
-    [profileId],
-  );
-
-  const onSidebarTint = useCallback(
-    (next: ColorChoice) => saveWorkspaceTheme(profileId, { sidebarTint: next }),
-    [profileId],
-  );
-
-  const onSidebarTintStrength = useCallback(
-    (next: number) =>
-      saveWorkspaceTheme(profileId, { sidebarTintStrength: next }),
-    [profileId],
+  const onPreviewAccent = useCallback(
+    (color: string) => applyThemeColors(withCustomAccent(theme.colors, color)),
+    [theme.colors],
   );
 
   const onChooseChatBackground = useCallback(async () => {
@@ -1337,18 +1303,6 @@ function useAppearanceSettings() {
     setChatBackgroundOpacity(next);
   }, []);
 
-  const onChatBackgroundScope = useCallback((next: ChatBackgroundScope) => {
-    applyChatBackgroundScope(next);
-    saveChatBackgroundScope(next);
-    setChatBackgroundScope(next);
-  }, []);
-
-  const onStatusBarOpacity = useCallback((percent: number) => {
-    const next = applyStatusBarOpacity(percent / 100);
-    saveStatusBarOpacity(next);
-    setStatusBarOpacity(next);
-  }, []);
-
   const onUiScale = useCallback((percent: number) => {
     const next = saveUiScale(percent / 100);
     setUiScale(next);
@@ -1358,17 +1312,18 @@ function useAppearanceSettings() {
   const restoreDefaults = useCallback(() => {
     resetWorkspaceTheme(profileId);
     onChatBackgroundOpacity(Math.round(CHAT_BACKGROUND_OPACITY_DEFAULT * 100));
-    onChatBackgroundScope(CHAT_BACKGROUND_SCOPE_DEFAULT);
+    // "Show on" is no longer offered; a reset returns it to every session.
+    saveChatBackgroundScope(
+      applyChatBackgroundScope(CHAT_BACKGROUND_SCOPE_DEFAULT),
+    );
     if (chatBackgroundPath) void onClearChatBackground();
     onUiScale(Math.round(UI_SCALE_DEFAULT * 100));
-    onStatusBarOpacity(Math.round(STATUS_BAR_OPACITY_DEFAULT * 100));
+    saveStatusBarOpacity(applyStatusBarOpacity(STATUS_BAR_OPACITY_DEFAULT));
   }, [
     chatBackgroundPath,
     onChatBackgroundOpacity,
-    onChatBackgroundScope,
     onClearChatBackground,
     onUiScale,
-    onStatusBarOpacity,
     profileId,
   ]);
 
@@ -1376,59 +1331,44 @@ function useAppearanceSettings() {
     profileId,
     themePreference,
     colorScheme,
-    colors,
-    opacity,
-    blur,
-    bodyGlass,
-    matchPanels,
-    sidebarTint,
-    sidebarTintStrength,
+    accent,
+    accentPreset,
+    glassLevel,
     chatBackgroundPath,
     chatBackgroundOpacity,
-    chatBackgroundScope,
     chatBackgroundBusy,
     chatBackgroundError,
     uiScale,
-    statusBarOpacity,
-    onStatusBarOpacity,
     onThemePreference,
-    onOpacity,
-    onBlur,
-    onColor,
-    onPreviewColor,
-    onBodyGlass,
-    onMatchPanels,
-    onSidebarTint,
-    onSidebarTintStrength,
+    onGlass,
+    onAccentPreset,
+    onCustomAccent,
+    onPreviewAccent,
     onChooseChatBackground,
     onClearChatBackground,
     onChatBackgroundOpacity,
-    onChatBackgroundScope,
     onUiScale,
     restoreDefaults,
   };
 }
 
-const COLOR_TARGETS = [
-  { value: "background", label: "Background" },
-  { value: "accent", label: "Accent" },
-  { value: "highlight", label: "Highlight" },
-] as const satisfies readonly {
-  value: WorkspaceColorTarget;
-  label: string;
-}[];
-
-function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
-  const [colorTarget, setColorTarget] =
-    useState<WorkspaceColorTarget>("background");
-  const percent = Math.round(appearance.opacity * 100);
+function AppearancePage({
+  appearance,
+  workspaceName,
+}: {
+  appearance: AppearanceSettings;
+  workspaceName?: string;
+}) {
   const glassDisabled = appearance.colorScheme === "light";
   return (
     <>
       <SettingsGroup
-        title="Theme &amp; color"
-        description="Set the mood for this workspace."
-        scope="Workspace"
+        title="Theme &amp; colour"
+        description={
+          workspaceName
+            ? `Set the mood for your ${workspaceName} workspace.`
+            : "Set the mood for this workspace."
+        }
       >
         <Row {...SETTINGS.theme.row}>
           <Segmented
@@ -1442,23 +1382,19 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
             onChange={appearance.onThemePreference}
           />
         </Row>
-        <div id={SETTINGS.workspaceColors.id} tabIndex={-1}>
-          <SettingsColorPicker
-            scopeKey={`${appearance.profileId}:${appearance.colorScheme}`}
-            targets={COLOR_TARGETS}
-            target={colorTarget}
-            onTarget={setColorTarget}
-            colors={appearance.colors}
-            onChange={appearance.onColor}
-            onPreview={appearance.onPreviewColor}
-            note={`Editing ${appearance.colorScheme} colors for this workspace. Dark and light are saved separately.`}
-          />
-        </div>
+        <AccentColorSetting
+          scheme={appearance.colorScheme}
+          accent={appearance.accent}
+          selected={appearance.accentPreset}
+          scopeKey={`${appearance.profileId}:${appearance.colorScheme}`}
+          onPreset={appearance.onAccentPreset}
+          onCustom={appearance.onCustomAccent}
+          onPreviewCustom={appearance.onPreviewAccent}
+        />
       </SettingsGroup>
       <SettingsGroup
-        title="Display"
-        description="Comfortable reading and quieter window controls."
-        scope="Device"
+        title="Window"
+        description="Comfortable reading and how much of the desktop shows."
       >
         <Row {...SETTINGS.uiScale.row}>
           {/* A menu, not a live slider: rescaling the page while dragging
@@ -1473,133 +1409,48 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
             onChange={(value) => appearance.onUiScale(Number(value))}
           />
         </Row>
-        <Row {...SETTINGS.statusBarOpacity.row}>
-          <Slider
-            label={SETTINGS.statusBarOpacity.label}
-            value={Math.round(appearance.statusBarOpacity * 100)}
-            display={`${Math.round(appearance.statusBarOpacity * 100)}%`}
-            min={Math.round(STATUS_BAR_OPACITY_MIN * 100)}
-            max={Math.round(STATUS_BAR_OPACITY_MAX * 100)}
-            onChange={appearance.onStatusBarOpacity}
-          />
-        </Row>
-      </SettingsGroup>
-      <SettingsGroup
-        title="Window &amp; sidebars"
-        description="Balance focus, transparency, and a consistent workspace."
-        scope="Workspace"
-      >
-        <Row {...SETTINGS.matchPanels.row}>
-          <Toggle
-            label={SETTINGS.matchPanels.label}
-            on={appearance.matchPanels}
-            onChange={appearance.onMatchPanels}
-          />
-        </Row>
         {HAS_NATIVE_GLASS && (
           <Row
-            label={SETTINGS.backgroundOpacity.label}
+            {...SETTINGS.glass.row}
             description={
               glassDisabled
-                ? SETTINGS.backgroundOpacity.disabledDescription
-                : SETTINGS.backgroundOpacity.row.description
+                ? SETTINGS.glass.disabledDescription
+                : SETTINGS.glass.row.description
             }
           >
             <Slider
-              label={SETTINGS.backgroundOpacity.label}
-              value={percent}
-              display={`${percent}%`}
-              min={Math.round(SIDEBAR_OPACITY_MIN * 100)}
-              max={Math.round(SIDEBAR_OPACITY_MAX * 100)}
-              onChange={appearance.onOpacity}
+              label={SETTINGS.glass.label}
+              value={appearance.glassLevel}
+              display={glassLevelLabel(appearance.glassLevel)}
+              min={GLASS_LEVEL_MIN}
+              max={GLASS_LEVEL_MAX}
+              onChange={appearance.onGlass}
               disabled={glassDisabled}
             />
           </Row>
         )}
-        {HAS_NATIVE_GLASS && (
-          <Row
-            label={SETTINGS.blurRadius.label}
-            description={
-              glassDisabled
-                ? SETTINGS.blurRadius.disabledDescription
-                : appearance.opacity >= 1
-                  ? SETTINGS.blurRadius.opaqueDescription
-                  : SETTINGS.blurRadius.row.description
-            }
-          >
-            <Slider
-              label={SETTINGS.blurRadius.label}
-              value={appearance.blur}
-              display={appearance.blur === 0 ? "Off" : String(appearance.blur)}
-              min={SIDEBAR_BLUR_MIN}
-              max={SIDEBAR_BLUR_MAX}
-              onChange={appearance.onBlur}
-              disabled={glassDisabled}
-            />
-          </Row>
-        )}
-        {HAS_NATIVE_GLASS && (
-          <Row
-            label={SETTINGS.bodyGlass.label}
-            description={
-              glassDisabled
-                ? SETTINGS.bodyGlass.disabledDescription
-                : SETTINGS.bodyGlass.row.description
-            }
-          >
-            <Toggle
-              label={SETTINGS.bodyGlass.label}
-              on={appearance.bodyGlass}
-              onChange={appearance.onBodyGlass}
-              disabled={glassDisabled}
-            />
-          </Row>
-        )}
-        <Row
-          label="Sidebar colour"
-          description="A wash of colour over this workspace's sidebar, strongest at the top. Text stays readable."
-        >
-          <ColorSwatches
-            label="Sidebar colour"
-            value={appearance.sidebarTint}
-            onChange={appearance.onSidebarTint}
-          />
-        </Row>
-        {appearance.sidebarTint !== "none" ? (
-          <Row
-            label="Sidebar colour strength"
-            description="How much of the colour shows."
-          >
-            <Slider
-              label="Sidebar colour strength"
-              value={appearance.sidebarTintStrength}
-              display={`${appearance.sidebarTintStrength}%`}
-              min={SIDEBAR_TINT_STRENGTH_MIN}
-              max={SIDEBAR_TINT_STRENGTH_MAX}
-              onChange={appearance.onSidebarTintStrength}
-            />
-          </Row>
-        ) : null}
       </SettingsGroup>
       <SettingsGroup
         title="Chat background"
         description="Personalize your conversations."
-        scope="Device"
       >
         <ChatBackgroundCard appearance={appearance} />
       </SettingsGroup>
       <SettingsGroup
-        title="Reuse this appearance"
-        description="A one-time copy; each workspace can still be customized later."
+        title="Workspaces"
+        description="Each workspace keeps its own look."
       >
-        <Row {...SETTINGS.sameAppearance.row}>
-          <ApplyWorkspaceThemeButton profileId={appearance.profileId} />
+        <Row {...SETTINGS.useForAllWorkspaces.row}>
+          <ApplyWorkspaceThemeButton
+            profileId={appearance.profileId}
+            label="Copy to all"
+          />
         </Row>
       </SettingsGroup>
       <div className="settings-reset">
         <p>
-          Reset this workspace’s theme and this device’s chat background and
-          interface scale and status bar opacity.
+          Reset this workspace’s theme, accent colour and glass, and this
+          device’s chat background and interface scale.
         </p>
         <SecondaryButton onClick={appearance.restoreDefaults}>
           <RotateCcw className="size-3.5" aria-hidden />
@@ -1692,23 +1543,6 @@ function ChatBackgroundCard({
         {hasImage ? (
           <div className="border-t border-content/8">
             <div className="flex items-center justify-between gap-4 px-3 py-2.5">
-              <div className="min-w-0">
-                <div className="text-ui-label text-content">Show on</div>
-                <p className="text-ui-caption text-content/40">
-                  Empty sessions only, or every conversation.
-                </p>
-              </div>
-              <Segmented
-                label="Show background on"
-                value={appearance.chatBackgroundScope}
-                options={[
-                  { value: "empty", label: "Empty only" },
-                  { value: "all", label: "All sessions" },
-                ]}
-                onChange={appearance.onChatBackgroundScope}
-              />
-            </div>
-            <div className="flex items-center justify-between gap-4 border-t border-content/5 px-3 py-2.5">
               <div className="min-w-0">
                 <div className="text-ui-label text-content">Visibility</div>
                 <p className="text-ui-caption text-content/40">

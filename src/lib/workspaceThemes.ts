@@ -57,7 +57,8 @@ export type WorkspaceTheme = {
   /** Saved by earlier versions. Sidebars now always match the workspace. */
   matchPanels: boolean;
   colors?: ThemeColorOverrides;
-  /** A wash of colour over the sidebar; absent or "none" keeps it plain. */
+  /** A wash of colour over the sidebar; absent or "none" keeps it plain.
+   *  Settings no longer offer it, but a saved wash still applies. */
   sidebarTint?: ColorChoice;
   /** How strong the sidebar wash is, in percent. */
   sidebarTintStrength?: number;

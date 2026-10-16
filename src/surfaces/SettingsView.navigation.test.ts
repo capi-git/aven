@@ -367,16 +367,15 @@ describe("settings navigation", () => {
     "opens a searched category and places keyboard focus at the requested setting with besideRail=%s",
     async (besideRail) => {
       await mount("general", besideRail);
-      await search("match sidebars");
-      await click(result("Match sidebars to workspace"));
+      await search("blur");
+      await click(result("Glass"));
       expect(onSection).toHaveBeenLastCalledWith("appearance");
       expect(container.querySelector("h1")?.textContent).toBe("Appearance");
       expect(searchInput().value).toBe("");
       expect(resultList()).toBeNull();
       expect(sectionList()).not.toBeNull();
-      const destination = container.querySelector<HTMLElement>(
-        "#setting-match-sidebars-to-workspace",
-      )!;
+      const destination =
+        container.querySelector<HTMLElement>("#setting-glass")!;
       expect(destination).not.toBeNull();
       expect(focusIsWithin(destination)).toBe(true);
       // happy-dom permits focus on an ordinary div; real browsers require a
@@ -464,14 +463,12 @@ describe("settings navigation", () => {
 
     // An unpicked query stays put across an external change and names no
     // destination until a result is picked.
-    await search("match sidebars");
+    await search("blur");
     await act(async () => externalSelectSection("appearance"));
     expect(container.querySelector("h1")?.textContent).toBe("Appearance");
-    expect(searchInput().value).toBe("match sidebars");
+    expect(searchInput().value).toBe("blur");
     expect(resultList()).not.toBeNull();
-    const unpicked = container.querySelector<HTMLElement>(
-      "#setting-match-sidebars-to-workspace",
-    )!;
+    const unpicked = container.querySelector<HTMLElement>("#setting-glass")!;
     expect(unpicked.dataset.searchMatch).toBeUndefined();
     expect(focusIsWithin(unpicked)).toBe(false);
     expect(onClose).not.toHaveBeenCalled();
@@ -484,7 +481,7 @@ describe("settings navigation", () => {
       ["Memory saver", "Browser", "setting-memory-saver"],
       ["Linear API key", "Connections", "setting-linear-api-key"],
       ["Agent connections", "Connections", "setting-agent-connections"],
-      ["Workspace colors", "Appearance", "setting-workspace-colors"],
+      ["Accent colour", "Appearance", "setting-accent-colour"],
       ["Chat background", "Appearance", "setting-chat-background"],
       ["Keybindings", "Keyboard shortcuts", "setting-keybindings"],
       ["Providers", "Providers & models", "setting-providers"],
@@ -679,11 +676,11 @@ describe("settings navigation", () => {
     await section("Appearance");
     await click(
       container.querySelector<HTMLButtonElement>(
-        '[role="switch"][aria-label="Match sidebars to workspace"]',
+        '[role="radio"][aria-label="Forest"]',
       )!,
     );
     const appearance = loadWorkspaceTheme("work");
-    expect(appearance.matchPanels).toBe(true);
+    expect(appearance.colors?.dark?.accent).toBe("#a2c7aa");
     expect(appearance.colors?.dark?.background).toBe("#112233");
     await section("Keyboard shortcuts");
     await section("Git");
@@ -698,9 +695,7 @@ describe("settings navigation", () => {
     expect(loadWorkspaceTheme("work")).toEqual(appearance);
     expect(
       container
-        .querySelector(
-          '[role="switch"][aria-label="Match sidebars to workspace"]',
-        )
+        .querySelector('[role="radio"][aria-label="Forest"]')
         ?.getAttribute("aria-checked"),
     ).toBe("true");
   });

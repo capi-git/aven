@@ -46,6 +46,13 @@
     background-color 100ms ease;
 }
 
+/* A picker for one colour names it instead of offering a choice. */
+.settings-color-picker__single {
+  padding-left: 0;
+  color: var(--color-content);
+  font-weight: 550;
+}
+
 .settings-color-picker__target:hover {
   background: var(--aven-hover);
   color: var(--color-content);

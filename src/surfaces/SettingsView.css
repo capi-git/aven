@@ -268,6 +268,28 @@
   color: var(--settings-muted);
   line-height: 1.6;
 }
+.settings-accent-custom {
+  gap: 7px;
+  padding-inline: 9px 11px;
+}
+.settings-accent-custom-dot {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border-radius: 50%;
+  background: var(
+    --swatch,
+    conic-gradient(#ff5f6d, #ffb36b, #12b886, #7aa7ff, #9b5cff, #ff5f6d)
+  );
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #fff 22%, transparent);
+}
+.settings-accent-custom[data-checked] .settings-accent-custom-dot {
+  outline: 2px solid var(--color-content);
+  outline-offset: 2px;
+}
+.settings-accent-picker {
+  border-top: 1px solid var(--aven-line);
+}
 .settings-background-card {
   padding: 14px 0;
   border-bottom: 1px solid var(--settings-line);

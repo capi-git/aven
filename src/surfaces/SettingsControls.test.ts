@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { playCue } from "../lib/sounds";
 import {
-  ColorSwatches,
+  PresetSwatches,
   Row,
   SecondaryButton,
   Segmented,
@@ -399,52 +399,36 @@ describe("settings app-rendered select", () => {
   });
 });
 
-describe("ColorSwatches", () => {
-  function Picker({ initial }: { initial: string }) {
+describe("PresetSwatches", () => {
+  const OPTIONS = [
+    { value: "blue", label: "Blue", swatch: "#57b5ff" },
+    { value: "forest", label: "Forest", swatch: "#a2c7aa" },
+  ] as const;
+  function Picker({ initial }: { initial: string | null }) {
     const [value, setValue] = useState(initial);
-    return h(ColorSwatches, {
-      label: "Sidebar colour",
-      value: value as never,
-      onChange: (next: string) => setValue(next),
+    return h(PresetSwatches<string>, {
+      label: "Accent colour",
+      options: OPTIONS,
+      value,
+      onChange: setValue,
     });
   }
 
-  it("selects presets and any colour as one radio group", async () => {
-    await act(async () => root.render(h(Picker, { initial: "none" })));
+  it("selects one preset in a radio group, or none for another colour", async () => {
+    await act(async () => root.render(h(Picker, { initial: null })));
     const group = container.querySelector('[role="radiogroup"]')!;
-    expect(group.getAttribute("aria-label")).toBe("Sidebar colour");
+    expect(group.getAttribute("aria-label")).toBe("Accent colour");
     const checked = () =>
       container
         .querySelector('[role="radio"][aria-checked="true"]')
         ?.getAttribute("aria-label");
-    expect(checked()).toBe("Graphite");
-    await act(async () =>
-      container
-        .querySelector<HTMLButtonElement>('[aria-label="Forest"]')!
-        .click(),
-    );
+    expect(checked()).toBeUndefined();
+    const forest = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Forest"]',
+    )!;
+    expect(forest.style.getPropertyValue("--swatch")).toBe("#a2c7aa");
+    await act(async () => forest.click());
     expect(checked()).toBe("Forest");
     expect(playCue).toHaveBeenCalledWith("switch");
-
-    const input = container.querySelector<HTMLInputElement>(
-      'input[type="color"]',
-    )!;
-    await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        "value",
-      )!.set!;
-      setter.call(input, "#AB12CD");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    expect(checked()).toBeUndefined();
-    expect(
-      container
-        .querySelector(".settings-swatch-custom")
-        ?.hasAttribute("data-checked"),
-    ).toBe(true);
-    expect(container.querySelector(".settings-swatch-name")?.textContent).toBe(
-      "Custom",
-    );
   });
 });
