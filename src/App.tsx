@@ -8686,6 +8686,7 @@ export default function App({
     },
     deleteProject: (path) => onRemoveProject(path, { purgeData: true }),
     discussion: discussions.host,
+    sharedWork: true,
     focusedSurfaceId: view.focusedId,
     sidebarOpen,
     openWebLink: onOpenWebLink,

@@ -4,6 +4,7 @@
 
 ### Added
 
+- Agents in one project now know what the others are doing. With each message, a chat is told (only when something changed) which dev servers are running and who started them, which other chats are working and the files they are editing, so it reuses the server you already started instead of opening another. If an agent starts a second copy of a running app anyway, its chat shows **Codex started a second dev server on :5174 while :5173 is running**, with **Keep both** and **Stop the new one** (or **Ask Codex to stop it** when Aven cannot stop it itself), and when two chats edit the same file at once both show **Codex is also editing src/App.tsx** above the message box and an amber mark in the sidebar.
 - Two chats can discuss a topic when you ask them to: choose **Discuss with…** from the message box's **+** menu (or type `/discuss`), pick another open chat or a new one with any model, and set the topic and rounds. Aven passes each finished reply to the other chat, shows every relayed message in both transcripts, pauses for approvals, questions and your own messages, and the sidebar animates the two chats talking.
 
 ### Changed

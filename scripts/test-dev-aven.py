@@ -406,6 +406,36 @@ class RealAppCheck(unittest.TestCase):
                        input=json.dumps(quick) + '\n', capture_output=True, text=True, timeout=10)
         self.assertLess(time.monotonic() - started, 0.6)
 
+    def test_stand_in_starts_a_pretend_dev_server_and_echoes_the_note(self):
+        stand_in = self.root / 'home/.local/bin/claude'
+        note = ('<aven-shared-work>\nLive from Aven.\nDev server running: '
+                'http://localhost:5199/ (started by Claude).\n</aven-shared-work>\n\nGo.')
+        requests = '\n'.join(json.dumps({
+            'type': 'user', 'uuid': uuid,
+            'message': {'role': 'user', 'content': [{'type': 'text', 'text': text}]},
+        }) for uuid, text in [
+            ('turn-4', 'Start it. AVEN_SMOKE_DEV_SERVER 5199'),
+            ('turn-5', f'{note} AVEN_SMOKE_ECHO_NOTE'),
+            ('turn-6', 'Plain. AVEN_SMOKE_ECHO_NOTE'),
+        ]) + '\n'
+        chat = subprocess.run([str(stand_in), '--input-format', 'stream-json'],
+                              input=requests, capture_output=True, text=True, timeout=10)
+        messages = [json.loads(line) for line in chat.stdout.splitlines()]
+        use = next(m for m in messages if m['type'] == 'assistant'
+                   and m['message']['content'][0]['type'] == 'tool_use')['message']['content'][0]
+        self.assertEqual((use['name'], use['input']['command']), ('Bash', 'npm run dev'))
+        result = next(m for m in messages if m['type'] == 'user' and not m.get('isReplay'))
+        output = result['message']['content'][0]
+        self.assertEqual(output['tool_use_id'], use['id'])
+        self.assertIn('VITE v5.4.0', output['content'])
+        self.assertIn('Local:   http://localhost:5199/', output['content'])
+        replies = [m['result'] for m in messages if m['type'] == 'result']
+        self.assertEqual(replies, [
+            'AVEN_SMOKE_OK',
+            'AVEN_SMOKE_OK NOTE[Live from Aven. | Dev server running: http://localhost:5199/ (started by Claude).]',
+            'AVEN_SMOKE_OK NOTE[none]',
+        ])
+
     def test_project_gets_one_other_checkout_for_parallel_work(self):
         runner.add_parallel_copy(self.root)
         project = self.root / 'project'

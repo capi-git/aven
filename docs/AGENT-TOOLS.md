@@ -30,9 +30,43 @@ Opening it reuses a tab already showing that server. **Settings → Browser →
 Open dev previews automatically** opens each new server start once without
 asking; a bare "listening on port 3000" line, often an API, is only offered.
 When the server stops, the offer turns to
-**Preview stopped**; the page stays open. Each agent turn that has the browser
-also names the project's running dev servers, so the agent checks its work in
-that page instead of starting another server.
+**Preview stopped**; the page stays open.
+
+## Working beside other chats
+
+Agents in one project are told what the others are doing, so they share a dev
+server instead of starting their own. Ahead of each message, a chat receives a
+short `<aven-shared-work>` note (at most 1,200 characters, hidden from the
+transcript) with the project's running dev servers and who started them, the
+other chats working there with their request and the files their current or
+last turn edited, and any second copy of an app this chat started. It asks the
+agent to reuse a running server, to say so before it needs another port or a
+restart, and to avoid files another agent is editing. The note is sent only
+when it differs from what that chat last received, the same way for every
+provider: Claude Code and Codex take launch instructions only when a
+conversation starts, and this changes between turns. A failed send,
+compaction or a provider switch sends it again. It is the only place agents
+are told about running servers.
+
+Codex runs commands in a sandbox without network access unless the chat has
+**Full access**, so a Codex chat in another mode is told plainly that its
+sandbox may not reach the running server and to ask the user before starting
+another.
+
+When a dev server starts while one for the same app (same framework or
+package script, same folder) already runs, the chat that started it shows
+**Codex started a second dev server on :5174 while :5173 is running** with
+**Keep both**. A copy started in an Aven terminal can be stopped with Ctrl+C
+from the chip (**Stop the new one**); Aven cannot reach an agent's own shell,
+so for an agent's copy the chip offers **Ask Codex to stop it**, which queues a
+short message in that chat. A server in another checkout or folder is never
+flagged, nor are the several servers one command starts, nor a restart after
+the first server stopped.
+
+When two working chats in a project edit the same file, both message boxes show
+**Codex is also editing src/App.tsx** and both sidebar rows carry an amber mark,
+until either turn ends. All of this comes from tool calls Aven already
+receives; nothing polls or watches files.
 
 ## Working in the background
 
