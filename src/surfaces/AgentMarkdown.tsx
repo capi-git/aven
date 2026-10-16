@@ -26,6 +26,7 @@ import {
 } from "streamdown";
 import type { PluggableList } from "unified";
 import type { Element, ElementContent, Root, RootContent } from "hast";
+import { ExplorerMenu } from "../chrome/ExplorerMenu";
 import { FileTypeIcon } from "../chrome/FileTypeIcon";
 import { boundedCode } from "./codeHighlightPlugin";
 import { rehypeHardBreaks } from "./hardBreaks";
@@ -40,6 +41,7 @@ import {
 import type { OpenFileFn } from "../lib/search";
 import { isAtxHeadingLine } from "../lib/markdownSource";
 import { useColorScheme } from "../hooks/useColorScheme";
+import { useFileLinkMenu } from "../hooks/useFileLinkMenu";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useRewrapAnchor } from "../hooks/useRewrapAnchor";
 import { copyText } from "../lib/clipboard";
@@ -300,6 +302,8 @@ function MarkdownLink({
   node: _node,
   onClick,
   onAuxClick,
+  onContextMenu,
+  onKeyDown,
   dir,
   ...props
 }: MarkdownLinkProps) {
@@ -307,6 +311,8 @@ function MarkdownLink({
   const { cwd, onOpenFile } = useContext(FileOpenContext);
   const file =
     !allowRemoteMedia && href ? resolveFileLink(href, cwd) : undefined;
+  const openFile = onOpenFile ?? openInAppFile;
+  const fileMenu = useFileLinkMenu(file, openFile);
   const label = textContent(children);
   if (allowRemoteMedia && href && isInboxMediaUrl(href)) {
     return <InboxMedia src={href} alt={label} cwd={cwd} />;
@@ -316,7 +322,7 @@ function MarkdownLink({
     if (event.defaultPrevented) return;
     if (file) {
       event.preventDefault();
-      (onOpenFile ?? openInAppFile)(file.path, file.navigation);
+      openFile(file.path, file.navigation);
       return;
     }
     if (href?.startsWith("#") && !href.startsWith(LOCAL_FILE_LINK)) return;
@@ -324,26 +330,39 @@ function MarkdownLink({
   };
 
   return (
-    <a
-      // Internal editor fragments must never be supplied by remote Inbox
-      // content: the native Open Link menu bypasses the click guard below.
-      href={
-        allowRemoteMedia && href?.startsWith(LOCAL_FILE_LINK) ? undefined : href
-      }
-      className={`chat-reference ${className ?? ""}`}
-      {...props}
-      dir={dir ?? "auto"}
-      onClick={(event) => {
-        onClick?.(event);
-        open(event);
-      }}
-      onAuxClick={(event) => {
-        onAuxClick?.(event);
-        if (event.button === 1) open(event);
-      }}
-    >
-      {children}
-    </a>
+    <>
+      <a
+        // Internal editor fragments must never be supplied by remote Inbox
+        // content: the native Open Link menu bypasses the click guard below.
+        href={
+          allowRemoteMedia && href?.startsWith(LOCAL_FILE_LINK)
+            ? undefined
+            : href
+        }
+        className={`chat-reference ${className ?? ""}`}
+        {...props}
+        dir={dir ?? "auto"}
+        onClick={(event) => {
+          onClick?.(event);
+          open(event);
+        }}
+        onAuxClick={(event) => {
+          onAuxClick?.(event);
+          if (event.button === 1) open(event);
+        }}
+        onContextMenu={(event) => {
+          onContextMenu?.(event);
+          fileMenu.onContextMenu(event);
+        }}
+        onKeyDown={(event) => {
+          onKeyDown?.(event);
+          fileMenu.onKeyDown(event);
+        }}
+      >
+        {children}
+      </a>
+      {fileMenu.menu ? <ExplorerMenu {...fileMenu.menu} /> : null}
+    </>
   );
 }
 
@@ -359,42 +378,48 @@ function MarkdownCode({
   const { cwd, onOpenFile } = useContext(FileOpenContext);
   const allowRemoteMedia = useContext(RemoteMediaContext);
   const block = Object.prototype.hasOwnProperty.call(props, "data-block");
+  const text = block ? "" : textContent(children);
+  const fileName = block ? undefined : inlineFileName(text);
+  const file =
+    fileName && !allowRemoteMedia ? resolveFileLink(text, cwd) : undefined;
+  const openFile = onOpenFile ?? openInAppFile;
+  const fileMenu = useFileLinkMenu(file, openFile);
   if (!block) {
-    const text = textContent(children);
-    const fileName = inlineFileName(text);
-    const file =
-      fileName && !allowRemoteMedia ? resolveFileLink(text, cwd) : undefined;
-    const open = file
-      ? () => (onOpenFile ?? openInAppFile)(file.path, file.navigation)
-      : undefined;
+    const open = file ? () => openFile(file.path, file.navigation) : undefined;
     return (
-      <code
-        {...props}
-        dir="ltr"
-        className={`inline-flex items-center gap-1 rounded-md bg-content/8 px-1.5 min-h-6 max-w-full [overflow-wrap:anywhere] align-baseline font-mono text-[0.8em] text-content ${
-          open ? "chat-reference cursor-pointer" : ""
-        } ${className ?? ""}`}
-        role={open ? "link" : undefined}
-        tabIndex={open ? 0 : undefined}
-        onClick={open}
-        onKeyDown={
-          open
-            ? (event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  open();
+      <>
+        <code
+          {...props}
+          dir="ltr"
+          className={`inline-flex items-center gap-1 rounded-md bg-content/8 px-1.5 min-h-6 max-w-full [overflow-wrap:anywhere] align-baseline font-mono text-[0.8em] text-content ${
+            open ? "chat-reference cursor-pointer" : ""
+          } ${className ?? ""}`}
+          role={open ? "link" : undefined}
+          tabIndex={open ? 0 : undefined}
+          onClick={open}
+          onContextMenu={fileMenu.onContextMenu}
+          onKeyDown={
+            open
+              ? (event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    open();
+                    return;
+                  }
+                  fileMenu.onKeyDown(event);
                 }
-              }
-            : undefined
-        }
-      >
-        {fileName ? (
-          <span aria-hidden="true">
-            <FileTypeIcon name={fileName} isDir={false} size={14} />
-          </span>
-        ) : null}
-        {children}
-      </code>
+              : undefined
+          }
+        >
+          {fileName ? (
+            <span aria-hidden="true">
+              <FileTypeIcon name={fileName} isDir={false} size={14} />
+            </span>
+          ) : null}
+          {children}
+        </code>
+        {fileMenu.menu ? <ExplorerMenu {...fileMenu.menu} /> : null}
+      </>
     );
   }
 
@@ -859,18 +884,25 @@ function MarkdownCodePath({ path }: { path: string }) {
   const { cwd, onOpenFile } = useContext(FileOpenContext);
   const allowRemoteMedia = useContext(RemoteMediaContext);
   const file = !allowRemoteMedia ? resolveFileLink(path, cwd) : undefined;
+  const openFile = onOpenFile ?? openInAppFile;
+  const fileMenu = useFileLinkMenu(file, openFile);
   if (!file) {
     return <span className="markdown-code-path">{path}</span>;
   }
   return (
-    <button
-      type="button"
-      className="markdown-code-path markdown-code-path-link chat-reference"
-      title={file.path}
-      onClick={() => (onOpenFile ?? openInAppFile)(file.path, file.navigation)}
-    >
-      {path}
-    </button>
+    <>
+      <button
+        type="button"
+        className="markdown-code-path markdown-code-path-link chat-reference"
+        title={file.path}
+        onClick={() => openFile(file.path, file.navigation)}
+        onContextMenu={fileMenu.onContextMenu}
+        onKeyDown={fileMenu.onKeyDown}
+      >
+        {path}
+      </button>
+      {fileMenu.menu ? <ExplorerMenu {...fileMenu.menu} /> : null}
+    </>
   );
 }
 

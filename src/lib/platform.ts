@@ -11,3 +11,10 @@ export const HAS_NATIVE_GLASS = IS_MAC;
 export const MOD = IS_MAC ? "⌘" : "Ctrl+";
 export const ALT = IS_MAC ? "⌥" : "Alt+";
 export const SHIFT = IS_MAC ? "⇧" : "Shift+";
+
+/** The system file manager's name for showing and selecting an item. */
+export const REVEAL_LABEL = IS_MAC
+  ? "Reveal in Finder"
+  : IS_WIN
+    ? "Reveal in File Explorer"
+    : "Open Containing Folder";
