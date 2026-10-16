@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Websites in Aven's browser can now use the microphone and camera. Before, macOS blocked them without asking. Now macOS asks you to allow Aven the first time a site needs them, Aven remembers your answer for each site (forget it from the browser's **⋯** menu), and if macOS is blocking Aven the tab says so with a button that opens the right Privacy & Security page.
+
 ## [0.1.142] - 2026-10-15
 
 ### Added
