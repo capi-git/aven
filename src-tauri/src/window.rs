@@ -15,6 +15,18 @@ static QUIT_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
 const QUIT_REQUESTED: &str = "quit_requested";
 
+/// What window-state restores. On macOS restoring visibility would show a
+/// window before its interface has drawn, so `window_reveal` shows it
+/// instead; other platforms keep the plugin's full restore.
+pub fn restored_window_state() -> tauri_plugin_window_state::StateFlags {
+    use tauri_plugin_window_state::StateFlags;
+    if cfg!(target_os = "macos") {
+        StateFlags::all() - StateFlags::VISIBLE
+    } else {
+        StateFlags::all()
+    }
+}
+
 pub fn is_workspace_label(label: &str) -> bool {
     label == "main"
         || label.strip_prefix("window-").is_some_and(|suffix| {
@@ -25,7 +37,7 @@ pub fn is_workspace_label(label: &str) -> bool {
 /// On macOS the configured main window is built here rather than by Tauri, so
 /// its WebKit document can render at the display's full refresh rate. Other
 /// platforms replace the window list and still create it from configuration.
-/// Either way it is built hidden; `window_reveal` shows it once it has drawn.
+/// On macOS it is built hidden; `window_reveal` shows it once it has drawn.
 #[cfg(target_os = "macos")]
 pub fn create_main_window(app: &AppHandle) -> tauri::Result<()> {
     if app.get_webview_window("main").is_some() {
@@ -75,8 +87,12 @@ pub fn open_new_window(app: &AppHandle) -> Result<(), String> {
         let _ = window.set_shadow(true);
     }
 
-    // Built hidden from the configuration; it appears, focused, once drawn.
+    // Built hidden from the macOS configuration; it appears, focused, once
+    // drawn. Other platforms show it as they always did.
+    #[cfg(target_os = "macos")]
     crate::window_reveal::conceal(&window.as_ref().window());
+    #[cfg(not(target_os = "macos"))]
+    let _ = window.set_focus();
     Ok(())
 }
 
@@ -269,7 +285,8 @@ pub fn request_quit(app: &AppHandle) {
     }
 }
 
-/// Persist already happened in JS.
+/// Persist already happened in JS. Outside macOS, windows are shown so
+/// window-state does not save them hidden.
 #[tauri::command]
 pub fn confirm_quit(app: AppHandle) {
     let Ok(work) = begin_runtime_work(&app, "quitting") else {
@@ -313,6 +330,13 @@ fn finish_quit(app: AppHandle) {
 
 pub(crate) fn prepare_process_exit(app: &AppHandle) {
     ALLOW_EXIT.store(true, Ordering::SeqCst);
+    // window-state still restores visibility outside macOS.
+    #[cfg(not(target_os = "macos"))]
+    for window in app.windows().values() {
+        if is_workspace_label(window.label()) {
+            let _ = window.show();
+        }
+    }
     // Belt and braces. `RunEvent::Exit` reaps too, and it also runs before the
     // process is gone, but a macOS terminate that skips the run loop would not
     // reach it — and `kill_all`'s SIGKILL wait only works while we're alive.
@@ -357,6 +381,17 @@ mod tests {
                 alpha: 0.4
             }
         );
+    }
+
+    #[test]
+    fn only_macos_stops_window_state_restoring_visibility() {
+        use tauri_plugin_window_state::StateFlags;
+        let flags = restored_window_state();
+        assert_eq!(
+            flags.contains(StateFlags::VISIBLE),
+            !cfg!(target_os = "macos")
+        );
+        assert!(flags.contains(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED));
     }
 
     #[test]

@@ -408,7 +408,7 @@ export async function runDevSmoke(
   // in a default colour, or as bare glass over the desktop.
   await step("window stayed hidden until the workspace drew", async () => {
     const reveal = await readLaunchReveal();
-    const problem = launchRevealProblem(reveal, IS_MAC);
+    const problem = launchRevealProblem(reveal);
     if (problem) throw new Error(problem);
     return launchRevealSummary(reveal);
   });

@@ -5,7 +5,6 @@
       {
         "label": "main",
         "create": true,
-        "visible": false,
         "title": "Aven",
         "width": 1280,
         "height": 800,

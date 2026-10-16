@@ -1,11 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 
 /**
- * Workspace windows open concealed (`window_reveal.rs`) and appear once this
- * page reports a frame drawn in its saved theme, so a launch goes straight to
- * the workspace instead of an empty window, a default colour, or the desktop
- * through empty glass. The native side shows the window anyway after a few
- * seconds, so a page that never gets this far still shows its error.
+ * On macOS, workspace windows open concealed (`window_reveal.rs`) and appear
+ * once this page reports a frame drawn in its saved theme, so a launch goes
+ * straight to the workspace instead of an empty window, a default colour, or
+ * the desktop through empty glass. The native side shows the window anyway
+ * after a few seconds, so a page that never gets this far still shows its
+ * error. Elsewhere the window is already shown and the report changes nothing.
  */
 
 /** When this page committed, drew and asked to be shown (epoch ms). */
@@ -40,9 +41,9 @@ export function revealWindow() {
 /**
  * Resolve once the frame holding the current document has been drawn. The
  * second animation frame starts only after the first one's frame is drawn.
- * A hidden document gets no animation frames (such as a window that is still
- * hidden elsewhere than macOS), so it does not wait for them; `fallbackMs`
- * bounds the wait if frames stop for another reason.
+ * A hidden document (a covered window, or one on another Space) gets no
+ * animation frames, so it does not wait for them; `fallbackMs` bounds the
+ * wait if frames stop for another reason.
  */
 export function afterDrawnFrame(fallbackMs = 1000): Promise<void> {
   return new Promise((resolve) => {

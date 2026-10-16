@@ -1,22 +1,29 @@
-//! Workspace windows appear only once their interface has drawn.
+//! macOS workspace windows appear only once their interface has drawn.
 //!
 //! A workspace window used to be shown the moment it was created, long before
 //! its page loaded. Until the interface painted, the window showed a fixed
 //! launch colour, then the page's empty boot background, and with glass on the
 //! desktop itself through an empty translucent window.
 //!
-//! Now each workspace window is created concealed. On macOS it is ordered in
-//! fully transparent: WebKit only renders, and only runs animation frames, for
-//! a window it considers visible, so a hidden window could never report a
-//! painted frame. Elsewhere it stays hidden. The page reports its first frame
-//! drawn in the saved theme (`window_reveal`), and the window then becomes
-//! visible in one step. A timeout reveals it anyway, so a failed start still
-//! shows its error instead of nothing.
+//! Now a macOS workspace window is created hidden and ordered in fully
+//! transparent: WebKit only renders, and only runs animation frames, for a
+//! window it considers visible, and a hidden window's start is also throttled.
+//! The page reports its first frame drawn in the saved theme
+//! (`window_reveal`), and the window then becomes visible in one step. A
+//! timeout reveals it anyway, so a failed start still shows its error.
+//!
+//! Windows and Linux create and show their window as before; there the
+//! command does nothing. The bookkeeping below is shared so its tests run on
+//! every platform.
+#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
+
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Manager, Webview, Window};
+use tauri::Webview;
+#[cfg(target_os = "macos")]
+use tauri::{AppHandle, Manager, Window};
 
 /// Long enough for a normal start (well under a second), short enough that a
 /// start that failed before the interface drew is not mistaken for a hang.
@@ -142,8 +149,8 @@ fn now_ms() -> u64 {
 
 /// Run on the main thread: AppKit window state belongs there. Commands
 /// without `async` and the setup hook already run there.
+#[cfg(target_os = "macos")]
 fn on_main(app: &AppHandle, work: impl FnOnce() + Send + 'static) {
-    #[cfg(target_os = "macos")]
     if objc2::MainThreadMarker::new().is_some() {
         work();
         return;
@@ -151,28 +158,20 @@ fn on_main(app: &AppHandle, work: impl FnOnce() + Send + 'static) {
     let _ = app.run_on_main_thread(work);
 }
 
-/// Show a just-built workspace window without anything visible, and reveal
-/// it when its page reports a drawn frame or after `REVEAL_TIMEOUT`. The
-/// window must have been built hidden (macOS and Windows configurations);
-/// one that is already visible, as on Linux, is left as it is.
+/// Show a just-built, hidden workspace window without anything visible, and
+/// reveal it when its page reports a drawn frame or after `REVEAL_TIMEOUT`.
+#[cfg(target_os = "macos")]
 pub fn conceal(window: &Window) {
-    #[cfg(not(target_os = "macos"))]
-    if window.is_visible().unwrap_or(true) {
-        return;
-    }
     let label = window.label().to_string();
     let generation = reveals().conceal(&label, now_ms());
-    #[cfg(target_os = "macos")]
-    {
-        let concealed = window.clone();
-        on_main(window.app_handle(), move || {
-            crate::macos::set_concealed(&concealed, true);
-            // Ordered in and key while transparent, so WebKit draws the page
-            // and keystrokes reach it as soon as it appears.
-            let _ = concealed.show();
-            let _ = concealed.set_focus();
-        });
-    }
+    let concealed = window.clone();
+    on_main(window.app_handle(), move || {
+        crate::macos::set_concealed(&concealed, true);
+        // Ordered in and key while transparent, so WebKit draws the page and
+        // keystrokes reach it as soon as it appears.
+        let _ = concealed.show();
+        let _ = concealed.set_focus();
+    });
     let app = window.app_handle().clone();
     std::thread::spawn(move || {
         std::thread::sleep(REVEAL_TIMEOUT);
@@ -189,6 +188,7 @@ pub fn conceal(window: &Window) {
 }
 
 /// Make a concealed window visible. Returns whether this call revealed it.
+#[cfg(target_os = "macos")]
 fn reveal(window: &Window, reason: RevealReason, timeout_of: Option<u64>) -> bool {
     let label = window.label().to_string();
     if !reveals().begin_reveal(&label, reason, timeout_of) {
@@ -196,15 +196,7 @@ fn reveal(window: &Window, reason: RevealReason, timeout_of: Option<u64>) -> boo
     }
     let shown = window.clone();
     on_main(window.app_handle(), move || {
-        #[cfg(target_os = "macos")]
         let was_concealed = crate::macos::set_concealed(&shown, false);
-        #[cfg(not(target_os = "macos"))]
-        let was_concealed = {
-            let hidden = !shown.is_visible().unwrap_or(false);
-            let _ = shown.show();
-            let _ = shown.set_focus();
-            hidden
-        };
         reveals().finish_reveal(shown.label(), now_ms(), was_concealed);
     });
     true
@@ -226,14 +218,20 @@ pub fn window_destroyed(label: &str) {
 }
 
 /// The page has drawn its first frame in its saved theme: show the window.
-/// Later reports, and reports from other webviews, change nothing.
+/// Later reports, reports from other webviews, and every report outside
+/// macOS (where the window is already shown) change nothing.
 #[tauri::command]
 pub fn window_reveal(webview: Webview) {
-    let window = webview.window();
-    if webview.label() != window.label() || !crate::window::is_workspace_label(window.label()) {
-        return;
+    #[cfg(target_os = "macos")]
+    {
+        let window = webview.window();
+        if webview.label() != window.label() || !crate::window::is_workspace_label(window.label()) {
+            return;
+        }
+        reveal(&window, RevealReason::Painted, None);
     }
-    reveal(&window, RevealReason::Painted, None);
+    #[cfg(not(target_os = "macos"))]
+    let _ = webview;
 }
 
 #[cfg(test)]

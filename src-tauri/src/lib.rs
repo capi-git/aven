@@ -267,12 +267,7 @@ pub fn run() {
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_filter(window::is_workspace_label)
-                // Restoring visibility would show a window before its
-                // interface has drawn; `window_reveal` shows it instead.
-                .with_state_flags(
-                    tauri_plugin_window_state::StateFlags::all()
-                        - tauri_plugin_window_state::StateFlags::VISIBLE,
-                )
+                .with_state_flags(window::restored_window_state())
                 .build(),
         )
         .manage(harness::HarnessHost::new())
@@ -312,7 +307,6 @@ pub fn run() {
                 if let Some(window) = app.get_window("main") {
                     let _ = window.set_decorations(false);
                     let _ = window.set_shadow(true);
-                    window_reveal::conceal(&window);
                 }
             }
             Ok(())
@@ -788,18 +782,24 @@ mod platform_config {
         assert!(!parsed.pubkey.is_empty());
     }
 
+    fn main_window(config: &Value) -> Value {
+        config["app"]["windows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|window| window["label"] == "main")
+            .expect("main window")
+            .clone()
+    }
+
     #[test]
-    fn workspace_windows_start_hidden_until_their_interface_draws() {
-        // `window_reveal` shows them; a visible start shows an empty window.
-        for config in [base_config(), windows_config()] {
-            let main = config["app"]["windows"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|window| window["label"] == "main")
-                .expect("main window");
-            assert_eq!(main["visible"], false);
-        }
+    fn only_the_macos_workspace_window_starts_hidden_until_it_draws() {
+        // On macOS `window_reveal` shows it; a visible start showed an empty
+        // window. Windows keeps showing its window from the start.
+        assert_eq!(main_window(&base_config())["visible"], false);
+        assert!(main_window(&windows_config())["visible"]
+            .as_bool()
+            .unwrap_or(true));
     }
 
     #[test]

@@ -46,14 +46,15 @@ export async function readLaunchReveal(
 
 /**
  * Why the launch could have shown anything but the drawn workspace, or null.
- * The window must stay concealed until the page reports a drawn frame. On
- * macOS, where a concealed window is ordered in and keeps drawing, WebKit
- * must also have painted content before the window became visible.
+ * The window must stay concealed until the page reports a drawn frame, and
+ * WebKit must have painted content before the window became visible. Only
+ * macOS conceals its window, and the real-app check runs only there.
  */
-export function launchRevealProblem(
-  { native, page, firstContentfulPaintEpochMs: painted }: LaunchReveal,
-  paintsWhileConcealed: boolean,
-): string | null {
+export function launchRevealProblem({
+  native,
+  page,
+  firstContentfulPaintEpochMs: painted,
+}: LaunchReveal): string | null {
   if (!native)
     return "the window was never concealed, so it showed before its interface drew";
   const shown = native.revealedAtMs;
@@ -64,7 +65,6 @@ export function launchRevealProblem(
     return "something showed the window before its interface drew";
   if (page.drawnAtEpochMs == null)
     return "the window was shown without the page reporting a drawn frame";
-  if (!paintsWhileConcealed) return null;
   if (page.visibleWhenDrawn === false)
     return "the window was covered or on another Space at launch, so its first frame could not be checked; keep Aven Dev's window uncovered";
   if (painted == null) return "WebKit reported no painted content";

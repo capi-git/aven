@@ -33,46 +33,41 @@ const launch = (
 
 describe("the launch reveal check", () => {
   it("passes a window that stayed concealed until its painted frame", () => {
-    expect(launchRevealProblem(drawn, true)).toBeNull();
+    expect(launchRevealProblem(drawn)).toBeNull();
     expect(launchRevealSummary(drawn)).toBe(
       "shown 320 ms after the window was created, 35 ms after its first paint",
     );
   });
 
   it("fails a window that was never concealed or never shown", () => {
-    expect(launchRevealProblem({ ...drawn, native: null }, true)).toMatch(
+    expect(launchRevealProblem({ ...drawn, native: null })).toMatch(
       /never concealed/,
     );
     expect(
-      launchRevealProblem(launch({ revealedAtMs: null, reason: null }), true),
+      launchRevealProblem(launch({ revealedAtMs: null, reason: null })),
     ).toMatch(/never shown/);
   });
 
   it("fails a window shown by its timeout or by something else", () => {
-    expect(launchRevealProblem(launch({ reason: "timeout" }), true)).toMatch(
+    expect(launchRevealProblem(launch({ reason: "timeout" }))).toMatch(
       /timeout, not by a drawn frame/,
     );
     expect(
-      launchRevealProblem(launch({ concealedUntilReveal: false }), true),
+      launchRevealProblem(launch({ concealedUntilReveal: false })),
     ).toMatch(/before its interface drew/);
     expect(
-      launchRevealProblem({ ...drawn, page: { committedAtEpochMs: 1 } }, true),
+      launchRevealProblem({ ...drawn, page: { committedAtEpochMs: 1 } }),
     ).toMatch(/without the page reporting a drawn frame/);
   });
 
-  it("fails a macOS window shown before WebKit painted its content", () => {
+  it("fails a window shown before WebKit painted its content", () => {
     const late = { ...drawn, firstContentfulPaintEpochMs: 1_400 };
-    expect(launchRevealProblem(late, true)).toBe(
+    expect(launchRevealProblem(late)).toBe(
       "the first content was painted 80 ms after the window was shown",
     );
     expect(
-      launchRevealProblem(
-        { ...drawn, firstContentfulPaintEpochMs: null },
-        true,
-      ),
+      launchRevealProblem({ ...drawn, firstContentfulPaintEpochMs: null }),
     ).toMatch(/no painted content/);
-    // A hidden window elsewhere paints once it is shown.
-    expect(launchRevealProblem(late, false)).toBeNull();
   });
 
   it("names a window that was covered at launch instead of judging it", () => {
@@ -80,7 +75,7 @@ describe("the launch reveal check", () => {
       ...drawn,
       page: { ...drawn.page, visibleWhenDrawn: false },
     };
-    expect(launchRevealProblem(covered, true)).toMatch(
+    expect(launchRevealProblem(covered)).toMatch(
       /covered or on another Space at launch/,
     );
   });
