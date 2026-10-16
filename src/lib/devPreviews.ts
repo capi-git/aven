@@ -1,5 +1,6 @@
 import {
   createDevOutputScanner,
+  devServerCommand,
   type DevOutputScanner,
   type DevOutputSignal,
   type DevServerAddress,
@@ -7,7 +8,7 @@ import {
 } from "./devServerUrls";
 import { logError } from "./errors";
 import type { HarnessEvent } from "./harness/types";
-import { isEqualOrInside, pathKey } from "./paths";
+import { isEqualOrInside, joinPath, pathKey } from "./paths";
 import { looksLikeProject } from "./recents";
 import { SETTINGS } from "./settingDefinitions";
 
@@ -45,6 +46,19 @@ export type DevPreview = {
   opened: boolean;
   /** Open without asking: the setting was on and the line named a page. */
   autoOpen: boolean;
+  /** Folder the command ran in: `cwd`, or where the command changed to. */
+  folder: string;
+  /** Framework or package script (`vite`, `script:dev@web`), when known. */
+  app?: string;
+  /** The command or terminal run that announced it. */
+  run?: string;
+  /**
+   * Key of a server for the same app in the same folder that was already
+   * running when this one started: a second copy, not a restart.
+   */
+  duplicateOf?: string;
+  /** The user kept both, or asked for (or sent) a stop. */
+  duplicateHandled?: "kept" | "asked" | "stopping";
 };
 
 export type DevServerReport = {
@@ -55,6 +69,11 @@ export type DevServerReport = {
   sourceId: string;
   sessionId?: string;
   placement: DevPreviewPlacement;
+  /** Where the command ran when it is not `cwd`. */
+  folder?: string;
+  app?: string;
+  /** One command or terminal run; its own several servers are never duplicates. */
+  run?: string;
 };
 
 const MAX_PREVIEWS = 24;
@@ -142,7 +161,12 @@ export function reportDevServer(
       label: address.label,
       strength: "strong",
       autoOpen: existing.autoOpen || autoOpenEnabled(),
+      ...(!existing.app && report.app ? { app: report.app } : {}),
     };
+    if (!upgraded.duplicateOf) {
+      const earlier = earlierCopy(upgraded);
+      if (earlier) upgraded.duplicateOf = earlier.key;
+    }
     commit(
       previews.map((preview) => (preview.key === key ? upgraded : preview)),
     );
@@ -170,9 +194,79 @@ export function reportDevServer(
       url: address.url,
     }),
     autoOpen: address.strength === "strong" && autoOpenEnabled(),
+    folder: report.folder ?? report.cwd,
+    ...(report.app ? { app: report.app } : {}),
+    ...(report.run ? { run: report.run } : {}),
   };
+  const earlier = earlierCopy(preview);
+  if (earlier) preview.duplicateOf = earlier.key;
   commit(bounded([...previews.filter((entry) => entry.key !== key), preview]));
   return preview;
+}
+
+type AppIdentity = Pick<
+  DevPreview,
+  "key" | "project" | "folder" | "app" | "run" | "strength" | "port" | "status"
+>;
+
+/**
+ * Two running servers of one app: same project and folder, same framework or
+ * script (or, when neither names one, both serving a page), different ports,
+ * started by different commands. Separate checkouts and folders, and the
+ * several servers one command starts, are not copies.
+ */
+export function sameDevApp(a: AppIdentity, b: AppIdentity): boolean {
+  if (a.key === b.key || a.port === b.port) return false;
+  if (pathKey(a.project) !== pathKey(b.project)) return false;
+  if (pathKey(a.folder) !== pathKey(b.folder)) return false;
+  if (a.run && a.run === b.run) return false;
+  if (a.app || b.app) return a.app === b.app;
+  return a.strength === "strong" && b.strength === "strong";
+}
+
+/** The running server this one copies, if it is a second start of an app. */
+function earlierCopy(preview: AppIdentity): DevPreview | undefined {
+  const copies = previews.filter(
+    (entry) => entry.status === "live" && sameDevApp(entry, preview),
+  );
+  // Name the first server, not an earlier copy of it.
+  return copies.find((entry) => !entry.duplicateOf) ?? copies[0];
+}
+
+export type DuplicateDevServer = {
+  /** The second copy. */
+  preview: DevPreview;
+  /** The server that was already running. */
+  original: DevPreview;
+};
+
+/**
+ * Second copies still running beside their original, that the user has not
+ * kept. A restart (the original stopped first) never shows here.
+ */
+export function duplicateDevServers(
+  list: readonly DevPreview[],
+): DuplicateDevServer[] {
+  const out: DuplicateDevServer[] = [];
+  for (const preview of list) {
+    if (
+      !preview.duplicateOf ||
+      preview.status !== "live" ||
+      preview.duplicateHandled === "kept"
+    )
+      continue;
+    const original = list.find((entry) => entry.key === preview.duplicateOf);
+    if (original?.status === "live") out.push({ preview, original });
+  }
+  return out;
+}
+
+/** Keep both servers, or note that a stop was asked for or sent. */
+export function markDuplicateDevServer(
+  key: string,
+  handled: NonNullable<DevPreview["duplicateHandled"]>,
+): void {
+  patchPreview(key, { duplicateHandled: handled });
 }
 
 /** Mark a source's servers stale: all of them, or only these ports. */
@@ -371,37 +465,26 @@ export function publishDevPreviewTabs(
   if (changed) commit(next);
 }
 
-/** Per-turn context for agents with Aven's browser: what is already running. */
-export function devPreviewPromptLine(context: {
-  cwd: string;
-  sessionId?: string;
-}): string | undefined {
-  const live = previews
+/**
+ * Running servers a chat should know about: its project's (or a folder
+ * inside it), the checkout it works in, and any it started itself, best
+ * first. The shared-work note names them; nothing else repeats them.
+ */
+export function liveServersFor(
+  list: readonly DevPreview[],
+  context: { cwd: string; project?: string; sessionId?: string },
+): DevPreview[] {
+  return list
     .filter(
       (preview) =>
         preview.status === "live" &&
         ((context.sessionId && preview.sessionId === context.sessionId) ||
           previewBelongsTo(preview, context.cwd) ||
+          (!!context.project && previewBelongsTo(preview, context.project)) ||
           (looksLikeProject(preview.cwd) &&
             isEqualOrInside(context.cwd, preview.cwd))),
     )
-    .sort((a, b) => rank(b) - rank(a))
-    .slice(0, 3);
-  if (!live.length) return undefined;
-  const items = live.map((preview) => {
-    const origin =
-      preview.source === "terminal"
-        ? "started in an Aven terminal"
-        : preview.sessionId === context.sessionId
-          ? "started by you"
-          : "started by another chat";
-    return `${preview.url} (${origin})`;
-  });
-  const list =
-    items.length === 1
-      ? `This project's dev server is running at ${items[0]}.`
-      : `This project's dev servers are running at ${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}.`;
-  return `<aven-preview>${list} To check visible changes, list the browser pages and reuse one already showing it, or open it once; reload after edits instead of starting another server. If it does not load, it may have stopped since.</aven-preview>`;
+    .sort((a, b) => rank(b) - rank(a));
 }
 
 /** Feeds one terminal's output; the terminal reports when its server ended. */
@@ -422,6 +505,8 @@ export function watchTerminalOutput(terminal: {
   project: string;
   cwd: string;
   placement: DevPreviewPlacement;
+  /** The shell's folder now, after any `cd`; `cwd` when absent. */
+  folder?: () => string;
 }): TerminalPreviewWatch {
   const scanner = createDevOutputScanner();
   const sourceId = terminalPreviewSource(terminal.id);
@@ -438,6 +523,10 @@ export function watchTerminalOutput(terminal: {
             source: "terminal",
             sourceId,
             placement: terminal.placement,
+            folder: terminal.folder?.() || terminal.cwd,
+            ...(signal.app ? { app: signal.app } : {}),
+            // One terminal runs one program at a time; a rerun stops the last.
+            run: sourceId,
           });
       }
     },
@@ -618,6 +707,8 @@ export function observeAgentPreviewEvent(
     const where = place(sessionId);
     if (!where) return;
     watch.ports.add(signal.address.port);
+    const command = devServerCommand(watch.title ?? "");
+    const app = signal.app ?? command.app;
     reportDevServer({
       project: where.project,
       cwd: where.cwd,
@@ -626,8 +717,21 @@ export function observeAgentPreviewEvent(
       sourceId: source,
       sessionId,
       placement: "chat",
+      folder: commandFolder(where.cwd, command.dir),
+      ...(app
+        ? { app: command.filter ? `${app}@${command.filter}` : app }
+        : {}),
+      run: watchKey,
     });
   }
+}
+
+/** The folder a command ran in: its `cd` (or `--prefix`) from the checkout. */
+function commandFolder(cwd: string, dir: string | undefined): string {
+  if (!dir || dir === ".") return cwd;
+  if (dir.startsWith("~")) return dir;
+  if (/^(?:\/|[A-Za-z]:[\\/])/.test(dir)) return dir;
+  return joinPath(cwd, dir);
 }
 
 /** Tests only: start from an empty store. */

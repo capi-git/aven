@@ -13,6 +13,15 @@ import {
   prepareProjectMemoryTurn,
   resetProjectMemoryDelivery,
 } from "./projectMemoryDelivery";
+import {
+  observeSharedWorkEvent,
+  sharedWorkTurnEnded,
+  sharedWorkTurnStarted,
+} from "../sharedWork";
+import {
+  prepareSharedWorkTurn,
+  resetSharedWorkDelivery,
+} from "../sharedWorkNote";
 import type {
   ApprovalDecision,
   CompactContextInput,
@@ -139,6 +148,8 @@ function beginRuntimeActivity<T extends CompactContextInput>(
             event.providerSessionId,
             input.cwd,
           );
+        // Edited files, for other chats in the project; returns at once otherwise.
+        observeSharedWorkEvent(input.sessionId, event);
         if (event.type === "agent.updated")
           current.agents.set(event.agentId, event.status);
         if (event.type === "agents.cleared") current.agents.clear();
@@ -247,15 +258,23 @@ export async function sendHarnessTurn(
       sessionId: input.sessionId,
       cwd: input.cwd,
     });
-  // Project memory rides on the launch options of a new conversation, or
-  // ahead of this message when the conversation lacks the current version.
-  const memory = prepareProjectMemoryTurn(input);
+  // What else runs in the project, ahead of this message when it changed
+  // since this chat last heard; then project memory, which rides on the
+  // launch options of a new conversation or ahead of this message.
+  const work = prepareSharedWorkTurn(input);
+  const memory = prepareProjectMemoryTurn({ ...input, text: work.text });
   const stops = turnStops.get(input.sessionId) ?? 0;
   const tracked = beginRuntimeActivity({ ...input, text: memory.text });
+  sharedWorkTurnStarted(input);
   try {
     await adapter.sendTurn(tracked.input);
     if ((turnStops.get(input.sessionId) ?? 0) === stops) memory.commit();
+    else work.rollback();
+  } catch (error) {
+    work.rollback();
+    throw error;
   } finally {
+    sharedWorkTurnEnded(input.sessionId);
     try {
       if (controlled)
         await invoke("control_turn_finished", { sessionId: input.sessionId });
@@ -288,6 +307,8 @@ export async function compactHarnessContext(
     // compacting. A summary elsewhere may drop it, so give it again.
     if (PROJECT_MEMORY_CHANNELS[input.harness] !== "system")
       resetProjectMemoryDelivery(input.sessionId);
+    // The shared-work note rode on a message the summary may have dropped.
+    resetSharedWorkDelivery(input.sessionId);
   } finally {
     endRuntimeActivity(input.harness, input.sessionId, tracked.activity);
   }
@@ -307,7 +328,13 @@ export async function steerHarnessTurn(
     throw new Error(`${input.harness} is not connected yet`);
   }
   cancelIdlePark(input.sessionId);
-  await adapter.steerTurn(input);
+  const work = prepareSharedWorkTurn({ ...input, harness: input.harness });
+  try {
+    await adapter.steerTurn({ ...input, text: work.text });
+  } catch (error) {
+    work.rollback();
+    throw error;
+  }
 }
 
 export async function cancelHarnessTurn(
@@ -376,6 +403,7 @@ export async function forgetHarnessSession(
   if (!adapter) return;
   if (activity) activity.stopping = true;
   forgetProviderConversation(harness, sessionId);
+  resetSharedWorkDelivery(sessionId);
   turnStops.delete(sessionId);
   // Revoke before awaiting the old child; a replacement turn queues its bind after it.
   try {
