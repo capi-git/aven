@@ -404,16 +404,34 @@ pub(crate) async fn ensure_update_idle(app: &AppHandle) -> Result<(), String> {
             .map_err(|_| "Browser activity could not be checked")?;
         if !entries.roots.is_empty() || !entries.creating.is_empty() || !entries.closing.is_empty()
         {
-            return Err(crate::window::UPDATE_BROWSER_BUSY.into());
+            return Err(crate::update_restart::UPDATE_BROWSER_BUSY.into());
         }
     }
     if INITIALIZED.load(Ordering::Acquire)
         && on_main(app, || Ok(unsafe { sm_chromium_live_browser_count() })).await? != 0
     {
-        return Err(crate::window::UPDATE_BROWSER_BUSY.into());
+        return Err(crate::update_restart::UPDATE_BROWSER_BUSY.into());
     }
     Ok(())
 }
+/// Bring this workspace's Picture in Picture pages back into its window.
+pub(crate) async fn return_floating_pages(_app: &AppHandle, owner: &str) -> Result<(), String> {
+    let pages: Vec<Arc<PageContext>> = registry()
+        .lock()
+        .map_err(|_| "Browser is unavailable")?
+        .roots
+        .values()
+        .filter(|context| context.caller.window().label() == owner)
+        .cloned()
+        .collect();
+    for context in pages {
+        if context.placement.lock().await.window.is_some() {
+            set_floating(context, false).await?;
+        }
+    }
+    Ok(())
+}
+
 fn update_page_error(state: &BrowserState, blockers: &[String]) -> String {
     let page = if state.title.trim().is_empty() {
         &state.url
@@ -1272,8 +1290,9 @@ impl ChromiumPage {
         let _work = if update {
             None
         } else {
-            Some(crate::window::begin_runtime_work(
+            Some(crate::update_restart::begin_runtime_work(
                 self.0.caller.app_handle(),
+                "using a browser page",
             )?)
         };
         if self.0.closed.load(Ordering::Acquire) {
@@ -1378,7 +1397,8 @@ pub async fn browser_create(
         false,
         Value::Null,
     );
-    let _work = crate::window::begin_runtime_work(caller.app_handle())?;
+    let _work =
+        crate::update_restart::begin_runtime_work(caller.app_handle(), "opening a browser page")?;
     let root = label(&caller, &id)?;
     let url = parse_url(&caller, &url)?;
     bounds.validate()?;
@@ -2262,7 +2282,10 @@ pub async fn browser_set_floating(
     floating: bool,
 ) -> Result<Option<String>, String> {
     let _work = if floating {
-        Some(crate::window::begin_runtime_work(caller.app_handle())?)
+        Some(crate::update_restart::begin_runtime_work(
+            caller.app_handle(),
+            "opening Picture in Picture",
+        )?)
     } else {
         None
     };
@@ -2462,7 +2485,8 @@ async fn close_context_checked(
 }
 #[tauri::command]
 pub async fn browser_close(caller: Webview, id: String) -> Result<(), String> {
-    let _work = crate::window::begin_runtime_work(caller.app_handle())?;
+    let _work =
+        crate::update_restart::begin_runtime_work(caller.app_handle(), "closing a browser page")?;
     let root = label(&caller, &id)?;
     let context = registry()
         .lock()

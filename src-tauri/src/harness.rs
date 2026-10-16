@@ -405,7 +405,7 @@ pub fn harness_spawn(
     args: Vec<String>,
     cwd: String,
 ) -> Result<u32, String> {
-    let _work = crate::window::begin_runtime_work(&app)?;
+    let _work = crate::update_restart::begin_runtime_work(&app, "starting an agent")?;
     // Caller authorization remains required even when browser setup is optional.
     crate::browser::label(&caller, "agent-check")?;
     let gate = host.session_gate(&session_id);
@@ -731,7 +731,7 @@ pub async fn harness_write(
     session_id: String,
     line: String,
 ) -> Result<(), String> {
-    let work = crate::window::begin_runtime_work(&app)?;
+    let work = crate::update_restart::begin_runtime_work(&app, "sending a message to an agent")?;
     let live = host
         .get(&session_id)
         .ok_or_else(|| "Harness process is not running".to_string())?;
@@ -865,7 +865,7 @@ pub async fn harness_http(
     body: Option<String>,
     timeout_ms: Option<u64>,
 ) -> Result<HarnessHttpResponse, String> {
-    let work = crate::window::begin_runtime_work(&app)?;
+    let work = crate::update_restart::begin_runtime_work(&app, "talking to an agent")?;
     tauri::async_runtime::spawn_blocking(move || {
         let _work = work;
         assert_loopback(&url)?;
@@ -902,7 +902,7 @@ pub fn harness_sse_open(
     url: String,
     headers: Option<HashMap<String, String>>,
 ) -> Result<(), String> {
-    let _work = crate::window::begin_runtime_work(&app)?;
+    let _work = crate::update_restart::begin_runtime_work(&app, "connecting to an agent")?;
     assert_loopback(&url)?;
     host.stop_sse(&session_id);
     let stop = Arc::new(AtomicBool::new(false));
@@ -1096,7 +1096,7 @@ pub async fn harness_exec(
     args: Vec<String>,
     cwd: Option<String>,
 ) -> Result<String, String> {
-    let work = crate::window::begin_runtime_work(&app)?;
+    let work = crate::update_restart::begin_runtime_work(&app, "checking your agent tools")?;
     let grok_delete = is_grok_session_delete(&args);
     if !grok_delete && !exec_args_allowed(&args) {
         return Err("harness_exec: unsupported arguments".into());

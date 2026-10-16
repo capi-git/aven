@@ -89,9 +89,30 @@ impl PtyHost {
             .lock()
             .map_err(|_| "Terminal activity could not be checked")?;
         if !sessions.is_empty() && !close_terminals {
-            return Err("Confirm closing open terminals before restarting to update. The update will stay downloaded and ready.".into());
+            return Err("Aven needs to close your terminals to restart. Restart to update again to choose what to do with them. The update will stay downloaded and ready.".into());
         }
         Ok(sessions.len())
+    }
+
+    /// Every open terminal and the command running in it, if any. A restart
+    /// closes idle shells without asking; a running command is real work.
+    pub(crate) fn update_terminals(&self) -> Vec<UpdateTerminal> {
+        let terminals: Vec<_> = self
+            .lock_sessions()
+            .iter()
+            .map(|(id, slot)| match slot {
+                PtySlot::Running(live) => (id.clone(), Some(live.clone())),
+                PtySlot::Starting(_) => (id.clone(), None),
+            })
+            .collect();
+        terminals
+            .into_iter()
+            .map(|(id, live)| UpdateTerminal {
+                id,
+                command: live.as_deref().and_then(foreground_command),
+                unknown: live.is_some() && !FOREGROUND_VISIBLE,
+            })
+            .collect()
     }
 
     pub fn new() -> Self {
@@ -264,7 +285,7 @@ pub async fn pty_spawn(
     rows: u16,
     reuse_existing: Option<bool>,
 ) -> Result<(), String> {
-    let work = crate::window::begin_runtime_work(&app)?;
+    let work = crate::update_restart::begin_runtime_work(&app, "starting a terminal")?;
     let host = app.state::<PtyHost>();
     // Reserve before waiting for a blocking worker, so Close can cancel a
     // startup that has not reached fork/exec yet.
@@ -337,7 +358,7 @@ pub async fn pty_write(
     id: String,
     data: String,
 ) -> Result<(), String> {
-    let work = crate::window::begin_runtime_work(&app)?;
+    let work = crate::update_restart::begin_runtime_work(&app, "sending input to a terminal")?;
     let live = host
         .get(&id)
         .ok_or_else(|| "Terminal is not running".to_string())?;
@@ -389,6 +410,35 @@ pub(crate) struct PtyStatus {
     foreground: Option<String>,
 }
 
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UpdateTerminal {
+    pub(crate) id: String,
+    /// The foreground command when it is not the shell itself.
+    pub(crate) command: Option<String>,
+    /// Aven cannot see what runs in this terminal (Windows), so a restart
+    /// treats it as possibly running rather than closing it without asking.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) unknown: bool,
+}
+
+/// Whether this platform can see a terminal's foreground job.
+const FOREGROUND_VISIBLE: bool = cfg!(unix);
+
+/// The foreground job's name, or `None` for an idle shell. Windows cannot
+/// tell, so a terminal tab closes without asking there.
+fn foreground_command(live: &LivePty) -> Option<String> {
+    #[cfg(unix)]
+    {
+        foreground_label(live.master_fd.as_raw_fd(), live.pid)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = live;
+        None
+    }
+}
+
 /// Off the main thread: inspect the foreground job without spawning a helper
 /// on macOS/Linux. Other Unix targets retain the portable `ps` fallback.
 #[tauri::command(async)]
@@ -396,16 +446,9 @@ pub fn pty_status(host: State<'_, PtyHost>, id: String) -> Result<PtyStatus, Str
     let live = host
         .get(&id)
         .ok_or_else(|| "Terminal is not running".to_string())?;
-    #[cfg(unix)]
-    {
-        let foreground = foreground_label(live.master_fd.as_raw_fd(), live.pid);
-        Ok(PtyStatus { foreground })
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = live;
-        Ok(PtyStatus { foreground: None })
-    }
+    Ok(PtyStatus {
+        foreground: foreground_command(&live),
+    })
 }
 
 #[tauri::command]
@@ -1282,6 +1325,76 @@ mod tests {
         assert!(host.remove_if_pid("term", 42).is_some());
         assert!(host.get("term").is_none());
         assert_eq!(host.ensure_update_idle(false).unwrap(), 0);
+    }
+
+    #[test]
+    fn update_lists_starting_and_idle_terminals_without_a_command() {
+        let host = PtyHost::new();
+        let (_ticket, _) = host.begin_spawn("starting");
+        host.insert("idle".into(), fixture_pty());
+        let mut terminals = host.update_terminals();
+        terminals.sort_by(|a, b| a.id.cmp(&b.id));
+        assert_eq!(
+            terminals,
+            [
+                UpdateTerminal {
+                    id: "idle".into(),
+                    command: None,
+                    unknown: false,
+                },
+                UpdateTerminal {
+                    id: "starting".into(),
+                    command: None,
+                    unknown: false,
+                },
+            ]
+        );
+        host.remove("idle");
+        host.remove("starting");
+    }
+
+    #[test]
+    fn update_names_the_command_running_in_a_terminal() {
+        use std::os::unix::process::CommandExt;
+        let (master, slave) = open_pty(80, 24).unwrap();
+        let mut command = std::process::Command::new("/bin/sleep");
+        command
+            .arg("5")
+            .stdin(dup_stdio(slave.as_raw_fd()).unwrap())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        // Make the command the terminal's foreground job, as a shell would.
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                libc::ioctl(0, libc::TIOCSCTTY as _, 0);
+                Ok(())
+            });
+        }
+        let mut job = command.spawn().unwrap();
+        let host = PtyHost::new();
+        host.insert(
+            "term".into(),
+            Arc::new(LivePty {
+                writer: Mutex::new(Box::new(std::io::sink())),
+                master_fd: master,
+                // The shell is elsewhere; the foreground job is not it.
+                pid: 0,
+            }),
+        );
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut command = None;
+        while command.is_none() && Instant::now() < deadline {
+            command = host.update_terminals().pop().and_then(|t| t.command);
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(command.as_deref(), Some("sleep"));
+        host.remove("term");
+        job.kill().unwrap();
+        job.wait().unwrap();
+        drop(slave);
     }
 
     #[test]

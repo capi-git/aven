@@ -48,6 +48,7 @@ import {
   type OrchestrationWorkerDetail,
 } from "./chrome/OrchestrationActions";
 import { UpdateNoticeDialog } from "./chrome/UpdateNoticeDialog";
+import { UpdateRestartDialog } from "./chrome/UpdateRestartDialog";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, message } from "@tauri-apps/plugin-dialog";
@@ -205,9 +206,11 @@ import {
   type ScheduledAgent,
 } from "./lib/scheduledAgents";
 import {
+  DEV_PALETTE_COMMANDS,
   PALETTE_COMMANDS,
   type PaletteAgent,
   type PaletteChat,
+  type DevPaletteCommandId,
   type PaletteCommandId,
 } from "./lib/commandPalette";
 import {
@@ -625,6 +628,14 @@ import {
   setQuitWorkspace,
   type ResumedWorkspace,
 } from "./lib/appLifecycle";
+import {
+  listenForUpdateWindowClose,
+  reportWorkspaceActivity,
+} from "./lib/updateRestart";
+import {
+  previewUpdateRestart,
+  type UpdateRestartPreview,
+} from "./lib/updateRestartPreview";
 import {
   cancelScheduledFlush,
   scheduleStreamFlush,
@@ -1613,6 +1624,8 @@ export default function App({
   tabsRef.current = tabs;
   const dirtyFilesRef = useRef(dirtyFiles);
   dirtyFilesRef.current = dirtyFiles;
+  /** The Stop button's handler, for a restart that stops running work. */
+  const stopSessionRef = useRef<(sessionId: string) => void>(() => {});
   const projectTerminalsRef = useRef(projectTerminals);
   projectTerminalsRef.current = projectTerminals;
   const projectTerminalFocusedRef = useRef(projectTerminalFocused);
@@ -2235,6 +2248,12 @@ export default function App({
       () => projectTerminalsRef.current,
       flushHarnessEvents,
       () => saveBrowserWorkspaces(browserWorkspacesRef.current, true),
+      {
+        dirtyFileIds: () => dirtyFilesRef.current,
+        stopSessions: (ids) => {
+          for (const id of ids) stopSessionRef.current(id);
+        },
+      },
     );
     void getCurrentWindow()
       .onCloseRequested((event) => {
@@ -6935,6 +6954,14 @@ export default function App({
     },
     [flushHarnessEvents, announceActivity],
   );
+  stopSessionRef.current = onStop;
+
+  // Tell a restart to update, here or in another window, what work it would
+  // interrupt. Only a changed summary is sent.
+  useEffect(() => {
+    reportWorkspaceActivity();
+  }, [sessions, tabs, dirtyFiles]);
+  useEffect(() => listenForUpdateWindowClose(), []);
 
   useEffect(() => {
     const onEscape = (event: KeyboardEvent) => {
@@ -8077,12 +8104,25 @@ export default function App({
       ).map((row) => ({ ...row, busy: busySessionIds.has(row.id) }))
     : [];
   const paletteAgents = paletteOpen ? availablePaletteAgents() : [];
-  const paletteCommands = PALETTE_COMMANDS.filter(
-    (command) => command.id !== "open_notes" || notesEnabled,
-  );
+  const paletteCommands = [
+    ...PALETTE_COMMANDS.filter(
+      (command) => command.id !== "open_notes" || notesEnabled,
+    ),
+    ...DEV_PALETTE_COMMANDS,
+  ];
   const runPaletteCommand = (id: PaletteCommandId) => {
+    // Development builds only; release builds drop this branch entirely.
+    if (import.meta.env.DEV && id.startsWith("preview_restart_")) {
+      previewUpdateRestart(
+        id.slice("preview_restart_".length) as UpdateRestartPreview,
+      );
+      return;
+    }
     const run = actions.current;
-    const table: Record<PaletteCommandId, () => void> = {
+    const table: Record<
+      Exclude<PaletteCommandId, DevPaletteCommandId>,
+      () => void
+    > = {
       new_chat: () => void run.onNew(),
       new_terminal: run.onNewTerminal,
       new_browser_tab: onNewBrowserTab,
@@ -8107,7 +8147,7 @@ export default function App({
       add_project: () => void run.pickProject(),
       open_settings: () => run.openSettings(),
     };
-    table[id]();
+    table[id as Exclude<PaletteCommandId, DevPaletteCommandId>]?.();
   };
   const startPaletteChat = (request: PaletteChatRequest) => {
     const session = newSession(
@@ -8617,6 +8657,7 @@ export default function App({
       showWorkspace,
     },
     projects: recents,
+    previewRestartQuestion: () => previewUpdateRestart("question"),
     projectPanel: {
       toggle: onToggleProjectTerminal,
       terminalIds: (path) =>
@@ -9369,6 +9410,7 @@ export default function App({
               />
             ) : null}
             <UpdateNoticeDialog />
+            <UpdateRestartDialog />
             {providerSetupOpen ? (
               <LazyViewSlot label="provider setup" quiet>
                 <ProviderSetupDialog

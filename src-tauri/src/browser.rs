@@ -264,8 +264,55 @@ pub(crate) async fn ensure_update_idle(_app: &AppHandle) -> Result<(), String> {
     let entries = registry()
         .lock()
         .map_err(|_| "Browser activity could not be checked")?;
-    if !entries.roots.is_empty() || !entries.popups.is_empty() {
-        return Err(crate::window::UPDATE_BROWSER_BUSY.into());
+    if entries.roots.is_empty() && entries.popups.is_empty() {
+        return Ok(());
+    }
+    // Name the open pages so the person knows which tabs to close.
+    let mut pages: Vec<String> = entries
+        .roots
+        .values()
+        .filter_map(|context| {
+            let state = context.state.lock().ok()?;
+            let name = if state.title.trim().is_empty() {
+                &state.url
+            } else {
+                &state.title
+            };
+            Some(name.chars().take(60).collect())
+        })
+        .collect();
+    pages.sort();
+    pages.dedup();
+    if pages.is_empty() {
+        return Err(crate::update_restart::UPDATE_BROWSER_BUSY.into());
+    }
+    let shown = pages.len().min(3);
+    let more = pages.len() - shown;
+    Err(format!(
+        "Close your browser tabs before restarting to update ({}{}). The update will stay downloaded and ready.",
+        pages[..shown].join(", "),
+        if more > 0 {
+            format!(" and {more} more")
+        } else {
+            String::new()
+        }
+    ))
+}
+
+/// Bring this workspace's Picture in Picture pages back into its window.
+pub(crate) async fn return_floating_pages(_app: &AppHandle, owner: &str) -> Result<(), String> {
+    let pages: Vec<PreviewContext> = registry()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .roots
+        .values()
+        .filter(|context| context.caller.window().label() == owner)
+        .cloned()
+        .collect();
+    for context in pages {
+        if context.placement.lock().await.window.is_some() {
+            floating::set_floating(context, false).await?;
+        }
     }
     Ok(())
 }
@@ -662,7 +709,10 @@ pub async fn browser_set_floating(
     floating: bool,
 ) -> Result<Option<String>, String> {
     let _work = if floating {
-        Some(crate::window::begin_runtime_work(caller.app_handle())?)
+        Some(crate::update_restart::begin_runtime_work(
+            caller.app_handle(),
+            "opening Picture in Picture",
+        )?)
     } else {
         None
     };
@@ -1001,7 +1051,8 @@ pub async fn browser_create(
     url: String,
     bounds: BrowserBounds,
 ) -> Result<(), String> {
-    let _work = crate::window::begin_runtime_work(caller.app_handle())?;
+    let _work =
+        crate::update_restart::begin_runtime_work(caller.app_handle(), "opening a browser page")?;
     let view_label = label(&caller, &id)?;
     let url = parse_url(&caller, &url)?;
     let rect = bounds.rect()?;

@@ -230,6 +230,7 @@ import {
   SIDEBAR_TINT_STRENGTH_MIN,
 } from "../lib/workspaceThemes";
 import {
+  cancelUpdateWait,
   installPendingUpdate,
   runUpdateFlow,
   getUpdaterSnapshot,
@@ -1138,8 +1139,10 @@ function UpdateRow({
     : IS_PERSONAL_BUILD
       ? PERSONAL_UPDATE_DESCRIPTION
       : snapshot.phase === "ready"
-        ? (snapshot.error ??
-          `Version ${snapshot.availableVersion} is downloaded and ready. Restart when your tasks are finished.`)
+        ? snapshot.waitingFor
+          ? `Version ${snapshot.availableVersion} is ready. Aven will restart when ${snapshot.waitingFor}.`
+          : (snapshot.error ??
+            `Version ${snapshot.availableVersion} is downloaded and ready. Aven saves your work when it restarts and asks only if something is still running.`)
         : snapshot.phase === "installing"
           ? "Saving your workspace and restarting…"
           : snapshot.phase === "available"
@@ -1174,6 +1177,11 @@ function UpdateRow({
         >
           What's new
         </SecondaryButton>
+        {snapshot.waitingFor ? (
+          <SecondaryButton onClick={() => void cancelUpdateWait()}>
+            Cancel restart
+          </SecondaryButton>
+        ) : null}
         <SecondaryButton onClick={() => void onClick()} disabled={busy}>
           {busy ? (
             <Loader className="size-3.5 animate-spin" aria-hidden />
@@ -1187,7 +1195,9 @@ function UpdateRow({
             : IS_PERSONAL_BUILD
               ? "Update information"
               : hasUpdate
-                ? "Restart to update"
+                ? snapshot.waitingFor
+                  ? "Restart now"
+                  : "Restart to update"
                 : "Check for updates"}
         </SecondaryButton>
       </div>

@@ -156,7 +156,7 @@ impl ControlHost {
 impl Inner {
     fn ensure_update_idle(&self) -> Result<(), String> {
         if !self.active.is_empty() || !self.pending.is_empty() {
-            return Err("Finish or stop running agents and queued tasks before restarting to update. The update will stay downloaded and ready.".into());
+            return Err("An agent is still working or waiting for your answer. Let it finish or stop it, then restart to update. The update will stay downloaded and ready.".into());
         }
         Ok(())
     }
@@ -222,14 +222,15 @@ pub fn init(app: &AppHandle) -> Result<(), String> {
 }
 
 fn serve(mut stream: TcpStream, app: &AppHandle, inner: &Arc<Mutex<Inner>>) {
-    let _work = match crate::window::begin_runtime_work(app) {
-        Ok(work) => work,
-        Err(error) => {
-            let _ = stream.set_write_timeout(Some(Duration::from_secs(3)));
-            let _ = writeln!(stream, "{}", json!({"ok": false, "error": error}));
-            return;
-        }
-    };
+    let _work =
+        match crate::update_restart::begin_runtime_work(app, "answering a request from an agent") {
+            Ok(work) => work,
+            Err(error) => {
+                let _ = stream.set_write_timeout(Some(Duration::from_secs(3)));
+                let _ = writeln!(stream, "{}", json!({"ok": false, "error": error}));
+                return;
+            }
+        };
     serve_request(stream, inner, |window, event| {
         app.emit_to(window, "monocode-control-request", event)
             .map_err(|e| e.to_string())
@@ -331,7 +332,8 @@ pub fn control_enable(
     cwd: String,
 ) -> Result<String, String> {
     let window = owning_window(&webview)?;
-    let _work = crate::window::begin_runtime_work(window.app_handle())?;
+    let _work =
+        crate::update_restart::begin_runtime_work(window.app_handle(), "starting an agent")?;
     let cwd = std::fs::canonicalize(crate::fs::expand_home(&cwd)).map_err(|e| e.to_string())?;
     if !cwd.is_dir() {
         return Err("Choose a project folder first".into());
@@ -397,7 +399,8 @@ pub fn control_attach_worker(
     session_id: String,
 ) -> Result<(), String> {
     let window = owning_window(&webview)?;
-    let _work = crate::window::begin_runtime_work(window.app_handle())?;
+    let _work =
+        crate::update_restart::begin_runtime_work(window.app_handle(), "starting an agent")?;
     let mut inner = host
         .inner
         .lock()
@@ -431,7 +434,8 @@ pub fn control_authorize_turn(
     cwd: String,
 ) -> Result<(), String> {
     let window = owning_window(&webview)?;
-    let _work = crate::window::begin_runtime_work(window.app_handle())?;
+    let _work =
+        crate::update_restart::begin_runtime_work(window.app_handle(), "starting an agent")?;
     let cwd = std::fs::canonicalize(crate::fs::expand_home(&cwd))
         .map_err(|e| e.to_string())?
         .to_string_lossy()

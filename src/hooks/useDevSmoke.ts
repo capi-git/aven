@@ -46,6 +46,8 @@ type Options = DevPerfOptions & {
   };
   /** Delete a project and its chats, as the sidebar's Delete does. */
   deleteProject?: (projectPath: string) => Promise<void>;
+  /** Open the restart question's preview, as its palette command does. */
+  previewRestartQuestion?: () => boolean;
   /** Starts discussions between chats, as the composer's picker does. */
   discussion?: DiscussionHost;
 };
@@ -350,8 +352,9 @@ let started = false;
  * provider through the normal send path with the floating sidebar attached,
  * open and close the utility views by handler and by shortcut, watch what
  * moves while an agent works and when its turn ends (the sidebar's mark, Home
- * and Parallel work), run a two-round discussion between two chats, then have
- * the floating sidebar open Settings and press Back, then report.
+ * and Parallel work), run a two-round discussion between two chats, check
+ * the restart-to-update question's preview, then have the floating sidebar
+ * open Settings and press Back, then report.
  */
 export function useDevSmoke(options: Options) {
   const latest = useRef(options);
@@ -959,6 +962,52 @@ export async function runDevSmoke(
       await expectOnScreen("settings");
       pressShortcut("w");
       await expectOnScreen(null);
+    });
+
+  // The restart-to-update question, shown with made-up work: it must name
+  // each kind of work and offer its three actions. Closing it does nothing.
+  const { previewRestartQuestion } = get();
+  if (previewRestartQuestion)
+    await step("restart question lists running work (preview)", async () => {
+      if (!previewRestartQuestion())
+        throw new Error("The restart question preview did not open");
+      const dialog = await waitFor(
+        () =>
+          [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find(
+            (element) =>
+              element.textContent?.includes("Some work isn't finished"),
+          ),
+        10_000,
+        "the restart question",
+      );
+      const text = dialog.textContent ?? "";
+      for (const line of [
+        "1 agent is working: Fix login (Aven)",
+        "1 agent is waiting for your answer: Review PR (Cadence)",
+        "1 terminal is running npm",
+        "1 file has unsaved changes: App.tsx (Aven)",
+      ])
+        if (!text.includes(line))
+          throw new Error(`The question omits "${line}"`);
+      const buttons = [...dialog.querySelectorAll("button")].map(
+        (button) => button.textContent?.trim() ?? "",
+      );
+      for (const action of [
+        "Cancel",
+        "Stop them and restart now",
+        "Restart when they finish",
+      ])
+        if (!buttons.includes(action))
+          throw new Error(`The question has no "${action}" action`);
+      [...dialog.querySelectorAll("button")]
+        .find((button) => button.textContent?.trim() === "Cancel")!
+        .click();
+      await waitFor(
+        () => !dialog.isConnected,
+        5_000,
+        "the restart question to close",
+      );
+      return "2 agents, 1 terminal, 1 unsaved file; 3 actions";
     });
 
   const label = get().floatingSidebarLabel;

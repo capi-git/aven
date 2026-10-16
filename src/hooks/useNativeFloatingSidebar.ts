@@ -30,8 +30,10 @@ import { liveHarnessModels, subscribeModels } from "../lib/models";
 import { orchestrator } from "../lib/orchestration";
 import { loadUiScale } from "../lib/uiScale";
 import {
+  cancelUpdateWait,
   getUpdaterSnapshot,
   installPendingUpdate,
+  restartUpdateNow,
   runUpdateFlow,
   subscribeUpdater,
 } from "../lib/updater";
@@ -53,6 +55,8 @@ const MODELS_KEY = "\u0000models";
 const OWN_HANDLERS = {
   refreshUpdater: (manual: boolean) => runUpdateFlow(manual),
   installUpdate: () => installPendingUpdate(),
+  restartUpdateNow: () => restartUpdateNow(),
+  cancelUpdateWait: () => cancelUpdateWait(),
 };
 
 /** Callbacks that show something in the workspace hand the keyboard back to it. */
