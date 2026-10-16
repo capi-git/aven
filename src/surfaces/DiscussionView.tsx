@@ -1,5 +1,6 @@
 import {
   memo,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -155,6 +156,13 @@ function DiscussionPage({
 
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
+  const onSent = useCallback(() => {
+    stick.current = true;
+  }, []);
+  const onEscape = useCallback(
+    () => scroller.current?.focus({ preventScroll: true }),
+    [],
+  );
   const paused = discussion.status === "paused";
   const ended = discussion.status === "ended";
   useLayoutEffect(() => {
@@ -235,13 +243,12 @@ function DiscussionPage({
           ) : null}
         </ol>
       </div>
-      {discussion.preview ? null : (
+      {/* Only a window that drives discussions can pass the message on. */}
+      {discussion.preview || !host ? null : (
         <JumpInBox
           discussion={discussion}
-          onSent={() => {
-            stick.current = true;
-          }}
-          onEscape={() => scroller.current?.focus({ preventScroll: true })}
+          onSent={onSent}
+          onEscape={onEscape}
         />
       )}
     </div>
@@ -793,7 +800,7 @@ const JUMP_IN_SEND: Record<string, string> = {
  * discussion for one more round. Enter sends, Shift+Enter adds a line and
  * Escape leaves the box.
  */
-function JumpInBox({
+const JumpInBox = memo(function JumpInBox({
   discussion,
   onSent,
   onEscape,
@@ -882,4 +889,4 @@ function JumpInBox({
       ) : null}
     </form>
   );
-}
+});

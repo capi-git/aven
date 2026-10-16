@@ -322,6 +322,12 @@ it("takes the keyboard when its pane is focused", async () => {
   field.remove();
 });
 
+/** The window that drives discussions; the message box needs one. */
+const HOST: DiscussionHost = {
+  options: () => ({ candidates: [] }),
+  start: () => null,
+};
+
 async function renderWith(host?: DiscussionHost) {
   await act(async () =>
     root.render(
@@ -388,7 +394,7 @@ describe("DiscussionView: jumping in", () => {
     answer(0, "Yes, briefly.", 2);
     // B is answering now.
     store.markDelivered("d1");
-    await render();
+    await renderWith(HOST);
     expect(field().placeholder).toBe("Add something for both of them…");
     expect(container.querySelector(".discussion-jump-hint")).toBeNull();
 
@@ -412,7 +418,7 @@ describe("DiscussionView: jumping in", () => {
 
     // B answers: the message now sits where A reads it.
     answer(1, "For how long?", 2);
-    await render();
+    await renderWith(HOST);
     expect(order()).toEqual([
       "round 1",
       "a: Yes, briefly.",
@@ -422,7 +428,7 @@ describe("DiscussionView: jumping in", () => {
       "typing a",
     ]);
     store.markDelivered("d1");
-    await render();
+    await renderWith(HOST);
     expect(order()).toContain("you(sent): Keep it small.");
     expect(container.querySelector(".discussion-you-note")).toBeNull();
 
@@ -438,7 +444,7 @@ describe("DiscussionView: jumping in", () => {
     store.start({ id: "d1", a: A, b: B, topic: TOPIC, rounds: 2 });
     answer(0, "Yes, briefly.", 2);
     store.pause("d1", "“Review” is busy.");
-    await render();
+    await renderWith(HOST);
     expect(text(".discussion-jump-hint")).toBe("Resumes the discussion");
     expect(
       container
@@ -458,7 +464,7 @@ describe("DiscussionView: jumping in", () => {
     store.start({ id: "d1", a: A, b: B, topic: TOPIC, rounds: 1 });
     answer(0, "Yes, briefly.", 1);
     answer(1, "Agreed.", 1);
-    await render();
+    await renderWith(HOST);
     expect(text(".discussion-jump-hint")).toBe("Continues for one more round");
     await type("And eviction?");
     await press("Enter");
@@ -476,6 +482,12 @@ describe("DiscussionView: jumping in", () => {
     );
   });
 
+  it("has no box where no window drives discussions", async () => {
+    discussionStore().start({ id: "d1", a: A, b: B, topic: TOPIC, rounds: 2 });
+    await renderWith(undefined);
+    expect(container.querySelector("[data-discussion-jump]")).toBeNull();
+  });
+
   it("has no box on a development preview", async () => {
     discussionStore().start({
       id: "d1",
@@ -485,7 +497,7 @@ describe("DiscussionView: jumping in", () => {
       rounds: 2,
       preview: true,
     });
-    await render();
+    await renderWith(HOST);
     expect(container.querySelector("[data-discussion-jump]")).toBeNull();
   });
 });
