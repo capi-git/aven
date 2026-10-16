@@ -59,6 +59,7 @@ import { legacyTaskListFromText } from "../lib/taskList";
 import { displayPath, resolveWorkspacePath } from "../lib/paths";
 import { resolveModel } from "../lib/models";
 import { harnessForTurn } from "../lib/secondOpinion";
+import { turnModelLabel } from "../lib/sessionLabels";
 import { Shimmer } from "./Shimmer";
 import {
   hasPendingApproval,
@@ -610,6 +611,14 @@ function AgentTranscriptComponent({
           const turnHarness = harness
             ? harnessForTurn(blocks, turn, harness)
             : undefined;
+          // The composer's pill names the chat's model. A turn names its own
+          // only when it ran on a different one.
+          const turnModelName = harness
+            ? turnModelLabel(userBlock?.turnModel, {
+                harness,
+                model: model ?? "",
+              })
+            : undefined;
           // Work the turn has already answered for folds away behind one line,
           // leaving the prompt and the answer to it.
           const turnId = turn[0].id;
@@ -626,10 +635,10 @@ function AgentTranscriptComponent({
               paused={waitingForApproval}
               waitingLabel={pendingQuestion ? "Waiting for answers" : undefined}
               subagent={hasRunningSubagent(turn)}
-              modelName={modelName}
+              modelName={turnModelName}
             />
           ) : durationMs != null ? (
-            formatWorkingDuration(durationMs, true, false, modelName)
+            formatWorkingDuration(durationMs, true, false, turnModelName)
           ) : (
             workSummaryLine(folded)
           );
@@ -773,7 +782,8 @@ function AgentTranscriptComponent({
                 <TurnDuration
                   elapsedMs={durationMs}
                   labelHidden={showFoldLine}
-                  modelName={modelName}
+                  modelName={turnModelName}
+                  currentModelName={modelName}
                   completedAt={
                     startedAt != null ? startedAt + durationMs : undefined
                   }
@@ -863,6 +873,7 @@ function TurnDuration({
   elapsedMs,
   labelHidden = false,
   modelName,
+  currentModelName,
   harness,
   completedAt,
   copyText: output,
@@ -875,7 +886,10 @@ function TurnDuration({
   elapsedMs: number | null;
   /** True when the fold line above already keeps the time for this turn. */
   labelHidden?: boolean;
+  /** The turn's model, only when it differs from the chat's current one. */
   modelName?: string;
+  /** The chat's model, which a second opinion should not offer again. */
+  currentModelName?: string;
   harness?: HarnessId;
   completedAt?: number;
   copyText?: string;
@@ -919,7 +933,7 @@ function TurnDuration({
             from={fromHarness}
             onPick={onSecondOpinion}
             includeCurrent
-            excludeModelName={modelName}
+            excludeModelName={currentModelName}
           />
         ) : null}
       </span>

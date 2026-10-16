@@ -201,7 +201,7 @@ describe("workspace status data and actions", () => {
     expect(panel.hidden).toBe(true);
   });
 
-  it("uses the same active-turn identity for the model label and logo", async () => {
+  it("shows the active turn's provider mark and leaves the model name to the agent pill", async () => {
     const current = task({
       harness: "claude",
       model: "claude:next-model",
@@ -221,7 +221,8 @@ describe("workspace status data and actions", () => {
       sessions: [current, task({ id: "other", harness: "claude" })],
     });
     const context = () => container.querySelector(".workspace-status-context")!;
-    expect(context().textContent).toContain("running-model");
+    expect(context().textContent).not.toContain("running-model");
+    expect(context().textContent).not.toContain("next-model");
     expect(context().querySelectorAll(".provider-mark")).toHaveLength(1);
     expect(
       context().querySelector(".provider-mark")?.getAttribute("data-provider"),
@@ -230,7 +231,7 @@ describe("workspace status data and actions", () => {
       context().querySelector(".provider-mark")?.getAttribute("data-working"),
     ).toBe("true");
     await render({ session: { ...current, busy: false } });
-    expect(context().textContent).toContain("next-model");
+    expect(context().textContent).not.toContain("next-model");
     expect(
       context().querySelector(".provider-mark")?.getAttribute("data-provider"),
     ).toBe("claude");
@@ -238,7 +239,10 @@ describe("workspace status data and actions", () => {
       context().querySelector(".provider-mark")?.getAttribute("data-working"),
     ).toBe("false");
     await render({ session: undefined });
-    expect(context().querySelector(".provider-mark")).toBeNull();
+    expect(container.querySelector(".provider-mark")).toBeNull();
+    expect(
+      container.querySelector(".workspace-status-task")?.textContent,
+    ).not.toContain("Aven");
   });
 
   it("keeps the provider working during optional questions and pauses for blocking input", async () => {
@@ -275,15 +279,12 @@ describe("workspace status data and actions", () => {
     expect(working()).toBe("false");
   });
 
-  it("opens Activity from the model name and provider mark without dragging", async () => {
+  it("opens Activity from the provider mark without dragging", async () => {
     await render({ session: task() });
     const trigger = button("Activity: Queue is clear");
-    const title = trigger.querySelector<HTMLSpanElement>(
-      ".workspace-status-context > span:last-child",
-    )!;
     const mark = trigger.querySelector<HTMLSpanElement>(".provider-marks")!;
-    expect(title.textContent).toBe("model");
-    for (const target of [title, mark]) {
+    expect(trigger.textContent).not.toContain("model");
+    for (const target of [mark]) {
       await act(async () => {
         target.dispatchEvent(
           new MouseEvent("mousedown", { bubbles: true, button: 0 }),
@@ -323,8 +324,9 @@ describe("workspace status data and actions", () => {
       children().indexOf(controls),
     );
     expect(
-      trigger.querySelector(".workspace-status-context")?.textContent,
-    ).toBe("model");
+      trigger.querySelector(".workspace-status-context .provider-mark"),
+    ).not.toBeNull();
+    expect(trigger.textContent).not.toContain("model");
     expect(trigger.querySelector(".workspace-status-unread")?.textContent).toBe(
       "1",
     );
@@ -398,8 +400,8 @@ describe("workspace status data and actions", () => {
     await render({ settingsView: undefined });
     expect(activity()).toBeNull();
     expect(
-      container.querySelector(".workspace-status-context")?.textContent,
-    ).toContain("model");
+      container.querySelector(".workspace-status-context .provider-mark"),
+    ).not.toBeNull();
     await click("Activity: Queue is clear");
     expect(activity()).not.toBeNull();
   });

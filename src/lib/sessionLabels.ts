@@ -74,8 +74,9 @@ export function compactModelNames(names: readonly string[]): string {
 
 /**
  * `titleOverride` names the pane by role instead of its conversation title,
- * e.g. a race agent's "Provider · Model". The model is never repeated when the
- * headline already contains it.
+ * e.g. a race agent's "Provider · Model". The model is shown once, in the
+ * composer's agent pill, so an untitled chat is a "New session" here and the
+ * model stays in the tooltip.
  */
 export function sessionPaneLabel(session: Session, titleOverride?: string) {
   const display = (
@@ -83,11 +84,31 @@ export function sessionPaneLabel(session: Session, titleOverride?: string) {
   ).trim();
   const title = display === "New session" ? "" : display;
   const model = sessionModelName(sessionModelIdentity(session));
-  const compact = compactModelName(model);
   return {
-    headline: title || compact,
-    model: title && !title.includes(compact) ? compact : "",
+    headline: title || "New session",
     tooltip:
       title && !title.includes(model) ? `${title} · ${model}` : title || model,
   };
+}
+
+/**
+ * Names the model a finished or running turn used, only when it is not the
+ * chat's current model: "Sonnet 4.5 worked for 4s" after a switch, and plain
+ * "Worked for 4s" otherwise. Turns saved before models were captured are
+ * left unnamed rather than guessed.
+ */
+export function turnModelLabel(
+  turnModel: SessionModelIdentity | undefined,
+  current: SessionModelIdentity,
+): string | undefined {
+  if (!turnModel?.model.trim()) return undefined;
+  const ran = sessionModelName({
+    harness: turnModel.harness,
+    model: turnModel.model,
+  });
+  const now = sessionModelName({
+    harness: current.harness,
+    model: current.model,
+  });
+  return ran === now ? undefined : ran;
 }

@@ -7,6 +7,7 @@ import {
   sessionModelName,
   sessionModelNames,
   sessionPaneLabel,
+  turnModelLabel,
 } from "./sessionLabels";
 
 const session = (patch: Partial<Session> = {}): Session => ({
@@ -33,9 +34,9 @@ describe("truthful session labels", () => {
         harness: "codex",
       },
     ]);
+    // The pill names the model; an untitled pane is a new session.
     expect(sessionPaneLabel(session())).toEqual({
-      headline: "Local Model 2",
-      model: "",
+      headline: "New session",
       tooltip: "Local Model 2",
     });
     expect(sessionModelName({ harness: "codex", model: "local-model" })).toBe(
@@ -60,8 +61,7 @@ describe("truthful session labels", () => {
         }),
       ),
     ).toEqual({
-      headline: "QA Model",
-      model: "",
+      headline: "New session",
       tooltip: "Claude Code QA Model",
     });
     expect(
@@ -85,19 +85,18 @@ describe("truthful session labels", () => {
     expect(sessionModelName({ harness: "codex", model: "" })).toBe("Codex");
   });
 
-  it("preserves a useful task title and adds its selected model", () => {
+  it("preserves a useful task title and keeps its model in the tooltip only", () => {
     expect(
       sessionPaneLabel(session({ title: "codex · Repair browser" })),
     ).toEqual({
       headline: "Repair browser",
-      model: "local-model",
       tooltip: "Repair browser · local-model",
     });
     expect(sessionPaneLabel(session({ title: "  " })).headline).toBe(
-      "local-model",
+      "New session",
     );
     expect(sessionPaneLabel(session({ title: "New session" })).headline).toBe(
-      "local-model",
+      "New session",
     );
   });
 
@@ -105,10 +104,8 @@ describe("truthful session labels", () => {
     const racer = session({ title: "Race · Codex · local-model" });
     expect(sessionPaneLabel(racer, "Codex · local-model")).toEqual({
       headline: "Codex · local-model",
-      model: "",
       tooltip: "Codex · local-model",
     });
-    expect(sessionPaneLabel(racer).model).toBe("");
   });
 
   it("keeps the running model visible when the composer has a pending provider switch", () => {
@@ -200,5 +197,64 @@ describe("truthful session labels", () => {
     expect(names).toEqual(["focused", "other", "third"]);
     expect(compactModelNames(names)).toBe("focused +2 models");
     expect(compactModelNames(names.slice(0, 2))).toBe("focused + other");
+  });
+});
+
+describe("turnModelLabel", () => {
+  it("leaves a turn on the chat's current model unnamed", () => {
+    expect(
+      turnModelLabel(
+        { harness: "codex", model: "codex:local-model" },
+        { harness: "codex", model: "codex:local-model" },
+      ),
+    ).toBeUndefined();
+  });
+
+  it("treats a model id and its native id as the same model", () => {
+    setHarnessModels("codex", [
+      {
+        id: "codex:local-model",
+        nativeId: "local-model",
+        name: "Local Model 2",
+        harness: "codex",
+      },
+    ]);
+    expect(
+      turnModelLabel(
+        { harness: "codex", model: "local-model" },
+        { harness: "codex", model: "codex:local-model" },
+      ),
+    ).toBeUndefined();
+  });
+
+  it("names the model a turn ran on after the chat switched models", () => {
+    setHarnessModels("claude", [
+      { id: "claude:sonnet", harness: "claude", name: "Sonnet 4.5" },
+      { id: "claude:opus", harness: "claude", name: "Opus 5.5" },
+    ]);
+    expect(
+      turnModelLabel(
+        { harness: "claude", model: "claude:sonnet" },
+        { harness: "claude", model: "claude:opus" },
+      ),
+    ).toBe("Sonnet 4.5");
+    expect(
+      turnModelLabel(
+        { harness: "codex", model: "codex:local-model" },
+        { harness: "claude", model: "claude:opus" },
+      ),
+    ).toBe("local-model");
+  });
+
+  it("does not guess a model for turns saved before models were captured", () => {
+    expect(
+      turnModelLabel(undefined, { harness: "codex", model: "codex:x" }),
+    ).toBeUndefined();
+    expect(
+      turnModelLabel(
+        { harness: "codex", model: " " },
+        { harness: "codex", model: "codex:x" },
+      ),
+    ).toBeUndefined();
   });
 });

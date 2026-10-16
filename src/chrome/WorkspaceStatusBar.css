@@ -214,11 +214,6 @@
   font-size: var(--text-ui-label);
   font-weight: 600;
 }
-.workspace-status-context > span:last-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .workspace-status-task {
   height: 30px;
   padding: 3px 6px;

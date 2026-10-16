@@ -116,6 +116,34 @@ describe("AgentTranscript collapsed work", () => {
     card.orchestration!.status = "planning";
     expect(render(blocks)).not.toContain("data-orchestration-review");
   });
+  it("names a turn's model only when it ran on a different model than the chat's current one", () => {
+    const turn = (id: string, model: string): Block[] => [
+      {
+        id: `${id}-ask`,
+        role: "user",
+        text: "Check it",
+        startedAt: 1000,
+        durationMs: 4000,
+        turnModel: { harness: "codex", model },
+      },
+      tool(`${id}-work`),
+      { id: `${id}-answer`, role: "assistant", text: `Answer ${id}` },
+    ];
+    const markup = renderToStaticMarkup(
+      createElement(AgentTranscript, {
+        blocks: [
+          ...turn("before", "codex:old-model"),
+          ...turn("now", "codex:new-model"),
+        ],
+        busy: false,
+        harness: "codex",
+        model: "codex:new-model",
+      }),
+    );
+    expect(markup).toContain("old-model worked for 4s");
+    expect(markup).toContain("Worked for 4s");
+    expect(markup).not.toContain("new-model worked");
+  });
   it("renders the summary and answer without mounting a large completed tool trail", () => {
     const blocks: Block[] = [
       { id: "user", role: "user", text: "Check the project" },

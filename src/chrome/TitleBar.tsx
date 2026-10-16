@@ -217,7 +217,9 @@ export function tabCopy(
   const sessions = sessionMeta(tab);
   const modelNames = sessionModelNames(tab.models);
   const models = compactModelNames(modelNames);
-  const untitled = models || "New session";
+  // The composer's agent pill names the model; an untitled tab does not
+  // repeat it. The tooltip still lists every model in the tab.
+  const untitled = "New session";
 
   let headline: string;
   const metaParts: string[] = [];

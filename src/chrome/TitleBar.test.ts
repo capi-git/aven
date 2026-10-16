@@ -108,7 +108,7 @@ describe("tabCopy", () => {
     expect(copy.meta).toBe("");
   });
 
-  it("names an untitled session after its real model without duplicating the projectless tooltip", () => {
+  it("labels an untitled session New session and keeps its real model in the tooltip", () => {
     setHarnessModels("codex", [
       { id: "codex:qa-model", harness: "codex", name: "QA Model" },
     ]);
@@ -117,8 +117,8 @@ describe("tabCopy", () => {
       true,
     );
     expect(copy).toEqual({
-      headline: "QA Model",
-      meta: "",
+      headline: "New session",
+      meta: "QA Model",
       tooltip: "QA Model",
     });
   });
@@ -535,7 +535,7 @@ describe("browser tab integration", () => {
     expect(container.querySelector('[data-surface-id="web-1"]')).not.toBeNull();
   });
 
-  it("updates untitled labels and titled model tooltips when the live model catalog arrives", async () => {
+  it("keeps untitled labels plain and updates model tooltips when the live model catalog arrives", async () => {
     const models = [{ harness: "codex" as const, model: "codex:qa-model" }];
     await render({
       paneLocal: true,
@@ -547,7 +547,7 @@ describe("browser tab integration", () => {
     const first = container.querySelector('[data-surface-tab-id="a"]')!;
     const second = container.querySelector('[data-surface-tab-id="b"]')!;
     expect(first.querySelector(".personal-title-tab-label")?.textContent).toBe(
-      "qa-model",
+      "New session",
     );
     expect(second.querySelector(".personal-title-tab-label")?.textContent).toBe(
       "Repair tabs",
@@ -558,8 +558,11 @@ describe("browser tab integration", () => {
       ]),
     );
     expect(first.querySelector(".personal-title-tab-label")?.textContent).toBe(
-      "QA Model 2",
+      "New session",
     );
+    expect(
+      first.querySelector('[role="tab"]')?.getAttribute("title"),
+    ).toContain("QA Model 2");
     expect(second.querySelector(".personal-title-tab-meta")).toBeNull();
     expect(
       second.querySelector('[role="tab"]')?.getAttribute("title"),
@@ -567,7 +570,7 @@ describe("browser tab integration", () => {
     expect(
       second.querySelector('[role="tab"]')?.getAttribute("aria-label"),
     ).toContain("Repair tabs · QA Model 2");
-    await click('[aria-label="Close QA Model 2"]');
+    await click('[aria-label="Close New session"]');
     expect(props.onClose).toHaveBeenCalledExactlyOnceWith("a");
   });
 
