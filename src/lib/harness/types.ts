@@ -1,5 +1,6 @@
 import type {
   Attachment,
+  DiscussionRelayMeta,
   DiscussionWrapUpMeta,
   RuntimeMode,
   SessionAgent,
@@ -23,13 +24,15 @@ export type HarnessEvent =
     }
   /**
    * A keyed status replaces its earlier row in the current turn; empty text
-   * clears it. Aven's own discussion closing note carries `discussionEnd`.
+   * clears it. Aven's own discussion rows carry their marks: the closing
+   * note `discussionEnd`, the other chat's last reply `discussionReply`.
    */
   | {
       type: "status";
       text: string;
       key?: string;
       discussionEnd?: DiscussionWrapUpMeta;
+      discussionReply?: DiscussionRelayMeta;
     }
   | { type: "message.delta"; text: string; key?: string }
   | { type: "message.completed"; key?: string }

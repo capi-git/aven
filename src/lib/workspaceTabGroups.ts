@@ -9,7 +9,6 @@ import {
   type WorkspaceTab,
 } from "./layout";
 import { projectName } from "./paths";
-import { insertTabBesideActive, type TabProjectLookup } from "./tabGroups";
 import { raceLaneProject } from "./race";
 import {
   isRaceLanePath,
@@ -165,30 +164,6 @@ export function visibleProjectTabs(
     const cwd = focusedWorkspaceTabCwd(tab, sessions);
     return cwd ? sameProjectPath(cwd, path) : false;
   });
-}
-
-/**
- * Add `tab` behind the tab holding `sessionId`, without showing it: right
- * after that tab, in its group when the project allows. Without such a tab
- * it goes after `fallbackTabId`, as a newly opened tab would. A new chat a
- * discussion started waits here while the discussion's page is on screen.
- */
-export function insertTabBesideSession(
-  tabs: WorkspaceTab[],
-  tab: WorkspaceTab,
-  sessionId: string,
-  fallbackTabId: string | undefined,
-  projectOf?: TabProjectLookup,
-): WorkspaceTab[] {
-  const holder = tabs.find((entry) =>
-    leafIds(entry.layout).includes(sessionId),
-  );
-  return insertTabBesideActive(
-    tabs,
-    tab,
-    holder?.id ?? fallbackTabId,
-    projectOf,
-  );
 }
 
 export type WorkspaceTabCloseScope = "project" | "workspace";

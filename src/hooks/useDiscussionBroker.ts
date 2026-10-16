@@ -8,17 +8,20 @@ import {
 } from "react";
 import {
   BLOCKER_PHRASE,
+  capRelay,
   continuationRelay,
   discussionBlocker,
   discussionParty as partyOf,
   discussionReply,
   discussionStore,
   discussionWrapUpMeta,
+  finalReplyMeta,
   planDiscussions,
   relayBlockMeta,
   relayDisplayText,
   relayPrompt,
   sidebarDiscussions,
+  speakingSide,
   type Discussion,
   type DiscussionBlocker,
   type DiscussionCandidate,
@@ -98,8 +101,18 @@ type Options = {
    */
   recordWrapUp?: (sessionId: string, wrapUp: DiscussionWrapUpMeta) => void;
   /**
+   * Show the other chat's last reply in the chat that started the
+   * discussion, which never receives it as a relay. Shown only: the agent
+   * is not sent it.
+   */
+  postReply?: (
+    sessionId: string,
+    text: string,
+    meta: DiscussionRelayMeta,
+  ) => void;
+  /**
    * Start a new chat for `sourceId` to discuss with; returns its id. It is
-   * not shown: the discussion's page opens beside `sourceId` instead.
+   * not shown: the discussion plays out in `sourceId`.
    */
   openPartner: (
     sourceId: string,
@@ -109,7 +122,7 @@ type Options = {
   ) => string | undefined;
   /**
    * Show a discussion's conversation page beside the chat that started it,
-   * focused. Called when one starts, and by the bar's Open discussion.
+   * focused: the bar's and the wrap-up's Open discussion, and relay cards.
    */
   openView?: (id: string) => void;
   store?: DiscussionStore;
@@ -159,6 +172,7 @@ export function useDiscussionBroker({
   onSubmit,
   postNote,
   recordWrapUp,
+  postReply,
   openPartner,
   openView,
   focusChat,
@@ -176,6 +190,7 @@ export function useDiscussionBroker({
     onSubmit,
     postNote,
     recordWrapUp,
+    postReply,
     openPartner,
     openView,
     focusChat,
@@ -186,6 +201,7 @@ export function useDiscussionBroker({
     onSubmit,
     postNote,
     recordWrapUp,
+    postReply,
     openPartner,
     openView,
     focusChat,
@@ -216,6 +232,23 @@ export function useDiscussionBroker({
         if (reply) text = reply;
       }
       store.settle(id, turn, { status: outcome.status, text });
+      // The other chat's last reply is never relayed to the chat that
+      // started it, which shows the discussion: copy it in, shown only.
+      const ended = store.get(id);
+      if (
+        turn % 2 === 1 &&
+        ended?.status === "ended" &&
+        ended.ended?.kind === "completed" &&
+        ended.settled === turn + 1
+      ) {
+        const capped = capRelay(text);
+        if (capped.text)
+          latest.current.postReply?.(
+            ended.a.sessionId,
+            capped.text,
+            finalReplyMeta(ended, capped.truncated, Date.now()),
+          );
+      }
     },
     [store],
   );
@@ -246,10 +279,25 @@ export function useDiscussionBroker({
       // Marked first, so a re-run while onSubmit works never sends twice.
       store.markDelivered(id);
       let accepted: void | boolean = false;
+      // A continued discussion's last reply is already in the starting
+      // chat, copied in when it ended: show only what the user added.
+      const recipient = sessionsRef.current.find(
+        (session) => session.id === sessionId,
+      );
+      const shown =
+        speakingSide(discussion) === "a" &&
+        !!recipient?.blocks.some(
+          (block) =>
+            block.discussionReply?.id === id &&
+            block.discussionReply.turn === turn,
+        );
       try {
         accepted = onSubmit(sessionId, relayPrompt(discussion), [], {
-          displayText: relayDisplayText(discussion),
-          discussion: relayBlockMeta(discussion),
+          displayText: shown ? "" : relayDisplayText(discussion),
+          discussion: {
+            ...relayBlockMeta(discussion),
+            ...(shown ? { replyShown: true as const } : {}),
+          },
           // The topic is the user's own, so it keeps skills and @ references.
           verbatim: turn > 0,
           followUpBehavior: "queue",
@@ -450,9 +498,8 @@ export function useDiscussionBroker({
             : undefined;
           if (!partner) return "Couldn't open a new chat.";
         }
-        let started: Discussion;
         try {
-          started = store.start({
+          store.start({
             a: discussionParty(source),
             b: discussionParty(partner),
             topic,
@@ -462,7 +509,7 @@ export function useDiscussionBroker({
         } catch (error) {
           return errorText(error);
         }
-        latest.current.openView?.(started.id);
+        // The discussion plays out in this chat; its page opens on request.
         return null;
       },
       open(id) {

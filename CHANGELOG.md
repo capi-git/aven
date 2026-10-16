@@ -4,7 +4,7 @@
 
 ### Changed
 
-- Starting a discussion with a new chat now opens only the discussion's page beside your chat, instead of also splitting the new chat in beside it. The new chat waits in its own tab next to yours and is listed in the sidebar; press either name at the top of the page to open that chat. When the discussion finishes, **Where they landed** (what the two agreed on and what is still open, with the **Have … build it** buttons and **Open discussion**) also appears in your chat right after the closing note. It is only shown to you, not sent to the agent, and the chat keeps the lists after the discussion is gone.
+- A discussion now plays out inside the chat you started it from, with no extra page or tabs. The other agent's replies appear on the right as its own messages, with its mascot, name and an agree or push-back mark, your chat's replies sit under its mascot and name, rounds are divided, and the other agent types at the end while it answers. While it runs, what you send from that chat goes to both agents ("Add something for both of them…"), and it ends with **Where they landed** and the **Have … build it** buttons right in the chat. A new chat started for the discussion runs in the background, listed in the sidebar; **Open discussion** still shows the side-by-side page.
 
 ## [0.1.144] - 2026-10-16
 

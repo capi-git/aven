@@ -2,8 +2,9 @@ import { leafIds, type WorkspaceTab } from "./layout";
 
 /**
  * Both split levels matter: a retained offscreen tab or floating placeholder
- * is not a transcript. A discussion's page on screen shows both of its
- * chats' replies, so it counts as showing those chats.
+ * is not a transcript. A discussion shows its partner's replies in the chat
+ * that started it (`companions`: that chat → its partners), and its page
+ * shows both chats', so either on screen counts as showing those chats.
  */
 export function visibleActivitySessionIds({
   workspaceVisible,
@@ -11,19 +12,25 @@ export function visibleActivitySessionIds({
   tabs,
   sessionIds,
   floatingSessionIds,
+  companions,
 }: {
   workspaceVisible: boolean;
   visibleSurfaceIds: readonly string[];
   tabs: readonly WorkspaceTab[];
   sessionIds: ReadonlySet<string>;
   floatingSessionIds: readonly string[];
+  companions?: ReadonlyMap<string, readonly string[]>;
 }): Set<string> {
   const visible = new Set<string>();
   if (!workspaceVisible) return visible;
   const surfaces = new Set(visibleSurfaceIds);
   const floating = new Set(floatingSessionIds);
   const show = (id: string) => {
-    if (sessionIds.has(id) && !floating.has(id)) visible.add(id);
+    if (!sessionIds.has(id) || floating.has(id)) return;
+    visible.add(id);
+    for (const partner of companions?.get(id) ?? [])
+      if (sessionIds.has(partner) && !floating.has(partner))
+        visible.add(partner);
   };
   for (const tab of tabs) {
     if (!surfaces.has(tab.id)) continue;

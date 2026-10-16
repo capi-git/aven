@@ -315,10 +315,13 @@ export function relayPrompt(
 
 /**
  * What the receiving transcript shows for this turn's relay: the other
- * chat's reply (or the topic), with the user's own messages around it in
- * the order the agent reads them.
+ * chat's reply (or the topic). The partner chat sees the user's own
+ * messages around it in the order the agent reads them; the chat that
+ * started it shows them as the user's own messages instead (`added` in
+ * `relayBlockMeta`), so its text is the reply alone.
  */
 export function relayDisplayText(discussion: Discussion): string {
+  if (speakingSide(discussion) === "a") return discussion.relay;
   const { carried, fresh } = relayInterjections(discussion);
   const added = (entry: DiscussionInterjection) => `You added: ${entry.text}`;
   return [
@@ -330,10 +333,18 @@ export function relayDisplayText(discussion: Discussion): string {
 
 /** The user-side block this turn adds to the receiving transcript. */
 export function relayBlockMeta(discussion: Discussion): DiscussionRelayMeta {
-  const partner = discussionParty(
-    discussion,
-    otherSide(speakingSide(discussion)),
-  );
+  const side = speakingSide(discussion);
+  const self = discussionParty(discussion, side);
+  const partner = discussionParty(discussion, otherSide(side));
+  const { carried, fresh } = relayInterjections(discussion);
+  const text = (entry: DiscussionInterjection) => entry.text;
+  const added =
+    side === "a" && (carried.length || fresh.length)
+      ? {
+          ...(carried.length ? { before: carried.map(text) } : {}),
+          ...(fresh.length ? { after: fresh.map(text) } : {}),
+        }
+      : null;
   return {
     id: discussion.id,
     turn: discussion.settled,
@@ -343,9 +354,30 @@ export function relayBlockMeta(discussion: Discussion): DiscussionRelayMeta {
       model: partner.model,
       title: partner.title,
       cwd: partner.cwd,
+      sessionId: partner.sessionId,
     },
+    self: {
+      sessionId: self.sessionId,
+      harness: self.harness,
+      model: self.model,
+    },
+    ...(added ? { added } : {}),
     ...(discussion.truncated ? { truncated: true } : {}),
   };
+}
+
+/**
+ * The other chat's last reply, copied into the chat that started the
+ * discussion when it ends: that reply is never relayed there. Shaped like
+ * the relay that would have carried it, at the turn after it.
+ */
+export function finalReplyMeta(
+  discussion: Discussion,
+  truncated: boolean,
+  at: number,
+): DiscussionRelayMeta {
+  const meta = relayBlockMeta({ ...discussion, truncated });
+  return { ...meta, at };
 }
 
 /** The short closing note Aven posts in both chats; no model is asked. */
@@ -975,6 +1007,52 @@ export function planDiscussions(
     );
   }
   return actions;
+}
+
+// --- Keeping chats loaded ------------------------------------------------------
+
+/**
+ * Discussions whose chats this window keeps loaded without a tab: running
+ * or paused, or ended with a closing note still to post. A finished one
+ * lets them go.
+ */
+export function keptDiscussions(
+  discussions: readonly Discussion[],
+  owner?: string,
+): Discussion[] {
+  return discussions.filter(
+    (discussion) =>
+      !discussion.preview &&
+      (owner === undefined || discussion.owner === owner) &&
+      (discussion.status !== "ended" || (discussion.notes ?? []).length > 0),
+  );
+}
+
+/** The chats `keptDiscussions` keeps loaded. */
+export function keptDiscussionChats(
+  discussions: readonly Discussion[],
+  owner?: string,
+): string[] {
+  return keptDiscussions(discussions, owner).flatMap((discussion) => [
+    discussion.a.sessionId,
+    discussion.b.sessionId,
+  ]);
+}
+
+/**
+ * The chat that started each kept discussion, and its partner: the
+ * starting chat shows the partner's replies, so it on screen shows both.
+ */
+export function discussionCompanions(
+  discussions: readonly Discussion[],
+): Map<string, string[]> {
+  const companions = new Map<string, string[]>();
+  for (const discussion of keptDiscussions(discussions)) {
+    const list = companions.get(discussion.a.sessionId) ?? [];
+    list.push(discussion.b.sessionId);
+    companions.set(discussion.a.sessionId, list);
+  }
+  return companions;
 }
 
 // --- Sidebar -----------------------------------------------------------------

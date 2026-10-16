@@ -71,7 +71,14 @@ import { useSidebarVisibility } from "./hooks/useSidebarVisibility";
 import { useSidebarData } from "./hooks/useSidebarData";
 import { useSessionModelControls } from "./hooks/useSessionModelControls";
 import { useDiscussionBroker } from "./hooks/useDiscussionBroker";
-import { captureDiscussionWrapUp, discussionStore } from "./lib/discussions";
+import {
+  captureDiscussionWrapUp,
+  discussionCompanions,
+  discussionStore,
+  keptDiscussionChats,
+} from "./lib/discussions";
+import { useDiscussionChatsLoaded } from "./hooks/useDiscussionChatsLoaded";
+import { useDiscussionList } from "./hooks/useDiscussions";
 import { withPlanBuildTarget } from "./lib/sessionModelChoice";
 import { encodeSidebarValue } from "./lib/floatingSidebar";
 import { setExternalPaneDrop, type PaneDrop } from "./lib/paneDrop";
@@ -453,7 +460,6 @@ import {
   findProjectPane,
   findTabForProject,
   focusedWorkspaceTabCwd,
-  insertTabBesideSession,
   loadProjectFocusedTabs,
   saveProjectFocusedTabs,
   planWorkspaceTabClose,
@@ -2108,6 +2114,7 @@ export default function App({
       tabs: tabsRef.current,
       sessionIds: new Set(sessionsRef.current.map((session) => session.id)),
       floatingSessionIds: activityWindowBridgeRef.current.floatingSessionIds,
+      companions: discussionCompanions(discussionStore().snapshot()),
     }).has(sessionId);
     return {
       visible: otherFocused || mainVisible,
@@ -2562,11 +2569,30 @@ export default function App({
     });
   }, [tabs]);
 
+  // Chats in a discussion this window drives, while it runs or still owes a
+  // closing note. A discussion's partner has no tab: it plays out in the chat
+  // that started it.
+  const discussionList = useDiscussionList();
+  const keptDiscussionKey = useMemo(
+    () =>
+      keptDiscussionChats(discussionList, discussionStore().owner).join("\n"),
+    [discussionList],
+  );
+
   // Tabs are views. Hidden idle sessions drop their child. A visible session
   // keeps its child for a few minutes after a turn so follow-ups stay instant,
   // then parks it and resumes on the next prompt.
   useEffect(() => {
     const visibleIds = openSessionIds(tabs);
+    // A discussion's chats stay loaded without a tab until it is finished,
+    // so its relays can reach them. Read the store too: a chat started for
+    // a discussion is added in the same step that starts it.
+    const discussions = discussionStore();
+    for (const id of [
+      ...keptDiscussionKey.split("\n"),
+      ...keptDiscussionChats(discussions.snapshot(), discussions.owner),
+    ])
+      if (id) visibleIds.add(id);
     // Inbox owns these panes independently of project tabs. Keep their drafts
     // and attachments mounted when the panel closes or switches items.
     for (const session of sessions) {
@@ -2622,7 +2648,14 @@ export default function App({
           skipForgetSessionIds.current.has(session.id),
       ),
     );
-  }, [sessions, tabs, persistSession, liveAgentsEnabled, orchestrationRuns]);
+  }, [
+    sessions,
+    tabs,
+    persistSession,
+    liveAgentsEnabled,
+    orchestrationRuns,
+    keptDiscussionKey,
+  ]);
 
   const activateTab = useCallback(
     (id: string, restoreWorkspace = false, paneId?: string) => {
@@ -4132,6 +4165,13 @@ export default function App({
     },
     [refreshHistory, sidebarCwd],
   );
+
+  // A reload brings back a discussion's partner, which has no tab.
+  const loadedSessionIds = useCallback(
+    () => sessionsRef.current.map((session) => session.id),
+    [sessionsRef],
+  );
+  useDiscussionChatsLoaded(ensureOpenSession, loadedSessionIds);
 
   const reopeningClosed = useRef(false);
   const onReopenClosedTab = useCallback(async () => {
@@ -6619,32 +6659,6 @@ export default function App({
     [appendTab],
   );
 
-  /**
-   * Add a chat to this window without showing it: a tab of its own right
-   * after `sourceId`'s, in its group, while the tab, pane and message box in
-   * front stay as they are. The tab is what keeps an idle chat loaded here
-   * (idle chats without one are let go), so it can run, take relayed
-   * messages and be opened from the sidebar like any other.
-   */
-  const openSessionBehind = useCallback(
-    (sourceId: string, session: Session, cwd: string) => {
-      const nextSessions = [...sessionsRef.current, session];
-      sessionsRef.current = nextSessions;
-      setSessions(nextSessions);
-      const tab = newTab(session.id);
-      const nextTabs = insertTabBesideSession(
-        tabsRef.current,
-        tab,
-        sourceId,
-        activeTabIdRef.current,
-        (id) => (id === tab.id ? projectName(cwd) : projectOfTab(id)),
-      );
-      tabsRef.current = nextTabs;
-      setTabs(nextTabs);
-    },
-    [projectOfTab, sessionsRef, setSessions],
-  );
-
   const onSecondOpinion = useCallback(
     (sourceId: string, harness: HarnessId, turn: Block[], model: string) => {
       const source = sessionsRef.current.find(
@@ -6750,6 +6764,14 @@ export default function App({
       });
       flushHarnessEvents();
     },
+    postReply: (sessionId, text, meta) => {
+      enqueueHarnessEvent(sessionId, {
+        type: "status",
+        text,
+        discussionReply: meta,
+      });
+      flushHarnessEvents();
+    },
     recordWrapUp: (sessionId, wrapUp) => {
       flushHarnessEvents();
       setSessions((prev) => {
@@ -6763,8 +6785,9 @@ export default function App({
           : prev;
       });
     },
-    // Only the discussion's page opens beside the chat that started it; the
-    // new chat waits in a tab behind it.
+    // The new chat is not shown: the discussion plays out in the chat that
+    // started it. It stays loaded without a tab while the discussion runs
+    // (see the keep-alive in "Tabs are views") and is listed in the sidebar.
     openPartner: (sourceId, harness, model, title) => {
       const source = sessionsRef.current.find((entry) => entry.id === sourceId);
       if (!source) return undefined;
@@ -6773,7 +6796,9 @@ export default function App({
         ...laneCheckout(source),
         title: formatSessionTitle(harness, title),
       };
-      openSessionBehind(sourceId, session, source.cwd);
+      const next = [...sessionsRef.current, session];
+      sessionsRef.current = next;
+      setSessions(next);
       return session.id;
     },
     openView: openDiscussionView,

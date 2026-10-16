@@ -66,6 +66,7 @@ import {
   hasPendingApproval,
   HARNESS_TITLE,
   type Block,
+  type DiscussionRelayMeta,
   type HarnessId,
   type PlanBuildTarget,
   type ToolPreview,
@@ -88,7 +89,14 @@ import {
 } from "../lib/transcriptScrollIntent";
 import type { TranscriptLayout } from "../lib/appearance";
 import { AgentMarkdown } from "./AgentMarkdown";
+import {
+  DiscussionChatRound,
+  DiscussionChatTail,
+  DiscussionOwnTurn,
+  DiscussionPartnerReply,
+} from "./DiscussionInChat";
 import { TranscriptSelectionMenu } from "./TranscriptSelectionMenu";
+import { isDiscussionAside, startingChatRelay } from "../lib/discussionChat";
 import "./AgentTranscript.css";
 import {
   activityPhaseTitle,
@@ -511,6 +519,27 @@ function AgentTranscriptComponent({
   }, [followTranscript, rememberScroll, scrollerEl, settleOpened, visible]);
 
   const turns = groupTurns(blocks, managed);
+  // While a discussion this chat started runs, its end shows the other
+  // agent typing and what the user added: read from the last turn only.
+  const discussionTail =
+    startingChatRelay(turnUserBlock(turns[turns.length - 1] ?? [], managed))
+      ?.id ?? null;
+  const tailStickyIndex = turns.length + 1;
+  const renderJumpIn = useCallback(
+    (key: string, text: string, note: string) => (
+      <div key={key} data-discussion-jump-in={key}>
+        <AddedMessage
+          id={key}
+          text={text}
+          layout={transcriptLayout}
+          stickyIndex={tailStickyIndex}
+          cwd={cwd}
+        />
+        <p className="discussion-chat-note">{note}</p>
+      </div>
+    ),
+    [cwd, tailStickyIndex, transcriptLayout],
+  );
   const firstVisibleTurn = Math.max(0, turns.length - visibleTurnCount);
   const visibleTurns = turns.slice(firstVisibleTurn);
   const turnsRef = useRef(turns);
@@ -588,10 +617,17 @@ function AgentTranscriptComponent({
           const durationMs = userBlock?.durationMs;
           const settled = !(busy && isLastTurn);
           const proposals = turn.filter((block) => block.orchestration);
+          // In the chat that started a discussion, this chat's turn in it.
+          const speaker = startingChatRelay(userBlock);
+          // The other agent's last reply and the closing note end a
+          // discussion after the turn's own footer.
+          const asides = turn.filter(isDiscussionAside);
           // Proposals are turn results, like the changes card. Keep them out
           // of the live work and append them after all of the lead's output.
           const items = groupTurnItems(
-            turn.filter((block) => !block.orchestration),
+            turn.filter(
+              (block) => !block.orchestration && !isDiscussionAside(block),
+            ),
           );
           // Earlier activity groups have already been followed by prose or
           // more work. Only the last one can still be the live group.
@@ -715,57 +751,48 @@ function AgentTranscriptComponent({
               />
             </TurnRow>
           );
-          return (
-            <div
-              key={turn[0].id}
-              className={`transcript-turn flex min-w-0 flex-col${
-                isLastTurn ? " transcript-turn-live" : ""
-              }${
-                promptAnchor && anchorTurn && isLastTurn && userBlock
-                  ? " transcript-turn-anchor"
-                  : ""
-              }`}
-            >
-              {items.flatMap((item, itemIndex) => {
-                const inFold =
-                  !!fold &&
-                  itemIndex >= fold.start &&
-                  itemIndex <= fold.end &&
-                  isFoldableWorkItem(item);
-                if (inFold) {
-                  if (itemIndex !== fold.start) return [];
-                  return [
-                    foldLineRow,
-                    <TurnRow key="work-details" folded={!workOpen}>
-                      {() =>
-                        items
-                          .slice(fold.start, fold.end + 1)
-                          .map((entry, offset) =>
-                            isFoldableWorkItem(entry) ? (
-                              <div
-                                key={turnItemKey(entry)}
-                                className={`flow-root pb-1 last:pb-0 pl-5 zen-fold-rail ${
-                                  fold.start + offset === fold.end
-                                    ? "zen-fold-tail"
-                                    : ""
-                                }`}
-                              >
-                                {renderItem(entry, fold.start + offset)}
-                              </div>
-                            ) : null,
-                          )
-                      }
-                    </TurnRow>,
-                  ];
-                }
-                const row = (
-                  <div key={turnItemKey(item)} className="flow-root pb-1">
-                    {renderItem(item, itemIndex)}
-                  </div>
-                );
-                if (itemIndex !== foldLineAt) return row;
-                return [foldLineRow, row];
-              })}
+          const rows = items.flatMap((item, itemIndex) => {
+            const inFold =
+              !!fold &&
+              itemIndex >= fold.start &&
+              itemIndex <= fold.end &&
+              isFoldableWorkItem(item);
+            if (inFold) {
+              if (itemIndex !== fold.start) return [];
+              return [
+                foldLineRow,
+                <TurnRow key="work-details" folded={!workOpen}>
+                  {() =>
+                    items
+                      .slice(fold.start, fold.end + 1)
+                      .map((entry, offset) =>
+                        isFoldableWorkItem(entry) ? (
+                          <div
+                            key={turnItemKey(entry)}
+                            className={`flow-root pb-1 last:pb-0 pl-5 zen-fold-rail ${
+                              fold.start + offset === fold.end
+                                ? "zen-fold-tail"
+                                : ""
+                            }`}
+                          >
+                            {renderItem(entry, fold.start + offset)}
+                          </div>
+                        ) : null,
+                      )
+                  }
+                </TurnRow>,
+              ];
+            }
+            const row = (
+              <div key={turnItemKey(item)} className="flow-root pb-1">
+                {renderItem(item, itemIndex)}
+              </div>
+            );
+            if (itemIndex !== foldLineAt) return row;
+            return [foldLineRow, row];
+          });
+          const footer = (
+            <>
               {foldLineAt >= items.length ? foldLineRow : null}
               {settled &&
                 proposals
@@ -805,9 +832,60 @@ function AgentTranscriptComponent({
                   }
                 />
               ) : null}
+            </>
+          );
+          return (
+            <div
+              key={turn[0].id}
+              className={`transcript-turn flex min-w-0 flex-col${
+                isLastTurn ? " transcript-turn-live" : ""
+              }${
+                promptAnchor && anchorTurn && isLastTurn && userBlock
+                  ? " transcript-turn-anchor"
+                  : ""
+              }`}
+            >
+              {speaker ? (
+                <>
+                  {rows[0]}
+                  <DiscussionOwnTurn
+                    meta={speaker}
+                    harness={harness}
+                    model={model}
+                  >
+                    {rows.slice(1)}
+                    {footer}
+                  </DiscussionOwnTurn>
+                </>
+              ) : (
+                <>
+                  {rows}
+                  {footer}
+                </>
+              )}
+              {asides.map((block) => (
+                <div
+                  key={block.id}
+                  className="flow-root pb-1"
+                  data-discussion-aside
+                >
+                  <TranscriptBlock
+                    block={block}
+                    layout={transcriptLayout}
+                    stickyIndex={firstVisibleTurn + turnIndex + 1}
+                    cwd={cwd}
+                    onOpenFile={onOpenFile}
+                    planHarness={harness}
+                    planModel={model}
+                  />
+                </div>
+              ))}
             </div>
           );
         })}
+        {discussionTail ? (
+          <DiscussionChatTail id={discussionTail} renderJumpIn={renderJumpIn} />
+        ) : null}
       </div>
       {onAddToChat ? (
         <TranscriptSelectionMenu
@@ -1084,6 +1162,20 @@ const TranscriptBlock = memo(function TranscriptBlock({
   planModel?: string;
 }) {
   if (block.role === "user") {
+    const relay = startingChatRelay(block);
+    if (relay)
+      return (
+        <DiscussionRelayRows
+          block={block}
+          meta={relay}
+          layout={layout}
+          stickyIndex={stickyIndex}
+          cwd={cwd}
+          harness={planHarness}
+          model={planModel}
+          onOpenFile={onOpenFile}
+        />
+      );
     return (
       <UserMessageBlock
         block={block}
@@ -1176,6 +1268,19 @@ const TranscriptBlock = memo(function TranscriptBlock({
         </pre>
       </div>
     );
+    // The other agent's last reply, in the chat that started the discussion.
+    if (block.discussionReply)
+      return (
+        <DiscussionPartnerReply
+          meta={block.discussionReply}
+          text={block.text}
+          arrivedAt={block.discussionReply.at}
+          harness={planHarness}
+          model={planModel}
+          cwd={cwd ?? ""}
+          onOpenFile={onOpenFile}
+        />
+      );
     // A finished discussion's closing note, in the chat that started it.
     if (block.discussionEnd)
       return (
@@ -1204,16 +1309,114 @@ const TranscriptBlock = memo(function TranscriptBlock({
   );
 });
 
+/**
+ * A relayed message in the chat that started a discussion: the topic as the
+ * user's own message, or the other agent's reply as its message on the
+ * right, with what the user added around it as their own messages, and the
+ * divider of the round it opens.
+ */
+function DiscussionRelayRows({
+  block,
+  meta,
+  layout,
+  stickyIndex,
+  cwd,
+  harness,
+  model,
+  onOpenFile,
+}: {
+  block: Block;
+  meta: DiscussionRelayMeta;
+  layout: TranscriptLayout;
+  stickyIndex: number;
+  cwd?: string;
+  harness?: HarnessId;
+  model?: string;
+  onOpenFile?: (path: string) => void;
+}) {
+  const added = (when: "before" | "after") =>
+    (meta.added?.[when] ?? []).map((text, index) => (
+      <AddedMessage
+        key={`${when}-${index}`}
+        id={`${block.id}:${when}:${index}`}
+        text={text}
+        layout={layout}
+        stickyIndex={stickyIndex}
+        cwd={cwd}
+      />
+    ));
+  if (meta.turn === 0)
+    return (
+      <>
+        <UserMessageBlock
+          block={block}
+          layout={layout}
+          stickyIndex={stickyIndex}
+          cwd={cwd}
+        />
+        <DiscussionChatRound meta={meta} />
+        {added("after")}
+      </>
+    );
+  return (
+    <div data-prompt-anchor={block.id} data-discussion-relay-turn={meta.turn}>
+      {added("before")}
+      {meta.replyShown || !block.text.trim() ? null : (
+        <DiscussionPartnerReply
+          meta={meta}
+          text={block.text}
+          arrivedAt={block.startedAt}
+          harness={harness}
+          model={model}
+          cwd={cwd ?? ""}
+          onOpenFile={onOpenFile}
+        />
+      )}
+      <DiscussionChatRound meta={meta} />
+      {added("after")}
+    </div>
+  );
+}
+
+/** Something the user added to a discussion, as their own message. */
+function AddedMessage({
+  id,
+  text,
+  layout,
+  stickyIndex,
+  cwd,
+}: {
+  id: string;
+  text: string;
+  layout: TranscriptLayout;
+  stickyIndex: number;
+  cwd?: string;
+}) {
+  const block = useMemo<Block>(() => ({ id, role: "user", text }), [id, text]);
+  return (
+    <UserMessageBlock
+      block={block}
+      layout={layout}
+      stickyIndex={stickyIndex}
+      cwd={cwd}
+      anchor={false}
+    />
+  );
+}
+
 function UserMessageBlock({
   block,
   layout,
   stickyIndex,
   cwd,
+  anchor = true,
 }: {
   block: Block;
   layout: TranscriptLayout;
   stickyIndex: number;
   cwd?: string;
+  /** Listed in the prompt outline; not for messages that are not blocks. */
+  anchor?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
@@ -1274,7 +1477,7 @@ function UserMessageBlock({
 
   return (
     <div
-      data-prompt-anchor={block.id}
+      data-prompt-anchor={anchor ? block.id : undefined}
       data-message-layout={layout}
       className={`personal-user-message ${
         chat ? "flex justify-end pt-1.5 pr-4 pb-4 pl-14" : "p-1.5 pb-3"

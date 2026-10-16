@@ -99,7 +99,10 @@ describe("relay rules", () => {
         model: "GPT-5",
         title: "Review",
         cwd: "/work/api",
+        sessionId: B.sessionId,
       },
+      // The chat it goes to, for its own name and mascot in its transcript.
+      self: { sessionId: A.sessionId, harness: A.harness, model: A.model },
     });
   });
 

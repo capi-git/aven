@@ -91,3 +91,62 @@ export function useDiscussionWrapUp(id: string): DiscussionWrapUpView | null {
   }, [id, store]);
   return useSyncExternalStore(store.subscribe, read, read);
 }
+
+const CHAT_FIELDS = [
+  "status",
+  "settled",
+  "delivered",
+  "interjections",
+  "ended",
+  "rounds",
+  "a",
+  "b",
+] as const;
+
+/**
+ * One discussion as the chat that started it shows it at its end: who is
+ * answering and what the user added. Its value changes only when those do,
+ * not as the discussion's other fields or other discussions change.
+ */
+export function useDiscussionChat(id: string): Discussion | null {
+  const store = discussionStore();
+  const last = useRef<Discussion | null>(null);
+  const read = useCallback(() => {
+    const next = store.get(id) ?? null;
+    const previous = last.current;
+    if (
+      previous === next ||
+      (previous &&
+        next &&
+        CHAT_FIELDS.every((field) => previous[field] === next[field]))
+    )
+      return previous;
+    last.current = next;
+    return next;
+  }, [id, store]);
+  return useSyncExternalStore(store.subscribe, read, read);
+}
+
+/**
+ * The running or paused discussion this chat started, by id, or null: while
+ * there is one, what the user sends from this chat goes to both chats. A
+ * string, so the chat re-renders only when it starts or ends.
+ */
+export function useStartedDiscussionId(sessionId?: string): string | null {
+  const store = discussionStore();
+  const read = useCallback(
+    () =>
+      (sessionId &&
+        store
+          .snapshot()
+          .find(
+            (discussion) =>
+              discussion.a.sessionId === sessionId &&
+              discussion.status !== "ended" &&
+              !discussion.preview,
+          )?.id) ||
+      null,
+    [sessionId, store],
+  );
+  return useSyncExternalStore(store.subscribe, read, read);
+}

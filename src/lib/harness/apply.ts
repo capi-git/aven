@@ -198,7 +198,10 @@ export function applyHarnessEvent(
     case "status":
       return event.key
         ? upsertKeyedStatus(session, event.key, event.text)
-        : appendStatus(session, event.text, event.discussionEnd);
+        : appendStatus(session, event.text, {
+            discussionEnd: event.discussionEnd,
+            discussionReply: event.discussionReply,
+          });
     default:
       return session;
   }
@@ -608,10 +611,11 @@ function stampTurnDuration(blocks: Block[]): Block[] {
 function appendStatus(
   session: Session,
   text: string,
-  discussionEnd?: Block["discussionEnd"],
+  marks: Pick<Block, "discussionEnd" | "discussionReply"> = {},
 ): Session {
   const trimmed = text.trim();
   if (!trimmed) return session;
+  const { discussionEnd, discussionReply } = marks;
   const last = [...session.blocks]
     .reverse()
     .find((block) => block.role !== "reasoning");
@@ -619,7 +623,9 @@ function appendStatus(
     last?.role === "system" &&
     last.text === trimmed &&
     last.discussionEnd?.id === discussionEnd?.id &&
-    last.discussionEnd?.settled === discussionEnd?.settled
+    last.discussionEnd?.settled === discussionEnd?.settled &&
+    last.discussionReply?.id === discussionReply?.id &&
+    last.discussionReply?.turn === discussionReply?.turn
   )
     return session;
   return appendBlock(session, {
@@ -627,6 +633,7 @@ function appendStatus(
     role: "system",
     text: trimmed,
     ...(discussionEnd ? { discussionEnd } : {}),
+    ...(discussionReply ? { discussionReply } : {}),
   });
 }
 
