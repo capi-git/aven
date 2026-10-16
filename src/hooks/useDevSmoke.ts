@@ -443,10 +443,19 @@ function discussionPage(id?: string): HTMLElement | null {
   );
 }
 
+const onScreen = (element: Element) => element.getClientRects().length > 0;
+
+/** A pane's tab-style bars: a chat's name strip or a file pane's tab row. */
+function paneStrips(pane: Element): HTMLElement[] {
+  return [...pane.querySelectorAll<HTMLElement>(".aven-tab-bar")].filter(
+    onScreen,
+  );
+}
+
 /**
  * Why a tab holding a chat beside a file pane (here, a discussion's page)
- * does not draw one bar per pane, panes as cards and one tab style, or null
- * with what it measured.
+ * does not give each pane one strip laid out above its content, draw panes
+ * as cards and use one tab style, or null with what it measured.
  */
 export function paneLayoutProblem(page: HTMLElement): {
   problem: string | null;
@@ -456,28 +465,44 @@ export function paneLayoutProblem(page: HTMLElement): {
   const card = page.closest<HTMLElement>(".workspace-stage-surface");
   const stage = card?.closest<HTMLElement>("[data-workspace-stage]");
   if (!card || !stage) return fail("the page is not in a workspace pane");
-  const chat = [
-    ...card.querySelectorAll<HTMLElement>("[data-session-drop]"),
-  ].find((pane) => pane.getClientRects().length > 0);
-  if (!chat) return fail("no chat is beside the page");
-  // One bar: moving and closing the chat float over it, taking no row.
-  const controls = chat.querySelector<HTMLElement>(
-    ":scope > [data-session-pane-controls]",
+  const pagePane = page.closest<HTMLElement>("[data-pane-id]");
+  const chatPane = [
+    ...card.querySelectorAll<HTMLElement>("[data-pane-id]"),
+  ].find(
+    (pane) =>
+      pane !== pagePane &&
+      onScreen(pane) &&
+      pane.querySelector("[data-session-drop]"),
   );
-  if (!controls) return fail("the split chat has no move and close controls");
-  if (getComputedStyle(controls).position !== "absolute")
-    return fail("the split chat's controls take a row of their own");
-  const chatTop = chat.getBoundingClientRect().top;
-  const content = [...chat.children].find(
-    (child) =>
-      child instanceof HTMLElement &&
-      getComputedStyle(child).position !== "absolute",
-  );
-  const offset = content ? content.getBoundingClientRect().top - chatTop : 0;
-  if (Math.abs(offset) > 1)
-    return fail(
-      `the split chat's content starts ${Math.round(offset)}px below a second header`,
-    );
+  if (!pagePane) return fail("the page is not in a pane of its own");
+  if (!chatPane) return fail("no chat is beside the page");
+  if (chatPane.querySelector("[data-session-pane-controls]"))
+    return fail("the chat still has the floating chip");
+  // One strip per pane, in the pane's layout: its content starts below it.
+  const strips: HTMLElement[] = [];
+  for (const [who, pane] of [
+    ["chat", chatPane],
+    ["page", pagePane],
+  ] as const) {
+    const found = paneStrips(pane);
+    if (found.length !== 1)
+      return fail(`the ${who} has ${found.length} strips, not one`);
+    const strip = found[0];
+    const position = getComputedStyle(strip).position;
+    if (position === "absolute" || position === "fixed")
+      return fail(`the ${who}'s strip floats over its content`);
+    const content = strip.nextElementSibling;
+    if (!content) return fail(`the ${who} has no content below its strip`);
+    const overlap =
+      strip.getBoundingClientRect().bottom -
+      content.getBoundingClientRect().top;
+    if (overlap > 0.5)
+      return fail(
+        `the ${who}'s strip covers ${Math.round(overlap)}px of its content`,
+      );
+    strips.push(strip);
+  }
+  const [chatStrip, pageStrip] = strips;
   // A card: rounded, with a hairline edge, clear of the workspace's edges.
   const style = getComputedStyle(card);
   const radius = parseFloat(style.borderTopLeftRadius);
@@ -493,35 +518,54 @@ export function paneLayoutProblem(page: HTMLElement): {
     stageRect.bottom - cardRect.bottom,
   );
   if (inset < 3) return fail(`the card is ${inset}px from the workspace edge`);
-  // One tab style: the tab strip above the chat and the page's own tabs.
+  // One tab style: the tab's own bar, the chat's strip and the page's tabs.
   const header = stage.querySelector<HTMLElement>(
     `:scope > [data-workspace-header="${card.dataset.workspaceSurface}"]`,
   );
-  const chatTab = header?.querySelector<HTMLElement>(".aven-tab-button");
-  const fileBar = page
-    .closest<HTMLElement>("[data-pane-id]")
-    ?.querySelector<HTMLElement>(".aven-surface-tabs");
-  const fileTab = fileBar?.querySelector<HTMLElement>(".aven-tab-button");
-  if (!header || !chatTab || !fileBar || !fileTab)
-    return fail("the chat or the page has no tab");
+  const headerTab = header?.querySelector<HTMLElement>(".aven-tab-button");
+  const chatTab = chatStrip.querySelector<HTMLElement>(".aven-tab-button");
+  const pageTab = pageStrip.querySelector<HTMLElement>(".aven-tab-button");
+  if (!header || !headerTab || !chatTab || !pageTab)
+    return fail("the tab, the chat or the page has no tab");
   const height = (element: HTMLElement) =>
     Math.round(element.getBoundingClientRect().height);
-  if (height(header) !== height(fileBar))
+  if (
+    height(chatStrip) !== height(header) ||
+    height(pageStrip) !== height(header)
+  )
     return fail(
-      `the chat's tab bar is ${height(header)}px and the page's is ${height(fileBar)}px`,
+      `the tab's bar is ${height(header)}px, the chat's strip ${height(chatStrip)}px and the page's ${height(pageStrip)}px`,
     );
   const look = (element: HTMLElement) => {
     const tab = getComputedStyle(element);
     return `${height(element)}px tall, ${tab.borderTopLeftRadius} corners`;
   };
-  if (look(chatTab) !== look(fileTab))
-    return fail(
-      `the chat's tab is ${look(chatTab)} and the page's is ${look(fileTab)}`,
-    );
+  for (const [who, tab] of [
+    ["chat's strip", chatTab],
+    ["page's", pageTab],
+  ] as const)
+    if (look(tab) !== look(headerTab))
+      return fail(
+        `the tab is ${look(headerTab)} and the ${who} is ${look(tab)}`,
+      );
   return {
     problem: null,
-    summary: `one bar per pane; cards with ${radius}px corners ${Math.round(inset)}px from the edge; chat and page tabs ${look(chatTab)}`,
+    summary: `one ${height(header)}px strip per pane above its content; cards with ${radius}px corners ${Math.round(inset)}px from the edge; tab, chat and page tabs ${look(headerTab)}`,
   };
+}
+
+/** Why a chat alone in its tab shows a pane strip, or null. */
+export function singlePaneProblem(chat: HTMLElement): string | null {
+  const card = chat.closest<HTMLElement>(".workspace-stage-surface");
+  if (!card) return "the chat is not in a workspace pane";
+  const panes = [
+    ...card.querySelectorAll<HTMLElement>("[data-pane-id]"),
+  ].filter(onScreen);
+  if (panes.length !== 1) return `the chat's tab shows ${panes.length} panes`;
+  const strips = paneStrips(panes[0]).length;
+  return strips
+    ? `a chat alone in its tab shows ${strips} ${strips === 1 ? "strip" : "strips"}`
+    : null;
 }
 
 /**
@@ -1462,11 +1506,11 @@ export async function runDevSmoke(
     );
 
   // The discussion's page stays open beside the chat that started it: a tab
-  // with a chat and a file pane, drawn with one bar per pane, as cards, and
-  // with one tab style.
+  // with a chat and a file pane, each with one strip above its content, drawn
+  // as cards and with one tab style. A chat alone in its tab has no strip.
   if (safe && discussion && get().paneLayout)
     await step(
-      "a chat beside a page has one bar, a card and the shared tabs",
+      "a chat beside a page has one strip each, cards and the shared tabs",
       async () => {
         const page = await waitFor(
           () => discussionPage(),
@@ -1486,7 +1530,31 @@ export async function runDevSmoke(
         } catch {
           throw new Error(result.problem ?? "the panes did not settle");
         }
-        return result.summary;
+        const alone = await openNewTask(get, config.projectPath);
+        const chat = await waitFor(
+          () =>
+            [
+              ...document.querySelectorAll<HTMLElement>(
+                `[data-session-drop="${alone.id}"]`,
+              ),
+            ].find(onScreen),
+          5_000,
+          "a new chat alone in its tab",
+        );
+        let single = singlePaneProblem(chat);
+        try {
+          await waitFor(
+            () => {
+              single = singlePaneProblem(chat);
+              return !single;
+            },
+            3_000,
+            "the lone chat to settle",
+          );
+        } catch {
+          throw new Error(single ?? "the lone chat did not settle");
+        }
+        return `${result.summary}; a chat alone in its tab has none`;
       },
     );
 

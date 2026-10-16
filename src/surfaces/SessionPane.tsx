@@ -1,4 +1,4 @@
-import { ChevronDown, GripVertical, X } from "../chrome/icons";
+import { ChevronDown } from "../chrome/icons";
 import {
   memo,
   useCallback,
@@ -15,6 +15,8 @@ import { Composer } from "../chrome/Composer";
 import { DevPreviewChip } from "../chrome/DevPreviewChip";
 import { MemoryKeeperOffer } from "../chrome/MemoryKeeper";
 import { DuplicateServerChip } from "../chrome/DuplicateServerChip";
+import { PaneNameStrip } from "../chrome/PaneNameStrip";
+import { ProviderMarks } from "../chrome/ProviderMarks";
 import { orchestrator, sameCheckout } from "../lib/orchestration";
 import { sessionWithManagedAgents } from "../lib/sessionAgents";
 import { OrchestrationWorkers } from "../chrome/OrchestrationActions";
@@ -30,6 +32,7 @@ import {
 import { looksLikeProject, type RecentProject } from "../lib/recents";
 import {
   sessionDisplayTitle,
+  sessionIsWaitingForInput,
   sessionWorkCwd,
   type Attachment,
   type Block,
@@ -53,7 +56,8 @@ import {
 import { createNote, noteTitle } from "../lib/notes";
 import { loadNotesEnabled, subscribeNotesEnabled } from "../lib/settings";
 import { getModelSnapshot, resolveModel, subscribeModels } from "../lib/models";
-import { sessionPaneLabel } from "../lib/sessionLabels";
+import { sessionModelIdentity, sessionPaneLabel } from "../lib/sessionLabels";
+import { isInFlightSession } from "../lib/inFlight";
 import { raceLaneFor } from "../lib/race";
 import { isAstraModel } from "../lib/astraWelcome";
 import { AstraWelcome } from "./AstraWelcome";
@@ -77,7 +81,6 @@ import {
 } from "../lib/appearance";
 import type { PaletteAgent } from "../lib/commandPalette";
 import type { DiscussionHost } from "../lib/discussions";
-import "./SessionPane.css";
 
 type Props = {
   session: Session;
@@ -85,12 +88,8 @@ type Props = {
   visible: boolean;
   focused: boolean;
   addToChatTarget?: boolean;
+  /** Shares its tab with another pane, so it shows its own name strip. */
   inSplit: boolean;
-  /**
-   * Name the pane in its split controls. Off when it is the tab's only chat,
-   * whose tab already carries the title.
-   */
-  namedInSplit?: boolean;
   composerFocused: boolean;
   recents: RecentProject[];
   hideProjectPicker?: boolean;
@@ -182,7 +181,6 @@ export const SessionPane = memo(function SessionPane({
   focused,
   addToChatTarget = focused,
   inSplit,
-  namedInSplit = true,
   composerFocused,
   recents,
   hideProjectPicker,
@@ -241,6 +239,8 @@ export const SessionPane = memo(function SessionPane({
     session,
     raceLaneFor(session.id)?.lane.label,
   );
+  // The provider at work, as the chat's tab marks it.
+  const paneHarness = sessionModelIdentity(session).harness;
   const backgroundRevision = useSyncExternalStore(
     subscribeProjectChatBackground,
     projectChatBackgroundRevision,
@@ -421,6 +421,10 @@ export const SessionPane = memo(function SessionPane({
   const focusSession = useCallback(
     () => onFocus(sessionId),
     [onFocus, sessionId],
+  );
+  const closeSession = useCallback(
+    () => onClose(sessionId),
+    [onClose, sessionId],
   );
   const changeCwd = useCallback(
     (cwd: string) => onCwdChange(sessionId, cwd),
@@ -605,60 +609,29 @@ export const SessionPane = memo(function SessionPane({
       {astraWelcomeRun !== null && visible ? (
         <AstraWelcome key={astraWelcomeRun} onDone={dismissAstraWelcome} />
       ) : null}
-      {/* The tab strip above is this pane's only bar. In a split, moving and
-          closing the pane appear over its top corner on hover or focus, so
-          they take no row of their own. */}
+      {/* Sharing a tab, the pane names itself in a strip above its content. */}
       {inSplit ? (
-        <div
-          className="session-pane-controls"
-          data-session-pane-controls
-          data-focused={focused || undefined}
-          data-draggable={onPaneDragStart ? "true" : undefined}
-          title={
-            onPaneDragStart ? "Drag to move or split this pane" : undefined
-          }
-          onPointerDown={(event) => {
-            if (event.button !== 0 || !onPaneDragStart) return;
-            if (
-              (event.target as HTMLElement | null)?.closest("[data-no-drag]")
-            ) {
-              return;
-            }
-            onPaneDragStart(event);
-          }}
-        >
-          {onPaneDragStart ? (
-            <GripVertical
-              className="size-3.5 shrink-0"
-              strokeWidth={1.75}
-              aria-hidden
-            />
-          ) : null}
-          {namedInSplit ? (
-            <span
-              className="session-pane-controls-label"
-              data-session-pane-label
-              title={paneLabel.tooltip}
-            >
-              {paneLabel.headline}
+        <PaneNameStrip
+          name={paneLabel.headline}
+          icon={
+            <span className="personal-title-tab-identity">
+              <ProviderMarks
+                harnesses={[paneHarness]}
+                busyHarnesses={
+                  isInFlightSession(session) &&
+                  !sessionIsWaitingForInput(session)
+                    ? [paneHarness]
+                    : []
+                }
+                dimmed={!focused}
+              />
             </span>
-          ) : null}
-          <button
-            type="button"
-            title={`Close Pane (${MOD}W)`}
-            aria-label="Close pane"
-            data-no-drag
-            className="session-pane-close"
-            onPointerDown={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              onClose(session.id);
-            }}
-          >
-            <X className="size-3" strokeWidth={1.75} />
-          </button>
-        </div>
+          }
+          focused={focused}
+          closeTitle={`Close Pane (${MOD}W)`}
+          onClose={closeSession}
+          onDragStart={onPaneDragStart}
+        />
       ) : null}
       <div ref={transcriptScope} className="@container relative min-h-0 flex-1">
         {isEmpty ? (
