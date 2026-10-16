@@ -144,8 +144,13 @@ fn on_main(app: &AppHandle, work: impl FnOnce() + Send + 'static) {
 
 /// Show a just-built workspace window without anything visible, and reveal
 /// it when its page reports a drawn frame or after `REVEAL_TIMEOUT`. The
-/// window must have been built hidden.
+/// window must have been built hidden (macOS and Windows configurations);
+/// one that is already visible, as on Linux, is left as it is.
 pub fn conceal(window: &Window) {
+    #[cfg(not(target_os = "macos"))]
+    if window.is_visible().unwrap_or(true) {
+        return;
+    }
     let label = window.label().to_string();
     let generation = reveals().conceal(&label, now_ms());
     #[cfg(target_os = "macos")]
