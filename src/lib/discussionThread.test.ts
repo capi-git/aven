@@ -234,6 +234,27 @@ describe("buildDiscussionThread", () => {
   });
 });
 
+it("shows a development preview's topic with only the typing side", () => {
+  const preview = {
+    ...createDiscussion({
+      id: "d1",
+      owner: "main",
+      a: A,
+      b: B,
+      topic: "Preview",
+      rounds: 2,
+      now: 1,
+      preview: true,
+    }),
+    settled: 3,
+  };
+  expect(shape(buildDiscussionThread(preview, {}))).toEqual([
+    "topic:Preview",
+    "round 1/2",
+  ]);
+  expect(typingSide(preview)).toBe("b");
+});
+
 describe("isLongReply", () => {
   it("folds replies past the character or line limit", () => {
     expect(isLongReply("Short.")).toBe(false);

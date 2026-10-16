@@ -66,7 +66,10 @@ export function buildDiscussionThread(
     { kind: "topic", key: "topic", text: discussion.topic },
   ];
   const ended = discussion.status === "ended";
-  const finished = Math.min(discussion.settled, discussion.rounds * 2);
+  // A development preview only pretends to take turns: nothing was said.
+  const finished = discussion.preview
+    ? 0
+    : Math.min(discussion.settled, discussion.rounds * 2);
   const divider = (turn: number) => {
     const round = Math.floor(turn / 2) + 1;
     built.push({
