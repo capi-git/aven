@@ -8,6 +8,7 @@
 
 ### Fixed
 
+- The Light theme is light again for workspaces that had a dark Background colour saved with the old colour picker. Light mode now uses Aven's white background whenever a saved one would need white text, since Settings no longer offers a Background colour to change it. Your accent colour is kept, nothing saved is rewritten, and Dark mode is unchanged.
 - The memory keeper no longer says it needs Claude Code or Codex when they are installed. Aven only checked for installed providers when you opened the model list, so until then the switch stayed off and the offer to keep a project's memory never appeared.
 
 ## [0.1.143] - 2026-10-15
