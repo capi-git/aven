@@ -2,10 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   agentPreviewSource,
   chipPreview,
-  devPreviewPromptLine,
   devPreviewsSnapshot,
   dismissDevPreview,
+  duplicateDevServers,
   installDevPreviewOpener,
+  liveServersFor,
+  markDuplicateDevServer,
   observeAgentPreviewEvent,
   openDevPreview,
   pendingAutoOpen,
@@ -555,17 +557,22 @@ describe("observeAgentPreviewEvent", () => {
   });
 });
 
-describe("devPreviewPromptLine", () => {
-  it("names the running servers for the agent's project", () => {
-    expect(devPreviewPromptLine({ cwd: PROJECT })).toBeUndefined();
-    report("http://localhost:5173/");
-    expect(devPreviewPromptLine({ cwd: PROJECT, sessionId: "s1" })).toBe(
-      "<aven-preview>This project's dev server is running at http://localhost:5173/ (started in an Aven terminal). To check visible changes, list the browser pages and reuse one already showing it, or open it once; reload after edits instead of starting another server. If it does not load, it may have stopped since.</aven-preview>",
+describe("liveServersFor", () => {
+  const urls = (context: Parameters<typeof liveServersFor>[1]) =>
+    liveServersFor(devPreviewsSnapshot(), context).map(
+      (preview) => preview.url,
     );
-    expect(devPreviewPromptLine({ cwd: "/Users/me/other" })).toBeUndefined();
+
+  it("names the running servers for the chat's project", () => {
+    expect(urls({ cwd: PROJECT })).toEqual([]);
+    report("http://localhost:5173/");
+    expect(urls({ cwd: PROJECT, sessionId: "s1" })).toEqual([
+      "http://localhost:5173/",
+    ]);
+    expect(urls({ cwd: "/Users/me/other" })).toEqual([]);
   });
 
-  it("includes the agent's own servers from another checkout", () => {
+  it("includes the chat's own servers from another checkout", () => {
     observeAgentPreviewEvent(
       "s1",
       {
@@ -578,20 +585,162 @@ describe("devPreviewPromptLine", () => {
       () => ({ project: PROJECT, cwd: PROJECT }),
     );
     report("http://localhost:5173/");
-    const line = devPreviewPromptLine({
-      cwd: "/Users/me/.worktrees/site/fix",
-      sessionId: "s1",
-    });
-    expect(line).toContain(
-      "This project's dev server is running at http://localhost:4000/ (started by you).",
-    );
-    expect(devPreviewPromptLine({ cwd: PROJECT, sessionId: "s2" })).toContain(
-      "http://localhost:4000/ (started by another chat)",
-    );
+    expect(
+      urls({ cwd: "/Users/me/.worktrees/site/fix", sessionId: "s1" }),
+    ).toEqual(["http://localhost:4000/"]);
+    expect(urls({ cwd: PROJECT, sessionId: "s2" }).sort()).toEqual([
+      "http://localhost:4000/",
+      "http://localhost:5173/",
+    ]);
     stopDevServers(agentPreviewSource("s1"));
     stopDevServers("terminal:t1");
-    expect(devPreviewPromptLine({ cwd: PROJECT, sessionId: "s1" })).toBe(
-      undefined,
+    expect(urls({ cwd: PROJECT, sessionId: "s1" })).toEqual([]);
+  });
+
+  it("reads the project when the chat works in a folder inside it", () => {
+    report("http://localhost:5173/");
+    expect(urls({ cwd: `${PROJECT}/packages/web`, project: PROJECT })).toEqual([
+      "http://localhost:5173/",
+    ]);
+  });
+});
+
+describe("duplicate dev servers", () => {
+  const WORKTREE = "/Users/me/.worktrees/site/fix";
+  const places: Record<string, { project: string; cwd: string }> = {
+    claude: { project: PROJECT, cwd: PROJECT },
+    codex: { project: PROJECT, cwd: PROJECT },
+    lane: { project: WORKTREE, cwd: WORKTREE },
+  };
+  let call = 0;
+  /** One shell command in `sessionId` that prints `output` and keeps running. */
+  const run = (sessionId: string, command: string, output: string) => {
+    call += 1;
+    const callId = `call-${call}`;
+    const place = (id: string) => places[id];
+    observeAgentPreviewEvent(
+      sessionId,
+      { type: "tool.started", callId, title: command, kind: "execute" },
+      place,
     );
+    observeAgentPreviewEvent(
+      sessionId,
+      {
+        type: "tool.updated",
+        callId,
+        kind: "execute",
+        status: "in_progress",
+        detail: output,
+      },
+      place,
+    );
+  };
+  const vite = (port: number) =>
+    `  VITE v5.4.0  ready in 312 ms\n\n  ➜  Local:   http://localhost:${port}/\n`;
+  const byPort = (port: number) =>
+    devPreviewsSnapshot().find((preview) => preview.port === port)!;
+  const pairs = () =>
+    duplicateDevServers(devPreviewsSnapshot()).map(({ preview, original }) => [
+      preview.port,
+      original.port,
+    ]);
+
+  it("flags a second start of the same app in the same folder", () => {
+    run("claude", "Bash: npm run dev", vite(5173));
+    run("codex", "/bin/zsh -lc 'npm run dev'", vite(5174));
+    expect(byPort(5173).app).toBe("vite");
+    expect(byPort(5174).duplicateOf).toBe(byPort(5173).key);
+    expect(pairs()).toEqual([[5174, 5173]]);
+  });
+
+  it("flags the same agent starting its app twice", () => {
+    run("codex", "npm run dev", vite(5173));
+    run("codex", "npm run dev", vite(5174));
+    expect(pairs()).toEqual([[5174, 5173]]);
+  });
+
+  it("allows separate checkouts and separate folders", () => {
+    run("claude", "npm run dev", vite(5173));
+    run("lane", "npm run dev", vite(5174));
+    run("codex", "cd docs && npm run dev", vite(5175));
+    run("codex", "pnpm --filter admin dev", vite(5176));
+    expect(byPort(5175).folder).toBe(`${PROJECT}/docs`);
+    expect(byPort(5176).app).toBe("vite@admin");
+    expect(pairs()).toEqual([]);
+  });
+
+  it("allows different apps and one command's several servers", () => {
+    run("claude", "npm run dev", vite(5173));
+    run(
+      "codex",
+      "npm run storybook",
+      "Storybook 8.1 for react-vite started\n  Local: http://localhost:6006/\n",
+    );
+    run(
+      "codex",
+      "npm run dev:all",
+      "  ➜  Local:   http://localhost:4000/\n  ➜  Local:   http://localhost:4001/\n",
+    );
+    expect(byPort(6006).app).toBe("storybook");
+    expect(pairs()).toEqual([]);
+  });
+
+  it("treats a restart after a stop as a restart, not a copy", () => {
+    run("claude", "npm run dev", vite(5173));
+    observeAgentPreviewEvent(
+      "claude",
+      { type: "session.ended" },
+      () => undefined,
+    );
+    run("codex", "npm run dev", vite(5174));
+    expect(byPort(5174).duplicateOf).toBeUndefined();
+    expect(pairs()).toEqual([]);
+  });
+
+  it("matches unnamed servers only when both serve a page", () => {
+    report("http://localhost:3000/", { strength: "weak" });
+    report("http://localhost:3001/", {
+      strength: "weak",
+      sourceId: "terminal:t2",
+    });
+    expect(pairs()).toEqual([]);
+    report("http://localhost:8080/", { sourceId: "terminal:t3" });
+    report("http://localhost:8081/", { sourceId: "terminal:t4" });
+    expect(pairs()).toEqual([[8081, 8080]]);
+  });
+
+  it("never flags servers from one terminal run", () => {
+    watchTerminalOutput({
+      id: "t1",
+      project: PROJECT,
+      cwd: PROJECT,
+      placement: "terminal",
+    }).push(`${vite(5173)}  ➜  Local:   http://localhost:5180/\n`);
+    expect(pairs()).toEqual([]);
+  });
+
+  it("uses the terminal's current folder", () => {
+    watchTerminalOutput({
+      id: "t1",
+      project: PROJECT,
+      cwd: PROJECT,
+      placement: "terminal",
+      folder: () => `${PROJECT}/web`,
+    }).push(vite(5173));
+    expect(byPort(5173).folder).toBe(`${PROJECT}/web`);
+  });
+
+  it("clears once kept, or once either server stops", () => {
+    run("claude", "npm run dev", vite(5173));
+    run("codex", "npm run dev", vite(5174));
+    markDuplicateDevServer(byPort(5174).key, "asked");
+    expect(pairs()).toEqual([[5174, 5173]]);
+    markDuplicateDevServer(byPort(5174).key, "kept");
+    expect(pairs()).toEqual([]);
+
+    run("codex", "npm run dev", vite(5175));
+    expect(pairs()).toEqual([[5175, 5173]]);
+    stopDevServers(agentPreviewSource("claude"));
+    expect(pairs()).toEqual([]);
   });
 });

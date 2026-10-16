@@ -17,6 +17,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { DevPreviewChip } from "../chrome/DevPreviewChip";
+import { DuplicateServerChip } from "../chrome/DuplicateServerChip";
 import { ExplorerMenu } from "../chrome/ExplorerMenu";
 import { SurfaceBoundary } from "../chrome/SurfaceBoundary";
 import { SurfaceTabs } from "../chrome/SurfaceTabs";
@@ -223,6 +224,10 @@ export function ProjectTerminalDock({
         trailing={
           <>
             <DevPreviewChip project={dock.projectPath} placement="terminal" />
+            <DuplicateServerChip
+              placement="terminal"
+              project={dock.projectPath}
+            />
             <div className="flex shrink-0 items-center gap-0.5 border-l border-content/10 px-1">
               <IconButton
                 label={`New Terminal (${MOD}\`)`}

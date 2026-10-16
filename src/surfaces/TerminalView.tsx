@@ -297,6 +297,8 @@ export function TerminalView({
           project: previewRef.current.project ?? startCwd,
           cwd: startCwd,
           placement: previewRef.current.placement,
+          // After a `cd`, so two apps in one project are told apart.
+          folder: () => cwdRef.current,
         });
     previewWatchRef.current = previewWatch;
 

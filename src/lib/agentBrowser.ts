@@ -6,7 +6,6 @@ import { listenerGroup } from "./listenerGroup";
 import type { EditorNavigation } from "./search";
 import type { AgentBrowserOpenOptions } from "./agentBrowserOpen";
 import { agentGitInstructions } from "./gitPreference";
-import { devPreviewPromptLine } from "./devPreviews";
 
 export type AgentBrowserContext = {
   sessionId: string;
@@ -414,13 +413,9 @@ async function withBrowserGuidance(
     try {
       await wakeSessionBrowserPages(stored);
       const binding = await bind(stored, true);
-      // A dev server Aven already saw for this project, so the agent checks
-      // its work there instead of starting another.
-      const preview = devPreviewPromptLine({
-        cwd: stored.cwd,
-        sessionId: stored.sessionId,
-      });
-      return `${agentBrowserInstructions(binding.executablePath)}\n\n${preview ? `${preview}\n\n` : ""}${agentDesktopInstructions(binding.executablePath)}\n\n${text}`;
+      // Running dev servers reach the agent in the shared-work note
+      // (`sharedWorkNote.ts`), only when they change.
+      return `${agentBrowserInstructions(binding.executablePath)}\n\n${agentDesktopInstructions(binding.executablePath)}\n\n${text}`;
     } finally {
       release();
     }

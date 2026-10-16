@@ -4,7 +4,8 @@
 It speaks just enough of Claude Code's stream-json protocol for Aven to send
 one turn: it answers initialize and model-list requests, echoes each user
 message, and replies with AVEN_SMOKE_OK, after a pause when the message asks
-for one. It never contacts a network or an
+for one. Markers in a message make it pretend to start a dev server or echo
+the shared-work note it received. It never contacts a network or an
 account. Every invocation is logged beside it as evidence that
 Aven's native spawn path ran.
 """
@@ -60,6 +61,53 @@ HOLD_MAX_SECONDS = 20
 def hold_seconds(text):
     requested = HOLD_PATTERN.search(text)
     return min(int(requested.group(1)) / 1000, HOLD_MAX_SECONDS) if requested else 0
+
+
+# "AVEN_SMOKE_DEV_SERVER <port>" runs a pretend `npm run dev` through the Bash
+# tool whose output announces a Vite server on that port, the way an agent
+# starting a dev server looks to Aven. Nothing listens on the port.
+DEV_SERVER_PATTERN = re.compile(r"AVEN_SMOKE_DEV_SERVER (\d{2,5})")
+# "AVEN_SMOKE_ECHO_NOTE" puts the shared-work note Aven sent with this message
+# into the reply (tags dropped), so the check can read what the agent was told.
+ECHO_NOTE = "AVEN_SMOKE_ECHO_NOTE"
+NOTE_PATTERN = re.compile(r"<aven-shared-work>\s*(.*?)\s*</aven-shared-work>", re.S)
+
+
+def emit_dev_server(session, turn, port):
+    tool_id = "toolu_smoke_" + turn[:8]
+    emit({
+        "type": "assistant",
+        "session_id": session,
+        "message": {
+            "id": "msg_tool_" + turn[:8],
+            "role": "assistant",
+            "content": [{
+                "type": "tool_use",
+                "id": tool_id,
+                "name": "Bash",
+                "input": {"command": "npm run dev", "description": "Start the dev server"},
+            }],
+        },
+    })
+    output = (
+        "\n> site@0.0.0 dev\n> vite\n\n"
+        "  VITE v5.4.0  ready in 120 ms\n\n"
+        "  \u279c  Local:   http://localhost:%d/\n" % port
+    )
+    emit({
+        "type": "user",
+        "session_id": session,
+        "message": {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": tool_id, "content": output}],
+        },
+    })
+
+
+def echoed_note(text):
+    found = NOTE_PATTERN.search(text)
+    body = " | ".join(line.strip() for line in found.group(1).splitlines()) if found else "none"
+    return " NOTE[" + body + "]"
 
 
 def stream_text(chunks):
@@ -131,9 +179,16 @@ def main():
             })
         elif kind == "user":
             turn = message.get("uuid") or str(uuid.uuid4())
-            log({"pid": os.getpid(), "turn": turn})
+            log({
+                "pid": os.getpid(),
+                "turn": turn,
+                "sharedWork": "<aven-shared-work>" in message_text(message),
+            })
             emit({"type": "user", "isReplay": True, "uuid": turn, "session_id": session})
             text = message_text(message)
+            server = DEV_SERVER_PATTERN.search(text)
+            if server:
+                emit_dev_server(session, turn, int(server.group(1)))
             requested = STREAM_PATTERN.search(text)
             chunks = stream_text(int(requested.group(1))) if requested else []
             message_id = "msg_smoke_" + turn[:8]
@@ -143,7 +198,8 @@ def main():
                 "event": {"type": "message_start", "message": {"id": message_id}},
             })
             time.sleep(hold_seconds(text))
-            for chunk in chunks + [REPLY]:
+            reply = REPLY + (echoed_note(text) if ECHO_NOTE in text else "")
+            for chunk in chunks + [reply]:
                 emit({
                     "type": "stream_event",
                     "session_id": session,
@@ -160,7 +216,7 @@ def main():
                 "message": {
                     "id": message_id,
                     "role": "assistant",
-                    "content": [{"type": "text", "text": "".join(chunks) + REPLY}],
+                    "content": [{"type": "text", "text": "".join(chunks) + reply}],
                 },
             })
             emit({
@@ -168,7 +224,7 @@ def main():
                 "subtype": "success",
                 "is_error": False,
                 "session_id": session,
-                "result": REPLY,
+                "result": reply,
             })
     return 0
 

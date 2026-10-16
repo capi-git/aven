@@ -173,6 +173,11 @@ import {
 } from "./lib/devPreviews";
 import { placeDevPreview } from "./lib/devPreviewLayout";
 import { useDevPreviewAutoOpen } from "./hooks/useDevPreviews";
+import {
+  useDuplicateServerMessenger,
+  useSharedWorkSessions,
+  useWorkConflicts,
+} from "./hooks/useSharedWork";
 import { loadDefaultRuntimeMode } from "./lib/runtimeMode";
 import { ApprovalToasts } from "./chrome/ApprovalToasts";
 import {
@@ -1208,6 +1213,12 @@ export default function App({
     [],
   );
   useDevPreviewAutoOpen(projectCwd);
+  // Chats' titles and projects for the shared-work note, read only when a
+  // note is built; closed chats stop counting as working.
+  useSharedWorkSessions(
+    sessionsRef,
+    sessions.map((session) => session.id).join("\n"),
+  );
   // A server a tab already shows, opened by an agent or typed, is not offered.
   useEffect(() => {
     publishDevPreviewTabs(
@@ -6687,6 +6698,11 @@ export default function App({
     },
   });
 
+  // "Ask Codex to stop it" on a second dev server queues a message here.
+  useDuplicateServerMessenger((sessionId, text) =>
+    onSubmit(sessionId, text, [], { followUpBehavior: "queue" }),
+  );
+
   const autoContinueKey = sessions
     .filter(
       (session) => canAutoContinue(session) && isLiveHarness(session.harness),
@@ -8461,6 +8477,8 @@ export default function App({
     );
   };
 
+  // Same-file edits and second dev servers, for the sidebar's rows.
+  const workConflicts = useWorkConflicts();
   const projectStatus = useProjectStatus({
     sessions,
     activity: activityEntries,
@@ -8564,6 +8582,7 @@ export default function App({
     projectStatus,
     liveAgents,
     discussions: discussions.sidebar,
+    workConflicts,
     onSelectAgent: onSelectLiveAgent,
     onSelectProject,
     onOpenProject: pickProject,
@@ -8667,6 +8686,7 @@ export default function App({
     },
     deleteProject: (path) => onRemoveProject(path, { purgeData: true }),
     discussion: discussions.host,
+    sharedWork: true,
     focusedSurfaceId: view.focusedId,
     sidebarOpen,
     openWebLink: onOpenWebLink,
