@@ -1146,9 +1146,33 @@ export async function runDevSmoke(
           );
         if (session(a.id)?.busy || session(b.id)?.busy)
           throw new Error("A chat kept working after the discussion ended");
+        // Ended, its connector and bar gone: the second chat's relay card
+        // still opens the page.
+        [
+          ...document.querySelectorAll<HTMLElement>(
+            `.personal-navigation [data-session-card="${b.id}"]`,
+          ),
+        ]
+          .find((row) => row.getClientRects().length > 0)
+          ?.click();
+        const card = await waitFor(
+          () =>
+            chatComposer(b.id) &&
+            document.querySelector<HTMLElement>(
+              `[data-session-drop="${b.id}"] [data-discussion-relay="${id}"][data-discussion-open]`,
+            ),
+          5_000,
+          "the second chat's relay card to offer the discussion's page",
+        );
+        card.click();
+        await waitFor(
+          () => discussionPage(id),
+          5_000,
+          "the relay card to open the discussion's page",
+        );
         return prefersReducedMotion()
-          ? "started from Discuss mode; 4 replies relayed once each and shown alternating on one page; linked, still (reduced motion); ended after 2 rounds"
-          : "started from Discuss mode; 4 replies relayed once each and shown alternating on one page; linked with the pulse toward the answering chat; ended after 2 rounds";
+          ? "started from Discuss mode; 4 replies relayed once each and shown alternating on one page; linked, still (reduced motion); ended after 2 rounds; its relay card reopens the page"
+          : "started from Discuss mode; 4 replies relayed once each and shown alternating on one page; linked with the pulse toward the answering chat; ended after 2 rounds; its relay card reopens the page";
       },
     );
 

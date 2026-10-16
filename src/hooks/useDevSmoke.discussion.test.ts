@@ -66,6 +66,8 @@ type Flaws = {
   deadLink?: boolean;
   /** The relayed message has no relay card. */
   noCard?: boolean;
+  /** The relay card does not open the page. */
+  deadCard?: boolean;
   /** The connector stays after the discussion ended. */
   keepsLink?: boolean;
 };
@@ -283,7 +285,7 @@ function app(flaws: Flaws = {}) {
             .blocks.filter((block) => block.discussion)
             .map(
               (block) =>
-                `<div data-discussion-relay="${block.discussion!.id}"></div>`,
+                `<button data-discussion-relay="${block.discussion!.id}" data-discussion-open></button>`,
             )
             .join("");
     const bar = active
@@ -350,6 +352,11 @@ function app(flaws: Flaws = {}) {
     });
     on("[data-session-card]", (element) => {
       focused = (element as HTMLElement).dataset.sessionCard!;
+      draw();
+    });
+    on("[data-discussion-open]", () => {
+      if (flaws.deadCard || !talk) return;
+      focused = talk.a;
       draw();
     });
     on("[data-discussion-link]", () => {
@@ -467,7 +474,7 @@ describe("the real-app check's discussion step", () => {
       [STEP, true],
     ]);
     expect(discussionStep(steps)?.detail).toBe(
-      "started from Discuss mode; 4 replies relayed once each and shown alternating on one page; linked with the pulse toward the answering chat; ended after 2 rounds",
+      "started from Discuss mode; 4 replies relayed once each and shown alternating on one page; linked with the pulse toward the answering chat; ended after 2 rounds; its relay card reopens the page",
     );
     // The chat on screen (opened last) starts, with the chip's choices and
     // the message as the topic.
@@ -548,6 +555,12 @@ describe("the real-app check's discussion step", () => {
   it("fails when the relayed message has no relay card", async () => {
     expect(await failure({ noCard: true })).toContain(
       "the relay card on the relayed message",
+    );
+  });
+
+  it("fails when the relay card does not reopen the page after the end", async () => {
+    expect(await failure({ deadCard: true })).toBe(
+      "Timed out waiting for the relay card to open the discussion's page",
     );
   });
 
