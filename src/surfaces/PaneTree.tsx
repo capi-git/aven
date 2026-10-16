@@ -230,10 +230,6 @@ function PaneTreeComponent({
   const leaves = layoutLeaves(tree);
   const sashes = layoutSashes(tree);
   const inSplit = leaves.length > 1;
-  // A lone chat beside files is already named by its tab.
-  const chatCount = leaves.filter((leaf) =>
-    sessions.some((session) => session.id === leaf.id),
-  ).length;
 
   const startPaneDrag = useCallback(
     (fromId: string, event: ReactPointerEvent<HTMLElement>) => {
@@ -405,7 +401,6 @@ function PaneTreeComponent({
                 focused={focusedId === session.id}
                 addToChatTarget={addToChatSessionId === session.id}
                 inSplit={inSplit}
-                namedInSplit={chatCount > 1}
                 composerFocused={composerFocused}
                 recents={recents}
                 hideProjectPicker={hideProjectPicker}

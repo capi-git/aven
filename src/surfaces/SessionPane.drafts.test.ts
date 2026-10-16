@@ -140,9 +140,12 @@ describe("session pane draft and header ownership", () => {
     });
   });
 
-  it("leaves the model to the agent pill and keeps the split pane's controls in one floating chip", async () => {
-    await render({ model: "codex:qa-model", title: "codex" }, true);
-    const label = () => container.querySelector("[data-session-pane-label]");
+  it("leaves the model to the agent pill and names a split pane in a strip above its content", async () => {
+    await render({ model: "codex:qa-model", title: "codex" });
+    // Alone in its tab, the pane has no strip.
+    expect(container.querySelector("[data-pane-strip]")).toBeNull();
+    await render({}, true);
+    const label = () => container.querySelector("[data-pane-strip-label]");
     expect(label()?.textContent).toBe("New session");
     await act(async () =>
       setHarnessModels("codex", [
@@ -150,17 +153,19 @@ describe("session pane draft and header ownership", () => {
       ]),
     );
     expect(label()?.textContent).toBe("New session");
-    expect(label()?.getAttribute("title")).toBe("QA Model");
-    expect(container.querySelector("[data-session-pane-model]")).toBeNull();
+    // A name that fits needs no tooltip, and the model stays in the pill.
+    expect(label()?.hasAttribute("title")).toBe(false);
     await render({ title: "codex · Repair preview" });
     expect(label()?.textContent).toBe("Repair preview");
     expect(container.textContent).not.toContain("QA Model");
-    // One chip, layered over the pane: no header row pushes the transcript.
-    const controls = container.querySelector<HTMLElement>(
-      "[data-session-pane-controls]",
-    )!;
-    expect(controls.parentElement?.classList).toContain("chat-pane-background");
-    expect(controls.classList).toContain("session-pane-controls");
+    // One strip in the pane's own column: the transcript starts below it.
+    const strip = container.querySelector<HTMLElement>("[data-pane-strip]")!;
+    expect(strip.parentElement?.classList).toContain("chat-pane-background");
+    expect(strip.classList).toContain("aven-tab-bar");
+    expect(strip.nextElementSibling?.classList).toContain("@container");
+    expect(container.querySelectorAll("[data-pane-strip]")).toHaveLength(1);
+    // The floating chip is gone.
+    expect(container.querySelector("[data-session-pane-controls]")).toBeNull();
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>('[aria-label="Close pane"]')!
@@ -169,7 +174,7 @@ describe("session pane draft and header ownership", () => {
     expect(props.onClose).toHaveBeenCalledExactlyOnceWith("one");
   });
 
-  it("names the still-running model in the pane's tooltip while the next one is selected, then updates when idle", async () => {
+  it("marks the still-running provider in the strip while the next one is selected, then updates when idle", async () => {
     await render(
       {
         harness: "claude",
@@ -193,11 +198,13 @@ describe("session pane draft and header ownership", () => {
       },
       true,
     );
-    const label = () => container.querySelector("[data-session-pane-label]");
-    expect(label()?.textContent).toBe("New session");
-    expect(label()?.getAttribute("title")).toBe("running-model");
+    const mark = () =>
+      container.querySelector<HTMLElement>("[data-pane-strip] [data-provider]");
+    expect(mark()?.dataset.provider).toBe("codex");
+    expect(mark()?.dataset.working).toBe("true");
     await render({ busy: false });
-    expect(label()?.getAttribute("title")).toBe("next-model");
+    expect(mark()?.dataset.provider).toBe("claude");
+    expect(mark()?.dataset.working).toBe("false");
     expect(props.onSubmit).not.toHaveBeenCalled();
   });
 

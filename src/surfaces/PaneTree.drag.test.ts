@@ -9,19 +9,13 @@ vi.mock("./SessionPane", () => ({
   SessionPane: ({
     session,
     onPaneDragStart,
-    namedInSplit,
   }: {
     session: Session;
     onPaneDragStart: () => void;
-    namedInSplit?: boolean;
   }) =>
     createElement(
       "button",
-      {
-        "data-session": session.id,
-        "data-named": String(namedInSplit),
-        onPointerDown: onPaneDragStart,
-      },
+      { "data-session": session.id, onPointerDown: onPaneDragStart },
       session.id,
     ),
 }));
@@ -142,67 +136,4 @@ it.each([
   expect(document.body.style.cursor).toBe("");
   await pointer(window, "pointerup", 200);
   expect(props.onMovePane).toHaveBeenCalledTimes(reason === "commit" ? 1 : 0);
-});
-
-it("names split chats only when the tab holds more than one chat", async () => {
-  const container = document.createElement("div");
-  document.body.append(container);
-  const root = createRoot(container);
-  cleanups.push(() => {
-    act(() => root.unmount());
-    container.remove();
-  });
-  const session = (id: string) =>
-    ({
-      id,
-      title: id,
-      cwd: "/qa",
-      harness: "claude",
-      model: "test",
-      modelSettings: {},
-      runtimeMode: "supervised",
-      blocks: [],
-    }) as Session;
-  const split = (b: string) => ({
-    type: "split" as const,
-    id: "split",
-    dir: "right" as const,
-    sizes: [0.5, 0.5],
-    children: [
-      { type: "leaf" as const, id: "a" },
-      { type: "leaf" as const, id: b },
-    ],
-  });
-  const props = {
-    visible: true,
-    layout: split("b"),
-    sessions: [session("a"), session("b")],
-    editorPanes: [],
-    dirtyFileIds: new Set(),
-    fileErrorCounts: new Map(),
-    focusedId: "a",
-    composerFocused: false,
-    recents: [],
-    onFocus: vi.fn(),
-    onMovePane: vi.fn(),
-    onRatio: vi.fn(),
-  } as unknown as ComponentProps<typeof PaneTree>;
-  await act(async () => root.render(createElement(PaneTree, props)));
-  const named = () =>
-    [...container.querySelectorAll<HTMLElement>("[data-session]")].map(
-      (pane) => pane.dataset.named,
-    );
-  expect(named()).toEqual(["true", "true"]);
-  // A chat beside a file: its tab already names it.
-  await act(async () =>
-    root.render(
-      createElement(PaneTree, {
-        ...props,
-        layout: split("files"),
-        sessions: [session("a")],
-        editorPanes: [{ id: "files", files: [], activeFileId: "" }],
-      }),
-    ),
-  );
-  expect(named()).toEqual(["false"]);
 });

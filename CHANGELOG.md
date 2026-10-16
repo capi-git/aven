@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- When two panes share a tab, each now has a slim strip at its top in the same style as tabs, with its name, a handle to drag it and a button to close it. The strip sits above the pane's content, so it no longer covers a chat's first message the way the floating controls did. A tab with one pane still has no strip.
+
 ## [0.1.144] - 2026-10-16
 
 ### Added
