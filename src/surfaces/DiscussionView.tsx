@@ -6,11 +6,10 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
 } from "react";
 import { DiscussionAvatar } from "../chrome/DiscussionAvatar";
 import { DiscussionWrapUpCard } from "../chrome/DiscussionWrapUp";
-import { ArrowUp, Check, MessageMultiple, Play, Square } from "../chrome/icons";
+import { ArrowUp, MessageMultiple, Play, Square } from "../chrome/icons";
 import { useDiscussionList } from "../hooks/useDiscussions";
 import {
   discussionEndNote,
@@ -22,11 +21,9 @@ import {
   type DiscussionHost,
   type DiscussionSide,
 } from "../lib/discussions";
-import type { DiscussionStance } from "../lib/discussionStance";
 import {
   arrivedReplies,
   buildDiscussionThread,
-  isLongReply,
   lastReplyKeys,
   replyKeys,
   typingSide,
@@ -42,7 +39,13 @@ import {
   type MascotReactionKind,
 } from "../lib/mascotReactions";
 import { sessionWorkCwd, type Session } from "../lib/session";
-import { AgentMarkdown } from "./AgentMarkdown";
+import {
+  DiscussionMessage,
+  DiscussionRound,
+  DiscussionTyping,
+  Foldable,
+  STANCE_REACTION,
+} from "./DiscussionMessages";
 import "./DiscussionView.css";
 
 type Props = {
@@ -228,7 +231,7 @@ function DiscussionPage({
       >
         <ol className="discussion-thread" aria-label="Discussion">
           {before.map(renderItem)}
-          {typing ? <TypingRow voice={voices[typing]} /> : null}
+          {typing ? <DiscussionTyping voice={voices[typing]} /> : null}
           {waiting.map(renderItem)}
           {paused ? (
             <PausedRow id={discussion.id} reason={discussion.reason} />
@@ -288,11 +291,6 @@ function useEndingCheer(discussion: Discussion): string | null {
   }, [completed, discussion.id, discussion.settled, ended]);
   return cheer;
 }
-
-const STANCE_REACTION: Record<DiscussionStance, MascotReactionKind> = {
-  agree: "nod",
-  pushback: "tilt",
-};
 
 type Arrival = { kind: MascotReactionKind; id: string };
 const NO_ARRIVALS: ReadonlyMap<string, Arrival> = new Map();
@@ -471,30 +469,6 @@ function Party({
   );
 }
 
-const STANCE_LABEL: Record<DiscussionStance, string> = {
-  agree: "Agrees",
-  pushback: "Pushes back",
-};
-
-/** A tiny mark beside a reply's name: a check when it agrees, ↔ when not. */
-function StanceMark({ stance }: { stance: DiscussionStance }) {
-  return (
-    <span
-      className="discussion-stance"
-      data-discussion-stance={stance}
-      title={STANCE_LABEL[stance]}
-      aria-label={STANCE_LABEL[stance]}
-      role="img"
-    >
-      {stance === "agree" ? (
-        <Check className="size-2.5" strokeWidth={2.5} />
-      ) : (
-        "↔"
-      )}
-    </span>
-  );
-}
-
 const ThreadItem = memo(function ThreadItem({
   item,
   voice,
@@ -527,11 +501,7 @@ const ThreadItem = memo(function ThreadItem({
         </li>
       );
     case "round":
-      return (
-        <li className="discussion-round" data-discussion-round={item.round}>
-          Round {item.round} of {item.rounds}
-        </li>
-      );
+      return <DiscussionRound round={item.round} rounds={item.rounds} />;
     case "closing":
       return (
         <li
@@ -555,104 +525,18 @@ const ThreadItem = memo(function ThreadItem({
       );
     case "reply":
       return voice ? (
-        <li
-          className="discussion-message"
-          data-side={item.side}
-          data-discussion-message={item.turn}
-          data-stance={item.stance ?? undefined}
-          style={{ "--discussion-voice": voice.color } as CSSProperties}
-        >
-          <DiscussionAvatar
-            voice={voice}
-            reaction={reaction}
-            reactionId={reactionId}
-          />
-          <div className="discussion-message-body">
-            <span className="discussion-message-name">
-              {voice.name}
-              {item.stance ? <StanceMark stance={item.stance} /> : null}
-            </span>
-            {item.text ? (
-              <Foldable
-                className="discussion-bubble"
-                text={item.text}
-                cwd={cwd}
-                onOpenFile={onOpenFile}
-              />
-            ) : (
-              <p className="discussion-bubble discussion-bubble-missing">
-                {item.text === null
-                  ? `“${voice.title}” isn't open in this window, so its reply can't be shown here.`
-                  : "No reply text."}
-              </p>
-            )}
-          </div>
-        </li>
+        <DiscussionMessage
+          voice={voice}
+          turn={item.turn}
+          text={item.text}
+          stance={item.stance}
+          reaction={reaction}
+          reactionId={reactionId}
+          cwd={cwd}
+          onOpenFile={onOpenFile}
+        />
       ) : null;
   }
-});
-
-/** Markdown in a bubble, folded behind Show more when it is long. */
-function Foldable({
-  className,
-  text,
-  cwd,
-  onOpenFile,
-}: {
-  className: string;
-  text: string;
-  cwd: string;
-  onOpenFile?: (path: string) => void;
-}) {
-  const long = isLongReply(text);
-  const [open, setOpen] = useState(false);
-  const folded = long && !open;
-  return (
-    <>
-      <div className={className} data-folded={folded || undefined}>
-        <AgentMarkdown text={text} cwd={cwd} onOpenFile={onOpenFile} />
-      </div>
-      {long ? (
-        <button
-          type="button"
-          className="discussion-more"
-          aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
-        >
-          {open ? "Show less" : "Show more"}
-        </button>
-      ) : null}
-    </>
-  );
-}
-
-const TypingRow = memo(function TypingRow({
-  voice,
-}: {
-  voice: DiscussionVoice;
-}) {
-  return (
-    <li
-      className="discussion-message"
-      data-side={voice.side}
-      data-discussion-typing={voice.side}
-      style={{ "--discussion-voice": voice.color } as CSSProperties}
-    >
-      <DiscussionAvatar voice={voice} typing />
-      <div className="discussion-message-body">
-        <span className="discussion-message-name">{voice.name}</span>
-        <div
-          className="discussion-bubble discussion-typing"
-          role="status"
-          aria-label={`${voice.name} is replying`}
-        >
-          <span className="discussion-dot" />
-          <span className="discussion-dot" />
-          <span className="discussion-dot" />
-        </div>
-      </div>
-    </li>
-  );
 });
 
 const PausedRow = memo(function PausedRow({
