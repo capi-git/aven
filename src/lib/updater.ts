@@ -127,9 +127,50 @@ function publish(next: UpdaterSnapshot): UpdaterSnapshot {
   // A background check must not hide that the restart is waiting.
   if (waiting && next.phase === "ready" && !next.waitingFor)
     next = { ...next, waitingFor: restartWaitReason(waiting.work) };
+  // A preview stays on screen; the real state shows again when it closes.
+  if (preview) {
+    preview.previous = next;
+    return next;
+  }
+  show(next);
+  return next;
+}
+function show(next: UpdaterSnapshot): void {
   snapshot = next;
   for (const listener of listeners) listener();
-  return next;
+}
+
+/** Development builds: the waiting state shown with made-up work. */
+let preview: { previous: UpdaterSnapshot } | null = null;
+
+/**
+ * Development builds only: show the update card and Settings as if a
+ * downloaded update were waiting for `waitingFor`. Its Restart now and Cancel
+ * only close the preview. False when it cannot show, as in release builds.
+ */
+export function previewUpdateWaiting(waitingFor: string): boolean {
+  if (!import.meta.env.DEV) return false;
+  if (mirror || preview || waiting || installing || deciding) return false;
+  const previous = snapshot;
+  const currentVersion =
+    previous.currentVersion === "…" ? "0.0.0" : previous.currentVersion;
+  preview = { previous };
+  show({
+    phase: "ready",
+    currentVersion,
+    availableVersion: `${currentVersion} (preview)`,
+    waitingFor,
+  });
+  return true;
+}
+
+/** Close a preview, showing the real updater state again. */
+function endPreview(): boolean {
+  if (!preview) return false;
+  const { previous } = preview;
+  preview = null;
+  show(previous);
+  return true;
 }
 export async function readAppVersion(): Promise<string> {
   try {
@@ -382,6 +423,7 @@ export function installPendingUpdate(
   onProgress?: (snapshot: UpdaterSnapshot) => void,
 ): Promise<UpdaterSnapshot> {
   if (mirror) return mirror.install();
+  if (endPreview()) return Promise.resolve(snapshot);
   return beginRestart(!!waiting, onProgress);
 }
 
@@ -390,12 +432,14 @@ export function restartUpdateNow(
   onProgress?: (snapshot: UpdaterSnapshot) => void,
 ): Promise<UpdaterSnapshot> {
   if (mirror) return mirror.restartNow();
+  if (endPreview()) return Promise.resolve(snapshot);
   return beginRestart(true, onProgress);
 }
 
 /** Stop waiting for work to finish; the update stays downloaded. */
 export function cancelUpdateWait(): Promise<UpdaterSnapshot> {
   if (mirror) return mirror.cancelWait();
+  if (endPreview()) return Promise.resolve(snapshot);
   stopWaiting();
   return Promise.resolve(snapshot);
 }
