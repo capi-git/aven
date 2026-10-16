@@ -22,7 +22,13 @@ export type DevServerAddress = {
 };
 
 export type DevOutputSignal =
-  { kind: "address"; address: DevServerAddress } | { kind: "stopped" };
+  | {
+      kind: "address";
+      address: DevServerAddress;
+      /** The framework whose banner came before it in this output, if any. */
+      app?: string;
+    }
+  | { kind: "stopped" };
 
 export type DevOutputScanner = {
   /** Scan a chunk of output; an unfinished last line waits for the next. */
@@ -45,9 +51,185 @@ export function stripAnsi(text: string): string {
   return text.replace(ANSI, "").replace(CONTROL, "");
 }
 
-/** Anything a positive, stopping or arming line needs; most output has none. */
+/** Anything a positive, stopping, arming or banner line needs; most output has none. */
 const INTERESTING =
-  /:\/\/|\bport|listen|bound|\^C|kill|termin|exit|crash|lifecycle|status>|shut|stopp|goodbye|timed out|finished server|in (?:the|your) browser|available on|urls?\s*:|running at|\b(?:on|at|to)\s+\S*:\d{2,5}\b/i;
+  /:\/\/|\bport|listen|bound|\^C|kill|termin|exit|crash|lifecycle|status>|shut|stopp|goodbye|timed out|finished server|in (?:the|your) browser|available on|urls?\s*:|running at|\b(?:on|at|to)\s+\S*:\d{2,5}\b|\b(?:vite|next\.js|nuxt|astro|remix|angular|webpack|parcel|storybook|gatsby|docusaurus|expo|metro|django|puma|flask|uvicorn|hugo|jekyll|eleventy)\b/i;
+
+/**
+ * Banners that name the framework serving, printed just before (or with) its
+ * address. Two starts of one framework in one folder are one app run twice;
+ * Storybook beside Vite is two apps.
+ */
+const APP_BANNERS: ReadonlyArray<readonly [string, RegExp]> = [
+  ["vite", /\bvite\s+v?\d/i],
+  ["next", /\bnext\.js\b/i],
+  ["nuxt", /\bnuxt\s+(?:v?\d|nitro)|\bnuxi\b/i],
+  ["astro", /\bastro\s+v?\d/i],
+  ["remix", /^\[remix-serve\]/i],
+  ["angular", /\bangular live development server\b/i],
+  ["webpack", /\bwebpack-dev-server\b|\bwebpack\s+\d[\d.]*\s+compiled\b/i],
+  [
+    "parcel",
+    /\bparcel\b.*\bserver running\b|\bserver running at\b.*\bparcel\b/i,
+  ],
+  ["storybook", /\bstorybook\b.*\bstarted\b/i],
+  ["gatsby", /\bgatsby\b.*\bdevelop\b|\bview gatsby\b/i],
+  ["docusaurus", /\bdocusaurus\b/i],
+  ["expo", /\bstarting (?:metro|expo)\b|\bmetro waiting on\b/i],
+  ["django", /\bdjango version\b|\bstarting development server at\b/i],
+  ["rails", /\bpuma starting\b|\brails\s+\d[\d.]*\s+application starting\b/i],
+  ["flask", /\bserving flask app\b/i],
+  ["uvicorn", /\buvicorn running on\b/i],
+  ["http.server", /^serving https? on\s/i],
+  ["php", /\bphp\s+\d[\d.]*\s+development server\b/i],
+  ["hugo", /\bweb server is available at\b/i],
+  ["jekyll", /\bjekyll\b.*\bserver address\b|\bserver address:.*\bjekyll\b/i],
+  ["eleventy", /\[11ty\]\s+server at\b/i],
+];
+
+/** The framework a banner line names, or undefined. */
+export function devServerAppInLine(text: string): string | undefined {
+  const line = cleanLine(text);
+  if (!line) return undefined;
+  return APP_BANNERS.find(([, pattern]) => pattern.test(line))?.[0];
+}
+
+/**
+ * What a shell command tells about the server it starts: the framework it
+ * runs or the package script, the folder it changes to and the workspace
+ * package it picks. Agents' commands often `cd` into a sub-app first.
+ */
+export type DevServerCommand = {
+  app?: string;
+  /** Folder the command moved to, as written (relative or absolute). */
+  dir?: string;
+  /** Workspace package (`pnpm --filter web dev`), part of the app's identity. */
+  filter?: string;
+};
+
+const COMMAND_APPS: ReadonlyArray<readonly [string, RegExp]> = [
+  ["vite", /\bvite\b/i],
+  ["next", /\bnext\s+(?:dev|start)\b/i],
+  ["nuxt", /\bnuxi?\s+dev\b/i],
+  ["astro", /\bastro\s+(?:dev|preview)\b/i],
+  ["remix", /\bremix(?:-serve|\s+dev)\b/i],
+  ["angular", /\bng\s+serve\b/i],
+  ["webpack", /\bwebpack(?:-dev-server|\s+serve)\b/i],
+  ["parcel", /\bparcel\b/i],
+  ["storybook", /\bstorybook\b/i],
+  ["gatsby", /\bgatsby\s+develop\b/i],
+  ["docusaurus", /\bdocusaurus\s+start\b/i],
+  ["expo", /\bexpo\s+start\b/i],
+  ["django", /\bmanage\.py\s+runserver\b/i],
+  ["rails", /\brails\s+(?:s|server)\b/i],
+  ["flask", /\bflask\s+run\b/i],
+  ["uvicorn", /\buvicorn\b/i],
+  ["http.server", /\bhttp\.server\b/i],
+  ["php", /\bphp\s+-S\b/],
+  ["hugo", /\bhugo\s+server\b/i],
+  ["jekyll", /\bjekyll\s+serve\b/i],
+  ["eleventy", /\beleventy\b.*--serve\b/i],
+];
+
+const QUOTED = String.raw`("[^"]+"|'[^']+'|[^\s;&|()]+)`;
+const CD = new RegExp(
+  String.raw`(?:^|[;&|(]\s*)cd\s+${QUOTED}\s*(?=&&|;)`,
+  "g",
+);
+const DIR_FLAG = new RegExp(
+  String.raw`(?:^|\s)(?:--prefix|--dir|--cwd|-C)(?:=|\s+)${QUOTED}`,
+);
+const FILTER_FLAG = new RegExp(
+  String.raw`(?:^|\s)(?:--filter|-F|--workspace|-w)(?:=|\s+)${QUOTED}`,
+);
+const YARN_WORKSPACE = new RegExp(String.raw`\byarn\s+workspace\s+${QUOTED}`);
+const SHELL_WRAPPER =
+  /^(?:\S*\/)?(?:ba|z|da|k)?sh\s+-\w*c\s+(['"])([\s\S]*)\1\s*$/;
+const PACKAGE_MANAGER = /(?:^|[\s;&|(])(?:npm|pnpm|yarn|bun)\s+([^;&|()]*)/;
+const VALUE_FLAGS = new Set([
+  "--prefix",
+  "--dir",
+  "--cwd",
+  "-C",
+  "--filter",
+  "-F",
+  "--workspace",
+  "-w",
+]);
+const NOT_SCRIPTS = new Set([
+  "install",
+  "i",
+  "ci",
+  "add",
+  "remove",
+  "rm",
+  "uninstall",
+  "update",
+  "up",
+  "exec",
+  "x",
+  "dlx",
+  "create",
+  "init",
+  "link",
+  "outdated",
+  "audit",
+]);
+
+function unquote(value: string): string {
+  return /^(['"]).*\1$/.test(value) ? value.slice(1, -1) : value;
+}
+
+function packageScript(command: string): string | undefined {
+  const match = PACKAGE_MANAGER.exec(command);
+  if (!match) return undefined;
+  const words = match[1].trim().split(/\s+/);
+  for (let index = 0; index < words.length; index += 1) {
+    const word = words[index];
+    if (!word) continue;
+    if (word.startsWith("-")) {
+      if (VALUE_FLAGS.has(word)) index += 1;
+      continue;
+    }
+    if (word === "run" || word === "run-script") continue;
+    if (word === "workspace") {
+      index += 1;
+      continue;
+    }
+    return NOT_SCRIPTS.has(word) ? undefined : unquote(word);
+  }
+  return undefined;
+}
+
+/** Read a shell tool call's title (`Bash: cd web && npm run dev`). */
+export function devServerCommand(title: string): DevServerCommand {
+  let command = title
+    .replace(/^(?:bash|shell|run|exec|execute|terminal|command)\s*:\s*/i, "")
+    .trim();
+  const wrapped = SHELL_WRAPPER.exec(command);
+  if (wrapped) command = wrapped[2];
+  let dir: string | undefined;
+  const enter = (value: string) => {
+    dir =
+      dir && !/^(?:[/~]|[A-Za-z]:[\\/])/.test(value)
+        ? `${dir.replace(/[\\/]+$/, "")}/${value}`
+        : value;
+  };
+  for (const match of command.matchAll(CD)) enter(unquote(match[1]));
+  const flagged = DIR_FLAG.exec(command);
+  if (flagged) enter(unquote(flagged[1]));
+  const filter = FILTER_FLAG.exec(command) ?? YARN_WORKSPACE.exec(command);
+  const framework = COMMAND_APPS.find(([, pattern]) =>
+    pattern.test(command),
+  )?.[0];
+  const script = framework ? undefined : packageScript(command);
+  const app = framework ?? (script ? `script:${script}` : undefined);
+  return {
+    ...(app ? { app } : {}),
+    ...(dir ? { dir } : {}),
+    ...(filter ? { filter: unquote(filter[1]) } : {}),
+  };
+}
 
 const WEB_ADDRESS =
   /\bhttps?:\/\/(?:\[[0-9a-f:.]+\]|[a-z0-9.-]+)(?::\d{1,5})?(?:[/?#][^\s"'<>`()[\]{}|\\]*)?/gi;
@@ -213,6 +395,8 @@ function lastLineBreak(text: string): number {
 export function createDevOutputScanner(): DevOutputScanner {
   let partial = "";
   let armed = 0;
+  /** The framework this output's latest banner named. */
+  let app: string | undefined;
   const scan = (text: string, signals: DevOutputSignal[]) => {
     for (const raw of text.split(/\r\n|\n|\r/)) {
       const line = cleanLine(raw);
@@ -220,10 +404,14 @@ export function createDevOutputScanner(): DevOutputScanner {
       if (STOPPED.test(line)) {
         signals.push({ kind: "stopped" });
         armed = 0;
+        app = undefined;
         continue;
       }
+      const named = APP_BANNERS.find(([, pattern]) => pattern.test(line))?.[0];
+      if (named) app = named;
       const address = addressInCleanLine(line, armed > 0);
-      if (address) signals.push({ kind: "address", address });
+      if (address)
+        signals.push({ kind: "address", address, ...(app ? { app } : {}) });
       armed = ARMS.test(line) ? ARMED_LINES : Math.max(0, armed - 1);
     }
   };
