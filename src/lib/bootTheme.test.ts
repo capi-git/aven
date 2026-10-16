@@ -109,4 +109,29 @@ describe("startup theme", () => {
     runThemeScript();
     expect(root.style.getPropertyValue("--boot-background")).toBe("");
   });
+
+  it("keeps the floating sidebar layer see-through from its first frame", () => {
+    const styles = new DOMParser()
+      .parseFromString(indexHtml, "text/html")
+      .querySelector("head style")!.textContent!;
+    expect(styles).toMatch(
+      /html\.aven-floating-sidebar-overlay #root \{\s*background: transparent !important;/,
+    );
+    const workspace = window.location.href;
+    try {
+      window.history.replaceState(null, "", "/index.html?floatingSidebar=1");
+      runThemeScript();
+      expect(root.classList.contains("aven-floating-sidebar-overlay")).toBe(
+        true,
+      );
+      root.className = "";
+      window.history.replaceState(null, "", "/index.html");
+      runThemeScript();
+      expect(root.classList.contains("aven-floating-sidebar-overlay")).toBe(
+        false,
+      );
+    } finally {
+      window.history.replaceState(null, "", workspace);
+    }
+  });
 });
