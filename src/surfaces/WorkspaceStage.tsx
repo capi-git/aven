@@ -232,15 +232,18 @@ function applyGeometry(element: HTMLElement, values: CSSProperties) {
       element.style.setProperty(name, String(value));
   }
 }
-/** Half of the gap between panes. Native browser children need a real gutter;
- * CSS stacking cannot cover them, so keep it small but present. */
-const GUTTER = 2;
+/** Half of the gap between panes. Each pane is a card, and native browser
+ * children need a real gutter too: CSS stacking cannot cover them. */
+const GUTTER = 2.5;
+/** Space between the cards and the workspace's outer edges, matching the
+ * floating sidebar card's inset so their edges line up. */
+const EDGE = 5;
 function surfaceStyle(rect: LayoutRect, inset = 0): CSSProperties {
   const epsilon = 0.000001;
-  const left = (rect.x > epsilon ? GUTTER : 0) + inset;
-  const top = (rect.y > epsilon ? GUTTER : 0) + inset;
-  const right = (rect.x + rect.w < 1 - epsilon ? GUTTER : 0) + inset;
-  const bottom = (rect.y + rect.h < 1 - epsilon ? GUTTER : 0) + inset;
+  const left = (rect.x > epsilon ? GUTTER : EDGE) + inset;
+  const top = (rect.y > epsilon ? GUTTER : EDGE) + inset;
+  const right = (rect.x + rect.w < 1 - epsilon ? GUTTER : EDGE) + inset;
+  const bottom = (rect.y + rect.h < 1 - epsilon ? GUTTER : EDGE) + inset;
   const position = (fraction: number, inset: number) =>
     inset ? `calc(${fraction * 100}% + ${inset}px)` : `${fraction * 100}%`;
   const size = (fraction: number, inset: number) =>
@@ -254,8 +257,8 @@ function surfaceStyle(rect: LayoutRect, inset = 0): CSSProperties {
 }
 /** A shared wallpaper canvas, clipped by each pane's existing bounds. */
 function surfaceBackgroundStyle(rect: LayoutRect) {
-  const left = (rect.x > 0.000001 ? GUTTER : 0) + 1;
-  const top = (rect.y > 0.000001 ? GUTTER : 0) + 1;
+  const left = (rect.x > 0.000001 ? GUTTER : EDGE) + 1;
+  const top = (rect.y > 0.000001 ? GUTTER : EDGE) + 1;
   return {
     "--workspace-background-left": `calc(${-rect.x * 100}cqw - ${left}px)`,
     "--workspace-background-top": `calc(${-rect.y * 100}cqh - ${top}px - var(--workspace-background-header-offset))`,
