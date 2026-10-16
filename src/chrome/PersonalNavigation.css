@@ -215,6 +215,10 @@
   .personal-project-running {
   display: inline-block;
 }
+.personal-shell .personal-navigation .personal-project-memory {
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--personal-accent) 80%, var(--color-content));
+}
 .personal-shell .personal-navigation .personal-project-waiting {
   width: 6px;
   height: 6px;

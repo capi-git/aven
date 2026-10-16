@@ -102,6 +102,29 @@ describe("Codex background text history", () => {
     ).toHaveLength(1);
   });
 
+  it("starts a text-only thread without shell, web search or apps", async () => {
+    await runCodexTextPrompt({
+      cwd: "/home",
+      prompt: "Keep the memory",
+      textOnly: true,
+    });
+    await runCodexTextPrompt({ cwd: "/home", prompt: "Title this" });
+    const starts = transport.sent.filter(
+      (request) => request.method === "thread/start",
+    );
+    expect(starts).toHaveLength(2);
+    expect(starts[0].params).toMatchObject({
+      sandbox: "read-only",
+      ephemeral: true,
+      config: {
+        "features.shell_tool": false,
+        web_search: "disabled",
+      },
+    });
+    // Ordinary helpers keep the user's configuration.
+    expect(starts[1].params?.config).toBeUndefined();
+  });
+
   it("keeps each fresh background request temporary after the previous process closes", async () => {
     await runCodexTextPrompt({ cwd: "/repo", prompt: "Generate a title" });
     await runCodexTextPrompt({

@@ -406,6 +406,24 @@ class RealAppCheck(unittest.TestCase):
                        input=json.dumps(quick) + '\n', capture_output=True, text=True, timeout=10)
         self.assertLess(time.monotonic() - started, 0.6)
 
+    def test_stand_in_answers_a_tool_free_keeper_call_with_memory_sections(self):
+        stand_in = self.root / 'home/.local/bin/claude'
+        request = {'type': 'user', 'uuid': 'turn-4',
+                   'message': {'role': 'user', 'content': [{'type': 'text', 'text': '<project-digest>\nx\n</project-digest>'}]}}
+        keeper = ['--input-format', 'stream-json', '--system-prompt', "You are Aven's memory keeper. Rules.",
+                  '--tools', '']
+        chat = subprocess.run([str(stand_in), *keeper], input=json.dumps(request) + '\n',
+                              capture_output=True, text=True, timeout=10)
+        messages = [json.loads(line) for line in chat.stdout.splitlines()]
+        reply = messages[-1]['result']
+        self.assertIn('## Stack', reply)
+        self.assertIn('AVEN_KEEPER_OK', reply)
+        log = [json.loads(line) for line in (self.root / 'home/.local/bin/fake-claude.log').read_text().splitlines()]
+        self.assertTrue(any(entry.get('keeperTurn') == 'turn-4' and entry.get('digest') for entry in log))
+        # With tools available it is not a keeper call: the chat word comes back.
+        tools = subprocess.run([str(stand_in), *keeper[:-2]], input=json.dumps(request) + '\n',
+                               capture_output=True, text=True, timeout=10)
+        self.assertEqual(json.loads(tools.stdout.splitlines()[-1])['result'], 'AVEN_SMOKE_OK')
     def test_stand_in_starts_a_pretend_dev_server_and_echoes_the_note(self):
         stand_in = self.root / 'home/.local/bin/claude'
         note = ('<aven-shared-work>\nLive from Aven.\nDev server running: '

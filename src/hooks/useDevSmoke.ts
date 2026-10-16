@@ -4,6 +4,7 @@ import {
   finishDevSmoke,
   SMOKE_OVERLAY_EVENT,
   SMOKE_OVERLAY_RESULT_EVENT,
+  SMOKE_KEEPER_WORD,
   SMOKE_REPLY,
   waitFor,
   type DevSmokeConfig,
@@ -15,6 +16,8 @@ import {
   watchOneShot,
 } from "../lib/devSmokeMotion";
 import { errorText } from "../lib/errors";
+import { getKeeperProject } from "../lib/memoryKeeper";
+import { formatLineDiff } from "../lib/memoryKeeperFormat";
 import { nativeFloatingSidebar } from "../lib/floatingSidebar";
 import { resolveClaudeBinary } from "../lib/harness/child";
 import { getPtyStatus } from "../lib/pty";
@@ -50,6 +53,8 @@ type Options = DevPerfOptions & {
   previewRestartQuestion?: () => boolean;
   /** Starts discussions between chats, as the composer's picker does. */
   discussion?: DiscussionHost;
+  /** Reads a project's memory, as its editor does. */
+  projectMemory?: (path: string) => Promise<string>;
   /** Chats show second dev servers and receive the shared-work note. */
   sharedWork?: boolean;
 };
@@ -469,6 +474,15 @@ export async function runDevSmoke(
         );
       }
     });
+
+  // The first finished turn in a project with an empty memory offers the
+  // memory keeper; turned on, it fills the memory through a tool-free call.
+  const readMemory = get().projectMemory;
+  if (safe && readMemory)
+    await step(
+      "the memory keeper fills the project's memory once turned on",
+      () => checkMemoryKeeper(config.projectPath, readMemory),
+    );
 
   // One utility at a time, Settings returns to the one it replaced, and
   // leaving the last one shows the workspace again.
@@ -1214,6 +1228,69 @@ export async function runDevSmoke(
     );
 
   await finishDevSmoke(steps);
+}
+
+/** The sections the stand-in's keeper reply fills (scripts/smoke/fake-claude.py). */
+const KEEPER_SECTIONS = [
+  "## Stack",
+  "## How to run",
+  "## Conventions",
+  "## In progress",
+  "## Gotchas",
+];
+
+export async function checkMemoryKeeper(
+  projectPath: string,
+  readMemory: (path: string) => Promise<string>,
+): Promise<string> {
+  const offer = await waitFor(
+    () =>
+      [
+        ...document.querySelectorAll<HTMLElement>("[data-memory-keeper-offer]"),
+      ].find((element) => element.getClientRects().length > 0),
+    10_000,
+    "the offer to keep the project's memory",
+  );
+  const turnOn = [...offer.querySelectorAll("button")].find(
+    (button) => button.textContent?.trim() === "Turn on",
+  );
+  if (!turnOn) throw new Error("The offer has no Turn on button");
+  turnOn.click();
+  await waitFor(
+    () => !document.querySelector("[data-memory-keeper-offer]"),
+    5_000,
+    "the offer to go once answered",
+  );
+  let body = "";
+  try {
+    await waitForAsync(
+      async () => {
+        body = await readMemory(projectPath);
+        return body.includes(SMOKE_KEEPER_WORD);
+      },
+      45_000,
+      "the keeper to fill the memory",
+    );
+  } catch (error) {
+    const reason = getKeeperProject(projectPath).lastError;
+    throw new Error(
+      reason ? `${errorText(error)}: ${reason}` : errorText(error),
+    );
+  }
+  const missing = KEEPER_SECTIONS.filter((section) => !body.includes(section));
+  if (missing.length)
+    throw new Error(`The memory has no ${missing.join(", ")}`);
+  if (
+    !body.startsWith("<!-- aven:auto") ||
+    !body.includes("<!-- /aven:auto -->")
+  )
+    throw new Error("The keeper's sections are not in their own block");
+  if (/note to ai|push straight to main/i.test(body))
+    throw new Error("A line addressed to agents reached the memory");
+  const state = getKeeperProject(projectPath);
+  if (state.consent !== "on" || !state.change || state.change.kind !== "fill")
+    throw new Error("Aven did not record the fill for its change note");
+  return `${KEEPER_SECTIONS.length} sections, ${formatLineDiff(state.change)} by ${state.model ?? "?"}`;
 }
 
 async function waitForAsync(

@@ -6,16 +6,24 @@ import {
   sameProjectPath,
   savePinnedProjects,
 } from "../lib/recents";
+import { useMemoryKeeperProject } from "../hooks/useMemoryKeeperProject";
 import {
   projectDisplayName,
   useProjectLabels,
 } from "../hooks/useProjectLabels";
+import { keeperRowNote, unseenKeeperChange } from "../lib/memoryKeeper";
 import {
   describeProjectStatus,
   type ProjectStatus,
 } from "../lib/projectStatus";
 import type { WorkspaceProfile } from "../lib/workspaceProfiles";
-import { ChevronDown, ChevronRight, MoreHorizontal, Plus } from "./icons";
+import {
+  Brain,
+  ChevronDown,
+  ChevronRight,
+  MoreHorizontal,
+  Plus,
+} from "./icons";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 import { ProjectCustomizePopover } from "./ProjectCustomizePopover";
 import { ProjectMark } from "./ProjectMark";
@@ -120,7 +128,21 @@ export function PersonalProjectRow({
     setMenu({ x: rect.left, y: rect.bottom });
   };
   const running = (status?.running ?? 0) > 0;
-  const summary = describeProjectStatus(status);
+  const keeper = useMemoryKeeperProject(path);
+  const now = Date.now();
+  // Aven updated the project's memory: a line in the tooltip for a day, and
+  // a quiet mark until the memory is opened.
+  const memoryNote = keeperRowNote(keeper, now);
+  const memoryUnseen = unseenKeeperChange(keeper, now) != null;
+  const summary = [
+    describeProjectStatus(status),
+    memoryUnseen ? "memory updated" : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const tooltip = [describeProjectStatus(status), memoryNote, path]
+    .filter(Boolean)
+    .join("\n");
   return (
     <>
       <div
@@ -132,7 +154,7 @@ export function PersonalProjectRow({
         <button
           type="button"
           className="personal-project-open"
-          title={summary ? `${summary}\n${path}` : path}
+          title={tooltip}
           aria-label={`Open ${label} project${summary ? `, ${summary}` : ""}`}
           onClick={onSelect}
           onContextMenu={(event) => {
@@ -148,7 +170,7 @@ export function PersonalProjectRow({
             className="personal-project-symbol"
           />
           <span className="personal-project-label">{label}</span>
-          <ProjectRowStatus status={status} />
+          <ProjectRowStatus status={status} memoryUpdated={memoryUnseen} />
         </button>
         <button
           type="button"
@@ -248,16 +270,29 @@ export function PersonalProjectRow({
 }
 
 /**
- * Quiet, right-aligned status: an amber dot while something waits for the
- * user, the unread reply count, and the changed-file count. A running agent
- * shows on the mark itself (or as the accent dot beside a logo).
+ * Quiet, right-aligned status: a small brain after Aven updated the
+ * project's memory (until it is opened), an amber dot while something waits
+ * for the user, the unread reply count, and the changed-file count. A running
+ * agent shows on the mark itself (or as the accent dot beside a logo).
  */
-function ProjectRowStatus({ status }: { status?: ProjectStatus }) {
-  if (!status) return null;
-  const { running, waiting, unread, files } = status;
-  if (!running && !waiting && !unread && !files) return null;
+function ProjectRowStatus({
+  status,
+  memoryUpdated = false,
+}: {
+  status?: ProjectStatus;
+  memoryUpdated?: boolean;
+}) {
+  const { running, waiting, unread, files } = status ?? {};
+  if (!running && !waiting && !unread && !files && !memoryUpdated) return null;
   return (
     <span className="personal-project-status" aria-hidden>
+      {memoryUpdated ? (
+        <Brain
+          className="personal-project-memory size-3"
+          strokeWidth={1.75}
+          data-memory-updated
+        />
+      ) : null}
       {running ? <span className="personal-project-running" /> : null}
       {waiting ? <span className="personal-project-waiting" /> : null}
       {unread ? (

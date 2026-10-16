@@ -81,6 +81,7 @@ import {
   useScheduledAgents,
 } from "./hooks/useScheduledAgents";
 import { useAgentKeepAwake } from "./hooks/useAgentKeepAwake";
+import { useMemoryKeeper } from "./hooks/useMemoryKeeper";
 import {
   agentKeepAwakeProgress,
   agentKeepAwakeSessionIds,
@@ -547,7 +548,7 @@ import {
   type WorkspaceNavigation,
 } from "./lib/workspaceNavigation";
 import { preparePrompt } from "./lib/promptPreparation";
-import { projectMemoryForTurn } from "./lib/projectMemory";
+import { loadProjectMemory, projectMemoryForTurn } from "./lib/projectMemory";
 import { warmNativeSkills, isNativeCommandPrompt } from "./lib/skills";
 import { nativeSkillContextForSession } from "./lib/sessionSkills";
 import {
@@ -2052,6 +2053,9 @@ export default function App({
     [sessions, keepAwakeSessionIds],
   );
   useAgentKeepAwake(keepAwakeSessionIds, keepAwakeProgress);
+  // Fills and updates project memories the user asked Aven to keep, while
+  // no agent works in that project.
+  useMemoryKeeper(sessions);
 
   // Restored and newly selected providers may arrive after the boot refresh.
   // Catalog loaders deduplicate already loaded catalogs and in-flight probes.
@@ -8686,6 +8690,7 @@ export default function App({
     },
     deleteProject: (path) => onRemoveProject(path, { purgeData: true }),
     discussion: discussions.host,
+    projectMemory: async (path) => (await loadProjectMemory(path))?.body ?? "",
     sharedWork: true,
     focusedSurfaceId: view.focusedId,
     sidebarOpen,

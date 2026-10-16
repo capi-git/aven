@@ -245,6 +245,16 @@ export function buildClaudeSpawnArgs(input: {
   isolated?: boolean;
   /** Project memory block, appended after Aven's host routing. */
   projectMemory?: string;
+  /**
+   * Isolated only: replaces Claude Code's own system prompt, for a helper
+   * that is a plain text call rather than an agent.
+   */
+  systemPrompt?: string;
+  /**
+   * Isolated only: the built-in tools the helper may use. An empty list
+   * disables every tool, so the call can only answer with text.
+   */
+  tools?: readonly string[];
 }): string[] {
   const args = [
     "--output-format",
@@ -285,6 +295,9 @@ export function buildClaudeSpawnArgs(input: {
     args.push("--strict-mcp-config");
     args.push("--mcp-config", JSON.stringify({ mcpServers: {} }));
     args.push("--settings", JSON.stringify(settings));
+    if (input.systemPrompt) args.push("--system-prompt", input.systemPrompt);
+    // `--tools ""` is Claude Code's documented way to offer no tools at all.
+    if (input.tools) args.push("--tools", input.tools.join(","));
   } else {
     args.push(`--setting-sources=${CLAUDE_SETTING_SOURCES}`);
     args.push("--settings", JSON.stringify(settings));

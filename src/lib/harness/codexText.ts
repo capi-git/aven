@@ -17,16 +17,30 @@ import { JsonRpcClient, type JsonRpcId } from "./jsonRpc";
 import { assertCodexStorage } from "./codexStorage";
 import { mergeStream, streamTextDelta } from "./streamText";
 
-const TEXT_CHILD_ID = "aven-codex-text";
 const INIT_TIMEOUT_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 45_000;
 const TEXT_RUNTIME_MODE = "supervised" as const;
 const TEXT_MODEL = "gpt-5.6-luna";
 const TEXT_EFFORT = "low";
 
+/**
+ * Configuration for a text-only thread (the memory keeper): no shell, no web
+ * search and no connected apps. The thread is read-only and every approval is
+ * declined as well, so nothing it is asked can act on the Mac.
+ */
+export const CODEX_TEXT_ONLY_CONFIG: Readonly<Record<string, unknown>> = {
+  "features.shell_tool": false,
+  "features.apps": false,
+  "features.browser_use": false,
+  "features.computer_use": false,
+  web_search: "disabled",
+};
+
 type LiveText = {
   rpc: JsonRpcClient;
   cwd: string;
+  /** Started with `CODEX_TEXT_ONLY_CONFIG`. */
+  textOnly: boolean;
   threadId: string;
   model: string;
   effort: string;
@@ -37,15 +51,50 @@ type LiveText = {
   turnFailed: ((error: Error) => void) | null;
 };
 
-let live: LiveText | null = null;
-let turns: Promise<void> = Promise.resolve();
+/** One helper process and the queue of prompts waiting for it. */
+type Lane = {
+  childId: string;
+  live: LiveText | null;
+  turns: Promise<void>;
+};
+
+const TEXT_LANE: Lane = {
+  childId: "aven-codex-text",
+  live: null,
+  turns: Promise.resolve(),
+};
+/**
+ * Text-only calls run in a process of their own, so a long one (the memory
+ * keeper reading a project) never holds up a title or a commit message.
+ */
+const TEXT_ONLY_LANE: Lane = {
+  childId: "aven-codex-text-only",
+  live: null,
+  turns: Promise.resolve(),
+};
+
+function enqueue<T>(lane: Lane, work: () => Promise<T>): Promise<T> {
+  const run = lane.turns.catch(() => undefined).then(work);
+  lane.turns = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
 
 function pickTextModel(): string {
+  return codexTextModel().id;
+}
+
+/** The small model background text uses, and its name for the interface. */
+export function codexTextModel(): { id: string; name: string } {
   const models = modelsFor("codex");
   const luna = models.find((model) =>
     /5\.6-luna/i.test(`${model.nativeId ?? ""} ${model.name} ${model.id}`),
   );
-  return luna?.nativeId ?? TEXT_MODEL;
+  return luna?.nativeId
+    ? { id: luna.nativeId, name: luna.name }
+    : { id: TEXT_MODEL, name: "GPT-5.6 Luna" };
 }
 
 function pickTextEffort(modelId: string): string {
@@ -61,22 +110,15 @@ function pickTextEffort(modelId: string): string {
 }
 
 export async function stopCodexTextPrompt(): Promise<void> {
-  await dropLive();
+  await Promise.all([dropLive(TEXT_LANE), dropLive(TEXT_ONLY_LANE)]);
 }
 
 /** Start the shared Codex app-server in the background so the first prompt is fast. */
 export function warmupCodexText(cwd: string): Promise<void> {
   if (!cwd || cwd === "~") return Promise.resolve();
-  const run = turns
-    .catch(() => undefined)
-    .then(async () => {
-      await ensureLive(cwd);
-    });
-  turns = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run.catch(() => undefined);
+  return enqueue(TEXT_LANE, async () => {
+    await ensureLive(TEXT_LANE, cwd);
+  }).catch(() => undefined);
 }
 
 /** Codex app-server turn that reuses a warm process, like Cursor text generation. */
@@ -84,21 +126,23 @@ export async function runCodexTextPrompt(input: {
   cwd: string;
   prompt: string;
   timeoutMs?: number;
+  /** A thread with no shell, web search or apps; see `CODEX_TEXT_ONLY_CONFIG`. */
+  textOnly?: boolean;
 }): Promise<string> {
-  const run = turns.catch(() => undefined).then(() => promptOnLive(input));
-  turns = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run;
+  const lane = input.textOnly ? TEXT_ONLY_LANE : TEXT_LANE;
+  return enqueue(lane, () => promptOnLive(lane, input));
 }
 
-async function promptOnLive(input: {
-  cwd: string;
-  prompt: string;
-  timeoutMs?: number;
-}): Promise<string> {
-  const session = await ensureLive(input.cwd);
+async function promptOnLive(
+  lane: Lane,
+  input: {
+    cwd: string;
+    prompt: string;
+    timeoutMs?: number;
+    textOnly?: boolean;
+  },
+): Promise<string> {
+  const session = await ensureLive(lane, input.cwd, !!input.textOnly);
   session.output = "";
   session.collecting = true;
   const timeoutMs = input.timeoutMs ?? REQUEST_TIMEOUT_MS;
@@ -136,42 +180,57 @@ async function promptOnLive(input: {
     await session.rpc
       .request("turn/interrupt", { threadId: session.threadId })
       .catch(() => undefined);
-    if (session.closed) await dropLive();
+    if (session.closed) await dropLive(lane);
     throw error;
   } finally {
     session.collecting = false;
     session.turnDone = null;
     session.turnFailed = null;
-    await dropLive();
+    await dropLive(lane);
   }
 }
 
-async function ensureLive(cwd: string): Promise<LiveText> {
+async function ensureLive(
+  lane: Lane,
+  cwd: string,
+  textOnly = false,
+): Promise<LiveText> {
   const model = pickTextModel();
   const effort = pickTextEffort(model);
+  const live = lane.live;
   if (live && !live.closed) {
-    if (live.cwd === cwd && live.model === model && live.effort === effort) {
+    if (
+      live.cwd === cwd &&
+      live.model === model &&
+      live.effort === effort &&
+      live.textOnly === textOnly
+    ) {
       return live;
     }
     try {
       live.model = model;
       live.effort = effort;
+      live.textOnly = textOnly;
       await openThread(live, cwd);
       return live;
     } catch {
-      await dropLive();
+      await dropLive(lane);
     }
   }
-  return startLive(cwd);
+  return startLive(lane, cwd, textOnly);
 }
 
-async function startLive(cwd: string): Promise<LiveText> {
-  await dropLive();
+async function startLive(
+  lane: Lane,
+  cwd: string,
+  textOnly = false,
+): Promise<LiveText> {
+  await dropLive(lane);
   const storage = await prepareCodexStorage();
   const { path } = await resolveCodexBinary();
   const sessionRef: { session: LiveText | null } = { session: null };
   const rpc = new JsonRpcClient(
-    TEXT_CHILD_ID,
+    lane.childId,
     {
       onNotification: (method, params) => {
         handleNotification(sessionRef.session, method, params);
@@ -187,6 +246,7 @@ async function startLive(cwd: string): Promise<LiveText> {
   const session: LiveText = {
     rpc,
     cwd,
+    textOnly,
     threadId: "",
     model,
     effort: pickTextEffort(model),
@@ -199,11 +259,11 @@ async function startLive(cwd: string): Promise<LiveText> {
   sessionRef.session = session;
 
   watchChild(
-    TEXT_CHILD_ID,
+    lane.childId,
     (line) => rpc.pushLine(line),
     () => {
       session.closed = true;
-      if (live === session) live = null;
+      if (lane.live === session) lane.live = null;
       session.turnFailed?.(new Error("Codex text generator exited"));
       session.turnDone = null;
       session.turnFailed = null;
@@ -212,7 +272,7 @@ async function startLive(cwd: string): Promise<LiveText> {
   );
 
   try {
-    await spawnChild(TEXT_CHILD_ID, path, ["app-server"], cwd);
+    await spawnChild(lane.childId, path, ["app-server"], cwd);
     await rpc.request(
       "initialize",
       {
@@ -235,13 +295,13 @@ async function startLive(cwd: string): Promise<LiveText> {
       storage.home,
     );
     await openThread(session, cwd);
-    live = session;
+    lane.live = session;
     return session;
   } catch (error) {
     session.closed = true;
     rpc.close(error instanceof Error ? error : new Error(String(error)));
-    unwatchChild(TEXT_CHILD_ID);
-    await killChild(TEXT_CHILD_ID).catch(() => undefined);
+    unwatchChild(lane.childId);
+    await killChild(lane.childId).catch(() => undefined);
     throw error;
   }
 }
@@ -258,6 +318,7 @@ async function openThread(session: LiveText, cwd: string): Promise<void> {
         model: session.model || undefined,
       }),
       ephemeral: true,
+      ...(session.textOnly ? { config: { ...CODEX_TEXT_ONLY_CONFIG } } : {}),
     },
     INIT_TIMEOUT_MS,
   );
@@ -267,15 +328,15 @@ async function openThread(session: LiveText, cwd: string): Promise<void> {
   session.threadId = threadId;
 }
 
-async function dropLive(): Promise<void> {
-  const current = live;
-  live = null;
+async function dropLive(lane: Lane): Promise<void> {
+  const current = lane.live;
+  lane.live = null;
   if (current) {
     current.closed = true;
     current.rpc.close();
   }
-  unwatchChild(TEXT_CHILD_ID);
-  await killChild(TEXT_CHILD_ID).catch(() => undefined);
+  unwatchChild(lane.childId);
+  await killChild(lane.childId).catch(() => undefined);
 }
 
 function handleNotification(

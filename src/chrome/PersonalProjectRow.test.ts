@@ -314,3 +314,42 @@ it("reaches the memory from the customize panel, keeping a typed name", async ()
     "Aven app",
   );
 });
+
+it("notes Aven's memory update in the tooltip, marked until the memory is opened", async () => {
+  const { resetMemoryKeeperCache, updateKeeperProject } =
+    await import("../lib/memoryKeeper");
+  resetMemoryKeeperCache();
+  updateKeeperProject(PATH, () => ({
+    consent: "on",
+    change: {
+      at: Date.now() - 2 * 60 * 60_000,
+      kind: "update",
+      added: 2,
+      removed: 1,
+      before: "",
+      baselineBefore: null,
+      updatedAt: 5,
+      seen: false,
+    },
+  }));
+  await render();
+  const open = host.querySelector<HTMLButtonElement>(".personal-project-open")!;
+  expect(open.title).toBe(
+    `Memory updated by Aven 2 h ago (+2 −1 lines)\n${PATH}`,
+  );
+  expect(open.getAttribute("aria-label")).toContain("memory updated");
+  expect(host.querySelector("[data-memory-updated]")).not.toBeNull();
+
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>(".personal-project-more")!.click(),
+  );
+  await act(async () =>
+    [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+      .find((node) => node.textContent?.includes("Project memory"))!
+      .click(),
+  );
+  // Seen: the mark goes, the tooltip keeps the note for the day.
+  expect(host.querySelector("[data-memory-updated]")).toBeNull();
+  expect(open.title).toContain("Memory updated by Aven");
+  resetMemoryKeeperCache();
+});
