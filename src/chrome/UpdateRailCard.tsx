@@ -1,3 +1,4 @@
+import { AvenMark } from "./AvenMark";
 import { X } from "./icons";
 import type { InstalledUpdate } from "../lib/updateNotice";
 
@@ -20,13 +21,8 @@ export function UpdateRailCard({ update, onOpen, onDismiss }: Props) {
         onClick={() => onOpen(update.version)}
         className="flex w-full items-start gap-2 rounded-lg px-2 py-2 pr-8 text-left hover:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
       >
-        <span className="mt-0.5 grid size-[18px] shrink-0 place-items-center">
-          <img
-            src="/aven-mark.png"
-            alt=""
-            aria-hidden
-            className="size-4 object-contain"
-          />
+        <span className="mt-0.5 grid size-[18px] shrink-0 place-items-center text-content">
+          <AvenMark />
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-ui-label font-medium leading-tight text-content">
