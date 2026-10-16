@@ -20,7 +20,16 @@ use tauri::{AppHandle, Manager, Webview, Window};
 
 /// Long enough for a normal start (well under a second), short enough that a
 /// start that failed before the interface drew is not mistaken for a hang.
-pub const REVEAL_TIMEOUT: Duration = Duration::from_secs(3);
+const RELEASE_REVEAL_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// Development builds load the interface from Vite, whose first load after a
+/// fresh checkout (as in the release workflow's real-app check) can take
+/// several seconds.
+pub const REVEAL_TIMEOUT: Duration = if cfg!(debug_assertions) {
+    Duration::from_secs(10)
+} else {
+    RELEASE_REVEAL_TIMEOUT
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -294,7 +303,9 @@ mod tests {
 
     #[test]
     fn the_timeout_leaves_time_for_a_normal_start_but_not_a_hang() {
-        assert!(REVEAL_TIMEOUT >= Duration::from_secs(2));
-        assert!(REVEAL_TIMEOUT <= Duration::from_secs(3));
+        assert!(RELEASE_REVEAL_TIMEOUT >= Duration::from_secs(2));
+        assert!(RELEASE_REVEAL_TIMEOUT <= Duration::from_secs(3));
+        assert!(REVEAL_TIMEOUT >= RELEASE_REVEAL_TIMEOUT);
+        assert!(REVEAL_TIMEOUT <= Duration::from_secs(10));
     }
 }

@@ -27,7 +27,7 @@ export function firstContentfulPaintEpochMs(): number | null {
 
 /** Wait until the native side has shown this window, then report how. */
 export async function readLaunchReveal(
-  timeoutMs = 6_000,
+  timeoutMs = 12_000,
 ): Promise<LaunchReveal> {
   const started = Date.now();
   let native: NativeReveal | null = null;
