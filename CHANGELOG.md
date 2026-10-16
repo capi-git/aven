@@ -2,9 +2,12 @@
 
 ## [Unreleased]
 
+## [0.1.144] - 2026-10-16
+
 ### Added
 
 - You can join a discussion between two chats from its page. Type in the box at the bottom ("Add something for both of them…"): your message shows as your own bubble and goes to both chats with their next replies, without interrupting either; sending while paused resumes it, and after it has ended it continues for one more round. When a discussion uses up its rounds, the page shows **Where they landed**, what the two agreed on and what is still open, written once by your cheapest model, with **Have Claude build it** and **Have Codex build it** to send the plan to either chat. Replies that agree or push back get a small mark, and their mascot nods or tilts its head as they arrive.
+- Right-click a file link in a chat to **Open** it, **Reveal in Finder** (**Reveal in File Explorer** on Windows) or **Copy Path**.
 
 ### Changed
 
