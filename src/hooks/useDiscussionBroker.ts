@@ -8,11 +8,14 @@ import {
 } from "react";
 import {
   BLOCKER_PHRASE,
+  continuationRelay,
   discussionBlocker,
+  discussionParty as partyOf,
   discussionReply,
   discussionStore,
   planDiscussions,
   relayBlockMeta,
+  relayDisplayText,
   relayPrompt,
   sidebarDiscussions,
   type Discussion,
@@ -22,8 +25,14 @@ import {
   type DiscussionOutcome,
   type DiscussionParty,
   type DiscussionStore,
+  type DiscussionSummary,
   type SidebarDiscussion,
 } from "../lib/discussions";
+import type { DiscussionTranscripts } from "../lib/discussionThread";
+import {
+  discussionBuildMessage,
+  runDiscussionWrapUp,
+} from "../lib/discussionWrapUp";
 import { errorText, logError } from "../lib/errors";
 import { orchestrator } from "../lib/orchestration";
 import { resolveModel } from "../lib/models";
@@ -47,6 +56,13 @@ export type DiscussionTurnOptions = {
   onSettled: (outcome: DiscussionOutcome) => void;
 };
 
+/**
+ * A message the user asked for (a wrap-up's build button): it goes through
+ * the normal send path like one typed in the chat, queued behind a turn
+ * already running.
+ */
+export type DiscussionMessageOptions = { followUpBehavior: "queue" };
+
 type Options = {
   /** Committed sessions; a change re-checks the discussions this window drives. */
   sessions: readonly Session[];
@@ -55,8 +71,15 @@ type Options = {
     sessionId: string,
     text: string,
     attachments: Attachment[],
-    options: DiscussionTurnOptions,
+    options: DiscussionTurnOptions | DiscussionMessageOptions,
   ) => void | boolean;
+  /** Show a chat in this window, as its sidebar row does. */
+  focusChat?: (sessionId: string) => void;
+  /** Sums up a finished discussion; tests replace the model call. */
+  summarise?: (
+    discussion: Discussion,
+    transcripts: DiscussionTranscripts,
+  ) => Promise<DiscussionSummary>;
   /** Add a short notice to a chat's transcript. */
   postNote: (sessionId: string, text: string) => void;
   /** Open a new chat beside `sourceId`; returns its id. */
@@ -119,6 +142,8 @@ export function useDiscussionBroker({
   postNote,
   openPartner,
   openView,
+  focusChat,
+  summarise = runDiscussionWrapUp,
   store: given,
 }: Options): { host: DiscussionHost; sidebar: SidebarDiscussion[] } {
   const [store] = useState(() => given ?? discussionStore());
@@ -133,8 +158,18 @@ export function useDiscussionBroker({
     postNote,
     openPartner,
     openView,
+    focusChat,
+    summarise,
   });
-  latest.current = { sessionsRef, onSubmit, postNote, openPartner, openView };
+  latest.current = {
+    sessionsRef,
+    onSubmit,
+    postNote,
+    openPartner,
+    openView,
+    focusChat,
+    summarise,
+  };
   /** Discussion id → the turn this window sent and is waiting on. */
   const inFlight = useRef(new Map<string, number>());
 
@@ -175,6 +210,14 @@ export function useDiscussionBroker({
       );
       if (a && b)
         store.refreshParties(id, discussionParty(a), discussionParty(b));
+      const current = store.get(id);
+      if (!current || current.delivered) return;
+      // Continued after it ended: the reply to pass on is read back from
+      // the chat that wrote it, as the page reads it.
+      if (!current.relay && current.settled > 0) {
+        const recovered = continuationRelay(current, sessionsRef.current);
+        if (recovered?.text) store.recoverRelay(id, recovered);
+      }
       const discussion = store.get(id);
       if (!discussion || discussion.delivered) return;
       const turn = discussion.settled;
@@ -184,7 +227,7 @@ export function useDiscussionBroker({
       let accepted: void | boolean = false;
       try {
         accepted = onSubmit(sessionId, relayPrompt(discussion), [], {
-          displayText: discussion.relay,
+          displayText: relayDisplayText(discussion),
           discussion: relayBlockMeta(discussion),
           // The topic is the user's own, so it keeps skills and @ references.
           verbatim: turn > 0,
@@ -206,6 +249,28 @@ export function useDiscussionBroker({
       }
     },
     [settle, store],
+  );
+
+  /** Discussions this window is summing up now. */
+  const summarising = useRef(new Set<string>());
+  const summariseOnce = useCallback(
+    (id: string) => {
+      if (summarising.current.has(id) || !store.claimSummary(id)) return;
+      const discussion = store.get(id);
+      if (!discussion) return;
+      summarising.current.add(id);
+      const sessions = latest.current.sessionsRef.current;
+      const blocks = (side: "a" | "b") =>
+        sessions.find(
+          (session) => session.id === partyOf(discussion, side).sessionId,
+        )?.blocks;
+      void latest.current
+        .summarise(discussion, { a: blocks("a"), b: blocks("b") })
+        .catch((): DiscussionSummary => ({ status: "failed" }))
+        .then((summary) => store.finishSummary(id, discussion.settled, summary))
+        .finally(() => summarising.current.delete(id));
+    },
+    [store],
   );
 
   const run = useCallback(() => {
@@ -240,9 +305,12 @@ export function useDiscussionBroker({
         case "redeliver":
           store.redeliver(action.id);
           break;
+        case "summarise":
+          summariseOnce(action.id);
+          break;
       }
     }
-  }, [deliver, store]);
+  }, [deliver, store, summariseOnce]);
 
   const driving = list.some(
     (discussion) => store.owns(discussion) && !discussion.preview,
@@ -362,6 +430,29 @@ export function useDiscussionBroker({
       },
       open(id) {
         if (store.get(id)) latest.current.openView?.(id);
+      },
+      build(id, side) {
+        const { sessionsRef, onSubmit, focusChat } = latest.current;
+        const discussion = store.get(id);
+        if (!discussion) return "This discussion is no longer available.";
+        const party = partyOf(discussion, side);
+        const session = sessionsRef.current.find(
+          (entry) => entry.id === party.sessionId,
+        );
+        if (!session) return `“${party.title}” isn't open in this window.`;
+        focusChat?.(session.id);
+        let accepted: void | boolean = false;
+        try {
+          accepted = onSubmit(
+            session.id,
+            discussionBuildMessage(discussion, side),
+            [],
+            { followUpBehavior: "queue" },
+          );
+        } catch (error) {
+          logError("Discussion build", error);
+        }
+        return accepted === false ? `Couldn't send to “${party.title}”.` : null;
       },
     }),
     [store],

@@ -339,6 +339,9 @@ const ThreadItem = memo(function ThreadItem({
           {item.text}
         </li>
       );
+    case "user":
+      // Shown on the page from the next change on.
+      return null;
     case "reply":
       return voice ? (
         <li

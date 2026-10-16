@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  arrivedReplies,
   buildDiscussionThread,
   isLongReply,
   lastReplyKeys,
+  replyKeys,
   typingSide,
+  waitsForNextTurn,
   type DiscussionThreadItem,
 } from "./discussionThread";
 import {
   createDiscussion,
   endDiscussion,
+  interjectDiscussion,
   pauseDiscussion,
   settleDiscussion,
   type Discussion,
@@ -87,7 +91,9 @@ const shape = (items: readonly DiscussionThreadItem[]) =>
         ? `round ${item.round}/${item.rounds}`
         : item.kind === "closing"
           ? `closing:${item.text}`
-          : `topic:${item.text}`,
+          : item.kind === "user"
+            ? `you(${item.state}):${item.text}`
+            : `topic:${item.text}`,
   );
 
 describe("buildDiscussionThread", () => {
@@ -265,5 +271,147 @@ describe("isLongReply", () => {
     expect(
       isLongReply(Array.from({ length: 14 }, () => "line").join("\n")),
     ).toBe(false);
+  });
+});
+
+describe("what the user added", () => {
+  const add = (discussion: Discussion, id: string, text: string) =>
+    interjectDiscussion(discussion, { id, text, now: 5 });
+  const delivered = (discussion: Discussion) => ({
+    ...discussion,
+    delivered: true,
+  });
+
+  it("waits below the turn under way, then sits before the reply that answers it", () => {
+    // B is answering turn 1 when the user adds something.
+    let discussion = delivered(settle(start(), ["Yes, briefly."]));
+    discussion = add(discussion, "u1", "Keep it small.");
+    let replies = ["Yes, briefly."];
+    let thread = buildDiscussionThread(discussion, transcripts(replies));
+    expect(shape(thread)).toEqual([
+      "topic:Should we cache the lookups?",
+      "round 1/2",
+      "a:Yes, briefly.",
+      "you(queued):Keep it small.",
+    ]);
+    expect(
+      thread.filter((item) => waitsForNextTurn(discussion, item)),
+    ).toHaveLength(1);
+
+    // B answers; A receives the user's message with B's reply.
+    replies = ["Yes, briefly.", "For how long?"];
+    discussion = delivered(settle(discussion, ["For how long?"]));
+    const next = buildDiscussionThread(
+      discussion,
+      transcripts(replies),
+      thread,
+    );
+    expect(shape(next)).toEqual([
+      "topic:Should we cache the lookups?",
+      "round 1/2",
+      "a:Yes, briefly.",
+      "b:For how long?",
+      "round 2/2",
+      "you(sent):Keep it small.",
+    ]);
+    expect(next.some((item) => waitsForNextTurn(discussion, item))).toBe(false);
+    // Unchanged items keep their identity.
+    expect(next[2]).toBe(thread[2]);
+    thread = next;
+    replies = [...replies, "Five minutes, small."];
+    discussion = settle(discussion, ["Five minutes, small."]);
+    expect(
+      shape(buildDiscussionThread(discussion, transcripts(replies), thread)),
+    ).toEqual([
+      "topic:Should we cache the lookups?",
+      "round 1/2",
+      "a:Yes, briefly.",
+      "b:For how long?",
+      "round 2/2",
+      "you(sent):Keep it small.",
+      "a:Five minutes, small.",
+    ]);
+  });
+
+  it("goes with the turn about to be sent, before the typing side", () => {
+    const paused = pauseDiscussion(
+      settle(start(), ["Yes, briefly."]),
+      "“Review” is busy.",
+      3,
+    );
+    const resumed = add(paused, "u1", "Go on.");
+    const thread = buildDiscussionThread(
+      resumed,
+      transcripts(["Yes, briefly."]),
+    );
+    expect(shape(thread).at(-1)).toBe("you(queued):Go on.");
+    expect(thread.some((item) => waitsForNextTurn(resumed, item))).toBe(false);
+  });
+
+  it("says when a message never went because the discussion ended first", () => {
+    let discussion = delivered(settle(start(), ["Yes, briefly."]));
+    discussion = add(discussion, "u1", "Too late.");
+    discussion = endDiscussion(discussion, { kind: "stopped" }, 9);
+    expect(
+      shape(buildDiscussionThread(discussion, transcripts(["Yes, briefly."]))),
+    ).toEqual([
+      "topic:Should we cache the lookups?",
+      "round 1/2",
+      "a:Yes, briefly.",
+      "you(unsent):Too late.",
+      "closing:Discussion stopped during round 1 of 2.",
+    ]);
+  });
+
+  it("opens a continued discussion's next round with the user's message", () => {
+    const replies = ["One", "Two", "Three", "Four"];
+    const ended = settle(start(), replies);
+    const continued = add(ended, "u1", "And eviction?");
+    expect(
+      shape(buildDiscussionThread(continued, transcripts(replies))).slice(-3),
+    ).toEqual(["b:Four", "round 3/3", "you(queued):And eviction?"]);
+    expect(typingSide(continued)).toBe("a");
+  });
+});
+
+describe("reply stance", () => {
+  it("reads each reply after the first, once per text", () => {
+    const replies = ["Yes, briefly.", "Agreed, five minutes.", "Not quite."];
+    const discussion = settle(start(), replies);
+    const thread = buildDiscussionThread(discussion, transcripts(replies));
+    const stances = thread.flatMap((item) =>
+      item.kind === "reply" ? [item.stance] : [],
+    );
+    // The opener answers the user's topic, not another reply.
+    expect(stances).toEqual([null, "agree", "pushback"]);
+    // A rebuild with the same text keeps the same items.
+    expect(
+      buildDiscussionThread(discussion, transcripts(replies), thread),
+    ).toBe(thread);
+  });
+});
+
+describe("arrivedReplies", () => {
+  it("reports each reply once, and none that were there at the start", () => {
+    const first = ["Yes, briefly.", "Agreed."];
+    let discussion = settle(start(), first);
+    const opened = buildDiscussionThread(discussion, transcripts(first));
+    const known = replyKeys(opened);
+    expect(arrivedReplies(opened, known)).toEqual([]);
+
+    const more = [...first, "Not quite."];
+    discussion = settle(discussion, ["Not quite."]);
+    const next = buildDiscussionThread(discussion, transcripts(more), opened);
+    expect(arrivedReplies(next, known).map((item) => item.key)).toEqual([
+      "turn-2",
+    ]);
+    // Rebuilding or rendering again reports nothing new.
+    expect(arrivedReplies(next, known)).toEqual([]);
+    expect(
+      arrivedReplies(
+        buildDiscussionThread(discussion, transcripts(more), next),
+        known,
+      ),
+    ).toEqual([]);
   });
 });

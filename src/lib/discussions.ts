@@ -17,6 +17,13 @@
  * rather than slipping into that queue. The user has taken over that chat;
  * Resume continues once they are done. This never interleaves relays with the
  * user's own follow-ups and never steers a running turn.
+ *
+ * Jumping in: the user can add a message for both chats from the
+ * discussion's page. It is stored with the discussion as an interjection
+ * tied to the first turn whose relay has not been sent yet, and rides two
+ * relays: that turn's, to the chat speaking next, and the following one, to
+ * its partner. Both chats therefore see it exactly once, in order, without
+ * any turn being interrupted or any extra message being sent.
  */
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -42,6 +49,19 @@ export const RELAY_CHAR_LIMIT = 8_000;
  * shows who took part and how it ended. Their replies stay in the two chats.
  */
 export const DISCUSSION_HISTORY_LIMIT = 20;
+/**
+ * Rounds a discussion can reach by continuing it from its page. Starting one
+ * offers up to `DISCUSSION_MAX_ROUNDS`.
+ */
+export const DISCUSSION_ROUNDS_LIMIT = 12;
+/** Longest message the user can add to a discussion. */
+export const INTERJECTION_CHAR_LIMIT = 1_500;
+/** Messages the user can add to one discussion; they persist with it. */
+export const INTERJECTION_LIMIT = 10;
+/** Items in each list of a discussion's wrap-up. */
+export const SUMMARY_ITEM_LIMIT = 4;
+/** Longest wrap-up item kept. */
+export const SUMMARY_ITEM_CHARS = 160;
 
 export type DiscussionSide = "a" | "b";
 
@@ -62,6 +82,35 @@ export type DiscussionEnding = {
   kind: "completed" | "stopped" | "cancelled";
   side?: DiscussionSide;
 };
+
+/**
+ * A message the user added for both chats from the discussion's page. It is
+ * not in either transcript the way replies are, so it is kept here.
+ */
+export type DiscussionInterjection = {
+  id: string;
+  text: string;
+  /**
+   * The turn whose relay first carries it, to the chat speaking then; the
+   * next turn's relay carries it on to the other chat.
+   */
+  turn: number;
+  at: number;
+};
+
+/**
+ * Where a finished discussion landed, written once by the cheapest model
+ * (see `discussionWrapUp`). Only discussions that used up their rounds get
+ * one; stopped ones never do.
+ */
+export type DiscussionSummary =
+  /** Waiting for the window that drives it. */
+  | { status: "pending" }
+  /** A model is summing up now. */
+  | { status: "running"; since: number }
+  | { status: "done"; agreed: string[]; open: string[]; model: string }
+  /** No cheap model, or the call failed: the page shows no lists. */
+  | { status: "failed" };
 
 export type Discussion = {
   id: string;
@@ -87,6 +136,10 @@ export type Discussion = {
   ended?: DiscussionEnding;
   /** Chats still owed the closing note (posted once each is idle). */
   notes?: DiscussionSide[];
+  /** What the user added for both chats, oldest first. */
+  interjections?: DiscussionInterjection[];
+  /** Where it landed, once it has used up its rounds. */
+  summary?: DiscussionSummary;
   /** Development preview: shown only, never relays or persists. */
   preview?: true;
   startedAt: number;
@@ -197,6 +250,29 @@ function describeParty(other: DiscussionParty): string {
   return `${other.model} (${HARNESS_TITLE[other.harness]}) in the chat “${other.title}”`;
 }
 
+/**
+ * The user's messages this turn's relay carries: those its partner already
+ * saw (`carried`, sent before the partner's reply) and those added since
+ * (`fresh`, after it). Every message rides exactly two relays, one to each
+ * chat.
+ */
+export function relayInterjections(
+  discussion: Discussion,
+  turn = discussion.settled,
+): { carried: DiscussionInterjection[]; fresh: DiscussionInterjection[] } {
+  const all = discussion.interjections ?? [];
+  return {
+    carried: all.filter((entry) => entry.turn === turn - 1),
+    fresh: all.filter((entry) => entry.turn === turn),
+  };
+}
+
+function userAdds(entry: DiscussionInterjection): string {
+  return entry.text.includes("\n")
+    ? `The user adds:\n\n${entry.text}`
+    : `The user adds: ${entry.text}`;
+}
+
 /** Exactly what the speaking chat's agent receives this turn. */
 export function relayPrompt(
   discussion: Discussion,
@@ -208,16 +284,25 @@ export function relayPrompt(
   );
   const turn = discussion.settled;
   const topic = capRelay(discussion.topic, limit).text;
-  if (turn === 0)
-    return `${framing(sender, discussion.rounds)}\n\nTopic: ${topic}`;
+  const { carried, fresh } = relayInterjections(discussion);
   const parts: string[] = [];
-  if (turn === 1)
+  if (turn <= 1)
     parts.push(framing(sender, discussion.rounds), `Topic: ${topic}`);
-  parts.push(`${partyLabel(sender)} says:`, discussion.relay);
-  if (discussion.truncated)
-    parts.push(
-      `[Aven shortened this message to ${limit.toLocaleString("en-US")} characters.]`,
-    );
+  if (turn === 0) {
+    parts.push(...fresh.map(userAdds));
+    return parts.join("\n\n");
+  }
+  parts.push(...carried.map(userAdds));
+  // A continued discussion whose last reply can't be read sends only the
+  // user's message.
+  if (discussion.relay) {
+    parts.push(`${partyLabel(sender)} says:`, discussion.relay);
+    if (discussion.truncated)
+      parts.push(
+        `[Aven shortened this message to ${limit.toLocaleString("en-US")} characters.]`,
+      );
+  }
+  parts.push(...fresh.map(userAdds));
   const last = turn >= discussion.rounds * 2 - 2;
   parts.push(
     `(Round ${discussionRound(discussion)} of ${discussion.rounds}.${
@@ -225,6 +310,21 @@ export function relayPrompt(
     })`,
   );
   return parts.join("\n\n");
+}
+
+/**
+ * What the receiving transcript shows for this turn's relay: the other
+ * chat's reply (or the topic), with the user's own messages around it in
+ * the order the agent reads them.
+ */
+export function relayDisplayText(discussion: Discussion): string {
+  const { carried, fresh } = relayInterjections(discussion);
+  const added = (entry: DiscussionInterjection) => `You added: ${entry.text}`;
+  return [
+    ...carried.map(added),
+    ...(discussion.relay ? [discussion.relay] : []),
+    ...fresh.map(added),
+  ].join("\n\n");
 }
 
 /** The user-side block this turn adds to the receiving transcript. */
@@ -301,7 +401,7 @@ export function endDiscussion(
   now: number,
 ): Discussion {
   if (discussion.status === "ended") return discussion;
-  return {
+  const next: Discussion = {
     ...discussion,
     status: "ended",
     reason: undefined,
@@ -309,6 +409,11 @@ export function endDiscussion(
     notes: discussion.preview ? [] : ["a", "b"],
     updatedAt: now,
   };
+  // Only a discussion that used up its rounds is summed up.
+  if (ended.kind === "completed" && !discussion.preview)
+    next.summary = { status: "pending" };
+  else delete next.summary;
+  return next;
 }
 
 /**
@@ -398,6 +503,121 @@ export function resumeDiscussion(
   };
   delete resumed.blockedBy;
   return resumed;
+}
+
+/**
+ * What sending a message from the discussion's page does now:
+ * - `queue`: it goes with the next relay; the turn under way is left alone.
+ * - `resume`: the paused discussion continues, with the message.
+ * - `extend`: the last reply is under way, so one more round carries it.
+ * - `continue`: it has ended; one more round from where it stopped starts
+ *   with the message.
+ */
+export type JumpInPlan =
+  | {
+      kind: "queue" | "resume" | "extend" | "continue";
+      /** The turn whose relay carries it first. */
+      turn: number;
+      /** The rounds the discussion will have. */
+      rounds: number;
+    }
+  | { kind: "blocked"; reason: string };
+
+export function jumpInPlan(discussion: Discussion): JumpInPlan {
+  if (discussion.preview)
+    return { kind: "blocked", reason: "A preview can't take messages." };
+  if ((discussion.interjections?.length ?? 0) >= INTERJECTION_LIMIT)
+    return {
+      kind: "blocked",
+      reason: `You've added ${INTERJECTION_LIMIT} messages, the most one discussion keeps.`,
+    };
+  const ended = discussion.status === "ended";
+  const { settled } = discussion;
+  // A relay already sent (the turn under way) keeps its message; anything
+  // new goes with the next one.
+  const turn = !ended && discussion.delivered ? settled + 1 : settled;
+  // Ended: the round it stopped in is finished first when the responding
+  // chat was interrupted, so the message still reaches both chats.
+  const rounds = ended
+    ? Math.floor((settled + 1) / 2) + 1
+    : turn >= discussion.rounds * 2
+      ? discussion.rounds + 1
+      : discussion.rounds;
+  if (rounds > DISCUSSION_ROUNDS_LIMIT)
+    return {
+      kind: "blocked",
+      reason: `This discussion has had ${plural(DISCUSSION_ROUNDS_LIMIT, "round")}, the most one can have.`,
+    };
+  const kind = ended
+    ? "continue"
+    : rounds > discussion.rounds
+      ? "extend"
+      : discussion.status === "paused"
+        ? "resume"
+        : "queue";
+  return { kind, turn, rounds };
+}
+
+/** The user's message as stored: trimmed and capped. */
+export function capInterjection(text: string): string {
+  return capRelay(text, INTERJECTION_CHAR_LIMIT).text;
+}
+
+/** Add the user's message as `jumpInPlan` describes. */
+export function interjectDiscussion(
+  discussion: Discussion,
+  input: { id: string; text: string; now: number },
+): Discussion {
+  const plan = jumpInPlan(discussion);
+  const text = capInterjection(input.text);
+  if (plan.kind === "blocked" || !text) return discussion;
+  const ended = discussion.status === "ended";
+  // A message that never reached anyone before the end goes first now.
+  const earlier = (discussion.interjections ?? []).map((entry) =>
+    ended && entry.turn > plan.turn ? { ...entry, turn: plan.turn } : entry,
+  );
+  const next: Discussion = {
+    ...discussion,
+    rounds: plan.rounds,
+    interjections: [
+      ...earlier,
+      { id: input.id, text, turn: plan.turn, at: input.now },
+    ],
+    status: "active",
+    updatedAt: input.now,
+  };
+  delete next.reason;
+  delete next.blockedBy;
+  if (ended) {
+    // The reply to pass on is read back from its chat when the turn is sent
+    // (`continuationRelay`); the opening turn passes the topic again.
+    next.delivered = false;
+    next.relay =
+      discussion.settled === 0 ? capRelay(discussion.topic).text : "";
+    delete next.truncated;
+    delete next.ended;
+    delete next.notes;
+    delete next.summary;
+  }
+  return next;
+}
+
+/**
+ * The reply a continued discussion passes on, read from the chat that wrote
+ * it: once a discussion ends Aven no longer keeps it. Null when that chat is
+ * not open here; "" when it has no reply to pass on.
+ */
+export function continuationRelay(
+  discussion: Discussion,
+  sessions: readonly Session[],
+): { text: string; truncated: boolean } | null {
+  const turn = discussion.settled - 1;
+  if (turn < 0)
+    return { text: capRelay(discussion.topic).text, truncated: false };
+  const writer = discussionParty(discussion, turn % 2 === 0 ? "a" : "b");
+  const session = sessions.find((entry) => entry.id === writer.sessionId);
+  if (!session) return null;
+  return capRelay(discussionReply(session.blocks, discussion.id, turn) ?? "");
 }
 
 // --- Transcript --------------------------------------------------------------
@@ -539,6 +759,12 @@ export type DiscussionHost = {
   start(request: DiscussionStartRequest): string | null;
   /** Shows the discussion's conversation page, opening it where needed. */
   open?(id: string): void;
+  /**
+   * Shows `side`'s chat and sends it, as the user, a message asking it to
+   * carry out the plan the discussion landed on. Returns why it could not,
+   * or null.
+   */
+  build?(id: string, side: DiscussionSide): string | null;
   /** Development builds offer a preview of the sidebar animation. */
   preview?: boolean;
 };
@@ -564,7 +790,9 @@ export type DiscussionAction =
       text: string;
     }
   | { kind: "recover"; id: string; turn: number; reply: string }
-  | { kind: "redeliver"; id: string };
+  | { kind: "redeliver"; id: string }
+  /** It used up its rounds: sum up where it landed, once. */
+  | { kind: "summarise"; id: string };
 
 /**
  * What the owning window should do now. Pure: the broker runs it whenever
@@ -583,6 +811,8 @@ export function planDiscussions(
     if (discussion.owner !== owner || discussion.preview) continue;
     const { id } = discussion;
     if (discussion.status === "ended") {
+      if (discussion.summary?.status === "pending")
+        actions.push({ kind: "summarise", id });
       for (const side of discussion.notes ?? []) {
         const session = byId.get(discussionParty(discussion, side).sessionId);
         // A note waits for the chat to be idle, so it never splits a reply.
@@ -768,8 +998,17 @@ export function readDiscussion(value: unknown): Discussion | null {
     return null;
   if (typeof settled !== "number" || !Number.isInteger(settled) || settled < 0)
     return null;
-  const rounds = clampRounds(Number(record.rounds));
+  // Continuing from the page can take a discussion past the chip's six.
+  const storedRounds = Number(record.rounds);
+  const rounds = Number.isFinite(storedRounds)
+    ? Math.min(
+        DISCUSSION_ROUNDS_LIMIT,
+        Math.max(DISCUSSION_MIN_ROUNDS, Math.round(storedRounds)),
+      )
+    : DISCUSSION_DEFAULT_ROUNDS;
   if (settled > rounds * 2) return null;
+  const interjections = readInterjections(record.interjections, rounds);
+  const summary = status === "ended" ? readSummary(record.summary) : null;
   const ended = readEnding(record.ended);
   const notes = Array.isArray(record.notes)
     ? record.notes.filter(
@@ -794,9 +1033,66 @@ export function readDiscussion(value: unknown): Discussion | null {
     ...(blockedBy && status === "paused" ? { blockedBy } : {}),
     ...(status === "ended" && ended ? { ended } : {}),
     ...(status === "ended" ? { notes: notes ?? [] } : {}),
+    ...(interjections.length ? { interjections } : {}),
+    ...(summary ? { summary } : {}),
     startedAt: Number(record.startedAt) || 0,
     updatedAt: Number(record.updatedAt) || 0,
   };
+}
+
+function readInterjections(
+  value: unknown,
+  rounds: number,
+): DiscussionInterjection[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .flatMap((entry): DiscussionInterjection[] => {
+      if (!entry || typeof entry !== "object") return [];
+      const record = entry as Record<string, unknown>;
+      const id = text(record.id, 200);
+      const said = text(record.text, INTERJECTION_CHAR_LIMIT + 1);
+      const { turn } = record;
+      if (!id || !said?.trim()) return [];
+      if (
+        typeof turn !== "number" ||
+        !Number.isInteger(turn) ||
+        turn < 0 ||
+        turn > rounds * 2
+      )
+        return [];
+      return [{ id, text: said, turn, at: Number(record.at) || 0 }];
+    })
+    .slice(0, INTERJECTION_LIMIT);
+}
+
+function readItems(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  return value
+    .flatMap((item) => {
+      const line = text(item, SUMMARY_ITEM_CHARS + 1);
+      return line?.trim() ? [line] : [];
+    })
+    .slice(0, SUMMARY_ITEM_LIMIT);
+}
+
+function readSummary(value: unknown): DiscussionSummary | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  switch (record.status) {
+    case "pending":
+    case "failed":
+      return { status: record.status };
+    case "running":
+      return { status: "running", since: Number(record.since) || 0 };
+    case "done": {
+      const agreed = readItems(record.agreed);
+      const open = readItems(record.open);
+      const model = text(record.model, 200) ?? "";
+      return agreed && open ? { status: "done", agreed, open, model } : null;
+    }
+    default:
+      return null;
+  }
 }
 
 const ENDINGS = new Set(["completed", "stopped", "cancelled"]);
@@ -850,8 +1146,13 @@ export class DiscussionStore {
     // paused rather than lost.
     let changed = false;
     this.list = readAll(storage).map((discussion) => {
-      if (discussion.owner !== owner || discussion.status !== "active")
-        return discussion;
+      if (discussion.owner !== owner) return discussion;
+      // A summary under way when the window went is written again, once.
+      if (discussion.summary?.status === "running") {
+        changed = true;
+        return { ...discussion, summary: { status: "pending" } };
+      }
+      if (discussion.status !== "active") return discussion;
       changed = true;
       return pauseDiscussion(discussion, RELOAD_REASON, this.now());
     });
@@ -1001,6 +1302,73 @@ export class DiscussionStore {
   resume(id: string) {
     this.adopt(id);
     this.change(id, (discussion) => resumeDiscussion(discussion, this.now()));
+  }
+
+  /**
+   * The user added a message for both chats from the page: it goes with the
+   * next relay, resumes a paused discussion or continues an ended one for
+   * one more round (see `jumpInPlan`). Returns why it could not, or null.
+   */
+  interject(id: string, text: string): string | null {
+    const current = this.get(id);
+    if (!current) return "This discussion is no longer available.";
+    const plan = jumpInPlan(current);
+    if (plan.kind === "blocked") return plan.reason;
+    if (!text.trim()) return "Write something to add.";
+    this.adopt(id);
+    this.change(id, (discussion) =>
+      interjectDiscussion(discussion, {
+        id: crypto.randomUUID(),
+        text,
+        now: this.now(),
+      }),
+    );
+    return null;
+  }
+
+  /** A continued discussion's reply to pass on, read back from its chat. */
+  recoverRelay(id: string, relay: { text: string; truncated: boolean }) {
+    this.change(id, (discussion) => {
+      if (discussion.status === "ended" || discussion.delivered)
+        return discussion;
+      if (discussion.relay === relay.text) return discussion;
+      const next = { ...discussion, relay: relay.text };
+      if (relay.truncated) next.truncated = true;
+      else delete next.truncated;
+      return next;
+    });
+  }
+
+  /** Start summing up: true when this call claimed it. */
+  claimSummary(id: string): boolean {
+    let claimed = false;
+    this.change(id, (discussion) => {
+      if (
+        discussion.status !== "ended" ||
+        discussion.summary?.status !== "pending"
+      )
+        return discussion;
+      claimed = true;
+      return {
+        ...discussion,
+        summary: { status: "running", since: this.now() },
+      };
+    });
+    return claimed;
+  }
+
+  /**
+   * The summary is written. It is kept only while the discussion is still
+   * the one summed up: ended, after `settled` turns, and not continued since.
+   */
+  finishSummary(id: string, settled: number, summary: DiscussionSummary) {
+    this.change(id, (discussion) =>
+      discussion.status === "ended" &&
+      discussion.settled === settled &&
+      discussion.summary?.status === "running"
+        ? { ...discussion, summary }
+        : discussion,
+    );
   }
 
   /** The user pressed Stop discussion. */
