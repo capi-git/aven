@@ -296,15 +296,6 @@ export const SETTINGS = {
       "Check for app updates, read what's new, and restart to install.",
     keywords: "automatic update release changelog download build about",
   }),
-  sameAppearance: defineSetting({
-    section: "appearance",
-    label: "Same appearance across workspaces",
-    description:
-      "Copy colors, transparency, blur, and sidebar styling to other workspaces.",
-    keywords: "sync match work personal identical",
-    rowDescription:
-      "Copy these colors, transparency, blur, and sidebar styles to your other workspaces.",
-  }),
   theme: defineSetting({
     section: "appearance",
     label: "Theme",
@@ -312,71 +303,14 @@ export const SETTINGS = {
     keywords: "automatic night day",
     rowDescription: "Follow your system, or choose a light or dark appearance.",
   }),
-  workspaceColors: defineSetting({
+  accentColor: defineSetting({
     section: "appearance",
-    label: "Workspace colors",
-    description: "Drag to pick any background, accent, or highlight color.",
-    keywords: "dark light hex tint hue saturation palette picker theme",
-  }),
-  matchPanels: defineSetting({
-    section: "appearance",
-    label: "Match sidebars to workspace",
-    description:
-      "Use the workspace background and transparency in both sidebars.",
-    keywords: "panels same separate colors",
+    label: "Accent colour",
+    description: "Pick the colour for buttons, links and selections.",
+    keywords:
+      "color colour palette highlight tint hue swatch preset custom hex picker theme",
     rowDescription:
-      "Use the same background and transparency across the workspace and sidebars.",
-  }),
-  backgroundOpacity: defineSetting({
-    section: "appearance",
-    label: "Background opacity",
-    description: "Adjust desktop transparency in dark appearance.",
-    keywords: "glass transparent translucent see through",
-    rowDescription:
-      "Background opacity for this workspace. Lower values show more of the desktop; text remains solid.",
-    disabledDescription:
-      "Light mode always uses an opaque window. Your dark-mode value is preserved.",
-    nativeGlass: true,
-  }),
-  blurRadius: defineSetting({
-    section: "appearance",
-    label: "Blur radius",
-    description: "Adjust the desktop blur behind transparent surfaces.",
-    keywords: "glass frosted transparency",
-    rowDescription:
-      "Desktop blur for this workspace. Zero turns blur off; higher values cost more to composite.",
-    disabledDescription:
-      "Background blur is unavailable while light mode uses an opaque window.",
-    opaqueDescription:
-      "Lower background opacity to see desktop blur. At 100% opacity, the window covers it.",
-    nativeGlass: true,
-  }),
-  bodyGlass: defineSetting({
-    section: "appearance",
-    label: "Include workspace",
-    description: "Show the desktop behind chat panes and editors.",
-    keywords: "glass transparency main content",
-    rowDescription:
-      "Also show the desktop behind sessions and editors in this workspace.",
-    disabledDescription:
-      "Main pane glass is unavailable while light mode uses an opaque window.",
-    nativeGlass: true,
-  }),
-  chatBackground: defineSetting({
-    section: "appearance",
-    label: "Chat background",
-    description:
-      "Choose a local image and control where and how strongly it appears.",
-    keywords: "wallpaper photo picture visibility empty sessions",
-    rowDescription: "An image behind your chat panes. It stays on this device.",
-  }),
-  statusBarOpacity: defineSetting({
-    section: "appearance",
-    label: "Status bar opacity",
-    description: "Adjust the bottom bar background when the sidebar is hidden.",
-    keywords: "footer transparent translucent background strength",
-    rowDescription:
-      "Background strength of the bottom bar when the sidebar is hidden. Text and controls stay solid.",
+      "Used for buttons, links and selections. Each preset has a dark and a light shade.",
   }),
   uiScale: defineSetting({
     section: "appearance",
@@ -385,6 +319,36 @@ export const SETTINGS = {
     keywords: "zoom text size font accessibility",
     rowDescription:
       "Resize the whole interface. Use Cmd +/− and Cmd 0 on Mac, or Ctrl on Windows and Linux.",
+  }),
+  glass: defineSetting({
+    section: "appearance",
+    label: "Glass",
+    description:
+      "Keep the window solid, or let the desktop show through, softly blurred.",
+    keywords:
+      "transparency transparent translucent opacity blur radius frosted see through desktop window background status bar footer include workspace",
+    rowDescription:
+      "Solid hides the desktop. Slide toward glass to see it through the window, softly blurred. Text stays sharp.",
+    disabledDescription:
+      "Light mode always uses a solid window. Glass applies in dark mode.",
+    nativeGlass: true,
+  }),
+  chatBackground: defineSetting({
+    section: "appearance",
+    label: "Chat background",
+    description:
+      "Choose a local image behind your chats and how strongly it shows.",
+    keywords: "wallpaper photo picture image visibility",
+    rowDescription: "An image behind your chat panes. It stays on this device.",
+  }),
+  useForAllWorkspaces: defineSetting({
+    section: "appearance",
+    label: "Use for all workspaces",
+    description:
+      "Copy this workspace's theme, accent colour and glass to your other workspaces.",
+    keywords: "same sync match copy apply every work personal identical",
+    rowDescription:
+      "Copy this workspace’s theme, accent colour and glass to your other workspaces. Each can still be changed later.",
   }),
   keybindings: defineSetting({
     section: "keybindings",

@@ -26,7 +26,12 @@ describe("settings search", () => {
     ["do not disturb", "Quiet mode", "notifications"],
     ["wallpaper", "Chat background", "appearance"],
     ["text size", "Interface scale", "appearance"],
-    ["footer opacity", "Status bar opacity", "appearance"],
+    ["status bar", "Glass", "appearance"],
+    ["blur", "Glass", "appearance"],
+    ["see through", "Glass", "appearance"],
+    ["accent", "Accent colour", "appearance"],
+    ["color", "Accent colour", "appearance"],
+    ["copy workspaces", "Use for all workspaces", "appearance"],
     ["hotkeys", "Keybindings", "keybindings"],
     ["default model", "Providers", "providers"],
     ["cli updates", "Keep provider tools up to date", "providers"],
@@ -66,22 +71,50 @@ describe("settings search", () => {
   });
 
   it("does not offer native glass controls on unsupported platforms", () => {
-    expect(searchSettings("opacity")[0].label).toBe("Background opacity");
+    expect(searchSettings("opacity")[0].label).toBe("Glass");
     platform.nativeGlass = false;
-    expect(searchSettings("opacity").map(({ label }) => label)).toEqual([
-      "Status bar opacity",
-    ]);
+    expect(searchSettings("opacity")).toEqual([]);
+    expect(searchSettings("glass").map(({ label }) => label)).not.toContain(
+      "Glass",
+    );
     expect(searchSettings("blur radius")).toEqual([]);
     expect(searchSettings("include workspace")).toEqual([]);
     expect(searchSettings("theme")[0].label).toBe("Theme");
+  });
+
+  it("leads the old window controls to Glass and no longer offers removed settings", () => {
+    for (const query of [
+      "background opacity",
+      "blur radius",
+      "include workspace",
+      "status bar opacity",
+    ])
+      expect(searchSettings(query)[0]?.label, query).toBe("Glass");
+    const removed = [
+      "Workspace colors",
+      "Background opacity",
+      "Blur radius",
+      "Include workspace",
+      "Status bar opacity",
+      "Match sidebars to workspace",
+      "Sidebar colour",
+      "Same appearance across workspaces",
+    ];
+    for (const label of removed)
+      expect(
+        searchSettings(label).map((result) => result.label),
+        label,
+      ).not.toContain(label);
+    expect(searchSettings("match sidebars")).toEqual([]);
+    expect(searchSettings("sidebar colour")).toEqual([]);
   });
 
   it("targets stable parent cards for controls that may not yet be visible", () => {
     expect(searchSettings("background visibility")).toContainEqual(
       expect.objectContaining({ id: "setting-chat-background" }),
     );
-    expect(searchSettings("accent")).toContainEqual(
-      expect.objectContaining({ id: "setting-workspace-colors" }),
+    expect(searchSettings("highlight")).toContainEqual(
+      expect.objectContaining({ id: "setting-accent-colour" }),
     );
   });
 

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Settings → Appearance** has six controls instead of eleven: Theme, Accent colour (preset swatches or **Custom…**), Interface scale, one **Glass** slider from Solid to see-through that replaces the opacity, blur, Include workspace and status bar settings, Chat background, and **Use for all workspaces**. Sidebars now always match the workspace, and your current look stays exactly as it is until you change a control.
+
 ### Fixed
 
 - The memory keeper no longer says it needs Claude Code or Codex when they are installed. Aven only checked for installed providers when you opened the model list, so until then the switch stayed off and the offer to keep a project's memory never appeared.

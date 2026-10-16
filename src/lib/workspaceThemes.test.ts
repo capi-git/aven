@@ -86,32 +86,21 @@ afterEach(() => {
 });
 
 describe("workspace appearance migration and persistence", () => {
-  it("persists sidebar matching per workspace and applies it without repeating native appearance work", () => {
-    render("personal");
-    expect(
-      document.documentElement.classList.contains("match-workspace-panels"),
-    ).toBe(false);
-    vi.mocked(invoke).mockClear();
+  it("always matches sidebars to the workspace, whatever an older version saved", () => {
+    const matched = () =>
+      document.documentElement.classList.contains("match-workspace-panels");
+    act(() => saveWorkspaceTheme("work", { matchPanels: false }));
     act(() => saveWorkspaceTheme("personal", { matchPanels: true }));
-    expect(
-      document.documentElement.classList.contains("match-workspace-panels"),
-    ).toBe(true);
-    expect(vi.mocked(invoke)).not.toHaveBeenCalled();
-    expect(
-      JSON.parse(localStorage.getItem(WORKSPACE_THEMES_KEY)!).themes.personal
-        .matchPanels,
-    ).toBe(true);
     render("work");
-    expect(
-      document.documentElement.classList.contains("match-workspace-panels"),
-    ).toBe(false);
+    expect(matched()).toBe(true);
     render("personal");
-    expect(
-      document.documentElement.classList.contains("match-workspace-panels"),
-    ).toBe(true);
+    expect(matched()).toBe(true);
     act(() => resetWorkspaceTheme("personal"));
+    expect(matched()).toBe(true);
+    // The saved value is kept for older versions, never rewritten.
     expect(
-      document.documentElement.classList.contains("match-workspace-panels"),
+      JSON.parse(localStorage.getItem(WORKSPACE_THEMES_KEY)!).themes.work
+        .matchPanels,
     ).toBe(false);
   });
 

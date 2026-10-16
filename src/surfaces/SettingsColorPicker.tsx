@@ -68,41 +68,52 @@ export function SettingsColorPicker<T extends string>({
         return (
           <div className="settings-color-picker">
             <div className="settings-color-picker__bar">
-              <div
-                className="settings-color-picker__targets"
-                role="radiogroup"
-                aria-label="Color to edit"
-              >
-                {targets.map((item, index) => {
-                  const selected = item.value === target;
-                  return (
-                    <button
-                      key={item.value}
-                      ref={(node) => {
-                        targetButtons.current[index] = node;
-                      }}
-                      type="button"
-                      role="radio"
-                      aria-checked={selected}
-                      tabIndex={selected ? 0 : -1}
-                      className="settings-color-picker__target"
-                      onClick={() => selectTarget(item.value)}
-                      onKeyDown={(event) => onTargetKey(event, index)}
-                    >
-                      <span
-                        className="settings-color-picker__dot"
-                        style={{
-                          background: selected
-                            ? picker.preview
-                            : colors[item.value],
+              {targets.length === 1 ? (
+                <span className="settings-color-picker__target settings-color-picker__single">
+                  <span
+                    className="settings-color-picker__dot"
+                    style={{ background: picker.preview }}
+                    aria-hidden
+                  />
+                  {label}
+                </span>
+              ) : (
+                <div
+                  className="settings-color-picker__targets"
+                  role="radiogroup"
+                  aria-label="Color to edit"
+                >
+                  {targets.map((item, index) => {
+                    const selected = item.value === target;
+                    return (
+                      <button
+                        key={item.value}
+                        ref={(node) => {
+                          targetButtons.current[index] = node;
                         }}
-                        aria-hidden
-                      />
-                      {item.label}
-                    </button>
-                  );
-                })}
-              </div>
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        tabIndex={selected ? 0 : -1}
+                        className="settings-color-picker__target"
+                        onClick={() => selectTarget(item.value)}
+                        onKeyDown={(event) => onTargetKey(event, index)}
+                      >
+                        <span
+                          className="settings-color-picker__dot"
+                          style={{
+                            background: selected
+                              ? picker.preview
+                              : colors[item.value],
+                          }}
+                          aria-hidden
+                        />
+                        {item.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               <label className="settings-color-picker__hex">
                 <span>Hex</span>
                 <input

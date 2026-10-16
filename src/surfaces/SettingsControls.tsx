@@ -10,11 +10,6 @@ import {
   type ReactNode,
 } from "react";
 import { playCue } from "../lib/sounds";
-import {
-  COLOR_PRESETS,
-  colorChoiceLabel,
-  type ColorChoice,
-} from "../lib/colorChoice";
 import { Popover } from "../chrome/Popover";
 import { ToolbarPanel } from "../chrome/ToolbarPanel";
 import { Check, ChevronDown } from "../chrome/icons";
@@ -280,22 +275,19 @@ export function Toggle({
   );
 }
 
-/** Preset colour swatches plus any colour, as one radio group. */
-export function ColorSwatches({
+/** Preset colour swatches as one radio group; null selects none of them. */
+export function PresetSwatches<T extends string>({
   label,
+  options,
   value,
   onChange,
 }: {
   label: string;
-  value: ColorChoice;
-  onChange: (value: ColorChoice) => void;
+  options: readonly { value: T; label: string; swatch: string }[];
+  value: T | null;
+  onChange: (value: T) => void;
 }) {
   const descriptionId = useContext(RowDescription);
-  const custom = !COLOR_PRESETS.some((preset) => preset.value === value);
-  const choose = (next: ColorChoice) => {
-    onChange(next);
-    playCue("switch");
-  };
   return (
     <div
       className="settings-swatches"
@@ -303,40 +295,22 @@ export function ColorSwatches({
       aria-label={label}
       aria-describedby={descriptionId}
     >
-      {COLOR_PRESETS.map((preset) => (
+      {options.map((option) => (
         <button
-          key={preset.value}
+          key={option.value}
           type="button"
           role="radio"
           className="settings-swatch"
-          aria-checked={preset.value === value}
-          aria-label={preset.label}
-          title={preset.label}
-          style={{ "--swatch": preset.swatch } as CSSProperties}
-          onClick={() => choose(preset.value)}
+          aria-checked={option.value === value}
+          aria-label={option.label}
+          title={option.label}
+          style={{ "--swatch": option.swatch } as CSSProperties}
+          onClick={() => {
+            onChange(option.value);
+            playCue("switch");
+          }}
         />
       ))}
-      <label
-        className="settings-swatch settings-swatch-custom"
-        title={custom ? `Custom (${value})` : "Any colour"}
-        data-checked={custom || undefined}
-        style={
-          (custom ? { "--swatch": value } : undefined) as
-            CSSProperties | undefined
-        }
-      >
-        <input
-          type="color"
-          aria-label="Any colour"
-          value={custom ? value : "#7aa7ff"}
-          onChange={(event) =>
-            onChange(event.target.value.toLowerCase() as ColorChoice)
-          }
-        />
-      </label>
-      <span className="settings-swatch-name" aria-hidden="true">
-        {colorChoiceLabel(value)}
-      </span>
     </div>
   );
 }
