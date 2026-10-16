@@ -17,7 +17,6 @@ import {
 } from "./claudeProtocol";
 import { mergeStream } from "./streamText";
 
-const TEXT_CHILD_ID = "aven-claude-text";
 const INIT_TIMEOUT_MS = 8_000;
 const REQUEST_TIMEOUT_MS = 45_000;
 const TEXT_MODEL = "claude-haiku-4-5";
@@ -45,8 +44,31 @@ type LiveText = {
   readyDone: (() => void) | null;
 };
 
-let live: LiveText | null = null;
-let turns: Promise<void> = Promise.resolve();
+/** One helper process and the queue of prompts waiting for it. */
+type Lane = {
+  childId: string;
+  live: LiveText | null;
+  turns: Promise<void>;
+};
+
+const TEXT_LANE: Lane = {
+  childId: "aven-claude-text",
+  live: null,
+  turns: Promise.resolve(),
+};
+/**
+ * Text-only calls run in a process of their own, so a long one (the memory
+ * keeper reading a project) never holds up a title or a commit message.
+ */
+const TEXT_ONLY_LANE: Lane = {
+  childId: "aven-claude-text-only",
+  live: null,
+  turns: Promise.resolve(),
+};
+
+function laneFor(profile: ClaudeTextProfile | undefined): Lane {
+  return profile?.textOnly ? TEXT_ONLY_LANE : TEXT_LANE;
+}
 
 function pickTextModel(): string {
   return claudeTextModel().id;
@@ -69,21 +91,23 @@ function profileKey(profile: ClaudeTextProfile | undefined): string {
 }
 
 export async function stopClaudeTextPrompt(): Promise<void> {
-  await dropLive();
+  await Promise.all([dropLive(TEXT_LANE), dropLive(TEXT_ONLY_LANE)]);
+}
+
+function enqueue<T>(lane: Lane, work: () => Promise<T>): Promise<T> {
+  const run = lane.turns.catch(() => undefined).then(work);
+  lane.turns = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
 }
 
 export function warmupClaudeText(cwd: string): Promise<void> {
   if (!cwd || cwd === "~") return Promise.resolve();
-  const run = turns
-    .catch(() => undefined)
-    .then(async () => {
-      await ensureLive(cwd);
-    });
-  turns = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run.catch(() => undefined);
+  return enqueue(TEXT_LANE, async () => {
+    await ensureLive(TEXT_LANE, cwd);
+  }).catch(() => undefined);
 }
 
 export async function runClaudeTextPrompt(input: {
@@ -92,21 +116,20 @@ export async function runClaudeTextPrompt(input: {
   timeoutMs?: number;
   profile?: ClaudeTextProfile;
 }): Promise<string> {
-  const run = turns.catch(() => undefined).then(() => promptOnLive(input));
-  turns = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run;
+  const lane = laneFor(input.profile);
+  return enqueue(lane, () => promptOnLive(lane, input));
 }
 
-async function promptOnLive(input: {
-  cwd: string;
-  prompt: string;
-  timeoutMs?: number;
-  profile?: ClaudeTextProfile;
-}): Promise<string> {
-  const session = await ensureLive(input.cwd, input.profile);
+async function promptOnLive(
+  lane: Lane,
+  input: {
+    cwd: string;
+    prompt: string;
+    timeoutMs?: number;
+    profile?: ClaudeTextProfile;
+  },
+): Promise<string> {
+  const session = await ensureLive(lane, input.cwd, input.profile);
   session.output = "";
   session.collecting = true;
   const timeoutMs = input.timeoutMs ?? REQUEST_TIMEOUT_MS;
@@ -118,7 +141,7 @@ async function promptOnLive(input: {
     });
 
     await writeChild(
-      TEXT_CHILD_ID,
+      lane.childId,
       JSON.stringify(buildClaudeUserMessage({ text: input.prompt })),
     );
 
@@ -136,20 +159,22 @@ async function promptOnLive(input: {
     if (!output) throw new Error("Claude returned empty output.");
     return output;
   } catch (error) {
-    if (session.closed) await dropLive();
+    if (session.closed) await dropLive(lane);
     throw error;
   } finally {
     session.collecting = false;
     session.turnDone = null;
     session.turnFailed = null;
-    await dropLive();
+    await dropLive(lane);
   }
 }
 
 async function ensureLive(
+  lane: Lane,
   cwd: string,
   profile?: ClaudeTextProfile,
 ): Promise<LiveText> {
+  const live = lane.live;
   if (
     live &&
     !live.closed &&
@@ -157,11 +182,12 @@ async function ensureLive(
     live.profile === profileKey(profile)
   )
     return live;
-  await dropLive();
-  return startLive(cwd, profile);
+  await dropLive(lane);
+  return startLive(lane, cwd, profile);
 }
 
 async function startLive(
+  lane: Lane,
   cwd: string,
   profile?: ClaudeTextProfile,
 ): Promise<LiveText> {
@@ -179,11 +205,11 @@ async function startLive(
   };
 
   watchChild(
-    TEXT_CHILD_ID,
+    lane.childId,
     (line) => handleLine(session, line),
     () => {
       session.closed = true;
-      if (live === session) live = null;
+      if (lane.live === session) lane.live = null;
       session.turnFailed?.(new Error("Claude text generator exited"));
       session.readyDone?.();
       session.turnDone = null;
@@ -194,7 +220,7 @@ async function startLive(
 
   try {
     await spawnChild(
-      TEXT_CHILD_ID,
+      lane.childId,
       path,
       buildClaudeSpawnArgs({
         isolated: true,
@@ -206,20 +232,20 @@ async function startLive(
       }),
       cwd,
     );
-    live = session;
+    lane.live = session;
     await waitForReady(session, INIT_TIMEOUT_MS);
     return session;
   } catch (error) {
     session.closed = true;
-    unwatchChild(TEXT_CHILD_ID);
-    await killChild(TEXT_CHILD_ID).catch(() => undefined);
+    unwatchChild(lane.childId);
+    await killChild(lane.childId).catch(() => undefined);
     throw error;
   }
 }
 
-async function dropLive(): Promise<void> {
-  const current = live;
-  live = null;
+async function dropLive(lane: Lane): Promise<void> {
+  const current = lane.live;
+  lane.live = null;
   if (current) {
     current.closed = true;
     current.readyDone?.();
@@ -228,8 +254,8 @@ async function dropLive(): Promise<void> {
     current.turnFailed = null;
     current.readyDone = null;
   }
-  unwatchChild(TEXT_CHILD_ID);
-  await killChild(TEXT_CHILD_ID).catch(() => undefined);
+  unwatchChild(lane.childId);
+  await killChild(lane.childId).catch(() => undefined);
 }
 
 function handleLine(session: LiveText, line: string): void {
