@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { getActivitySnapshot, subscribeActivity } from "../lib/activity";
+import { probeHarnessAvailability } from "../lib/harness/availability";
 import { logError } from "../lib/errors";
 import {
   clearKeeperRequest,
@@ -108,6 +109,8 @@ export function useMemoryKeeper(sessions: readonly Session[]) {
       active.add(key);
       try {
         const memory = await loadProjectMemory(path);
+        // Nothing may have probed for installed providers in this window yet.
+        await probeHarnessAvailability();
         const model = pickKeeperModel();
         const now = Date.now();
         const fresh = getKeeperProject(path);
@@ -147,6 +150,7 @@ export function useMemoryKeeper(sessions: readonly Session[]) {
     };
 
     const offerIfEmpty = async (path: string) => {
+      await probeHarnessAvailability();
       if (!pickKeeperModel()) return;
       const memory = await loadProjectMemory(path).catch(() => undefined);
       if (memory === undefined || memory?.body.trim()) return;
