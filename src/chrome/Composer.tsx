@@ -153,6 +153,7 @@ import { COMPACT_COMMAND, isCompactCommand } from "../lib/compact";
 import { consumeDiscussCommand, DISCUSS_COMMAND } from "../lib/discussCommand";
 import type { DiscussionHost } from "../lib/discussions";
 import { DiscussionBar } from "./DiscussionBar";
+import { SharedWorkBar } from "./SharedWorkBar";
 import { DiscussionPicker } from "./DiscussionPicker";
 import { resizeComposer } from "../lib/composerResize";
 
@@ -1547,6 +1548,7 @@ function ComposerComponent({
         <QuestionForm prompt={question} onReply={onQuestionReply} />
       ) : null}
       {discussion ? <DiscussionBar sessionId={sessionId} /> : null}
+      <SharedWorkBar sessionId={sessionId} />
       {children}
       <MessageQueue
         messages={queuedMessages}

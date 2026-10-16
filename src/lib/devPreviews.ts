@@ -261,10 +261,10 @@ export function duplicateDevServers(
   return out;
 }
 
-/** Keep both servers, or note that a stop was asked for or sent. */
+/** Keep both servers, note that a stop was asked for or sent, or undo that. */
 export function markDuplicateDevServer(
   key: string,
-  handled: NonNullable<DevPreview["duplicateHandled"]>,
+  handled: DevPreview["duplicateHandled"],
 ): void {
   patchPreview(key, { duplicateHandled: handled });
 }
