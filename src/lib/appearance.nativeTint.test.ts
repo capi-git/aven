@@ -20,6 +20,7 @@ vi.mock("@tauri-apps/api/window", () => {
 let appearance: typeof import("./appearance");
 const root = document.documentElement;
 const hasNativeTint = () => root.classList.contains("has-native-glass-tint");
+const glassPending = () => root.classList.contains("native-glass-pending");
 const glassCalls = () =>
   vi
     .mocked(invoke)
@@ -202,6 +203,70 @@ describe("macOS native glass tint", () => {
     expect(glassCalls()).toEqual([]);
   });
 
+  it("keeps the page opaque until the window confirms glass, then switches in one step", async () => {
+    let acknowledge = (_value: boolean) => {};
+    vi.mocked(invoke).mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        acknowledge = resolve;
+      }),
+    );
+    let settled = false;
+    const activated = appearance.activateWindowAppearance().then(() => {
+      settled = true;
+      // The window can be revealed now: the page shows the finished look.
+      expect(glassPending()).toBe(false);
+      expect(hasNativeTint()).toBe(true);
+    });
+    expect(glassPending()).toBe(true);
+    await settle();
+    expect(settled).toBe(false);
+    expect(glassPending()).toBe(true);
+    acknowledge(true);
+    await activated;
+    expect(settled).toBe(true);
+  });
+
+  it("keeps the page opaque while dark mode turns glass back on", async () => {
+    await appearance.activateWindowAppearance();
+    appearance.applyThemePreference("light");
+    await settle();
+    expect(glassPending()).toBe(false);
+    let acknowledge = (_value: boolean) => {};
+    vi.mocked(invoke).mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        acknowledge = resolve;
+      }),
+    );
+    // The window still paints its opaque light colour until it confirms.
+    appearance.applyThemePreference("dark");
+    expect(glassPending()).toBe(true);
+    expect(hasNativeTint()).toBe(false);
+    acknowledge(true);
+    await vi.waitFor(() => expect(glassPending()).toBe(false));
+    expect(hasNativeTint()).toBe(true);
+  });
+
+  it("never makes the page opaque for a tint update while glass is on", async () => {
+    await appearance.activateWindowAppearance();
+    const classes: boolean[] = [];
+    const observer = new MutationObserver(() => classes.push(glassPending()));
+    observer.observe(root, { attributes: true, attributeFilter: ["class"] });
+    appearance.applySidebarOpacity(0.3);
+    appearance.applyThemeColors({ dark: { background: "#204060" } });
+    await settle();
+    observer.disconnect();
+    expect(glassCalls().at(-1)?.[1]).toMatchObject({ tint: { alpha: 0.3 } });
+    expect(classes).not.toContain(true);
+    expect(glassPending()).toBe(false);
+  });
+
+  it("stays opaque when there is no native window to confirm glass", async () => {
+    vi.mocked(invoke).mockRejectedValue(new Error("no native host"));
+    await appearance.activateWindowAppearance();
+    expect(glassPending()).toBe(true);
+    expect(hasNativeTint()).toBe(false);
+  });
+
   it("never asks other platforms for a native tint", async () => {
     platform.HAS_NATIVE_GLASS = false;
     platform.IS_MAC = false;
@@ -222,6 +287,13 @@ describe("macOS native glass tint", () => {
 describe("native glass tint stylesheet", () => {
   const shellCss = readFileSync("src/personal-shell.css", "utf8");
   const macCss = readFileSync("src/macos-theme.css", "utf8");
+  const indexCss = readFileSync("src/index.css", "utf8");
+
+  it("paints the page opaque in its theme colour until glass is confirmed", () => {
+    expect(indexCss).toMatch(
+      /html\.has-native-glass\.native-glass-pending:not\(\.theme-light\) #root \{\s*background: var\(--color-background-base\);\s*\}/,
+    );
+  });
   const tinted =
     "html.is-mac.has-native-glass.has-native-glass-tint:not(.theme-light)";
 

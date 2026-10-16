@@ -514,6 +514,8 @@ def report_perf(root, launched_at, compare):
     startup = report.get('startup') or {}
     if startup.get('readyAtEpochMs'):
         startup['launchToReadyMs'] = round(startup['readyAtEpochMs'] - launched_at)
+    if startup.get('visibleAtEpochMs'):
+        startup['launchToVisibleMs'] = round(startup['visibleAtEpochMs'] - launched_at)
     out_dir = ROOT / 'target/perf'
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / time.strftime('perf-%Y%m%d-%H%M%S.json')
@@ -534,7 +536,8 @@ def report_perf(root, launched_at, compare):
         return text
 
     print(f'Display frame interval: {report.get("refreshMs")} ms. '
-          f'Launch to ready: {startup.get("launchToReadyMs", "-")} ms.')
+          f'Launch to ready: {startup.get("launchToReadyMs", "-")} ms. '
+          f'Launch to visible: {startup.get("launchToVisibleMs", "-")} ms.')
     header = f'{"scenario":40} {"input→frame p50/p95/max ms":28} {"slow frames":12} {"worst frame":12} {"CPU %":10} {"wakeups/s":12} {"memory MB":12}'
     print(header)
     print('-' * len(header))

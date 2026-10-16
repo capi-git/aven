@@ -15,6 +15,18 @@ static QUIT_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
 const QUIT_REQUESTED: &str = "quit_requested";
 
+/// What window-state restores. On macOS restoring visibility would show a
+/// window before its interface has drawn, so `window_reveal` shows it
+/// instead; other platforms keep the plugin's full restore.
+pub fn restored_window_state() -> tauri_plugin_window_state::StateFlags {
+    use tauri_plugin_window_state::StateFlags;
+    if cfg!(target_os = "macos") {
+        StateFlags::all() - StateFlags::VISIBLE
+    } else {
+        StateFlags::all()
+    }
+}
+
 pub fn is_workspace_label(label: &str) -> bool {
     label == "main"
         || label.strip_prefix("window-").is_some_and(|suffix| {
@@ -25,6 +37,7 @@ pub fn is_workspace_label(label: &str) -> bool {
 /// On macOS the configured main window is built here rather than by Tauri, so
 /// its WebKit document can render at the display's full refresh rate. Other
 /// platforms replace the window list and still create it from configuration.
+/// On macOS it is built hidden; `window_reveal` shows it once it has drawn.
 #[cfg(target_os = "macos")]
 pub fn create_main_window(app: &AppHandle) -> tauri::Result<()> {
     if app.get_webview_window("main").is_some() {
@@ -74,6 +87,11 @@ pub fn open_new_window(app: &AppHandle) -> Result<(), String> {
         let _ = window.set_shadow(true);
     }
 
+    // Built hidden from the macOS configuration; it appears, focused, once
+    // drawn. Other platforms show it as they always did.
+    #[cfg(target_os = "macos")]
+    crate::window_reveal::conceal(&window.as_ref().window());
+    #[cfg(not(target_os = "macos"))]
     let _ = window.set_focus();
     Ok(())
 }
@@ -175,14 +193,22 @@ pub async fn destroy_window(window: Window) -> Result<(), String> {
 }
 
 /// Dock click / Cmd-click with no visible windows: bring hidden ones back.
+/// A window still drawing its interface appears on its own shortly.
 pub fn show_hidden_or_open_new(app: &AppHandle) -> Result<(), String> {
-    let mut windows: Vec<Window> = app
+    let all: Vec<Window> = app
         .windows()
         .into_values()
         .filter(|window| is_workspace_label(window.label()))
         .collect();
-    if windows.is_empty() {
+    if all.is_empty() {
         return open_new_window(app);
+    }
+    let mut windows: Vec<Window> = all
+        .into_iter()
+        .filter(|window| !crate::window_reveal::is_pending(window.label()))
+        .collect();
+    if windows.is_empty() {
+        return Ok(());
     }
     windows.sort_by(|a, b| a.label().cmp(b.label()));
     for window in &windows {
@@ -196,7 +222,7 @@ pub fn show_hidden_or_open_new(app: &AppHandle) -> Result<(), String> {
         .map_err(|err| err.to_string())
 }
 
-/// window-state can restore a window as hidden after a quit-while-hidden.
+/// A safety net: no workspace window may stay hidden after launch.
 pub fn ensure_launch_window_visible(app: &AppHandle) {
     let windows: Vec<Window> = app
         .windows()
@@ -206,9 +232,9 @@ pub fn ensure_launch_window_visible(app: &AppHandle) {
     if windows.is_empty() {
         return;
     }
-    let any_visible = windows
-        .iter()
-        .any(|window| window.is_visible().unwrap_or(false));
+    let any_visible = windows.iter().any(|window| {
+        window.is_visible().unwrap_or(false) || crate::window_reveal::is_pending(window.label())
+    });
     if any_visible {
         return;
     }
@@ -259,7 +285,8 @@ pub fn request_quit(app: &AppHandle) {
     }
 }
 
-/// Persist already happened in JS. Show windows so window-state doesn't save hidden.
+/// Persist already happened in JS. Outside macOS, windows are shown so
+/// window-state does not save them hidden.
 #[tauri::command]
 pub fn confirm_quit(app: AppHandle) {
     let Ok(work) = begin_runtime_work(&app, "quitting") else {
@@ -303,6 +330,8 @@ fn finish_quit(app: AppHandle) {
 
 pub(crate) fn prepare_process_exit(app: &AppHandle) {
     ALLOW_EXIT.store(true, Ordering::SeqCst);
+    // window-state still restores visibility outside macOS.
+    #[cfg(not(target_os = "macos"))]
     for window in app.windows().values() {
         if is_workspace_label(window.label()) {
             let _ = window.show();
@@ -352,6 +381,17 @@ mod tests {
                 alpha: 0.4
             }
         );
+    }
+
+    #[test]
+    fn only_macos_stops_window_state_restoring_visibility() {
+        use tauri_plugin_window_state::StateFlags;
+        let flags = restored_window_state();
+        assert_eq!(
+            flags.contains(StateFlags::VISIBLE),
+            !cfg!(target_os = "macos")
+        );
+        assert!(flags.contains(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED));
     }
 
     #[test]

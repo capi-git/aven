@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   finish: vi.fn(async () => {}),
   send: vi.fn(async () => {}),
   listeners: new Map<string, (payload: unknown) => void>(),
+  readLaunchReveal: vi.fn(),
 }));
 
 vi.mock("../lib/harness/child", () => ({
@@ -24,6 +25,22 @@ vi.mock("../lib/devSmoke", async (original) => ({
   ...(await original<typeof import("../lib/devSmoke")>()),
   finishDevSmoke: mocks.finish,
 }));
+vi.mock("../lib/devSmokeReveal", async (original) => ({
+  ...(await original<typeof import("../lib/devSmokeReveal")>()),
+  readLaunchReveal: mocks.readLaunchReveal,
+}));
+
+/** A launch whose window appeared once its workspace had drawn. */
+const drawnLaunch = {
+  native: {
+    concealedAtMs: 1_000,
+    revealedAtMs: 1_300,
+    reason: "painted",
+    concealedUntilReveal: true,
+  },
+  page: { committedAtEpochMs: 1_250, drawnAtEpochMs: 1_299 },
+  firstContentfulPaintEpochMs: 1_260,
+};
 
 import {
   SMOKE_OVERLAY_RESULT_EVENT,
@@ -78,6 +95,7 @@ describe("Aven Dev's real-app check", () => {
     mocks.finish.mockClear();
     mocks.send.mockReset();
     mocks.listeners.clear();
+    mocks.readLaunchReveal.mockResolvedValue(drawnLaunch);
   });
   afterEach(() => vi.useRealTimers());
 
@@ -108,6 +126,27 @@ describe("Aven Dev's real-app check", () => {
     expect(state.newProjectTask).toHaveBeenCalledWith(config.projectPath);
     expect(state.submit).toHaveBeenCalledWith("task", expect.any(String));
     expect(reportedSteps().every((step) => step.passed)).toBe(true);
+  });
+
+  it("fails a launch whose window appeared before its workspace drew", async () => {
+    mocks.resolveClaudeBinary.mockResolvedValue({
+      path: "/tmp/check/bin/claude",
+    });
+    mocks.readLaunchReveal.mockResolvedValue({
+      ...drawnLaunch,
+      native: { ...drawnLaunch.native, reason: "timeout" },
+    });
+    const state = harness({ floating: null });
+    const run = runDevSmoke(config, () => state);
+    await vi.runAllTimersAsync();
+    await run;
+    const launch = reportedSteps().find((step) =>
+      step.name.startsWith("window stayed hidden"),
+    )!;
+    expect(launch).toMatchObject({ passed: false });
+    expect(launch.detail).toContain("timeout, not by a drawn frame");
+    // The rest of the check still runs.
+    expect(state.submit).toHaveBeenCalled();
   });
 
   it("fails when the floating sidebar stops answering", async () => {

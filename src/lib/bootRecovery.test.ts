@@ -104,6 +104,28 @@ describe("pre-module boot recovery", () => {
     expect(reload).toHaveBeenCalledOnce();
   });
 
+  it("shows a concealed workspace window when it offers recovery", async () => {
+    const invoke = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("__TAURI_INTERNALS__", { invoke });
+    startRecovery();
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(invoke).not.toHaveBeenCalled();
+    entry.dispatchEvent(new Event("error"));
+    expect(invoke).toHaveBeenCalledExactlyOnceWith("window_reveal");
+  });
+
+  it("still offers recovery when no native host can show the window", () => {
+    vi.stubGlobal("__TAURI_INTERNALS__", {
+      invoke: () => {
+        throw new Error("no host");
+      },
+    });
+    startRecovery();
+    entry.dispatchEvent(new Event("error"));
+    expect(splash.hidden).toBe(false);
+    expect(retry.hidden).toBe(false);
+  });
+
   it("shows no loading screen during normal startup", async () => {
     startRecovery();
     expect(splash.hidden).toBe(true);

@@ -75,6 +75,7 @@ mod turn_shots;
 mod update_restart;
 mod usage_panel;
 mod window;
+mod window_reveal;
 mod window_transfer;
 #[cfg(windows)]
 mod windows;
@@ -267,6 +268,7 @@ pub fn run() {
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_filter(window::is_workspace_label)
+                .with_state_flags(window::restored_window_state())
                 .build(),
         )
         .manage(harness::HarnessHost::new())
@@ -296,6 +298,7 @@ pub fn run() {
                 macos::install_dock_menu(app.handle());
                 if let Some(window) = app.get_window("main") {
                     macos::install(&window);
+                    window_reveal::conceal(&window);
                 }
                 #[cfg(debug_assertions)]
                 desktop_control::preview_cursor(app.handle());
@@ -327,6 +330,7 @@ pub fn run() {
             workspace_menu_panel::workspace_menu_panel_close,
             dev_smoke::dev_smoke_config,
             dev_smoke::dev_smoke_finish,
+            dev_smoke::dev_smoke_window_reveal,
             dev_smoke::dev_perf_sample,
             dev_smoke::dev_perf_keep_visible,
             dev_smoke::dev_perf_mark,
@@ -563,6 +567,7 @@ pub fn run() {
             update_restart::update_restart_activity,
             provider_updates::provider_refresh_cli,
             window::set_window_glass_enabled,
+            window_reveal::window_reveal,
             window_transfer::take_window_transfer,
             chat_background::save_chat_background,
             chat_background::remove_chat_background,
@@ -616,6 +621,7 @@ pub fn run() {
                 browser::window_destroyed(handle, &label);
                 floating_sidebar::window_destroyed(handle, &label);
                 workspace_window::window_destroyed(handle, &label);
+                window_reveal::window_destroyed(&label);
                 let other_window = handle
                     .windows()
                     .keys()
@@ -776,6 +782,26 @@ mod platform_config {
             serde_json::from_value(updater.clone()).expect("valid updater config");
         assert_eq!(parsed.endpoints.len(), 1);
         assert!(!parsed.pubkey.is_empty());
+    }
+
+    fn main_window(config: &Value) -> Value {
+        config["app"]["windows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|window| window["label"] == "main")
+            .expect("main window")
+            .clone()
+    }
+
+    #[test]
+    fn only_the_macos_workspace_window_starts_hidden_until_it_draws() {
+        // On macOS `window_reveal` shows it; a visible start showed an empty
+        // window. Windows keeps showing its window from the start.
+        assert_eq!(main_window(&base_config())["visible"], false);
+        assert!(main_window(&windows_config())["visible"]
+            .as_bool()
+            .unwrap_or(true));
     }
 
     #[test]

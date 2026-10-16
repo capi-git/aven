@@ -509,5 +509,20 @@ class RealAppCheck(unittest.TestCase):
         self.assertFalse(self.score())
 
 
+class PerfReport(unittest.TestCase):
+    def test_reports_launch_to_ready_and_to_visible(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / 'result.json').write_text(json.dumps({'passed': True, 'perf': {
+                'refreshMs': 8.33, 'scenarios': [],
+                'startup': {'readyAtEpochMs': 10_620, 'visibleAtEpochMs': 10_655}}}))
+            out = io.StringIO()
+            with mock.patch.object(runner, 'ROOT', root), contextlib.redirect_stdout(out):
+                self.assertTrue(runner.report_perf(root, 10_000, None))
+            self.assertIn('Launch to ready: 620 ms. Launch to visible: 655 ms.', out.getvalue())
+            saved = json.loads(next((root / 'target/perf').glob('perf-*.json')).read_text())
+            self.assertEqual(saved['startup']['launchToVisibleMs'], 655)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -74,6 +74,11 @@
           if (isMac) {
             root.classList.add("is-mac");
           }
+          // The floating sidebar is a see-through layer over the workspace:
+          // it must never paint the boot background across the window.
+          if (new URLSearchParams(location.search).has("floatingSidebar")) {
+            root.classList.add("aven-floating-sidebar-overlay");
+          }
         } catch (_) {}
       })();
     </script>
@@ -99,6 +104,12 @@
       #boot-splash {
         margin: 0;
         background: var(--boot-background);
+      }
+
+      html.aven-floating-sidebar-overlay,
+      html.aven-floating-sidebar-overlay body,
+      html.aven-floating-sidebar-overlay #root {
+        background: transparent !important;
       }
 
       /* Recovery is hidden during normal startup; the workspace appears directly. */
@@ -196,6 +207,15 @@
           if (!active) return;
           if (finished()) return cleanup();
           window.clearTimeout(timeout);
+          // A workspace window waits for its first themed frame; show this.
+          try {
+            var tauri = window.__TAURI_INTERNALS__;
+            if (tauri && typeof tauri.invoke === "function") {
+              Promise.resolve(tauri.invoke("window_reveal")).catch(
+                function () {},
+              );
+            }
+          } catch (_) {}
           splash.hidden = false;
           title.textContent = failed
             ? "Aven couldn’t load its interface"
