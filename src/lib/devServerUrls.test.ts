@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   createDevOutputScanner,
   devServerAddressInLine,
+  devServerAppInLine,
+  devServerCommand,
   isDevServerStopLine,
   localDevAddress,
   stripAnsi,
@@ -374,5 +376,63 @@ describe("stripAnsi", () => {
     expect(
       stripAnsi(`${ESC}]0;title${ESC}\\${ESC}[1;32mready${ESC}[0m\x07`),
     ).toBe("ready");
+  });
+});
+
+describe("which app a server is", () => {
+  it.each([
+    ["  VITE v5.4.0  ready in 312 ms", "vite"],
+    ["   ▲ Next.js 14.2.3", "next"],
+    ["Storybook 8.1.0 for react-vite started", "storybook"],
+    ["Starting development server at http://127.0.0.1:8000/", "django"],
+    ["INFO:     Uvicorn running on http://127.0.0.1:8000", "uvicorn"],
+    ["Serving HTTP on :: port 8000 (http://[::]:8000/) ...", "http.server"],
+    ["Next, measure frames during the switch", undefined],
+  ])("%s", (line, app) => {
+    expect(devServerAppInLine(line)).toBe(app);
+  });
+
+  it("carries the banner's framework onto the address after it", () => {
+    const scanner = createDevOutputScanner();
+    expect(scanner.push("\n  VITE v5.4.0  ready in 312 ms\n\n")).toEqual([]);
+    expect(scanner.push("  ➜  Local:   http://localhost:5173/\n")).toEqual([
+      {
+        kind: "address",
+        app: "vite",
+        address: localDevAddress("http://localhost:5173/"),
+      },
+    ]);
+    const framework = createDevOutputScanner().push(
+      "Nuxt 3.12.0 with Nitro 2.9.6\n  VITE v5.4.0  ready\n  ➜  Local:   http://localhost:3000/\n",
+    );
+    expect(framework).toMatchObject([{ kind: "address", app: "nuxt" }]);
+    scanner.push("^C\n");
+    const [after] = scanner.push("  ➜  Local:   http://localhost:5174/\n");
+    expect(after).toEqual({
+      kind: "address",
+      address: localDevAddress("http://localhost:5174/"),
+    });
+  });
+});
+
+describe("devServerCommand", () => {
+  it.each([
+    ["Bash: npm run dev", { app: "script:dev" }],
+    ["pnpm dev", { app: "script:dev" }],
+    ["/bin/zsh -lc 'cd web && npm run dev'", { app: "script:dev", dir: "web" }],
+    ["npx vite --port 5174", { app: "vite" }],
+    [
+      "cd apps && cd site && bun run start",
+      { app: "script:start", dir: "apps/site" },
+    ],
+    ["npm --prefix client run dev", { app: "script:dev", dir: "client" }],
+    ["cd repo && pnpm -C web dev", { app: "script:dev", dir: "repo/web" }],
+    ["pnpm --filter admin dev", { app: "script:dev", filter: "admin" }],
+    ["yarn workspace docs start", { app: "script:start", filter: "docs" }],
+    ["python manage.py runserver", { app: "django" }],
+    ["npm install", {}],
+    ["ls -la", {}],
+  ])("%s", (title, expected) => {
+    expect(devServerCommand(title)).toEqual(expected);
   });
 });

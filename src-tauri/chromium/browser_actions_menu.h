@@ -7,6 +7,8 @@ struct BrowserMenuOptions {
   bool can_float = false;
   bool floating = false;
   bool can_use_page = false;
+  // The current site has a remembered microphone or camera answer.
+  bool can_forget_site_media = false;
 };
 }
 

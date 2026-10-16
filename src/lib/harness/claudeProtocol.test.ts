@@ -182,6 +182,27 @@ describe("buildClaudeSpawnArgs", () => {
     expect(args).not.toContain(AVEN_BROWSER_HOST_POLICY);
   });
 
+  it("gives a text-only helper its own system prompt and no tools", () => {
+    const args = buildClaudeSpawnArgs({
+      isolated: true,
+      model: "claude-haiku-4-5",
+      systemPrompt: "Keep the memory.",
+      tools: [],
+    });
+    expect(args[args.indexOf("--system-prompt") + 1]).toBe("Keep the memory.");
+    // Claude Code reads an empty `--tools` value as "no tools at all".
+    expect(args[args.indexOf("--tools") + 1]).toBe("");
+    expect(args).toContain("--strict-mcp-config");
+    expect(args).not.toContain("--append-system-prompt");
+    // Interactive chats never take either option.
+    const chat = buildClaudeSpawnArgs({
+      systemPrompt: "Keep the memory.",
+      tools: [],
+    });
+    expect(chat).not.toContain("--system-prompt");
+    expect(chat).not.toContain("--tools");
+  });
+
   it("adds bypass flag for full-access", () => {
     const args = buildClaudeSpawnArgs({
       permissionMode: "bypassPermissions",

@@ -122,6 +122,19 @@ ctest --test-dir "$CEF_BUILD_DIR" -R 'floating_sidebar_host|browser_host_view' -
 
 In Aven Dev, also check hovering the left edge over a page and over a chat, leaving to a page, reversing mid-slide, a session's context menu, dragging a session onto a pane, and pinning while the card is out.
 
+### Microphone and camera
+
+A website gets the microphone or camera only when both the person and macOS agree. Aven's prompt asks first, with **Remember for this site** on by default; remembered answers are Chromium's own per-profile site settings, kept with that profile's browsing data, and **Forget microphone and camera choices** in the browser's More menu clears them for the current site. Only then does Aven ask macOS (`AVCaptureDevice`), so the system prompt names Aven (or Aven Dev). If macOS already refuses Aven, the request is cancelled without asking, and the tab says so with an **Open System Settings** button for the matching Privacy & Security pane. A remembered Deny shows its own notice with **Ask again**. Screen sharing is asked each time. The toolbar shows a camera or microphone mark while the page is capturing.
+
+After building the wrapper, run the decision tests:
+
+```bash
+cmake --build "$CEF_BUILD_DIR" --target supermono_chromium_browser_media_access_test supermono_chromium_browser_actions_menu_test
+ctest --test-dir "$CEF_BUILD_DIR" -R 'browser_media_access|browser_actions_menu' --output-on-failure
+```
+
+In Aven Dev, also check a page calling `getUserMedia`: the first request shows Aven's prompt and then macOS's prompt for Aven Dev; a remembered site is not asked again; turning Aven Dev off in Privacy & Security shows the notice and its button opens the right pane.
+
 ### Browser element comments
 
 Element selection captures the current native browser view with CDP `fromSurface: false`, then crops the PNG locally with ImageIO. Do not substitute a clipped surface capture: [Chromium's screenshot implementation](https://chromium.googlesource.com/chromium/src/+/152.0.7977.83/content/browser/devtools/protocol/page_handler.cc) temporarily resizes the visible widget and changes emulation for that path, causing a flash. An unclipped surface capture also changes geometry while per-tab zoom emulation is active.
@@ -141,7 +154,7 @@ In the packaged app, also verify picking and changing an element, correct screen
 
 The packager adds the complete CEF framework, helper applications, CEF licenses and credits, and Aven's project and dependency notices. It signs nested native code before the host app, then runs strict signature verification. Some internal helper and executable identifiers retain compatibility names; the app is presented as Aven.
 
-Release signing uses the configured Apple Developer Team ID and stable designated requirements. Explicit local-only ad-hoc signing has no Apple Developer Team ID and uses a scoped library-validation exception for its bundled framework; Developer ID builds omit that exception. Neither mode changes global macOS security settings. Renderer and GPU helpers receive the JIT entitlement required by Chromium. The CEF sandbox remains enabled. No remote-debugging, mock-keychain, or no-sandbox workaround is part of the build.
+Release signing uses the configured Apple Developer Team ID and stable designated requirements. Explicit local-only ad-hoc signing has no Apple Developer Team ID and uses a scoped library-validation exception for its bundled framework; Developer ID builds omit that exception. Neither mode changes global macOS security settings. Renderer and GPU helpers receive the JIT entitlement required by Chromium. The app and the plain **Aven Helper**, where Chromium runs its audio and video capture services, receive the microphone (`com.apple.security.device.audio-input`) and camera (`com.apple.security.device.camera`) entitlements. Under the hardened runtime, macOS otherwise refuses capture without asking, so websites cannot use either device; packaging and release verification reject a signature without them. The entitlements only let macOS ask: the person still approves Aven in **Privacy & Security** and each website in Aven's own prompt. The CEF sandbox remains enabled. No remote-debugging, mock-keychain, or no-sandbox workaround is part of the build.
 
 The release script notarizes and staples the final app when App Store Connect API credentials are supplied. See [RELEASING.md](RELEASING.md#notarization) for the Developer ID and notarization setup.
 

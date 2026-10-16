@@ -109,3 +109,26 @@ describe("colour row", () => {
     ]);
   });
 });
+
+describe("memory section", () => {
+  it("turns the memory keeper on and off beside the memory's own row", async () => {
+    const { getKeeperProject, resetMemoryKeeperCache } =
+      await import("../lib/memoryKeeper");
+    const availability = await import("../lib/harness/availability");
+    resetMemoryKeeperCache();
+    availability.recordHarnessAvailability("claude", true);
+    await open();
+    const toggle = document.body.querySelector<HTMLButtonElement>(
+      '[role="switch"][data-memory-keeper-switch]',
+    )!;
+    expect(toggle.textContent).toContain("Kept up to date by Aven");
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    await act(async () => toggle.click());
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    expect(getKeeperProject(PATH).consent).toBe("on");
+    await act(async () => toggle.click());
+    expect(getKeeperProject(PATH).consent).toBe("off");
+    availability.recordHarnessAvailability("claude", false);
+    resetMemoryKeeperCache();
+  });
+});

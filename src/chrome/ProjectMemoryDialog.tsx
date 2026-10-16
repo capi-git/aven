@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
+import { useMemoryKeeperProject } from "../hooks/useMemoryKeeperProject";
 import { useProjectMemory } from "../hooks/useProjectMemory";
 import { copyText } from "../lib/clipboard";
 import { errorText } from "../lib/errors";
@@ -15,6 +16,7 @@ import {
   projectMemoryRecipients,
 } from "../lib/harness/projectMemoryDelivery";
 import { LAYER } from "../lib/layers";
+import { markKeeperChangeSeen } from "../lib/memoryKeeper";
 import { projectName } from "../lib/paths";
 import { MOD } from "../lib/platform";
 import {
@@ -28,6 +30,7 @@ import {
 import { HARNESS_TITLE } from "../lib/session";
 import { HarnessIcon } from "./HarnessIcon";
 import { Check, Copy } from "./icons";
+import { MemoryKeeperChangeNote, MemoryKeeperSwitch } from "./MemoryKeeper";
 import { ProjectMark } from "./ProjectMark";
 
 type Props = {
@@ -70,6 +73,13 @@ export function ProjectMemoryDialog({ path, onClose }: Props) {
   const field = useRef<HTMLTextAreaElement>(null);
   // The version this edit started from; a newer stored copy refuses the save.
   const base = useRef(0);
+  const keeper = useMemoryKeeperProject(path);
+  const keeperChangeAt = keeper.change?.at;
+
+  // Opening the memory, or having it open when Aven updates it, is seeing it.
+  useEffect(() => {
+    markKeeperChangeSeen(path);
+  }, [path, keeperChangeAt]);
 
   const stored = memory?.body ?? "";
   const text = draft ?? stored;
@@ -165,6 +175,7 @@ export function ProjectMemoryDialog({ path, onClose }: Props) {
               {name}
             </p>
           </div>
+          <MemoryKeeperChangeNote path={path} editing={dirty} />
         </header>
 
         <p className="text-ui-label leading-snug text-content/55">
@@ -212,6 +223,8 @@ export function ProjectMemoryDialog({ path, onClose }: Props) {
           ) : null}
         </p>
 
+        <MemoryKeeperSwitch path={path} details />
+
         <div className="flex flex-col gap-1">
           <p className="text-ui-caption text-content/45">Received by</p>
           <ul className="flex flex-col gap-1">
@@ -255,7 +268,7 @@ export function ProjectMemoryDialog({ path, onClose }: Props) {
           >
             <span className="min-w-0 flex-1">
               The memory changed while you were editing, for example from
-              Remember this in a chat.
+              Remember this in a chat or an update by Aven.
             </span>
             <button
               type="button"

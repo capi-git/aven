@@ -1,0 +1,190 @@
+/* The memory keeper: its offer above the message box, its switch and its
+   change note in the project memory editor. */
+.memory-keeper-offer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 32px;
+  margin: 0 4px 6px;
+  padding: 3px 4px 3px 10px;
+  border-radius: 8px;
+  background: var(--aven-glass-surface, var(--aven-hover));
+  -webkit-backdrop-filter: var(--aven-glass-blur, none);
+  backdrop-filter: var(--aven-glass-blur, none);
+  color: var(--color-content);
+  font-family: var(--font-sans);
+  font-size: var(--text-ui-label);
+  line-height: 16px;
+}
+.memory-keeper-offer-icon {
+  flex: 0 0 auto;
+  color: var(--aven-muted);
+}
+.memory-keeper-offer-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.memory-keeper-offer button {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 6px;
+  outline: none;
+  white-space: nowrap;
+}
+.memory-keeper-offer-on {
+  color: var(--color-content);
+  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+  font-weight: 500;
+}
+.memory-keeper-offer-on:hover {
+  background: color-mix(in srgb, var(--color-content) 14%, transparent);
+}
+.memory-keeper-offer-later {
+  color: var(--aven-muted);
+}
+.memory-keeper-offer-later:hover {
+  color: var(--color-content);
+  background: var(--aven-hover);
+}
+.memory-keeper-offer button:focus-visible,
+.memory-keeper-switch:focus-visible,
+.memory-keeper-action:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 55%, transparent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .memory-keeper-offer {
+    animation: memory-keeper-in 160ms ease-out;
+  }
+}
+@keyframes memory-keeper-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+
+/* The switch: a row that reads as one control. */
+.memory-keeper-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: var(--color-content);
+  font-size: var(--text-ui-label);
+  text-align: left;
+  outline: none;
+}
+.memory-keeper-switch:hover:not(:disabled) {
+  background: var(--aven-hover);
+}
+.memory-keeper-switch:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.memory-keeper-track {
+  position: relative;
+  flex-shrink: 0;
+  width: 26px;
+  height: 15px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-content) 18%, transparent);
+  transition: background-color 140ms ease-out;
+}
+.memory-keeper-track::after {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  background: var(--color-content);
+  content: "";
+  transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.memory-keeper-switch[aria-checked="true"] .memory-keeper-track {
+  background: color-mix(in srgb, var(--color-accent) 70%, transparent);
+}
+.memory-keeper-switch[aria-checked="true"] .memory-keeper-track::after {
+  transform: translateX(11px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .memory-keeper-track,
+  .memory-keeper-track::after {
+    transition: none;
+  }
+}
+
+.memory-keeper-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  padding: 2px;
+}
+.memory-keeper-details {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 0 8px 6px 42px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  line-height: 1.35;
+}
+.memory-keeper-details-text {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.memory-keeper-error {
+  flex-basis: 100%;
+  color: color-mix(in srgb, var(--color-amber-400) 85%, var(--color-content));
+}
+.memory-keeper-action {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 6px;
+  color: var(--color-content);
+  background: color-mix(in srgb, var(--color-content) 7%, transparent);
+  font-size: var(--text-ui-caption);
+  outline: none;
+}
+.memory-keeper-action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-content) 13%, transparent);
+}
+.memory-keeper-action:disabled {
+  opacity: 0.45;
+}
+
+/* "Updated by Aven 2 h ago · +2 −1 lines · Undo" in the editor's header. */
+.memory-keeper-note {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  max-width: 60%;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  white-space: nowrap;
+}
+.memory-keeper-note-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.memory-keeper-note .memory-keeper-action {
+  height: 20px;
+}

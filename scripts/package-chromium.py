@@ -22,6 +22,12 @@ CEF_FRAMEWORK_SHA256 = 'f3edb1933329befbd09f03d05b15c49f0688d28ed81257d7931a5fde
 HELPER_NAME = 'Aven Helper'
 HELPER_BUILD_NAME = 'Aven Chromium Helper'
 HELPERS = [('', ''), (' (Alerts)', '.alerts'), (' (GPU)', '.gpu'), (' (Plugin)', '.plugin'), (' (Renderer)', '.renderer')]
+# Under the hardened runtime, macOS refuses microphone and camera access without
+# these entitlements and never asks the user. The host is the app macOS names in
+# its prompt; Chromium's audio and video capture services run in the plain
+# helper (a utility process), so it carries them too.
+CAPTURE_ENTITLEMENTS = ('com.apple.security.device.audio-input', 'com.apple.security.device.camera')
+CAPTURE_HELPER_SUFFIX = ''
 MACHO_MAGICS = {b'\xcf\xfa\xed\xfe', b'\xfe\xed\xfa\xcf', b'\xca\xfe\xba\xbe', b'\xbe\xba\xfe\xca', b'\xca\xfe\xba\xbf', b'\xbf\xba\xfe\xca'}
 
 def require(ok, message):
@@ -35,10 +41,24 @@ def sha(path):
             digest.update(block)
     return digest.hexdigest()
 
+def host_entitlements():
+    values = plistlib.loads((REPO / 'src-tauri/Entitlements.plist').read_bytes())
+    missing = [key for key in CAPTURE_ENTITLEMENTS if values.get(key) is not True]
+    require(not missing, 'src-tauri/Entitlements.plist must grant ' + ', '.join(missing)
+            + '; without it macOS silently blocks website microphone and camera access')
+    return values
+
+def helper_kind(suffix):
+    if suffix in (' (GPU)', ' (Renderer)'):
+        return 'jit-helper'
+    return 'capture-helper' if suffix == CAPTURE_HELPER_SUFFIX else 'helper'
+
 def entitlements(name, identity):
-    values = plistlib.loads((REPO / 'src-tauri/Entitlements.plist').read_bytes()) if name == 'host' else {}
+    values = host_entitlements() if name == 'host' else {}
     if name == 'jit-helper':
         values['com.apple.security.cs.allow-jit'] = True
+    if name == 'capture-helper':
+        values.update({key: True for key in CAPTURE_ENTITLEMENTS})
     if identity == '-':
         values['com.apple.security.cs.disable-library-validation'] = True
     else:
@@ -108,6 +128,13 @@ def package(app, product_name, bundle_id, identity, log, env, keychain=None):
     bluetooth_description = info.get('NSBluetoothAlwaysUsageDescription')
     require(isinstance(bluetooth_description, str) and bluetooth_description.strip(),
             'Host app is missing a nonempty NSBluetoothAlwaysUsageDescription; rebuild it from src-tauri/Info.plist before Chromium packaging')
+    # The capture entitlements let macOS ask; it terminates a process that asks
+    # without saying why.
+    for key in ('NSMicrophoneUsageDescription', 'NSCameraUsageDescription'):
+        description = info.get(key)
+        require(isinstance(description, str) and description.strip(),
+                'Host app is missing a nonempty ' + key + '; rebuild it from src-tauri/Info.plist before Chromium packaging')
+    host_entitlements()
     icon_name = info.get('CFBundleIconFile')
     require(isinstance(icon_name, str) and icon_name and Path(icon_name).name == icon_name,
             'The host app must declare a local icon for its Chromium helpers')
@@ -221,8 +248,7 @@ def package(app, product_name, bundle_id, identity, log, env, keychain=None):
         run(common + [path], log, env)
     run(common + [framework], log, env)
     for helper, suffix in helpers:
-        kind = 'jit-helper' if suffix in (' (GPU)', ' (Renderer)') else 'helper'
-        run(common + ['--entitlements', entitlements(kind, identity), helper], log, env)
+        run(common + ['--entitlements', entitlements(helper_kind(suffix), identity), helper], log, env)
     run(common + ['--entitlements', entitlements('host', identity), app], log, env)
     run(['codesign', '--verify', '--deep', '--strict', '--verbose=2', app], log, env)
     run(['codesign', '-dvv', app], log, env)

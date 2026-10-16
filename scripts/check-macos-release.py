@@ -71,7 +71,7 @@ def check_release(config, app=None):
             try:
                 release_signing.verify(app)
                 record("Final app signing contract", True,
-                       "Strict signature, expected team and identifiers, stable requirements, timestamps, and hardened runtime passed for Aven and Chromium helpers.")
+                       "Strict signature, expected team and identifiers, stable requirements, timestamps, and hardened runtime passed for Aven and Chromium helpers; the app and its capture helper may ask for the microphone and camera.")
             except (RuntimeError, OSError, ValueError) as error:
                 record("Final app signing contract", False, str(error))
             try:

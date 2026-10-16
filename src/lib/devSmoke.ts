@@ -17,6 +17,8 @@ export type DevSmokeConfig = {
 
 /** What the stand-in provider answers. */
 export const SMOKE_REPLY = "AVEN_SMOKE_OK";
+/** In the memory the stand-in writes when Aven's memory keeper calls it. */
+export const SMOKE_KEEPER_WORD = "AVEN_KEEPER_OK";
 /** Workspace → floating sidebar: drive Settings and Back. */
 export const SMOKE_OVERLAY_EVENT = "aven-dev-smoke-overlay";
 /** Floating sidebar → workspace: how that went. */

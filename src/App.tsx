@@ -81,6 +81,7 @@ import {
   useScheduledAgents,
 } from "./hooks/useScheduledAgents";
 import { useAgentKeepAwake } from "./hooks/useAgentKeepAwake";
+import { useMemoryKeeper } from "./hooks/useMemoryKeeper";
 import {
   agentKeepAwakeProgress,
   agentKeepAwakeSessionIds,
@@ -173,6 +174,11 @@ import {
 } from "./lib/devPreviews";
 import { placeDevPreview } from "./lib/devPreviewLayout";
 import { useDevPreviewAutoOpen } from "./hooks/useDevPreviews";
+import {
+  useDuplicateServerMessenger,
+  useSharedWorkSessions,
+  useWorkConflicts,
+} from "./hooks/useSharedWork";
 import { loadDefaultRuntimeMode } from "./lib/runtimeMode";
 import { ApprovalToasts } from "./chrome/ApprovalToasts";
 import {
@@ -542,7 +548,7 @@ import {
   type WorkspaceNavigation,
 } from "./lib/workspaceNavigation";
 import { preparePrompt } from "./lib/promptPreparation";
-import { projectMemoryForTurn } from "./lib/projectMemory";
+import { loadProjectMemory, projectMemoryForTurn } from "./lib/projectMemory";
 import { warmNativeSkills, isNativeCommandPrompt } from "./lib/skills";
 import { nativeSkillContextForSession } from "./lib/sessionSkills";
 import {
@@ -1208,6 +1214,12 @@ export default function App({
     [],
   );
   useDevPreviewAutoOpen(projectCwd);
+  // Chats' titles and projects for the shared-work note, read only when a
+  // note is built; closed chats stop counting as working.
+  useSharedWorkSessions(
+    sessionsRef,
+    sessions.map((session) => session.id).join("\n"),
+  );
   // A server a tab already shows, opened by an agent or typed, is not offered.
   useEffect(() => {
     publishDevPreviewTabs(
@@ -2041,6 +2053,9 @@ export default function App({
     [sessions, keepAwakeSessionIds],
   );
   useAgentKeepAwake(keepAwakeSessionIds, keepAwakeProgress);
+  // Fills and updates project memories the user asked Aven to keep, while
+  // no agent works in that project.
+  useMemoryKeeper(sessions);
 
   // Restored and newly selected providers may arrive after the boot refresh.
   // Catalog loaders deduplicate already loaded catalogs and in-flight probes.
@@ -6687,6 +6702,11 @@ export default function App({
     },
   });
 
+  // "Ask Codex to stop it" on a second dev server queues a message here.
+  useDuplicateServerMessenger((sessionId, text) =>
+    onSubmit(sessionId, text, [], { followUpBehavior: "queue" }),
+  );
+
   const autoContinueKey = sessions
     .filter(
       (session) => canAutoContinue(session) && isLiveHarness(session.harness),
@@ -8461,6 +8481,8 @@ export default function App({
     );
   };
 
+  // Same-file edits and second dev servers, for the sidebar's rows.
+  const workConflicts = useWorkConflicts();
   const projectStatus = useProjectStatus({
     sessions,
     activity: activityEntries,
@@ -8564,6 +8586,7 @@ export default function App({
     projectStatus,
     liveAgents,
     discussions: discussions.sidebar,
+    workConflicts,
     onSelectAgent: onSelectLiveAgent,
     onSelectProject,
     onOpenProject: pickProject,
@@ -8667,6 +8690,8 @@ export default function App({
     },
     deleteProject: (path) => onRemoveProject(path, { purgeData: true }),
     discussion: discussions.host,
+    projectMemory: async (path) => (await loadProjectMemory(path))?.body ?? "",
+    sharedWork: true,
     focusedSurfaceId: view.focusedId,
     sidebarOpen,
     openWebLink: onOpenWebLink,

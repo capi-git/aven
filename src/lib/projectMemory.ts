@@ -2,6 +2,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { errorText } from "./errors";
 import type { HarnessProjectMemory } from "./harness/types";
 import { projectKey } from "./paths";
+import { withoutKeeperMarkers } from "./memoryKeeperFormat";
 import { raceLaneProject } from "./race";
 import { looksLikeProject, normalizeProjectPath } from "./recents";
 import { isProjectlessCwd } from "./projectlessWorkspace";
@@ -131,9 +132,12 @@ export function memoryProjectFor(cwd: string | undefined): string | null {
   return normalizeProjectPath(project);
 }
 
-/** What an agent reads: the preamble, then the memory, in one tagged block. */
+/**
+ * What an agent reads: the preamble, then the memory, in one tagged block.
+ * The memory keeper's markers are for the editor, not for agents.
+ */
 export function projectMemoryBlock(body: string): string {
-  const text = body.replace(/\r\n?/g, "\n").trim();
+  const text = withoutKeeperMarkers(body.replace(/\r\n?/g, "\n")).trim();
   if (!text) return "";
   return `<aven-project-memory>\n${PROJECT_MEMORY_PREAMBLE}\n\n${text}\n</aven-project-memory>`;
 }

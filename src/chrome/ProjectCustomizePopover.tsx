@@ -17,6 +17,7 @@ import {
 } from "../lib/tabGroups";
 import { ColorPickerPopover, ColorSwatchRow } from "./ColorPickerPopover";
 import { Brain, ChevronRight, ImagePlus, Trash2 } from "./icons";
+import { MemoryKeeperSwitch } from "./MemoryKeeper";
 import { Popover, type PopoverAnchor } from "./Popover";
 import { ProjectMark } from "./ProjectMark";
 import { ProjectMascot } from "./ProjectMascot";
@@ -249,6 +250,9 @@ function ProjectAppearancePopover({
           onEditMemory();
         }}
       />
+      <div className="mt-1">
+        <MemoryKeeperSwitch path={path} />
+      </div>
 
       <div className="mt-3 flex items-center justify-between border-t border-content/10 pt-2">
         <button
