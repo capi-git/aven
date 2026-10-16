@@ -6,9 +6,11 @@ import { Check, Copy } from "./icons";
 export function ApplyWorkspaceThemeButton({
   profileId,
   compact = false,
+  label = "Use for all workspaces",
 }: {
   profileId: string;
   compact?: boolean;
+  label?: string;
 }) {
   const theme = useWorkspaceTheme(profileId);
   const fingerprint = `${profileId}:${JSON.stringify(theme)}`;
@@ -35,7 +37,7 @@ export function ApplyWorkspaceThemeButton({
         ) : (
           <Copy className="size-3.5" aria-hidden />
         )}
-        Use for all workspaces
+        {label}
       </button>
       <div
         role="status"
