@@ -103,7 +103,7 @@ class WorkflowFixture(unittest.TestCase):
                 'url': 'https://example.invalid/macos.app.tar.gz', 'signature': 'fixture-only'}}}))
         (self.release / 'signing-verification.json').write_text(json.dumps({
             'status': 'verified', 'mode': 'developer-id', **self.policy,
-            'strictSignatureVerification': 'passed'}))
+            'strictSignatureVerification': 'passed', 'captureEntitlements': 'verified'}))
         self.checksums(self.release)
 
     @staticmethod
@@ -366,7 +366,8 @@ class WindowsArtifactTests(WorkflowFixture):
         verified = json.loads(report.read_text())
         for key, value in (('mode', 'ad-hoc'), ('teamId', 'OTHERTEAM'),
                            ('bundleId', 'com.example.other'),
-                           ('strictSignatureVerification', 'failed')):
+                           ('strictSignatureVerification', 'failed'),
+                           ('captureEntitlements', None)):
             with self.subTest(key=key):
                 report.write_text(json.dumps({**verified, key: value}))
                 self.checksums(self.release)

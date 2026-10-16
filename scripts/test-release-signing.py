@@ -217,12 +217,30 @@ class SignatureTests(unittest.TestCase):
                     return ''
                 return signature(targets[Path(arguments[-1])][1])
 
-            with mock.patch.object(signing, 'command', side_effect=run) as native:
+            capture = {key: True for key in signing.CAPTURE_ENTITLEMENTS}
+            granted = {app: capture, app / 'Contents/Frameworks/Aven Helper.app': capture}
+            with mock.patch.object(signing, 'command', side_effect=run) as native, \
+                 mock.patch.object(signing, 'signed_entitlements',
+                                   side_effect=lambda target: granted.get(target, {})) as read:
                 report = signing.verify(app)
             self.assertEqual(native.call_args_list[0].args[0],
                              ['codesign', '--verify', '--deep', '--strict', str(app)])
             self.assertEqual(len(report['signatures']), 7)
             self.assertEqual(report['mode'], 'developer-id')
+            self.assertEqual(report['captureEntitlements'], 'verified')
+            self.assertEqual({call.args[0] for call in read.call_args_list}, set(granted))
+            # A build that lost either grant on the host or the capture helper
+            # would let macOS block every website's microphone without asking.
+            for target in granted:
+                for key in signing.CAPTURE_ENTITLEMENTS:
+                    with self.subTest(target=target.name, key=key):
+                        missing = dict(granted)
+                        missing[target] = {name: True for name in signing.CAPTURE_ENTITLEMENTS if name != key}
+                        with mock.patch.object(signing, 'command', side_effect=run), \
+                             mock.patch.object(signing, 'signed_entitlements',
+                                               side_effect=lambda value: missing.get(value, {})):
+                            with self.assertRaisesRegex(RuntimeError, 'Missing ' + key):
+                                signing.verify(app)
             self.assertEqual(report['notarization'], {'notarized': False, 'status': 'not-submitted'})
             self.assertNotIn(folder, json.dumps(report))
             # A corrupted helper cannot be hidden by a valid root signature.
@@ -233,6 +251,28 @@ class SignatureTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'Unexpected bundle identifier'):
                     signing.verify(app)
                 native.assert_not_called()
+
+
+class EntitlementTests(unittest.TestCase):
+    def read(self, stdout, returncode=0):
+        result = subprocess.CompletedProcess([], returncode, stdout,
+                                             b'Executable=/fixture/Aven.app/Contents/MacOS/aven\n')
+        with mock.patch.object(signing.subprocess, 'run', return_value=result) as run:
+            value = signing.signed_entitlements(Path('/fixture/Aven.app'))
+        self.assertEqual(run.call_args.args[0],
+                         ['codesign', '-d', '--entitlements', '-', '--xml', '/fixture/Aven.app'])
+        return value
+
+    def test_reads_only_the_sealed_plist_and_treats_none_as_empty(self):
+        values = {key: True for key in signing.CAPTURE_ENTITLEMENTS}
+        self.assertEqual(self.read(plistlib.dumps(values)), values)
+        self.assertEqual(self.read(b''), {})
+
+    def test_unreadable_or_failed_reads_fail_closed(self):
+        with self.assertRaisesRegex(RuntimeError, 'Unreadable entitlements'):
+            self.read(b'not a plist')
+        with self.assertRaisesRegex(RuntimeError, 'Could not read entitlements'):
+            self.read(b'', returncode=1)
 
 
 class OutputTests(unittest.TestCase):
