@@ -37,14 +37,23 @@ import { runDevSmoke } from "./useDevSmoke";
 
 const PROJECT = "/tmp/check/project";
 const config = { projectPath: PROJECT, binDir: "/tmp/check/bin" };
-const STEP = "two chats discuss for two rounds, linked in the sidebar";
+const STEP =
+  "two chats discuss for two rounds on one page, linked in the sidebar";
 const ROUNDS = 2;
 
 type Flaws = {
-  /** The chat's + menu has no Discuss with… (the host never reached it). */
+  /** The chat's + menu has no Discuss (the host never reached it). */
   noEntry?: boolean;
-  /** The picker's start refuses with this reason. */
+  /** Choosing Discuss shows no chip. */
+  noChip?: boolean;
+  /** The start is refused with this reason. */
   refuse?: string;
+  /** The discussion starts but its page never opens. */
+  noPage?: boolean;
+  /** The page puts every reply on the left. */
+  oneSide?: boolean;
+  /** The page's header has no avatars. */
+  noAvatars?: boolean;
   /** The second chat is sent the first chat's reply twice. */
   relayTwice?: boolean;
   /** The sidebar marks both rows but draws no connector. */
@@ -53,6 +62,8 @@ type Flaws = {
   stillPulse?: boolean;
   /** The pulse travels away from the chat that is answering. */
   wrongWay?: boolean;
+  /** Pressing the connector does nothing. */
+  deadLink?: boolean;
   /** The relayed message has no relay card. */
   noCard?: boolean;
   /** The connector stays after the discussion ended. */
@@ -65,8 +76,9 @@ const ROW_HEIGHT = 30;
 
 /**
  * A stand-in for the workspace with a discussion broker: chats, the sidebar
- * rows and connector, the bar above the message box and relayed messages,
- * drawn from the state the check drives.
+ * rows and connector, the message box's + menu and Discuss chip, the bar
+ * above the message box, relayed messages and the discussion's page, drawn
+ * from the state the check drives.
  */
 function app(flaws: Flaws = {}) {
   let focused = "";
@@ -76,9 +88,16 @@ function app(flaws: Flaws = {}) {
     b: string;
     topic: string;
     turn: number;
+    /** Replies the page shows. */
+    replies: number;
   } | null = null;
   let ended = false;
   let plusOpen = false;
+  let discussMode = false;
+  let dropdown = false;
+  let partner: string | null = null;
+  let rounds = 3;
+  let page = false;
   const session = (id: string) =>
     state.sessions.find((entry) => entry.id === id)!;
   const title = (id: string) => `Chat ${id}`;
@@ -126,7 +145,9 @@ function app(flaws: Flaws = {}) {
           b: request.partner.sessionId,
           topic: request.topic,
           turn: 0,
+          replies: 0,
         };
+        page = !flaws.noPage;
         relay(0);
         return null;
       }),
@@ -143,7 +164,7 @@ function app(flaws: Flaws = {}) {
     const { a, b, topic } = talk;
     talk.turn = turn;
     const target = turn % 2 === 0 ? a : b;
-    const partner = turn % 2 === 0 ? b : a;
+    const other = turn % 2 === 0 ? b : a;
     const message: Omit<Block, "id"> = {
       role: "user",
       text: turn === 0 ? topic : SMOKE_REPLY,
@@ -155,7 +176,7 @@ function app(flaws: Flaws = {}) {
         partner: {
           harness: "claude",
           model: "Sonnet",
-          title: title(partner),
+          title: title(other),
         },
       },
     };
@@ -173,6 +194,7 @@ function app(flaws: Flaws = {}) {
     const hold = turn < 2 ? /AVEN_SMOKE_HOLD (\d+)/.exec(topic) : null;
     setTimeout(
       () => {
+        if (talk) talk.replies = turn + 1;
         update(target, {
           busy: false,
           blocks: [
@@ -200,6 +222,23 @@ function app(flaws: Flaws = {}) {
       hold ? Number(hold[1]) : 0,
     );
   }
+  function drawPage(): string {
+    if (!talk || !page) return "";
+    const avatars = flaws.noAvatars
+      ? ""
+      : `<span data-discussion-avatar="a"></span><span data-discussion-avatar="b"></span>`;
+    const messages = Array.from(
+      { length: talk.replies },
+      (_, turn) =>
+        `<li data-discussion-message="${turn}" data-side="${
+          flaws.oneSide || turn % 2 === 0 ? "a" : "b"
+        }"></li>`,
+    ).join("");
+    const typing = ended
+      ? `<li data-discussion-closing="completed">Discussion ended after ${ROUNDS} rounds.</li>`
+      : `<li data-discussion-typing="${talk.turn % 2 === 0 ? "a" : "b"}"></li>`;
+    return `<div data-discussion-view="d1"${focused === talk.a ? "" : " hidden"}><header data-discussion-header><div data-discussion-cast>${avatars}</div></header><ol>${messages}${typing}</ol></div>`;
+  }
   function draw() {
     const active = talk && (!ended || flaws.keepsLink) ? talk : null;
     // Chats appear in the sidebar once they have a message, as in history.
@@ -216,7 +255,7 @@ function app(flaws: Flaws = {}) {
     const rows = listed
       .map(
         (entry) =>
-          `<button class="personal-task-card" data-top="${top(entry.id)}" data-height="${ROW_HEIGHT}"${
+          `<button class="personal-task-card" data-session-card="${entry.id}" data-top="${top(entry.id)}" data-height="${ROW_HEIGHT}"${
             talking(entry.id) ? ` data-discussion-row="${entry.id}"` : ""
           }>${title(entry.id)}${
             talking(entry.id) && !linked
@@ -233,42 +272,105 @@ function app(flaws: Flaws = {}) {
       const answering = active.turn % 2 === 0 ? centres[0] : centres[1];
       let toward = answering > Math.min(...centres) ? "down" : "up";
       if (flaws.wrongWay) toward = toward === "down" ? "up" : "down";
-      link = `<div class="discussion-links"><span class="discussion-link" data-discussion-link="d1" data-toward="${toward}" data-top="${Math.min(...centres)}" data-height="${Math.abs(centres[0] - centres[1])}"><span class="discussion-link-track"><span class="discussion-link-pulse" style="animation-name: ${
+      link = `<div class="discussion-links"><button class="discussion-link" data-discussion-link="d1" data-toward="${toward}" data-top="${Math.min(...centres)}" data-height="${Math.abs(centres[0] - centres[1])}"><span class="discussion-link-track"><span class="discussion-link-pulse" style="animation-name: ${
         flaws.stillPulse ? "none" : `discussion-link-${toward}`
-      }"></span></span></span></div>`;
+      }"></span></span></button></div>`;
     }
-    const cards = flaws.noCard
-      ? ""
-      : (state.sessions.find((entry) => entry.id === focused)?.blocks ?? [])
-          .filter((block) => block.discussion)
-          .map(
-            (block) =>
-              `<div data-discussion-relay="${block.discussion!.id}"></div>`,
-          )
-          .join("");
+    const cards = (id: string) =>
+      flaws.noCard
+        ? ""
+        : session(id)
+            .blocks.filter((block) => block.discussion)
+            .map(
+              (block) =>
+                `<div data-discussion-relay="${block.discussion!.id}"></div>`,
+            )
+            .join("");
     const bar = active
       ? `<div data-discussion-bar="d1">Discussing with Sonnet in “Chat” round ${
           Math.floor(active.turn / 2) + 1
-        } of ${ROUNDS} Stop</div>`
+        } of ${ROUNDS} <button>Open discussion</button> <button>Stop</button></div>`
       : "";
+    const chip = discussMode
+      ? `<div data-discussion-chip><button aria-haspopup="dialog" data-chip-toggle><span data-discussion-chip-label>Discuss with Claude · ${rounds} rounds</span></button></div>`
+      : "";
+    const composer = `<div data-composer>${bar}<textarea style="visibility: visible"></textarea><button aria-label="Add files or choose a mode"></button>${chip}</div>`;
+    const drops = state.sessions
+      .map(
+        (entry) =>
+          `<div data-session-drop="${entry.id}"${entry.id === focused ? "" : " hidden"}>${cards(entry.id)}${
+            entry.id === focused ? composer : ""
+          }</div>`,
+      )
+      .join("");
     const menu = plusOpen
       ? `<div data-composer-plus><button>Upload file</button>${
-          flaws.noEntry
-            ? ""
-            : "<button data-composer-discuss>Discuss with…</button>"
+          flaws.noEntry ? "" : "<button data-composer-discuss>Discuss</button>"
         }</div>`
+      : "";
+    const others = state.sessions.filter((entry) => entry.id !== focused);
+    const choices = dropdown
+      ? `<div data-discussion-menu>${others
+          .map(
+            (entry) =>
+              `<button data-discussion-candidate="${entry.id}" aria-checked="${partner === entry.id}"></button>`,
+          )
+          .join("")}${[1, 2, 3, 4, 5, 6]
+          .map((value) => `<button data-discussion-rounds="${value}"></button>`)
+          .join("")}</div>`
       : "";
     document.body.innerHTML = `
       <aside class="personal-navigation">${link}${rows}</aside>
-      <div class="personal-workspace-content">
-        <div data-session-drop="${focused}">${cards}
-          <div data-composer>${bar}<textarea style="visibility: visible"></textarea><button aria-label="Add files or choose a mode"></button></div>
-        </div>
-      </div>${menu}`;
+      <div class="personal-workspace-content">${drops}${drawPage()}</div>${menu}${choices}`;
+    const on = (selector: string, handler: (element: Element) => void) => {
+      for (const element of document.querySelectorAll(selector))
+        element.addEventListener("click", () => handler(element));
+    };
+    on('[aria-label="Add files or choose a mode"]', () => {
+      plusOpen = !plusOpen;
+      draw();
+    });
+    on("[data-composer-discuss]", () => {
+      plusOpen = false;
+      discussMode = !flaws.noChip;
+      partner = others[0]?.id ?? null;
+      draw();
+    });
+    on("[data-chip-toggle]", () => {
+      dropdown = !dropdown;
+      draw();
+    });
+    on("[data-discussion-candidate]", (element) => {
+      partner = (element as HTMLElement).dataset.discussionCandidate!;
+      draw();
+    });
+    on("[data-discussion-rounds]", (element) => {
+      rounds = Number((element as HTMLElement).dataset.discussionRounds);
+      draw();
+    });
+    on("[data-session-card]", (element) => {
+      focused = (element as HTMLElement).dataset.sessionCard!;
+      draw();
+    });
+    on("[data-discussion-link]", () => {
+      if (flaws.deadLink || !talk) return;
+      focused = talk.a;
+      draw();
+    });
     document
-      .querySelector('[aria-label="Add files or choose a mode"]')
-      ?.addEventListener("click", () => {
-        plusOpen = !plusOpen;
+      .querySelector("[data-composer] textarea")
+      ?.addEventListener("keydown", (event) => {
+        const key = (event as KeyboardEvent).key;
+        if (key !== "Enter" || !discussMode || !partner) return;
+        const topic = (event.target as HTMLTextAreaElement).value;
+        const refused = state.discussion.start({
+          sessionId: focused,
+          partner: { kind: "chat", sessionId: partner },
+          topic,
+          rounds,
+        });
+        if (refused) return;
+        discussMode = false;
         draw();
       });
   }
@@ -310,6 +412,13 @@ async function check(
 const discussionStep = (steps: SmokeStep[]) =>
   steps.find((step) => step.name === STEP);
 
+async function failure(flaws: Flaws) {
+  mocks.finish.mockClear();
+  const step = discussionStep((await check(flaws)).steps);
+  expect(step?.passed).toBe(false);
+  return step?.detail ?? "";
+}
+
 describe("the real-app check's discussion step", () => {
   let reducedMotion = false;
   beforeEach(() => {
@@ -324,10 +433,13 @@ describe("the real-app check's discussion step", () => {
         return rect(this);
       },
     );
+    // Hidden chats and pages take no room, as on screen.
     vi.spyOn(Element.prototype, "getClientRects").mockImplementation(function (
       this: Element,
     ) {
-      return [rect(this)] as unknown as DOMRectList;
+      return (this.closest("[hidden]")
+        ? []
+        : [rect(this)]) as unknown as DOMRectList;
     });
     vi.stubGlobal(
       "matchMedia",
@@ -346,7 +458,7 @@ describe("the real-app check's discussion step", () => {
     document.body.innerHTML = "";
   });
 
-  it("passes when the chats are linked, each reply is relayed once and it ends", async () => {
+  it("passes when started from Discuss mode, shown on one page, linked and ended", async () => {
     const { steps, state } = await check();
     expect(steps.map((step) => [step.name, step.passed])).toEqual([
       ["stand-in provider is the one Aven found", true],
@@ -355,11 +467,13 @@ describe("the real-app check's discussion step", () => {
       [STEP, true],
     ]);
     expect(discussionStep(steps)?.detail).toBe(
-      "4 replies relayed once each; linked with the pulse toward the answering chat; ended after 2 rounds",
+      "started from Discuss mode; 4 replies relayed once each and shown alternating on one page; linked with the pulse toward the answering chat; ended after 2 rounds",
     );
+    // The chat on screen (opened last) starts, with the chip's choices and
+    // the message as the topic.
     expect(state.discussion.start).toHaveBeenCalledExactlyOnceWith({
-      sessionId: "2",
-      partner: { kind: "chat", sessionId: "3" },
+      sessionId: "3",
+      partner: { kind: "chat", sessionId: "2" },
       topic: "Compare notes. AVEN_SMOKE_HOLD 8000",
       rounds: 2,
     });
@@ -372,64 +486,74 @@ describe("the real-app check's discussion step", () => {
     expect(step?.detail).toContain("still (reduced motion)");
   });
 
+  it("fails when the + menu offers no Discuss, or Discuss shows no chip", async () => {
+    expect(await failure({ noEntry: true })).toBe(
+      "The + menu does not offer Discuss",
+    );
+    expect(document.querySelector("[data-composer-plus]")).toBeNull();
+    expect(await failure({ noChip: true })).toBe(
+      "Timed out waiting for the Discuss chip in the message box",
+    );
+  });
+
+  it("fails with the reason when the discussion does not start", async () => {
+    const detail = await failure({
+      refuse: "This chat is busy with another turn.",
+    });
+    expect(detail).toBe(
+      "Timed out waiting for the discussion's page to open beside the chat",
+    );
+  });
+
+  it("fails when the page does not open or shows the replies wrongly", async () => {
+    expect(await failure({ noPage: true })).toBe(
+      "Timed out waiting for the discussion's page to open beside the chat",
+    );
+    expect(await failure({ noAvatars: true })).toContain(
+      "the page's header has no avatar for side a",
+    );
+    expect(await failure({ oneSide: true })).toContain(
+      "the page shows replies on sides a,a,a,a, not a,b,a,b",
+    );
+  });
+
   it("fails when a reply is relayed twice", async () => {
-    const step = discussionStep((await check({ relayTwice: true })).steps);
-    expect(step?.passed).toBe(false);
-    expect(step?.detail).toBe(
+    expect(await failure({ relayTwice: true })).toBe(
       "Relayed turns were 0,2 in the first chat and 1,1,3 in the second, not 0,2 and 1,3",
     );
   });
 
   it("fails when the sidebar does not link the two rows", async () => {
-    const step = discussionStep((await check({ noLink: true })).steps);
-    expect(step?.passed).toBe(false);
-    expect(step?.detail).toContain("no connector links the two rows");
+    expect(await failure({ noLink: true })).toContain(
+      "no connector links the two rows",
+    );
   });
 
+  // The starting chat was opened last, so the answering one is listed above.
   it("fails when the pulse stands still or runs the wrong way", async () => {
-    const still = discussionStep((await check({ stillPulse: true })).steps);
-    expect(still?.passed).toBe(false);
-    expect(still?.detail).toContain(
-      "the pulse its animation is none, expected discussion-link-down",
+    expect(await failure({ stillPulse: true })).toContain(
+      "the pulse its animation is none, expected discussion-link-up",
     );
-    mocks.finish.mockClear();
-    const wrong = discussionStep((await check({ wrongWay: true })).steps);
-    expect(wrong?.passed).toBe(false);
-    expect(wrong?.detail).toContain(
-      "the pulse travels up, not down toward the answering chat",
+    expect(await failure({ wrongWay: true })).toContain(
+      "the pulse travels down, not up toward the answering chat",
+    );
+  });
+
+  it("fails when the connector does not bring the page back", async () => {
+    expect(await failure({ deadLink: true })).toBe(
+      "Timed out waiting for the connector to bring back the discussion's page",
     );
   });
 
   it("fails when the relayed message has no relay card", async () => {
-    const step = discussionStep((await check({ noCard: true })).steps);
-    expect(step?.passed).toBe(false);
-    expect(step?.detail).toContain("the relay card on the relayed message");
+    expect(await failure({ noCard: true })).toContain(
+      "the relay card on the relayed message",
+    );
   });
 
   it("fails when the connector stays after the end", async () => {
-    const step = discussionStep((await check({ keepsLink: true })).steps);
-    expect(step?.passed).toBe(false);
-    expect(step?.detail).toContain(
+    expect(await failure({ keepsLink: true })).toContain(
       "the connector and the bar to go once it ended",
-    );
-  });
-
-  it("fails when the chat's + menu does not offer Discuss with…", async () => {
-    const { steps, state } = await check({ noEntry: true });
-    const step = discussionStep(steps);
-    expect(step?.passed).toBe(false);
-    expect(step?.detail).toBe("The + menu does not offer Discuss with…");
-    expect(state.discussion.start).not.toHaveBeenCalled();
-    expect(document.querySelector("[data-composer-plus]")).toBeNull();
-  });
-
-  it("fails with the reason when the discussion does not start", async () => {
-    const step = discussionStep(
-      (await check({ refuse: "This chat is busy with another turn." })).steps,
-    );
-    expect(step?.passed).toBe(false);
-    expect(step?.detail).toBe(
-      "The discussion did not start: This chat is busy with another turn.",
     );
   });
 

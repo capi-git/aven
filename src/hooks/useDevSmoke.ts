@@ -56,7 +56,7 @@ type Options = DevPerfOptions & {
   deleteProject?: (projectPath: string) => Promise<void>;
   /** Open the restart question's preview, as its palette command does. */
   previewRestartQuestion?: () => boolean;
-  /** Starts discussions between chats, as the composer's picker does. */
+  /** Starts discussions between chats; the check drives the composer's Discuss mode. */
   discussion?: DiscussionHost;
   /** Reads a project's memory, as its editor does. */
   projectMemory?: (path: string) => Promise<string>;
@@ -321,41 +321,154 @@ function linkProblem(id: string, a: string, b: string): string | null {
   return moving ? `the pulse ${moving}` : null;
 }
 
-/** Open the visible chat's + menu, find Discuss with…, and close it again. */
-async function expectDiscussEntry(sessionId: string) {
-  const composer = await waitFor(
-    () => {
-      const field = visibleComposer();
-      return (
-        field
-          ?.closest(`[data-session-drop="${sessionId}"]`)
-          ?.querySelector<HTMLElement>("[data-composer]") ?? null
-      );
-    },
+/** The message box of a chat on screen. */
+function chatComposer(sessionId: string): HTMLElement | null {
+  return (
+    visibleComposer()
+      ?.closest(`[data-session-drop="${sessionId}"]`)
+      ?.querySelector<HTMLElement>("[data-composer]") ?? null
+  );
+}
+
+/** Type into a message box the way a paste reaches React. */
+function typeInComposer(field: HTMLTextAreaElement, text: string) {
+  field.focus();
+  Object.getOwnPropertyDescriptor(
+    HTMLTextAreaElement.prototype,
+    "value",
+  )?.set?.call(field, text);
+  field.dispatchEvent(new InputEvent("input", { bubbles: true, data: text }));
+}
+
+/**
+ * Start a discussion the way a person does: the chat's + menu turns on
+ * Discuss, the chip's dropdown picks the partner and rounds, and sending
+ * the message starts it with the message as the topic.
+ */
+async function startDiscussionFromComposer(
+  sessionId: string,
+  partnerId: string,
+  topic: string,
+  rounds: number,
+) {
+  // Everything is looked up again after each press: the box re-renders.
+  const inBox = <T extends Element>(selector: string) =>
+    chatComposer(sessionId)?.querySelector<T>(selector) ?? null;
+  const inMenu = <T extends Element>(selector: string) =>
+    document
+      .querySelector("[data-discussion-menu]")
+      ?.querySelector<T>(selector) ?? null;
+  const plus = await waitFor(
+    () => inBox<HTMLButtonElement>('[aria-label="Add files or choose a mode"]'),
     5_000,
-    "the new chat's message box",
+    "the chat's + menu",
   );
-  const plus = composer.querySelector<HTMLButtonElement>(
-    '[aria-label="Add files or choose a mode"]',
-  );
-  if (!plus) throw new Error("The message box has no + menu");
   plus.click();
-  try {
-    await waitFor(
-      () => document.querySelector("[data-composer-plus]"),
-      5_000,
-      "the + menu",
-    );
-    if (!document.querySelector("[data-composer-discuss]"))
-      throw new Error("The + menu does not offer Discuss with…");
-  } finally {
-    if (document.querySelector("[data-composer-plus]")) plus.click();
-  }
-  await waitFor(
-    () => !document.querySelector("[data-composer-plus]"),
+  const menu = await waitFor(
+    () => document.querySelector<HTMLElement>("[data-composer-plus]"),
     5_000,
-    "the + menu to close",
+    "the + menu",
   );
+  const item = menu.querySelector<HTMLElement>("[data-composer-discuss]");
+  if (!item?.textContent?.includes("Discuss")) {
+    inBox<HTMLButtonElement>(
+      '[aria-label="Add files or choose a mode"]',
+    )?.click();
+    throw new Error("The + menu does not offer Discuss");
+  }
+  item.click();
+  const toggle = () =>
+    inBox<HTMLElement>("[data-discussion-chip] [aria-haspopup]");
+  (await waitFor(toggle, 5_000, "the Discuss chip in the message box")).click();
+  await waitFor(
+    () => document.querySelector("[data-discussion-menu]"),
+    5_000,
+    "the Discuss chip's dropdown",
+  );
+  const partner = inMenu<HTMLButtonElement>(
+    `[data-discussion-candidate="${partnerId}"]`,
+  );
+  if (!partner)
+    throw new Error("The Discuss dropdown does not list the other chat");
+  if (partner.disabled)
+    throw new Error(`The other chat can't join: ${partner.title}`);
+  partner.click();
+  const count = inMenu<HTMLElement>(`[data-discussion-rounds="${rounds}"]`);
+  if (!count)
+    throw new Error(`The Discuss dropdown offers no ${rounds} rounds`);
+  count.click();
+  await waitFor(
+    () =>
+      inBox("[data-discussion-chip-label]")?.textContent?.includes(
+        `${rounds} rounds`,
+      ),
+    5_000,
+    `the chip to read ${rounds} rounds`,
+  );
+  toggle()?.click();
+  await waitFor(
+    () => !document.querySelector("[data-discussion-menu]"),
+    5_000,
+    "the dropdown to close",
+  );
+  const field = inBox<HTMLTextAreaElement>("textarea");
+  if (!field) throw new Error("The message box has no text field");
+  typeInComposer(field, topic);
+  field.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+}
+
+/** The discussion's conversation page, when it is on screen. */
+function discussionPage(id?: string): HTMLElement | null {
+  return (
+    [
+      ...document.querySelectorAll<HTMLElement>(
+        id ? `[data-discussion-view="${id}"]` : "[data-discussion-view]",
+      ),
+    ].find((page) => page.getClientRects().length > 0) ?? null
+  );
+}
+
+/**
+ * Why the page does not show the discussion as expected, or null: both
+ * avatars in its header, the replies so far alternating from A, and the
+ * answering side typing (or, once ended, the closing note).
+ */
+function pageProblem(
+  page: HTMLElement,
+  replies: number,
+  end: { typing: "a" | "b" } | { closing: string },
+): string | null {
+  const cast = page.querySelector("[data-discussion-cast]");
+  for (const side of ["a", "b"])
+    if (!cast?.querySelector(`[data-discussion-avatar="${side}"]`))
+      return `the page's header has no avatar for side ${side}`;
+  const sides = [
+    ...page.querySelectorAll<HTMLElement>("[data-discussion-message]"),
+  ].map((message) => message.dataset.side ?? "?");
+  const expected = Array.from({ length: replies }, (_, turn) =>
+    turn % 2 === 0 ? "a" : "b",
+  );
+  if (sides.join() !== expected.join())
+    return `the page shows replies on sides ${sides.join(",") || "none"}, not ${expected.join(",")}`;
+  const typing = page.querySelector<HTMLElement>("[data-discussion-typing]");
+  if ("typing" in end) {
+    if (typing?.dataset.discussionTyping !== end.typing)
+      return `the page shows ${typing?.dataset.discussionTyping ?? "nobody"} typing, not ${end.typing}`;
+    return null;
+  }
+  if (typing) return "the page still shows a side typing";
+  const closing = page
+    .querySelector("[data-discussion-closing]")
+    ?.textContent?.trim();
+  return closing === end.closing
+    ? null
+    : `the page's closing note reads "${closing ?? ""}"`;
 }
 
 /** One run per app, even when React mounts the workspace twice. */
@@ -868,14 +981,15 @@ export async function runDevSmoke(
       }
     });
 
-  // Two chats discuss a topic, started the way the composer's picker starts
-  // one. While the second chat answers, the sidebar links both rows and the
-  // bar counts the round; every reply is relayed once, and both chats get
-  // the closing note.
+  // Two chats discuss a topic, started from the first chat's message box in
+  // Discuss mode. Its conversation page opens beside it; while the second
+  // chat answers, the page shows that side typing, the sidebar links both
+  // rows and the bar counts the round. Every reply is relayed once, both
+  // chats get the closing note, and the page shows the replies alternating.
   const discussion = get().discussion;
   if (safe && discussion)
     await step(
-      "two chats discuss for two rounds, linked in the sidebar",
+      "two chats discuss for two rounds on one page, linked in the sidebar",
       async () => {
         get().motion?.showWorkspace?.();
         if (!get().sidebarOpen) {
@@ -886,20 +1000,23 @@ export async function runDevSmoke(
             "the sidebar to pin",
           );
         }
-        const a = await openNewTask(get, config.projectPath);
+        // The second chat opened is the one on screen; it starts.
         const b = await openNewTask(get, config.projectPath);
-        // The chat's own + menu offers it, so the picker can be reached.
-        await expectDiscussEntry(b.id);
-        const refused = discussion.start({
-          sessionId: a.id,
-          partner: { kind: "chat", sessionId: b.id },
-          topic: `Compare notes. AVEN_SMOKE_HOLD ${DISCUSSION_HOLD_MS}`,
-          rounds: DISCUSSION_ROUNDS,
-        });
-        if (refused)
-          throw new Error(`The discussion did not start: ${refused}`);
-        const session = (id: string) =>
-          get().sessions.find((entry) => entry.id === id);
+        const a = await openNewTask(get, config.projectPath);
+        await startDiscussionFromComposer(
+          a.id,
+          b.id,
+          `Compare notes. AVEN_SMOKE_HOLD ${DISCUSSION_HOLD_MS}`,
+          DISCUSSION_ROUNDS,
+        );
+        const opened = await waitFor(
+          () => discussionPage(),
+          5_000,
+          "the discussion's page to open beside the chat",
+        );
+        const id = opened.dataset.discussionView!;
+        const session = (chat: string) =>
+          get().sessions.find((entry) => entry.id === chat);
 
         // B's first turn: A's reply, relayed and held open by the stand-in.
         await waitFor(
@@ -915,26 +1032,36 @@ export async function runDevSmoke(
           throw new Error(
             `The second chat received "${relayed?.text ?? ""}", not the first chat's reply`,
           );
-        const id = relayed.discussion!.id;
-        await waitFor(
-          () =>
-            document.querySelector(
-              `[data-session-drop="${b.id}"] [data-discussion-relay="${id}"]`,
-            ),
-          5_000,
-          "the relay card on the relayed message",
-        );
+        if (relayed.discussion!.id !== id)
+          throw new Error("The page shows a different discussion");
+        try {
+          await waitFor(
+            () => {
+              const page = discussionPage(id);
+              return page && !pageProblem(page, 1, { typing: "b" });
+            },
+            5_000,
+            "the page to show the first reply and the second chat typing",
+          );
+        } catch (error) {
+          const page = discussionPage(id);
+          throw new Error(
+            `${errorText(error)}: ${page ? pageProblem(page, 1, { typing: "b" }) : "it is not on screen"}`,
+          );
+        }
         const bar = await waitFor(
           () =>
-            visibleComposer()
-              ?.closest("[data-composer]")
-              ?.querySelector<HTMLElement>(`[data-discussion-bar="${id}"]`),
+            chatComposer(a.id)?.querySelector<HTMLElement>(
+              `[data-discussion-bar="${id}"]`,
+            ),
           5_000,
           "the discussion bar above the message box",
         );
         const barText = bar.textContent?.replace(/\s+/g, " ").trim() ?? "";
         if (!barText.includes(`round 1 of ${DISCUSSION_ROUNDS}`))
           throw new Error(`The discussion bar reads "${barText}"`);
+        if (!barText.includes("Open discussion"))
+          throw new Error("The discussion bar has no Open discussion");
         try {
           await waitFor(
             () => !linkProblem(id, a.id, b.id),
@@ -946,6 +1073,26 @@ export async function runDevSmoke(
             `${errorText(error)}: ${linkProblem(id, a.id, b.id) ?? "linked too late"}`,
           );
         }
+        // The second chat, opened from its sidebar row, shows the relayed
+        // reply with its card; the connector brings the page back.
+        sidebarDiscussionRow(b.id)?.click();
+        await waitFor(
+          () =>
+            chatComposer(b.id) &&
+            document.querySelector(
+              `[data-session-drop="${b.id}"] [data-discussion-relay="${id}"]`,
+            ),
+          5_000,
+          "the relay card on the relayed message",
+        );
+        document
+          .querySelector<HTMLElement>(`[data-discussion-link="${id}"]`)
+          ?.click();
+        await waitFor(
+          () => discussionPage(id),
+          5_000,
+          "the connector to bring back the discussion's page",
+        );
 
         const note = `Discussion ended after ${DISCUSSION_ROUNDS} rounds.`;
         await waitFor(
@@ -964,6 +1111,24 @@ export async function runDevSmoke(
           5_000,
           "the connector and the bar to go once it ended",
         );
+        try {
+          await waitFor(
+            () => {
+              const page = discussionPage(id);
+              return (
+                page &&
+                !pageProblem(page, DISCUSSION_ROUNDS * 2, { closing: note })
+              );
+            },
+            5_000,
+            "the page to show all four replies and the closing note",
+          );
+        } catch (error) {
+          const page = discussionPage(id);
+          throw new Error(
+            `${errorText(error)}: ${page ? pageProblem(page, DISCUSSION_ROUNDS * 2, { closing: note }) : "it is not on screen"}`,
+          );
+        }
         // Nothing more arrives after the end, and nothing came twice.
         await new Promise((resolve) => setTimeout(resolve, 1_500));
         const turnsA = relayedTurns(get().sessions, a.id);
@@ -982,8 +1147,8 @@ export async function runDevSmoke(
         if (session(a.id)?.busy || session(b.id)?.busy)
           throw new Error("A chat kept working after the discussion ended");
         return prefersReducedMotion()
-          ? "4 replies relayed once each; linked, still (reduced motion); ended after 2 rounds"
-          : "4 replies relayed once each; linked with the pulse toward the answering chat; ended after 2 rounds";
+          ? "started from Discuss mode; 4 replies relayed once each and shown alternating on one page; linked, still (reduced motion); ended after 2 rounds"
+          : "started from Discuss mode; 4 replies relayed once each and shown alternating on one page; linked with the pulse toward the answering chat; ended after 2 rounds";
       },
     );
 
