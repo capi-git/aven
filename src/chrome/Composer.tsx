@@ -151,10 +151,19 @@ import {
 } from "../lib/orchestratorCommand";
 import { COMPACT_COMMAND, isCompactCommand } from "../lib/compact";
 import { consumeDiscussCommand, DISCUSS_COMMAND } from "../lib/discussCommand";
-import type { DiscussionHost } from "../lib/discussions";
+import {
+  loadDiscussionRounds,
+  saveDiscussionRounds,
+  type DiscussionHost,
+} from "../lib/discussions";
 import { DiscussionBar } from "./DiscussionBar";
 import { SharedWorkBar } from "./SharedWorkBar";
-import { DiscussionPicker } from "./DiscussionPicker";
+import {
+  DiscussionChip,
+  defaultDiscussionPick,
+  partnerChoice,
+  type DiscussionPick,
+} from "./DiscussionChip";
 import { resizeComposer } from "../lib/composerResize";
 
 type Props = {
@@ -226,7 +235,7 @@ type Props = {
   onOpenFile?: (path: string) => void;
   onDraftChange?: (text: string) => void;
   onAttachmentsChange?: (attachments: Attachment[]) => void;
-  /** Starts a discussion with another chat; absent hides Discuss with…. */
+  /** Starts a discussion with another chat; absent hides Discuss mode. */
   discussion?: DiscussionHost;
   children?: ReactNode;
 };
@@ -619,9 +628,41 @@ function ComposerComponent({
       : undefined;
   const raceReady = raceLanes.length >= RACE_MIN_LANES && !raceBlocked;
   const [orchestrationSelected, setOrchestrationSelected] = useState(false);
-  // Discuss with…: the picker is open with this topic while it is not null.
+  // Discuss mode: sending starts a discussion with the message as its topic.
   const discussAvailable = Boolean(discussion && sessionId && !hideTopBar);
-  const [discussTopic, setDiscussTopic] = useState<string | null>(null);
+  const [discussSelected, setDiscussSelected] = useState(false);
+  const discussActive = discussAvailable && discussSelected;
+  const [discussPick, setDiscussPick] = useState<DiscussionPick | null>(null);
+  const [discussRounds, setDiscussRounds] = useState(loadDiscussionRounds);
+  const [discussMenuOpen, setDiscussMenuOpen] = useState(false);
+  const [discussError, setDiscussError] = useState<string | null>(null);
+  const discussPickRef = useRef(discussPick);
+  discussPickRef.current = discussPick;
+  /** Turn Discuss mode on, with the partner it had or the first that can join. */
+  const startDiscussMode = useCallback(
+    (openMenu = false) => {
+      if (!discussion || !sessionId) return;
+      const pick = defaultDiscussionPick(
+        discussion,
+        sessionId,
+        discussPickRef.current,
+      );
+      setDiscussPick(pick);
+      setDiscussSelected(true);
+      setPlanSelected(false);
+      setOrchestrationSelected(false);
+      setRaceOn(false);
+      setDiscussError(null);
+      // Nobody to talk to yet: the dropdown offers a new chat.
+      setDiscussMenuOpen(openMenu || !pick);
+    },
+    [discussion, sessionId],
+  );
+  const stopDiscussMode = useCallback(() => {
+    setDiscussSelected(false);
+    setDiscussMenuOpen(false);
+    setDiscussError(null);
+  }, []);
   const [slash, setSlash] = useState<SlashToken | null>(null);
   // The highlighted `/` row, for the list it was chosen in (see skillActive).
   const [skillCursor, setSkillCursor] = useState<{
@@ -658,12 +699,14 @@ function ComposerComponent({
     !draftPlanning &&
     !draftOrchestrating &&
     !planSelected &&
-    !orchestrationSelected;
+    !orchestrationSelected &&
+    !discussActive;
   const changeRaceActive = useCallback((on: boolean) => {
     setRaceOn(on);
     if (!on) return;
     setPlanSelected(false);
     setOrchestrationSelected(false);
+    setDiscussSelected(false);
   }, []);
   const raceOptions = useMemo<RaceProps | undefined>(
     () =>
@@ -1128,20 +1171,19 @@ function ComposerComponent({
       if (planCommand) {
         setPlanSelected(true);
         setOrchestrationSelected(false);
+        setDiscussSelected(false);
       }
       if (orchestratorCommand) {
         setOrchestrationSelected(true);
         setPlanSelected(false);
         setRaceOn(false);
+        setDiscussSelected(false);
       }
       // The rest of the message becomes the discussion's topic.
-      if (discussCommand) {
-        setDiscussTopic(next.trim());
-        return;
-      }
+      if (discussCommand) startDiscussMode();
       el.focus();
     },
-    [rememberUsedSkills, syncHasValue, updateDraft],
+    [rememberUsedSkills, startDiscussMode, syncHasValue, updateDraft],
   );
 
   const pickSkill = useCallback(
@@ -1208,7 +1250,7 @@ function ComposerComponent({
     if (!focused) return;
     if (
       document.querySelector(
-        "[data-model-picker], [data-access-picker], [data-file-picker], [data-branch-picker], [data-cwd-picker], [data-context-actions], [data-skill-picker], [data-mention-picker], [data-composer-plus]",
+        "[data-model-picker], [data-access-picker], [data-file-picker], [data-branch-picker], [data-cwd-picker], [data-context-actions], [data-skill-picker], [data-mention-picker], [data-composer-plus], [data-discussion-menu]",
       )
     )
       return;
@@ -1290,19 +1332,65 @@ function ComposerComponent({
     };
   }, [addAttachments, attachmentsSupported, enabled]);
 
-  const openDiscussion = (topic: string) => {
-    setPlusOpen(false);
+  /** Why sending would not start the discussion yet, or null. */
+  const discussReason = (topic: string): string | null =>
+    !discussPick
+      ? "Choose a chat to discuss with."
+      : !topic.trim()
+        ? "Type the topic in the message box, then send."
+        : attachmentsRef.current.length
+          ? "A discussion starts from text only. Remove the attachments to start."
+          : null;
+
+  /** Send with Discuss mode on: start it, with the message as the topic. */
+  const startDiscussion = (value: string, preview = false) => {
+    if (!discussion || !sessionId) return;
+    const topic = value.trim();
+    const reason = discussReason(preview ? topic || "Preview" : topic);
+    if (reason || !discussPick) {
+      setDiscussError(reason);
+      setDiscussMenuOpen(true);
+      return;
+    }
+    const failure = discussion.start({
+      sessionId,
+      partner: partnerChoice(discussPick),
+      topic: preview ? topic || "Preview" : topic,
+      rounds: discussRounds,
+      ...(preview ? { preview: true } : {}),
+    });
+    if (failure) {
+      setDiscussError(failure);
+      setDiscussMenuOpen(true);
+      return;
+    }
+    stopDiscussMode();
     setSlash(null);
     setMention(null);
-    setCreatingSkill(false);
-    setDiscussTopic(topic);
+    // A preview sends nothing, so the draft stays.
+    if (!preview) clearField();
   };
 
   const submit = (value: string) => {
     if (discussAvailable) {
+      // A typed /discuss turns Discuss mode on; the rest is the topic.
       const discussCommand = consumeDiscussCommand(value);
       if (discussCommand.matched) {
-        openDiscussion(discussCommand.topic);
+        const el = ref.current;
+        if (el) {
+          el.value = discussCommand.topic;
+          resizeComposer(el);
+          el.setSelectionRange(el.value.length, el.value.length);
+        }
+        updateDraft(discussCommand.topic);
+        syncHasValue(discussCommand.topic, attachmentsRef.current);
+        setSlash(null);
+        setMention(null);
+        startDiscussMode();
+        return;
+      }
+      if (discussActive) {
+        startDiscussion(value);
         return;
       }
     }
@@ -1547,7 +1635,9 @@ function ComposerComponent({
       {question && onQuestionReply ? (
         <QuestionForm prompt={question} onReply={onQuestionReply} />
       ) : null}
-      {discussion ? <DiscussionBar sessionId={sessionId} /> : null}
+      {discussion ? (
+        <DiscussionBar sessionId={sessionId} onOpen={discussion.open} />
+      ) : null}
       <SharedWorkBar sessionId={sessionId} />
       {children}
       <MessageQueue
@@ -1564,26 +1654,7 @@ function ComposerComponent({
         onResume={onResumeQueue}
       />
       <div className="relative overflow-visible">
-        {discussTopic !== null && discussion && sessionId ? (
-          <div className="absolute inset-x-0 bottom-full z-30 mb-1">
-            <DiscussionPicker
-              host={discussion}
-              sessionId={sessionId}
-              harness={harness}
-              model={model}
-              initialTopic={discussTopic}
-              onClose={() => {
-                setDiscussTopic(null);
-                ref.current?.focus();
-              }}
-              onStarted={() => {
-                setDiscussTopic(null);
-                clearField();
-              }}
-            />
-          </div>
-        ) : null}
-        {pickerOpen && discussTopic === null ? (
+        {pickerOpen ? (
           <div className="absolute inset-x-0 bottom-full z-30 mb-1">
             <SkillPicker
               skills={rankedSkills}
@@ -1750,20 +1821,22 @@ function ComposerComponent({
               spellCheck={false}
               defaultValue={mountDraft}
               placeholder={
-                inboxCard
-                  ? "Add a note, or send to start…"
-                  : noteCard
-                    ? "Add a message, or send…"
-                    : handoffCard
-                      ? "Add context, or send to continue…"
-                      : composerHint(
-                          hasNativeCommands(harness),
-                          looksLikeProject(cwd)
-                            ? "files"
-                            : notesEnabled
-                              ? "notes"
-                              : null,
-                        )
+                discussActive
+                  ? "What should they discuss?"
+                  : inboxCard
+                    ? "Add a note, or send to start…"
+                    : noteCard
+                      ? "Add a message, or send…"
+                      : handoffCard
+                        ? "Add context, or send to continue…"
+                        : composerHint(
+                            hasNativeCommands(harness),
+                            looksLikeProject(cwd)
+                              ? "files"
+                              : notesEnabled
+                                ? "notes"
+                                : null,
+                          )
               }
               aria-label="Message"
               title="/ for commands, @ for references"
@@ -1861,6 +1934,7 @@ function ComposerComponent({
                       setPlanSelected((selected) => !selected);
                       setOrchestrationSelected(false);
                       setRaceOn(false);
+                      stopDiscussMode();
                       setPlusOpen(false);
                       ref.current?.focus();
                     }}
@@ -1886,6 +1960,7 @@ function ComposerComponent({
                         setOrchestrationSelected((selected) => !selected);
                         setPlanSelected(false);
                         setRaceOn(false);
+                        stopDiscussMode();
                         setPlusOpen(false);
                         ref.current?.focus();
                       }}
@@ -1906,22 +1981,27 @@ function ComposerComponent({
                   {discussAvailable ? (
                     <button
                       type="button"
+                      aria-pressed={discussActive}
                       data-composer-discuss
                       onMouseDown={(event) => event.preventDefault()}
-                      onClick={() =>
-                        openDiscussion(ref.current?.value.trim() ?? "")
-                      }
+                      onClick={() => {
+                        setPlusOpen(false);
+                        if (discussActive) stopDiscussMode();
+                        else startDiscussMode();
+                        ref.current?.focus();
+                      }}
                       className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
                     >
-                      <MessageMultiple className="mt-0.5 size-4 shrink-0 text-content/70" />
+                      <MessageMultiple className="mt-0.5 size-4 shrink-0 text-accent" />
                       <span className="min-w-0 flex-1">
-                        <span className="block text-ui-body">
-                          Discuss with…
-                        </span>
+                        <span className="block text-ui-body">Discuss</span>
                         <span className="block text-ui-caption leading-4 text-content/45">
-                          Talk a topic through with another chat
+                          Talk your message through with another chat
                         </span>
                       </span>
+                      {discussActive ? (
+                        <Check className="mt-0.5 size-3.5 shrink-0 text-accent" />
+                      ) : null}
                     </button>
                   ) : null}
                 </Popover>
@@ -1976,6 +2056,38 @@ function ComposerComponent({
                 Race · {raceLanes.length}
                 <X className="size-3" />
               </button>
+            ) : null}
+            {discussActive && discussion && sessionId ? (
+              <DiscussionChip
+                host={discussion}
+                sessionId={sessionId}
+                harness={harness}
+                model={model}
+                pick={discussPick}
+                rounds={discussRounds}
+                reason={discussError ?? discussReason(draft)}
+                open={discussMenuOpen}
+                onOpenChange={(open) => {
+                  setDiscussMenuOpen(open);
+                  if (!open) setDiscussError(null);
+                }}
+                onPick={(pick) => {
+                  setDiscussPick(pick);
+                  setDiscussError(null);
+                }}
+                onRoundsChange={(rounds) => {
+                  setDiscussRounds(rounds);
+                  saveDiscussionRounds(rounds);
+                }}
+                onTurnOff={() => {
+                  stopDiscussMode();
+                  ref.current?.focus();
+                }}
+                onPreview={() =>
+                  startDiscussion(ref.current?.value ?? "", true)
+                }
+                onDone={() => ref.current?.focus()}
+              />
             ) : null}
             <div
               className="composer-toolbar flex min-w-0 flex-1 items-center"

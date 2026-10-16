@@ -1,11 +1,12 @@
 import type { BuiltinSkill } from "./skills";
 
-/** `/discuss`: the slash form of the composer's Discuss with… choice. */
+/** `/discuss`: turns on the composer's Discuss mode; the rest is the topic. */
 export const DISCUSS_COMMAND: BuiltinSkill = {
   kind: "builtin",
   name: "discuss",
   invocation: "discuss",
-  description: "Have this chat discuss a topic with another chat.",
+  description:
+    "Turn on Discuss mode: talk your message through with another chat.",
   scope: "builtin",
   source: "monocode",
 };

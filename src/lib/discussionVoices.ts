@@ -60,9 +60,13 @@ const SHORT_PROVIDER: Partial<Record<HarnessId, string>> = {
  * name in front. A model named only by its provider and version ("Grok 4.6")
  * is shown as is.
  */
+/** "Claude", "Codex", "Grok": the provider as people say it. */
+export function providerShortName(harness: HarnessId): string {
+  return SHORT_PROVIDER[harness] ?? HARNESS_TITLE[harness];
+}
+
 export function voiceName(party: Pick<DiscussionParty, "harness" | "model">) {
-  const provider =
-    SHORT_PROVIDER[party.harness] ?? HARNESS_TITLE[party.harness];
+  const provider = providerShortName(party.harness);
   const model = party.model.trim();
   if (!model || model === "Default") return provider;
   const prefix = `${provider.toLowerCase()} `;

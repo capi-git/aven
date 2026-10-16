@@ -124,7 +124,7 @@ type Shared = {
   onMovePane: (fromId: string, toId: string, edge: PaneEdge) => void;
   onNewTerminal: (sessionId: string) => void;
   onTerminalMetaChange?: (fileId: string, patch: TerminalMetaPatch) => void;
-  /** Starts discussions with other chats; the composer offers Discuss with…. */
+  /** Starts discussions with other chats; the composer offers Discuss mode. */
   discussion?: ComponentProps<typeof SessionPane>["discussion"];
 };
 

@@ -100,6 +100,26 @@ export type DiscussionOutcome = {
 
 // --- Derived state -----------------------------------------------------------
 
+/** The rounds the composer's Discuss mode offers first: the last ones used. */
+export const DISCUSSION_ROUNDS_KEY = "aven.discussionRounds";
+
+export function loadDiscussionRounds(): number {
+  try {
+    const raw = localStorage.getItem(DISCUSSION_ROUNDS_KEY);
+    return raw ? clampRounds(Number(raw)) : DISCUSSION_DEFAULT_ROUNDS;
+  } catch {
+    return DISCUSSION_DEFAULT_ROUNDS;
+  }
+}
+
+export function saveDiscussionRounds(rounds: number) {
+  try {
+    localStorage.setItem(DISCUSSION_ROUNDS_KEY, String(clampRounds(rounds)));
+  } catch {
+    // Unavailable storage only loses the preference.
+  }
+}
+
 export function clampRounds(value: number): number {
   if (!Number.isFinite(value)) return DISCUSSION_DEFAULT_ROUNDS;
   return Math.min(

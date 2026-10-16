@@ -9,19 +9,23 @@ import {
   speakingSide,
 } from "../lib/discussions";
 import { HarnessIcon } from "./HarnessIcon";
-import { Play, Square } from "./icons";
+import { ExternalLink, Play, Square } from "./icons";
 import "./ProviderMarks.css";
 import "./SidebarDiscussions.css";
 
 /**
  * The slim bar above the composer of each chat in a discussion: who it is
- * talking with, the round, and Stop (Resume while paused). It reads the
- * discussion store directly, so streaming in either chat never renders it.
+ * talking with, the round, Open discussion, and Stop (Resume while paused).
+ * It reads the discussion store directly, so streaming in either chat never
+ * renders it.
  */
 export const DiscussionBar = memo(function DiscussionBar({
   sessionId,
+  onOpen,
 }: {
   sessionId?: string;
+  /** Shows the discussion's conversation page. */
+  onOpen?: (id: string) => void;
 }) {
   const discussion = useSessionDiscussion(sessionId);
   if (!discussion || !sessionId) return null;
@@ -68,6 +72,17 @@ export const DiscussionBar = memo(function DiscussionBar({
         <span className="shrink-0 tabular-nums text-content/45">
           round {discussionRound(discussion)} of {discussion.rounds}
         </span>
+        {onOpen ? (
+          <button
+            type="button"
+            title="Open the discussion as one conversation"
+            onClick={() => onOpen(discussion.id)}
+            className="flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-content/70 hover:bg-content/10 hover:text-content"
+          >
+            <ExternalLink className="size-3" />
+            Open discussion
+          </button>
+        ) : null}
         {paused ? (
           <button
             type="button"

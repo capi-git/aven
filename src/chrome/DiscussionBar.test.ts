@@ -88,6 +88,24 @@ describe("DiscussionBar", () => {
     );
   });
 
+  it("opens the discussion's page, and offers it only where it can open", async () => {
+    discussionStore().start({
+      id: "d1",
+      a: A,
+      b: B,
+      topic: "Topic",
+      rounds: 3,
+    });
+    await render("a");
+    expect(button("Open discussion")).toBeUndefined();
+    const onOpen = vi.fn();
+    await act(async () =>
+      root.render(createElement(DiscussionBar, { sessionId: "b", onOpen })),
+    );
+    await act(async () => button("Open discussion")!.click());
+    expect(onOpen).toHaveBeenCalledExactlyOnceWith("d1");
+  });
+
   it("lets a chat moved here stop or resume another window's discussion", async () => {
     const theirs = new DiscussionStore(localStorage, "other");
     theirs.start({ id: "theirs", a: A, b: B, topic: "Topic", rounds: 2 });
