@@ -846,6 +846,39 @@ export function coerceModelPickerTab(
   return tabs.includes(tab) ? tab : "favorites";
 }
 
+/**
+ * The tab a model picker opens on: the current chat's provider, so its model
+ * is listed and highlighted. Favourites keeps the place it was last left on
+ * only while the current model is one of them; a provider tab chosen in
+ * another chat never carries over.
+ */
+export function openingModelPickerTab({
+  remembered,
+  current,
+  favorites,
+  available,
+}: {
+  remembered: ModelPickerTab;
+  current: Pick<AgentModel, "id" | "harness">;
+  favorites: readonly string[];
+  available: (id: HarnessId) => boolean;
+}): ModelPickerTab {
+  if (
+    remembered === "favorites" &&
+    available(current.harness) &&
+    favorites.some((id) => {
+      const model = findPickerModel(id);
+      return (
+        (model?.id ?? id) === current.id &&
+        (!model || isPickerModelVisible(model))
+      );
+    })
+  )
+    return "favorites";
+  if (available(current.harness)) return current.harness;
+  return coerceModelPickerTab(remembered, available);
+}
+
 export function stepModelPickerTab(
   tab: ModelPickerTab,
   delta: -1 | 1,

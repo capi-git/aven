@@ -1,4 +1,12 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useUsageForecasts, useUsageWarning } from "../hooks/useUsageForecasts";
 import { isHarnessAvailable } from "../lib/harness/availability";
 import {
@@ -13,6 +21,7 @@ import {
   type RuntimeMode,
 } from "../lib/session";
 import { MOD } from "../lib/platform";
+import { popoverWidth } from "../lib/popover";
 import { usageAlternatives } from "../lib/usageAlternatives";
 import { forecastSentence } from "../lib/usageForecast";
 import { markUsageWarningSeen, type UsageWarning } from "../lib/usageHistory";
@@ -120,6 +129,35 @@ const PANEL_WIDTH = 540;
 const MODELS_ONLY_WIDTH = 300;
 const PANEL_MIN_HEIGHT = 260;
 const PANEL_MAX_HEIGHT = 440;
+/**
+ * The narrowest placed panel that keeps two columns: the 288px model list
+ * and room for its settings beside it.
+ */
+const PANEL_COLUMNS_MIN_WIDTH = 462;
+
+/**
+ * The panel's width and whether its columns stack, from the window's width
+ * in CSS pixels: 540px wherever the window has room, narrowed only by the
+ * window's edges, and stacked only in a genuinely narrow window.
+ *
+ * This is decided here rather than by a container query on the panel:
+ * WebKit compares a container's size after interface zoom, so at 80% zoom a
+ * 540px panel (432 points on screen) stacked in a wide window.
+ */
+export function agentPanelLayout(
+  viewportWidth: number,
+  hasSide: boolean,
+): { width: number; stacked: boolean } {
+  const width = popoverWidth(
+    hasSide ? PANEL_WIDTH : MODELS_ONLY_WIDTH,
+    viewportWidth,
+  );
+  return { width, stacked: hasSide && width < PANEL_COLUMNS_MIN_WIDTH };
+}
+
+function noResize() {
+  return () => {};
+}
 
 /**
  * The composer's one control for who answers and how: the provider mark, the
@@ -182,6 +220,19 @@ export const AgentPill = memo(function AgentPill({
     .filter(Boolean)
     .join(" · ");
   const hasSide = settings.length > 0 || showAccess || Boolean(race);
+  // Follows the window only while the panel is open.
+  const subscribeResize = useCallback(
+    (onChange: () => void) => {
+      if (!open) return noResize();
+      window.addEventListener("resize", onChange);
+      return () => window.removeEventListener("resize", onChange);
+    },
+    [open],
+  );
+  const layout = agentPanelLayout(
+    useSyncExternalStore(subscribeResize, () => window.innerWidth),
+    hasSide,
+  );
 
   return (
     <div ref={root} className="relative min-w-0">
@@ -239,7 +290,7 @@ export const AgentPill = memo(function AgentPill({
           anchor={root}
           side="top"
           align="end"
-          width={hasSide ? PANEL_WIDTH : MODELS_ONLY_WIDTH}
+          width={layout.width}
           minHeight={PANEL_MIN_HEIGHT}
           maxHeight={PANEL_MAX_HEIGHT}
           autoFocus
@@ -249,6 +300,7 @@ export const AgentPill = memo(function AgentPill({
           aria-label="Agent options"
           data-model-picker
           data-agent-panel
+          data-stacked={layout.stacked || undefined}
           className="agent-panel"
         >
           {usageWarning ? (

@@ -18,6 +18,7 @@ import {
   getPickerVisibilitySnapshot,
   loadFavoriteModels,
   loadModelPickerTab,
+  openingModelPickerTab,
   pickerModelsFor,
   isPickerModelVisible,
   resolveModel,
@@ -227,8 +228,9 @@ export function ModelPicker({
 
 /**
  * The provider tabs, search field and model list. Mounted only while a
- * picker is open: it settles the remembered tab and highlights the current
- * model in its first frame. Arrow keys in the field move the highlight and
+ * picker is open: it opens on the chat's provider (see
+ * `openingModelPickerTab`) and highlights the current model in its first
+ * frame. Arrow keys in the field move the highlight and
  * Left/Right switch provider; Enter or Cmd+1-9 picks.
  */
 export function ModelChooser({
@@ -263,14 +265,21 @@ export function ModelChooser({
       isHarnessAvailable(id),
       hasProbedHarnessAvailability(),
     );
-  // Read when the picker opens, so it shows the provider last chosen anywhere.
+  const current = resolveModel(harness, model);
+  const [favorites, setFavorites] = useState(loadFavoriteModels);
+  // Settled when the picker opens: the chat's own provider, so its model is
+  // listed and highlighted, or Favourites when it was left there and holds
+  // that model.
   const [tab, setTab] = useState<ModelPickerTab>(() =>
-    coerceModelPickerTab(loadModelPickerTab(), shownInPicker),
+    openingModelPickerTab({
+      remembered: loadModelPickerTab(),
+      current,
+      favorites,
+      available: shownInPicker,
+    }),
   );
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
-  const [favorites, setFavorites] = useState(loadFavoriteModels);
-  const current = resolveModel(harness, model);
 
   const pickerHarnesses = HARNESSES.filter(shownInPicker);
   const visibleTab = coerceModelPickerTab(tab, shownInPicker);

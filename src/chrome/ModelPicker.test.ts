@@ -79,7 +79,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-it("opens on the remembered tab with the current model highlighted and in view", async () => {
+it("opens on the chat's provider with the current model highlighted and in view", async () => {
   const claude = modelsFor("claude");
   expect(claude.length).toBeGreaterThan(1);
   const current = claude[claude.length - 1];
@@ -124,4 +124,53 @@ it("never paints the first row highlighted before moving to the current model", 
     expect.stringContaining(current.name),
   ]);
   expect(firstFrame.scrolled).toEqual([expect.stringContaining(current.name)]);
+});
+
+it("opens on the chat's own provider, not the tab another chat left", async () => {
+  // Another chat last browsed Codex; this one runs Claude.
+  storage.set("monocode.modelPickerTab", "codex");
+  const claude = modelsFor("claude");
+  const current = claude[claude.length - 1];
+  await act(async () =>
+    root.render(
+      createElement(ModelPicker, {
+        harness: "claude",
+        model: current.id,
+        onChange: vi.fn(),
+      }),
+    ),
+  );
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>("button[aria-haspopup]")!.click(),
+  );
+  expect(firstFrame.tab).toBe(HARNESS_TITLE.claude);
+  expect(firstFrame.highlighted).toEqual([
+    expect.stringContaining(current.name),
+  ]);
+  expect(firstFrame.scrolled.at(-1)).toContain(current.name);
+  // Opening does not overwrite the tab the user last chose.
+  expect(storage.get("monocode.modelPickerTab")).toBe("codex");
+});
+
+it("opens on Favorites when it was left there and holds the chat's model", async () => {
+  const claude = modelsFor("claude");
+  const current = claude[claude.length - 1];
+  storage.set("monocode.modelPickerTab", "favorites");
+  storage.set("monocode.favoriteModels", JSON.stringify([current.id]));
+  await act(async () =>
+    root.render(
+      createElement(ModelPicker, {
+        harness: "claude",
+        model: current.id,
+        onChange: vi.fn(),
+      }),
+    ),
+  );
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>("button[aria-haspopup]")!.click(),
+  );
+  expect(firstFrame.tab).toBe("Favorites");
+  expect(firstFrame.highlighted).toEqual([
+    expect.stringContaining(current.name),
+  ]);
 });

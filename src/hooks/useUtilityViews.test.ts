@@ -113,6 +113,27 @@ it("closes the five utilities but leaves Home and the file picker", async () => 
   expect(openViews()).toEqual(["home", "filePicker"]);
 });
 
+it("shows the workspace over Home and every utility for a new chat", async () => {
+  // The sidebar's New task pressed over Home.
+  await act(async () => views.setHomeViewOpen(true));
+  await act(async () => views.showWorkspace());
+  expect(openViews()).toEqual([]);
+  // Starting an Inbox item or adding a note to a chat from a utility opened
+  // over Home must not leave Home in front of the new chat.
+  for (const open of [
+    () => views.onOpenInbox(),
+    () => views.onOpenNotes(),
+    () => views.onOpenSearch(),
+    () => views.onOpenAutomations(),
+    () => views.onOpenSettings(),
+  ]) {
+    await act(async () => views.onOpenHome());
+    await act(async () => open());
+    await act(async () => views.showWorkspace());
+    expect(openViews()).toEqual([]);
+  }
+});
+
 it("returns focus to the control that opened a utility", async () => {
   const opener = document.createElement("button");
   document.body.append(opener);

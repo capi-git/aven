@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.141] - 2026-10-15
+
 ### Added
 
 - Each project has its own colour and mark, so you can tell at a glance which project you are in. Sidebar rows show the project's logo, or its pixel mascot in the project colour; the active chat tab is underlined in the project colour (a tab group's own colour still wins inside the group); and a project's browser shows its mark beside the address. Choose **Customize project…** from a project's actions to set its name, colour, mascot and logo, or reset them. Changes show in every window at once, including the floating sidebar.

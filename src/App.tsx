@@ -592,6 +592,7 @@ import {
   mergeHistorySummary,
   mergeProjectHistorySummary,
   replaceProjectHistory,
+  historyHoldsProject,
   historyWithLiveSessions,
   summaryFromSession,
 } from "./lib/sessionHistory";
@@ -859,6 +860,7 @@ export default function App({
     restoreReturnFocus,
     clearReturnFocus,
     closeUtilityViews,
+    showWorkspace,
     onOpenSearch,
     onLeaveSearch,
     onOpenInbox,
@@ -2322,7 +2324,13 @@ export default function App({
       .then((summary) => {
         if (!summary) return;
         lastPersisted.current.set(session.id, fingerprint);
-        if (summary.cwd === sidebarCwdRef.current) {
+        if (
+          historyHoldsProject(
+            summary.cwd,
+            sidebarCwdRef.current,
+            loadedProjectsRef.current,
+          )
+        ) {
           setHistory((current) => mergeProjectHistorySummary(current, summary));
         }
       })
@@ -2354,7 +2362,13 @@ export default function App({
         const summary = await upsertSession(session).catch(() => null);
         if (!summary) return;
         lastPersisted.current.set(session.id, fingerprint);
-        if (summary.cwd === sidebarCwdRef.current) {
+        if (
+          historyHoldsProject(
+            summary.cwd,
+            sidebarCwdRef.current,
+            loadedProjectsRef.current,
+          )
+        ) {
           setHistory((current) => mergeProjectHistorySummary(current, summary));
         }
       }),
@@ -2809,9 +2823,8 @@ export default function App({
   const onStartInboxItem = useCallback(
     async (item: InboxItem, body?: string) => {
       const start = (description?: string) => {
-        setInboxViewOpen(false);
-        setAutomationsViewOpen(false);
-        setNotesViewOpen(false);
+        // The Inbox may have been opened over Home; show the new chat.
+        showWorkspace();
         setSidebarTab("sessions");
         const cwd =
           item.projectPath || active?.cwd || sessionDefaults?.cwd || projectCwd;
@@ -2856,16 +2869,15 @@ export default function App({
       sessionDefaults?.cwd,
       sessionDefaults?.runtimeMode,
       projectCwd,
+      showWorkspace,
     ],
   );
 
   const onAddNoteToChat = useCallback(
     (card: NoteComposerCard) => {
       if (!card.id) return;
-      setSearchViewOpen(false);
-      setInboxViewOpen(false);
-      setAutomationsViewOpen(false);
-      setNotesViewOpen(false);
+      // Notes may have been opened over Home; show the new chat.
+      showWorkspace();
       setSidebarTab("sessions");
       const cwd =
         (card.sourceCwd && looksLikeProject(card.sourceCwd)
@@ -2892,6 +2904,7 @@ export default function App({
       sessionDefaults?.cwd,
       sessionDefaults?.runtimeMode,
       projectCwd,
+      showWorkspace,
     ],
   );
 
@@ -4980,7 +4993,9 @@ export default function App({
   const onNewProjectTask = useCallback(
     (path: string) => {
       revealProjectTask(path);
-      closeUtilityViews();
+      // The sidebar's "New task" can be pressed over Home; the new chat has
+      // to replace it, or nothing seems to happen.
+      showWorkspace();
       const session = newDefaultSession(path);
       const tab = newTab(session.id);
       setProjectCwd(path);
@@ -4990,7 +5005,7 @@ export default function App({
       setActiveTabId(tab.id);
       setComposerFocused(true);
     },
-    [appendTab],
+    [appendTab, showWorkspace],
   );
 
   const removingProjects = useRef(new Set<string>());
@@ -8582,7 +8597,9 @@ export default function App({
     sessions,
     floatingSidebarLabel: floatingSidebarLayer,
     expectFloatingSidebar: IS_MAC,
-    newProjectTask: onNewProjectTask,
+    // The sidebar's own New task, as its project rows (and the floating
+    // sidebar, by name) call it.
+    newProjectTask: sidebarProps.onNewProjectTask ?? onNewProjectTask,
     submit: (sessionId, text) => void onSubmit(sessionId, text, []),
     utilities: {
       openSearch: onOpenSearch,
@@ -8592,6 +8609,12 @@ export default function App({
       openSettings: onOpenSettings,
       closeSettings: onCloseSettings,
       leaveNotes: onLeaveNotes,
+    },
+    motion: {
+      openHome: onOpenHome,
+      showChanges: onShowSourceControl,
+      hideChanges: onCloseInspector,
+      showWorkspace,
     },
     projects: recents,
     projectPanel: {
@@ -8710,10 +8733,7 @@ export default function App({
                           setHomeViewOpen(false);
                           void onSelectHistorySession(id);
                         }}
-                        onNewProjectTask={(path) => {
-                          setHomeViewOpen(false);
-                          onNewProjectTask(path);
-                        }}
+                        onNewProjectTask={onNewProjectTask}
                         onAddProject={pickProject}
                         onSearch={onOpenSearch}
                         onLoadProjects={(paths) => {

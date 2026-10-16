@@ -23,7 +23,18 @@ export type HomeLiveSession = {
   cwd: string;
   title: string;
   harness: HarnessId;
+  /**
+   * The live estimate of its last change, which the sidebar shows for a
+   * session that has no saved row yet. It also moves on a rename or a model
+   * switch, so a saved session's time comes from its saved row instead.
+   */
   updatedAt: number;
+  /**
+   * When its transcript last moved, from its turns alone: the latest turn's
+   * end, or its start while it runs. Never a guess, and never moved by a
+   * rename.
+   */
+  activeAt?: number;
   /** No message sent yet; the home leaves these out of Recent. */
   empty?: true;
   /** An agent is working: a turn or background agents, not paused on the user. */
@@ -42,6 +53,7 @@ export type HomeSession = {
   title: string;
   cwd: string;
   harness: HarnessId;
+  /** When it last did anything; see `homeSessionIndex`. */
   updatedAt: number;
   branch?: string;
   running?: true;
@@ -56,6 +68,7 @@ export type HomeAttention = {
   cwd: string;
   /** What it asks, or the first line of the reply. */
   detail: string;
+  /** When the session last did anything; see `homeSessionIndex`. */
   at: number;
 };
 
@@ -114,18 +127,41 @@ function clip(text: string): string {
     : line;
 }
 
-type TurnFacts = { startedAt?: number; hasUser: boolean };
+type TurnFacts = {
+  /** When the newest user turn started, if it says. */
+  startedAt?: number;
+  hasUser: boolean;
+  /** The newest timed turn's end, or its start while it has no duration. */
+  activeAt?: number;
+};
 // Block arrays are replaced, never mutated, so a session that is not streaming
 // reuses its answer instead of scanning its transcript on every flush.
 const turnFacts = new WeakMap<readonly Block[], TurnFacts>();
 
+function validTime(value: number | undefined): value is number {
+  return value != null && Number.isFinite(value) && value > 0;
+}
+
 function turnOf(blocks: readonly Block[]): TurnFacts {
-  let facts = turnFacts.get(blocks);
-  if (facts) return facts;
-  facts = { hasUser: false };
+  const cached = turnFacts.get(blocks);
+  if (cached) return cached;
+  const facts: TurnFacts = { hasUser: false };
   for (let i = blocks.length - 1; i >= 0; i--) {
-    if (blocks[i].role !== "user") continue;
-    facts = { hasUser: true, startedAt: blocks[i].startedAt };
+    const block = blocks[i];
+    if (block.role !== "user") continue;
+    if (!facts.hasUser) {
+      facts.hasUser = true;
+      if (block.startedAt !== undefined) facts.startedAt = block.startedAt;
+    }
+    // A message sent while the agent works carries no time of its own; the
+    // turn it joined does.
+    if (!validTime(block.startedAt)) continue;
+    const duration = block.durationMs;
+    facts.activeAt =
+      block.startedAt +
+      (duration != null && Number.isFinite(duration)
+        ? Math.max(0, duration)
+        : 0);
     break;
   }
   turnFacts.set(blocks, facts);
@@ -244,7 +280,9 @@ export function homeLiveSessions(
       harness: session.harness,
       updatedAt: summaryFromSession(session).updatedAt,
     };
-    if (!turnOf(session.blocks).hasUser) row.empty = true;
+    const turn = turnOf(session.blocks);
+    if (turn.activeAt !== undefined) row.activeAt = turn.activeAt;
+    if (!turn.hasUser) row.empty = true;
     if (inFlight.has(session.id)) applyActivity(row, session);
     rows.push(row);
     byId.set(session.id, row);
@@ -277,14 +315,60 @@ function newestFirst(a: { at: number; id: string }, b: typeof a): number {
 }
 
 /**
+ * Each session's current title and last activity, so every part of Home names
+ * and dates a session the same way, and as the sidebar does.
+ */
+export type HomeSessionIndex = {
+  /**
+   * When each session last did anything: the newest of the time the sidebar
+   * shows (its saved row's, or the live estimate for a session not saved
+   * yet), its newest activity-ledger entry, and its loaded transcript's
+   * latest turn.
+   */
+  at: ReadonlyMap<string, number>;
+  /** Its current title: the loaded session's, else its saved row's. */
+  title: ReadonlyMap<string, string>;
+};
+
+export function homeSessionIndex(
+  history: readonly SessionSummary[],
+  live: readonly HomeLiveSession[],
+  activity: readonly ActivityEntry[],
+): HomeSessionIndex {
+  const at = new Map<string, number>();
+  const title = new Map<string, string>();
+  const later = (id: string, time: number | undefined) => {
+    if (time === undefined || !Number.isFinite(time) || time <= 0) return;
+    if (time > (at.get(id) ?? 0)) at.set(id, time);
+  };
+  for (const entry of history) {
+    later(entry.id, entry.updatedAt);
+    title.set(entry.id, sessionDisplayTitle(entry.title, entry.harness));
+  }
+  for (const session of live) {
+    // A saved row's time is the sidebar's; the live estimate stands in only
+    // until there is one, as it does in the sidebar.
+    if (!title.has(session.id)) later(session.id, session.updatedAt);
+    later(session.id, session.activeAt);
+    title.set(session.id, session.title);
+  }
+  for (const entry of activity) later(entry.sessionId, entry.createdAt);
+  return { at, title };
+}
+
+const NO_INDEX: HomeSessionIndex = { at: new Map(), title: new Map() };
+
+/**
  * The workspace's sessions, most recent first: saved history merged with
- * loaded sessions (a loaded session's title and time win). Archived rows,
- * orchestration workers and unsent new sessions are left out.
+ * loaded sessions (a loaded session's title wins), each dated by its last
+ * activity. Archived rows, orchestration workers and unsent new sessions are
+ * left out.
  */
 export function homeRecentSessions(
   history: readonly SessionSummary[],
   live: readonly HomeLiveSession[],
   scope: HomeScope,
+  index: HomeSessionIndex = homeSessionIndex(history, live, []),
 ): HomeSession[] {
   const rows = new Map<string, HomeSession>();
   for (const entry of history) {
@@ -295,7 +379,7 @@ export function homeRecentSessions(
       title: sessionDisplayTitle(entry.title, entry.harness),
       cwd: entry.cwd,
       harness: entry.harness,
-      updatedAt: entry.updatedAt,
+      updatedAt: index.at.get(entry.id) ?? entry.updatedAt,
       ...(entry.branch ? { branch: entry.branch } : {}),
     });
   }
@@ -308,7 +392,7 @@ export function homeRecentSessions(
       title: session.title,
       cwd: session.cwd,
       harness: session.harness,
-      updatedAt: session.updatedAt,
+      updatedAt: index.at.get(session.id) ?? session.updatedAt,
       ...(saved?.branch ? { branch: saved.branch } : {}),
       ...(session.running ? { running: true as const } : {}),
     });
@@ -323,14 +407,17 @@ const FINISHED = new Set(["completed", "failed", "stopped"]);
 /**
  * What needs the user, per session: approvals and questions first, then
  * unread finished replies, each newest first. Waiting comes from the loaded
- * sessions, as the sidebar's status does; the time is when the request was
- * recorded. Unread replies come from the activity ledger, the same rule as the
- * sidebar's unread count, so they include sessions that are not loaded.
+ * sessions, as the sidebar's status does. Unread replies come from the
+ * activity ledger, the same rule as the sidebar's unread count, so they
+ * include sessions that are not loaded. Each row carries the session's current
+ * title and last activity (`index`); without them, the ledger's title and the
+ * time the request or reply was recorded.
  */
 export function homeNeedsYou(
   live: readonly HomeLiveSession[],
   activity: readonly ActivityEntry[],
   scope: HomeScope,
+  index: HomeSessionIndex = NO_INDEX,
 ): HomeAttention[] {
   const requested = new Map<string, number>();
   const replies = new Map<string, ActivityEntry>();
@@ -357,7 +444,10 @@ export function homeNeedsYou(
       title: session.title,
       cwd: session.cwd,
       detail: session.waiting.detail,
-      at: requested.get(session.id) ?? session.updatedAt,
+      at:
+        index.at.get(session.id) ??
+        requested.get(session.id) ??
+        session.updatedAt,
     });
   }
   const listed = new Set(waiting.map((item) => item.id));
@@ -367,10 +457,10 @@ export function homeNeedsYou(
     unread.push({
       id: entry.sessionId,
       kind: entry.outcome as HomeAttention["kind"],
-      title: entry.title,
+      title: index.title.get(entry.sessionId) ?? entry.title,
       cwd: entry.cwd,
       detail: clip(entry.summary),
-      at: entry.createdAt,
+      at: index.at.get(entry.sessionId) ?? entry.createdAt,
     });
   }
   return [...waiting.sort(newestFirst), ...unread.sort(newestFirst)];
@@ -406,15 +496,19 @@ export function homeRunning(
 /**
  * One tile per project, in the order given (the sidebar's): the session it
  * opens to, what its agents are doing or asking, the branch its latest
- * session saw, and when anything last happened there, including activity
- * from sessions not loaded.
+ * session saw, and when anything last happened there: its newest session's
+ * last activity (`recent` is dated that way), or, before its sessions are
+ * listed, its newest activity-ledger entry.
  */
 export function homeProjects(
   projects: readonly { path: string }[],
   recent: readonly HomeSession[],
   activity: readonly ActivityEntry[],
   live: readonly HomeLiveSession[] = [],
+  index: HomeSessionIndex = NO_INDEX,
 ): HomeProject[] {
+  const timeOf = (session: HomeLiveSession) =>
+    index.at.get(session.id) ?? session.updatedAt;
   const latest = new Map<string, HomeSession>();
   const branches = new Map<string, string>();
   for (const session of recent) {
@@ -428,8 +522,7 @@ export function homeProjects(
     const key = projectKey(session.cwd);
     if (session.waiting) {
       const prior = waiting.get(key);
-      if (!prior || session.updatedAt > prior.updatedAt)
-        waiting.set(key, session);
+      if (!prior || timeOf(session) > timeOf(prior)) waiting.set(key, session);
     }
     if (session.running) {
       const prior = working.get(key);
@@ -451,10 +544,9 @@ export function homeProjects(
     const doing = working.get(key);
     const opens = asking ?? doing ?? recentSession;
     const branch = branches.get(key);
-    const lastActivity = Math.max(
-      recentSession?.updatedAt ?? 0,
-      lastEvent.get(key) ?? 0,
-    );
+    const lastActivity = recentSession
+      ? recentSession.updatedAt
+      : (lastEvent.get(key) ?? 0);
     return {
       path: project.path,
       name: basename(project.path),
@@ -467,10 +559,14 @@ export function homeProjects(
   });
 }
 
-/** Finished turns in the workspace, newest first, from the activity ledger. */
+/**
+ * Finished turns in the workspace, newest first, from the activity ledger,
+ * each at the time it finished and under its session's current title.
+ */
 export function homeFinished(
   activity: readonly ActivityEntry[],
   scope: HomeScope,
+  index: HomeSessionIndex = NO_INDEX,
 ): HomeFinished[] {
   const rows: HomeFinished[] = [];
   for (const entry of activity) {
@@ -480,7 +576,7 @@ export function homeFinished(
       id: entry.id,
       sessionId: entry.sessionId,
       kind: entry.outcome as HomeFinished["kind"],
-      title: entry.title,
+      title: index.title.get(entry.sessionId) ?? entry.title,
       cwd: entry.cwd,
       detail: clip(entry.summary),
       at: entry.createdAt,

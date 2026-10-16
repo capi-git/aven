@@ -85,6 +85,18 @@ function crossAxisStart(
   return start + (end - start) / 2 - length / 2;
 }
 
+/**
+ * The width a popover is placed at: the width it asks for, narrowed only to
+ * fit the viewport inside the edge padding. Never the anchor's width.
+ */
+export function popoverWidth(
+  wanted: number,
+  viewportWidth: number,
+  padding = DEFAULT_PADDING,
+): number {
+  return Math.min(wanted, Math.max(0, viewportWidth - padding * 2));
+}
+
 export function placePopover(
   anchor: AnchorRect,
   popover: Size,
@@ -96,9 +108,10 @@ export function placePopover(
   const align = options.align ?? "start";
   const preferred = options.side ?? "bottom";
 
-  const width = Math.min(
+  const width = popoverWidth(
     options.width ?? popover.width,
-    Math.max(0, viewport.width - padding * 2),
+    viewport.width,
+    padding,
   );
   const wanted = Math.min(
     options.maxHeight ?? Infinity,

@@ -13,7 +13,7 @@ vi.mock("../lib/harness/registry", async (importOriginal) => ({
   refreshHarnessCatalogs: vi.fn(async () => {}),
 }));
 
-const { AgentPill } = await import("./AgentPill");
+const { AgentPill, agentPanelLayout } = await import("./AgentPill");
 const { CLAUDE_OPUS_5_5_MODEL, modelsFor } = await import("../lib/models");
 
 let root: Root;
@@ -23,7 +23,7 @@ let props: ComponentProps<typeof AgentPill>;
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  // The model list opens on the provider last chosen.
+  // The tab last chosen in a picker; the panel opens on the chat's own.
   const storage = new Map([["monocode.modelPickerTab", "claude"]]);
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => storage.get(key) ?? null,
@@ -266,5 +266,88 @@ describe("the agent pill", () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect((await press()).defaultPrevented).toBe(false);
     expect(panel()).toBeNull();
+  });
+});
+
+describe("the panel's model list", () => {
+  it("opens on the chat's provider with its model highlighted, whatever tab another chat left", async () => {
+    localStorage.setItem("monocode.modelPickerTab", "codex");
+    await render();
+    await open();
+    const tab = panel()!.querySelector('[role="tab"][aria-selected="true"]');
+    expect(tab?.getAttribute("title")).toBe("Claude Code");
+    const highlighted = [
+      ...panel()!.querySelectorAll('[role="listbox"] > div'),
+    ].filter((row) => row.classList.contains("bg-content/10"));
+    expect(highlighted).toHaveLength(1);
+    expect(highlighted[0].textContent).toContain(CLAUDE_OPUS_5_5_MODEL.name);
+    expect(
+      highlighted[0]
+        .querySelector('[role="option"]')
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
+    // The Reasoning section beside it belongs to the same model.
+    expect(section("Reasoning")).toBeDefined();
+  });
+});
+
+describe("the panel's layout", () => {
+  it("is 540px with two columns wherever the window has room", () => {
+    // A 1512-point window at 100%, 80% and 70% interface zoom, in CSS pixels.
+    for (const width of [1512, 1890, 2160, 820])
+      expect(agentPanelLayout(width, true)).toEqual({
+        width: 540,
+        stacked: false,
+      });
+  });
+
+  it("narrows only by the window's edges and stacks only when genuinely narrow", () => {
+    expect(agentPanelLayout(500, true)).toEqual({ width: 484, stacked: false });
+    expect(agentPanelLayout(478, true)).toEqual({ width: 462, stacked: false });
+    expect(agentPanelLayout(477, true)).toEqual({ width: 461, stacked: true });
+    expect(agentPanelLayout(444, true)).toEqual({ width: 428, stacked: true });
+    // The model list alone never stacks.
+    expect(agentPanelLayout(1512, false)).toEqual({
+      width: 300,
+      stacked: false,
+    });
+  });
+
+  it("places the panel at that width and marks it stacked only in a narrow window", async () => {
+    const innerWidth = window.innerWidth;
+    try {
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: 1890,
+      });
+      await render();
+      await open();
+      const frame = () => panel()!.parentElement!;
+      expect(frame().style.width).toBe("540px");
+      expect(panel()!.hasAttribute("data-stacked")).toBe(false);
+      // The window narrows while the panel is open.
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: 444,
+      });
+      await act(async () => window.dispatchEvent(new Event("resize")));
+      expect(frame().style.width).toBe("428px");
+      expect(panel()!.hasAttribute("data-stacked")).toBe(true);
+    } finally {
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: innerWidth,
+      });
+    }
+  });
+
+  it("stacks by the pill's decision, never by a container query", async () => {
+    // WebKit sizes a container after interface zoom, so a container query
+    // stacked a 540px panel in a wide window at 80% zoom.
+    const { readFileSync } = await import("node:fs");
+    const css = readFileSync("src/chrome/AgentPill.css", "utf8");
+    expect(css).not.toMatch(/@container/);
+    expect(css).not.toMatch(/container(-type|-name)?\s*:/);
+    expect(css).toMatch(/\.agent-panel\[data-stacked\] \.agent-panel-body/);
   });
 });
