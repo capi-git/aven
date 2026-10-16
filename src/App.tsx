@@ -543,7 +543,7 @@ import {
   type WorkspaceNavigation,
 } from "./lib/workspaceNavigation";
 import { preparePrompt } from "./lib/promptPreparation";
-import { projectMemoryForTurn } from "./lib/projectMemory";
+import { loadProjectMemory, projectMemoryForTurn } from "./lib/projectMemory";
 import { warmNativeSkills, isNativeCommandPrompt } from "./lib/skills";
 import { nativeSkillContextForSession } from "./lib/sessionSkills";
 import {
@@ -8671,6 +8671,7 @@ export default function App({
     },
     deleteProject: (path) => onRemoveProject(path, { purgeData: true }),
     discussion: discussions.host,
+    projectMemory: async (path) => (await loadProjectMemory(path))?.body ?? "",
     focusedSurfaceId: view.focusedId,
     sidebarOpen,
     openWebLink: onOpenWebLink,

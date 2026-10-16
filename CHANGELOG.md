@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Aven can keep a project's memory up to date for you. After your first finished task in a project whose memory is empty, the chat asks **Let Aven keep this project's memory up to date?** Turned on, Aven fills in the project's stack, how to run it, conventions, work in progress and gotchas, and refreshes its own sections after every eight finished tasks or once a day you use the project: never more than hourly, never while an agent works there, and not near a usage limit. It uses your cheapest model (Claude Haiku, else a small Codex model) with no tools, on a summary Aven reads itself that skips `.env` files and keys and ignores text that tries to instruct it. Your own lines are never changed, and a line you edit in Aven's sections becomes yours. The memory editor shows "Updated by Aven 2 h ago · +2 −1 lines · Undo", the model, its last run and **Refresh now**, and the sidebar marks an update until you open the memory. Turn it on or off there or in **Customize project…**.
+
 ## [0.1.142] - 2026-10-15
 
 ### Added
