@@ -1,6 +1,7 @@
-import { useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import {
   getHarnessAvailabilitySnapshot,
+  probeHarnessAvailability,
   subscribeHarnessAvailability,
 } from "../lib/harness/availability";
 import {
@@ -27,5 +28,11 @@ export function useKeeperModel(): KeeperModel | null {
     getHarnessAvailabilitySnapshot,
     getHarnessAvailabilitySnapshot,
   );
+  // Which providers are installed is only known after a probe, which the
+  // model list otherwise starts. Ask here too (cached for 30 s), or the
+  // switch reads "needs Claude Code or Codex" until that list is opened.
+  useEffect(() => {
+    void probeHarnessAvailability();
+  }, []);
   return pickKeeperModel();
 }
