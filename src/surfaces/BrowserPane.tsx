@@ -35,15 +35,18 @@ import {
   ExternalLink,
   Pencil,
   Maximize2,
+  Mic,
   MoreHorizontal,
   Minus,
   Plus,
   Search,
   RefreshCw,
+  Video,
   X,
 } from "../chrome/icons";
 import { ExplorerMenu, type ExplorerMenuItem } from "../chrome/ExplorerMenu";
 import {
+  BROWSER_NOTICE_ACTION_LABELS,
   EXTERNAL_BROWSER_NAME,
   browserBounds,
   browserDownloadProgress,
@@ -55,6 +58,7 @@ import {
   type BrowserAction,
   type BrowserDownload,
   type BrowserFindResult,
+  type BrowserNoticeAction,
   type BrowserState,
 } from "../lib/browser";
 import { useBrowserDropIndicator } from "../hooks/useBrowserDropIndicator";
@@ -91,6 +95,7 @@ export type BrowserPaneProps = {
 };
 
 const BROWSER_ACTIONS_WIDTH = 224;
+const NO_CAPTURE = { microphone: false, camera: false };
 
 /** The owning project's mark, named in its tooltip. Projectless pages show none. */
 function BrowserProjectMark({ project }: { project?: string }) {
@@ -171,6 +176,13 @@ function BrowserPaneSession({
   editVisible.current = visible;
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // The button Chromium offers with its current notice. It applies only while
+  // that same notice is the one on screen.
+  const [noticeAction, setNoticeAction] = useState<{
+    notice: string;
+    action: BrowserNoticeAction;
+  } | null>(null);
+  const [capture, setCapture] = useState(NO_CAPTURE);
   const [toolsMenu, setToolsMenu] = useState<{ x: number; y: number } | null>(
     null,
   );
@@ -698,6 +710,7 @@ function BrowserPaneSession({
           state.error || "This browser page closed. Retry to reopen it.",
         );
         setNotice(null);
+        setCapture(NO_CAPTURE);
         return;
       }
       if (
@@ -754,6 +767,25 @@ function BrowserPaneSession({
       );
       setError(state.error);
       setNotice(state.notice ?? null);
+      const nextAction =
+        state.notice &&
+        state.noticeAction &&
+        Object.hasOwn(BROWSER_NOTICE_ACTION_LABELS, state.noticeAction)
+          ? { notice: state.notice, action: state.noticeAction }
+          : null;
+      setNoticeAction((previous) =>
+        previous?.notice === nextAction?.notice &&
+        previous?.action === nextAction?.action
+          ? previous
+          : nextAction,
+      );
+      const microphone = state.microphoneInUse === true;
+      const camera = state.cameraInUse === true;
+      setCapture((previous) =>
+        previous.microphone === microphone && previous.camera === camera
+          ? previous
+          : { microphone, camera },
+      );
       const initialPlaceholder =
         !created &&
         (state.url === "about:blank" || state.url === "about:srcdoc");
@@ -944,6 +976,35 @@ function BrowserPaneSession({
         setNotice(`Browser action unavailable: ${errorMessage(reason)}`),
       );
   };
+
+  const offeredNoticeAction =
+    readyId && notice && noticeAction?.notice === notice
+      ? noticeAction.action
+      : null;
+  // The notice stays up: opening System Settings is only the first step.
+  const runNoticeAction = () => {
+    if (!readyId || !offeredNoticeAction) return;
+    void nativeBrowser
+      .action(readyId, "notice-action")
+      .catch((reason) =>
+        setNotice(`Browser action unavailable: ${errorMessage(reason)}`),
+      );
+  };
+  const dismissNotice = () => {
+    // Chromium keeps an action notice until told, so it would come back with
+    // the page's next update. Closing it is best effort.
+    if (readyId && offeredNoticeAction)
+      void nativeBrowser.action(readyId, "notice-dismiss").catch(() => {});
+    setNotice(null);
+  };
+  const captureLabel =
+    capture.microphone && capture.camera
+      ? "This page is using your camera and microphone"
+      : capture.camera
+        ? "This page is using your camera"
+        : capture.microphone
+          ? "This page is using your microphone"
+          : null;
 
   const cancelFindTimer = () => {
     if (findTimer.current != null) window.clearTimeout(findTimer.current);
@@ -1368,6 +1429,17 @@ function BrowserPaneSession({
           autoCapitalize="none"
           autoCorrect="off"
         />
+        {captureLabel ? (
+          <span
+            className="browser-capture"
+            role="img"
+            aria-label={captureLabel}
+            title={captureLabel}
+          >
+            {capture.camera ? <Video size={14} /> : null}
+            {capture.microphone ? <Mic size={14} /> : null}
+          </span>
+        ) : null}
         {onAddToChat ? (
           <button
             type="button"
@@ -1653,10 +1725,19 @@ function BrowserPaneSession({
       {notice ? (
         <div className="browser-notice" role="status">
           <span>{notice}</span>
+          {offeredNoticeAction ? (
+            <button
+              type="button"
+              className="browser-notice-action"
+              onClick={runNoticeAction}
+            >
+              {BROWSER_NOTICE_ACTION_LABELS[offeredNoticeAction]}
+            </button>
+          ) : null}
           <button
             type="button"
             aria-label="Dismiss preview notice"
-            onClick={() => setNotice(null)}
+            onClick={dismissNotice}
           >
             <X size={12} />
           </button>
