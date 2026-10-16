@@ -45,6 +45,7 @@ mod linear;
 #[cfg(target_os = "macos")]
 mod macos;
 mod mcp_manage;
+mod memory_keeper;
 mod memory_pressure;
 mod menu;
 mod native_popup;
@@ -535,6 +536,7 @@ pub fn run() {
             project_memory::project_memory_set,
             project_memory::project_memory_append,
             project_memory::project_memory_delete,
+            memory_keeper::memory_keeper_read_files,
             checkpoint::session_checkpoint_ensure,
             checkpoint::session_checkpoint_prepare,
             checkpoint::session_checkpoint_capture,

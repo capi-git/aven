@@ -1,14 +1,12 @@
+import { invoke } from "@tauri-apps/api/core";
 import type { ActivityEntry } from "./activity";
 import {
   gitBranches,
   gitHistory,
-  inspectPaths,
   listDir,
-  readTextFile,
   type FsEntry,
   type GitBranches,
   type GitHistory,
-  type PathInfo,
 } from "./fs";
 import { cleanUntrusted, clip, isSecretFileName } from "./memoryKeeperSafety";
 import { projectKey, projectName } from "./paths";
@@ -21,10 +19,20 @@ import { memoryProjectFor } from "./projectMemory";
  * file outside the list, and every excerpt redacted and capped.
  */
 
+/** A top-level file as native code read it: never through a link. */
+export type KeeperFile = { name: string; text: string; truncated: boolean };
+
 export type DigestSources = {
   listDir: (path: string) => Promise<FsEntry[]>;
-  inspectPaths: (paths: string[]) => Promise<PathInfo[]>;
-  readTextFile: (path: string) => Promise<string>;
+  /**
+   * The named files directly in `root`. Native code skips links, secret
+   * names, folders, binary files and files over 1 MB.
+   */
+  readFiles: (
+    root: string,
+    names: string[],
+    maxBytes: number,
+  ) => Promise<KeeperFile[]>;
   gitHistory: (cwd: string, limit: number) => Promise<GitHistory>;
   gitBranches: (cwd: string) => Promise<GitBranches>;
 };
@@ -32,15 +40,19 @@ export type DigestSources = {
 // Looked up when called, so importing this module never touches native code.
 export const NATIVE_DIGEST_SOURCES: DigestSources = {
   listDir: (path) => listDir(path),
-  inspectPaths: (paths) => inspectPaths(paths),
-  readTextFile: (path) => readTextFile(path),
+  readFiles: (root, names, maxBytes) =>
+    invoke<KeeperFile[]>("memory_keeper_read_files", {
+      root,
+      names,
+      maxBytes,
+    }),
   gitHistory: (cwd, limit) => gitHistory(cwd, limit),
   gitBranches: (cwd) => gitBranches(cwd),
 };
 
 export const DIGEST_MAX_CHARS = 12_000;
-/** Files larger than this are skipped rather than read. */
-const FILE_MAX_BYTES = 512 * 1024;
+/** The most read from one file; enough for any manifest Aven summarises. */
+const FILE_READ_BYTES = 64 * 1024;
 const LISTING_MAX = 60;
 
 type Reader = "text" | "package" | "make" | "just";
@@ -222,17 +234,19 @@ export async function buildProjectDigest(
     );
     return entry ? [{ wanted, entry }] : [];
   });
-  const sizes = new Map(
+  const read = new Map(
     (
       await sources
-        .inspectPaths(files.map(({ entry }) => entry.path))
-        .catch(() => [] as PathInfo[])
-    ).map((info) => [info.path, info.size]),
+        .readFiles(
+          project,
+          files.map(({ entry }) => entry.name),
+          FILE_READ_BYTES,
+        )
+        .catch(() => [] as KeeperFile[])
+    ).map((file) => [file.name, file.text]),
   );
   for (const { wanted, entry } of files) {
-    const size = sizes.get(entry.path);
-    if (size == null || size > FILE_MAX_BYTES) continue;
-    const text = await sources.readTextFile(entry.path).catch(() => "");
+    const text = read.get(entry.name);
     const body = text ? excerpt(text, wanted) : "";
     if (body) parts.push(`### ${entry.name}\n${body}`);
   }

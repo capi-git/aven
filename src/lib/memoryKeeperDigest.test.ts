@@ -68,18 +68,12 @@ function sources(overrides: Partial<DigestSources> = {}): DigestSources {
             },
           ],
     ),
-    inspectPaths: vi.fn(async (paths: string[]) =>
-      paths.map((path) => ({
-        path,
-        name: path.split("/").pop()!,
-        size: 100,
-        isDir: false,
-      })),
+    readFiles: vi.fn(async (root: string, names: string[]) =>
+      names.flatMap((name) => {
+        const text = FILES[`${root}/${name}`];
+        return text == null ? [] : [{ name, text, truncated: false }];
+      }),
     ),
-    readTextFile: vi.fn(async (path: string) => {
-      if (!(path in FILES)) throw new Error("missing");
-      return FILES[path];
-    }),
     gitHistory: vi.fn(async () => ({
       head: "abc",
       commits: [
@@ -140,26 +134,31 @@ describe("project digest", () => {
     const digest = await buildProjectDigest(ROOT, source);
     expect(digest).not.toMatch(/\.env|id_rsa|secrets\.md|node_modules/);
     expect(digest).not.toContain("hunter2");
-    const read = vi
-      .mocked(source.readTextFile)
-      .mock.calls.map(([path]) => path);
-    expect(read).not.toContain(`${ROOT}/.env`);
-    expect(read).not.toContain(`${ROOT}/id_rsa`);
+    const asked = vi
+      .mocked(source.readFiles)
+      .mock.calls.flatMap(([, names]) => names);
+    expect(asked).toEqual([
+      "README.md",
+      "AGENTS.md",
+      "package.json",
+      "Makefile",
+    ]);
     expect(digest).not.toContain("sk_live_");
     expect(digest).toContain("[redacted]");
     expect(digest).not.toContain("rm -rf");
     expect(digest).toContain("A storefront.");
   });
 
-  it("skips files too large to read", async () => {
+  it("leaves out what native code would not read", async () => {
     const source = sources({
-      inspectPaths: vi.fn(async (paths: string[]) =>
-        paths.map((path) => ({
-          path,
-          name: path,
-          size: path.endsWith("README.md") ? 10 * 1024 * 1024 : 10,
-          isDir: false,
-        })),
+      // A README that is a link, too large or binary comes back missing.
+      readFiles: vi.fn(async (root: string, names: string[]) =>
+        names
+          .filter((name) => name !== "README.md")
+          .flatMap((name) => {
+            const text = FILES[`${root}/${name}`];
+            return text == null ? [] : [{ name, text, truncated: false }];
+          }),
       ),
     });
     const digest = await buildProjectDigest(ROOT, source);
