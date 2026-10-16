@@ -25,9 +25,13 @@ export function firstContentfulPaintEpochMs(): number | null {
   return entry ? Math.round(performance.timeOrigin + entry.startTime) : null;
 }
 
-/** Wait until the native side has shown this window, then report how. */
+/**
+ * Wait until the native side has shown this window, then report how. Waits
+ * past the development build's 30 s reveal timeout so a slow first load is
+ * reported as such rather than as a missing reveal.
+ */
 export async function readLaunchReveal(
-  timeoutMs = 12_000,
+  timeoutMs = 32_000,
 ): Promise<LaunchReveal> {
   const started = Date.now();
   let native: NativeReveal | null = null;

@@ -30,10 +30,13 @@ use tauri::{AppHandle, Manager, Window};
 const RELEASE_REVEAL_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Development builds load the interface from Vite, whose first load after a
-/// fresh checkout (as in the release workflow's real-app check) can take
-/// several seconds.
+/// fresh checkout (as in the release workflow's real-app check) transforms
+/// every module on demand. On the release workflow's runner that took 9.4 s
+/// for 0.1.143 and just over 10 s for 0.1.144, so allow a wide margin.
+const DEVELOPMENT_REVEAL_TIMEOUT: Duration = Duration::from_secs(30);
+
 pub const REVEAL_TIMEOUT: Duration = if cfg!(debug_assertions) {
-    Duration::from_secs(10)
+    DEVELOPMENT_REVEAL_TIMEOUT
 } else {
     RELEASE_REVEAL_TIMEOUT
 };
@@ -304,6 +307,8 @@ mod tests {
         assert!(RELEASE_REVEAL_TIMEOUT >= Duration::from_secs(2));
         assert!(RELEASE_REVEAL_TIMEOUT <= Duration::from_secs(3));
         assert!(REVEAL_TIMEOUT >= RELEASE_REVEAL_TIMEOUT);
-        assert!(REVEAL_TIMEOUT <= Duration::from_secs(10));
+        assert!(REVEAL_TIMEOUT <= DEVELOPMENT_REVEAL_TIMEOUT);
+        // A cold Vite load on the release runner has taken over 10 s.
+        assert!(DEVELOPMENT_REVEAL_TIMEOUT >= Duration::from_secs(20));
     }
 }
