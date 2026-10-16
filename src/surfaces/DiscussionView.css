@@ -1,0 +1,316 @@
+/* A discussion as one conversation. The chat that opened sits on the left,
+   the one responding on the right; each side's bubbles take a faint tint of
+   its provider's colour (--discussion-voice) over the same glass cards the
+   rest of the workspace uses. Only the typing side moves. */
+.discussion-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  font-family: var(--font-sans);
+  color: var(--color-content);
+  container: discussion-view / inline-size;
+}
+
+.discussion-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid var(--aven-line);
+}
+.discussion-cast {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+.discussion-cast-link {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--color-content) 40%, transparent);
+  border: 1px solid var(--aven-line);
+}
+.discussion-party {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+.discussion-party[data-side="b"] {
+  flex-direction: row-reverse;
+  text-align: right;
+}
+.discussion-party-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.discussion-party-name,
+.discussion-party-persona {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.discussion-party-name {
+  font-size: var(--text-ui-body);
+  font-weight: 600;
+  line-height: 18px;
+}
+.discussion-party-persona {
+  font-size: var(--text-ui-caption);
+  line-height: 15px;
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+}
+.discussion-status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  font-size: var(--text-ui-label);
+  color: color-mix(in srgb, var(--color-content) 55%, transparent);
+}
+.discussion-action {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: 6px;
+  font-size: var(--text-ui-label);
+  color: color-mix(in srgb, var(--color-content) 72%, transparent);
+}
+.discussion-action:hover {
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+
+.discussion-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: none;
+  outline: none;
+}
+.discussion-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 18px 16px 28px;
+  list-style: none;
+}
+
+.discussion-topic {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  align-self: center;
+  width: min(560px, 100%);
+}
+.discussion-topic-label {
+  font-size: var(--text-ui-caption);
+  color: color-mix(in srgb, var(--color-content) 45%, transparent);
+}
+.discussion-topic-card {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--aven-glass-card-edge, var(--aven-line));
+  border-radius: 12px;
+  background: var(
+    --aven-glass-card,
+    color-mix(in srgb, var(--color-content) 4%, transparent)
+  );
+}
+
+.discussion-round {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0 2px;
+  font-size: var(--text-ui-caption);
+  color: color-mix(in srgb, var(--color-content) 42%, transparent);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.discussion-round::before,
+.discussion-round::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--aven-line);
+}
+
+.discussion-message {
+  --discussion-voice: var(--color-content);
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: 100%;
+  align-self: flex-start;
+  padding-right: 48px;
+}
+.discussion-message[data-side="b"] {
+  flex-direction: row-reverse;
+  align-self: flex-end;
+  padding-right: 0;
+  padding-left: 48px;
+}
+.discussion-message-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+  max-width: 640px;
+}
+.discussion-message[data-side="b"] .discussion-message-body {
+  align-items: flex-end;
+}
+.discussion-message-name {
+  padding: 0 4px;
+  font-size: var(--text-ui-caption);
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+}
+
+.discussion-bubble {
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+  padding: 8px 13px;
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--discussion-voice) 24%,
+      var(--aven-glass-card-edge, var(--aven-line))
+    );
+  border-radius: 14px;
+  background: color-mix(
+    in srgb,
+    var(--discussion-voice) 9%,
+    var(
+      --aven-glass-card,
+      color-mix(in srgb, var(--color-content) 4%, transparent)
+    )
+  );
+  text-align: left;
+}
+.discussion-message[data-side="a"] .discussion-bubble {
+  border-bottom-left-radius: 5px;
+}
+.discussion-message[data-side="b"] .discussion-bubble {
+  border-bottom-right-radius: 5px;
+}
+.discussion-bubble[data-folded] {
+  max-height: 300px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, black 70%, transparent);
+  mask-image: linear-gradient(to bottom, black 70%, transparent);
+}
+.discussion-bubble-missing {
+  margin: 0;
+  font-size: var(--text-ui-label);
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+}
+.discussion-more {
+  padding: 0 4px;
+  font-size: var(--text-ui-caption);
+  color: color-mix(in srgb, var(--color-content) 55%, transparent);
+}
+.discussion-more:hover {
+  color: var(--color-content);
+}
+
+/* Three square pixels taking turns, in the side's colour. */
+.discussion-typing {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 34px;
+  padding: 0 14px;
+}
+.discussion-dot {
+  width: 4px;
+  height: 4px;
+  background: var(--discussion-voice);
+  opacity: 0.35;
+  animation: discussion-dot 1.2s steps(1, end) infinite;
+}
+.discussion-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.discussion-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+@keyframes discussion-dot {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  25% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+  50% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+}
+
+.discussion-closing {
+  align-self: center;
+  margin-top: 6px;
+  padding: 4px 12px;
+  border: 1px solid var(--aven-line);
+  border-radius: 999px;
+  font-size: var(--text-ui-label);
+  color: color-mix(in srgb, var(--color-content) 58%, transparent);
+  text-align: center;
+}
+.discussion-paused {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: center;
+  max-width: min(560px, 100%);
+  margin-top: 6px;
+  padding: 4px 4px 4px 12px;
+  border: 1px solid var(--aven-line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+  font-size: var(--text-ui-label);
+  color: color-mix(in srgb, var(--color-content) 66%, transparent);
+}
+
+@container discussion-view (max-width: 460px) {
+  .discussion-cast {
+    gap: 6px;
+  }
+  .discussion-cast-link {
+    display: none;
+  }
+  .discussion-cast {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .discussion-message[data-side="a"] {
+    padding-right: 16px;
+  }
+  .discussion-message[data-side="b"] {
+    padding-left: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .discussion-dot {
+    animation: none;
+    opacity: 0.6;
+  }
+}

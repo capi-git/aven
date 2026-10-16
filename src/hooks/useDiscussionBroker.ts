@@ -66,6 +66,11 @@ type Options = {
     model: string,
     title: string,
   ) => string | undefined;
+  /**
+   * Show a discussion's conversation page beside the chat that started it,
+   * focused. Called when one starts, and by the bar's Open discussion.
+   */
+  openView?: (id: string) => void;
   store?: DiscussionStore;
 };
 
@@ -113,6 +118,7 @@ export function useDiscussionBroker({
   onSubmit,
   postNote,
   openPartner,
+  openView,
   store: given,
 }: Options): { host: DiscussionHost; sidebar: SidebarDiscussion[] } {
   const [store] = useState(() => given ?? discussionStore());
@@ -121,8 +127,14 @@ export function useDiscussionBroker({
     store.snapshot,
     store.snapshot,
   );
-  const latest = useRef({ sessionsRef, onSubmit, postNote, openPartner });
-  latest.current = { sessionsRef, onSubmit, postNote, openPartner };
+  const latest = useRef({
+    sessionsRef,
+    onSubmit,
+    postNote,
+    openPartner,
+    openView,
+  });
+  latest.current = { sessionsRef, onSubmit, postNote, openPartner, openView };
   /** Discussion id → the turn this window sent and is waiting on. */
   const inFlight = useRef(new Map<string, number>());
 
@@ -333,8 +345,9 @@ export function useDiscussionBroker({
             : undefined;
           if (!partner) return "Couldn't open a new chat.";
         }
+        let started: Discussion;
         try {
-          store.start({
+          started = store.start({
             a: discussionParty(source),
             b: discussionParty(partner),
             topic,
@@ -344,7 +357,11 @@ export function useDiscussionBroker({
         } catch (error) {
           return errorText(error);
         }
+        latest.current.openView?.(started.id);
         return null;
+      },
+      open(id) {
+        if (store.get(id)) latest.current.openView?.(id);
       },
     }),
     [store],

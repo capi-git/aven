@@ -71,6 +71,7 @@ import { useSidebarVisibility } from "./hooks/useSidebarVisibility";
 import { useSidebarData } from "./hooks/useSidebarData";
 import { useSessionModelControls } from "./hooks/useSessionModelControls";
 import { useDiscussionBroker } from "./hooks/useDiscussionBroker";
+import { discussionStore } from "./lib/discussions";
 import { withPlanBuildTarget } from "./lib/sessionModelChoice";
 import { encodeSidebarValue } from "./lib/floatingSidebar";
 import { setExternalPaneDrop, type PaneDrop } from "./lib/paneDrop";
@@ -283,6 +284,9 @@ import {
   isTerminalTab,
   leaf,
   newRaceWorkspaceTab,
+  newDiscussionTab,
+  newDiscussionWorkspaceTab,
+  showDiscussionInTabs,
   leafIds,
   movePane,
   neighborLeafId,
@@ -6680,6 +6684,32 @@ export default function App({
     [openSessionBeside],
   );
 
+  /**
+   * A discussion's conversation page: focused where it is already open,
+   * otherwise opened beside the chat that started it (or its partner), or in
+   * a tab of its own when neither chat is in this window's tabs.
+   */
+  const openDiscussionView = useCallback(
+    (id: string) => {
+      const discussion = discussionStore().get(id);
+      if (!discussion) return;
+      const file = newDiscussionTab(discussion);
+      const shown = showDiscussionInTabs(tabsRef.current, file);
+      if (shown) {
+        tabsRef.current = shown.tabs;
+        setTabs(shown.tabs);
+        if (shown.tabId !== activeTabIdRef.current) setActiveTabId(shown.tabId);
+      } else {
+        const tab = newDiscussionWorkspaceTab(file);
+        appendTab(tab, discussion.a.cwd);
+        setActiveTabId(tab.id);
+      }
+      setProjectTerminalFocused(false);
+      setComposerFocused(false);
+    },
+    [appendTab],
+  );
+
   // Two chats discussing a topic, started by the user; relayed at turn end.
   const discussions = useDiscussionBroker({
     sessions,
@@ -6700,6 +6730,7 @@ export default function App({
       openSessionBeside(sourceId, session, source.cwd);
       return session.id;
     },
+    openView: openDiscussionView,
   });
 
   // "Ask Codex to stop it" on a second dev server queues a message here.
@@ -8586,6 +8617,7 @@ export default function App({
     projectStatus,
     liveAgents,
     discussions: discussions.sidebar,
+    onOpenDiscussion: openDiscussionView,
     workConflicts,
     onSelectAgent: onSelectLiveAgent,
     onSelectProject,
@@ -9662,6 +9694,7 @@ function toTitleTab(
     seenKeys.add(key);
     files.push(
       file.plan?.title?.trim() ||
+        file.discussion?.title ||
         (file.releaseNotes
           ? releaseNotesTitle(file.releaseNotes.version)
           : file.terminal

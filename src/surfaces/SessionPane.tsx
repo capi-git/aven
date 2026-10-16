@@ -19,6 +19,7 @@ import { orchestrator, sameCheckout } from "../lib/orchestration";
 import { sessionWithManagedAgents } from "../lib/sessionAgents";
 import { OrchestrationWorkers } from "../chrome/OrchestrationActions";
 import { DiscussionEmpty } from "../chrome/DiscussionEmpty";
+import { DiscussionOpenContext } from "../chrome/DiscussionRelayCard";
 import { SessionReview } from "../chrome/SessionReview";
 import { PromptOutline } from "../chrome/PromptOutline";
 import {
@@ -672,38 +673,42 @@ export const SessionPane = memo(function SessionPane({
           )
         ) : (
           <>
-            <AgentTranscript
-              blocks={session.blocks}
-              busy={!!session.busy}
-              visible={visible}
-              cwd={workCwd}
-              harness={session.harness}
-              model={session.model}
-              pendingQuestion={isBlockingQuestion(session.pendingQuestion)}
-              onApproval={approve}
-              onAddToChat={addSelectionToChat}
-              onSaveNote={notesEnabled ? saveNote : undefined}
-              memoryProject={session.inboxAsk ? undefined : memoryProject}
-              onOpenFile={onOpenFile}
-              onOpenDiff={onOpenDiff}
-              onOpenPlan={openPlan}
-              onBuildPlan={buildPlan}
-              onSecondOpinion={
-                !session.inboxAsk && onSecondOpinion
-                  ? (harness, turn, model) =>
-                      onSecondOpinion(session.id, harness, turn, model)
-                  : undefined
-              }
-              onHandoff={
-                !session.inboxAsk && onHandoff
-                  ? (harness, turn, model) =>
-                      onHandoff(session.id, harness, turn, model)
-                  : undefined
-              }
-              onJumpToBottomChange={setShowJumpToBottom}
-              onJumpToBottomReady={onJumpToBottomReady}
-              onRevealReady={onRevealReady}
-            />
+            <DiscussionOpenContext.Provider
+              value={session.inboxAsk ? undefined : discussion?.open}
+            >
+              <AgentTranscript
+                blocks={session.blocks}
+                busy={!!session.busy}
+                visible={visible}
+                cwd={workCwd}
+                harness={session.harness}
+                model={session.model}
+                pendingQuestion={isBlockingQuestion(session.pendingQuestion)}
+                onApproval={approve}
+                onAddToChat={addSelectionToChat}
+                onSaveNote={notesEnabled ? saveNote : undefined}
+                memoryProject={session.inboxAsk ? undefined : memoryProject}
+                onOpenFile={onOpenFile}
+                onOpenDiff={onOpenDiff}
+                onOpenPlan={openPlan}
+                onBuildPlan={buildPlan}
+                onSecondOpinion={
+                  !session.inboxAsk && onSecondOpinion
+                    ? (harness, turn, model) =>
+                        onSecondOpinion(session.id, harness, turn, model)
+                    : undefined
+                }
+                onHandoff={
+                  !session.inboxAsk && onHandoff
+                    ? (harness, turn, model) =>
+                        onHandoff(session.id, harness, turn, model)
+                    : undefined
+                }
+                onJumpToBottomChange={setShowJumpToBottom}
+                onJumpToBottomReady={onJumpToBottomReady}
+                onRevealReady={onRevealReady}
+              />
+            </DiscussionOpenContext.Provider>
             <PromptOutline
               blocks={session.blocks}
               scope={transcriptScope}

@@ -20,7 +20,7 @@ vi.mock("../lib/paneDrop", () => ({
 
 import { PaneTree } from "./PaneTree";
 
-// Without the host, the composer has no Discuss with… and no discussion bar.
+// Without the host, the composer has no Discuss mode and no discussion bar.
 it("hands discussions to every chat pane so the composer can start one", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const discussion: DiscussionHost = {

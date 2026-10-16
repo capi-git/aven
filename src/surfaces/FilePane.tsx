@@ -10,6 +10,7 @@ import {
   isAgentTab,
   isChangesTab,
   isCommitTab,
+  isDiscussionTab,
   isPlanTab,
   isRaceTab,
   isReleaseNotesTab,
@@ -54,6 +55,9 @@ const WorkingTreeDiff = retryableLazy(() =>
 );
 const RaceView = retryableLazy(() =>
   import("./RaceView").then((module) => module.RaceView),
+);
+const DiscussionView = retryableLazy(() =>
+  import("./DiscussionView").then((module) => module.DiscussionView),
 );
 
 /** Holds the slot's full size while a view's code loads, so nothing shifts. */
@@ -209,6 +213,18 @@ function FilePaneComponent({
                       sessions={sessions}
                       visible={presented && file.id === pane.activeFileId}
                     />
+                  ) : isDiscussionTab(file) ? (
+                    <DiscussionView
+                      discussionId={file.discussion.discussionId}
+                      a={sessions.find(
+                        (entry) => entry.id === file.discussion.a,
+                      )}
+                      b={sessions.find(
+                        (entry) => entry.id === file.discussion.b,
+                      )}
+                      focused={focused && file.id === pane.activeFileId}
+                      onOpenFile={onOpenFile}
+                    />
                   ) : isTerminalTab(file) ? (
                     <TerminalView
                       id={file.id}
@@ -292,14 +308,18 @@ export const FilePane = memo(FilePaneComponent, (previous, next) => {
   }
 
   for (const file of next.pane.files) {
-    // Plans and agent tabs both read a live session object from this pane.
-    const sessionId = file.plan?.sessionId ?? file.agent?.sessionId;
-    if (!sessionId) continue;
-    const before = previous.sessions.find(
-      (session) => session.id === sessionId,
-    );
-    const after = next.sessions.find((session) => session.id === sessionId);
-    if (before !== after) return false;
+    // Plans, agent tabs and discussions read live session objects here.
+    const sessionIds = file.discussion
+      ? [file.discussion.a, file.discussion.b]
+      : [file.plan?.sessionId ?? file.agent?.sessionId];
+    for (const sessionId of sessionIds) {
+      if (!sessionId) continue;
+      const before = previous.sessions.find(
+        (session) => session.id === sessionId,
+      );
+      const after = next.sessions.find((session) => session.id === sessionId);
+      if (before !== after) return false;
+    }
   }
   return true;
 });

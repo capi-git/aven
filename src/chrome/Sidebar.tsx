@@ -229,6 +229,8 @@ export type SidebarProps = {
   liveAgents?: LiveAgent[];
   /** Chats discussing with each other; their rows talk and are linked. */
   discussions?: readonly SidebarDiscussion[];
+  /** Show a discussion's conversation page; its connector opens it. */
+  onOpenDiscussion?: (id: string) => void;
   /** Chats editing another working chat's files or running a second dev server. */
   workConflicts?: WorkConflictMap;
   onSelectAgent?: (sessionId: string) => void;
@@ -351,6 +353,7 @@ function SidebarComponent({
   projectStatus,
   liveAgents = [],
   discussions = NO_DISCUSSIONS,
+  onOpenDiscussion,
   workConflicts = NO_CONFLICTS,
   onSelectAgent,
   onSelectProject,
@@ -1721,6 +1724,7 @@ function SidebarComponent({
                   <DiscussionLinks
                     layer={discussionLayer}
                     links={discussionLinks.links}
+                    onOpen={onOpenDiscussion}
                   />
                 ) : null}
                 {onOpenStandalone ? (

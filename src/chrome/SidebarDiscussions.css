@@ -66,6 +66,23 @@
   border-style: dashed;
   border-color: color-mix(in srgb, var(--color-content) 22%, transparent);
 }
+/* Pressable: a wider invisible target than the 6px bracket. */
+button.discussion-link {
+  padding: 0;
+  background: none;
+  pointer-events: auto;
+  cursor: pointer;
+}
+button.discussion-link::before {
+  content: "";
+  position: absolute;
+  inset: -2px -6px -2px -3px;
+}
+button.discussion-link:hover,
+button.discussion-link:focus-visible {
+  border-color: var(--personal-accent, var(--color-accent));
+  outline: none;
+}
 .discussion-link-track {
   position: absolute;
   top: 0;

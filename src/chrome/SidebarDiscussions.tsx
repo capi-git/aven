@@ -52,6 +52,8 @@ export function DiscussionTalkBadge({ talk }: { talk: SidebarTalk }) {
 /** One connector: row centres relative to the link layer, in pixels. */
 export type DiscussionLink = {
   id: string;
+  /** "“Caching” and “Review”", for the connector's button. */
+  label: string;
   top: number;
   height: number;
   /** The pulse travels toward the chat that is answering. */
@@ -74,6 +76,7 @@ function sameState(left: LinkState, right: LinkState): boolean {
       const other = right.links[index];
       return (
         link.id === other.id &&
+        link.label === other.label &&
         link.top === other.top &&
         link.height === other.height &&
         link.toward === other.toward &&
@@ -122,6 +125,7 @@ export function measureDiscussionLinks(
     const answering = discussion.speaking === "a" ? ya : yb;
     links.push({
       id: discussion.id,
+      label: `“${discussion.a.title}” and “${discussion.b.title}”`,
       top: Math.round(Math.min(ya, yb)),
       height: Math.max(1, Math.round(Math.abs(ya - yb))),
       toward: answering > Math.min(ya, yb) ? "down" : "up",
@@ -167,36 +171,64 @@ export function useDiscussionLinks(
   return state;
 }
 
-/** The connector layer: a bracket on the left edge between two rows. */
+/**
+ * The connector layer: a bracket on the left edge between two rows. With
+ * `onOpen`, pressing a bracket opens that discussion's conversation page.
+ */
 export function DiscussionLinks({
   layer,
   links,
+  onOpen,
 }: {
   layer: RefObject<HTMLDivElement | null>;
   links: readonly DiscussionLink[];
+  onOpen?: (id: string) => void;
 }) {
   return (
-    <div ref={layer} className="discussion-links" aria-hidden>
-      {links.map((link, index) => (
-        <span
-          key={link.id}
-          className="discussion-link"
-          data-discussion-link={link.id}
-          data-toward={link.toward}
-          data-paused={link.paused || undefined}
-          style={{
-            top: link.top,
-            height: link.height,
-            left: 2 + index * 3,
-          }}
-        >
-          {link.paused ? null : (
-            <span className="discussion-link-track">
-              <span className="discussion-link-pulse" />
-            </span>
-          )}
-        </span>
-      ))}
+    <div
+      ref={layer}
+      className="discussion-links"
+      aria-hidden={onOpen ? undefined : true}
+    >
+      {links.map((link, index) => {
+        const style = {
+          top: link.top,
+          height: link.height,
+          left: 2 + index * 3,
+        };
+        const pulse = link.paused ? null : (
+          <span className="discussion-link-track">
+            <span className="discussion-link-pulse" />
+          </span>
+        );
+        return onOpen ? (
+          <button
+            key={link.id}
+            type="button"
+            className="discussion-link"
+            data-discussion-link={link.id}
+            data-toward={link.toward}
+            data-paused={link.paused || undefined}
+            title={`Open the discussion between ${link.label}`}
+            aria-label={`Open the discussion between ${link.label}`}
+            onClick={() => onOpen(link.id)}
+            style={style}
+          >
+            {pulse}
+          </button>
+        ) : (
+          <span
+            key={link.id}
+            className="discussion-link"
+            data-discussion-link={link.id}
+            data-toward={link.toward}
+            data-paused={link.paused || undefined}
+            style={style}
+          >
+            {pulse}
+          </span>
+        );
+      })}
     </div>
   );
 }

@@ -16,6 +16,7 @@ import {
   leafIds,
   newTab,
   type CommitTabSource,
+  type DiscussionTabSource,
   type EditorPane,
   type FilePaneTab,
   type LayoutNode,
@@ -530,6 +531,9 @@ function sanitizeFile(raw: unknown): FilePaneTab | null {
     typeof (value.race as { raceId?: unknown }).raceId === "string"
       ? { raceId: (value.race as { raceId: string }).raceId }
       : undefined;
+  const hasDiscussion = "discussion" in value && value.discussion != null;
+  const discussion = sanitizeDiscussion(value.discussion);
+  if (hasDiscussion && !discussion) return null;
   if (hasReleaseNotes && !releaseNotes) return null;
   if (hasCommit && !commit) return null;
   if (hasSessionChanges && !sessionChanges) return null;
@@ -573,6 +577,7 @@ function sanitizeFile(raw: unknown): FilePaneTab | null {
     ...(releaseNotes ? { releaseNotes } : {}),
     ...(commit ? { commit } : {}),
     ...(race ? { race } : {}),
+    ...(discussion ? { discussion } : {}),
     ...(sessionChanges ? { sessionChanges, review: true } : {}),
     ...(value.review === true ? { review: true } : {}),
     ...(value.changes === true ? { changes: true, review: true } : {}),
@@ -580,6 +585,28 @@ function sanitizeFile(raw: unknown): FilePaneTab | null {
       ? { changeKind: value.changeKind }
       : {}),
     ...(value.terminal === true ? { terminal: true } : {}),
+  };
+}
+
+function sanitizeDiscussion(raw: unknown): DiscussionTabSource | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const value = raw as Record<string, unknown>;
+  const id = (key: string) =>
+    typeof value[key] === "string" && (value[key] as string).trim()
+      ? (value[key] as string)
+      : undefined;
+  const discussionId = id("discussionId");
+  const a = id("a");
+  const b = id("b");
+  if (!discussionId || !a || !b) return undefined;
+  return {
+    discussionId,
+    a,
+    b,
+    title:
+      typeof value.title === "string" && value.title.trim()
+        ? value.title.slice(0, 200)
+        : "Discussion",
   };
 }
 

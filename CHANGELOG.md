@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Two chats discussing now share one page: your topic, then each chat's replies as messages back and forth, the opening chat on the left and the responding one on the right, each with its own pixel mascot in its provider's colour, its model's name and its part, round dividers, the answering chat typing, and the closing note, with **Stop** and **Resume** at the top. It opens beside the chat that started the discussion; **Open discussion** above either chat's message box, the sidebar's connector, or the discussion's note in either chat brings it back, even after it has ended. Starting one no longer needs `/discuss`: choose **Discuss** in the message box's **+** menu beside Plan mode and Orchestrator, pick the other chat and rounds from the chip's dropdown (**Discuss with Codex · 3 rounds**), and send your message as the topic.
 - **Settings → Appearance** has six controls instead of eleven: Theme, Accent colour (preset swatches or **Custom…**), Interface scale, one **Glass** slider from Solid to see-through that replaces the opacity, blur, Include workspace and status bar settings, Chat background, and **Use for all workspaces**. Sidebars now always match the workspace, and your current look stays exactly as it is until you change a control.
 
 ### Fixed
