@@ -344,7 +344,11 @@ describe("undo", () => {
 
 describe("keeper model and turn counting", () => {
   it("prefers Claude's small model, then Codex's, else none", () => {
-    expect(pickKeeperModel((id) => id === "claude")?.harness).toBe("claude");
+    const claude = pickKeeperModel((id) => id === "claude");
+    expect(claude?.harness).toBe("claude");
+    // Named once, whether or not the catalog's name repeats the provider.
+    expect(claude?.label).toMatch(/^Claude (· )?Haiku/);
+    expect(claude?.label).not.toMatch(/Claude.*Claude/);
     expect(pickKeeperModel((id) => id === "codex")?.harness).toBe("codex");
     expect(pickKeeperModel(() => false)).toBeNull();
   });
