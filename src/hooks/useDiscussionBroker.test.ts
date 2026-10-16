@@ -10,7 +10,11 @@ import {
 } from "../lib/discussions";
 import type { DiscussionTranscripts } from "../lib/discussionThread";
 import { appendUser, stopStreaming } from "../lib/harness/apply";
-import { newSession, type Session } from "../lib/session";
+import {
+  newSession,
+  type DiscussionWrapUpMeta,
+  type Session,
+} from "../lib/session";
 import {
   discussionChatTitle,
   useDiscussionBroker,
@@ -30,6 +34,10 @@ let sent: Sent[];
 let messages: { sessionId: string; text: string }[];
 let focused: string[];
 let notes: { sessionId: string; text: string }[];
+/** What closing notes carried to show where they landed. */
+let wrapUps: { sessionId: string; wrapUp: DiscussionWrapUpMeta }[];
+/** Where they landed, copied into a note once written. */
+let recorded: { sessionId: string; wrapUp: DiscussionWrapUpMeta }[];
 let host: DiscussionHost;
 let setSessions: (update: (sessions: Session[]) => Session[]) => void;
 let ref: () => Session[];
@@ -89,7 +97,11 @@ function Harness({ initial }: { initial: Session[] }) {
       );
       return undefined;
     },
-    postNote: (sessionId, text) => notes.push({ sessionId, text }),
+    postNote: (sessionId, text, wrapUp) => {
+      notes.push({ sessionId, text });
+      if (wrapUp) wrapUps.push({ sessionId, wrapUp });
+    },
+    recordWrapUp: (sessionId, wrapUp) => recorded.push({ sessionId, wrapUp }),
     openPartner: openPartner as never,
     openView,
     focusChat: (sessionId) => focused.push(sessionId),
@@ -141,6 +153,8 @@ beforeEach(() => {
   messages = [];
   focused = [];
   notes = [];
+  wrapUps = [];
+  recorded = [];
   summarise = vi.fn(async () => ({ status: "failed" as const }));
   accept = true;
   openPartner = vi.fn();
@@ -379,7 +393,7 @@ describe("useDiscussionBroker", () => {
     });
   });
 
-  it("starts with a new chat opened beside this one", async () => {
+  it("starts with a new chat, then opens only the page", async () => {
     await mount([chat("a", "Caching")]);
     openPartner.mockImplementation(() => {
       setSessions((list) => [...list, chat("new", "Discuss: Topic")]);
@@ -401,6 +415,45 @@ describe("useDiscussionBroker", () => {
     );
     expect(store.snapshot()[0].b.sessionId).toBe("new");
     expect(sent[0].sessionId).toBe("a");
+    // The page is what opens; the new chat is never shown or focused.
+    expect(openView).toHaveBeenCalledExactlyOnceWith(store.snapshot()[0].id);
+    expect(focused).toEqual([]);
+  });
+
+  it("leaves a chat that is already open where it is", async () => {
+    await mount([chat("a", "Caching"), chat("b", "Review")]);
+    await act(async () => {
+      host.start({
+        sessionId: "a",
+        partner: { kind: "chat", sessionId: "b" },
+        topic: "Topic",
+        rounds: 2,
+      });
+    });
+    expect(openPartner).not.toHaveBeenCalled();
+    expect(focused).toEqual([]);
+    expect(openView).toHaveBeenCalledExactlyOnceWith(store.snapshot()[0].id);
+  });
+
+  it("shows either side's chat when the page asks", async () => {
+    await mount([chat("a", "Caching")]);
+    openPartner.mockImplementation(() => {
+      setSessions((list) => [...list, chat("new", "Discuss: Topic")]);
+      return "new";
+    });
+    await act(async () => {
+      host.start({
+        sessionId: "a",
+        partner: { kind: "new", harness: "codex", model: "gpt-5" },
+        topic: "Topic",
+        rounds: 2,
+      });
+    });
+    const id = store.snapshot()[0].id;
+    host.show?.(id, "b");
+    host.show?.(id, "a");
+    host.show?.("unknown", "a");
+    expect(focused).toEqual(["new", "a"]);
   });
 
   it("lists other chats and refuses busy ones", async () => {
@@ -630,10 +683,106 @@ describe("useDiscussionBroker's wrap-up", () => {
     });
   });
 
+  it("shows where they landed under the starting chat's closing note, and keeps the lists there", async () => {
+    let write: (summary: DiscussionSummary) => void = () => {};
+    summarise.mockImplementationOnce(
+      () =>
+        new Promise<DiscussionSummary>((resolve) => {
+          write = resolve;
+        }),
+    );
+    const id = await complete();
+    // Both chats get the note; only the starting chat's shows the wrap-up,
+    // which is still being written.
+    expect(notes.map((note) => note.sessionId)).toEqual(["a", "b"]);
+    expect(wrapUps).toEqual([{ sessionId: "a", wrapUp: { id, settled: 2 } }]);
+    expect(recorded).toEqual([]);
+    await act(async () =>
+      write({
+        status: "done",
+        agreed: ["Cache by URL"],
+        open: ["Errors"],
+        model: "Claude Haiku 4.5",
+      }),
+    );
+    expect(recorded).toEqual([
+      {
+        sessionId: "a",
+        wrapUp: { id, settled: 2, agreed: ["Cache by URL"], open: ["Errors"] },
+      },
+    ]);
+    // Nothing is sent to either agent.
+    expect(sent).toHaveLength(2);
+    expect(messages).toEqual([]);
+  });
+
+  it("puts the lists in the note itself when they are written first", async () => {
+    summarise.mockResolvedValue({
+      status: "done",
+      agreed: ["Cache by URL"],
+      open: [],
+      model: "Claude Haiku 4.5",
+    });
+    await mount([chat("a", "Caching"), chat("b", "Review")]);
+    await act(async () => {
+      host.start({
+        sessionId: "a",
+        partner: { kind: "chat", sessionId: "b" },
+        topic: "Cache the lookups?",
+        rounds: 1,
+      });
+    });
+    const id = store.snapshot()[0].id;
+    await finish("a", "Cache by URL.");
+    // The starting chat is busy with your own turn when the discussion ends.
+    await act(async () =>
+      setSessions((list) =>
+        list.map((session) =>
+          session.id === "a" ? { ...session, busy: true } : session,
+        ),
+      ),
+    );
+    await finish("b", "Agreed.");
+    expect(store.get(id)?.summary?.status).toBe("done");
+    expect(wrapUps).toEqual([]);
+    await act(async () =>
+      setSessions((list) =>
+        list.map((session) =>
+          session.id === "a" ? { ...session, busy: false } : session,
+        ),
+      ),
+    );
+    expect(wrapUps).toEqual([
+      {
+        sessionId: "a",
+        wrapUp: { id, settled: 2, agreed: ["Cache by URL"], open: [] },
+      },
+    ]);
+  });
+
+  it("shows no wrap-up after a stopped discussion's note", async () => {
+    await mount([chat("a", "Caching"), chat("b", "Review")]);
+    await act(async () => {
+      host.start({
+        sessionId: "a",
+        partner: { kind: "chat", sessionId: "b" },
+        topic: "Topic",
+        rounds: 2,
+      });
+    });
+    await act(async () => store.stop(store.snapshot()[0].id));
+    // The starting chat's note waits for the turn it was sent to end.
+    await finish("a", "Cache by URL.");
+    expect(notes.map((note) => note.sessionId).sort()).toEqual(["a", "b"]);
+    expect(wrapUps).toEqual([]);
+  });
+
   it("keeps a failed summary as failed and never retries it", async () => {
     summarise.mockRejectedValue(new Error("No model"));
     const id = await complete();
     expect(store.get(id)?.summary).toEqual({ status: "failed" });
+    // No lists to keep.
+    expect(recorded).toEqual([]);
     await act(async () =>
       setSessions((list) => list.map((session) => ({ ...session }))),
     );

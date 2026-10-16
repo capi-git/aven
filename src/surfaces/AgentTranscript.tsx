@@ -39,6 +39,7 @@ import {
 import { RememberButton } from "../chrome/RememberButton";
 import { SecondOpinionCard } from "../chrome/SecondOpinionCard";
 import { DiscussionRelayCard } from "../chrome/DiscussionRelayCard";
+import { DiscussionWrapUpNote } from "../chrome/DiscussionWrapUpNote";
 import { NoteMiniCard } from "../chrome/NoteMiniCard";
 import { TerminalSpinner } from "../chrome/TerminalSpinner";
 import type { ApprovalDecision } from "../lib/harness";
@@ -1168,13 +1169,22 @@ const TranscriptBlock = memo(function TranscriptBlock({
   }
 
   if (block.role === "system") {
-    return (
+    const notice = (
       <div className="personal-transcript-notice px-4 py-2 text-content/50">
         <pre className="min-w-0 whitespace-pre-wrap break-words">
           {block.text}
         </pre>
       </div>
     );
+    // A finished discussion's closing note, in the chat that started it.
+    if (block.discussionEnd)
+      return (
+        <>
+          {notice}
+          <DiscussionWrapUpNote meta={block.discussionEnd} />
+        </>
+      );
+    return notice;
   }
 
   if (!text) return null;

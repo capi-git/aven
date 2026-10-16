@@ -9,12 +9,11 @@ import {
   type CSSProperties,
 } from "react";
 import { DiscussionAvatar } from "../chrome/DiscussionAvatar";
+import { DiscussionWrapUpCard } from "../chrome/DiscussionWrapUp";
 import { ArrowUp, Check, MessageMultiple, Play, Square } from "../chrome/icons";
-import { ProjectMascot } from "../chrome/ProjectMascot";
 import { useDiscussionList } from "../hooks/useDiscussions";
 import {
   discussionEndNote,
-  discussionParty,
   discussionRound,
   discussionStore,
   INTERJECTION_CHAR_LIMIT,
@@ -38,7 +37,6 @@ import {
   discussionVoices,
   type DiscussionVoice,
 } from "../lib/discussionVoices";
-import { spokenName } from "../lib/discussionWrapUp";
 import {
   MASCOT_REACTION_MS,
   type MascotReactionKind,
@@ -215,6 +213,7 @@ function DiscussionPage({
         discussion={discussion}
         voices={voices}
         typing={typing}
+        show={host?.show}
       />
       <div
         ref={scroller}
@@ -235,7 +234,7 @@ function DiscussionPage({
             <PausedRow id={discussion.id} reason={discussion.reason} />
           ) : null}
           {ended ? (
-            <WrapUpCard
+            <DiscussionWrapUpCard
               discussion={discussion}
               voices={voices}
               build={host?.build}
@@ -354,10 +353,13 @@ const DiscussionHeader = memo(function DiscussionHeader({
   discussion,
   voices,
   typing,
+  show,
 }: {
   discussion: Discussion;
   voices: Record<DiscussionSide, DiscussionVoice>;
   typing: DiscussionSide | null;
+  /** Shows a side's chat; the names and mascots are buttons with it. */
+  show?: DiscussionHost["show"];
 }) {
   const store = discussionStore();
   const paused = discussion.status === "paused";
@@ -374,11 +376,17 @@ const DiscussionHeader = memo(function DiscussionHeader({
   return (
     <header className="discussion-header" data-discussion-header>
       <div className="discussion-cast" data-discussion-cast>
-        <Party voice={voices.a} />
+        <Party
+          voice={voices.a}
+          onShow={show ? () => show(discussion.id, "a") : undefined}
+        />
         <span className="discussion-cast-link" aria-hidden>
           <MessageMultiple className="size-3.5" />
         </span>
-        <Party voice={voices.b} />
+        <Party
+          voice={voices.b}
+          onShow={show ? () => show(discussion.id, "b") : undefined}
+        />
       </div>
       <div className="discussion-status">
         <span
@@ -416,20 +424,49 @@ const DiscussionHeader = memo(function DiscussionHeader({
   );
 });
 
-function Party({ voice }: { voice: DiscussionVoice }) {
+/**
+ * One side of the cast: its mascot, name and part. Where the window can
+ * show chats, pressing it shows that side's chat.
+ */
+function Party({
+  voice,
+  onShow,
+}: {
+  voice: DiscussionVoice;
+  onShow?: () => void;
+}) {
+  const content = (
+    <>
+      <DiscussionAvatar voice={voice} size="large" />
+      <span className="discussion-party-text">
+        <span className="discussion-party-name">{voice.name}</span>
+        <span className="discussion-party-persona">
+          {voice.persona} · “{voice.title}”
+        </span>
+      </span>
+    </>
+  );
+  if (onShow)
+    return (
+      <button
+        type="button"
+        className="discussion-party"
+        data-side={voice.side}
+        data-discussion-party={voice.side}
+        title={`Open “${voice.title}”`}
+        aria-label={`Open “${voice.title}”, ${voice.name}`}
+        onClick={onShow}
+      >
+        {content}
+      </button>
+    );
   return (
     <div
       className="discussion-party"
       data-side={voice.side}
       title={`${voice.name} in “${voice.title}”`}
     >
-      <DiscussionAvatar voice={voice} size="large" />
-      <div className="discussion-party-text">
-        <span className="discussion-party-name">{voice.name}</span>
-        <span className="discussion-party-persona">
-          {voice.persona} · “{voice.title}”
-        </span>
-      </div>
+      {content}
     </div>
   );
 }
@@ -639,146 +676,6 @@ const PausedRow = memo(function PausedRow({
     </li>
   );
 });
-
-/**
- * After the closing note: where the two chats landed and a button to have
- * either one build it. Only a discussion that used up its rounds is summed
- * up; a stopped one shows just the buttons.
- */
-const WrapUpCard = memo(function WrapUpCard({
-  discussion,
-  voices,
-  build,
-}: {
-  discussion: Discussion;
-  voices: Record<DiscussionSide, DiscussionVoice>;
-  build?: DiscussionHost["build"];
-}) {
-  const [sent, setSent] = useState<DiscussionSide | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
-  const completed = discussion.ended?.kind === "completed";
-  if (!completed && !build) return null;
-  const { summary } = discussion;
-  const summing =
-    summary?.status === "pending" || summary?.status === "running";
-  const done = summary?.status === "done" ? summary : null;
-  const state = !completed
-    ? "stopped"
-    : summing
-      ? "summing"
-      : done
-        ? "done"
-        : "plain";
-  return (
-    <li
-      className="discussion-wrapup"
-      data-discussion-wrapup={state}
-      aria-label="Where they landed"
-    >
-      {completed ? (
-        <div className="discussion-wrapup-head">
-          <h3 className="discussion-wrapup-title">Where they landed</h3>
-          {done?.model ? (
-            <span className="discussion-wrapup-model">
-              Summed up by {done.model}
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-      {summing ? (
-        <p className="discussion-wrapup-wait" role="status">
-          Summing up…
-        </p>
-      ) : null}
-      {done ? (
-        <div className="discussion-wrapup-lists">
-          <WrapUpList
-            kind="agreed"
-            title="Agreed"
-            items={done.agreed}
-            empty="Nothing settled."
-          />
-          <WrapUpList
-            kind="open"
-            title="Still open"
-            items={done.open}
-            empty="Nothing left open."
-          />
-        </div>
-      ) : null}
-      {build ? (
-        <div className="discussion-wrapup-actions">
-          {(["a", "b"] as const).map((side) => {
-            const voice = voices[side];
-            const party = discussionParty(discussion, side);
-            return (
-              <button
-                key={side}
-                type="button"
-                className="discussion-build"
-                data-discussion-build={side}
-                data-sent={sent === side || undefined}
-                style={{ "--discussion-voice": voice.color } as CSSProperties}
-                title={`Send the plan to “${voice.title}”`}
-                onClick={() => {
-                  const refused = build(discussion.id, side);
-                  setProblem(refused);
-                  setSent(refused ? null : side);
-                }}
-              >
-                {sent === side ? (
-                  <Check className="size-3 shrink-0" strokeWidth={2.5} />
-                ) : (
-                  <ProjectMascot
-                    project={voice.sessionId}
-                    name={voice.mascot}
-                    color={voice.color}
-                    className="discussion-build-sprite"
-                  />
-                )}
-                <span className="truncate">
-                  Have {spokenName(party)} build it
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
-      {problem ? (
-        <p className="discussion-wrapup-problem" role="alert">
-          {problem}
-        </p>
-      ) : null}
-    </li>
-  );
-});
-
-function WrapUpList({
-  kind,
-  title,
-  items,
-  empty,
-}: {
-  kind: "agreed" | "open";
-  title: string;
-  items: readonly string[];
-  empty: string;
-}) {
-  return (
-    <section className="discussion-wrapup-list" data-discussion-list={kind}>
-      <h4>{title}</h4>
-      {items.length ? (
-        <ul>
-          {items.map((item, index) => (
-            <li key={index}>{item}</li>
-          ))}
-        </ul>
-      ) : (
-        <p className="discussion-wrapup-empty">{empty}</p>
-      )}
-    </section>
-  );
-}
 
 const JUMP_IN_HINT: Record<string, string | undefined> = {
   resume: "Resumes the discussion",

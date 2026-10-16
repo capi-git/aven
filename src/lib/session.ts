@@ -117,6 +117,21 @@ export type DiscussionRelayMeta = {
   truncated?: boolean;
 };
 
+/**
+ * The closing note in the chat that started a discussion that used up its
+ * rounds. Its transcript shows where they landed after the note, read from
+ * the discussion while Aven keeps it; the lists are copied here once summed
+ * up, for when it no longer does. Shown only: never sent to the agent.
+ */
+export type DiscussionWrapUpMeta = {
+  /** Discussion identity (see `src/lib/discussions.ts`). */
+  id: string;
+  /** Turns finished when it ended: the card belongs to this ending. */
+  settled: number;
+  agreed?: string[];
+  open?: string[];
+};
+
 export type ToolPreviewKind = "read" | "write" | "shell" | "search";
 
 export type ToolPreviewLineKind = "add" | "del" | "context";
@@ -204,6 +219,8 @@ export type Block = {
   secondOpinion?: SecondOpinionMeta;
   /** Relayed by Aven from the other chat in a discussion. */
   discussion?: DiscussionRelayMeta;
+  /** A discussion's closing note in the chat that started it. */
+  discussionEnd?: DiscussionWrapUpMeta;
   /** Note chip shown on this user turn. Body is not stored; the harness already received it. */
   noteCard?: NoteCardMeta;
   /** Provider status slot (e.g. a Pi extension's setStatus key) this row shows. */

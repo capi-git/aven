@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Starting a discussion with a new chat now opens only the discussion's page beside your chat, instead of also splitting the new chat in beside it. The new chat waits in its own tab next to yours and is listed in the sidebar; press either name at the top of the page to open that chat. When the discussion finishes, **Where they landed** (what the two agreed on and what is still open, with the **Have … build it** buttons and **Open discussion**) also appears in your chat right after the closing note. It is only shown to you, not sent to the agent, and the chat keeps the lists after the discussion is gone.
+
 ## [0.1.144] - 2026-10-16
 
 ### Added

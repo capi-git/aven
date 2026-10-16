@@ -387,6 +387,38 @@ const order = () =>
             : `${item.dataset.side}: ${item.querySelector("[data-markdown]")?.textContent}`,
   );
 
+describe("DiscussionView: the cast", () => {
+  it("opens either side's chat from its name or mascot", async () => {
+    discussionStore().start({ id: "d1", a: A, b: B, topic: TOPIC, rounds: 2 });
+    const show = vi.fn<(id: string, side: "a" | "b") => void>();
+    await renderWith({ ...HOST, show });
+    const party = (side: string) =>
+      container.querySelector<HTMLElement>(
+        `[data-discussion-cast] [data-discussion-party="${side}"]`,
+      )!;
+    expect(party("b").tagName).toBe("BUTTON");
+    expect(party("b").title).toBe("Open “Review”");
+    // The mascot is inside the button, so pressing it opens the chat too.
+    expect(party("b").querySelector("[data-discussion-avatar]")).not.toBeNull();
+    await act(async () => party("b").click());
+    expect(show).toHaveBeenLastCalledWith("d1", "b");
+    await act(async () =>
+      party("a")
+        .querySelector<HTMLElement>("[data-discussion-avatar]")!
+        .click(),
+    );
+    expect(show).toHaveBeenLastCalledWith("d1", "a");
+    expect(show).toHaveBeenCalledTimes(2);
+  });
+
+  it("names both sides without buttons where the window can't show chats", async () => {
+    discussionStore().start({ id: "d1", a: A, b: B, topic: TOPIC, rounds: 2 });
+    await renderWith(undefined);
+    expect(container.querySelector("[data-discussion-party]")).toBeNull();
+    expect(container.querySelectorAll(".discussion-party")).toHaveLength(2);
+  });
+});
+
 describe("DiscussionView: jumping in", () => {
   it("sends with Enter, adds a line with Shift+Enter and leaves with Escape", async () => {
     const store = discussionStore();
