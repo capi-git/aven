@@ -48,6 +48,12 @@ int main() {
     CHECK(!Action(empty.menu, @"find").enabled && !Action(empty.menu, @"external").enabled);
     CHECK(Action(empty.menu, @"downloads").enabled);
     CHECK(!Action(empty.menu, @"pip") && !Action(empty.menu, @"chat"));
+    CHECK(!Action(a.menu, @"forget-site-media") && !Action(empty.menu, @"forget-site-media"));
+    options = {};
+    options.can_forget_site_media = true;
+    SMBrowserActionsMenu *remembered = [[SMBrowserActionsMenu alloc] initWithOptions:options zoom:1 onZoom:nil];
+    NSMenuItem *forget = Action(remembered.menu, @"forget-site-media");
+    CHECK(forget.enabled && [forget.title isEqual:@"Forget microphone and camera choices"]);
     CHECK(a.menu.itemArray.firstObject.view != nil && !a.menu.autoenablesItems);
     std::puts("Browser native menu controls and per-page zoom callbacks passed");
   }

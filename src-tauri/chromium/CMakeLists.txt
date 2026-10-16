@@ -81,6 +81,11 @@ add_test(NAME browser_tab_zoom_isolation COMMAND supermono_chromium_browser_tab_
 add_executable(supermono_chromium_browser_sleep_state_test EXCLUDE_FROM_ALL browser_sleep_state_test.cc)
 add_test(NAME browser_sleep_state COMMAND supermono_chromium_browser_sleep_state_test)
 
+# Who must agree before a website gets the microphone or camera: the person
+# (remembered per site) and macOS. Pure decisions; no prompt or device opens.
+add_executable(supermono_chromium_browser_media_access_test EXCLUDE_FROM_ALL browser_media_access_test.cc)
+add_test(NAME browser_media_access COMMAND supermono_chromium_browser_media_access_test)
+
 # Real menu controls, scoped callbacks, enablement, and selection without UI.
 add_executable(supermono_chromium_browser_actions_menu_test EXCLUDE_FROM_ALL
   browser_actions_menu_test.mm browser_actions_menu.mm)

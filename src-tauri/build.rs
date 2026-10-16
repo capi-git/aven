@@ -21,6 +21,8 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=QuartzCore");
         println!("cargo:rustc-link-lib=framework=ImageIO");
         println!("cargo:rustc-link-lib=framework=IOSurface");
+        // Microphone and camera authorization for website capture requests.
+        println!("cargo:rustc-link-lib=framework=AVFoundation");
         println!("cargo:rustc-link-arg=-Wl,-ObjC");
     }
     // generate_context! embeds icons; cargo ignores them unless we watch here.
