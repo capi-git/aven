@@ -1,25 +1,29 @@
 import { memo, type CSSProperties } from "react";
 import type { DiscussionVoice } from "../lib/discussionVoices";
+import type { MascotReactionKind } from "../lib/mascotReactions";
 import { ProjectMascot } from "./ProjectMascot";
 import "./DiscussionAvatar.css";
 
 /**
  * One side's face in a discussion: its pixel mascot in its provider's colour
  * on a small tinted tile. It steps between its two frames while that side is
- * typing, plays a single happy hop when `cheerId` is set, and is otherwise
- * still.
+ * typing, plays a single reaction (a hop at the end, a nod or a head-tilt
+ * when a reply lands) when `reaction` is set, and is otherwise still.
  */
 export const DiscussionAvatar = memo(function DiscussionAvatar({
   voice,
   size = "small",
   typing = false,
-  cheerId = null,
+  reaction = null,
+  reactionId,
 }: {
   voice: DiscussionVoice;
   size?: "small" | "large";
   typing?: boolean;
-  /** Identifies one end-of-discussion hop; null shows the mascot still. */
-  cheerId?: string | null;
+  /** A one-shot reaction to play; null shows the mascot still. */
+  reaction?: MascotReactionKind | null;
+  /** Identifies one reaction, so a new one restarts its animation. */
+  reactionId?: string;
 }) {
   return (
     <span
@@ -36,9 +40,9 @@ export const DiscussionAvatar = memo(function DiscussionAvatar({
         project={voice.sessionId}
         name={voice.mascot}
         color={voice.color}
-        active={typing && !cheerId}
-        reaction={cheerId ? "cheer" : null}
-        reactionId={cheerId ?? undefined}
+        active={typing && !reaction}
+        reaction={reaction}
+        reactionId={reactionId}
         className="discussion-avatar-sprite"
       />
     </span>

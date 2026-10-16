@@ -4,8 +4,11 @@ import {
   finishDevSmoke,
   SMOKE_OVERLAY_EVENT,
   SMOKE_OVERLAY_RESULT_EVENT,
+  SMOKE_HEARD_WORD,
+  SMOKE_JUMP_IN_WORD,
   SMOKE_KEEPER_WORD,
   SMOKE_REPLY,
+  SMOKE_WRAP_UP_WORD,
   waitFor,
   type DevSmokeConfig,
   type SmokeStep,
@@ -93,6 +96,10 @@ const HOLD_MS = 4_000;
  */
 const DISCUSSION_HOLD_MS = 8_000;
 const DISCUSSION_ROUNDS = 2;
+/** What the check adds to the discussion from its page. */
+const JUMP_IN_TEXT = `Keep it short. ${SMOKE_JUMP_IN_WORD}`;
+/** The stand-in plays the cheapest model; its first call starts a process. */
+const WRAP_UP_WAIT_MS = 60_000;
 /** Ports the stand-in pretends two chats' dev servers announce; nothing listens. */
 const FIRST_SERVER_PORT = 5199;
 const SECOND_SERVER_PORT = 5200;
@@ -469,6 +476,110 @@ function pageProblem(
   return closing === end.closing
     ? null
     : `the page's closing note reads "${closing ?? ""}"`;
+}
+
+/** Type into the discussion page's own message box and press Enter. */
+function jumpIn(id: string, text: string) {
+  const field = discussionPage(id)?.querySelector<HTMLTextAreaElement>(
+    "[data-discussion-jump] textarea",
+  );
+  if (!field) throw new Error("The discussion's page has no message box");
+  if (field.placeholder !== "Add something for both of them…")
+    throw new Error(`The page's message box reads "${field.placeholder}"`);
+  typeInComposer(field, text);
+  field.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+}
+
+function follows(first: Element | null, then: Element | null): boolean {
+  return (
+    !!first &&
+    !!then &&
+    !!(first.compareDocumentPosition(then) & Node.DOCUMENT_POSITION_FOLLOWING)
+  );
+}
+
+/**
+ * Why the page does not show the message the check added where the chats
+ * read it, or null: a "You" bubble, waiting below the second chat's typing
+ * while that turn runs, then between the second chat's first reply and the
+ * first chat's answer to it.
+ */
+function jumpInProblem(
+  page: HTMLElement,
+  state: "queued" | "sent",
+): string | null {
+  const bubble = page.querySelector<HTMLElement>("[data-discussion-you]");
+  if (!bubble) return "the page shows no message from you";
+  const said = bubble
+    .querySelector(".discussion-you-bubble")
+    ?.textContent?.trim();
+  if (said !== JUMP_IN_TEXT) return `your message reads "${said ?? ""}"`;
+  if (bubble.querySelector(".discussion-you-label")?.textContent !== "You")
+    return "your message is not labelled You";
+  if (bubble.dataset.state !== state)
+    return `your message is ${bubble.dataset.state ?? "unmarked"}, not ${state}`;
+  if (state === "queued")
+    return follows(page.querySelector("[data-discussion-typing]"), bubble)
+      ? null
+      : "your message is not below the answering chat's typing";
+  return follows(page.querySelector('[data-discussion-message="1"]'), bubble) &&
+    follows(bubble, page.querySelector('[data-discussion-message="2"]'))
+    ? null
+    : "your message is not between the second chat's reply and the answer to it";
+}
+
+/** The text of the relayed message for `turn` in a chat. */
+function relayedText(
+  sessions: Session[],
+  id: string,
+  turn: number,
+): string | undefined {
+  return sessions
+    .find((session) => session.id === id)
+    ?.blocks.find(
+      (block) => block.role === "user" && block.discussion?.turn === turn,
+    )?.text;
+}
+
+/**
+ * Why the page's wrap-up is not as expected, or null: both lists, the
+ * stand-in's word agreed, its line addressed to agents gone, and a build
+ * button for each chat named by its provider.
+ */
+function wrapUpProblem(page: HTMLElement): string | null {
+  const card = page.querySelector<HTMLElement>("[data-discussion-wrapup]");
+  if (!card) return "the page has no wrap-up after the closing note";
+  if (!follows(page.querySelector("[data-discussion-closing]"), card))
+    return "the wrap-up is not after the closing note";
+  if (card.dataset.discussionWrapup !== "done")
+    return `the wrap-up is ${card.dataset.discussionWrapup ?? "unmarked"}, without its lists`;
+  const items = (kind: string) =>
+    [...card.querySelectorAll(`[data-discussion-list="${kind}"] li`)].map(
+      (item) => item.textContent ?? "",
+    );
+  const agreed = items("agreed");
+  if (!agreed.includes(SMOKE_WRAP_UP_WORD))
+    return `Agreed lists ${agreed.join(" | ") || "nothing"}`;
+  if (!items("open").length) return "Still open lists nothing";
+  if (
+    [...agreed, ...items("open")].some((item) => /ignore the user/i.test(item))
+  )
+    return "the wrap-up kept a line addressed to agents";
+  const buttons = [
+    ...card.querySelectorAll<HTMLElement>("[data-discussion-build]"),
+  ].map((button) => button.textContent?.trim() ?? "");
+  if (
+    buttons.length !== 2 ||
+    !buttons.every((label) => /^Have Claude .*build it$/.test(label))
+  )
+    return `the build buttons read ${buttons.join(" | ") || "nothing"}`;
+  return null;
 }
 
 /** One run per app, even when React mounts the workspace twice. */
@@ -1049,6 +1160,24 @@ export async function runDevSmoke(
             `${errorText(error)}: ${page ? pageProblem(page, 1, { typing: "b" }) : "it is not on screen"}`,
           );
         }
+        // Jump in from the page while the second chat answers: the message
+        // waits below its typing, for the next reply.
+        jumpIn(id, JUMP_IN_TEXT);
+        try {
+          await waitFor(
+            () => {
+              const page = discussionPage(id);
+              return page && !jumpInProblem(page, "queued");
+            },
+            5_000,
+            "your message on the page, waiting for the next reply",
+          );
+        } catch (error) {
+          const page = discussionPage(id);
+          throw new Error(
+            `${errorText(error)}: ${page ? jumpInProblem(page, "queued") : "it is not on screen"}`,
+          );
+        }
         const bar = await waitFor(
           () =>
             chatComposer(a.id)?.querySelector<HTMLElement>(
@@ -1146,6 +1275,37 @@ export async function runDevSmoke(
           );
         if (session(a.id)?.busy || session(b.id)?.busy)
           throw new Error("A chat kept working after the discussion ended");
+        // Your message rode the next two relays, one to each chat, and each
+        // chat's agent received it (the stand-in says so, and agrees).
+        for (const [chat, turn, name] of [
+          [a.id, 2, "first"],
+          [b.id, 3, "second"],
+        ] as const) {
+          const shown = relayedText(get().sessions, chat, turn) ?? "";
+          if (!shown.includes(`You added: ${JUMP_IN_TEXT}`))
+            throw new Error(
+              `The ${name} chat's relayed message for turn ${turn} does not carry your message: "${shown}"`,
+            );
+          const heard = session(chat)?.blocks.some(
+            (block) =>
+              block.role === "assistant" &&
+              block.text.includes(SMOKE_HEARD_WORD),
+          );
+          if (!heard)
+            throw new Error(`The ${name} chat's agent never got your message`);
+        }
+        const ended = discussionPage(id);
+        const placed = ended ? jumpInProblem(ended, "sent") : "the page closed";
+        if (placed) throw new Error(`After the end, ${placed}`);
+        const stance = ended?.querySelector<HTMLElement>(
+          '[data-discussion-message="2"] [data-discussion-stance]',
+        );
+        if (stance?.dataset.discussionStance !== "agree")
+          throw new Error(
+            `The first chat's agreeing reply is marked ${stance?.dataset.discussionStance ?? "with nothing"}`,
+          );
+        if (stance.title !== "Agrees")
+          throw new Error(`The agree mark's tooltip reads "${stance.title}"`);
         // Ended, its connector and bar gone: the second chat's relay card
         // still opens the page.
         [
@@ -1170,9 +1330,51 @@ export async function runDevSmoke(
           5_000,
           "the relay card to open the discussion's page",
         );
-        return prefersReducedMotion()
-          ? "started from Discuss mode; 4 replies relayed once each and shown alternating on one page; linked, still (reduced motion); ended after 2 rounds; its relay card reopens the page"
-          : "started from Discuss mode; 4 replies relayed once each and shown alternating on one page; linked with the pulse toward the answering chat; ended after 2 rounds; its relay card reopens the page";
+        // Where they landed: summed up by the stand-in playing the cheapest
+        // model, then built by the first chat through the normal send path.
+        try {
+          await waitFor(
+            () => {
+              const page = discussionPage(id);
+              return page && !wrapUpProblem(page);
+            },
+            WRAP_UP_WAIT_MS,
+            "the wrap-up with both lists",
+          );
+        } catch (error) {
+          const page = discussionPage(id);
+          throw new Error(
+            `${errorText(error)}: ${page ? wrapUpProblem(page) : "the page is not on screen"}`,
+          );
+        }
+        const build = discussionPage(id)?.querySelector<HTMLElement>(
+          '[data-discussion-build="a"]',
+        );
+        const label = build?.textContent?.trim() ?? "";
+        const asked = sentTexts(get().sessions, a.id).length;
+        build?.click();
+        await waitFor(
+          () => {
+            const texts = sentTexts(get().sessions, a.id);
+            return (
+              texts.length > asked &&
+              texts
+                .at(-1)
+                ?.startsWith(
+                  "Please carry out the plan from your discussion",
+                ) &&
+              texts.at(-1)?.includes(`- ${SMOKE_WRAP_UP_WORD}`) &&
+              !session(a.id)?.busy &&
+              chatComposer(a.id)
+            );
+          },
+          30_000,
+          "the build button to send the plan to the first chat",
+        );
+        const moved = prefersReducedMotion()
+          ? "linked, still (reduced motion)"
+          : "linked with the pulse toward the answering chat";
+        return `started from Discuss mode; 4 replies relayed once each and shown alternating on one page; ${moved}; your message reached both chats once and sits where they read it; a reply marked as agreeing; ended after 2 rounds; its relay card reopens the page; summed up with both lists; "${label}" sent the plan`;
       },
     );
 

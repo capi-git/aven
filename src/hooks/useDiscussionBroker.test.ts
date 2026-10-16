@@ -2,7 +2,13 @@
 import { act, createElement, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DiscussionStore, type DiscussionHost } from "../lib/discussions";
+import {
+  DiscussionStore,
+  type Discussion,
+  type DiscussionHost,
+  type DiscussionSummary,
+} from "../lib/discussions";
+import type { DiscussionTranscripts } from "../lib/discussionThread";
 import { appendUser, stopStreaming } from "../lib/harness/apply";
 import { newSession, type Session } from "../lib/session";
 import {
@@ -20,12 +26,24 @@ type Sent = {
 let root: Root;
 let store: DiscussionStore;
 let sent: Sent[];
+/** Messages sent as the user, such as a wrap-up's build request. */
+let messages: { sessionId: string; text: string }[];
+let focused: string[];
 let notes: { sessionId: string; text: string }[];
 let host: DiscussionHost;
 let setSessions: (update: (sessions: Session[]) => Session[]) => void;
+let ref: () => Session[];
 let accept: boolean;
 let openPartner: ReturnType<typeof vi.fn>;
 let openView: ReturnType<typeof vi.fn<(id: string) => void>>;
+let summarise: ReturnType<
+  typeof vi.fn<
+    (
+      discussion: Discussion,
+      transcripts: DiscussionTranscripts,
+    ) => Promise<DiscussionSummary>
+  >
+>;
 
 function chat(id: string, title: string): Session {
   return {
@@ -37,18 +55,28 @@ function chat(id: string, title: string): Session {
 
 function Harness({ initial }: { initial: Session[] }) {
   const [sessions, set] = useState(initial);
-  const ref = useRef(sessions);
-  ref.current = sessions;
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
+  ref = () => sessionsRef.current;
   setSessions = (update) => {
-    ref.current = update(ref.current);
-    set(ref.current);
+    sessionsRef.current = update(sessionsRef.current);
+    set(sessionsRef.current);
   };
   const broker = useDiscussionBroker({
     sessions,
-    sessionsRef: ref,
+    sessionsRef,
     store,
     onSubmit: (sessionId, text, _attachments, options) => {
       if (!accept) return false;
+      if (!("discussion" in options)) {
+        messages.push({ sessionId, text });
+        setSessions((list) =>
+          list.map((session) =>
+            session.id === sessionId ? appendUser(session, text, []) : session,
+          ),
+        );
+        return undefined;
+      }
       sent.push({ sessionId, text, options });
       setSessions((list) =>
         list.map((session) =>
@@ -64,6 +92,8 @@ function Harness({ initial }: { initial: Session[] }) {
     postNote: (sessionId, text) => notes.push({ sessionId, text }),
     openPartner: openPartner as never,
     openView,
+    focusChat: (sessionId) => focused.push(sessionId),
+    summarise,
   });
   host = broker.host;
   return null;
@@ -108,7 +138,10 @@ beforeEach(() => {
   });
   store = new DiscussionStore(localStorage, "main");
   sent = [];
+  messages = [];
+  focused = [];
   notes = [];
+  summarise = vi.fn(async () => ({ status: "failed" as const }));
   accept = true;
   openPartner = vi.fn();
   openView = vi.fn<(id: string) => void>();
@@ -425,5 +458,242 @@ describe("useDiscussionBroker", () => {
   it("names a new partner chat after the topic", () => {
     expect(discussionChatTitle("  Cache?\nmore")).toBe("Discuss: Cache?");
     expect(discussionChatTitle("")).toBe("Discussion");
+  });
+});
+
+describe("useDiscussionBroker with the user jumping in", () => {
+  async function start(rounds: number) {
+    await mount([chat("a", "Caching"), chat("b", "Review")]);
+    await act(async () => {
+      host.start({
+        sessionId: "a",
+        partner: { kind: "chat", sessionId: "b" },
+        topic: "Cache the lookups?",
+        rounds,
+      });
+    });
+    return store.snapshot()[0].id;
+  }
+
+  it("never interrupts a turn, then carries the message to both chats", async () => {
+    const id = await start(2);
+    await finish("a", "Yes, briefly.");
+    // B is answering; the user adds something.
+    await act(async () => {
+      expect(store.interject(id, "Keep it small.")).toBeNull();
+    });
+    expect(sent).toHaveLength(2);
+    expect(sent[1].text).not.toContain("Keep it small.");
+
+    await finish("b", "For how long?");
+    expect(sent[2].sessionId).toBe("a");
+    expect(sent[2].text).toContain(
+      "says:\n\nFor how long?\n\nThe user adds: Keep it small.",
+    );
+    expect(sent[2].options.displayText).toBe(
+      "For how long?\n\nYou added: Keep it small.",
+    );
+
+    await finish("a", "Five minutes.");
+    expect(sent[3].sessionId).toBe("b");
+    expect(sent[3].text).toContain(
+      "The user adds: Keep it small.\n\nClaude Sonnet 5 in “Caching” says:\n\nFive minutes.",
+    );
+    await finish("b", "Agreed.");
+    expect(sent).toHaveLength(4);
+    expect(
+      sent.filter((entry) => entry.text.includes("Keep it small.")),
+    ).toHaveLength(2);
+  });
+
+  it("resumes a paused discussion with the message", async () => {
+    const id = await start(2);
+    await act(async () => store.pause(id, "Paused for a test."));
+    expect(sent).toHaveLength(1);
+    await finish("a", "Yes, briefly.");
+    // Settled while paused: nothing goes until the user jumps in.
+    expect(sent).toHaveLength(1);
+    await act(async () => {
+      store.interject(id, "Carry on.");
+    });
+    expect(sent).toHaveLength(2);
+    expect(sent[1].text).toContain("The user adds: Carry on.");
+  });
+
+  it("continues an ended discussion for one round, passing on the last reply", async () => {
+    const id = await start(1);
+    await finish("a", "Yes, briefly.");
+    await finish("b", "Agreed, five minutes.");
+    expect(store.get(id)?.status).toBe("ended");
+    await act(async () => {
+      expect(store.interject(id, "Now eviction?")).toBeNull();
+    });
+    expect(store.get(id)).toMatchObject({ rounds: 2, status: "active" });
+    expect(sent).toHaveLength(3);
+    expect(sent[2].sessionId).toBe("a");
+    // B's last reply was never relayed; it is read back from B's chat.
+    expect(sent[2].text).toContain(
+      "says:\n\nAgreed, five minutes.\n\nThe user adds: Now eviction?",
+    );
+    expect(sent[2].options.discussion).toMatchObject({ turn: 2, rounds: 2 });
+    await finish("a", "LRU.");
+    expect(sent[3].text).toContain("The user adds: Now eviction?");
+    await finish("b", "Agreed.");
+    expect(store.get(id)).toMatchObject({
+      status: "ended",
+      settled: 4,
+      ended: { kind: "completed" },
+    });
+    expect(notes.map((note) => note.text)).toEqual([
+      "Discussion ended after 1 round.",
+      "Discussion ended after 1 round.",
+      "Discussion ended after 2 rounds.",
+      "Discussion ended after 2 rounds.",
+    ]);
+  });
+});
+
+describe("useDiscussionBroker's wrap-up", () => {
+  async function complete() {
+    await mount([chat("a", "Caching"), chat("b", "Review")]);
+    await act(async () => {
+      host.start({
+        sessionId: "a",
+        partner: { kind: "chat", sessionId: "b" },
+        topic: "Cache the lookups?",
+        rounds: 1,
+      });
+    });
+    const id = store.snapshot()[0].id;
+    await finish("a", "Cache by URL.");
+    await finish("b", "Agreed, with a TTL.");
+    return id;
+  }
+
+  it("sums a finished discussion up once, from both transcripts", async () => {
+    summarise.mockResolvedValue({
+      status: "done",
+      agreed: ["Cache by URL", "Add a TTL"],
+      open: [],
+      model: "Claude Haiku 4.5",
+    });
+    const id = await complete();
+    expect(summarise).toHaveBeenCalledTimes(1);
+    const [discussion, transcripts] = summarise.mock.calls[0];
+    expect(discussion.id).toBe(id);
+    expect(transcripts.a?.some((block) => block.text === "Cache by URL.")).toBe(
+      true,
+    );
+    expect(
+      transcripts.b?.some((block) => block.text === "Agreed, with a TTL."),
+    ).toBe(true);
+    expect(store.get(id)?.summary).toMatchObject({ status: "done" });
+    // Later changes to the chats never ask again.
+    await act(async () =>
+      setSessions((list) => list.map((session) => ({ ...session }))),
+    );
+    expect(summarise).toHaveBeenCalledTimes(1);
+  });
+
+  it("sums up a continued discussion's new ending even while the old summary runs", async () => {
+    let finishFirst: (summary: DiscussionSummary) => void = () => {};
+    summarise.mockImplementationOnce(
+      () =>
+        new Promise<DiscussionSummary>((resolve) => {
+          finishFirst = resolve;
+        }),
+    );
+    summarise.mockResolvedValue({
+      status: "done",
+      agreed: ["Evict by version"],
+      open: [],
+      model: "Claude Haiku 4.5",
+    });
+    const id = await complete();
+    expect(store.get(id)?.summary?.status).toBe("running");
+    await act(async () => {
+      store.interject(id, "And eviction?");
+    });
+    await finish("a", "By version.");
+    await finish("b", "Agreed.");
+    expect(summarise).toHaveBeenCalledTimes(2);
+    expect(store.get(id)?.summary).toMatchObject({
+      status: "done",
+      agreed: ["Evict by version"],
+    });
+    // The first ending's late answer changes nothing.
+    await act(async () =>
+      finishFirst({ status: "done", agreed: ["Old"], open: [], model: "M" }),
+    );
+    expect(store.get(id)?.summary).toMatchObject({
+      agreed: ["Evict by version"],
+    });
+  });
+
+  it("keeps a failed summary as failed and never retries it", async () => {
+    summarise.mockRejectedValue(new Error("No model"));
+    const id = await complete();
+    expect(store.get(id)?.summary).toEqual({ status: "failed" });
+    await act(async () =>
+      setSessions((list) => list.map((session) => ({ ...session }))),
+    );
+    expect(summarise).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not sum up a stopped discussion", async () => {
+    await mount([chat("a", "Caching"), chat("b", "Review")]);
+    await act(async () => {
+      host.start({
+        sessionId: "a",
+        partner: { kind: "chat", sessionId: "b" },
+        topic: "Topic",
+        rounds: 2,
+      });
+    });
+    await act(async () => store.stop(store.snapshot()[0].id));
+    expect(summarise).not.toHaveBeenCalled();
+  });
+
+  it("builds through the normal send path: shows the chat and sends as the user", async () => {
+    summarise.mockResolvedValue({
+      status: "done",
+      agreed: ["Cache by URL", "Add a TTL"],
+      open: ["Errors"],
+      model: "Claude Haiku 4.5",
+    });
+    const id = await complete();
+    let refused: string | null = "unset";
+    await act(async () => {
+      refused = host.build!(id, "b");
+    });
+    expect(refused).toBeNull();
+    expect(focused).toEqual(["b"]);
+    expect(messages).toEqual([
+      {
+        sessionId: "b",
+        text: "Please carry out the plan from your discussion with Claude Sonnet 5. You agreed on:\n\n- Cache by URL\n- Add a TTL",
+      },
+    ]);
+    // It appears in the chat like any message the user sent.
+    expect(
+      ref()
+        .find((session) => session.id === "b")
+        ?.blocks.at(-1),
+    ).toMatchObject({ role: "user", text: messages[0].text });
+    // Nothing new is relayed.
+    expect(sent).toHaveLength(2);
+  });
+
+  it("says why it can't build when the chat is gone or refuses", async () => {
+    const id = await complete();
+    await act(async () =>
+      setSessions((list) => list.filter((session) => session.id !== "a")),
+    );
+    expect(host.build!(id, "a")).toBe("“Caching” isn't open in this window.");
+    accept = false;
+    expect(host.build!(id, "b")).toBe("Couldn't send to “Review”.");
+    expect(host.build!("gone", "b")).toBe(
+      "This discussion is no longer available.",
+    );
   });
 });

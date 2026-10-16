@@ -58,7 +58,7 @@ export function ProjectMascot({
       >
         <g className="mascot-body">
           <path d={mascot.restPath} />
-          {reaction === "shrug" ? (
+          {reaction === "shrug" || reaction === "tilt" ? (
             <path className="mascot-blink" d={mascot.blinkPath} />
           ) : null}
         </g>

@@ -6731,6 +6731,7 @@ export default function App({
       return session.id;
     },
     openView: openDiscussionView,
+    focusChat: (sessionId) => void onSelectHistorySession(sessionId),
   });
 
   // "Ask Codex to stop it" on a second dev server queues a message here.

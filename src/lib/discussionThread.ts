@@ -6,16 +6,26 @@
  * from the transcript of the chat that wrote it, exactly as the broker reads
  * the reply it relays (`discussionReply`). Only finished turns are shown, so
  * a reply streaming in one chat never changes the thread; the page shows that
- * side typing instead.
+ * side typing instead. What the user added from the page is kept with the
+ * discussion and shown where the chats read it: just before the reply of the
+ * turn whose relay first carried it.
  */
+import { replyStance, type DiscussionStance } from "./discussionStance";
 import {
   discussionEndNote,
   discussionReply,
   speakingSide,
   type Discussion,
+  type DiscussionInterjection,
   type DiscussionSide,
 } from "./discussions";
 import type { Block } from "./session";
+
+/**
+ * Where a message the user added stands: passed on, waiting for a relay
+ * (`queued`), or never passed on because the discussion ended first.
+ */
+export type UserMessageState = "sent" | "queued" | "unsent";
 
 export type DiscussionThreadItem =
   /** The user's topic, opening the conversation. */
@@ -31,6 +41,17 @@ export type DiscussionThreadItem =
       side: DiscussionSide;
       turn: number;
       text: string | null;
+      /** Whether it agrees with the reply before it, from its first words. */
+      stance: DiscussionStance | null;
+    }
+  /** Something the user added for both chats from the page. */
+  | {
+      kind: "user";
+      key: string;
+      text: string;
+      /** The turn whose relay first carries it. */
+      turn: number;
+      state: UserMessageState;
     }
   /** Aven's closing note, the same text both chats received. */
   | { kind: "closing"; key: string; text: string; completed: boolean };
@@ -53,15 +74,18 @@ function sameItem(
 
 /**
  * The thread in reading order: the topic, then each round's divider and its
- * replies, then the closing note once it has ended. Items equal to one in
- * `previous` are that same object, and an unchanged thread is `previous`
- * itself, so a re-render with the same content renders nothing new.
+ * replies, each preceded by what the user added for it, then anything still
+ * waiting for a relay, then the closing note once it has ended. Items equal
+ * to one in `previous` are that same object, and an unchanged thread is
+ * `previous` itself, so a re-render with the same content renders nothing
+ * new.
  */
 export function buildDiscussionThread(
   discussion: Discussion,
   transcripts: DiscussionTranscripts,
   previous: readonly DiscussionThreadItem[] = [],
 ): readonly DiscussionThreadItem[] {
+  const before = new Map(previous.map((item) => [item.key, item]));
   const built: DiscussionThreadItem[] = [
     { kind: "topic", key: "topic", text: discussion.topic },
   ];
@@ -79,23 +103,40 @@ export function buildDiscussionThread(
       rounds: discussion.rounds,
     });
   };
+  const added = discussion.interjections ?? [];
+  const user = (entry: DiscussionInterjection) =>
+    built.push({
+      kind: "user",
+      key: `you-${entry.id}`,
+      text: entry.text,
+      turn: entry.turn,
+      state: userMessageState(discussion, entry),
+    });
   for (let turn = 0; turn < finished; turn += 1) {
     if (turn % 2 === 0) divider(turn);
+    for (const entry of added) if (entry.turn === turn) user(entry);
     const side: DiscussionSide = turn % 2 === 0 ? "a" : "b";
     const blocks = transcripts[side];
-    const text = blocks ? discussionReply(blocks, discussion.id, turn) : null;
-    built.push({
-      kind: "reply",
-      key: `turn-${turn}`,
-      side,
-      turn,
-      text: text === null ? null : text.trim(),
-    });
+    const read = blocks ? discussionReply(blocks, discussion.id, turn) : null;
+    const text = read === null ? null : read.trim();
+    const key = `turn-${turn}`;
+    const old = before.get(key);
+    // The stance is read once per reply text, not on every streamed token.
+    const stance =
+      old?.kind === "reply" && old.text === text
+        ? old.stance
+        : turn > 0 && text
+          ? replyStance(text)
+          : null;
+    built.push({ kind: "reply", key, side, turn, text, stance });
   }
   // A round that has started but has no reply yet still gets its divider,
   // so the typing side sits under the right round.
   if (!ended && finished < discussion.rounds * 2 && finished % 2 === 0)
     divider(finished);
+  // The turn under way first, then what waits for a later relay.
+  for (const entry of added) if (entry.turn === finished) user(entry);
+  for (const entry of added) if (entry.turn > finished) user(entry);
   if (ended)
     built.push({
       kind: "closing",
@@ -104,7 +145,6 @@ export function buildDiscussionThread(
       completed: discussion.ended?.kind === "completed",
     });
 
-  const before = new Map(previous.map((item) => [item.key, item]));
   const items = built.map((item) => {
     const old = before.get(item.key);
     return old && sameItem(old, item) ? old : item;
@@ -115,9 +155,64 @@ export function buildDiscussionThread(
     : items;
 }
 
+/** Whether a message the user added has reached a chat yet. */
+export function userMessageState(
+  discussion: Discussion,
+  entry: DiscussionInterjection,
+): UserMessageState {
+  const reached =
+    entry.turn < discussion.settled ||
+    (entry.turn === discussion.settled && discussion.delivered);
+  if (reached) return "sent";
+  return discussion.status === "ended" ? "unsent" : "queued";
+}
+
+/** Waiting behind the turn under way: shown after the typing side. */
+export function waitsForNextTurn(
+  discussion: Discussion,
+  item: DiscussionThreadItem,
+): boolean {
+  return (
+    item.kind === "user" &&
+    discussion.status !== "ended" &&
+    item.turn > discussion.settled
+  );
+}
+
 /** The side answering now, or null while paused or once it has ended. */
 export function typingSide(discussion: Discussion): DiscussionSide | null {
   return discussion.status === "active" ? speakingSide(discussion) : null;
+}
+
+export type DiscussionReplyItem = Extract<
+  DiscussionThreadItem,
+  { kind: "reply" }
+>;
+
+/** The reply keys in a thread. */
+export function replyKeys(items: readonly DiscussionThreadItem[]): Set<string> {
+  return new Set(
+    items.flatMap((item) => (item.kind === "reply" ? [item.key] : [])),
+  );
+}
+
+/**
+ * Replies in `items` that `known` has not seen, in reading order. `known`
+ * then holds them too, so each reply arrives once however often the thread
+ * is rebuilt. Seed `known` with the replies already there when the page
+ * opened, and those never arrive at all.
+ */
+export function arrivedReplies(
+  items: readonly DiscussionThreadItem[],
+  known: Set<string>,
+): DiscussionReplyItem[] {
+  const arrived: DiscussionReplyItem[] = [];
+  for (const item of items) {
+    if (item.kind !== "reply" || known.has(item.key)) continue;
+    known.add(item.key);
+    arrived.push(item);
+  }
+  return arrived;
 }
 
 /** Each side's last reply in the thread, for its end-of-discussion hop. */

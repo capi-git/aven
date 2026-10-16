@@ -416,13 +416,15 @@ describe("planning the broker's work", () => {
     ]);
   });
 
-  it("posts closing notes once each chat is idle", () => {
+  it("posts closing notes once each chat is idle, and sums it up once", () => {
     const ended = {
       ...reply(reply(fresh(1), "one"), "two"),
     };
     expect(ended.status).toBe("ended");
+    expect(ended.summary).toEqual({ status: "pending" });
     const sessions = [chat("chat-a", { busy: true })];
     expect(planDiscussions([ended], "main", sessions, new Set())).toEqual([
+      { kind: "summarise", id: "d1" },
       {
         kind: "note",
         id: "d1",
@@ -586,11 +588,11 @@ describe("DiscussionStore", () => {
       relay: "",
     });
     expect(isHistory(kept)).toBe(true);
-    // Neither chat counts as discussing, and nothing is left to do.
+    // Neither chat counts as discussing; only the wrap-up is left to do.
     expect(store.forSession(A.sessionId)).toBeUndefined();
-    expect(planDiscussions(store.snapshot(), "main", [], new Set())).toEqual(
-      [],
-    );
+    expect(planDiscussions(store.snapshot(), "main", [], new Set())).toEqual([
+      { kind: "summarise", id: "d1" },
+    ]);
     // A reload restores it unchanged.
     expect(new DiscussionStore(storage, "main").get("d1")).toEqual(kept);
   });

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- You can join a discussion between two chats from its page. Type in the box at the bottom ("Add something for both of them…"): your message shows as your own bubble and goes to both chats with their next replies, without interrupting either; sending while paused resumes it, and after it has ended it continues for one more round. When a discussion uses up its rounds, the page shows **Where they landed**, what the two agreed on and what is still open, written once by your cheapest model, with **Have Claude build it** and **Have Codex build it** to send the plan to either chat. Replies that agree or push back get a small mark, and their mascot nods or tilts its head as they arrive.
+
 ### Changed
 
 - Two chats discussing now share one page: your topic, then each chat's replies as messages back and forth, the opening chat on the left and the responding one on the right, each with its own pixel mascot in its provider's colour, its model's name and its part, round dividers, the answering chat typing, and the closing note, with **Stop** and **Resume** at the top. It opens beside the chat that started the discussion; **Open discussion** above either chat's message box, the sidebar's connector, or the discussion's note in either chat brings it back, even after it has ended. Starting one no longer needs `/discuss`: choose **Discuss** in the message box's **+** menu beside Plan mode and Orchestrator, pick the other chat and rounds from the chip's dropdown (**Discuss with Codex · 3 rounds**), and send your message as the topic.

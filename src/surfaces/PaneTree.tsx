@@ -383,6 +383,7 @@ function PaneTreeComponent({
                 editorNavigation={editorNavigation}
                 onPaneDragStart={onPaneDragStart}
                 onTerminalMetaChange={onTerminalMetaChange}
+                discussion={discussion}
               />
             ) : session ? (
               <SessionPane
