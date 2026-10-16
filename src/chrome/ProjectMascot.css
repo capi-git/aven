@@ -58,6 +58,15 @@
   .mascot-reacting[data-reaction="shrug"] .mascot-blink {
     animation-name: mascot-blink;
   }
+  .mascot-reacting[data-reaction="nod"] .mascot-body {
+    animation-name: mascot-nod;
+  }
+  .mascot-reacting[data-reaction="tilt"] .mascot-body {
+    animation-name: mascot-tilt;
+  }
+  .mascot-reacting[data-reaction="tilt"] .mascot-blink {
+    animation-name: mascot-tilt-blink;
+  }
 }
 
 /* Without motion the outcome still shows, as a still sparkle or drop. */
@@ -201,5 +210,60 @@
   80%,
   100% {
     transform: translateY(0);
+  }
+}
+
+/* Agrees: two quick nods, down one pixel and back. */
+@keyframes mascot-nod {
+  0% {
+    transform: translateY(0);
+  }
+  14% {
+    transform: translateY(1px);
+  }
+  34% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(1px);
+  }
+  70%,
+  100% {
+    transform: translateY(0);
+  }
+}
+
+/* Pushes back: leans a pixel one way, then the other, with one blink, like
+   a small "hmm". */
+@keyframes mascot-tilt {
+  0% {
+    transform: translate(0, 0);
+  }
+  12% {
+    transform: translate(-1px, 0);
+  }
+  40% {
+    transform: translate(-1px, -1px);
+  }
+  58% {
+    transform: translate(1px, 0);
+  }
+  80%,
+  100% {
+    transform: translate(0, 0);
+  }
+}
+
+@keyframes mascot-tilt-blink {
+  0%,
+  44% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  62%,
+  100% {
+    opacity: 0;
   }
 }

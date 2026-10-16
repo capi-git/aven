@@ -9,7 +9,8 @@ import { projectKey } from "./paths";
 
 /**
  * One-shot mascot reactions to a turn's end: a happy hop when it completed, a
- * slump when it failed, a blink when it was stopped.
+ * slump when it failed, a blink when it was stopped. A discussion's page also
+ * uses a nod and a head-tilt when a reply agrees or pushes back.
  *
  * A reaction plays once per turn end. A window reacts only to ledger entries
  * it sees arrive while it is watching, so a reload or a new window never
@@ -17,7 +18,7 @@ import { projectKey } from "./paths";
  * one window plays it: the focused window straight away, otherwise the first
  * visible window once the focused one has had a moment to claim it.
  */
-export type MascotReactionKind = "cheer" | "slump" | "shrug";
+export type MascotReactionKind = "cheer" | "slump" | "shrug" | "nod" | "tilt";
 
 export type MascotReaction = {
   /** The activity entry that ended the turn. */
@@ -32,7 +33,7 @@ export type MascotReaction = {
 
 /** How long each reaction runs; the mascot's CSS uses the same values. */
 export const MASCOT_REACTION_MS: Readonly<Record<MascotReactionKind, number>> =
-  { cheer: 900, slump: 1100, shrug: 700 };
+  { cheer: 900, slump: 1100, shrug: 700, nod: 640, tilt: 760 };
 /** Reactions stay current a little longer than they run, then clear. */
 const REACTION_LIFETIME_MS = 1200;
 /** Entries older than this when first seen are history, not a turn ending now. */
