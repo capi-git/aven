@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -232,5 +233,51 @@ describe("worker assignment prompts", () => {
     expect(markup).toContain("Looking now");
     expect(markup).not.toContain("monocode_assignment");
     expect(markup).not.toContain("You are a worker managed by a MonoCode lead");
+  });
+});
+
+describe("AgentTranscript reply actions", () => {
+  const finishedTurn = (id: string): Block[] => [
+    {
+      id: `${id}-ask`,
+      role: "user",
+      text: "Check it",
+      startedAt: 1000,
+      durationMs: 2000,
+    },
+    { id: `${id}-answer`, role: "assistant", text: `Answer ${id}` },
+  ];
+
+  it("keeps every reply's actions in the keyboard order and marks the latest reply", () => {
+    const markup = render([...finishedTurn("first"), ...finishedTurn("last")]);
+    const turns = markup.split('class="transcript-turn ').slice(1);
+    expect(turns).toHaveLength(2);
+    expect(turns[0]).not.toMatch(/^[^"]*transcript-turn-live/);
+    expect(turns[1]).toMatch(/^[^"]*transcript-turn-live/);
+    for (const turn of turns) {
+      const receipt = turn.slice(turn.indexOf("personal-turn-receipt"));
+      expect(receipt).toContain('aria-label="Copy response"');
+      expect(receipt).not.toContain('tabindex="-1"');
+      expect(receipt).not.toContain(
+        'aria-hidden="true" class="personal-turn-receipt',
+      );
+    }
+  });
+
+  it("reveals earlier replies' actions on hover or focus with opacity alone", () => {
+    const css = readFileSync("src/surfaces/AgentTranscript.css", "utf8");
+    const rules = css.split(/\n}\n/);
+    const hidden = rules.find((rule) =>
+      /\.transcript-turn:not\(\.transcript-turn-live\)\s+\.personal-turn-receipt \{/.test(
+        rule,
+      ),
+    );
+    expect(hidden).toContain("opacity: 0;");
+    // Hiding by visibility or display would drop the buttons from the
+    // keyboard order and move the transcript when they came back.
+    expect(hidden).not.toMatch(/visibility|display|height/);
+    const shown = rules.find((rule) => rule.includes("opacity: 1;"))!;
+    expect(shown).toMatch(/:hover\s+\.personal-turn-receipt/);
+    expect(shown).toContain(".personal-turn-receipt:focus-within");
   });
 });

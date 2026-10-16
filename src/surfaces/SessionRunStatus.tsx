@@ -41,6 +41,35 @@ function VisibleRunStatus({ session, onStop, onOpenTerminal }: Props) {
           ? Pause
           : Square;
   const queued = session.queuedMessages?.length ?? 0;
+  // A finished turn needs nothing from you: a thin line with a check and how
+  // long it took, instead of a card. Anything that asks for attention keeps
+  // the full card.
+  if (
+    status.kind === "finished" &&
+    !status.recovery &&
+    !session.liveAgents?.length
+  ) {
+    return (
+      <div
+        className="session-run-done"
+        data-run-state={status.kind}
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        title={status.detail}
+      >
+        <Check className="session-run-done-mark size-3" aria-hidden="true" />
+        <span>{status.label}</span>
+        <span className="sr-only">{status.detail}</span>
+        <RunClock
+          key={`${session.id}:${status.startedAt ?? "untimed"}`}
+          startedAt={status.startedAt}
+          durationMs={status.durationMs}
+          running={false}
+        />
+      </div>
+    );
+  }
   return (
     <div className="session-run-status" data-run-state={status.kind}>
       <span className="session-run-mark" aria-hidden="true">

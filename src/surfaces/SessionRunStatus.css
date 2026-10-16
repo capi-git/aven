@@ -34,6 +34,39 @@
 .session-run-status[data-run-state="failed"] {
   background: color-mix(in srgb, #e58686 7%, var(--aven-glass-surface));
 }
+/* A finished turn: one quiet line between hairlines, like a turn's work
+   line in the transcript. No surface, so no extra glass layer. */
+.session-run-done {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 18px;
+  margin: 0 12px 6px;
+  color: var(--aven-muted);
+  font-family: var(--font-sans);
+  font-size: var(--text-ui-caption);
+  line-height: 18px;
+  white-space: nowrap;
+}
+.session-run-done::before,
+.session-run-done::after {
+  content: "";
+  flex: 1 1 24px;
+  height: 1px;
+  background: var(--aven-line);
+}
+.session-run-done .session-run-done-mark {
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--color-accent) 80%, var(--color-content));
+}
+.session-run-done .session-run-clock {
+  min-width: 0;
+  font-size: inherit;
+  text-align: left;
+}
+.session-run-done .session-run-clock::before {
+  content: "· ";
+}
 .session-run-mark {
   display: grid;
   flex: 0 0 26px;
