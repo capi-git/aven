@@ -58,7 +58,14 @@ it("measures in the layer's own pixels under CSS zoom", () => {
   );
   const { links, linked } = measureDiscussionLinks(layer, [discussion]);
   expect(links).toEqual([
-    { id: "d1", top: 65, height: 60, toward: "up", paused: false },
+    {
+      id: "d1",
+      label: `“${discussion.a.title}” and “${discussion.b.title}”`,
+      top: 65,
+      height: 60,
+      toward: "up",
+      paused: false,
+    },
   ]);
   expect([...linked].sort()).toEqual(["a", "b"]);
 });

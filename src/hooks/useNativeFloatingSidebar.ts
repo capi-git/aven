@@ -64,6 +64,7 @@ const WORKSPACE_ACTIONS = new Set([
   "onSelectSession",
   "onSelectProjectSession",
   "onSelectAgent",
+  "onOpenDiscussion",
   "onSelectProject",
   "onNew",
   "onNewStandalone",

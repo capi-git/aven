@@ -8617,6 +8617,7 @@ export default function App({
     projectStatus,
     liveAgents,
     discussions: discussions.sidebar,
+    onOpenDiscussion: openDiscussionView,
     workConflicts,
     onSelectAgent: onSelectLiveAgent,
     onSelectProject,

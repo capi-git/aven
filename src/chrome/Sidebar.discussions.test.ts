@@ -195,6 +195,27 @@ describe("Sidebar discussions", () => {
     expect(link()!.style.top).toBe("-5px");
   });
 
+  it("opens the discussion's page when its connector is pressed", async () => {
+    // Without a handler the connector is only a picture.
+    await render([talking("a", "b", "b")]);
+    expect(link()!.tagName).toBe("SPAN");
+    expect(
+      container.querySelector(".discussion-links")?.getAttribute("aria-hidden"),
+    ).toBe("true");
+    props.onOpenDiscussion = vi.fn();
+    await render([talking("a", "b", "b")]);
+    const connector = link()!;
+    expect(connector.tagName).toBe("BUTTON");
+    expect(connector.getAttribute("aria-label")).toBe(
+      "Open the discussion between “Chat a” and “Chat b”",
+    );
+    expect(
+      container.querySelector(".discussion-links")?.hasAttribute("aria-hidden"),
+    ).toBe(false);
+    await act(async () => connector.click());
+    expect(props.onOpenDiscussion).toHaveBeenCalledExactlyOnceWith("a-b");
+  });
+
   it("draws nothing without a discussion", async () => {
     await render([]);
     expect(container.querySelector(".discussion-links")).toBeNull();
