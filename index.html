@@ -196,6 +196,15 @@
           if (!active) return;
           if (finished()) return cleanup();
           window.clearTimeout(timeout);
+          // A workspace window waits for its first themed frame; show this.
+          try {
+            var tauri = window.__TAURI_INTERNALS__;
+            if (tauri && typeof tauri.invoke === "function") {
+              Promise.resolve(tauri.invoke("window_reveal")).catch(
+                function () {},
+              );
+            }
+          } catch (_) {}
           splash.hidden = false;
           title.textContent = failed
             ? "Aven couldn’t load its interface"

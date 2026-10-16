@@ -75,8 +75,8 @@ unsafe extern "C" {
 }
 
 pub fn install(window: &Window) {
-    // Opaque for the dock bounce so the first frames are a solid field,
-    // not a frosted desktop. Glass turns on after the first UI paint.
+    // Opaque until the interface applies its colour or glass, which happens
+    // before the window is revealed (`window_reveal`).
     prepare_launch(window);
     let _ = pin(window);
 
@@ -148,6 +148,18 @@ fn paint_window_badge(label: &str, count: u32) {
     if total > previous && !ns_app.isActive() {
         ns_app.requestUserAttention(NSRequestUserAttentionType::InformationalRequest);
     }
+}
+
+/// Conceal or reveal a window by its alpha. A concealed window is still
+/// ordered in, so WebKit keeps drawing its page; nothing of it is on screen.
+/// Returns whether the window was concealed before this call. Main thread.
+pub fn set_concealed(window: &Window, concealed: bool) -> bool {
+    let Some(ns_window) = ns_window(window) else {
+        return false;
+    };
+    let was_concealed = ns_window.alphaValue() < 0.01;
+    ns_window.setAlphaValue(if concealed { 0.0 } else { 1.0 });
+    was_concealed
 }
 
 pub fn set_visible(window: &Window, visible: bool) {
@@ -298,9 +310,12 @@ fn set_glass_enabled(window: &Window, enabled: bool) {
     }
 }
 
-/// Solid field behind the dock bounce. Same colour as the HTML sheet.
+/// Solid field behind the page until the interface applies its own colour or
+/// glass: Aven's default dark background, as in `tauri.conf.json`. The window
+/// stays concealed until then (`window_reveal`), so this is only ever seen if
+/// the interface fails to start.
 fn prepare_launch(window: &Window) {
-    set_launch_background(window, 16, 20, 22);
+    set_launch_background(window, 0, 0, 0);
     let Some(ns_window) = ns_window(window) else {
         return;
     };

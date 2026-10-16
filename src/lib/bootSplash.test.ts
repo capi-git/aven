@@ -4,8 +4,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { activateWindowAppearance } from "./appearance";
 import { useBootSplashReady } from "./bootSplash";
+import { revealWhenDrawn } from "./windowReveal";
 
 vi.mock("./appearance", () => ({ activateWindowAppearance: vi.fn() }));
+vi.mock("./windowReveal", () => ({ revealWhenDrawn: vi.fn() }));
 
 let root: Root;
 let host: HTMLDivElement;
@@ -54,6 +56,15 @@ it("leaves recovery hidden while state loads and removes it in the workspace's f
   expect(document.getElementById("boot-splash")).toBeNull();
   expect(vi.getTimerCount()).toBe(0);
   expect(activateWindowAppearance).not.toHaveBeenCalled();
+  // Only a workspace window is concealed until it draws.
+  expect(revealWhenDrawn).not.toHaveBeenCalled();
+});
+
+it("reveals the workspace window once its native appearance is in place", () => {
+  const applied = Promise.resolve();
+  vi.mocked(activateWindowAppearance).mockReturnValueOnce(applied);
+  render(true, true);
+  expect(revealWhenDrawn).toHaveBeenCalledExactlyOnceWith(applied);
 });
 
 it("does not wait for animation frames or a fade to activate native appearance", () => {
@@ -70,11 +81,13 @@ it("activates native appearance once under StrictMode and repeated ready renders
   render(true, true);
   render(true, true);
   expect(activateWindowAppearance).toHaveBeenCalledOnce();
+  expect(revealWhenDrawn).toHaveBeenCalledOnce();
 });
 
 it("leaves an existing startup failure in control of its appearance", () => {
   recovery.remove();
   render(true, true);
   expect(activateWindowAppearance).not.toHaveBeenCalled();
+  expect(revealWhenDrawn).not.toHaveBeenCalled();
   expect(vi.getTimerCount()).toBe(0);
 });

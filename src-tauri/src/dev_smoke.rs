@@ -269,6 +269,16 @@ fn sample_processes() -> Vec<ProcessSample> {
     Vec::new()
 }
 
+/// When this workspace window was concealed and how it became visible, so the
+/// check can confirm it stayed concealed until its interface had drawn.
+#[tauri::command]
+pub fn dev_smoke_window_reveal(
+    webview: Webview,
+) -> Result<Option<crate::window_reveal::RevealRecord>, String> {
+    smoke_dir().ok_or("The real-app check is not running")?;
+    Ok(crate::window_reveal::record(webview.window().label()))
+}
+
 /// Record the result for the runner and quit. Only the workspace reports.
 #[tauri::command]
 pub fn dev_smoke_finish(

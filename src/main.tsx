@@ -10,6 +10,7 @@ import { showRenderFailure } from "./lib/renderFailure";
 import { preventFileDropNavigation } from "./lib/attachments";
 import { watchWindowResize } from "./lib/windowResizeFlag";
 import { loadDevSmoke } from "./lib/devSmoke";
+import { revealWindow } from "./lib/windowReveal";
 import "./index.css";
 import "./personal-shell.css";
 import "./macos-theme.css";
@@ -33,12 +34,15 @@ const rootOptions = {
       error,
       info.componentStack,
     );
+    // A workspace window waits for its first themed frame; show the error now.
+    revealWindow();
   },
 };
 
 function showStartupFailure(error: unknown) {
   document.getElementById("boot-splash")?.remove();
   showRenderFailure(document.getElementById("root") as HTMLElement, error);
+  revealWindow();
 }
 
 function BootGate({ children }: { children: React.ReactNode }) {

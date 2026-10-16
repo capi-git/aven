@@ -74,6 +74,7 @@ mod turn_shots;
 mod update_restart;
 mod usage_panel;
 mod window;
+mod window_reveal;
 mod window_transfer;
 #[cfg(windows)]
 mod windows;
@@ -266,6 +267,12 @@ pub fn run() {
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_filter(window::is_workspace_label)
+                // Restoring visibility would show a window before its
+                // interface has drawn; `window_reveal` shows it instead.
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::all()
+                        - tauri_plugin_window_state::StateFlags::VISIBLE,
+                )
                 .build(),
         )
         .manage(harness::HarnessHost::new())
@@ -295,6 +302,7 @@ pub fn run() {
                 macos::install_dock_menu(app.handle());
                 if let Some(window) = app.get_window("main") {
                     macos::install(&window);
+                    window_reveal::conceal(&window);
                 }
                 #[cfg(debug_assertions)]
                 desktop_control::preview_cursor(app.handle());
@@ -304,6 +312,7 @@ pub fn run() {
                 if let Some(window) = app.get_window("main") {
                     let _ = window.set_decorations(false);
                     let _ = window.set_shadow(true);
+                    window_reveal::conceal(&window);
                 }
             }
             Ok(())
@@ -326,6 +335,7 @@ pub fn run() {
             workspace_menu_panel::workspace_menu_panel_close,
             dev_smoke::dev_smoke_config,
             dev_smoke::dev_smoke_finish,
+            dev_smoke::dev_smoke_window_reveal,
             dev_smoke::dev_perf_sample,
             dev_smoke::dev_perf_keep_visible,
             dev_smoke::dev_perf_mark,
@@ -561,6 +571,7 @@ pub fn run() {
             update_restart::update_restart_activity,
             provider_updates::provider_refresh_cli,
             window::set_window_glass_enabled,
+            window_reveal::window_reveal,
             window_transfer::take_window_transfer,
             chat_background::save_chat_background,
             chat_background::remove_chat_background,
@@ -614,6 +625,7 @@ pub fn run() {
                 browser::window_destroyed(handle, &label);
                 floating_sidebar::window_destroyed(handle, &label);
                 workspace_window::window_destroyed(handle, &label);
+                window_reveal::window_destroyed(&label);
                 let other_window = handle
                     .windows()
                     .keys()
@@ -774,6 +786,20 @@ mod platform_config {
             serde_json::from_value(updater.clone()).expect("valid updater config");
         assert_eq!(parsed.endpoints.len(), 1);
         assert!(!parsed.pubkey.is_empty());
+    }
+
+    #[test]
+    fn workspace_windows_start_hidden_until_their_interface_draws() {
+        // `window_reveal` shows them; a visible start shows an empty window.
+        for config in [base_config(), windows_config()] {
+            let main = config["app"]["windows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|window| window["label"] == "main")
+                .expect("main window");
+            assert_eq!(main["visible"], false);
+        }
     }
 
     #[test]
