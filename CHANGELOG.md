@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Aven opens straight to your workspace. Its window no longer shows an empty dark screen, or your desktop through empty glass, for a moment before the interface appears.
+
 ## [0.1.142] - 2026-10-15
 
 ### Added
