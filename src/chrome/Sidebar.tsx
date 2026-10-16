@@ -139,6 +139,8 @@ import {
   type SidebarTalk,
 } from "../lib/discussions";
 import { SettingsNav } from "./SettingsRail";
+import { WorkConflictMark } from "./WorkConflictMark";
+import type { WorkConflict, WorkConflictMap } from "../lib/workConflicts";
 import "./PersonalNavigation.css";
 
 const MIN_WIDTH = 190;
@@ -227,6 +229,8 @@ export type SidebarProps = {
   liveAgents?: LiveAgent[];
   /** Chats discussing with each other; their rows talk and are linked. */
   discussions?: readonly SidebarDiscussion[];
+  /** Chats editing another working chat's files or running a second dev server. */
+  workConflicts?: WorkConflictMap;
   onSelectAgent?: (sessionId: string) => void;
   onSelectProject?: (path: string) => void;
   onOpenProject?: () => void;
@@ -263,6 +267,7 @@ export type SidebarProps = {
 };
 
 const NO_DISCUSSIONS: readonly SidebarDiscussion[] = [];
+const NO_CONFLICTS: WorkConflictMap = {};
 
 /** Personal is the default home for every project, so it cannot be deleted. */
 function workspaceMenuItems(
@@ -346,6 +351,7 @@ function SidebarComponent({
   projectStatus,
   liveAgents = [],
   discussions = NO_DISCUSSIONS,
+  workConflicts = NO_CONFLICTS,
   onSelectAgent,
   onSelectProject,
   onOpenProject,
@@ -1205,6 +1211,7 @@ function SidebarComponent({
         session={session}
         talk={talks.get(session.id)}
         talkLinked={discussionLinks.linked.has(session.id)}
+        conflict={workConflicts[session.id]}
         isActive={session.id === activeSessionId}
         isSelected={selectedSessionIds.has(session.id)}
         busy={busySessionIds.has(session.id)}
@@ -1777,6 +1784,9 @@ function SidebarComponent({
                                     )}
                                   </span>
                                   {talkBadge(session.id)}
+                                  <WorkConflictMark
+                                    conflict={workConflicts[session.id]}
+                                  />
                                 </button>
                               ))
                             ),
@@ -1990,6 +2000,9 @@ function SidebarComponent({
                                       )}
                                     </span>
                                     {talkBadge(session.id)}
+                                    <WorkConflictMark
+                                      conflict={workConflicts[session.id]}
+                                    />
                                     {session.pinned ? (
                                       <Pin className="size-2.5 shrink-0 opacity-55" />
                                     ) : null}
@@ -2157,6 +2170,7 @@ const SIDEBAR_DATA: readonly (keyof SidebarProps)[] = [
   "projectStatus",
   "liveAgents",
   "discussions",
+  "workConflicts",
   "standaloneSessions",
   "busySessionIds",
   "approvalSessionIds",
@@ -2436,6 +2450,7 @@ function SessionCard({
   session,
   talk,
   talkLinked = false,
+  conflict,
   isActive,
   isSelected,
   busy,
@@ -2460,6 +2475,8 @@ function SessionCard({
   talk?: SidebarTalk;
   /** The partner's row is on screen and linked to this one. */
   talkLinked?: boolean;
+  /** Editing another working chat's files, or running a second dev server. */
+  conflict?: WorkConflict;
   isActive: boolean;
   isSelected: boolean;
   busy: boolean;
@@ -2875,6 +2892,7 @@ function SessionCard({
             {title}
           </span>
           {talk && !talkLinked ? <DiscussionTalkBadge talk={talk} /> : null}
+          <WorkConflictMark conflict={conflict} />
           {compact ? status : null}
         </span>
         {compact ? null : (

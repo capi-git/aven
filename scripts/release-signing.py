@@ -23,6 +23,10 @@ UPDATER_ENV = ('TAURI_SIGNING_PRIVATE_KEY', 'TAURI_SIGNING_PRIVATE_KEY_PATH',
                'TAURI_SIGNING_PRIVATE_KEY_PASSWORD')
 NOTARY_ENV = ('APPLE_API_KEY_P8_BASE64', 'APPLE_API_KEY_ID', 'APPLE_API_ISSUER_ID',
               'AVEN_NOTARY_KEYCHAIN_PROFILE')
+# Without these the hardened runtime silently denies websites the microphone and
+# camera. The host and the plain helper (Chromium's capture services) need them.
+CAPTURE_ENTITLEMENTS = ('com.apple.security.device.audio-input', 'com.apple.security.device.camera')
+CAPTURE_BUNDLES = ('', 'Contents/Frameworks/Aven Helper.app')
 
 
 def require(condition, message):
@@ -45,6 +49,33 @@ def command(arguments):
     require(result.returncode == 0, 'Command failed: ' + str(arguments[0])
             + '\n' + result.stderr.strip())
     return result.stdout + result.stderr
+
+
+def signed_entitlements(target):
+    """The entitlements actually sealed into a signature, not the source plist."""
+    result = subprocess.run(['codesign', '-d', '--entitlements', '-', '--xml', str(target)],
+                            capture_output=True)
+    require(result.returncode == 0, 'Could not read entitlements of ' + Path(target).name
+            + '\n' + result.stderr.decode(errors='replace').strip())
+    # stderr names the executable path; only stdout holds the plist.
+    if not result.stdout.strip():
+        return {}
+    try:
+        value = plistlib.loads(result.stdout)
+    except Exception as error:
+        raise RuntimeError('Unreadable entitlements in ' + Path(target).name + ': ' + str(error))
+    require(isinstance(value, dict), 'Unexpected entitlements in ' + Path(target).name)
+    return value
+
+
+def check_capture_entitlements(app):
+    for relative in CAPTURE_BUNDLES:
+        target = app / relative if relative else app
+        values = signed_entitlements(target)
+        missing = [key for key in CAPTURE_ENTITLEMENTS if values.get(key) is not True]
+        require(not missing, 'Missing ' + ', '.join(missing) + ' in the signature of ' + target.name
+                + '; macOS would silently block website microphone and camera access')
+    return 'verified'
 
 
 def select_identity(output, team_id, selector=''):
@@ -169,9 +200,11 @@ def verify(app, ad_hoc=False):
         result = inspect_signature(output, identifier, contract['teamId'], ad_hoc)
         result['bundle'] = str(target.relative_to(app))
         signatures.append(result)
+    capture = check_capture_entitlements(app)
     return {'status': 'verified', 'mode': 'ad-hoc-local-test' if ad_hoc else 'developer-id',
             'app': app.name, 'teamId': None if ad_hoc else contract['teamId'],
             'bundleId': contract['bundleId'], 'strictSignatureVerification': 'passed',
+            'captureEntitlements': capture,
             'notarization': ({'notarized': False, 'status': 'not-applicable',
                               'reason': 'Ad-hoc local test builds are never notarized.'} if ad_hoc
                              else {'notarized': False, 'status': 'not-submitted'}),

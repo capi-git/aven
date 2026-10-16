@@ -55,6 +55,8 @@ type Options = DevPerfOptions & {
   discussion?: DiscussionHost;
   /** Reads a project's memory, as its editor does. */
   projectMemory?: (path: string) => Promise<string>;
+  /** Chats show second dev servers and receive the shared-work note. */
+  sharedWork?: boolean;
 };
 
 type SmokeUtilities = {
@@ -86,6 +88,9 @@ const HOLD_MS = 4_000;
  */
 const DISCUSSION_HOLD_MS = 8_000;
 const DISCUSSION_ROUNDS = 2;
+/** Ports the stand-in pretends two chats' dev servers announce; nothing listens. */
+const FIRST_SERVER_PORT = 5199;
+const SECOND_SERVER_PORT = 5200;
 
 /** Each utility view's root carries `data-app-<name>`. */
 const UTILITY_VIEWS = [
@@ -357,7 +362,8 @@ let started = false;
  * provider through the normal send path with the floating sidebar attached,
  * open and close the utility views by handler and by shortcut, watch what
  * moves while an agent works and when its turn ends (the sidebar's mark, Home
- * and Parallel work), run a two-round discussion between two chats, check
+ * and Parallel work), run a two-round discussion between two chats, flag a
+ * second dev server and tell its chat about the first, check
  * the restart-to-update question's preview, then have the floating sidebar
  * open Settings and press Back, then report.
  */
@@ -964,6 +970,110 @@ export async function runDevSmoke(
         return prefersReducedMotion()
           ? "4 replies relayed once each; linked, still (reduced motion); ended after 2 rounds"
           : "4 replies relayed once each; linked with the pulse toward the answering chat; ended after 2 rounds";
+      },
+    );
+
+  // Two chats in one project start the same app's dev server. The second
+  // is flagged at once in its own chat, its next turn carries the note that
+  // names the first server, and Keep both clears the chip.
+  if (safe && get().sharedWork)
+    await step(
+      "a second dev server is flagged and the next turn names the first",
+      async () => {
+        get().motion?.showWorkspace?.();
+        const session = (id: string) =>
+          get().sessions.find((entry) => entry.id === id);
+        const reply = async (id: string, text: string) => {
+          const before = replyCount(get().sessions, id);
+          get().submit(id, text);
+          await waitFor(
+            () => !session(id)?.busy && replyCount(get().sessions, id) > before,
+            30_000,
+            "the stand-in's reply",
+          );
+          return (
+            [...(session(id)?.blocks ?? [])]
+              .reverse()
+              .find(
+                (block) =>
+                  block.role === "assistant" &&
+                  block.text.includes(SMOKE_REPLY),
+              )?.text ?? ""
+          );
+        };
+        const first = await openNewTask(get, config.projectPath);
+        await reply(
+          first.id,
+          `Start the dev server. AVEN_SMOKE_DEV_SERVER ${FIRST_SERVER_PORT}`,
+        );
+        const second = await openNewTask(get, config.projectPath);
+        await reply(
+          second.id,
+          `Start the dev server. AVEN_SMOKE_DEV_SERVER ${SECOND_SERVER_PORT}`,
+        );
+        const chip = await waitFor(
+          () =>
+            document.querySelector<HTMLElement>(
+              `[data-session-drop="${second.id}"] [data-duplicate-server="${SECOND_SERVER_PORT}"]`,
+            ),
+          5_000,
+          "the second-server chip in the second chat",
+        );
+        const chipText = chip.textContent?.replace(/\s+/g, " ").trim() ?? "";
+        if (
+          !chipText.includes(
+            `started a second dev server on :${SECOND_SERVER_PORT} while :${FIRST_SERVER_PORT} is running`,
+          )
+        )
+          throw new Error(`The chip reads "${chipText}"`);
+        const buttons = [...chip.querySelectorAll("button")];
+        const ask = buttons.find((button) =>
+          button.textContent?.startsWith("Ask "),
+        );
+        const keep = buttons.find(
+          (button) => button.textContent === "Keep both",
+        );
+        if (!ask || !keep)
+          throw new Error(
+            `The chip offers ${buttons.map((button) => `"${button.textContent}"`).join(", ") || "nothing"}`,
+          );
+        if (
+          document.querySelector(
+            `[data-session-drop="${first.id}"] [data-duplicate-server]`,
+          )
+        )
+          throw new Error("The first chat shows the chip too");
+
+        const told = await reply(
+          second.id,
+          "What else is running? AVEN_SMOKE_ECHO_NOTE",
+        );
+        for (const part of [
+          `http://localhost:${FIRST_SERVER_PORT}/`,
+          `You started a second dev server on :${SECOND_SERVER_PORT} while :${FIRST_SERVER_PORT}`,
+        ])
+          if (!told.includes(part))
+            throw new Error(`The second chat's next turn was told: ${told}`);
+
+        // The chip re-rendered while the turn ran; press its current button.
+        [
+          ...(document
+            .querySelector(
+              `[data-session-drop="${second.id}"] [data-duplicate-server="${SECOND_SERVER_PORT}"]`,
+            )
+            ?.querySelectorAll("button") ?? [keep]),
+        ]
+          .find((button) => button.textContent === "Keep both")
+          ?.click();
+        await waitFor(
+          () =>
+            !document.querySelector(
+              `[data-duplicate-server="${SECOND_SERVER_PORT}"]`,
+            ),
+          5_000,
+          "the chip to go after Keep both",
+        );
+        return `:${SECOND_SERVER_PORT} flagged beside :${FIRST_SERVER_PORT}; the next turn named :${FIRST_SERVER_PORT}`;
       },
     );
 

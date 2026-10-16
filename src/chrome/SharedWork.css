@@ -1,0 +1,136 @@
+/* Another chat's work in the same project: same-file edits and second
+   copies of a dev server. Quiet, with one amber mark. */
+.shared-work-bar,
+.duplicate-server-chip,
+.work-conflict-mark {
+  --shared-work-tone: var(--color-warning, #d99c45);
+}
+html.theme-light
+  :is(.shared-work-bar, .duplicate-server-chip, .work-conflict-mark) {
+  --shared-work-tone: #a8661c;
+}
+.shared-work-mark,
+.work-conflict-mark {
+  flex: 0 0 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--shared-work-tone);
+}
+.shared-work-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px 0 9px;
+  border: 1px solid color-mix(in srgb, var(--shared-work-tone) 28%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--shared-work-tone) 7%, transparent);
+  color: color-mix(in srgb, var(--color-content) 72%, transparent);
+  font-size: var(--text-ui-label);
+  line-height: 16px;
+}
+.shared-work-mark {
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--shared-work-tone) 16%, transparent);
+}
+
+/* A row in the sidebar whose chat bumps into another chat's work. */
+.work-conflict-mark {
+  display: inline-block;
+  align-self: center;
+}
+
+.duplicate-server-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--color-content);
+  font-family: var(--font-sans);
+  font-size: var(--text-ui-label);
+  line-height: 16px;
+}
+.duplicate-server-chip[data-placement="chat"] {
+  min-height: 32px;
+  margin: 0 4px 6px;
+  padding: 3px 4px 3px 11px;
+  border-radius: 8px;
+  background: var(--aven-glass-surface, var(--aven-hover));
+  -webkit-backdrop-filter: var(--aven-glass-blur, none);
+  backdrop-filter: var(--aven-glass-blur, none);
+}
+.duplicate-server-chip[data-placement="terminal"] {
+  flex: 0 1 auto;
+  align-self: center;
+  height: 24px;
+  margin: 0 6px;
+  padding: 0 2px 0 9px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--shared-work-tone) 9%, transparent);
+}
+.duplicate-server-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.duplicate-server-chip[data-state="handled"] .duplicate-server-copy {
+  color: var(--aven-muted);
+}
+.duplicate-server-action,
+.duplicate-server-dismiss {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  outline: none;
+  white-space: nowrap;
+}
+.duplicate-server-action {
+  height: 24px;
+  padding: 0 9px;
+  color: var(--color-content);
+  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+  font-weight: 500;
+}
+.duplicate-server-action[data-quiet] {
+  color: var(--aven-muted);
+  background: transparent;
+}
+.duplicate-server-action:hover {
+  color: var(--color-content);
+  background: color-mix(in srgb, var(--color-content) 14%, transparent);
+}
+.duplicate-server-dismiss {
+  width: 24px;
+  height: 24px;
+  color: var(--aven-muted);
+}
+.duplicate-server-dismiss:hover {
+  color: var(--color-content);
+  background: var(--aven-hover);
+}
+.duplicate-server-chip[data-placement="terminal"] .duplicate-server-action {
+  height: 20px;
+  padding: 0 7px;
+}
+.duplicate-server-action:focus-visible,
+.duplicate-server-dismiss:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 55%, transparent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .duplicate-server-chip,
+  .shared-work-bar {
+    animation: shared-work-in 160ms ease-out;
+  }
+}
+@keyframes shared-work-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}

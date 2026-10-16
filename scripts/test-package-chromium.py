@@ -30,7 +30,7 @@ class PrivacyPackagingTests(unittest.TestCase):
         (self.contents / 'Resources/icon.icns').write_bytes(b'fixture icon')
         (self.contents / 'MacOS/aven').write_bytes(b'fixture binary, never executed')
         (self.root / 'src-tauri').mkdir()
-        (self.root / 'src-tauri/Entitlements.plist').write_bytes(plistlib.dumps({}))
+        shutil.copy2(SOURCE_ROOT / 'src-tauri/Entitlements.plist', self.root / 'src-tauri/Entitlements.plist')
         for name in ('LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.txt'):
             (self.root / name).write_text('fixture notice')
         self.cef = self.root / 'cef'
@@ -168,6 +168,71 @@ class PrivacyPackagingTests(unittest.TestCase):
                     self.assertEqual(helper_info['CFBundleExecutable'], 'Aven Helper' + suffix)
                     self.assertTrue((helper / 'Contents/MacOS' / helper_info['CFBundleExecutable']).is_file())
                 self.assertTrue(any(call.args[0][:2] == ['codesign', '--verify'] for call in run.call_args_list))
+
+    def signed_entitlements(self, identity='-'):
+        """Package with signing simulated; return each signed bundle's entitlements."""
+        signed = {}
+
+        def simulated_run(command, _log, _env):
+            if command[0] == 'ditto':
+                shutil.copytree(command[1], command[2])
+            elif '--entitlements' in command:
+                path = Path(command[command.index('--entitlements') + 1])
+                signed[Path(command[-1]).name] = plistlib.loads(path.read_bytes())
+
+        info = self.host_info()
+        self.write_info(info)
+        with mock.patch.object(packager, 'run', side_effect=simulated_run), \
+             mock.patch.object(packager.subprocess, 'check_output', return_value=''):
+            packager.package(self.app, 'Aven', info['CFBundleIdentifier'], identity, io.StringIO(), {})
+        return signed
+
+    def test_source_grants_capture_entitlements_and_describes_their_purpose(self):
+        source = plistlib.loads((SOURCE_ROOT / 'src-tauri/Entitlements.plist').read_bytes())
+        for key in packager.CAPTURE_ENTITLEMENTS:
+            self.assertIs(source.get(key), True, key)
+        for key in ('NSMicrophoneUsageDescription', 'NSCameraUsageDescription'):
+            self.assertTrue(self.host_info().get(key, '').strip(), key)
+
+    def test_host_and_capture_helper_get_microphone_and_camera_entitlements(self):
+        for identity in ('-', 'A' * 40):
+            with self.subTest(identity=identity):
+                signed = self.signed_entitlements(identity)
+                self.assertEqual(set(signed), {'Aven.app'} | {
+                    'Aven Helper' + suffix + '.app' for suffix, _ in packager.HELPERS})
+                capture = {'Aven.app', 'Aven Helper.app'}
+                for bundle, values in signed.items():
+                    for key in packager.CAPTURE_ENTITLEMENTS:
+                        # Sandboxed renderer, GPU, plugin and alert helpers
+                        # never open devices, so they do not get the grant.
+                        self.assertEqual(values.get(key) is True, bundle in capture, bundle + ' ' + key)
+                self.assertTrue(signed['Aven.app']['com.apple.security.cs.allow-jit'])
+                self.assertTrue(signed['Aven Helper (Renderer).app']['com.apple.security.cs.allow-jit'])
+                self.assertNotIn('com.apple.security.cs.allow-jit', signed['Aven Helper.app'])
+                self.assertEqual('com.apple.security.cs.disable-library-validation' in signed['Aven Helper.app'],
+                                 identity == '-')
+
+    def test_missing_capture_entitlement_or_purpose_fails_before_bundle_mutation(self):
+        source = plistlib.loads((SOURCE_ROOT / 'src-tauri/Entitlements.plist').read_bytes())
+        cases = [('entitlement', key) for key in packager.CAPTURE_ENTITLEMENTS]
+        cases += [('purpose', key) for key in ('NSMicrophoneUsageDescription', 'NSCameraUsageDescription')]
+        for kind, key in cases:
+            with self.subTest(key=key):
+                values = dict(source)
+                info = self.host_info()
+                if kind == 'entitlement':
+                    values.pop(key)
+                else:
+                    info[key] = ' '
+                (self.root / 'src-tauri/Entitlements.plist').write_bytes(plistlib.dumps(values))
+                self.write_info(info)
+                before = self.snapshot()
+                with mock.patch.object(packager, 'run') as run:
+                    with self.assertRaisesRegex(RuntimeError, key):
+                        packager.package(self.app, 'Aven', info['CFBundleIdentifier'], '-', io.StringIO(), {})
+                    run.assert_not_called()
+                self.assertEqual(before, self.snapshot())
+                self.assertFalse((self.contents / 'Frameworks').exists())
 
     def test_explicit_keychain_is_used_for_all_final_signing(self):
         def simulated_run(command, _log, _env):

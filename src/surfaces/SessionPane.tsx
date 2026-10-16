@@ -14,6 +14,7 @@ import {
 import { Composer } from "../chrome/Composer";
 import { DevPreviewChip } from "../chrome/DevPreviewChip";
 import { MemoryKeeperOffer } from "../chrome/MemoryKeeper";
+import { DuplicateServerChip } from "../chrome/DuplicateServerChip";
 import { orchestrator, sameCheckout } from "../lib/orchestration";
 import { sessionWithManagedAgents } from "../lib/sessionAgents";
 import { OrchestrationWorkers } from "../chrome/OrchestrationActions";
@@ -739,6 +740,10 @@ export const SessionPane = memo(function SessionPane({
               placement="chat"
               requesterSessionId={session.id}
             />
+          ) : null}
+          {/* This chat started a second copy of a server that already runs. */}
+          {visible && !session.inboxAsk ? (
+            <DuplicateServerChip placement="chat" sessionId={session.id} />
           ) : null}
           <SessionRunStatus
             session={sessionWithManagedAgents(

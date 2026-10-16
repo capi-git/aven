@@ -5,6 +5,15 @@
 ### Added
 
 - Aven can keep a project's memory up to date for you. After your first finished task in a project whose memory is empty, the chat asks **Let Aven keep this project's memory up to date?** Turned on, Aven fills in the project's stack, how to run it, conventions, work in progress and gotchas, and refreshes its own sections after every eight finished tasks or once a day you use the project: never more than hourly, never while an agent works there, and not near a usage limit. It uses your cheapest model (Claude Haiku, else a small Codex model) with no tools, on a summary Aven reads itself that skips `.env` files and keys and ignores text that tries to instruct it. Your own lines are never changed, and a line you edit in Aven's sections becomes yours. The memory editor shows "Updated by Aven 2 h ago · +2 −1 lines · Undo", the model, its last run and **Refresh now**, and the sidebar marks an update until you open the memory. Turn it on or off there or in **Customize project…**.
+- Agents in one project now know what the others are doing. With each message, a chat is told (only when something changed) which dev servers are running and who started them, which other chats are working and the files they are editing, so it reuses the server you already started instead of opening another. If an agent starts a second copy of a running app anyway, its chat shows **Codex started a second dev server on :5174 while :5173 is running**, with **Keep both** and **Stop the new one** (or **Ask Codex to stop it** when Aven cannot stop it itself), and when two chats edit the same file at once both show **Codex is also editing src/App.tsx** above the message box and an amber mark in the sidebar.
+
+### Changed
+
+- Aven has a new logo, the Pixel A: a pixel-art A with one blue pixel at its peak. It replaces the chevron on the app icon, the Windows installer, the update card in the sidebar and the browser's icon for pages without one, and stays sharp at every size.
+
+### Fixed
+
+- Websites in Aven's browser can now use the microphone and camera. Before, macOS blocked them without asking. Now macOS asks you to allow Aven the first time a site needs them, Aven remembers your answer for each site (forget it from the browser's **⋯** menu), and if macOS is blocking Aven the tab says so with a button that opens the right Privacy & Security page.
 
 ## [0.1.142] - 2026-10-15
 
@@ -14,7 +23,6 @@
 
 ### Changed
 
-- Aven has a new logo, the Pixel A: a pixel-art A with one blue pixel at its peak. It replaces the chevron on the app icon, the Windows installer, the update card in the sidebar and the browser's icon for pages without one, and stays sharp at every size.
 - **Restart to update** no longer refuses with "Wait for current activity to finish". Aven waits a few seconds for background work such as a Claude Code or Codex tool update, brings detached tabs and Picture in Picture back, closes other workspace windows after saving them, and closes idle terminals by itself. If agents are working, waiting for your answer or have queued messages, or a terminal is running a command or a file has unsaved changes, one dialog lists them: **Restart when they finish** waits and restarts by itself, **Stop them and restart now** stops them first. Anything that still blocks is named.
 
 ## [0.1.141] - 2026-10-15

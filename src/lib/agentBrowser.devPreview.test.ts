@@ -59,27 +59,23 @@ async function prepare(cwd: string) {
   };
 }
 
-it("tells an agent with the browser which dev server is already running", async () => {
+it("leaves running dev servers to the shared-work note", async () => {
   const { announce, prompt } = await prepare("/Users/me/site");
-  expect(await prompt()).not.toContain("<aven-preview>");
   announce();
   const text = await prompt();
-  expect(text).toContain(
-    "<aven-preview>This project's dev server is running at http://localhost:5173/ (started in an Aven terminal).",
-  );
-  expect(text.indexOf("</aven-browser>")).toBeLessThan(
-    text.indexOf("<aven-preview>"),
-  );
+  expect(text).toContain("<aven-browser>");
+  expect(text).not.toContain("localhost:5173");
+  expect(text).not.toContain("<aven-preview>");
   expect(text.endsWith("Fix the header")).toBe(true);
-});
-
-it("leaves out stopped servers and other projects' servers", async () => {
-  const other = await prepare("/Users/me/api");
-  other.announce();
-  expect(await other.prompt()).not.toContain("<aven-preview>");
-  dispose?.();
-  const site = await prepare("/Users/me/site");
-  site.announce();
-  site.previews.stopDevServers("terminal:t1");
-  expect(await site.prompt()).not.toContain("<aven-preview>");
+  // One source of truth: the note names it, the browser guidance does not.
+  const { sharedWorkNoteFor } = await import("./sharedWorkNote");
+  expect(
+    sharedWorkNoteFor({
+      sessionId: "session-a",
+      harness: "claude",
+      cwd: "/Users/me/site",
+    }),
+  ).toContain(
+    "Dev server running: http://localhost:5173/ (started in the user's terminal).",
+  );
 });
