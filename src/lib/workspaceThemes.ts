@@ -54,6 +54,7 @@ export type WorkspaceTheme = {
   opacity: number;
   blur: number;
   bodyGlass: boolean;
+  /** Saved by earlier versions. Sidebars now always match the workspace. */
   matchPanels: boolean;
   colors?: ThemeColorOverrides;
   /** A wash of colour over the sidebar; absent or "none" keeps it plain. */
@@ -682,10 +683,9 @@ export function useActivateWorkspaceTheme(profileId: string) {
     applyThemeColors(theme.colors);
     applySidebarOpacity(theme.opacity);
     applyBodyGlass(theme.bodyGlass);
-    document.documentElement.classList.toggle(
-      "match-workspace-panels",
-      theme.matchPanels,
-    );
+    // Sidebars always share the workspace surface; a saved `matchPanels`
+    // from before that became the only look is kept but no longer read.
+    document.documentElement.classList.add("match-workspace-panels");
     applySidebarTint(theme.sidebarTint, theme.sidebarTintStrength);
     if (appliedBlur.current !== theme.blur) {
       appliedBlur.current = theme.blur;
@@ -703,7 +703,6 @@ export function useActivateWorkspaceTheme(profileId: string) {
     theme.opacity,
     theme.blur,
     theme.bodyGlass,
-    theme.matchPanels,
     theme.sidebarTint,
     theme.sidebarTintStrength,
     theme.colors?.dark?.background,
