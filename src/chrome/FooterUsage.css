@@ -27,10 +27,13 @@
   background: color-mix(in srgb, var(--color-content) 8%, transparent);
 }
 
-.footer-usage-account {
+/* One compact reading per account and for the chat's context: a mark or
+   label, a small bar and a percentage. Hover says the rest in plain words. */
+.footer-usage-account,
+.footer-usage-context {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 5px;
   min-width: 0;
 }
 
@@ -50,14 +53,15 @@
 
 /* Whole readings or nothing: the footer drops parts instead of cutting a
    number in half. */
-.footer-usage-windows {
+.footer-usage-percent {
   flex-shrink: 0;
+  min-width: 2.2em;
 }
 
 .footer-usage-meter {
   position: relative;
   flex-shrink: 0;
-  width: 44px;
+  width: 28px;
   height: 4px;
   overflow: hidden;
   border-radius: 99px;
@@ -130,29 +134,20 @@
   }
 }
 
-/* Narrower footers shed detail in steps: context, then weekly and later
-   windows, then the numbers. Everything stays in the details panel. */
-@container workspace-footer (max-width: 640px) {
+/* Narrower footers shed detail in steps: context, then the bars, then the
+   refresh button. Hover and the details panel keep everything. */
+@container workspace-footer (max-width: 480px) {
   .footer-usage-context,
   .footer-usage-context + .footer-usage-account > .footer-usage-divider {
     display: none;
   }
 }
-@container workspace-footer (max-width: 540px) {
-  .footer-usage-part + .footer-usage-part {
-    display: none;
-  }
+@container workspace-footer (max-width: 300px) {
   .footer-usage-meter {
-    width: 30px;
-  }
-}
-@container workspace-footer (max-width: 360px) {
-  .footer-usage-windows {
     display: none;
   }
 }
-@container workspace-footer (max-width: 240px) {
-  .footer-usage-meter,
+@container workspace-footer (max-width: 220px) {
   .footer-usage-refresh {
     display: none;
   }
