@@ -22,8 +22,20 @@ const INIT_TIMEOUT_MS = 8_000;
 const REQUEST_TIMEOUT_MS = 45_000;
 const TEXT_MODEL = "claude-haiku-4-5";
 
+/**
+ * How a helper process is started. Titles and commit messages use Claude
+ * Code's defaults; a `textOnly` call (the memory keeper) replaces the system
+ * prompt and offers no tools at all, so it can only answer with text.
+ */
+export type ClaudeTextProfile = {
+  systemPrompt?: string;
+  textOnly?: boolean;
+};
+
 type LiveText = {
   cwd: string;
+  /** The profile this process was started with, as a comparable key. */
+  profile: string;
   collecting: boolean;
   output: string;
   closed: boolean;
@@ -37,11 +49,23 @@ let live: LiveText | null = null;
 let turns: Promise<void> = Promise.resolve();
 
 function pickTextModel(): string {
+  return claudeTextModel().id;
+}
+
+/** The small model background text uses, and its name for the interface. */
+export function claudeTextModel(): { id: string; name: string } {
   const models = modelsFor("claude");
   const haiku = models.find((model) =>
     /haiku/i.test(`${model.nativeId ?? ""} ${model.name} ${model.id}`),
   );
-  return haiku?.nativeId ?? TEXT_MODEL;
+  return haiku?.nativeId
+    ? { id: haiku.nativeId, name: haiku.name }
+    : { id: TEXT_MODEL, name: "Haiku 4.5" };
+}
+
+function profileKey(profile: ClaudeTextProfile | undefined): string {
+  if (!profile?.systemPrompt && !profile?.textOnly) return "";
+  return JSON.stringify([profile.systemPrompt ?? "", !!profile.textOnly]);
 }
 
 export async function stopClaudeTextPrompt(): Promise<void> {
@@ -66,6 +90,7 @@ export async function runClaudeTextPrompt(input: {
   cwd: string;
   prompt: string;
   timeoutMs?: number;
+  profile?: ClaudeTextProfile;
 }): Promise<string> {
   const run = turns.catch(() => undefined).then(() => promptOnLive(input));
   turns = run.then(
@@ -79,8 +104,9 @@ async function promptOnLive(input: {
   cwd: string;
   prompt: string;
   timeoutMs?: number;
+  profile?: ClaudeTextProfile;
 }): Promise<string> {
-  const session = await ensureLive(input.cwd);
+  const session = await ensureLive(input.cwd, input.profile);
   session.output = "";
   session.collecting = true;
   const timeoutMs = input.timeoutMs ?? REQUEST_TIMEOUT_MS;
@@ -120,16 +146,29 @@ async function promptOnLive(input: {
   }
 }
 
-async function ensureLive(cwd: string): Promise<LiveText> {
-  if (live && !live.closed && live.cwd === cwd) return live;
+async function ensureLive(
+  cwd: string,
+  profile?: ClaudeTextProfile,
+): Promise<LiveText> {
+  if (
+    live &&
+    !live.closed &&
+    live.cwd === cwd &&
+    live.profile === profileKey(profile)
+  )
+    return live;
   await dropLive();
-  return startLive(cwd);
+  return startLive(cwd, profile);
 }
 
-async function startLive(cwd: string): Promise<LiveText> {
+async function startLive(
+  cwd: string,
+  profile?: ClaudeTextProfile,
+): Promise<LiveText> {
   const { path } = await resolveClaudeBinary();
   const session: LiveText = {
     cwd,
+    profile: profileKey(profile),
     collecting: false,
     output: "",
     closed: false,
@@ -160,6 +199,10 @@ async function startLive(cwd: string): Promise<LiveText> {
       buildClaudeSpawnArgs({
         isolated: true,
         model: pickTextModel(),
+        ...(profile?.systemPrompt
+          ? { systemPrompt: profile.systemPrompt }
+          : {}),
+        ...(profile?.textOnly ? { tools: [] } : {}),
       }),
       cwd,
     );

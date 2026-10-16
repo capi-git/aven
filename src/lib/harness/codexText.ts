@@ -24,9 +24,24 @@ const TEXT_RUNTIME_MODE = "supervised" as const;
 const TEXT_MODEL = "gpt-5.6-luna";
 const TEXT_EFFORT = "low";
 
+/**
+ * Configuration for a text-only thread (the memory keeper): no shell, no web
+ * search and no connected apps. The thread is read-only and every approval is
+ * declined as well, so nothing it is asked can act on the Mac.
+ */
+export const CODEX_TEXT_ONLY_CONFIG: Readonly<Record<string, unknown>> = {
+  "features.shell_tool": false,
+  "features.apps": false,
+  "features.browser_use": false,
+  "features.computer_use": false,
+  web_search: "disabled",
+};
+
 type LiveText = {
   rpc: JsonRpcClient;
   cwd: string;
+  /** Started with `CODEX_TEXT_ONLY_CONFIG`. */
+  textOnly: boolean;
   threadId: string;
   model: string;
   effort: string;
@@ -41,11 +56,18 @@ let live: LiveText | null = null;
 let turns: Promise<void> = Promise.resolve();
 
 function pickTextModel(): string {
+  return codexTextModel().id;
+}
+
+/** The small model background text uses, and its name for the interface. */
+export function codexTextModel(): { id: string; name: string } {
   const models = modelsFor("codex");
   const luna = models.find((model) =>
     /5\.6-luna/i.test(`${model.nativeId ?? ""} ${model.name} ${model.id}`),
   );
-  return luna?.nativeId ?? TEXT_MODEL;
+  return luna?.nativeId
+    ? { id: luna.nativeId, name: luna.name }
+    : { id: TEXT_MODEL, name: "GPT-5.6 Luna" };
 }
 
 function pickTextEffort(modelId: string): string {
@@ -84,6 +106,8 @@ export async function runCodexTextPrompt(input: {
   cwd: string;
   prompt: string;
   timeoutMs?: number;
+  /** A thread with no shell, web search or apps; see `CODEX_TEXT_ONLY_CONFIG`. */
+  textOnly?: boolean;
 }): Promise<string> {
   const run = turns.catch(() => undefined).then(() => promptOnLive(input));
   turns = run.then(
@@ -97,8 +121,9 @@ async function promptOnLive(input: {
   cwd: string;
   prompt: string;
   timeoutMs?: number;
+  textOnly?: boolean;
 }): Promise<string> {
-  const session = await ensureLive(input.cwd);
+  const session = await ensureLive(input.cwd, !!input.textOnly);
   session.output = "";
   session.collecting = true;
   const timeoutMs = input.timeoutMs ?? REQUEST_TIMEOUT_MS;
@@ -146,26 +171,32 @@ async function promptOnLive(input: {
   }
 }
 
-async function ensureLive(cwd: string): Promise<LiveText> {
+async function ensureLive(cwd: string, textOnly = false): Promise<LiveText> {
   const model = pickTextModel();
   const effort = pickTextEffort(model);
   if (live && !live.closed) {
-    if (live.cwd === cwd && live.model === model && live.effort === effort) {
+    if (
+      live.cwd === cwd &&
+      live.model === model &&
+      live.effort === effort &&
+      live.textOnly === textOnly
+    ) {
       return live;
     }
     try {
       live.model = model;
       live.effort = effort;
+      live.textOnly = textOnly;
       await openThread(live, cwd);
       return live;
     } catch {
       await dropLive();
     }
   }
-  return startLive(cwd);
+  return startLive(cwd, textOnly);
 }
 
-async function startLive(cwd: string): Promise<LiveText> {
+async function startLive(cwd: string, textOnly = false): Promise<LiveText> {
   await dropLive();
   const storage = await prepareCodexStorage();
   const { path } = await resolveCodexBinary();
@@ -187,6 +218,7 @@ async function startLive(cwd: string): Promise<LiveText> {
   const session: LiveText = {
     rpc,
     cwd,
+    textOnly,
     threadId: "",
     model,
     effort: pickTextEffort(model),
@@ -258,6 +290,7 @@ async function openThread(session: LiveText, cwd: string): Promise<void> {
         model: session.model || undefined,
       }),
       ephemeral: true,
+      ...(session.textOnly ? { config: { ...CODEX_TEXT_ONLY_CONFIG } } : {}),
     },
     INIT_TIMEOUT_MS,
   );
