@@ -294,6 +294,10 @@
   padding: 14px 0;
   border-bottom: 1px solid var(--settings-line);
 }
+/* The group surface already closes the card. */
+.settings-background-card:last-child {
+  border-bottom: 0;
+}
 .settings-background-heading {
   display: flex;
   align-items: start;

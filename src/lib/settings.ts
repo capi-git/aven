@@ -37,7 +37,7 @@ export const SETTINGS_SECTIONS: {
     id: "appearance",
     group: "Personal",
     label: "Appearance",
-    description: "Colors, transparency, and display preferences.",
+    description: "Theme, accent colour, glass and chat background.",
   },
   {
     id: "notifications",
