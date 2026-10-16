@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
+import { readFileSync } from "node:fs";
 import { act, createElement, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetHarnessModelOverlays, setHarnessModels } from "../lib/models";
 import {
@@ -19,6 +21,7 @@ import {
   titleSurfaceOrder,
   type Tab,
 } from "./TitleBar";
+import { SurfaceTabs } from "./SurfaceTabs";
 
 const nativeWindow = vi.hoisted(() => ({
   setFocus: vi.fn().mockResolvedValue(undefined),
@@ -108,7 +111,7 @@ describe("tabCopy", () => {
     expect(copy.meta).toBe("");
   });
 
-  it("names an untitled session after its real model without duplicating the projectless tooltip", () => {
+  it("labels an untitled session New session and keeps its real model in the tooltip", () => {
     setHarnessModels("codex", [
       { id: "codex:qa-model", harness: "codex", name: "QA Model" },
     ]);
@@ -117,8 +120,8 @@ describe("tabCopy", () => {
       true,
     );
     expect(copy).toEqual({
-      headline: "QA Model",
-      meta: "",
+      headline: "New session",
+      meta: "QA Model",
       tooltip: "QA Model",
     });
   });
@@ -373,6 +376,56 @@ describe("browser tab integration", () => {
     expect(pages).toHaveLength(3);
   });
 
+  it("gives chat, browser, file and terminal tabs one shared tab style", async () => {
+    await render({
+      paneLocal: true,
+      browserTabs: [
+        { id: "web-1", title: "First page", url: "https://example.com" },
+      ],
+      onSelectBrowser: vi.fn(),
+    });
+    const parts = (tab: Element) => ({
+      tab: tab.classList.contains("aven-tab"),
+      button: !!tab.querySelector(".aven-tab-button[role='tab']"),
+      label: !!tab.querySelector(".aven-tab-button .aven-tab-label"),
+      close: !!tab.querySelector("button.aven-tab-close"),
+      closable: tab.getAttribute("data-closable"),
+    });
+    const shared = {
+      tab: true,
+      button: true,
+      label: true,
+      close: true,
+      closable: "true",
+    };
+    const chat = container.querySelector('[data-surface-tab-id="a"]')!;
+    const browser = container.querySelector('[data-surface-tab-id="web-1"]')!;
+    expect(parts(chat)).toEqual(shared);
+    expect(parts(browser)).toEqual(shared);
+    // Chat and browser tabs size the same way: each sits in a shared slot.
+    expect(chat.closest(".aven-tab-slot")).not.toBeNull();
+    expect(browser.closest(".aven-tab-slot")).not.toBeNull();
+    const files = document.createElement("div");
+    files.innerHTML = renderToStaticMarkup(
+      createElement(SurfaceTabs, {
+        files: [{ id: "f", path: "/repo/README.md", cwd: "/repo" }],
+        activeFileId: "f",
+        dirtyFileIds: new Set<string>(),
+        fileErrorCounts: new Map<string, number>(),
+        onSelectFile: vi.fn(),
+        onCloseFile: vi.fn(),
+        onReorder: vi.fn(),
+        paneFocused: false,
+      }),
+    );
+    const file = files.querySelector(".aven-surface-tab-slot")!;
+    expect(parts(file)).toEqual(shared);
+    expect(file.classList).toContain("aven-tab-slot");
+    expect(
+      files.querySelector(".aven-tab-bar")?.getAttribute("data-pane-focused"),
+    ).toBe("false");
+  });
+
   it("keeps Recent inside the desktop app, anchored after resize, with search and Escape focus", async () => {
     vi.stubGlobal("innerWidth", 1200);
     vi.stubGlobal("innerHeight", 800);
@@ -535,7 +588,7 @@ describe("browser tab integration", () => {
     expect(container.querySelector('[data-surface-id="web-1"]')).not.toBeNull();
   });
 
-  it("updates untitled labels and titled model tooltips when the live model catalog arrives", async () => {
+  it("keeps untitled labels plain and updates model tooltips when the live model catalog arrives", async () => {
     const models = [{ harness: "codex" as const, model: "codex:qa-model" }];
     await render({
       paneLocal: true,
@@ -547,7 +600,7 @@ describe("browser tab integration", () => {
     const first = container.querySelector('[data-surface-tab-id="a"]')!;
     const second = container.querySelector('[data-surface-tab-id="b"]')!;
     expect(first.querySelector(".personal-title-tab-label")?.textContent).toBe(
-      "qa-model",
+      "New session",
     );
     expect(second.querySelector(".personal-title-tab-label")?.textContent).toBe(
       "Repair tabs",
@@ -558,8 +611,11 @@ describe("browser tab integration", () => {
       ]),
     );
     expect(first.querySelector(".personal-title-tab-label")?.textContent).toBe(
-      "QA Model 2",
+      "New session",
     );
+    expect(
+      first.querySelector('[role="tab"]')?.getAttribute("title"),
+    ).toContain("QA Model 2");
     expect(second.querySelector(".personal-title-tab-meta")).toBeNull();
     expect(
       second.querySelector('[role="tab"]')?.getAttribute("title"),
@@ -567,7 +623,7 @@ describe("browser tab integration", () => {
     expect(
       second.querySelector('[role="tab"]')?.getAttribute("aria-label"),
     ).toContain("Repair tabs · QA Model 2");
-    await click('[aria-label="Close QA Model 2"]');
+    await click('[aria-label="Close New session"]');
     expect(props.onClose).toHaveBeenCalledExactlyOnceWith("a");
   });
 
@@ -990,8 +1046,9 @@ describe("browser tab integration", () => {
       expect(root("b").dataset.hasMeta).toBeUndefined();
       const label = root("a").querySelector(".personal-title-tab-label")!;
       expect(label.textContent).toBe("Busy task");
-      // The base title size remains stable when a tab is selected or resized.
-      expect(label.className).toContain("text-ui-body");
+      // The shared tab style keeps one title size when a tab is selected or
+      // resized.
+      expect(label.className).toContain("aven-tab-label");
       expect(label.className).not.toMatch(/@min-/);
       expect(root("a").querySelector(".personal-title-tab-meta")).toBeNull();
       const control = root("a").querySelector('[role="tab"]')!;
@@ -2099,5 +2156,39 @@ describe("browser tab integration", () => {
         .click(),
     );
     expect(props.onReopenClosedTab).toHaveBeenCalledOnce();
+  });
+});
+
+describe("shared tab style", () => {
+  const css = readFileSync("src/chrome/TitleBar.css", "utf8");
+  const block = (selector: string) => {
+    const start = css.indexOf(`\n${selector} {`);
+    if (start < 0) throw new Error(`Missing ${selector}`);
+    return css.slice(start, css.indexOf("\n}", start));
+  };
+
+  it("sets height, radius, padding, fills and close behaviour once", () => {
+    expect(block(".aven-tab-button")).toMatch(
+      /height: 26px;[\s\S]*padding-inline: 8px 10px;[\s\S]*border-radius: 6px;/,
+    );
+    expect(block('.aven-tab[data-active="true"] .aven-tab-button')).toContain(
+      "background: var(--aven-tab-selected);",
+    );
+    expect(block(".aven-tab-close")).toContain("opacity: 0;");
+    expect(block('.aven-tab[data-active="true"] .aven-tab-close')).toContain(
+      "opacity: 0.65;",
+    );
+    expect(block(".aven-tab-slot")).toContain("flex: 0 1 224px;");
+  });
+
+  it("leaves no per-family copy of the tab's size or fills", () => {
+    for (const family of [
+      ".personal-title-tab-button {",
+      ".aven-surface-tab-slot",
+      ".aven-surface-tab-button",
+      ".aven-surface-tab-close",
+      ".personal-title-tab-close {",
+    ])
+      expect(css).not.toContain(family);
   });
 });

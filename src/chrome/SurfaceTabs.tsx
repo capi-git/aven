@@ -38,6 +38,8 @@ type Props = {
   onPaneDragStart?: (event: ReactPointerEvent<HTMLElement>) => void;
   label?: string;
   trailing?: ReactNode;
+  /** False dims the active tab's fill while another pane has focus. */
+  paneFocused?: boolean;
 };
 
 export type SurfaceTabPresentation = {
@@ -147,6 +149,7 @@ export function SurfaceTabs({
   onPaneDragStart,
   label = "Open files",
   trailing,
+  paneFocused,
 }: Props) {
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const tabStripRef = useRef<HTMLDivElement | null>(null);
@@ -187,7 +190,10 @@ export function SurfaceTabs({
   });
 
   return (
-    <div className="aven-surface-tabs flex h-9 min-w-0 shrink-0 border-b border-content/10 bg-content/2">
+    <div
+      className="aven-surface-tabs aven-tab-bar flex min-w-0 shrink-0"
+      data-pane-focused={paneFocused}
+    >
       <div
         ref={setTabStripRef}
         data-sortable-scroll-container
@@ -195,7 +201,7 @@ export function SurfaceTabs({
         tabIndex={visibleIds.length ? -1 : 0}
         aria-label={label}
         aria-orientation="horizontal"
-        className="aven-surface-tab-strip scrollbar-none flex min-w-0 flex-1 overflow-x-auto overscroll-none"
+        className="aven-surface-tab-strip aven-tab-strip scrollbar-none flex min-w-0 flex-1 items-center overflow-x-auto overscroll-none"
         onBlurCapture={(event) => {
           if (
             !(event.relatedTarget instanceof Node) ||
@@ -282,12 +288,12 @@ export function SurfaceTabs({
                 sortable.setItemRef(file.id, el);
               }}
               data-active={active}
+              data-closable
+              data-draggable={canDrag || undefined}
               onFocusCapture={(event) => {
                 focusedTabControlRef.current = event.target as HTMLElement;
               }}
-              className={`aven-surface-tab-slot group relative flex w-52 min-w-28 shrink touch-none items-stretch border-r border-content/10 ${
-                active ? "bg-content/8" : "hover:bg-content/5"
-              } ${canDrag ? "cursor-grab active:cursor-grabbing" : ""}`}
+              className="aven-surface-tab-slot aven-tab aven-tab-slot group relative flex h-full shrink touch-none items-center"
               onPointerDown={(event) => {
                 if (event.button !== 0) return;
                 if (
@@ -326,13 +332,7 @@ export function SurfaceTabs({
                     if (sortable.consumeClick()) return;
                     onSelectFile(file.id);
                   }}
-                  className={`aven-surface-tab-button flex min-w-0 flex-1 items-center gap-1.5 px-3 pr-8 text-left text-ui-label ${
-                    canDrag ? "cursor-grab active:cursor-grabbing" : ""
-                  } ${
-                    active
-                      ? "text-content"
-                      : "text-content/55 hover:text-content"
-                  }`}
+                  className="aven-surface-tab-button aven-tab-button flex min-w-0 flex-1 items-center text-left"
                 >
                   {terminal ? (
                     <Terminal
@@ -355,10 +355,10 @@ export function SurfaceTabs({
                       strokeWidth={1.75}
                     />
                   ) : (
-                    <FileTypeIcon name={iconName} isDir={false} size={15} />
+                    <FileTypeIcon name={iconName} isDir={false} size={14} />
                   )}
                   <span
-                    className={`aven-surface-tab-label min-w-0 flex-1 truncate ${review ? "italic" : ""} ${
+                    className={`aven-surface-tab-label aven-tab-label min-w-0 flex-1 truncate ${review ? "italic" : ""} ${
                       errors
                         ? active
                           ? "text-red-400"
@@ -387,9 +387,7 @@ export function SurfaceTabs({
                     event.stopPropagation();
                     onCloseFile(file.id);
                   }}
-                  className={`aven-surface-tab-close absolute right-1.5 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-content/50 hover:bg-content/10 hover:text-content ${
-                    active ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-                  }`}
+                  className="aven-surface-tab-close aven-tab-close"
                 >
                   <X className="size-3" strokeWidth={1.75} />
                 </button>

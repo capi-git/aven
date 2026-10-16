@@ -101,16 +101,24 @@ const button = (label: RegExp) => {
 };
 
 describe("footer usage", () => {
-  it("shows Claude and Codex side by side in a fixed order", async () => {
+  it("shows Claude and Codex side by side in a fixed order, each at its closest limit", async () => {
     await render({ providers: ["codex", "claude"] });
     expect(api.claude).toHaveBeenCalledOnce();
     expect(api.codex).toHaveBeenCalledOnce();
-    const accounts = [
-      ...container.querySelectorAll(".footer-usage-account"),
-    ].map((node) => node.textContent);
-    expect(accounts).toEqual(["2% 3h 57m · 15% 4d 17h", "4%"]);
+    const accounts = [...container.querySelectorAll(".footer-usage-account")];
+    // Claude's weekly window (15%) is closer to its limit than its 5-hour (2%).
+    expect(accounts.map((node) => node.textContent)).toEqual(["15%", "4%"]);
+    expect(
+      accounts.map(
+        (node) => node.querySelectorAll(".footer-usage-meter").length,
+      ),
+    ).toEqual([1, 1]);
+    expect(accounts.map((node) => node.getAttribute("title"))).toEqual([
+      "Claude: 2% of your 5-hour limit used, resets in 3h 57m · 15% of your weekly limit, resets in 4d 17h",
+      "Codex: 4% of your weekly limit used",
+    ]);
     expect(button(/Show usage details/).getAttribute("aria-label")).toBe(
-      "Claude Code usage 2% 3h 57m, 15% 4d 17h · Codex usage 4%. Show usage details",
+      "Claude: 2% of your 5-hour limit used, resets in 3h 57m · 15% of your weekly limit, resets in 4d 17h. Codex: 4% of your weekly limit used. Show usage details",
     );
   });
 
@@ -143,8 +151,10 @@ describe("footer usage", () => {
     vi.setSystemTime(minutes(1));
     await render({ providers: ["claude"] });
     expect(api.claude).toHaveBeenCalledOnce();
-    expect(container.querySelector(".footer-usage-account")?.textContent).toBe(
-      "2% 3h 56m · 15% 4d 16h",
+    const account = container.querySelector(".footer-usage-account");
+    expect(account?.textContent).toBe("15%");
+    expect(account?.getAttribute("title")).toBe(
+      "Claude: 2% of your 5-hour limit used, resets in 3h 56m · 15% of your weekly limit, resets in 4d 16h",
     );
   });
 
@@ -163,8 +173,10 @@ describe("footer usage", () => {
       for (let i = 0; i < 5; i++) await Promise.resolve();
     });
     expect(api.claude).toHaveBeenCalledTimes(2);
-    expect(container.querySelector(".footer-usage-account")?.textContent).toBe(
-      "2% 3h 57m · 15% 4d 17h",
+    const account = container.querySelector(".footer-usage-account");
+    expect(account?.textContent).toBe("15%");
+    expect(account?.getAttribute("title")).toContain(
+      "2% of your 5-hour limit used, resets in 3h 57m",
     );
   });
 
@@ -173,9 +185,14 @@ describe("footer usage", () => {
       providers: ["claude"],
       context: { used: 50_000, window: 200_000 },
     });
-    expect(container.textContent).toContain("Context 25%");
+    const context = container.querySelector(".footer-usage-context")!;
+    expect(context.textContent).toBe("Context25%");
+    expect(context.querySelector(".footer-usage-meter")).not.toBeNull();
+    expect(context.getAttribute("title")).toBe(
+      "Context: 25% of this chat's context window used (50K of 200K tokens)",
+    );
     expect(button(/Show usage details/).getAttribute("aria-label")).toContain(
-      "Context 25% · Claude Code usage 2% 3h 57m, 15% 4d 17h",
+      "Context: 25% of this chat's context window used (50K of 200K tokens). Claude: 2% of your 5-hour limit used",
     );
   });
 
@@ -190,7 +207,7 @@ describe("footer usage", () => {
     });
     await render({ providers: ["codex", "claude"] });
     expect(container.querySelectorAll(".footer-usage-account")).toHaveLength(1);
-    expect(container.textContent).toContain("2% 3h 57m · 15% 4d 17h");
+    expect(container.textContent).toContain("15%");
   });
 
   it("does not start a provider check while the window is hidden", async () => {
@@ -212,8 +229,8 @@ describe("footer usage", () => {
         ?.hasAttribute("data-forecast"),
     ).toBe(false);
     expect(
-      container.querySelector(".footer-usage-account")?.hasAttribute("title"),
-    ).toBe(false);
+      container.querySelector(".footer-usage-account")?.getAttribute("title"),
+    ).not.toContain("At this pace");
   });
 
   it("marks the meter and says when a limit comes before its reset", async () => {
@@ -241,11 +258,13 @@ describe("footer usage", () => {
         .querySelector(".footer-usage-meter")
         ?.getAttribute("data-forecast"),
     ).toBe("warning");
-    expect(
-      container.querySelector(".footer-usage-account")?.getAttribute("title"),
-    ).toBe("5-hour: ~1h 20m to limit at this pace · resets in 3h 57m");
+    const account = container.querySelector(".footer-usage-account");
+    expect(account?.textContent).toBe("60%");
+    expect(account?.getAttribute("title")).toBe(
+      "Claude: 60% of your 5-hour limit used, resets in 3h 57m · 15% of your weekly limit, resets in 4d 17h\nAt this pace you'll hit Claude's 5-hour limit in about an hour.",
+    );
     expect(button(/Show usage details/).getAttribute("aria-label")).toBe(
-      "Claude Code usage 60% 3h 57m, 15% 4d 17h, 5-hour limit in about an hour at this pace. Show usage details",
+      "Claude: 60% of your 5-hour limit used, resets in 3h 57m · 15% of your weekly limit, resets in 4d 17h. At this pace you'll hit Claude's 5-hour limit in about an hour. Show usage details",
     );
     await act(async () => button(/Show usage details/).click());
     const detail = container.querySelector<HTMLElement>(

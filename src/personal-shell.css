@@ -668,15 +668,6 @@ html.theme-light .personal-shell .personal-main.body-glass {
   border-radius: 10px;
   box-shadow: none;
 }
-html.theme-light .personal-shell .workspace-stage-surface {
-  border-radius: 9px;
-}
-html.theme-light .personal-shell .workspace-stage-surface[data-focused="true"] {
-  border-color: transparent;
-}
-html.theme-light .personal-shell .workspace-stage-header {
-  border-radius: 8px 8px 0 0;
-}
 html.theme-light .personal-shell .workspace-status-bar {
   height: 40px;
   min-height: 40px;
@@ -846,9 +837,24 @@ html.theme-light.is-mac
   background: transparent;
   outline: none;
 }
+/* Docked panels meet the pane cards across the workspace gap, so their edge
+   needs no resting line; pointing at it, focusing or dragging still shows the
+   divider. The status bar likewise sits below the cards without a rule. */
+.personal-shell[data-unified-toolbar]
+  .personal-panel-resizer:not(
+    :hover,
+    :focus-visible,
+    [data-resizing="true"]
+  )::after {
+  background: transparent;
+}
+.personal-shell[data-unified-toolbar] .workspace-footer {
+  box-shadow: none;
+}
 
-/* Design A: a single window toolbar over a continuous workspace. The native
-   window supplies the outer curve; only controls and floating panels are round. */
+/* Design A: a single window toolbar over the workspace. The native window
+   supplies the outer curve; panes rest on the workspace as rounded cards
+   (WorkspaceStage.css), and controls and floating panels are round. */
 .personal-shell[data-unified-toolbar] {
   flex-direction: column;
 }
@@ -892,14 +898,37 @@ html .personal-shell[data-unified-toolbar] .personal-main.body-glass {
   border: 0;
   border-radius: 0;
 }
-html .personal-shell[data-unified-toolbar] .workspace-stage-surface {
-  /* Keep the transparent 1px inset used by wallpaper/native pane geometry. */
-  border-color: transparent;
-  border-radius: 0;
+/* The project terminal is a card too, on the same gap. The side that faces
+   the workspace takes its gap from the panes' outer edge. */
+html .personal-shell[data-unified-toolbar] [data-project-terminal-dock] {
+  height: calc(100% - 10px);
+  margin: 5px;
+  border: 1px solid var(--aven-glass-card-edge);
+  border-radius: var(--aven-radius-card);
+  box-shadow: var(--aven-control-shadow);
+  overflow: hidden;
 }
-html .personal-shell[data-unified-toolbar] .workspace-stage-header,
-.personal-shell[data-unified-toolbar] .browser-native-host {
-  border-radius: 0;
+html
+  .personal-shell[data-unified-toolbar]
+  [data-project-terminal-dock][data-dock-side="bottom"] {
+  height: calc(100% - 5px);
+  margin-top: 0;
+}
+html
+  .personal-shell[data-unified-toolbar]
+  [data-project-terminal-dock][data-dock-side="top"] {
+  height: calc(100% - 5px);
+  margin-bottom: 0;
+}
+html
+  .personal-shell[data-unified-toolbar]
+  [data-project-terminal-dock][data-dock-side="left"] {
+  margin-right: 0;
+}
+html
+  .personal-shell[data-unified-toolbar]
+  [data-project-terminal-dock][data-dock-side="right"] {
+  margin-left: 0;
 }
 .personal-shell[data-unified-toolbar] .personal-titlebar {
   background: transparent;

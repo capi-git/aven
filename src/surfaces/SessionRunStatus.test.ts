@@ -198,6 +198,29 @@ describe("persistent agent run status", () => {
     },
   );
 
+  it("shows a calm finish as one slim line and keeps states that need you as cards", async () => {
+    session = {
+      ...session,
+      busy: false,
+      blocks: session.blocks.map((block) => ({ ...block, durationMs: 4000 })),
+    };
+    ledger.entries = [outcome("completed")];
+    await render();
+    const line = host.querySelector<HTMLElement>(".session-run-done")!;
+    expect(line.getAttribute("role")).toBe("status");
+    expect(line.textContent).toContain("Finished");
+    expect(line.querySelector('[role="timer"]')?.textContent).toBe("4s");
+    expect(host.querySelector(".session-run-status")).toBeNull();
+    expect(host.querySelector(".session-run-mark")).toBeNull();
+    ledger.entries = [outcome("failed")];
+    session = { ...session };
+    await render();
+    expect(host.querySelector(".session-run-done")).toBeNull();
+    expect(
+      host.querySelector('.session-run-status[data-run-state="failed"]'),
+    ).not.toBeNull();
+  });
+
   it("unmounts hidden panes' status and timer and catches up when shown", async () => {
     await render();
     expect(vi.getTimerCount()).toBe(1);

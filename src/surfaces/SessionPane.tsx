@@ -77,6 +77,7 @@ import {
 } from "../lib/appearance";
 import type { PaletteAgent } from "../lib/commandPalette";
 import type { DiscussionHost } from "../lib/discussions";
+import "./SessionPane.css";
 
 type Props = {
   session: Session;
@@ -85,6 +86,11 @@ type Props = {
   focused: boolean;
   addToChatTarget?: boolean;
   inSplit: boolean;
+  /**
+   * Name the pane in its split controls. Off when it is the tab's only chat,
+   * whose tab already carries the title.
+   */
+  namedInSplit?: boolean;
   composerFocused: boolean;
   recents: RecentProject[];
   hideProjectPicker?: boolean;
@@ -176,6 +182,7 @@ export const SessionPane = memo(function SessionPane({
   focused,
   addToChatTarget = focused,
   inSplit,
+  namedInSplit = true,
   composerFocused,
   recents,
   hideProjectPicker,
@@ -598,11 +605,18 @@ export const SessionPane = memo(function SessionPane({
       {astraWelcomeRun !== null && visible ? (
         <AstraWelcome key={astraWelcomeRun} onDone={dismissAstraWelcome} />
       ) : null}
+      {/* The tab strip above is this pane's only bar. In a split, moving and
+          closing the pane appear over its top corner on hover or focus, so
+          they take no row of their own. */}
       {inSplit ? (
         <div
-          className={`flex h-9 shrink-0 touch-none items-center gap-1.5 border-b border-content/10 px-2 select-none ${
-            onPaneDragStart ? "cursor-grab active:cursor-grabbing" : ""
-          }`}
+          className="session-pane-controls"
+          data-session-pane-controls
+          data-focused={focused || undefined}
+          data-draggable={onPaneDragStart ? "true" : undefined}
+          title={
+            onPaneDragStart ? "Drag to move or split this pane" : undefined
+          }
           onPointerDown={(event) => {
             if (event.button !== 0 || !onPaneDragStart) return;
             if (
@@ -615,27 +629,18 @@ export const SessionPane = memo(function SessionPane({
         >
           {onPaneDragStart ? (
             <GripVertical
-              className="size-3.5 shrink-0 text-content/35"
+              className="size-3.5 shrink-0"
               strokeWidth={1.75}
+              aria-hidden
             />
           ) : null}
-          <span
-            className={`size-2 shrink-0 rounded-full ${focused ? "bg-accent" : "bg-transparent"}`}
-          />
-          <span
-            className="min-w-0 flex-1 truncate text-xs text-content"
-            data-session-pane-label
-            title={paneLabel.tooltip}
-          >
-            {paneLabel.headline}
-          </span>
-          {paneLabel.model ? (
+          {namedInSplit ? (
             <span
-              className="max-w-[45%] shrink truncate text-ui-micro text-content/45"
-              data-session-pane-model
-              title={paneLabel.model}
+              className="session-pane-controls-label"
+              data-session-pane-label
+              title={paneLabel.tooltip}
             >
-              {paneLabel.model}
+              {paneLabel.headline}
             </span>
           ) : null}
           <button
@@ -643,7 +648,7 @@ export const SessionPane = memo(function SessionPane({
             title={`Close Pane (${MOD}W)`}
             aria-label="Close pane"
             data-no-drag
-            className="grid size-5 shrink-0 place-items-center rounded text-content/50 hover:bg-content/10 hover:text-content"
+            className="session-pane-close"
             onPointerDown={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => {

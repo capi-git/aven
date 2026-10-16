@@ -41,6 +41,7 @@ import { IS_MAC, MOD } from "../lib/platform";
 import { resolveModel } from "../lib/models";
 import { HARNESS_TITLE, sessionDisplayTitle } from "../lib/session";
 import { copyText } from "../lib/clipboard";
+import { syncTruncatedTitle } from "../lib/truncatedTitle";
 import { nextUnseenFinishedSessions } from "../lib/sessionDone";
 import {
   orderedSessionActionIds,
@@ -1776,6 +1777,9 @@ function SidebarComponent({
                                   key={session.id}
                                   type="button"
                                   className="personal-other-task personal-task-card"
+                                  onPointerEnter={(event) =>
+                                    syncTruncatedTitle(event.currentTarget)
+                                  }
                                   onClick={() => onSelectSession(session.id)}
                                   {...plainRowProps(session.id)}
                                   {...talkRow(session.id)}
@@ -1981,6 +1985,9 @@ function SidebarComponent({
                                     key={session.id}
                                     type="button"
                                     className="personal-other-task personal-task-card"
+                                    onPointerEnter={(event) =>
+                                      syncTruncatedTitle(event.currentTarget)
+                                    }
                                     onClick={() =>
                                       onSelectProjectSession?.(
                                         project.path,

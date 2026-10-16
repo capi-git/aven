@@ -65,6 +65,8 @@ type Options = DevPerfOptions & {
   projectMemory?: (path: string) => Promise<string>;
   /** Chats show second dev servers and receive the shared-work note. */
   sharedWork?: boolean;
+  /** Panes are drawn as cards with one bar each and the shared tab style. */
+  paneLayout?: boolean;
 };
 
 type SmokeUtilities = {
@@ -439,6 +441,87 @@ function discussionPage(id?: string): HTMLElement | null {
       ),
     ].find((page) => page.getClientRects().length > 0) ?? null
   );
+}
+
+/**
+ * Why a tab holding a chat beside a file pane (here, a discussion's page)
+ * does not draw one bar per pane, panes as cards and one tab style, or null
+ * with what it measured.
+ */
+export function paneLayoutProblem(page: HTMLElement): {
+  problem: string | null;
+  summary: string;
+} {
+  const fail = (problem: string) => ({ problem, summary: "" });
+  const card = page.closest<HTMLElement>(".workspace-stage-surface");
+  const stage = card?.closest<HTMLElement>("[data-workspace-stage]");
+  if (!card || !stage) return fail("the page is not in a workspace pane");
+  const chat = [
+    ...card.querySelectorAll<HTMLElement>("[data-session-drop]"),
+  ].find((pane) => pane.getClientRects().length > 0);
+  if (!chat) return fail("no chat is beside the page");
+  // One bar: moving and closing the chat float over it, taking no row.
+  const controls = chat.querySelector<HTMLElement>(
+    ":scope > [data-session-pane-controls]",
+  );
+  if (!controls) return fail("the split chat has no move and close controls");
+  if (getComputedStyle(controls).position !== "absolute")
+    return fail("the split chat's controls take a row of their own");
+  const chatTop = chat.getBoundingClientRect().top;
+  const content = [...chat.children].find(
+    (child) =>
+      child instanceof HTMLElement &&
+      getComputedStyle(child).position !== "absolute",
+  );
+  const offset = content ? content.getBoundingClientRect().top - chatTop : 0;
+  if (Math.abs(offset) > 1)
+    return fail(
+      `the split chat's content starts ${Math.round(offset)}px below a second header`,
+    );
+  // A card: rounded, with a hairline edge, clear of the workspace's edges.
+  const style = getComputedStyle(card);
+  const radius = parseFloat(style.borderTopLeftRadius);
+  if (!(radius >= 6)) return fail(`the pane's corners are ${radius}px`);
+  if (parseFloat(style.borderTopWidth) !== 1)
+    return fail(`the pane's edge is ${style.borderTopWidth}`);
+  const cardRect = card.getBoundingClientRect();
+  const stageRect = stage.getBoundingClientRect();
+  const inset = Math.min(
+    cardRect.left - stageRect.left,
+    cardRect.top - stageRect.top,
+    stageRect.right - cardRect.right,
+    stageRect.bottom - cardRect.bottom,
+  );
+  if (inset < 3) return fail(`the card is ${inset}px from the workspace edge`);
+  // One tab style: the tab strip above the chat and the page's own tabs.
+  const header = stage.querySelector<HTMLElement>(
+    `:scope > [data-workspace-header="${card.dataset.workspaceSurface}"]`,
+  );
+  const chatTab = header?.querySelector<HTMLElement>(".aven-tab-button");
+  const fileBar = page
+    .closest<HTMLElement>("[data-pane-id]")
+    ?.querySelector<HTMLElement>(".aven-surface-tabs");
+  const fileTab = fileBar?.querySelector<HTMLElement>(".aven-tab-button");
+  if (!header || !chatTab || !fileBar || !fileTab)
+    return fail("the chat or the page has no tab");
+  const height = (element: HTMLElement) =>
+    Math.round(element.getBoundingClientRect().height);
+  if (height(header) !== height(fileBar))
+    return fail(
+      `the chat's tab bar is ${height(header)}px and the page's is ${height(fileBar)}px`,
+    );
+  const look = (element: HTMLElement) => {
+    const tab = getComputedStyle(element);
+    return `${height(element)}px tall, ${tab.borderTopLeftRadius} corners`;
+  };
+  if (look(chatTab) !== look(fileTab))
+    return fail(
+      `the chat's tab is ${look(chatTab)} and the page's is ${look(fileTab)}`,
+    );
+  return {
+    problem: null,
+    summary: `one bar per pane; cards with ${radius}px corners ${Math.round(inset)}px from the edge; chat and page tabs ${look(chatTab)}`,
+  };
 }
 
 /**
@@ -1375,6 +1458,35 @@ export async function runDevSmoke(
           ? "linked, still (reduced motion)"
           : "linked with the pulse toward the answering chat";
         return `started from Discuss mode; 4 replies relayed once each and shown alternating on one page; ${moved}; your message reached both chats once and sits where they read it; a reply marked as agreeing; ended after 2 rounds; its relay card reopens the page; summed up with both lists; "${label}" sent the plan`;
+      },
+    );
+
+  // The discussion's page stays open beside the chat that started it: a tab
+  // with a chat and a file pane, drawn with one bar per pane, as cards, and
+  // with one tab style.
+  if (safe && discussion && get().paneLayout)
+    await step(
+      "a chat beside a page has one bar, a card and the shared tabs",
+      async () => {
+        const page = await waitFor(
+          () => discussionPage(),
+          5_000,
+          "the discussion's page beside its chat",
+        );
+        let result = paneLayoutProblem(page);
+        try {
+          await waitFor(
+            () => {
+              result = paneLayoutProblem(page);
+              return !result.problem;
+            },
+            3_000,
+            "the panes to settle",
+          );
+        } catch {
+          throw new Error(result.problem ?? "the panes did not settle");
+        }
+        return result.summary;
       },
     );
 

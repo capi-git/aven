@@ -17,7 +17,7 @@ import { Popover } from "./Popover";
 import { useUsagePanelTheme } from "../lib/usagePanel";
 import { ActivityPanel } from "./ActivityPanel";
 import { useActivity } from "../lib/activity";
-import { sessionModelIdentity, sessionModelName } from "../lib/sessionLabels";
+import { sessionModelIdentity } from "../lib/sessionLabels";
 import {
   Check,
   ListBullet,
@@ -439,21 +439,18 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
         aria-expanded={menu === "queue"}
         onClick={() => setMenu(menu === "queue" ? null : "queue")}
       >
-        {!showingSettings ? (
+        {/* The composer's agent pill names the model. Here the provider's
+            mark only shows whether the chat in front is working. */}
+        {!showingSettings && session ? (
           <span className="workspace-status-context">
             <ProviderMarks
-              harnesses={session ? [sessionModelIdentity(session).harness] : []}
+              harnesses={[sessionModelIdentity(session).harness]}
               busyHarnesses={
-                session?.busy && !sessionIsWaitingForInput(session)
+                session.busy && !sessionIsWaitingForInput(session)
                   ? [sessionModelIdentity(session).harness]
                   : []
               }
             />
-            <span>
-              {session
-                ? sessionModelName(sessionModelIdentity(session))
-                : "Aven"}
-            </span>
           </span>
         ) : null}
         <QueueIcon size={12} aria-hidden />

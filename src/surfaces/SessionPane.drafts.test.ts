@@ -140,27 +140,27 @@ describe("session pane draft and header ownership", () => {
     });
   });
 
-  it("shows the model for a fresh split pane, then preserves a generated title with model context", async () => {
+  it("leaves the model to the agent pill and keeps the split pane's controls in one floating chip", async () => {
     await render({ model: "codex:qa-model", title: "codex" }, true);
-    expect(
-      container.querySelector("[data-session-pane-label]")?.textContent,
-    ).toBe("qa-model");
+    const label = () => container.querySelector("[data-session-pane-label]");
+    expect(label()?.textContent).toBe("New session");
     await act(async () =>
       setHarnessModels("codex", [
         { id: "codex:qa-model", harness: "codex", name: "QA Model" },
       ]),
     );
-    expect(
-      container.querySelector("[data-session-pane-label]")?.textContent,
-    ).toBe("QA Model");
+    expect(label()?.textContent).toBe("New session");
+    expect(label()?.getAttribute("title")).toBe("QA Model");
     expect(container.querySelector("[data-session-pane-model]")).toBeNull();
     await render({ title: "codex · Repair preview" });
-    expect(
-      container.querySelector("[data-session-pane-label]")?.textContent,
-    ).toBe("Repair preview");
-    expect(
-      container.querySelector("[data-session-pane-model]")?.textContent,
-    ).toBe("QA Model");
+    expect(label()?.textContent).toBe("Repair preview");
+    expect(container.textContent).not.toContain("QA Model");
+    // One chip, layered over the pane: no header row pushes the transcript.
+    const controls = container.querySelector<HTMLElement>(
+      "[data-session-pane-controls]",
+    )!;
+    expect(controls.parentElement?.classList).toContain("chat-pane-background");
+    expect(controls.classList).toContain("session-pane-controls");
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>('[aria-label="Close pane"]')!
@@ -169,7 +169,7 @@ describe("session pane draft and header ownership", () => {
     expect(props.onClose).toHaveBeenCalledExactlyOnceWith("one");
   });
 
-  it("labels the still-running provider while the next provider is selected, then updates when idle", async () => {
+  it("names the still-running model in the pane's tooltip while the next one is selected, then updates when idle", async () => {
     await render(
       {
         harness: "claude",
@@ -193,13 +193,11 @@ describe("session pane draft and header ownership", () => {
       },
       true,
     );
-    expect(
-      container.querySelector("[data-session-pane-label]")?.textContent,
-    ).toBe("running-model");
+    const label = () => container.querySelector("[data-session-pane-label]");
+    expect(label()?.textContent).toBe("New session");
+    expect(label()?.getAttribute("title")).toBe("running-model");
     await render({ busy: false });
-    expect(
-      container.querySelector("[data-session-pane-label]")?.textContent,
-    ).toBe("next-model");
+    expect(label()?.getAttribute("title")).toBe("next-model");
     expect(props.onSubmit).not.toHaveBeenCalled();
   });
 

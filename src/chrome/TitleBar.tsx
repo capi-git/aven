@@ -217,7 +217,9 @@ export function tabCopy(
   const sessions = sessionMeta(tab);
   const modelNames = sessionModelNames(tab.models);
   const models = compactModelNames(modelNames);
-  const untitled = models || "New session";
+  // The composer's agent pill names the model; an untitled tab does not
+  // repeat it. The tooltip still lists every model in the tab.
+  const untitled = "New session";
 
   let headline: string;
   const metaParts: string[] = [];
@@ -361,8 +363,9 @@ function TitleTabItem({
         sortable.setItemRef(tab.id, el);
         itemRef?.(el);
       }}
-      className="personal-title-tab group relative flex h-full cursor-default touch-none items-center self-stretch min-w-0 w-full"
+      className="personal-title-tab aven-tab group relative flex h-full cursor-default touch-none items-center self-stretch min-w-0 w-full"
       data-active={active}
+      data-closable={closable}
       data-project-accent={appearance ? true : undefined}
       style={
         appearance
@@ -432,13 +435,7 @@ function TitleTabItem({
           aria-description={visible && !active ? "Visible in split" : undefined}
           data-sortable-glass
           data-tauri-drag-region="false"
-          className={`personal-title-tab-button relative flex h-7.5 min-w-0 flex-1 cursor-default items-center gap-1.5 self-center rounded-md px-2.5 text-left ${
-            closable ? "pr-7" : "pr-2.5"
-          } ${
-            active
-              ? "bg-content/10 text-content"
-              : "text-content/50 hover:bg-content/5 hover:text-content"
-          }`}
+          className="personal-title-tab-button aven-tab-button relative flex min-w-0 flex-1 cursor-default items-center text-left"
         >
           <span className="personal-title-tab-number" aria-hidden>
             {index + 1}
@@ -477,7 +474,7 @@ function TitleTabItem({
             <span className="flex min-w-0 items-center gap-1">
               {/* Keep the task name on one line; model details remain in the
                   tooltip and the composer's model picker. */}
-              <span className="personal-title-tab-label min-w-0 truncate text-ui-body">
+              <span className="personal-title-tab-label aven-tab-label min-w-0 truncate">
                 {headline}
               </span>
               {visible && !active ? (
@@ -506,7 +503,7 @@ function TitleTabItem({
               e.stopPropagation();
               onClose(tab.id);
             }}
-            className="personal-title-tab-close absolute right-1 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-content/50 opacity-0 hover:bg-content/10 hover:text-content group-hover:opacity-100"
+            className="personal-title-tab-close aven-tab-close"
           >
             <X className="size-3" strokeWidth={1.75} />
           </button>
@@ -578,8 +575,9 @@ function BrowserTitleTabItem({
         sortable.setItemRef(id, element);
         itemRef?.(element);
       }}
-      className="personal-title-tab personal-title-browser-tab group relative flex h-full min-w-0 touch-none items-center"
+      className="personal-title-tab personal-title-browser-tab aven-tab aven-tab-slot group relative flex h-full min-w-0 touch-none items-center"
       data-active={active}
+      data-closable={Boolean(onClose)}
       data-preview={preview || undefined}
       data-visible={visible}
       data-surface-id={id}
@@ -652,10 +650,10 @@ function BrowserTitleTabItem({
           aria-label={label === "Browser" ? "Browser" : `Browser: ${label}`}
           data-sortable-glass
           title={label}
-          className="personal-title-tab-button personal-title-browser-button flex min-w-0 flex-1 items-center px-2.5"
+          className="personal-title-tab-button personal-title-browser-button aven-tab-button flex min-w-0 flex-1 items-center"
         >
           <BrowserTabIcon favicon={favicon} />
-          <span className="personal-title-tab-label min-w-0 truncate">
+          <span className="personal-title-tab-label aven-tab-label min-w-0 truncate">
             {label}
           </span>
           {visible && !active ? (
@@ -670,7 +668,7 @@ function BrowserTitleTabItem({
             aria-label={legacy ? "Close browser" : `Close browser: ${label}`}
             data-no-drag
             onPointerDown={(event) => event.stopPropagation()}
-            className="personal-title-tab-close personal-title-browser-close absolute top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-content/50 opacity-0 hover:bg-content/10 hover:text-content group-hover:opacity-100"
+            className="personal-title-tab-close personal-title-browser-close aven-tab-close"
             onClick={(event) => {
               event.stopPropagation();
               onClose();
@@ -2032,7 +2030,7 @@ function TitleBarComponent({
       return (
         <div
           key={id}
-          className="personal-title-tab-slot relative flex h-full shrink cursor-default items-center"
+          className="personal-title-tab-slot aven-tab-slot relative flex h-full shrink cursor-default items-center"
           data-motion-slot={id}
           data-tab-opening={slotMotion.opening.has(id) || undefined}
           data-tab-group={groupRun}
@@ -2202,7 +2200,7 @@ function TitleBarComponent({
             data-surface-order={JSON.stringify(allOrderedIds)}
             aria-label="Workspace tabs"
             aria-orientation="horizontal"
-            className="personal-tab-strip scrollbar-none flex h-full min-w-0 cursor-default items-center gap-0.5 overflow-x-auto overflow-y-hidden overscroll-none px-1.5"
+            className="personal-tab-strip aven-tab-strip scrollbar-none flex h-full min-w-0 cursor-default items-center overflow-x-auto overflow-y-hidden overscroll-none"
             onFocusCapture={(event) => {
               const target = event.target as HTMLElement;
               focusedTabControlRef.current = target.closest(

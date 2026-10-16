@@ -4,25 +4,24 @@ import { useProviderUsage } from "../hooks/useProviderUsage";
 import { useUsageForecasts } from "../hooks/useUsageForecasts";
 import { contextPercent, formatTokens } from "../lib/contextUsage";
 import {
-  formatResetDuration,
   formatUsagePercent,
   idleRateLimits,
-  type ProviderRateLimits,
   type RateLimitProvider,
-  type RateLimitWindow,
 } from "../lib/rateLimits";
 import {
-  aboutDuration,
-  formatForecastDetail,
   USAGE_WINDOW_KINDS,
-  USAGE_WINDOW_NAME,
   usageOutlook,
   type UsageOutlook,
   type UsageWindowKind,
 } from "../lib/usageForecast";
+import {
+  closestUsageReading,
+  contextMeterTitle,
+  usageMeterFill,
+  usageMeterTitle,
+} from "../lib/usageMeter";
 import type { ProviderUsageForecast } from "../lib/usageHistory";
 import { useUsagePanelTheme, type UsagePanelSnapshot } from "../lib/usagePanel";
-import { HARNESS_TITLE } from "../lib/session";
 import { Popover } from "./Popover";
 import { ProviderMarks } from "./ProviderMarks";
 import { RefreshCw } from "./icons";
@@ -36,24 +35,6 @@ export type FooterUsageProps = {
   context?: { used: number; window?: number | null } | null;
 };
 
-/** "2% 3h 57m": how much of a window is used and when it resets. */
-export function usageWindowLabel(window: RateLimitWindow, now: number) {
-  const used = formatUsagePercent(window.usedPercent);
-  return window.resetsAt != null && Number.isFinite(window.resetsAt)
-    ? `${used} ${formatResetDuration(window.resetsAt - now)}`
-    : used;
-}
-
-function summary(limits: ProviderRateLimits, now: number) {
-  const windows = [limits.session, limits.weekly, limits.monthly].filter(
-    (window): window is RateLimitWindow => !!window,
-  );
-  if (windows.length) return windows.map((w) => usageWindowLabel(w, now));
-  if (limits.status === "fetching" || limits.status === "idle")
-    return ["Checking usage…"];
-  return ["Usage unavailable"];
-}
-
 function validContext(context: FooterUsageProps["context"]) {
   if (!context || !Number.isFinite(context.used) || context.used < 0)
     return null;
@@ -65,12 +46,6 @@ function validContext(context: FooterUsageProps["context"]) {
       : undefined;
   return { used: context.used, window };
 }
-
-const WINDOW_TITLE: Record<UsageWindowKind, string> = {
-  session: "5-hour",
-  weekly: "Weekly",
-  monthly: "30-day",
-};
 
 /** Windows whose limit comes before their reset at the current pace. */
 function accountForecasts(
@@ -86,14 +61,32 @@ function accountForecasts(
 /** A fixed order, so the footer does not reshuffle as tasks change. */
 const FOOTER_ORDER: readonly RateLimitProvider[] = ["claude", "codex"];
 
-function meterFill(limits: ProviderRateLimits) {
-  const window = limits.session ?? limits.monthly ?? limits.weekly;
-  return window
-    ? Math.round(Math.min(100, Math.max(0, window.usedPercent)))
-    : null;
+/** A small bar: the same mark for the chat's context and each account. */
+function UsageMeter({
+  fill,
+  warning = false,
+}: {
+  fill: number | null;
+  warning?: boolean;
+}) {
+  return (
+    <span
+      className="footer-usage-meter"
+      data-unknown={fill == null || undefined}
+      data-high={(fill != null && fill >= 80) || undefined}
+      data-forecast={warning ? "warning" : undefined}
+      aria-hidden
+    >
+      <span style={{ width: `${Math.max(fill ?? 0, 4)}%` }} />
+    </span>
+  );
 }
 
-/** Account usage in the footer: one quiet line, with details on click. */
+/**
+ * Account usage in the footer: one compact meter per account for the limit
+ * it is closest to, with every window and forecast in plain words on hover
+ * and the full details on click.
+ */
 export function FooterUsage({ providers, context }: FooterUsageProps) {
   const { limits, request } = useProviderUsage(providers);
   // Changes only when usage is checked, never while an agent streams.
@@ -160,21 +153,18 @@ export function FooterUsage({ providers, context }: FooterUsageProps) {
       accountForecasts(forecasts.providers[account.provider], now),
     ]),
   );
-  const label = [
-    contextLabel ? `Context ${contextLabel}` : null,
-    ...accounts.map((account) => {
-      const usage = `${HARNESS_TITLE[account.provider]} usage ${summary(account, now).join(", ")}`;
-      const warnings = (outlooks.get(account.provider) ?? [])
-        .filter(({ outlook }) => outlook.state === "warning")
-        .map(
-          ({ kind, outlook }) =>
-            `${USAGE_WINDOW_NAME[kind]} limit ${aboutDuration(outlook.msToLimit)} at this pace`,
-        );
-      return [usage, ...warnings].join(", ");
-    }),
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const contextTitle = taskContext ? contextMeterTitle(taskContext) : null;
+  const titles = new Map(
+    accounts.map((account) => [
+      account.provider,
+      usageMeterTitle(account, now, outlooks.get(account.provider)),
+    ]),
+  );
+  // The same plain words as the hover text, read as sentences.
+  const label = [contextTitle, ...titles.values()]
+    .flatMap((title) => title?.split("\n") ?? [])
+    .map((line) => line.replace(/\.$/, ""))
+    .join(". ");
 
   return (
     <div className="footer-usage">
@@ -189,54 +179,48 @@ export function FooterUsage({ providers, context }: FooterUsageProps) {
         onClick={() => setOpen((value) => !value)}
       >
         {contextLabel ? (
-          <span className="footer-usage-context">
-            <span className="footer-usage-muted">Context</span> {contextLabel}
+          <span
+            className="footer-usage-context"
+            title={contextTitle ?? undefined}
+          >
+            <span className="footer-usage-muted">Context</span>
+            <UsageMeter fill={contextShare} />
+            <span className="footer-usage-percent">{contextLabel}</span>
           </span>
         ) : null}
         {accounts.map((account, index) => {
-          const fill = meterFill(account);
-          const ahead = outlooks.get(account.provider) ?? [];
-          const warning = ahead.some(
+          const closest = closestUsageReading(account);
+          const warning = (outlooks.get(account.provider) ?? []).some(
             ({ outlook }) => outlook.state === "warning",
           );
           return (
             <span
               className="footer-usage-account"
               key={account.provider}
-              title={
-                ahead.length
-                  ? ahead
-                      .map(
-                        ({ kind, outlook }) =>
-                          `${WINDOW_TITLE[kind]}: ${formatForecastDetail(outlook)}`,
-                      )
-                      .join("\n")
-                  : undefined
-              }
+              data-provider={account.provider}
+              title={titles.get(account.provider)}
             >
               {index > 0 || contextLabel ? (
                 <span className="footer-usage-divider" aria-hidden />
               ) : null}
               <ProviderMarks harnesses={[account.provider]} />
-              <span
-                className="footer-usage-meter"
-                data-unknown={fill == null || undefined}
-                data-high={(fill != null && fill >= 80) || undefined}
-                data-forecast={warning ? "warning" : undefined}
-                aria-hidden
-              >
-                <span style={{ width: `${Math.max(fill ?? 0, 4)}%` }} />
-              </span>
-              <span className="footer-usage-windows">
-                {summary(account, now).map((part, partIndex) => (
-                  <span key={partIndex} className="footer-usage-part">
-                    {partIndex > 0 ? (
-                      <span className="footer-usage-muted"> · </span>
-                    ) : null}
-                    {part}
+              {closest ? (
+                <>
+                  <UsageMeter
+                    fill={usageMeterFill(closest)}
+                    warning={warning}
+                  />
+                  <span className="footer-usage-percent">
+                    {formatUsagePercent(closest.window.usedPercent)}
                   </span>
-                ))}
-              </span>
+                </>
+              ) : (
+                <span className="footer-usage-muted">
+                  {account.status === "fetching" || account.status === "idle"
+                    ? "Checking usage…"
+                    : "Usage unavailable"}
+                </span>
+              )}
             </span>
           );
         })}

@@ -287,7 +287,7 @@ export function nextOutlookChange(pace: UsagePace, now: number): number | null {
 }
 
 /** "Claude", "Codex": how the sentence names an account. */
-const PROVIDER_NAME: Record<RateLimitProvider, string> = {
+export const PROVIDER_NAME: Record<RateLimitProvider, string> = {
   claude: "Claude",
   codex: "Codex",
 };

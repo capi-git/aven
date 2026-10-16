@@ -84,6 +84,11 @@ html.has-chat-background:not(.chat-background-empty-only)
   z-index: 1;
 }
 
+/* Each pane is a card resting on the workspace, as in Arc: a hairline edge,
+   a faint lift and a small gap (GUTTER and EDGE in WorkspaceStage.tsx). It
+   has no fill or backdrop filter of its own; the window already provides the
+   glass, so the pane inside looks as it did. The 1px border is the inset that
+   native pane geometry and the wallpaper offsets already assume. */
 .workspace-stage-surface {
   --workspace-background-width: 100cqw;
   --workspace-background-height: 100cqh;
@@ -95,11 +100,9 @@ html.has-chat-background:not(.chat-background-empty-only)
   min-height: 0;
   overflow: hidden;
   box-sizing: border-box;
-  border: 1px solid transparent;
-  border-radius: 9px;
-}
-.workspace-stage-surface[data-focused="true"] {
-  border-color: var(--aven-line);
+  border: 1px solid var(--aven-glass-card-edge);
+  border-radius: var(--aven-radius-card);
+  box-shadow: var(--aven-control-shadow);
 }
 .workspace-stage-surface[data-has-header="true"] {
   --workspace-background-header-offset: 32px;
@@ -112,7 +115,8 @@ html.has-chat-background:not(.chat-background-empty-only)
   min-height: 32px;
   min-width: 0;
   overflow: hidden;
-  border-radius: 8px 8px 0 0;
+  border-radius: calc(var(--aven-radius-card) - 1px)
+    calc(var(--aven-radius-card) - 1px) 0 0;
   box-sizing: border-box;
 }
 .workspace-pane-minimize-controls {
@@ -228,13 +232,12 @@ html.has-chat-background:not(.chat-background-empty-only)
   transform: translateY(-50%);
   cursor: row-resize;
 }
+/* The gap between two cards is the divider: nothing is drawn there until the
+   pointer or keyboard is on it, or it is being dragged. */
 .workspace-stage-sash::after {
   content: "";
   position: absolute;
-  background: var(
-    --personal-line,
-    color-mix(in srgb, var(--color-content) 12%, transparent)
-  );
+  background: transparent;
 }
 .workspace-stage-sash[data-direction="right"]::after {
   top: 0;
@@ -249,7 +252,8 @@ html.has-chat-background:not(.chat-background-empty-only)
   height: 1px;
 }
 .workspace-stage-sash:hover::after,
-.workspace-stage-sash:focus-visible::after {
+.workspace-stage-sash:focus-visible::after,
+.workspace-stage-sash:active::after {
   background: var(--color-accent);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 25%, transparent);
 }

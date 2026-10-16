@@ -219,6 +219,32 @@
   height: 1px;
   background: color-mix(in srgb, var(--color-content) 6%, transparent);
 }
+/* Earlier replies keep their actions and time out of the way until you point
+   at the turn or tab onto them; the latest reply always shows its own. Only
+   opacity changes, so the row keeps its space and revealing it moves nothing,
+   and every button stays in the keyboard order. */
+.personal-shell
+  .transcript-turn:not(.transcript-turn-live)
+  .personal-turn-receipt {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.personal-shell
+  .transcript-turn:not(.transcript-turn-live):hover
+  .personal-turn-receipt,
+.personal-shell
+  .transcript-turn:not(.transcript-turn-live)
+  .personal-turn-receipt:focus-within,
+.personal-shell
+  .transcript-turn:not(.transcript-turn-live)
+  .personal-turn-receipt:has([aria-expanded="true"]) {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .personal-shell .personal-turn-receipt {
+    transition: none;
+  }
+}
 .personal-shell
   .agent-transcript
   .agent-markdown

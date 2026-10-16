@@ -141,6 +141,7 @@ function FilePaneComponent({
         onCloseFile={(fileId) => onCloseFile(pane.id, fileId)}
         onReorder={(ids) => onReorderFiles(pane.id, ids)}
         onPaneDragStart={onPaneDragStart}
+        paneFocused={focused}
       />
       <div className="relative min-h-0 flex-1">
         <SurfaceBoundary

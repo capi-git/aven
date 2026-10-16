@@ -8725,6 +8725,7 @@ export default function App({
     discussion: discussions.host,
     projectMemory: async (path) => (await loadProjectMemory(path))?.body ?? "",
     sharedWork: true,
+    paneLayout: true,
     focusedSurfaceId: view.focusedId,
     sidebarOpen,
     openWebLink: onOpenWebLink,
