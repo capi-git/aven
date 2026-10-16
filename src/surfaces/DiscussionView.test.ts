@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   discussionStore,
   resetDiscussionStore,
+  type DiscussionHost,
   type DiscussionParty,
 } from "../lib/discussions";
 import { newSession, type Block, type Session } from "../lib/session";
@@ -319,4 +320,360 @@ it("takes the keyboard when its pane is focused", async () => {
     container.querySelector(".discussion-scroll"),
   );
   field.remove();
+});
+
+async function renderWith(host?: DiscussionHost) {
+  await act(async () =>
+    root.render(
+      createElement(DiscussionView, {
+        discussionId: "d1",
+        a: sessions.a,
+        b: sessions.b,
+        host,
+      }),
+    ),
+  );
+}
+
+const field = () =>
+  container.querySelector<HTMLTextAreaElement>(
+    "[data-discussion-jump] textarea",
+  )!;
+
+async function type(text: string) {
+  await act(async () => {
+    const element = field();
+    element.focus();
+    Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )?.set?.call(element, text);
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+async function press(key: string, shiftKey = false) {
+  await act(async () => {
+    field().dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key,
+        shiftKey,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+}
+
+/** Thread items in order, as short labels. */
+const order = () =>
+  all(
+    "[data-discussion-round], [data-discussion-message], [data-discussion-typing], [data-discussion-you], [data-discussion-closing]",
+  ).map((item) =>
+    item.dataset.discussionRound
+      ? `round ${item.dataset.discussionRound}`
+      : item.dataset.discussionTyping
+        ? `typing ${item.dataset.discussionTyping}`
+        : item.dataset.discussionYou !== undefined
+          ? `you(${item.dataset.state}): ${item.querySelector(".discussion-you-bubble")?.textContent}`
+          : item.dataset.discussionClosing
+            ? "closing"
+            : `${item.dataset.side}: ${item.querySelector("[data-markdown]")?.textContent}`,
+  );
+
+describe("DiscussionView: jumping in", () => {
+  it("sends with Enter, adds a line with Shift+Enter and leaves with Escape", async () => {
+    const store = discussionStore();
+    store.start({ id: "d1", a: A, b: B, topic: TOPIC, rounds: 2 });
+    answer(0, "Yes, briefly.", 2);
+    // B is answering now.
+    store.markDelivered("d1");
+    await render();
+    expect(field().placeholder).toBe("Add something for both of them…");
+    expect(container.querySelector(".discussion-jump-hint")).toBeNull();
+
+    await type("Keep it small.");
+    await press("Enter", true);
+    expect(store.get("d1")?.interjections).toBeUndefined();
+    await press("Enter");
+    expect(store.get("d1")?.interjections).toEqual([
+      expect.objectContaining({ text: "Keep it small.", turn: 2 }),
+    ]);
+    expect(field().value).toBe("");
+    // Queued behind the turn under way, below its typing.
+    expect(order()).toEqual([
+      "round 1",
+      "a: Yes, briefly.",
+      "typing b",
+      "you(queued): Keep it small.",
+    ]);
+    expect(text("[data-discussion-you] .discussion-you-label")).toBe("You");
+    expect(text(".discussion-you-note")).toBe("Goes with the next reply");
+
+    // B answers: the message now sits where A reads it.
+    answer(1, "For how long?", 2);
+    await render();
+    expect(order()).toEqual([
+      "round 1",
+      "a: Yes, briefly.",
+      "b: For how long?",
+      "round 2",
+      "you(queued): Keep it small.",
+      "typing a",
+    ]);
+    store.markDelivered("d1");
+    await render();
+    expect(order()).toContain("you(sent): Keep it small.");
+    expect(container.querySelector(".discussion-you-note")).toBeNull();
+
+    await type("Draft");
+    await press("Escape");
+    expect(document.activeElement).toBe(
+      container.querySelector(".discussion-scroll"),
+    );
+  });
+
+  it("resumes a paused discussion", async () => {
+    const store = discussionStore();
+    store.start({ id: "d1", a: A, b: B, topic: TOPIC, rounds: 2 });
+    answer(0, "Yes, briefly.", 2);
+    store.pause("d1", "“Review” is busy.");
+    await render();
+    expect(text(".discussion-jump-hint")).toBe("Resumes the discussion");
+    expect(
+      container
+        .querySelector("[data-discussion-jump] button[type='submit']")
+        ?.getAttribute("aria-label"),
+    ).toBe("Send to both and resume");
+    await type("Go on.");
+    await press("Enter");
+    expect(store.get("d1")?.status).toBe("active");
+    expect(container.querySelector("[data-discussion-typing='b']")).not.toBe(
+      null,
+    );
+  });
+
+  it("continues an ended discussion for one more round", async () => {
+    const store = discussionStore();
+    store.start({ id: "d1", a: A, b: B, topic: TOPIC, rounds: 1 });
+    answer(0, "Yes, briefly.", 1);
+    answer(1, "Agreed.", 1);
+    await render();
+    expect(text(".discussion-jump-hint")).toBe("Continues for one more round");
+    await type("And eviction?");
+    await press("Enter");
+    expect(store.get("d1")).toMatchObject({ status: "active", rounds: 2 });
+    expect(order()).toEqual([
+      "round 1",
+      "a: Yes, briefly.",
+      "b: Agreed.",
+      "round 2",
+      "you(queued): And eviction?",
+      "typing a",
+    ]);
+    expect(text("[data-discussion-header] [role='status']")).toContain(
+      "Round 2 of 2",
+    );
+  });
+
+  it("has no box on a development preview", async () => {
+    discussionStore().start({
+      id: "d1",
+      a: A,
+      b: B,
+      topic: TOPIC,
+      rounds: 2,
+      preview: true,
+    });
+    await render();
+    expect(container.querySelector("[data-discussion-jump]")).toBeNull();
+  });
+});
+
+describe("DiscussionView: stance and reactions", () => {
+  it("marks replies that agree or push back, subtly", async () => {
+    discussionStore().start({ id: "d1", a: A, b: B, topic: TOPIC, rounds: 2 });
+    answer(0, "Yes, briefly.", 2);
+    answer(1, "Agreed, five minutes.", 2);
+    answer(2, "Not quite: ten.", 2);
+    await render();
+    const mark = (turn: number) =>
+      container.querySelector<HTMLElement>(
+        `[data-discussion-message='${turn}'] .discussion-message-name [data-discussion-stance]`,
+      );
+    // The opener answers the topic, not another reply.
+    expect(mark(0)).toBeNull();
+    expect(mark(1)?.dataset.discussionStance).toBe("agree");
+    expect(mark(1)?.title).toBe("Agrees");
+    expect(mark(1)?.querySelector("svg")).not.toBeNull();
+    expect(mark(2)?.dataset.discussionStance).toBe("pushback");
+    expect(mark(2)?.title).toBe("Pushes back");
+    expect(mark(2)?.textContent).toBe("↔");
+  });
+
+  it("nods or tilts once as a reply lands, and never again", async () => {
+    vi.useFakeTimers();
+    discussionStore().start({ id: "d1", a: A, b: B, topic: TOPIC, rounds: 2 });
+    answer(0, "Yes, briefly.", 2);
+    await render();
+    expect(all("svg.mascot-reacting")).toHaveLength(0);
+
+    answer(1, "Agreed, five minutes.", 2);
+    await render();
+    const playing = all("svg.mascot-reacting");
+    expect(playing).toHaveLength(1);
+    expect(playing[0].dataset.reaction).toBe("nod");
+    expect(playing[0].closest("[data-discussion-message]")).toHaveProperty(
+      "dataset.discussionMessage",
+      "1",
+    );
+    await act(async () => vi.advanceTimersByTime(1_000));
+    expect(all("svg.mascot-reacting")).toHaveLength(0);
+    // Rendering again, or streaming in the other chat, plays nothing.
+    await render();
+    sessions = {
+      ...sessions,
+      a: {
+        ...sessions.a,
+        blocks: [
+          ...sessions.a.blocks,
+          { id: "live", role: "assistant", text: "Fi", streaming: true },
+        ],
+      },
+    };
+    await render();
+    expect(all("svg.mascot-reacting")).toHaveLength(0);
+
+    answer(2, "Not quite: ten.", 2);
+    await render();
+    expect(
+      all("svg.mascot-reacting").map((svg) => svg.dataset.reaction),
+    ).toEqual(["tilt"]);
+    await act(async () => vi.advanceTimersByTime(1_000));
+
+    // Reopening the page replays nothing.
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await render();
+    expect(all("svg.mascot-reacting")).toHaveLength(0);
+  });
+
+  it("stays still for a neutral reply", async () => {
+    discussionStore().start({ id: "d1", a: A, b: B, topic: TOPIC, rounds: 2 });
+    answer(0, "Yes, briefly.", 2);
+    await render();
+    answer(1, "For how long?", 2);
+    await render();
+    expect(all("svg.mascot-reacting")).toHaveLength(0);
+    expect(container.querySelector("[data-discussion-stance]")).toBeNull();
+  });
+});
+
+describe("DiscussionView: where they landed", () => {
+  function host() {
+    return {
+      options: () => ({ candidates: [] }),
+      start: () => null,
+      build: vi.fn<(id: string, side: "a" | "b") => string | null>(() => null),
+    } satisfies DiscussionHost;
+  }
+
+  async function complete(withHost?: DiscussionHost) {
+    discussionStore().start({ id: "d1", a: A, b: B, topic: TOPIC, rounds: 1 });
+    answer(0, "Cache by URL.", 1);
+    answer(1, "Agreed, with a TTL.", 1);
+    await renderWith(withHost);
+  }
+
+  it("sums up quietly, then shows both lists after the closing note", async () => {
+    const actions = host();
+    await complete(actions);
+    const card = () =>
+      container.querySelector<HTMLElement>("[data-discussion-wrapup]")!;
+    expect(card().dataset.discussionWrapup).toBe("summing");
+    expect(text(".discussion-wrapup-title")).toBe("Where they landed");
+    expect(text(".discussion-wrapup-wait")).toBe("Summing up…");
+    // After the closing note.
+    const closing = container.querySelector("[data-discussion-closing]")!;
+    expect(
+      closing.compareDocumentPosition(card()) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    const store = discussionStore();
+    await act(async () => {
+      store.claimSummary("d1");
+      store.finishSummary("d1", 2, {
+        status: "done",
+        agreed: ["Cache by URL", "Add a 30 s TTL"],
+        open: [],
+        model: "Claude Haiku 4.5",
+      });
+    });
+    expect(card().dataset.discussionWrapup).toBe("done");
+    expect(
+      all("[data-discussion-list='agreed'] li").map((item) => item.textContent),
+    ).toEqual(["Cache by URL", "Add a 30 s TTL"]);
+    expect(text("[data-discussion-list='open'] h4")).toBe("Still open");
+    expect(text("[data-discussion-list='open'] .discussion-wrapup-empty")).toBe(
+      "Nothing left open.",
+    );
+    expect(text(".discussion-wrapup-model")).toBe(
+      "Summed up by Claude Haiku 4.5",
+    );
+  });
+
+  it("has a build button for each side, named by its provider and model", async () => {
+    const actions = host();
+    await complete(actions);
+    const buttons = all("[data-discussion-build]");
+    expect(buttons.map((button) => button.textContent)).toEqual([
+      "Have Claude Sonnet 5 build it",
+      "Have Codex GPT-5 build it",
+    ]);
+    await act(async () => buttons[1].click());
+    expect(actions.build).toHaveBeenCalledExactlyOnceWith("d1", "b");
+    expect(buttons[1].dataset.sent).toBe("true");
+    actions.build.mockReturnValueOnce(
+      "“Caching plan” isn't open in this window.",
+    );
+    await act(async () => buttons[0].click());
+    expect(text(".discussion-wrapup-problem")).toBe(
+      "“Caching plan” isn't open in this window.",
+    );
+  });
+
+  it("keeps the buttons without lists when the summary failed", async () => {
+    await complete(host());
+    await act(async () => {
+      const store = discussionStore();
+      store.claimSummary("d1");
+      store.finishSummary("d1", 2, { status: "failed" });
+    });
+    expect(
+      container.querySelector<HTMLElement>("[data-discussion-wrapup]")?.dataset
+        .discussionWrapup,
+    ).toBe("plain");
+    expect(text(".discussion-wrapup-title")).toBe("Where they landed");
+    expect(container.querySelector("[data-discussion-list]")).toBeNull();
+    expect(all("[data-discussion-build]")).toHaveLength(2);
+  });
+
+  it("shows only the buttons for a stopped discussion", async () => {
+    const store = discussionStore();
+    store.start({ id: "d1", a: A, b: B, topic: TOPIC, rounds: 2 });
+    answer(0, "Cache by URL.", 2);
+    store.stop("d1");
+    await renderWith(host());
+    expect(
+      container.querySelector<HTMLElement>("[data-discussion-wrapup]")?.dataset
+        .discussionWrapup,
+    ).toBe("stopped");
+    expect(container.querySelector(".discussion-wrapup-title")).toBeNull();
+    expect(container.querySelector(".discussion-wrapup-wait")).toBeNull();
+    expect(all("[data-discussion-build]")).toHaveLength(2);
+    // Without a window that can build, a stopped one shows no card.
+    await renderWith(undefined);
+    expect(container.querySelector("[data-discussion-wrapup]")).toBeNull();
+  });
 });

@@ -24,6 +24,7 @@ import { isImagePath, isPdfPath } from "../lib/filePreview";
 import type { TerminalMetaPatch } from "../lib/terminalTab";
 import type { EditorNavigationTarget } from "../lib/search";
 import { editorPathsEqual } from "../lib/search";
+import type { DiscussionHost } from "../lib/discussions";
 import type { PlanBuildTarget, Session } from "../lib/session";
 import { Play } from "../chrome/icons";
 import { BuildTargetButton } from "../chrome/SecondOpinionButton";
@@ -86,6 +87,8 @@ type Props = {
   editorNavigation?: EditorNavigationTarget | null;
   onPaneDragStart?: (event: ReactPointerEvent<HTMLElement>) => void;
   onTerminalMetaChange?: (fileId: string, patch: TerminalMetaPatch) => void;
+  /** The window's discussions; a discussion's page builds through it. */
+  discussion?: DiscussionHost;
 };
 
 function FilePaneComponent({
@@ -107,6 +110,7 @@ function FilePaneComponent({
   editorNavigation,
   onPaneDragStart,
   onTerminalMetaChange,
+  discussion,
 }: Props) {
   const diffViewer = useSyncExternalStore(
     subscribeDiffViewer,
@@ -224,6 +228,7 @@ function FilePaneComponent({
                       )}
                       focused={focused && file.id === pane.activeFileId}
                       onOpenFile={onOpenFile}
+                      host={discussion}
                     />
                   ) : isTerminalTab(file) ? (
                     <TerminalView
@@ -302,7 +307,8 @@ export const FilePane = memo(FilePaneComponent, (previous, next) => {
     previous.onBuildPlan !== next.onBuildPlan ||
     previous.editorNavigation !== next.editorNavigation ||
     Boolean(previous.onPaneDragStart) !== Boolean(next.onPaneDragStart) ||
-    previous.onTerminalMetaChange !== next.onTerminalMetaChange
+    previous.onTerminalMetaChange !== next.onTerminalMetaChange ||
+    previous.discussion !== next.discussion
   ) {
     return false;
   }
