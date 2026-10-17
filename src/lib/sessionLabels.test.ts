@@ -3,6 +3,7 @@ import { resetHarnessModelOverlays, setHarnessModels } from "./models";
 import type { Session } from "./session";
 import {
   compactModelNames,
+  modelDisplayName,
   sessionModelIdentity,
   sessionModelName,
   sessionModelNames,
@@ -256,5 +257,20 @@ describe("turnModelLabel", () => {
         { harness: "codex", model: "codex:x" },
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("modelDisplayName", () => {
+  it("names a model as given with the work, else by the catalog, never by another model", () => {
+    expect(
+      modelDisplayName("codex", "codex:gpt-9", [
+        { harness: "codex", model: "codex:gpt-9", name: "GPT-9" },
+      ]),
+    ).toBe("GPT-9");
+    // Unknown here and to the catalog: its own identity, not a default's.
+    expect(modelDisplayName("codex", "codex:gpt-9")).toBe("gpt-9");
+    expect(modelDisplayName("claude", "claude:not-a-model")).toBe(
+      "not-a-model",
+    );
   });
 });

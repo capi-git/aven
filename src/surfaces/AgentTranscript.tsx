@@ -22,6 +22,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
@@ -59,7 +60,7 @@ import {
 import { playCue } from "../lib/sounds";
 import { legacyTaskListFromText } from "../lib/taskList";
 import { displayPath, resolveWorkspacePath } from "../lib/paths";
-import { resolveModel } from "../lib/models";
+import { getModelSnapshot, resolveModel, subscribeModels } from "../lib/models";
 import { harnessForTurn } from "../lib/secondOpinion";
 import { turnModelLabel } from "../lib/sessionLabels";
 import { Shimmer } from "./Shimmer";
@@ -248,6 +249,13 @@ function AgentTranscriptComponent({
     if (lastUserId && !anchorTurn) setAnchorTurn(true);
   }
   const modelName = harness ? resolveModel(harness, model).name : undefined;
+  // Finished turns name the model they ran on; when a provider's live list
+  // arrives, a name that was only an id can become a real one.
+  const modelCatalog = useSyncExternalStore(
+    subscribeModels,
+    getModelSnapshot,
+    getModelSnapshot,
+  );
   const waitingForApproval = hasPendingApproval(blocks) || pendingQuestion;
   const preparingHandoff = blocks.some(
     (block) =>
@@ -652,6 +660,7 @@ function AgentTranscriptComponent({
                 harness ? harnessForTurn(blocks, turn, harness) : undefined
               }
               modelName={modelName}
+              modelCatalog={modelCatalog}
               transcriptLayout={transcriptLayout}
               anchored={
                 promptAnchor &&
@@ -729,6 +738,8 @@ type TranscriptTurnProps = Pick<
   turnHarness?: HarnessId;
   /** The chat's current model, which a second opinion should not offer. */
   modelName?: string;
+  /** The model catalog's version: a turn names its model from it. */
+  modelCatalog: number;
   transcriptLayout: TranscriptLayout;
   /** The live turn is stretched to the viewport after a send. */
   anchored: boolean;

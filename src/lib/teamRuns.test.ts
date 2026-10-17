@@ -401,6 +401,24 @@ describe("orchestrationTeam", () => {
     expect(team.members[3].changes).toEqual({ files: 2 });
   });
 
+  it("names each agent's model as people read it, never by its id", () => {
+    const named = orchestrationTeam(
+      run({
+        allowedModels: [
+          { harness: "codex", model: "codex:gpt-9", name: "GPT-9" },
+        ],
+        tasks: [task("1", { model: "codex:gpt-9" })],
+        lead: undefined,
+      }),
+      lookup([session("lead", { harness: "claude", model: "claude:x-1" })]),
+    );
+    // The plan's name; the lead's own model keeps its identity.
+    expect(named.members.map((member) => member.model)).toEqual([
+      "x-1",
+      "GPT-9",
+    ]);
+  });
+
   it("gives a watcher what each worker waits for, is asked and touched", () => {
     const team = orchestrationTeam(
       run({

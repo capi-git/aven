@@ -1,6 +1,6 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import { useOrchestrationRun } from "../hooks/useOrchestrationRun";
-import { findModel } from "../lib/models";
+import { modelDisplayName } from "../lib/sessionLabels";
 import { orchestrator } from "../lib/orchestration";
 import {
   orchestrationEnded,
@@ -155,9 +155,14 @@ export function OrchestrationSidebarAgents({
           const deciding = label === "Lead deciding";
           const working =
             summary.live && task.status === "running" && !task.needsInput;
-          // A saved provider model may not be in this window's catalog yet.
-          // Keep its identity instead of substituting the harness default.
-          const model = findModel(task.model)?.name ?? task.model;
+          // A saved provider model may not be in this window's catalog yet:
+          // the plan's name for it, else its own identity, never the
+          // harness default's name.
+          const model = modelDisplayName(
+            task.harness,
+            task.model,
+            run?.allowedModels,
+          );
           return (
             <div
               key={task.sessionId}

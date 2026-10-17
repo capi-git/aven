@@ -153,10 +153,11 @@ describe("session pane draft and header ownership", () => {
       ]),
     );
     expect(label()?.textContent).toBe("New session");
-    // A name that fits needs no tooltip, and the model stays in the pill.
-    expect(label()?.hasAttribute("title")).toBe(false);
+    // The model is named in the pill, and in the strip's tooltip.
+    expect(label()?.getAttribute("title")).toBe("QA Model");
     await render({ title: "codex · Repair preview" });
     expect(label()?.textContent).toBe("Repair preview");
+    expect(label()?.getAttribute("title")).toBe("Repair preview · QA Model");
     expect(container.textContent).not.toContain("QA Model");
     // One strip in the pane's own column: the transcript starts below it.
     const strip = container.querySelector<HTMLElement>("[data-pane-strip]")!;

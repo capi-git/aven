@@ -11,6 +11,8 @@ export const PANE_DRAG_LABEL = "Drag to move or split this pane";
 
 type Props = {
   name: string;
+  /** Shown on hover in place of a cut-off name, e.g. "Title · Model". */
+  tooltip?: string;
   /** The pane's provider or project mark, or a file's icon. */
   icon: ReactNode;
   /** The focused pane's strip takes the active tab fill. */
@@ -28,6 +30,7 @@ type Props = {
  */
 export function PaneNameStrip({
   name,
+  tooltip,
   icon,
   focused,
   closeTitle,
@@ -75,7 +78,7 @@ export function PaneNameStrip({
               <span
                 ref={label}
                 data-pane-strip-label
-                title={cut ? name : undefined}
+                title={tooltip ?? (cut ? name : undefined)}
                 className="aven-tab-label min-w-0 flex-1 truncate"
                 onPointerEnter={() => setCut(isTextTruncated(label.current))}
               >

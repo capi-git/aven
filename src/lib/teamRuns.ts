@@ -26,6 +26,7 @@ import {
 import type { RaceRecord } from "./race";
 import { raceLaneState, raceProgress, type RaceLaneKind } from "./raceLanes";
 import { finalReply, replyOpening } from "./replyText";
+import { modelDisplayName } from "./sessionLabels";
 import {
   HARNESS_TITLE,
   hasPendingApproval,
@@ -55,7 +56,7 @@ export type TeamMemberRole =
 export type TeamMember = {
   sessionId: string;
   harness: HarnessId;
-  /** The model's name as the store keeps it. */
+  /** The model's display name ("GPT-5"), never a raw id. */
   model: string;
   /** "Claude · Sonnet 5", a race lane's label, or a worker's task title. */
   label: string;
@@ -529,7 +530,13 @@ export function orchestrationTeam(
   const leadAsking =
     run.status === "active" ? ownRequest(leadSession) : undefined;
   const leadHarness = run.lead?.harness ?? leadSession?.harness ?? "claude";
-  const leadModel = run.lead?.model ?? leadSession?.model ?? "";
+  // Names, never ids: the run keeps the lead's model name, and its plan the
+  // names of the models its agents use.
+  const leadModel =
+    run.lead?.model ??
+    (leadSession
+      ? modelDisplayName(leadSession.harness, leadSession.model)
+      : "");
   const lead: TeamMember = {
     sessionId: run.leadId,
     harness: leadHarness,
@@ -576,7 +583,7 @@ export function orchestrationTeam(
     return {
       sessionId: task.sessionId,
       harness: task.harness,
-      model: task.model,
+      model: modelDisplayName(task.harness, task.model, run.allowedModels),
       label: task.title,
       role: "worker",
       ...(task.role ? { agentRole: task.role } : {}),

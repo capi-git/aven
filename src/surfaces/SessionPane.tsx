@@ -667,6 +667,7 @@ export const SessionPane = memo(function SessionPane({
       {inSplit ? (
         <PaneNameStrip
           name={paneLabel.headline}
+          tooltip={paneLabel.tooltip}
           icon={
             <span className="personal-title-tab-identity">
               <ProviderMarks

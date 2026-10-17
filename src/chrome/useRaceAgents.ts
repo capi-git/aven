@@ -7,7 +7,6 @@ import {
 import {
   getModelSnapshot,
   getPickerVisibilitySnapshot,
-  resolveModel,
   subscribeModels,
   subscribePickerVisibility,
 } from "../lib/models";
@@ -17,7 +16,8 @@ import {
   resolveRaceAgents,
   subscribeRaceAgentChoice,
 } from "../lib/raceAgents";
-import type { HarnessId } from "../lib/session";
+import { HARNESS_TITLE, type HarnessId } from "../lib/session";
+import { modelDisplayName } from "../lib/sessionLabels";
 
 const zero = () => 0;
 const empty = () => "";
@@ -55,15 +55,11 @@ export function useRaceAgents(
     const own = agents.find((agent) => agent.harness === harness) ?? {
       harness,
       model,
-      label: harness,
+      label: HARNESS_TITLE[harness],
     };
     // An unknown model id can resolve to another provider's default; show
-    // the id itself rather than a misleading name.
-    const resolved = resolveModel(harness, model);
-    const modelName =
-      resolved.harness === harness && resolved.id === model
-        ? resolved.name
-        : model;
+    // its own identity rather than a misleading name.
+    const modelName = modelDisplayName(harness, model);
     const first = {
       ...own,
       model,

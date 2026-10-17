@@ -164,12 +164,12 @@ describe("pane name strips", () => {
         ".personal-title-tab-identity [data-provider='claude']",
       ),
     ).not.toBeNull();
-    // A name that fits has no tooltip.
+    // Its tooltip names the chat and its model, as the tab's did.
     expect(
       strip("b")
         .querySelector("[data-pane-strip-label]")
-        ?.hasAttribute("title"),
-    ).toBe(false);
+        ?.getAttribute("title"),
+    ).toBe("Beta · Claude Sonnet 5");
 
     await render({ focusedId: "a" });
     expect(tab("a").dataset.active).toBe("true");
@@ -185,7 +185,7 @@ describe("pane name strips", () => {
     ).toBe("true");
   });
 
-  it("shows a cut-off name in a tooltip", async () => {
+  it("shows a cut-off name, with its model, in a tooltip", async () => {
     await render({ layout: split("a", "b") });
     const label = strip("a").querySelector<HTMLElement>(
       "[data-pane-strip-label]",
@@ -195,7 +195,7 @@ describe("pane name strips", () => {
     await act(async () =>
       label.dispatchEvent(new PointerEvent("pointerover", { bubbles: true })),
     );
-    expect(label.title).toBe("Alpha");
+    expect(label.title).toBe("Alpha · Claude Sonnet 5");
   });
 
   it("closes its own pane from the keyboard-reachable close button", async () => {

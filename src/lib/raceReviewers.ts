@@ -1,6 +1,6 @@
 import { voiceName } from "./discussionVoices";
 import type { LiveSessionStore } from "./liveSessions";
-import { resolveModel } from "./models";
+import { modelDisplayName } from "./sessionLabels";
 import { raceLaneFor, type RaceRecord } from "./race";
 import { sameProjectPath } from "./recents";
 import {
@@ -38,13 +38,14 @@ export function reviewerChoices(
         !raceLaneFor(session.id),
     )
     .map((session): ReviewerChoice => {
-      const model = resolveModel(session.harness, session.model);
       return {
         sessionId: session.id,
         harness: session.harness,
+        // Its own model's name: an unknown id keeps its identity rather
+        // than borrowing the provider default's name.
         label: voiceName({
           harness: session.harness,
-          model: model.harness === session.harness ? model.name : session.model,
+          model: modelDisplayName(session.harness, session.model),
         }),
         title: sessionDisplayTitle(session.title, session.harness) || "Chat",
         ...(sessionIsWaitingForInput(session)

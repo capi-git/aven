@@ -7,6 +7,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { HARNESS_TITLE, type Block } from "../lib/session";
+import { modelDisplayName } from "../lib/sessionLabels";
 import {
   withoutProposedTask,
   type OrchestrationChoice,
@@ -717,9 +718,7 @@ export function OrchestrationPreview({
       <OrchestrationTeamCard
         run={run}
         modelName={(harness, model) =>
-          proposal.settings.choices.find(
-            (choice) => choice.harness === harness && choice.model === model,
-          )?.name ?? model
+          modelDisplayName(harness, model, proposal.settings.choices)
         }
         planShown={planShown}
         onTogglePlan={() => setPlanShown((shown) => !shown)}
