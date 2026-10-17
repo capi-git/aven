@@ -146,6 +146,34 @@ export type SidebarTeam = TeamRowInfo & {
  * linked by their connector, and an orchestration's agents already fold
  * into their lead's card.
  */
+/**
+ * `rows` with each open race's lanes folded into the row it started from,
+ * but only where that row is itself in `rows`: when it is filtered out,
+ * archived or gone, the lanes stay rows of their own rather than vanish.
+ */
+export function foldTeamRows<Row extends { id: string }>(
+  rows: readonly Row[],
+  teams: readonly Pick<SidebarTeam, "originId" | "memberIds">[],
+): Row[] {
+  const listed = new Set(rows.map((row) => row.id));
+  const folded = new Set(
+    teams
+      .filter((team) => listed.has(team.originId))
+      .flatMap((team) => team.memberIds),
+  );
+  return folded.size ? rows.filter((row) => !folded.has(row.id)) : [...rows];
+}
+
+/** Each row's open races, by the row they started from. */
+export function teamsByOrigin<Team extends Pick<SidebarTeam, "originId">>(
+  teams: readonly Team[],
+): Map<string, Team[]> {
+  const byOrigin = new Map<string, Team[]>();
+  for (const team of teams)
+    byOrigin.set(team.originId, [...(byOrigin.get(team.originId) ?? []), team]);
+  return byOrigin;
+}
+
 export function sidebarTeams(teams: readonly TeamRun[]): SidebarTeam[] {
   return teams
     .filter((team) => team.kind === "race" && teamIsOpen(team))

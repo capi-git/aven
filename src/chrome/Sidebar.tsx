@@ -124,7 +124,11 @@ import { ProfileSidebarHeader } from "./ProfileSidebarHeader";
 import { PersonalProjectRow } from "./PersonalProjectRow";
 import { OrchestrationSidebarAgents } from "./OrchestrationSidebarAgents";
 import { TeamMiniFaces } from "./TeamCard";
-import type { SidebarTeam } from "../lib/teamGrouping";
+import {
+  foldTeamRows,
+  teamsByOrigin,
+  type SidebarTeam,
+} from "../lib/teamGrouping";
 import {
   DEFAULT_WORKSPACE_PROFILES,
   type WorkspaceProfile,
@@ -606,24 +610,16 @@ function SidebarComponent({
   // Revisits render straight from cache, so this is only ever true the first
   // time a project is opened.
   const pendingFirstLoad = pending && sessions.length === 0;
-  // An open race is one row: its lanes fold into the chat it came from.
-  const teamByOrigin = useMemo(
-    () => new Map(teams.map((team) => [team.originId, team])),
-    [teams],
-  );
-  const teamMembers = useMemo(
-    () => new Set(teams.flatMap((team) => team.memberIds)),
-    [teams],
-  );
+  // An open race is one row: its lanes fold into the chat it came from,
+  // wherever that chat's row is listed. Several races can start from one.
+  const teamByOrigin = useMemo(() => teamsByOrigin(teams), [teams]);
   const listedSessions = mergeFolderSessionSummaries(
     sessions,
     openSessions,
     sessionFolders,
-  ).filter(
-    (session) => !session.orchestrationLeadId && !teamMembers.has(session.id),
-  );
-  const visibleSessions = [
-    ...filterSessionsByQuery(
+  ).filter((session) => !session.orchestrationLeadId);
+  const visibleSessions = foldTeamRows(
+    filterSessionsByQuery(
       filterSessionsByStatus(
         filterSessionsByTime(
           filterSessionsByHarness(
@@ -643,7 +639,8 @@ function SidebarComponent({
       ),
       searchQuery,
     ),
-  ].sort(compareSessionSummaries);
+    teams,
+  ).sort(compareSessionSummaries);
   const filtersActive = hasActiveSessionFilters(sessionFilters);
   const searchNarrowed = Boolean(searchQuery.trim());
   // Summaries for the whole project stay in `sessions` so filters still work.
@@ -1024,11 +1021,11 @@ function SidebarComponent({
       <DiscussionTalkBadge talk={talk} />
     ) : null;
   };
-  /** A race this row stands for: its lanes' mascots and status. */
-  const teamBadge = (sessionId: string) => {
-    const team = teamByOrigin.get(sessionId);
-    return team ? <SidebarTeamBadge team={team} /> : null;
-  };
+  /** The races this row stands for: their lanes' mascots and status. */
+  const teamBadge = (sessionId: string) =>
+    teamByOrigin
+      .get(sessionId)
+      ?.map((team) => <SidebarTeamBadge key={team.id} team={team} />) ?? null;
   const talkRow = (sessionId: string) =>
     talks.has(sessionId) ? { "data-discussion-row": sessionId } : undefined;
   const plainRowProps = (sessionId: string) =>
@@ -1251,7 +1248,7 @@ function SidebarComponent({
       <SessionCard
         session={session}
         talk={talks.get(session.id)}
-        team={teamByOrigin.get(session.id)}
+        teams={teamByOrigin.get(session.id)}
         talkLinked={discussionLinks.linked.has(session.id)}
         conflict={workConflicts[session.id]}
         isActive={session.id === activeSessionId}
@@ -1787,13 +1784,13 @@ function SidebarComponent({
                       currentProjectTasks
                     ) : (
                       <div className="personal-project-tasks">
-                        {standaloneSessions
-                          .filter(
+                        {foldTeamRows(
+                          standaloneSessions.filter(
                             (session) =>
-                              !session.archived &&
-                              !session.orchestrationLeadId &&
-                              !teamMembers.has(session.id),
-                          )
+                              !session.archived && !session.orchestrationLeadId,
+                          ),
+                          teams,
+                        )
                           .slice(0, SESSION_LIST_PAGE)
                           .map((session) =>
                             session.orchestration ? (
@@ -1840,11 +1837,12 @@ function SidebarComponent({
                               ))
                             ),
                           )}
-                        {standaloneSessions.filter(
-                          (session) =>
-                            !session.archived &&
-                            !session.orchestrationLeadId &&
-                            !teamMembers.has(session.id),
+                        {foldTeamRows(
+                          standaloneSessions.filter(
+                            (session) =>
+                              !session.archived && !session.orchestrationLeadId,
+                          ),
+                          teams,
                         ).length > SESSION_LIST_PAGE ? (
                           <button
                             type="button"
@@ -1904,14 +1902,13 @@ function SidebarComponent({
                     : expandedProjects.has(project.path);
                   const otherSessions =
                     !active && expanded
-                      ? (projectSessions[project.path] ?? [])
-                          .filter(
+                      ? foldTeamRows(
+                          (projectSessions[project.path] ?? []).filter(
                             (session) =>
-                              !session.archived &&
-                              !session.orchestrationLeadId &&
-                              !teamMembers.has(session.id),
-                          )
-                          .sort(compareSessionSummaries)
+                              !session.archived && !session.orchestrationLeadId,
+                          ),
+                          teams,
+                        ).sort(compareSessionSummaries)
                       : [];
                   const historyLoaded = loadedProjectPaths
                     ? loadedProjectPaths.has(project.path)
@@ -2510,7 +2507,7 @@ function FolderRenameRow({
 function SessionCard({
   session,
   talk,
-  team,
+  teams,
   talkLinked = false,
   conflict,
   isActive,
@@ -2535,8 +2532,8 @@ function SessionCard({
   session: SessionSummary;
   /** Its part in a discussion with another chat, if any. */
   talk?: SidebarTalk;
-  /** A race this row stands for, its lanes folded in. */
-  team?: SidebarTeam;
+  /** The races this row stands for, their lanes folded in. */
+  teams?: readonly SidebarTeam[];
   /** The partner's row is on screen and linked to this one. */
   talkLinked?: boolean;
   /** Editing another working chat's files, or running a second dev server. */
@@ -2961,7 +2958,9 @@ function SessionCard({
             {title}
           </span>
           {talk && !talkLinked ? <DiscussionTalkBadge talk={talk} /> : null}
-          {team ? <SidebarTeamBadge team={team} /> : null}
+          {teams?.map((team) => (
+            <SidebarTeamBadge key={team.id} team={team} />
+          ))}
           <WorkConflictMark conflict={conflict} />
           {compact ? status : null}
         </span>

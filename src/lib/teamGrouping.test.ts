@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  foldTeamRows,
   groupHomeRunning,
   groupRunningChats,
   sidebarTeams,
+  teamsByOrigin,
 } from "./teamGrouping";
 import type { TeamMember, TeamRun } from "./teamRuns";
 import type { HomeRunning } from "./workspaceHome";
@@ -138,5 +140,36 @@ describe("a team as one row", () => {
     expect(
       sidebarTeams([team({ origin: { sessionId: "l0" } })])[0].memberIds,
     ).toEqual(["l1"]);
+  });
+});
+
+describe("folding a race's lanes into its row", () => {
+  const race = (id: string, origin: string, lanes: string[]) => ({
+    id,
+    originId: origin,
+    memberIds: lanes,
+  });
+  it("folds them only where the row they started from is listed", () => {
+    const rows = [{ id: "chat" }, { id: "l0" }, { id: "l1" }, { id: "x" }];
+    const teams = [race("race:r1", "chat", ["l0", "l1"])];
+    expect(foldTeamRows(rows, teams).map((row) => row.id)).toEqual([
+      "chat",
+      "x",
+    ]);
+    // Filtered out, archived or gone: the lanes stay rows of their own.
+    expect(
+      foldTeamRows([{ id: "l0" }, { id: "x" }], teams).map((row) => row.id),
+    ).toEqual(["l0", "x"]);
+  });
+
+  it("keeps every race a row started", () => {
+    const byOrigin = teamsByOrigin([
+      race("race:r1", "chat", ["l0"]),
+      race("race:r2", "chat", ["l2"]),
+    ]);
+    expect(byOrigin.get("chat")?.map((team) => team.id)).toEqual([
+      "race:r1",
+      "race:r2",
+    ]);
   });
 });

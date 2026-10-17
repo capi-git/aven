@@ -229,6 +229,7 @@ import {
   raceOriginBlock,
   saveRace,
   subscribeRaces,
+  updateRace,
   usesRaceCheckout,
   type RaceBase,
   type RaceWorkspace,
@@ -4904,6 +4905,14 @@ export default function App({
                   ? { ...entry, orchestrationLeadId: undefined }
                   : entry;
               setHistory((current) => current.map(releaseSummary));
+              // A running race started here is shown by its first agent's
+              // row from now on, and its notices go there.
+              for (const race of listRaces())
+                if (
+                  race.state === "running" &&
+                  race.origin?.sessionId === sessionId
+                )
+                  updateRace(race.id, { origin: undefined });
               return;
             }
             if (latest && shouldPersistSession(latest)) {
