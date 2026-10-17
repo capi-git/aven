@@ -97,6 +97,43 @@ impl Inner {
         });
     }
 
+    /// A page of `label` loaded afresh (a reload): every lead grant its
+    /// earlier page held is revoked, as its lead's run is paused on load.
+    /// Returns those leads. Turns still running stay tracked until they end.
+    fn reset_window(&mut self, label: &str) -> Vec<String> {
+        let leads: Vec<String> = self
+            .grants
+            .values()
+            .filter(|grant| grant.window == label)
+            .map(|grant| grant.session.clone())
+            .collect();
+        for lead in &leads {
+            self.disable(label, lead);
+        }
+        leads
+    }
+
+    /// Whether another window holds this lead's grant.
+    fn granted_elsewhere(&self, lead: &str, label: &str) -> bool {
+        self.grants
+            .get(lead)
+            .is_some_and(|grant| grant.window != label)
+    }
+
+    /// See `control_page_loaded`: this window's revoked leads, then the
+    /// saved open runs no other window is running.
+    fn page_loaded(&mut self, label: &str, saved: Vec<String>) -> Vec<String> {
+        let saved: Vec<String> = saved
+            .into_iter()
+            .filter(|lead| !self.granted_elsewhere(lead, label))
+            .collect();
+        let mut leads = self.reset_window(label);
+        leads.extend(saved);
+        leads.sort();
+        leads.dedup();
+        leads
+    }
+
     fn window_sessions(&self, label: &str) -> Vec<String> {
         let leads: Vec<String> = self
             .grants
@@ -389,6 +426,35 @@ pub fn control_disable(
         .map_err(|_| "Control service unavailable")?;
     inner.disable(window.label(), &session_id);
     Ok(())
+}
+
+/// A workspace page loaded (at launch, or a reload). Returns the leads whose
+/// runs it must load, so none is lost or left holding its checkout:
+///
+/// - every lead its earlier page held a grant for, which is revoked here, so
+///   no checkout stays locked by a run nothing on screen can stop;
+/// - for the main window, every lead with a saved run still open that no
+///   other window is running, even when no tab shows that lead.
+///
+/// The page pauses a run that was running as it loads it.
+#[tauri::command]
+pub fn control_page_loaded(
+    webview: Webview,
+    host: State<'_, ControlHost>,
+    store: State<'_, crate::session_store::SessionStore>,
+) -> Result<Vec<String>, String> {
+    let window = owning_window(&webview)?;
+    let saved = if window.label() == "main" {
+        let conn = store.lock_conn()?;
+        crate::session_store::open_orchestration_leads(&conn).map_err(|error| error.to_string())?
+    } else {
+        Vec::new()
+    };
+    let mut inner = host
+        .inner
+        .lock()
+        .map_err(|_| "Control service unavailable")?;
+    Ok(inner.page_loaded(window.label(), saved))
 }
 
 #[tauri::command]
@@ -729,6 +795,77 @@ mod tests {
         inner.pending.clear();
         assert!(inner.ensure_update_idle().is_ok());
     }
+    fn grant(window: &str, lead: &str, cwd: &str) -> Grant {
+        Grant {
+            window: window.into(),
+            session: lead.into(),
+            cwd: cwd.into(),
+            token: "test".into(),
+        }
+    }
+
+    #[test]
+    fn a_reloaded_page_revokes_only_its_own_window_grants() {
+        let mut inner = Inner::default();
+        inner
+            .grants
+            .insert("lead".into(), grant("main", "lead", "/project"));
+        inner
+            .grants
+            .insert("other".into(), grant("window-2", "other", "/elsewhere"));
+        inner.workers.insert("worker".into(), "lead".into());
+        let (reply, answer) = mpsc::channel();
+        inner.pending.insert(
+            "request".into(),
+            Pending {
+                window: "main".into(),
+                session: "lead".into(),
+                reply,
+            },
+        );
+        inner.active.insert(
+            "chat".into(),
+            ActiveTurn {
+                window: "main".into(),
+                cwd: "/project".into(),
+            },
+        );
+        assert_eq!(inner.reset_window("main"), vec!["lead".to_string()]);
+        // No grant is left to refuse other chats in that checkout.
+        assert!(!inner.grants.contains_key("lead"));
+        assert!(!inner.workers.contains_key("worker"));
+        assert_eq!(
+            answer.try_recv().unwrap()["error"],
+            json!("Lead connection was revoked")
+        );
+        // Another window's run, and turns still running, are left alone.
+        assert!(inner.grants.contains_key("other"));
+        assert!(inner.active.contains_key("chat"));
+        assert!(inner.granted_elsewhere("other", "main"));
+        assert!(!inner.granted_elsewhere("other", "window-2"));
+        assert!(!inner.granted_elsewhere("lead", "main"));
+        assert!(inner.reset_window("main").is_empty());
+    }
+
+    #[test]
+    fn a_loaded_page_loads_its_own_and_unclaimed_open_runs() {
+        let mut inner = Inner::default();
+        inner
+            .grants
+            .insert("mine".into(), grant("main", "mine", "/a"));
+        inner
+            .grants
+            .insert("theirs".into(), grant("window-2", "theirs", "/b"));
+        let leads = inner.page_loaded(
+            "main",
+            vec!["mine".into(), "theirs".into(), "tabless".into()],
+        );
+        // Another window's running run is that window's to keep.
+        assert_eq!(leads, ["mine", "tabless"]);
+        assert!(!inner.grants.contains_key("mine"));
+        assert!(inner.grants.contains_key("theirs"));
+    }
+
     #[test]
     fn closing_a_window_releases_ordinary_turns_and_owned_orchestration() {
         let mut inner = Inner::default();

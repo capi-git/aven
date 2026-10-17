@@ -871,6 +871,31 @@ fn index_orchestration(conn: &Connection, lead: &str, run: &Value) -> rusqlite::
     Ok(())
 }
 
+/// Leads whose saved run is still open: running or paused, or with an
+/// agent still working. Read from the small per-lead summaries.
+pub(crate) fn open_orchestration_leads(conn: &Connection) -> rusqlite::Result<Vec<String>> {
+    let rows = conn
+        .prepare("SELECT lead_id, summary FROM orchestration_sidebar")?
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows
+        .into_iter()
+        .filter(|(_, summary)| {
+            serde_json::from_str::<Value>(summary).is_ok_and(|summary| {
+                matches!(summary["status"].as_str(), Some("active" | "paused"))
+                    || summary["tasks"].as_array().is_some_and(|tasks| {
+                        tasks.iter().any(|task| {
+                            matches!(task["status"].as_str(), Some("running" | "cancelling"))
+                        })
+                    })
+            })
+        })
+        .map(|(lead, _)| lead)
+        .collect())
+}
+
 pub(crate) fn save_orchestration(
     conn: &Connection,
     lead: &str,
@@ -1661,6 +1686,34 @@ mod transcript_tests;
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn lists_the_leads_whose_saved_run_is_still_open() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.lock_conn().unwrap();
+        let task = |status: &str| json!({ "sessionId": format!("w-{status}"), "status": status });
+        for (lead, run) in [
+            ("running", json!({ "status": "active", "tasks": [] })),
+            (
+                "paused",
+                json!({ "status": "paused", "tasks": [task("queued")] }),
+            ),
+            (
+                "finished",
+                json!({ "status": "finished", "tasks": [task("completed")] }),
+            ),
+            // Stopped, with an agent still on its way out.
+            (
+                "stopping",
+                json!({ "status": "stopped", "tasks": [task("cancelling")] }),
+            ),
+        ] {
+            save_orchestration(&conn, lead, &run).unwrap();
+        }
+        let mut open = open_orchestration_leads(&conn).unwrap();
+        open.sort();
+        assert_eq!(open, ["paused", "running", "stopping"]);
+    }
 
     #[test]
     fn disk_store_uses_normal_wal_and_preserves_history_after_reopen() {

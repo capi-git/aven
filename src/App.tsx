@@ -1704,6 +1704,8 @@ export default function App({
     () => new Map(),
   );
   const [history, setHistory] = useState<SessionSummary[]>(() => bootHistory);
+  const historyRef = useRef(history);
+  historyRef.current = history;
   /**
    * Projects whose rows are already in `history`. This has to be state, not a
    * ref: `sidebarCwd` is derived during render, so the frame that first shows
@@ -2322,18 +2324,70 @@ export default function App({
     leadDecided,
   ]);
 
+  /**
+   * The chat a team's notice belongs to, loaded or not: a notice is posted
+   * even when that chat is closed (a race's starting chat, a discussion's
+   * missing partner, a run's tab-less lead), from its saved row or what the
+   * team knows of it.
+   */
+  const noticeChat = useCallback(
+    (
+      id: string,
+      known: {
+        harness?: Session["harness"];
+        cwd?: string;
+        title?: string;
+        model?: string;
+      } = {},
+    ): Session | undefined => {
+      const loaded = sessionsRef.current.find((session) => session.id === id);
+      if (loaded) return loaded;
+      const saved = historyRef.current.find((row) => row.id === id);
+      const harness = saved?.harness ?? known.harness;
+      if (!harness) return undefined;
+      return {
+        ...newSession(harness, saved?.cwd ?? known.cwd ?? "~"),
+        id,
+        title: saved?.title ?? known.title ?? "",
+        model: saved?.model ?? known.model ?? "",
+      };
+    },
+    [sessionsRef],
+  );
+
   // One entry per run outcome, on the lead's chat: "Run finished · 4 agents"
   // or "Run paused · <reason>", with a banner while you are elsewhere.
   useEffect(
     () =>
       orchestrator.onOutcome((outcome) => {
-        const lead = sessionsRef.current.find(
-          (session) => session.id === outcome.run.leadId,
-        );
+        const { run } = outcome;
+        const lead = noticeChat(run.leadId, {
+          harness: run.lead?.harness,
+          cwd: run.cwd,
+          title: run.title,
+        });
         if (lead) announceActivity(lead, runOutcomeActivity(outcome));
       }),
-    [announceActivity, sessionsRef],
+    [announceActivity, noticeChat],
   );
+
+  // A run is never lost, or left holding its checkout, across a restart or
+  // a reload: this page loads (and pauses, if it was running) every run its
+  // earlier page held, and in the main window every open run whose lead has
+  // no tab.
+  useEffect(() => {
+    void invoke<string[]>("control_page_loaded")
+      .then((leads) =>
+        Promise.all(
+          leads.map((lead) =>
+            orchestrator
+              .hydrate(lead)
+              .catch((error) => logError("Couldn't load a run", error)),
+          ),
+        ),
+      )
+      .catch((error) => logError("Couldn't load open runs", error));
+  }, []);
 
   // A suggested winner this window asked for before a reload, or one that
   // ran longer than a call can, is over; a review asked before a reload is
@@ -2388,12 +2442,18 @@ export default function App({
     seenTeams.current = seen;
     resolveTeamNeedActivity(teamsNoLongerNeedingYou(teams));
     for (const { sessionId, event } of events) {
-      const session = sessionsRef.current.find(
-        (entry) => entry.id === sessionId,
-      );
+      const team = teams.find((entry) => entry.id === event.team?.id);
+      const member =
+        team?.members.find((entry) => entry.sessionId === sessionId) ??
+        team?.members[0];
+      const session = noticeChat(sessionId, {
+        harness: member?.harness,
+        cwd: team?.project,
+        title: member?.title ?? team?.title,
+      });
       if (session) announceActivity(session, event);
     }
-  }, [announceActivity, sessionsRef, teams]);
+  }, [announceActivity, noticeChat, teams]);
 
   // Read requires an actually displayed transcript, including split siblings or
   // a focused detached window. An active ID behind Settings/browser is insufficient.

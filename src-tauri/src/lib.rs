@@ -523,6 +523,7 @@ pub fn run() {
             control::control_attach_worker,
             control::control_authorize_turn,
             control::control_turn_finished,
+            control::control_page_loaded,
             session_store::session_upsert,
             session_store::session_list_by_project,
             session_store::session_list_project_ids,

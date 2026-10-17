@@ -630,10 +630,25 @@ describe("local orchestration", () => {
     );
     const restored = new Orchestrator(f.store);
     restored.bind(f.host);
+    const outcomes: string[] = [];
+    restored.onOutcome(({ kind, run }) =>
+      outcomes.push(`${kind}:${run.error}`),
+    );
     await restored.hydrate("lead");
     expect(restored.run("lead")?.status).toBe("paused");
     expect(restored.run("lead")?.tasks[0].status).toBe("failed");
     expect(f.host.submit).toHaveBeenCalledTimes(1);
+    // Said once, as any pause is, so Activity and the Dock agree.
+    expect(outcomes).toEqual([
+      "paused:Aven closed while the run was going. Check the files, then resume or stop the run.",
+    ]);
+    // A run that was already paused is not announced again.
+    const again = new Orchestrator(f.store);
+    again.bind(f.host);
+    const more: string[] = [];
+    again.onOutcome(({ kind }) => more.push(kind));
+    await again.hydrate("lead");
+    expect(more).toEqual([]);
   });
   it("does not claim a turn or run is successful before review", async () => {
     const f = setup();

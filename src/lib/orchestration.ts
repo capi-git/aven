@@ -656,6 +656,7 @@ export class Orchestrator {
         );
         await this.store.disable(id);
       }
+      const interrupted = run.status === "active";
       await this.commit({
         ...run,
         status: run.status === "active" ? "paused" : run.status,
@@ -676,6 +677,10 @@ export class Orchestrator {
             ? "Aven closed while the run was going. Check the files, then resume or stop the run."
             : run.error,
       });
+      // It was running when Aven closed: say once that it paused, as any
+      // run that pauses does.
+      const paused = this.run(id);
+      if (interrupted && paused) this.announce(run, paused);
     } catch (error) {
       this.loaded.delete(id);
       throw error;
