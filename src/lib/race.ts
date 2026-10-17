@@ -378,6 +378,9 @@ export function raceLaneRemoved(sessionId: string) {
     raceLaneEnded(sessionId, "stopped");
 }
 
+/** How long a new race's chats have to be loaded and saved. */
+const LANE_SETTLE_GRACE_MS = 15_000;
+
 /** Lanes this page already checked are still there. */
 const checkedLanes = new Set<string>();
 
@@ -389,9 +392,11 @@ const checkedLanes = new Set<string>();
 export async function settleMissingLanes(
   loaded: (sessionId: string) => boolean,
   exists: (sessionId: string) => Promise<boolean>,
+  now = Date.now(),
 ): Promise<void> {
   const pending = read().flatMap((race) =>
-    race.state !== "running"
+    // A race just started may not have its chats loaded or saved yet.
+    race.state !== "running" || now - race.createdAt < LANE_SETTLE_GRACE_MS
       ? []
       : race.lanes.filter(
           (lane, index) =>

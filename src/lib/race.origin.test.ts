@@ -204,9 +204,17 @@ it("records an agent removed mid-turn as stopped, never working for good", async
       })),
     }),
   );
+  // Just started: its chats may not be loaded or saved yet.
+  await settleMissingLanes(
+    () => false,
+    async () => false,
+    10_000,
+  );
+  expect(getRace("r2")?.ends).toEqual([null, null]);
   await settleMissingLanes(
     () => false,
     async (id) => id !== "l0-b",
+    60_000,
   );
   expect(getRace("r2")?.ends?.[0]?.kind).toBe("stopped");
   expect(getRace("r2")?.ends?.[1]).toBeNull();
