@@ -77,6 +77,7 @@ import {
   subscribeScheduledRuns,
 } from "../lib/scheduledAgents";
 import { HARNESS_TITLE } from "../lib/session";
+import { teamAgentsText } from "../lib/teamGrouping";
 import { useUsageForecasts } from "../hooks/useUsageForecasts";
 import { UsageForecastNote } from "../chrome/UsageForecastNote";
 import type { ProviderUsageForecast } from "../lib/usageHistory";
@@ -441,7 +442,7 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
                           <>
                             {item.team ? (
                               <span className="workspace-home-row-project">
-                                {item.team.count} agents
+                                {teamAgentsText(item.team)}
                               </span>
                             ) : null}
                             {item.startedAt !== undefined ? (

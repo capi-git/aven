@@ -4,6 +4,8 @@ import {
   groupHomeRunning,
   groupRunningChats,
   sidebarTeams,
+  teamAgentsText,
+  teamRowInfo,
   teamsByOrigin,
 } from "./teamGrouping";
 import type { TeamMember, TeamRun } from "./teamRuns";
@@ -103,6 +105,25 @@ describe("a team as one row", () => {
       ["a", "Discussing · Round 1 of 2"],
       ["lead", "Orchestrating · Needs you"],
     ]);
+  });
+
+  it("counts a run's agents as its card does, without its lead", () => {
+    const run = team({
+      id: "orchestrate:lead",
+      kind: "orchestrate",
+      key: "lead",
+      origin: { sessionId: "lead" },
+      members: [
+        { ...member("lead"), role: "lead" },
+        { ...member("w1"), role: "worker" },
+        { ...member("w2"), role: "worker" },
+      ],
+    });
+    expect(teamAgentsText(teamRowInfo(run))).toBe("2 agents");
+    expect(
+      teamAgentsText(teamRowInfo({ ...run, members: run.members.slice(0, 2) })),
+    ).toBe("1 agent");
+    expect(teamAgentsText(teamRowInfo(team({})))).toBe("2 agents");
   });
 
   it("leaves a race ready to compare, and chats outside teams, alone", () => {

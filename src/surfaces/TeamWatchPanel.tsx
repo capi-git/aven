@@ -509,7 +509,7 @@ const NATIVE_POP_OUTS: TeamWatchOwner | null = IS_MAC ? teamWatchOwner() : null;
  * remembered for this window (see `useTeamWatch`). Both are cut out of a
  * native browser page beneath them, as menus are.
  */
-export function TeamWatchFloat({
+export const TeamWatchFloat = memo(function TeamWatchFloat({
   panel,
   sessions,
   host,
@@ -571,6 +571,25 @@ export function TeamWatchFloat({
     },
     [panel, viewport],
   );
+  // One handler for every pill, unchanged across renders, so a pill redraws
+  // only when its own team does.
+  const pillRefs = useRef({ moveFrom, rect, panel });
+  pillRefs.current = { moveFrom, rect, panel };
+  const pillPointerDown = useCallback((event: ReactPointerEvent) => {
+    if (event.button !== 0) return;
+    const { moveFrom, rect } = pillRefs.current;
+    moveFrom(event, rect, undefined, () => {
+      draggedPill.current = true;
+    });
+  }, []);
+  const restorePill = useCallback((id: string) => {
+    // A drag ends with a click: it only moved the pills.
+    if (draggedPill.current) {
+      draggedPill.current = false;
+      return;
+    }
+    pillRefs.current.panel.restore(id);
+  }, []);
 
   const onPanelPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
     if (event.button !== 0) return;
@@ -710,20 +729,8 @@ export function TeamWatchFloat({
               <TeamPill
                 key={id}
                 team={team}
-                onPointerDown={(event) => {
-                  if (event.button !== 0) return;
-                  moveFrom(event, rect, undefined, () => {
-                    draggedPill.current = true;
-                  });
-                }}
-                onRestore={() => {
-                  // A drag ends with a click: it only moved the pills.
-                  if (draggedPill.current) {
-                    draggedPill.current = false;
-                    return;
-                  }
-                  panel.restore(id);
-                }}
+                onPointerDown={pillPointerDown}
+                onRestore={restorePill}
               />
             ) : null;
           })}
@@ -741,7 +748,7 @@ export function TeamWatchFloat({
       ) : null}
     </>
   );
-}
+});
 
 /** A race's or a run's panel, here in the window that owns it. */
 function OwnedTeamPanel({
@@ -785,7 +792,8 @@ export const TeamPill = memo(function TeamPill({
 }: {
   team: TeamRun;
   onPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
-  onRestore: () => void;
+  /** Called with the team's id, so one handler serves every pill. */
+  onRestore: (teamId: string) => void;
 }) {
   const voices = useTeamVoices(team);
   const { progress, status } = teamPillText(team);
@@ -807,7 +815,7 @@ export const TeamPill = memo(function TeamPill({
         color ? ({ "--discussion-voice": color } as CSSProperties) : undefined
       }
       onPointerDown={onPointerDown}
-      onClick={onRestore}
+      onClick={() => onRestore(team.id)}
     >
       <span className="discussion-duo" aria-hidden>
         {voices.slice(0, PILL_FACES).map((voice, index) => (

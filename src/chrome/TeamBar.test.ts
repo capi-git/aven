@@ -467,6 +467,22 @@ describe("while orchestrating", () => {
     expect(orchestrator.start).toHaveBeenCalledWith("lead", ["claude"], 2);
   });
 
+  it("drops a failed Resume's error once the run moves on elsewhere", async () => {
+    store.runs = [run({ status: "paused", error: "Out of credits." })];
+    vi.mocked(orchestrator.start).mockRejectedValueOnce(
+      new Error("Claude Code isn't signed in."),
+    );
+    await show("lead");
+    await press("Resume");
+    expect(text()).toBe("Claude Code isn't signed in.");
+    // Resumed from the team panel instead.
+    store.runs = [run({ tasks: [task("a", { status: "running" })] })];
+    await act(async () => {
+      for (const listener of store.listeners) listener();
+    });
+    expect(text()).toBe("Orchestrating · 1 working");
+  });
+
   it("says the lead stopped without finishing once nothing can move the run", async () => {
     store.runs = [
       run({
@@ -521,6 +537,9 @@ describe("while orchestrating", () => {
   it("words what the agents are doing", () => {
     expect(runningSummary(run(), false)).toBe(
       "Orchestrating · the lead is reviewing",
+    );
+    expect(runningSummary(run(), true)).toBe(
+      "Orchestrating · waiting on the lead",
     );
     expect(
       runningSummary(

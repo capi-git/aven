@@ -488,7 +488,28 @@ function workerState(
   }
 }
 
-/** "2 working · 1 waiting", or the lead's part when no agent is busy. */
+/**
+ * An open run's agents, "2 working · 1 waiting", or the lead's part when no
+ * agent is busy. The run's bar says the same after "Orchestrating".
+ */
+export function runActivityText(
+  run: OrchestrationRun,
+  leadWorking: boolean,
+): string {
+  const working = run.tasks.filter(
+    (task) => task.status === "running" || task.status === "cancelling",
+  ).length;
+  const waiting = run.tasks.filter((task) => task.status === "queued").length;
+  const parts = [
+    working ? `${working} working` : "",
+    waiting ? `${waiting} waiting` : "",
+  ].filter(Boolean);
+  if (!parts.length)
+    parts.push(leadWorking ? "the lead is reviewing" : "waiting on the lead");
+  return parts.join(" · ");
+}
+
+/** A run's progress: its activity while open, else how it ended. */
 export function orchestrationProgressText(
   run: OrchestrationRun,
   leadBusy: boolean,
@@ -507,16 +528,7 @@ export function orchestrationProgressText(
       .filter(Boolean)
       .join(" · ");
   }
-  const working = run.tasks.filter(
-    (task) => task.status === "running" || task.status === "cancelling",
-  ).length;
-  const waiting = run.tasks.filter((task) => task.status === "queued").length;
-  const parts = [
-    working ? `${working} working` : "",
-    waiting ? `${waiting} waiting` : "",
-  ].filter(Boolean);
-  if (!parts.length) parts.push(leadBusy ? "the lead is reviewing" : "idle");
-  return parts.join(" · ");
+  return runActivityText(run, leadBusy);
 }
 
 /** An orchestration as a team: the lead, then one member per worker. */

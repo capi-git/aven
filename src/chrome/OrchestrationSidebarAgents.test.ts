@@ -102,6 +102,21 @@ describe("the sidebar's run card", () => {
     expect(rows()).toHaveLength(0);
   });
 
+  it("dates a folded run by when it ended, not by its lead's last activity", async () => {
+    store.runs = [
+      {
+        leadId: "lead",
+        status: "finished",
+        tasks: [],
+        endedAt: NOW - 5 * HOUR,
+      } as unknown as OrchestrationRun,
+    ];
+    await show({ status: "finished", tasks: [task("a", "completed")] });
+    expect(host.querySelector("[data-orchestration-folded]")?.textContent).toBe(
+      "Finished · 1 agent · 5h ago",
+    );
+  });
+
   it("offers Stop run whenever the run is open, and Resume while paused", async () => {
     const run = {
       leadId: "lead",

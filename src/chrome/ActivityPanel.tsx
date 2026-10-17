@@ -17,7 +17,11 @@ import {
 import { HarnessIcon } from "./HarnessIcon";
 import { TeamMiniFaces } from "./TeamCard";
 import { useTeamRuns } from "../hooks/useTeamRuns";
-import { groupRunningChats, teamRowInfo } from "../lib/teamGrouping";
+import {
+  groupRunningChats,
+  teamAgentsText,
+  teamRowInfo,
+} from "../lib/teamGrouping";
 import { teamsNeedingYou } from "../lib/teamAttention";
 import type { TeamNeed, TeamRun } from "../lib/teamRuns";
 import { isRunPausedActivity } from "../lib/orchestrationActivity";
@@ -314,7 +318,7 @@ export function ActivityPanel({
                       <span className="activity-copy">
                         <span className="activity-title">{row.team.title}</span>
                         <span className="activity-detail">
-                          {info.status} · {info.count} agents ·{" "}
+                          {info.status} · {teamAgentsText(info)} ·{" "}
                           {projectName(row.team.project)}
                         </span>
                       </span>

@@ -23,7 +23,10 @@ export function OrchestrationSidebarAgents({
 }: {
   leadId: string;
   summary: OrchestrationSummary;
-  /** When the lead last did anything; an ended run's folded line dates it. */
+  /**
+   * When the lead last did anything: the folded line's date for a run saved
+   * before runs kept when they ended.
+   */
   endedAt?: number;
   now?: number;
 }) {
@@ -94,7 +97,7 @@ export function OrchestrationSidebarAgents({
         >
           <ChevronRight className="size-3 shrink-0" strokeWidth={1.75} />
           <span className="min-w-0 flex-1 truncate">
-            {orchestrationFoldedLine(summary, endedAt, now)}
+            {orchestrationFoldedLine(summary, run?.endedAt ?? endedAt, now)}
           </span>
         </button>
       </div>

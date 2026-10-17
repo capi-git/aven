@@ -15,6 +15,7 @@ import {
 import { useRaceWorkspace } from "../lib/race";
 import { useTeamWorkspace } from "../lib/teamWorkspace";
 import {
+  runActivityText,
   TEAM_KIND_LABEL,
   teamIsOpen,
   teamRole,
@@ -52,21 +53,12 @@ export const STALLED_AFTER_MS = 1_500;
 const BUTTON =
   "flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-content/70 hover:bg-content/10 hover:text-content disabled:opacity-40";
 
-/** "2 working · 1 waiting", or the lead's part when no agent is busy. */
+/** "Orchestrating · 2 working", worded as the team's pill and panel word it. */
 export function runningSummary(
   run: OrchestrationRun,
   leadIdle: boolean,
 ): string {
-  const working = run.tasks.filter(
-    (task) => task.status === "running" || task.status === "cancelling",
-  ).length;
-  const waiting = run.tasks.filter((task) => task.status === "queued").length;
-  const parts = [
-    working ? `${working} working` : "",
-    waiting ? `${waiting} waiting` : "",
-  ].filter(Boolean);
-  if (!parts.length && !leadIdle) parts.push("the lead is reviewing");
-  return ["Orchestrating", ...parts].join(" · ");
+  return `Orchestrating · ${runActivityText(run, !leadIdle)}`;
 }
 
 /**
@@ -312,14 +304,20 @@ function OpenTeamBar({
   const run = useOrchestrationRun(lead);
   const stalled = useStalled(run, idle);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string>();
+  // A failure is shown until the team moves on, here or elsewhere.
+  const moment = `${team.status}:${team.need?.kind ?? ""}`;
+  const [failure, setFailure] = useState<{ text: string; moment: string }>();
+  const error = failure?.moment === moment ? failure.text : undefined;
   const perform = async (operation: () => Promise<unknown> | unknown) => {
     setPending(true);
-    setError(undefined);
+    setFailure(undefined);
     try {
       await operation();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setFailure({
+        text: reason instanceof Error ? reason.message : String(reason),
+        moment,
+      });
     } finally {
       setPending(false);
     }

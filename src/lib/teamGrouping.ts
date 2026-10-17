@@ -22,12 +22,20 @@ export type TeamRowInfo = {
   status: string;
   /** Its members, for their mascots. */
   members: { sessionId: string; harness: HarnessId }[];
-  /** Agents in it: "3 agents". */
+  /**
+   * Agents in it, as its card counts them: a run's workers, not its lead,
+   * so "2 agents" everywhere.
+   */
   count: number;
   /** Agents at work now. */
   working: number;
   needsYou: boolean;
 };
+
+/** "1 agent", "3 agents". */
+export function teamAgentsText(info: Pick<TeamRowInfo, "count">): string {
+  return `${info.count} ${info.count === 1 ? "agent" : "agents"}`;
+}
 
 export function teamRowInfo(team: TeamRun): TeamRowInfo {
   return {
@@ -40,7 +48,7 @@ export function teamRowInfo(team: TeamRun): TeamRowInfo {
       sessionId: member.sessionId,
       harness: member.harness,
     })),
-    count: team.members.length,
+    count: team.members.filter((member) => member.role !== "lead").length,
     working: team.members.filter(
       (member) =>
         member.state === "working" || member.state === "lead-deciding",

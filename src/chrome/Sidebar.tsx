@@ -126,6 +126,7 @@ import { OrchestrationSidebarAgents } from "./OrchestrationSidebarAgents";
 import { TeamMiniFaces } from "./TeamCard";
 import {
   foldTeamRows,
+  teamAgentsText,
   teamsByOrigin,
   type SidebarTeam,
 } from "../lib/teamGrouping";
@@ -3126,7 +3127,7 @@ function SidebarTeamBadge({ team }: { team: SidebarTeam }) {
       className="sidebar-team-badge"
       data-sidebar-team={team.id}
       data-needs-you={team.needsYou || undefined}
-      title={`${team.status} · ${team.count} agents`}
+      title={`${team.status} · ${teamAgentsText(team)}`}
     >
       <TeamMiniFaces members={team.members} active={team.working > 0} />
       <span className="sidebar-team-badge-text">

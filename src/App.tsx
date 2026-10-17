@@ -2233,10 +2233,12 @@ export default function App({
   const panelChatsRef = useRef<readonly string[]>([]);
   /** The chats of the team whose pop-out has focus. */
   const popOutChatsRef = useRef<readonly string[]>([]);
-  const activityPresentation = useCallback((sessionId: string) => {
-    const otherFocused =
-      activityWindowBridgeRef.current.focusedSessionIds.has(sessionId) ||
-      popOutChatsRef.current.includes(sessionId);
+  /**
+   * Whether each chat is on screen and focused now, worked out once for
+   * however many chats are asked about (the read check asks for each unread
+   * chat on every render).
+   */
+  const activityPresenter = useCallback(() => {
     const view = activityMainViewRef.current;
     // A race's overview on screen shows its lanes, as the discussion panel
     // shows both of its chats.
@@ -2257,12 +2259,22 @@ export default function App({
       floatingSessionIds: activityWindowBridgeRef.current.floatingSessionIds,
       companions: teamCompanions(teamsLatest.current),
       panel: watched,
-    }).has(sessionId);
-    return {
-      visible: otherFocused || mainVisible,
-      focused: otherFocused || notificationWindowFocusedRef.current,
+    });
+    const elsewhere = activityWindowBridgeRef.current.focusedSessionIds;
+    const popOut = new Set(popOutChatsRef.current);
+    const windowFocused = notificationWindowFocusedRef.current;
+    return (sessionId: string) => {
+      const otherFocused = elsewhere.has(sessionId) || popOut.has(sessionId);
+      return {
+        visible: otherFocused || mainVisible.has(sessionId),
+        focused: otherFocused || windowFocused,
+      };
     };
   }, []);
+  const activityPresentation = useCallback(
+    (sessionId: string) => activityPresenter()(sessionId),
+    [activityPresenter],
+  );
   // Turns the orchestrator sends (a worker's, or the lead's hidden
   // continuation) post no Activity entry or banner of their own; the run
   // posts one when it finishes or pauses.
@@ -2492,10 +2504,11 @@ export default function App({
         .filter((entry) => entry.readAt === null)
         .map((entry) => entry.sessionId),
     );
+    if (!unreadSessions.size) return;
+    const presentation = activityPresenter();
     for (const id of unreadSessions) {
-      const presentation = activityPresentation(id);
-      if (presentation.visible && presentation.focused)
-        markSessionActivityRead(id);
+      const { visible, focused } = presentation(id);
+      if (visible && focused) markSessionActivityRead(id);
     }
   });
 
