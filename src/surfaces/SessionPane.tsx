@@ -320,6 +320,17 @@ export const SessionPane = memo(function SessionPane({
     loadNotesEnabled,
     () => true,
   );
+  // Stable, so finished turns in the transcript skip rendering while it streams.
+  const secondOpinion = useCallback(
+    (harness: HarnessId, turn: Block[], model: string) =>
+      onSecondOpinion?.(session.id, harness, turn, model),
+    [onSecondOpinion, session.id],
+  );
+  const handoff = useCallback(
+    (harness: HarnessId, turn: Block[], model: string) =>
+      onHandoff?.(session.id, harness, turn, model),
+    [onHandoff, session.id],
+  );
   const saveNote = useCallback(
     (text: string) => {
       const sessionTitle = sessionDisplayTitle(session.title, session.harness);
@@ -699,16 +710,10 @@ export const SessionPane = memo(function SessionPane({
                 onBuildPlan={buildPlan}
                 onSecondOpinion={
                   !session.inboxAsk && onSecondOpinion
-                    ? (harness, turn, model) =>
-                        onSecondOpinion(session.id, harness, turn, model)
+                    ? secondOpinion
                     : undefined
                 }
-                onHandoff={
-                  !session.inboxAsk && onHandoff
-                    ? (harness, turn, model) =>
-                        onHandoff(session.id, harness, turn, model)
-                    : undefined
-                }
+                onHandoff={!session.inboxAsk && onHandoff ? handoff : undefined}
                 onJumpToBottomChange={setShowJumpToBottom}
                 onJumpToBottomReady={onJumpToBottomReady}
                 onRevealReady={onRevealReady}
