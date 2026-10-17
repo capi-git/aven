@@ -456,10 +456,11 @@ export function createStreamingBlockSplitter(
         ? splitEnd(previous, markdown, split)
         : undefined;
     const base = reused ?? split(markdown);
-    const ends = blockEnds(base);
     // Only text that the blocks tile exactly can be split again from a block.
+    // A finished message keeps nothing for a next update.
+    const ends = options.streaming ? blockEnds(base) : [];
     previous =
-      (ends.at(-1) ?? 0) === markdown.length
+      options.streaming && (ends.at(-1) ?? 0) === markdown.length
         ? { markdown, blocks: base, ends }
         : null;
     const blocks = options.comparisons ? mergeComparisonImages(base) : base;
