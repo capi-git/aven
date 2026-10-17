@@ -46,6 +46,12 @@ export function useCardGlide(
     if (!root) return;
     const before = places.current;
     const origin = root.getBoundingClientRect();
+    // Not laid out (a hidden tab set aside): nothing to measure, and the
+    // next change on screen starts over instead of gliding from the corner.
+    if (!origin.width && !origin.height) {
+      places.current = null;
+      return;
+    }
     const moving: { card: HTMLElement; dx: number; dy: number }[] = [];
     const entering: HTMLElement[] = [];
     const after = new Map<string, Point>();
@@ -111,7 +117,9 @@ export function useCardGlide(
       if (pending !== null) return;
       pending = requestAnimationFrame(() => {
         pending = null;
-        if (places.current) places.current = measure(root);
+        const rect = root.getBoundingClientRect();
+        if (!rect.width && !rect.height) places.current = null;
+        else if (places.current) places.current = measure(root);
       });
     };
     root.addEventListener("scroll", remeasure, { passive: true });

@@ -380,6 +380,63 @@ describe("WorkBoard", () => {
     expect(moved.hasAttribute("data-gliding")).toBe(false);
   });
 
+  it("does not glide from the corner after it was set aside", async () => {
+    let laidOut = true;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        const column = this.getAttribute("data-column");
+        const left = !laidOut
+          ? 0
+          : column === "review"
+            ? 400
+            : column === "working"
+              ? 200
+              : 0;
+        const size = laidOut ? 100 : 0;
+        return {
+          x: left,
+          y: 0,
+          left,
+          top: 0,
+          right: left + size,
+          bottom: size,
+          width: size,
+          height: size,
+          toJSON: () => ({}),
+        } as DOMRect;
+      },
+    );
+    vi.stubGlobal("matchMedia", () => ({ matches: false }));
+    publishWorkBoardFeed(feed([chat("a")], { a: "working" }));
+    await render();
+    // Set aside with no layout, it still redraws when a card changes column.
+    laidOut = false;
+    await act(async () =>
+      noteChatReview(
+        {
+          sessionId: "a",
+          project: PROJECT,
+          cwd: PROJECT,
+          files: [{ relative: "a.ts", additions: 1, deletions: 0 }],
+        },
+        NOW,
+      ),
+    );
+    await act(async () =>
+      publishWorkBoardFeed(feed([chat("a")], { a: "review" })),
+    );
+    expect(cardIn("review", "a")?.hasAttribute("data-gliding")).toBe(false);
+    // Back on screen, the next change starts over rather than gliding from
+    // the corner it measured while it had no layout.
+    laidOut = true;
+    await act(async () =>
+      publishWorkBoardFeed(feed([chat("a")], { a: "working" })),
+    );
+    const card = cardIn("working", "a")!;
+    expect(card.hasAttribute("data-gliding")).toBe(false);
+    expect(card.style.transform).toBe("");
+  });
+
   it("does not move cards with reduced motion", async () => {
     vi.stubGlobal("matchMedia", () => ({ matches: true }));
     publishWorkBoardFeed(feed([chat("a")], { a: "working" }));
