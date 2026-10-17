@@ -1146,6 +1146,7 @@ export function DetachedWorkspace() {
             if (!pane) return [];
             const props: ComponentProps<typeof FilePane> = {
               pane,
+              boards: false,
               focused: tab.focusedId === id,
               dirtyFileIds: new Set(state.dirtyFileIds ?? []),
               fileErrorCounts: new Map(),

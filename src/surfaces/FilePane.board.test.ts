@@ -64,6 +64,16 @@ describe("a board in a file pane", () => {
     expect(container.querySelector(".aven-surface-tabs")).toBeNull();
   });
 
+  it("only says where it lives in a workspace window", async () => {
+    await act(async () =>
+      root.render(createElement(FilePane, { ...props, boards: false })),
+    );
+    expect(board()).toBeNull();
+    expect(container.querySelector("[data-board-elsewhere]")?.textContent).toBe(
+      "Boards stay in the main window.",
+    );
+  });
+
   it("keeps its strip beside other panes or files, and stops while hidden", async () => {
     await act(async () =>
       root.render(

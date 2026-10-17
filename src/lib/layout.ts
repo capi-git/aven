@@ -411,6 +411,14 @@ export function newBoardWorkspaceTab(project: string): WorkspaceTab {
   };
 }
 
+/** Boards follow the main window's chats, so they never move to another. */
+export const BOARD_STAYS_MESSAGE = "Boards stay in the main window.";
+
+/** Whether a workspace tab holds a project's board. */
+export function holdsBoard(tab: Pick<WorkspaceTab, "editorPanes">): boolean {
+  return tab.editorPanes.some((pane) => pane.files.some(isBoardTab));
+}
+
 /** The workspace tab already showing `project`'s board, if any. */
 export function boardTabFor(
   tabs: readonly WorkspaceTab[],

@@ -2,11 +2,17 @@
 import { act, createElement, StrictMode, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { leaf, leafIds, type WorkspaceTab } from "./layout";
+import {
+  leaf,
+  leafIds,
+  newBoardWorkspaceTab,
+  type WorkspaceTab,
+} from "./layout";
 import { minimizeWorkspaceSide, resolveWorkspaceView } from "./workspaceViews";
 import { browserIdForTab } from "./personalWorkspace";
 import { captureWorkspaceReturnPlacement } from "./workspaceArrangement";
 import {
+  detachProblem,
   mergeDetachedWorkspaces,
   mergeDetachedSessionUpdate,
   nativeWorkspaceWindow,
@@ -697,6 +703,20 @@ describe("detached workspace transactions", () => {
     vi.clearAllTimers();
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+  it("keeps a project's board in the main window", async () => {
+    await render();
+    const board = newBoardWorkspaceTab("/project");
+    const withBoard = { ...state("a"), tabs: [...state("a").tabs, board] };
+    expect(detachProblem(withBoard)).toBe("Boards stay in the main window.");
+    expect(detachProblem(state("a"))).toBeNull();
+    await act(async () => {
+      await expect(api.open(withBoard)).rejects.toThrow(
+        "Boards stay in the main window.",
+      );
+    });
+    expect(nativeWorkspaceWindow.open).not.toHaveBeenCalled();
+    expect(api.windows).toEqual([]);
   });
   it("keeps the active event bridge ready without reporting StrictMode cleanup", async () => {
     await act(async () =>

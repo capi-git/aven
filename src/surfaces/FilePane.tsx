@@ -7,6 +7,7 @@ import {
 import { SurfaceBoundary } from "../chrome/SurfaceBoundary";
 import { SurfaceTabs } from "../chrome/SurfaceTabs";
 import {
+  BOARD_STAYS_MESSAGE,
   isAgentTab,
   isBoardTab,
   isChangesTab,
@@ -87,6 +88,11 @@ type Props = {
   editorNavigation?: EditorNavigationTarget | null;
   onPaneDragStart?: (event: ReactPointerEvent<HTMLElement>) => void;
   onTerminalMetaChange?: (fileId: string, patch: TerminalMetaPatch) => void;
+  /**
+   * This window runs the workspace that boards read and act through. A
+   * workspace window does not, so a board there only says where it lives.
+   */
+  boards?: boolean;
 };
 
 function FilePaneComponent({
@@ -108,6 +114,7 @@ function FilePaneComponent({
   editorNavigation,
   onPaneDragStart,
   onTerminalMetaChange,
+  boards = true,
 }: Props) {
   const diffViewer = useSyncExternalStore(
     subscribeDiffViewer,
@@ -222,10 +229,19 @@ function FilePaneComponent({
                       visible={presented && file.id === pane.activeFileId}
                     />
                   ) : isBoardTab(file) ? (
-                    <WorkBoard
-                      project={file.board.project}
-                      visible={presented && file.id === pane.activeFileId}
-                    />
+                    boards ? (
+                      <WorkBoard
+                        project={file.board.project}
+                        visible={presented && file.id === pane.activeFileId}
+                      />
+                    ) : (
+                      <p
+                        className="grid h-full place-items-center text-ui-body text-content/45"
+                        data-board-elsewhere
+                      >
+                        {BOARD_STAYS_MESSAGE}
+                      </p>
+                    )
                   ) : isTerminalTab(file) ? (
                     <TerminalView
                       id={file.id}
@@ -303,7 +319,8 @@ export const FilePane = memo(FilePaneComponent, (previous, next) => {
     previous.onBuildPlan !== next.onBuildPlan ||
     previous.editorNavigation !== next.editorNavigation ||
     Boolean(previous.onPaneDragStart) !== Boolean(next.onPaneDragStart) ||
-    previous.onTerminalMetaChange !== next.onTerminalMetaChange
+    previous.onTerminalMetaChange !== next.onTerminalMetaChange ||
+    previous.boards !== next.boards
   ) {
     return false;
   }
