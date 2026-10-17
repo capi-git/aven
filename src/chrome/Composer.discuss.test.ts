@@ -257,6 +257,39 @@ describe("Discuss mode in the composer", () => {
     );
   });
 
+  it("gives the other chat a role for this discussion only", async () => {
+    await render();
+    await turnOn();
+    await openMenu();
+    const picker = menu()!.querySelector("[data-role-picker]")!;
+    expect(
+      [...picker.querySelectorAll("[data-role-choice]")].map(
+        (choice) => choice.textContent,
+      ),
+    ).toEqual(["None", "Reviewer", "Tester", "Skeptic", "Designer"]);
+    const skeptic = picker.querySelector<HTMLButtonElement>(
+      '[data-role-choice="skeptic"]',
+    )!;
+    // Its instruction shows on hover.
+    expect(skeptic.title).toBe(
+      "Push back on weak points and look for what could go wrong; agree only when convinced.",
+    );
+    await click(skeptic);
+    expect(skeptic.getAttribute("aria-checked")).toBe("true");
+    expect(chipLabel()).toBe("Discuss with Codex as Skeptic · 3 rounds");
+    await type("Is the index worth it?");
+    await press("Enter");
+    expect(host.start).toHaveBeenCalledWith(
+      expect.objectContaining({ role: "skeptic" }),
+    );
+    // Never remembered: the next discussion starts without one.
+    expect(
+      [...values.values()].some((value) => value.includes("skeptic")),
+    ).toBe(false);
+    await turnOn();
+    expect(chipLabel()).toBe("Discuss with Codex · 3 rounds");
+  });
+
   it("can start a new chat with a chosen model instead", async () => {
     await render();
     await turnOn();

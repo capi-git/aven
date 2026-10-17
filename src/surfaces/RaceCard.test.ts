@@ -15,7 +15,10 @@ const host = vi.hoisted(() => ({
   ),
 }));
 const suggest = vi.hoisted(() => vi.fn(async () => {}));
-vi.mock("@tauri-apps/api/core", () => ({ invoke: host.invoke }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: host.invoke,
+  isTauri: () => false,
+}));
 vi.mock("../lib/teamResult", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../lib/teamResult")>()),
   requestRaceSuggestion: suggest,
@@ -206,7 +209,7 @@ describe("a race's card in the chat it was sent from", () => {
     expect(card()?.dataset.state).toBe("ready");
     expect(text(".team-card-title")).toBe("Ready to compare");
     expect(text(".team-card-badge")).toBe("2 of 2 done");
-    expect(labels()).toEqual(["Compare", "Suggest a winner"]);
+    expect(labels()).toEqual(["Compare", "Suggest a winner", "Ask a reviewer"]);
     await press("Suggest a winner");
     expect(suggest).toHaveBeenCalledWith("r1", expect.any(Function), [
       "Done",
@@ -237,7 +240,7 @@ describe("a race's card in the chat it was sent from", () => {
     expect(text(".team-card-status")).toBe(
       "Couldn't suggest a winner. Compare their changes to choose.",
     );
-    expect(labels()).toEqual(["Compare", "Suggest a winner"]);
+    expect(labels()).toEqual(["Compare", "Suggest a winner", "Ask a reviewer"]);
   });
 
   it("becomes the result: what was kept and why, with the next steps", async () => {
@@ -272,6 +275,87 @@ describe("a race's card in the chat it was sent from", () => {
     );
     expect(message.text).toContain("7 files are now in the project");
     expect(message.text).toContain("Fixed it.");
+  });
+
+  it("asks a chat of your choice to review it as a Reviewer, never a lane", async () => {
+    completed("l1");
+    live.set([
+      lane("l0", false),
+      lane("l1", false),
+      { ...newSession("claude", "/work/site"), id: "chat", title: "Start" },
+      {
+        ...newSession("codex", "/work/site"),
+        id: "busy",
+        title: "Busy",
+        busy: true,
+      },
+      { ...newSession("claude", "/work/other"), id: "away", title: "Away" },
+    ]);
+    send.mockImplementation(async () => true);
+    await render();
+    await press("Ask a reviewer");
+    const menu = document.body.querySelector<HTMLElement>(
+      "[data-race-reviewers]",
+    )!;
+    const rows = [
+      ...menu.querySelectorAll<HTMLButtonElement>("[data-race-reviewer]"),
+    ];
+    // The chat it was sent from first; no lane, and no chat elsewhere.
+    expect(rows.map((row) => row.dataset.raceReviewer)).toEqual([
+      "chat",
+      "busy",
+    ]);
+    expect(rows[0].textContent).toContain("This chat");
+    expect(rows[1].disabled).toBe(true);
+    expect(rows[1].textContent).toContain("Working");
+    await act(async () => rows[0].click());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(send).toHaveBeenCalledWith("chat", expect.any(Function), {
+      onSettled: expect.any(Function),
+    });
+    const compose = (
+      send.mock.calls[0] as unknown as [
+        string,
+        (blocks: never[]) => { text: string },
+      ]
+    )[1];
+    expect(compose([]).text).toMatch(/^Your role for this race: Reviewer\. /);
+    // The reviewer stands beside the lanes, with its role.
+    const row = card()!.querySelector<HTMLElement>(
+      '[data-race-reviewer-row="chat"]',
+    )!;
+    expect(row.querySelector("[data-agent-role]")?.textContent).toBe(
+      "Reviewer",
+    );
+    expect(
+      row.querySelector("[data-discussion-avatar]")?.getAttribute("data-role"),
+    ).toBe("reviewer");
+    expect(text(".team-card-status")).toMatch(
+      /is reviewing their results as a Reviewer…$/,
+    );
+    await act(async () =>
+      updateRace("r1", {
+        review: { ...getRace("r1")!.review!, status: "done" },
+        suggestion: {
+          status: "done",
+          lane: 1,
+          why: "It adds a test.",
+          model: getRace("r1")!.review!.label,
+          at: 1,
+          by: "reviewer",
+        },
+      }),
+    );
+    expect(text(".team-card-status")).toMatch(
+      /, as Reviewer, suggests Codex · GPT-5 — It adds a test\.$/,
+    );
+    expect(
+      card()!.querySelector(
+        '[data-race-reviewer-row="chat"] .team-card-member-detail',
+      )?.textContent,
+    ).toBe("Suggests Codex · GPT-5");
   });
 
   it("names two models of one provider apart", async () => {

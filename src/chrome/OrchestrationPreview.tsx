@@ -23,6 +23,7 @@ import { useOrchestrationRun } from "../hooks/useOrchestrationRun";
 import { resizeComposer } from "../lib/composerResize";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { OrchestrationActions } from "./OrchestrationActions";
+import { RoleBadge, RolePicker } from "./AgentRoles";
 import { HarnessIcon } from "./HarnessIcon";
 import { OrchestrationTeamCard } from "./OrchestrationTeamCard";
 import { Popover } from "./Popover";
@@ -505,6 +506,7 @@ export function OrchestrationPreview({
                     <span className="truncate text-ui-label" title={task.title}>
                       {task.title}
                     </span>
+                    {task.role ? <RoleBadge role={task.role} /> : null}
                   </button>
                   {statusOf(task) && (
                     <span
@@ -587,6 +589,17 @@ export function OrchestrationPreview({
                             onChange={(prompt) => change(task.id, { prompt })}
                           />
                         </label>
+                        <div>
+                          <span className={fieldLabel}>
+                            Role · added to the worker's task, for this run
+                          </span>
+                          <RolePicker
+                            label={`Role for task ${index + 1}`}
+                            value={task.role}
+                            onChange={(role) => change(task.id, { role })}
+                            className="-ml-1.5"
+                          />
+                        </div>
                       </>
                     ) : (
                       <p className="whitespace-pre-wrap text-ui-label leading-5 text-content/60">

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { agentRole, withRoleBrief, type AgentRoleId } from "./agentRoles";
 import {
   HARNESSES,
   sessionDisplayTitle,
@@ -39,6 +40,10 @@ export type OrchestrationTask = {
   touched?: string[];
   /** One line on what it did, from the cheap model once the run finished. */
   summary?: string;
+  /** The role you gave its worker on the plan card, for this run only. */
+  role?: AgentRoleId;
+  /** Its worker's first turn carried the role. */
+  roleSent?: true;
 };
 export type OrchestrationRun = {
   version: 1;
@@ -268,9 +273,16 @@ export function filesTouched(blocks: readonly Block[], cwd: string): string[] {
 const ASSIGNMENT_BLOCK =
   /(?:\r?\n[ \t]*)*<(aven_assignment|monocode_assignment)\b[^>]*>[\s\S]*?<\/\1>/gi;
 
-/** Prompt the worker receives, including the envelope the transcript hides. */
-export function workerTurnPrompt(prompt: string, files: string[]): string {
-  return `${prompt}\n\n<aven_assignment>\nYou are a worker managed by an Aven lead. Work in this shared checkout. Your assigned write scope is: ${files.join(", ")}. Read other files as needed, but do not edit outside your scope. If another file or shared operation is needed, report the blocker and stop so the lead can assign a new task. Do not spawn agents, create worktrees, switch branches, stage/commit changes, install dependencies or run broad formatters/generators unless this task owns '.' and explicitly requires that operation. Do not undo another agent's changes. Other workers may be editing concurrently; report focused checks, changed files, remaining issues and a concise final result.\n</aven_assignment>`;
+/**
+ * Prompt the worker receives, including the envelope the transcript hides.
+ * Its role, when the plan card gave it one, leads the visible part.
+ */
+export function workerTurnPrompt(
+  prompt: string,
+  files: string[],
+  role?: AgentRoleId,
+): string {
+  return `${withRoleBrief(prompt, role, "for this task")}\n\n<aven_assignment>\nYou are a worker managed by an Aven lead. Work in this shared checkout. Your assigned write scope is: ${files.join(", ")}. Read other files as needed, but do not edit outside your scope. If another file or shared operation is needed, report the blocker and stop so the lead can assign a new task. Do not spawn agents, create worktrees, switch branches, stage/commit changes, install dependencies or run broad formatters/generators unless this task owns '.' and explicitly requires that operation. Do not undo another agent's changes. Other workers may be editing concurrently; report focused checks, changed files, remaining issues and a concise final result.\n</aven_assignment>`;
 }
 
 /** Task text a person should see: the assignment envelope stays in the send. */
@@ -667,7 +679,7 @@ export class Orchestrator {
     );
     this.host!.submit(
       leadId,
-      `The user confirmed the orchestration card, including any edits. The app has already queued the exact assignments below; do not delegate duplicates. Supervise them through the control CLI, review their changes, request corrections when needed, and finish the original request.\n\nOriginal request:\n${proposal.request}\n\nApproved assignments:\n${JSON.stringify(tasks.map(({ id, title, prompt, harness, model, files, dependsOn }) => ({ taskId: id, title, prompt, harness, model, files, dependsOn })))}`,
+      `The user confirmed the orchestration card, including any edits. The app has already queued the exact assignments below; do not delegate duplicates. Supervise them through the control CLI, review their changes, request corrections when needed, and finish the original request.\n\nOriginal request:\n${proposal.request}\n\nApproved assignments:\n${JSON.stringify(tasks.map(({ id, title, prompt, harness, model, files, dependsOn, role }) => ({ taskId: id, title, prompt, harness, model, files, dependsOn, ...(role ? { role: agentRole(role).name } : {}) })))}`,
       (outcome) => {
         if (outcome.status !== "completed")
           void this.pause(
@@ -1282,7 +1294,13 @@ export class Orchestrator {
             await this.stopRun(run.leadId);
             break;
           }
-          await this.patchTask(run.leadId, task.id, { status: "running" });
+          // The role is said once, in the worker's first turn; a later
+          // correction from the lead is sent as it is.
+          const role = task.role && !task.roleSent ? task.role : undefined;
+          await this.patchTask(run.leadId, task.id, {
+            status: "running",
+            ...(role ? { roleSent: true } : {}),
+          });
           try {
             if (
               !this.host
@@ -1303,7 +1321,7 @@ export class Orchestrator {
                 ?.status !== "running"
             )
               continue;
-            const prompt = workerTurnPrompt(task.prompt, task.files);
+            const prompt = workerTurnPrompt(task.prompt, task.files, role);
             this.host.submit(task.sessionId, prompt, (outcome) => {
               void this.settle(run.leadId, task.id, outcome).catch(
                 console.error,

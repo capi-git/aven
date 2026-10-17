@@ -114,7 +114,18 @@ type Flaws = {
   leakyWrapUp?: boolean;
   /** The finished card's Open does nothing. */
   deadOpen?: boolean;
+  /** The Discuss dropdown offers no roles. */
+  noRole?: boolean;
+  /** The second chat's first message does not carry its role. */
+  roleHidden?: boolean;
+  /** The second chat gets its role again with a later message. */
+  roleTwice?: boolean;
+  /** The Skeptic's mascot has no badge. */
+  noBadge?: boolean;
 };
+
+const BRIEF =
+  "Your role in this discussion: Skeptic. Push back on weak points and look for what could go wrong; agree only when convinced.";
 
 const ROW_TOP = 100;
 const ROW_STEP = 40;
@@ -139,6 +150,7 @@ function app(flaws: Flaws = {}) {
     replies: number;
     /** Each turn's reply text. */
     texts: string[];
+    role?: string;
   } | null = null;
   /** What the check sent from the panel, and the turn that first carries it. */
   let jump: { text: string; turn: number } | null = null;
@@ -149,6 +161,7 @@ function app(flaws: Flaws = {}) {
   let providers = false;
   let partner: string | null = null;
   let rounds = 3;
+  let role: string | undefined;
   let panel: "closed" | "open" | "pill" = "closed";
   /** Chats with a tab or pane: the new partner has none until opened. */
   const opened = new Set<string>();
@@ -220,6 +233,7 @@ function app(flaws: Flaws = {}) {
           turn: 0,
           replies: 0,
           texts: [],
+          role: request.role,
         };
         if (!flaws.noPanel) panel = "open";
         relay(0);
@@ -250,7 +264,11 @@ function app(flaws: Flaws = {}) {
       !flaws.notCarried &&
       !flaws.carriedOnce &&
       turn === jump.turn + 1;
-    const relayed = turn === 0 ? topic : SMOKE_REPLY;
+    const briefed =
+      !!talk.role &&
+      !flaws.roleHidden &&
+      (turn === 1 || (flaws.roleTwice && turn === 3));
+    const relayed = `${briefed ? `${BRIEF}\n\n` : ""}${turn === 0 ? topic : SMOKE_REPLY}`;
     // The first chat keeps the reply alone and what you added beside it;
     // the second chat reads both in the message, as before.
     const added = `You added: ${jump?.text}`;
@@ -383,14 +401,16 @@ function app(flaws: Flaws = {}) {
   const buildButtons = `<button data-discussion-build="a">Have Claude build it</button><button data-discussion-build="b">Have Claude build it</button>`;
   const userBubble = (text: string) =>
     `<div class="personal-user-message"><div>${text}</div></div>`;
-  const avatars = `<span data-discussion-avatar="a"></span><span data-discussion-avatar="b"></span>`;
+  const badge = () => !!talk?.role && !flaws.noBadge;
+  const avatars = () =>
+    `<span data-discussion-avatar="a"></span><span data-discussion-avatar="b"${badge() ? ` data-role="${talk!.role}"` : ""}></span>`;
   /** The first chat: the topic, the card for the rest, and where they landed. */
   function drawStarting(id: string): string {
     if (!talk || id !== talk.a) return "";
     const done = ended && !flaws.stillLive;
     const card = flaws.noChatCard
       ? ""
-      : `<div data-discussion-card="d1" data-state="${done ? "done" : "live"}">${avatars}<span class="team-card-title">${
+      : `<div data-discussion-card="d1" data-state="${done ? "done" : "live"}">${avatars()}<span class="team-card-title">${
           done
             ? `Discussed for ${ROUNDS} rounds`
             : "Opus and Sonnet are discussing"
@@ -473,7 +493,7 @@ function app(flaws: Flaws = {}) {
     const wrapUp = ended
       ? `<li data-discussion-wrapup="done">${list("agreed", panelAgreed)}${list("open", ["Whether the stand-in should ever say more"])}${buildButtons}</li>`
       : "";
-    return `<section data-discussion-panel="d1"><div data-discussion-drag><span class="discussion-float-title">Discussion · “${talk.topic}”</span><button data-discussion-shrink></button><button data-discussion-close></button></div><div data-discussion-cast>${avatars}</div><ol>${messages}${end}${wrapUp}</ol><form data-discussion-jump="queue"><textarea placeholder="${JUMP_PLACEHOLDER}"></textarea></form></section>`;
+    return `<section data-discussion-panel="d1"><div data-discussion-drag><span class="discussion-float-title">Discussion · “${talk.topic}”</span><button data-discussion-shrink></button><button data-discussion-close></button></div><div data-discussion-cast>${avatars()}</div><ol>${messages}${end}${wrapUp}</ol><form data-discussion-jump="queue"><textarea placeholder="${JUMP_PLACEHOLDER}"></textarea></form></section>`;
   }
   function draw() {
     const active = talk && (!ended || flaws.keepsLink) ? talk : null;
@@ -513,14 +533,14 @@ function app(flaws: Flaws = {}) {
       }"></span></span></button></div>`;
     }
     const bar = active
-      ? `<div data-discussion-bar="d1">Discussing with Sonnet in “Chat” round ${
+      ? `<div data-discussion-bar="d1">${badge() ? '<span data-agent-role="skeptic">Skeptic</span>' : ""}Discussing with Sonnet in “Chat” round ${
           Math.floor(active.turn / 2) + 1
         } of ${ROUNDS} <button>Open discussion</button> <button data-team-stop="discussion">Stop</button></div>`
       : "";
     const chip = discussMode
       ? `<div data-discussion-chip><button aria-haspopup="dialog" data-chip-toggle><span data-discussion-chip-label>Discuss with ${
           partner === "new" ? "new Claude chat" : "Claude"
-        } · ${rounds} rounds</span></button></div>`
+        }${role ? " as Skeptic" : ""} · ${rounds} rounds</span></button></div>`
       : "";
     const placeholder =
       running() && focused === talk?.a && !flaws.boxToAgent
@@ -548,7 +568,11 @@ function app(flaws: Flaws = {}) {
           1, 2, 3, 4, 5, 6,
         ]
           .map((value) => `<button data-discussion-rounds="${value}"></button>`)
-          .join("")}</div>`
+          .join("")}${
+          flaws.noRole
+            ? ""
+            : '<div data-role-picker><button data-role-choice="skeptic">Skeptic</button></div>'
+        }</div>`
       : "";
     const providerMenu = providers
       ? `<div role="menu" aria-label="Choose the model for the new chat" data-provider-target><button data-provider-index="0">Codex</button><button data-provider-index="1">${HARNESS_TITLE.claude}</button></div>`
@@ -580,6 +604,10 @@ function app(flaws: Flaws = {}) {
     on("[data-provider-index]", (element) => {
       providers = false;
       if (element.textContent === HARNESS_TITLE.claude) partner = "new";
+      draw();
+    });
+    on("[data-role-choice]", (element) => {
+      role = (element as HTMLElement).dataset.roleChoice;
       draw();
     });
     on("[data-discussion-rounds]", (element) => {
@@ -653,6 +681,7 @@ function app(flaws: Flaws = {}) {
               : { kind: "chat", sessionId: partner },
           topic: text,
           rounds,
+          ...(role ? { role: role as "skeptic" } : {}),
         });
         if (refused) return;
         discussMode = false;
@@ -754,7 +783,7 @@ describe("the real-app check's discussion step", () => {
       [STEP, true],
     ]);
     expect(discussionStep(steps)?.detail).toBe(
-      'started from Discuss mode with a new chat, no tab; one live card in the first chat and its panel open; the panel showed the second chat typing and your message from its box waiting; linked with the pulse toward the answering chat; shrunk to a pill and back; 4 replies relayed once each; your message reached both chats once; the panel shows the whole thread with an agreeing mark and where they landed; the card says it discussed for 2 rounds, followed by where they landed, its lists kept; "Have Claude build it" sent the plan; the finished card reopens the panel',
+      `started from Discuss mode with a new chat as a Skeptic, no tab; one live card in the first chat and its panel open; the Skeptic's role led its first message, once, and badged its mascot and the bar; the panel showed the second chat typing and your message from its box waiting; linked with the pulse toward the answering chat; shrunk to a pill and back; 4 replies relayed once each; your message reached both chats once; the panel shows the whole thread with an agreeing mark and where they landed; the card says it discussed for 2 rounds, followed by where they landed, its lists kept; "Have Claude build it" sent the plan; the finished card reopens the panel`,
     );
     // The build button sent the plan to the first chat, as the user.
     const built = state.sessions
@@ -771,6 +800,7 @@ describe("the real-app check's discussion step", () => {
       partner: { kind: "new", harness: "claude", model: "claude:sonnet-5" },
       topic: "Compare notes. AVEN_SMOKE_HOLD 8000",
       rounds: 2,
+      role: "skeptic",
     });
     // The check leaves the finished discussion open in its panel.
     expect(
@@ -792,6 +822,21 @@ describe("the real-app check's discussion step", () => {
     expect(document.querySelector("[data-composer-plus]")).toBeNull();
     expect(await failure({ noChip: true })).toBe(
       "Timed out waiting for the Discuss chip in the message box",
+    );
+  });
+
+  it("fails when the Skeptic's role is not offered, not said once, or not shown", async () => {
+    expect(await failure({ noRole: true })).toBe(
+      "The Discuss dropdown offers no Skeptic",
+    );
+    expect(await failure({ roleHidden: true })).toMatch(
+      /^The second chat's first message does not start with its role/,
+    );
+    expect(await failure({ roleTwice: true })).toBe(
+      "The role was given 0 times to the first chat and 2 to the second, not 0 and 1",
+    );
+    expect(await failure({ noBadge: true })).toBe(
+      "The Skeptic's mascot is badged 0 and 0 times in the panel and the card",
     );
   });
 

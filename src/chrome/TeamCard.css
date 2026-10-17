@@ -162,6 +162,12 @@ button.team-card-member-open:hover {
   flex-direction: column;
   min-width: 0;
 }
+.team-card-member-line {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
 .team-card-member-name,
 .team-card-member-detail {
   overflow: hidden;

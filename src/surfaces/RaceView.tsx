@@ -451,7 +451,10 @@ function RaceBody({
         >
           <Check className="mt-0.5 size-3.5 shrink-0" />
           <span>
-            Suggested: {race.lanes[suggestion.lane].label} — {suggestion.why}
+            {suggestion.by === "reviewer"
+              ? `${suggestion.model}, as Reviewer, suggests`
+              : "Suggested:"}{" "}
+            {race.lanes[suggestion.lane].label} — {suggestion.why}
           </span>
         </div>
       ) : running && suggestion?.status === "failed" && settled ? (

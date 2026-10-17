@@ -242,6 +242,33 @@ describe("useDiscussionBroker", () => {
     ]);
   });
 
+  it("gives the other chat its role once, in its first relayed message", async () => {
+    await mount([chat("a", "Caching"), chat("b", "Review")]);
+    await act(async () => {
+      host.start({
+        sessionId: "a",
+        partner: { kind: "chat", sessionId: "b" },
+        topic: "Cache the lookups?",
+        rounds: 2,
+        role: "skeptic",
+      });
+    });
+    expect(store.snapshot()[0].b.role).toBe("skeptic");
+    expect(sent[0].text).not.toContain("Your role");
+    await finish("a", "Yes, briefly.");
+    const brief =
+      "Your role in this discussion: Skeptic. Push back on weak points and look for what could go wrong; agree only when convinced.";
+    expect(sent[1].sessionId).toBe("b");
+    expect(sent[1].text.split(brief)).toHaveLength(2);
+    // Shown in its transcript as part of the relayed message.
+    expect(sent[1].options.displayText).toBe(`${brief}\n\nYes, briefly.`);
+    await finish("b", "Not so fast.");
+    await finish("a", "Fair.");
+    expect(sent.map((entry) => entry.sessionId)).toEqual(["a", "b", "a", "b"]);
+    expect(sent[3].text).not.toContain("Your role");
+    expect(sent[3].options.displayText).toBe("Fair.");
+  });
+
   it("opens the conversation page only on request", async () => {
     await mount([chat("a", "Caching"), chat("b", "Review")]);
     await act(async () => {

@@ -27,6 +27,7 @@ import {
   launchRevealSummary,
   readLaunchReveal,
 } from "../lib/devSmokeReveal";
+import { agentRole, roleBrief, type AgentRoleId } from "../lib/agentRoles";
 import { errorText } from "../lib/errors";
 import { getKeeperProject } from "../lib/memoryKeeper";
 import { formatLineDiff } from "../lib/memoryKeeperFormat";
@@ -129,6 +130,9 @@ type SmokeMotion = {
   /** Leave Home and any utility view for the workspace. */
   showWorkspace?: () => void;
 };
+
+/** The line the discussion's second chat, a Skeptic, is first sent. */
+const SKEPTIC_BRIEF = roleBrief("skeptic", "in this discussion");
 
 /** How long the stand-in holds a turn open while the checks watch it. */
 const HOLD_MS = 4_000;
@@ -557,6 +561,7 @@ async function startDiscussionFromComposer(
   partner: { chat: string } | { newWith: HarnessId },
   topic: string,
   rounds: number,
+  role?: AgentRoleId,
 ) {
   // Everything is looked up again after each press: the box re-renders.
   const inBox = <T extends Element>(selector: string) =>
@@ -650,6 +655,20 @@ async function startDiscussionFromComposer(
     5_000,
     `the chip to read ${rounds} rounds`,
   );
+  if (role) {
+    const choice = inMenu<HTMLButtonElement>(
+      `[data-role-picker] [data-role-choice="${role}"]`,
+    );
+    if (!choice)
+      throw new Error(`The Discuss dropdown offers no ${agentRole(role).name}`);
+    choice.click();
+    const as = `as ${agentRole(role).name}`;
+    await waitFor(
+      () => inBox("[data-discussion-chip-label]")?.textContent?.includes(as),
+      5_000,
+      `the chip to read "${as}"`,
+    );
+  }
   toggle()?.click();
   await waitFor(
     () => !document.querySelector("[data-discussion-menu]"),
@@ -2280,6 +2299,7 @@ export async function runDevSmoke(
           { newWith: "claude" },
           `Compare notes. AVEN_SMOKE_HOLD ${DISCUSSION_HOLD_MS}`,
           DISCUSSION_ROUNDS,
+          "skeptic",
         );
         const session = (chat: string) =>
           get().sessions.find((entry) => entry.id === chat);
@@ -2340,6 +2360,25 @@ export async function runDevSmoke(
           );
         if (relayed.discussion!.id !== id)
           throw new Error("The second chat is in a different discussion");
+        // Its role leads that first message, in its own transcript.
+        if (!relayed.text.startsWith(`${SKEPTIC_BRIEF}\n\n`))
+          throw new Error(
+            `The second chat's first message does not start with its role: "${relayed.text.slice(0, 120)}"`,
+          );
+        const badged = () =>
+          [
+            discussionPanel(id),
+            chatPane(a.id)?.querySelector(`[data-discussion-card="${id}"]`),
+          ].map(
+            (scope) =>
+              scope?.querySelectorAll(
+                '[data-discussion-avatar][data-role="skeptic"]',
+              ).length ?? 0,
+          );
+        if (badged().some((count) => count === 0))
+          throw new Error(
+            `The Skeptic's mascot is badged ${badged().join(" and ")} times in the panel and the card`,
+          );
         try {
           await waitFor(
             () => {
@@ -2386,6 +2425,11 @@ export async function runDevSmoke(
           throw new Error(`The discussion bar reads "${barText}"`);
         if (!barText.includes("Open discussion"))
           throw new Error("The discussion bar has no Open discussion");
+        if (
+          bar.querySelector('[data-agent-role="skeptic"]')?.textContent !==
+          "Skeptic"
+        )
+          throw new Error("The discussion bar does not badge the Skeptic");
         // The chat's own message box goes to both while they talk, too.
         const box = chatComposer(a.id)?.querySelector<HTMLTextAreaElement>(
           "textarea",
@@ -2472,6 +2516,17 @@ export async function runDevSmoke(
         if (turnsA.join() !== "0,2" || turnsB.join() !== "1,3")
           throw new Error(
             `Relayed turns were ${turnsA.join(",") || "none"} in the first chat and ${turnsB.join(",") || "none"} in the second, not 0,2 and 1,3`,
+          );
+        // The role went to the second chat once, and never to the first.
+        const briefs = [a.id, b.id].map(
+          (chat) =>
+            (session(chat)?.blocks ?? []).filter((block) =>
+              block.text.includes("Your role in this discussion"),
+            ).length,
+        );
+        if (briefs.join() !== "0,1")
+          throw new Error(
+            `The role was given ${briefs[0]} times to the first chat and ${briefs[1]} to the second, not 0 and 1`,
           );
         const notes = [a.id, b.id].map((chat) =>
           notesIn(get().sessions, chat, note),
@@ -2639,7 +2694,7 @@ export async function runDevSmoke(
         const moved = prefersReducedMotion()
           ? "linked, still (reduced motion)"
           : "linked with the pulse toward the answering chat";
-        return `started from Discuss mode with a new chat, no tab; one live card in the first chat and its panel open; the panel showed the second chat typing and your message from its box waiting; ${moved}; shrunk to a pill and back; 4 replies relayed once each; your message reached both chats once; the panel shows the whole thread with an agreeing mark and where they landed; the card says it discussed for 2 rounds, followed by where they landed, its lists kept; "${label}" sent the plan; the finished card reopens the panel`;
+        return `started from Discuss mode with a new chat as a Skeptic, no tab; one live card in the first chat and its panel open; the Skeptic's role led its first message, once, and badged its mascot and the bar; the panel showed the second chat typing and your message from its box waiting; ${moved}; shrunk to a pill and back; 4 replies relayed once each; your message reached both chats once; the panel shows the whole thread with an agreeing mark and where they landed; the card says it discussed for 2 rounds, followed by where they landed, its lists kept; "${label}" sent the plan; the finished card reopens the panel`;
       },
     );
 

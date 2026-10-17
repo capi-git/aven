@@ -20,6 +20,7 @@ import {
   type TeamMember,
   type TeamRun,
 } from "../lib/teamRuns";
+import { RoleBadge } from "./AgentRoles";
 import { HarnessIcon } from "./HarnessIcon";
 import { OrchestrationActions } from "./OrchestrationActions";
 import {
@@ -338,6 +339,7 @@ function OpenTeamBar({
   return (
     <Frame team={team} state={state}>
       <Mark team={team} sessionId={sessionId} paused={paused} />
+      {partner?.agentRole ? <RoleBadge role={partner.agentRole} /> : null}
       <span
         className={`min-w-0 flex-1 truncate ${error ? "text-red-400" : ""}`}
         title={text}

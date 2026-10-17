@@ -180,6 +180,59 @@ describe("the proposal card", () => {
     expect(discard).toHaveBeenCalledWith("lead", "plan");
   });
 
+  it("gives a task's worker a role, shown as a badge, until the plan starts", async () => {
+    await act(async () =>
+      root.render(createElement(Chat, { initial: [card("plan", plan())] })),
+    );
+    await act(async () =>
+      host
+        .querySelector<HTMLElement>('[aria-label="Details for Settings UI"]')!
+        .click(),
+    );
+    const picker = host.querySelector<HTMLElement>(
+      '[data-role-picker][aria-label="Role for task 1"]',
+    )!;
+    expect(
+      picker
+        .querySelector('[data-role-choice="none"]')
+        ?.getAttribute("aria-checked"),
+    ).toBe("true");
+    const designer = picker.querySelector<HTMLElement>(
+      '[data-role-choice="designer"]',
+    )!;
+    expect(designer.title).toContain("from the user's side");
+    await act(async () => designer.click());
+    expect(
+      host.querySelector('[aria-label="Details for Settings UI"]')?.textContent,
+    ).toContain("Designer");
+    // A plan that can no longer change shows the role, with nothing to pick.
+    await act(async () =>
+      root.render(
+        createElement(Chat, {
+          key: "started",
+          initial: [
+            card(
+              "plan",
+              plan({
+                status: "approved",
+                tasks: plan().tasks.map((task, index) =>
+                  index ? task : { ...task, role: "tester" as const },
+                ),
+              }),
+            ),
+          ],
+        }),
+      ),
+    );
+    expect(host.querySelector('[data-agent-role="tester"]')).not.toBeNull();
+    await act(async () =>
+      host
+        .querySelector<HTMLElement>('[aria-label="Details for Settings UI"]')!
+        .click(),
+    );
+    expect(host.querySelector("[data-role-picker]")).toBeNull();
+  });
+
   it("becomes the run's card, in plain words, leaving Stop run to the bar", async () => {
     const run = {
       leadId: "lead",

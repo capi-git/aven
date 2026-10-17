@@ -265,6 +265,26 @@ describe("while discussing", () => {
     expect(bar()).toBeNull();
   });
 
+  it("badges the other chat with the role it was brought in with", async () => {
+    discussionStore().start({
+      id: "d1",
+      a: A,
+      b: { ...B, role: "skeptic" },
+      topic: "Topic",
+      rounds: 3,
+    });
+    await show("a");
+    const badge = bar()?.querySelector("[data-agent-role]");
+    expect(badge?.textContent).toBe("Skeptic");
+    expect(badge?.getAttribute("title")).toBe(
+      "Skeptic: Push back on weak points and look for what could go wrong; agree only when convinced.",
+    );
+    // The text stays as it was.
+    expect(text()).toBe(
+      "Discussing · round 1 of 3 · with Codex · GPT-5 in “Review”",
+    );
+  });
+
   it("shows the pause reason with Resume in either chat", async () => {
     const discussions = discussionStore();
     discussions.start({ id: "d1", a: A, b: B, topic: "Topic", rounds: 2 });

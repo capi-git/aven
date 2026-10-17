@@ -174,6 +174,30 @@ describe("an orchestration's card", () => {
     expect(labels()).toEqual(["Open agents", "Show plan"]);
   });
 
+  it("badges an agent given a role on the plan card, on its row and mascot", async () => {
+    store.runs = [run({ tasks: [task("a", { role: "skeptic" }), task("b")] })];
+    await render();
+    const [first, second] = [
+      ...card()!.querySelectorAll("[data-orchestration-agent]"),
+    ];
+    expect(first.querySelector("[data-agent-role]")?.textContent).toBe(
+      "Skeptic",
+    );
+    expect(
+      first
+        .querySelector("[data-discussion-avatar]")
+        ?.getAttribute("data-role"),
+    ).toBe("skeptic");
+    expect(second.querySelector("[data-agent-role]")).toBeNull();
+    // The header's mascots carry it too.
+    expect(
+      card()!.querySelectorAll(
+        '.team-card-faces [data-discussion-avatar][data-role="skeptic"]',
+      ),
+    ).toHaveLength(1);
+    expect(rows()[0].name).toBe("Task a");
+  });
+
   it("becomes the result: the verdict, each agent's outcome and files, and the next steps", async () => {
     store.runs = [
       run({

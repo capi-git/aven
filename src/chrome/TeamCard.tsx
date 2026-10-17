@@ -5,6 +5,7 @@ import {
   type ButtonHTMLAttributes,
   type CSSProperties,
   type ReactNode,
+  type Ref,
 } from "react";
 import {
   memberVoice,
@@ -15,6 +16,7 @@ import {
 import type { HarnessId } from "../lib/session";
 import type { TeamKind } from "../lib/teamRuns";
 import { visibleInterval } from "../lib/visibleInterval";
+import { RoleBadge } from "./AgentRoles";
 import { DiscussionAvatar } from "./DiscussionAvatar";
 import "./TeamCard.css";
 
@@ -165,9 +167,19 @@ export const TeamCardMember = memo(function TeamCardMember({
         <DiscussionAvatar voice={voice} typing={tone === "live"} />
       </span>
       <span className="team-card-member-text">
-        <span className="team-card-member-name" title={name}>
-          {name}
-        </span>
+        {voice.role ? (
+          // The role it was brought in with, beside its name.
+          <span className="team-card-member-line">
+            <span className="team-card-member-name" title={name}>
+              {name}
+            </span>
+            <RoleBadge role={voice.role} />
+          </span>
+        ) : (
+          <span className="team-card-member-name" title={name}>
+            {name}
+          </span>
+        )}
         {detail ? (
           <span className="team-card-member-detail" title={detail}>
             {detail}
@@ -204,6 +216,7 @@ export function TeamCardButton({
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: "default" | "primary" | "ghost";
+  ref?: Ref<HTMLButtonElement>;
 }) {
   return (
     <button

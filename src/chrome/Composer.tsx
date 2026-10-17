@@ -141,6 +141,7 @@ import { resolveTabGroupLogo } from "../lib/tabGroups";
 import { useComposerSkills } from "./useComposerSkills";
 import { Popover } from "./Popover";
 import { RaceChip } from "./RaceChip";
+import type { AgentRoleId } from "../lib/agentRoles";
 import type { PaletteAgent } from "../lib/commandPalette";
 import { RACE_MIN_LANES } from "../lib/race";
 import { useRaceAgents } from "./useRaceAgents";
@@ -669,6 +670,8 @@ function ComposerComponent({
   const discussActive = discussAvailable && discussSelected;
   const [discussPick, setDiscussPick] = useState<DiscussionPick | null>(null);
   const [discussRounds, setDiscussRounds] = useState(loadDiscussionRounds);
+  // The partner's role is for the next discussion only, never remembered.
+  const [discussRole, setDiscussRole] = useState<AgentRoleId>();
   const [discussMenuOpen, setDiscussMenuOpen] = useState(false);
   const [discussError, setDiscussError] = useState<string | null>(null);
   const discussPickRef = useRef(discussPick);
@@ -698,6 +701,7 @@ function ComposerComponent({
     setDiscussSelected(false);
     setDiscussMenuOpen(false);
     setDiscussError(null);
+    setDiscussRole(undefined);
   }, []);
   const [slash, setSlash] = useState<SlashToken | null>(null);
   // The highlighted `/` row, for the list it was chosen in (see skillActive).
@@ -1384,6 +1388,7 @@ function ComposerComponent({
       partner: partnerChoice(discussPick),
       topic: preview ? topic || "Preview" : topic,
       rounds: discussRounds,
+      ...(discussRole ? { role: discussRole } : {}),
       ...(preview ? { preview: true } : {}),
     });
     if (failure) {
@@ -2158,6 +2163,7 @@ function ComposerComponent({
                 model={model}
                 pick={discussPick}
                 rounds={discussRounds}
+                role={discussRole}
                 reason={discussError ?? discussReason(draft)}
                 open={discussMenuOpen}
                 onOpenChange={(open) => {
@@ -2172,6 +2178,7 @@ function ComposerComponent({
                   setDiscussRounds(rounds);
                   saveDiscussionRounds(rounds);
                 }}
+                onRoleChange={setDiscussRole}
                 onTurnOff={() => {
                   stopDiscussMode();
                   ref.current?.focus();

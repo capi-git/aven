@@ -109,6 +109,14 @@ describe("worker assignment prompts", () => {
     expect(visibleUserPrompt(sent)).toBe("Review the branch.");
   });
 
+  it("leads with the worker's role, which its transcript shows", () => {
+    const sent = workerTurnPrompt("Review the branch.", ["src"], "tester");
+    expect(visibleUserPrompt(sent)).toBe(
+      "Your role for this task: Tester. Work out how to prove it works: run or write the checks that matter, and report what passed, what failed and what is still untested.\n\nReview the branch.",
+    );
+    expect(sent.match(/Your role/g)).toHaveLength(1);
+  });
+
   it("still hides legacy assignment instructions in restored conversations", () => {
     const restored =
       "Review the branch.\n\n<monocode_assignment>\nLegacy worker instructions\n</monocode_assignment>";
@@ -241,6 +249,50 @@ describe("local orchestration", () => {
       vi.mocked(f.host.submit).mock.calls.find(([id]) => id === "lead")?.[1],
     ).toContain("do not delegate duplicates");
   });
+  it("gives a task's worker the role from the card once, in its first message", async () => {
+    const f = setup();
+    f.lead.busy = false;
+    const card = proposal();
+    card.tasks[1] = { ...card.tasks[1], role: "skeptic" };
+    await f.manager.startApproved("lead", "card", card);
+    await vi.waitFor(() =>
+      expect(f.host.createWorker).toHaveBeenCalledTimes(1),
+    );
+    expect(f.tasks().map((task) => task.role)).toEqual([undefined, "skeptic"]);
+    const sent = vi
+      .mocked(f.host.submit)
+      .mock.calls.filter(([id]) => id === f.tasks()[1].sessionId)
+      .map(([, prompt]) => String(prompt));
+    expect(sent).toHaveLength(1);
+    expect(visibleUserPrompt(sent[0])).toMatch(
+      /^Your role for this task: Skeptic\. Push back on weak points/,
+    );
+    // The lead knows which worker has which role.
+    const lead = String(
+      vi.mocked(f.host.submit).mock.calls.find(([id]) => id === "lead")?.[1],
+    );
+    expect(lead).toContain('"role":"Skeptic"');
+    // A correction from the lead later carries no role again.
+    f.completions.get(f.tasks()[1].sessionId)?.({
+      status: "completed",
+      text: "Done",
+    });
+    await vi.waitFor(() => expect(f.tasks()[1].status).toBe("completed"));
+    await f.call("message", {
+      taskId: f.tasks()[1].id,
+      text: "Also cover the empty case.",
+    });
+    const sentToWorker = () =>
+      vi
+        .mocked(f.host.submit)
+        .mock.calls.filter(([id]) => id === f.tasks()[1].sessionId)
+        .map(([, prompt]) => String(prompt));
+    await vi.waitFor(() => expect(sentToWorker()).toHaveLength(2));
+    expect(visibleUserPrompt(sentToWorker()[1])).toBe(
+      "Also cover the empty case.",
+    );
+  });
+
   it("never launches a partial plan when one assignment has invalid scopes", async () => {
     const f = setup();
     f.lead.busy = false;

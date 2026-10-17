@@ -173,6 +173,26 @@ describe("orchestration proposals", () => {
         .error,
     ).toBe("Connection lost");
   });
+  it("keeps a role you give a task, but never one the lead proposes", () => {
+    const fromLead = completeOrchestrationProposal(
+      draft,
+      JSON.stringify({ ...payload, tasks: [{ ...task, role: "skeptic" }] }),
+    );
+    expect(fromLead.status).toBe("ready");
+    expect(fromLead.tasks[0].role).toBeUndefined();
+    const edited = validateProposedTasks(
+      [{ ...task, role: "designer" }],
+      draft.settings,
+    );
+    expect(edited[0].role).toBe("designer");
+    expect(
+      validateProposedTasks([{ ...task, role: "boss" }], draft.settings)[0],
+    ).not.toHaveProperty("role");
+    expect(
+      proposalBlock("card", { ...fromLead, tasks: edited }).text,
+    ).toContain("Role: Designer");
+  });
+
   it("validates cycles, unknown dependencies and path escapes before execution", () => {
     const settings = draft.settings;
     expect(() =>

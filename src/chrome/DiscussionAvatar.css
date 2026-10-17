@@ -4,6 +4,7 @@
    held half a beat each, only while that side is typing. */
 .discussion-avatar {
   --discussion-voice: var(--color-content);
+  position: relative;
   display: inline-grid;
   place-items: center;
   flex-shrink: 0;
@@ -26,6 +27,31 @@
 .discussion-avatar[data-size="large"] .discussion-avatar-sprite {
   width: 24px;
   height: 24px;
+}
+
+/* A role's first letter, on the tile's corner. */
+.discussion-avatar-role {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  display: grid;
+  place-items: center;
+  min-width: 12px;
+  height: 12px;
+  padding: 0 2px;
+  border-radius: 6px;
+  border: 1px solid var(--aven-line);
+  background: var(--color-background-base);
+  color: color-mix(in srgb, var(--color-content) 80%, transparent);
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 1;
+}
+.discussion-avatar[data-size="large"] .discussion-avatar-role {
+  min-width: 14px;
+  height: 14px;
+  border-radius: 7px;
+  font-size: 9px;
 }
 
 .discussion-avatar .mascot-active {

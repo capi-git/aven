@@ -27,6 +27,7 @@
  */
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { readAgentRole, roleBrief, type AgentRoleId } from "./agentRoles";
 import { isPreparingHandoff } from "./handoff";
 import {
   HARNESS_TITLE,
@@ -69,6 +70,11 @@ export type DiscussionParty = {
   /** Chat title without the provider prefix. */
   title: string;
   cwd: string;
+  /**
+   * The role the other chat was brought in with (side B only): added once
+   * to its first relayed message, kept with this discussion alone.
+   */
+  role?: AgentRoleId;
 };
 
 export type DiscussionStatus = "active" | "paused" | "ended";
@@ -284,6 +290,8 @@ export function relayPrompt(
   const parts: string[] = [];
   if (turn <= 1)
     parts.push(framing(sender, discussion.rounds), `Topic: ${topic}`);
+  const brief = partnerBrief(discussion);
+  if (brief) parts.push(brief);
   if (turn === 0) {
     parts.push(...fresh.map(userAdds));
     return parts.join("\n\n");
@@ -309,17 +317,31 @@ export function relayPrompt(
 }
 
 /**
+ * The partner's role, said once: in the first message it receives (turn 1,
+ * its first reply), and never again.
+ */
+function partnerBrief(discussion: Discussion): string | null {
+  const role = discussion.b.role;
+  return role && discussion.settled === 1
+    ? roleBrief(role, "in this discussion")
+    : null;
+}
+
+/**
  * What the receiving transcript shows for this turn's relay: the other
  * chat's reply (or the topic). The partner chat sees the user's own
- * messages around it in the order the agent reads them; the chat that
- * started it shows them as the user's own messages instead (`added` in
- * `relayBlockMeta`), so its text is the reply alone.
+ * messages around it in the order the agent reads them, and its role in
+ * its first one; the chat that started it shows the user's messages as
+ * their own messages instead (`added` in `relayBlockMeta`), so its text is
+ * the reply alone.
  */
 export function relayDisplayText(discussion: Discussion): string {
   if (speakingSide(discussion) === "a") return discussion.relay;
   const { carried, fresh } = relayInterjections(discussion);
   const added = (entry: DiscussionInterjection) => `You added: ${entry.text}`;
+  const brief = partnerBrief(discussion);
   return [
+    ...(brief ? [brief] : []),
     ...carried.map(added),
     ...(discussion.relay ? [discussion.relay] : []),
     ...fresh.map(added),
@@ -839,6 +861,8 @@ export type DiscussionStartRequest = {
   partner: DiscussionPartnerChoice;
   topic: string;
   rounds: number;
+  /** The partner's role for this discussion, if any. */
+  role?: AgentRoleId;
   /** Development builds: show the animation only; nothing is sent. */
   preview?: boolean;
 };
@@ -1116,7 +1140,7 @@ function text(value: unknown, max: number): string | null {
   return typeof value === "string" && value.length <= max ? value : null;
 }
 
-function readParty(value: unknown): DiscussionParty | null {
+function readParty(value: unknown, withRole = false): DiscussionParty | null {
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
   const sessionId = text(record.sessionId, 200);
@@ -1126,7 +1150,15 @@ function readParty(value: unknown): DiscussionParty | null {
   const cwd = text(record.cwd, 4096);
   if (!sessionId || !harness || !HARNESS_IDS.has(harness)) return null;
   if (model == null || title == null || cwd == null) return null;
-  return { sessionId, harness: harness as HarnessId, model, title, cwd };
+  const role = withRole ? readAgentRole(record.role) : undefined;
+  return {
+    sessionId,
+    harness: harness as HarnessId,
+    model,
+    title,
+    cwd,
+    ...(role ? { role } : {}),
+  };
 }
 
 /** Restore one persisted discussion, or null when it is not one. */
@@ -1136,7 +1168,8 @@ export function readDiscussion(value: unknown): Discussion | null {
   const id = text(record.id, 200);
   const owner = text(record.owner, 200);
   const a = readParty(record.a);
-  const b = readParty(record.b);
+  // Only the chat brought in has a role.
+  const b = readParty(record.b, true);
   const topic = text(record.topic, RELAY_CHAR_LIMIT * 2);
   const relay = text(record.relay, RELAY_CHAR_LIMIT * 2);
   const status = record.status;
@@ -1568,7 +1601,12 @@ export class DiscussionStore {
     this.change(id, (discussion) =>
       samePartyLabel(discussion.a, a) && samePartyLabel(discussion.b, b)
         ? discussion
-        : { ...discussion, a, b },
+        : {
+            ...discussion,
+            a,
+            // The role belongs to the discussion, not to the chat.
+            b: discussion.b.role ? { ...b, role: discussion.b.role } : b,
+          },
     );
   }
 

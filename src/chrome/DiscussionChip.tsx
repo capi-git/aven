@@ -1,4 +1,5 @@
 import { useRef, useState, type KeyboardEvent } from "react";
+import { agentRole, type AgentRoleId } from "../lib/agentRoles";
 import {
   BLOCKER_LABEL,
   DISCUSSION_MAX_ROUNDS,
@@ -11,6 +12,7 @@ import { providerShortName } from "../lib/discussionVoices";
 import { isImeComposition, moveMenuFocus } from "../lib/keyboard";
 import { resolveModel } from "../lib/models";
 import type { HarnessId } from "../lib/session";
+import { RolePicker } from "./AgentRoles";
 import { HarnessIcon } from "./HarnessIcon";
 import { Check, ChevronDown, MessageMultiple, Plus, X } from "./icons";
 import { Popover } from "./Popover";
@@ -76,17 +78,19 @@ function plural(count: number, word: string) {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 
-/** "Discuss with Codex · 3 rounds". */
+/** "Discuss with Codex · 3 rounds", or "Discuss with Codex as Skeptic · 3 rounds". */
 export function discussionChipLabel(
   pick: DiscussionPick | null,
   rounds: number,
+  role?: AgentRoleId,
 ): string {
   const who = !pick
     ? "…"
     : pick.kind === "chat"
       ? providerShortName(pick.harness)
       : `new ${providerShortName(pick.harness)} chat`;
-  return `Discuss with ${who} · ${plural(rounds, "round")}`;
+  const as = role ? ` as ${agentRole(role).name}` : "";
+  return `Discuss with ${who}${as} · ${plural(rounds, "round")}`;
 }
 
 function pickTooltip(pick: DiscussionPick | null): string {
@@ -112,12 +116,15 @@ type Props = {
   model: string;
   pick: DiscussionPick | null;
   rounds: number;
+  /** The other chat's role for this discussion, if any. */
+  role?: AgentRoleId;
   /** Why sending would not start it yet, or the last refusal. */
   reason: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onPick: (pick: DiscussionPick) => void;
   onRoundsChange: (rounds: number) => void;
+  onRoleChange: (role: AgentRoleId | undefined) => void;
   onTurnOff: () => void;
   /** Development builds: show it without sending anything. */
   onPreview?: () => void;
@@ -137,17 +144,19 @@ export function DiscussionChip({
   model,
   pick,
   rounds,
+  role,
   reason,
   open,
   onOpenChange,
   onPick,
   onRoundsChange,
+  onRoleChange,
   onTurnOff,
   onPreview,
   onDone,
 }: Props) {
   const anchor = useRef<HTMLButtonElement>(null);
-  const label = discussionChipLabel(pick, rounds);
+  const label = discussionChipLabel(pick, rounds, role);
   return (
     <div
       className="flex h-6.5 min-w-0 shrink items-center rounded-md bg-accent/10 text-ui-caption text-accent"
@@ -203,9 +212,11 @@ export function DiscussionChip({
             model={model}
             pick={pick}
             rounds={rounds}
+            role={role}
             reason={reason}
             onPick={onPick}
             onRoundsChange={onRoundsChange}
+            onRoleChange={onRoleChange}
             onPreview={onPreview}
           />
         </Popover>
@@ -225,9 +236,11 @@ function DiscussionMenu({
   model,
   pick,
   rounds,
+  role,
   reason,
   onPick,
   onRoundsChange,
+  onRoleChange,
   onPreview,
 }: Pick<
   Props,
@@ -237,9 +250,11 @@ function DiscussionMenu({
   | "model"
   | "pick"
   | "rounds"
+  | "role"
   | "reason"
   | "onPick"
   | "onRoundsChange"
+  | "onRoleChange"
   | "onPreview"
 >) {
   const [{ blocked, candidates }] = useState(() => host.options(sessionId));
@@ -365,6 +380,21 @@ function DiscussionMenu({
             </button>
           ))}
         </div>
+      </div>
+      <div className="flex items-start gap-2 border-t border-content/10 px-2.5 py-2">
+        <span
+          id={`${sessionId}-discussion-role`}
+          className="mt-1 text-ui-caption text-content/50"
+          title="Added once to the other chat's first message, for this discussion only"
+        >
+          Role
+        </span>
+        <RolePicker
+          label="The other chat's role"
+          value={role}
+          onChange={onRoleChange}
+          className="min-w-0 flex-1"
+        />
       </div>
       <div className="flex min-h-9 items-center gap-1 border-t border-content/10 py-1 pl-2.5 pr-1">
         <p

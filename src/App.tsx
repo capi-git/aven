@@ -1058,7 +1058,8 @@ export default function App({
         reviewChanges: (project) =>
           teamActionsRef.current.reviewChanges(project),
         openChat: (id) => teamActionsRef.current.openChat(id),
-        send: (id, compose) => teamActionsRef.current.send(id, compose),
+        send: (id, compose, options) =>
+          teamActionsRef.current.send(id, compose, options),
       }),
     [],
   );
@@ -8778,14 +8779,16 @@ export default function App({
       onShowSourceControl();
     },
     openChat: (id) => void onOpenApprovalSession(id),
-    send: async (id, compose) => {
+    send: async (id, compose, options) => {
       const session = await ensureOpenSession(id);
       if (!session) return false;
       await onOpenApprovalSession(id);
       const { text, shown } = compose(session.blocks);
       return (
-        onSubmit(session.id, text, [], shown ? { displayText: shown } : {}) !==
-        false
+        onSubmit(session.id, text, [], {
+          ...(shown ? { displayText: shown } : {}),
+          ...(options?.onSettled ? { onSettled: options.onSettled } : {}),
+        }) !== false
       );
     },
   };

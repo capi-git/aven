@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { AgentRoleId } from "./agentRoles";
 import { isEqualOrInside } from "./paths";
 import type { Attachment, Block, HarnessId, Session } from "./session";
 
@@ -40,8 +41,31 @@ export type RaceLaneStats = {
  */
 export type RaceSuggestion =
   | { status: "running"; since: number }
-  | { status: "done"; lane: number; why: string; model: string; at: number }
+  | {
+      status: "done";
+      lane: number;
+      why: string;
+      /** The cheap model's name, or the reviewing chat's label. */
+      model: string;
+      at: number;
+      /** A chat asked as a Reviewer made the pick (see `review`). */
+      by?: "reviewer";
+    }
   | { status: "failed"; at: number };
+
+/**
+ * A chat you asked to compare the lanes as a Reviewer, instead of the cheap
+ * model: its role for this race, and how far it got.
+ */
+export type RaceReview = {
+  sessionId: string;
+  harness: HarnessId;
+  /** "Claude · Opus 4.6". */
+  label: string;
+  role: AgentRoleId;
+  status: "running" | "done" | "failed";
+  since: number;
+};
 
 /** The chat a race was started from, and the block its card follows. */
 export type RaceOrigin = { sessionId: string; blockId: string };
@@ -73,8 +97,10 @@ export type RaceRecord = {
   origin?: RaceOrigin;
   /** Each lane's changes as last read, by lane; null until read. */
   stats?: (RaceLaneStats | null)[];
-  /** The cheap model's pick, once asked for. */
+  /** The cheap model's pick, or the reviewer's, once asked for. */
   suggestion?: RaceSuggestion;
+  /** The chat asked to review the race, if one was. */
+  review?: RaceReview;
 };
 
 export const RACE_MIN_LANES = 2;

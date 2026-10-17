@@ -1,3 +1,4 @@
+import { agentRole, readAgentRole, type AgentRoleId } from "./agentRoles";
 import { isProviderFailureText } from "./plan";
 import { HARNESSES, type Block, type HarnessId, type Session } from "./session";
 
@@ -18,6 +19,8 @@ export type ProposedTask = {
   model: string;
   files: string[];
   dependsOn: string[];
+  /** A role you gave this task's worker on the card. */
+  role?: AgentRoleId;
 };
 export type OrchestrationProposal = {
   version: 1;
@@ -132,6 +135,7 @@ export function validateProposedTasks(
       throw new Error(
         "Use project-relative file scopes, or '.' for the whole project",
       );
+    const role = readAgentRole(task.role);
     return {
       id,
       title: required(task.title, "a task title", 160),
@@ -140,6 +144,7 @@ export function validateProposedTasks(
       model,
       files,
       dependsOn: stringList(task.dependsOn ?? [], "dependencies", 40),
+      ...(role ? { role } : {}),
     };
   });
   const ids = new Set(tasks.map((task) => task.id));
@@ -262,7 +267,10 @@ export function completeOrchestrationProposal(
           ...draft,
           title: required(input.title, "a proposal title", 160),
           summary: required(input.summary, "a proposal summary", 2000),
-          tasks: validateProposedTasks(input.tasks, draft.settings),
+          // Roles are yours to give on the card, never the lead's.
+          tasks: validateProposedTasks(input.tasks, draft.settings).map(
+            ({ role: _role, ...task }) => task,
+          ),
           status: "ready",
           error: undefined,
         };
@@ -369,7 +377,7 @@ export function proposalMarkdown(proposal: OrchestrationProposal): string {
     proposal.summary,
     ...proposal.tasks.map(
       (task) =>
-        `## ${task.title}\n${task.harness} · ${proposal.settings.choices.find((choice) => choice.harness === task.harness && choice.model === task.model)?.name ?? task.model}\n${task.prompt}\nFiles: ${task.files.join(", ")}\nDepends on: ${task.dependsOn.join(", ") || "None"}`,
+        `## ${task.title}\n${task.harness} · ${proposal.settings.choices.find((choice) => choice.harness === task.harness && choice.model === task.model)?.name ?? task.model}${task.role ? `\nRole: ${agentRole(task.role).name}` : ""}\n${task.prompt}\nFiles: ${task.files.join(", ")}\nDepends on: ${task.dependsOn.join(", ") || "None"}`,
     ),
   ].join("\n\n");
 }

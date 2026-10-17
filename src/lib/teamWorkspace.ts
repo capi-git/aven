@@ -1,3 +1,4 @@
+import type { ControlOutcome } from "./orchestration";
 import type { Block } from "./session";
 
 /**
@@ -13,11 +14,13 @@ export type TeamWorkspace = {
   /**
    * Open a chat and send it a message as your own, written from its
    * transcript once it is loaded; the transcript shows `shown` in its place
-   * when given. Resolves false when it could not.
+   * when given. `onSettled` hears how that turn ended. Resolves false when
+   * it could not.
    */
   send(
     sessionId: string,
     compose: (blocks: readonly Block[]) => { text: string; shown?: string },
+    options?: { onSettled?: (outcome: ControlOutcome) => void },
   ): Promise<boolean>;
 };
 

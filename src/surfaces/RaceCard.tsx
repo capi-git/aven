@@ -3,8 +3,12 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
+  useState,
   useSyncExternalStore,
 } from "react";
+import { HarnessIcon } from "../chrome/HarnessIcon";
+import { Popover } from "../chrome/Popover";
 import {
   LineChanges,
   MemberClock,
@@ -15,22 +19,37 @@ import {
   type TeamCardTone,
 } from "../chrome/TeamCard";
 import { useTeamRun } from "../hooks/useTeamRuns";
-import { memberVoice, teamMascots } from "../lib/discussionVoices";
-import { LiveSessionsContext } from "../lib/liveSessions";
+import { memberVoice, teamMascots, voiceName } from "../lib/discussionVoices";
+import { moveMenuFocus } from "../lib/keyboard";
+import {
+  LiveSessionsContext,
+  type LiveSessionStore,
+} from "../lib/liveSessions";
+import { resolveModel } from "../lib/models";
 import {
   getRace,
   noteRaceStats,
   raceHost,
+  raceLaneFor,
   raceWorkspace,
   subscribeRaces,
   type RaceRecord,
 } from "../lib/race";
+import { sameProjectPath } from "../lib/recents";
 import {
+  sessionDisplayTitle,
+  sessionIsWaitingForInput,
+  type HarnessId,
+} from "../lib/session";
+import {
+  askRaceReviewer,
   continueLane,
   finalReply,
   raceContinueMessage,
   requestRaceSuggestion,
+  reviewRunning,
   suggestionRunning,
+  type ReviewSend,
 } from "../lib/teamResult";
 import { raceAgentNames, raceShortNames } from "../lib/raceNames";
 import type { TeamMember, TeamRun } from "../lib/teamRuns";
@@ -87,6 +106,150 @@ function useRaceStats(race: RaceRecord | undefined, team: TeamRun | null) {
   }, [base, key, paths, raceId, running]);
 }
 
+/** A chat that could review the race, and why it can't now, if so. */
+type ReviewerChoice = {
+  sessionId: string;
+  harness: HarnessId;
+  /** "Claude · Opus 4.6". */
+  label: string;
+  title: string;
+  busy?: "Working" | "Needs you";
+};
+
+/**
+ * Chats in the race's project that could review it: the chat it was sent
+ * from first, then the others, newest first. Never a lane of any race or an
+ * orchestration's worker.
+ */
+export function reviewerChoices(
+  race: RaceRecord,
+  live: Pick<LiveSessionStore, "list">,
+): ReviewerChoice[] {
+  return live
+    .list()
+    .filter(
+      (session) =>
+        sameProjectPath(session.cwd, race.project) &&
+        !session.inboxAsk &&
+        !session.orchestrationLeadId &&
+        !raceLaneFor(session.id),
+    )
+    .map((session): ReviewerChoice => {
+      const model = resolveModel(session.harness, session.model);
+      return {
+        sessionId: session.id,
+        harness: session.harness,
+        label: voiceName({
+          harness: session.harness,
+          model: model.harness === session.harness ? model.name : session.model,
+        }),
+        title: sessionDisplayTitle(session.title, session.harness) || "Chat",
+        ...(sessionIsWaitingForInput(session)
+          ? { busy: "Needs you" as const }
+          : session.busy
+            ? { busy: "Working" as const }
+            : {}),
+      };
+    })
+    .reverse()
+    .sort(
+      (a, b) =>
+        Number(b.sessionId === race.origin?.sessionId) -
+        Number(a.sessionId === race.origin?.sessionId),
+    );
+}
+
+/**
+ * Ask a reviewer: the chats that could compare the agents' results as a
+ * Reviewer. The chosen chat gets the comparison as your message.
+ */
+function ReviewerButton({
+  race,
+  disabled,
+  onPick,
+}: {
+  race: RaceRecord;
+  disabled: boolean;
+  onPick: (choice: ReviewerChoice) => void;
+}) {
+  const live = useContext(LiveSessionsContext);
+  const anchor = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const choices = open && live ? reviewerChoices(race, live) : [];
+  return (
+    <>
+      <TeamCardButton
+        ref={anchor}
+        data-race-review-ask
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        disabled={disabled || !live}
+        title="Send the agents' results to a chat of your choice, to compare them as a Reviewer"
+        onClick={() => setOpen((value) => !value)}
+      >
+        Ask a reviewer
+      </TeamCardButton>
+      {open ? (
+        <Popover
+          anchor={anchor}
+          side="bottom"
+          align="start"
+          width={280}
+          autoFocus
+          tabIndex={-1}
+          aria-label="Ask a reviewer"
+          onKeyDown={moveMenuFocus}
+          onDismiss={() => setOpen(false)}
+          data-race-reviewers
+          className="p-1 outline-none"
+        >
+          <p className="px-2 pb-1 pt-1.5 text-ui-caption leading-4 text-content/50">
+            The chat you pick gets the agents' last replies and changes, with a
+            Reviewer's instruction, and suggests one to keep.
+          </p>
+          {choices.length ? (
+            choices.map((choice) => (
+              <button
+                key={choice.sessionId}
+                type="button"
+                data-race-reviewer={choice.sessionId}
+                disabled={!!choice.busy}
+                title={
+                  choice.busy
+                    ? `${choice.title}: ${choice.busy}`
+                    : `${choice.title} · ${choice.label}`
+                }
+                onClick={() => {
+                  setOpen(false);
+                  onPick(choice);
+                }}
+                className="flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-ui-body text-content/85 hover:bg-content/5 hover:text-content disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent"
+              >
+                <HarnessIcon
+                  harness={choice.harness}
+                  className="size-3.5 shrink-0"
+                />
+                <span className="min-w-0 flex-1 truncate">
+                  {choice.sessionId === race.origin?.sessionId
+                    ? "This chat"
+                    : choice.title}
+                </span>
+                <span className="max-w-[45%] shrink-0 truncate text-ui-caption text-content/45">
+                  {choice.busy ?? choice.label}
+                </span>
+              </button>
+            ))
+          ) : (
+            <p className="px-2 py-2 text-ui-label text-content/45">
+              No other chat in this project can review it.
+            </p>
+          )}
+        </Popover>
+      ) : null}
+    </>
+  );
+}
+
 /**
  * A race in the chat it was sent from, after your message: one row per
  * lane (mascot, model, state, time, +/−) with Compare while it runs; "Ready
@@ -130,6 +293,8 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
   const needsYou = team.status === "needs-you";
   const suggestion = race.suggestion;
   const suggesting = suggestionRunning(suggestion);
+  const review = race.review;
+  const reviewing = reviewRunning(review);
   const tone: TeamCardTone = kept
     ? "done"
     : over
@@ -148,7 +313,7 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
       : `${names} are racing`;
   const suggested =
     suggestion?.status === "done" && race.lanes[suggestion.lane]
-      ? `Suggested: ${race.lanes[suggestion.lane].label} — ${suggestion.why}`
+      ? `${suggestion.by === "reviewer" ? `${suggestion.model}, as Reviewer, suggests` : "Suggested:"} ${race.lanes[suggestion.lane].label} — ${suggestion.why}`
       : undefined;
   const status = kept
     ? team.result?.why
@@ -160,13 +325,17 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
         ? team.need.text
         : suggesting
           ? "Suggesting a winner…"
-          : suggested
-            ? suggested
-            : suggestion?.status === "failed" && ready
-              ? "Couldn't suggest a winner. Compare their changes to choose."
-              : ready
-                ? "Every agent is done. Compare their changes and keep one."
-                : "Each agent works in its own copy. Your project is unchanged until you keep one.";
+          : reviewing && review
+            ? `${review.label} is reviewing their results as a Reviewer…`
+            : suggested
+              ? suggested
+              : review?.status === "failed" && ready
+                ? "The reviewer didn't name a winner. Read its reply in its chat, or compare their changes."
+                : suggestion?.status === "failed" && ready
+                  ? "Couldn't suggest a winner. Compare their changes to choose."
+                  : ready
+                    ? "Every agent is done. Compare their changes and keep one."
+                    : "Each agent works in its own copy. Your project is unchanged until you keep one.";
   const continueAt = continueLane(race);
   const continueWith =
     continueAt !== undefined ? race.lanes[continueAt] : undefined;
@@ -176,6 +345,57 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
       (id) => live?.session(id),
       team.members.map((member) => member.stateLabel),
     );
+  const askReviewer = (choice: ReviewerChoice) => {
+    const send = teamWorkspace()?.send;
+    if (!send) return;
+    void askRaceReviewer(
+      race.id,
+      choice,
+      (id) => live?.session(id),
+      team.members.map((member) => member.stateLabel),
+      send as ReviewSend,
+    );
+  };
+  // The reviewer stands beside the lanes, wearing its role.
+  const reviewer = review
+    ? (() => {
+        const mascots = teamMascots([
+          ...team.members.map((member) => member.sessionId),
+          review.sessionId,
+        ]);
+        const pick =
+          suggestion?.status === "done" && suggestion.by === "reviewer"
+            ? race.lanes[suggestion.lane]
+            : undefined;
+        const stateLabel = reviewing
+          ? "Reviewing"
+          : review.status === "done"
+            ? "Done"
+            : review.status === "failed"
+              ? "No pick"
+              : "Stopped";
+        return {
+          voice: memberVoice(
+            {
+              sessionId: review.sessionId,
+              harness: review.harness,
+              label: review.label,
+              stateLabel,
+              agentRole: review.role,
+            },
+            mascots[mascots.length - 1],
+          ),
+          stateLabel,
+          detail: reviewing
+            ? "Comparing the agents' results"
+            : pick
+              ? `Suggests ${pick.label}`
+              : review.status === "failed"
+                ? "Didn't name a winner"
+                : undefined,
+        };
+      })()
+    : undefined;
   return (
     <TeamCard
       kind="race"
@@ -201,55 +421,84 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
       }
       status={status}
       statusTitle={typeof status === "string" ? status : undefined}
-      members={team.members.map((member, index) => {
-        const changes = member.changes;
-        const isKept = keptLane === index;
-        return (
-          <TeamCardMember
-            key={member.sessionId}
-            voice={voices[index]}
-            name={member.label}
-            detail={
-              member.state === "needs-you"
-                ? member.asking?.text
-                : member.state === "working"
-                  ? member.doing
-                  : suggestion?.status === "done" &&
-                      suggestion.lane === index &&
-                      !over
-                    ? "Suggested winner"
-                    : undefined
-            }
-            state={isKept ? "Kept" : member.stateLabel}
-            tone={isKept ? "done" : MEMBER_TONE[member.state]}
-            attributes={{
-              "data-race-card-lane": String(index),
-              "data-lane-state": member.state,
-            }}
-            meta={
-              <>
-                <MemberClock
-                  startedAt={member.startedAt}
-                  durationMs={member.durationMs}
-                  running={member.state === "working"}
-                />
-                {changes ? (
-                  <>
-                    <LineChanges
-                      additions={changes.additions}
-                      deletions={changes.deletions}
-                    />
-                    <span>{plural(changes.files, "file")}</span>
-                  </>
-                ) : null}
-              </>
-            }
-            onOpen={
-              workspace ? () => workspace.openChat(member.sessionId) : undefined
-            }
-          />
-        );
-      })}
+      members={team.members
+        .map((member, index) => {
+          const changes = member.changes;
+          const isKept = keptLane === index;
+          return (
+            <TeamCardMember
+              key={member.sessionId}
+              voice={voices[index]}
+              name={member.label}
+              detail={
+                member.state === "needs-you"
+                  ? member.asking?.text
+                  : member.state === "working"
+                    ? member.doing
+                    : suggestion?.status === "done" &&
+                        suggestion.lane === index &&
+                        !over
+                      ? "Suggested winner"
+                      : undefined
+              }
+              state={isKept ? "Kept" : member.stateLabel}
+              tone={isKept ? "done" : MEMBER_TONE[member.state]}
+              attributes={{
+                "data-race-card-lane": String(index),
+                "data-lane-state": member.state,
+              }}
+              meta={
+                <>
+                  <MemberClock
+                    startedAt={member.startedAt}
+                    durationMs={member.durationMs}
+                    running={member.state === "working"}
+                  />
+                  {changes ? (
+                    <>
+                      <LineChanges
+                        additions={changes.additions}
+                        deletions={changes.deletions}
+                      />
+                      <span>{plural(changes.files, "file")}</span>
+                    </>
+                  ) : null}
+                </>
+              }
+              onOpen={
+                workspace
+                  ? () => workspace.openChat(member.sessionId)
+                  : undefined
+              }
+            />
+          );
+        })
+        .concat(
+          reviewer && review
+            ? [
+                <TeamCardMember
+                  key={`review:${review.sessionId}`}
+                  voice={reviewer.voice}
+                  name={review.label}
+                  detail={reviewer.detail}
+                  state={reviewer.stateLabel}
+                  tone={
+                    reviewing
+                      ? "live"
+                      : review.status === "failed"
+                        ? "muted"
+                        : "done"
+                  }
+                  attributes={{ "data-race-reviewer-row": review.sessionId }}
+                  onOpen={
+                    workspace
+                      ? () => workspace.openChat(review.sessionId)
+                      : undefined
+                  }
+                />,
+              ]
+            : [],
+        )}
       actions={
         over ? (
           kept ? (
@@ -306,14 +555,21 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
               </TeamCardButton>
             ) : null}
             {ready && suggestion?.status !== "done" ? (
-              <TeamCardButton
-                data-race-suggest
-                disabled={suggesting}
-                title="Ask the cheapest model which result to keep, from the agents' last replies and changes"
-                onClick={suggest}
-              >
-                {suggesting ? "Suggesting…" : "Suggest a winner"}
-              </TeamCardButton>
+              <>
+                <TeamCardButton
+                  data-race-suggest
+                  disabled={suggesting || reviewing}
+                  title="Ask the cheapest model which result to keep, from the agents' last replies and changes"
+                  onClick={suggest}
+                >
+                  {suggesting ? "Suggesting…" : "Suggest a winner"}
+                </TeamCardButton>
+                <ReviewerButton
+                  race={race}
+                  disabled={suggesting || reviewing}
+                  onPick={askReviewer}
+                />
+              </>
             ) : null}
           </>
         )

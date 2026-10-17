@@ -7,6 +7,7 @@ import type {
   DiscussionParty,
   DiscussionSide,
 } from "./discussions";
+import { agentRole, type AgentRoleId } from "./agentRoles";
 import { PROJECT_MASCOTS } from "./projectMascots";
 import { HARNESS_TITLE, type HarnessId } from "./session";
 
@@ -36,8 +37,13 @@ export type DiscussionVoice = {
   name: string;
   /** The chat's title. */
   title: string;
-  /** What it does in this discussion: it opened the topic, or responds. */
+  /**
+   * What it does in this discussion: it opened the topic, or responds, led
+   * by its role when it was brought in with one ("Skeptic · Responding").
+   */
   persona: string;
+  /** The role it was brought in with, shown as a badge on its mascot. */
+  role?: AgentRoleId;
   /** The mascot sprite it wears (see `projectMascots`). */
   mascot: string;
   /** CSS colour of its mascot and bubbles. */
@@ -112,9 +118,17 @@ export function discussionMascots(
   return { a: first, b: second };
 }
 
+/** "Skeptic · Responding": the part, led by the role it was given. */
+function personaWith(part: string, role: AgentRoleId | undefined): string {
+  if (!role) return part;
+  const name = agentRole(role).name;
+  return part ? `${name} · ${part}` : name;
+}
+
 /**
  * A team member's face, as a discussion side's: its mascot in its
- * provider's colour, named by its label, its state as its part.
+ * provider's colour, named by its label, its state as its part, with the
+ * role it was brought in with.
  */
 export function memberVoice(
   member: {
@@ -123,6 +137,7 @@ export function memberVoice(
     label: string;
     title?: string;
     stateLabel: string;
+    agentRole?: AgentRoleId;
   },
   mascot: string,
   first = false,
@@ -133,7 +148,8 @@ export function memberVoice(
     harness: member.harness,
     name: member.label,
     title: member.title ?? member.label,
-    persona: member.stateLabel,
+    persona: personaWith(member.stateLabel, member.agentRole),
+    ...(member.agentRole ? { role: member.agentRole } : {}),
     mascot,
     color: providerVoiceColor(member.harness),
   };
@@ -154,7 +170,8 @@ export function discussionVoices(
       harness: party.harness,
       name: voiceName(party),
       title: party.title,
-      persona: DISCUSSION_PERSONAS[side],
+      persona: personaWith(DISCUSSION_PERSONAS[side], party.role),
+      ...(party.role ? { role: party.role } : {}),
       mascot: mascots[side],
       color: providerVoiceColor(party.harness),
     };

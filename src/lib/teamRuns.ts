@@ -9,6 +9,7 @@
  * sessions. A watcher renders a `TeamRun`, never a transcript.
  */
 import type { ActivityEntry } from "./activity";
+import type { AgentRoleId } from "./agentRoles";
 import {
   completedRounds,
   discussionRound,
@@ -54,6 +55,12 @@ export type TeamMember = {
   /** "Claude · Sonnet 5", a race lane's label, or a worker's task title. */
   label: string;
   role: TeamMemberRole;
+  /**
+   * The light role it was brought in with (Reviewer, Skeptic…), for this
+   * run only: a discussion's partner or an orchestration task's worker.
+   * Race lanes never have one.
+   */
+  agentRole?: AgentRoleId;
   /** A discussion chat's own title, to name it. */
   title?: string;
   state: TeamMemberState;
@@ -215,6 +222,7 @@ export function discussionTeam(
       model: party.model,
       label: voiceName(party),
       role: side === "a" ? ("opener" as const) : ("responder" as const),
+      ...(party.role ? { agentRole: party.role } : {}),
       title: party.title,
     };
     if (ended)
@@ -496,6 +504,7 @@ export function orchestrationTeam(
       model: task.model,
       label: task.title,
       role: "worker",
+      ...(task.role ? { agentRole: task.role } : {}),
       state,
       stateLabel,
       ...(state === "working" ? doingOf(session, look) : {}),

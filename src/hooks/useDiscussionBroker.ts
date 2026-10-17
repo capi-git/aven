@@ -513,7 +513,10 @@ export function useDiscussionBroker({
         try {
           started = store.start({
             a: discussionParty(source),
-            b: discussionParty(partner),
+            b: {
+              ...discussionParty(partner),
+              ...(request.role ? { role: request.role } : {}),
+            },
             topic,
             rounds: request.rounds,
             preview: Boolean(request.preview && import.meta.env.DEV),
