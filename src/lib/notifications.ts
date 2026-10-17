@@ -333,7 +333,11 @@ export async function publishSessionActivity(
   if (!recorded.added || member)
     return { ...quietResult, added: recorded.added };
   const prefs = loadNotificationPreferences();
-  const interrupts = activityInterruptionsEnabled(event.outcome, prefs);
+  // A team waiting on you (paused, stalled, a race no agent finished) is
+  // recorded as a failure but asks for you, so it follows "Needs input".
+  const interrupts = event.team?.need
+    ? !prefs.quiet && prefs.needsInput
+    : activityInterruptionsEnabled(event.outcome, prefs);
   // Only successful completion has a success cue. Failure/stop never reuse it.
   const playSound =
     event.outcome === "completed" &&

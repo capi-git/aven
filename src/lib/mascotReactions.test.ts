@@ -115,6 +115,20 @@ describe("which turn ends react", () => {
     expect([...known]).toEqual(["new"]);
   });
 
+  it("never slumps at a team waiting on you", () => {
+    const known = new Set<string>();
+    const ledger = [
+      entry("paused", {
+        outcome: "failed",
+        team: { id: "discuss:d1", kind: "discuss", need: true },
+      }),
+      entry("broke", { outcome: "failed" }),
+    ];
+    expect(newTurnEnds(ledger, known, NOW).map((row) => row.id)).toEqual([
+      "broke",
+    ]);
+  });
+
   it("claims a turn end once across windows and reloads", () => {
     expect(claimReaction("t1", NOW)).toBe(true);
     expect(claimReaction("t1", NOW + 5)).toBe(false);

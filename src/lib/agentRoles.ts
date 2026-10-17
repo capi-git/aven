@@ -44,8 +44,13 @@ export const AGENT_ROLES: readonly AgentRole[] = [
 
 const BY_ID = new Map(AGENT_ROLES.map((role) => [role.id, role]));
 
+/**
+ * A role by id. Stored roles are read through `readAgentRole`; anything else
+ * that slips through (another build's role, a hand edit) is named plainly
+ * rather than taking the panel down.
+ */
 export function agentRole(id: AgentRoleId): AgentRole {
-  return BY_ID.get(id)!;
+  return BY_ID.get(id) ?? { id, name: "Role", instruction: "" };
 }
 
 /** A stored role, or undefined when the value is not one of the four. */

@@ -1,5 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
-import { agentRole, withRoleBrief, type AgentRoleId } from "./agentRoles";
+import {
+  agentRole,
+  readAgentRole,
+  withRoleBrief,
+  type AgentRoleId,
+} from "./agentRoles";
 import {
   HARNESSES,
   sessionDisplayTitle,
@@ -157,6 +162,21 @@ export function scopesOverlap(a: string[], b: string[]): boolean {
 }
 const activeTask = (task: OrchestrationTask) =>
   task.status === "running" || task.status === "cancelling";
+
+/** A role another build saved, or a hand edit, is no role here. */
+function withKnownRoles(run: OrchestrationRun): OrchestrationRun {
+  if (run.tasks.every((task) => !task.role || readAgentRole(task.role)))
+    return run;
+  return {
+    ...run,
+    tasks: run.tasks.map((task) => {
+      if (!task.role || readAgentRole(task.role)) return task;
+      const next = { ...task };
+      delete next.role;
+      return next;
+    }),
+  };
+}
 
 /**
  * A run's stall and a task's unanswered request only mean anything while
@@ -652,8 +672,9 @@ export class Orchestrator {
     if (this.loaded.has(id) || this.run(id)) return;
     this.loaded.add(id);
     try {
-      const run = await this.store.load(id);
-      if (!run || this.run(id) || this.deleted.has(id)) return;
+      const loaded = await this.store.load(id);
+      if (!loaded || this.run(id) || this.deleted.has(id)) return;
+      const run = withKnownRoles(loaded);
       if (run.status === "active" || run.tasks.some(activeTask)) {
         await Promise.all(
           [

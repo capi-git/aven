@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useSyncExternalStore } from "react";
-import type { AgentRoleId } from "./agentRoles";
+import { readAgentRole, type AgentRoleId } from "./agentRoles";
 import { isEqualOrInside } from "./paths";
 import type { Attachment, Block, HarnessId, Session } from "./session";
 
@@ -165,7 +165,8 @@ function read(): RaceRecord[] {
   try {
     const raw = storage?.getItem(STORAGE_KEY);
     const parsed: unknown = raw ? JSON.parse(raw) : [];
-    if (Array.isArray(parsed)) races = parsed.filter(isRaceRecord);
+    if (Array.isArray(parsed))
+      races = parsed.filter(isRaceRecord).map(withKnownRole);
   } catch {
     races = [];
   }
@@ -204,6 +205,13 @@ function isRaceRecord(value: unknown): value is RaceRecord {
         typeof lane.branch === "string",
     )
   );
+}
+
+/** A reviewer's role another build saved, or a hand edit, reads as Reviewer. */
+function withKnownRole(race: RaceRecord): RaceRecord {
+  return race.review && !readAgentRole(race.review.role)
+    ? { ...race, review: { ...race.review, role: "reviewer" } }
+    : race;
 }
 
 function write(next: RaceRecord[]) {

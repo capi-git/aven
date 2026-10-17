@@ -371,6 +371,28 @@ describe("Activity delivery policy", () => {
       finished: true,
     });
   });
+  it("alerts for a team waiting on you as it does for a request, not a failure", async () => {
+    saveNotificationsEnabled(true);
+    await probeNotificationPermission();
+    vi.mocked(invoke).mockImplementation(async () => "granted");
+    const need = {
+      outcome: "failed" as const,
+      summary: "Discussion paused · “Review” isn't open in this window.",
+      team: { id: "discuss:d1", kind: "discuss" as const, need: true as const },
+    };
+    // Failures off: a team that needs you still says so.
+    saveNotificationPreferences({ failures: false });
+    expect(
+      (await publishSessionActivity(chat(), { ...need, id: "n1" }, false))
+        .bannerSent,
+    ).toBe(true);
+    // "Needs input" off: it doesn't.
+    saveNotificationPreferences({ failures: true, needsInput: false });
+    expect(
+      (await publishSessionActivity(chat(), { ...need, id: "n2" }, false))
+        .bannerSent,
+    ).toBe(false);
+  });
   it("uses separate request identities for consecutive approvals and reused IDs in another turn", () => {
     const session = chat({
       id: "task",

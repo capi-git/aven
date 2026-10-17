@@ -1370,3 +1370,38 @@ describe("a run read back from storage", () => {
     expect(run.summaries).toBeUndefined();
   });
 });
+
+it("reads a run another build saved with a role it doesn't know", async () => {
+  const f = setup();
+  f.saved.set("odd", {
+    version: 1,
+    leadId: "odd",
+    cwd: "/repo",
+    status: "finished",
+    allowedHarnesses: ["codex"],
+    maxWorkers: 2,
+    cli: "aven",
+    continuations: 0,
+    requests: {},
+    tasks: [
+      {
+        id: "t1",
+        sessionId: "w1",
+        title: "Task",
+        harness: "codex",
+        model: "m",
+        prompt: "",
+        files: [],
+        scopes: [],
+        dependsOn: [],
+        status: "completed",
+        accepted: true,
+        result: "",
+        delivered: true,
+        role: "captain" as never,
+      },
+    ],
+  });
+  await f.manager.hydrate("odd");
+  expect(f.manager.run("odd")?.tasks[0].role).toBeUndefined();
+});

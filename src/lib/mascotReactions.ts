@@ -71,9 +71,11 @@ export function newTurnEnds(
   for (const entry of entries) {
     ids.add(entry.id);
     // A team member's own turn never cheers: its team's end does, once.
+    // A team waiting on you is a question for you, not a failure to slump at.
     if (
       known.has(entry.id) ||
       entry.team?.member ||
+      entry.team?.need ||
       !reactionKindFor(entry.outcome)
     )
       continue;

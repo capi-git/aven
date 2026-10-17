@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import {
   AGENT_ROLES,
+  agentRole,
   readAgentRole,
   roleBrief,
   withRoleBrief,
@@ -46,4 +47,10 @@ it("reads only the four roles back", () => {
   expect(readAgentRole("Designer")).toBeUndefined();
   expect(readAgentRole("admin")).toBeUndefined();
   expect(readAgentRole(3)).toBeUndefined();
+});
+
+it("never fails on a role another build saved", () => {
+  const unknown = agentRole("captain" as never);
+  expect(unknown.name).toBe("Role");
+  expect(readAgentRole("captain")).toBeUndefined();
 });
