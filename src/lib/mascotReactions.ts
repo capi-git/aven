@@ -225,3 +225,13 @@ export function mascotReactionFor(
 ): MascotReaction | null {
   return (key && playing.get(key)) || null;
 }
+
+/** The reaction playing for a turn of one of these chats, if any. */
+export function mascotReactionForSessions(
+  sessionIds: readonly string[],
+): MascotReaction | null {
+  if (!sessionIds.length) return null;
+  for (const reaction of playing.values())
+    if (sessionIds.includes(reaction.sessionId)) return reaction;
+  return null;
+}

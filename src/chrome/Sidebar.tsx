@@ -151,6 +151,7 @@ import {
 import { SettingsNav } from "./SettingsRail";
 import { WorkConflictMark } from "./WorkConflictMark";
 import { MotionList } from "./MotionList";
+import { useTurnEndFlash } from "../hooks/useTurnEndFlash";
 import type { WorkConflict, WorkConflictMap } from "../lib/workConflicts";
 import "./PersonalNavigation.css";
 
@@ -2596,6 +2597,8 @@ function SessionCard({
 }) {
   const skipClickUntil = useRef(0);
   const cancelDrag = useRef<(() => void) | null>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
+  useTurnEndFlash(rowRef, session.id);
   const listDropRef = useRef(onListDrop);
   listDropRef.current = onListDrop;
   useEffect(() => () => cancelDrag.current?.(), [session.id]);
@@ -2806,7 +2809,7 @@ function SessionCard({
   // so expanding or stopping a worker cannot accidentally open the lead.
   if (session.orchestration)
     return (
-      <div className="personal-task-row group relative">
+      <div ref={rowRef} className="personal-task-row group relative">
         <div
           data-session-card={session.id}
           data-orchestration-card="true"
@@ -2899,6 +2902,7 @@ function SessionCard({
 
   return (
     <div
+      ref={rowRef}
       className="personal-task-row group relative"
       data-has-archive={!!onArchive}
       data-compact={compact || undefined}
