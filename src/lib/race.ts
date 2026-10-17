@@ -110,6 +110,8 @@ export type RaceRecord = {
   review?: RaceReview;
   /** How each lane's latest turn ended, by lane; null while it works. */
   ends?: (RaceLaneEnd | null)[];
+  /** When Continue with <agent> sent the kept lane its recap. */
+  continuedAt?: number;
 };
 
 export const RACE_MIN_LANES = 2;
@@ -449,6 +451,7 @@ export async function finishRace(
   try {
     await host.settle(race);
     let outcome: RaceOutcome | undefined;
+    let mixed: RaceSelection | undefined;
     if (keep) {
       let selection: RaceSelection;
       if ("lane" in keep) {
@@ -470,12 +473,38 @@ export async function finishRace(
             : {}),
         };
       } else {
-        selection = keep.files;
+        // Only the picks a lane still changes, read after the agents
+        // stopped: a pick of a file its agent later reverted brings nothing.
+        const lanes = [...new Set(Object.values(keep.files))];
+        const finals = await Promise.all(
+          lanes.map(
+            async (lane) =>
+              [
+                lane,
+                new Set(
+                  (
+                    await raceHost.diff(race.lanes[lane].path, race.base)
+                  ).files.map((file) => file.path),
+                ),
+              ] as const,
+          ),
+        );
+        const changes = new Map(finals);
+        selection = Object.fromEntries(
+          Object.entries(keep.files).filter(([path, lane]) =>
+            changes.get(lane)?.has(path),
+          ),
+        );
         outcome = { kind: "mix", files: Object.keys(selection).length };
+        mixed = selection;
       }
       const choices = raceChoices(race, selection);
       if (!choices.length)
-        throw new Error("This agent's copy has no changes to keep.");
+        throw new Error(
+          "lane" in keep
+            ? "This agent's copy has no changes to keep."
+            : "None of the files you picked are changed any more. Pick again.",
+        );
       await raceHost.apply(race.root, race.base, choices);
     }
     let cleanupError: string | undefined;
@@ -489,6 +518,9 @@ export async function finishRace(
       error: cleanupError,
       outcome,
       finishedAt: Date.now(),
+      // What was kept, file by file, so the result and Continue with name
+      // whose files they are.
+      ...(mixed ? { picks: mixed } : {}),
     });
     await host.release(race);
   } finally {

@@ -48,7 +48,7 @@ import type { Session } from "../lib/session";
 import {
   continueLane,
   finalReply,
-  raceContinueMessage,
+  continueRace,
   replyOpening,
   requestRaceSuggestion,
   suggestionRunning,
@@ -736,22 +736,17 @@ function RaceBody({
               {continueWith ? (
                 <button
                   type="button"
+                  disabled={!!race.continuedAt}
                   onClick={() =>
-                    void teamWorkspace()?.send(
-                      continueWith.sessionId,
-                      (blocks) => ({
-                        text: raceContinueMessage(
-                          race,
-                          race.outcome?.files ?? 0,
-                          finalReply(blocks),
-                        ),
-                        shown: "Carry on from the race: your version was kept.",
-                      }),
+                    void continueRace(race.id, teamWorkspace()?.send).then(
+                      setActionError,
                     )
                   }
-                  className="rounded-md bg-content px-2.5 py-1 text-ui-label font-medium text-background-base hover:opacity-90"
+                  className="rounded-md bg-content px-2.5 py-1 text-ui-label font-medium text-background-base hover:opacity-90 disabled:opacity-40"
                 >
-                  Continue with {continueWith.label}
+                  {race.continuedAt
+                    ? `Continued with ${continueWith.label}`
+                    : `Continue with ${continueWith.label}`}
                 </button>
               ) : null}
             </div>

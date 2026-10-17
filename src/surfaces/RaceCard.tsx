@@ -34,8 +34,7 @@ import { reviewerChoices, type ReviewerChoice } from "../lib/raceReviewers";
 import {
   askRaceReviewer,
   continueLane,
-  finalReply,
-  raceContinueMessage,
+  continueRace,
   requestRaceSuggestion,
   reviewRunning,
   suggestionRunning,
@@ -208,6 +207,8 @@ function ReviewerButton({
  * Continue with the agent. Stop all is the bar's, in the message box below.
  */
 export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
+  const [continuing, setContinuing] = useState(false);
+  const [continueError, setContinueError] = useState<string | null>(null);
   const race = useSyncExternalStore(
     subscribeRaces,
     () => getRace(raceId),
@@ -266,9 +267,11 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
       ? `${suggestion.by === "reviewer" ? `${suggestion.model}, as Reviewer, suggests` : "Suggested:"} ${race.lanes[suggestion.lane].label} — ${suggestion.why}`
       : undefined;
   const status = kept
-    ? team.result?.why
-      ? `Why: ${team.result.why}`
-      : "Your project has the kept changes."
+    ? continueError
+      ? continueError
+      : team.result?.why
+        ? `Why: ${team.result.why}`
+        : "Your project has the kept changes."
     : over
       ? "Your project is unchanged."
       : needsYou && team.need
@@ -462,21 +465,26 @@ export const RaceCard = memo(function RaceCard({ raceId }: { raceId: string }) {
               {continueWith ? (
                 <TeamCardButton
                   data-race-continue
-                  onClick={() =>
-                    void teamWorkspace()?.send(
-                      continueWith.sessionId,
-                      (blocks) => ({
-                        text: raceContinueMessage(
-                          race,
-                          race.outcome?.files ?? 0,
-                          finalReply(blocks),
-                        ),
-                        shown: "Carry on from the race: your version was kept.",
-                      }),
-                    )
+                  disabled={!!race.continuedAt || continuing}
+                  title={
+                    race.continuedAt
+                      ? `${continueWith.label} has its recap`
+                      : "Send this agent a short recap, to carry on in the project"
                   }
+                  onClick={() => {
+                    setContinuing(true);
+                    setContinueError(null);
+                    void continueRace(race.id, teamWorkspace()?.send).then(
+                      (error) => {
+                        setContinuing(false);
+                        setContinueError(error);
+                      },
+                    );
+                  }}
                 >
-                  Continue with {continueWith.label}
+                  {race.continuedAt
+                    ? `Continued with ${continueWith.label}`
+                    : `Continue with ${continueWith.label}`}
                 </TeamCardButton>
               ) : null}
             </>

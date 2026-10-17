@@ -171,3 +171,23 @@ it("keeps one of the two, from its own copy, and removes both", async () => {
     "Kept Claude Code · Claude Sonnet 5's version · 1 file",
   );
 });
+
+it("keeps only the picked files a lane still changes, and remembers them", async () => {
+  const race = await startRace();
+  const stop = installRaceWorkspace({
+    stop: vi.fn(),
+    settle: vi.fn(async () => {}),
+    release: vi.fn(async () => {}),
+    openChat: vi.fn(),
+    compare: vi.fn(),
+    retry: vi.fn(),
+  });
+  // Picked earlier: Opus's later reverted "old.ts" is no longer changed.
+  await finishRace(race, {
+    files: { "opus.ts": 0, "old.ts": 0, "sonnet.ts": 1 },
+  });
+  stop();
+  const kept = getRace("r1")!;
+  expect(kept.outcome).toEqual({ kind: "mix", files: 2 });
+  expect(kept.picks).toEqual({ "opus.ts": 0, "sonnet.ts": 1 });
+});

@@ -9,6 +9,7 @@ import { getRace, saveRace, type RaceRecord } from "./race";
 import type { Block } from "./session";
 import {
   continueLane,
+  continueRace,
   finalReply,
   leadVerdict,
   parseRaceJudge,
@@ -201,10 +202,56 @@ describe("continuing after a race", () => {
   });
 
   it("recaps the lane's work, since its provider session was reset", () => {
-    const message = raceContinueMessage(race(), 7, "Fixed the loop.");
+    const message = raceContinueMessage(
+      race({ state: "kept", outcome: { kind: "lane", lane: 1, files: 7 } }),
+      1,
+      "Fixed the loop.",
+    );
     expect(message).toContain("Fix the login loop");
-    expect(message).toContain("7 files are now in the project at /work/site");
+    expect(message).toContain(
+      "Your version was kept: 7 files are now in the project at /work/site",
+    );
     expect(message).toContain("Your final reply then was:\n\nFixed the loop.");
+  });
+
+  it("tells an agent which kept files of a mix are its own", () => {
+    const message = raceContinueMessage(
+      race({
+        state: "kept",
+        outcome: { kind: "mix", files: 3 },
+        picks: { "a.ts": 0, "b.ts": 1, "c.ts": 1 },
+      }),
+      1,
+      "",
+    );
+    expect(message).toContain(
+      "Part of your version was kept: 2 files of yours (b.ts, c.ts), together with 1 file from the other agents' versions (a.ts), which you did not write. They are now in the project at /work/site",
+    );
+    expect(message).not.toContain("Your version was kept");
+  });
+
+  it("sends Continue with once, and says when the chat can't be opened", async () => {
+    saveRace(
+      race({ state: "kept", outcome: { kind: "lane", lane: 0, files: 2 } }),
+    );
+    expect(await continueRace("r1", async () => false)).toBe(
+      "Couldn't open Claude Code · Opus's chat to continue.",
+    );
+    expect(getRace("r1")?.continuedAt).toBeUndefined();
+    let release!: (sent: boolean) => void;
+    const send = vi.fn(
+      () => new Promise<boolean>((resolve) => (release = resolve)),
+    );
+    const first = continueRace("r1", send);
+    // A second press while it sends does nothing.
+    expect(await continueRace("r1", send)).toBeNull();
+    release(true);
+    expect(await first).toBeNull();
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(getRace("r1")?.continuedAt).toEqual(expect.any(Number));
+    // Nor once it was sent.
+    expect(await continueRace("r1", send)).toBeNull();
+    expect(send).toHaveBeenCalledTimes(1);
   });
 
   it("reads a chat's last reply and its opening lines", () => {
