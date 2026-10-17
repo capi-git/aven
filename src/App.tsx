@@ -554,6 +554,7 @@ import {
 } from "./lib/teamRuns";
 import { sidebarTeams } from "./lib/teamGrouping";
 import { currentWindowLabel } from "./lib/windowLabel";
+import { popOutShownChats } from "./lib/teamWatch";
 import {
   focusedTeamPopOut,
   subscribeFocusedTeamPopOut,
@@ -2986,13 +2987,7 @@ export default function App({
       ? teams.find((team) => team.id === focusedPopOut)
       : undefined;
   popOutChatsRef.current = useMemo(
-    () =>
-      focusedPopOutTeam
-        ? [
-            focusedPopOutTeam.origin.sessionId,
-            ...focusedPopOutTeam.members.map((member) => member.sessionId),
-          ]
-        : [],
+    () => (focusedPopOutTeam ? popOutShownChats(focusedPopOutTeam) : []),
     [focusedPopOutTeam],
   );
   const keptDiscussionKey = useMemo(
@@ -8510,6 +8505,7 @@ export default function App({
   const detached = useDetachedWorkspaces({
     sessions,
     sessionProps: sessionPaneProps,
+    leadDecided,
     onUpdatePlan,
     onNewSession: async (_windowId, cwd) => {
       const session = newDefaultSession(cwd);

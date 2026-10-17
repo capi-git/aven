@@ -61,6 +61,7 @@ describe("detached workspace transactions", () => {
   const onError = vi.fn();
   const checkpointed = vi.fn();
   const pageCleanups: Array<() => void> = [];
+  let leadDecided = new Set<string>();
   const retainedIds = [
     "native-live-group",
     "native-explicit-group",
@@ -70,6 +71,7 @@ describe("detached workspace transactions", () => {
     api = useDetachedWorkspaces({
       sessions,
       sessionProps: { recents, onSubmit: () => {} },
+      leadDecided,
       onReturned: (state) => returned(state),
       onCheckpoint: checkpointed,
       onError,
@@ -1078,6 +1080,25 @@ describe("detached workspace transactions", () => {
     expect(update.sessions.map((item) => item.session.id)).toEqual(["a"]);
     expect(update.sessions[0].session.title).toBe("streamed reply");
     expect(update).not.toHaveProperty("theme");
+  });
+
+  it("tells a detached window which workers' requests their lead decides", async () => {
+    leadDecided = new Set(["a"]);
+    await render();
+    await act(async () => {
+      await api.open(state("a"));
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(110));
+    vi.mocked(nativeWorkspaceWindow.update).mockClear();
+    // The run ends: the worker's requests are yours, though it is unchanged.
+    leadDecided = new Set();
+    sessions = [...sessions];
+    await render();
+    await act(async () => vi.advanceTimersByTimeAsync(110));
+    const [, update] = vi.mocked(nativeWorkspaceWindow.update).mock.calls[0];
+    expect(update.sessions.map((item) => item.session.id)).toEqual(["a"]);
+    expect(update.sessions[0].leadDecides).toBeUndefined();
+    leadDecided = new Set();
   });
 
   it("allows one update in flight per child and coalesces to the latest state", async () => {

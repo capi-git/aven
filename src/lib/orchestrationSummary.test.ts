@@ -7,8 +7,10 @@ import {
   orchestrationStatusWord,
   orchestrationTaskLabel,
   sidebarRuns,
+  summarizeOrchestration,
   type OrchestrationSummary,
 } from "./orchestrationSummary";
+import { newSession, type Session } from "./session";
 
 type Task = OrchestrationSummary["tasks"][number];
 const task = (status: Task["status"], patch: Partial<Task> = {}): Task => ({
@@ -31,6 +33,34 @@ describe("orchestration labels", () => {
     expect(orchestrationTaskLabel(blocked, summary("active", [blocked]))).toBe(
       "Lead deciding",
     );
+  });
+
+  it("says a worker needs you once its lead left the request to you", () => {
+    const worker = {
+      ...newSession("codex", "/repo"),
+      id: "w1",
+      pendingQuestion: { requestId: 3 },
+    } as unknown as Session;
+    const run = {
+      status: "active",
+      tasks: [
+        {
+          sessionId: "w1",
+          title: "Task",
+          harness: "codex",
+          model: "m",
+          status: "running",
+          escalated: "question:3",
+        },
+      ],
+    } as unknown as OrchestrationRun;
+    const handed = summarizeOrchestration(run, [worker]);
+    expect(orchestrationTaskLabel(handed.tasks[0], handed)).toBe("Needs you");
+    // A newer request is the lead's again.
+    const next = summarizeOrchestration(run, [
+      { ...worker, pendingQuestion: { requestId: 4 } } as unknown as Session,
+    ]);
+    expect(orchestrationTaskLabel(next.tasks[0], next)).toBe("Lead deciding");
   });
 
   it("names work cut short in an earlier session instead of “Saved”", () => {

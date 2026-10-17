@@ -838,8 +838,8 @@ export function DetachedWorkspace() {
     envelope?.state.sessions,
     report,
   ]);
-  // This window's own runs: a worker's request is its lead's only while a
-  // run this window knows is open.
+  // A worker's request is its lead's only while its run is open: as the
+  // window holding the run says, or a run this window holds itself.
   const runs = useSyncExternalStore(
     orchestrator.subscribe,
     orchestrator.snapshot,
@@ -856,6 +856,8 @@ export function DetachedWorkspace() {
     runs,
     (id) => state.sessions.find((entry) => entry.session.id === id)?.session,
   );
+  for (const entry of state.sessions)
+    if (entry.leadDecides) leadDecided.add(entry.session.id);
   const updateTab = (id: string, fn: (tab: WorkspaceTab) => WorkspaceTab) =>
     change((s) => ({
       ...s,

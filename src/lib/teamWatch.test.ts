@@ -3,6 +3,7 @@ import { defaultRect } from "./discussionPanel";
 import type { DiscussionThreadItem } from "./discussionThread";
 import type { TeamMember, TeamRun } from "./teamRuns";
 import {
+  popOutShownChats,
   closeInPanel,
   EMPTY_TEAM_PANEL,
   loadTeamPanel,
@@ -184,6 +185,20 @@ describe("the team panel's state", () => {
       seen: { "discuss:d2": 3 },
       popped: [],
     });
+  });
+});
+
+describe("a focused pop-out", () => {
+  it("counts as seen only the open team's members it shows", () => {
+    const race = {
+      status: "running" as const,
+      origin: { sessionId: "chat" },
+      members: [{ sessionId: "l0" }, { sessionId: "l1" }],
+    } as unknown as TeamRun;
+    // Not the chat the race was sent from, which it doesn't show.
+    expect(popOutShownChats(race)).toEqual(["l0", "l1"]);
+    // A finished team's members are ordinary chats again.
+    expect(popOutShownChats({ ...race, status: "finished" })).toEqual([]);
   });
 });
 

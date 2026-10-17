@@ -308,6 +308,8 @@ export function mergeDetachedWorkspaces(
 type Options = {
   sessions: Session[];
   sessionProps: Partial<SessionPaneProps>;
+  /** Workers whose requests their lead decides (see `leadDecidedIds`). */
+  leadDecided?: ReadonlySet<string>;
   onReturned: (state: DetachedWorkspaceState) => void | Promise<void>;
   onCheckpoint?: (state: DetachedWorkspaceState) => void;
   onError?: (error: string) => void;
@@ -399,6 +401,9 @@ export function useDetachedWorkspaces(options: Options) {
               draft: readComposerDraft(session.id),
               catalog: allModels(),
               catalogVersion: getModelSnapshot(),
+              ...(latest.current.leadDecided?.has(session.id)
+                ? { leadDecides: true }
+                : {}),
               actions: SESSION_PIP_CALLBACKS.filter(
                 (name) =>
                   typeof latest.current.sessionProps[name] === "function",
@@ -676,6 +681,10 @@ export function useDetachedWorkspaces(options: Options) {
             SESSION_PIP_CALLBACKS.filter(
               (name) => typeof latest.current.sessionProps[name] === "function",
             ),
+            // A run ending hands its workers' requests to you.
+            sessions
+              .filter((session) => latest.current.leadDecided?.has(session.id))
+              .map((session) => session.id),
           ]);
           const transferToken = entry.state.transferToken;
           const previous = sent.current.get(entry.id);

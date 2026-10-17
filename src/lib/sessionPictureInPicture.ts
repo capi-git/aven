@@ -52,6 +52,11 @@ export type SessionPictureInPictureState = {
   catalog?: AgentModel[];
   catalogVersion?: number;
   nativeCommands?: NativeCommand[];
+  /**
+   * An orchestration worker whose requests its lead decides, as the window
+   * holding its run knows; a detached window holds no runs of its own.
+   */
+  leadDecides?: boolean;
 };
 export type SessionPipAction = { id: string; action: string; args: unknown[] };
 

@@ -751,8 +751,12 @@ export function suggestionRunning(
 /** The window this code runs in: it alone finishes what it asks. */
 const thisWindow = currentWindowLabel;
 
-/** Suggestions this page asked for and still waits on, by race. */
+/**
+ * Suggestions this page asked for and still waits on, by race and when
+ * asked: an earlier one, overtaken after a Retry, never counts for a newer.
+ */
 const asking = new Set<string>();
+const askingKey = (raceId: string, since: number) => `${raceId}:${since}`;
 
 /**
  * Ask for a race's winner once at a time and keep the answer with the race,
@@ -780,7 +784,7 @@ export async function requestRaceSuggestion(
   )
     return;
   const since = Date.now();
-  asking.add(raceId);
+  asking.add(askingKey(raceId, since));
   updateRace(raceId, {
     suggestion: { status: "running", since, window: thisWindow() },
   });
@@ -801,7 +805,7 @@ export async function requestRaceSuggestion(
     if (current?.status === "running" && current.since === since)
       updateRace(raceId, { suggestion });
   } finally {
-    asking.delete(raceId);
+    asking.delete(askingKey(raceId, since));
   }
 }
 
@@ -829,7 +833,9 @@ export function watchRaceSuggestions(
       for (const race of listRaces()) {
         const suggestion = race.suggestion;
         if (suggestion?.status !== "running") continue;
-        const lost = suggestion.window === window && !asking.has(race.id);
+        const lost =
+          suggestion.window === window &&
+          !asking.has(askingKey(race.id, suggestion.since));
         const due = suggestion.since + SUGGESTION_STALE_MS;
         if (lost || due <= now)
           updateRace(race.id, { suggestion: { status: "failed", at: now } });

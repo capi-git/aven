@@ -5,7 +5,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null) }));
 
 import type { WrapUpDeps } from "./discussionWrapUp";
 import { filesTouched, type OrchestrationTask } from "./orchestration";
-import { getRace, saveRace, type RaceRecord } from "./race";
+import { getRace, saveRace, updateRace, type RaceRecord } from "./race";
 import type { Block } from "./session";
 import {
   continueLane,
@@ -462,6 +462,53 @@ describe("a suggested winner", () => {
     await requestRaceSuggestion("r1", () => undefined, [], judge);
     expect(judge.calls).toEqual([]);
     expect(getRace("r1")?.suggestion).toBeUndefined();
+  });
+
+  it("keeps a newer suggestion when an earlier one, overtaken, ends", async () => {
+    let clock = 100_000;
+    const now = vi.spyOn(Date, "now").mockImplementation(() => clock);
+    saveRace(race());
+    const answers: ((reply: string) => void)[] = [];
+    const slow: WrapUpDeps = {
+      model: async () => model,
+      generate: () =>
+        new Promise<string>((resolve) => void answers.push(resolve)),
+    };
+    const none = async () => [];
+    const chat = () => ({
+      blocks: [
+        { id: "u", role: "user" as const, text: "Go" },
+        { id: "a", role: "assistant" as const, text: "Fixed it." },
+      ],
+    });
+    let listener = () => {};
+    const stop = watchRaceSuggestions((next) => {
+      listener = next;
+      return () => {};
+    });
+    const first = requestRaceSuggestion("r1", chat, [], slow, none);
+    await vi.waitFor(() => expect(answers).toHaveLength(1));
+    // A Retry clears it, and you ask again.
+    updateRace("r1", { suggestion: undefined });
+    clock = 101_000;
+    const second = requestRaceSuggestion("r1", chat, [], slow, none);
+    await vi.waitFor(() => expect(answers).toHaveLength(2));
+    answers[0]("Winner: 1\nWhy: Old.");
+    await first;
+    listener();
+    // The newer one is still on its way, not failed by the older's end.
+    expect(getRace("r1")?.suggestion).toMatchObject({
+      status: "running",
+      since: 101_000,
+    });
+    answers[1]("Winner: 2\nWhy: Newer.");
+    await second;
+    expect(getRace("r1")?.suggestion).toMatchObject({
+      status: "done",
+      lane: 1,
+    });
+    stop();
+    now.mockRestore();
   });
 
   it("ends one this window asked before a reload, and any once stale", () => {

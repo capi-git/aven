@@ -331,6 +331,18 @@ export function teamPills(
   return pills;
 }
 
+/**
+ * The chats a team's pop-out shows, which count as seen while it has focus:
+ * its members, while the team is open. Not the chat a race was sent from,
+ * which it doesn't show, nor a finished team's members, which are ordinary
+ * chats again.
+ */
+export function popOutShownChats(
+  team: Pick<TeamRun, "status" | "members">,
+): string[] {
+  return teamIsOpen(team) ? team.members.map((member) => member.sessionId) : [];
+}
+
 // --- What a pill and the header say -------------------------------------------
 
 export type TeamTone = "live" | "needs-you" | "ready" | "done" | "stopped";

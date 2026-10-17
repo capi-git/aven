@@ -1,5 +1,6 @@
 import type { OrchestrationRun, TaskStatus } from "./orchestration";
 import { sessionNeedsInput, type HarnessId, type Session } from "./session";
+import { pendingRequestKey } from "./teamAttention";
 
 /** Small history projection; never includes prompts, results or credentials. */
 export type OrchestrationSummary = {
@@ -13,6 +14,8 @@ export type OrchestrationSummary = {
     status: TaskStatus;
     /** Blocked on an approval or a question that the lead answers. */
     needsInput?: boolean;
+    /** The lead left that request unanswered, so it was handed to you. */
+    handedToYou?: boolean;
   }[];
 };
 
@@ -24,15 +27,26 @@ export function summarizeOrchestration(
   return {
     status: run.status,
     live: true,
-    tasks: run.tasks.map(({ sessionId, title, harness, model, status }) => ({
-      sessionId,
-      title,
-      harness,
-      model,
-      status,
-      needsInput:
-        !!byId.get(sessionId) && sessionNeedsInput(byId.get(sessionId)!),
-    })),
+    tasks: run.tasks.map(
+      ({ sessionId, title, harness, model, status, escalated }) => {
+        const session = byId.get(sessionId);
+        const needsInput = !!session && sessionNeedsInput(session);
+        return {
+          sessionId,
+          title,
+          harness,
+          model,
+          status,
+          needsInput,
+          ...(needsInput &&
+          escalated &&
+          session &&
+          pendingRequestKey(session) === escalated
+            ? { handedToYou: true }
+            : {}),
+        };
+      },
+    ),
   };
 }
 
@@ -52,8 +66,10 @@ export function orchestrationTaskLabel(
   task: OrchestrationSummary["tasks"][number],
   summary: OrchestrationSummary,
 ): string {
-  // An agent's approval or question is the lead's to answer, not yours.
-  if (task.needsInput && summary.status === "active") return "Lead deciding";
+  // An agent's approval or question is the lead's to answer, not yours,
+  // until the lead leaves it and it is handed to you.
+  if (task.needsInput && summary.status === "active")
+    return task.handedToYou ? "Needs you" : "Lead deciding";
   // Read back from an earlier session: whatever was going on was cut short.
   if (
     !summary.live &&
